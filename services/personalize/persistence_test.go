@@ -132,7 +132,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
 				_, err := b.CreateSolution("sol-1", "arn:aws:personalize:us-west-2:111122223333:dataset-group/dg-1",
-					"arn:aws:personalize:::recipe/aws-user-personalization", true, false, nil)
+					"arn:aws:personalize:::recipe/aws-user-personalization", true, false, true, false, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
@@ -298,9 +298,13 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 			name: "metricAttributions",
 			seed: func(t *testing.T, b *personalize.InMemoryBackend) {
 				t.Helper()
+				metrics := []personalize.MetricAttribute{
+					{EventType: "click", Expression: "SUM(Items.PRICE)", MetricName: "m1"},
+				}
 				_, err := b.CreateMetricAttribution(
 					"ma-1",
 					"arn:aws:personalize:us-west-2:111122223333:dataset-group/dg-1",
+					metrics,
 					map[string]any{"s3DataDestination": map[string]any{"path": "s3://bucket/metrics"}},
 					nil,
 				)

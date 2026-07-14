@@ -286,16 +286,46 @@ func TestParity_OpenCounts_LambdaFunctions(t *testing.T) {
 	assert.True(t, hasLambda, "openCounts must include openLambdaFunctions")
 }
 
-// TestParity_DeleteOps_NotSupported verifies DeleteWorkflowType and DeleteActivityType are not supported.
-func TestParity_DeleteOps_NotSupported(t *testing.T) {
+// TestParity_DeleteOps_RequireDeprecatedFirst verifies DeleteWorkflowType and
+// DeleteActivityType reject deleting a type that hasn't been deprecated yet
+// (real AWS: "Prior to deletion, [workflow/activity] types must first be
+// deprecated"), succeed once deprecated, and 404 on an unknown type.
+func TestParity_DeleteOps_RequireDeprecatedFirst(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		action string
+		register   func(h *swf.Handler)
+		deprecate  func(h *swf.Handler)
+		name       string
+		action     string
+		typeRefKey string
 	}{
-		{name: "DeleteWorkflowType", action: "DeleteWorkflowType"},
-		{name: "DeleteActivityType", action: "DeleteActivityType"},
+		{
+			name:   "DeleteWorkflowType",
+			action: "DeleteWorkflowType",
+			register: func(h *swf.Handler) {
+				doSWFRequest(t, h, "RegisterWorkflowType",
+					map[string]any{"domain": "d1", "name": "wf1", "version": "1.0"})
+			},
+			deprecate: func(h *swf.Handler) {
+				doSWFRequest(t, h, "DeprecateWorkflowType",
+					map[string]any{"domain": "d1", "workflowType": map[string]any{"name": "wf1", "version": "1.0"}})
+			},
+			typeRefKey: "workflowType",
+		},
+		{
+			name:   "DeleteActivityType",
+			action: "DeleteActivityType",
+			register: func(h *swf.Handler) {
+				doSWFRequest(t, h, "RegisterActivityType",
+					map[string]any{"domain": "d1", "name": "act1", "version": "1.0"})
+			},
+			deprecate: func(h *swf.Handler) {
+				doSWFRequest(t, h, "DeprecateActivityType",
+					map[string]any{"domain": "d1", "activityType": map[string]any{"name": "act1", "version": "1.0"}})
+			},
+			typeRefKey: "activityType",
+		},
 	}
 
 	for _, tt := range tests {
@@ -303,8 +333,33 @@ func TestParity_DeleteOps_NotSupported(t *testing.T) {
 			t.Parallel()
 
 			h := newTestSWFHandler(t)
-			rec := doSWFRequest(t, h, tt.action, map[string]any{"domain": "d1"})
-			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": "d1"})
+			tt.register(h)
+
+			typeName := "wf1"
+			if tt.typeRefKey == "activityType" {
+				typeName = "act1"
+			}
+			body := map[string]any{
+				"domain":      "d1",
+				tt.typeRefKey: map[string]any{"name": typeName, "version": "1.0"},
+			}
+
+			// Not yet deprecated -> TypeNotDeprecatedFault.
+			rec := doSWFRequest(t, h, tt.action, body)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			var errResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, "TypeNotDeprecatedFault", errResp["__type"])
+
+			// Deprecate, then delete should succeed.
+			tt.deprecate(h)
+			rec = doSWFRequest(t, h, tt.action, body)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			// Unknown type -> UnknownResourceFault.
+			rec = doSWFRequest(t, h, tt.action, body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
 		})
 	}
 }

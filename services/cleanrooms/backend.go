@@ -23,12 +23,22 @@ var (
 	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	ErrValidation    = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrConflict indicates a resource state conflict, e.g. attempting to cancel a
+	// protected query/job that has already reached a terminal status. Maps to the
+	// same wire error (ConflictException/409) as ErrAlreadyExists but is kept
+	// distinct so callers/tests can express "wrong state" independently of
+	// "duplicate resource".
+	ErrConflict = awserr.New("ConflictException", awserr.ErrConflict)
 )
 
 const (
 	statusActive    = "ACTIVE"
 	errCodeNotFound = "ResourceNotFoundException"
 	errMsgNotFound  = "not found"
+
+	protectedQueryStatusSuccess = "SUCCESS"
+	protectedJobStatusSuccess   = "SUCCESS"
+	mockDurationMillis          = 100
 )
 
 // ---- types ----
@@ -1852,6 +1862,13 @@ func (b *InMemoryBackend) StartProtectedQuery(
 		ID:                   id,
 		MembershipIdentifier: membershipID,
 		MembershipArn:        mem.Arn,
+		// AWS's StartProtectedQuery response is synchronous and always reports
+		// SUBMITTED for a brand-new query; the real service advances it to
+		// STARTED/SUCCESS/FAILED asynchronously. There is no real multi-party
+		// compute engine behind this emulator, so advanceProtectedQueriesLocked
+		// (called from every subsequent read) resolves it to a terminal status
+		// instead of leaving it stuck at SUBMITTED forever, which would hang any
+		// client that polls GetProtectedQuery for completion.
 		Status:               "SUBMITTED",
 		SQLParameters:        sqlParams,
 		ResultConfiguration:  resultConfig,
@@ -1864,9 +1881,24 @@ func (b *InMemoryBackend) StartProtectedQuery(
 	return q, nil
 }
 
+// advanceProtectedQueriesLocked resolves every non-terminal protected query to
+// SUCCESS. Called from read paths so GetProtectedQuery/ListProtectedQueries
+// always observe forward progress. Callers must hold b.mu (write lock).
+func (b *InMemoryBackend) advanceProtectedQueriesLocked() {
+	b.protectedQueries.Range(func(q *ProtectedQuery) bool {
+		if !isTerminalProtectedQueryStatus(q.Status) {
+			q.Status = protectedQueryStatusSuccess
+			q.Statistics = map[string]any{"totalDurationInMillis": mockDurationMillis}
+		}
+
+		return true
+	})
+}
+
 func (b *InMemoryBackend) GetProtectedQuery(membershipID, queryID string) (*ProtectedQuery, error) {
-	b.mu.RLock("GetProtectedQuery")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetProtectedQuery")
+	defer b.mu.Unlock()
+	b.advanceProtectedQueriesLocked()
 	q, ok := b.protectedQueries.Get(membershipKey(membershipID, queryID))
 	if !ok {
 		return nil, ErrNotFound
@@ -1878,8 +1910,9 @@ func (b *InMemoryBackend) GetProtectedQuery(membershipID, queryID string) (*Prot
 func (b *InMemoryBackend) ListProtectedQueries(
 	membershipID, status, maxResults, nextToken string,
 ) ([]*ProtectedQuerySummary, string, error) {
-	b.mu.RLock("ListProtectedQueries")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListProtectedQueries")
+	defer b.mu.Unlock()
+	b.advanceProtectedQueriesLocked()
 	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
@@ -1904,7 +1937,7 @@ func (b *InMemoryBackend) ListProtectedQueries(
 }
 
 func (b *InMemoryBackend) UpdateProtectedQuery(
-	membershipID, queryID, status string,
+	membershipID, queryID, targetStatus string,
 ) (*ProtectedQuery, error) {
 	b.mu.Lock("UpdateProtectedQuery")
 	defer b.mu.Unlock()
@@ -1912,9 +1945,26 @@ func (b *InMemoryBackend) UpdateProtectedQuery(
 	if !ok {
 		return nil, ErrNotFound
 	}
-	q.Status = status
+	// UpdateProtectedQuery's only valid TargetStatus is CANCELLED, and AWS
+	// rejects cancelling a query that has already reached a terminal status
+	// with ConflictException.
+	if isTerminalProtectedQueryStatus(q.Status) {
+		return nil, ErrConflict
+	}
+	q.Status = targetStatus
 
 	return q, nil
+}
+
+// isTerminalProtectedQueryStatus reports whether a ProtectedQueryStatus value
+// is terminal (no further transitions permitted).
+func isTerminalProtectedQueryStatus(status string) bool {
+	switch status {
+	case "SUCCESS", "FAILED", "CANCELLED", "TIMED_OUT":
+		return true
+	default:
+		return false
+	}
 }
 
 // ---- ProtectedJob ----
@@ -1935,21 +1985,40 @@ func (b *InMemoryBackend) StartProtectedJob(
 		ID:                   id,
 		MembershipIdentifier: membershipID,
 		MembershipArn:        mem.Arn,
-		Status:               "SUBMITTED",
-		Type:                 jobType,
-		JobParameters:        jobParameters,
-		ResultConfiguration:  resultConfig,
-		CreateTime:           b.now(),
-		MembershipID:         membershipID,
+		// See StartProtectedQuery: the Start response reports the AWS-accurate
+		// SUBMITTED status; advanceProtectedJobsLocked (called from every
+		// subsequent read) resolves it to a terminal status instead of leaving
+		// it stuck at SUBMITTED forever.
+		Status:              "SUBMITTED",
+		Type:                jobType,
+		JobParameters:       jobParameters,
+		ResultConfiguration: resultConfig,
+		CreateTime:          b.now(),
+		MembershipID:        membershipID,
 	}
 	b.protectedJobs.Put(j)
 
 	return j, nil
 }
 
+// advanceProtectedJobsLocked resolves every non-terminal protected job to
+// SUCCESS. Called from read paths so GetProtectedJob/ListProtectedJobs always
+// observe forward progress. Callers must hold b.mu (write lock).
+func (b *InMemoryBackend) advanceProtectedJobsLocked() {
+	b.protectedJobs.Range(func(j *ProtectedJob) bool {
+		if !isTerminalProtectedJobStatus(j.Status) {
+			j.Status = protectedJobStatusSuccess
+			j.Statistics = map[string]any{"totalDurationInMillis": mockDurationMillis}
+		}
+
+		return true
+	})
+}
+
 func (b *InMemoryBackend) GetProtectedJob(membershipID, jobID string) (*ProtectedJob, error) {
-	b.mu.RLock("GetProtectedJob")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetProtectedJob")
+	defer b.mu.Unlock()
+	b.advanceProtectedJobsLocked()
 	j, ok := b.protectedJobs.Get(membershipKey(membershipID, jobID))
 	if !ok {
 		return nil, ErrNotFound
@@ -1961,8 +2030,9 @@ func (b *InMemoryBackend) GetProtectedJob(membershipID, jobID string) (*Protecte
 func (b *InMemoryBackend) ListProtectedJobs(
 	membershipID, status, maxResults, nextToken string,
 ) ([]*ProtectedJobSummary, string, error) {
-	b.mu.RLock("ListProtectedJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListProtectedJobs")
+	defer b.mu.Unlock()
+	b.advanceProtectedJobsLocked()
 	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
@@ -1988,7 +2058,7 @@ func (b *InMemoryBackend) ListProtectedJobs(
 }
 
 func (b *InMemoryBackend) UpdateProtectedJob(
-	membershipID, jobID, status string,
+	membershipID, jobID, targetStatus string,
 ) (*ProtectedJob, error) {
 	b.mu.Lock("UpdateProtectedJob")
 	defer b.mu.Unlock()
@@ -1996,9 +2066,26 @@ func (b *InMemoryBackend) UpdateProtectedJob(
 	if !ok {
 		return nil, ErrNotFound
 	}
-	j.Status = status
+	// UpdateProtectedJob's only valid TargetStatus is CANCELLED, and AWS
+	// rejects cancelling a job that has already reached a terminal status
+	// with ConflictException.
+	if isTerminalProtectedJobStatus(j.Status) {
+		return nil, ErrConflict
+	}
+	j.Status = targetStatus
 
 	return j, nil
+}
+
+// isTerminalProtectedJobStatus reports whether a ProtectedJobStatus value is
+// terminal (no further transitions permitted).
+func isTerminalProtectedJobStatus(status string) bool {
+	switch status {
+	case "SUCCESS", "FAILED", "CANCELLED":
+		return true
+	default:
+		return false
+	}
 }
 
 // ---- PrivacyBudgetTemplate ----
@@ -2726,11 +2813,66 @@ func (b *InMemoryBackend) UpdateCollaborationChangeRequest(
 
 // ---- Tags ----
 
+// resourceARNExists reports whether resourceArn identifies a live resource in
+// any taggable collection. TagResource/UntagResource/ListTagsForResource all
+// document ResourceNotFoundException for an unknown ARN (see AWS API model),
+// but tagsByArn only gains an entry once a resource is actually tagged, so an
+// existing-but-never-tagged resource must not be confused with a resource
+// that was never created. Callers must hold b.mu (read or write).
+func (b *InMemoryBackend) resourceARNExists(resourceArn string) bool {
+	found := false
+	stop := func(match bool) bool {
+		if match {
+			found = true
+		}
+
+		return !match
+	}
+	b.collaborations.Range(func(v *Collaboration) bool { return stop(v.Arn == resourceArn) })
+	if found {
+		return true
+	}
+	b.memberships.Range(func(v *Membership) bool { return stop(v.Arn == resourceArn) })
+	if found {
+		return true
+	}
+	b.configuredTables.Range(func(v *ConfiguredTable) bool { return stop(v.Arn == resourceArn) })
+	if found {
+		return true
+	}
+	b.ctAssociations.Range(func(v *ConfiguredTableAssociation) bool { return stop(v.Arn == resourceArn) })
+	if found {
+		return true
+	}
+	b.analysisTemplates.Range(func(v *AnalysisTemplate) bool { return stop(v.Arn == resourceArn) })
+	if found {
+		return true
+	}
+	b.privacyBudgetTemplates.Range(func(v *PrivacyBudgetTemplate) bool { return stop(v.Arn == resourceArn) })
+	if found {
+		return true
+	}
+	b.idMappingTables.Range(func(v *IDMappingTable) bool { return stop(v.Arn == resourceArn) })
+	if found {
+		return true
+	}
+	b.idNamespaceAssociations.Range(func(v *IDNamespaceAssociation) bool { return stop(v.Arn == resourceArn) })
+	if found {
+		return true
+	}
+	b.camaAssociations.Range(func(v *ConfiguredAudienceModelAssociation) bool { return stop(v.Arn == resourceArn) })
+
+	return found
+}
+
 func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 	if tags, ok := b.tagsByArn[resourceArn]; ok {
 		return maps.Clone(tags), nil
+	}
+	if !b.resourceARNExists(resourceArn) {
+		return nil, ErrNotFound
 	}
 
 	return map[string]string{}, nil
@@ -2739,6 +2881,9 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
+	if !b.resourceARNExists(resourceArn) {
+		return ErrNotFound
+	}
 	if b.tagsByArn[resourceArn] == nil {
 		b.tagsByArn[resourceArn] = make(map[string]string)
 	}
@@ -2750,6 +2895,9 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
+	if !b.resourceARNExists(resourceArn) {
+		return ErrNotFound
+	}
 	tags := b.tagsByArn[resourceArn]
 	for _, k := range tagKeys {
 		delete(tags, k)

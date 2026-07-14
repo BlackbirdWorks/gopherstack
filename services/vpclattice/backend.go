@@ -329,11 +329,13 @@ func (r *storedRule) toRule() *Rule {
 
 func (r *storedRule) toSummary() *RuleSummary {
 	return &RuleSummary{
-		ARN:       r.ARN,
-		ID:        r.ID,
-		Name:      r.Name,
-		Priority:  r.Priority,
-		IsDefault: r.IsDefault,
+		ARN:           r.ARN,
+		ID:            r.ID,
+		Name:          r.Name,
+		Priority:      r.Priority,
+		IsDefault:     r.IsDefault,
+		CreatedAt:     r.CreatedAt,
+		LastUpdatedAt: r.LastUpdatedAt,
 	}
 }
 
@@ -371,13 +373,14 @@ func (tg *storedTargetGroup) toTargetGroup() *TargetGroup {
 
 func (tg *storedTargetGroup) toSummary() *TargetGroupSummary {
 	s := &TargetGroupSummary{
-		ARN:         tg.ARN,
-		ID:          tg.ID,
-		Name:        tg.Name,
-		Type:        tg.Type,
-		Status:      tg.Status,
-		CreatedAt:   tg.CreatedAt,
-		ServiceARNs: make([]string, len(tg.ServiceARNs)),
+		ARN:           tg.ARN,
+		ID:            tg.ID,
+		Name:          tg.Name,
+		Type:          tg.Type,
+		Status:        tg.Status,
+		CreatedAt:     tg.CreatedAt,
+		LastUpdatedAt: tg.LastUpdatedAt,
+		ServiceARNs:   make([]string, len(tg.ServiceARNs)),
 	}
 	copy(s.ServiceARNs, tg.ServiceARNs)
 
@@ -385,6 +388,8 @@ func (tg *storedTargetGroup) toSummary() *TargetGroupSummary {
 		s.Port = tg.Config.Port
 		s.Protocol = tg.Config.Protocol
 		s.VpcID = tg.Config.VpcID
+		s.IPAddressType = tg.Config.IPAddressType
+		s.LambdaEventStructureVersion = tg.Config.LambdaEventStructureVersion
 	}
 
 	return s

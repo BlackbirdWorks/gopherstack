@@ -16,9 +16,18 @@ import (
 )
 
 const (
-	invalidRequestType   = "InvalidRequestException"
-	resourceNotFoundType = "InvalidParameterException"
-	conflictType         = "ServiceQuotaExceededException"
+	// invalidRequestType, resourceNotFoundType, invalidStateType, and
+	// internalServiceErrorType are the exact exception names the real App
+	// Runner API returns (see aws-sdk-go-v2/service/apprunner/types/errors.go
+	// -- App Runner has exactly five exception types and no
+	// "InvalidParameterException" or bare "InternalServiceError"; those
+	// names don't exist in the model and would deserialize as a generic,
+	// untyped smithy API error on the client instead of the typed exception
+	// struct callers match with errors.As).
+	invalidRequestType       = "InvalidRequestException"
+	resourceNotFoundType     = "ResourceNotFoundException"
+	invalidStateType         = "InvalidStateException"
+	internalServiceErrorType = "InternalServiceErrorException"
 
 	statusRunning = "RUNNING"
 	statusPaused  = "PAUSED"
@@ -67,12 +76,18 @@ const (
 var (
 	// ErrNotFound is returned when a resource does not exist.
 	ErrNotFound = awserr.New(resourceNotFoundType, awserr.ErrNotFound)
-	// ErrAlreadyExists is returned when a service name is already in use.
-	ErrAlreadyExists = awserr.New(conflictType, awserr.ErrAlreadyExists)
+	// ErrAlreadyExists is returned when a service/connection/vpc-ingress-connection
+	// name (or custom domain) is already in use. App Runner has no dedicated
+	// "already exists" exception; unlike ResourceNotFoundException,
+	// ServiceQuotaExceededException is only in the documented error set for
+	// some Create* operations and not others (e.g. AssociateCustomDomain
+	// doesn't accept it), so InvalidRequestException -- valid on every App
+	// Runner operation -- is used to describe the conflict instead.
+	ErrAlreadyExists = awserr.New(invalidRequestType, awserr.ErrAlreadyExists)
 	// ErrInvalidParameter is returned for invalid input.
 	ErrInvalidParameter = awserr.New(invalidRequestType, awserr.ErrInvalidParameter)
 	// ErrInvalidState is returned when a service is in an invalid state for the operation.
-	ErrInvalidState = awserr.New("InvalidStateException", awserr.ErrConflict)
+	ErrInvalidState = awserr.New(invalidStateType, awserr.ErrConflict)
 )
 
 // storedService holds a service with all fields.
@@ -1453,7 +1468,12 @@ func (b *InMemoryBackend) AssociateCustomDomain(
 	defer b.mu.Unlock()
 
 	if !b.services.Has(serviceArn) {
-		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
+		// Unlike Describe/Delete/Disassociate*, AssociateCustomDomain's
+		// documented error set has no ResourceNotFoundException (only
+		// InternalServiceErrorException, InvalidRequestException, and
+		// InvalidStateException), so an unknown ServiceArn is wrapped as
+		// ErrInvalidParameter here rather than the usual ErrNotFound.
+		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrInvalidParameter)
 	}
 
 	for _, d := range b.customDomains[serviceArn] {

@@ -64,8 +64,9 @@ func TestParity_DateCreated_RealTimestamp(t *testing.T) {
 			action: "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env1",
 		},
 		{
-			name:   "CreateApplicationVersion has real DateCreated",
-			action: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app&VersionLabel=v1",
+			name: "CreateApplicationVersion has real DateCreated",
+			action: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app" +
+				"&VersionLabel=v1&AutoCreateApplication=true",
 		},
 	}
 
@@ -105,6 +106,7 @@ func TestParity_DateUpdated_Present(t *testing.T) {
 		},
 		{
 			name:   "CreateApplicationVersion includes DateUpdated",
+			setup:  "Version=2010-12-01&Action=CreateApplication&ApplicationName=app",
 			action: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app&VersionLabel=v1",
 		},
 	}
@@ -209,4 +211,63 @@ func TestParity_CheckDNSAvailability_FreeCNAME(t *testing.T) {
 	rec := postEBForm(t, h, "Version=2010-12-01&Action=CheckDNSAvailability&CNAMEPrefix=unused-prefix")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "<Available>true</Available>")
+}
+
+// TestParity_TagResourceArnNotFound_ResourceNotFoundExceptionCode verifies that
+// ListTagsForResource/UpdateTagsForResource surface the specific, documented
+// ResourceNotFoundException wire code (not the generic InvalidParameterValue
+// used by name-based lookups) when ResourceArn matches no known resource.
+func TestParity_TagResourceArnNotFound_ResourceNotFoundExceptionCode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "ListTagsForResource",
+			body: "Version=2010-12-01&Action=ListTagsForResource" +
+				"&ResourceArn=arn:aws:elasticbeanstalk:us-east-1:123456789012:application/ghost",
+		},
+		{
+			name: "UpdateTagsForResource",
+			body: "Version=2010-12-01&Action=UpdateTagsForResource" +
+				"&ResourceArn=arn:aws:elasticbeanstalk:us-east-1:123456789012:application/ghost" +
+				"&TagsToAdd.member.1.Key=k&TagsToAdd.member.1.Value=v",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := postEBForm(t, h, tt.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "<Code>ResourceNotFoundException</Code>")
+		})
+	}
+}
+
+// TestParity_ResourceLifecycleConfig_SurfacedOnDescribe verifies that a
+// lifecycle service role set via UpdateApplicationResourceLifecycle is
+// readable back through DescribeApplications and CreateApplication/
+// UpdateApplication -- the backend stores it on Application, and it must not
+// be a write-only field.
+func TestParity_ResourceLifecycleConfig_SurfacedOnDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=lc-app")
+
+	rec := postEBForm(t, h,
+		"Version=2010-12-01&Action=UpdateApplicationResourceLifecycle&ApplicationName=lc-app"+
+			"&ResourceLifecycleConfig.ServiceRole=arn:aws:iam::123456789012:role/eb-lifecycle")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = postEBForm(t, h, "Version=2010-12-01&Action=DescribeApplications&ApplicationNames.member.1=lc-app")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "<ResourceLifecycleConfig>")
+	assert.Contains(t, body, "<ServiceRole>arn:aws:iam::123456789012:role/eb-lifecycle</ServiceRole>")
 }

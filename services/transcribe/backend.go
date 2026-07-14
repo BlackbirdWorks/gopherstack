@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -42,7 +44,26 @@ const (
 
 	// defaultAccountID is the synthetic AWS account ID used by the in-memory backend.
 	defaultAccountID = "123456789012"
+
+	// ARN resource-type segments, matching the patterns documented in the
+	// TagResource/ListTagsForResource/UntagResource SDK doc comments
+	// (e.g. "arn:aws:transcribe:us-west-2:111122223333:transcription-job/name").
+	resourceTypeTranscriptionJob        = "transcription-job"
+	resourceTypeCallAnalyticsJob        = "call-analytics-job"
+	resourceTypeCallAnalyticsCategory   = "call-analytics-category"
+	resourceTypeMedicalScribeJob        = "medical-scribe-job"
+	resourceTypeMedicalTranscriptionJob = "medical-transcription-job"
+	resourceTypeVocabulary              = "vocabulary"
+	resourceTypeVocabularyFilter        = "vocabulary-filter"
+	resourceTypeMedicalVocabulary       = "medical-vocabulary"
+	resourceTypeLanguageModel           = "language-model"
 )
+
+// resourceARN builds the ARN for a Transcribe resource of the given type and name,
+// matching the format real AWS clients compute for TagResource/ListTagsForResource calls.
+func resourceARN(resourceType, name string) string {
+	return arn.Build("transcribe", config.DefaultRegion, defaultAccountID, resourceType+"/"+name)
+}
 
 // TranscriptionJob represents an Amazon Transcribe transcription job.
 type TranscriptionJob struct {
@@ -79,6 +100,7 @@ type TranscriptionJob struct {
 type CallAnalyticsCategory struct {
 	CreateTime     time.Time           `json:"createTime"`
 	LastUpdateTime time.Time           `json:"lastUpdateTime"`
+	Tags           map[string]string   `json:"tags,omitempty"`
 	CategoryName   string              `json:"categoryName"`
 	InputType      string              `json:"inputType"`
 	Rules          []CallAnalyticsRule `json:"rules,omitempty"`
@@ -86,42 +108,46 @@ type CallAnalyticsCategory struct {
 
 // LanguageModel represents a custom Amazon Transcribe language model.
 type LanguageModel struct {
-	CreateTime          time.Time        `json:"createTime"`
-	LastModifiedTime    time.Time        `json:"lastModifiedTime"`
-	InputDataConfig     *InputDataConfig `json:"inputDataConfig,omitempty"`
-	ModelName           string           `json:"modelName"`
-	BaseModelName       string           `json:"baseModelName"`
-	LanguageCode        string           `json:"languageCode"`
-	ModelStatus         string           `json:"modelStatus"`
-	UpgradeAvailability bool             `json:"upgradeAvailability,omitempty"`
+	CreateTime          time.Time         `json:"createTime"`
+	LastModifiedTime    time.Time         `json:"lastModifiedTime"`
+	InputDataConfig     *InputDataConfig  `json:"inputDataConfig,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	ModelName           string            `json:"modelName"`
+	BaseModelName       string            `json:"baseModelName"`
+	LanguageCode        string            `json:"languageCode"`
+	ModelStatus         string            `json:"modelStatus"`
+	UpgradeAvailability bool              `json:"upgradeAvailability,omitempty"`
 }
 
 // MedicalVocabulary represents an Amazon Transcribe Medical custom vocabulary.
 type MedicalVocabulary struct {
-	LastModifiedTime  time.Time `json:"lastModifiedTime"`
-	VocabularyName    string    `json:"vocabularyName"`
-	LanguageCode      string    `json:"languageCode"`
-	VocabularyState   string    `json:"vocabularyState"`
-	VocabularyFileURI string    `json:"vocabularyFileUri"`
+	LastModifiedTime  time.Time         `json:"lastModifiedTime"`
+	Tags              map[string]string `json:"tags,omitempty"`
+	VocabularyName    string            `json:"vocabularyName"`
+	LanguageCode      string            `json:"languageCode"`
+	VocabularyState   string            `json:"vocabularyState"`
+	VocabularyFileURI string            `json:"vocabularyFileUri"`
 }
 
 // Vocabulary represents an Amazon Transcribe custom vocabulary.
 type Vocabulary struct {
-	LastModifiedTime  time.Time `json:"lastModifiedTime"`
-	VocabularyName    string    `json:"vocabularyName"`
-	LanguageCode      string    `json:"languageCode"`
-	VocabularyState   string    `json:"vocabularyState"`
-	VocabularyFileURI string    `json:"vocabularyFileUri,omitempty"`
-	Phrases           []string  `json:"phrases,omitempty"`
+	LastModifiedTime  time.Time         `json:"lastModifiedTime"`
+	Tags              map[string]string `json:"tags,omitempty"`
+	VocabularyName    string            `json:"vocabularyName"`
+	LanguageCode      string            `json:"languageCode"`
+	VocabularyState   string            `json:"vocabularyState"`
+	VocabularyFileURI string            `json:"vocabularyFileUri,omitempty"`
+	Phrases           []string          `json:"phrases,omitempty"`
 }
 
 // VocabularyFilter represents an Amazon Transcribe custom vocabulary filter.
 type VocabularyFilter struct {
-	LastModifiedTime        time.Time `json:"lastModifiedTime"`
-	VocabularyFilterName    string    `json:"vocabularyFilterName"`
-	LanguageCode            string    `json:"languageCode"`
-	VocabularyFilterFileURI string    `json:"vocabularyFilterFileUri,omitempty"`
-	Words                   []string  `json:"words,omitempty"`
+	LastModifiedTime        time.Time         `json:"lastModifiedTime"`
+	Tags                    map[string]string `json:"tags,omitempty"`
+	VocabularyFilterName    string            `json:"vocabularyFilterName"`
+	LanguageCode            string            `json:"languageCode"`
+	VocabularyFilterFileURI string            `json:"vocabularyFilterFileUri,omitempty"`
+	Words                   []string          `json:"words,omitempty"`
 }
 
 // CallAnalyticsJob represents an Amazon Transcribe Call Analytics job.
@@ -244,6 +270,7 @@ func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*Trans
 	}
 
 	b.jobs.Put(&job)
+	b.recordResourceTagsLocked(resourceARN(resourceTypeTranscriptionJob, job.JobName), job.Tags)
 	cp := job
 
 	return &cp, nil
@@ -392,6 +419,8 @@ func (b *InMemoryBackend) DeleteTranscriptionJob(jobName string) error {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobName)
 	}
 
+	b.forgetResourceTagsLocked(resourceARN(resourceTypeTranscriptionJob, jobName))
+
 	return nil
 }
 
@@ -417,6 +446,7 @@ func (b *InMemoryBackend) CreateCallAnalyticsCategory(input *CallAnalyticsCatego
 	cat.CreateTime = now
 	cat.LastUpdateTime = now
 	b.callAnalyticsCategories.Put(&cat)
+	b.recordResourceTagsLocked(resourceARN(resourceTypeCallAnalyticsCategory, cat.CategoryName), cat.Tags)
 
 	cp := cat
 
@@ -435,6 +465,8 @@ func (b *InMemoryBackend) DeleteCallAnalyticsCategory(categoryName string) error
 	if !b.callAnalyticsCategories.Delete(categoryName) {
 		return fmt.Errorf("%w: category %s not found", ErrNotFound, categoryName)
 	}
+
+	b.forgetResourceTagsLocked(resourceARN(resourceTypeCallAnalyticsCategory, categoryName))
 
 	return nil
 }
@@ -480,6 +512,7 @@ func (b *InMemoryBackend) CreateLanguageModel(input *LanguageModel) (*LanguageMo
 	m.CreateTime = now
 	m.LastModifiedTime = now
 	b.languageModels.Put(&m)
+	b.recordResourceTagsLocked(resourceARN(resourceTypeLanguageModel, m.ModelName), m.Tags)
 
 	cp := m
 
@@ -499,12 +532,14 @@ func (b *InMemoryBackend) DeleteLanguageModel(modelName string) error {
 		return fmt.Errorf("%w: language model %s not found", ErrNotFound, modelName)
 	}
 
+	b.forgetResourceTagsLocked(resourceARN(resourceTypeLanguageModel, modelName))
+
 	return nil
 }
 
 // CreateMedicalVocabulary creates a new medical custom vocabulary.
 func (b *InMemoryBackend) CreateMedicalVocabulary(
-	vocabularyName, languageCode, vocabularyFileURI string,
+	vocabularyName, languageCode, vocabularyFileURI string, tags map[string]string,
 ) (*MedicalVocabulary, error) {
 	if vocabularyName == "" {
 		return nil, fmt.Errorf("%w: VocabularyName is required", ErrValidation)
@@ -536,8 +571,10 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 		VocabularyState:   vocabStateReady,
 		VocabularyFileURI: vocabularyFileURI,
 		LastModifiedTime:  now,
+		Tags:              tags,
 	}
 	b.medicalVocabularies.Put(v)
+	b.recordResourceTagsLocked(resourceARN(resourceTypeMedicalVocabulary, v.VocabularyName), v.Tags)
 
 	cp := *v
 
@@ -579,6 +616,7 @@ func (b *InMemoryBackend) CreateVocabulary(input *Vocabulary) (*Vocabulary, erro
 	v.VocabularyState = vocabStateReady
 	v.LastModifiedTime = now
 	b.vocabularies.Put(&v)
+	b.recordResourceTagsLocked(resourceARN(resourceTypeVocabulary, v.VocabularyName), v.Tags)
 
 	cp := v
 
@@ -627,6 +665,7 @@ func (b *InMemoryBackend) CreateVocabularyFilter(input *VocabularyFilter) (*Voca
 	f := *input
 	f.LastModifiedTime = now
 	b.vocabularyFilters.Put(&f)
+	b.recordResourceTagsLocked(resourceARN(resourceTypeVocabularyFilter, f.VocabularyFilterName), f.Tags)
 
 	cp := f
 
@@ -646,6 +685,8 @@ func (b *InMemoryBackend) DeleteCallAnalyticsJob(jobName string) error {
 		return fmt.Errorf("%w: call analytics job %s not found", ErrNotFound, jobName)
 	}
 
+	b.forgetResourceTagsLocked(resourceARN(resourceTypeCallAnalyticsJob, jobName))
+
 	return nil
 }
 
@@ -662,6 +703,8 @@ func (b *InMemoryBackend) DeleteMedicalScribeJob(jobName string) error {
 		return fmt.Errorf("%w: medical scribe job %s not found", ErrNotFound, jobName)
 	}
 
+	b.forgetResourceTagsLocked(resourceARN(resourceTypeMedicalScribeJob, jobName))
+
 	return nil
 }
 
@@ -677,6 +720,8 @@ func (b *InMemoryBackend) DeleteMedicalTranscriptionJob(jobName string) error {
 	if !b.medicalTranscriptionJobs.Delete(jobName) {
 		return fmt.Errorf("%w: medical transcription job %s not found", ErrNotFound, jobName)
 	}
+
+	b.forgetResourceTagsLocked(resourceARN(resourceTypeMedicalTranscriptionJob, jobName))
 
 	return nil
 }
@@ -787,6 +832,7 @@ func (b *InMemoryBackend) StartCallAnalyticsJob(input *CallAnalyticsJob) (*CallA
 	job.StartTime = now
 	job.CompletionTime = now
 	b.callAnalyticsJobs.Put(&job)
+	b.recordResourceTagsLocked(resourceARN(resourceTypeCallAnalyticsJob, job.CallAnalyticsJobName), job.Tags)
 
 	cp := job
 
@@ -964,6 +1010,8 @@ func (b *InMemoryBackend) DeleteVocabulary(vocabularyName string) error {
 		return fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, vocabularyName)
 	}
 
+	b.forgetResourceTagsLocked(resourceARN(resourceTypeVocabulary, vocabularyName))
+
 	return nil
 }
 
@@ -1065,6 +1113,8 @@ func (b *InMemoryBackend) DeleteVocabularyFilter(vocabularyFilterName string) er
 		return fmt.Errorf("%w: vocabulary filter %s not found", ErrNotFound, vocabularyFilterName)
 	}
 
+	b.forgetResourceTagsLocked(resourceARN(resourceTypeVocabularyFilter, vocabularyFilterName))
+
 	return nil
 }
 
@@ -1147,6 +1197,8 @@ func (b *InMemoryBackend) DeleteMedicalVocabulary(vocabularyName string) error {
 		return fmt.Errorf("%w: medical vocabulary %s not found", ErrNotFound, vocabularyName)
 	}
 
+	b.forgetResourceTagsLocked(resourceARN(resourceTypeMedicalVocabulary, vocabularyName))
+
 	return nil
 }
 
@@ -1203,6 +1255,7 @@ func (b *InMemoryBackend) StartMedicalScribeJob(input *MedicalScribeJob) (*Medic
 	job.StartTime = now
 	job.CompletionTime = now
 	b.medicalScribeJobs.Put(&job)
+	b.recordResourceTagsLocked(resourceARN(resourceTypeMedicalScribeJob, job.MedicalScribeJobName), job.Tags)
 
 	cp := job
 
@@ -1307,6 +1360,9 @@ func (b *InMemoryBackend) StartMedicalTranscriptionJob(
 	job.TranscriptJSON = synthesizeTranscriptJSON(input.MedicalTranscriptionJobName,
 		"Medical transcription result for "+input.MedicalTranscriptionJobName+".")
 	b.medicalTranscriptionJobs.Put(&job)
+	b.recordResourceTagsLocked(
+		resourceARN(resourceTypeMedicalTranscriptionJob, job.MedicalTranscriptionJobName), job.Tags,
+	)
 
 	cp := job
 
@@ -1423,6 +1479,27 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	maps.Copy(b.resourceTags[resourceArn], tags)
 
 	return nil
+}
+
+// recordResourceTagsLocked attaches tags supplied at resource-creation time (Start*Job
+// and Create* Tags parameters) to the resource's ARN, so they are retrievable via
+// ListTagsForResource exactly like tags added later via TagResource. Real AWS treats
+// creation-time Tags as immediately-attached resource tags. Callers must hold b.mu.
+func (b *InMemoryBackend) recordResourceTagsLocked(resourceArn string, tags map[string]string) {
+	if len(tags) == 0 {
+		return
+	}
+
+	dst := make(map[string]string, len(tags))
+	maps.Copy(dst, tags)
+	b.resourceTags[resourceArn] = dst
+}
+
+// forgetResourceTagsLocked removes any tags recorded for resourceArn. Called on resource
+// deletion so ListTagsForResource doesn't keep returning tags for a resource that no
+// longer exists. Callers must hold b.mu.
+func (b *InMemoryBackend) forgetResourceTagsLocked(resourceArn string) {
+	delete(b.resourceTags, resourceArn)
 }
 
 // UntagResource removes specific tag keys from a resource identified by ARN.

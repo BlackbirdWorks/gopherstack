@@ -48,11 +48,11 @@ func TestBatch2Ops_StopEvaluationJob_AlreadyStopped_Rejected(t *testing.T) {
 			jobARN := created["jobArn"].(string)
 
 			// First stop: must succeed.
-			rec2 := doRequest(t, h, http.MethodDelete, "/evaluation-jobs/"+url.PathEscape(jobARN), nil)
+			rec2 := doRequest(t, h, http.MethodPost, "/evaluation-job/"+url.PathEscape(jobARN)+"/stop", nil)
 			assert.Equal(t, http.StatusOK, rec2.Code, "first stop should succeed")
 
 			// Second stop: must fail — job is now Stopped.
-			rec3 := doRequest(t, h, http.MethodDelete, "/evaluation-jobs/"+url.PathEscape(jobARN), nil)
+			rec3 := doRequest(t, h, http.MethodPost, "/evaluation-job/"+url.PathEscape(jobARN)+"/stop", nil)
 			assert.Equal(t, http.StatusBadRequest, rec3.Code,
 				"stop of already-stopped job should return 400 ValidationException")
 
@@ -76,7 +76,7 @@ func TestBatch2Ops_StopEvaluationJob_InProgress_Succeeds(t *testing.T) {
 	jobARN := created["jobArn"].(string)
 
 	// Job starts InProgress — stop must succeed.
-	rec2 := doRequest(t, h, http.MethodDelete, "/evaluation-jobs/"+url.PathEscape(jobARN), nil)
+	rec2 := doRequest(t, h, http.MethodPost, "/evaluation-job/"+url.PathEscape(jobARN)+"/stop", nil)
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	// Verify status is now Stopped.
@@ -105,7 +105,7 @@ func TestBatch2Ops_StopModelInvocationJob_AlreadyStopped_Rejected(t *testing.T) 
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/model-invocation-jobs",
+			rec := doRequest(t, h, http.MethodPost, "/model-invocation-job",
 				map[string]any{"jobName": tc.name})
 			require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -114,11 +114,11 @@ func TestBatch2Ops_StopModelInvocationJob_AlreadyStopped_Rejected(t *testing.T) 
 			jobARN := created["jobArn"].(string)
 
 			// First stop must succeed (InProgress → Stopped).
-			rec2 := doRequest(t, h, http.MethodDelete, "/model-invocation-jobs/"+url.PathEscape(jobARN), nil)
+			rec2 := doRequest(t, h, http.MethodPost, "/model-invocation-job/"+url.PathEscape(jobARN)+"/stop", nil)
 			assert.Equal(t, http.StatusNoContent, rec2.Code, "first stop should return 204")
 
 			// Second stop must fail (Stopped is not stoppable).
-			rec3 := doRequest(t, h, http.MethodDelete, "/model-invocation-jobs/"+url.PathEscape(jobARN), nil)
+			rec3 := doRequest(t, h, http.MethodPost, "/model-invocation-job/"+url.PathEscape(jobARN)+"/stop", nil)
 			assert.Equal(t, http.StatusBadRequest, rec3.Code,
 				"stop of already-stopped invocation job should return 400 ValidationException")
 
@@ -133,7 +133,7 @@ func TestBatch2Ops_StopModelInvocationJob_InProgress_Succeeds(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model-invocation-jobs",
+	rec := doRequest(t, h, http.MethodPost, "/model-invocation-job",
 		map[string]any{"jobName": "mij-stop-ok"})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -141,11 +141,11 @@ func TestBatch2Ops_StopModelInvocationJob_InProgress_Succeeds(t *testing.T) {
 	mustUnmarshal(t, rec, &created)
 	jobARN := created["jobArn"].(string)
 
-	rec2 := doRequest(t, h, http.MethodDelete, "/model-invocation-jobs/"+url.PathEscape(jobARN), nil)
+	rec2 := doRequest(t, h, http.MethodPost, "/model-invocation-job/"+url.PathEscape(jobARN)+"/stop", nil)
 	assert.Equal(t, http.StatusNoContent, rec2.Code)
 
 	// Verify status is Stopped.
-	rec3 := doRequest(t, h, http.MethodGet, "/model-invocation-jobs/"+url.PathEscape(jobARN), nil)
+	rec3 := doRequest(t, h, http.MethodGet, "/model-invocation-job/"+url.PathEscape(jobARN), nil)
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var out map[string]any
@@ -220,7 +220,7 @@ func TestBatch2Ops_BatchDeleteEvaluationJob_StoppedJob_Deleted(t *testing.T) {
 	jobARN := created["jobArn"].(string)
 
 	// Stop it first.
-	doRequest(t, h, http.MethodDelete, "/evaluation-jobs/"+url.PathEscape(jobARN), nil)
+	doRequest(t, h, http.MethodPost, "/evaluation-job/"+url.PathEscape(jobARN)+"/stop", nil)
 
 	// BatchDelete the stopped job — must succeed.
 	rec2 := doRequest(t, h, http.MethodPost, "/evaluation-jobs/batch-delete",
@@ -263,7 +263,7 @@ func TestBatch2Ops_BatchDeleteEvaluationJob_MixedStates(t *testing.T) {
 	arnB := outB["jobArn"].(string)
 
 	// Stop job A.
-	doRequest(t, h, http.MethodDelete, "/evaluation-jobs/"+url.PathEscape(arnA), nil)
+	doRequest(t, h, http.MethodPost, "/evaluation-job/"+url.PathEscape(arnA)+"/stop", nil)
 
 	// BatchDelete both: A (stopped) should succeed, B (InProgress) should error.
 	rec := doRequest(t, h, http.MethodPost, "/evaluation-jobs/batch-delete",

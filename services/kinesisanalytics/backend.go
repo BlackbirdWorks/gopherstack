@@ -41,6 +41,11 @@ var (
 	ErrValidation = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 	// ErrLimitExceeded is returned when a resource limit is reached.
 	ErrLimitExceeded = awserr.New("LimitExceededException", awserr.ErrConflict)
+	// ErrTooManyTags is returned when tagging an application would exceed the maximum tag
+	// count. AWS models this as a dedicated TooManyTagsException on CreateApplication and
+	// TagResource, distinct from the generic LimitExceededException (verified against
+	// aws-sdk-go-v2/service/kinesisanalytics deserializers.go per-operation error lists).
+	ErrTooManyTags = errors.New("TooManyTagsException: application tag limit exceeded")
 	// ErrResourceInUse is returned when the app is in an incompatible state for the requested operation.
 	ErrResourceInUse = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 )
@@ -65,9 +70,13 @@ const (
 	maxOutputs               = 3
 	maxRefSources            = 1
 	maxCWLOptions            = 50
-	maxTagsPerResource       = 200
 	maxTagKeyLen             = 128
 	maxTagValueLen           = 256
+	// maxTagsPerResource is the maximum number of user-defined tags per application. Per AWS
+	// docs: "the maximum number of application tags includes system tags. The maximum number
+	// of user-defined application tags is 50" -- this is a KDA-specific limit, not the generic
+	// 200 used by many other services.
+	maxTagsPerResource = 50
 
 	maxAppNameLen = 128
 	maxAppDescLen = 1024
@@ -286,7 +295,7 @@ func validateAndMergeTags(existing, incoming map[string]string) error {
 	}
 
 	if total > maxTagsPerResource {
-		return fmt.Errorf("%w: resource may not have more than %d tags", ErrLimitExceeded, maxTagsPerResource)
+		return fmt.Errorf("%w: resource may not have more than %d tags", ErrTooManyTags, maxTagsPerResource)
 	}
 
 	return nil
@@ -349,6 +358,10 @@ func convertInputConfig(cfg *applicationInputConfig) (InputDescription, error) {
 
 	if cfg == nil {
 		return desc, nil
+	}
+
+	if cfg.NamePrefix == "" {
+		return desc, fmt.Errorf("%w: Input.NamePrefix is required", ErrValidation)
 	}
 
 	desc.NamePrefix = cfg.NamePrefix
@@ -419,6 +432,10 @@ func convertOutputConfig(cfg *applicationOutputConfig) (OutputDescription, error
 
 	if cfg == nil {
 		return desc, fmt.Errorf("%w: Output is required", ErrValidation)
+	}
+
+	if cfg.Name == "" {
+		return desc, fmt.Errorf("%w: Output.Name is required", ErrValidation)
 	}
 
 	desc.Name = cfg.Name
@@ -511,6 +528,14 @@ func (b *InMemoryBackend) CreateApplication(
 	}
 
 	if err := validateApplicationCode(code); err != nil {
+		return nil, err
+	}
+
+	// CreateApplication is a modeled source of TooManyTagsException / tag validation errors
+	// (same as TagResource), so initial Tags must go through the same validation as a later
+	// TagResource call -- previously this was skipped entirely, letting CreateApplication
+	// silently accept invalid keys/values and an unbounded tag count.
+	if err := validateAndMergeTags(nil, tags); err != nil {
 		return nil, err
 	}
 
@@ -830,14 +855,16 @@ func applyInputUpdates(app *Application, updates []inputUpdate) error {
 			return fmt.Errorf("%w: InputId %q not found", ErrNotFound, iu.InputID)
 		}
 
-		applyOneInputUpdate(&app.Inputs[idx], &iu)
+		if err := applyOneInputUpdate(&app.Inputs[idx], &iu); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 // applyOneInputUpdate applies a single input update to an InputDescription.
-func applyOneInputUpdate(inp *InputDescription, iu *inputUpdate) {
+func applyOneInputUpdate(inp *InputDescription, iu *inputUpdate) error {
 	if iu.NamePrefixUpdate != "" {
 		inp.NamePrefix = iu.NamePrefixUpdate
 	}
@@ -858,10 +885,7 @@ func applyOneInputUpdate(inp *InputDescription, iu *inputUpdate) {
 		inp.KinesisStreamsInputDescription = nil
 	}
 
-	if iu.InputSchemaUpdate != nil {
-		schema := convertSourceSchema(iu.InputSchemaUpdate)
-		inp.InputSchema = &schema
-	}
+	applyInputSchemaUpdate(inp, iu.InputSchemaUpdate)
 
 	if iu.InputStartingPositionConfiguration != nil {
 		inp.InputStartingPositionConfiguration = iu.InputStartingPositionConfiguration
@@ -877,8 +901,49 @@ func applyOneInputUpdate(inp *InputDescription, iu *inputUpdate) {
 		}
 	}
 
+	if iu.InputParallelismUpdate != nil {
+		count := iu.InputParallelismUpdate.Count
+		if count < minInputParallelism || count > maxInputParallelism {
+			return fmt.Errorf("%w: InputParallelismUpdate.CountUpdate must be %d-%d",
+				ErrValidation, minInputParallelism, maxInputParallelism)
+		}
+
+		inp.InputParallelism = &InputParallelism{Count: count}
+	}
+
 	if inp.InputParallelism != nil {
 		inp.InAppStreamNames = inAppStreamNames(inp.NamePrefix, inp.InputParallelism.Count)
+	}
+
+	return nil
+}
+
+// applyInputSchemaUpdate merges an InputSchemaUpdate payload into an input's schema.
+// Unlike ReferenceSchemaUpdate (a whole-object replace using the full SourceSchema shape),
+// InputSchemaUpdate carries its own "Update"-suffixed sub-fields and AWS applies it as a
+// partial patch: only the sub-fields the caller supplied are overwritten.
+func applyInputSchemaUpdate(inp *InputDescription, update *inputSchemaUpdateInput) {
+	if update == nil {
+		return
+	}
+
+	if inp.InputSchema == nil {
+		inp.InputSchema = &SourceSchema{}
+	}
+
+	if update.RecordFormat != nil {
+		inp.InputSchema.RecordFormat = RecordFormat{
+			RecordFormatType:  update.RecordFormat.RecordFormatType,
+			MappingParameters: update.RecordFormat.MappingParameters,
+		}
+	}
+
+	if update.RecordEncoding != "" {
+		inp.InputSchema.RecordEncoding = update.RecordEncoding
+	}
+
+	if update.RecordColumns != nil {
+		inp.InputSchema.RecordColumns = update.RecordColumns
 	}
 }
 
@@ -976,9 +1041,9 @@ func applyReferenceDataSourceUpdates(
 
 		if ru.S3ReferenceDataSourceUpdate != nil {
 			ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
-				BucketARN: ru.S3ReferenceDataSourceUpdate.BucketARN,
-				FileKey:   ru.S3ReferenceDataSourceUpdate.FileKey,
-				RoleARN:   ru.S3ReferenceDataSourceUpdate.RoleARN,
+				BucketARN:        ru.S3ReferenceDataSourceUpdate.BucketARN,
+				FileKey:          ru.S3ReferenceDataSourceUpdate.FileKey,
+				ReferenceRoleARN: ru.S3ReferenceDataSourceUpdate.ReferenceRoleARN,
 			}
 		}
 
@@ -1385,10 +1450,13 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 		return ErrNotFound
 	}
 
+	// AddApplicationCloudWatchLoggingOption's modeled error set (verified against
+	// aws-sdk-go-v2/service/kinesisanalytics deserializers.go) has no LimitExceededException --
+	// this per-application cap violation surfaces as InvalidArgumentException instead.
 	if len(app.CloudWatchLoggingOptions) >= maxCWLOptions {
 		return fmt.Errorf(
 			"%w: maximum of %d CloudWatch logging options per application",
-			ErrLimitExceeded,
+			ErrValidation,
 			maxCWLOptions,
 		)
 	}
@@ -1417,8 +1485,10 @@ func (b *InMemoryBackend) AddApplicationInput(
 		return ErrNotFound
 	}
 
+	// AddApplicationInput's modeled error set has no LimitExceededException -- the hard
+	// architectural cap of one input per SQL application surfaces as InvalidArgumentException.
 	if len(app.Inputs) >= maxInputs {
-		return fmt.Errorf("%w: maximum of %d input(s) per application", ErrLimitExceeded, maxInputs)
+		return fmt.Errorf("%w: maximum of %d input(s) per application", ErrValidation, maxInputs)
 	}
 
 	if err := checkAndBumpVersion(app, versionID); err != nil {
@@ -1483,8 +1553,10 @@ func (b *InMemoryBackend) AddApplicationOutput(
 		return ErrNotFound
 	}
 
+	// AddApplicationOutput's modeled error set has no LimitExceededException -- the cap of
+	// three outputs per application surfaces as InvalidArgumentException.
 	if len(app.Outputs) >= maxOutputs {
-		return fmt.Errorf("%w: maximum of %d outputs per application", ErrLimitExceeded, maxOutputs)
+		return fmt.Errorf("%w: maximum of %d outputs per application", ErrValidation, maxOutputs)
 	}
 
 	if err := checkAndBumpVersion(app, versionID); err != nil {
@@ -1511,8 +1583,10 @@ func (b *InMemoryBackend) AddApplicationReferenceDataSource(
 		return ErrNotFound
 	}
 
+	// AddApplicationReferenceDataSource's modeled error set has no LimitExceededException --
+	// the cap of one reference data source per application surfaces as InvalidArgumentException.
 	if len(app.ReferenceDataSources) >= maxRefSources {
-		return fmt.Errorf("%w: maximum of %d reference data source(s) per application", ErrLimitExceeded, maxRefSources)
+		return fmt.Errorf("%w: maximum of %d reference data source(s) per application", ErrValidation, maxRefSources)
 	}
 
 	if err := checkAndBumpVersion(app, versionID); err != nil {

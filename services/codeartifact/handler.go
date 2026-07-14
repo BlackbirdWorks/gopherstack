@@ -2,9 +2,12 @@ package codeartifact
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"slices"
@@ -31,8 +34,25 @@ const (
 	keyFailedVersions     = "failedVersions"
 	keySuccessfulVersions = "successfulVersions"
 	keyResourceArn        = "resourceArn"
-	keyPackageGroup       = "packageGroup"
-	keyVersion            = "version"
+	// keyPackageGroup is the request-BODY field name used by UpdatePackageGroup
+	// (json:"packageGroup"). For the QUERY-STRING form used by every other
+	// package-group op (DescribePackageGroup, DeletePackageGroup,
+	// ListSubPackageGroups, ListAllowedRepositoriesForGroup,
+	// ListAssociatedPackages, UpdatePackageGroupOriginConfiguration), see
+	// keyPackageGroupQuery below -- verified against aws-sdk-go-v2 serializers.go,
+	// real AWS uses the kebab-case "package-group" query param, not "packageGroup".
+	keyPackageGroup = "packageGroup"
+	// keyPackageGroupQuery is the real query-string parameter name ("package-group").
+	keyPackageGroupQuery = "package-group"
+	// keyExternalConnectionQuery is the real query-string parameter name for
+	// AssociateExternalConnection/DisassociateExternalConnection ("external-connection").
+	keyExternalConnectionQuery = "external-connection"
+	// keySourceRepositoryQuery and keyDestinationRepositoryQuery are CopyPackageVersions'
+	// real query-string parameter names ("source-repository"/"destination-repository").
+	keySourceRepositoryQuery      = "source-repository"
+	keyDestinationRepositoryQuery = "destination-repository"
+	keyVersion                    = "version"
+	keyCreatedTime                = "createdTime"
 )
 
 const (
@@ -97,40 +117,52 @@ const (
 const (
 	codeartifactMatchPriority = service.PriorityPathVersioned + 1
 
-	pathV1Domain                          = "/v1/domain"
-	pathV1Domains                         = "/v1/domains"
-	pathV1DomainRepositories              = "/v1/domain/repositories"
-	pathV1DomainPermissions               = "/v1/domain/permissions/policy"
-	pathV1Repository                      = "/v1/repository"
-	pathV1Repositories                    = "/v1/repositories"
-	pathV1RepositoryEndpoint              = "/v1/repository/endpoint"
-	pathV1RepositoryExternalConnection    = "/v1/repository/external-connection"
-	pathV1RepositoryPermissions           = "/v1/repository/permissions/policy"
-	pathV1Tags                            = "/v1/tags"
-	pathV1Tag                             = "/v1/tag"
-	pathV1Untag                           = "/v1/untag"
-	pathV1AuthToken                       = "/v1/authorization-token" //nolint:gosec // not a credential
-	pathV1PackageGroup                    = "/v1/package-group"
-	pathV1Package                         = "/v1/package"
-	pathV1PackageVersion                  = "/v1/package/version"
-	pathV1PackageVersionsCopy             = "/v1/package/versions/copy"
-	pathV1PackageVersionsDelete           = "/v1/package/versions/delete"
-	pathV1PackageVersionsDispose          = "/v1/package/versions/dispose"
-	pathV1PackageVersionsUpdateStatus     = "/v1/package/versions/update_status"
-	pathV1PackageVersionAsset             = "/v1/package/version/asset"
-	pathV1PackageVersionReadme            = "/v1/package/version/readme"
-	pathV1PackageVersionAssets            = "/v1/package/version/assets"
-	pathV1PackageVersionDependencies      = "/v1/package/version/dependencies"
-	pathV1PackageVersionsPublish          = "/v1/package/versions/publish"
-	pathV1PackageOriginConfiguration      = "/v1/package/origin-configuration"
-	pathV1PackageGroups                   = "/v1/package-groups"
-	pathV1PackageGroupAssociatedPackages  = "/v1/package-group-associated-packages" //nolint:gosec // not a credential
-	pathV1PackageGroupAllowedRepos        = "/v1/package-group-allowed-repositories"
+	pathV1Domain                       = "/v1/domain"
+	pathV1Domains                      = "/v1/domains"
+	pathV1DomainRepositories           = "/v1/domain/repositories"
+	pathV1DomainPermissions            = "/v1/domain/permissions/policy"
+	pathV1Repository                   = "/v1/repository"
+	pathV1Repositories                 = "/v1/repositories"
+	pathV1RepositoryEndpoint           = "/v1/repository/endpoint"
+	pathV1RepositoryExternalConnection = "/v1/repository/external-connection"
+	pathV1RepositoryPermissions        = "/v1/repository/permissions/policy"
+	// pathV1RepositoryPermissionsPolicies is DeleteRepositoryPermissionsPolicy's own path
+	// (plural "policies") -- unlike Get/Put, real AWS does NOT serve delete on the singular
+	// "/v1/repository/permissions/policy" path. Verified against aws-sdk-go-v2 serializers.go.
+	pathV1RepositoryPermissionsPolicies = "/v1/repository/permissions/policies"
+	pathV1Tags                          = "/v1/tags"
+	pathV1Tag                           = "/v1/tag"
+	pathV1Untag                         = "/v1/untag"
+	pathV1AuthToken                     = "/v1/authorization-token" //nolint:gosec // not a credential
+	pathV1PackageGroup                  = "/v1/package-group"
+	pathV1Package                       = "/v1/package"
+	pathV1PackageVersion                = "/v1/package/version"
+	pathV1PackageVersionsCopy           = "/v1/package/versions/copy"
+	pathV1PackageVersionsDelete         = "/v1/package/versions/delete"
+	pathV1PackageVersionsDispose        = "/v1/package/versions/dispose"
+	pathV1PackageVersionsUpdateStatus   = "/v1/package/versions/update_status"
+	pathV1PackageVersionAsset           = "/v1/package/version/asset"
+	pathV1PackageVersionReadme          = "/v1/package/version/readme"
+	pathV1PackageVersionAssets          = "/v1/package/version/assets"
+	pathV1PackageVersionDependencies    = "/v1/package/version/dependencies"
+	pathV1PackageVersionsPublish        = "/v1/package/versions/publish"
+	// PutPackageOriginConfiguration has no path of its own in the real API: it shares
+	// "/v1/package" (POST) with DescribePackage (GET) and DeletePackage (DELETE) -- see
+	// parsePackageRoute. There is no separate "/v1/package/origin-configuration" path.
+	pathV1PackageGroups            = "/v1/package-groups"
+	pathV1PackageGroupAllowedRepos = "/v1/package-group-allowed-repositories"
+	// pathV1ListAssociatedPackages is ListAssociatedPackages' real path. It does NOT
+	// live under "/v1/package-group-*" like the sibling package-group ops.
+	pathV1ListAssociatedPackages          = "/v1/list-associated-packages"
 	pathV1PackageGroupOriginConfiguration = "/v1/package-group-origin-configuration"
-	pathV1SubPackageGroups                = "/v1/sub-package-groups"
-	pathV1AssociatedPackageGroup          = "/v1/associated-package-group"
-	pathV1Packages                        = "/v1/packages"
-	pathV1PackageVersions                 = "/v1/package/versions"
+	// pathV1SubPackageGroups is ListSubPackageGroups' real path, nested under
+	// "/v1/package-groups" (it happens to also satisfy the "/v1/package" prefix test).
+	pathV1SubPackageGroups = "/v1/package-groups/sub-groups"
+	// pathV1AssociatedPackageGroup is GetAssociatedPackageGroup's real path. It does NOT
+	// live under "/v1/package" and is not the same path as ListAssociatedPackages above.
+	pathV1AssociatedPackageGroup = "/v1/get-associated-package-group"
+	pathV1Packages               = "/v1/packages"
+	pathV1PackageVersions        = "/v1/package/versions"
 )
 
 const (
@@ -229,7 +261,8 @@ func isDomainRepoPath(path string) bool {
 		path == pathV1Domains || path == pathV1Repository ||
 		strings.HasPrefix(path, pathV1Repository+"/") ||
 		path == pathV1Repositories || path == pathV1Tags ||
-		path == pathV1Tag || path == pathV1Untag || path == pathV1AuthToken
+		path == pathV1Tag || path == pathV1Untag || path == pathV1AuthToken ||
+		path == pathV1AssociatedPackageGroup || path == pathV1ListAssociatedPackages
 }
 
 // isPackageCoreGroupPath returns true for core package and package-group paths.
@@ -244,10 +277,9 @@ func isPackageExtendedPath(path string) bool {
 	return path == pathV1PackageVersionsDispose || path == pathV1PackageVersionsUpdateStatus ||
 		path == pathV1PackageVersionAsset || path == pathV1PackageVersionReadme ||
 		path == pathV1PackageVersionAssets || path == pathV1PackageVersionDependencies ||
-		path == pathV1PackageVersionsPublish || path == pathV1PackageOriginConfiguration ||
-		path == pathV1PackageGroupAssociatedPackages || path == pathV1PackageGroupAllowedRepos ||
+		path == pathV1PackageVersionsPublish || path == pathV1PackageGroupAllowedRepos ||
 		path == pathV1PackageGroupOriginConfiguration || path == pathV1SubPackageGroups ||
-		path == pathV1AssociatedPackageGroup || path == pathV1Packages || path == pathV1PackageVersions
+		path == pathV1Packages || path == pathV1PackageVersions
 }
 
 // isPackagePath returns true if the path is a known package/package-group path.
@@ -314,16 +346,17 @@ func parseDomainRepoPath(method, path string) codeartifactRoute {
 //
 //nolint:gochecknoglobals // read-only dispatch table initialized once at startup
 var domainRepoStaticRoutes = map[string]string{
-	pathV1Domains:                opListDomains,
-	pathV1DomainRepositories:     opListRepositoriesInDomain,
-	pathV1RepositoryEndpoint:     opGetRepositoryEndpoint,
-	pathV1Repositories:           opListRepositories,
-	pathV1Tags:                   opListTagsForResource,
-	pathV1Tag:                    opTagResource,
-	pathV1Untag:                  opUntagResource,
-	pathV1AuthToken:              opGetAuthorizationToken,
-	pathV1SubPackageGroups:       opListSubPackageGroups,
-	pathV1AssociatedPackageGroup: opGetAssociatedPackageGroup,
+	pathV1Domains:                       opListDomains,
+	pathV1DomainRepositories:            opListRepositoriesInDomain,
+	pathV1RepositoryEndpoint:            opGetRepositoryEndpoint,
+	pathV1Repositories:                  opListRepositories,
+	pathV1RepositoryPermissionsPolicies: opDeleteRepositoryPermissionsPolicy,
+	pathV1Tags:                          opListTagsForResource,
+	pathV1Tag:                           opTagResource,
+	pathV1Untag:                         opUntagResource,
+	pathV1AuthToken:                     opGetAuthorizationToken,
+	pathV1AssociatedPackageGroup:        opGetAssociatedPackageGroup,
+	pathV1ListAssociatedPackages:        opListAssociatedPackages,
 }
 
 // packageOpStaticRoutes maps static paths (no method dispatch) to their operations.
@@ -343,12 +376,9 @@ var packageOpStaticRoutes = map[string]string{
 	pathV1PackageVersionReadme:            opGetPackageVersionReadme,
 	pathV1PackageVersionAssets:            opListPackageVersionAssets,
 	pathV1PackageVersionDependencies:      opListPackageVersionDependencies,
-	pathV1PackageOriginConfiguration:      opPutPackageOriginConfiguration,
-	pathV1PackageGroupAssociatedPackages:  opListAssociatedPackages,
 	pathV1PackageGroupAllowedRepos:        opListAllowedRepositoriesForGroup,
 	pathV1PackageGroupOriginConfiguration: opUpdatePackageGroupOriginConfiguration,
 	pathV1SubPackageGroups:                opListSubPackageGroups,
-	pathV1AssociatedPackageGroup:          opGetAssociatedPackageGroup,
 }
 
 // parsePackageOpPath handles package, package-group, and package-version routes.
@@ -410,14 +440,16 @@ func parseRepositoryRoute(method string) codeartifactRoute {
 	return codeartifactRoute{operation: opUnknown}
 }
 
+// parseRepositoryPermissionsRoute handles the singular "/v1/repository/permissions/policy"
+// path. Unlike Get/Put, DeleteRepositoryPermissionsPolicy does NOT live here -- it has its
+// own plural "/v1/repository/permissions/policies" path (see domainRepoStaticRoutes),
+// verified against aws-sdk-go-v2 serializers.go.
 func parseRepositoryPermissionsRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodGet:
 		return codeartifactRoute{operation: opGetRepositoryPermissionsPolicy}
 	case http.MethodPut:
 		return codeartifactRoute{operation: opPutRepositoryPermissionsPolicy}
-	case http.MethodDelete:
-		return codeartifactRoute{operation: opDeleteRepositoryPermissionsPolicy}
 	}
 
 	return codeartifactRoute{operation: opUnknown}
@@ -449,12 +481,17 @@ func parseRepositoryExternalConnectionRoute(method string) codeartifactRoute {
 	return codeartifactRoute{operation: opUnknown}
 }
 
+// parsePackageRoute handles the shared "/v1/package" path. PutPackageOriginConfiguration
+// has no path of its own in the real API -- it is POST on this same path (verified against
+// aws-sdk-go-v2 serializers.go), alongside GET DescribePackage and DELETE DeletePackage.
 func parsePackageRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodGet:
 		return codeartifactRoute{operation: opDescribePackage}
 	case http.MethodDelete:
 		return codeartifactRoute{operation: opDeletePackage}
+	case http.MethodPost:
+		return codeartifactRoute{operation: opPutPackageOriginConfiguration}
 	}
 
 	return codeartifactRoute{operation: opUnknown}
@@ -496,17 +533,35 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.Debug("codeartifact request", "operation", route.operation, "path", path)
 
-		var body []byte
-		if c.Request().Body != nil {
-			decoder := json.NewDecoder(c.Request().Body)
-			var raw json.RawMessage
-			if err := decoder.Decode(&raw); err == nil {
-				body = raw
-			}
+		return h.dispatch(c, route, readRequestBody(c, route.operation))
+	}
+}
+
+// readRequestBody extracts the request body appropriately for op's wire shape.
+// PublishPackageVersion's httpPayload is the raw asset content (application/octet-stream),
+// not a JSON document -- attempting a JSON decode there would silently discard every
+// published asset's bytes. Every other op's httpPayload-less body is a JSON document.
+func readRequestBody(c *echo.Context, op string) []byte {
+	if c.Request().Body == nil {
+		return nil
+	}
+
+	if op == opPublishPackageVersion {
+		raw, err := io.ReadAll(c.Request().Body)
+		if err != nil {
+			return nil
 		}
 
-		return h.dispatch(c, route, body)
+		return raw
 	}
+
+	decoder := json.NewDecoder(c.Request().Body)
+	var raw json.RawMessage
+	if err := decoder.Decode(&raw); err != nil {
+		return nil
+	}
+
+	return raw
 }
 
 func (h *Handler) dispatch(c *echo.Context, route codeartifactRoute, body []byte) error {
@@ -536,8 +591,8 @@ func (h *Handler) buildDomainRepoOps() map[string]func(*echo.Context, []byte) er
 		opDeleteDomain: func(c *echo.Context, _ []byte) error {
 			return h.handleDeleteDomain(c, c.Request().URL.Query().Get(keyDomain))
 		},
-		opListDomains: func(c *echo.Context, _ []byte) error {
-			return h.handleListDomains(c)
+		opListDomains: func(c *echo.Context, body []byte) error {
+			return h.handleListDomains(c, body)
 		},
 		opCreateRepository: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
@@ -593,7 +648,7 @@ func (h *Handler) buildDomainRepoOps() map[string]func(*echo.Context, []byte) er
 				c,
 				q.Get(keyDomain),
 				q.Get(keyRepository),
-				q.Get("externalConnection"),
+				q.Get(keyExternalConnectionQuery),
 			)
 		},
 		opGetRepositoryPermissionsPolicy: func(c *echo.Context, _ []byte) error {
@@ -620,7 +675,7 @@ func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error
 			q := c.Request().URL.Query()
 
 			return h.handleCopyPackageVersions(
-				c, q.Get(keyDomain), q.Get("sourceRepository"), q.Get("destinationRepository"),
+				c, q.Get(keyDomain), q.Get(keySourceRepositoryQuery), q.Get(keyDestinationRepositoryQuery),
 				q.Get("format"), q.Get("namespace"), q.Get("package"), body,
 			)
 		},
@@ -637,7 +692,7 @@ func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error
 		opDeletePackageGroup: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleDeletePackageGroup(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+			return h.handleDeletePackageGroup(c, q.Get(keyDomain), q.Get(keyPackageGroupQuery))
 		},
 		opDeletePackageVersions: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
@@ -656,7 +711,7 @@ func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error
 		opDescribePackageGroup: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleDescribePackageGroup(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+			return h.handleDescribePackageGroup(c, q.Get(keyDomain), q.Get(keyPackageGroupQuery))
 		},
 		opDescribePackageVersion: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
@@ -670,7 +725,7 @@ func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error
 			q := c.Request().URL.Query()
 
 			return h.handleDisassociateExternalConnection(
-				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("externalConnection"),
+				c, q.Get(keyDomain), q.Get(keyRepository), q.Get(keyExternalConnectionQuery),
 			)
 		},
 		opDisposePackageVersions: func(c *echo.Context, body []byte) error {
@@ -706,12 +761,12 @@ func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error
 		opListAllowedRepositoriesForGroup: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleListAllowedRepositoriesForGroup(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+			return h.handleListAllowedRepositoriesForGroup(c, q.Get(keyDomain), q.Get(keyPackageGroupQuery))
 		},
 		opListAssociatedPackages: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleListAssociatedPackages(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+			return h.handleListAssociatedPackages(c, q.Get(keyDomain), q.Get(keyPackageGroupQuery))
 		},
 		opListPackageGroups: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
@@ -750,22 +805,22 @@ func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error
 		opListSubPackageGroups: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleListSubPackageGroups(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+			return h.handleListSubPackageGroups(c, q.Get(keyDomain), q.Get(keyPackageGroupQuery))
 		},
 		opPublishPackageVersion: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
 
 			return h.handlePublishPackageVersion(
 				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
-				q.Get("namespace"), q.Get("package"), q.Get(keyVersion), body,
+				q.Get("namespace"), q.Get("package"), q.Get(keyVersion), q.Get("asset"), body,
 			)
 		},
-		opPutPackageOriginConfiguration: func(c *echo.Context, _ []byte) error {
+		opPutPackageOriginConfiguration: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
 
 			return h.handlePutPackageOriginConfiguration(
 				c, q.Get(keyDomain), q.Get(keyRepository), q.Get("format"),
-				q.Get("namespace"), q.Get("package"),
+				q.Get("namespace"), q.Get("package"), body,
 			)
 		},
 		opUpdatePackageGroup: func(c *echo.Context, body []byte) error {
@@ -774,7 +829,7 @@ func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error
 		opUpdatePackageGroupOriginConfiguration: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleUpdatePackageGroupOriginConfiguration(c, q.Get(keyDomain), q.Get(keyPackageGroup))
+			return h.handleUpdatePackageGroupOriginConfiguration(c, q.Get(keyDomain), q.Get(keyPackageGroupQuery))
 		},
 		opUpdatePackageVersionsStatus: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
@@ -885,7 +940,7 @@ func domainToMap(d *Domain, repoCount int) map[string]any {
 		keyName:           d.Name,
 		"owner":           d.Owner,
 		keyStatusField:    d.Status,
-		"createdTime":     epochSeconds(d.CreatedTime),
+		keyCreatedTime:    epochSeconds(d.CreatedTime),
 		"assetSizeBytes":  d.AssetSizeBytes,
 		"repositoryCount": repoCount,
 	}
@@ -905,7 +960,7 @@ func domainSummaryToMap(d *Domain) map[string]any {
 		keyName:        d.Name,
 		"owner":        d.Owner,
 		keyStatusField: d.Status,
-		"createdTime":  epochSeconds(d.CreatedTime),
+		keyCreatedTime: epochSeconds(d.CreatedTime),
 	}
 	if d.EncryptionKey != "" {
 		m["encryptionKey"] = d.EncryptionKey
@@ -953,13 +1008,23 @@ func (h *Handler) handleDescribeDomain(c *echo.Context, name string) error {
 	})
 }
 
-func (h *Handler) handleListDomains(c *echo.Context) error {
-	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("maxResults"))
-	nextToken := q.Get("nextToken")
+// listDomainsBody is ListDomains' request shape. Unlike every other List op in this
+// service, ListDomains sends maxResults/nextToken as JSON body fields (it is the only
+// List op whose Smithy model has no httpQuery bindings at all) rather than as
+// "max-results"/"next-token" query params -- verified against aws-sdk-go-v2 serializers.go.
+type listDomainsBody struct {
+	NextToken  string `json:"nextToken"`
+	MaxResults int    `json:"maxResults"`
+}
+
+func (h *Handler) handleListDomains(c *echo.Context, body []byte) error {
+	var in listDomainsBody
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &in)
+	}
 
 	all := h.Backend.ListDomains(c.Request().Context())
-	page, next := paginateSlice(all, maxResults, nextToken, func(d *Domain) string { return d.Name })
+	page, next := paginateSlice(all, in.MaxResults, in.NextToken, func(d *Domain) string { return d.Name })
 
 	items := make([]map[string]any, 0, len(page))
 	for _, d := range page {
@@ -997,10 +1062,14 @@ type upstreamRepoEntry struct {
 	RepositoryName string `json:"repositoryName"`
 }
 
+// createRepositoryBody's Upstreams field uses the wire key "upstreams" (verified against
+// aws-sdk-go-v2 serializers.go's awsRestjson1_serializeOpDocumentCreateRepositoryInput) --
+// NOT "upstreamRepositories" as the RepositoryDescription.Upstreams Go field name might
+// suggest.
 type createRepositoryBody struct {
-	Description          string              `json:"description"`
-	Tags                 []map[string]any    `json:"tags"`
-	UpstreamRepositories []upstreamRepoEntry `json:"upstreamRepositories"`
+	Description string              `json:"description"`
+	Tags        []map[string]any    `json:"tags"`
+	Upstreams   []upstreamRepoEntry `json:"upstreams"`
 }
 
 func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
@@ -1029,7 +1098,9 @@ func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
 	for _, name := range r.UpstreamRepositories {
 		upstreams = append(upstreams, map[string]string{"repositoryName": name})
 	}
-	m["upstreamRepositories"] = upstreams
+	// Wire key is "upstreams", not "upstreamRepositories" -- verified against
+	// aws-sdk-go-v2 deserializers.go's awsRestjson1_deserializeDocumentRepositoryDescription.
+	m["upstreams"] = upstreams
 
 	return m
 }
@@ -1049,8 +1120,8 @@ func (h *Handler) handleCreateRepository(c *echo.Context, domainName, repoName s
 		}
 	}
 
-	upstreams := make([]string, 0, len(in.UpstreamRepositories))
-	for _, u := range in.UpstreamRepositories {
+	upstreams := make([]string, 0, len(in.Upstreams))
+	for _, u := range in.Upstreams {
 		upstreams = append(upstreams, u.RepositoryName)
 	}
 
@@ -1115,8 +1186,8 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 	}
 
 	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("maxResults"))
-	nextToken := q.Get("nextToken")
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
 
 	all, err := h.Backend.ListRepositoriesInDomain(c.Request().Context(), domainName)
 	if err != nil {
@@ -1145,8 +1216,8 @@ func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName str
 
 func (h *Handler) handleListRepositories(c *echo.Context) error {
 	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("maxResults"))
-	nextToken := q.Get("nextToken")
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
 
 	all := h.Backend.ListRepositories(c.Request().Context())
 	page, next := paginateSlice(all, maxResults, nextToken, func(r *Repository) string { return r.Name })
@@ -1368,6 +1439,7 @@ func packageGroupToMap(pg *PackageGroup) map[string]any {
 		keyDomainName:  pg.DomainName,
 		keyDomainOwner: pg.DomainOwner,
 		"pattern":      pg.Pattern,
+		keyCreatedTime: epochSeconds(pg.CreatedTime),
 	}
 	if pg.Description != "" {
 		m["description"] = pg.Description
@@ -1462,8 +1534,24 @@ func packageToMap(pkg *Package) map[string]any {
 	if pkg.Namespace != "" {
 		m["namespace"] = pkg.Namespace
 	}
+	if pkg.OriginConfigPublish != "" || pkg.OriginConfigUpstream != "" {
+		m["originConfiguration"] = originConfigurationToMap(pkg.OriginConfigPublish, pkg.OriginConfigUpstream)
+	}
 
 	return m
+}
+
+// originConfigurationToMap builds the wire shape of PackageOriginConfiguration --
+// verified against aws-sdk-go-v2 deserializers.go's
+// awsRestjson1_deserializeDocumentPackageOriginConfiguration /
+// ...PackageOriginRestrictions.
+func originConfigurationToMap(publish, upstream string) map[string]any {
+	return map[string]any{
+		"restrictions": map[string]any{
+			"publish":  publish,
+			"upstream": upstream,
+		},
+	}
 }
 
 func (h *Handler) handleDescribePackage(c *echo.Context, domainName, repoName, format, namespace, name string) error {
@@ -1516,14 +1604,19 @@ func (h *Handler) handleDeletePackage(c *echo.Context, domainName, repoName, for
 
 // --- Package version handlers ---
 
+// packageVersionToMap builds the wire shape of PackageVersionDescription (used by
+// DescribePackageVersion). The publish-time field's wire key is "publishedTime" --
+// verified against aws-sdk-go-v2 deserializers.go's
+// awsRestjson1_deserializeDocumentPackageVersionDescription; "publishedAt" is not a
+// field the real deserializer recognizes.
 func packageVersionToMap(pv *PackageVersion) map[string]any {
 	m := map[string]any{
-		keyVersion:     pv.Version,
-		keyStatusField: pv.Status,
-		"format":       pv.Format,
-		"packageName":  pv.PackageName,
-		"publishedAt":  epochSeconds(pv.PublishedAt),
-		keyRevision:    pv.Revision,
+		keyVersion:      pv.Version,
+		keyStatusField:  pv.Status,
+		"format":        pv.Format,
+		"packageName":   pv.PackageName,
+		"publishedTime": epochSeconds(pv.PublishedAt),
+		keyRevision:     pv.Revision,
 	}
 	if pv.Namespace != "" {
 		m["namespace"] = pv.Namespace
@@ -2024,8 +2117,8 @@ func (h *Handler) handleListPackageGroups(c *echo.Context, domainName, prefix st
 	}
 
 	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("maxResults"))
-	nextToken := q.Get("nextToken")
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
 
 	all, err := h.Backend.ListPackageGroups(c.Request().Context(), domainName, prefix)
 	if err != nil {
@@ -2067,7 +2160,24 @@ func (h *Handler) handleListPackageVersionAssets(
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"assets": assets})
+	items := make([]map[string]any, 0, len(assets))
+	for _, a := range assets {
+		items = append(items, assetSummaryToMap(a))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"assets": items})
+}
+
+// assetSummaryToMap builds the wire shape of AssetSummary -- verified against
+// aws-sdk-go-v2 deserializers.go's awsRestjson1_deserializeDocumentAssetSummary.
+func assetSummaryToMap(a AssetInfo) map[string]any {
+	return map[string]any{
+		"name": a.Name,
+		"size": a.Size,
+		"hashes": map[string]string{
+			"SHA256": a.SHA256,
+		},
+	}
 }
 
 func (h *Handler) handleListPackageVersionDependencies(
@@ -2110,8 +2220,8 @@ func (h *Handler) handleListPackageVersions(
 	}
 
 	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("maxResults"))
-	nextToken := q.Get("nextToken")
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
 
 	all, err := h.Backend.ListPackageVersions(c.Request().Context(), domainName, repoName, format, namespace, name)
 	if err != nil {
@@ -2142,8 +2252,8 @@ func (h *Handler) handleListPackages(c *echo.Context, domainName, repoName, form
 	}
 
 	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("maxResults"))
-	nextToken := q.Get("nextToken")
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
 
 	all, err := h.Backend.ListPackages(c.Request().Context(), domainName, repoName, format, namespace)
 	if err != nil {
@@ -2174,8 +2284,8 @@ func (h *Handler) handleListSubPackageGroups(c *echo.Context, domainName, patter
 	}
 
 	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("maxResults"))
-	nextToken := q.Get("nextToken")
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
 
 	all, err := h.Backend.ListSubPackageGroups(c.Request().Context(), domainName, pattern)
 	if err != nil {
@@ -2198,7 +2308,7 @@ func (h *Handler) handleListSubPackageGroups(c *echo.Context, domainName, patter
 }
 
 func (h *Handler) handlePublishPackageVersion(
-	c *echo.Context, domainName, repoName, format, namespace, name, version string, _ []byte,
+	c *echo.Context, domainName, repoName, format, namespace, name, version, assetName string, body []byte,
 ) error {
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
@@ -2215,6 +2325,17 @@ func (h *Handler) handlePublishPackageVersion(
 	if version == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
 	}
+	if assetName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "asset is required"))
+	}
+
+	sum := sha256.Sum256(body)
+	asset := AssetInfo{
+		Name:    assetName,
+		Size:    int64(len(body)),
+		SHA256:  hex.EncodeToString(sum[:]),
+		Content: body,
+	}
 
 	pv, err := h.Backend.PublishPackageVersion(
 		c.Request().Context(),
@@ -2224,16 +2345,47 @@ func (h *Handler) handlePublishPackageVersion(
 		namespace,
 		name,
 		version,
+		asset,
 	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, packageVersionToMap(pv))
+	return c.JSON(http.StatusOK, publishPackageVersionToMap(pv, asset))
+}
+
+// publishPackageVersionToMap builds PublishPackageVersionOutput's wire shape -- a FLAT
+// object (no "packageVersion" envelope), with field names "package"/"versionRevision"
+// (not "packageName"/"revision") and an "asset" summary. Verified against aws-sdk-go-v2
+// deserializers.go's awsRestjson1_deserializeOpDocumentPublishPackageVersionOutput.
+func publishPackageVersionToMap(pv *PackageVersion, asset AssetInfo) map[string]any {
+	m := map[string]any{
+		keyFormat:         pv.Format,
+		keyPackageKey:     pv.PackageName,
+		keyStatusField:    pv.Status,
+		keyVersion:        pv.Version,
+		"versionRevision": pv.Revision,
+		"asset":           assetSummaryToMap(asset),
+	}
+	if pv.Namespace != "" {
+		m["namespace"] = pv.Namespace
+	}
+
+	return m
+}
+
+// putPackageOriginConfigurationBody is PutPackageOriginConfigurationInput's request
+// shape -- verified against aws-sdk-go-v2 serializers.go's
+// awsRestjson1_serializeOpDocumentPutPackageOriginConfigurationInput.
+type putPackageOriginConfigurationBody struct {
+	Restrictions struct {
+		Publish  string `json:"publish"`
+		Upstream string `json:"upstream"`
+	} `json:"restrictions"`
 }
 
 func (h *Handler) handlePutPackageOriginConfiguration(
-	c *echo.Context, domainName, repoName, format, namespace, name string,
+	c *echo.Context, domainName, repoName, format, namespace, name string, body []byte,
 ) error {
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
@@ -2248,6 +2400,13 @@ func (h *Handler) handlePutPackageOriginConfiguration(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
 	}
 
+	var in putPackageOriginConfigurationBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		}
+	}
+
 	pkg, err := h.Backend.PutPackageOriginConfiguration(
 		c.Request().Context(),
 		domainName,
@@ -2255,12 +2414,19 @@ func (h *Handler) handlePutPackageOriginConfiguration(
 		format,
 		namespace,
 		name,
+		in.Restrictions.Publish,
+		in.Restrictions.Upstream,
 	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"package": packageToMap(pkg)})
+	// PutPackageOriginConfigurationOutput is a FLAT {"originConfiguration": ...} object,
+	// not wrapped in "package" -- verified against aws-sdk-go-v2 deserializers.go's
+	// awsRestjson1_deserializeOpDocumentPutPackageOriginConfigurationOutput.
+	return c.JSON(http.StatusOK, map[string]any{
+		"originConfiguration": originConfigurationToMap(pkg.OriginConfigPublish, pkg.OriginConfigUpstream),
+	})
 }
 
 type updatePackageGroupBody struct {
@@ -2348,9 +2514,11 @@ func (h *Handler) handleUpdatePackageVersionsStatus(
 	return c.JSON(http.StatusOK, map[string]any{keySuccessfulVersions: results, keyFailedVersions: map[string]any{}})
 }
 
+// updateRepositoryBody's Upstreams field uses the wire key "upstreams", same as
+// createRepositoryBody -- see its comment for the verified source.
 type updateRepositoryBody struct {
-	Description          string              `json:"description"`
-	UpstreamRepositories []upstreamRepoEntry `json:"upstreamRepositories"`
+	Description string              `json:"description"`
+	Upstreams   []upstreamRepoEntry `json:"upstreams"`
 }
 
 func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName string, body []byte) error {
@@ -2367,9 +2535,9 @@ func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName s
 	}
 
 	var upstreams []string
-	if in.UpstreamRepositories != nil {
-		upstreams = make([]string, 0, len(in.UpstreamRepositories))
-		for _, u := range in.UpstreamRepositories {
+	if in.Upstreams != nil {
+		upstreams = make([]string, 0, len(in.Upstreams))
+		for _, u := range in.Upstreams {
 			upstreams = append(upstreams, u.RepositoryName)
 		}
 	}

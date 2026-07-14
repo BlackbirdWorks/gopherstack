@@ -119,7 +119,7 @@ func TestAccuracy_ConfigSetSendingOptions(t *testing.T) {
 
 	// Disable sending.
 	rec := doReq(t, h, http.MethodPut,
-		"/v2/email/configuration-sets/send-cs/sending-options",
+		"/v2/email/configuration-sets/send-cs/sending",
 		map[string]any{"SendingEnabled": false})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -141,7 +141,7 @@ func TestAccuracy_ConfigSetSendingOptionsNotFound(t *testing.T) {
 	h, _ := newRefinement1Handler(t)
 
 	rec := doReq(t, h, http.MethodPut,
-		"/v2/email/configuration-sets/no-such-cs/sending-options",
+		"/v2/email/configuration-sets/no-such-cs/sending",
 		map[string]any{"SendingEnabled": true})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -297,7 +297,7 @@ func TestAccuracy_ConfigSetMultipleOptions(t *testing.T) {
 		map[string]any{"TlsPolicy": "OPTIONAL"})
 	doReq(t, h, http.MethodPut, "/v2/email/configuration-sets/multi-cs/reputation-options",
 		map[string]any{"ReputationMetricsEnabled": true})
-	doReq(t, h, http.MethodPut, "/v2/email/configuration-sets/multi-cs/sending-options",
+	doReq(t, h, http.MethodPut, "/v2/email/configuration-sets/multi-cs/sending",
 		map[string]any{"SendingEnabled": false})
 	doReq(t, h, http.MethodPut, "/v2/email/configuration-sets/multi-cs/suppression-options",
 		map[string]any{"SuppressedReasons": []string{"BOUNCE"}})

@@ -97,7 +97,7 @@ func describeBuckets(t *testing.T, h *macie2.Handler, criteria map[string]any) [
 func getBucketStatistics(t *testing.T, h *macie2.Handler) map[string]any {
 	t.Helper()
 
-	rec := doRequest(t, h, http.MethodGet, "/datasources/s3/statistics", nil)
+	rec := doRequest(t, h, http.MethodPost, "/datasources/s3/statistics", nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any

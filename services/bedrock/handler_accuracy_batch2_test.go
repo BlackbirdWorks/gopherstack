@@ -323,8 +323,8 @@ func TestAccuracy_MarketplaceEndpoint_DeregisterTransitionsToDeregistered(t *tes
 	// Register first.
 	require.NoError(t, b.RegisterMarketplaceModelEndpoint(ep.EndpointArn))
 
-	rec := doRequest(t, h, http.MethodPost,
-		"/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn)+"/deregistration", nil)
+	rec := doRequest(t, h, http.MethodDelete,
+		"/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn)+"/registration", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	got, err := b.GetMarketplaceModelEndpoint(ep.EndpointArn)
@@ -420,7 +420,7 @@ func TestAccuracy_MarketplaceEndpoint_UpdateReturnsEndpoint(t *testing.T) {
 	ep, err := b.CreateMarketplaceModelEndpoint("update-ep", "src", nil)
 	require.NoError(t, err)
 
-	rec := doRequest(t, h, http.MethodPut, "/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn), nil)
+	rec := doRequest(t, h, http.MethodPatch, "/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn), nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
@@ -715,8 +715,8 @@ func TestAccuracy_EvaluationJob_StopTransitionsStatus(t *testing.T) {
 			job, err := b.CreateEvaluationJob("stop-eval-job", nil)
 			require.NoError(t, err)
 
-			recStop := doRequest(t, h, http.MethodDelete,
-				"/evaluation-jobs/"+url.PathEscape(job.JobArn), nil)
+			recStop := doRequest(t, h, http.MethodPost,
+				"/evaluation-job/"+url.PathEscape(job.JobArn)+"/stop", nil)
 			assert.Equal(t, http.StatusOK, recStop.Code)
 
 			recGet := doRequest(t, h, http.MethodGet,
@@ -1084,12 +1084,12 @@ func TestAccuracy_ModelInvocationJob_StopTransitionsStatus(t *testing.T) {
 			job, err := b.CreateModelInvocationJob("stop-invoc-job", nil)
 			require.NoError(t, err)
 
-			rec := doRequest(t, h, http.MethodDelete,
-				"/model-invocation-jobs/"+url.PathEscape(job.JobArn), nil)
+			rec := doRequest(t, h, http.MethodPost,
+				"/model-invocation-job/"+url.PathEscape(job.JobArn)+"/stop", nil)
 			assert.Equal(t, http.StatusNoContent, rec.Code)
 
 			recGet := doRequest(t, h, http.MethodGet,
-				"/model-invocation-jobs/"+url.PathEscape(job.JobArn), nil)
+				"/model-invocation-job/"+url.PathEscape(job.JobArn), nil)
 			require.Equal(t, http.StatusOK, recGet.Code)
 
 			var out map[string]any
@@ -1392,16 +1392,19 @@ func TestAccuracy_Guardrail_UpdatePreservesAllFields(t *testing.T) {
 // ProvisionedModelThroughput — update and tag accuracy
 // ─────────────────────────────────────────────────────────────
 
-func TestAccuracy_PMT_UpdateCommitCountUnits(t *testing.T) {
+// TestAccuracy_PMT_UpdateDesiredModelAndName verifies UpdateProvisionedModelThroughput's
+// real (and only) two mutable fields: desiredModelId and desiredProvisionedModelName.
+// AWS has no way to change modelUnits after creation — that's fixed at CreateProvisionedModelThroughput.
+func TestAccuracy_PMT_UpdateDesiredModelAndName(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		initialUnits int32
-		newUnits     int32
+		name           string
+		desiredModelID string
+		desiredNewName string
 	}{
-		{name: "increase units", initialUnits: 1, newUnits: 3},
-		{name: "decrease units", initialUnits: 5, newUnits: 2},
+		{name: "swap desired model", desiredModelID: "anthropic.claude-v2"},
+		{name: "rename", desiredNewName: "renamed-pmt"},
 	}
 
 	for _, tt := range tests {
@@ -1411,16 +1414,36 @@ func TestAccuracy_PMT_UpdateCommitCountUnits(t *testing.T) {
 			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 			h := bedrock.NewHandler(b)
 			pmt, err := b.CreateProvisionedModelThroughput(
-				"update-pmt-"+tt.name, "amazon.titan-text-express-v1", tt.initialUnits, "", nil,
+				"update-pmt-"+tt.name, "amazon.titan-text-express-v1", 1, "", nil,
 			)
 			require.NoError(t, err)
 
+			body := map[string]any{}
+			if tt.desiredModelID != "" {
+				body["desiredModelId"] = tt.desiredModelID
+			}
+
+			if tt.desiredNewName != "" {
+				body["desiredProvisionedModelName"] = tt.desiredNewName
+			}
+
 			rec := doRequest(
-				t, h, http.MethodPut,
+				t, h, http.MethodPatch,
 				"/provisioned-model-throughput/"+url.PathEscape(pmt.ProvisionedModelArn),
-				map[string]any{"desiredProvisionedModelThroughput": tt.newUnits},
+				body,
 			)
 			assert.Equal(t, http.StatusOK, rec.Code)
+
+			updated, err := b.GetProvisionedModelThroughput(pmt.ProvisionedModelArn)
+			require.NoError(t, err)
+
+			if tt.desiredModelID != "" {
+				assert.Contains(t, updated.DesiredModelArn, tt.desiredModelID)
+			}
+
+			if tt.desiredNewName != "" {
+				assert.Equal(t, tt.desiredNewName, updated.ProvisionedModelName)
+			}
 		})
 	}
 }

@@ -22,7 +22,7 @@ import (
 // partially decode) any mismatch -- see Restore below. Mirrors the
 // services/sqs pilot (commit 0f09d77c) and services/apigateway (commit
 // 6da0334e).
-const opensearchSnapshotVersion = 1
+const opensearchSnapshotVersion = 2
 
 // dryRunSnapshot, autoTuneSnapshot, dataSourceSnapshot, and
 // domainIndexSnapshot are DTOs used ONLY for Snapshot/Restore. Each mirrors

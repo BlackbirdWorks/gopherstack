@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -18,18 +19,20 @@ import (
 )
 
 const (
-	keyArn              = "arn"
-	keyName             = "name"
-	keyOwnerAccountID   = "ownerAccountId"
-	keyCreatedAt        = "createdAt"
-	keyTableBucketARN   = "tableBucketARN"
-	keyConfiguration    = "configuration"
-	keyTableARN         = "tableARN"
-	keyStatusField      = "status"
-	keyVersionToken     = "versionToken"
-	keyMetadataLocation = "metadataLocation"
-	keyNamespace        = "namespace"
-	keyCreatedBy        = "createdBy"
+	keyArn               = "arn"
+	keyName              = "name"
+	keyOwnerAccountID    = "ownerAccountId"
+	keyCreatedAt         = "createdAt"
+	keyTableBucketARN    = "tableBucketARN"
+	keyConfiguration     = "configuration"
+	keyTableARN          = "tableARN"
+	keyStatusField       = "status"
+	keyVersionToken      = "versionToken"
+	keyMetadataLocation  = "metadataLocation"
+	keyNamespace         = "namespace"
+	keyCreatedBy         = "createdBy"
+	keyContinuationToken = "continuationToken"
+	keyTableArnLower     = "tableArn"
 )
 
 const (
@@ -508,9 +511,15 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 // === TableBucket operations ===
 
-// createTableBucketRequest is the request body for CreateTableBucket.
+// createTableBucketRequest is the request body for CreateTableBucket. Real
+// CreateTableBucketInput also accepts encryptionConfiguration,
+// storageClassConfiguration, and tags alongside the required name -- see
+// CreateTableBucketInput in aws-sdk-go-v2/service/s3tables.
 type createTableBucketRequest struct {
-	Name string `json:"name"`
+	EncryptionConfiguration   map[string]any    `json:"encryptionConfiguration"`
+	StorageClassConfiguration map[string]any    `json:"storageClassConfiguration"`
+	Tags                      map[string]string `json:"tags"`
+	Name                      string            `json:"name"`
 }
 
 func (h *Handler) handleCreateTableBucket(ctx context.Context, _ *http.Request, body []byte) ([]byte, error) {
@@ -523,7 +532,11 @@ func (h *Handler) handleCreateTableBucket(ctx context.Context, _ *http.Request, 
 		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
 	}
 
-	tb, err := h.Backend.CreateTableBucket(req.Name)
+	tb, err := h.Backend.CreateTableBucket(req.Name, CreateTableBucketOptions{
+		Encryption:   req.EncryptionConfiguration,
+		StorageClass: storageClassFromConfig(req.StorageClassConfiguration),
+		Tags:         req.Tags,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -580,12 +593,21 @@ func (h *Handler) handleDeleteTableBucket(ctx context.Context, r *http.Request, 
 }
 
 func (h *Handler) handleListTableBuckets(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
-	_ = r
+	q := r.URL.Query()
 
-	list := h.Backend.ListTableBuckets()
-	summaries := make([]map[string]any, 0, len(list))
+	pg, err := h.Backend.ListTableBuckets(ListTableBucketsParams{
+		Prefix:            q.Get("prefix"),
+		Type:              q.Get(keyType),
+		ContinuationToken: q.Get(keyContinuationToken),
+		MaxBuckets:        queryInt(q, "maxBuckets"),
+	})
+	if err != nil {
+		return nil, err
+	}
 
-	for _, tb := range list {
+	summaries := make([]map[string]any, 0, len(pg.Data))
+
+	for _, tb := range pg.Data {
 		summaries = append(summaries, map[string]any{
 			keyArn:            tb.ARN,
 			keyName:           tb.Name,
@@ -598,9 +620,14 @@ func (h *Handler) handleListTableBuckets(ctx context.Context, r *http.Request, _
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: listed table buckets", "count", len(summaries))
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"tableBuckets": summaries,
-	})
+	}
+	if pg.Next != "" {
+		resp[keyContinuationToken] = pg.Next
+	}
+
+	return json.Marshal(resp)
 }
 
 // === Maintenance configuration operations ===
@@ -995,7 +1022,8 @@ func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request,
 	ns := segs[2]
 	name := segs[3]
 
-	if _, err := h.Backend.GetTable(bucketARN, splitNamespace(ns), name); err != nil {
+	encCfg, err := h.Backend.GetTableEncryption(bucketARN, splitNamespace(ns), name)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1003,9 +1031,7 @@ func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request,
 	log.InfoContext(ctx, "s3tables: got table encryption", keyName, name)
 
 	return json.Marshal(map[string]any{
-		"encryptionConfiguration": map[string]string{
-			"sseAlgorithm": "AES256",
-		},
+		"encryptionConfiguration": encCfg,
 	})
 }
 
@@ -1168,15 +1194,20 @@ func (h *Handler) handleListNamespaces(ctx context.Context, r *http.Request, _ [
 	}
 
 	bucketARN := segs[1]
+	q := r.URL.Query()
 
-	list, err := h.Backend.ListNamespaces(bucketARN)
+	pg, err := h.Backend.ListNamespaces(bucketARN, ListNamespacesParams{
+		Prefix:            q.Get("prefix"),
+		ContinuationToken: q.Get(keyContinuationToken),
+		MaxNamespaces:     queryInt(q, "maxNamespaces"),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	summaries := make([]map[string]any, 0, len(list))
+	summaries := make([]map[string]any, 0, len(pg.Data))
 
-	for _, ns := range list {
+	for _, ns := range pg.Data {
 		summaries = append(summaries, map[string]any{
 			keyNamespace:      ns.Namespace,
 			keyTableBucketARN: ns.TableBucketARN,
@@ -1189,17 +1220,29 @@ func (h *Handler) handleListNamespaces(ctx context.Context, r *http.Request, _ [
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: listed namespaces", "bucket", bucketARN, "count", len(summaries))
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"namespaces": summaries,
-	})
+	}
+	if pg.Next != "" {
+		resp[keyContinuationToken] = pg.Next
+	}
+
+	return json.Marshal(resp)
 }
 
 // === Table operations ===
 
 // createTableRequest is the request body for CreateTable.
+// createTableRequest is the request body for CreateTable. Real
+// CreateTableInput also accepts encryptionConfiguration,
+// storageClassConfiguration, and tags alongside the required name/format --
+// see CreateTableInput in aws-sdk-go-v2/service/s3tables.
 type createTableRequest struct {
-	Name   string `json:"name"`
-	Format string `json:"format"`
+	EncryptionConfiguration   map[string]any    `json:"encryptionConfiguration"`
+	StorageClassConfiguration map[string]any    `json:"storageClassConfiguration"`
+	Tags                      map[string]string `json:"tags"`
+	Name                      string            `json:"name"`
+	Format                    string            `json:"format"`
 }
 
 func (h *Handler) handleCreateTable(ctx context.Context, r *http.Request, body []byte) ([]byte, error) {
@@ -1224,7 +1267,11 @@ func (h *Handler) handleCreateTable(ctx context.Context, r *http.Request, body [
 		req.Format = "ICEBERG"
 	}
 
-	table, err := h.Backend.CreateTable(bucketARN, splitNamespace(nsName), req.Name, req.Format)
+	table, err := h.Backend.CreateTable(bucketARN, splitNamespace(nsName), req.Name, req.Format, CreateTableOptions{
+		Encryption:   req.EncryptionConfiguration,
+		StorageClass: storageClassFromConfig(req.StorageClassConfiguration),
+		Tags:         req.Tags,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1243,12 +1290,29 @@ func (h *Handler) handleGetTable(ctx context.Context, r *http.Request, _ []byte)
 	bucketARN := q.Get(keyTableBucketARN)
 	nsName := q.Get(keyNamespace)
 	name := q.Get(keyName)
+	tableArn := q.Get(keyTableArnLower)
 
-	if bucketARN == "" || nsName == "" || name == "" {
-		return nil, fmt.Errorf("%w: tableBucketARN, namespace and name are required", errInvalidRequest)
+	// Real GetTableInput accepts EITHER tableArn alone OR the
+	// tableBucketARN+namespace+name triple (all four fields are optional on
+	// the input shape) -- previously only the triple was honored, so a
+	// client identifying the table purely by ARN always got a 400.
+	var (
+		table *Table
+		err   error
+	)
+
+	switch {
+	case tableArn != "":
+		table, err = h.Backend.GetTableByARN(tableArn)
+	case bucketARN != "" && nsName != "" && name != "":
+		table, err = h.Backend.GetTable(bucketARN, splitNamespace(nsName), name)
+	default:
+		return nil, fmt.Errorf(
+			"%w: either tableArn, or tableBucketARN, namespace and name, are required",
+			errInvalidRequest,
+		)
 	}
 
-	table, err := h.Backend.GetTable(bucketARN, splitNamespace(nsName), name)
 	if err != nil {
 		return nil, err
 	}
@@ -1301,16 +1365,21 @@ func (h *Handler) handleListTables(ctx context.Context, r *http.Request, _ []byt
 	}
 
 	bucketARN := segs[1]
-	namespace := r.URL.Query().Get(keyNamespace)
+	q := r.URL.Query()
+	namespace := q.Get(keyNamespace)
 
-	list, err := h.Backend.ListTables(bucketARN, namespace)
+	pg, err := h.Backend.ListTables(bucketARN, namespace, ListTablesParams{
+		Prefix:            q.Get("prefix"),
+		ContinuationToken: q.Get(keyContinuationToken),
+		MaxTables:         queryInt(q, "maxTables"),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	summaries := make([]map[string]any, 0, len(list))
+	summaries := make([]map[string]any, 0, len(pg.Data))
 
-	for _, t := range list {
+	for _, t := range pg.Data {
 		summaries = append(summaries, map[string]any{
 			keyName:           t.Name,
 			keyNamespace:      t.Namespace,
@@ -1325,9 +1394,14 @@ func (h *Handler) handleListTables(ctx context.Context, r *http.Request, _ []byt
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: listed tables", "bucket", bucketARN, "count", len(summaries))
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"tables": summaries,
-	})
+	}
+	if pg.Next != "" {
+		resp[keyContinuationToken] = pg.Next
+	}
+
+	return json.Marshal(resp)
 }
 
 // renameTableRequest is the request body for RenameTable.
@@ -1743,11 +1817,9 @@ func (h *Handler) handlePutTableBucketStorageClass(ctx context.Context, r *http.
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	storageClass := storageClassStandard
-	if scVal, found := req.StorageClassConfiguration["storageClass"]; found {
-		if scStr, isStr := scVal.(string); isStr && scStr != "" {
-			storageClass = scStr
-		}
+	storageClass := storageClassFromConfig(req.StorageClassConfiguration)
+	if storageClass == "" {
+		storageClass = storageClassStandard
 	}
 
 	if err := h.Backend.PutTableBucketStorageClass(bucketARN, storageClass); err != nil {
@@ -1973,6 +2045,40 @@ func rawPathSegments(r *http.Request) []string {
 	}
 
 	return segments
+}
+
+// queryInt parses a query parameter as a positive integer, returning 0 (the
+// "unspecified" sentinel page.New treats as defaultLimit) when the
+// parameter is absent, empty, or not a valid non-negative integer.
+func queryInt(q url.Values, key string) int {
+	raw := q.Get(key)
+	if raw == "" {
+		return 0
+	}
+
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0
+	}
+
+	return n
+}
+
+// storageClassFromConfig extracts the "storageClass" field from a
+// storageClassConfiguration request body map, returning "" when absent or
+// not a non-empty string.
+func storageClassFromConfig(cfg map[string]any) string {
+	scVal, found := cfg["storageClass"]
+	if !found {
+		return ""
+	}
+
+	scStr, isStr := scVal.(string)
+	if !isStr {
+		return ""
+	}
+
+	return scStr
 }
 
 // parseBucketReplicationDestinations extracts replication destinations from a config map.

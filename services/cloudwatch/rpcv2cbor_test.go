@@ -17,8 +17,13 @@ import (
 
 const cborTestServicePath = "/service/GraniteServiceVersion20100801/operation/"
 
-// fixedTS is 2024-06-01 12:00:00 UTC as a Unix timestamp.
-const fixedTS = 1717243200.0
+// fixedTS is a fixed test anchor point, computed at test-run time so it stays
+// inside PutMetricData's write-time Timestamp acceptance window (two weeks
+// past / two hours future) regardless of when the suite runs, expressed as a
+// Unix timestamp (the CBOR wire encoding for a Timestamp tag).
+//
+//nolint:gochecknoglobals // test-only fixed reference point
+var fixedTS = float64(time.Now().UTC().Add(-time.Hour).Unix())
 
 // postCBOR sends a rpc-v2-cbor POST to the CloudWatch handler.
 func postCBOR(t *testing.T, h *cloudwatch.Handler, op string, body cbor.Map) *httptest.ResponseRecorder {

@@ -520,7 +520,7 @@ func TestRefinement2_GetTagValues_Empty(t *testing.T) {
 
 // ------------------------------------------------------------------ handler JSON error body ---
 
-func TestRefinement2_Handler_ValidationError_HasValidationExceptionBody(t *testing.T) {
+func TestRefinement2_Handler_ValidationError_HasInvalidParameterExceptionBody(t *testing.T) {
 	t.Parallel()
 
 	h := resourcegroupstaggingapi.NewHandler(newBackend(t))
@@ -533,7 +533,9 @@ func TestRefinement2_Handler_ValidationError_HasValidationExceptionBody(t *testi
 
 	var body map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
-	assert.Equal(t, "ValidationException", body["__type"])
+	// Real resourcegroupstaggingapi has no ValidationException shape; parameter
+	// validation failures are modeled as InvalidParameterException.
+	assert.Equal(t, "InvalidParameterException", body["__type"])
 }
 
 func TestRefinement2_Handler_GetResources_IncludeComplianceDetails(t *testing.T) {

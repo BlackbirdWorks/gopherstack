@@ -33,7 +33,21 @@ func TestRefinement2_DeleteServerOnlineReturnsConflict(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
 	serverID := createResp["ServerId"].(string)
 
-	// Server is ONLINE immediately after creation; delete should fail.
+	// Servers are created OFFLINE; start it so it is ONLINE before delete is attempted.
+	startRec := doTransferRequest(t, h, "StartServer", map[string]any{"ServerId": serverID})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	for range 30 {
+		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
+		var resp map[string]any
+		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
+		if resp["Server"].(map[string]any)["State"].(string) == "ONLINE" {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+
+	// Server is ONLINE; delete should fail.
 	delRec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
 	assert.Equal(t, http.StatusBadRequest, delRec.Code)
 
@@ -51,6 +65,18 @@ func TestRefinement2_DeleteServerBackendOnlineReturnsError(t *testing.T) {
 	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
+
+	// Servers are created OFFLINE; start it so it is ONLINE before delete is attempted.
+	require.NoError(t, b.StartServer(s.ServerID))
+
+	for range 30 {
+		got, derr := b.DescribeServer(s.ServerID)
+		require.NoError(t, derr)
+		if got.State == "ONLINE" {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
 
 	err = b.DeleteServer(s.ServerID)
 	require.Error(t, err)
@@ -171,7 +197,18 @@ func TestRefinement2_StartServerIdempotent(t *testing.T) {
 	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	s, err := b.CreateServer(nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "ONLINE", s.State)
+	// AWS creates servers OFFLINE; bring it ONLINE first.
+	assert.Equal(t, "OFFLINE", s.State)
+	require.NoError(t, b.StartServer(s.ServerID))
+
+	for range 30 {
+		got, derr := b.DescribeServer(s.ServerID)
+		require.NoError(t, derr)
+		if got.State == "ONLINE" {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
 
 	// Starting an already-ONLINE server should not error.
 	require.NoError(t, b.StartServer(s.ServerID))
@@ -625,4 +662,114 @@ func TestRefinement2_ServerUserCountMethod(t *testing.T) {
 
 	// Non-existent server returns 0.
 	assert.Equal(t, 0, b.ServerUserCount("s-doesnotexist"))
+}
+
+// --- DescribeWebApp / ListWebApps response fields ---
+
+// TestRefinement2_DescribeWebAppIncludesArnTagsAndIdentityProvider verifies that
+// DescribeWebApp returns the (required, per AWS) Arn field plus Tags and
+// IdentityProviderDetails, all of which the backend already stores.
+func TestRefinement2_DescribeWebAppIncludesArnTagsAndIdentityProvider(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doTransferRequest(t, h, "CreateWebApp", map[string]any{
+		"Tags": []map[string]any{{"Key": "env", "Value": "prod"}},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	webAppID := createResp["WebAppId"].(string)
+
+	updateRec := doTransferRequest(t, h, "UpdateWebApp", map[string]any{
+		"WebAppId": webAppID,
+		"IdentityProviderDetails": map[string]any{
+			"Role": "arn:aws:iam::123456789012:role/webapp-idp",
+		},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	descRec := doTransferRequest(t, h, "DescribeWebApp", map[string]any{"WebAppId": webAppID})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	webApp := descResp["WebApp"].(map[string]any)
+
+	assert.Equal(t,
+		"arn:aws:transfer:us-east-1:123456789012:webapp/"+webAppID,
+		webApp["Arn"],
+		"Arn is a required field on DescribedWebApp",
+	)
+
+	tags := webApp["Tags"].([]any)
+	require.Len(t, tags, 1)
+	tag := tags[0].(map[string]any)
+	assert.Equal(t, "env", tag["Key"])
+	assert.Equal(t, "prod", tag["Value"])
+
+	idp := webApp["IdentityProviderDetails"].(map[string]any)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/webapp-idp", idp["Role"])
+}
+
+// TestRefinement2_ListWebAppsIncludesArn verifies that ListWebApps returns the
+// (required, per AWS) Arn field for each entry.
+func TestRefinement2_ListWebAppsIncludesArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doTransferRequest(t, h, "CreateWebApp", map[string]any{})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	webAppID := createResp["WebAppId"].(string)
+
+	listRec := doTransferRequest(t, h, "ListWebApps", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+
+	webApps := listResp["WebApps"].([]any)
+	require.Len(t, webApps, 1)
+	item := webApps[0].(map[string]any)
+	assert.Equal(t, "arn:aws:transfer:us-east-1:123456789012:webapp/"+webAppID, item["Arn"])
+}
+
+// --- ListAccesses response fields ---
+
+// TestRefinement2_ListAccessesIncludesHomeDirectoryType verifies that
+// ListAccesses returns HomeDirectoryType per entry, matching real AWS's
+// ListedAccess shape.
+func TestRefinement2_ListAccessesIncludesHomeDirectoryType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	s, err := h.Backend.CreateServer(nil, nil)
+	require.NoError(t, err)
+
+	createRec := doTransferRequest(t, h, "CreateAccess", map[string]any{
+		"ServerId":          s.ServerID,
+		"ExternalId":        "S-1-5-21-1234",
+		"HomeDirectoryType": "LOGICAL",
+		"HomeDirectoryMappings": []map[string]any{
+			{"Entry": "/", "Target": "/bucket/home"},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	listRec := doTransferRequest(t, h, "ListAccesses", map[string]any{"ServerId": s.ServerID})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+
+	accesses := listResp["Accesses"].([]any)
+	require.Len(t, accesses, 1)
+	item := accesses[0].(map[string]any)
+	assert.Equal(t, "LOGICAL", item["HomeDirectoryType"])
 }

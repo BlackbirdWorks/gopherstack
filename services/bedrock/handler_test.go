@@ -176,7 +176,7 @@ func TestHandler_ExtractOperation(t *testing.T) { //nolint:paralleltest // exist
 		},
 		{
 			"UpdateProvisionedModelThroughput",
-			http.MethodPut,
+			http.MethodPatch,
 			"/provisioned-model-throughput/pmt-123",
 			"UpdateProvisionedModelThroughput",
 		},
@@ -796,13 +796,13 @@ func TestHandler_UpdateProvisionedModelThroughput(t *testing.T) { //nolint:paral
 
 				return pmt.ProvisionedModelArn
 			},
-			input:      map[string]any{"modelId": "anthropic.claude-v2"},
+			input:      map[string]any{"desiredModelId": "anthropic.claude-v2"},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "update non-existent",
 			id:         "nonexistent",
-			input:      map[string]any{"modelId": "anthropic.claude-v2"},
+			input:      map[string]any{"desiredModelId": "anthropic.claude-v2"},
 			wantStatus: http.StatusNotFound,
 		},
 		{
@@ -826,7 +826,7 @@ func TestHandler_UpdateProvisionedModelThroughput(t *testing.T) { //nolint:paral
 			if tt.input == nil {
 				e := echo.New()
 				req := httptest.NewRequest(
-					http.MethodPut,
+					http.MethodPatch,
 					"/provisioned-model-throughput/"+url.PathEscape(id),
 					bytes.NewReader([]byte("bad json")),
 				)
@@ -840,7 +840,7 @@ func TestHandler_UpdateProvisionedModelThroughput(t *testing.T) { //nolint:paral
 				return
 			}
 
-			rec = doRequest(t, h, http.MethodPut, "/provisioned-model-throughput/"+url.PathEscape(id), tt.input)
+			rec = doRequest(t, h, http.MethodPatch, "/provisioned-model-throughput/"+url.PathEscape(id), tt.input)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -2153,4 +2153,81 @@ func TestHandler_GuardrailVersionPersisted(t *testing.T) { //nolint:paralleltest
 	version2 := v2Out["version"].(string)
 	assert.NotEmpty(t, version2)
 	assert.NotEqual(t, version1, version2)
+}
+
+// TestHandler_RealSDKWireShapeRouteMatcher guards against a whole class of latent bugs:
+// unit tests calling h.Handler()(c) directly skip RouteMatcher, so an op can look "done"
+// while a real aws-sdk-go-v2 client would never reach it (wrong HTTP method — PUT vs the
+// real PATCH — or wrong singular/plural path segment). Every path/method pair below is
+// exactly what the real SDK serializer emits (verified against
+// aws-sdk-go-v2/service/bedrock@v1.56.0's serializers.go), so RouteMatcher must accept
+// all of them and Handler() must not 404/return "Unknown".
+func TestHandler_RealSDKWireShapeRouteMatcher(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		// StopEvaluationJob: singular "evaluation-job", not the plural
+		// "evaluation-jobs" used by every other evaluation job op.
+		{"StopEvaluationJob", http.MethodPost, "/evaluation-job/some-arn/stop"},
+		// CreateModelInvocationJob/GetModelInvocationJob/StopModelInvocationJob: singular
+		// "model-invocation-job"; only ListModelInvocationJobs uses the plural.
+		{"CreateModelInvocationJob", http.MethodPost, "/model-invocation-job"},
+		{"GetModelInvocationJob", http.MethodGet, "/model-invocation-job/some-arn"},
+		{"StopModelInvocationJob", http.MethodPost, "/model-invocation-job/some-arn/stop"},
+		// UpdateProvisionedModelThroughput: PATCH, not PUT.
+		{"UpdateProvisionedModelThroughput", http.MethodPatch, "/provisioned-model-throughput/pmt-1"},
+		// UpdateMarketplaceModelEndpoint: PATCH, not PUT.
+		{"UpdateMarketplaceModelEndpoint", http.MethodPatch, "/marketplace-model/endpoints/ep-1"},
+		// DeregisterMarketplaceModelEndpoint: DELETE on the SAME "/registration" path
+		// Register uses — there is no separate "/deregistration" path.
+		{"DeregisterMarketplaceModelEndpoint", http.MethodDelete, "/marketplace-model/endpoints/ep-1/registration"},
+		// CustomModelDeployment List/Get/Update/Delete share Create's base path
+		// ("/model-customization/custom-model-deployments"), not "/custom-model-deployments".
+		{"ListCustomModelDeployments", http.MethodGet, "/model-customization/custom-model-deployments"},
+		{"GetCustomModelDeployment", http.MethodGet, "/model-customization/custom-model-deployments/dep-1"},
+		{
+			"UpdateCustomModelDeployment", http.MethodPatch,
+			"/model-customization/custom-model-deployments/dep-1",
+		},
+		{
+			"DeleteCustomModelDeployment", http.MethodDelete,
+			"/model-customization/custom-model-deployments/dep-1",
+		},
+	}
+
+	for _, tt := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			matcher := h.RouteMatcher()
+			assert.True(t, matcher(c), "RouteMatcher must accept the real SDK path/method")
+
+			op := h.ExtractOperation(c)
+			assert.Equal(t, tt.name, op, "ExtractOperation must resolve the real op name")
+
+			// A resource-not-found 404 (ResourceNotFoundException, since these IDs don't
+			// exist) is expected AWS behavior. A route-not-found 404
+			// (UnknownOperationException, from dispatch's final fallback) means the real
+			// SDK request would never have reached a handler at all — that's the bug this
+			// test guards against.
+			req2 := httptest.NewRequest(tt.method, tt.path, nil)
+			rec2 := httptest.NewRecorder()
+			c2 := e.NewContext(req2, rec2)
+			require.NoError(t, h.Handler()(c2))
+
+			var out map[string]string
+			_ = json.Unmarshal(rec2.Body.Bytes(), &out)
+			assert.NotEqual(
+				t, "UnknownOperationException", out["__type"],
+				"path/method must be dispatched to a real handler, not fall through as unrouted",
+			)
+		})
+	}
 }

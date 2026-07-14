@@ -281,7 +281,7 @@ func TestResourceCRUDAndTags(t *testing.T) {
 			nameValue:   "train",
 			arnField:    "FlywheelArn",
 			objectField: "FlywheelProperties",
-			listField:   "FlywheelPropertiesList",
+			listField:   "FlywheelSummaryList",
 			update:      true,
 		},
 		{
@@ -399,4 +399,196 @@ func TestResetRemovesState(t *testing.T) {
 	handler.Reset()
 	output := request(t, handler, "ListDatasets", nil)
 	assert.Empty(t, output["DatasetPropertiesList"])
+}
+
+// TestStartJob_TagsReachSameTagStoreAsCreateResource verifies creation-time
+// Tags on Start*DetectionJob requests land in the same ARN-keyed tag store
+// Create* resources use, so ListTagsForResource/TagResource/UntagResource
+// all work against a job's JobArn. Before this fix, StartJob's tags
+// argument was dropped on the floor and the job's ARN was never registered
+// in the tag store at all, so ListTagsForResource(JobArn) returned
+// ResourceNotFoundException even for a job that existed.
+func TestStartJob_TagsReachSameTagStoreAsCreateResource(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler()
+	started := request(t, handler, "StartSentimentDetectionJob", map[string]any{
+		"JobName":      "tagged-job",
+		"LanguageCode": "en",
+		"Tags":         []any{map[string]any{"Key": "team", "Value": "nlp"}},
+	})
+	jobArn, _ := started["JobArn"].(string)
+	require.NotEmpty(t, jobArn)
+
+	tagged := request(t, handler, "ListTagsForResource", map[string]any{"ResourceArn": jobArn})
+	assert.Len(t, tagged["Tags"], 1)
+
+	request(t, handler, "TagResource", map[string]any{
+		"ResourceArn": jobArn,
+		"Tags":        []any{map[string]any{"Key": "env", "Value": "prod"}},
+	})
+	tagged = request(t, handler, "ListTagsForResource", map[string]any{"ResourceArn": jobArn})
+	assert.Len(t, tagged["Tags"], 2)
+
+	request(t, handler, "UntagResource", map[string]any{"ResourceArn": jobArn, "TagKeys": []any{"team"}})
+	tagged = request(t, handler, "ListTagsForResource", map[string]any{"ResourceArn": jobArn})
+	assert.Len(t, tagged["Tags"], 1)
+}
+
+// TestStartJob_NoTagsStillRegistersArnInTagStore verifies a job started
+// without any Tags is still registered in the tag store (as an empty tag
+// set), matching how CreateResource always seeds b.tags[arn], so
+// ListTagsForResource never spuriously 404s for an existing, untagged job.
+func TestStartJob_NoTagsStillRegistersArnInTagStore(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler()
+	started := request(t, handler, "StartSentimentDetectionJob", map[string]any{
+		"JobName": "untagged-job", "LanguageCode": "en",
+	})
+	jobArn, _ := started["JobArn"].(string)
+	require.NotEmpty(t, jobArn)
+
+	tagged := request(t, handler, "ListTagsForResource", map[string]any{"ResourceArn": jobArn})
+	assert.Empty(t, tagged["Tags"])
+}
+
+// TestResourceProperties_TimestampFieldNamesMatchAWSShape verifies each
+// resource family's Describe response uses the timestamp field names its
+// real AWS Properties shape actually has. These are NOT uniform:
+// DocumentClassifier/EntityRecognizer properties use SubmitTime/EndTime,
+// Endpoint/Flywheel properties use CreationTime/LastModifiedTime, and
+// Dataset properties use CreationTime/EndTime. Before this fix every
+// resource type emitted SubmitTime/EndTime, so a real SDK client describing
+// an Endpoint, Flywheel, or Dataset always saw a nil CreationTime (and, for
+// Endpoint/Flywheel, a nil LastModifiedTime too).
+func TestResourceProperties_TimestampFieldNamesMatchAWSShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		createOp        string
+		nameField       string
+		describeOp      string
+		arnField        string
+		objectField     string
+		absentTimeField string
+		wantTimeFields  []string
+	}{
+		{
+			name:     "document_classifier_uses_submit_end_time",
+			createOp: "CreateDocumentClassifier", nameField: "DocumentClassifierName",
+			describeOp: "DescribeDocumentClassifier", arnField: "DocumentClassifierArn",
+			objectField: "DocumentClassifierProperties", wantTimeFields: []string{"SubmitTime", "EndTime"},
+			absentTimeField: "CreationTime",
+		},
+		{
+			name:     "endpoint_uses_creation_and_last_modified_time",
+			createOp: "CreateEndpoint", nameField: "EndpointName",
+			describeOp: "DescribeEndpoint", arnField: "EndpointArn",
+			objectField: "EndpointProperties", wantTimeFields: []string{"CreationTime", "LastModifiedTime"},
+			absentTimeField: "SubmitTime",
+		},
+		{
+			name:     "flywheel_uses_creation_and_last_modified_time",
+			createOp: "CreateFlywheel", nameField: "FlywheelName",
+			describeOp: "DescribeFlywheel", arnField: "FlywheelArn",
+			objectField: "FlywheelProperties", wantTimeFields: []string{"CreationTime", "LastModifiedTime"},
+			absentTimeField: "SubmitTime",
+		},
+		{
+			name:     "dataset_uses_creation_time_and_end_time",
+			createOp: "CreateDataset", nameField: "DatasetName",
+			describeOp: "DescribeDataset", arnField: "DatasetArn",
+			objectField: "DatasetProperties", wantTimeFields: []string{"CreationTime", "EndTime"},
+			absentTimeField: "LastModifiedTime",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := newHandler()
+			created := request(t, handler, test.createOp, map[string]any{test.nameField: "resource-name"})
+			resourceARN, _ := created[test.arnField].(string)
+			require.NotEmpty(t, resourceARN)
+
+			described := request(t, handler, test.describeOp, map[string]any{test.arnField: resourceARN})
+			props, ok := described[test.objectField].(map[string]any)
+			require.True(t, ok, "describe must return %s", test.objectField)
+
+			for _, field := range test.wantTimeFields {
+				assert.NotEmpty(t, props[field], "expected %s to be set", field)
+			}
+			assert.NotContains(t, props, test.absentTimeField, "did not expect %s in this resource's properties")
+		})
+	}
+}
+
+// TestListFlywheels_UsesFlywheelSummaryListWrapper verifies ListFlywheels
+// wraps its items as FlywheelSummaryList, matching the real
+// ListFlywheelsOutput shape (FlywheelSummary items) -- every other List*
+// response here reuses its Properties name for the list wrapper (e.g.
+// EndpointPropertiesList), but Flywheel is the one exception. Before this
+// fix the wrapper was named FlywheelPropertiesList, so a real SDK client's
+// ListFlywheels call always saw a nil/empty FlywheelSummaryList.
+func TestListFlywheels_UsesFlywheelSummaryListWrapper(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler()
+	request(t, handler, "CreateFlywheel", map[string]any{"FlywheelName": "quality"})
+
+	listed := request(t, handler, "ListFlywheels", nil)
+	assert.NotContains(t, listed, "FlywheelPropertiesList")
+	assert.Len(t, listed["FlywheelSummaryList"], 1)
+}
+
+// TestImportModel_RoutesResourceTypeFromSourceArn verifies ImportModel
+// creates a DocumentClassifier or an EntityRecognizer depending on which
+// kind of model SourceModelArn (the required input) identifies, matching
+// real AWS behavior where the imported model's type mirrors its source.
+// Before this fix ImportModel always created a DocumentClassifier
+// regardless of SourceModelArn, so importing an entity-recognizer model
+// produced a resource DescribeEntityRecognizer could never find.
+func TestImportModel_RoutesResourceTypeFromSourceArn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		sourceArn   string
+		describeOp  string
+		arnField    string
+		objectField string
+	}{
+		{
+			name:        "document_classifier_source",
+			sourceArn:   "arn:aws:comprehend:us-east-1:999999999999:document-classifier/upstream-clf",
+			describeOp:  "DescribeDocumentClassifier",
+			arnField:    "DocumentClassifierArn",
+			objectField: "DocumentClassifierProperties",
+		},
+		{
+			name:        "entity_recognizer_source",
+			sourceArn:   "arn:aws:comprehend:us-east-1:999999999999:entity-recognizer/upstream-rec",
+			describeOp:  "DescribeEntityRecognizer",
+			arnField:    "EntityRecognizerArn",
+			objectField: "EntityRecognizerProperties",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := newHandler()
+			imported := request(t, handler, "ImportModel", map[string]any{"SourceModelArn": test.sourceArn})
+			modelArn, _ := imported["ModelArn"].(string)
+			require.NotEmpty(t, modelArn)
+			assert.Contains(t, modelArn, "upstream-")
+
+			described := request(t, handler, test.describeOp, map[string]any{test.arnField: modelArn})
+			assert.Contains(t, described, test.objectField)
+		})
+	}
 }

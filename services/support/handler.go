@@ -233,7 +233,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAttachmentNotFound), errors.Is(err, ErrAttachmentSetNotFound):
 		return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: err.Error()})
-	case errors.Is(err, ErrValidation), errors.Is(err, ErrAttachmentSetExpired), errors.Is(err, ErrAlreadyResolved),
+	case errors.Is(err, ErrValidation), errors.Is(err, ErrAttachmentSetExpired),
 		errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
@@ -680,9 +680,9 @@ func (h *Handler) handleDescribeSeverityLevels(
 }
 
 type describeSupportedLanguagesInput struct {
-	IssueType     string `json:"issueType"`
-	ServiceCode   string `json:"serviceCode"`
-	SeverityLevel string `json:"severityLevel"`
+	IssueType    string `json:"issueType"`
+	ServiceCode  string `json:"serviceCode"`
+	CategoryCode string `json:"categoryCode"`
 }
 
 type supportedLanguageView struct {
@@ -699,10 +699,10 @@ func (h *Handler) handleDescribeSupportedLanguages(
 	_ context.Context,
 	in *describeSupportedLanguagesInput,
 ) (*describeSupportedLanguagesOutput, error) {
-	if !validIssueType(in.IssueType) || in.ServiceCode == "" || !validSeverity(in.SeverityLevel) {
-		return nil, fmt.Errorf("%w: issueType, serviceCode, and severityLevel are required", ErrValidation)
+	if !validIssueType(in.IssueType) || in.ServiceCode == "" || in.CategoryCode == "" {
+		return nil, fmt.Errorf("%w: issueType, serviceCode, and categoryCode are required", ErrValidation)
 	}
-	langs := h.Backend.DescribeSupportedLanguages(in.IssueType, in.ServiceCode, in.SeverityLevel)
+	langs := h.Backend.DescribeSupportedLanguages(in.IssueType, in.ServiceCode, in.CategoryCode)
 
 	views := make([]supportedLanguageView, 0, len(langs))
 	for _, l := range langs {

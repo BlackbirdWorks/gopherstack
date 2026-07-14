@@ -31,6 +31,8 @@ var (
 	ErrTypeAlreadyExists = errors.New("TypeAlreadyExistsFault")
 	// ErrTypeDeprecated is returned when a type is already deprecated.
 	ErrTypeDeprecated = errors.New("TypeDeprecatedFault")
+	// ErrTypeNotDeprecated is returned when deleting a type that has not been deprecated.
+	ErrTypeNotDeprecated = errors.New("TypeNotDeprecatedFault")
 	// ErrValidation is returned when a request parameter fails validation.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrTooManyTags is returned when tag limits are exceeded.
@@ -317,12 +319,38 @@ type ScheduleActivityTaskDecisionAttrs struct {
 	HeartbeatTimeout       string
 }
 
+// RequestCancelActivityTaskDecisionAttrs holds attributes for RequestCancelActivityTask.
+type RequestCancelActivityTaskDecisionAttrs struct {
+	ActivityID string
+}
+
+// StartTimerDecisionAttrs holds attributes for StartTimer.
+type StartTimerDecisionAttrs struct {
+	TimerID            string
+	StartToFireTimeout string
+}
+
+// CancelTimerDecisionAttrs holds attributes for CancelTimer.
+type CancelTimerDecisionAttrs struct {
+	TimerID string
+}
+
+// RecordMarkerDecisionAttrs holds attributes for RecordMarker.
+type RecordMarkerDecisionAttrs struct {
+	MarkerName string
+	Details    string
+}
+
 // Decision represents a single decision returned by a decider.
 type Decision struct {
 	CompleteWorkflowExecutionAttrs *CompleteWorkflowExecutionDecisionAttrs
 	FailWorkflowExecutionAttrs     *FailWorkflowExecutionDecisionAttrs
 	CancelWorkflowExecutionAttrs   *CancelWorkflowExecutionDecisionAttrs
 	ScheduleActivityTaskAttrs      *ScheduleActivityTaskDecisionAttrs
+	RequestCancelActivityTaskAttrs *RequestCancelActivityTaskDecisionAttrs
+	StartTimerAttrs                *StartTimerDecisionAttrs
+	CancelTimerAttrs               *CancelTimerDecisionAttrs
+	RecordMarkerAttrs              *RecordMarkerDecisionAttrs
 	DecisionType                   string
 }
 
@@ -761,6 +789,30 @@ func (b *InMemoryBackend) UndeprecateWorkflowType(domain, name, version string) 
 	return nil
 }
 
+// DeleteWorkflowType permanently removes a deprecated workflow type. Real AWS
+// requires the type to be deprecated first (TypeNotDeprecatedFault otherwise);
+// after deletion, StartWorkflowExecution can no longer reference it, but
+// executions already running under it are unaffected.
+func (b *InMemoryBackend) DeleteWorkflowType(domain, name, version string) error {
+	b.mu.Lock("DeleteWorkflowType")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + name + ":" + version
+	wt, ok := b.workflows.Get(key)
+	if !ok {
+		return fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
+	}
+	if wt.Status != statusDeprecated {
+		return fmt.Errorf(
+			"%w: workflow type %s/%s must be deprecated before deletion",
+			ErrTypeNotDeprecated, name, version,
+		)
+	}
+	b.workflows.Delete(key)
+
+	return nil
+}
+
 // RegisterActivityType registers a new activity type with optional default settings.
 func (b *InMemoryBackend) RegisterActivityType(
 	domain, name, version, description string,
@@ -882,6 +934,30 @@ func (b *InMemoryBackend) UndeprecateActivityType(domain, name, version string) 
 		return fmt.Errorf("%w: activity type %s/%s", ErrTypeAlreadyExists, name, version)
 	}
 	at.Status = statusRegistered
+
+	return nil
+}
+
+// DeleteActivityType permanently removes a deprecated activity type. Real AWS
+// requires the type to be deprecated first (TypeNotDeprecatedFault otherwise);
+// after deletion, new activities of that type can no longer be scheduled, but
+// activities already started before the type was deleted continue to run.
+func (b *InMemoryBackend) DeleteActivityType(domain, name, version string) error {
+	b.mu.Lock("DeleteActivityType")
+	defer b.mu.Unlock()
+
+	key := domain + ":" + name + ":" + version
+	at, ok := b.activities.Get(key)
+	if !ok {
+		return fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
+	}
+	if at.Status != statusDeprecated {
+		return fmt.Errorf(
+			"%w: activity type %s/%s must be deprecated before deletion",
+			ErrTypeNotDeprecated, name, version,
+		)
+	}
+	b.activities.Delete(key)
 
 	return nil
 }
@@ -1148,6 +1224,14 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 		},
 	}
 	b.appendHistoryEventLocked(input.Domain, input.WorkflowID, "WorkflowExecutionStarted", attrs)
+
+	// Real AWS schedules the first decision task immediately after starting an
+	// execution, so a decider can PollForDecisionTask and see the
+	// WorkflowExecutionStarted event without any other event (signal, cancel
+	// request, activity completion) first triggering one. Without this, a
+	// freshly started workflow with no other stimulus never gets its first
+	// decision task and stays OPEN forever.
+	b.enqueueDecisionTaskLocked(input.Domain, input.WorkflowID)
 
 	cp := *exec
 
@@ -1519,8 +1603,11 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 	if !ok {
 		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
+	// Real AWS: "If the specified workflow execution isn't open, this method
+	// fails with UnknownResource." (see RequestCancelWorkflowExecution doc) --
+	// not ValidationException, which isn't even in this op's fault model.
 	if exec.Status != statusRunning {
-		return fmt.Errorf("%w: execution %s/%s is not running", ErrValidation, domain, workflowID)
+		return fmt.Errorf("%w: execution %s/%s is not open", ErrNotFound, domain, workflowID)
 	}
 	if runID != "" && exec.RunID != runID {
 		return fmt.Errorf(
@@ -1752,23 +1839,51 @@ func (b *InMemoryBackend) processDecisionLocked(domain, workflowID string, exec 
 		})
 
 	case "RequestCancelActivityTask":
+		activityID := ""
+		if d.RequestCancelActivityTaskAttrs != nil {
+			activityID = d.RequestCancelActivityTaskAttrs.ActivityID
+		}
 		b.appendHistoryEventLocked(domain, workflowID, "ActivityTaskCancelRequested", map[string]any{
-			eventAttrKey("ActivityTaskCancelRequested"): map[string]any{},
+			eventAttrKey("ActivityTaskCancelRequested"): map[string]any{
+				"activityId": activityID,
+			},
 		})
 
 	case "StartTimer":
+		timerID, startToFireTimeout := "", ""
+		if d.StartTimerAttrs != nil {
+			timerID = d.StartTimerAttrs.TimerID
+			startToFireTimeout = d.StartTimerAttrs.StartToFireTimeout
+		}
 		b.appendHistoryEventLocked(domain, workflowID, "TimerStarted", map[string]any{
-			eventAttrKey("TimerStarted"): map[string]any{},
+			eventAttrKey("TimerStarted"): map[string]any{
+				"timerId":            timerID,
+				"startToFireTimeout": startToFireTimeout,
+			},
 		})
 
 	case "CancelTimer":
+		timerID := ""
+		if d.CancelTimerAttrs != nil {
+			timerID = d.CancelTimerAttrs.TimerID
+		}
 		b.appendHistoryEventLocked(domain, workflowID, "TimerCanceled", map[string]any{
-			eventAttrKey("TimerCanceled"): map[string]any{},
+			eventAttrKey("TimerCanceled"): map[string]any{
+				"timerId": timerID,
+			},
 		})
 
 	case "RecordMarker":
+		markerName, details := "", ""
+		if d.RecordMarkerAttrs != nil {
+			markerName = d.RecordMarkerAttrs.MarkerName
+			details = d.RecordMarkerAttrs.Details
+		}
 		b.appendHistoryEventLocked(domain, workflowID, "MarkerRecorded", map[string]any{
-			eventAttrKey("MarkerRecorded"): map[string]any{},
+			eventAttrKey("MarkerRecorded"): map[string]any{
+				"markerName": markerName,
+				"details":    details,
+			},
 		})
 
 	case "StartChildWorkflowExecution":
@@ -1823,8 +1938,11 @@ func (b *InMemoryBackend) SignalWorkflowExecution(
 			exec.RunID,
 		)
 	}
+	// Real AWS: "If the specified workflow execution isn't open, this method
+	// fails with UnknownResource." (see SignalWorkflowExecution doc) -- not
+	// ValidationException, which isn't even in this op's fault model.
 	if exec.Status != statusRunning {
-		return fmt.Errorf("%w: execution %s/%s is not running", ErrValidation, domain, workflowID)
+		return fmt.Errorf("%w: execution %s/%s is not open", ErrNotFound, domain, workflowID)
 	}
 
 	attrKey := eventAttrKey("WorkflowExecutionSignaled")

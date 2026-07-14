@@ -75,6 +75,11 @@ const (
 	// flexibleTimeWindowModeFlexible means a flexible time window is applied.
 	flexibleTimeWindowModeFlexible = "FLEXIBLE"
 
+	// actionAfterCompletionNone means no action is taken after the schedule completes.
+	actionAfterCompletionNone = "NONE"
+	// actionAfterCompletionDelete means the schedule is deleted after it completes.
+	actionAfterCompletionDelete = "DELETE"
+
 	// cronFieldCount is the number of space-separated fields a valid EventBridge
 	// Scheduler cron() expression must contain:
 	// minutes hours day-of-month month day-of-week year.
@@ -581,7 +586,16 @@ func (b *InMemoryBackend) UpdateSchedule(
 	s.ScheduleExpressionTimezone = timezone
 	s.Description = description
 	s.Target = target
-	s.State = state
+	// State is optional on UpdateSchedule (unlike CreateSchedule, which defaults an
+	// omitted State to ENABLED in the handler): the real UpdateScheduleInput document
+	// serializer omits the "State" JSON key entirely when it's the zero value, so
+	// real clients can update a schedule without touching its enabled/disabled
+	// status. Overwriting with "" here would leave the schedule in an invalid state
+	// that matches neither ENABLED nor DISABLED and silently stops the runner from
+	// ever firing it again (see checkAndFireSchedules's `s.State != "ENABLED"` gate).
+	if state != "" {
+		s.State = state
+	}
 	s.FlexibleTimeWindow = ftw
 	s.LastModificationDate = time.Now().UTC()
 	applyScheduleOptions(opts, s)
@@ -971,6 +985,17 @@ func validateScheduleState(state string) error {
 		return nil
 	default:
 		return fmt.Errorf("%w: State must be ENABLED or DISABLED, got %q", ErrValidation, state)
+	}
+}
+
+// validateActionAfterCompletion returns ErrValidation if action is not a valid value.
+// An empty string is allowed (it means the default NONE behaviour).
+func validateActionAfterCompletion(action string) error {
+	switch action {
+	case actionAfterCompletionNone, actionAfterCompletionDelete, "":
+		return nil
+	default:
+		return fmt.Errorf("%w: ActionAfterCompletion must be NONE or DELETE, got %q", ErrValidation, action)
 	}
 }
 

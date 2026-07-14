@@ -191,7 +191,7 @@ func TestParity_IssueCertificate_EndDateValidity(t *testing.T) {
 
 	rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
 		"CertificateAuthorityArn": rootCA.ARN,
-		"Csr":                     csr,
+		"Csr":                     b64(csr),
 		"SigningAlgorithm":        "SHA256WITHECDSA",
 		"Validity": map[string]any{
 			"Type":  "END_DATE",
@@ -254,7 +254,7 @@ func TestParity_IssueCertificate_ValidityTypes(t *testing.T) {
 
 			rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
 				"CertificateAuthorityArn": rootCA.ARN,
-				"Csr":                     csr,
+				"Csr":                     b64(csr),
 				"SigningAlgorithm":        "SHA256WITHECDSA",
 				"Validity":                map[string]any{"Type": tt.validityType, "Value": tt.value},
 			})

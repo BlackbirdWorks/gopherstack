@@ -30,7 +30,10 @@ const (
 	engineGenerative     = "generative"
 	outputFormatMP3      = "mp3"
 	outputFormatOGG      = "ogg_vorbis"
+	outputFormatOggOpus  = "ogg_opus"
 	outputFormatPCM      = "pcm"
+	outputFormatMulaw    = "mulaw"
+	outputFormatAlaw     = "alaw"
 	outputFormatJSON     = "json"
 	textTypeText         = "text"
 	textTypeSSML         = "ssml"
@@ -62,6 +65,11 @@ const (
 	wavHeaderSize        = 44 // full RIFF/WAV header length
 	wavPCMChunkSize      = 16 // PCM fmt subchunk size
 	wavSilentDataLen     = 4  // two silent 16-bit samples
+
+	// Headerless companded-audio (mulaw/alaw) silence byte values and sample count.
+	mulawSilenceByte   = 0xFF
+	alawSilenceByte    = 0xD5
+	compandedSampleLen = 4
 )
 
 var (
@@ -69,10 +77,28 @@ var (
 	ErrLexiconNotFound = errors.New("LexiconNotFoundException")
 	// ErrTaskNotFound is returned when a requested synthesis task is absent.
 	ErrTaskNotFound = errors.New("SynthesisTaskNotFoundException")
-	// ErrValidation is returned when request parameters do not meet Polly constraints.
+	// ErrValidation is returned when request parameters do not meet Polly constraints
+	// that AWS models as a generic/unlisted validation failure.
 	ErrValidation = errors.New("InvalidParameterValueException")
 	// ErrResourceNotFound is returned when a tagged resource ARN is unknown.
 	ErrResourceNotFound = errors.New("ResourceNotFoundException")
+	// ErrTextLengthExceeded is returned when Text exceeds the format-specific length limit.
+	ErrTextLengthExceeded = errors.New("TextLengthExceededException")
+	// ErrInvalidSampleRate is returned when SampleRate is not valid for the requested OutputFormat.
+	ErrInvalidSampleRate = errors.New("InvalidSampleRateException")
+	// ErrEngineNotSupported is returned when the requested voice does not support the requested engine.
+	ErrEngineNotSupported = errors.New("EngineNotSupportedException")
+	// ErrLanguageNotSupported is returned when the requested voice does not support the requested language.
+	ErrLanguageNotSupported = errors.New("LanguageNotSupportedException")
+	// ErrMarksNotSupportedForFormat is returned when SpeechMarkTypes is requested with a non-json OutputFormat.
+	ErrMarksNotSupportedForFormat = errors.New("MarksNotSupportedForFormatException")
+	// ErrSsmlMarksNotSupportedForTextType is returned when the "ssml" speech mark type is
+	// requested with a plain-text TextType.
+	ErrSsmlMarksNotSupportedForTextType = errors.New("SsmlMarksNotSupportedForTextTypeException")
+	// ErrInvalidNextToken is returned when a pagination token cannot be decoded.
+	ErrInvalidNextToken = errors.New("InvalidNextTokenException")
+	// ErrInvalidLexicon is returned when lexicon Content is not well-formed PLS lexicon XML.
+	ErrInvalidLexicon = errors.New("InvalidLexiconException")
 )
 
 // Tag is a Polly resource tag.
@@ -292,7 +318,7 @@ func (b *InMemoryBackend) SynthesizeSpeech(options SynthesisOptions) (*Synthesiz
 		limit = maxSpeechSSMLLen
 	}
 	if len(options.Text) > limit {
-		return nil, fmt.Errorf("%w: text exceeds maximum length of %d characters", ErrValidation, limit)
+		return nil, fmt.Errorf("%w: text exceeds maximum length of %d characters", ErrTextLengthExceeded, limit)
 	}
 
 	normal, err := b.validateOptions(options)
@@ -326,7 +352,9 @@ func (b *InMemoryBackend) StartSpeechSynthesisTask(
 		return nil, fmt.Errorf("%w: OutputS3BucketName is required", ErrValidation)
 	}
 	if len(options.Text) > maxTaskTextLen {
-		return nil, fmt.Errorf("%w: text exceeds maximum length of %d characters", ErrValidation, maxTaskTextLen)
+		return nil, fmt.Errorf(
+			"%w: text exceeds maximum length of %d characters", ErrTextLengthExceeded, maxTaskTextLen,
+		)
 	}
 
 	normal, err := b.validateOptions(options)
@@ -486,7 +514,7 @@ func (b *InMemoryBackend) validateOptions(options SynthesisOptions) (SynthesisOp
 	if !validSampleRate(options.OutputFormat, options.SampleRate) {
 		return options, fmt.Errorf(
 			"%w: invalid SampleRate %q for %s",
-			ErrValidation,
+			ErrInvalidSampleRate,
 			options.SampleRate,
 			options.OutputFormat,
 		)
@@ -498,12 +526,8 @@ func (b *InMemoryBackend) validateOptions(options SynthesisOptions) (SynthesisOp
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if !b.voiceSupports(options.VoiceID, options.Engine, options.LanguageCode) {
-		return options, fmt.Errorf(
-			"%w: voice %q does not support requested language/engine",
-			ErrValidation,
-			options.VoiceID,
-		)
+	if err := b.checkVoiceSupport(options.VoiceID, options.Engine, options.LanguageCode); err != nil {
+		return options, err
 	}
 	for _, name := range options.LexiconNames {
 		if !b.lexicons.Has(name) {
@@ -514,18 +538,28 @@ func (b *InMemoryBackend) validateOptions(options SynthesisOptions) (SynthesisOp
 	return options, nil
 }
 
-func (b *InMemoryBackend) voiceSupports(id, engine, languageCode string) bool {
+// checkVoiceSupport validates that voice id can render the requested engine and
+// language, returning the AWS-accurate exception for the first constraint that
+// fails: an unrecognized VoiceId, an engine the voice doesn't support
+// (EngineNotSupportedException), or a language/dialect the voice doesn't speak
+// (LanguageNotSupportedException).
+func (b *InMemoryBackend) checkVoiceSupport(id, engine, languageCode string) error {
 	for _, voice := range b.voices {
-		if voice.ID != id || !slices.Contains(voice.SupportedEngines, engine) {
+		if voice.ID != id {
 			continue
+		}
+		if !slices.Contains(voice.SupportedEngines, engine) {
+			return fmt.Errorf("%w: voice %q does not support engine %q", ErrEngineNotSupported, id, engine)
 		}
 		if languageCode == "" || voice.LanguageCode == languageCode ||
 			slices.Contains(voice.AdditionalLanguageCodes, languageCode) {
-			return true
+			return nil
 		}
+
+		return fmt.Errorf("%w: voice %q does not support language %q", ErrLanguageNotSupported, id, languageCode)
 	}
 
-	return false
+	return fmt.Errorf("%w: unknown VoiceId %q", ErrValidation, id)
 }
 
 func (b *InMemoryBackend) taskARN(id string) string {
@@ -540,7 +574,7 @@ func validateLexicon(name, content string) error {
 		return fmt.Errorf("%w: lexicon name must be 1-%d alphanumeric characters", ErrValidation, maxLexiconNameLen)
 	}
 	if content == "" || !strings.Contains(content, "<lexicon") {
-		return fmt.Errorf("%w: Content must be PLS lexicon XML", ErrValidation)
+		return fmt.Errorf("%w: Content must be PLS lexicon XML", ErrInvalidLexicon)
 	}
 
 	return nil
@@ -629,6 +663,10 @@ func defaultOptions(options SynthesisOptions) SynthesisOptions {
 	}
 	if options.SampleRate == "" {
 		switch {
+		case options.OutputFormat == outputFormatOggOpus:
+			options.SampleRate = "48000"
+		case options.OutputFormat == outputFormatMulaw || options.OutputFormat == outputFormatAlaw:
+			options.SampleRate = "8000"
 		case options.OutputFormat == outputFormatPCM:
 			options.SampleRate = defaultSampleRatePCM
 		case options.Engine != defaultEngine:
@@ -646,9 +684,15 @@ func validateSpeechMarks(options SynthesisOptions) error {
 		if !slices.Contains(validSpeechMarkTypes(), speechMark) {
 			return fmt.Errorf("%w: invalid SpeechMarkType %q", ErrValidation, speechMark)
 		}
+		// AWS: "SSML speech marks are not supported for plain text-type input."
+		if speechMark == textTypeSSML && options.TextType != textTypeSSML {
+			return fmt.Errorf(
+				"%w: SpeechMarkTypes ssml requires TextType ssml", ErrSsmlMarksNotSupportedForTextType,
+			)
+		}
 	}
 	if len(options.SpeechMarkTypes) > 0 && options.OutputFormat != outputFormatJSON {
-		return fmt.Errorf("%w: speech marks require json OutputFormat", ErrValidation)
+		return fmt.Errorf("%w: speech marks require json OutputFormat", ErrMarksNotSupportedForFormat)
 	}
 	if len(options.SpeechMarkTypes) == 0 && options.OutputFormat == outputFormatJSON {
 		return fmt.Errorf("%w: json OutputFormat requires SpeechMarkTypes", ErrValidation)
@@ -677,10 +721,13 @@ func validateTags(tags []Tag) error {
 
 func validSampleRate(format, rate string) bool {
 	rates := map[string][]string{
-		outputFormatMP3:  {"8000", "16000", "22050", "24000", "44100", "48000"},
-		outputFormatOGG:  {"8000", "16000", "22050", "24000", "44100", "48000"},
-		outputFormatPCM:  {"8000", "16000"},
-		outputFormatJSON: {"8000", "16000", "22050", "24000"},
+		outputFormatMP3:     {"8000", "16000", "22050", "24000", "44100", "48000"},
+		outputFormatOGG:     {"8000", "16000", "22050", "24000", "44100", "48000"},
+		outputFormatOggOpus: {"48000"},
+		outputFormatPCM:     {"8000", "16000"},
+		outputFormatMulaw:   {"8000"},
+		outputFormatAlaw:    {"8000"},
+		outputFormatJSON:    {"8000", "16000", "22050", "24000"},
 	}
 
 	return slices.Contains(rates[format], rate)
@@ -688,16 +735,19 @@ func validSampleRate(format, rate string) bool {
 
 func contentTypeForFormat(format string) string {
 	contentTypes := map[string]string{
-		outputFormatMP3: "audio/mpeg",
-		outputFormatOGG: "audio/ogg",
-		outputFormatPCM: "audio/pcm",
+		outputFormatMP3:     "audio/mpeg",
+		outputFormatOGG:     "audio/ogg",
+		outputFormatOggOpus: "audio/ogg",
+		outputFormatPCM:     "audio/pcm",
+		outputFormatMulaw:   "audio/mulaw",
+		outputFormatAlaw:    "audio/alaw",
 	}
 
 	return contentTypes[format]
 }
 
 func taskExtension(format string) string {
-	if format == outputFormatOGG {
+	if format == outputFormatOGG || format == outputFormatOggOpus {
 		return "ogg"
 	}
 
@@ -812,18 +862,38 @@ func speechMarks(options SynthesisOptions) []byte {
 // syntheticAudioBytes returns minimal but format-correct audio bytes for the given output format.
 // PCM → RIFF/WAV container with one silent frame.
 // MP3 → minimal MPEG-1 Layer 3 sync frame header.
-// OGG → OGG capture pattern + minimal Vorbis identification.
+// OGG/ogg_opus → OGG capture pattern + minimal Vorbis identification.
+// mulaw/alaw → a few headerless companded silence samples.
 func syntheticAudioBytes(opts SynthesisOptions) []byte {
 	switch opts.OutputFormat {
 	case outputFormatPCM:
 		return minimalWAV(opts.SampleRate)
 	case outputFormatMP3:
 		return minimalMP3Frame()
-	case outputFormatOGG:
+	case outputFormatOGG, outputFormatOggOpus:
 		return minimalOGG()
+	case outputFormatMulaw, outputFormatAlaw:
+		return minimalCompandedAudio(opts.OutputFormat)
 	default:
 		return minimalWAV(opts.SampleRate)
 	}
+}
+
+// minimalCompandedAudio returns a few silent samples for headerless companded
+// (mu-law/a-law) audio: AWS returns raw audio/mulaw or audio/alaw bytes with no
+// RIFF/WAV container, unlike this backend's pcm output.
+func minimalCompandedAudio(format string) []byte {
+	silence := byte(mulawSilenceByte)
+	if format == outputFormatAlaw {
+		silence = alawSilenceByte
+	}
+
+	out := make([]byte, compandedSampleLen)
+	for i := range out {
+		out[i] = silence
+	}
+
+	return out
 }
 
 // minimalWAV returns a 46-byte RIFF/WAV file with two silent PCM samples.
@@ -922,7 +992,7 @@ func parseToken(token string, total int) (int, error) {
 	}
 	var offset int
 	if _, err := fmt.Sscanf(raw, "%d", &offset); err != nil || offset < 0 || offset > total {
-		return 0, fmt.Errorf("%w: invalid NextToken", ErrValidation)
+		return 0, fmt.Errorf("%w: invalid NextToken", ErrInvalidNextToken)
 	}
 
 	return offset, nil
@@ -933,7 +1003,10 @@ func validEngines() []string {
 }
 
 func validOutputFormats() []string {
-	return []string{outputFormatMP3, outputFormatOGG, outputFormatPCM, outputFormatJSON}
+	return []string{
+		outputFormatMP3, outputFormatOGG, outputFormatOggOpus,
+		outputFormatPCM, outputFormatMulaw, outputFormatAlaw, outputFormatJSON,
+	}
 }
 
 func validTextTypes() []string { return []string{textTypeText, textTypeSSML} }

@@ -500,7 +500,7 @@ func matchHTTPAPIRoute(routes []Route, method, path string) (*Route, map[string]
 		routeMethod, routePath := parts[0], parts[1]
 
 		// "ANY" matches all HTTP methods.
-		if routeMethod != "ANY" && routeMethod != method {
+		if routeMethod != httpMethodAny && routeMethod != method {
 			continue
 		}
 

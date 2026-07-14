@@ -69,7 +69,7 @@ func (h *Handler) Name() string {
 
 // GetSupportedOperations returns the list of mocked SSM operations.
 //
-//nolint:funlen // exhaustive list of 146 operations — splitting would reduce readability
+//nolint:funlen // exhaustive list of 152 operations — splitting would reduce readability
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AddTagsToResource",
@@ -79,6 +79,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateActivation",
 		"CreateAssociation",
 		"CreateAssociationBatch",
+		"CreateCloudConnector",
 		"CreateDocument",
 		"CreateMaintenanceWindow",
 		"CreateOpsItem",
@@ -87,6 +88,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateResourceDataSync",
 		"DeleteActivation",
 		"DeleteAssociation",
+		"DeleteCloudConnector",
 		"DeleteDocument",
 		"DeleteInventory",
 		"DeleteMaintenanceWindow",
@@ -138,6 +140,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetAccessToken",
 		"GetAutomationExecution",
 		"GetCalendarState",
+		"GetCloudConnector",
 		"GetCommandInvocation",
 		"GetConnectionStatus",
 		"GetDefaultPatchBaseline",
@@ -165,6 +168,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"LabelParameterVersion",
 		"ListAssociationVersions",
 		"ListAssociations",
+		"ListCloudConnectors",
 		"ListCommandInvocations",
 		"ListCommands",
 		"ListComplianceItems",
@@ -206,6 +210,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UnlabelParameterVersion",
 		"UpdateAssociation",
 		"UpdateAssociationStatus",
+		"UpdateCloudConnector",
 		"UpdateDocument",
 		"UpdateDocumentDefaultVersion",
 		"UpdateDocumentMetadata",
@@ -218,6 +223,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdatePatchBaseline",
 		"UpdateResourceDataSync",
 		"UpdateServiceSetting",
+		"ValidateCloudConnector",
 	}
 }
 
@@ -304,6 +310,7 @@ func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
 	maps.Copy(ops, h.ssmDocumentOps())
 	maps.Copy(ops, h.ssmCommandOps())
 	maps.Copy(ops, h.ssmNewOps())
+	maps.Copy(ops, h.ssmCloudConnectorOps())
 	maps.Copy(ops, h.ssmStubOps())
 
 	return ops
@@ -521,6 +528,59 @@ func (h *Handler) ssmCommandOps() map[string]ssmActionFn {
 	}
 }
 
+func (h *Handler) ssmCloudConnectorOps() map[string]ssmActionFn {
+	return map[string]ssmActionFn{
+		"CreateCloudConnector": func(ctx context.Context, b []byte) (any, error) {
+			var input CreateCloudConnectorInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateCloudConnector(ctx, &input)
+		},
+		"DeleteCloudConnector": func(ctx context.Context, b []byte) (any, error) {
+			var input DeleteCloudConnectorInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DeleteCloudConnector(ctx, &input)
+		},
+		"GetCloudConnector": func(ctx context.Context, b []byte) (any, error) {
+			var input GetCloudConnectorInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetCloudConnector(ctx, &input)
+		},
+		"ListCloudConnectors": func(ctx context.Context, b []byte) (any, error) {
+			var input ListCloudConnectorsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListCloudConnectors(ctx, &input)
+		},
+		"UpdateCloudConnector": func(ctx context.Context, b []byte) (any, error) {
+			var input UpdateCloudConnectorInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.UpdateCloudConnector(ctx, &input)
+		},
+		"ValidateCloudConnector": func(ctx context.Context, b []byte) (any, error) {
+			var input ValidateCloudConnectorInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ValidateCloudConnector(ctx, &input)
+		},
+	}
+}
+
 // dispatch routes the operation to the appropriate handler.
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	fn, ok := h.ops[action]
@@ -570,6 +630,8 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 	statusCode := http.StatusBadRequest
 
 	switch {
+	case errors.Is(reqErr, ErrCloudConnectorNotFound):
+		return "ResourceNotFoundException", statusCode
 	case errors.Is(reqErr, ErrActivationNotFound):
 		return "ActivationNotFound", statusCode
 	case errors.Is(reqErr, ErrAssociationNotFound):

@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 )
 
@@ -26,7 +27,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("seed-db", nil)
+	_, err := b.CreateDatabase("seed-db", "", nil)
 	require.NoError(t, err)
 
 	// A syntactically valid but version-less/mismatched snapshot.
@@ -51,9 +52,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	original := timestreamwrite.NewInMemoryBackend()
 
-	db1Created, err := original.CreateDatabase("db1", map[string]string{"env": "test"})
+	db1Created, err := original.CreateDatabase("db1", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
-	_, err = original.CreateDatabase("db2", nil)
+	_, err = original.CreateDatabase("db2", "", nil)
 	require.NoError(t, err)
 
 	_, err = original.CreateTable("db1", "tbl1", map[string]string{"team": "obs"}, &timestreamwrite.CreateTableInput{
@@ -167,6 +168,43 @@ func TestInMemoryBackend_SnapshotRestore_EmptyState(t *testing.T) {
 	assert.Equal(t, 0, timestreamwrite.BatchLoadTaskCount(fresh))
 	assert.Equal(t, 0, timestreamwrite.TagCount(fresh))
 
-	_, err = fresh.CreateDatabase("db", nil)
+	_, err = fresh.CreateDatabase("db", "", nil)
 	require.NoError(t, err)
+}
+
+// Test_Handler_SnapshotRestore verifies Handler.Snapshot/Restore
+// (persistence.go) delegate to the backend -- the shape persistence.Manager
+// actually drives. cli.go's setupPersistence registers a service.Registerable
+// (the *Handler returned by Provider.Init) in the persistence.Manager only if
+// that Handler itself satisfies Snapshot(ctx)/Restore(ctx, []byte);
+// InMemoryBackend implementing Snapshot()([]byte,error)/Restore(ctx,[]byte)error
+// is not enough on its own, since Handler.Backend's methods are never
+// promoted (Backend is a named field, not embedded), and the shapes differ
+// (no ctx, returns an error) so Handler.Snapshot must adapt. Mirrors
+// services/securityhub's Test_Handler_SnapshotRestore.
+func Test_Handler_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	backend := timestreamwrite.NewInMemoryBackend()
+	h := timestreamwrite.NewHandler(backend)
+
+	// Compile-time proof Handler satisfies the persistence layer's contract.
+	var _ persistence.Persistable = h
+
+	_, err := backend.CreateDatabase("handler-db", "", map[string]string{"env": "test"})
+	require.NoError(t, err)
+
+	data := h.Snapshot(ctx)
+	require.NotEmpty(t, data)
+
+	restoredBackend := timestreamwrite.NewInMemoryBackend()
+	restoredHandler := timestreamwrite.NewHandler(restoredBackend)
+	require.NoError(t, restoredHandler.Restore(ctx, data))
+
+	assert.Equal(t, 1, timestreamwrite.DatabaseCount(restoredBackend))
+
+	db, err := restoredBackend.DescribeDatabase("handler-db")
+	require.NoError(t, err)
+	assert.Equal(t, "handler-db", db.DatabaseName)
 }

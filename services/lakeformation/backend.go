@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -64,6 +65,20 @@ func randomHex(n int) string {
 
 // ErrValidation is returned when input validation fails.
 var ErrValidation = errors.New("validation error")
+
+// errTransactionCommitted indicates an operation that requires a transaction
+// to not be committed yet (CancelTransaction, ExtendTransaction,
+// DeleteObjectsOnCancel) was attempted on a transaction that already
+// committed. It wraps awserr.ErrConflict so existing errors.Is(err,
+// awserr.ErrConflict) checks keep matching; handler.go additionally checks
+// errors.Is(err, errTransactionCommitted) first so this maps to the AWS
+// TransactionCommittedException wire error instead of the
+// TransactionCanceledException used for the "already aborted" conflict case.
+// Per the real aws-sdk-go-v2 deserializers, CancelTransaction's valid error
+// set includes TransactionCommittedException but NOT TransactionCanceledException
+// -- the reverse of CommitTransaction's valid set -- so these must not share
+// one error code.
+var errTransactionCommitted = fmt.Errorf("transaction already committed: %w", awserr.ErrConflict)
 
 // StorageBackend is the interface for Lake Formation backend operations.
 type StorageBackend interface {
@@ -1023,17 +1038,32 @@ func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resour
 	return failures
 }
 
+// defaultCredentialsDuration is the AWS default lifetime for temporary
+// credentials when the caller does not specify DurationSeconds.
+const defaultCredentialsDuration = time.Hour
+
+// credentialsDuration returns the requested credential lifetime, falling
+// back to defaultCredentialsDuration when durationSeconds is unset or
+// non-positive.
+func credentialsDuration(durationSeconds *int32) time.Duration {
+	if durationSeconds != nil && *durationSeconds > 0 {
+		return time.Duration(*durationSeconds) * time.Second
+	}
+
+	return defaultCredentialsDuration
+}
+
 // AssumeDecoratedRoleWithSAML returns synthetic temporary credentials.
 // The actual SAML assertion and role are not validated in the in-memory backend.
 func (b *InMemoryBackend) AssumeDecoratedRoleWithSAML(
 	_, _, _ string,
-	_ *int32,
+	durationSeconds *int32,
 ) *SAMLCredentials {
 	return &SAMLCredentials{
 		AccessKeyID:     "ASIA" + randomHex(randAccessKeyBytes),
 		SecretAccessKey: randomHex(randSecretKeyBytes),
 		SessionToken:    randomHex(randSessionKeyBytes),
-		Expiration:      time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		Expiration:      awstime.Epoch(time.Now().Add(credentialsDuration(durationSeconds))),
 	}
 }
 
@@ -1046,7 +1076,7 @@ func (b *InMemoryBackend) CancelTransaction(transactionID string) error {
 	if info, ok := b.transactions.Get(transactionID); ok && info.Status == transactionStatusCommitted {
 		return awserr.New(
 			fmt.Sprintf("transaction %s is already committed", transactionID),
-			awserr.ErrConflict,
+			errTransactionCommitted,
 		)
 	}
 
@@ -1874,6 +1904,9 @@ func (b *InMemoryBackend) ExtendTransaction(transactionID string) error {
 	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
 	}
+	if info.Status == transactionStatusCommitted {
+		return awserr.New(fmt.Sprintf("transaction %s is already committed", transactionID), errTransactionCommitted)
+	}
 	if info.Status != transactionStatusActive {
 		return awserr.New(fmt.Sprintf("transaction %s is not active", transactionID), awserr.ErrConflict)
 	}
@@ -1893,6 +1926,9 @@ func (b *InMemoryBackend) DeleteObjectsOnCancel(transactionID string) error {
 	info, ok := b.transactions.Get(transactionID)
 	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
+	}
+	if info.Status == transactionStatusCommitted {
+		return awserr.New(fmt.Sprintf("transaction %s is already committed", transactionID), errTransactionCommitted)
 	}
 	if info.Status != transactionStatusAborted {
 		return awserr.New(
@@ -2006,11 +2042,12 @@ func (b *InMemoryBackend) GetEffectivePermissionsForPath(
 }
 
 // GetTemporaryCredentials returns synthetic temporary AWS credentials.
-func (b *InMemoryBackend) GetTemporaryCredentials(_ *int32) *TemporaryCredentials {
+func (b *InMemoryBackend) GetTemporaryCredentials(durationSeconds *int32) *TemporaryCredentials {
 	return &TemporaryCredentials{
 		AccessKeyID:     "ASIA" + randomHex(randAccessKeyBytes),
 		SecretAccessKey: randomHex(randSecretKeyBytes),
 		SessionToken:    randomHex(randSessionKeyBytes),
+		Expiration:      awstime.Epoch(time.Now().Add(credentialsDuration(durationSeconds))),
 	}
 }
 

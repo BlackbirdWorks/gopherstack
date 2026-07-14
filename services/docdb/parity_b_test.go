@@ -77,7 +77,7 @@ func TestParity_InstanceErrorCodes(t *testing.T) {
 				"Version":              {"2014-10-31"},
 				"DBInstanceIdentifier": {"nonexistent-inst"},
 			},
-			wantCode: "DBInstanceNotFoundFault",
+			wantCode: "DBInstanceNotFound",
 		},
 		{
 			name: "instance_already_exists",
@@ -105,7 +105,7 @@ func TestParity_InstanceErrorCodes(t *testing.T) {
 	}
 }
 
-// TestParity_InstanceAlreadyExists verifies DBInstanceAlreadyExistsFault.
+// TestParity_InstanceAlreadyExists verifies DBInstanceAlreadyExists.
 func TestParity_InstanceAlreadyExists(t *testing.T) {
 	t.Parallel()
 	h := newParityBHandler(t)
@@ -121,7 +121,7 @@ func TestParity_InstanceAlreadyExists(t *testing.T) {
 		"Engine":               {"docdb"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Equal(t, "DBInstanceAlreadyExistsFault", pbExtractErrorCode(t, rr.Body.String()))
+	assert.Equal(t, "DBInstanceAlreadyExists", pbExtractErrorCode(t, rr.Body.String()))
 }
 
 // TestParity_SubnetGroupStatus verifies subnet group status is lowercase "complete".
@@ -129,11 +129,11 @@ func TestParity_SubnetGroupStatus(t *testing.T) {
 	t.Parallel()
 	h := newParityBHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {"parity-sg"},
-		"DBSubnetGroupDescription": {"parity test"},
-		"SubnetIds.member.1":       {"subnet-aabbccdd"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"parity-sg"},
+		"DBSubnetGroupDescription":     {"parity test"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-aabbccdd"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
@@ -273,12 +273,12 @@ func TestParity_ParameterGroupStorage(t *testing.T) {
 
 	// Modify: set a parameter.
 	rr2 := doRequest(t, h, url.Values{
-		"Action":                             {"ModifyDBClusterParameterGroup"},
-		"Version":                            {"2014-10-31"},
-		"DBClusterParameterGroupName":        {"my-pg"},
-		"Parameters.member.1.ParameterName":  {"tls"},
-		"Parameters.member.1.ParameterValue": {"disabled"},
-		"Parameters.member.1.ApplyMethod":    {"immediate"},
+		"Action":                                {"ModifyDBClusterParameterGroup"},
+		"Version":                               {"2014-10-31"},
+		"DBClusterParameterGroupName":           {"my-pg"},
+		"Parameters.Parameter.1.ParameterName":  {"tls"},
+		"Parameters.Parameter.1.ParameterValue": {"disabled"},
+		"Parameters.Parameter.1.ApplyMethod":    {"immediate"},
 	})
 	require.Equal(t, http.StatusOK, rr2.Code)
 
@@ -301,12 +301,12 @@ func TestParity_ClusterAvailabilityZones(t *testing.T) {
 	h := newParityBHandler(t)
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                     {"CreateDBCluster"},
-		"Version":                    {"2014-10-31"},
-		"DBClusterIdentifier":        {"az-cluster"},
-		"Engine":                     {"docdb"},
-		"AvailabilityZones.member.1": {"us-east-1a"},
-		"AvailabilityZones.member.2": {"us-east-1b"},
+		"Action":                               {"CreateDBCluster"},
+		"Version":                              {"2014-10-31"},
+		"DBClusterIdentifier":                  {"az-cluster"},
+		"Engine":                               {"docdb"},
+		"AvailabilityZones.AvailabilityZone.1": {"us-east-1a"},
+		"AvailabilityZones.AvailabilityZone.2": {"us-east-1b"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
@@ -320,11 +320,11 @@ func TestParity_SubnetAvailabilityZone(t *testing.T) {
 	h := newParityBHandler(t)
 
 	rr := doRequest(t, h, url.Values{
-		"Action":                   {"CreateDBSubnetGroup"},
-		"Version":                  {"2014-10-31"},
-		"DBSubnetGroupName":        {"az-sg"},
-		"DBSubnetGroupDescription": {"parity test"},
-		"SubnetIds.member.1":       {"subnet-aabb1122"},
+		"Action":                       {"CreateDBSubnetGroup"},
+		"Version":                      {"2014-10-31"},
+		"DBSubnetGroupName":            {"az-sg"},
+		"DBSubnetGroupDescription":     {"parity test"},
+		"SubnetIds.SubnetIdentifier.1": {"subnet-aabb1122"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()

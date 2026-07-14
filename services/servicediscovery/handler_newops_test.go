@@ -391,10 +391,15 @@ func TestHandler_UpdateInstanceCustomHealthStatus(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			// Helper to create a service with an instance, returning the svcID and instanceID.
+			// Helper to create a service (with a custom health check, required for
+			// UpdateInstanceCustomHealthStatus per AWS) and register an instance,
+			// returning the svcID and instanceID.
 			createSvcWithInstance := func() (string, string) {
 				t.Helper()
-				createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "health-svc"})
+				createRec := doSDRequest(t, h, "CreateService", map[string]any{
+					"Name":                    "health-svc",
+					"HealthCheckCustomConfig": map[string]any{"FailureThreshold": 1},
+				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				var out map[string]any
 				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
@@ -633,8 +638,12 @@ func TestHandler_NewOps_PersistenceRoundTrip(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	// Create a service and set its attributes.
-	createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "persist-svc"})
+	// Create a service (with a custom health check, required for
+	// UpdateInstanceCustomHealthStatus per AWS) and set its attributes.
+	createRec := doSDRequest(t, h, "CreateService", map[string]any{
+		"Name":                    "persist-svc",
+		"HealthCheckCustomConfig": map[string]any{"FailureThreshold": 1},
+	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createOut map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))

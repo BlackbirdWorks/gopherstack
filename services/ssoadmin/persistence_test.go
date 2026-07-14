@@ -21,7 +21,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	original := ssoadmin.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
 	instanceArn := original.AddInstanceInternal("full-state-inst").InstanceArn
-	require.NoError(t, original.AddRegion(instanceArn, "us-west-2"))
+	_, err := original.AddRegion(instanceArn, "us-west-2")
+	require.NoError(t, err)
 
 	ps, err := original.CreatePermissionSet(instanceArn, "full-state-ps", "desc", "PT2H", "relay", map[string]string{
 		"env": "prod",
@@ -51,7 +52,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	appArn := app.ApplicationArn
 
 	require.NoError(t, original.CreateApplicationAssignment(appArn, "user-2", "USER"))
-	require.NoError(t, original.PutApplicationAccessScope(appArn, "scope:read"))
+	require.NoError(t, original.PutApplicationAccessScope(
+		appArn, "scope:read", []string{"arn:aws:sso::aws:applicationProvider/custom"},
+	))
 	require.NoError(t, original.PutApplicationAuthenticationMethod(appArn, "IAM", []byte(`{"Policy":"{}"}`)))
 	require.NoError(t, original.PutApplicationGrant(
 		appArn, "authorization_code", []byte(`{"RedirectUris":["https://x"]}`),
@@ -87,7 +90,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	regions, err := fresh.ListRegions(instanceArn)
 	require.NoError(t, err)
 	require.Len(t, regions, 1)
-	assert.Equal(t, "us-west-2", regions[0].Region)
+	assert.Equal(t, "us-west-2", regions[0].RegionName)
 
 	// Permission set + attachments.
 	restoredPS, err := fresh.DescribePermissionSet(instanceArn, psArn)
@@ -135,7 +138,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	scopes, err := fresh.ListApplicationAccessScopes(appArn)
 	require.NoError(t, err)
-	assert.Contains(t, scopes, "scope:read")
+	require.Len(t, scopes, 1)
+	assert.Equal(t, "scope:read", scopes[0].Scope)
+	assert.Equal(t, []string{"arn:aws:sso::aws:applicationProvider/custom"}, scopes[0].AuthorizedTargets)
 
 	authMethods, err := fresh.ListApplicationAuthenticationMethods(appArn)
 	require.NoError(t, err)

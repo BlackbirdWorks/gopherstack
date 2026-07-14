@@ -629,7 +629,7 @@ func TestHandler_GetInsightEvents_Pagination(t *testing.T) {
 			}
 			maps.Copy(body, tt.body)
 
-			rec := doXrayRequest(t, h, "/GetInsightEvents", body)
+			rec := doXrayRequest(t, h, "/InsightEvents", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -660,7 +660,7 @@ func TestHandler_GetInsightEvents_NextTokenContinuation(t *testing.T) {
 	}
 
 	// Page 1
-	rec1 := doXrayRequest(t, h, "/GetInsightEvents", map[string]any{
+	rec1 := doXrayRequest(t, h, "/InsightEvents", map[string]any{
 		"InsightId":  insightID,
 		"MaxResults": int32(4),
 	})
@@ -675,7 +675,7 @@ func TestHandler_GetInsightEvents_NextTokenContinuation(t *testing.T) {
 	require.NotEmpty(t, nextToken)
 
 	// Page 2
-	rec2 := doXrayRequest(t, h, "/GetInsightEvents", map[string]any{
+	rec2 := doXrayRequest(t, h, "/InsightEvents", map[string]any{
 		"InsightId":  insightID,
 		"MaxResults": int32(4),
 		"NextToken":  nextToken,
@@ -741,7 +741,7 @@ func TestHandler_GetInsightSummaries_Pagination(t *testing.T) {
 				)
 			}
 
-			rec := doXrayRequest(t, h, "/GetInsightSummaries", tt.body)
+			rec := doXrayRequest(t, h, "/InsightSummaries", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus != http.StatusOK {
@@ -870,7 +870,7 @@ func TestHandler_GetInsight_ResponseShape(t *testing.T) {
 
 	seedInsight(b, "shape-test-id", "my-group", "arn:aws:xray:us-east-1:123456789012:group/default/my-group")
 
-	rec := doXrayRequest(t, h, "/GetInsight", map[string]any{"InsightId": "shape-test-id"})
+	rec := doXrayRequest(t, h, "/Insight", map[string]any{"InsightId": "shape-test-id"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -899,7 +899,7 @@ func TestHandler_GetInsightSummaries_ResponseShape(t *testing.T) {
 
 	seedInsight(b, "summary-shape-id", "my-group", "arn:aws:xray:us-east-1:123456789012:group/default/my-group")
 
-	rec := doXrayRequest(t, h, "/GetInsightSummaries", nil)
+	rec := doXrayRequest(t, h, "/InsightSummaries", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -950,7 +950,7 @@ func TestHandler_GetSamplingStatisticSummaries_Pagination(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/GetSamplingStatisticSummaries", tt.body)
+			rec := doXrayRequest(t, h, "/SamplingStatisticSummaries", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any

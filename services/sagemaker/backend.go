@@ -730,6 +730,19 @@ func (b *InMemoryBackend) modelsStore(r string) *store.Table[Model] {
 
 	return b.models[r]
 }
+
+// modelsStoreRO returns the region-scoped models table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelsStoreRO(r string) *store.Table[Model] {
+	if v := b.models[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Model) string { return v.ModelName })
+}
+
 func (b *InMemoryBackend) endpointConfigsStore(r string) *store.Table[EndpointConfig] {
 	if b.endpointConfigs[r] == nil {
 		b.endpointConfigs[r] = store.Register(
@@ -741,6 +754,19 @@ func (b *InMemoryBackend) endpointConfigsStore(r string) *store.Table[EndpointCo
 
 	return b.endpointConfigs[r]
 }
+
+// endpointConfigsStoreRO returns the region-scoped endpointConfigs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) endpointConfigsStoreRO(r string) *store.Table[EndpointConfig] {
+	if v := b.endpointConfigs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *EndpointConfig) string { return v.EndpointConfigName })
+}
+
 func (b *InMemoryBackend) endpointsStore(r string) *store.Table[Endpoint] {
 	if b.endpoints[r] == nil {
 		b.endpoints[r] = store.Register(
@@ -752,6 +778,19 @@ func (b *InMemoryBackend) endpointsStore(r string) *store.Table[Endpoint] {
 
 	return b.endpoints[r]
 }
+
+// endpointsStoreRO returns the region-scoped endpoints table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) endpointsStoreRO(r string) *store.Table[Endpoint] {
+	if v := b.endpoints[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Endpoint) string { return v.EndpointName })
+}
+
 func (b *InMemoryBackend) trainingJobsStore(r string) *store.Table[TrainingJob] {
 	if b.trainingJobs[r] == nil {
 		b.trainingJobs[r] = store.Register(
@@ -763,6 +802,19 @@ func (b *InMemoryBackend) trainingJobsStore(r string) *store.Table[TrainingJob] 
 
 	return b.trainingJobs[r]
 }
+
+// trainingJobsStoreRO returns the region-scoped trainingJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) trainingJobsStoreRO(r string) *store.Table[TrainingJob] {
+	if v := b.trainingJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *TrainingJob) string { return v.TrainingJobName })
+}
+
 func (b *InMemoryBackend) notebooksStore(r string) *store.Table[NotebookInstance] {
 	if b.notebooks[r] == nil {
 		b.notebooks[r] = store.Register(
@@ -774,6 +826,19 @@ func (b *InMemoryBackend) notebooksStore(r string) *store.Table[NotebookInstance
 
 	return b.notebooks[r]
 }
+
+// notebooksStoreRO returns the region-scoped notebooks table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) notebooksStoreRO(r string) *store.Table[NotebookInstance] {
+	if v := b.notebooks[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *NotebookInstance) string { return v.NotebookInstanceName })
+}
+
 func (b *InMemoryBackend) hpTuningJobsStore(r string) *store.Table[HyperParameterTuningJob] {
 	if b.hpTuningJobs[r] == nil {
 		b.hpTuningJobs[r] = store.Register(
@@ -785,6 +850,19 @@ func (b *InMemoryBackend) hpTuningJobsStore(r string) *store.Table[HyperParamete
 
 	return b.hpTuningJobs[r]
 }
+
+// hpTuningJobsStoreRO returns the region-scoped hpTuningJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) hpTuningJobsStoreRO(r string) *store.Table[HyperParameterTuningJob] {
+	if v := b.hpTuningJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *HyperParameterTuningJob) string { return v.HyperParameterTuningJobName })
+}
+
 func (b *InMemoryBackend) associationsStore(r string) *store.Table[Association] {
 	if b.associations[r] == nil {
 		b.associations[r] = store.Register(
@@ -796,6 +874,19 @@ func (b *InMemoryBackend) associationsStore(r string) *store.Table[Association] 
 
 	return b.associations[r]
 }
+
+// associationsStoreRO returns the region-scoped associations table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) associationsStoreRO(r string) *store.Table[Association] {
+	if v := b.associations[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Association) string { return associationKey(v.SourceArn, v.DestinationArn) })
+}
+
 func (b *InMemoryBackend) trialComponentAssociationsStore(r string) *store.Table[TrialComponentAssociation] {
 	if b.trialComponentAssociations[r] == nil {
 		b.trialComponentAssociations[r] = store.Register(
@@ -809,6 +900,21 @@ func (b *InMemoryBackend) trialComponentAssociationsStore(r string) *store.Table
 
 	return b.trialComponentAssociations[r]
 }
+
+// trialComponentAssociationsStoreRO returns the region-scoped trialComponentAssociations table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) trialComponentAssociationsStoreRO(r string) *store.Table[TrialComponentAssociation] {
+	if v := b.trialComponentAssociations[r]; v != nil {
+		return v
+	}
+
+	return store.New(
+		func(v *TrialComponentAssociation) string { return trialComponentKey(v.TrialName, v.TrialComponentName) },
+	)
+}
+
 func (b *InMemoryBackend) actionsStore(r string) *store.Table[Action] {
 	if b.actions[r] == nil {
 		b.actions[r] = store.Register(
@@ -820,6 +926,19 @@ func (b *InMemoryBackend) actionsStore(r string) *store.Table[Action] {
 
 	return b.actions[r]
 }
+
+// actionsStoreRO returns the region-scoped actions table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) actionsStoreRO(r string) *store.Table[Action] {
+	if v := b.actions[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Action) string { return v.ActionName })
+}
+
 func (b *InMemoryBackend) algorithmsStore(r string) *store.Table[Algorithm] {
 	if b.algorithms[r] == nil {
 		b.algorithms[r] = store.Register(
@@ -831,6 +950,19 @@ func (b *InMemoryBackend) algorithmsStore(r string) *store.Table[Algorithm] {
 
 	return b.algorithms[r]
 }
+
+// algorithmsStoreRO returns the region-scoped algorithms table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) algorithmsStoreRO(r string) *store.Table[Algorithm] {
+	if v := b.algorithms[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Algorithm) string { return v.AlgorithmName })
+}
+
 func (b *InMemoryBackend) clustersStore(r string) *store.Table[Cluster] {
 	if b.clusters[r] == nil {
 		b.clusters[r] = store.Register(
@@ -842,6 +974,19 @@ func (b *InMemoryBackend) clustersStore(r string) *store.Table[Cluster] {
 
 	return b.clusters[r]
 }
+
+// clustersStoreRO returns the region-scoped clusters table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) clustersStoreRO(r string) *store.Table[Cluster] {
+	if v := b.clusters[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Cluster) string { return v.ClusterName })
+}
+
 func (b *InMemoryBackend) modelPackagesStore(r string) *store.Table[ModelPackage] {
 	if b.modelPackages[r] == nil {
 		b.modelPackages[r] = store.Register(
@@ -853,6 +998,19 @@ func (b *InMemoryBackend) modelPackagesStore(r string) *store.Table[ModelPackage
 
 	return b.modelPackages[r]
 }
+
+// modelPackagesStoreRO returns the region-scoped modelPackages table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelPackagesStoreRO(r string) *store.Table[ModelPackage] {
+	if v := b.modelPackages[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *ModelPackage) string { return v.ModelPackageArn })
+}
+
 func (b *InMemoryBackend) modelPackageGroupsStore(r string) *store.Table[ModelPackageGroup] {
 	if b.modelPackageGroups[r] == nil {
 		b.modelPackageGroups[r] = store.Register(
@@ -864,6 +1022,19 @@ func (b *InMemoryBackend) modelPackageGroupsStore(r string) *store.Table[ModelPa
 
 	return b.modelPackageGroups[r]
 }
+
+// modelPackageGroupsStoreRO returns the region-scoped modelPackageGroups table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelPackageGroupsStoreRO(r string) *store.Table[ModelPackageGroup] {
+	if v := b.modelPackageGroups[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *ModelPackageGroup) string { return v.ModelPackageGroupName })
+}
+
 func (b *InMemoryBackend) autoMLJobsStore(r string) *store.Table[AutoMLJob] {
 	if b.autoMLJobs[r] == nil {
 		b.autoMLJobs[r] = store.Register(
@@ -875,6 +1046,19 @@ func (b *InMemoryBackend) autoMLJobsStore(r string) *store.Table[AutoMLJob] {
 
 	return b.autoMLJobs[r]
 }
+
+// autoMLJobsStoreRO returns the region-scoped autoMLJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) autoMLJobsStoreRO(r string) *store.Table[AutoMLJob] {
+	if v := b.autoMLJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *AutoMLJob) string { return v.AutoMLJobName })
+}
+
 func (b *InMemoryBackend) codeRepositoriesStore(r string) *store.Table[CodeRepository] {
 	if b.codeRepositories[r] == nil {
 		b.codeRepositories[r] = store.Register(
@@ -886,6 +1070,19 @@ func (b *InMemoryBackend) codeRepositoriesStore(r string) *store.Table[CodeRepos
 
 	return b.codeRepositories[r]
 }
+
+// codeRepositoriesStoreRO returns the region-scoped codeRepositories table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) codeRepositoriesStoreRO(r string) *store.Table[CodeRepository] {
+	if v := b.codeRepositories[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *CodeRepository) string { return v.CodeRepositoryName })
+}
+
 func (b *InMemoryBackend) projectsStore(r string) *store.Table[Project] {
 	if b.projects[r] == nil {
 		b.projects[r] = store.Register(
@@ -897,6 +1094,19 @@ func (b *InMemoryBackend) projectsStore(r string) *store.Table[Project] {
 
 	return b.projects[r]
 }
+
+// projectsStoreRO returns the region-scoped projects table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) projectsStoreRO(r string) *store.Table[Project] {
+	if v := b.projects[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Project) string { return v.ProjectName })
+}
+
 func (b *InMemoryBackend) spacesStore(r string) *store.Table[Space] {
 	if b.spaces[r] == nil {
 		b.spaces[r] = store.Register(b.registry, "spaces:"+r, store.New(func(v *Space) string {
@@ -906,6 +1116,21 @@ func (b *InMemoryBackend) spacesStore(r string) *store.Table[Space] {
 
 	return b.spaces[r]
 }
+
+// spacesStoreRO returns the region-scoped spaces table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) spacesStoreRO(r string) *store.Table[Space] {
+	if v := b.spaces[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Space) string {
+		return spaceKey(v.DomainID, v.SpaceName)
+	})
+}
+
 func (b *InMemoryBackend) smImagesStore(r string) *store.Table[SMImage] {
 	if b.smImages[r] == nil {
 		b.smImages[r] = store.Register(
@@ -917,6 +1142,19 @@ func (b *InMemoryBackend) smImagesStore(r string) *store.Table[SMImage] {
 
 	return b.smImages[r]
 }
+
+// smImagesStoreRO returns the region-scoped smImages table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) smImagesStoreRO(r string) *store.Table[SMImage] {
+	if v := b.smImages[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *SMImage) string { return v.ImageName })
+}
+
 func (b *InMemoryBackend) imageVersionsStore(r string) map[string]map[int]*ImageVersion {
 	if b.imageVersions[r] == nil {
 		b.imageVersions[r] = make(map[string]map[int]*ImageVersion)
@@ -924,6 +1162,19 @@ func (b *InMemoryBackend) imageVersionsStore(r string) map[string]map[int]*Image
 
 	return b.imageVersions[r]
 }
+
+// imageVersionsStoreRO returns the region-scoped imageVersions table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) imageVersionsStoreRO(r string) map[string]map[int]*ImageVersion {
+	if v := b.imageVersions[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]map[int]*ImageVersion)
+}
+
 func (b *InMemoryBackend) imageVersionCountsStore(r string) map[string]int {
 	if b.imageVersionCounts[r] == nil {
 		b.imageVersionCounts[r] = make(map[string]int)
@@ -931,6 +1182,7 @@ func (b *InMemoryBackend) imageVersionCountsStore(r string) map[string]int {
 
 	return b.imageVersionCounts[r]
 }
+
 func (b *InMemoryBackend) compilationJobsStore(r string) *store.Table[CompilationJob] {
 	if b.compilationJobs[r] == nil {
 		b.compilationJobs[r] = store.Register(
@@ -942,6 +1194,19 @@ func (b *InMemoryBackend) compilationJobsStore(r string) *store.Table[Compilatio
 
 	return b.compilationJobs[r]
 }
+
+// compilationJobsStoreRO returns the region-scoped compilationJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) compilationJobsStoreRO(r string) *store.Table[CompilationJob] {
+	if v := b.compilationJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *CompilationJob) string { return v.CompilationJobName })
+}
+
 func (b *InMemoryBackend) monitoringSchedulesStore(r string) *store.Table[MonitoringSchedule] {
 	if b.monitoringSchedules[r] == nil {
 		b.monitoringSchedules[r] = store.Register(
@@ -953,6 +1218,19 @@ func (b *InMemoryBackend) monitoringSchedulesStore(r string) *store.Table[Monito
 
 	return b.monitoringSchedules[r]
 }
+
+// monitoringSchedulesStoreRO returns the region-scoped monitoringSchedules table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) monitoringSchedulesStoreRO(r string) *store.Table[MonitoringSchedule] {
+	if v := b.monitoringSchedules[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *MonitoringSchedule) string { return v.MonitoringScheduleName })
+}
+
 func (b *InMemoryBackend) workteamsStore(r string) *store.Table[Workteam] {
 	if b.workteams[r] == nil {
 		b.workteams[r] = store.Register(
@@ -964,6 +1242,19 @@ func (b *InMemoryBackend) workteamsStore(r string) *store.Table[Workteam] {
 
 	return b.workteams[r]
 }
+
+// workteamsStoreRO returns the region-scoped workteams table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) workteamsStoreRO(r string) *store.Table[Workteam] {
+	if v := b.workteams[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Workteam) string { return v.WorkteamName })
+}
+
 func (b *InMemoryBackend) dataQualityJobDefsStore(r string) *store.Table[JobDefinition] {
 	if b.dataQualityJobDefs[r] == nil {
 		b.dataQualityJobDefs[r] = store.Register(
@@ -975,6 +1266,19 @@ func (b *InMemoryBackend) dataQualityJobDefsStore(r string) *store.Table[JobDefi
 
 	return b.dataQualityJobDefs[r]
 }
+
+// dataQualityJobDefsStoreRO returns the region-scoped dataQualityJobDefs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) dataQualityJobDefsStoreRO(r string) *store.Table[JobDefinition] {
+	if v := b.dataQualityJobDefs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *JobDefinition) string { return v.JobDefinitionName })
+}
+
 func (b *InMemoryBackend) modelBiasJobDefsStore(r string) *store.Table[JobDefinition] {
 	if b.modelBiasJobDefs[r] == nil {
 		b.modelBiasJobDefs[r] = store.Register(
@@ -986,6 +1290,19 @@ func (b *InMemoryBackend) modelBiasJobDefsStore(r string) *store.Table[JobDefini
 
 	return b.modelBiasJobDefs[r]
 }
+
+// modelBiasJobDefsStoreRO returns the region-scoped modelBiasJobDefs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelBiasJobDefsStoreRO(r string) *store.Table[JobDefinition] {
+	if v := b.modelBiasJobDefs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *JobDefinition) string { return v.JobDefinitionName })
+}
+
 func (b *InMemoryBackend) modelQualityJobDefsStore(r string) *store.Table[JobDefinition] {
 	if b.modelQualityJobDefs[r] == nil {
 		b.modelQualityJobDefs[r] = store.Register(
@@ -997,6 +1314,19 @@ func (b *InMemoryBackend) modelQualityJobDefsStore(r string) *store.Table[JobDef
 
 	return b.modelQualityJobDefs[r]
 }
+
+// modelQualityJobDefsStoreRO returns the region-scoped modelQualityJobDefs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelQualityJobDefsStoreRO(r string) *store.Table[JobDefinition] {
+	if v := b.modelQualityJobDefs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *JobDefinition) string { return v.JobDefinitionName })
+}
+
 func (b *InMemoryBackend) modelExplainJobDefsStore(r string) *store.Table[JobDefinition] {
 	if b.modelExplainJobDefs[r] == nil {
 		b.modelExplainJobDefs[r] = store.Register(
@@ -1008,6 +1338,19 @@ func (b *InMemoryBackend) modelExplainJobDefsStore(r string) *store.Table[JobDef
 
 	return b.modelExplainJobDefs[r]
 }
+
+// modelExplainJobDefsStoreRO returns the region-scoped modelExplainJobDefs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelExplainJobDefsStoreRO(r string) *store.Table[JobDefinition] {
+	if v := b.modelExplainJobDefs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *JobDefinition) string { return v.JobDefinitionName })
+}
+
 func (b *InMemoryBackend) monitoringExecutionsStore(r string) *store.Table[MonitoringExecution] {
 	if b.monitoringExecutions[r] == nil {
 		b.monitoringExecutions[r] = store.Register(
@@ -1021,6 +1364,21 @@ func (b *InMemoryBackend) monitoringExecutionsStore(r string) *store.Table[Monit
 
 	return b.monitoringExecutions[r]
 }
+
+// monitoringExecutionsStoreRO returns the region-scoped monitoringExecutions table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) monitoringExecutionsStoreRO(r string) *store.Table[MonitoringExecution] {
+	if v := b.monitoringExecutions[r]; v != nil {
+		return v
+	}
+
+	return store.New(
+		func(v *MonitoringExecution) string { return v.MonitoringScheduleName + "|" + v.ProcessingJobArn },
+	)
+}
+
 func (b *InMemoryBackend) humanTaskUisStore(r string) *store.Table[HumanTaskUI] {
 	if b.humanTaskUis[r] == nil {
 		b.humanTaskUis[r] = store.Register(
@@ -1032,6 +1390,19 @@ func (b *InMemoryBackend) humanTaskUisStore(r string) *store.Table[HumanTaskUI] 
 
 	return b.humanTaskUis[r]
 }
+
+// humanTaskUisStoreRO returns the region-scoped humanTaskUis table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) humanTaskUisStoreRO(r string) *store.Table[HumanTaskUI] {
+	if v := b.humanTaskUis[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *HumanTaskUI) string { return v.HumanTaskUIName })
+}
+
 func (b *InMemoryBackend) workforcesStore(r string) *store.Table[Workforce] {
 	if b.workforces[r] == nil {
 		b.workforces[r] = store.Register(
@@ -1043,6 +1414,19 @@ func (b *InMemoryBackend) workforcesStore(r string) *store.Table[Workforce] {
 
 	return b.workforces[r]
 }
+
+// workforcesStoreRO returns the region-scoped workforces table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) workforcesStoreRO(r string) *store.Table[Workforce] {
+	if v := b.workforces[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Workforce) string { return v.WorkforceName })
+}
+
 func (b *InMemoryBackend) flowDefinitionsStore(r string) *store.Table[FlowDefinition] {
 	if b.flowDefinitions[r] == nil {
 		b.flowDefinitions[r] = store.Register(
@@ -1054,6 +1438,19 @@ func (b *InMemoryBackend) flowDefinitionsStore(r string) *store.Table[FlowDefini
 
 	return b.flowDefinitions[r]
 }
+
+// flowDefinitionsStoreRO returns the region-scoped flowDefinitions table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) flowDefinitionsStoreRO(r string) *store.Table[FlowDefinition] {
+	if v := b.flowDefinitions[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *FlowDefinition) string { return v.FlowDefinitionName })
+}
+
 func (b *InMemoryBackend) appImageConfigsStore(r string) *store.Table[AppImageConfig] {
 	if b.appImageConfigs[r] == nil {
 		b.appImageConfigs[r] = store.Register(
@@ -1065,6 +1462,19 @@ func (b *InMemoryBackend) appImageConfigsStore(r string) *store.Table[AppImageCo
 
 	return b.appImageConfigs[r]
 }
+
+// appImageConfigsStoreRO returns the region-scoped appImageConfigs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) appImageConfigsStoreRO(r string) *store.Table[AppImageConfig] {
+	if v := b.appImageConfigs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *AppImageConfig) string { return v.AppImageConfigName })
+}
+
 func (b *InMemoryBackend) inferenceExperimentsStore(r string) *store.Table[InferenceExperiment] {
 	if b.inferenceExperiments[r] == nil {
 		b.inferenceExperiments[r] = store.Register(
@@ -1076,6 +1486,19 @@ func (b *InMemoryBackend) inferenceExperimentsStore(r string) *store.Table[Infer
 
 	return b.inferenceExperiments[r]
 }
+
+// inferenceExperimentsStoreRO returns the region-scoped inferenceExperiments table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) inferenceExperimentsStoreRO(r string) *store.Table[InferenceExperiment] {
+	if v := b.inferenceExperiments[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *InferenceExperiment) string { return v.Name })
+}
+
 func (b *InMemoryBackend) mlflowTrackingServersStore(r string) *store.Table[MlflowTrackingServer] {
 	if b.mlflowTrackingServers[r] == nil {
 		b.mlflowTrackingServers[r] = store.Register(
@@ -1087,6 +1510,19 @@ func (b *InMemoryBackend) mlflowTrackingServersStore(r string) *store.Table[Mlfl
 
 	return b.mlflowTrackingServers[r]
 }
+
+// mlflowTrackingServersStoreRO returns the region-scoped mlflowTrackingServers table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) mlflowTrackingServersStoreRO(r string) *store.Table[MlflowTrackingServer] {
+	if v := b.mlflowTrackingServers[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *MlflowTrackingServer) string { return v.TrackingServerName })
+}
+
 func (b *InMemoryBackend) mlflowAppsStore(r string) *store.Table[MlflowApp] {
 	if b.mlflowApps[r] == nil {
 		b.mlflowApps[r] = store.Register(
@@ -1098,6 +1534,19 @@ func (b *InMemoryBackend) mlflowAppsStore(r string) *store.Table[MlflowApp] {
 
 	return b.mlflowApps[r]
 }
+
+// mlflowAppsStoreRO returns the region-scoped mlflowApps table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) mlflowAppsStoreRO(r string) *store.Table[MlflowApp] {
+	if v := b.mlflowApps[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *MlflowApp) string { return v.Arn })
+}
+
 func (b *InMemoryBackend) modelCardsStore(r string) *store.Table[ModelCard] {
 	if b.modelCards[r] == nil {
 		b.modelCards[r] = store.Register(
@@ -1109,6 +1558,19 @@ func (b *InMemoryBackend) modelCardsStore(r string) *store.Table[ModelCard] {
 
 	return b.modelCards[r]
 }
+
+// modelCardsStoreRO returns the region-scoped modelCards table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelCardsStoreRO(r string) *store.Table[ModelCard] {
+	if v := b.modelCards[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *ModelCard) string { return v.ModelCardName })
+}
+
 func (b *InMemoryBackend) optimizationJobsStore(r string) *store.Table[OptimizationJob] {
 	if b.optimizationJobs[r] == nil {
 		b.optimizationJobs[r] = store.Register(
@@ -1120,6 +1582,19 @@ func (b *InMemoryBackend) optimizationJobsStore(r string) *store.Table[Optimizat
 
 	return b.optimizationJobs[r]
 }
+
+// optimizationJobsStoreRO returns the region-scoped optimizationJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) optimizationJobsStoreRO(r string) *store.Table[OptimizationJob] {
+	if v := b.optimizationJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *OptimizationJob) string { return v.OptimizationJobName })
+}
+
 func (b *InMemoryBackend) studioLifecycleConfigsStore(r string) *store.Table[StudioLifecycleConfig] {
 	if b.studioLifecycleConfigs[r] == nil {
 		b.studioLifecycleConfigs[r] = store.Register(
@@ -1131,6 +1606,19 @@ func (b *InMemoryBackend) studioLifecycleConfigsStore(r string) *store.Table[Stu
 
 	return b.studioLifecycleConfigs[r]
 }
+
+// studioLifecycleConfigsStoreRO returns the region-scoped studioLifecycleConfigs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) studioLifecycleConfigsStoreRO(r string) *store.Table[StudioLifecycleConfig] {
+	if v := b.studioLifecycleConfigs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *StudioLifecycleConfig) string { return v.StudioLifecycleConfigName })
+}
+
 func (b *InMemoryBackend) partnerAppsStore(r string) *store.Table[PartnerApp] {
 	if b.partnerApps[r] == nil {
 		b.partnerApps[r] = store.Register(
@@ -1142,6 +1630,19 @@ func (b *InMemoryBackend) partnerAppsStore(r string) *store.Table[PartnerApp] {
 
 	return b.partnerApps[r]
 }
+
+// partnerAppsStoreRO returns the region-scoped partnerApps table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) partnerAppsStoreRO(r string) *store.Table[PartnerApp] {
+	if v := b.partnerApps[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *PartnerApp) string { return v.Arn })
+}
+
 func (b *InMemoryBackend) trainingPlansStore(r string) *store.Table[TrainingPlan] {
 	if b.trainingPlans[r] == nil {
 		b.trainingPlans[r] = store.Register(
@@ -1153,6 +1654,19 @@ func (b *InMemoryBackend) trainingPlansStore(r string) *store.Table[TrainingPlan
 
 	return b.trainingPlans[r]
 }
+
+// trainingPlansStoreRO returns the region-scoped trainingPlans table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) trainingPlansStoreRO(r string) *store.Table[TrainingPlan] {
+	if v := b.trainingPlans[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *TrainingPlan) string { return v.TrainingPlanName })
+}
+
 func (b *InMemoryBackend) reservedCapacitiesStore(r string) *store.Table[ReservedCapacity] {
 	if b.reservedCapacities[r] == nil {
 		b.reservedCapacities[r] = store.Register(
@@ -1164,6 +1678,19 @@ func (b *InMemoryBackend) reservedCapacitiesStore(r string) *store.Table[Reserve
 
 	return b.reservedCapacities[r]
 }
+
+// reservedCapacitiesStoreRO returns the region-scoped reservedCapacities table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) reservedCapacitiesStoreRO(r string) *store.Table[ReservedCapacity] {
+	if v := b.reservedCapacities[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *ReservedCapacity) string { return v.ReservedCapacityArn })
+}
+
 func (b *InMemoryBackend) trainingPlanExtensionOfferingsStore(r string) *store.Table[pendingTrainingPlanExtension] {
 	if b.trainingPlanExtensionOfferings[r] == nil {
 		b.trainingPlanExtensionOfferings[r] = store.Register(
@@ -1175,6 +1702,7 @@ func (b *InMemoryBackend) trainingPlanExtensionOfferingsStore(r string) *store.T
 
 	return b.trainingPlanExtensionOfferings[r]
 }
+
 func (b *InMemoryBackend) modelCardExportJobsStore(r string) *store.Table[ModelCardExportJob] {
 	if b.modelCardExportJobs[r] == nil {
 		b.modelCardExportJobs[r] = store.Register(
@@ -1185,6 +1713,18 @@ func (b *InMemoryBackend) modelCardExportJobsStore(r string) *store.Table[ModelC
 	}
 
 	return b.modelCardExportJobs[r]
+}
+
+// modelCardExportJobsStoreRO returns the region-scoped modelCardExportJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelCardExportJobsStoreRO(r string) *store.Table[ModelCardExportJob] {
+	if v := b.modelCardExportJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *ModelCardExportJob) string { return v.ModelCardExportJobArn })
 }
 
 // initTrainingPlanExtMaps (re)initialises the Training Plan / Reserved
@@ -1207,6 +1747,19 @@ func (b *InMemoryBackend) modelARNIndexStore(r string) map[string]string {
 
 	return b.modelARNIndex[r]
 }
+
+// modelARNIndexStoreRO returns the region-scoped modelARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelARNIndexStoreRO(r string) map[string]string {
+	if v := b.modelARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) endpointConfigARNIndexStore(r string) map[string]string {
 	if b.endpointConfigARNIndex[r] == nil {
 		b.endpointConfigARNIndex[r] = make(map[string]string)
@@ -1214,6 +1767,19 @@ func (b *InMemoryBackend) endpointConfigARNIndexStore(r string) map[string]strin
 
 	return b.endpointConfigARNIndex[r]
 }
+
+// endpointConfigARNIndexStoreRO returns the region-scoped endpointConfigARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) endpointConfigARNIndexStoreRO(r string) map[string]string {
+	if v := b.endpointConfigARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) endpointARNIndexStore(r string) map[string]string {
 	if b.endpointARNIndex[r] == nil {
 		b.endpointARNIndex[r] = make(map[string]string)
@@ -1221,6 +1787,19 @@ func (b *InMemoryBackend) endpointARNIndexStore(r string) map[string]string {
 
 	return b.endpointARNIndex[r]
 }
+
+// endpointARNIndexStoreRO returns the region-scoped endpointARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) endpointARNIndexStoreRO(r string) map[string]string {
+	if v := b.endpointARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) trainingJobARNIndexStore(r string) map[string]string {
 	if b.trainingJobARNIndex[r] == nil {
 		b.trainingJobARNIndex[r] = make(map[string]string)
@@ -1228,6 +1807,19 @@ func (b *InMemoryBackend) trainingJobARNIndexStore(r string) map[string]string {
 
 	return b.trainingJobARNIndex[r]
 }
+
+// trainingJobARNIndexStoreRO returns the region-scoped trainingJobARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) trainingJobARNIndexStoreRO(r string) map[string]string {
+	if v := b.trainingJobARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) notebookARNIndexStore(r string) map[string]string {
 	if b.notebookARNIndex[r] == nil {
 		b.notebookARNIndex[r] = make(map[string]string)
@@ -1235,6 +1827,19 @@ func (b *InMemoryBackend) notebookARNIndexStore(r string) map[string]string {
 
 	return b.notebookARNIndex[r]
 }
+
+// notebookARNIndexStoreRO returns the region-scoped notebookARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) notebookARNIndexStoreRO(r string) map[string]string {
+	if v := b.notebookARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) hpTuningJobARNIndexStore(r string) map[string]string {
 	if b.hpTuningJobARNIndex[r] == nil {
 		b.hpTuningJobARNIndex[r] = make(map[string]string)
@@ -1242,6 +1847,19 @@ func (b *InMemoryBackend) hpTuningJobARNIndexStore(r string) map[string]string {
 
 	return b.hpTuningJobARNIndex[r]
 }
+
+// hpTuningJobARNIndexStoreRO returns the region-scoped hpTuningJobARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) hpTuningJobARNIndexStoreRO(r string) map[string]string {
+	if v := b.hpTuningJobARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) actionARNIndexStore(r string) map[string]string {
 	if b.actionARNIndex[r] == nil {
 		b.actionARNIndex[r] = make(map[string]string)
@@ -1249,6 +1867,19 @@ func (b *InMemoryBackend) actionARNIndexStore(r string) map[string]string {
 
 	return b.actionARNIndex[r]
 }
+
+// actionARNIndexStoreRO returns the region-scoped actionARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) actionARNIndexStoreRO(r string) map[string]string {
+	if v := b.actionARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) algorithmARNIndexStore(r string) map[string]string {
 	if b.algorithmARNIndex[r] == nil {
 		b.algorithmARNIndex[r] = make(map[string]string)
@@ -1256,6 +1887,19 @@ func (b *InMemoryBackend) algorithmARNIndexStore(r string) map[string]string {
 
 	return b.algorithmARNIndex[r]
 }
+
+// algorithmARNIndexStoreRO returns the region-scoped algorithmARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) algorithmARNIndexStoreRO(r string) map[string]string {
+	if v := b.algorithmARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) clusterARNIndexStore(r string) map[string]string {
 	if b.clusterARNIndex[r] == nil {
 		b.clusterARNIndex[r] = make(map[string]string)
@@ -1263,6 +1907,19 @@ func (b *InMemoryBackend) clusterARNIndexStore(r string) map[string]string {
 
 	return b.clusterARNIndex[r]
 }
+
+// clusterARNIndexStoreRO returns the region-scoped clusterARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) clusterARNIndexStoreRO(r string) map[string]string {
+	if v := b.clusterARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) modelPackageARNIndexStore(r string) map[string]string {
 	if b.modelPackageARNIndex[r] == nil {
 		b.modelPackageARNIndex[r] = make(map[string]string)
@@ -1270,6 +1927,19 @@ func (b *InMemoryBackend) modelPackageARNIndexStore(r string) map[string]string 
 
 	return b.modelPackageARNIndex[r]
 }
+
+// modelPackageARNIndexStoreRO returns the region-scoped modelPackageARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelPackageARNIndexStoreRO(r string) map[string]string {
+	if v := b.modelPackageARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) processingJobARNIndexStore(r string) map[string]string {
 	if b.processingJobARNIndex[r] == nil {
 		b.processingJobARNIndex[r] = make(map[string]string)
@@ -1277,6 +1947,19 @@ func (b *InMemoryBackend) processingJobARNIndexStore(r string) map[string]string
 
 	return b.processingJobARNIndex[r]
 }
+
+// processingJobARNIndexStoreRO returns the region-scoped processingJobARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) processingJobARNIndexStoreRO(r string) map[string]string {
+	if v := b.processingJobARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) transformJobARNIndexStore(r string) map[string]string {
 	if b.transformJobARNIndex[r] == nil {
 		b.transformJobARNIndex[r] = make(map[string]string)
@@ -1284,6 +1967,19 @@ func (b *InMemoryBackend) transformJobARNIndexStore(r string) map[string]string 
 
 	return b.transformJobARNIndex[r]
 }
+
+// transformJobARNIndexStoreRO returns the region-scoped transformJobARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) transformJobARNIndexStoreRO(r string) map[string]string {
+	if v := b.transformJobARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
 func (b *InMemoryBackend) domainsStore(r string) *store.Table[Domain] {
 	if b.domains[r] == nil {
 		b.domains[r] = store.Register(b.registry, "domains:"+r, store.New(func(v *Domain) string { return v.DomainID }))
@@ -1291,6 +1987,19 @@ func (b *InMemoryBackend) domainsStore(r string) *store.Table[Domain] {
 
 	return b.domains[r]
 }
+
+// domainsStoreRO returns the region-scoped domains table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) domainsStoreRO(r string) *store.Table[Domain] {
+	if v := b.domains[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Domain) string { return v.DomainID })
+}
+
 func (b *InMemoryBackend) userProfilesStore(r string) *store.Table[UserProfile] {
 	if b.userProfiles[r] == nil {
 		b.userProfiles[r] = store.Register(b.registry, "userProfiles:"+r, store.New(func(v *UserProfile) string {
@@ -1300,6 +2009,21 @@ func (b *InMemoryBackend) userProfilesStore(r string) *store.Table[UserProfile] 
 
 	return b.userProfiles[r]
 }
+
+// userProfilesStoreRO returns the region-scoped userProfiles table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) userProfilesStoreRO(r string) *store.Table[UserProfile] {
+	if v := b.userProfiles[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *UserProfile) string {
+		return userProfileKeyString(userProfileKey{DomainID: v.DomainID, UserProfileName: v.UserProfileName})
+	})
+}
+
 func (b *InMemoryBackend) appsStore(r string) *store.Table[App] {
 	if b.apps[r] == nil {
 		b.apps[r] = store.Register(b.registry, "apps:"+r, store.New(func(v *App) string {
@@ -1316,6 +2040,28 @@ func (b *InMemoryBackend) appsStore(r string) *store.Table[App] {
 
 	return b.apps[r]
 }
+
+// appsStoreRO returns the region-scoped apps table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) appsStoreRO(r string) *store.Table[App] {
+	if v := b.apps[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *App) string {
+		return appKeyString(
+			appKey{
+				DomainID:        v.DomainID,
+				UserProfileName: v.UserProfileName,
+				AppType:         v.AppType,
+				AppName:         v.AppName,
+			},
+		)
+	})
+}
+
 func (b *InMemoryBackend) featureGroupsStore(r string) *store.Table[FeatureGroup] {
 	if b.featureGroups[r] == nil {
 		b.featureGroups[r] = store.Register(
@@ -1327,6 +2073,19 @@ func (b *InMemoryBackend) featureGroupsStore(r string) *store.Table[FeatureGroup
 
 	return b.featureGroups[r]
 }
+
+// featureGroupsStoreRO returns the region-scoped featureGroups table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) featureGroupsStoreRO(r string) *store.Table[FeatureGroup] {
+	if v := b.featureGroups[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *FeatureGroup) string { return v.FeatureGroupName })
+}
+
 func (b *InMemoryBackend) featureRecordsStore(r string) *store.Table[FeatureRecord] {
 	if b.featureRecords[r] == nil {
 		b.featureRecords[r] = store.Register(
@@ -1338,6 +2097,19 @@ func (b *InMemoryBackend) featureRecordsStore(r string) *store.Table[FeatureReco
 
 	return b.featureRecords[r]
 }
+
+// featureRecordsStoreRO returns the region-scoped featureRecords table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) featureRecordsStoreRO(r string) *store.Table[FeatureRecord] {
+	if v := b.featureRecords[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *FeatureRecord) string { return v.Key })
+}
+
 func (b *InMemoryBackend) featureMetadataStore(r string) *store.Table[FeatureMetadata] {
 	if b.featureMetadata[r] == nil {
 		b.featureMetadata[r] = store.Register(
@@ -1349,6 +2121,19 @@ func (b *InMemoryBackend) featureMetadataStore(r string) *store.Table[FeatureMet
 
 	return b.featureMetadata[r]
 }
+
+// featureMetadataStoreRO returns the region-scoped featureMetadata table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) featureMetadataStoreRO(r string) *store.Table[FeatureMetadata] {
+	if v := b.featureMetadata[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *FeatureMetadata) string { return featureMetaKey(v.GroupName, v.FeatureName) })
+}
+
 func (b *InMemoryBackend) pipelinesStore(r string) *store.Table[Pipeline] {
 	if b.pipelines[r] == nil {
 		b.pipelines[r] = store.Register(
@@ -1360,6 +2145,19 @@ func (b *InMemoryBackend) pipelinesStore(r string) *store.Table[Pipeline] {
 
 	return b.pipelines[r]
 }
+
+// pipelinesStoreRO returns the region-scoped pipelines table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) pipelinesStoreRO(r string) *store.Table[Pipeline] {
+	if v := b.pipelines[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Pipeline) string { return v.PipelineName })
+}
+
 func (b *InMemoryBackend) pipelineExecutionsStore(r string) *store.Table[PipelineExecution] {
 	if b.pipelineExecutions[r] == nil {
 		b.pipelineExecutions[r] = store.Register(
@@ -1371,6 +2169,19 @@ func (b *InMemoryBackend) pipelineExecutionsStore(r string) *store.Table[Pipelin
 
 	return b.pipelineExecutions[r]
 }
+
+// pipelineExecutionsStoreRO returns the region-scoped pipelineExecutions table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) pipelineExecutionsStoreRO(r string) *store.Table[PipelineExecution] {
+	if v := b.pipelineExecutions[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *PipelineExecution) string { return v.PipelineExecutionArn })
+}
+
 func (b *InMemoryBackend) pipelineExecStepsStore(r string) *store.Table[PipelineExecutionStep] {
 	if b.pipelineExecSteps[r] == nil {
 		b.pipelineExecSteps[r] = store.Register(
@@ -1384,6 +2195,21 @@ func (b *InMemoryBackend) pipelineExecStepsStore(r string) *store.Table[Pipeline
 
 	return b.pipelineExecSteps[r]
 }
+
+// pipelineExecStepsStoreRO returns the region-scoped pipelineExecSteps table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) pipelineExecStepsStoreRO(r string) *store.Table[PipelineExecutionStep] {
+	if v := b.pipelineExecSteps[r]; v != nil {
+		return v
+	}
+
+	return store.New(
+		func(v *PipelineExecutionStep) string { return pipelineExecutionStepsKey(v.ExecutionArn, v.StepName) },
+	)
+}
+
 func (b *InMemoryBackend) experimentsStore(r string) *store.Table[Experiment] {
 	if b.experiments[r] == nil {
 		b.experiments[r] = store.Register(
@@ -1395,6 +2221,19 @@ func (b *InMemoryBackend) experimentsStore(r string) *store.Table[Experiment] {
 
 	return b.experiments[r]
 }
+
+// experimentsStoreRO returns the region-scoped experiments table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) experimentsStoreRO(r string) *store.Table[Experiment] {
+	if v := b.experiments[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Experiment) string { return v.ExperimentName })
+}
+
 func (b *InMemoryBackend) trialsStore(r string) *store.Table[Trial] {
 	if b.trials[r] == nil {
 		b.trials[r] = store.Register(b.registry, "trials:"+r, store.New(func(v *Trial) string { return v.TrialName }))
@@ -1402,6 +2241,19 @@ func (b *InMemoryBackend) trialsStore(r string) *store.Table[Trial] {
 
 	return b.trials[r]
 }
+
+// trialsStoreRO returns the region-scoped trials table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) trialsStoreRO(r string) *store.Table[Trial] {
+	if v := b.trials[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Trial) string { return v.TrialName })
+}
+
 func (b *InMemoryBackend) trialComponentsStore(r string) *store.Table[TrialComponent] {
 	if b.trialComponents[r] == nil {
 		b.trialComponents[r] = store.Register(
@@ -1413,6 +2265,19 @@ func (b *InMemoryBackend) trialComponentsStore(r string) *store.Table[TrialCompo
 
 	return b.trialComponents[r]
 }
+
+// trialComponentsStoreRO returns the region-scoped trialComponents table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) trialComponentsStoreRO(r string) *store.Table[TrialComponent] {
+	if v := b.trialComponents[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *TrialComponent) string { return v.TrialComponentName })
+}
+
 func (b *InMemoryBackend) notebookLifecycleConfigsStore(r string) *store.Table[NotebookInstanceLifecycleConfig] {
 	if b.notebookLifecycleConfigs[r] == nil {
 		b.notebookLifecycleConfigs[r] = store.Register(
@@ -1424,6 +2289,19 @@ func (b *InMemoryBackend) notebookLifecycleConfigsStore(r string) *store.Table[N
 
 	return b.notebookLifecycleConfigs[r]
 }
+
+// notebookLifecycleConfigsStoreRO returns the region-scoped notebookLifecycleConfigs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) notebookLifecycleConfigsStoreRO(r string) *store.Table[NotebookInstanceLifecycleConfig] {
+	if v := b.notebookLifecycleConfigs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *NotebookInstanceLifecycleConfig) string { return v.Name })
+}
+
 func (b *InMemoryBackend) processingJobsStore(r string) *store.Table[ProcessingJob] {
 	if b.processingJobs[r] == nil {
 		b.processingJobs[r] = store.Register(
@@ -1435,6 +2313,19 @@ func (b *InMemoryBackend) processingJobsStore(r string) *store.Table[ProcessingJ
 
 	return b.processingJobs[r]
 }
+
+// processingJobsStoreRO returns the region-scoped processingJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) processingJobsStoreRO(r string) *store.Table[ProcessingJob] {
+	if v := b.processingJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *ProcessingJob) string { return v.ProcessingJobName })
+}
+
 func (b *InMemoryBackend) transformJobsStore(r string) *store.Table[TransformJob] {
 	if b.transformJobs[r] == nil {
 		b.transformJobs[r] = store.Register(
@@ -1446,6 +2337,19 @@ func (b *InMemoryBackend) transformJobsStore(r string) *store.Table[TransformJob
 
 	return b.transformJobs[r]
 }
+
+// transformJobsStoreRO returns the region-scoped transformJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) transformJobsStoreRO(r string) *store.Table[TransformJob] {
+	if v := b.transformJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *TransformJob) string { return v.TransformJobName })
+}
+
 func (b *InMemoryBackend) edgePackagingJobsStore(r string) *store.Table[EdgePackagingJob] {
 	if b.edgePackagingJobs[r] == nil {
 		b.edgePackagingJobs[r] = store.Register(
@@ -1457,6 +2361,19 @@ func (b *InMemoryBackend) edgePackagingJobsStore(r string) *store.Table[EdgePack
 
 	return b.edgePackagingJobs[r]
 }
+
+// edgePackagingJobsStoreRO returns the region-scoped edgePackagingJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) edgePackagingJobsStoreRO(r string) *store.Table[EdgePackagingJob] {
+	if v := b.edgePackagingJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *EdgePackagingJob) string { return v.EdgePackagingJobName })
+}
+
 func (b *InMemoryBackend) edgeDeploymentPlansStore(r string) *store.Table[EdgeDeploymentPlan] {
 	if b.edgeDeploymentPlans[r] == nil {
 		b.edgeDeploymentPlans[r] = store.Register(
@@ -1468,6 +2385,19 @@ func (b *InMemoryBackend) edgeDeploymentPlansStore(r string) *store.Table[EdgeDe
 
 	return b.edgeDeploymentPlans[r]
 }
+
+// edgeDeploymentPlansStoreRO returns the region-scoped edgeDeploymentPlans table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) edgeDeploymentPlansStoreRO(r string) *store.Table[EdgeDeploymentPlan] {
+	if v := b.edgeDeploymentPlans[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *EdgeDeploymentPlan) string { return v.EdgeDeploymentPlanName })
+}
+
 func (b *InMemoryBackend) inferenceRecommendationsJobsStore(r string) *store.Table[InferenceRecommendationsJob] {
 	if b.inferenceRecommendationsJobs[r] == nil {
 		b.inferenceRecommendationsJobs[r] = store.Register(
@@ -1479,6 +2409,20 @@ func (b *InMemoryBackend) inferenceRecommendationsJobsStore(r string) *store.Tab
 
 	return b.inferenceRecommendationsJobs[r]
 }
+
+// inferenceRecommendationsJobsStoreRO returns the region-scoped
+// inferenceRecommendationsJobs table for r without mutating the outer map.
+// Safe to call while holding only b.mu.RLock(): if the region has not been
+// observed yet, it returns a fresh, unregistered, empty view instead of
+// lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) inferenceRecommendationsJobsStoreRO(r string) *store.Table[InferenceRecommendationsJob] {
+	if v := b.inferenceRecommendationsJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *InferenceRecommendationsJob) string { return v.JobName })
+}
+
 func (b *InMemoryBackend) deviceFleetsStore(r string) *store.Table[DeviceFleet] {
 	if b.deviceFleets[r] == nil {
 		b.deviceFleets[r] = store.Register(
@@ -1490,6 +2434,19 @@ func (b *InMemoryBackend) deviceFleetsStore(r string) *store.Table[DeviceFleet] 
 
 	return b.deviceFleets[r]
 }
+
+// deviceFleetsStoreRO returns the region-scoped deviceFleets table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) deviceFleetsStoreRO(r string) *store.Table[DeviceFleet] {
+	if v := b.deviceFleets[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *DeviceFleet) string { return v.DeviceFleetName })
+}
+
 func (b *InMemoryBackend) devicesStore(r string) *store.Table[Device] {
 	if b.devices[r] == nil {
 		b.devices[r] = store.Register(b.registry, "devices:"+r, store.New(func(v *Device) string {
@@ -1499,6 +2456,21 @@ func (b *InMemoryBackend) devicesStore(r string) *store.Table[Device] {
 
 	return b.devices[r]
 }
+
+// devicesStoreRO returns the region-scoped devices table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) devicesStoreRO(r string) *store.Table[Device] {
+	if v := b.devices[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Device) string {
+		return deviceKeyString(deviceKey{fleetName: v.DeviceFleetName, deviceName: v.DeviceName})
+	})
+}
+
 func (b *InMemoryBackend) inferenceComponentsStore(r string) *store.Table[InferenceComponent] {
 	if b.inferenceComponents[r] == nil {
 		b.inferenceComponents[r] = store.Register(
@@ -1510,6 +2482,19 @@ func (b *InMemoryBackend) inferenceComponentsStore(r string) *store.Table[Infere
 
 	return b.inferenceComponents[r]
 }
+
+// inferenceComponentsStoreRO returns the region-scoped inferenceComponents table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) inferenceComponentsStoreRO(r string) *store.Table[InferenceComponent] {
+	if v := b.inferenceComponents[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *InferenceComponent) string { return v.InferenceComponentName })
+}
+
 func (b *InMemoryBackend) clusterSchedulerConfigsStore(r string) *store.Table[ClusterSchedulerConfig] {
 	if b.clusterSchedulerConfigs[r] == nil {
 		b.clusterSchedulerConfigs[r] = store.Register(
@@ -1521,6 +2506,19 @@ func (b *InMemoryBackend) clusterSchedulerConfigsStore(r string) *store.Table[Cl
 
 	return b.clusterSchedulerConfigs[r]
 }
+
+// clusterSchedulerConfigsStoreRO returns the region-scoped clusterSchedulerConfigs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) clusterSchedulerConfigsStoreRO(r string) *store.Table[ClusterSchedulerConfig] {
+	if v := b.clusterSchedulerConfigs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *ClusterSchedulerConfig) string { return v.ClusterSchedulerConfigName })
+}
+
 func (b *InMemoryBackend) computeQuotasStore(r string) *store.Table[ComputeQuota] {
 	if b.computeQuotas[r] == nil {
 		b.computeQuotas[r] = store.Register(
@@ -1531,6 +2529,18 @@ func (b *InMemoryBackend) computeQuotasStore(r string) *store.Table[ComputeQuota
 	}
 
 	return b.computeQuotas[r]
+}
+
+// computeQuotasStoreRO returns the region-scoped computeQuotas table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) computeQuotasStoreRO(r string) *store.Table[ComputeQuota] {
+	if v := b.computeQuotas[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *ComputeQuota) string { return v.ComputeQuotaName })
 }
 
 // Reset reinitialises all maps to empty, clearing all stored resources.
@@ -1690,7 +2700,7 @@ func (b *InMemoryBackend) DescribeModel(ctx context.Context, name string) (*Mode
 
 	region := getRegion(ctx, b.region)
 
-	m, ok := b.modelsStore(region).Get(name)
+	m, ok := b.modelsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find model %q", ErrModelNotFound, name)
 	}
@@ -1705,7 +2715,7 @@ func (b *InMemoryBackend) ListModels(ctx context.Context, nextToken string) ([]*
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.modelsStore(region), nextToken, cloneModel,
+	return sagemakerListPaged(b.modelsStoreRO(region), nextToken, cloneModel,
 		func(a, b *Model) bool { return a.ModelName < b.ModelName })
 }
 
@@ -1811,7 +2821,7 @@ func (b *InMemoryBackend) DescribeEndpointConfig(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	ec, ok := b.endpointConfigsStore(region).Get(name)
+	ec, ok := b.endpointConfigsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: could not find endpoint configuration %q",
@@ -1830,7 +2840,7 @@ func (b *InMemoryBackend) ListEndpointConfigs(ctx context.Context, nextToken str
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.endpointConfigsStore(region), nextToken, cloneEndpointConfig,
+	return sagemakerListPaged(b.endpointConfigsStoreRO(region), nextToken, cloneEndpointConfig,
 		func(a, b *EndpointConfig) bool { return a.EndpointConfigName < b.EndpointConfigName })
 }
 
@@ -2019,40 +3029,40 @@ func (b *InMemoryBackend) ListTags(ctx context.Context, resourceARN string) (map
 // findTagMapLocked returns a pointer to the tags map for a resource identified by ARN.
 // Must be called with b.mu held. Returns nil if the resource is not found.
 func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *map[string]string {
-	if name, ok := b.modelARNIndexStore(region)[resourceARN]; ok {
-		return &tableGet(b.modelsStore(region), name).Tags
+	if name, ok := b.modelARNIndexStoreRO(region)[resourceARN]; ok {
+		return &tableGet(b.modelsStoreRO(region), name).Tags
 	}
 
-	if name, ok := b.endpointConfigARNIndexStore(region)[resourceARN]; ok {
-		return &tableGet(b.endpointConfigsStore(region), name).Tags
+	if name, ok := b.endpointConfigARNIndexStoreRO(region)[resourceARN]; ok {
+		return &tableGet(b.endpointConfigsStoreRO(region), name).Tags
 	}
 
-	if name, ok := b.actionARNIndexStore(region)[resourceARN]; ok {
-		return &tableGet(b.actionsStore(region), name).Tags
+	if name, ok := b.actionARNIndexStoreRO(region)[resourceARN]; ok {
+		return &tableGet(b.actionsStoreRO(region), name).Tags
 	}
 
-	if name, ok := b.algorithmARNIndexStore(region)[resourceARN]; ok {
-		return &tableGet(b.algorithmsStore(region), name).Tags
+	if name, ok := b.algorithmARNIndexStoreRO(region)[resourceARN]; ok {
+		return &tableGet(b.algorithmsStoreRO(region), name).Tags
 	}
 
-	if _, ok := b.modelPackageARNIndexStore(region)[resourceARN]; ok {
-		return &tableGet(b.modelPackagesStore(region), resourceARN).Tags
+	if _, ok := b.modelPackageARNIndexStoreRO(region)[resourceARN]; ok {
+		return &tableGet(b.modelPackagesStoreRO(region), resourceARN).Tags
 	}
 
-	if name, ok := b.endpointARNIndexStore(region)[resourceARN]; ok {
-		return &tableGet(b.endpointsStore(region), name).Tags
+	if name, ok := b.endpointARNIndexStoreRO(region)[resourceARN]; ok {
+		return &tableGet(b.endpointsStoreRO(region), name).Tags
 	}
 
-	if name, ok := b.trainingJobARNIndexStore(region)[resourceARN]; ok {
-		return &tableGet(b.trainingJobsStore(region), name).Tags
+	if name, ok := b.trainingJobARNIndexStoreRO(region)[resourceARN]; ok {
+		return &tableGet(b.trainingJobsStoreRO(region), name).Tags
 	}
 
-	if name, ok := b.notebookARNIndexStore(region)[resourceARN]; ok {
-		return &tableGet(b.notebooksStore(region), name).Tags
+	if name, ok := b.notebookARNIndexStoreRO(region)[resourceARN]; ok {
+		return &tableGet(b.notebooksStoreRO(region), name).Tags
 	}
 
-	if name, ok := b.hpTuningJobARNIndexStore(region)[resourceARN]; ok {
-		return &tableGet(b.hpTuningJobsStore(region), name).Tags
+	if name, ok := b.hpTuningJobARNIndexStoreRO(region)[resourceARN]; ok {
+		return &tableGet(b.hpTuningJobsStoreRO(region), name).Tags
 	}
 
 	if tags := b.findTagMapIndexedExtraLocked(resourceARN, region); tags != nil {
@@ -2066,20 +3076,20 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *m
 // kinds (processing jobs, transform jobs, clusters). Separated from
 // findTagMapLocked to keep it within cyclomatic-complexity limits.
 func (b *InMemoryBackend) findTagMapIndexedExtraLocked(resourceARN string, region string) *map[string]string {
-	if name, ok := b.processingJobARNIndexStore(region)[resourceARN]; ok {
-		if pj, found := b.processingJobsStore(region).Get(name); found {
+	if name, ok := b.processingJobARNIndexStoreRO(region)[resourceARN]; ok {
+		if pj, found := b.processingJobsStoreRO(region).Get(name); found {
 			return &pj.Tags
 		}
 	}
 
-	if name, ok := b.transformJobARNIndexStore(region)[resourceARN]; ok {
-		if tj, found := b.transformJobsStore(region).Get(name); found {
+	if name, ok := b.transformJobARNIndexStoreRO(region)[resourceARN]; ok {
+		if tj, found := b.transformJobsStoreRO(region).Get(name); found {
 			return &tj.Tags
 		}
 	}
 
-	if name, ok := b.clusterARNIndexStore(region)[resourceARN]; ok {
-		if c, found := b.clustersStore(region).Get(name); found {
+	if name, ok := b.clusterARNIndexStoreRO(region)[resourceARN]; ok {
+		if c, found := b.clustersStoreRO(region).Get(name); found {
 			return &c.Tags
 		}
 	}
@@ -2091,32 +3101,32 @@ func (b *InMemoryBackend) findTagMapIndexedExtraLocked(resourceARN string, regio
 // featureGroups, pipelines, experiments, trials, trialComponents). Separated
 // to keep findTagMapLocked within cognitive-complexity limits.
 func (b *InMemoryBackend) findTagMapStatefulLocked(resourceARN string, region string) *map[string]string {
-	for _, d := range b.domainsStore(region).All() {
+	for _, d := range b.domainsStoreRO(region).All() {
 		if d.DomainArn == resourceARN {
 			return &d.Tags
 		}
 	}
-	for _, fg := range b.featureGroupsStore(region).All() {
+	for _, fg := range b.featureGroupsStoreRO(region).All() {
 		if fg.FeatureGroupArn == resourceARN {
 			return &fg.Tags
 		}
 	}
-	for _, p := range b.pipelinesStore(region).All() {
+	for _, p := range b.pipelinesStoreRO(region).All() {
 		if p.PipelineArn == resourceARN {
 			return &p.Tags
 		}
 	}
-	for _, e := range b.experimentsStore(region).All() {
+	for _, e := range b.experimentsStoreRO(region).All() {
 		if e.ExperimentArn == resourceARN {
 			return &e.Tags
 		}
 	}
-	for _, t := range b.trialsStore(region).All() {
+	for _, t := range b.trialsStoreRO(region).All() {
 		if t.TrialArn == resourceARN {
 			return &t.Tags
 		}
 	}
-	for _, tc := range b.trialComponentsStore(region).All() {
+	for _, tc := range b.trialComponentsStoreRO(region).All() {
 		if tc.TrialComponentArn == resourceARN {
 			return &tc.Tags
 		}
@@ -2465,7 +3475,7 @@ func (b *InMemoryBackend) BatchDescribeModelPackage(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	mpStore := b.modelPackagesStore(region)
+	mpStore := b.modelPackagesStoreRO(region)
 
 	results := make(map[string]ModelPackageBatchResult, len(modelPackageArns))
 
@@ -2660,7 +3670,7 @@ func (b *InMemoryBackend) DescribeAlgorithm(ctx context.Context, name string) (*
 	b.mu.RLock("DescribeAlgorithm")
 	defer b.mu.RUnlock()
 
-	al, ok := b.algorithmsStore(region).Get(name)
+	al, ok := b.algorithmsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: algorithm %q not found", ErrAlgorithmNotFound, name)
 	}
@@ -2696,7 +3706,7 @@ func (b *InMemoryBackend) ListAlgorithms(ctx context.Context, nextToken string) 
 	defer b.mu.RUnlock()
 
 	return sagemakerListKeyPaged(
-		b.algorithmsStore(region),
+		b.algorithmsStoreRO(region),
 		nextToken,
 		cloneAlgorithm,
 		func(v *Algorithm) string { return v.AlgorithmName },

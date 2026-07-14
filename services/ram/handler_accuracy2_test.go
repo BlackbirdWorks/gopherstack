@@ -151,6 +151,63 @@ func TestAccuracy2_AllowExternalPrincipals_FalseRejectsOnCreate(t *testing.T) {
 	assert.ErrorIs(t, err, ram.ErrValidation)
 }
 
+// TestAccuracy2_CreateResourceShare_RejectedExternalPrincipalLeavesNoOrphan verifies
+// that a CreateResourceShare call rejected for an external principal (when
+// AllowExternalPrincipals is false) does not leave a partially created resource
+// share behind. Previously the share (and any associations for principals
+// processed before the rejected one) were committed before validation ran,
+// so a failed call still left orphaned state -- including reserving the
+// share name, which made every retry with the same name fail with
+// ResourceShareAlreadyExistsException.
+func TestAccuracy2_CreateResourceShare_RejectedExternalPrincipalLeavesNoOrphan(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateResourceShare(
+		"no-orphan-create",
+		false,
+		nil,
+		[]string{"000000000000", "999999999999"},
+		nil,
+	)
+	require.ErrorIs(t, err, ram.ErrValidation)
+
+	shares := b.ListResourceShares("SELF", "")
+	assert.Empty(t, shares, "rejected CreateResourceShare must not leave an orphaned share")
+
+	// Retrying with the same name must succeed -- it would previously fail
+	// with ResourceShareAlreadyExistsException because the first (failed)
+	// call had already reserved the name.
+	rs, err := b.CreateResourceShare("no-orphan-create", true, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "no-orphan-create", rs.Name)
+}
+
+// TestAccuracy2_AssociateResourceShare_RejectedExternalPrincipalLeavesNoOrphan verifies
+// that AssociateResourceShare does not commit associations for principals
+// processed before a later external-principal rejection.
+func TestAccuracy2_AssociateResourceShare_RejectedExternalPrincipalLeavesNoOrphan(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	rs, err := b.CreateResourceShare("assoc-no-orphan", false, nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.AssociateResourceShare(
+		rs.ARN,
+		[]string{"000000000000", "999999999999"},
+		nil,
+	)
+	require.ErrorIs(t, err, ram.ErrValidation)
+
+	assocs := b.GetResourceShareAssociations("PRINCIPAL", []string{rs.ARN})
+	assert.Empty(t, assocs, "rejected AssociateResourceShare must not commit any associations")
+
+	invs := b.GetResourceShareInvitations(nil, []string{rs.ARN})
+	assert.Empty(t, invs, "rejected AssociateResourceShare must not create invitations")
+}
+
 // ---------------------------------------------------------------------------
 // Finding 12/13: EXPIRED invitation status + correct error types
 // ---------------------------------------------------------------------------

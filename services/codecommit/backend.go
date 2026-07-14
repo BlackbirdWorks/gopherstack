@@ -75,6 +75,14 @@ var (
 	ErrSameFileContent = awserr.New("SameFileContentException", awserr.ErrConflict)
 	// ErrFilePathConflicts is returned when a file path conflicts with an existing path.
 	ErrFilePathConflicts = awserr.New("FilePathConflictsWithSubmodulePathException", awserr.ErrConflict)
+	// ErrFileNotFound is returned when a file path does not exist in the repository.
+	ErrFileNotFound = awserr.New("FileDoesNotExistException", awserr.ErrNotFound)
+	// ErrBlobNotFound is returned when a blob ID does not exist in the repository.
+	ErrBlobNotFound = awserr.New("BlobIdDoesNotExistException", awserr.ErrNotFound)
+	// ErrCommentNotFound is returned when a comment ID does not exist.
+	ErrCommentNotFound = awserr.New("CommentDoesNotExistException", awserr.ErrNotFound)
+	// ErrApprovalRuleNotFound is returned when a pull request approval rule does not exist.
+	ErrApprovalRuleNotFound = awserr.New("ApprovalRuleDoesNotExistException", awserr.ErrNotFound)
 )
 
 // repoNameRe matches valid CodeCommit repository names: alphanumeric, _, -, .
@@ -747,8 +755,13 @@ func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID stri
 }
 
 // applyFileChanges applies put and delete file entries to the repository file store.
-// Caller must hold the write lock.
-func (b *InMemoryBackend) applyFileChanges(repoName, commitID string, putFiles []PutFileEntry, deleteFiles []string) {
+// It returns the blob ID assigned to each put file, keyed by filePath, so
+// callers can report AWS-accurate blobId values (CreateCommitOutput.filesAdded
+// requires one per entry). Caller must hold the write lock.
+func (b *InMemoryBackend) applyFileChanges(
+	repoName, commitID string, putFiles []PutFileEntry, deleteFiles []string,
+) map[string]string {
+	blobIDs := make(map[string]string, len(putFiles))
 	if len(putFiles) > 0 {
 		if b.fileHistory[repoName] == nil {
 			b.fileHistory[repoName] = make(map[string][]string)
@@ -758,20 +771,24 @@ func (b *InMemoryBackend) applyFileChanges(repoName, commitID string, putFiles [
 			if fileMode == "" {
 				fileMode = fileModeDefault
 			}
+			blobID := uuid.NewString()
 			b.files.Put(&File{
 				FilePath:        pf.FilePath,
 				CommitSpecifier: commitID,
-				BlobID:          uuid.NewString(),
+				BlobID:          blobID,
 				FileMode:        fileMode,
 				FileContent:     pf.FileContent,
 				RepoName:        repoName,
 			})
 			b.fileHistory[repoName][pf.FilePath] = append(b.fileHistory[repoName][pf.FilePath], commitID)
+			blobIDs[pf.FilePath] = blobID
 		}
 	}
 	for _, fp := range deleteFiles {
 		b.files.Delete(fileKey(repoName, fp))
 	}
+
+	return blobIDs
 }
 
 // CreateCommit creates a new commit in a repository, tracking parent commits from the
@@ -783,12 +800,12 @@ func (b *InMemoryBackend) applyFileChanges(repoName, commitID string, putFiles [
 func (b *InMemoryBackend) CreateCommit(
 	repositoryName, branchName, authorName, authorEmail, message, parentCommitID string,
 	putFiles []PutFileEntry, deleteFiles []string,
-) (*Commit, error) {
+) (*Commit, map[string]string, error) {
 	b.mu.Lock("CreateCommit")
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repositoryName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
+		return nil, nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
 	// Determine current branch tip (if any).
@@ -803,7 +820,7 @@ func (b *InMemoryBackend) CreateCommit(
 	// when the provided value does not match the current branch tip.
 	// parentCommitId is optional; omitting it is allowed (no race detection in that case).
 	if parentCommitID != "" && currentTip != "" && parentCommitID != currentTip {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"%w: parentCommitId %s does not match current branch tip %s",
 			ErrParentCommitIDOutdated, parentCommitID, currentTip,
 		)
@@ -835,7 +852,7 @@ func (b *InMemoryBackend) CreateCommit(
 	b.commits.Put(commit)
 
 	// Apply putFiles and deleteFiles to the file store.
-	b.applyFileChanges(repositoryName, commitID, putFiles, deleteFiles)
+	blobIDs := b.applyFileChanges(repositoryName, commitID, putFiles, deleteFiles)
 
 	// Update the branch tip to the new commit.
 	if branchName != "" {
@@ -852,7 +869,7 @@ func (b *InMemoryBackend) CreateCommit(
 		copy(cp.Parents, parents)
 	}
 
-	return &cp, nil
+	return &cp, blobIDs, nil
 }
 
 // BatchGetCommits retrieves multiple commits by ID from a repository.

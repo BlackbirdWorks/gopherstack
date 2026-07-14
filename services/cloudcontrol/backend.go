@@ -27,7 +27,23 @@ var (
 	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrConflict)
 	// ErrValidation is returned when a required field is missing or has an invalid value.
-	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// CloudControl's error model has no ValidationException shape at all: every
+	// operation instead declares InvalidRequestException ("invalid input from the
+	// user has generated a generic exception") as its generic input-validation error.
+	// See the Errors section of e.g. the CreateResource API reference.
+	ErrValidation = awserr.New("InvalidRequestException", awserr.ErrInvalidParameter)
+	// ErrRequestTokenNotFound is returned when a RequestToken does not correspond to
+	// any tracked resource operation request. GetResourceRequestStatus declares
+	// RequestTokenNotFoundException as its ONLY error, and CancelResourceRequest
+	// declares it alongside ConcurrentModificationException; real AWS never returns
+	// ResourceNotFoundException for an unrecognized RequestToken.
+	ErrRequestTokenNotFound = awserr.New("RequestTokenNotFoundException", awserr.ErrNotFound)
+	// ErrConcurrentModification is returned by CancelResourceRequest when the target
+	// request is not in a cancellable (PENDING/IN_PROGRESS) state. Confirmed against
+	// the CancelResourceRequest API reference's Errors section:
+	// ConcurrentModificationException, HTTP 500 -- "The resource is currently being
+	// modified by another operation".
+	ErrConcurrentModification = awserr.New("ConcurrentModificationException", awserr.ErrConflict)
 )
 
 const (
@@ -97,6 +113,12 @@ type ProgressEvent struct {
 	Operation       string        `json:"Operation"`
 	OperationStatus string        `json:"OperationStatus"`
 	StatusMessage   string        `json:"StatusMessage,omitempty"`
+	// ResourceModel is a JSON string containing the resource model -- each
+	// resource property and its current value -- per the real ProgressEvent
+	// shape. Populated on SUCCESS so callers can read the resource straight
+	// off the ProgressEvent without a follow-up GetResource call, matching
+	// real AWS CLI/SDK/IaC-tool usage of this field.
+	ResourceModel string `json:"ResourceModel,omitempty"`
 }
 
 // InMemoryBackend is a thread-safe in-memory store for CloudControl resources.
@@ -181,6 +203,7 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 		RequestToken:    token,
 		Operation:       "CREATE",
 		OperationStatus: opStatusSuccess,
+		ResourceModel:   desiredState,
 	}
 	b.requests.Put(event)
 
@@ -316,6 +339,7 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument str
 		RequestToken:    token,
 		Operation:       "UPDATE",
 		OperationStatus: opStatusSuccess,
+		ResourceModel:   r.Properties,
 	}
 	b.requests.Put(event)
 
@@ -324,32 +348,37 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument str
 
 // GetResourceRequestStatus returns a copy of the ProgressEvent for the given request token.
 // Events are retained in the map until Reset() is called.
+// An unrecognized requestToken returns ErrRequestTokenNotFound (RequestTokenNotFoundException),
+// the only error this operation declares -- not ErrNotFound (ResourceNotFoundException),
+// which describes a missing *resource*, not a missing *request token*.
 func (b *InMemoryBackend) GetResourceRequestStatus(requestToken string) (*ProgressEvent, error) {
 	b.mu.RLock("GetResourceRequestStatus")
 	defer b.mu.RUnlock()
 
 	event, ok := b.requests.Get(requestToken)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, ErrRequestTokenNotFound
 	}
 
 	return copyEvent(event), nil
 }
 
 // CancelResourceRequest cancels the request identified by requestToken.
-// Cancelling an already-terminal request (SUCCESS, FAILED, CANCEL_COMPLETE) returns
-// ErrValidation to match the UnsupportedActionException AWS returns for terminal requests.
+// An unrecognized requestToken returns ErrRequestTokenNotFound (RequestTokenNotFoundException).
+// Cancelling an already-terminal request (SUCCESS, FAILED, CANCEL_COMPLETE, CANCEL_IN_PROGRESS)
+// returns ErrConcurrentModification (ConcurrentModificationException), matching the real AWS
+// API reference for this operation -- not a validation error.
 func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressEvent, error) {
 	b.mu.Lock("CancelResourceRequest")
 	defer b.mu.Unlock()
 
 	event, ok := b.requests.Get(requestToken)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, ErrRequestTokenNotFound
 	}
 
 	if event.OperationStatus != "IN_PROGRESS" {
-		return nil, ErrValidation
+		return nil, ErrConcurrentModification
 	}
 
 	cancelled := &ProgressEvent{
@@ -359,6 +388,7 @@ func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressE
 		RequestToken:    requestToken,
 		Operation:       event.Operation,
 		OperationStatus: opStatusCancelComplete,
+		ResourceModel:   event.ResourceModel,
 	}
 	b.requests.Put(cancelled)
 

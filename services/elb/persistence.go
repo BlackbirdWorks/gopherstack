@@ -10,6 +10,43 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// Snapshot implements persistence.Persistable by delegating to the backend.
+//
+// h.Backend is the StorageBackend interface, which does not declare
+// Snapshot/Restore, so InMemoryBackend's methods (above) are not promoted to
+// Handler automatically. Without this delegation, cli.go's setupPersistence
+// type-asserts the registered service.Registerable (this *Handler) against
+// persistence.Persistable, fails silently, and never registers elb for
+// snapshot/restore despite the backend being fully capable. Mirrors
+// services/securityhub's identical Handler-level delegation.
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	type snapshotter interface {
+		Snapshot(ctx context.Context) []byte
+	}
+
+	if s, ok := h.Backend.(snapshotter); ok {
+		return s.Snapshot(ctx)
+	}
+
+	return nil
+}
+
+// Restore implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	type restorer interface {
+		Restore(context.Context, []byte) error
+	}
+
+	if r, ok := h.Backend.(restorer); ok {
+		return r.Restore(ctx, data)
+	}
+
+	return nil
+}
+
+// Compile-time proof Handler satisfies the persistence layer's contract.
+var _ persistence.Persistable = (*Handler)(nil)
+
 // lbSnapshot is the serialisable form of a LoadBalancer (Tags excluded; re-created on Restore).
 type lbSnapshot struct {
 	CreatedTime               time.Time                  `json:"createdTime"`

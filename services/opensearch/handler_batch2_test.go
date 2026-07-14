@@ -103,6 +103,47 @@ func TestOpenSearchHandler_UpdateDomainConfig(t *testing.T) {
 	assert.Equal(t, "OpenSearch_2.9", engineVersion["Options"])
 }
 
+// Test_UpdateDomainConfig_DryRun verifies UpdateDomainConfig with DryRun=true
+// previews the resulting config (and returns DryRunResults) without mutating
+// the stored domain, matching aws-sdk-go-v2 UpdateDomainConfigInput.DryRun.
+func Test_UpdateDomainConfig_DryRun(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+		map[string]any{"DomainName": "dryrun-domain", "EngineVersion": "OpenSearch_2.7"})
+	resp.Body.Close()
+
+	dryResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/domain/dryrun-domain/config",
+		map[string]any{"EngineVersion": "OpenSearch_2.9", "DryRun": true})
+	defer dryResp.Body.Close()
+	assert.Equal(t, http.StatusOK, dryResp.StatusCode)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(dryResp.Body).Decode(&out))
+
+	domainConfig, ok := out["DomainConfig"].(map[string]any)
+	require.True(t, ok)
+	engineVersion, ok := domainConfig["EngineVersion"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "OpenSearch_2.9", engineVersion["Options"], "dry run should preview the requested change")
+
+	dryRunResults, ok := out["DryRunResults"].(map[string]any)
+	require.True(t, ok, "DryRunResults missing")
+	assert.NotEmpty(t, dryRunResults["DeploymentType"])
+
+	// The dry run must not have mutated the stored domain.
+	descResp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/domain/dryrun-domain", nil)
+	defer descResp.Body.Close()
+
+	var descOut map[string]any
+	require.NoError(t, json.NewDecoder(descResp.Body).Decode(&descOut))
+	status, ok := descOut["DomainStatus"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "OpenSearch_2.7", status["EngineVersion"], "dry run must not persist the change")
+}
+
 func TestOpenSearchHandler_UpdateDomainConfig_NotFound(t *testing.T) {
 	t.Parallel()
 

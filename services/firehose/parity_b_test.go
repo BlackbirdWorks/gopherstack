@@ -55,7 +55,7 @@ func TestParity_UpdateDestination_HTTPEndpoint(t *testing.T) {
 				"RedshiftDestinationConfiguration": map[string]any{
 					"ClusterJDBCURL": "jdbc:redshift://cluster.original.redshift.amazonaws.com:5439/db",
 					"RoleARN":        "arn:aws:iam::000000000000:role/firehose-role",
-					"DataTableName":  "events",
+					"CopyCommand":    map[string]any{"DataTableName": "events"},
 					"Username":       "user",
 				},
 			},
@@ -66,7 +66,7 @@ func TestParity_UpdateDestination_HTTPEndpoint(t *testing.T) {
 				"RedshiftDestinationUpdate": map[string]any{
 					"ClusterJDBCURL": "jdbc:redshift://cluster.updated.redshift.amazonaws.com:5439/newdb",
 					"RoleARN":        "arn:aws:iam::000000000000:role/firehose-role",
-					"DataTableName":  "events_v2",
+					"CopyCommand":    map[string]any{"DataTableName": "events_v2"},
 					"Username":       "user",
 				},
 			},
@@ -161,7 +161,7 @@ func TestParity_DescribeDeliveryStream_OpenSearchAndSplunk(t *testing.T) {
 					"RoleARN":   "arn:aws:iam::000000000000:role/firehose",
 				},
 			},
-			wantKey:     "AmazonOpenSearchServiceDestinationDescriptions",
+			wantKey:     "AmazonopensearchserviceDestinationDescription",
 			wantContain: "my-domain",
 		},
 		{
@@ -174,7 +174,7 @@ func TestParity_DescribeDeliveryStream_OpenSearchAndSplunk(t *testing.T) {
 					"HECToken":        "my-token",
 				},
 			},
-			wantKey:     "SplunkDestinationDescriptions",
+			wantKey:     "SplunkDestinationDescription",
 			wantContain: "my-splunk.example.com",
 		},
 	}

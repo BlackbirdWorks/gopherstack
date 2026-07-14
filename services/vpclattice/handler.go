@@ -48,6 +48,8 @@ const (
 	keyIsDefault          = "isDefault"
 	keyPolicy             = "policy"
 	keyUnsuccessful       = "unsuccessful"
+	keySuccessful         = "successful"
+	keyDomainName         = "domainName"
 	keyNameRequired       = "name is required"
 
 	opBatchUpdateRule      = "BatchUpdateRule"
@@ -887,13 +889,13 @@ func (h *Handler) handleBatchUpdateRule(
 	for _, f := range failures {
 		failureList = append(failureList, map[string]any{
 			"ruleIdentifier": f.RuleIdentifier,
-			"message":        f.Message,
-			"code":           f.Code,
+			"failureMessage": f.Message,
+			"failureCode":    f.Code,
 		})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"successful":    successList,
+		keySuccessful:   successList,
 		keyUnsuccessful: failureList,
 	})
 }
@@ -987,12 +989,10 @@ func (h *Handler) handleRegisterTargets(c *echo.Context, tgID string, body map[s
 		return h.handleError(c, err)
 	}
 
-	failureList := make([]any, 0, len(failures))
-	for _, f := range failures {
-		failureList = append(failureList, targetFailureToJSON(f))
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{keyUnsuccessful: failureList})
+	return c.JSON(http.StatusOK, map[string]any{
+		keySuccessful:   successfulTargetsJSON(targets, failures),
+		keyUnsuccessful: failureListJSON(failures),
+	})
 }
 
 func (h *Handler) handleDeregisterTargets(c *echo.Context, tgID string, body map[string]any) error {
@@ -1003,12 +1003,46 @@ func (h *Handler) handleDeregisterTargets(c *echo.Context, tgID string, body map
 		return h.handleError(c, err)
 	}
 
+	return c.JSON(http.StatusOK, map[string]any{
+		keySuccessful:   successfulTargetsJSON(targets, failures),
+		keyUnsuccessful: failureListJSON(failures),
+	})
+}
+
+// failureListJSON converts target failures to their JSON representation.
+func failureListJSON(failures []*TargetFailure) []any {
 	failureList := make([]any, 0, len(failures))
 	for _, f := range failures {
 		failureList = append(failureList, targetFailureToJSON(f))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyUnsuccessful: failureList})
+	return failureList
+}
+
+// successfulTargetsJSON returns the requested targets that are not present in
+// failures, in the {id, port} shape AWS uses for RegisterTargets/
+// DeregisterTargets "successful" list entries.
+func successfulTargetsJSON(targets []*Target, failures []*TargetFailure) []any {
+	failed := make(map[string]bool, len(failures))
+	for _, f := range failures {
+		failed[targetKey(f.ID, f.Port)] = true
+	}
+
+	successList := make([]any, 0, len(targets))
+
+	for _, t := range targets {
+		if failed[targetKey(t.ID, t.Port)] {
+			continue
+		}
+
+		successList = append(successList, map[string]any{"id": t.ID, keyPort: t.Port})
+	}
+
+	return successList
+}
+
+func targetKey(id string, port int32) string {
+	return id + "|" + strconv.Itoa(int(port))
 }
 
 func (h *Handler) handleListTargets(c *echo.Context, tgID string, body map[string]any) error {
@@ -1520,7 +1554,7 @@ func serviceToJSON(s *Service) map[string]any {
 		keyStatus:        s.Status,
 		keyCreatedAt:     s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt: s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"dnsEntry":       map[string]any{"domainName": s.DNSName},
+		"dnsEntry":       map[string]any{keyDomainName: s.DNSName},
 	}
 
 	if s.CertificateArn != "" {
@@ -1544,7 +1578,7 @@ func serviceSummaryToJSON(s *ServiceSummary) map[string]any {
 	}
 
 	if s.DNSName != "" {
-		m["dnsEntry"] = map[string]any{"domainName": s.DNSName}
+		m["dnsEntry"] = map[string]any{keyDomainName: s.DNSName}
 	}
 
 	if s.CustomDomainName != "" {
@@ -1579,7 +1613,7 @@ func serviceNetworkSummaryToJSON(s *ServiceNetworkSummary) map[string]any {
 }
 
 func snsaToJSON(s *ServiceNetworkServiceAssociation) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyARN:                s.ARN,
 		"id":                  s.ID,
 		keyServiceARN:         s.ServiceARN,
@@ -1592,10 +1626,20 @@ func snsaToJSON(s *ServiceNetworkServiceAssociation) map[string]any {
 		"createdBy":           s.CreatedBy,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
+
+	if s.CustomDomainName != "" {
+		m["customDomainName"] = s.CustomDomainName
+	}
+
+	if s.DNSName != "" {
+		m["dnsEntry"] = map[string]any{keyDomainName: s.DNSName}
+	}
+
+	return m
 }
 
 func snsaSummaryToJSON(s *ServiceNetworkServiceAssociationSummary) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyARN:                s.ARN,
 		"id":                  s.ID,
 		keyServiceARN:         s.ServiceARN,
@@ -1607,6 +1651,16 @@ func snsaSummaryToJSON(s *ServiceNetworkServiceAssociationSummary) map[string]an
 		keyStatus:             s.Status,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
+
+	if s.CustomDomainName != "" {
+		m["customDomainName"] = s.CustomDomainName
+	}
+
+	if s.DNSName != "" {
+		m["dnsEntry"] = map[string]any{keyDomainName: s.DNSName}
+	}
+
+	return m
 }
 
 func snvaToJSON(s *ServiceNetworkVpcAssociation) map[string]any {
@@ -1697,11 +1751,13 @@ func ruleToJSON(r *Rule) map[string]any {
 
 func ruleSummaryToJSON(r *RuleSummary) map[string]any {
 	return map[string]any{
-		keyARN:       r.ARN,
-		"id":         r.ID,
-		keyName:      r.Name,
-		keyPriority:  r.Priority,
-		keyIsDefault: r.IsDefault,
+		keyARN:           r.ARN,
+		"id":             r.ID,
+		keyName:          r.Name,
+		keyPriority:      r.Priority,
+		keyIsDefault:     r.IsDefault,
+		keyCreatedAt:     r.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: r.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
@@ -1803,18 +1859,29 @@ func targetGroupToJSON(tg *TargetGroup) map[string]any {
 }
 
 func targetGroupSummaryToJSON(tg *TargetGroupSummary) map[string]any {
-	return map[string]any{
-		keyARN:        tg.ARN,
-		"id":          tg.ID,
-		keyName:       tg.Name,
-		"type":        tg.Type,
-		keyStatus:     tg.Status,
-		keyPort:       tg.Port,
-		keyProtocol:   tg.Protocol,
-		keyVPCID:      tg.VpcID,
-		"serviceArns": tg.ServiceARNs,
-		keyCreatedAt:  tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+	m := map[string]any{
+		keyARN:           tg.ARN,
+		"id":             tg.ID,
+		keyName:          tg.Name,
+		"type":           tg.Type,
+		keyStatus:        tg.Status,
+		keyPort:          tg.Port,
+		keyProtocol:      tg.Protocol,
+		"vpcIdentifier":  tg.VpcID,
+		"serviceArns":    tg.ServiceARNs,
+		keyCreatedAt:     tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: tg.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
+
+	if tg.IPAddressType != "" {
+		m["ipAddressType"] = tg.IPAddressType
+	}
+
+	if tg.LambdaEventStructureVersion != "" {
+		m["lambdaEventStructureVersion"] = tg.LambdaEventStructureVersion
+	}
+
+	return m
 }
 
 func targetGroupConfigToJSON(c *TargetGroupConfig) map[string]any {
@@ -1823,6 +1890,14 @@ func targetGroupConfigToJSON(c *TargetGroupConfig) map[string]any {
 		keyProtocol:       c.Protocol,
 		"protocolVersion": c.ProtocolVersion,
 		"vpcIdentifier":   c.VpcID,
+	}
+
+	if c.IPAddressType != "" {
+		m["ipAddressType"] = c.IPAddressType
+	}
+
+	if c.LambdaEventStructureVersion != "" {
+		m["lambdaEventStructureVersion"] = c.LambdaEventStructureVersion
 	}
 
 	if c.HealthCheck != nil {
@@ -1856,10 +1931,10 @@ func targetSummaryToJSON(t *TargetSummary) map[string]any {
 
 func targetFailureToJSON(f *TargetFailure) map[string]any {
 	return map[string]any{
-		"id":      f.ID,
-		keyPort:   f.Port,
-		"code":    f.Code,
-		"message": f.Message,
+		"id":             f.ID,
+		keyPort:          f.Port,
+		"failureCode":    f.Code,
+		"failureMessage": f.Message,
 	}
 }
 

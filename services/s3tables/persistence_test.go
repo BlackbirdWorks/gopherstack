@@ -35,13 +35,13 @@ func newFullyPopulatedBackend(t *testing.T) (*s3tables.InMemoryBackend, persistT
 
 	b := s3tables.NewInMemoryBackend(persistTestAccountID, persistTestRegion)
 
-	tb, err := b.CreateTableBucket("acme-bucket")
+	tb, err := b.CreateTableBucket("acme-bucket", s3tables.CreateTableBucketOptions{})
 	require.NoError(t, err)
 
 	_, err = b.CreateNamespace(tb.ARN, []string{"acme-ns"})
 	require.NoError(t, err)
 
-	table, err := b.CreateTable(tb.ARN, []string{"acme-ns"}, "acme-table", "ICEBERG")
+	table, err := b.CreateTable(tb.ARN, []string{"acme-ns"}, "acme-table", "ICEBERG", s3tables.CreateTableOptions{})
 	require.NoError(t, err)
 
 	require.NoError(t, b.PutTableBucketReplication(tb.ARN, &s3tables.BucketReplicationConfig{
@@ -98,9 +98,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, []string{"acme-ns"}, ns.Namespace)
 
-			list, err := fresh.ListNamespaces(ids.bucketARN)
+			pg, err := fresh.ListNamespaces(ids.bucketARN, s3tables.ListNamespacesParams{})
 			require.NoError(t, err)
-			require.Len(t, list, 1)
+			require.Len(t, pg.Data, 1)
 		}},
 		{name: "tables table (primary + byComposite + byBucket indexes)", run: func(t *testing.T) {
 			t.Helper()
@@ -109,10 +109,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, ids.tableARN, table.ARN)
 
-			list, err := fresh.ListTables(ids.bucketARN, "")
+			pg, err := fresh.ListTables(ids.bucketARN, "", s3tables.ListTablesParams{})
 			require.NoError(t, err)
-			require.Len(t, list, 1)
-			assert.Equal(t, "acme-table", list[0].Name)
+			require.Len(t, pg.Data, 1)
+			assert.Equal(t, "acme-table", pg.Data[0].Name)
 		}},
 		{name: "bucketReplication table", run: func(t *testing.T) {
 			t.Helper()

@@ -135,21 +135,31 @@ func marshalError(errType, message string) []byte {
 	return payload
 }
 
+// handleError maps a backend error to the AWS-accurate CloudControl error envelope.
+// Per the real API reference, nearly every modeled CloudControl exception -- including
+// ResourceNotFoundException, AlreadyExistsException, RequestTokenNotFoundException and
+// InvalidRequestException -- carries HTTP status 400; only the handful of server-fault
+// exceptions (e.g. ConcurrentModificationException, ServiceInternalErrorException) use 500.
+// See e.g. https://docs.aws.amazon.com/cloudcontrolapi/latest/APIReference/API_GetResource.html#API_GetResource_Errors
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
+	case errors.Is(err, ErrRequestTokenNotFound):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("RequestTokenNotFoundException", err.Error()))
+	case errors.Is(err, ErrConcurrentModification):
+		return c.JSONBlob(http.StatusInternalServerError, marshalError("ConcurrentModificationException", err.Error()))
 	case errors.Is(err, ErrNotFound):
-		return c.JSONBlob(http.StatusNotFound, marshalError("ResourceNotFoundException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
-		return c.JSONBlob(http.StatusConflict, marshalError("AlreadyExistsException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("AlreadyExistsException", err.Error()))
 	case errors.Is(err, ErrValidation):
-		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
+		return c.JSONBlob(http.StatusBadRequest, marshalError("InvalidRequestException", err.Error()))
 	case errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSONBlob(http.StatusBadRequest, marshalError("InvalidRequestException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSONBlob(http.StatusInternalServerError, marshalError("ServiceInternalErrorException", err.Error()))
 	}
 }
 

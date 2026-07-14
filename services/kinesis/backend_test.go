@@ -362,16 +362,21 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "increase_same_value_is_noop",
+			name: "increase_same_value_noop",
 			setup: func(bk *kinesis.InMemoryBackend) {
 				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
 			},
-			wantErr: false, // idempotent: same value → success
+			// Real AWS accepts an increase whose target equals the current
+			// retention period as an idempotent no-op (HTTP 200). The Terraform
+			// provider calls IncreaseStreamRetentionPeriod on create for any
+			// retention_period > 0, so a default-24h stream receives
+			// IncreaseStreamRetentionPeriod(24) and must not be rejected.
+			wantErr: false,
 			action: func(bk *kinesis.InMemoryBackend) error {
 				return bk.IncreaseStreamRetentionPeriod(
 					context.Background(),
 					&kinesis.IncreaseStreamRetentionPeriodInput{
-						StreamName: "s", RetentionPeriodHours: 24, // same as default — no-op
+						StreamName: "s", RetentionPeriodHours: 24, // same as default
 					},
 				)
 			},
@@ -423,19 +428,21 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "decrease_same_value_is_noop",
+			name: "decrease_same_value_noop",
 			setup: func(bk *kinesis.InMemoryBackend) {
 				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
 				_ = bk.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 					StreamName: "s", RetentionPeriodHours: 48,
 				})
 			},
-			wantErr: false, // idempotent: same value → success
+			// Mirrors the increase case: a decrease whose target equals the current
+			// retention period is an idempotent no-op (HTTP 200), not a rejection.
+			wantErr: false,
 			action: func(bk *kinesis.InMemoryBackend) error {
 				return bk.DecreaseStreamRetentionPeriod(
 					context.Background(),
 					&kinesis.DecreaseStreamRetentionPeriodInput{
-						StreamName: "s", RetentionPeriodHours: 48, // same as current — no-op
+						StreamName: "s", RetentionPeriodHours: 48, // same as current
 					},
 				)
 			},

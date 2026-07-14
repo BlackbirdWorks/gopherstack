@@ -5,15 +5,21 @@ package iot
 import "time"
 
 // Thing represents an AWS IoT Thing.
+//
+// BillingGroupName is populated transiently by DescribeThing from the
+// backend's thingBillingGroups index; it is not itself the source of truth
+// (see AddThingToBillingGroup/RemoveThingFromBillingGroup) and is not
+// persisted as part of the Thing record.
 type Thing struct {
-	CreatedAt     time.Time         `json:"createdAt"`
-	Attributes    map[string]string `json:"attributes"`
-	ThingName     string            `json:"thingName"`
-	ThingTypeName string            `json:"thingTypeName,omitempty"`
-	ThingType     string            `json:"thingType,omitempty"`
-	ThingID       string            `json:"thingId"`
-	ARN           string            `json:"thingArn"`
-	Version       int64             `json:"version"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	Attributes       map[string]string `json:"attributes"`
+	ThingName        string            `json:"thingName"`
+	ThingTypeName    string            `json:"thingTypeName,omitempty"`
+	ThingType        string            `json:"thingType,omitempty"`
+	ThingID          string            `json:"thingId"`
+	ARN              string            `json:"thingArn"`
+	BillingGroupName string            `json:"billingGroupName,omitempty"`
+	Version          int64             `json:"version"`
 }
 
 // Policy represents an AWS IoT Policy.
@@ -59,6 +65,7 @@ type CreateThingInput struct {
 	AttributePayload *AttributePayload
 	ThingName        string
 	ThingTypeName    string
+	BillingGroupName string
 }
 
 // AttributePayload holds thing attributes.
@@ -338,8 +345,13 @@ type CreateThingGroupInput struct {
 }
 
 // UpdateThingGroupInput is the input for UpdateThingGroup.
+//
+// Merge controls whether Attributes are merged (true) or replace the
+// existing attribute set (false/nil, the AWS default). See
+// applyAttributePayload.
 type UpdateThingGroupInput struct {
 	Attributes      map[string]string
+	Merge           *bool
 	ThingGroupName  string
 	Description     string
 	QueryString     string

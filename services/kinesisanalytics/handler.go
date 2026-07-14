@@ -223,6 +223,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrConcurrentUpdate):
 		status = http.StatusBadRequest
 		code = "ConcurrentModificationException"
+	case errors.Is(err, ErrTooManyTags):
+		// Must precede the generic awserr.ErrConflict case below: AWS models tag-limit
+		// overflow on CreateApplication/TagResource as a distinct TooManyTagsException,
+		// not the generic LimitExceededException.
+		status = http.StatusBadRequest
+		code = "TooManyTagsException"
 	case errors.Is(err, awserr.ErrConflict):
 		status = http.StatusBadRequest
 		code = errLimitExceededException
@@ -669,8 +675,8 @@ func (h *Handler) handleAddApplicationReferenceDataSource(
 		return nil, fmt.Errorf("%w: S3ReferenceDataSource.FileKey is required", ErrValidation)
 	}
 
-	if rds.S3ReferenceDataSource.RoleARN == "" {
-		return nil, fmt.Errorf("%w: S3ReferenceDataSource.RoleARN is required", ErrValidation)
+	if rds.S3ReferenceDataSource.ReferenceRoleARN == "" {
+		return nil, fmt.Errorf("%w: S3ReferenceDataSource.ReferenceRoleARN is required", ErrValidation)
 	}
 
 	if rds.ReferenceSchema == nil {
@@ -681,9 +687,9 @@ func (h *Handler) handleAddApplicationReferenceDataSource(
 
 	ref.TableName = rds.TableName
 	ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
-		BucketARN: rds.S3ReferenceDataSource.BucketARN,
-		FileKey:   rds.S3ReferenceDataSource.FileKey,
-		RoleARN:   rds.S3ReferenceDataSource.RoleARN,
+		BucketARN:        rds.S3ReferenceDataSource.BucketARN,
+		FileKey:          rds.S3ReferenceDataSource.FileKey,
+		ReferenceRoleARN: rds.S3ReferenceDataSource.ReferenceRoleARN,
 	}
 
 	schema := convertSourceSchema(rds.ReferenceSchema)

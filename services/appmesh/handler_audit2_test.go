@@ -72,8 +72,8 @@ func TestAppMesh_Batch2ARNFormat(t *testing.T) {
 	for _, c := range checks {
 		rec := doRequest(t, h, c.method, c.path, nil)
 		require.Equal(t, http.StatusOK, rec.Code, "path: %s", c.path)
-		body := getBody(t, rec)
-		arn := body["metadata"].(map[string]any)["arn"].(string)
+		resource := getBody(t, rec)
+		arn := resource["metadata"].(map[string]any)["arn"].(string)
 		assert.Equal(t, c.wantARN, arn, "ARN mismatch for %s", c.bodyKey)
 	}
 }
@@ -152,8 +152,8 @@ func TestAppMesh_Batch2SpecNotNull(t *testing.T) {
 	for _, c := range checks {
 		rec := doRequest(t, h, c.method, c.path, nil)
 		require.Equal(t, http.StatusOK, rec.Code)
-		body := getBody(t, rec)
-		_, ok := body["spec"].(map[string]any)
+		resource := getBody(t, rec)
+		_, ok := resource["spec"].(map[string]any)
 		assert.True(t, ok, "%s: spec must be a JSON object {}, not null", c.bodyKey)
 	}
 }
@@ -193,8 +193,8 @@ func TestAppMesh_Batch2StatusObject(t *testing.T) {
 	for _, c := range checks {
 		rec := doRequest(t, h, c.method, c.path, nil)
 		require.Equal(t, http.StatusOK, rec.Code)
-		body := getBody(t, rec)
-		status, ok := body["status"].(map[string]any)
+		resource := getBody(t, rec)
+		status, ok := resource["status"].(map[string]any)
 		require.True(t, ok, "%s: status must be a JSON object", c.bodyKey)
 		assert.Equal(t, "ACTIVE", status["status"])
 	}

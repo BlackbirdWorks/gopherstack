@@ -60,7 +60,8 @@ func TestElasticBeanstalk_PersistenceSnapshotRestore(t *testing.T) {
 				)
 				_, _ = b.CreateApplicationVersionWithParams(ctx, "app", "v1",
 					elasticbeanstalk.ApplicationVersionParams{
-						Process: true,
+						Process:               true,
+						AutoCreateApplication: true,
 						SourceBuildInformation: &elasticbeanstalk.SourceBuildInformation{
 							SourceType: "CodeCommit", SourceRepository: "repo", SourceLocation: "main",
 						},

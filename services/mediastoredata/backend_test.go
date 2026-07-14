@@ -70,11 +70,16 @@ func TestBackend_PutObject(t *testing.T) {
 			errSentinel:  mediastoredata.ErrInvalidStorageClass,
 		},
 		{
-			name:             "standard_storage_class_accepted",
-			path:             "/valid/path.mp4",
-			body:             []byte("data"),
-			storageClass:     "STANDARD",
-			wantStorageClass: "STANDARD",
+			// "STANDARD" is a valid x-amz-upload-availability value but is NOT
+			// a MediaStore Data StorageClass -- the only real StorageClass is
+			// "TEMPORAL" (see aws-sdk-go-v2/service/mediastoredata/types.
+			// StorageClass). Confusing the two must not silently succeed.
+			name:         "standard_storage_class_rejected",
+			path:         "/valid/path.mp4",
+			body:         []byte("data"),
+			storageClass: "STANDARD",
+			wantErr:      true,
+			errSentinel:  mediastoredata.ErrInvalidStorageClass,
 		},
 		{
 			name:             "empty_storage_class_defaults_to_temporal",

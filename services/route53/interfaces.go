@@ -10,7 +10,7 @@ import (
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Hosted zone operations
-	CreateHostedZone(name, callerRef, comment string, private bool) (*HostedZone, error)
+	CreateHostedZone(name, callerRef, comment string, private bool, delegationSetID string) (*HostedZone, error)
 	DeleteHostedZone(zoneID string) error
 	GetHostedZone(zoneID string) (*HostedZone, error)
 	ListHostedZones(marker string, maxItems int) (page.Page[HostedZone], error)
@@ -30,7 +30,7 @@ type StorageBackend interface {
 	ListHealthChecks(marker string, maxItems int) (page.Page[HealthCheck], error)
 	GetHealthCheckCount() int
 	DeleteHealthCheck(id string) error
-	UpdateHealthCheck(id string, cfg HealthCheckConfig) (*HealthCheck, error)
+	UpdateHealthCheck(id string, cfg HealthCheckConfig, expectedVersion *int64) (*HealthCheck, error)
 	GetHealthCheckStatus(id string) (string, error)
 	SetHealthCheckStatus(id, status string) error
 
@@ -57,7 +57,11 @@ type StorageBackend interface {
 
 	// CIDR collection operations
 	CreateCidrCollection(name, callerRef string) (*CidrCollection, error)
-	ChangeCidrCollection(collectionID string, changes []CidrCollectionChange) (*CidrCollection, error)
+	ChangeCidrCollection(
+		collectionID string,
+		changes []CidrCollectionChange,
+		expectedVersion *int64,
+	) (*CidrCollection, error)
 	DeleteCidrCollection(id string) error
 	ListCidrCollections() ([]*CidrCollection, error)
 	ListCidrLocations(collectionID string) ([]string, error)

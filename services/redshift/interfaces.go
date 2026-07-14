@@ -13,7 +13,7 @@ type StorageBackend interface {
 		id, nodeType string,
 		numberOfNodes int,
 		masterUserPassword string,
-		encrypted, enhancedVpcRouting bool,
+		encrypted, enhancedVpcRouting *bool,
 		applyImmediately bool,
 	) (*Cluster, error)
 	RebootCluster(id string) (*Cluster, error)

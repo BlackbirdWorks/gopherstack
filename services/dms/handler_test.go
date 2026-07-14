@@ -3400,6 +3400,7 @@ func TestHandler_TagsOnReplicationSubnetGroup(t *testing.T) {
 				createRec := doDMS(t, h, "CreateReplicationSubnetGroup", map[string]any{
 					"ReplicationSubnetGroupIdentifier":  "tagged-sg",
 					"ReplicationSubnetGroupDescription": "test",
+					"SubnetIds":                         []string{"subnet-1"},
 					"Tags": []map[string]string{
 						{"Key": "env", "Value": "test"},
 					},
@@ -3423,6 +3424,7 @@ func TestHandler_TagsOnReplicationSubnetGroup(t *testing.T) {
 				createRec := doDMS(t, h, "CreateReplicationSubnetGroup", map[string]any{
 					"ReplicationSubnetGroupIdentifier":  "tag-rm-sg",
 					"ReplicationSubnetGroupDescription": "test",
+					"SubnetIds":                         []string{"subnet-1"},
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				sgArn := parseJSON(t, createRec)["ReplicationSubnetGroup"].(map[string]any)["ReplicationSubnetGroupArn"].(string)

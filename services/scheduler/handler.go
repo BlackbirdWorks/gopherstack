@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -54,6 +56,49 @@ var (
 	errUnknownAction  = errors.New("unknown action")
 	errInvalidRequest = errors.New("invalid request")
 )
+
+// resourceTag mirrors the wire shape EventBridge Scheduler uses for resource-level
+// tags: CreateScheduleGroup.Tags, TagResource.Tags, and ListTagsForResource.Tags are
+// all a JSON array of {"Key":..., "Value":...} objects, NOT a JSON map (unlike the
+// per-target EcsParameters.Tags, which is already list-shaped, or many other AWS
+// services' resource tags). See aws-sdk-go-v2/service/scheduler's
+// awsRestjson1_(de)serializeDocumentTagList.
+type resourceTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// tagsFromWire converts the wire []resourceTag list into the map[string]string the
+// backend stores tags as. Duplicate keys keep the last value, matching map semantics.
+func tagsFromWire(in []resourceTag) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	m := make(map[string]string, len(in))
+	for _, t := range in {
+		m[t.Key] = t.Value
+	}
+
+	return m
+}
+
+// tagsToWire converts a backend tag map into the wire []resourceTag list, sorted by
+// key for deterministic output.
+func tagsToWire(in map[string]string) []resourceTag {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]resourceTag, 0, len(in))
+	for k, v := range in {
+		out = append(out, resourceTag{Key: k, Value: v})
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+
+	return out
+}
 
 type scheduleNameInput struct {
 	Name      string `json:"Name"`
@@ -511,7 +556,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 
 // enrichRESTBody injects path parameters and query parameters into the JSON body
 // so that the existing dispatch handlers can read them uniformly.
-func (h *Handler) enrichRESTBody(action, name string, body []byte, q interface{ Get(string) string }) []byte {
+func (h *Handler) enrichRESTBody(action, name string, body []byte, q url.Values) []byte {
 	m := unmarshalOrEmpty(body)
 
 	switch action {
@@ -535,7 +580,7 @@ func (h *Handler) enrichRESTBody(action, name string, body []byte, q interface{ 
 }
 
 // enrichScheduleByPath injects Name from the URL path and GroupName from the query string.
-func enrichScheduleByPath(m map[string]json.RawMessage, name string, q interface{ Get(string) string }) {
+func enrichScheduleByPath(m map[string]json.RawMessage, name string, q url.Values) {
 	if name != "" {
 		setJSONString(m, "Name", name)
 	}
@@ -546,7 +591,7 @@ func enrichScheduleByPath(m map[string]json.RawMessage, name string, q interface
 }
 
 // enrichListSchedulesQuery injects ListSchedules query parameters into the JSON map.
-func enrichListSchedulesQuery(m map[string]json.RawMessage, q interface{ Get(string) string }) {
+func enrichListSchedulesQuery(m map[string]json.RawMessage, q url.Values) {
 	if sg := q.Get("ScheduleGroup"); sg != "" {
 		setJSONString(m, "GroupName", sg)
 	}
@@ -564,7 +609,7 @@ func enrichListSchedulesQuery(m map[string]json.RawMessage, q interface{ Get(str
 }
 
 // enrichListScheduleGroupsQuery injects ListScheduleGroups query parameters into the JSON map.
-func enrichListScheduleGroupsQuery(m map[string]json.RawMessage, q interface{ Get(string) string }) {
+func enrichListScheduleGroupsQuery(m map[string]json.RawMessage, q url.Values) {
 	for _, qk := range []struct{ query, json string }{
 		{keyNamePrefix, keyNamePrefix},
 		{keyNextToken, keyNextToken},
@@ -576,14 +621,20 @@ func enrichListScheduleGroupsQuery(m map[string]json.RawMessage, q interface{ Ge
 	}
 }
 
-// enrichTagsPath injects ResourceArn from the URL path and tag keys from the query string.
-func enrichTagsPath(m map[string]json.RawMessage, name, action string, q interface{ Get(string) string }) {
+// enrichTagsPath injects ResourceArn from the URL path and tag keys from the query
+// string. UntagResource sends TagKeys as a repeated query parameter
+// (?TagKeys=a&TagKeys=b, see awsRestjson1_serializeOpHttpBindingsUntagResourceInput's
+// encoder.AddQuery("TagKeys", ...)), not a single comma-separated value.
+func enrichTagsPath(m map[string]json.RawMessage, name, action string, q url.Values) {
 	if name != "" {
 		setJSONString(m, "ResourceArn", name)
 	}
 
-	if tagKeys := q.Get("tagKeys"); tagKeys != "" && action == opUntagResource {
-		keys := strings.Split(tagKeys, ",")
+	if action != opUntagResource {
+		return
+	}
+
+	if keys := q["TagKeys"]; len(keys) > 0 {
 		keysJSON, _ := json.Marshal(keys)
 		m["TagKeys"] = json.RawMessage(keysJSON)
 	}
@@ -688,6 +739,10 @@ func (h *Handler) handleCreateSchedule(ctx context.Context, in *scheduleInput) (
 	state := in.State
 	if state == "" {
 		state = scheduleStateEnabled
+	}
+
+	if err := validateActionAfterCompletion(in.ActionAfterCompletion); err != nil {
+		return nil, err
 	}
 
 	var opts []ScheduleOption
@@ -1267,6 +1322,10 @@ type updateScheduleOutput struct {
 }
 
 func (h *Handler) handleUpdateSchedule(ctx context.Context, in *scheduleInput) (*updateScheduleOutput, error) {
+	if err := validateActionAfterCompletion(in.ActionAfterCompletion); err != nil {
+		return nil, err
+	}
+
 	var opts []ScheduleOption
 	if in.StartDate != nil {
 		opts = append(opts, WithStartDate(epochSecondsToTime(*in.StartDate)))
@@ -1307,12 +1366,12 @@ func (h *Handler) handleUpdateSchedule(ctx context.Context, in *scheduleInput) (
 }
 
 type handleTagResourceInput struct {
-	Tags        map[string]string `json:"Tags"`
-	ResourceArn string            `json:"ResourceArn"`
+	ResourceArn string        `json:"ResourceArn"`
+	Tags        []resourceTag `json:"Tags"`
 }
 
 func (h *Handler) handleTagResource(ctx context.Context, in *handleTagResourceInput) (*emptyOutput, error) {
-	return voidOp(func() error { return h.Backend.TagResource(ctx, in.ResourceArn, in.Tags) })
+	return voidOp(func() error { return h.Backend.TagResource(ctx, in.ResourceArn, tagsFromWire(in.Tags)) })
 }
 
 type handleListTagsForResourceInput struct {
@@ -1320,7 +1379,7 @@ type handleListTagsForResourceInput struct {
 }
 
 type listTagsForResourceOutput struct {
-	Tags map[string]string `json:"Tags"`
+	Tags []resourceTag `json:"Tags"`
 }
 
 func (h *Handler) handleListTagsForResource(
@@ -1332,7 +1391,7 @@ func (h *Handler) handleListTagsForResource(
 		return nil, err
 	}
 
-	return &listTagsForResourceOutput{Tags: kv}, nil
+	return &listTagsForResourceOutput{Tags: tagsToWire(kv)}, nil
 }
 
 // handleUntagResource removes the specified tag keys from a resource.
@@ -1348,9 +1407,9 @@ func (h *Handler) handleUntagResource(ctx context.Context, in *handleUntagResour
 // Schedule group handlers.
 
 type createScheduleGroupInput struct {
-	Tags        map[string]string `json:"Tags"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description"`
+	Name        string        `json:"Name"`
+	Description string        `json:"Description"`
+	Tags        []resourceTag `json:"Tags"`
 }
 
 type createScheduleGroupOutput struct {
@@ -1361,7 +1420,7 @@ func (h *Handler) handleCreateScheduleGroup(
 	ctx context.Context,
 	in *createScheduleGroupInput,
 ) (*createScheduleGroupOutput, error) {
-	g, err := h.Backend.CreateScheduleGroup(ctx, in.Name, in.Description, in.Tags)
+	g, err := h.Backend.CreateScheduleGroup(ctx, in.Name, in.Description, tagsFromWire(in.Tags))
 	if err != nil {
 		return nil, err
 	}

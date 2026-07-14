@@ -215,7 +215,7 @@ func TestRefinement2_BackendReset(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("reset-db", nil)
+	_, err := b.CreateDatabase("reset-db", "", nil)
 	require.NoError(t, err)
 
 	b.Reset()
@@ -290,7 +290,7 @@ func TestRefinement2_ExportTagCount(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("db1", nil)
+	_, err := b.CreateDatabase("db1", "", nil)
 	require.NoError(t, err)
 
 	err = b.TagResource("arn:aws:timestream:us-east-1:000000000000:database/db1", map[string]string{"k": "v"})
@@ -377,7 +377,7 @@ func TestRefinement2_PersistenceSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("snap-db", map[string]string{"key": "value"})
+	_, err := b.CreateDatabase("snap-db", "", map[string]string{"key": "value"})
 	require.NoError(t, err)
 	_, err = b.CreateTable("snap-db", "snap-tbl", nil, nil)
 	require.NoError(t, err)
@@ -567,7 +567,7 @@ func TestRefinement2_DatabaseTableCountTracking(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("cnt-db", nil)
+	_, err := b.CreateDatabase("cnt-db", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateTable("cnt-db", "t1", nil, nil)
@@ -591,7 +591,7 @@ func TestRefinement2_DeleteDatabaseCleansUpTags(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	db, err := b.CreateDatabase("cleanup-db", nil)
+	db, err := b.CreateDatabase("cleanup-db", "", nil)
 	require.NoError(t, err)
 
 	err = b.TagResource(db.ARN, map[string]string{"env": "prod"})

@@ -27,14 +27,14 @@ func TestTimestreamQueryRegionIsolation(t *testing.T) {
 	// 1. Create a scheduled query with the SAME name in both regions.
 	eastSQ, err := backend.CreateScheduledQuery(
 		ctxEast, "shared-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::000000000000:role/east",
-		"", "", "", "", nil,
+		"", "", "", "", "", nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastSQ.Arn, "us-east-1")
 
 	westSQ, err := backend.CreateScheduledQuery(
 		ctxWest, "shared-sq", "SELECT 2", "rate(2 hours)", "arn:aws:iam::000000000000:role/west",
-		"", "", "", "", nil,
+		"", "", "", "", "", nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, westSQ.Arn, "us-west-2")
@@ -89,13 +89,13 @@ func TestTimestreamQueryTagRegionIsolation(t *testing.T) {
 	// Create one query in each region.
 	eastSQ, err := backend.CreateScheduledQuery(
 		ctxEast, "tag-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::000000000000:role/r",
-		"", "", "", "", nil,
+		"", "", "", "", "", nil,
 	)
 	require.NoError(t, err)
 
 	westSQ, err := backend.CreateScheduledQuery(
 		ctxWest, "tag-sq", "SELECT 2", "rate(1 hour)", "arn:aws:iam::000000000000:role/r",
-		"", "", "", "", nil,
+		"", "", "", "", "", nil,
 	)
 	require.NoError(t, err)
 
@@ -124,7 +124,7 @@ func TestTimestreamQueryDefaultRegionFallback(t *testing.T) {
 	// No region in context → default region store.
 	sq, err := backend.CreateScheduledQuery(
 		context.Background(), "def-sq", "SELECT 1", "rate(1 hour)",
-		"arn:aws:iam::000000000000:role/r", "", "", "", "", nil,
+		"arn:aws:iam::000000000000:role/r", "", "", "", "", "", nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, sq.Arn, "eu-central-1")

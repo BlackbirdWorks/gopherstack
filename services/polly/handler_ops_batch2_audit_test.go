@@ -16,7 +16,7 @@ import (
 
 // TestBatch2_SynthesizeSpeech_TextLengthLimit verifies that SynthesizeSpeech
 // rejects text exceeding 3000 characters and SSML exceeding 6000 characters.
-// AWS returns InvalidParameterValueException for oversized text input.
+// AWS returns TextLengthExceededException for oversized text input.
 func TestBatch2_SynthesizeSpeech_TextLengthLimit(t *testing.T) {
 	t.Parallel()
 
@@ -64,7 +64,7 @@ func TestBatch2_SynthesizeSpeech_TextLengthLimit(t *testing.T) {
 			})
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.wantCode == http.StatusBadRequest {
-				assert.Contains(t, rec.Body.String(), "InvalidParameterValueException")
+				assert.Contains(t, rec.Body.String(), "TextLengthExceededException")
 			}
 		})
 	}
@@ -75,15 +75,16 @@ func TestBatch2_SynthesizeSpeech_TextLengthLimit(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestBatch2_StartSpeechSynthesisTask_RequiredAndLimit verifies that
-// StartSpeechSynthesisTask rejects missing OutputS3BucketName and text
-// exceeding 100000 characters. AWS returns InvalidParameterValueException
-// for both cases.
+// StartSpeechSynthesisTask rejects missing OutputS3BucketName
+// (InvalidParameterValueException) and text exceeding 100000 characters
+// (TextLengthExceededException).
 func TestBatch2_StartSpeechSynthesisTask_RequiredAndLimit(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		body     map[string]any
 		name     string
+		wantErr  string
 		wantCode int
 	}{
 		{
@@ -94,6 +95,7 @@ func TestBatch2_StartSpeechSynthesisTask_RequiredAndLimit(t *testing.T) {
 				"VoiceId":      "Joanna",
 			},
 			wantCode: http.StatusBadRequest,
+			wantErr:  "InvalidParameterValueException",
 		},
 		{
 			name: "text over 100000 returns 400",
@@ -104,6 +106,7 @@ func TestBatch2_StartSpeechSynthesisTask_RequiredAndLimit(t *testing.T) {
 				"VoiceId":            "Joanna",
 			},
 			wantCode: http.StatusBadRequest,
+			wantErr:  "TextLengthExceededException",
 		},
 		{
 			name: "text at 100000 succeeds",
@@ -124,7 +127,7 @@ func TestBatch2_StartSpeechSynthesisTask_RequiredAndLimit(t *testing.T) {
 			rec := request(t, newHandler(), http.MethodPost, "/v1/synthesisTasks", tc.body)
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.wantCode == http.StatusBadRequest {
-				assert.Contains(t, rec.Body.String(), "InvalidParameterValueException")
+				assert.Contains(t, rec.Body.String(), tc.wantErr)
 			}
 		})
 	}
@@ -219,7 +222,7 @@ func TestBatch2_PutLexicon_NameValidation(t *testing.T) {
 
 // TestBatch2_PutLexicon_ContentValidation verifies that PutLexicon rejects
 // invalid PLS lexicon content. AWS requires Content to be non-empty XML
-// containing a <lexicon element.
+// containing a <lexicon element, returning InvalidLexiconException.
 func TestBatch2_PutLexicon_ContentValidation(t *testing.T) {
 	t.Parallel()
 
@@ -245,7 +248,7 @@ func TestBatch2_PutLexicon_ContentValidation(t *testing.T) {
 				map[string]any{"Content": tc.content})
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.wantCode == http.StatusBadRequest {
-				assert.Contains(t, rec.Body.String(), "InvalidParameterValueException")
+				assert.Contains(t, rec.Body.String(), "InvalidLexiconException")
 			}
 		})
 	}

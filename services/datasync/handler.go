@@ -982,20 +982,19 @@ type describeLocationAzureBlobInput struct {
 	LocationArn string `json:"LocationArn"`
 }
 
-type azureBlobSasConfigOutput struct {
-	Token string `json:"Token"`
-}
-
+// describeLocationAzureBlobOutput intentionally has no SasConfiguration or
+// Subdirectory field: the real DescribeLocationAzureBlobOutput never returns
+// the SAS token (AWS never echoes back access credentials on a Describe
+// call), and it has no separate Subdirectory member -- the path is folded
+// into LocationUri only.
 type describeLocationAzureBlobOutput struct {
-	SasConfiguration *azureBlobSasConfigOutput `json:"SasConfiguration,omitempty"`
-	LocationArn      string                    `json:"LocationArn"`
-	LocationURI      string                    `json:"LocationUri"`
-	ContainerURL     string                    `json:"ContainerUrl,omitempty"`
-	Subdirectory     string                    `json:"Subdirectory,omitempty"`
-	BlobType         string                    `json:"BlobType,omitempty"`
-	AccessTier       string                    `json:"AccessTier,omitempty"`
-	AgentArns        []string                  `json:"AgentArns,omitempty"`
-	CreationTime     int64                     `json:"CreationTime"`
+	LocationArn  string   `json:"LocationArn"`
+	LocationURI  string   `json:"LocationUri"`
+	ContainerURL string   `json:"ContainerUrl,omitempty"`
+	BlobType     string   `json:"BlobType,omitempty"`
+	AccessTier   string   `json:"AccessTier,omitempty"`
+	AgentArns    []string `json:"AgentArns,omitempty"`
+	CreationTime int64    `json:"CreationTime"`
 }
 
 func (h *Handler) handleDescribeLocationAzureBlob(
@@ -1011,22 +1010,15 @@ func (h *Handler) handleDescribeLocationAzureBlob(
 		return nil, err
 	}
 
-	out := &describeLocationAzureBlobOutput{
+	return &describeLocationAzureBlobOutput{
 		LocationArn:  l.LocationArn,
 		LocationURI:  l.LocationURI,
 		ContainerURL: l.ContainerURL,
-		Subdirectory: l.Subdirectory,
 		BlobType:     l.BlobType,
 		AccessTier:   l.AccessTier,
 		AgentArns:    l.AgentArns,
 		CreationTime: l.CreationTime.Unix(),
-	}
-
-	if l.SasConfiguration != nil {
-		out.SasConfiguration = &azureBlobSasConfigOutput{Token: l.SasConfiguration.Token}
-	}
-
-	return out, nil
+	}, nil
 }
 
 type updateLocationAzureBlobInput struct {
@@ -1091,6 +1083,10 @@ func (h *Handler) handleCreateLocationEfs(
 ) (*createLocationEfsOutput, error) {
 	if in.EfsFilesystemArn == "" {
 		return nil, fmt.Errorf("%w: EfsFilesystemArn is required", errInvalidRequest)
+	}
+
+	if in.Ec2Config == nil {
+		return nil, fmt.Errorf("%w: Ec2Config is required", errInvalidRequest)
 	}
 
 	tags := tagsFromInput(in.Tags)
@@ -1227,6 +1223,10 @@ func (h *Handler) handleCreateLocationFsxLustre(
 ) (*createLocationFsxLustreOutput, error) {
 	if in.FsxFilesystemArn == "" {
 		return nil, fmt.Errorf("%w: FsxFilesystemArn is required", errInvalidRequest)
+	}
+
+	if len(in.SecurityGroupArns) == 0 {
+		return nil, fmt.Errorf("%w: SecurityGroupArns is required", errInvalidRequest)
 	}
 
 	tags := tagsFromInput(in.Tags)
@@ -1413,6 +1413,14 @@ func (h *Handler) handleCreateLocationFsxOntap(
 		return nil, fmt.Errorf("%w: StorageVirtualMachineArn is required", errInvalidRequest)
 	}
 
+	if in.Protocol == nil {
+		return nil, fmt.Errorf("%w: Protocol is required", errInvalidRequest)
+	}
+
+	if len(in.SecurityGroupArns) == 0 {
+		return nil, fmt.Errorf("%w: SecurityGroupArns is required", errInvalidRequest)
+	}
+
 	tags := tagsFromInput(in.Tags)
 
 	l, err := h.Backend.CreateLocationFsxOntap(
@@ -1509,6 +1517,14 @@ func (h *Handler) handleCreateLocationFsxOpenZfs(
 ) (*createLocationFsxOpenZfsOutput, error) {
 	if in.FsxFilesystemArn == "" {
 		return nil, fmt.Errorf("%w: FsxFilesystemArn is required", errInvalidRequest)
+	}
+
+	if in.Protocol == nil {
+		return nil, fmt.Errorf("%w: Protocol is required", errInvalidRequest)
+	}
+
+	if len(in.SecurityGroupArns) == 0 {
+		return nil, fmt.Errorf("%w: SecurityGroupArns is required", errInvalidRequest)
 	}
 
 	tags := tagsFromInput(in.Tags)
@@ -1609,6 +1625,14 @@ func (h *Handler) handleCreateLocationFsxWindows(
 ) (*createLocationFsxWindowsOutput, error) {
 	if in.FsxFilesystemArn == "" {
 		return nil, fmt.Errorf("%w: FsxFilesystemArn is required", errInvalidRequest)
+	}
+
+	if in.User == "" {
+		return nil, fmt.Errorf("%w: User is required", errInvalidRequest)
+	}
+
+	if len(in.SecurityGroupArns) == 0 {
+		return nil, fmt.Errorf("%w: SecurityGroupArns is required", errInvalidRequest)
 	}
 
 	tags := tagsFromInput(in.Tags)
@@ -1729,6 +1753,14 @@ func (h *Handler) handleCreateLocationHdfs(
 ) (*createLocationHdfsOutput, error) {
 	if len(in.NameNodes) == 0 {
 		return nil, fmt.Errorf("%w: NameNodes is required", errInvalidRequest)
+	}
+
+	if in.AuthenticationType == "" {
+		return nil, fmt.Errorf("%w: AuthenticationType is required", errInvalidRequest)
+	}
+
+	if len(in.AgentArns) == 0 {
+		return nil, fmt.Errorf("%w: AgentArns is required", errInvalidRequest)
 	}
 
 	tags := tagsFromInput(in.Tags)
@@ -1910,6 +1942,14 @@ func (h *Handler) handleCreateLocationNfs(
 ) (*createLocationNfsOutput, error) {
 	if in.ServerHostname == "" {
 		return nil, fmt.Errorf("%w: ServerHostname is required", errInvalidRequest)
+	}
+
+	if in.Subdirectory == "" {
+		return nil, fmt.Errorf("%w: Subdirectory is required", errInvalidRequest)
+	}
+
+	if in.OnPremConfig == nil || len(in.OnPremConfig.AgentArns) == 0 {
+		return nil, fmt.Errorf("%w: OnPremConfig.AgentArns is required", errInvalidRequest)
 	}
 
 	tags := tagsFromInput(in.Tags)
@@ -2160,6 +2200,14 @@ func (h *Handler) handleCreateLocationSmb(
 ) (*createLocationSmbOutput, error) {
 	if in.ServerHostname == "" {
 		return nil, fmt.Errorf("%w: ServerHostname is required", errInvalidRequest)
+	}
+
+	if in.Subdirectory == "" {
+		return nil, fmt.Errorf("%w: Subdirectory is required", errInvalidRequest)
+	}
+
+	if len(in.AgentArns) == 0 {
+		return nil, fmt.Errorf("%w: AgentArns is required", errInvalidRequest)
 	}
 
 	tags := tagsFromInput(in.Tags)

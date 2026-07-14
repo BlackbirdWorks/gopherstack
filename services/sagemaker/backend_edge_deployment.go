@@ -183,7 +183,7 @@ func (b *InMemoryBackend) DescribeEdgeDeploymentPlan(ctx context.Context, name s
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.edgeDeploymentPlansStore(region).Get(name)
+	p, ok := b.edgeDeploymentPlansStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, name)
 	}
@@ -219,7 +219,7 @@ func (b *InMemoryBackend) ListEdgeDeploymentPlans(
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.edgeDeploymentPlansStore(region),
+		b.edgeDeploymentPlansStoreRO(region),
 		nextToken,
 		cloneEdgeDeploymentPlan,
 		func(v *EdgeDeploymentPlan) string { return v.EdgeDeploymentPlanName },
@@ -322,14 +322,14 @@ func (b *InMemoryBackend) GetDeviceFleetReport(ctx context.Context, fleetName st
 
 	region := getRegion(ctx, b.region)
 
-	f, ok := b.deviceFleetsStore(region).Get(fleetName)
+	f, ok := b.deviceFleetsStoreRO(region).Get(fleetName)
 	if !ok {
 		return nil, 0, fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, fleetName)
 	}
 
 	registered := 0
 
-	for _, d := range b.devicesStore(region).All() {
+	for _, d := range b.devicesStoreRO(region).All() {
 		if d.DeviceFleetName == fleetName {
 			registered++
 		}
@@ -349,7 +349,7 @@ func (b *InMemoryBackend) ListStageDevices(
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.edgeDeploymentPlansStore(region).Get(planName)
+	p, ok := b.edgeDeploymentPlansStoreRO(region).Get(planName)
 	if !ok {
 		return nil, nil, "", "", fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, planName)
 	}
@@ -361,7 +361,7 @@ func (b *InMemoryBackend) ListStageDevices(
 		)
 	}
 
-	devices, next := devicesInFleetPaged(b.devicesStore(region), p.DeviceFleetName, nextToken)
+	devices, next := devicesInFleetPaged(b.devicesStoreRO(region), p.DeviceFleetName, nextToken)
 
 	return cloneEdgeDeploymentPlan(p), devices, s.DeploymentStatus, next, nil
 }

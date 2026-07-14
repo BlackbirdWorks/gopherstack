@@ -215,10 +215,13 @@ type createMemberRequest struct {
 	MemberConfiguration memberConfiguration `json:"MemberConfiguration"`
 }
 
-// createNodeRequest is the request body for POST /networks/{networkId}/members/{memberId}/nodes.
+// createNodeRequest is the request body for POST /networks/{networkId}/nodes. MemberId
+// identifies the owning member; unlike the member/proposal families, node paths never carry
+// it in the URI -- see handler.go's parsePath doc comment for the wire-shape citation.
 type createNodeRequest struct {
 	Tags               map[string]string `json:"Tags"`
 	ClientRequestToken string            `json:"ClientRequestToken"`
+	MemberID           string            `json:"MemberId"`
 	NodeConfiguration  nodeConfiguration `json:"NodeConfiguration"`
 }
 
@@ -305,7 +308,7 @@ type nodeConfiguration struct {
 	InstanceType     string `json:"InstanceType"`
 }
 
-// createNodeResponse is the response body for POST /networks/{networkId}/members/{memberId}/nodes.
+// createNodeResponse is the response body for POST /networks/{networkId}/nodes.
 type createNodeResponse struct {
 	NodeID string `json:"NodeId"`
 }
@@ -335,7 +338,7 @@ type nodeFabricLogRespObj struct {
 	PeerLogs      *logConfigRespObj `json:"PeerLogs,omitempty"`
 }
 
-// getNodeResponse is the response body for GET /networks/{networkId}/members/{memberId}/nodes/{nodeId}.
+// getNodeResponse is the response body for GET /networks/{networkId}/nodes/{nodeId}.
 type getNodeResponse struct {
 	Node nodeObject `json:"Node"`
 }
@@ -350,7 +353,7 @@ type nodeSummaryObject struct {
 	Status           string     `json:"Status"`
 }
 
-// listNodesResponse is the response body for GET /networks/{networkId}/members/{memberId}/nodes.
+// listNodesResponse is the response body for GET /networks/{networkId}/nodes.
 type listNodesResponse struct {
 	NextToken *string             `json:"NextToken,omitempty"`
 	Nodes     []nodeSummaryObject `json:"Nodes"`
@@ -653,7 +656,7 @@ type cloudWatchLogReq struct {
 	Enabled bool `json:"Enabled"`
 }
 
-// updateNodeRequest is the request body for PATCH /networks/{networkId}/members/{memberId}/nodes/{nodeId}.
+// updateNodeRequest is the request body for PATCH /networks/{networkId}/nodes/{nodeId}.
 type updateNodeRequest struct {
 	LogPublishingConfiguration *nodeLogPublishingConfigReq `json:"LogPublishingConfiguration,omitempty"`
 }

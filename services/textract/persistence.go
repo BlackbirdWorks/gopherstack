@@ -103,15 +103,17 @@ func newDTORegistry() *dtoRegistry {
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 //
-// ClientTokenToJobID and AdapterClientTokenToID are left as plain
-// region-nested maps: their values are strings, not *T, so they do not fit
-// store.Table's keyed-by-identity-value shape and are unaffected by this
-// conversion.
+// ClientTokenToJobID, AdapterClientTokenToID, ExpenseClientTokenToJobID, and
+// LendingClientTokenToJobID are left as plain region-nested maps: their
+// values are strings, not *T, so they do not fit store.Table's
+// keyed-by-identity-value shape and are unaffected by this conversion.
 type backendSnapshot struct {
-	Tables                 map[string]json.RawMessage   `json:"tables"`
-	ClientTokenToJobID     map[string]map[string]string `json:"clientTokenToJobId,omitempty"`
-	AdapterClientTokenToID map[string]map[string]string `json:"adapterClientTokenToId,omitempty"`
-	Version                int                          `json:"version"`
+	Tables                    map[string]json.RawMessage   `json:"tables"`
+	ClientTokenToJobID        map[string]map[string]string `json:"clientTokenToJobId,omitempty"`
+	AdapterClientTokenToID    map[string]map[string]string `json:"adapterClientTokenToId,omitempty"`
+	ExpenseClientTokenToJobID map[string]map[string]string `json:"expenseClientTokenToJobId,omitempty"`
+	LendingClientTokenToJobID map[string]map[string]string `json:"lendingClientTokenToJobId,omitempty"`
+	Version                   int                          `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -149,30 +151,41 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
-	tokenMapCopy := make(map[string]map[string]string, len(b.clientTokenToJobID))
-
-	for region, regionTokens := range b.clientTokenToJobID {
-		regionCopy := make(map[string]string, len(regionTokens))
-		maps.Copy(regionCopy, regionTokens)
-		tokenMapCopy[region] = regionCopy
-	}
-
-	adapterTokenMapCopy := make(map[string]map[string]string, len(b.adapterClientTokenToID))
-
-	for region, regionTokens := range b.adapterClientTokenToID {
-		regionCopy := make(map[string]string, len(regionTokens))
-		maps.Copy(regionCopy, regionTokens)
-		adapterTokenMapCopy[region] = regionCopy
-	}
-
 	snap := backendSnapshot{
-		Version:                textractSnapshotVersion,
-		Tables:                 tables,
-		ClientTokenToJobID:     tokenMapCopy,
-		AdapterClientTokenToID: adapterTokenMapCopy,
+		Version:                   textractSnapshotVersion,
+		Tables:                    tables,
+		ClientTokenToJobID:        cloneRegionTokenMap(b.clientTokenToJobID),
+		AdapterClientTokenToID:    cloneRegionTokenMap(b.adapterClientTokenToID),
+		ExpenseClientTokenToJobID: cloneRegionTokenMap(b.expenseClientTokenToJobID),
+		LendingClientTokenToJobID: cloneRegionTokenMap(b.lendingClientTokenToJobID),
 	}
 
 	return persistence.MarshalSnapshot(ctx, "textract", snap)
+}
+
+// cloneRegionTokenMap returns a deep copy of a region-nested
+// clientToken→resourceID map, so Snapshot doesn't alias live backend state.
+func cloneRegionTokenMap(m map[string]map[string]string) map[string]map[string]string {
+	cp := make(map[string]map[string]string, len(m))
+
+	for region, regionTokens := range m {
+		regionCopy := make(map[string]string, len(regionTokens))
+		maps.Copy(regionCopy, regionTokens)
+		cp[region] = regionCopy
+	}
+
+	return cp
+}
+
+// restoredTokenMap returns m, or a fresh empty map if m is nil -- Restore
+// uses this so a snapshot predating a given token map (or one that never
+// populated it) still leaves the backend with a non-nil map to write into.
+func restoredTokenMap(m map[string]map[string]string) map[string]map[string]string {
+	if m != nil {
+		return m
+	}
+
+	return make(map[string]map[string]string)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -199,8 +212,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", textractSnapshotVersion)
 
 		b.resetTablesLocked()
-		b.clientTokenToJobID = make(map[string]map[string]string)
-		b.adapterClientTokenToID = make(map[string]map[string]string)
+		b.resetClientTokenMapsLocked()
 
 		return nil
 	}
@@ -260,17 +272,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.adapterVersions.Restore(liveAdapterVersions)
 
-	if snap.ClientTokenToJobID != nil {
-		b.clientTokenToJobID = snap.ClientTokenToJobID
-	} else {
-		b.clientTokenToJobID = make(map[string]map[string]string)
-	}
-
-	if snap.AdapterClientTokenToID != nil {
-		b.adapterClientTokenToID = snap.AdapterClientTokenToID
-	} else {
-		b.adapterClientTokenToID = make(map[string]map[string]string)
-	}
+	b.clientTokenToJobID = restoredTokenMap(snap.ClientTokenToJobID)
+	b.adapterClientTokenToID = restoredTokenMap(snap.AdapterClientTokenToID)
+	b.expenseClientTokenToJobID = restoredTokenMap(snap.ExpenseClientTokenToJobID)
+	b.lendingClientTokenToJobID = restoredTokenMap(snap.LendingClientTokenToJobID)
 
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -334,18 +335,34 @@ type deleteSubnetGroupRequest struct {
 }
 
 type describeEventsRequest struct {
-	SourceName string `json:"SourceName"`
-	SourceType string `json:"SourceType"`
-	StartTime  string `json:"StartTime"`
-	EndTime    string `json:"EndTime"`
-	NextToken  string `json:"NextToken"`
-	MaxResults int    `json:"MaxResults"`
-	Duration   int    `json:"Duration"` // minutes to look back; applied when StartTime is absent
+	SourceName string      `json:"SourceName"`
+	SourceType string      `json:"SourceType"`
+	StartTime  json.Number `json:"StartTime"`
+	EndTime    json.Number `json:"EndTime"`
+	NextToken  string      `json:"NextToken"`
+	MaxResults int         `json:"MaxResults"`
+	Duration   int         `json:"Duration"` // minutes to look back; applied when StartTime is absent
 }
 
 type tagItem struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
+}
+
+// parseEpochSeconds converts a wire-format epoch-seconds JSON number (the
+// awsjson1.1 Timestamp wire format DAX uses -- see smithytime.ParseEpochSeconds
+// in the real SDK deserializer) into a time.Time, preserving sub-second
+// precision carried in the fractional part.
+func parseEpochSeconds(n json.Number) (time.Time, error) {
+	f, err := n.Float64()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	sec := int64(f)
+	nsec := int64((f - float64(sec)) * float64(time.Second))
+
+	return time.Unix(sec, nsec).UTC(), nil
 }
 
 // ---- cluster response helpers ----
@@ -359,7 +376,7 @@ type clusterResponse struct {
 	ClusterArn                    string                  `json:"ClusterArn"`
 	Description                   string                  `json:"Description,omitempty"`
 	NodeType                      string                  `json:"NodeType"`
-	Status                        string                  `json:"ClusterStatus"`
+	Status                        string                  `json:"Status"`
 	SubnetGroup                   string                  `json:"SubnetGroup,omitempty"`
 	IamRoleArn                    string                  `json:"IamRoleArn,omitempty"`
 	PreferredMaintenanceWindow    string                  `json:"PreferredMaintenanceWindow,omitempty"`
@@ -382,14 +399,22 @@ type nodeResponse struct {
 	NodeID               string            `json:"NodeId"`
 	NodeStatus           string            `json:"NodeStatus"`
 	AvailabilityZone     string            `json:"AvailabilityZone,omitempty"`
-	NodeCreateTime       string            `json:"NodeCreateTime,omitempty"`
 	ParameterGroupStatus string            `json:"ParameterGroupStatus,omitempty"`
+	// NodeCreateTime is epoch seconds (float64), matching the DAX awsjson1.1
+	// wire format -- the real SDK deserializer parses this field with
+	// smithytime.ParseEpochSeconds and rejects RFC3339 strings.
+	NodeCreateTime float64 `json:"NodeCreateTime,omitempty"`
 }
 
 type paramGroupStatus struct {
-	ParameterGroupName   string   `json:"ParameterGroupName"`
-	ParameterApplyStatus string   `json:"ParameterApplyStatus,omitempty"`
-	NodeIDsToReboot      []string `json:"NodeIDsToReboot,omitempty"`
+	ParameterGroupName   string `json:"ParameterGroupName"`
+	ParameterApplyStatus string `json:"ParameterApplyStatus,omitempty"`
+	// NodeIDsToReboot: the wire key casing is "NodeIdsToReboot" (lowercase
+	// "ds"), not "NodeIDsToReboot" -- the client's hand-rolled JSON
+	// deserializer matches on the exact key string. The Go field name keeps
+	// the ID-initialism spelling per project convention; only the json tag
+	// needs to match the wire format.
+	NodeIDsToReboot []string `json:"NodeIdsToReboot,omitempty"`
 }
 
 type sseDescResponse struct {
@@ -439,7 +464,8 @@ type eventResponse struct {
 	SourceName string `json:"SourceName"`
 	SourceType string `json:"SourceType"`
 	Message    string `json:"Message"`
-	Date       string `json:"Date"`
+	// Date is epoch seconds (float64); see nodeResponse.NodeCreateTime.
+	Date float64 `json:"Date"`
 }
 
 // toClusterResponse converts a Cluster to its JSON response form.
@@ -459,6 +485,7 @@ func toClusterResponse(c *Cluster) clusterResponse {
 		ParameterGroup: &paramGroupStatus{
 			ParameterGroupName:   c.ParameterGroup.ParameterGroupName,
 			ParameterApplyStatus: c.ParameterGroup.ParameterApplyStatus,
+			NodeIDsToReboot:      c.ParameterGroup.NodeIDsToReboot,
 		},
 		SSEDescription: &sseDescResponse{Status: c.SSEDescription.Status},
 	}
@@ -490,7 +517,7 @@ func toClusterResponse(c *Cluster) clusterResponse {
 			NodeID:               n.NodeID,
 			NodeStatus:           n.NodeStatus,
 			AvailabilityZone:     n.AvailabilityZone,
-			NodeCreateTime:       n.CreateTime.Format(time.RFC3339),
+			NodeCreateTime:       awstime.Epoch(n.CreateTime),
 			ParameterGroupStatus: n.ParameterGroupStatus,
 		}
 
@@ -1044,7 +1071,7 @@ func (h *Handler) handleDescribeEvents(body []byte) (any, error) {
 	var startTime, endTime *time.Time
 
 	if req.StartTime != "" {
-		t, err := time.Parse(time.RFC3339, req.StartTime)
+		t, err := parseEpochSeconds(req.StartTime)
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid StartTime format", errInvalidRequest)
 		}
@@ -1053,7 +1080,7 @@ func (h *Handler) handleDescribeEvents(body []byte) (any, error) {
 	}
 
 	if req.EndTime != "" {
-		t, err := time.Parse(time.RFC3339, req.EndTime)
+		t, err := parseEpochSeconds(req.EndTime)
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid EndTime format", errInvalidRequest)
 		}
@@ -1085,7 +1112,7 @@ func (h *Handler) handleDescribeEvents(body []byte) (any, error) {
 			SourceName: ev.SourceName,
 			SourceType: ev.SourceType,
 			Message:    ev.Message,
-			Date:       ev.Date.Format(time.RFC3339),
+			Date:       awstime.Epoch(ev.Date),
 		})
 	}
 

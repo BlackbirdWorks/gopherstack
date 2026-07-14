@@ -17,13 +17,13 @@ import (
 // resolveClusterLocked looks up a cluster by name or ARN (must be called with
 // b.mu held, read or write).
 func (b *InMemoryBackend) resolveClusterLocked(region, nameOrArn string) (*Cluster, error) {
-	store := b.clustersStore(region)
+	store := b.clustersStoreRO(region)
 
 	if c, ok := store.Get(nameOrArn); ok {
 		return c, nil
 	}
 
-	if name, ok := b.clusterARNIndexStore(region)[nameOrArn]; ok {
+	if name, ok := b.clusterARNIndexStoreRO(region)[nameOrArn]; ok {
 		if c, found := store.Get(name); found {
 			return c, nil
 		}
@@ -128,7 +128,7 @@ func (b *InMemoryBackend) ListClusters(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	all := b.clustersStore(region)
+	all := b.clustersStoreRO(region)
 
 	filtered := make(map[string]*Cluster, all.Len())
 

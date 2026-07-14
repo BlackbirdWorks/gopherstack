@@ -295,17 +295,27 @@ type mskSourceConfigurationInput struct {
 }
 
 // redshiftDestinationInput holds the Redshift destination configuration.
+// redshiftCopyCommandInput holds the Redshift COPY command configuration. AWS nests
+// these fields under RedshiftDestinationConfiguration.CopyCommand on the wire, not as
+// flat fields on the destination configuration itself.
+type redshiftCopyCommandInput struct {
+	DataTableName    string `json:"DataTableName"`
+	DataTableColumns string `json:"DataTableColumns"`
+	CopyOptions      string `json:"CopyOptions"`
+}
+
 type redshiftDestinationInput struct {
 	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration"`
 	RetryOptions            *RetryOptions            `json:"RetryOptions"`
-	S3BackupConfiguration   *s3BackupInput           `json:"S3BackupConfiguration"`
-	ClusterJDBCURL          string                   `json:"ClusterJDBCURL"`
-	RoleARN                 string                   `json:"RoleARN"`
-	S3BackupMode            string                   `json:"S3BackupMode"`
-	DataTableName           string                   `json:"DataTableName"`
-	DataTableColumns        string                   `json:"DataTableColumns"`
-	CopyOptions             string                   `json:"CopyOptions"`
-	Username                string                   `json:"Username"`
+	// S3Configuration is the required intermediate S3 staging location Redshift's COPY
+	// command reads from; distinct from S3BackupConfiguration (used only in backup mode).
+	S3Configuration       *s3DestinationInput       `json:"S3Configuration"`
+	S3BackupConfiguration *s3BackupInput            `json:"S3BackupConfiguration"`
+	CopyCommand           *redshiftCopyCommandInput `json:"CopyCommand"`
+	ClusterJDBCURL        string                    `json:"ClusterJDBCURL"`
+	RoleARN               string                    `json:"RoleARN"`
+	S3BackupMode          string                    `json:"S3BackupMode"`
+	Username              string                    `json:"Username"`
 }
 
 // openSearchDestinationInput holds the OpenSearch destination configuration.
@@ -432,10 +442,16 @@ func buildRedshiftDestination(rs *redshiftDestinationInput) *RedshiftDestination
 		S3BackupMode:            rs.S3BackupMode,
 		ProcessingConfiguration: rs.ProcessingConfiguration,
 		RetryOptions:            rs.RetryOptions,
-		DataTableName:           rs.DataTableName,
-		DataTableColumns:        rs.DataTableColumns,
-		CopyOptions:             rs.CopyOptions,
 		Username:                rs.Username,
+		S3Destination:           buildS3DestinationDescription(rs.S3Configuration),
+	}
+
+	if rs.CopyCommand != nil {
+		dest.CopyCommand = &RedshiftCopyCommand{
+			DataTableName:    rs.CopyCommand.DataTableName,
+			DataTableColumns: rs.CopyCommand.DataTableColumns,
+			CopyOptions:      rs.CopyCommand.CopyOptions,
+		}
 	}
 
 	if rs.S3BackupConfiguration != nil {
@@ -598,22 +614,31 @@ func (h *Handler) handleDeleteDeliveryStream(
 	return &deleteDeliveryStreamOutput{}, nil
 }
 
+// destinationDescriptionOutput mirrors AWS's DestinationDescription shape: a
+// DestinationId plus at most one populated type-specific description. Real
+// DescribeDeliveryStream responses nest every destination type under a single
+// "Destinations" list on the wire rather than exposing separate per-type lists.
+type destinationDescriptionOutput struct {
+	ExtendedS3DestinationDescription              *S3DestinationDescription           `json:"ExtendedS3DestinationDescription,omitempty"`              //nolint:lll // AWS field name
+	HTTPEndpointDestinationDescription            *HTTPEndpointDestinationDescription `json:"HttpEndpointDestinationDescription,omitempty"`            //nolint:lll // AWS field name (note "Http" casing)
+	RedshiftDestinationDescription                *RedshiftDestinationDescription     `json:"RedshiftDestinationDescription,omitempty"`                //nolint:lll // AWS field name
+	AmazonopensearchserviceDestinationDescription *OpenSearchDestinationDescription   `json:"AmazonopensearchserviceDestinationDescription,omitempty"` //nolint:lll // AWS field name (exact casing)
+	SplunkDestinationDescription                  *SplunkDestinationDescription       `json:"SplunkDestinationDescription,omitempty"`                  //nolint:lll // AWS field name
+	DestinationID                                 string                              `json:"DestinationId"`
+}
+
 type deliveryStreamDescriptionFields struct {
-	EncryptionConfiguration                        *EncryptionConfig                    `json:"EncryptionConfiguration,omitempty"` //nolint:lll // AWS field name
-	Source                                         *SourceDescription                   `json:"Source,omitempty"`
-	CreateTimestamp                                *int64                               `json:"CreateTimestamp,omitempty"`
-	LastUpdateTimestamp                            *int64                               `json:"LastUpdateTimestamp,omitempty"` //nolint:lll // AWS field name
-	DeliveryStreamName                             string                               `json:"DeliveryStreamName"`
-	DeliveryStreamARN                              string                               `json:"DeliveryStreamARN"`
-	DeliveryStreamStatus                           string                               `json:"DeliveryStreamStatus"`
-	DeliveryStreamType                             string                               `json:"DeliveryStreamType,omitempty"` //nolint:lll // AWS field name
-	VersionID                                      string                               `json:"VersionId,omitempty"`
-	S3DestinationDescriptions                      []S3DestinationDescription           `json:"S3DestinationDescriptions,omitempty"`                      //nolint:lll // AWS field name
-	HTTPEndpointDestinationDescriptions            []HTTPEndpointDestinationDescription `json:"HTTPEndpointDestinationDescriptions,omitempty"`            //nolint:lll // AWS field name must match the API spec
-	RedshiftDestinationDescriptions                []RedshiftDestinationDescription     `json:"RedshiftDestinationDescriptions,omitempty"`                //nolint:lll // AWS field name
-	AmazonOpenSearchServiceDestinationDescriptions []OpenSearchDestinationDescription   `json:"AmazonOpenSearchServiceDestinationDescriptions,omitempty"` //nolint:lll // AWS field name
-	SplunkDestinationDescriptions                  []SplunkDestinationDescription       `json:"SplunkDestinationDescriptions,omitempty"`                  //nolint:lll // AWS field name
-	HasMoreDestinations                            bool                                 `json:"HasMoreDestinations"`
+	EncryptionConfiguration *EncryptionConfig              `json:"DeliveryStreamEncryptionConfiguration,omitempty"` //nolint:lll // AWS field name
+	Source                  *SourceDescription             `json:"Source,omitempty"`
+	CreateTimestamp         *int64                         `json:"CreateTimestamp,omitempty"`
+	LastUpdateTimestamp     *int64                         `json:"LastUpdateTimestamp,omitempty"` //nolint:lll // AWS field name
+	DeliveryStreamName      string                         `json:"DeliveryStreamName"`
+	DeliveryStreamARN       string                         `json:"DeliveryStreamARN"`
+	DeliveryStreamStatus    string                         `json:"DeliveryStreamStatus"`
+	DeliveryStreamType      string                         `json:"DeliveryStreamType,omitempty"` //nolint:lll // AWS field name
+	VersionID               string                         `json:"VersionId,omitempty"`
+	Destinations            []destinationDescriptionOutput `json:"Destinations"`
+	HasMoreDestinations     bool                           `json:"HasMoreDestinations"`
 }
 
 type describeDeliveryStreamInput struct {
@@ -656,32 +681,74 @@ func (h *Handler) handleDescribeDeliveryStream(
 		Source:                  s.Source,
 		CreateTimestamp:         createTS,
 		LastUpdateTimestamp:     updateTS,
+		Destinations:            buildDestinationDescriptions(s),
 		HasMoreDestinations:     false,
 	}
 
+	return &describeDeliveryStreamOutput{DeliveryStreamDescription: desc}, nil
+}
+
+// defaultDestinationID is the synthetic DestinationId AWS assigns to a stream's first
+// (and, in this backend, only) destination when none has been explicitly stamped yet.
+const defaultDestinationID = "destinationId-000000000001"
+
+// destinationIDOrDefault returns id, or defaultDestinationID when id is empty.
+func destinationIDOrDefault(id string) string {
+	if id == "" {
+		return defaultDestinationID
+	}
+
+	return id
+}
+
+// buildDestinationDescriptions converts a DeliveryStream's per-type destination fields
+// into the AWS wire shape: a single "Destinations" list of DestinationDescription
+// entries, each carrying a DestinationId plus exactly one populated type-specific
+// description. AWS never exposes separate top-level lists per destination type.
+func buildDestinationDescriptions(s *DeliveryStream) []destinationDescriptionOutput {
+	destinations := make([]destinationDescriptionOutput, 0, 1)
+
 	if s.S3Destination != nil {
-		desc.S3DestinationDescriptions = []S3DestinationDescription{*s.S3Destination}
+		d := *s.S3Destination
+		destinations = append(destinations, destinationDescriptionOutput{
+			DestinationID:                    destinationIDOrDefault(d.DestinationID),
+			ExtendedS3DestinationDescription: &d,
+		})
 	}
 
 	if s.HTTPEndpointDestination != nil {
-		desc.HTTPEndpointDestinationDescriptions = []HTTPEndpointDestinationDescription{*s.HTTPEndpointDestination}
+		d := *s.HTTPEndpointDestination
+		destinations = append(destinations, destinationDescriptionOutput{
+			DestinationID:                      destinationIDOrDefault(d.DestinationID),
+			HTTPEndpointDestinationDescription: &d,
+		})
 	}
 
 	if s.RedshiftDestination != nil {
-		desc.RedshiftDestinationDescriptions = []RedshiftDestinationDescription{*s.RedshiftDestination}
+		d := *s.RedshiftDestination
+		destinations = append(destinations, destinationDescriptionOutput{
+			DestinationID:                  destinationIDOrDefault(d.DestinationID),
+			RedshiftDestinationDescription: &d,
+		})
 	}
 
 	if s.OpenSearchDestination != nil {
-		desc.AmazonOpenSearchServiceDestinationDescriptions = []OpenSearchDestinationDescription{ //nolint:lll // AWS field name
-			*s.OpenSearchDestination,
-		}
+		d := *s.OpenSearchDestination
+		destinations = append(destinations, destinationDescriptionOutput{
+			DestinationID: destinationIDOrDefault(d.DestinationID),
+			AmazonopensearchserviceDestinationDescription: &d,
+		})
 	}
 
 	if s.SplunkDestination != nil {
-		desc.SplunkDestinationDescriptions = []SplunkDestinationDescription{*s.SplunkDestination}
+		d := *s.SplunkDestination
+		destinations = append(destinations, destinationDescriptionOutput{
+			DestinationID:                destinationIDOrDefault(d.DestinationID),
+			SplunkDestinationDescription: &d,
+		})
 	}
 
-	return &describeDeliveryStreamOutput{DeliveryStreamDescription: desc}, nil
+	return destinations
 }
 
 type listDeliveryStreamsInput struct {

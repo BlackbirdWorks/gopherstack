@@ -2,6 +2,7 @@ package glue
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -841,6 +842,17 @@ type IntegrationResourceProperty struct {
 	ResourceArn      string            `json:"ResourceArn"`
 }
 
+// cloneIntegrationResourceProperty returns a copy of p with cloned maps, so callers
+// can't mutate live backend state through the returned pointer (and readers outside
+// the lock can't race with UpdateIntegrationResourceProperty mutating the original).
+func cloneIntegrationResourceProperty(p *IntegrationResourceProperty) *IntegrationResourceProperty {
+	cp := *p
+	cp.SourceProperties = maps.Clone(p.SourceProperties)
+	cp.TargetProperties = maps.Clone(p.TargetProperties)
+
+	return &cp
+}
+
 // CreateIntegrationResourceProperty stores properties for an integration resource.
 func (b *InMemoryBackend) CreateIntegrationResourceProperty(
 	resourceArn string,
@@ -861,7 +873,7 @@ func (b *InMemoryBackend) CreateIntegrationResourceProperty(
 	}
 	b.integrationResourceProps.Put(prop)
 
-	return prop, nil
+	return cloneIntegrationResourceProperty(prop), nil
 }
 
 // GetIntegrationResourceProperty retrieves stored resource properties.
@@ -878,7 +890,7 @@ func (b *InMemoryBackend) GetIntegrationResourceProperty(resourceArn string) (*I
 		return nil, fmt.Errorf("resource property for %q not found: %w", resourceArn, ErrNotFound)
 	}
 
-	return prop, nil
+	return cloneIntegrationResourceProperty(prop), nil
 }
 
 // UpdateIntegrationResourceProperty updates a previously created resource property.
@@ -906,7 +918,7 @@ func (b *InMemoryBackend) UpdateIntegrationResourceProperty(
 		prop.TargetProperties = targetProps
 	}
 
-	return prop, nil
+	return cloneIntegrationResourceProperty(prop), nil
 }
 
 // ListIntegrationResourceProperties returns all stored integration resource
@@ -915,7 +927,13 @@ func (b *InMemoryBackend) ListIntegrationResourceProperties() []*IntegrationReso
 	b.mu.RLock("ListIntegrationResourceProperties")
 	defer b.mu.RUnlock()
 
-	return b.integrationResourceProps.Snapshot()
+	src := b.integrationResourceProps.Snapshot()
+	out := make([]*IntegrationResourceProperty, 0, len(src))
+	for _, p := range src {
+		out = append(out, cloneIntegrationResourceProperty(p))
+	}
+
+	return out
 }
 
 // --- IntegrationTableProperties ---
@@ -968,7 +986,11 @@ func (b *InMemoryBackend) GetIntegrationTableProperties(
 		return nil, fmt.Errorf("table property for %q/%q not found: %w", resourceArn, tableName, ErrNotFound)
 	}
 
-	return prop, nil
+	cp := *prop
+	cp.SourceTableConfig = maps.Clone(prop.SourceTableConfig)
+	cp.TargetTableConfig = maps.Clone(prop.TargetTableConfig)
+
+	return &cp, nil
 }
 
 // UpdateIntegrationTableProperties updates a previously created table property.

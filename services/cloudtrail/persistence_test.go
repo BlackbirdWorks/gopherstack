@@ -237,6 +237,44 @@ func TestInMemoryBackend_UpdateDashboard_RenamePreservesIndex(t *testing.T) {
 	assert.Equal(t, "renamed", got.Name)
 }
 
+// TestInMemoryBackend_SnapshotRestore_EventConfiguration verifies that
+// per-resource event configuration (aggregation configs, context key
+// selectors, max event size) set via PutEventConfiguration survives a
+// Snapshot -> Restore round trip. EventConfiguration is not a store.Table
+// (it is keyed by an arbitrary caller-supplied resource ARN, not a resource
+// identity field), so it is persisted through its own backendSnapshot field
+// rather than through the registry -- this test guards that wiring.
+func TestInMemoryBackend_SnapshotRestore_EventConfiguration(t *testing.T) {
+	t.Parallel()
+
+	b := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
+
+	trail, err := b.CreateTrail(
+		"evtcfg-trail", "bucket1", "", "", "", "", "",
+		false, false, false, nil,
+	)
+	require.NoError(t, err)
+
+	b.PutEventConfiguration(
+		trail.TrailARN,
+		[]map[string]any{{"EventCategory": "Management"}},
+		[]map[string]any{{"Type": "RequestContext", "Equals": []string{"authparams"}}},
+		"Large",
+	)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	cfg := fresh.GetEventConfiguration(trail.TrailARN)
+	assert.Equal(t, "Large", cfg.MaxEventSize)
+	require.Len(t, cfg.ContextKeySelectors, 1)
+	assert.Equal(t, "RequestContext", cfg.ContextKeySelectors[0]["Type"])
+	require.Len(t, cfg.AggregationConfigurations, 1)
+}
+
 // TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose
 // version doesn't match the current backend (including the pre-Phase-3.3
 // format, which decodes with Version == 0) is discarded cleanly rather than

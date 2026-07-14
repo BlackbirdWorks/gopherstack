@@ -41,6 +41,18 @@ func (b *InMemoryBackend) pipelineVersionsStore(r string) map[string][]*Pipeline
 	return b.pipelineVersions[r]
 }
 
+// pipelineVersionsStoreRO returns the region-scoped pipelineVersions table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) pipelineVersionsStoreRO(r string) map[string][]*PipelineVersion {
+	if v := b.pipelineVersions[r]; v != nil {
+		return v
+	}
+
+	return make(map[string][]*PipelineVersion)
+}
+
 // recordPipelineVersionLocked appends a new version snapshot for p. Callers
 // must hold b.mu for writing.
 func (b *InMemoryBackend) recordPipelineVersionLocked(region string, p *Pipeline) {
@@ -81,11 +93,11 @@ func (b *InMemoryBackend) ListPipelineVersions(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelinesStore(region).Get(pipelineName); !ok {
+	if _, ok := b.pipelinesStoreRO(region).Get(pipelineName); !ok {
 		return nil, "", fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, pipelineName)
 	}
 
-	versions := b.pipelineVersionsStore(region)[pipelineName]
+	versions := b.pipelineVersionsStoreRO(region)[pipelineName]
 
 	list := make([]*PipelineVersion, len(versions))
 	for i, v := range versions {
@@ -102,7 +114,7 @@ func (b *InMemoryBackend) ListPipelineVersions(
 // findPipelineByARNLocked returns the pipeline with the given ARN. Callers
 // must hold b.mu (read or write).
 func (b *InMemoryBackend) findPipelineByARNLocked(region, pipelineArn string) (*Pipeline, bool) {
-	for _, p := range b.pipelinesStore(region).All() {
+	for _, p := range b.pipelinesStoreRO(region).All() {
 		if p.PipelineArn == pipelineArn {
 			return p, true
 		}
@@ -163,7 +175,7 @@ func (b *InMemoryBackend) DescribePipelineDefinitionForExecution(
 
 	region := getRegion(ctx, b.region)
 
-	pe, ok := b.pipelineExecutionsStore(region).Get(execArn)
+	pe, ok := b.pipelineExecutionsStoreRO(region).Get(execArn)
 	if !ok {
 		return "", time.Time{}, fmt.Errorf(
 			"%w: pipeline execution %q not found", ErrPipelineExecutionNotFound, execArn,

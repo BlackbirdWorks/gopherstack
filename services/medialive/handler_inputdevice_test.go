@@ -101,7 +101,7 @@ func TestHandlerListInputDevices(t *testing.T) {
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			devices := resp["InputDevices"].([]any)
+			devices := resp["inputDevices"].([]any)
 			assert.Len(t, devices, tt.wantCount)
 		})
 	}
@@ -147,7 +147,7 @@ func TestHandlerDescribeInputDevice(t *testing.T) {
 			if tt.wantName != "" {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Equal(t, tt.wantName, resp["Name"])
+				assert.Equal(t, tt.wantName, resp["name"])
 			}
 		})
 	}
@@ -193,7 +193,7 @@ func TestHandlerUpdateInputDevice(t *testing.T) {
 			if tt.wantName != "" {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Equal(t, tt.wantName, resp["Name"])
+				assert.Equal(t, tt.wantName, resp["name"])
 			}
 		})
 	}
@@ -383,7 +383,7 @@ func TestHandlerListInputDeviceTransfers(t *testing.T) {
 			if tt.wantCount > 0 {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				transfers := resp["InputDeviceTransfers"].([]any)
+				transfers := resp["inputDeviceTransfers"].([]any)
 				assert.Len(t, transfers, tt.wantCount)
 			}
 		})
@@ -439,7 +439,7 @@ func TestStartInputDeviceMaintenanceWindow(t *testing.T) {
 
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-				assert.Equal(t, true, resp["MaintenanceWindowActive"])
+				assert.Equal(t, true, resp["maintenanceWindowActive"])
 			}
 		})
 	}

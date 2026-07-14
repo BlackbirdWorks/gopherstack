@@ -53,12 +53,16 @@ func Test_SnapshotRestore(t *testing.T) {
 				_, err = b.CreateChannel("chanB", "", nil)
 				require.NoError(t, err)
 
-				_, err = b.CreateOriginEndpoint("chanA", "epA1", "", "", 0, 0, "", nil, nil)
+				_, err = b.CreateOriginEndpoint(
+					"chanA", "epA1", "", "", 0, 0, "", nil, nil, mediapackage.PackagingConfig{},
+				)
 				require.NoError(t, err)
 				_, err = b.CreateOriginEndpoint("chanA", "epA2", "", "", 0, 0, "", nil,
-					map[string]string{"k": "v"})
+					map[string]string{"k": "v"}, mediapackage.PackagingConfig{})
 				require.NoError(t, err)
-				_, err = b.CreateOriginEndpoint("chanB", "epB1", "", "", 0, 0, "", nil, nil)
+				_, err = b.CreateOriginEndpoint(
+					"chanB", "epB1", "", "", 0, 0, "", nil, nil, mediapackage.PackagingConfig{},
+				)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *mediapackage.InMemoryBackend) {
@@ -86,7 +90,9 @@ func Test_SnapshotRestore(t *testing.T) {
 
 				_, err := b.CreateChannel("chan1", "", nil)
 				require.NoError(t, err)
-				_, err = b.CreateOriginEndpoint("chan1", "ep1", "", "", 0, 0, "", nil, nil)
+				_, err = b.CreateOriginEndpoint(
+					"chan1", "ep1", "", "", 0, 0, "", nil, nil, mediapackage.PackagingConfig{},
+				)
 				require.NoError(t, err)
 				_, err = b.CreateHarvestJob("job1", "ep1", "2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z",
 					mediapackage.S3Destination{BucketName: "bucket", ManifestKey: "key", RoleArn: "role"})

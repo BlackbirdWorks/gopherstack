@@ -305,6 +305,11 @@ type svcRef struct {
 // keep new fields grouped with their kind rather than by logical concern.
 type InMemoryBackend struct {
 	runner TaskRunner
+	// elbv2Registrar, when set (see SetELBv2Registrar), registers/deregisters
+	// real ELBv2 targets as tasks belonging to a service with LoadBalancers
+	// reach/leave RUNNING. Nil preserves the historical behavior of
+	// Service.LoadBalancers being stored and echoed with no effect on ELBv2.
+	elbv2Registrar ELBv2TargetRegistrar
 	// registry is the Phase 3.3 datalayer lifecycle registry: every *store.Table
 	// below (except taskDefByArn/daemonTaskDefByArn, which are derived caches --
 	// see store_setup.go) is registered on it exactly once at construction, so
@@ -1458,6 +1463,8 @@ func (b *InMemoryBackend) applyNoRunnerTransition(task *Task, clusterName string
 		c.PendingTasksCount--
 		c.RunningTasksCount++
 	}
+
+	b.registerTaskWithELBv2Locked(task, clusterName)
 }
 
 // applyRunnerTransition transitions a PENDING task to RUNNING or STOPPED
@@ -1481,6 +1488,8 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 			c.PendingTasksCount--
 			c.RunningTasksCount++
 		}
+
+		b.registerTaskWithELBv2Locked(task, clusterName)
 
 		return
 	}
@@ -1690,6 +1699,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 	task.LastStatus = statusStopped
 	task.StoppedAt = &now
 	syncContainerStatuses(task, nil)
+	b.deregisterTaskFromELBv2Locked(task, clusterName)
 
 	instanceArn := task.ContainerInstanceArn
 	cp := *task
@@ -1893,6 +1903,7 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 	oldest.StoppedAt = &now
 	oldest.StoppedReason = "service scale-in"
 	syncContainerStatuses(oldest, nil)
+	b.deregisterTaskFromELBv2Locked(oldest, clusterName)
 
 	// Decrement the cached running counter (scale-in always stops a running task).
 	if c, _ := b.clusters.Get(clusterName); c != nil {

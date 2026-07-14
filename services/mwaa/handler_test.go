@@ -81,14 +81,18 @@ func TestHandler_CreateEnvironment(t *testing.T) {
 			wantArn:    true,
 		},
 		{
-			name:    "duplicate_returns_conflict",
+			// MWAA's API model has no AlreadyExistsException at all --
+			// CreateEnvironment's only documented errors are
+			// InternalServerException, ServiceUnavailableException, and
+			// ValidationException -- so a duplicate name is a 400, not a 409.
+			name:    "duplicate_returns_validation_error",
 			envName: "dupe-env",
 			body: map[string]any{
 				"DagS3Path":        "dags/",
 				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/mwaa-role",
 				"SourceBucketArn":  "arn:aws:s3:::bucket",
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 			wantArn:    false,
 		},
 	}
@@ -99,7 +103,7 @@ func TestHandler_CreateEnvironment(t *testing.T) {
 
 			h := newHandlerForTest(t)
 
-			if tt.name == "duplicate_returns_conflict" {
+			if tt.name == "duplicate_returns_validation_error" {
 				rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, tt.body)
 				assert.Equal(t, http.StatusOK, rec.Code)
 			}

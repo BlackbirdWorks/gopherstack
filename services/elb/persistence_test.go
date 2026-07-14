@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/elb"
 )
@@ -144,4 +145,41 @@ func TestSnapshotRestoreVersionMismatch(t *testing.T) {
 		t, 1, backend.LoadBalancerCount(),
 		"a malformed snapshot must error out and leave existing state untouched",
 	)
+}
+
+// Test_Handler_SnapshotRestore verifies Handler.Snapshot/Restore
+// (persistence.go) delegate to the backend -- the shape persistence.Manager
+// actually drives. cli.go's setupPersistence registers a service.Registerable
+// (the *Handler returned by Provider.Init) in the persistence.Manager only if
+// that Handler itself satisfies Snapshot(ctx)/Restore(ctx, []byte);
+// InMemoryBackend implementing the same two methods is not enough on its own,
+// since Handler.Backend is the StorageBackend interface and does not promote
+// them. Mirrors services/securityhub's Test_Handler_SnapshotRestore.
+func Test_Handler_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	backend := elb.NewInMemoryBackend("000000000000", "us-east-1")
+	h := elb.NewHandler(backend)
+
+	// Compile-time proof Handler satisfies the persistence layer's contract.
+	var _ persistence.Persistable = h
+
+	ctxEast := elb.RegionContextForTest(ctx, "us-east-1")
+	_, err := backend.CreateLoadBalancer(ctxEast, rtLBInput("handler-lb", "us-east-1a"))
+	require.NoError(t, err)
+
+	data := h.Snapshot(ctx)
+	require.NotEmpty(t, data)
+
+	restoredBackend := elb.NewInMemoryBackend("000000000000", "us-east-1")
+	restoredHandler := elb.NewHandler(restoredBackend)
+	require.NoError(t, restoredHandler.Restore(ctx, data))
+
+	assert.Equal(t, 1, restoredBackend.LoadBalancerCount())
+
+	lbs, err := restoredBackend.DescribeLoadBalancers(ctxEast, []string{"handler-lb"})
+	require.NoError(t, err)
+	require.Len(t, lbs, 1)
+	assert.Equal(t, "handler-lb", lbs[0].LoadBalancerName)
 }

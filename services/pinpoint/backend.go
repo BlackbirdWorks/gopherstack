@@ -1024,6 +1024,7 @@ var (
 	_ tagHolder = (*PushTemplate)(nil)
 	_ tagHolder = (*Segment)(nil)
 	_ tagHolder = (*SmsTemplate)(nil)
+	_ tagHolder = (*VoiceTemplate)(nil)
 )
 
 func (a *App) getARN() string              { return a.ARN }
@@ -1057,3 +1058,7 @@ func (s *Segment) setTags(t map[string]string) { s.Tags = t }
 func (t *SmsTemplate) getARN() string              { return t.ARN }
 func (t *SmsTemplate) getTags() map[string]string  { return t.Tags }
 func (t *SmsTemplate) setTags(m map[string]string) { t.Tags = m }
+
+func (t *VoiceTemplate) getARN() string              { return t.ARN }
+func (t *VoiceTemplate) getTags() map[string]string  { return t.Tags }
+func (t *VoiceTemplate) setTags(m map[string]string) { t.Tags = m }

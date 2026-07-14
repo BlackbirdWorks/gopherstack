@@ -3,6 +3,7 @@ package elasticbeanstalk_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -345,12 +346,16 @@ func TestBackend_ApplicationVersion(t *testing.T) {
 			name:         "create success",
 			appName:      "my-app",
 			versionLabel: "v1",
+			setup: func(b *elasticbeanstalk.InMemoryBackend) {
+				_, _ = b.CreateApplication(context.Background(), "my-app", "", nil)
+			},
 		},
 		{
 			name:         "create duplicate",
 			appName:      "my-app",
 			versionLabel: "v1",
 			setup: func(b *elasticbeanstalk.InMemoryBackend) {
+				_, _ = b.CreateApplication(context.Background(), "my-app", "", nil)
 				_, _ = b.CreateApplicationVersion(context.Background(), "my-app", "v1", "", "", "", nil)
 			},
 			wantErr:   true,
@@ -486,4 +491,165 @@ func TestBackend_UpdateTagsForResource(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBackend_TagsReachConfigTemplateAndPlatformVersion verifies that tags
+// supplied to CreateConfigurationTemplate and CreatePlatformVersion (real AWS:
+// "Elastic Beanstalk supports tagging of all of its resources") are actually
+// reachable through List/UpdateTagsForResource, not just stored and orphaned.
+func TestBackend_TagsReachConfigTemplateAndPlatformVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		buildARN func(b *elasticbeanstalk.InMemoryBackend) string
+		name     string
+	}{
+		{
+			name: "configuration template",
+			buildARN: func(b *elasticbeanstalk.InMemoryBackend) string {
+				ctx := context.Background()
+				_, _ = b.CreateApplication(ctx, "tmpl-app", "", nil)
+				tmpl, err := b.CreateConfigurationTemplate(
+					ctx, "tmpl-app", "tmpl1", "", "", map[string]string{"k1": "v1"},
+				)
+				require.NoError(t, err)
+
+				return "arn:aws:elasticbeanstalk:us-east-1:123456789012:configurationtemplate/tmpl-app/" +
+					tmpl.TemplateName
+			},
+		},
+		{
+			name: "platform version",
+			buildARN: func(b *elasticbeanstalk.InMemoryBackend) string {
+				pv, err := b.CreatePlatformVersion(
+					context.Background(), "my-platform", "1.0.0", map[string]string{"k1": "v1"},
+				)
+				require.NoError(t, err)
+
+				return pv.PlatformArn
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := newTestBackend()
+			resourceARN := tt.buildARN(b)
+
+			tags, err := b.ListTagsForResource(context.Background(), resourceARN)
+			require.NoError(t, err)
+			assert.Equal(t, "v1", tags["k1"])
+
+			err = b.UpdateTagsForResource(
+				context.Background(), resourceARN, map[string]string{"k2": "v2"}, map[string]string{"k1": ""},
+			)
+			require.NoError(t, err)
+
+			tags, err = b.ListTagsForResource(context.Background(), resourceARN)
+			require.NoError(t, err)
+			assert.Equal(t, "v2", tags["k2"])
+			_, hasK1 := tags["k1"]
+			assert.False(t, hasK1, "removed tag should not exist")
+		})
+	}
+}
+
+// TestBackend_CreatePlatformVersionARNIncludesAccountID verifies that a custom
+// platform's ARN carries the caller's account ID, matching the documented
+// "arn:aws:elasticbeanstalk:{region}:{account-id}:platform/{name}/{version}"
+// resource-path pattern -- an empty account ID would produce a malformed
+// "::platform/..." ARN that a real client constructing the ARN itself would
+// never match.
+func TestBackend_CreatePlatformVersionARNIncludesAccountID(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pv, err := b.CreatePlatformVersion(context.Background(), "my-platform", "1.0.0", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:elasticbeanstalk:us-east-1:123456789012:platform/my-platform/1.0.0", pv.PlatformArn)
+}
+
+// TestBackend_UpdateOpsBumpDateUpdated verifies that Update* backend methods
+// advance DateUpdated on every mutation, not just at creation time.
+func TestBackend_UpdateOpsBumpDateUpdated(t *testing.T) {
+	t.Parallel()
+
+	t.Run("UpdateApplication", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend()
+		app, err := b.CreateApplication(context.Background(), "app1", "orig", nil)
+		require.NoError(t, err)
+		created := app.DateUpdated
+
+		time.Sleep(time.Second)
+
+		updated, err := b.UpdateApplication(context.Background(), "app1", "new desc")
+		require.NoError(t, err)
+		assert.NotEqual(t, created, updated.DateUpdated)
+	})
+
+	t.Run("UpdateApplicationVersion", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend()
+		_, err := b.CreateApplication(context.Background(), "app2", "", nil)
+		require.NoError(t, err)
+		ver, err := b.CreateApplicationVersion(context.Background(), "app2", "v1", "orig", "", "", nil)
+		require.NoError(t, err)
+		created := ver.DateUpdated
+
+		time.Sleep(time.Second)
+
+		updated, err := b.UpdateApplicationVersion(context.Background(), "app2", "v1", "new desc")
+		require.NoError(t, err)
+		assert.NotEqual(t, created, updated.DateUpdated)
+	})
+
+	t.Run("UpdateConfigurationTemplate", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend()
+		_, err := b.CreateApplication(context.Background(), "app3", "", nil)
+		require.NoError(t, err)
+		tmpl, err := b.CreateConfigurationTemplate(context.Background(), "app3", "tmpl1", "orig", "", nil)
+		require.NoError(t, err)
+		created := tmpl.DateUpdated
+
+		time.Sleep(time.Second)
+
+		updated, err := b.UpdateConfigurationTemplate(context.Background(), "app3", "tmpl1", "new desc")
+		require.NoError(t, err)
+		assert.NotEqual(t, created, updated.DateUpdated)
+	})
+}
+
+// TestBackend_CreateApplicationVersionRequiresApplication verifies AWS's
+// documented CreateApplicationVersion behavior: if no application is found
+// with this name, and AutoCreateApplication is false, returns an
+// InvalidParameterValue error.
+func TestBackend_CreateApplicationVersionRequiresApplication(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing application without AutoCreateApplication errors", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend()
+		_, err := b.CreateApplicationVersionWithParams(
+			context.Background(), "ghost-app", "v1", elasticbeanstalk.ApplicationVersionParams{},
+		)
+		require.Error(t, err)
+		require.ErrorIs(t, err, awserr.ErrInvalidParameter)
+	})
+
+	t.Run("missing application with AutoCreateApplication succeeds", func(t *testing.T) {
+		t.Parallel()
+		b := newTestBackend()
+		ver, err := b.CreateApplicationVersionWithParams(
+			context.Background(), "auto-app", "v1",
+			elasticbeanstalk.ApplicationVersionParams{AutoCreateApplication: true},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "auto-app", ver.ApplicationName)
+
+		apps := b.DescribeApplications(context.Background(), []string{"auto-app"})
+		require.Len(t, apps, 1)
+	})
 }

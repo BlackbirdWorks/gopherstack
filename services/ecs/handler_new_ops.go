@@ -186,13 +186,14 @@ type describeCapacityProvidersInput struct {
 type describeCapacityProvidersOutput struct {
 	NextToken         string                 `json:"nextToken,omitempty"`
 	CapacityProviders []capacityProviderView `json:"capacityProviders"`
+	Failures          []failureView          `json:"failures"`
 }
 
 func (h *Handler) handleDescribeCapacityProviders(
 	_ context.Context,
 	in *describeCapacityProvidersInput,
 ) (*describeCapacityProvidersOutput, error) {
-	providers, err := h.Backend.DescribeCapacityProviders(in.CapacityProviders)
+	providers, failures, err := h.Backend.DescribeCapacityProviders(in.CapacityProviders)
 	if err != nil {
 		return nil, err
 	}
@@ -206,9 +207,15 @@ func (h *Handler) handleDescribeCapacityProviders(
 
 	p := page.New(views, in.NextToken, in.MaxResults, defaultECSMaxResults)
 
+	failViews := make([]failureView, 0, len(failures))
+	for _, f := range failures {
+		failViews = append(failViews, failureView(f))
+	}
+
 	return &describeCapacityProvidersOutput{
 		CapacityProviders: p.Data,
 		NextToken:         p.Next,
+		Failures:          failViews,
 	}, nil
 }
 

@@ -1756,7 +1756,7 @@ func TestRefinement2_UpdateClusterConfiguration_HTTP(t *testing.T) {
 
 	configArn := "arn:aws:kafka:us-east-1:123:configuration/my-cfg/abc-123"
 
-	rec := doKafkaRequest(t, h, http.MethodPut, "/api/v2/clusters/"+encoded+"/configuration",
+	rec := doKafkaRequest(t, h, http.MethodPut, "/v1/clusters/"+encoded+"/configuration",
 		map[string]any{
 			"currentVersion": cl.CurrentVersion,
 			"configurationInfo": map[string]any{

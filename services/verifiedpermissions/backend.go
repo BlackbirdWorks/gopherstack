@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 	cedar "github.com/cedar-policy/cedar-go"
 	"github.com/google/uuid"
 
@@ -38,6 +39,11 @@ var (
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrConflict is returned when a resource conflict prevents an operation.
 	ErrConflict = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrTooManyTags is returned when TagResource would push a resource's tag
+	// count over the 50-tag limit. Real AWS only declares TooManyTagsException
+	// for TagResource -- CreatePolicyStore's tag-count overflow stays a plain
+	// ValidationException (ErrValidation), per the SDK's per-op error models.
+	ErrTooManyTags = awserr.New("TooManyTagsException", awserr.ErrInvalidParameter)
 )
 
 // ValidationMode constants for policy store validation settings.
@@ -216,14 +222,18 @@ type IdentitySourceConfig struct {
 	Audiences        []string
 }
 
-// ListPoliciesFilter holds filter params for ListPolicies.
+// ListPoliciesFilter holds filter params for ListPolicies. PrincipalUnspecified
+// / ResourceUnspecified mirror the wire filter's EntityReference "unspecified"
+// variant: when set, only policies with no principal/resource scope match.
 type ListPoliciesFilter struct {
-	PolicyType          string
-	PolicyTemplateID    string
-	PrincipalEntityType string
-	PrincipalEntityID   string
-	ResourceEntityType  string
-	ResourceEntityID    string
+	PolicyType           string
+	PolicyTemplateID     string
+	PrincipalEntityType  string
+	PrincipalEntityID    string
+	ResourceEntityType   string
+	ResourceEntityID     string
+	PrincipalUnspecified bool
+	ResourceUnspecified  bool
 }
 
 // decisionAllow / decisionDeny are the decision strings returned by authorization evaluations.
@@ -268,6 +278,25 @@ func identitySourceARN(accountID, policyStoreID, sourceID string) string {
 	resource := fmt.Sprintf("identity-source/%s/%s", policyStoreID, sourceID)
 
 	return arn.Build("verifiedpermissions", "", accountID, resource)
+}
+
+// cognitoIssuerFromUserPoolArn derives the OIDC issuer URL that real AWS
+// computes for a Cognito-backed identity source from the user pool's ARN
+// (arn:aws:cognito-idp:<region>:<account>:userpool/<poolId>), returning
+// "https://cognito-idp.<region>.amazonaws.com/<poolId>" -- see the
+// CognitoUserPoolConfigurationDetail/Item.Issuer doc in the SDK, which is a
+// required response field Verified Permissions always sets even though
+// CreateIdentitySource/UpdateIdentitySource callers never provide it
+// directly. Returns "" if userPoolArn cannot be parsed as an ARN.
+func cognitoIssuerFromUserPoolArn(userPoolArn string) string {
+	parsed, err := awsarn.Parse(userPoolArn)
+	if err != nil {
+		return ""
+	}
+
+	poolID := strings.TrimPrefix(parsed.Resource, "userpool/")
+
+	return fmt.Sprintf("https://cognito-idp.%s.amazonaws.com/%s", parsed.Region, poolID)
 }
 
 // policyKey, policyTemplateKey, and identitySourceKey build the composite
@@ -405,8 +434,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // AccountID returns the AWS account ID configured for this backend.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-// validateTagInput checks tag count, key/value length, and reserved prefix constraints.
-func validateTagInput(existing map[string]string, newTags map[string]string) error {
+// validateTagInput checks tag count, key/value length, and reserved prefix
+// constraints. tooManyErr is the sentinel returned when the tag count would
+// be exceeded: real AWS only declares TooManyTagsException as a possible
+// TagResource error (CreatePolicyStore's tag-count overflow is a plain
+// ValidationException), so callers pass the sentinel matching their op.
+func validateTagInput(existing map[string]string, newTags map[string]string, tooManyErr error) error {
 	const maxTagCount = 50
 	const maxKeyLen = 128
 	const maxValLen = 256
@@ -420,7 +453,7 @@ func validateTagInput(existing map[string]string, newTags map[string]string) err
 	}
 
 	if total > maxTagCount {
-		return fmt.Errorf("%w: tag count would exceed %d", ErrValidation, maxTagCount)
+		return fmt.Errorf("%w: tag count would exceed %d", tooManyErr, maxTagCount)
 	}
 
 	for k, v := range newTags {
@@ -575,7 +608,7 @@ func (b *InMemoryBackend) CreatePolicyStore(
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)
 
-	if err := validateTagInput(nil, merged); err != nil {
+	if err := validateTagInput(nil, merged, ErrValidation); err != nil {
 		return nil, err
 	}
 
@@ -812,11 +845,29 @@ func matchesPolicyFilter(p *Policy, f ListPoliciesFilter) bool {
 		return false
 	}
 
+	return matchesPrincipalFilter(p, f) && matchesResourceFilter(p, f)
+}
+
+// matchesPrincipalFilter checks the principal-scope portion of f.
+func matchesPrincipalFilter(p *Policy, f ListPoliciesFilter) bool {
+	if f.PrincipalUnspecified && (p.PrincipalEntityType != "" || p.PrincipalEntityID != "") {
+		return false
+	}
+
 	if f.PrincipalEntityType != "" && p.PrincipalEntityType != f.PrincipalEntityType {
 		return false
 	}
 
 	if f.PrincipalEntityID != "" && p.PrincipalEntityID != f.PrincipalEntityID {
+		return false
+	}
+
+	return true
+}
+
+// matchesResourceFilter checks the resource-scope portion of f.
+func matchesResourceFilter(p *Policy, f ListPoliciesFilter) bool {
+	if f.ResourceUnspecified && (p.ResourceEntityType != "" || p.ResourceEntityID != "") {
 		return false
 	}
 
@@ -1054,7 +1105,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		existing = make(map[string]string)
 	}
 
-	if err := validateTagInput(existing, tags); err != nil {
+	if err := validateTagInput(existing, tags, ErrTooManyTags); err != nil {
 		return err
 	}
 
@@ -1392,10 +1443,15 @@ func (b *InMemoryBackend) GetSchema(policyStoreID string) (*PolicyStoreSchema, e
 	return &cp, nil
 }
 
-// ListIdentitySources returns all identity sources for a policy store sorted by creation date.
+// ListIdentitySources returns all identity sources for a policy store sorted
+// by creation date. principalEntityTypes mirrors the wire "filters" list
+// (each element's principalEntityType); when non-empty, only identity
+// sources whose PrincipalEntityType matches one of them are returned (an OR
+// across filters, matching AWS's ListIdentitySourcesInput.Filters semantics).
 func (b *InMemoryBackend) ListIdentitySources(
 	policyStoreID, nextToken string,
 	maxResults int,
+	principalEntityTypes []string,
 ) ([]IdentitySource, string, error) {
 	b.mu.RLock("ListIdentitySources")
 	defer b.mu.RUnlock()
@@ -1405,6 +1461,23 @@ func (b *InMemoryBackend) ListIdentitySources(
 	}
 
 	sources := b.identitySourcesByStore.Get(policyStoreID)
+	if len(principalEntityTypes) > 0 {
+		allowed := make(map[string]bool, len(principalEntityTypes))
+		for _, t := range principalEntityTypes {
+			allowed[t] = true
+		}
+
+		filtered := make([]*IdentitySource, 0, len(sources))
+
+		for _, is := range sources {
+			if allowed[is.PrincipalEntityType] {
+				filtered = append(filtered, is)
+			}
+		}
+
+		sources = filtered
+	}
+
 	page, tok := listByPolicyStore(sources, nextToken, maxResults,
 		func(is *IdentitySource) IdentitySource { return *cloneIdentitySource(is) },
 		func(is IdentitySource) time.Time { return is.CreatedDate },

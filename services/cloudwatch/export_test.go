@@ -9,7 +9,15 @@ func SignPageTokenForTest(offset int) string { return signPageToken(offset) }
 func ParseSignedPageTokenForTest(token string) (int, error) { return parseSignedPageToken(token) }
 
 // ValidateMetricDatumForTest exposes validateMetricDatum for unit testing.
-func ValidateMetricDatumForTest(d MetricDatum) error { return validateMetricDatum(d) }
+func ValidateMetricDatumForTest(d MetricDatum) error {
+	return validateMetricDatum(d, time.Now().UTC())
+}
+
+// ValidateMetricDatumAtForTest exposes validateMetricDatum with an explicit
+// "now" reference, for testing the Timestamp acceptance window.
+func ValidateMetricDatumAtForTest(d MetricDatum, now time.Time) error {
+	return validateMetricDatum(d, now)
+}
 
 // ValidateStorageResolutionForTest exposes validateStorageResolution for unit testing.
 func ValidateStorageResolutionForTest(res int32) error { return validateStorageResolution(res) }
@@ -174,4 +182,53 @@ func RenderMetricWidgetPNGForTest(
 	now time.Time,
 ) ([]byte, error) {
 	return renderMetricWidgetPNG(b, widgetJSON, now)
+}
+
+// RecentTestAnchor returns a fixed point in time, safely inside PutMetricData's
+// write-time Timestamp acceptance window (two weeks past / two hours future),
+// truncated to the minute so period-bucket-alignment tests built on offsets
+// from it behave the same as they did with a fixed calendar-date anchor.
+func RecentTestAnchor() time.Time {
+	return time.Now().UTC().Add(-time.Hour).Truncate(time.Minute)
+}
+
+// legacyTestEpoch is the fixed calendar date historically used throughout the
+// cloudwatch test suite as a form-encoded Timestamp/StartTime/EndTime literal,
+// before PutMetricData enforced its write-time Timestamp acceptance window.
+//
+//nolint:gochecknoglobals // test-only fixed reference point
+var legacyTestEpoch = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// ShiftTestTimestampForTest remaps an RFC3339 literal expressed relative to
+// legacyTestEpoch onto one relative to anchor, preserving the offset (which
+// may cross a day boundary). It exists so form-encoded query strings built
+// from literal date constants (readable, and easy to keep multiple related
+// timestamps consistent with each other) keep working now that PutMetricData
+// rejects Timestamps outside its acceptance window. Panics on malformed input
+// since it is only ever called with literal constants in test source.
+func ShiftTestTimestampForTest(anchor time.Time, legacy string) string {
+	t, err := time.Parse(time.RFC3339, legacy)
+	if err != nil {
+		panic("ShiftTestTimestampForTest: " + err.Error())
+	}
+
+	return anchor.Add(t.Sub(legacyTestEpoch)).Format(time.RFC3339)
+}
+
+// StoreDatumForTest stores a MetricDatum directly, bypassing PutMetricData's
+// write-time Timestamp-acceptance-window check (real CloudWatch only enforces
+// that window at write time; a datapoint legitimately written within the
+// window ages past retention exactly like any other, so tests exercising
+// SweepExpiredMetrics need a way to seed already-aged data without going
+// through the now-enforced window check on PutMetricData itself).
+func (b *InMemoryBackend) StoreDatumForTest(namespace string, d MetricDatum) {
+	b.mu.Lock("StoreDatumForTest")
+	defer b.mu.Unlock()
+
+	if b.metrics[namespace] == nil {
+		b.metrics[namespace] = make(map[string]*metricRecord)
+	}
+
+	d.Namespace = namespace
+	b.storeDatum(namespace, d)
 }

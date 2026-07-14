@@ -8,13 +8,20 @@ import (
 // ModifyCluster modifies a cluster's attributes.
 // When applyImmediately is false, changes are stored in PendingModifiedValues
 // and returned without being applied to the live cluster.
+//
+// encrypted and enhancedVpcRouting are tri-state (nil means "not specified,
+// leave unchanged"): real ModifyClusterInput.Encrypted/EnhancedVpcRouting are
+// *bool, and the SDK can explicitly send "false" to disable either setting
+// (e.g. to decrypt a cluster). A plain bool cannot distinguish "not sent"
+// from "explicitly false", which previously made it impossible to ever turn
+// either setting off via ModifyCluster.
 func (b *InMemoryBackend) ModifyCluster(
 	id string,
 	nodeType string,
 	numberOfNodes int,
 	_ string, // masterUserPassword is accepted but not stored
-	encrypted bool,
-	enhancedVpcRouting bool,
+	encrypted *bool,
+	enhancedVpcRouting *bool,
 	applyImmediately bool,
 ) (*Cluster, error) {
 	if id == "" {
@@ -39,8 +46,8 @@ func (b *InMemoryBackend) ModifyCluster(
 			pending.NumberOfNodes = numberOfNodes
 		}
 
-		if encrypted {
-			pending.Encrypted = encrypted
+		if encrypted != nil {
+			pending.Encrypted = *encrypted
 		}
 
 		cluster.PendingModifiedValues = pending
@@ -57,12 +64,12 @@ func (b *InMemoryBackend) ModifyCluster(
 		cluster.NumberOfNodes = numberOfNodes
 	}
 
-	if encrypted {
-		cluster.Encrypted = encrypted
+	if encrypted != nil {
+		cluster.Encrypted = *encrypted
 	}
 
-	if enhancedVpcRouting {
-		cluster.EnhancedVpcRouting = enhancedVpcRouting
+	if enhancedVpcRouting != nil {
+		cluster.EnhancedVpcRouting = *enhancedVpcRouting
 	}
 
 	cluster.PendingModifiedValues = nil

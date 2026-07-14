@@ -46,7 +46,7 @@ type backendSnapshot struct {
 // Snapshot serialises the backend state to JSON. It implements
 // persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock()
+	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	tables, err := b.registry.SnapshotAll()
@@ -81,7 +81,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
 	if snap.Version != appmeshSnapshotVersion {

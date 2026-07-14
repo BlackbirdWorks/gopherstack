@@ -126,6 +126,17 @@ type StorageBackend interface {
 	AssociateWirelessGatewayWithThing(accountID, region, gatewayID, thingArn string) error
 	CancelMulticastGroupSession(multicastGroupID string) error
 
+	// GetWirelessDeviceThingArn returns the ARN of the IoT Thing associated
+	// with a wireless device via AssociateWirelessDeviceWithThing, or "" if
+	// none is associated. Used by GetWirelessDevice to surface ThingArn/
+	// ThingName, matching real AWS's response shape.
+	GetWirelessDeviceThingArn(wirelessDeviceID string) string
+	// GetWirelessGatewayThingArn returns the ARN of the IoT Thing associated
+	// with a wireless gateway via AssociateWirelessGatewayWithThing, or "" if
+	// none is associated. Used by GetWirelessGateway to surface ThingArn/
+	// ThingName, matching real AWS's response shape.
+	GetWirelessGatewayThingArn(gatewayID string) string
+
 	// Extended operations implemented in backend_ops.go.
 	StartFuotaTask(accountID, region, id string) error
 	DisassociateWirelessDeviceFromFuotaTask(fuotaTaskID string) error
@@ -1337,6 +1348,26 @@ func (b *InMemoryBackend) AssociateWirelessGatewayWithThing(
 	b.wirelessGatewayThings[gatewayID] = thingArn
 
 	return nil
+}
+
+// GetWirelessDeviceThingArn returns the ARN of the IoT Thing associated with
+// a wireless device, or "" if AssociateWirelessDeviceWithThing was never
+// called (or the association was since cleared).
+func (b *InMemoryBackend) GetWirelessDeviceThingArn(wirelessDeviceID string) string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.wirelessDeviceThings[wirelessDeviceID]
+}
+
+// GetWirelessGatewayThingArn returns the ARN of the IoT Thing associated with
+// a wireless gateway, or "" if AssociateWirelessGatewayWithThing was never
+// called (or the association was since cleared).
+func (b *InMemoryBackend) GetWirelessGatewayThingArn(gatewayID string) string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return b.wirelessGatewayThings[gatewayID]
 }
 
 // CancelMulticastGroupSession marks the multicast group session as cancelled.

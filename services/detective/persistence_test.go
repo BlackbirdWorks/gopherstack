@@ -96,7 +96,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.TagResource(g.Arn, map[string]string{"extra": "tag"}))
 
 	investigationID, err := original.StartInvestigation(
-		g.Arn, "arn:aws:iam::111111111111:role/example", "IAM_ROLE",
+		g.Arn, "arn:aws:iam::111111111111:role/example",
 		time.Now().Add(-time.Hour).UTC(), time.Now().UTC(),
 	)
 	require.NoError(t, err)

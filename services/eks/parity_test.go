@@ -285,7 +285,7 @@ func TestParity_RegisterClusterStoresConnectorConfig(t *testing.T) {
 			t.Parallel()
 
 			h := newTestEKSHandler(t)
-			rec := doREST(t, h, http.MethodPost, "/clusters/ext-cluster/register", map[string]any{
+			rec := doREST(t, h, http.MethodPost, "/cluster-registrations", map[string]any{
 				"name": "ext-cluster",
 				"connectorConfig": map[string]any{
 					"provider": tc.provider,

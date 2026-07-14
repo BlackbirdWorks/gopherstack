@@ -120,16 +120,36 @@ func (b *InMemoryBackend) DeleteAppBlock(name string) error {
 	return nil
 }
 
-// DescribeAppBlocks returns app blocks, optionally filtered by name.
-func (b *InMemoryBackend) DescribeAppBlocks(names []string) ([]*AppBlock, error) {
+// findAppBlock resolves id against Name (the primary key used by
+// CreateAppBlock/DeleteAppBlock) or Arn. Real AWS identifies app blocks by
+// ARN in DescribeAppBlocks and in the AppBlockArn member of the
+// AppBlockBuilder-AppBlock association operations, so callers on that wire
+// path must resolve through this helper rather than indexing b.appBlocks
+// directly with the caller-supplied identifier.
+func (b *InMemoryBackend) findAppBlock(id string) (*storedAppBlock, bool) {
+	if ab, ok := b.appBlocks.Get(id); ok {
+		return ab, true
+	}
+
+	for _, ab := range b.appBlocks.All() {
+		if ab.Arn == id {
+			return ab, true
+		}
+	}
+
+	return nil, false
+}
+
+// DescribeAppBlocks returns app blocks, optionally filtered by ARN.
+func (b *InMemoryBackend) DescribeAppBlocks(arns []string) ([]*AppBlock, error) {
 	b.mu.RLock("DescribeAppBlocks")
 	defer b.mu.RUnlock()
 
-	if len(names) > 0 {
+	if len(arns) > 0 {
 		var result []*AppBlock
 
-		for _, name := range names {
-			ab, ok := b.appBlocks.Get(name)
+		for _, id := range arns {
+			ab, ok := b.findAppBlock(id)
 			if !ok {
 				return nil, ErrNotFound
 			}
@@ -195,7 +215,7 @@ func (b *InMemoryBackend) DeleteAppBlockBuilder(name string) error {
 	}
 
 	if bb.State == builderStateRunning {
-		return ErrFleetNotStopped
+		return ErrResourceInUse
 	}
 
 	delete(b.tags, bb.Arn)
@@ -252,7 +272,10 @@ func (b *InMemoryBackend) StartAppBlockBuilder(name string) error {
 	return nil
 }
 
-// StopAppBlockBuilder transitions a builder to STOPPED.
+// StopAppBlockBuilder transitions a builder to STOPPED. Idempotent: stopping
+// an already-stopped builder succeeds (real AWS's StopAppBlockBuilder has no
+// state-conflict exception -- only ConcurrentModificationException,
+// OperationNotPermittedException, and ResourceNotFoundException).
 func (b *InMemoryBackend) StopAppBlockBuilder(name string) error {
 	b.mu.Lock("StopAppBlockBuilder")
 	defer b.mu.Unlock()
@@ -260,10 +283,6 @@ func (b *InMemoryBackend) StopAppBlockBuilder(name string) error {
 	bb, ok := b.appBlockBuilders.Get(name)
 	if !ok {
 		return ErrNotFound
-	}
-
-	if bb.State == builderStateStopped {
-		return ErrFleetNotStopped
 	}
 
 	bb.State = builderStateStopped
@@ -305,7 +324,9 @@ func (b *InMemoryBackend) CreateAppBlockBuilderStreamingURL(name string) (string
 }
 
 // AssociateAppBlockBuilderAppBlock links a builder to an app block.
-func (b *InMemoryBackend) AssociateAppBlockBuilderAppBlock(builderName, appBlockName string) error {
+// appBlockID accepts either the app block Name or its Arn -- real AWS's
+// AssociateAppBlockBuilderAppBlock request carries the AppBlockArn.
+func (b *InMemoryBackend) AssociateAppBlockBuilderAppBlock(builderName, appBlockID string) error {
 	b.mu.Lock("AssociateAppBlockBuilderAppBlock")
 	defer b.mu.Unlock()
 
@@ -313,7 +334,8 @@ func (b *InMemoryBackend) AssociateAppBlockBuilderAppBlock(builderName, appBlock
 		return ErrNotFound
 	}
 
-	if !b.appBlocks.Has(appBlockName) {
+	ab, ok := b.findAppBlock(appBlockID)
+	if !ok {
 		return ErrNotFound
 	}
 
@@ -321,13 +343,15 @@ func (b *InMemoryBackend) AssociateAppBlockBuilderAppBlock(builderName, appBlock
 		b.appBlockBuilderAssoc[builderName] = make(map[string]bool)
 	}
 
-	b.appBlockBuilderAssoc[builderName][appBlockName] = true
+	b.appBlockBuilderAssoc[builderName][ab.Name] = true
 
 	return nil
 }
 
 // DisassociateAppBlockBuilderAppBlock removes a builder-appblock link.
-func (b *InMemoryBackend) DisassociateAppBlockBuilderAppBlock(builderName, appBlockName string) error {
+// appBlockID accepts either the app block Name or its Arn, matching
+// AssociateAppBlockBuilderAppBlock.
+func (b *InMemoryBackend) DisassociateAppBlockBuilderAppBlock(builderName, appBlockID string) error {
 	b.mu.Lock("DisassociateAppBlockBuilderAppBlock")
 	defer b.mu.Unlock()
 
@@ -335,23 +359,38 @@ func (b *InMemoryBackend) DisassociateAppBlockBuilderAppBlock(builderName, appBl
 		return ErrNotFound
 	}
 
-	if !b.appBlocks.Has(appBlockName) {
+	ab, ok := b.findAppBlock(appBlockID)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.appBlockBuilderAssoc[builderName] != nil {
-		delete(b.appBlockBuilderAssoc[builderName], appBlockName)
+		delete(b.appBlockBuilderAssoc[builderName], ab.Name)
 	}
 
 	return nil
 }
 
 // DescribeAppBlockBuilderAppBlockAssociations lists builder-appblock associations.
+// appBlockID accepts either the app block Name or its Arn, matching
+// AssociateAppBlockBuilderAppBlock. A non-matching filter yields an empty
+// result (real AWS's Describe op has no ResourceNotFoundException).
 func (b *InMemoryBackend) DescribeAppBlockBuilderAppBlockAssociations(
-	builderName, appBlockName string,
+	builderName, appBlockID string,
 ) ([]*AppBlockBuilderAppBlockAssociation, error) {
 	b.mu.RLock("DescribeAppBlockBuilderAppBlockAssociations")
 	defer b.mu.RUnlock()
+
+	targetName := ""
+
+	if appBlockID != "" {
+		ab, ok := b.findAppBlock(appBlockID)
+		if !ok {
+			return nil, nil
+		}
+
+		targetName = ab.Name
+	}
 
 	var result []*AppBlockBuilderAppBlockAssociation
 
@@ -366,7 +405,7 @@ func (b *InMemoryBackend) DescribeAppBlockBuilderAppBlockAssociations(
 				continue
 			}
 
-			if appBlockName != "" && abName != appBlockName {
+			if targetName != "" && abName != targetName {
 				continue
 			}
 

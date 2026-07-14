@@ -368,7 +368,7 @@ func TestRefinement1_CopyDBClusterParameterGroup_MissingSource(t *testing.T) {
 		"TargetDBClusterParameterGroupDescription": {"test"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBClusterParameterGroupNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 // TestRefinement1_CopyDBClusterSnapshot_MissingSource verifies error on missing source snapshot.
@@ -399,7 +399,7 @@ func TestRefinement1_CopyDBParameterGroup_MissingSource(t *testing.T) {
 		"TargetDBParameterGroupDescription": {"test"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 // TestRefinement1_CreateEventSubscription_MissingSNS verifies error on missing SnsTopicArn.
@@ -460,7 +460,7 @@ func TestRefinement1_AddSourceIdentifier_SubscriptionNotFound(t *testing.T) {
 		"SourceIdentifier": {"some-id"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "SubscriptionNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "SubscriptionNotFound")
 }
 
 // TestRefinement1_GlobalClusterAlreadyExists verifies proper error on duplicate.
@@ -554,7 +554,7 @@ func TestRefinement1_CopyDBClusterParameterGroup_TargetAlreadyExists(t *testing.
 		"TargetDBClusterParameterGroupDescription": {"test"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBClusterParameterGroupAlreadyExistsFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupAlreadyExists")
 }
 
 // TestRefinement1_ClusterEndpointAlreadyExists verifies duplicate endpoint error.
@@ -602,7 +602,7 @@ func TestRefinement1_SubscriptionAlreadyExists(t *testing.T) {
 		"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:test"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "SubscriptionAlreadyExistFault")
+	assert.Contains(t, rr.Body.String(), "SubscriptionAlreadyExist")
 }
 
 // TestRefinement1_AddRoleToDBCluster_Idempotent verifies adding same role twice is idempotent.
@@ -670,7 +670,7 @@ func TestRefinement1_CreateDBParameterGroup_AlreadyExists(t *testing.T) {
 		"Description":            {"test"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBParameterGroupAlreadyExistsFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupAlreadyExists")
 }
 
 // TestRefinement1_Persistence_EmptyRestore verifies Restore with empty maps is safe.

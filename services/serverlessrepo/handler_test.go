@@ -3,6 +3,7 @@ package serverlessrepo_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -421,6 +422,38 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	err := h.Handler()(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// errBoom is a plain, unwrapped error that doesn't match any of the awserr sentinels
+// (NotFound/Conflict/InvalidParameter), simulating an unexpected internal failure.
+var errBoom = errors.New("boom")
+
+// errBackend wraps an InMemoryBackend and forces GetApplication to return errBoom.
+type errBackend struct {
+	*serverlessrepo.InMemoryBackend
+}
+
+func (b *errBackend) GetApplication(_ string) (*serverlessrepo.Application, error) {
+	return nil, errBoom
+}
+
+func TestHandler_UnexpectedError_ReturnsInternalServerErrorException(t *testing.T) {
+	t.Parallel()
+
+	h := serverlessrepo.NewHandler(&errBackend{
+		InMemoryBackend: serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1"),
+	})
+
+	rec := doServerlessRepoRequest(t, h, http.MethodGet, "/applications/my-app", nil)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	// The aws-sdk-go-v2 restjson1 error deserializer only recognizes the exact string
+	// "InternalServerErrorException" (case-insensitively) in the __type field to build a
+	// typed types.InternalServerErrorException; any other spelling (e.g.
+	// "InternalServerException") falls through to a generic smithy.GenericAPIError.
+	assert.Equal(t, "InternalServerErrorException", resp["__type"])
 }
 
 func TestHandler_CreateApplicationVersion(t *testing.T) {

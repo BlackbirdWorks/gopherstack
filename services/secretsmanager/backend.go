@@ -138,7 +138,11 @@ const (
 // (a bare string, a bare slice) carry no identity of their own to key a
 // store.Table by -- see store_setup.go's doc comment for the full rationale.
 type InMemoryBackend struct {
-	lambdaInvoker      LambdaInvoker
+	lambdaInvoker LambdaInvoker
+	// kms is the optional KMS encryptor wired via SetKMSEncryptor (see kms.go).
+	// When nil, secret values are stored/returned as plaintext exactly as
+	// before KMS integration (backward compatible default).
+	kms                KMSEncryptor
 	registry           *store.Registry
 	secrets            *store.Table[Secret]
 	secretsByRegion    *store.Index[Secret]
@@ -395,7 +399,7 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 	defer b.mu.Unlock()
 
 	if existing, exists := b.secretGet(region, input.Name); exists {
-		return b.createSecretNameCollision(region, existing, input)
+		return b.createSecretNameCollision(ctx, region, existing, input)
 	}
 
 	suffix, err := generateRandomSuffix()
@@ -425,7 +429,10 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 		}
 	}
 
-	versionID := seedInitialVersion(secret, input, b.now())
+	versionID, err := b.seedInitialVersion(ctx, secret, input, b.now())
+	if err != nil {
+		return nil, err
+	}
 
 	b.secretPut(secret)
 
@@ -459,7 +466,7 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 // version) when the content matches, and fails when the content differs, since
 // CreateSecret cannot modify an existing version. Must be called with b.mu held.
 func (b *InMemoryBackend) createSecretNameCollision(
-	region string, existing *Secret, input *CreateSecretInput,
+	ctx context.Context, region string, existing *Secret, input *CreateSecretInput,
 ) (*CreateSecretOutput, error) {
 	if existing.DeletedDate != nil {
 		return nil, fmt.Errorf(
@@ -477,7 +484,12 @@ func (b *InMemoryBackend) createSecretNameCollision(
 		return nil, ErrSecretAlreadyExists
 	}
 
-	if v.SecretString == input.SecretString && string(v.SecretBinary) == string(input.SecretBinary) {
+	matched, err := b.matchesExistingVersion(ctx, v, input.SecretString, input.SecretBinary)
+	if err != nil {
+		return nil, err
+	}
+
+	if matched {
 		return &CreateSecretOutput{
 			ARN:               existing.ARN,
 			Name:              existing.Name,
@@ -494,12 +506,15 @@ func (b *InMemoryBackend) createSecretNameCollision(
 }
 
 // seedInitialVersion creates the initial AWSCURRENT version on a freshly created secret
-// when the create request carries a value, and returns the version ID (empty if none).
-// nowTime is the backend's (possibly test-injected) clock value, so CreatedDate stays
-// consistent with the rest of the secret's timestamps.
-func seedInitialVersion(secret *Secret, input *CreateSecretInput, nowTime time.Time) string {
+// when the create request carries a value, sealing it via KMS when an encryptor is wired
+// (see sealVersion), and returns the version ID (empty if none). nowTime is the backend's
+// (possibly test-injected) clock value, so CreatedDate stays consistent with the rest of
+// the secret's timestamps. Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) seedInitialVersion(
+	ctx context.Context, secret *Secret, input *CreateSecretInput, nowTime time.Time,
+) (string, error) {
 	if input.SecretString == "" && len(input.SecretBinary) == 0 {
-		return ""
+		return "", nil
 	}
 
 	// Use ClientRequestToken as initial version ID for idempotency.
@@ -509,17 +524,19 @@ func seedInitialVersion(secret *Secret, input *CreateSecretInput, nowTime time.T
 	}
 
 	now := UnixTimeFloat(nowTime)
-	secret.Versions[versionID] = &SecretVersion{
-		VersionID:     versionID,
-		SecretString:  input.SecretString,
-		SecretBinary:  input.SecretBinary,
-		StagingLabels: []string{StagingLabelCurrent},
-		CreatedDate:   now,
+
+	version, err := b.sealVersion(
+		ctx, secret, versionID, input.SecretString, input.SecretBinary, []string{StagingLabelCurrent}, now,
+	)
+	if err != nil {
+		return "", err
 	}
+
+	secret.Versions[versionID] = version
 	secret.CurrentVersionID = versionID
 	secret.LastChangedDate = &now
 
-	return versionID
+	return versionID, nil
 }
 
 // GetSecretValue retrieves the value of a secret version.
@@ -564,6 +581,11 @@ func (b *InMemoryBackend) GetSecretValue(
 		}
 	}
 
+	plainString, plainBinary, err := b.openVersion(ctx, version)
+	if err != nil {
+		return nil, err
+	}
+
 	// Track access date (truncated to day granularity as AWS does).
 	accessDay := UnixTimeFloat(b.now().UTC().Truncate(hoursPerDay * time.Hour))
 	secret.LastAccessedDate = &accessDay
@@ -573,8 +595,8 @@ func (b *InMemoryBackend) GetSecretValue(
 		ARN:              secret.ARN,
 		Name:             secret.Name,
 		VersionID:        version.VersionID,
-		SecretString:     version.SecretString,
-		SecretBinary:     version.SecretBinary,
+		SecretString:     plainString,
+		SecretBinary:     plainBinary,
 		VersionStages:    version.StagingLabels,
 		CreatedDate:      version.CreatedDate,
 		LastAccessedDate: version.LastAccessedDate,
@@ -651,7 +673,12 @@ func (b *InMemoryBackend) PutSecretValue(
 
 	// Idempotency: if the version ID already exists with identical content, return it.
 	if existing, ok := secret.Versions[versionID]; ok {
-		if existing.SecretString == input.SecretString && string(existing.SecretBinary) == string(input.SecretBinary) {
+		matched, err := b.matchesExistingVersion(ctx, existing, input.SecretString, input.SecretBinary)
+		if err != nil {
+			return nil, err
+		}
+
+		if matched {
 			return &PutSecretValueOutput{
 				ARN:           secret.ARN,
 				Name:          secret.Name,
@@ -664,12 +691,10 @@ func (b *InMemoryBackend) PutSecretValue(
 	callerWantsCurrentLabel, stagingLabels := b.resolveStagingLabels(secret, input.VersionStages)
 
 	now := UnixTimeFloat(b.now())
-	version := &SecretVersion{
-		VersionID:     versionID,
-		SecretString:  input.SecretString,
-		SecretBinary:  input.SecretBinary,
-		StagingLabels: stagingLabels,
-		CreatedDate:   now,
+
+	version, err := b.sealVersion(ctx, secret, versionID, input.SecretString, input.SecretBinary, stagingLabels, now)
+	if err != nil {
+		return nil, err
 	}
 
 	secret.Versions[versionID] = version
@@ -1276,40 +1301,12 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 	var versionID string
 
 	if input.SecretString != "" || len(input.SecretBinary) > 0 {
-		versionID = input.ClientRequestToken
-		if versionID == "" {
-			versionID = uuid.New().String()
+		var err error
+
+		versionID, err = b.updateSecretVersion(ctx, region, secret, input)
+		if err != nil {
+			return nil, err
 		}
-
-		// Idempotency: if a version with this token already exists and content matches, skip.
-		if existing, ok := secret.Versions[versionID]; ok {
-			if existing.SecretString == input.SecretString &&
-				string(existing.SecretBinary) == string(input.SecretBinary) {
-				return &UpdateSecretOutput{
-					ARN:       secret.ARN,
-					Name:      secret.Name,
-					VersionID: versionID,
-				}, nil
-			}
-		}
-
-		b.rotateStagingLabels(secret)
-
-		now := UnixTimeFloat(b.now())
-		version := &SecretVersion{
-			VersionID:     versionID,
-			SecretString:  input.SecretString,
-			SecretBinary:  input.SecretBinary,
-			StagingLabels: []string{StagingLabelCurrent},
-			CreatedDate:   now,
-		}
-
-		secret.Versions[versionID] = version
-		secret.CurrentVersionID = versionID
-		secret.LastChangedDate = &now
-		b.syncReplicationStatusLocked(region, secret)
-
-		pruneVersions(secret)
 	}
 
 	return &UpdateSecretOutput{
@@ -1317,6 +1314,53 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 		Name:      secret.Name,
 		VersionID: versionID,
 	}, nil
+}
+
+// updateSecretVersion applies an UpdateSecret request's new value to secret:
+// it resolves the version ID (from ClientRequestToken or a fresh UUID),
+// treats a retried ClientRequestToken carrying identical content (decrypted
+// first when sealed via KMS) as an idempotent no-op, and otherwise seals and
+// stores a new AWSCURRENT version. Returns the resulting version ID. Must be
+// called with b.mu held and only when input carries a SecretString or
+// SecretBinary.
+func (b *InMemoryBackend) updateSecretVersion(
+	ctx context.Context, region string, secret *Secret, input *UpdateSecretInput,
+) (string, error) {
+	versionID := input.ClientRequestToken
+	if versionID == "" {
+		versionID = uuid.New().String()
+	}
+
+	if existing, ok := secret.Versions[versionID]; ok {
+		matched, err := b.matchesExistingVersion(ctx, existing, input.SecretString, input.SecretBinary)
+		if err != nil {
+			return "", err
+		}
+
+		if matched {
+			return versionID, nil
+		}
+	}
+
+	b.rotateStagingLabels(secret)
+
+	now := UnixTimeFloat(b.now())
+
+	version, err := b.sealVersion(
+		ctx, secret, versionID, input.SecretString, input.SecretBinary, []string{StagingLabelCurrent}, now,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	secret.Versions[versionID] = version
+	secret.CurrentVersionID = versionID
+	secret.LastChangedDate = &now
+	b.syncReplicationStatusLocked(region, secret)
+
+	pruneVersions(secret)
+
+	return versionID, nil
 }
 
 // RestoreSecret clears the deletion mark from a secret.
@@ -1534,7 +1578,7 @@ func (b *InMemoryBackend) RotateSecret(ctx context.Context, input *RotateSecretI
 		}, nil
 	}
 
-	versionID, err := b.rotateSecretLocked(secret, input.ClientRequestToken)
+	versionID, err := b.rotateSecretLocked(ctx, secret, input.ClientRequestToken)
 	if err != nil {
 		return nil, err
 	}
@@ -1556,31 +1600,43 @@ func (b *InMemoryBackend) RotateSecret(ctx context.Context, input *RotateSecretI
 // rotateSecretLocked creates a new secret version with the AWSPENDING staging label.
 // Callers MUST follow up with finishRotationLocked (to promote to AWSCURRENT) or
 // abortRotationLocked (to discard the pending version). Must be called with b.mu held.
-func (b *InMemoryBackend) rotateSecretLocked(secret *Secret, token string) (string, error) {
+func (b *InMemoryBackend) rotateSecretLocked(ctx context.Context, secret *Secret, token string) (string, error) {
 	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
 	if currentVer == nil {
 		return "", ErrVersionNotFound
-	}
-
-	// When a rotation Lambda ARN is configured, generate a fresh secret value.
-	// The Lambda lifecycle (createSecret/setSecret/testSecret/finishSecret) will
-	// validate and promote the value. Without a Lambda ARN, preserve the existing value.
-	newSecretString := currentVer.SecretString
-	newSecretBinary := currentVer.SecretBinary
-
-	if secret.RotationLambdaARN != "" {
-		newSecretString = uuid.New().String()
-		newSecretBinary = nil
 	}
 
 	versionID := token
 	if versionID == "" {
 		versionID = generateVersionID()
 	}
+
+	// When a rotation Lambda ARN is configured, generate a fresh secret value
+	// (sealed via KMS when an encryptor is wired). The Lambda lifecycle
+	// (createSecret/setSecret/testSecret/finishSecret) will validate and
+	// promote the value.
+	if secret.RotationLambdaARN != "" {
+		newVer, err := b.sealVersion(
+			ctx, secret, versionID, uuid.New().String(), nil, []string{"AWSPENDING"}, UnixTimeFloat(b.now()),
+		)
+		if err != nil {
+			return "", err
+		}
+
+		secret.Versions[versionID] = newVer
+
+		return versionID, nil
+	}
+
+	// Without a Lambda ARN, preserve the existing value: carry the current
+	// version's (possibly ciphertext) fields forward unchanged rather than
+	// decrypting and re-encrypting it.
 	newVer := &SecretVersion{
 		VersionID:     versionID,
-		SecretString:  newSecretString,
-		SecretBinary:  newSecretBinary,
+		SecretString:  currentVer.SecretString,
+		SecretBinary:  currentVer.SecretBinary,
+		Ciphertext:    currentVer.Ciphertext,
+		WasString:     currentVer.WasString,
 		StagingLabels: []string{"AWSPENDING"},
 		CreatedDate:   UnixTimeFloat(b.now()),
 	}
@@ -2086,17 +2142,19 @@ func (b *InMemoryBackend) BatchGetSecretValue(
 	}
 
 	if len(input.SecretIDList) > 0 {
-		b.batchGetByIDList(region, input.SecretIDList, out)
+		b.batchGetByIDList(ctx, region, input.SecretIDList, out)
 
 		return out, nil
 	}
 
-	return b.batchGetByFilter(region, input, out), nil
+	return b.batchGetByFilter(ctx, region, input, out), nil
 }
 
 // batchGetByIDList populates out with values and errors for each explicit secret ID.
 // Must be called with write lock held.
-func (b *InMemoryBackend) batchGetByIDList(region string, ids []string, out *BatchGetSecretValueOutput) {
+func (b *InMemoryBackend) batchGetByIDList(
+	ctx context.Context, region string, ids []string, out *BatchGetSecretValueOutput,
+) {
 	accessDay := UnixTimeFloat(b.now().UTC().Truncate(hoursPerDay * time.Hour))
 
 	for _, id := range ids {
@@ -2134,15 +2192,27 @@ func (b *InMemoryBackend) batchGetByIDList(region string, ids []string, out *Bat
 			continue
 		}
 
+		entry, err := b.secretVersionEntry(ctx, secret, ver)
+		if err != nil {
+			out.Errors = append(out.Errors, APIErrorType{
+				ErrorCode: "DecryptionFailure",
+				Message:   err.Error(),
+				SecretID:  id,
+			})
+
+			continue
+		}
+
 		secret.LastAccessedDate = &accessDay
 		ver.LastAccessedDate = &accessDay
-		out.SecretValues = append(out.SecretValues, secretVersionEntry(secret, ver))
+		out.SecretValues = append(out.SecretValues, entry)
 	}
 }
 
 // batchGetByFilter collects and paginates secrets matching filters.
 // Must be called with write lock held.
 func (b *InMemoryBackend) batchGetByFilter(
+	ctx context.Context,
 	region string,
 	input *BatchGetSecretValueInput,
 	out *BatchGetSecretValueOutput,
@@ -2161,9 +2231,20 @@ func (b *InMemoryBackend) batchGetByFilter(
 			continue
 		}
 
+		entry, err := b.secretVersionEntry(ctx, secret, ver)
+		if err != nil {
+			out.Errors = append(out.Errors, APIErrorType{
+				ErrorCode: "DecryptionFailure",
+				Message:   err.Error(),
+				SecretID:  secret.Name,
+			})
+
+			continue
+		}
+
 		secret.LastAccessedDate = &accessDay
 		ver.LastAccessedDate = &accessDay
-		allValues = append(allValues, secretVersionEntry(secret, ver))
+		allValues = append(allValues, entry)
 	}
 
 	// Sort by name for deterministic pagination.
@@ -2194,17 +2275,25 @@ func (b *InMemoryBackend) batchGetByFilter(
 	return out
 }
 
-// secretVersionEntry builds a SecretValueEntry from a secret and version.
-func secretVersionEntry(secret *Secret, ver *SecretVersion) SecretValueEntry {
+// secretVersionEntry builds a SecretValueEntry from a secret and version,
+// decrypting the value via b.openVersion when it was sealed with KMS.
+func (b *InMemoryBackend) secretVersionEntry(
+	ctx context.Context, secret *Secret, ver *SecretVersion,
+) (SecretValueEntry, error) {
+	plainString, plainBinary, err := b.openVersion(ctx, ver)
+	if err != nil {
+		return SecretValueEntry{}, err
+	}
+
 	return SecretValueEntry{
 		ARN:           secret.ARN,
 		Name:          secret.Name,
 		VersionID:     ver.VersionID,
-		SecretString:  ver.SecretString,
-		SecretBinary:  ver.SecretBinary,
+		SecretString:  plainString,
+		SecretBinary:  plainBinary,
 		VersionStages: ver.StagingLabels,
 		CreatedDate:   ver.CreatedDate,
-	}
+	}, nil
 }
 
 // batchMatchesFilters returns true if the secret matches all provided filters.
@@ -2754,7 +2843,9 @@ func (b *InMemoryBackend) scheduleRotationLocked(
 		return pendingRotation{}, false
 	}
 
-	versionID, err := b.rotateSecretLocked(secret, "")
+	ctx := context.WithValue(b.svcCtx, regionContextKey{}, region)
+
+	versionID, err := b.rotateSecretLocked(ctx, secret, "")
 	if err != nil {
 		return pendingRotation{}, false
 	}

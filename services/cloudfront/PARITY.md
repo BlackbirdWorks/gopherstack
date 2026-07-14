@@ -1,9 +1,15 @@
 ---
 service: cloudfront
 sdk_module: aws-sdk-go-v2/service/cloudfront@v1.60.2
-last_audit_commit: e5205dbe
-last_audit_date: 2026-07-05
-overall: A            # ~1000 LOC of genuine fixes found and applied this pass
+last_audit_commit: a8c6614b
+last_audit_date: 2026-07-12
+overall: A            # re-audit: zero drift in services/cloudfront/ since ce30166a
+                       # (previous sweep's baseline) and identical pinned SDK version
+                       # (v1.60.2) -- no new/changed surface to audit. All ok rows
+                       # trusted per re-audit protocol. Spot-checked InUse-guard gap
+                       # (OAI/OAC/KeyGroup delete, gopherstack-na4) still accurately
+                       # documented, not silently regressed or silently fixed.
+                       # go build/vet/test -race/fix -diff/golangci-lint all pass clean.
 ops:
   CreateDistribution: {wire: ok, errors: ok, state: ok, persist: ok, note: "now runs validateQuantities on the raw config"}
   CreateDistributionWithTags: {wire: ok, errors: ok, state: ok, persist: ok}

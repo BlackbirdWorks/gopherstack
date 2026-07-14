@@ -36,9 +36,13 @@ type getConnectionResponse struct {
 }
 
 const (
-	keyMessageField  = "message"
-	keyTypeField     = "__type"
-	errGoneException = "GoneException"
+	keyMessageField             = "message"
+	keyTypeField                = "__type"
+	errGoneException            = "GoneException"
+	errLimitExceededException   = "LimitExceededException"
+	errPayloadTooLargeException = "PayloadTooLargeException"
+	msgLimitExceeded            = "the websocket client-side buffer is full"
+	msgPayloadTooLarge          = "payload too large: exceeds maximum allowed size"
 	// amznErrorTypeHeader carries the modeled error type in the AWS rest-json
 	// protocol; the SDK reads the exception type from this header.
 	amznErrorTypeHeader = "X-Amzn-Errortype"
@@ -74,18 +78,40 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
 }
 
-// writeGoneException emits a GoneException (HTTP 410) in the AWS rest-json
-// shape: the modeled type travels in both the X-Amzn-Errortype header and the
-// body's __type field, with a human-readable message (not the type) in
-// "message". The SDK resolves the exception from these, not from the message.
-func writeGoneException(c *echo.Context, connectionID string) error {
-	c.Response().Header().Set(amznErrorTypeHeader, errGoneException)
+// writeModeledError emits an AWS rest-json modeled error: the exception type
+// travels in both the X-Amzn-Errortype header and the body's __type field,
+// with a human-readable message (not the type) in "message". The SDK
+// resolves the exception from the header/__type, not from the message text --
+// omitting either causes a client-side generic/unknown error instead of the
+// modeled exception type.
+func writeModeledError(c *echo.Context, status int, errType, message, connectionID string) error {
+	c.Response().Header().Set(amznErrorTypeHeader, errType)
 
-	return c.JSON(http.StatusGone, map[string]string{
-		keyTypeField:    errGoneException,
-		keyMessageField: "the connection is no longer available",
+	return c.JSON(status, map[string]string{
+		keyTypeField:    errType,
+		keyMessageField: message,
 		keyConnectionID: connectionID,
 	})
+}
+
+// writeGoneException emits a GoneException (HTTP 410).
+func writeGoneException(c *echo.Context, connectionID string) error {
+	return writeModeledError(c, http.StatusGone, errGoneException,
+		"the connection is no longer available", connectionID)
+}
+
+// writeLimitExceededException emits a LimitExceededException (HTTP 429),
+// matching real AWS behavior when a connection's WebSocket client-side buffer
+// is full and a frame cannot be queued for delivery.
+func writeLimitExceededException(c *echo.Context, connectionID string) error {
+	return writeModeledError(c, http.StatusTooManyRequests, errLimitExceededException,
+		msgLimitExceeded, connectionID)
+}
+
+// writePayloadTooLargeException emits a PayloadTooLargeException (HTTP 413).
+func writePayloadTooLargeException(c *echo.Context, connectionID string) error {
+	return writeModeledError(c, http.StatusRequestEntityTooLarge, errPayloadTooLargeException,
+		msgPayloadTooLarge, connectionID)
 }
 
 // Name returns the service name.
@@ -196,9 +222,7 @@ func (h *Handler) handlePostToConnection(c *echo.Context, connectionID string) e
 	if readErr != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(readErr, &maxBytesErr) {
-			return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{
-				keyMessageField: "payload too large: exceeds maximum allowed size",
-			})
+			return writePayloadTooLargeException(c, connectionID)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: "failed to read request body"})
@@ -212,7 +236,11 @@ func (h *Handler) handlePostToConnection(c *echo.Context, connectionID string) e
 		}
 
 		if errors.Is(err, ErrPayloadTooLarge) {
-			return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{keyMessageField: err.Error()})
+			return writePayloadTooLargeException(c, connectionID)
+		}
+
+		if errors.Is(err, ErrLimitExceeded) {
+			return writeLimitExceededException(c, connectionID)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})

@@ -1124,6 +1124,8 @@ func invalidParameterValueMessage(err error) (string, bool) {
 		return "Value for parameter WaitTimeSeconds is invalid. Reason: Must be between 0 and 20, if provided.", true
 	case errors.Is(err, ErrInvalidVisibilityTimeout):
 		return "Value for parameter VisibilityTimeout is invalid. Reason: Must be between 0 and 43200, if provided.", true
+	case errors.Is(err, ErrInvalidDelaySeconds):
+		return "Value for parameter DelaySeconds is invalid. Reason: Must be between 0 and 900, if provided.", true
 	case errors.Is(err, ErrMissingMessageGroupID):
 		return "The request must contain the parameter MessageGroupId.", true
 	case errors.Is(err, ErrMissingDeduplicationID):

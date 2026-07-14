@@ -53,7 +53,10 @@ type StorageBackend interface {
 	) (*ResolverRule, error)
 	AssociateResolverRule(ctx context.Context, resolverRuleID, vpcID, name string) (*ResolverRuleAssociation, error)
 	GetResolverRuleAssociation(ctx context.Context, id string) (*ResolverRuleAssociation, error)
-	DisassociateResolverRule(ctx context.Context, id string) (*ResolverRuleAssociation, error)
+	DisassociateResolverRule(
+		ctx context.Context,
+		resolverRuleID, vpcID string,
+	) (*ResolverRuleAssociation, error)
 	ListResolverRuleAssociations(ctx context.Context) []*ResolverRuleAssociation
 	GetResolverRulePolicy(ctx context.Context, arn string) string
 	PutResolverRulePolicy(ctx context.Context, arn, policy string) error
@@ -130,7 +133,10 @@ type StorageBackend interface {
 		queryLogConfigID, resourceID string,
 	) (*ResolverQueryLogConfigAssociation, error)
 	GetResolverQueryLogConfigAssociation(ctx context.Context, id string) (*ResolverQueryLogConfigAssociation, error)
-	DisassociateResolverQueryLogConfig(ctx context.Context, id string) (*ResolverQueryLogConfigAssociation, error)
+	DisassociateResolverQueryLogConfig(
+		ctx context.Context,
+		queryLogConfigID, resourceID string,
+	) (*ResolverQueryLogConfigAssociation, error)
 	ListResolverQueryLogConfigAssociations(ctx context.Context) []*ResolverQueryLogConfigAssociation
 	GetResolverQueryLogConfigPolicy(ctx context.Context, arn string) string
 	PutResolverQueryLogConfigPolicy(ctx context.Context, arn, policy string) error

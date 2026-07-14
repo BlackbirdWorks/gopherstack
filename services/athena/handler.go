@@ -319,9 +319,14 @@ type batchGetQueryExecutionInput struct {
 	QueryExecutionIDs []string `json:"QueryExecutionIds"`
 }
 
+// batchGetPreparedStatementInput's StatementNames field is tagged
+// "PreparedStatementNames" (not "StatementNames") to match the real Athena
+// wire shape: aws-sdk-go-v2 serializes BatchGetPreparedStatementInput's
+// PreparedStatementNames member under that exact key, so a mismatched tag
+// here would silently drop every requested name from a real SDK client.
 type batchGetPreparedStatementInput struct {
 	WorkGroup      string   `json:"WorkGroup"`
-	StatementNames []string `json:"StatementNames"`
+	StatementNames []string `json:"PreparedStatementNames"`
 }
 
 type createPreparedStatementInput struct {
@@ -883,8 +888,8 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 			)
 
 			return map[string]any{
-				"PreparedStatements":        found,
-				"UnprocessedStatementNames": unprocessed,
+				"PreparedStatements":                found,
+				"UnprocessedPreparedStatementNames": unprocessed,
 			}, nil
 		},
 		"DeletePreparedStatement": func(b []byte) (any, error) {
@@ -992,12 +997,16 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			url, err := h.Backend.CreatePresignedNotebookURL(input.SessionID)
+			url, authToken, authTokenExpiration, err := h.Backend.CreatePresignedNotebookURL(input.SessionID)
 			if err != nil {
 				return nil, err
 			}
 
-			return map[string]any{"NotebookSessionUrl": url}, nil
+			return map[string]any{
+				"NotebookUrl":             url,
+				"AuthToken":               authToken,
+				"AuthTokenExpirationTime": authTokenExpiration,
+			}, nil
 		},
 		"DeleteNotebook": func(b []byte) (any, error) {
 			var input deleteNotebookInput

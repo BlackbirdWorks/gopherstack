@@ -29,7 +29,7 @@ type StorageBackend interface {
 	) (*DBCluster, error)
 	StopDBCluster(ctx context.Context, id string) (*DBCluster, error)
 	StartDBCluster(ctx context.Context, id string) (*DBCluster, error)
-	FailoverDBCluster(ctx context.Context, id string) (*DBCluster, error)
+	FailoverDBCluster(ctx context.Context, id, targetInstanceID string) (*DBCluster, error)
 
 	// Instance operations
 	CreateDBInstance(
@@ -80,6 +80,11 @@ type StorageBackend interface {
 		snapshotID, clusterID, snapshotTypeFilter string,
 	) ([]DBClusterSnapshot, error)
 	DeleteDBClusterSnapshot(ctx context.Context, snapshotID string) (*DBClusterSnapshot, error)
+	ModifyDBClusterSnapshotAttribute(
+		ctx context.Context,
+		snapshotID, attributeName string,
+		valuesToAdd, valuesToRemove []string,
+	) (*DBClusterSnapshot, error)
 
 	// Tag operations
 	AddTagsToResource(ctx context.Context, arn string, tags []Tag) error
@@ -129,7 +134,7 @@ type StorageBackend interface {
 	DescribeGlobalClusters(ctx context.Context) []GlobalCluster
 
 	// Cluster endpoint operations
-	DeleteDBClusterEndpoint(ctx context.Context, endpointID string) error
+	DeleteDBClusterEndpoint(ctx context.Context, endpointID string) (*DBClusterEndpoint, error)
 	DescribeDBClusterEndpoints(
 		ctx context.Context,
 		endpointID, clusterID string,

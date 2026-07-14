@@ -25,7 +25,7 @@ package personalize_test
 //   - FeatureTransformation: DescribeFeatureTransformation — returns status ACTIVE
 //   - Algorithm: DescribeAlgorithm — returns status ACTIVE
 //   - Tag round-trip: TagResource/ListTagsForResource/UntagResource tagKey+tagValue shape
-//   - StopSolutionVersionCreation: status → STOP PENDING
+//   - StopSolutionVersionCreation: status → CREATE STOPPED
 //   - Error paths: ResourceNotFoundException → 400, ResourceAlreadyExistsException → 400,
 //     InvalidInputException → 400, with __type+message envelope
 
@@ -457,6 +457,53 @@ func TestAudit1_Personalize_Solution_FieldRetention(t *testing.T) {
 	assert.Equal(t, false, sol["performAutoML"])
 	assert.Equal(t, true, sol["performHPO"])
 	assert.Equal(t, "ACTIVE", sol["status"])
+	// performAutoTraining defaults to true when omitted from CreateSolution.
+	assert.Equal(t, true, sol["performAutoTraining"])
+	assert.Equal(t, false, sol["performIncrementalUpdate"])
+}
+
+// TestAudit1_Personalize_Solution_Update verifies UpdateSolution mutates the
+// real wire fields (performAutoTraining/performIncrementalUpdate), not the
+// creation-only performAutoML/performHPO fields the real UpdateSolutionInput
+// does not carry.
+func TestAudit1_Personalize_Solution_Update(t *testing.T) {
+	t.Parallel()
+
+	h := a1PersonalizeHandler(t)
+
+	rec := a1PersonalizeDo(t, h, "CreateSolution", map[string]any{
+		"name":            "update-me",
+		"datasetGroupArn": "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1",
+		"recipeArn":       "arn:aws:personalize:::recipe/aws-user-personalization",
+		"performAutoML":   false,
+		"performHPO":      true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	solArn := a1PersonalizeUnmarshal(t, rec)["solutionArn"].(string)
+
+	rec = a1PersonalizeDo(t, h, "UpdateSolution", map[string]any{
+		"solutionArn":              solArn,
+		"performAutoTraining":      false,
+		"performIncrementalUpdate": true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = a1PersonalizeDo(t, h, "DescribeSolution", map[string]any{"solutionArn": solArn})
+	sol := a1PersonalizeUnmarshal(t, rec)["solution"].(map[string]any)
+	assert.Equal(t, false, sol["performAutoTraining"])
+	assert.Equal(t, true, sol["performIncrementalUpdate"])
+	// performAutoML/performHPO are creation-only and must be unaffected by UpdateSolution.
+	assert.Equal(t, false, sol["performAutoML"])
+	assert.Equal(t, true, sol["performHPO"])
+
+	// Omitting both update fields leaves the current values untouched.
+	rec = a1PersonalizeDo(t, h, "UpdateSolution", map[string]any{"solutionArn": solArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = a1PersonalizeDo(t, h, "DescribeSolution", map[string]any{"solutionArn": solArn})
+	sol = a1PersonalizeUnmarshal(t, rec)["solution"].(map[string]any)
+	assert.Equal(t, false, sol["performAutoTraining"])
+	assert.Equal(t, true, sol["performIncrementalUpdate"])
 }
 
 // --- SolutionVersion ---
@@ -509,7 +556,9 @@ func TestAudit1_Personalize_StopSolutionVersionCreation(t *testing.T) {
 
 	rec = a1PersonalizeDo(t, h, "DescribeSolutionVersion", map[string]any{"solutionVersionArn": svArn})
 	sv := a1PersonalizeUnmarshal(t, rec)["solutionVersion"].(map[string]any)
-	assert.Equal(t, "STOPPED", sv["status"])
+	// The SolutionVersion.Status wire enum has no bare "STOPPED" value --
+	// only "CREATE STOPPED" (see aws-sdk-go-v2/service/personalize/types.SolutionVersion).
+	assert.Equal(t, "CREATE STOPPED", sv["status"])
 }
 
 func TestAudit1_Personalize_GetSolutionMetrics(t *testing.T) {
@@ -721,6 +770,9 @@ func TestAudit1_Personalize_MetricAttribution_CRUD(t *testing.T) {
 	rec := a1PersonalizeDo(t, h, "CreateMetricAttribution", map[string]any{
 		"name":            "my-ma",
 		"datasetGroupArn": "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1",
+		"metrics": []map[string]any{
+			{"eventType": "click", "expression": "SUM(Items.PRICE)", "metricName": "click-sum"},
+		},
 		"metricsOutputConfig": map[string]any{
 			"s3DataDestination": map[string]any{"path": "s3://my-bucket/metrics"},
 		},
@@ -734,18 +786,54 @@ func TestAudit1_Personalize_MetricAttribution_CRUD(t *testing.T) {
 	assert.Equal(t, "my-ma", ma["name"])
 	assert.Equal(t, "ACTIVE", ma["status"])
 
-	// ListMetricAttributionMetrics
+	// ListMetricAttributionMetrics returns the metrics configured at creation,
+	// not a fabricated static list.
 	rec = a1PersonalizeDo(t, h, "ListMetricAttributionMetrics", map[string]any{"metricAttributionArn": maArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 	listed := a1PersonalizeUnmarshal(t, rec)
 	metrics := listed["metrics"].([]any)
-	assert.NotEmpty(t, metrics)
+	require.Len(t, metrics, 1)
 	first := metrics[0].(map[string]any)
-	assert.NotEmpty(t, first["metricName"])
+	assert.Equal(t, "click-sum", first["metricName"])
+	assert.Equal(t, "click", first["eventType"])
+	assert.Equal(t, "SUM(Items.PRICE)", first["expression"])
+
+	// UpdateMetricAttribution: add a metric and remove the original one.
+	rec = a1PersonalizeDo(t, h, "UpdateMetricAttribution", map[string]any{
+		"metricAttributionArn": maArn,
+		"addMetrics": []map[string]any{
+			{"eventType": "purchase", "expression": "SUM(Items.PRICE)", "metricName": "purchase-sum"},
+		},
+		"removeMetrics": []string{"click-sum"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = a1PersonalizeDo(t, h, "ListMetricAttributionMetrics", map[string]any{"metricAttributionArn": maArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	metrics = a1PersonalizeUnmarshal(t, rec)["metrics"].([]any)
+	require.Len(t, metrics, 1)
+	assert.Equal(t, "purchase-sum", metrics[0].(map[string]any)["metricName"])
 
 	// Delete
 	rec = a1PersonalizeDo(t, h, "DeleteMetricAttribution", map[string]any{"metricAttributionArn": maArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAudit1_Personalize_MetricAttribution_Create_RequiresMetrics(t *testing.T) {
+	t.Parallel()
+
+	h := a1PersonalizeHandler(t)
+
+	rec := a1PersonalizeDo(t, h, "CreateMetricAttribution", map[string]any{
+		"name":            "no-metrics-ma",
+		"datasetGroupArn": "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1",
+		"metricsOutputConfig": map[string]any{
+			"s3DataDestination": map[string]any{"path": "s3://my-bucket/metrics"},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	body := a1PersonalizeUnmarshal(t, rec)
+	assert.Equal(t, "InvalidInputException", body["__type"])
 }
 
 // --- Async jobs ---

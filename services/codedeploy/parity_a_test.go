@@ -242,8 +242,12 @@ func TestParity_CreateDeployment_IDFormat(t *testing.T) {
 	}
 }
 
-// TestParity_StopDeployment_StatusStopped verifies StopDeployment returns status Stopped
-// and GetDeployment reflects the updated status, matching real AWS behavior.
+// TestParity_StopDeployment_StatusStopped verifies StopDeploymentOutput.status
+// reports the outcome of the stop *operation* (StopStatus enum: "Pending" |
+// "Succeeded" -- see types.StopStatus in aws-sdk-go-v2/service/codedeploy),
+// while GetDeployment reflects the deployment's own resulting lifecycle
+// status ("Stopped"). These are two distinct fields in real AWS and must not
+// be conflated.
 func TestParity_StopDeployment_StatusStopped(t *testing.T) {
 	t.Parallel()
 
@@ -269,7 +273,8 @@ func TestParity_StopDeployment_StatusStopped(t *testing.T) {
 		Status string `json:"status"`
 	}
 	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopOut))
-	assert.Equal(t, "Stopped", stopOut.Status, "StopDeployment must return status Stopped")
+	assert.Equal(t, "Succeeded", stopOut.Status,
+		"StopDeploymentOutput.status is the StopStatus enum (Pending|Succeeded), not the deployment status")
 
 	getRec := doRequest(t, h, "GetDeployment", map[string]any{"deploymentId": deployID})
 	require.Equal(t, http.StatusOK, getRec.Code)

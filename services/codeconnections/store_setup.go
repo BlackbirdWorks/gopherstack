@@ -16,19 +16,20 @@ package codeconnections
 // map's strict isolation (an ARN created in one region must not resolve from
 // another). Both are registered directly on b.registry.
 //
-// repositoryLinks and syncConfigurations are "dirty": their own identity
-// (RepositoryLinkID; ResourceName+SyncType) carries no region of its own,
-// AND (unlike Connection/Host) their Get/Delete/Update lookups are scoped by
-// the caller's context region rather than by any ARN -- see e.g.
-// GetRepositoryLink/GetSyncConfiguration in backend.go. Each therefore
-// carries an unexported region-qualifying field, is keyed by a composite
+// repositoryLinks, syncConfigurations, and syncBlockers are "dirty": their
+// own identity (RepositoryLinkID; ResourceName+SyncType; SyncBlocker.ID)
+// carries no region of its own, AND (unlike Connection/Host) their
+// Get/Delete/Update lookups are scoped by the caller's context region rather
+// than by any ARN -- see e.g. GetRepositoryLink/GetSyncConfiguration/
+// UpdateSyncBlocker in backend.go. Each therefore carries an unexported
+// region-qualifying field, is keyed by (or indexed with) a composite
 // "region|id" string (see regionKey in backend.go), and is built with
 // store.New only -- deliberately NOT store.Register-ed onto b.registry, so
 // registry.SnapshotAll/RestoreAll/ResetAll never touch them directly.
 // persistence.go instead builds an ephemeral DTO registry (the
 // services/codestarconnections regionalDTO pattern) that gives the hidden
 // region field a real JSON tag, and InMemoryBackend.Reset resets each of the
-// two explicitly.
+// three explicitly.
 //
 // connectionsByName/hostsByName -- the old ARN reverse-lookup maps -- are
 // replaced by secondary *store.Index values (byName) kept consistent
@@ -64,13 +65,22 @@ func syncConfigurationKeyFn(v *SyncConfiguration) string {
 
 func syncConfigurationRegionIndexKeyFn(v *SyncConfiguration) string { return v.region }
 
+func syncBlockerKeyFn(v *SyncBlocker) string { return v.ID }
+
+// syncBlockerResourceIndexKeyFn groups blockers by the same composite
+// "region|ResourceName/SyncType" key used by syncConfigurations, since a
+// SyncBlocker's ID alone carries no resource/region information of its own.
+func syncBlockerResourceIndexKeyFn(v *SyncBlocker) string {
+	return regionKey(v.region, syncConfigKey(v.ResourceName, v.SyncType))
+}
+
 // registerAllTables registers connections/hosts on b.registry and
-// constructs the two dirty tables (store.New only -- see the file doc
+// constructs the three dirty tables (store.New only -- see the file doc
 // comment above for why they are deliberately not store.Register-ed). It
 // must be called during construction only (immediately after b.registry is
 // created -- see NewInMemoryBackend), never on every Reset(): store.Register
 // panics on a duplicate name, so runtime resets go through
-// b.registry.ResetAll() plus explicit Reset() calls on the two dirty tables
+// b.registry.ResetAll() plus explicit Reset() calls on the three dirty tables
 // instead (see InMemoryBackend.Reset in backend.go).
 func registerAllTables(b *InMemoryBackend) {
 	b.connections = store.Register(b.registry, "connections", store.New(connectionKeyFn))
@@ -86,4 +96,7 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.syncConfigurations = store.New(syncConfigurationKeyFn)
 	b.syncConfigurationsByRegion = b.syncConfigurations.AddIndex("byRegion", syncConfigurationRegionIndexKeyFn)
+
+	b.syncBlockers = store.New(syncBlockerKeyFn)
+	b.syncBlockersByResource = b.syncBlockers.AddIndex("byResource", syncBlockerResourceIndexKeyFn)
 }

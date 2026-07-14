@@ -103,12 +103,36 @@ var connectionNameRE = regexp.MustCompile(`^[a-zA-Z0-9_.\-]+$`)
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
-	// ErrAlreadyExists is returned when a resource with the same name already exists.
+	// ErrAlreadyExists is returned when a connection or host with the same name
+	// already exists. The real CreateConnection/CreateHost operations do not
+	// document a dedicated typed exception for this, so it maps to the generic
+	// InvalidInputException (see handler.go's error switch).
 	ErrAlreadyExists = awserr.New("InvalidInputException", awserr.ErrAlreadyExists)
+	// ErrResourceAlreadyExists is returned when a repository link or sync
+	// configuration with the same identity already exists. Unlike
+	// ErrAlreadyExists above, the real CreateRepositoryLink/CreateSyncConfiguration
+	// operations both register a dedicated ResourceAlreadyExistsException for
+	// this case (confirmed against aws-sdk-go-v2's per-op error deserializers).
+	ErrResourceAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
-	// ErrResourceInUse is returned when a resource cannot be deleted because it is referenced by another resource.
-	ErrResourceInUse = awserr.New("ResourceInUseException", awserr.ErrConflict)
+	// ErrResourceInUse is returned when a host cannot be deleted because a
+	// connection still references it. The real DeleteHost operation does not
+	// document a dedicated typed exception for this either, so it maps to the
+	// generic ConflictException ("two conflicting operations... on the same
+	// resource"), which at least exists in the real service's error catalog
+	// (unlike a fabricated "ResourceInUseException", which does not).
+	ErrResourceInUse = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrSyncConfigStillExists is returned when a repository link cannot be
+	// deleted because a sync configuration still references it. The real
+	// DeleteRepositoryLink operation documents SyncConfigurationStillExistsException
+	// for exactly this case.
+	ErrSyncConfigStillExists = awserr.New("SyncConfigurationStillExistsException", awserr.ErrConflict)
+	// ErrSyncBlockerNotFound is returned by UpdateSyncBlocker when the blocker ID
+	// does not exist (or was created in a different region). The real operation
+	// documents SyncBlockerDoesNotExistException for this case; it does NOT
+	// resolve unknown IDs gracefully.
+	ErrSyncBlockerNotFound = awserr.New("SyncBlockerDoesNotExistException", awserr.ErrNotFound)
 )
 
 // validProviderTypes returns the set of valid provider types for connections and hosts.
@@ -773,7 +797,9 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 		if existing.ConnectionArn == connectionArn &&
 			existing.OwnerID == ownerID &&
 			existing.RepositoryName == repoName {
-			return nil, fmt.Errorf("%w: repository link for %s/%s already exists", ErrAlreadyExists, ownerID, repoName)
+			return nil, fmt.Errorf(
+				"%w: repository link for %s/%s already exists", ErrResourceAlreadyExists, ownerID, repoName,
+			)
 		}
 	}
 
@@ -830,7 +856,7 @@ func (b *InMemoryBackend) DeleteRepositoryLink(ctx context.Context, repositoryLi
 
 	if b.syncConfigHasReferenceToLinkLocked(region, repositoryLinkID) {
 		return fmt.Errorf("%w: repository link %q has active sync configurations; delete them first",
-			ErrResourceInUse, repositoryLinkID)
+			ErrSyncConfigStillExists, repositoryLinkID)
 	}
 
 	b.repositoryLinks.Delete(key)
@@ -945,7 +971,7 @@ func (b *InMemoryBackend) CreateSyncConfigurationFull(
 	key := regionKey(region, syncConfigKey(resourceName, syncType))
 	if b.syncConfigurations.Has(key) {
 		return nil, fmt.Errorf("%w: sync configuration for %q/%q already exists",
-			ErrAlreadyExists, resourceName, syncType)
+			ErrResourceAlreadyExists, resourceName, syncType)
 	}
 
 	cfg := &SyncConfiguration{
@@ -1281,8 +1307,9 @@ func (b *InMemoryBackend) CreateSyncBlocker(
 
 // UpdateSyncBlocker resolves a sync blocker by ID. If the blocker ID is not found
 // (or was created in a different region than the caller's context, matching the
-// original map-based lookup's region scoping), returns an empty summary (AWS
-// accepts resolution of unknown blockers gracefully).
+// original map-based lookup's region scoping), returns ErrSyncBlockerNotFound --
+// the real UpdateSyncBlocker operation documents SyncBlockerDoesNotExistException
+// for exactly this case, it does not resolve unknown IDs gracefully.
 func (b *InMemoryBackend) UpdateSyncBlocker(
 	ctx context.Context,
 	id, resolvedReason string,
@@ -1294,7 +1321,7 @@ func (b *InMemoryBackend) UpdateSyncBlocker(
 
 	blocker, ok := b.syncBlockers.Get(id)
 	if !ok || blocker.region != region {
-		return &SyncBlockerSummary{LatestBlockers: []SyncBlocker{}}, nil
+		return nil, fmt.Errorf("%w: sync blocker not found: %s", ErrSyncBlockerNotFound, id)
 	}
 
 	now := time.Now().UTC()
@@ -1325,7 +1352,9 @@ func (b *InMemoryBackend) UpdateSyncBlocker(
 	return summary, nil
 }
 
-// RepositorySyncDefinition is a stub definition for a repository sync.
+// RepositorySyncDefinition is a mapping from a repository branch to the AWS
+// resource(s) being synced from that branch (see AWS docs for
+// RepositorySyncDefinition).
 type RepositorySyncDefinition struct {
 	Branch    string
 	Directory string
@@ -1333,7 +1362,13 @@ type RepositorySyncDefinition struct {
 	Target    string
 }
 
-// ListRepositorySyncDefinitions returns stub sync definitions for a repository link and sync type.
+// ListRepositorySyncDefinitions returns the sync definitions derived from the
+// sync configurations linked to repositoryLinkID, optionally filtered by
+// syncType. Directory is sourced from each sync configuration's ConfigFile
+// (per AWS docs: "This value comes from creating or updating the config-file
+// field of a sync-configuration"). For CFN_STACK_SYNC -- the only SyncType
+// gopherstack supports -- AWS docs state "the parent and target resource are
+// the same", so Parent and Target both equal ResourceName.
 func (b *InMemoryBackend) ListRepositorySyncDefinitions(
 	ctx context.Context,
 	repositoryLinkID, syncType string,
@@ -1347,9 +1382,31 @@ func (b *InMemoryBackend) ListRepositorySyncDefinitions(
 		return nil, fmt.Errorf("%w: repository link not found: %s", ErrNotFound, repositoryLinkID)
 	}
 
-	_ = syncType
+	cfgs := b.syncConfigurationsByRegion.Get(region)
+	result := make([]RepositorySyncDefinition, 0, len(cfgs))
 
-	return []RepositorySyncDefinition{}, nil
+	for _, cfg := range cfgs {
+		if cfg.RepositoryLinkID != repositoryLinkID {
+			continue
+		}
+
+		if syncType != "" && cfg.SyncType != syncType {
+			continue
+		}
+
+		result = append(result, RepositorySyncDefinition{
+			Branch:    cfg.Branch,
+			Directory: cfg.ConfigFile,
+			Parent:    cfg.ResourceName,
+			Target:    cfg.ResourceName,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Target < result[j].Target
+	})
+
+	return result, nil
 }
 
 // ListSyncConfigurations returns all sync configurations for a given repository link and sync type.

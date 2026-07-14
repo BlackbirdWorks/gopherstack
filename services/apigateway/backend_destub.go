@@ -341,15 +341,19 @@ func (b *InMemoryBackend) ImportDocumentationParts(
 
 // UpdateUsage validates that the usage plan and API key association exist and
 // records a remaining-quota override for that key, so a subsequent GetUsage
-// call reflects the change. dateValues holds the request's RFC 6902 patch
-// operations after handler.go's normalizePatchBody has already flattened them
-// into plain "date -> new remaining quota" entries (mirroring the convention
-// every other Update* patch handler in this package uses); non-integer values
-// are ignored. Real API Gateway quota-consumption tracking (based on live
-// request traffic) isn't modeled by this emulator — as with GetUsage's Items,
-// which are always empty absent real traffic — but the override recorded here
-// is genuinely read back by GetUsage.
-func (b *InMemoryBackend) UpdateUsage(usagePlanID, keyID string, dateValues map[string]string) (*UsageData, error) {
+// call reflects the change. Real AWS's only supported UpdateUsage patch path
+// is the single-segment scalar "/remaining" (see patch-operations.html's
+// UpdateUsage table — there is no per-date path segment, unlike the
+// superficially similar per-route paths on UpdateStage/UpdateUsagePlan), so
+// handler.go's applyStructuredPatch flattens the request into a single
+// "remaining" -> value entry via the generic top-level fallback and this
+// method only ever needs the value, not the key; patchedFields is still a map
+// (rather than a single value) purely to reuse that generic flattening path.
+// non-integer values are ignored. Real API Gateway quota-consumption tracking
+// (based on live request traffic) isn't modeled by this emulator — as with
+// GetUsage's Items, which are always empty absent real traffic — but the
+// override recorded here is genuinely read back by GetUsage.
+func (b *InMemoryBackend) UpdateUsage(usagePlanID, keyID string, patchedFields map[string]string) (*UsageData, error) {
 	b.mu.Lock("UpdateUsage")
 
 	if !b.usagePlans.Has(usagePlanID) {
@@ -364,7 +368,7 @@ func (b *InMemoryBackend) UpdateUsage(usagePlanID, keyID string, dateValues map[
 		return nil, fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
 	}
 
-	for _, v := range dateValues {
+	for _, v := range patchedFields {
 		remaining, perr := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
 		if perr != nil {
 			continue

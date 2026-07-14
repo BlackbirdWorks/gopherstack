@@ -75,7 +75,7 @@ func TestParseSignedPageToken_MissingSeparator(t *testing.T) {
 func TestValidateMetricDatum_ValueOnly(t *testing.T) {
 	t.Parallel()
 
-	d := cloudwatch.MetricDatum{MetricName: "M", Value: 1.0, HasValue: true}
+	d := cloudwatch.MetricDatum{MetricName: "M", Value: 1.0, HasValue: true, Timestamp: time.Now().UTC()}
 	assert.NoError(t, cloudwatch.ValidateMetricDatumForTest(d))
 }
 
@@ -86,6 +86,7 @@ func TestValidateMetricDatum_StatisticSetOnly(t *testing.T) {
 		MetricName:      "M",
 		HasStatisticSet: true,
 		Count:           5, Sum: 100, Min: 10, Max: 30,
+		Timestamp: time.Now().UTC(),
 	}
 	assert.NoError(t, cloudwatch.ValidateMetricDatumForTest(d))
 }
@@ -99,6 +100,7 @@ func TestValidateMetricDatum_BothValueAndStatisticSet(t *testing.T) {
 		HasValue:        true,
 		HasStatisticSet: true,
 		Count:           5, Sum: 100, Min: 10, Max: 30,
+		Timestamp: time.Now().UTC(),
 	}
 	err := cloudwatch.ValidateMetricDatumForTest(d)
 	require.Error(t, err)
@@ -108,8 +110,41 @@ func TestValidateMetricDatum_BothValueAndStatisticSet(t *testing.T) {
 func TestValidateMetricDatum_NoStatisticSetWithZeroValue(t *testing.T) {
 	t.Parallel()
 
-	d := cloudwatch.MetricDatum{MetricName: "M", Value: 0, HasStatisticSet: false}
+	d := cloudwatch.MetricDatum{MetricName: "M", Value: 0, HasStatisticSet: false, Timestamp: time.Now().UTC()}
 	assert.NoError(t, cloudwatch.ValidateMetricDatumForTest(d))
+}
+
+func TestValidateMetricDatum_TimestampWithinWindow(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	cases := []struct {
+		ts   time.Time
+		name string
+		ok   bool
+	}{
+		{name: "now", ts: now, ok: true},
+		{name: "13 days 23 hours in past", ts: now.Add(-13*24*time.Hour - 23*time.Hour), ok: true},
+		{name: "just over 2 weeks in past", ts: now.Add(-14*24*time.Hour - time.Minute), ok: false},
+		{name: "1 hour 59 minutes in future", ts: now.Add(time.Hour + 59*time.Minute), ok: true},
+		{name: "just over 2 hours in future", ts: now.Add(2*time.Hour + time.Minute), ok: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := cloudwatch.MetricDatum{MetricName: "M", Value: 1.0, HasValue: true, Timestamp: tc.ts}
+			err := cloudwatch.ValidateMetricDatumAtForTest(d, now)
+
+			if tc.ok {
+				assert.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "two weeks")
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -749,6 +784,7 @@ func TestHandler_PutMetricData_StatisticSet_FormParsed(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	ts := cloudwatch.RecentTestAnchor().Format(time.RFC3339)
 	rec := postForm(
 		t, h,
 		"Action=PutMetricData"+
@@ -758,7 +794,7 @@ func TestHandler_PutMetricData_StatisticSet_FormParsed(t *testing.T) {
 			"&MetricData.member.1.StatisticValues.Sum=250"+
 			"&MetricData.member.1.StatisticValues.Minimum=40"+
 			"&MetricData.member.1.StatisticValues.Maximum=60"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.1.Timestamp="+ts,
 	)
 	assert.Equal(t, 200, rec.Code, "valid StatisticSet should return 200; body: %s", rec.Body.String())
 }
@@ -772,6 +808,7 @@ func TestHandler_PutMetricData_ValueAndStatisticSet_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	ts := cloudwatch.RecentTestAnchor().Format(time.RFC3339)
 	rec := postForm(
 		t, h,
 		"Action=PutMetricData"+
@@ -782,7 +819,7 @@ func TestHandler_PutMetricData_ValueAndStatisticSet_Returns400(t *testing.T) {
 			"&MetricData.member.1.StatisticValues.Sum=250"+
 			"&MetricData.member.1.StatisticValues.Minimum=40"+
 			"&MetricData.member.1.StatisticValues.Maximum=60"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.1.Timestamp="+ts,
 	)
 	assert.Equal(t, 400, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InvalidParameterCombination")
@@ -792,6 +829,7 @@ func TestHandler_PutMetricData_InvalidStorageResolution_Returns400(t *testing.T)
 	t.Parallel()
 
 	h := newCWHandler()
+	ts := cloudwatch.RecentTestAnchor().Format(time.RFC3339)
 	rec := postForm(
 		t, h,
 		"Action=PutMetricData"+
@@ -799,7 +837,7 @@ func TestHandler_PutMetricData_InvalidStorageResolution_Returns400(t *testing.T)
 			"&MetricData.member.1.MetricName=BadRes"+
 			"&MetricData.member.1.Value=1.0"+
 			"&MetricData.member.1.StorageResolution=30"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.1.Timestamp="+ts,
 	)
 	assert.Equal(t, 400, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
@@ -813,6 +851,7 @@ func TestHandler_PutMetricData_WithDimensions(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	ts := cloudwatch.RecentTestAnchor().Format(time.RFC3339)
 	rec := postForm(
 		t, h,
 		"Action=PutMetricData"+
@@ -823,7 +862,7 @@ func TestHandler_PutMetricData_WithDimensions(t *testing.T) {
 			"&MetricData.member.1.Dimensions.member.1.Value=auth"+
 			"&MetricData.member.1.Dimensions.member.2.Name=Region"+
 			"&MetricData.member.1.Dimensions.member.2.Value=us-east-1"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.1.Timestamp="+ts,
 	)
 	assert.Equal(t, 200, rec.Code, "response: %s", rec.Body.String())
 }
@@ -836,6 +875,7 @@ func TestHandler_ListMetrics_DimensionFilter(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	ts := cloudwatch.RecentTestAnchor().Format(time.RFC3339)
 
 	// Store two metrics with different dimensions.
 	postForm(
@@ -843,14 +883,14 @@ func TestHandler_ListMetrics_DimensionFilter(t *testing.T) {
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=RPM&MetricData.member.1.Value=100"+
 			"&MetricData.member.1.Dimensions.member.1.Name=Env&MetricData.member.1.Dimensions.member.1.Value=prod"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.1.Timestamp="+ts,
 	)
 	postForm(
 		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=RPM&MetricData.member.1.Value=50"+
 			"&MetricData.member.1.Dimensions.member.1.Name=Env&MetricData.member.1.Dimensions.member.1.Value=staging"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.1.Timestamp="+ts,
 	)
 
 	// Filter to prod only.
@@ -872,13 +912,14 @@ func TestHandler_GetMetricStatistics_WithDimensions(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	anchor := cloudwatch.RecentTestAnchor()
 	postForm(
 		t, h,
 		"Action=PutMetricData&Namespace=MyNS"+
 			"&MetricData.member.1.MetricName=CPU"+
 			"&MetricData.member.1.Value=75"+
 			"&MetricData.member.1.Dimensions.member.1.Name=Host&MetricData.member.1.Dimensions.member.1.Value=web1"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.1.Timestamp="+anchor.Format(time.RFC3339),
 	)
 
 	rec := postForm(
@@ -887,8 +928,8 @@ func TestHandler_GetMetricStatistics_WithDimensions(t *testing.T) {
 			"&Namespace=MyNS"+
 			"&MetricName=CPU"+
 			"&Dimensions.member.1.Name=Host&Dimensions.member.1.Value=web1"+
-			"&StartTime=2023-12-31T00:00:00Z"+
-			"&EndTime=2024-01-02T00:00:00Z"+
+			"&StartTime="+anchor.Add(-time.Hour).Format(time.RFC3339)+
+			"&EndTime="+anchor.Add(time.Hour).Format(time.RFC3339)+
 			"&Period=60"+
 			"&Statistics.member.1=Average",
 	)
@@ -963,11 +1004,11 @@ func TestHandler_GetMetricData_ScanByDescending(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	base := cloudwatch.RecentTestAnchor()
 
 	// Store a few data points.
-	for _, ts := range []string{
-		"2024-01-01T00:01:00Z", "2024-01-01T00:02:00Z", "2024-01-01T00:03:00Z",
-	} {
+	for i := 1; i <= 3; i++ {
+		ts := base.Add(time.Duration(i) * time.Minute).Format(time.RFC3339)
 		postForm(
 			t, h, "Action=PutMetricData&Namespace=NS"+
 				"&MetricData.member.1.MetricName=Counter"+
@@ -985,8 +1026,8 @@ func TestHandler_GetMetricData_ScanByDescending(t *testing.T) {
 			"&MetricDataQueries.member.1.MetricStat.Stat=Sum"+
 			"&MetricDataQueries.member.1.MetricStat.Period=60"+
 			"&MetricDataQueries.member.1.ReturnData=true"+
-			"&StartTime=2024-01-01T00:00:00Z"+
-			"&EndTime=2024-01-01T00:04:00Z"+
+			"&StartTime="+base.Format(time.RFC3339)+
+			"&EndTime="+base.Add(4*time.Minute).Format(time.RFC3339)+
 			"&ScanBy=TimestampDescending",
 	)
 	assert.Equal(t, 200, rec.Code, "body: %s", rec.Body.String())
@@ -1000,13 +1041,14 @@ func TestHandler_PutMetricData_StorageResolution1(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	ts := cloudwatch.RecentTestAnchor().Format(time.RFC3339)
 	rec := postForm(
 		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Ticks"+
 			"&MetricData.member.1.Value=1"+
 			"&MetricData.member.1.StorageResolution=1"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.1.Timestamp="+ts,
 	)
 	assert.Equal(t, 200, rec.Code, "valid StorageResolution=1 should succeed")
 }
@@ -1015,13 +1057,14 @@ func TestHandler_PutMetricData_StorageResolution60(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	ts := cloudwatch.RecentTestAnchor().Format(time.RFC3339)
 	rec := postForm(
 		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Ticks"+
 			"&MetricData.member.1.Value=1"+
 			"&MetricData.member.1.StorageResolution=60"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.1.Timestamp="+ts,
 	)
 	assert.Equal(t, 200, rec.Code)
 }
@@ -1310,13 +1353,14 @@ func TestHandler_GetMetricData_WithExpressions(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	anchor := cloudwatch.RecentTestAnchor()
 
 	postForm(
 		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Hits"+
 			"&MetricData.member.1.Value=10"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:30Z",
+			"&MetricData.member.1.Timestamp="+anchor.Add(30*time.Second).Format(time.RFC3339),
 	)
 
 	rec := postForm(
@@ -1331,8 +1375,8 @@ func TestHandler_GetMetricData_WithExpressions(t *testing.T) {
 			"&MetricDataQueries.member.2.Id=e1"+
 			"&MetricDataQueries.member.2.Expression=m1+*+2"+
 			"&MetricDataQueries.member.2.ReturnData=true"+
-			"&StartTime=2024-01-01T00:00:00Z"+
-			"&EndTime=2024-01-01T00:02:00Z",
+			"&StartTime="+anchor.Format(time.RFC3339)+
+			"&EndTime="+anchor.Add(2*time.Minute).Format(time.RFC3339),
 	)
 	assert.Equal(t, 200, rec.Code, "GetMetricData with expression: %s", rec.Body.String())
 }
@@ -1358,20 +1402,21 @@ func TestHandler_PutMetricData_MultipleWithMixedDimensions(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	ts := cloudwatch.RecentTestAnchor().Format(time.RFC3339)
 	rec := postForm(
 		t, h,
 		"Action=PutMetricData&Namespace=Multi"+
 			"&MetricData.member.1.MetricName=Errors"+
 			"&MetricData.member.1.Value=1"+
 			"&MetricData.member.1.Dimensions.member.1.Name=Svc&MetricData.member.1.Dimensions.member.1.Value=auth"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z"+
+			"&MetricData.member.1.Timestamp="+ts+
 			"&MetricData.member.2.MetricName=Errors"+
 			"&MetricData.member.2.Value=2"+
 			"&MetricData.member.2.Dimensions.member.1.Name=Svc&MetricData.member.2.Dimensions.member.1.Value=api"+
-			"&MetricData.member.2.Timestamp=2024-01-01T00:00:00Z"+
+			"&MetricData.member.2.Timestamp="+ts+
 			"&MetricData.member.3.MetricName=Errors"+
 			"&MetricData.member.3.Value=3"+
-			"&MetricData.member.3.Timestamp=2024-01-01T00:00:00Z",
+			"&MetricData.member.3.Timestamp="+ts,
 	)
 	assert.Equal(t, 200, rec.Code, "three metrics with different dimension sets")
 }
@@ -1380,20 +1425,21 @@ func TestHandler_GetMetricStatistics_NoDimensions(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
+	anchor := cloudwatch.RecentTestAnchor()
 
 	postForm(
 		t, h,
 		"Action=PutMetricData&Namespace=NS"+
 			"&MetricData.member.1.MetricName=Mem&MetricData.member.1.Value=512"+
-			"&MetricData.member.1.Timestamp=2024-01-01T00:00:30Z",
+			"&MetricData.member.1.Timestamp="+anchor.Add(30*time.Second).Format(time.RFC3339),
 	)
 
 	rec := postForm(
 		t, h,
 		"Action=GetMetricStatistics"+
 			"&Namespace=NS&MetricName=Mem"+
-			"&StartTime=2024-01-01T00:00:00Z"+
-			"&EndTime=2024-01-01T00:02:00Z"+
+			"&StartTime="+anchor.Format(time.RFC3339)+
+			"&EndTime="+anchor.Add(2*time.Minute).Format(time.RFC3339)+
 			"&Period=60&Statistics.member.1=Sum",
 	)
 	assert.Equal(t, 200, rec.Code)

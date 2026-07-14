@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -756,5 +757,231 @@ func TestHandler_RunPipelineActivity(t *testing.T) {
 				assert.Len(t, payloads, tt.wantLen)
 			}
 		})
+	}
+}
+
+// TestHandler_CreateResource_InvalidTagsRejected verifies that Create* operations validate
+// tags up front, the same way TagResource does, instead of persisting a resource with tags
+// that would be rejected had they been attached via a separate TagResource call.
+func TestHandler_CreateResource_InvalidTagsRejected(t *testing.T) {
+	t.Parallel()
+
+	invalidTags := []map[string]string{{"key": "aws:reserved", "value": "v"}}
+	validTags := []map[string]string{{"key": "env", "value": "prod"}}
+
+	tests := []struct {
+		body func(tags []map[string]string) map[string]any
+		name string
+		path string
+	}{
+		{
+			name: "channel",
+			path: "/channels",
+			body: func(tags []map[string]string) map[string]any {
+				return map[string]any{"channelName": "invtag_ch", "tags": tags}
+			},
+		},
+		{
+			name: "datastore",
+			path: "/datastores",
+			body: func(tags []map[string]string) map[string]any {
+				return map[string]any{"datastoreName": "invtag_ds", "tags": tags}
+			},
+		},
+		{
+			name: "dataset",
+			path: "/datasets",
+			body: func(tags []map[string]string) map[string]any {
+				return map[string]any{"datasetName": "invtag_dset", "tags": tags}
+			},
+		},
+		{
+			name: "pipeline",
+			path: "/pipelines",
+			body: func(tags []map[string]string) map[string]any {
+				return map[string]any{"pipelineName": "invtag_pl", "tags": tags}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body(invalidTags))
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, "InvalidRequestException", errResp["__type"])
+
+			okRec := doRequest(t, h, http.MethodPost, tt.path, tt.body(validTags))
+			assert.Equal(t, http.StatusOK, okRec.Code)
+		})
+	}
+}
+
+// TestHandler_CreateChannel_TooManyTagsRejected verifies the 50-tag-per-resource limit is
+// enforced at creation time, not only when tags are added later via TagResource.
+func TestHandler_CreateChannel_TooManyTagsRejected(t *testing.T) {
+	t.Parallel()
+
+	tags := make([]map[string]string, 51)
+	for i := range tags {
+		tags[i] = map[string]string{"key": "k" + strconv.Itoa(i), "value": "v"}
+	}
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/channels", map[string]any{
+		"channelName": "toomanytags_ch",
+		"tags":        tags,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestHandler_GetDatasetContent_MagicVersionStrings verifies GetDatasetContent honors the
+// AWS-documented "$LATEST" and "$LATEST_SUCCEEDED" versionId sentinels (uppercase, as sent
+// verbatim by the SDK), not just an omitted versionId.
+func TestHandler_GetDatasetContent_MagicVersionStrings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		versionID string
+	}{
+		{name: "omitted", versionID: ""},
+		{name: "latest", versionID: "$LATEST"},
+		{name: "latest_succeeded", versionID: "$LATEST_SUCCEEDED"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": "magicver_ds"})
+			createRec := doRequest(t, h, http.MethodPost, "/datasets/magicver_ds/content", nil)
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			wantVersion, _ := createResp["versionId"].(string)
+			require.NotEmpty(t, wantVersion)
+
+			path := "/datasets/magicver_ds/content"
+			if tt.versionID != "" {
+				path += "?versionId=" + tt.versionID
+			}
+
+			rec := doRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, wantVersion, resp["versionId"])
+		})
+	}
+}
+
+// TestHandler_DeleteDatasetContent_OmittedVersionDeletesOnlyLatest verifies that omitting
+// versionId (equivalent to the AWS default "$LATEST_SUCCEEDED") removes exactly one content
+// version -- the most recently created -- not every version for the dataset.
+func TestHandler_DeleteDatasetContent_OmittedVersionDeletesOnlyLatest(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": "delonlylatest_ds"})
+
+	var firstVersion string
+
+	for i := range 3 {
+		rec := doRequest(t, h, http.MethodPost, "/datasets/delonlylatest_ds/content", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		if i == 0 {
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			firstVersion, _ = resp["versionId"].(string)
+			require.NotEmpty(t, firstVersion)
+		}
+	}
+
+	deleteRec := doRequest(t, h, http.MethodDelete, "/datasets/delonlylatest_ds/content", nil)
+	require.Equal(t, http.StatusNoContent, deleteRec.Code)
+
+	listRec := doRequest(t, h, http.MethodGet, "/datasets/delonlylatest_ds/contents", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	summaries, _ := listResp["datasetContentSummaries"].([]any)
+	require.Len(t, summaries, 2, "omitted versionId must delete exactly one version")
+
+	var remainingHasFirst bool
+
+	for _, s := range summaries {
+		summary, _ := s.(map[string]any)
+		if summary["version"] == firstVersion {
+			remainingHasFirst = true
+		}
+	}
+
+	assert.True(t, remainingHasFirst, "the two oldest versions must remain; only the newest is deleted")
+}
+
+// TestHandler_ListDatasetContents_PaginationAcrossPages verifies that paging through
+// ListDatasetContents with a small maxResults returns every content version exactly once,
+// with no duplicates or gaps, across repeated backend calls driven by successive nextTokens.
+func TestHandler_ListDatasetContents_PaginationAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": "pageall_ds"})
+
+	wantVersions := make(map[string]bool)
+
+	for range 5 {
+		rec := doRequest(t, h, http.MethodPost, "/datasets/pageall_ds/content", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		vid, _ := resp["versionId"].(string)
+		require.NotEmpty(t, vid)
+		wantVersions[vid] = true
+	}
+
+	seen := make(map[string]bool)
+	path := "/datasets/pageall_ds/contents?maxResults=2"
+
+	for path != "" {
+		rec := doRequest(t, h, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+		summaries, _ := resp["datasetContentSummaries"].([]any)
+		for _, s := range summaries {
+			summary, _ := s.(map[string]any)
+			version, _ := summary["version"].(string)
+			require.False(t, seen[version], "version %q must not be returned twice across pages", version)
+			seen[version] = true
+		}
+
+		nextToken, _ := resp["nextToken"].(string)
+		if nextToken == "" {
+			break
+		}
+
+		path = "/datasets/pageall_ds/contents?maxResults=2&nextToken=" + nextToken
+	}
+
+	assert.Len(t, seen, len(wantVersions), "every created version must be returned exactly once across pages")
+
+	for vid := range wantVersions {
+		assert.True(t, seen[vid], "version %q must appear in some page", vid)
 	}
 }

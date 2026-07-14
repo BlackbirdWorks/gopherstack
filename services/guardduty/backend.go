@@ -28,6 +28,12 @@ const (
 
 	errResourceNotFound  = "ResourceNotFoundException"
 	errConflictException = "ConflictException"
+
+	// arnPartCount is the number of colon-separated parts in a well-formed
+	// ARN (arn:partition:service:region:account:resource) -- the resource
+	// part itself may contain further "/"-separated segments, so it is not
+	// split further by SplitN.
+	arnPartCount = 6
 )
 
 var (
@@ -280,6 +286,27 @@ func (b *InMemoryBackend) threatIntelSetARN(detectorID, setID string) string {
 
 func (b *InMemoryBackend) findingARN(detectorID, findingID string) string {
 	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s/finding/%s", detectorID, findingID))
+}
+
+func (b *InMemoryBackend) threatEntitySetARN(detectorID, setID string) string {
+	return arn.Build(
+		"guardduty", b.region, b.accountID,
+		fmt.Sprintf("detector/%s/threatentityset/%s", detectorID, setID),
+	)
+}
+
+func (b *InMemoryBackend) trustedEntitySetARN(detectorID, setID string) string {
+	return arn.Build(
+		"guardduty", b.region, b.accountID,
+		fmt.Sprintf("detector/%s/trustedentityset/%s", detectorID, setID),
+	)
+}
+
+func (b *InMemoryBackend) publishingDestinationARN(detectorID, destID string) string {
+	return arn.Build(
+		"guardduty", b.region, b.accountID,
+		fmt.Sprintf("detector/%s/publishingDestination/%s", detectorID, destID),
+	)
 }
 
 // CreateDetector creates a new GuardDuty detector for this account+region.
@@ -1047,6 +1074,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	}
 
 	maps.Copy(b.tags[resourceARN], tags)
+	b.syncResourceTagsFromARN(resourceARN)
 
 	return nil
 }
@@ -1064,7 +1092,92 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		delete(b.tags[resourceARN], k)
 	}
 
+	b.syncResourceTagsFromARN(resourceARN)
+
 	return nil
+}
+
+// syncResourceTagsFromARN propagates b.tags[resourceARN] -- the value
+// TagResource/UntagResource/ListTagsForResource treat as authoritative --
+// into the owning resource's own Tags field.
+//
+// Detector/Filter/IPSet/ThreatIntelSet/ThreatEntitySet/TrustedEntitySet/
+// MalwareProtectionPlan/PublishingDestination each embed a frozen Tags copy
+// set once at creation time and returned by Get*/Describe* (matching the
+// real GetDetectorOutput.Tags etc. wire shapes). Without this sync, calling
+// TagResource then GetDetector would show the OLD tags while
+// ListTagsForResource showed the NEW ones -- real AWS keeps both views
+// consistent. Callers must hold b.mu for writing.
+func (b *InMemoryBackend) syncResourceTagsFromARN(resourceARN string) {
+	segs := strings.Split(arnResourcePart(resourceARN), "/")
+	tags := maps.Clone(b.tags[resourceARN])
+
+	const (
+		segDetectorPrefix = 2
+		segNestedPrefix   = 4
+	)
+
+	switch {
+	case len(segs) == segDetectorPrefix && segs[0] == pathDetector:
+		if d, ok := b.detectors.Get(segs[1]); ok {
+			d.Tags = tags
+		}
+
+	case len(segs) == segNestedPrefix && segs[0] == pathDetector:
+		b.syncNestedResourceTags(segs[1], segs[2], segs[3], tags)
+
+	case len(segs) == segDetectorPrefix && segs[0] == "malware-protection-plan":
+		if p, ok := b.malwareProtectionPlans.Get(segs[1]); ok {
+			p.Tags = tags
+		}
+	}
+}
+
+// syncNestedResourceTags is syncResourceTagsFromARN's helper for the
+// detector/{id}/{collection}/{id} ARN shape shared by Filter, IPSet,
+// ThreatIntelSet, ThreatEntitySet, TrustedEntitySet, and
+// PublishingDestination.
+func (b *InMemoryBackend) syncNestedResourceTags(detectorID, collection, id string, tags map[string]string) {
+	key := detectorKey(detectorID, id)
+
+	switch collection {
+	case pathFilter:
+		if f, ok := b.filters.Get(key); ok {
+			f.Tags = tags
+		}
+	case pathIPSet:
+		if s, ok := b.ipSets.Get(key); ok {
+			s.Tags = tags
+		}
+	case pathThreatIntelSet:
+		if s, ok := b.threatIntelSets.Get(key); ok {
+			s.Tags = tags
+		}
+	case pathThreatEntitySet:
+		if s, ok := b.threatEntitySets.Get(key); ok {
+			s.Tags = tags
+		}
+	case pathTrustedEntitySet:
+		if s, ok := b.trustedEntitySets.Get(key); ok {
+			s.Tags = tags
+		}
+	case pathPublishingDestination:
+		if d, ok := b.publishingDestinations.Get(key); ok {
+			d.Tags = tags
+		}
+	}
+}
+
+// arnResourcePart returns the resource component of an ARN
+// (arn:partition:service:region:account:resource), or "" if resourceARN is
+// not a well-formed 6-colon-part ARN.
+func arnResourcePart(resourceARN string) string {
+	parts := strings.SplitN(resourceARN, ":", arnPartCount)
+	if len(parts) < arnPartCount {
+		return ""
+	}
+
+	return parts[arnPartCount-1]
 }
 
 // ListTagsForResource returns tags for a resource.

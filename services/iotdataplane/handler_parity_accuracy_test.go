@@ -234,9 +234,12 @@ func TestParityAccuracy_DeleteThingShadow_Returns404OnRefetch(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code, "GetThingShadow must return 404 after delete")
 }
 
-// TestParityAccuracy_DeleteThingShadow_ResponseIncludesState verifies that the
-// delete response contains the shadow's state at time of deletion, matching real AWS.
-func TestParityAccuracy_DeleteThingShadow_ResponseIncludesState(t *testing.T) {
+// TestParityAccuracy_DeleteThingShadow_ResponseOmitsState verifies that the
+// delete response is an "empty response state document" -- only version and
+// timestamp, no state/metadata/clientToken -- matching real AWS. See
+// https://docs.aws.amazon.com/iot/latest/developerguide/device-shadow-rest-api.html#API_DeleteThingShadow:
+// "Response body: {{Empty response state document}}".
+func TestParityAccuracy_DeleteThingShadow_ResponseOmitsState(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -250,16 +253,18 @@ func TestParityAccuracy_DeleteThingShadow_ResponseIncludesState(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	_, hasState := resp["state"]
-	assert.True(t, hasState, "delete response must include state")
+	assert.False(t, hasState, "delete response must NOT include state (empty response state document)")
 	_, hasVersion := resp["version"]
 	assert.True(t, hasVersion, "delete response must include version")
 	_, hasTimestamp := resp["timestamp"]
 	assert.True(t, hasTimestamp, "delete response must include timestamp")
 }
 
-// TestParityAccuracy_DeleteThingShadow_RecreateResetsVersion verifies that
-// after deleting a shadow, recreating it starts version at 1, matching real AWS.
-func TestParityAccuracy_DeleteThingShadow_RecreateResetsVersion(t *testing.T) {
+// TestParityAccuracy_DeleteThingShadow_RecreateContinuesVersion verifies that
+// after deleting a shadow, recreating it continues the version counter rather
+// than resetting to 1, matching real AWS: "Note that deleting a shadow does
+// not reset its version number to 0." (device-shadow-rest-api.html).
+func TestParityAccuracy_DeleteThingShadow_RecreateContinuesVersion(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -277,10 +282,10 @@ func TestParityAccuracy_DeleteThingShadow_RecreateResetsVersion(t *testing.T) {
 	rec := doRequest(t, h, http.MethodDelete, shadowPath(parityThing), nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Recreate — version must restart at 1.
+	// Recreate — version must continue from 3, i.e. become 4, NOT reset to 1.
 	resp = updateShadow(t, h, parityThing, "", []byte(`{"state":{"desired":{"y":2}}}`))
-	assert.InDelta(t, float64(1), resp["version"], 0,
-		"version must reset to 1 when shadow is recreated after deletion")
+	assert.InDelta(t, float64(4), resp["version"], 0,
+		"version must continue incrementing (not reset to 1) after delete+recreate")
 }
 
 // TestParityAccuracy_ListNamedShadows_ExcludesClassicShadow verifies that the
@@ -630,7 +635,9 @@ func TestParityAccuracy_ShadowDelta_PreciseFields(t *testing.T) {
 }
 
 // TestParityAccuracy_VersionConflict_RejectedWithCorrectError verifies that
-// UpdateThingShadow rejects version mismatches with VersionConflictException,
+// UpdateThingShadow rejects version mismatches with ConflictException (the
+// real AWS iotdataplane exception name; there is no "VersionConflictException"
+// in the real API -- see aws-sdk-go-v2/service/iotdataplane/types.ConflictException),
 // matching real AWS IoT optimistic locking behavior.
 func TestParityAccuracy_VersionConflict_RejectedWithCorrectError(t *testing.T) {
 	t.Parallel()
@@ -645,13 +652,13 @@ func TestParityAccuracy_VersionConflict_RejectedWithCorrectError(t *testing.T) {
 			name:          "stale_version_rejected",
 			versionInDoc:  0,
 			wantStatus:    http.StatusConflict,
-			wantErrorType: "VersionConflictException",
+			wantErrorType: "ConflictException",
 		},
 		{
 			name:          "future_version_rejected",
 			versionInDoc:  99,
 			wantStatus:    http.StatusConflict,
-			wantErrorType: "VersionConflictException",
+			wantErrorType: "ConflictException",
 		},
 		{
 			name:         "correct_version_accepted",
@@ -676,7 +683,7 @@ func TestParityAccuracy_VersionConflict_RejectedWithCorrectError(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.Equal(t, tt.wantErrorType, resp["error"],
-					"error type must be VersionConflictException")
+					"error type must be ConflictException")
 			}
 		})
 	}

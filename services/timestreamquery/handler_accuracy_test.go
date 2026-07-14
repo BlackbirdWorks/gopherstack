@@ -259,7 +259,15 @@ func TestPrepareQuery_InfersColumns(t *testing.T) {
 	}
 }
 
-func TestPrepareQuery_ValidateOnlyReturnsEmpty(t *testing.T) {
+// TestPrepareQuery_ValidateOnlyStillInfersColumns verifies that ValidateOnly=true
+// does not suppress the inferred Columns/Parameters. Real Timestream documents
+// ValidateOnly=true as the only supported mode for PrepareQuery, and
+// PrepareQueryOutput.Columns/Parameters are required response fields regardless
+// of ValidateOnly -- describing the query's shape is the entire point of the
+// call. An earlier version of this emulator returned an empty Columns list
+// whenever ValidateOnly was true, which discarded the inferred result for the
+// one mode real clients actually use.
+func TestPrepareQuery_ValidateOnlyStillInfersColumns(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -272,7 +280,7 @@ func TestPrepareQuery_ValidateOnlyReturnsEmpty(t *testing.T) {
 	resp := parseResponse(t, rec)
 
 	cols := resp["Columns"].([]any)
-	assert.Empty(t, cols, "ValidateOnly returns no columns")
+	assert.Len(t, cols, 3, "ValidateOnly must still return the inferred columns (time, measure_name, measure_value)")
 }
 
 // ---------------------------------------------------------------------------
@@ -532,9 +540,19 @@ func TestDescribeScheduledQuery_LastRunSummaryFullFields(t *testing.T) {
 	assert.NotEmpty(t, lastRun["RunStatus"])
 	assert.NotEmpty(t, lastRun["InvocationTime"])
 	assert.NotEmpty(t, lastRun["TriggerTime"])
-	assert.NotNil(t, lastRun["ExecutionStats"])
 	assert.NotEmpty(t, sqView["PreviousInvocationTime"])
 	assert.NotEmpty(t, sqView["NextInvocationTime"])
+
+	// ExecutionStats' wire field is "ExecutionTimeInMillis" (no trailing
+	// "ecs"), per the real aws-sdk-go-v2 deserializer
+	// (awsAwsjson10_deserializeDocumentExecutionStats). A prior version of
+	// this emulator used "ExecutionTimeInMillisecs", which a real client
+	// would silently fail to populate.
+	stats, ok := lastRun["ExecutionStats"].(map[string]any)
+	require.True(t, ok, "ExecutionStats must be present")
+	assert.NotEmpty(t, stats["ExecutionTimeInMillis"])
+	_, hasMisspelled := stats["ExecutionTimeInMillisecs"]
+	assert.False(t, hasMisspelled, "must not emit the misspelled ExecutionTimeInMillisecs field")
 }
 
 // ---------------------------------------------------------------------------
@@ -591,7 +609,7 @@ func TestValidateScheduleExpression(t *testing.T) {
 
 	for _, expr := range validExprs {
 		_, err := backend.CreateScheduledQuery(
-			t.Context(), "valid-"+expr[:4], "SELECT 1", expr, "arn", "", "", "", "", nil,
+			t.Context(), "valid-"+expr[:4], "SELECT 1", expr, "arn", "", "", "", "", "", nil,
 		)
 		require.NoError(t, err, "valid expr %q should be accepted", expr)
 		_ = backend.DeleteScheduledQuery(
@@ -602,7 +620,7 @@ func TestValidateScheduleExpression(t *testing.T) {
 
 	for _, expr := range invalidExprs {
 		_, err := backend.CreateScheduledQuery(
-			t.Context(), "inv", "SELECT 1", expr, "arn", "", "", "", "", nil,
+			t.Context(), "inv", "SELECT 1", expr, "arn", "", "", "", "", "", nil,
 		)
 		require.Error(t, err, "invalid expr %q should be rejected", expr)
 	}

@@ -133,22 +133,45 @@ type RecordLifecycleActionHeartbeatInput struct {
 	InstanceID           string
 }
 
+// terminationDisposition controls what finishTermination does to the group's
+// capacity bookkeeping once a Terminating:Wait lifecycle wait resolves. It is only
+// meaningful for terminating actions (ignored for transitionLaunching waits).
+type terminationDisposition int
+
+const (
+	// terminationReplace removes the instance and launches a replacement to
+	// maintain DesiredCapacity. Used by TerminateInstanceInAutoScalingGroup when
+	// ShouldDecrementDesiredCapacity=false. This is also the zero value, so waits
+	// re-armed by Restore() (whose original disposition is never persisted) fall
+	// back to this behavior, matching pre-existing behavior.
+	terminationReplace terminationDisposition = iota
+	// terminationDecrement removes the instance and decrements DesiredCapacity/
+	// MinSize by one, without a replacement. Used by
+	// TerminateInstanceInAutoScalingGroup when ShouldDecrementDesiredCapacity=true.
+	terminationDecrement
+	// terminationCapacityPreset removes the instance only: DesiredCapacity/MinSize
+	// were already adjusted by the caller before the wait was armed, so no further
+	// capacity bookkeeping is needed once it resolves. Used by the desired-capacity
+	// -driven scale-in path (SetDesiredCapacity, UpdateAutoScalingGroup, and
+	// ExecutePolicy scale-in), which sets DesiredCapacity to its new target up front.
+	terminationCapacityPreset
+)
+
 // pendingHookAction tracks an in-flight lifecycle action with its timer.
 // Transition is one of the transitionLaunching/transitionTerminating constants
 // (backend.go) and determines what resolving the action does to the instance.
-// ShouldDecrement is only meaningful for terminating actions: it records whether
-// the originating TerminateInstanceInAutoScalingGroup call requested a desired
-// capacity decrement (vs launching a replacement) once the wait completes.
+// Disposition is only meaningful for terminating actions: it records what
+// finishTermination should do to the group's capacity once the wait completes.
 type pendingHookAction struct {
-	timer           *time.Timer
-	Token           string
-	GroupName       string
-	HookName        string
-	InstanceID      string
-	Transition      string
-	DefaultResult   string
-	timeout         time.Duration
-	ShouldDecrement bool
+	timer         *time.Timer
+	Token         string
+	GroupName     string
+	HookName      string
+	InstanceID    string
+	Transition    string
+	DefaultResult string
+	timeout       time.Duration
+	Disposition   terminationDisposition
 }
 
 // LaunchTemplateSpecification identifies an EC2 launch template.

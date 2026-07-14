@@ -38,27 +38,92 @@ var (
 
 // Endpoint represents a SageMaker inference endpoint.
 type Endpoint struct {
-	CreationTime       time.Time           `json:"CreationTime"`
-	LastModifiedTime   time.Time           `json:"LastModifiedTime"`
-	Tags               map[string]string   `json:"Tags,omitempty"`
-	EndpointName       string              `json:"EndpointName"`
-	EndpointArn        string              `json:"EndpointArn"`
-	EndpointConfigName string              `json:"EndpointConfigName"`
-	EndpointStatus     string              `json:"EndpointStatus"`
-	FailureReason      string              `json:"FailureReason,omitempty"`
-	ProductionVariants []ProductionVariant `json:"ProductionVariants,omitempty"`
+	CreationTime       time.Time                  `json:"CreationTime"`
+	LastModifiedTime   time.Time                  `json:"LastModifiedTime"`
+	Tags               map[string]string          `json:"Tags,omitempty"`
+	EndpointName       string                     `json:"EndpointName"`
+	EndpointArn        string                     `json:"EndpointArn"`
+	EndpointConfigName string                     `json:"EndpointConfigName"`
+	EndpointStatus     string                     `json:"EndpointStatus"`
+	FailureReason      string                     `json:"FailureReason,omitempty"`
+	ProductionVariants []ProductionVariantSummary `json:"ProductionVariants,omitempty"`
+}
+
+// ProductionVariantStatus describes the current deployment stage of a
+// production variant on a deployed endpoint.
+type ProductionVariantStatus struct {
+	Status        string `json:"Status"`
+	StatusMessage string `json:"StatusMessage,omitempty"`
+}
+
+// ProductionVariantSummary describes a production variant as deployed on a
+// live endpoint (the shape returned by DescribeEndpoint). This is distinct
+// from ProductionVariant, which is the EndpointConfig-time configuration:
+// AWS renames Initial* to Desired* and adds Current* fields that reflect
+// deployed state once the endpoint has finished (re)deploying.
+type ProductionVariantSummary struct {
+	CurrentWeight        *float64                  `json:"CurrentWeight,omitempty"`
+	DesiredWeight        *float64                  `json:"DesiredWeight,omitempty"`
+	CurrentInstanceCount *int32                    `json:"CurrentInstanceCount,omitempty"`
+	DesiredInstanceCount *int32                    `json:"DesiredInstanceCount,omitempty"`
+	VariantName          string                    `json:"VariantName"`
+	VariantStatus        []ProductionVariantStatus `json:"VariantStatus,omitempty"`
+}
+
+// newVariantSummaries builds the initial ProductionVariantSummary list for an
+// endpoint from an endpoint config's ProductionVariants. Desired* fields are
+// populated from the config's Initial* fields; Current* fields are left nil
+// until the endpoint (re)reaches InService.
+func newVariantSummaries(pvs []ProductionVariant) []ProductionVariantSummary {
+	summaries := make([]ProductionVariantSummary, len(pvs))
+
+	for i, pv := range pvs {
+		weight := pv.InitialVariantWeight
+		count := pv.InitialInstanceCount
+		summaries[i] = ProductionVariantSummary{
+			VariantName:          pv.VariantName,
+			DesiredWeight:        &weight,
+			DesiredInstanceCount: &count,
+			VariantStatus:        []ProductionVariantStatus{{Status: "Creating"}},
+		}
+	}
+
+	return summaries
 }
 
 // cloneEndpoint returns a deep copy of ep.
 func cloneEndpoint(ep *Endpoint) *Endpoint {
 	cp := *ep
 	cp.Tags = maps.Clone(ep.Tags)
-	cp.ProductionVariants = make([]ProductionVariant, len(ep.ProductionVariants))
+	cp.ProductionVariants = make([]ProductionVariantSummary, len(ep.ProductionVariants))
 	for i, pv := range ep.ProductionVariants {
-		cp.ProductionVariants[i] = cloneProductionVariant(pv)
+		cp.ProductionVariants[i] = cloneProductionVariantSummary(pv)
 	}
 
 	return &cp
+}
+
+// cloneProductionVariantSummary returns a deep copy of a ProductionVariantSummary.
+func cloneProductionVariantSummary(pv ProductionVariantSummary) ProductionVariantSummary {
+	if pv.CurrentWeight != nil {
+		w := *pv.CurrentWeight
+		pv.CurrentWeight = &w
+	}
+	if pv.DesiredWeight != nil {
+		w := *pv.DesiredWeight
+		pv.DesiredWeight = &w
+	}
+	if pv.CurrentInstanceCount != nil {
+		c := *pv.CurrentInstanceCount
+		pv.CurrentInstanceCount = &c
+	}
+	if pv.DesiredInstanceCount != nil {
+		c := *pv.DesiredInstanceCount
+		pv.DesiredInstanceCount = &c
+	}
+	pv.VariantStatus = append([]ProductionVariantStatus(nil), pv.VariantStatus...)
+
+	return pv
 }
 
 // TrainingJob represents a SageMaker training job.
@@ -202,6 +267,15 @@ func (b *InMemoryBackend) CreateEndpoint(
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrEndpointAlreadyExists, name)
 	}
 
+	ec, ok := b.endpointConfigsStore(region).Get(endpointConfigName)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: could not find endpoint configuration %q",
+			ErrEndpointConfigNotFound,
+			endpointConfigName,
+		)
+	}
+
 	epARN := arn.Build("sagemaker", region, b.accountID, "endpoint/"+name)
 	now := time.Now()
 	ep := &Endpoint{
@@ -212,6 +286,7 @@ func (b *InMemoryBackend) CreateEndpoint(
 		CreationTime:       now,
 		LastModifiedTime:   now,
 		Tags:               mergeTags(nil, tags),
+		ProductionVariants: newVariantSummaries(ec.ProductionVariants),
 	}
 	b.endpointsStore(region).Put(ep)
 	b.endpointARNIndexStore(region)[epARN] = name
@@ -226,7 +301,7 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 
 	region := getRegion(ctx, b.region)
 
-	ep, ok := b.endpointsStore(region).Get(name)
+	ep, ok := b.endpointsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
@@ -241,7 +316,7 @@ func (b *InMemoryBackend) ListEndpoints(ctx context.Context, nextToken string) (
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.endpointsStore(region), nextToken, cloneEndpoint,
+	return sagemakerListPaged(b.endpointsStoreRO(region), nextToken, cloneEndpoint,
 		func(a, b *Endpoint) bool { return a.EndpointName < b.EndpointName })
 }
 
@@ -277,9 +352,34 @@ func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, name, endpointConf
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
 
+	ec, ok := b.endpointConfigsStore(region).Get(endpointConfigName)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: could not find endpoint configuration %q",
+			ErrEndpointConfigNotFound,
+			endpointConfigName,
+		)
+	}
+
+	newVariants := newVariantSummaries(ec.ProductionVariants)
+	// Carry over Current* values from any same-named variant that was already
+	// deployed, since traffic keeps flowing on the old counts until the
+	// update finishes rolling out.
+	for i := range newVariants {
+		for _, old := range ep.ProductionVariants {
+			if old.VariantName == newVariants[i].VariantName {
+				newVariants[i].CurrentWeight = old.CurrentWeight
+				newVariants[i].CurrentInstanceCount = old.CurrentInstanceCount
+
+				break
+			}
+		}
+	}
+
 	ep.EndpointConfigName = endpointConfigName
 	ep.EndpointStatus = "Updating"
 	ep.LastModifiedTime = time.Now()
+	ep.ProductionVariants = newVariants
 
 	return cloneEndpoint(ep), nil
 }
@@ -316,7 +416,7 @@ func (b *InMemoryBackend) DescribeTrainingJob(ctx context.Context, name string) 
 
 	region := getRegion(ctx, b.region)
 
-	tj, ok := b.trainingJobsStore(region).Get(name)
+	tj, ok := b.trainingJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
@@ -331,7 +431,7 @@ func (b *InMemoryBackend) ListTrainingJobs(ctx context.Context, nextToken string
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.trainingJobsStore(region), nextToken, cloneTrainingJob,
+	return sagemakerListPaged(b.trainingJobsStoreRO(region), nextToken, cloneTrainingJob,
 		func(a, b *TrainingJob) bool { return a.TrainingJobName < b.TrainingJobName })
 }
 
@@ -433,7 +533,7 @@ func (b *InMemoryBackend) DescribeNotebookInstance(ctx context.Context, name str
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region).Get(name)
+	nb, ok := b.notebooksStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -461,7 +561,7 @@ func (b *InMemoryBackend) ListNotebookInstances(
 
 	region := getRegion(ctx, b.region)
 
-	store := b.notebooksStore(region)
+	store := b.notebooksStoreRO(region)
 	list := make([]*NotebookInstance, 0, store.Len())
 	for _, nb := range store.All() {
 		if !matchesNotebookFilter(nb, filter) {
@@ -591,7 +691,7 @@ func (b *InMemoryBackend) CreatePresignedNotebookInstanceURL(ctx context.Context
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region).Get(name)
+	nb, ok := b.notebooksStoreRO(region).Get(name)
 	if !ok {
 		return "", fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -651,7 +751,7 @@ func (b *InMemoryBackend) DescribeHyperParameterTuningJob(
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.hpTuningJobsStore(region).Get(name)
+	j, ok := b.hpTuningJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
@@ -669,7 +769,7 @@ func (b *InMemoryBackend) ListHyperParameterTuningJobs(
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.hpTuningJobsStore(region), nextToken, cloneHPTuningJob,
+	return sagemakerListPaged(b.hpTuningJobsStoreRO(region), nextToken, cloneHPTuningJob,
 		func(a, b *HyperParameterTuningJob) bool {
 			return a.HyperParameterTuningJobName < b.HyperParameterTuningJobName
 		})

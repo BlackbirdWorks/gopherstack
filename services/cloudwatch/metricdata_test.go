@@ -182,7 +182,7 @@ func TestGetMetricDataPagedEndToEnd(t *testing.T) {
 
 	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	base := cloudwatch.RecentTestAnchor()
 	data := make([]cloudwatch.MetricDatum, 0, 5)
 	for i := range 5 {
 		data = append(data, cloudwatch.MetricDatum{

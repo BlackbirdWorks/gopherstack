@@ -20,7 +20,7 @@ type StorageBackend interface {
 	GetGroup(ctx context.Context, nameOrARN string) (*Group, error)
 	UpdateGroup(ctx context.Context, nameOrARN, description, displayName string, criticality int) (*Group, error)
 	UpdateGroupQuery(ctx context.Context, nameOrARN string, query *ResourceQuery) (*Group, error)
-	DeleteGroup(ctx context.Context, nameOrARN string) error
+	DeleteGroup(ctx context.Context, nameOrARN string) (*Group, error)
 	// ListGroups returns groups sorted by name with optional filtering and pagination.
 	// Returns the page of groups and a continuation token (empty when exhausted).
 	ListGroups(ctx context.Context, filters []ListGroupsFilter, nextToken string, maxResults int) ([]Group, string)

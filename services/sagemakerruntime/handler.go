@@ -36,6 +36,7 @@ const (
 	headerSessionID               = "X-Amzn-Sagemaker-Session-Id"
 	headerInferenceID             = "X-Amzn-Sagemaker-Inference-Id"
 	headerOutputLocation          = "X-Amzn-Sagemaker-Outputlocation"
+	headerFailureLocation         = "X-Amzn-Sagemaker-Failurelocation"
 	headerAsyncAccept             = "X-Amzn-Sagemaker-Accept"
 	headerStreamContentType       = "X-Amzn-Sagemaker-Content-Type"
 	headerTargetVariant           = "X-Amzn-Sagemaker-Target-Variant"
@@ -89,10 +90,13 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches SageMaker Runtime requests.
-// It matches all requests to paths beginning with /endpoints/.
+// It matches all requests to paths beginning with /endpoints/. The real AWS
+// SageMaker Runtime endpoint hostname is "runtime.sagemaker.<region>.amazonaws.com"
+// (see aws-sdk-go-v2/service/sagemakerruntime's endpoint resolver), not
+// "sagemaker-runtime.<region>..." -- the latter would never match real traffic.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Host, "sagemaker-runtime.") ||
+		return strings.HasPrefix(c.Request().Host, "runtime.sagemaker.") ||
 			strings.HasPrefix(c.Request().URL.Path, sagemakerRuntimePathPrefix)
 	}
 }
@@ -117,7 +121,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		log := logger.Load(r.Context())
 
 		if r.Method != http.MethodPost {
-			return c.JSON(http.StatusMethodNotAllowed, errorResponse("ValidationException", "method not allowed"))
+			return c.JSON(http.StatusMethodNotAllowed, errorResponse("ValidationError", "method not allowed"))
 		}
 
 		body, err := httputils.ReadBody(r)
@@ -129,7 +133,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		endpointName := extractEndpointName(r.URL.Path)
 		if endpointName == "" {
-			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "missing EndpointName in path"))
+			// NOTE: the sagemakerruntime SDK's typed client error is
+			// types.ValidationError (__type "ValidationError"), unlike most
+			// other JSON-protocol services which use "ValidationException".
+			// See aws-sdk-go-v2/service/sagemakerruntime/types/errors.go.
+			return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", "missing EndpointName in path"))
 		}
 
 		op := pathToOperation(r.URL.Path)
@@ -187,6 +195,7 @@ func (h *Handler) handleInvokeEndpointAsync(
 
 	c.Response().Header().Set("Content-Type", "application/json")
 	c.Response().Header().Set(headerOutputLocation, async.OutputLocation)
+	c.Response().Header().Set(headerFailureLocation, async.FailureLocation)
 
 	return c.JSONBlob(http.StatusAccepted, out)
 }

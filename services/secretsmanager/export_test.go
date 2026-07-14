@@ -62,3 +62,27 @@ func (b *InMemoryBackend) RunScheduledRotationsForTest(now time.Time) {
 func (b *InMemoryBackend) SetNowForTest(fn func() time.Time) {
 	b.now = fn
 }
+
+// SecretVersionRaw returns the raw stored SecretVersion for the given secret
+// (by name) and version ID -- or the AWSCURRENT version when versionID is
+// empty -- for white-box testing of KMS-at-rest storage (e.g. asserting
+// Ciphertext is populated and SecretString/SecretBinary are cleared once a
+// KMSEncryptor is wired). The second return is false when the secret or
+// version does not exist.
+func SecretVersionRaw(b *InMemoryBackend, region, name, versionID string) (*SecretVersion, bool) {
+	b.mu.RLock("SecretVersionRaw")
+	defer b.mu.RUnlock()
+
+	secret, ok := b.secretGet(region, name)
+	if !ok {
+		return nil, false
+	}
+
+	if versionID == "" {
+		versionID = secret.CurrentVersionID
+	}
+
+	v, ok := secret.Versions[versionID]
+
+	return v, ok
+}

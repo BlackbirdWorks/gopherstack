@@ -1,9 +1,9 @@
 ---
 service: glue
 sdk_module: aws-sdk-go-v2/service/glue@v1.137.2
-last_audit_commit: 704d7cda
-last_audit_date: 2026-07-05
-overall: A            # ~1k genuine fixes found and applied this pass
+last_audit_commit: a8c6614b
+last_audit_date: 2026-07-12
+overall: A            # small, well-verified set of real bugs found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -61,16 +61,17 @@ ops:
   GetTags: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   connections: {status: deferred, note: "structural wire shape looked plausible (ConnectionType/ConnectionProperties/Tags) but PhysicalConnectionRequirements, MatchCriteria and connection-type-specific validation not audited this pass"}
-  triggers: {status: deferred, note: "Trigger struct (Predicate/Actions/Schedule/Type/State) present; predicate-condition and action-shape accuracy vs types.Predicate/types.Action not re-verified this pass"}
+  triggers: {status: partial, note: "fixed this pass: StartTrigger/StopTrigger unconditionally set State to ACTIVATED/DEACTIVATED for every trigger Type, but AWS docs (about-triggers.html) state ON_DEMAND triggers 'never enter the ACTIVATED or DEACTIVATED state — they always remain in the CREATED state.' Also, StartTrigger on an ON_DEMAND trigger is what fires it (starts its jobs/crawlers immediately) and this backend did nothing beyond a state-string flip — a disguised stub for the type's whole purpose. Fixed: ON_DEMAND stays CREATED across Start/Stop, and StartTrigger now runs each action's job (StartJobRun) or crawler (StartCrawler) outside the trigger lock (StartJobRun/StartCrawler take the same coarse lock, non-reentrant). Also added Action.CrawlerName (real types.Action supports firing a crawler, not just a job — was entirely unmodeled) and CreateTriggerInput.StartOnCreation (silently dropped on the wire; now activates SCHEDULED/CONDITIONAL/EVENT triggers at creation, ignored for ON_DEMAND per AWS: 'True is not supported for ON_DEMAND triggers'). Still deferred: predicate-condition wire-shape depth, Description/EventBatchingCondition/WorkflowName fields, the '2 crawlers per trigger' AWS soft limit."}
   workflows: {status: deferred, note: "not audited this pass"}
   dev_endpoints: {status: deferred, note: "not audited this pass"}
   security_configurations: {status: deferred, note: "not audited this pass"}
-  schema_registry: {status: deferred, note: "not audited this pass (CreateRegistry/CreateSchema/RegisterSchemaVersion/GetSchemaByDefinition/compatibility/AVRO-JSON-PROTOBUF validation)"}
-  data_quality_rulesets: {status: deferred, note: "not audited this pass"}
+  schema_registry: {status: partial, note: "fixed this pass: CreateSchema returned the live *Schema map-stored pointer directly (not a clone). RegisterSchemaVersion (increments NextSchemaVersion/LatestSchemaVersion) and UpdateSchema (Compatibility/Description) both mutate that same pointer in place under the backend lock, while the CreateSchema handler reads Compatibility/SchemaStatus/etc. from it after the lock is released to build the wire response — a genuine unsynchronized read/write data race, plus a correctness bug if a concurrent Update raced the Create response. Fixed by cloning before return (matches the established pattern already used by DescribeSchema/ListSchemas/CreateConnection/CreateTrigger/etc.). CreateRegistry/RegisterSchemaVersion audited and found NOT to have the same bug (no field either one returns is ever mutated post-creation) — left as-is. Still not audited: GetSchemaByDefinition/compatibility-mode enforcement/AVRO-JSON-PROTOBUF validation"}
+  data_quality_rulesets: {status: deferred, note: "audited this pass: CreateDataQualityRuleset/StartDataQualityRulesetEvaluationRun return their live map-stored pointer too, but their handlers only read the immutable Name/RunID identity fields from it, and no other op mutates those objects post-creation — not an actual bug, left as-is. Ruleset DQDL syntax / rule-type validation still not audited"}
   ml_transforms: {status: deferred, note: "not audited this pass"}
   blueprints: {status: deferred, note: "not audited this pass"}
   user_defined_functions: {status: deferred, note: "not audited this pass"}
-  resource_policy: {status: deferred, note: "not audited this pass"}
+  resource_policy: {status: ok, note: "fixed this pass: PutResourcePolicy silently dropped PolicyExistsCondition (MUST_EXIST/NOT_EXIST) and PolicyHashCondition entirely — every call unconditionally created/overwrote the policy regardless of what a caller passed, defeating the optimistic-concurrency guard those fields exist for. Worse, DeleteResourcePolicy's PolicyHashCondition parameter was already plumbed from the wire into the backend method but the backend signature discarded it as `_ string` — any caller's hash was ignored and the policy always deleted. Both now enforce the conditions and return the documented ConditionCheckFailureException (new sentinel ErrResourcePolicyConditionFailed, mapped in handler.go's handleError) or EntityNotFoundException (MUST_EXIST-but-missing) on mismatch. Interface signature PutResourcePolicy gained two params (existsCondition, hashCondition); only InMemoryBackend implements StorageBackend so this was safe. Not modeled: EnableHybrid."}
+  integration_resource_properties: {status: ok, note: "fixed this pass (found while auditing the deferred families, not previously tracked in this ledger): GetIntegrationResourceProperty/CreateIntegrationResourceProperty/UpdateIntegrationResourceProperty/ListIntegrationResourceProperties and GetIntegrationTableProperties all returned the live map-stored pointer with its SourceProperties/TargetProperties (or SourceTableConfig/TargetTableConfig) maps uncloned. UpdateIntegrationResourceProperty/UpdateIntegrationTableProperties reassign those same map fields in place under the lock, while Get/Create's callers read them after the lock is released — a genuine data race, same bug class as the prior pass's GetTables fix. Fixed by cloning (new cloneIntegrationResourceProperty helper + inline clone for the table-properties Get)."}
   error_codes_global: {status: ok, note: "SEVERE systemic fix this pass: the shared ErrValidation sentinel wired \"ValidationException\" as its wire __type — confirmed against aws-sdk-go-v2/service/glue/deserializers.go that the vast majority of Create/Update/Delete operations (CreateDatabase, CreateTable, CreateJob, CreateCrawler, CreateTrigger, CreateBlueprint, CreateCustomEntityType, CreateUsageProfile, tag validation, ...) document InvalidInputException instead. Changed the shared sentinel + handler.go's hardcoded mapping to InvalidInputException, and fixed the ~8 existing tests that had encoded the wrong wire code. Also fixed awserrFromDetail (handler_stubs.go), which always wrapped batch-operation ErrorDetail as awserr.ErrNotFound regardless of the actual ErrorCode string — so e.g. an AlreadyExistsException detail from BatchCreatePartition surfaced to CreatePartition callers as EntityNotFoundException. Not touched: IdempotentParameterMismatchException, ResourceNumberLimitExceededException, OperationTimeoutException, ConcurrentModificationException remain unused — no account-level quota/concurrency-conflict modeling exists to trigger them realistically (bd: gopherstack-qd3.5)"}
 gaps:
   - CrawlerTarget missing DynamoDBTargets/DeltaTargets/HudiTargets/IcebergTargets/MongoDBTargets (only S3/JDBC/Catalog modeled) (bd: gopherstack-qd3.1)
@@ -78,18 +79,19 @@ gaps:
   - DatabaseInput/Database missing Parameters, LocationUri, CreateTableDefaultPermissions, TargetDatabase (bd: gopherstack-qd3.3)
   - StartJobRun has no per-run capacity/argument overrides (WorkerType/NumberOfWorkers/MaxCapacity/Timeout/NotificationProperty are inherited from the job only, not overridable per AWS's StartJobRunRequest) (bd: gopherstack-qd3.4)
   - IdempotentParameterMismatchException/ResourceNumberLimitExceededException/OperationTimeoutException/ConcurrentModificationException are documented Glue exceptions never returned by this backend (no quota/idempotency-token/concurrency-conflict modeling) (bd: gopherstack-qd3.5)
+  - Trigger/TriggerAction missing Description, EventBatchingCondition, WorkflowName, and the AWS "max 2 crawler actions per trigger" soft limit is not enforced (bd: gopherstack-qd4.1)
+  - PutResourcePolicy does not model EnableHybrid (bd: gopherstack-qd4.2)
 deferred:
-  - triggers (predicate/action wire-shape depth)
   - workflows
   - dev endpoints
   - security configurations
-  - schema registry (compatibility modes, AVRO/JSON/PROTOBUF validation depth)
-  - data quality rulesets
+  - schema registry (compatibility modes, AVRO/JSON/PROTOBUF validation depth, GetSchemaByDefinition)
+  - data quality rulesets (DQDL syntax / rule-type validation)
   - ML transforms
   - blueprints
   - user-defined functions
-  - resource policy
   - connections (PhysicalConnectionRequirements/MatchCriteria depth)
+  - triggers (predicate-condition wire-shape depth; Description/EventBatchingCondition/WorkflowName fields)
 leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartReconciler/StopReconciler/reconcileLoop) already exits deterministically on ctx.Done() or the stop channel with a WaitGroup — no unmanaged 'go b.runReconciler()' leak. Verified with go test -race; no new goroutines/timers introduced this pass."}
 ---
 
@@ -154,11 +156,40 @@ leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartRe
   Fixed to match the established pattern; verified no other `Get*` list method has
   the same gap.
 
+## This pass (re-audit at HEAD `a8c6614b`, no local drift since `ce30166a`)
+
+`git diff ce30166a..HEAD -- services/glue/` was empty (the ledger's real baseline —
+the recorded `last_audit_commit: 704d7cda` did not exist in this branch's history;
+`704d7cda` turned out to be an unrelated STS commit, so per the re-audit protocol
+`ce30166a`, the commit that last touched this file, was used as the actual baseline).
+SDK pin unchanged at `v1.137.2`. With zero drift, all rows the previous pass marked
+`ok` were trusted as-is; this pass audited only the rows marked `partial`/`deferred`
+and found genuine, narrowly-scoped bugs in triggers, schema registry, resource
+policy, and (previously untracked) integration resource/table properties — see the
+`families` notes above for each. Full details on all six fixes are in those notes;
+summary: two more `Get*`-returns-live-pointer data races (schema registry,
+integration properties — same bug class as the prior pass's `GetTables` fix),
+`StartTrigger`/`StopTrigger` ignoring the ON_DEMAND-trigger state rule and
+`StartTrigger` never actually firing an ON_DEMAND trigger's actions (a disguised
+stub for that type's entire purpose), and `PutResourcePolicy`/`DeleteResourcePolicy`
+silently dropping their optimistic-concurrency condition parameters.
+
+New regression tests: `parity_pass5_test.go`.
+
 ## Follow-ups filed as SHARED-FILE / cross-service (NOT edited this pass)
 
-None required code changes outside `services/glue/`. The one cross-package touch
-point — `services/cloudformation/resources_phase5.go`'s calls into
-`gluebackend.CreateCrawler`/`BatchCreatePartition`/`CreateJob`/`CreateTrigger` — was
-verified to still compile and its test (`services/cloudformation` package tests)
-still passes, because all Glue-side changes were additive (new struct fields, new
-`*WithOptions` methods) rather than signature-breaking.
+No code changes were needed outside `services/glue/` this pass. The
+`PutResourcePolicy` interface-signature change (two new params) and the additive
+`Trigger.StartOnCreation`/`TriggerAction.CrawlerName` fields were checked against
+`services/cloudformation/resources_phase5.go`, the one cross-package caller of Glue
+backend methods (`gluebackend.CreateCrawler`/`BatchCreatePartition`/`CreateJob`/
+`CreateTrigger`) — none of those call sites touch `PutResourcePolicy`, and the
+`Trigger{}` struct literal it builds is unaffected by new additive fields, so no
+follow-up is needed there.
+
+Separately (found, NOT fixed — pre-existing, unrelated to this pass's Glue changes):
+`go build ./services/cloudformation/...` currently fails on
+`services/route53/*` — `rc.backends.Route53.Backend.CreateHostedZone` is called
+with 4 args but the (concurrently-edited-by-another-agent) Route53 backend method
+now takes 5. This is outside `services/glue/` and was left untouched per this
+task's scope; flagging for whichever pass owns Route53/CloudFormation.

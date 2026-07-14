@@ -17,15 +17,19 @@ import (
 )
 
 const (
-	guardrailsPrefix             = "/guardrails"
-	foundationModelsPrefix       = "/foundation-models"
-	provisionedModelThroughput   = "/provisioned-model-throughput"
-	provisionedModelThroughputs  = "/provisioned-model-throughputs"
-	listTagsForResourcePath      = "/listTagsForResource"
-	tagResourcePath              = "/tagResource"
-	untagResourcePath            = "/untagResource"
-	evaluationJobsPrefix         = "/evaluation-jobs"
-	evaluationJobsBatchDelete    = "/evaluation-jobs/batch-delete"
+	guardrailsPrefix            = "/guardrails"
+	foundationModelsPrefix      = "/foundation-models"
+	provisionedModelThroughput  = "/provisioned-model-throughput"
+	provisionedModelThroughputs = "/provisioned-model-throughputs"
+	listTagsForResourcePath     = "/listTagsForResource"
+	tagResourcePath             = "/tagResource"
+	untagResourcePath           = "/untagResource"
+	evaluationJobsPrefix        = "/evaluation-jobs"
+	evaluationJobsBatchDelete   = "/evaluation-jobs/batch-delete"
+	// evaluationJobSingularPrefix is the real StopEvaluationJob path family: AWS uses
+	// the SINGULAR "evaluation-job" (no "s") for POST .../stop, distinct from the
+	// plural "evaluation-jobs" used by every other evaluation job op.
+	evaluationJobSingularPrefix  = "/evaluation-job"
 	automatedReasoningPrefix     = "/automated-reasoning-policies"
 	customModelsCreate           = "/custom-models/create-custom-model"
 	customModelDeploymentsPath   = "/model-customization/custom-model-deployments"
@@ -55,16 +59,20 @@ const (
 	keyCustomModelDeploymentArn = "customModelDeploymentArn"
 
 	// Stub operation paths.
-	modelCopyJobsPrefix           = "/model-copy-jobs"
-	modelImportJobsPrefix         = "/model-import-jobs"
-	modelInvocationJobsPrefix     = "/model-invocation-jobs"
-	promptRoutersPrefix           = "/prompt-routers"
-	importedModelsPrefix          = "/imported-models"
-	foundationModelAvailPath      = "/foundation-model-availability"
-	foundationModelAgreementsPath = "/foundation-model-agreement-offers"
-	customModelDeployments2Path   = "/custom-model-deployments"
-	useCaseForModelAccessPath     = "/usecase-for-model-access"
-	enforcedGuardrailsPath        = "/enforced-guardrail-configuration"
+	modelCopyJobsPrefix       = "/model-copy-jobs"
+	modelImportJobsPrefix     = "/model-import-jobs"
+	modelInvocationJobsPrefix = "/model-invocation-jobs"
+	// modelInvocationJobSingularPrefix is the real path family for CreateModelInvocationJob,
+	// GetModelInvocationJob, and StopModelInvocationJob: AWS uses the SINGULAR
+	// "model-invocation-job" (no "s") for these, while ListModelInvocationJobs alone
+	// uses the plural modelInvocationJobsPrefix above.
+	modelInvocationJobSingularPrefix = "/model-invocation-job"
+	promptRoutersPrefix              = "/prompt-routers"
+	importedModelsPrefix             = "/imported-models"
+	foundationModelAvailPath         = "/foundation-model-availability"
+	foundationModelAgreementsPath    = "/foundation-model-agreement-offers"
+	useCaseForModelAccessPath        = "/usecase-for-model-access"
+	enforcedGuardrailsPath           = "/enforced-guardrail-configuration"
 )
 
 // isoTime is a [time.Time] that marshals as RFC3339.
@@ -263,6 +271,7 @@ func matchBedrockCorePrefixes(path string) bool {
 		strings.HasPrefix(path, foundationModelsPrefix) ||
 		strings.HasPrefix(path, provisionedModelThroughput) ||
 		strings.HasPrefix(path, evaluationJobsPrefix) ||
+		strings.HasPrefix(path, evaluationJobSingularPrefix) ||
 		strings.HasPrefix(path, automatedReasoningPrefix) ||
 		strings.HasPrefix(path, modelCustomizationJobsPrefix) ||
 		strings.HasPrefix(path, inferenceProfilesPrefix) ||
@@ -274,12 +283,18 @@ func matchBedrockCorePrefixes(path string) bool {
 func matchBedrockExtPrefixes(path string) bool {
 	return strings.HasPrefix(path, modelCopyJobsPrefix) ||
 		strings.HasPrefix(path, modelImportJobsPrefix) ||
-		strings.HasPrefix(path, modelInvocationJobsPrefix) ||
+		// modelInvocationJobSingularPrefix ("/model-invocation-job") is a strict prefix of
+		// the plural modelInvocationJobsPrefix ("/model-invocation-jobs"), so this one
+		// check covers both the singular (Create/Get/Stop) and plural (List) paths.
+		strings.HasPrefix(path, modelInvocationJobSingularPrefix) ||
 		strings.HasPrefix(path, promptRoutersPrefix) ||
 		strings.HasPrefix(path, importedModelsPrefix) ||
 		strings.HasPrefix(path, foundationModelAvailPath) ||
 		strings.HasPrefix(path, foundationModelAgreementsPath) ||
-		strings.HasPrefix(path, customModelDeployments2Path)
+		// CustomModelDeployment List/Get/Update/Delete share the same base path as
+		// Create ("/model-customization/custom-model-deployments"), with
+		// Get/Update/Delete appending "/{id}" — a prefix match covers all of them.
+		strings.HasPrefix(path, customModelDeploymentsPath)
 }
 
 // matchBedrockExactPaths returns true if path exactly matches a known Bedrock path.
@@ -287,7 +302,6 @@ func matchBedrockExactPaths(path string) bool {
 	return path == useCaseForModelAccessPath ||
 		path == enforcedGuardrailsPath ||
 		path == loggingConfigPath ||
-		path == customModelDeploymentsPath ||
 		path == foundationModelAgreement ||
 		path == listTagsForResourcePath ||
 		path == tagResourcePath ||
@@ -315,6 +329,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		extractInferenceProfileOperation,
 		extractMarketplaceEndpointOperation,
 		extractLoggingConfigOperation,
+		extractModelInvocationJobOperation,
 	} {
 		if op, ok := fn(path, method); ok {
 			return op
@@ -362,7 +377,7 @@ func extractPMTOperation(path, method string) (string, bool) {
 		return "ListProvisionedModelThroughputs", true
 	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodGet:
 		return "GetProvisionedModelThroughput", true
-	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodPut:
+	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodPatch:
 		return "UpdateProvisionedModelThroughput", true
 	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodDelete:
 		return "DeleteProvisionedModelThroughput", true
@@ -394,6 +409,13 @@ func extractEvaluationJobOperation(path, method string) (string, bool) {
 		return "BatchDeleteEvaluationJob", true
 	case path == evaluationJobsPrefix && method == http.MethodPost:
 		return "CreateEvaluationJob", true
+	case path == evaluationJobsPrefix && method == http.MethodGet:
+		return "ListEvaluationJobs", true
+	case strings.HasPrefix(path, evaluationJobsPrefix+"/") && method == http.MethodGet:
+		return "GetEvaluationJob", true
+	case strings.HasPrefix(path, evaluationJobSingularPrefix+"/") &&
+		strings.HasSuffix(path, "/stop") && method == http.MethodPost:
+		return "StopEvaluationJob", true
 	default:
 		return "", false
 	}
@@ -419,6 +441,10 @@ func extractARPOperation(path, method string) (string, bool) {
 }
 
 func extractCustomModelOperation(path, method string) (string, bool) {
+	if op, ok := extractCustomModelDeploymentSubOp(path, method); ok {
+		return op, true
+	}
+
 	if method != http.MethodPost {
 		return "", false
 	}
@@ -430,6 +456,26 @@ func extractCustomModelOperation(path, method string) (string, bool) {
 		return "CreateCustomModelDeployment", true
 	case foundationModelAgreement:
 		return "CreateFoundationModelAgreement", true
+	default:
+		return "", false
+	}
+}
+
+// extractCustomModelDeploymentSubOp maps List/Get/Update/Delete on
+// /model-customization/custom-model-deployments[/{id}] — Create (POST, exact base path)
+// is handled separately above.
+func extractCustomModelDeploymentSubOp(path, method string) (string, bool) {
+	isSubPath := strings.HasPrefix(path, customModelDeploymentsPath+"/")
+
+	switch {
+	case path == customModelDeploymentsPath && method == http.MethodGet:
+		return "ListCustomModelDeployments", true
+	case isSubPath && method == http.MethodGet:
+		return "GetCustomModelDeployment", true
+	case isSubPath && method == http.MethodPatch:
+		return "UpdateCustomModelDeployment", true
+	case isSubPath && method == http.MethodDelete:
+		return "DeleteCustomModelDeployment", true
 	default:
 		return "", false
 	}
@@ -513,7 +559,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		log := logger.Load(r.Context())
 
 		var body []byte
-		if method == http.MethodPost || method == http.MethodPut {
+		if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
 			var err error
 			body, err = httputils.ReadBody(r)
 			if err != nil {
@@ -775,21 +821,25 @@ func modelImportJobToOutput(j *ModelImportJob) map[string]any {
 	return out
 }
 
-// routeStubInvocationOps handles model invocation job operations.
+// routeStubInvocationOps handles model invocation job operations. AWS uses the SINGULAR
+// "/model-invocation-job" path for Create/Get/Stop and the PLURAL
+// "/model-invocation-jobs" path only for List — see modelInvocationJobSingularPrefix.
 func (h *Handler) routeStubInvocationOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
-	case path == modelInvocationJobsPrefix && method == http.MethodPost:
-		return true, h.handleCreateModelInvocationJob(c)
 	case path == modelInvocationJobsPrefix && method == http.MethodGet:
 		return true, h.handleListModelInvocationJobs(c)
-	case strings.HasPrefix(path, modelInvocationJobsPrefix+"/") && method == http.MethodGet:
-		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, modelInvocationJobsPrefix+"/"))
-
-		return true, h.handleGetModelInvocationJob(c, jobARN)
-	case strings.HasPrefix(path, modelInvocationJobsPrefix+"/") && method == http.MethodDelete:
-		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, modelInvocationJobsPrefix+"/"))
+	case path == modelInvocationJobSingularPrefix && method == http.MethodPost:
+		return true, h.handleCreateModelInvocationJob(c)
+	case strings.HasPrefix(path, modelInvocationJobSingularPrefix+"/") &&
+		strings.HasSuffix(path, "/stop") && method == http.MethodPost:
+		rest := strings.TrimPrefix(path, modelInvocationJobSingularPrefix+"/")
+		jobARN, _ := url.PathUnescape(strings.TrimSuffix(rest, "/stop"))
 
 		return true, h.handleStopModelInvocationJob(c, jobARN)
+	case strings.HasPrefix(path, modelInvocationJobSingularPrefix+"/") && method == http.MethodGet:
+		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, modelInvocationJobSingularPrefix+"/"))
+
+		return true, h.handleGetModelInvocationJob(c, jobARN)
 	}
 
 	return false, nil
@@ -863,18 +913,18 @@ func (h *Handler) routeStubMiscOps(c *echo.Context, path, method string) (bool, 
 // routeStubDeploymentOps handles custom model deployment operations.
 func (h *Handler) routeStubDeploymentOps(c *echo.Context, path, method string) (bool, error) {
 	switch {
-	case path == customModelDeployments2Path && method == http.MethodGet:
+	case path == customModelDeploymentsPath && method == http.MethodGet:
 		return true, h.handleListCustomModelDeployments(c)
-	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodGet:
-		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeployments2Path+"/"))
+	case strings.HasPrefix(path, customModelDeploymentsPath+"/") && method == http.MethodGet:
+		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeploymentsPath+"/"))
 
 		return true, h.handleGetCustomModelDeployment(c, deployARN)
-	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodPatch:
-		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeployments2Path+"/"))
+	case strings.HasPrefix(path, customModelDeploymentsPath+"/") && method == http.MethodPatch:
+		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeploymentsPath+"/"))
 
 		return true, h.handleUpdateCustomModelDeployment(c, deployARN)
-	case strings.HasPrefix(path, customModelDeployments2Path+"/") && method == http.MethodDelete:
-		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeployments2Path+"/"))
+	case strings.HasPrefix(path, customModelDeploymentsPath+"/") && method == http.MethodDelete:
+		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeploymentsPath+"/"))
 
 		return true, h.handleDeleteCustomModelDeployment(c, deployARN)
 	}
@@ -944,7 +994,7 @@ func (h *Handler) routePMT(c *echo.Context, path, method string, body []byte) (b
 		return true, h.handleListProvisionedModelThroughputs(c)
 	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodGet:
 		return true, h.handleGetProvisionedModelThroughput(c, id)
-	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodPut:
+	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodPatch:
 		return true, h.handleUpdateProvisionedModelThroughput(c, id, body)
 	case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodDelete:
 		return true, h.handleDeleteProvisionedModelThroughput(c, id)
@@ -986,8 +1036,10 @@ func (h *Handler) routeEvaluationJob(
 		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, evaluationJobsPrefix+"/"))
 
 		return true, h.handleGetEvaluationJob(c, jobARN)
-	case strings.HasPrefix(path, evaluationJobsPrefix+"/") && method == http.MethodDelete:
-		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, evaluationJobsPrefix+"/"))
+	case strings.HasPrefix(path, evaluationJobSingularPrefix+"/") &&
+		strings.HasSuffix(path, "/stop") && method == http.MethodPost:
+		rest := strings.TrimPrefix(path, evaluationJobSingularPrefix+"/")
+		jobARN, _ := url.PathUnescape(strings.TrimSuffix(rest, "/stop"))
 
 		return true, h.handleStopEvaluationJob(c, jobARN)
 	default:
@@ -1195,13 +1247,42 @@ func decodePath(s string) string {
 
 // --- Guardrail handlers ---
 
+// guardrailPolicyFields are the five guardrail policy configs. The real Bedrock wire
+// shape serializes each as a top-level request/response field (e.g. "contentPolicyConfig"
+// on input, "contentPolicy" on the GetGuardrail output) — NOT nested under a "policies"
+// wrapper object. This mirrors that shape so real SDK clients round-trip correctly.
+type guardrailPolicyFields struct {
+	ContentPolicyConfig              *GuardrailContentPolicyConfig              `json:"contentPolicyConfig,omitempty"`
+	TopicPolicyConfig                *GuardrailTopicPolicyConfig                `json:"topicPolicyConfig,omitempty"`
+	WordPolicyConfig                 *GuardrailWordPolicyConfig                 `json:"wordPolicyConfig,omitempty"`
+	SensitiveInformationPolicyConfig *GuardrailSensitiveInformationPolicyConfig `json:"sensitiveInformationPolicyConfig,omitempty"` //nolint:lll // AWS API field name is long.
+	ContextualGroundingPolicyConfig  *GuardrailContextualGroundingPolicyConfig  `json:"contextualGroundingPolicyConfig,omitempty"`  //nolint:lll // AWS API field name is long.
+}
+
+// toGuardrailPolicies collapses the wire-level per-policy fields into the backend's
+// composite GuardrailPolicies, or nil if none were set.
+func (f guardrailPolicyFields) toGuardrailPolicies() *GuardrailPolicies {
+	if f.ContentPolicyConfig == nil && f.TopicPolicyConfig == nil && f.WordPolicyConfig == nil &&
+		f.SensitiveInformationPolicyConfig == nil && f.ContextualGroundingPolicyConfig == nil {
+		return nil
+	}
+
+	return &GuardrailPolicies{
+		ContentPolicy:              f.ContentPolicyConfig,
+		TopicPolicy:                f.TopicPolicyConfig,
+		WordPolicy:                 f.WordPolicyConfig,
+		SensitiveInformationPolicy: f.SensitiveInformationPolicyConfig,
+		ContextualGroundingPolicy:  f.ContextualGroundingPolicyConfig,
+	}
+}
+
 type createGuardrailInput struct {
-	Policies                *GuardrailPolicies `json:"policies,omitempty"`
-	Name                    string             `json:"name"`
-	Description             string             `json:"description"`
-	BlockedInputMessaging   string             `json:"blockedInputMessaging"`
-	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging"`
-	Tags                    []Tag              `json:"tags"`
+	guardrailPolicyFields
+	Name                    string `json:"name"`
+	Description             string `json:"description"`
+	BlockedInputMessaging   string `json:"blockedInputMessaging"`
+	BlockedOutputsMessaging string `json:"blockedOutputsMessaging"`
+	Tags                    []Tag  `json:"tags"`
 }
 
 type createGuardrailOutput struct {
@@ -1226,7 +1307,7 @@ func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 		in.BlockedInputMessaging,
 		in.BlockedOutputsMessaging,
 		in.Tags,
-		in.Policies,
+		in.toGuardrailPolicies(),
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -1240,28 +1321,31 @@ func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 	})
 }
 
+// guardrailDetailOutput is the GetGuardrail response shape. Unlike the create/update
+// inputs (which use the "...Config" suffixed field names), the real GetGuardrail output
+// serializes each policy as a top-level field WITHOUT the "Config" suffix (e.g.
+// "contentPolicy" not "contentPolicyConfig") — still not nested under "policies".
 type guardrailDetailOutput struct {
-	CreatedAt               isoTime            `json:"createdAt"`
-	UpdatedAt               isoTime            `json:"updatedAt"`
-	Policies                *GuardrailPolicies `json:"policies,omitempty"`
-	GuardrailID             string             `json:"guardrailId"`
-	GuardrailArn            string             `json:"guardrailArn"`
-	Name                    string             `json:"name"`
-	Description             string             `json:"description"`
-	Status                  string             `json:"status"`
-	Version                 string             `json:"version"`
-	BlockedInputMessaging   string             `json:"blockedInputMessaging"`
-	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging"`
-	Tags                    []Tag              `json:"tags,omitempty"`
+	CreatedAt                  isoTime                                    `json:"createdAt"`
+	UpdatedAt                  isoTime                                    `json:"updatedAt"`
+	ContentPolicy              *GuardrailContentPolicyConfig              `json:"contentPolicy,omitempty"`
+	TopicPolicy                *GuardrailTopicPolicyConfig                `json:"topicPolicy,omitempty"`
+	WordPolicy                 *GuardrailWordPolicyConfig                 `json:"wordPolicy,omitempty"`
+	SensitiveInformationPolicy *GuardrailSensitiveInformationPolicyConfig `json:"sensitiveInformationPolicy,omitempty"` //nolint:lll // AWS API field name is long.
+	ContextualGroundingPolicy  *GuardrailContextualGroundingPolicyConfig  `json:"contextualGroundingPolicy,omitempty"`  //nolint:lll // AWS API field name is long.
+	GuardrailID                string                                     `json:"guardrailId"`
+	GuardrailArn               string                                     `json:"guardrailArn"`
+	Name                       string                                     `json:"name"`
+	Description                string                                     `json:"description"`
+	Status                     string                                     `json:"status"`
+	Version                    string                                     `json:"version"`
+	BlockedInputMessaging      string                                     `json:"blockedInputMessaging"`
+	BlockedOutputsMessaging    string                                     `json:"blockedOutputsMessaging"`
+	Tags                       []Tag                                      `json:"tags,omitempty"`
 }
 
-func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
-	g, err := h.Backend.GetGuardrail(id)
-	if err != nil {
-		return h.writeError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, guardrailDetailOutput{
+func guardrailToDetailOutput(g *Guardrail) guardrailDetailOutput {
+	out := guardrailDetailOutput{
 		GuardrailID:             g.GuardrailID,
 		GuardrailArn:            g.GuardrailArn,
 		Name:                    g.Name,
@@ -1271,10 +1355,30 @@ func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
 		BlockedInputMessaging:   g.BlockedInputMessaging,
 		BlockedOutputsMessaging: g.BlockedOutputsMessaging,
 		Tags:                    g.Tags,
-		Policies:                g.Policies,
 		CreatedAt:               isoTime{g.CreatedAt},
 		UpdatedAt:               isoTime{g.UpdatedAt},
-	})
+	}
+
+	if g.Policies != nil {
+		out.ContentPolicy = g.Policies.ContentPolicy
+		out.TopicPolicy = g.Policies.TopicPolicy
+		out.WordPolicy = g.Policies.WordPolicy
+		out.SensitiveInformationPolicy = g.Policies.SensitiveInformationPolicy
+		out.ContextualGroundingPolicy = g.Policies.ContextualGroundingPolicy
+	}
+
+	return out
+}
+
+func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
+	version := c.Request().URL.Query().Get("guardrailVersion")
+
+	g, err := h.Backend.GetGuardrailVersion(id, version)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, guardrailToDetailOutput(g))
 }
 
 type guardrailSummaryOutput struct {
@@ -1322,11 +1426,11 @@ func (h *Handler) handleListGuardrails(c *echo.Context) error {
 }
 
 type updateGuardrailInput struct {
-	Policies                *GuardrailPolicies `json:"policies,omitempty"`
-	Name                    string             `json:"name"`
-	Description             string             `json:"description"`
-	BlockedInputMessaging   string             `json:"blockedInputMessaging"`
-	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging"`
+	guardrailPolicyFields
+	Name                    string `json:"name"`
+	Description             string `json:"description"`
+	BlockedInputMessaging   string `json:"blockedInputMessaging"`
+	BlockedOutputsMessaging string `json:"blockedOutputsMessaging"`
 }
 
 type updateGuardrailOutput struct {
@@ -1351,7 +1455,7 @@ func (h *Handler) handleUpdateGuardrail(c *echo.Context, id string, body []byte)
 		in.Description,
 		in.BlockedInputMessaging,
 		in.BlockedOutputsMessaging,
-		in.Policies,
+		in.toGuardrailPolicies(),
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -1366,7 +1470,9 @@ func (h *Handler) handleUpdateGuardrail(c *echo.Context, id string, body []byte)
 }
 
 func (h *Handler) handleDeleteGuardrail(c *echo.Context, id string) error {
-	if err := h.Backend.DeleteGuardrail(id); err != nil {
+	version := c.Request().URL.Query().Get("guardrailVersion")
+
+	if err := h.Backend.DeleteGuardrail(id, version); err != nil {
 		return h.writeError(c, err)
 	}
 
@@ -1539,9 +1645,12 @@ func (h *Handler) handleListProvisionedModelThroughputs(c *echo.Context) error {
 	)
 }
 
+// updateProvisionedModelThroughputInput mirrors the real
+// UpdateProvisionedModelThroughputInput wire shape: only desiredModelId and
+// desiredProvisionedModelName are updatable. AWS has no modelUnits update field.
 type updateProvisionedModelThroughputInput struct {
-	ModelUnits *int32 `json:"modelUnits,omitempty"`
-	ModelID    string `json:"modelId"`
+	DesiredModelID              string `json:"desiredModelId,omitempty"`
+	DesiredProvisionedModelName string `json:"desiredProvisionedModelName,omitempty"`
 }
 
 func (h *Handler) handleUpdateProvisionedModelThroughput(
@@ -1557,7 +1666,7 @@ func (h *Handler) handleUpdateProvisionedModelThroughput(
 		)
 	}
 
-	_, opErr := h.Backend.UpdateProvisionedModelThroughput(id, in.ModelID, in.ModelUnits)
+	_, opErr := h.Backend.UpdateProvisionedModelThroughput(id, in.DesiredModelID, in.DesiredProvisionedModelName)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}
@@ -2017,20 +2126,23 @@ func extractMarketplaceEndpointRootOp(method string) (string, bool) {
 	}
 }
 
+// extractMarketplaceEndpointSubOp maps /marketplace-model/endpoints/{id}[/registration]
+// sub-paths. AWS uses the SAME "/registration" suffix for both Register (POST) and
+// Deregister (DELETE) — there is no separate "/deregistration" path — and
+// UpdateMarketplaceModelEndpoint uses PATCH, not PUT.
 func extractMarketplaceEndpointSubOp(path, method string) (string, bool) {
 	isReg := strings.HasSuffix(path, "/registration")
-	isDereg := strings.HasSuffix(path, "/deregistration")
 
 	switch {
 	case method == http.MethodPost && isReg:
 		return "RegisterMarketplaceModelEndpoint", true
-	case method == http.MethodPost && isDereg:
+	case method == http.MethodDelete && isReg:
 		return "DeregisterMarketplaceModelEndpoint", true
-	case method == http.MethodGet && !isReg && !isDereg:
+	case method == http.MethodGet && !isReg:
 		return "GetMarketplaceModelEndpoint", true
-	case method == http.MethodPut:
+	case method == http.MethodPatch && !isReg:
 		return "UpdateMarketplaceModelEndpoint", true
-	case method == http.MethodDelete:
+	case method == http.MethodDelete && !isReg:
 		return "DeleteMarketplaceModelEndpoint", true
 	default:
 		return "", false
@@ -2045,6 +2157,25 @@ func extractLoggingConfigOperation(path, method string) (string, bool) {
 		return "PutModelInvocationLoggingConfiguration", true
 	case path == loggingConfigPath && method == http.MethodDelete:
 		return "DeleteModelInvocationLoggingConfiguration", true
+	default:
+		return "", false
+	}
+}
+
+// extractModelInvocationJobOperation maps the ModelInvocationJob family. AWS uses the
+// SINGULAR "model-invocation-job" path for Create/Get/Stop and the PLURAL
+// "model-invocation-jobs" path only for List.
+func extractModelInvocationJobOperation(path, method string) (string, bool) {
+	switch {
+	case path == modelInvocationJobsPrefix && method == http.MethodGet:
+		return "ListModelInvocationJobs", true
+	case path == modelInvocationJobSingularPrefix && method == http.MethodPost:
+		return "CreateModelInvocationJob", true
+	case strings.HasPrefix(path, modelInvocationJobSingularPrefix+"/") &&
+		strings.HasSuffix(path, "/stop") && method == http.MethodPost:
+		return "StopModelInvocationJob", true
+	case strings.HasPrefix(path, modelInvocationJobSingularPrefix+"/") && method == http.MethodGet:
+		return "GetModelInvocationJob", true
 	default:
 		return "", false
 	}
@@ -2148,23 +2279,27 @@ func (h *Handler) routeMarketplaceEndpointRoot(
 	}
 }
 
+// routeMarketplaceEndpointSub routes /marketplace-model/endpoints/{id}[/registration].
+// AWS reuses the SAME "/registration" suffix for both Register (POST) and Deregister
+// (DELETE) — there is no "/deregistration" path — and Update uses PATCH, not PUT.
 func (h *Handler) routeMarketplaceEndpointSub(c *echo.Context, path, method string) (bool, error) {
 	rest := strings.TrimPrefix(path, marketplaceEndpointsPrefix+"/")
+	isReg := strings.HasSuffix(path, "/registration")
 
 	switch {
-	case method == http.MethodPost && strings.HasSuffix(path, "/registration"):
+	case method == http.MethodPost && isReg:
 		id := decodePath(strings.TrimSuffix(rest, "/registration"))
 
 		return true, h.handleRegisterMarketplaceModelEndpoint(c, id)
-	case method == http.MethodPost && strings.HasSuffix(path, "/deregistration"):
-		id := decodePath(strings.TrimSuffix(rest, "/deregistration"))
+	case method == http.MethodDelete && isReg:
+		id := decodePath(strings.TrimSuffix(rest, "/registration"))
 
 		return true, h.handleDeregisterMarketplaceModelEndpoint(c, id)
-	case method == http.MethodGet:
+	case method == http.MethodGet && !isReg:
 		return true, h.handleGetMarketplaceModelEndpoint(c, decodePath(rest))
-	case method == http.MethodPut:
+	case method == http.MethodPatch && !isReg:
 		return true, h.handleUpdateMarketplaceModelEndpoint(c, decodePath(rest))
-	case method == http.MethodDelete:
+	case method == http.MethodDelete && !isReg:
 		return true, h.handleDeleteMarketplaceModelEndpoint(c, decodePath(rest))
 	default:
 		return false, nil

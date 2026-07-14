@@ -1255,6 +1255,10 @@ func (h *Handler) writeInventoryCSV(c *echo.Context, j *Job, vaultName string, a
 func (h *Handler) handleArchiveJobOutput(c *echo.Context, j *Job) error {
 	c.Response().Header().Set("Content-Type", "application/octet-stream")
 
+	if j.ArchiveDescription != "" {
+		c.Response().Header().Set("X-Amz-Archive-Description", j.ArchiveDescription)
+	}
+
 	data, hasData := h.Backend.GetArchiveData(j.ArchiveID)
 
 	if !hasData {
@@ -1381,6 +1385,10 @@ func toDescribeJobResponse(j *Job) describeJobResponse {
 
 	if j.SHA256TreeHash != "" {
 		resp.SHA256TreeHash = j.SHA256TreeHash
+	}
+
+	if j.ArchiveSHA256TreeHash != "" {
+		resp.ArchiveSHA256TreeHash = j.ArchiveSHA256TreeHash
 	}
 
 	if j.Completed {

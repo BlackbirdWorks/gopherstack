@@ -69,6 +69,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/blackbirdworks/gopherstack/pkgs/version"
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
+	accountbackend "github.com/blackbirdworks/gopherstack/services/account"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
@@ -2591,8 +2592,19 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SQS → CloudWatch metric emission for NumberOfMessagesSent/Received/Deleted.
 	wireSQSMetrics(byName["SQS"], byName["CloudWatch"])
 
-	// Wire EventBridge target fan-out: deliver events to Lambda, SQS, SNS targets.
-	wireEventBridgeDelivery(byName["EventBridge"], byName["Lambda"], byName["SQS"], byName["SNS"])
+	// Wire EventBridge target fan-out: deliver events to Lambda, SQS, SNS, Kinesis,
+	// Firehose, ECS, Step Functions, CloudWatch Logs, and API Destination targets.
+	wireEventBridgeDelivery(
+		byName["EventBridge"],
+		byName["Lambda"],
+		byName["SQS"],
+		byName["SNS"],
+		byName["Kinesis"],
+		byName["Firehose"],
+		byName["ECS"],
+		byName["StepFunctions"],
+		byName["CloudWatchLogs"],
+	)
 
 	// Wire S3 bucket notification delivery to SQS/SNS/Lambda targets.
 	wireS3Notifications(
@@ -2606,12 +2618,15 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
 
-	// Wire Step Functions → SQS/SNS/DynamoDB service integrations.
+	// Wire Step Functions → SQS/SNS/DynamoDB/ECS/Glue/EventBridge service integrations.
 	wireStepFunctionsServiceIntegrations(
 		byName["StepFunctions"],
 		byName["SQS"],
 		byName["SNS"],
 		byName["DynamoDB"],
+		byName["ECS"],
+		byName["Glue"],
+		byName["EventBridge"],
 	)
 
 	// Wire SSM → KMS for SecureString encryption with customer-managed keys.
@@ -2622,6 +2637,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire API Gateway → Cognito for JWT signature verification.
 	wireAPIGatewayCognito(byName["APIGateway"], byName["APIGatewayV2"], byName["CognitoIDP"])
+
+	// Wire Cognito User Pool Lambda triggers (PreSignUp, PostConfirmation,
+	// PreTokenGeneration, CustomMessage) to the Lambda backend.
+	wireCognitoLambdaTriggers(byName["CognitoIDP"], byName["Lambda"])
 
 	// Wire API Gateway V2 -> API Gateway Management API for WebSocket connections.
 	wireAPIGatewayManagementAPI(byName["APIGatewayV2"], byName["APIGatewayManagementAPI"])
@@ -2643,6 +2662,22 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	wireCloudWatchInfraActions(
 		byName["CloudWatch"], byName["EC2"], byName["Autoscaling"],
 	)
+
+	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
+	// and scale-in terminates them there too, instead of Auto Scaling
+	// fabricating instance IDs with no EC2-side record.
+	wireAutoScalingEC2(byName["Autoscaling"], byName["EC2"])
+
+	// Wire Auto Scaling → ELBv2 so TargetGroupARNs membership changes
+	// register/deregister real ELBv2 targets, instead of TargetGroupARNs
+	// being stored and echoed with no effect on DescribeTargetHealth.
+	wireAutoScalingELBv2(byName["Autoscaling"], byName["ELBv2"])
+
+	// Wire ECS → ELBv2 so tasks belonging to a service with LoadBalancers
+	// configured register/deregister as real ELBv2 targets as they
+	// reach/leave RUNNING, instead of Service.LoadBalancers being stored and
+	// echoed with no effect on DescribeTargetHealth.
+	wireECSELBv2(byName["ECS"], byName["ELBv2"])
 
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
@@ -2716,6 +2751,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
+
+	// Wire SecretsManager → KMS so secret values are encrypted/decrypted via
+	// the real KMS backend instead of stored opaquely.
+	wireSecretsManagerKMS(byName["SecretsManager"], byName["KMS"])
 
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
@@ -2933,6 +2972,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&accessanalyzerbackend.Provider{},
+		&accountbackend.Provider{},
 		&rambackend.Provider{},
 		&rolesanywherebackend.Provider{},
 		&rdsdatabackend.Provider{},
@@ -3232,10 +3272,13 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 	)
 }
 
-// wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, and SNS backends.
-// ebReg, lambdaReg, sqsReg, snsReg must be the service.Registerable values returned
-// by their respective providers (indices 10, 9, 6, 5 in the services slice).
-func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerable) {
+// wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, SNS, Kinesis Data Streams,
+// Kinesis Data Firehose, ECS, Step Functions, CloudWatch Logs, and API Destination targets.
+// ebReg, lambdaReg, sqsReg, snsReg, kinesisReg, firehoseReg, ecsReg, sfnReg, cwlogsReg must be the
+// service.Registerable values returned by their respective providers.
+func wireEventBridgeDelivery(
+	ebReg, lambdaReg, sqsReg, snsReg, kinesisReg, firehoseReg, ecsReg, sfnReg, cwlogsReg service.Registerable,
+) {
 	ebH, ok := ebReg.(*ebbackend.Handler)
 	if !ok {
 		return
@@ -3248,25 +3291,71 @@ func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerab
 
 	dt := &ebbackend.DeliveryTargets{}
 
+	wireEventBridgeCoreTargets(dt, lambdaReg, sqsReg, snsReg)
+	wireEventBridgeExtendedTargets(dt, kinesisReg, firehoseReg, ecsReg, sfnReg, cwlogsReg)
+
+	// EventBridge itself resolves and rate-limits API destinations, so the backend
+	// satisfies eventbridge.APIDestinationResolver directly.
+	dt.APIDestinations = ebBk
+
+	ebBk.SetDeliveryTargets(dt)
+}
+
+// wireEventBridgeCoreTargets populates the Lambda, SQS, and SNS delivery targets.
+func wireEventBridgeCoreTargets(dt *ebbackend.DeliveryTargets, lambdaReg, sqsReg, snsReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
-		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
 			dt.Lambda = lambdaBk
 		}
 	}
 
 	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
-		if sqsBk, bk2Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend); bk2Ok {
+		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
 			dt.SQS = &sqsSenderAdapter{backend: sqsBk}
 		}
 	}
 
 	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
-		if snsBk, bk2Ok := snsH.Backend.(*snsbackend.InMemoryBackend); bk2Ok {
+		if snsBk, bkOk := snsH.Backend.(*snsbackend.InMemoryBackend); bkOk {
 			dt.SNS = &snsPublisherAdapter{backend: snsBk}
 		}
 	}
+}
 
-	ebBk.SetDeliveryTargets(dt)
+// wireEventBridgeExtendedTargets populates the Kinesis Data Streams, Kinesis Data Firehose,
+// ECS, Step Functions, and CloudWatch Logs delivery targets.
+func wireEventBridgeExtendedTargets(
+	dt *ebbackend.DeliveryTargets, kinesisReg, firehoseReg, ecsReg, sfnReg, cwlogsReg service.Registerable,
+) {
+	if kinesisH, kinesisOk := kinesisReg.(*kinesisbackend.Handler); kinesisOk {
+		if kinesisBk, bkOk := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); bkOk {
+			dt.KinesisStream = &ebKinesisStreamAdapter{backend: kinesisBk}
+		}
+	}
+
+	if firehoseH, firehoseOk := firehoseReg.(*firehosebackend.Handler); firehoseOk {
+		if firehoseBk, bkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); bkOk {
+			dt.KinesisFirehose = &ebFirehoseAdapter{backend: firehoseBk}
+		}
+	}
+
+	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
+		if ecsBk, bkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); bkOk {
+			dt.ECS = &ebECSTaskRunnerAdapter{backend: ecsBk}
+		}
+	}
+
+	if sfnH, sfnOk := sfnReg.(*sfnbackend.Handler); sfnOk {
+		if sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend); bkOk {
+			dt.StepFunctions = &sfnbackend.EBStartExecutionAdapter{B: sfnBk}
+		}
+	}
+
+	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
+		if cwlogsBk, bkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); bkOk {
+			dt.CloudWatchLogs = &ebCloudWatchLogsAdapter{backend: cwlogsBk}
+		}
+	}
 }
 
 // sqsSenderAdapter adapts the SQS backend to the eventbridge.SQSSender interface.
@@ -3295,6 +3384,91 @@ type snsPublisherAdapter struct {
 
 func (a *snsPublisherAdapter) PublishToTopic(_ context.Context, topicARN, message string) error {
 	_, err := a.backend.Publish(topicARN, message, "", "", nil)
+
+	return err
+}
+
+// ebKinesisStreamAdapter adapts the Kinesis backend to the eventbridge.KinesisStreamPublisher interface.
+type ebKinesisStreamAdapter struct {
+	backend *kinesisbackend.InMemoryBackend
+}
+
+func (a *ebKinesisStreamAdapter) PutRecord(ctx context.Context, streamARN, partitionKey, data string) error {
+	// Convert Kinesis stream ARN to stream name (last segment after '/').
+	parts := strings.Split(streamARN, "/")
+	streamName := parts[len(parts)-1]
+
+	_, err := a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
+		StreamName:   streamName,
+		PartitionKey: partitionKey,
+		Data:         []byte(data),
+	})
+
+	return err
+}
+
+// ebFirehoseAdapter adapts the Firehose backend to the eventbridge.KinesisFirehosePublisher interface.
+type ebFirehoseAdapter struct {
+	backend *firehosebackend.InMemoryBackend
+}
+
+func (a *ebFirehoseAdapter) PutRecord(ctx context.Context, deliveryStreamARN, data string) error {
+	// Convert Firehose delivery stream ARN to stream name (last segment after '/').
+	parts := strings.Split(deliveryStreamARN, "/")
+	streamName := parts[len(parts)-1]
+
+	return a.backend.PutRecord(ctx, streamName, []byte(data))
+}
+
+// ebECSTaskRunnerAdapter adapts the ECS backend to the eventbridge.ECSTaskRunner interface.
+// The payload is the delivered event JSON (subject to the target's Input/InputPath/
+// InputTransformer configuration); it is parsed for a "TaskDefinition" (and optional
+// "LaunchType") field, mirroring how the Step Functions ECS integration (SFNRunTask)
+// derives RunTaskInput from its input map, since EventBridge does not otherwise thread
+// the target's EcsParameters.TaskDefinitionArn through to delivery.
+type ebECSTaskRunnerAdapter struct {
+	backend *ecsbackend.InMemoryBackend
+}
+
+func (a *ebECSTaskRunnerAdapter) RunTask(_ context.Context, clusterARN string, payload []byte) error {
+	var input map[string]any
+	_ = json.Unmarshal(payload, &input)
+
+	taskDefinition, _ := input["TaskDefinition"].(string)
+	launchType, _ := input["LaunchType"].(string)
+
+	_, err := a.backend.RunTask(ecsbackend.RunTaskInput{
+		Cluster:        clusterARN,
+		TaskDefinition: taskDefinition,
+		LaunchType:     launchType,
+	})
+
+	return err
+}
+
+// ebCloudWatchLogsAdapter adapts the CloudWatch Logs backend to the
+// eventbridge.CloudWatchLogsPublisher interface.
+type ebCloudWatchLogsAdapter struct {
+	backend *cwlogsbackend.InMemoryBackend
+}
+
+func (a *ebCloudWatchLogsAdapter) PutLogEvents(
+	ctx context.Context,
+	logGroupName, logStreamName string,
+	logEvents []any,
+) error {
+	now := time.Now().UnixMilli()
+	events := make([]cwlogsbackend.InputLogEvent, 0, len(logEvents))
+
+	for _, e := range logEvents {
+		message, _ := e.(string)
+		events = append(events, cwlogsbackend.InputLogEvent{
+			Message:   message,
+			Timestamp: now,
+		})
+	}
+
+	_, err := a.backend.PutLogEvents(ctx, logGroupName, logStreamName, "", events)
 
 	return err
 }
@@ -3419,6 +3593,107 @@ func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 	return out.Plaintext, nil
 }
 
+// wireSecretsManagerKMS connects the Secrets Manager backend to the KMS backend
+// so that secret values are encrypted/decrypted using real KMS keys instead of
+// being stored opaquely, mirroring wireSSMKMS above.
+func wireSecretsManagerKMS(smReg, kmsReg service.Registerable) {
+	smH, ok := smReg.(*secretsmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	smBk, ok := smH.Backend.(*secretsmanagerbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	kmsH, ok := kmsReg.(*kmsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kmsBk, ok := kmsH.Backend.(*kmsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	smBk.SetKMSEncryptor(&secretsManagerKMSAdapter{backend: kmsBk})
+}
+
+// secretsManagerKMSAdapter adapts kms.InMemoryBackend to
+// secretsmanager.KMSEncryptor.
+type secretsManagerKMSAdapter struct {
+	backend *kmsbackend.InMemoryBackend
+	// defaultKeyID lazily caches a real KMS key ID created to back
+	// secretsmanager.DefaultKMSKeyAlias. Secrets Manager encrypts under the
+	// literal alias "alias/aws/secretsmanager" (its default managed key) when
+	// a secret has no KmsKeyId, but kms.InMemoryBackend.CreateAlias rejects
+	// any "alias/aws/" prefix (reserved for genuine AWS managed keys), so
+	// that alias can never be registered through the real KMS API surface.
+	// Substituting a dedicated backing key here reproduces the same
+	// behaviour -- every secret without an explicit key shares one
+	// account-level default key -- without touching services/kms.
+	defaultKeyID string
+	mu           sync.Mutex
+}
+
+func (a *secretsManagerKMSAdapter) Encrypt(ctx context.Context, keyID string, plaintext []byte) ([]byte, error) {
+	resolvedKeyID, err := a.resolveKeyID(ctx, keyID)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.Encrypt(ctx, &kmsbackend.EncryptInput{
+		KeyID:     resolvedKeyID,
+		Plaintext: plaintext,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return out.CiphertextBlob, nil
+}
+
+func (a *secretsManagerKMSAdapter) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error) {
+	// No KeyId hint needed: the KMS backend derives the encrypting key from
+	// the ciphertext blob itself.
+	out, err := a.backend.Decrypt(ctx, &kmsbackend.DecryptInput{
+		CiphertextBlob: ciphertext,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return out.Plaintext, nil
+}
+
+// resolveKeyID substitutes secretsmanager.DefaultKMSKeyAlias with a lazily
+// created, cached backing key ID; any other key ID/ARN/alias (an explicit
+// customer-managed key) passes through unchanged.
+func (a *secretsManagerKMSAdapter) resolveKeyID(ctx context.Context, keyID string) (string, error) {
+	if keyID != secretsmanagerbackend.DefaultKMSKeyAlias {
+		return keyID, nil
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.defaultKeyID != "" {
+		return a.defaultKeyID, nil
+	}
+
+	out, err := a.backend.CreateKey(ctx, &kmsbackend.CreateKeyInput{
+		Description: "Default master key that protects my Secrets Manager secrets when no other key is defined",
+	})
+	if err != nil {
+		return "", err
+	}
+
+	a.defaultKeyID = out.KeyMetadata.KeyID
+
+	return a.defaultKeyID, nil
+}
+
 // wireAPIGatewayLambda connects the API Gateway handler to the Lambda backend
 // for AWS_PROXY integrations.
 func wireAPIGatewayLambda(apigwReg, apigwv2Reg, lambdaReg service.Registerable) {
@@ -3489,9 +3764,66 @@ func wireStepFunctionsLambda(sfnReg, lambdaReg service.Registerable) {
 	}
 }
 
-// wireStepFunctionsServiceIntegrations connects the Step Functions backend to SQS, SNS, and DynamoDB backends
-// so that Task states with service integration resources can invoke those services.
-func wireStepFunctionsServiceIntegrations(sfnReg, sqsReg, snsReg, ddbReg service.Registerable) {
+// wireCognitoLambdaTriggers connects Cognito User Pool Lambda triggers to the
+// Lambda backend so configured triggers (PreSignUp, PostConfirmation,
+// PreTokenGeneration, CustomMessage) actually invoke their functions.
+func wireCognitoLambdaTriggers(cognitoReg, lambdaReg service.Registerable) {
+	cognitoH, ok := cognitoReg.(*cognitoidpbackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler)
+	if !lambdaOk {
+		return
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	cognitoH.Backend.SetLambdaTriggerInvoker(&cognitoLambdaTriggerAdapter{backend: lambdaBk})
+}
+
+// cognitoLambdaTriggerAdapter adapts the Lambda backend to the
+// cognitoidp.LambdaTriggerInvoker interface, invoking a trigger function
+// synchronously (RequestResponse) and round-tripping the JSON event envelope.
+type cognitoLambdaTriggerAdapter struct {
+	backend *lambdabackend.InMemoryBackend
+}
+
+func (a *cognitoLambdaTriggerAdapter) InvokeTrigger(
+	ctx context.Context,
+	functionARN string,
+	event map[string]any,
+) (map[string]any, error) {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return nil, err
+	}
+
+	result, _, err := a.backend.InvokeFunction(
+		ctx, functionARN, lambdabackend.InvocationTypeRequestResponse, payload,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp map[string]any
+	if err = json.Unmarshal(result, &resp); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+// wireStepFunctionsServiceIntegrations connects the Step Functions backend to SQS, SNS, DynamoDB,
+// ECS, Glue, and EventBridge backends so that Task states with service integration resources can
+// invoke those services.
+func wireStepFunctionsServiceIntegrations(
+	sfnReg, sqsReg, snsReg, ddbReg, ecsReg, glueReg, ebReg service.Registerable,
+) {
 	sfnH, ok := sfnReg.(*sfnbackend.Handler)
 	if !ok {
 		return
@@ -3512,6 +3844,24 @@ func wireStepFunctionsServiceIntegrations(sfnReg, sqsReg, snsReg, ddbReg service
 
 	if ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler); ddbOk {
 		sfnBk.SetDynamoDBIntegration(sfnbackend.NewDynamoDBIntegration(ddbH.Backend))
+	}
+
+	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
+		if ecsBk, ecsBkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); ecsBkOk {
+			sfnBk.SetECSIntegration(ecsBk)
+		}
+	}
+
+	if glueH, glueOk := glueReg.(*gluebackend.Handler); glueOk {
+		if glueBk, glueBkOk := glueH.Backend.(*gluebackend.InMemoryBackend); glueBkOk {
+			sfnBk.SetGlueIntegration(glueBk)
+		}
+	}
+
+	if ebH, ebOk := ebReg.(*ebbackend.Handler); ebOk {
+		if ebBk, ebBkOk := ebH.Backend.(*ebbackend.InMemoryBackend); ebBkOk {
+			sfnBk.SetEventBridgeIntegration(ebBk)
+		}
 	}
 }
 
@@ -4047,6 +4397,220 @@ func (a *cwAutoScalingAdapter) ExecuteScalingPolicy(asgName, policyName string) 
 		AutoScalingGroupName: asgName,
 		PolicyName:           policyName,
 	})
+}
+
+// wireAutoScalingEC2 wires Auto Scaling to the EC2 backend so scale-out
+// launches real (mock) EC2 instances and scale-in terminates them there too,
+// keeping EC2 DescribeInstances consistent with Auto Scaling group
+// membership instead of Auto Scaling fabricating instance IDs with no EC2
+// backing.
+func wireAutoScalingEC2(asgReg, ec2Reg service.Registerable) {
+	asgH, ok := asgReg.(*autoscalingbackend.Handler)
+	if !ok {
+		return
+	}
+
+	asgBk, ok := asgH.Backend.(*autoscalingbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	ec2H, ok := ec2Reg.(*ec2backend.Handler)
+	if !ok {
+		return
+	}
+
+	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	asgBk.SetEC2Launcher(&ec2AutoScalingLauncherAdapter{backend: ec2Bk})
+}
+
+// elbv2TargetRegistrarAdapter holds the ELBv2 backend and target-port
+// resolution logic shared by the Auto Scaling and ECS ELBv2 registrar
+// adapters below. Both need to translate a package-local ELBTarget (ID +
+// optional port) into an elbv2.Target, defaulting an omitted (zero) port to
+// the target group's own configured port: the elbv2 backend's
+// RegisterTargets/DeregisterTargets methods, unlike its HTTP handlers (see
+// defaultTargetPorts in services/elbv2/handler.go), do not default the port
+// themselves, and these adapters call the backend methods directly.
+type elbv2TargetRegistrarAdapter struct {
+	backend *elbv2backend.InMemoryBackend
+}
+
+func (a *elbv2TargetRegistrarAdapter) port(tgArn string, targetPort int) int32 {
+	if targetPort != 0 {
+		return int32(targetPort) //nolint:gosec // container/instance ports fit in int32
+	}
+
+	tgs, err := a.backend.DescribeTargetGroups([]string{tgArn}, nil, "")
+	if err != nil || len(tgs) == 0 {
+		return 0
+	}
+
+	return tgs[0].Port
+}
+
+// wireAutoScalingELBv2 wires Auto Scaling to the ELBv2 backend so instances
+// added to or removed from a group's TargetGroupARNs (via scale-out/in,
+// TerminateInstanceInAutoScalingGroup, Attach/DetachInstances, and
+// Attach/DetachLoadBalancerTargetGroups) register/deregister as real ELBv2
+// targets, instead of TargetGroupARNs being stored and echoed with no effect
+// on ELBv2 DescribeTargetHealth.
+func wireAutoScalingELBv2(asgReg, elbv2Reg service.Registerable) {
+	asgH, ok := asgReg.(*autoscalingbackend.Handler)
+	if !ok {
+		return
+	}
+
+	asgBk, ok := asgH.Backend.(*autoscalingbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	elbv2H, ok := elbv2Reg.(*elbv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	elbv2Bk, ok := elbv2H.Backend.(*elbv2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	asgBk.SetELBv2Registrar(&autoscalingELBv2RegistrarAdapter{
+		elbv2TargetRegistrarAdapter{backend: elbv2Bk},
+	})
+}
+
+// autoscalingELBv2RegistrarAdapter adapts the ELBv2 backend to the
+// autoscaling.ELBv2TargetRegistrar interface.
+type autoscalingELBv2RegistrarAdapter struct {
+	elbv2TargetRegistrarAdapter
+}
+
+func (a *autoscalingELBv2RegistrarAdapter) RegisterTargets(
+	_ context.Context, tgArn string, targets []autoscalingbackend.ELBTarget,
+) error {
+	return a.backend.RegisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+}
+
+func (a *autoscalingELBv2RegistrarAdapter) DeregisterTargets(
+	_ context.Context, tgArn string, targets []autoscalingbackend.ELBTarget,
+) error {
+	return a.backend.DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+}
+
+func (a *autoscalingELBv2RegistrarAdapter) toELBv2Targets(
+	tgArn string, targets []autoscalingbackend.ELBTarget,
+) []elbv2backend.Target {
+	out := make([]elbv2backend.Target, len(targets))
+	for i, t := range targets {
+		out[i] = elbv2backend.Target{ID: t.ID, Port: a.port(tgArn, t.Port)}
+	}
+
+	return out
+}
+
+// wireECSELBv2 wires ECS to the ELBv2 backend so tasks belonging to a
+// service with LoadBalancers configured register/deregister as real ELBv2
+// targets when they reach/leave RUNNING, instead of Service.LoadBalancers
+// being stored and echoed with no effect on ELBv2 DescribeTargetHealth. Only
+// awsvpc-mode (Fargate) tasks resolve to a usable target identity (their ENI
+// private IP) — see ecs.privateIPFromAttachments; EC2-launch-type tasks are
+// skipped rather than registered with a fabricated identity.
+func wireECSELBv2(ecsReg, elbv2Reg service.Registerable) {
+	ecsH, ok := ecsReg.(*ecsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ecsBk, ok := ecsH.Backend.(*ecsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	elbv2H, ok := elbv2Reg.(*elbv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	elbv2Bk, ok := elbv2H.Backend.(*elbv2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	ecsBk.SetELBv2Registrar(&ecsELBv2RegistrarAdapter{
+		elbv2TargetRegistrarAdapter{backend: elbv2Bk},
+	})
+}
+
+// ecsELBv2RegistrarAdapter adapts the ELBv2 backend to the
+// ecs.ELBv2TargetRegistrar interface.
+type ecsELBv2RegistrarAdapter struct {
+	elbv2TargetRegistrarAdapter
+}
+
+func (a *ecsELBv2RegistrarAdapter) RegisterTargets(
+	_ context.Context, tgArn string, targets []ecsbackend.ELBTarget,
+) error {
+	return a.backend.RegisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+}
+
+func (a *ecsELBv2RegistrarAdapter) DeregisterTargets(
+	_ context.Context, tgArn string, targets []ecsbackend.ELBTarget,
+) error {
+	return a.backend.DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+}
+
+func (a *ecsELBv2RegistrarAdapter) toELBv2Targets(
+	tgArn string, targets []ecsbackend.ELBTarget,
+) []elbv2backend.Target {
+	out := make([]elbv2backend.Target, len(targets))
+	for i, t := range targets {
+		out[i] = elbv2backend.Target{ID: t.ID, Port: a.port(tgArn, t.Port)}
+	}
+
+	return out
+}
+
+// ec2AutoScalingLauncherAdapter adapts the EC2 backend to the
+// autoscaling.EC2Launcher interface, translating an
+// autoscaling.InstanceLaunchSpec into an EC2 RunInstances call (and tagging
+// the results) and an autoscaling instance-ID list into an EC2
+// TerminateInstances call.
+type ec2AutoScalingLauncherAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *ec2AutoScalingLauncherAdapter) LaunchInstances(
+	_ context.Context, spec autoscalingbackend.InstanceLaunchSpec, count int,
+) ([]string, error) {
+	instances, err := a.backend.RunInstances(spec.ImageID, spec.InstanceType, spec.SubnetID, count)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, len(instances))
+	for i, inst := range instances {
+		ids[i] = inst.ID
+	}
+
+	if len(spec.Tags) > 0 {
+		if tagErr := a.backend.CreateTags(ids, spec.Tags); tagErr != nil {
+			return ids, tagErr
+		}
+	}
+
+	return ids, nil
+}
+
+func (a *ec2AutoScalingLauncherAdapter) TerminateInstances(_ context.Context, ids []string) error {
+	_, err := a.backend.TerminateInstances(ids)
+
+	return err
 }
 
 // cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.

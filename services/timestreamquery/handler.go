@@ -391,6 +391,7 @@ type createScheduledQueryInput struct {
 	ScheduledQueryExecutionRoleArn string `json:"ScheduledQueryExecutionRoleArn"`
 	QueryString                    string `json:"QueryString"`
 	Name                           string `json:"Name"`
+	ClientToken                    string `json:"ClientToken"`
 	ScheduleConfiguration          struct {
 		ScheduleExpression string `json:"ScheduleExpression"`
 	} `json:"ScheduleConfiguration"`
@@ -468,7 +469,7 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 		req.ScheduleConfiguration.ScheduleExpression,
 		req.ScheduledQueryExecutionRoleArn,
 		notificationTopicArn, errorReportBucket,
-		targetDB, targetTable,
+		targetDB, targetTable, req.ClientToken,
 		tags,
 	)
 	if err != nil {
@@ -721,7 +722,13 @@ func (h *Handler) handlePrepareQuery(ctx context.Context, body []byte) ([]byte, 
 
 func (h *Handler) handleUpdateAccountSettings(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		MaxQueryTCU       *int32 `json:"MaxQueryTCU"`
+		MaxQueryTCU  *int32 `json:"MaxQueryTCU"`
+		QueryCompute *struct {
+			ProvisionedCapacity *struct {
+				TargetQueryTCU *int32 `json:"TargetQueryTCU"`
+			} `json:"ProvisionedCapacity"`
+			ComputeMode string `json:"ComputeMode"`
+		} `json:"QueryCompute"`
 		QueryPricingModel string `json:"QueryPricingModel"`
 	}
 
@@ -729,7 +736,15 @@ func (h *Handler) handleUpdateAccountSettings(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
-	settings, err := h.Backend.UpdateAccountSettings(ctx, req.QueryPricingModel, req.MaxQueryTCU)
+	var queryCompute *QueryComputeUpdate
+	if req.QueryCompute != nil {
+		queryCompute = &QueryComputeUpdate{ComputeMode: req.QueryCompute.ComputeMode}
+		if req.QueryCompute.ProvisionedCapacity != nil {
+			queryCompute.TargetQueryTCU = req.QueryCompute.ProvisionedCapacity.TargetQueryTCU
+		}
+	}
+
+	settings, err := h.Backend.UpdateAccountSettings(ctx, req.QueryPricingModel, req.MaxQueryTCU, queryCompute)
 	if err != nil {
 		return nil, err
 	}

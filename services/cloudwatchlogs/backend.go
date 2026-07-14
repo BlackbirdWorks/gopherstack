@@ -62,7 +62,6 @@ var (
 	ErrScheduledQueryNotFound        = errors.New("ResourceNotFoundException")
 	ErrMetricFilterNotFound          = errors.New("ResourceNotFoundException")
 	ErrQueryDefinitionNotFound       = errors.New("ResourceNotFoundException")
-	ErrInvalidSequenceToken          = errors.New("InvalidSequenceTokenException")
 	ErrOperationAborted              = errors.New("OperationAbortedException")
 	ErrInvalidOperation              = errors.New("InvalidOperationException")
 )

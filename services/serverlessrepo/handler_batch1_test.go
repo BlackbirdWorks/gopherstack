@@ -147,7 +147,16 @@ func TestBatch1_CreateApplicationVersion_ArchiveURL(t *testing.T) {
 func TestBatch1_PutApplicationPolicy_AWSActions(t *testing.T) {
 	t.Parallel()
 
-	tests := []string{"Deploy", "SearchAndDeploy", "UnshareApplication", "UnSubscribeFromApplication"}
+	tests := []string{
+		"Deploy",
+		"UnshareApplication",
+		"GetApplication",
+		"CreateCloudFormationChangeSet",
+		"CreateCloudFormationTemplate",
+		"ListApplicationVersions",
+		"ListApplicationDependencies",
+		"SearchApplications",
+	}
 	for _, action := range tests {
 		t.Run(action, func(t *testing.T) {
 			t.Parallel()

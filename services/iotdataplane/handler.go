@@ -31,20 +31,35 @@ const (
 	listThingsWithShadowsPath = "/api/things/shadow/ListThingsWithShadows"
 	// listNamedShadowsPrefix is the prefix for ListNamedShadowsForThing.
 	listNamedShadowsPrefix = "/api/things/shadow/ListNamedShadowsForThing/"
-	// adminConnectionsPath is the Gopherstack-only admin path for managing connections.
-	// Prefixed with /_admin/ to distinguish from AWS API namespace.
+	// adminConnectionsPath is the Gopherstack-only admin path for managing
+	// connections via RegisterConnection/ListConnections, which have no real
+	// AWS iotdataplane equivalent. Prefixed with /_admin/ to distinguish
+	// from the AWS API namespace.
 	adminConnectionsPath = "/_admin/connections"
 	// adminConnectionsPathSlash is the prefix for individual connection operations.
 	adminConnectionsPathSlash = adminConnectionsPath + "/"
+	// connectionsPath is the real AWS wire path for DeleteConnection (DELETE
+	// /connections/{clientId}; see aws-sdk-go-v2/service/iotdataplane's
+	// serializer for DeleteConnectionInput). Unlike RegisterConnection/
+	// ListConnections, DeleteConnection IS a real published AWS operation, so
+	// it must remain reachable at its real wire path in addition to the
+	// gopherstack admin alias below.
+	connectionsPath = "/connections"
+	// connectionsPathSlash is the prefix for individual connections at the real path.
+	connectionsPathSlash = connectionsPath + "/"
 	// defaultPageSize is the default number of items returned per page (AWS default).
 	defaultPageSize = 25
 	// maxPageSize is the maximum number of items returned per page (AWS cap).
 	maxPageSize = 100
 
-	keyError            = "error"
-	keyMessage          = "message"
-	errMethodNotAllowed = "method not allowed"
+	keyError   = "error"
+	keyMessage = "message"
+	// errMethodNotAllowed is the AWS iotdataplane wire error code for a
+	// combination of HTTP verb and URI that isn't supported (see
+	// aws-sdk-go-v2/service/iotdataplane/types.MethodNotAllowedException).
+	errMethodNotAllowed = "MethodNotAllowedException"
 	opUnknown           = "Unknown"
+	opDeleteConnection  = "DeleteConnection"
 
 	// shadowPathParts is the number of parts when splitting a shadow URL on "/shadow".
 	shadowPathParts = 2
@@ -71,7 +86,7 @@ func (h *Handler) Name() string { return "IoTDataPlane" }
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
-		"DeleteConnection",
+		opDeleteConnection,
 		"DeleteThingShadow",
 		"GetRetainedMessage",
 		"GetThingShadow",
@@ -105,6 +120,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			path == listThingsWithShadowsPath ||
 			path == adminConnectionsPath ||
 			strings.HasPrefix(path, adminConnectionsPathSlash) ||
+			isDeleteConnectionPath(path, c.Request().Method) ||
 			path == retainedMessagePath ||
 			strings.HasPrefix(path, retainedMessagePathSlash)
 	}
@@ -140,6 +156,24 @@ func isShadowPath(path string) bool {
 // MatchPriority returns the routing priority for the IoT Data Plane handler.
 func (h *Handler) MatchPriority() int { return iotDPMatchPriority }
 
+// isDeleteConnectionPath reports whether path/method address the real AWS
+// DeleteConnection wire path: DELETE /connections/{clientId}. Only DELETE is
+// real here -- GET/POST on the bare /connections prefix have no AWS
+// equivalent (those live under adminConnectionsPath instead).
+func isDeleteConnectionPath(path, method string) bool {
+	return method == http.MethodDelete && strings.HasPrefix(path, connectionsPathSlash)
+}
+
+// extractConnectionClientID returns the clientId path segment for either the
+// gopherstack admin connections path or the real AWS DeleteConnection path.
+func extractConnectionClientID(path string) string {
+	if after, ok := strings.CutPrefix(path, adminConnectionsPathSlash); ok {
+		return after
+	}
+
+	return strings.TrimPrefix(path, connectionsPathSlash)
+}
+
 // extractConnectionOperation returns the operation name for /_admin/connections paths.
 func extractConnectionOperation(path, method string) string {
 	if path == adminConnectionsPath {
@@ -152,7 +186,7 @@ func extractConnectionOperation(path, method string) string {
 
 	switch method {
 	case http.MethodDelete:
-		return "DeleteConnection"
+		return opDeleteConnection
 	case http.MethodPost:
 		return "RegisterConnection"
 	}
@@ -187,6 +221,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "ListThingsWithShadows"
 	case path == adminConnectionsPath || strings.HasPrefix(path, adminConnectionsPathSlash):
 		return extractConnectionOperation(path, method)
+	case isDeleteConnectionPath(path, method):
+		return opDeleteConnection
 	case path == retainedMessagePath && method == http.MethodGet:
 		return "ListRetainedMessages"
 	case strings.HasPrefix(path, retainedMessagePathSlash) && method == http.MethodGet:
@@ -218,6 +254,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	if after, ok := strings.CutPrefix(path, adminConnectionsPathSlash); ok {
+		return after
+	}
+
+	if after, ok := strings.CutPrefix(path, connectionsPathSlash); ok {
 		return after
 	}
 
@@ -262,7 +302,12 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrVersionConflict):
 		return c.JSON(http.StatusConflict, map[string]any{
 			"code":     http.StatusConflict,
-			keyError:   "VersionConflictException",
+			keyError:   "ConflictException",
+			keyMessage: err.Error(),
+		})
+	case errors.Is(err, ErrRequestTooLarge):
+		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{
+			keyError:   "RequestEntityTooLargeException",
 			keyMessage: err.Error(),
 		})
 	case errors.Is(err, ErrValidation):
@@ -295,6 +340,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleConnections(c)
 		case strings.HasPrefix(path, adminConnectionsPathSlash):
 			return h.handleConnectionByID(c)
+		case isDeleteConnectionPath(path, c.Request().Method):
+			return h.handleDeleteConnection(c)
 		case path == retainedMessagePath:
 			return h.handleListRetainedMessages(c)
 		case strings.HasPrefix(path, retainedMessagePathSlash):
@@ -475,9 +522,11 @@ func (h *Handler) handleRegisterConnection(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, map[string]string{"clientId": clientID})
 }
 
-// handleDeleteConnection processes DELETE /_admin/connections/{clientId} requests.
+// handleDeleteConnection processes DELETE requests for both the gopherstack
+// admin path (/_admin/connections/{clientId}) and the real AWS wire path
+// (/connections/{clientId}).
 func (h *Handler) handleDeleteConnection(c *echo.Context) error {
-	clientID := strings.TrimPrefix(c.Request().URL.Path, adminConnectionsPathSlash)
+	clientID := extractConnectionClientID(c.Request().URL.Path)
 	if clientID == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "clientId is required"})
 	}
@@ -687,7 +736,9 @@ func (h *Handler) handleUpdateThingShadow(c *echo.Context, thingName, shadowName
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{keyError: "request body too large"})
+		tooLargeErr := fmt.Errorf("%w: shadow document exceeds %d bytes", ErrRequestTooLarge, maxShadowBodyBytes)
+
+		return h.handleError(c, tooLargeErr)
 	}
 
 	updated, updateErr := h.Backend.UpdateThingShadow(thingName, shadowName, body)

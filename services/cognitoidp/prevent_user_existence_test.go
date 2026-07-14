@@ -132,3 +132,110 @@ func Test_UpdateUserPoolClient_PreventUserExistenceErrors(t *testing.T) {
 	_, err = b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "ghost", "Pass1234!")
 	require.ErrorIs(t, err, cognitoidp.ErrNotAuthorized, "after enabling, unknown users must be masked")
 }
+
+// Test_ForgotPassword_PreventUserExistenceErrors proves ForgotPassword reveals
+// UserNotFoundException for an unknown username only when the app client's
+// PreventUserExistenceErrors is "LEGACY"; "ENABLED" must fabricate the same success
+// response (CodeDeliveryDetails) a real account would get, so a caller cannot enumerate
+// valid usernames by checking whether the call errors.
+func Test_ForgotPassword_PreventUserExistenceErrors(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		wantErr    error
+		name       string
+		clientOpts cognitoidp.UserPoolClientOptions
+	}{
+		{
+			name:       "default (unset) is LEGACY: reveals UserNotFoundException",
+			clientOpts: cognitoidp.UserPoolClientOptions{},
+			wantErr:    cognitoidp.ErrUserNotFound,
+		},
+		{
+			name:       "explicit LEGACY reveals UserNotFoundException",
+			clientOpts: cognitoidp.UserPoolClientOptions{PreventUserExistenceErrors: "LEGACY"},
+			wantErr:    cognitoidp.ErrUserNotFound,
+		},
+		{
+			name:       "ENABLED masks as a fabricated success",
+			clientOpts: cognitoidp.UserPoolClientOptions{PreventUserExistenceErrors: "ENABLED"},
+			wantErr:    nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolName := "fp-peu-pool-" + sanitizeTestName(tc.name)
+			pool, err := b.CreateUserPoolWithOpts(poolName, cognitoidp.UserPoolOptions{})
+			require.NoError(t, err)
+
+			client, err := b.CreateUserPoolClientWithOpts(pool.ID, "fp-peu-client", tc.clientOpts)
+			require.NoError(t, err)
+
+			code, err := b.ForgotPassword(client.ClientID, "no-such-user")
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, code, "masked success must still return a code-shaped response")
+
+			// The fabricated code must not be usable: no real user was created, so
+			// ConfirmForgotPassword must still fail rather than silently "succeeding".
+			confirmErr := b.ConfirmForgotPassword(client.ClientID, "no-such-user", code, "NewPass1234!")
+			require.ErrorIs(t, confirmErr, cognitoidp.ErrUserNotFound)
+		})
+	}
+}
+
+// Test_ResendConfirmationCode_PreventUserExistenceErrors mirrors
+// Test_ForgotPassword_PreventUserExistenceErrors for ResendConfirmationCode.
+func Test_ResendConfirmationCode_PreventUserExistenceErrors(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		wantErr    error
+		name       string
+		clientOpts cognitoidp.UserPoolClientOptions
+	}{
+		{
+			name:       "default (unset) is LEGACY: reveals UserNotFoundException",
+			clientOpts: cognitoidp.UserPoolClientOptions{},
+			wantErr:    cognitoidp.ErrUserNotFound,
+		},
+		{
+			name:       "ENABLED masks as a fabricated success",
+			clientOpts: cognitoidp.UserPoolClientOptions{PreventUserExistenceErrors: "ENABLED"},
+			wantErr:    nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolName := "rcc-peu-pool-" + sanitizeTestName(tc.name)
+			pool, err := b.CreateUserPoolWithOpts(poolName, cognitoidp.UserPoolOptions{})
+			require.NoError(t, err)
+
+			client, err := b.CreateUserPoolClientWithOpts(pool.ID, "rcc-peu-client", tc.clientOpts)
+			require.NoError(t, err)
+
+			code, err := b.ResendConfirmationCode(client.ClientID, "no-such-user")
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, code, "masked success must still return a code-shaped response")
+		})
+	}
+}

@@ -301,9 +301,19 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc { //nolint:funlen // 
 
 // ---- request/response types ----
 
+// domainReq mirrors the real Domain shape the SDK sends for
+// CreateOrganizationInput.Domains: a list of objects, not bare strings (see
+// aws-sdk-go-v2/service/workmail/types.Domain). HostedZoneId is Route53-only
+// and has no meaning for the in-memory backend, so it is accepted but
+// discarded.
+type domainReq struct {
+	DomainName   string `json:"DomainName"`
+	HostedZoneID string `json:"HostedZoneId"`
+}
+
 type createOrgReq struct {
-	Alias   string   `json:"Alias"`
-	Domains []string `json:"Domains"`
+	Alias   string      `json:"Alias"`
+	Domains []domainReq `json:"Domains"`
 }
 
 type createOrgResp struct {
@@ -311,7 +321,12 @@ type createOrgResp struct {
 }
 
 func (h *Handler) handleCreateOrganization(ctx context.Context, req *createOrgReq) (*createOrgResp, error) {
-	org, err := h.Backend.CreateOrganization(ctx, req.Alias, req.Domains)
+	domains := make([]string, 0, len(req.Domains))
+	for _, d := range req.Domains {
+		domains = append(domains, d.DomainName)
+	}
+
+	org, err := h.Backend.CreateOrganization(ctx, req.Alias, domains)
 	if err != nil {
 		return nil, err
 	}
@@ -331,6 +346,7 @@ type describeOrgResp struct {
 	DirectoryID             string `json:"DirectoryId"`
 	DirectoryType           string `json:"DirectoryType"`
 	DefaultMailDomain       string `json:"DefaultMailDomain"`
+	ErrorMessage            string `json:"ErrorMessage,omitempty"`
 	CompletedDate           int64  `json:"CompletedDate"`
 	InteroperabilityEnabled bool   `json:"InteroperabilityEnabled"`
 }
@@ -349,6 +365,7 @@ func (h *Handler) handleDescribeOrganization(_ context.Context, req *describeOrg
 		DirectoryID:       org.DirectoryID,
 		DirectoryType:     org.DirectoryType,
 		DefaultMailDomain: org.DefaultMailDomain,
+		ErrorMessage:      org.ErrorMessage,
 		CompletedDate:     org.CompletedDate.Unix(),
 	}, nil
 }
@@ -831,18 +848,35 @@ type listGroupsForEntityReq struct {
 	MaxResults     int32  `json:"MaxResults"`
 }
 
-func (h *Handler) handleListGroupsForEntity(_ context.Context, req *listGroupsForEntityReq) (*listGroupsResp, error) {
+// groupIdentifierResp mirrors aws-sdk-go-v2/service/workmail/types.
+// GroupIdentifier, the ListGroupsForEntity item shape. It is a narrower type
+// than types.Group (used by ListGroups): only GroupId/GroupName, no Email or
+// State.
+type groupIdentifierResp struct {
+	GroupID   string `json:"GroupId"`
+	GroupName string `json:"GroupName"`
+}
+
+type listGroupsForEntityResp struct {
+	NextToken string                `json:"NextToken,omitempty"`
+	Groups    []groupIdentifierResp `json:"Groups"`
+}
+
+func (h *Handler) handleListGroupsForEntity(
+	_ context.Context,
+	req *listGroupsForEntityReq,
+) (*listGroupsForEntityResp, error) {
 	groups, next, err := h.Backend.ListGroupsForEntity(req.OrganizationID, req.EntityID, req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
 
-	summaries := make([]groupSummaryResp, 0, len(groups))
+	summaries := make([]groupIdentifierResp, 0, len(groups))
 	for _, g := range groups {
-		summaries = append(summaries, groupSummaryResp{ID: g.GroupID, Name: g.Name, Email: g.Email, State: g.State})
+		summaries = append(summaries, groupIdentifierResp{GroupID: g.GroupID, GroupName: g.Name})
 	}
 
-	return &listGroupsResp{Groups: summaries, NextToken: next}, nil
+	return &listGroupsForEntityResp{Groups: summaries, NextToken: next}, nil
 }
 
 // ---- Resources ----
@@ -1231,10 +1265,13 @@ type listMailDomainsReq struct {
 	MaxResults     int32  `json:"MaxResults"`
 }
 
+// mailDomainSummaryResp mirrors aws-sdk-go-v2/service/workmail/types.
+// MailDomainSummary (the ListMailDomains item shape), which is a distinct,
+// narrower type from GetMailDomainOutput: the wire key is "DefaultDomain",
+// not "IsDefault", and there is no IsTestDomain field at all.
 type mailDomainSummaryResp struct {
-	DomainName   string `json:"DomainName"`
-	IsDefault    bool   `json:"IsDefault"`
-	IsTestDomain bool   `json:"IsTestDomain"`
+	DomainName    string `json:"DomainName"`
+	DefaultDomain bool   `json:"DefaultDomain"`
 }
 
 type listMailDomainsResp struct {
@@ -1251,9 +1288,8 @@ func (h *Handler) handleListMailDomains(_ context.Context, req *listMailDomainsR
 	dresps := make([]mailDomainSummaryResp, 0, len(domains))
 	for _, d := range domains {
 		dresps = append(dresps, mailDomainSummaryResp{
-			DomainName:   d.DomainName,
-			IsDefault:    d.IsDefault,
-			IsTestDomain: d.IsTestDomain,
+			DomainName:    d.DomainName,
+			DefaultDomain: d.IsDefault,
 		})
 	}
 
@@ -1343,12 +1379,16 @@ type listACRReq struct {
 	OrganizationID string `json:"OrganizationId"`
 }
 
+// acrResp mirrors aws-sdk-go-v2/service/workmail/types.AccessControlRule.
+// The wire keys are IpRanges/NotIpRanges (lowercase "p"), NOT IPRanges/
+// NotIPRanges -- a real SDK client deserializes case-sensitively and would
+// silently see empty slices for these fields under the wrong casing.
 type acrResp struct {
 	Name         string   `json:"Name"`
 	Effect       string   `json:"Effect"`
 	Description  string   `json:"Description,omitempty"`
-	IPRanges     []string `json:"IPRanges,omitempty"`
-	NotIPRanges  []string `json:"NotIPRanges,omitempty"`
+	IPRanges     []string `json:"IpRanges,omitempty"`
+	NotIPRanges  []string `json:"NotIpRanges,omitempty"`
 	Actions      []string `json:"Actions,omitempty"`
 	NotActions   []string `json:"NotActions,omitempty"`
 	UserIDs      []string `json:"UserIds,omitempty"`
@@ -1559,9 +1599,11 @@ type impersonationRoleSummaryResp struct {
 	DateModified        int64  `json:"DateModified"`
 }
 
+// listImpersonationRolesResp mirrors ListImpersonationRolesOutput: the field
+// is "Roles", not "Items".
 type listImpersonationRolesResp struct {
 	NextToken string                         `json:"NextToken,omitempty"`
-	Items     []impersonationRoleSummaryResp `json:"Items"`
+	Roles     []impersonationRoleSummaryResp `json:"Roles"`
 }
 
 func (h *Handler) handleListImpersonationRoles(
@@ -1584,7 +1626,7 @@ func (h *Handler) handleListImpersonationRoles(
 		})
 	}
 
-	return &listImpersonationRolesResp{Items: summaries, NextToken: next}, nil
+	return &listImpersonationRolesResp{Roles: summaries, NextToken: next}, nil
 }
 
 // ---- Tags ----
@@ -2364,14 +2406,25 @@ type listMailboxExportJobsReq struct {
 	NextToken      string `json:"NextToken"`
 }
 
+// mailboxExportJobSummaryJSON mirrors aws-sdk-go-v2/service/workmail/types.
+// MailboxExportJob: unlike most other List* operations, ListMailboxExportJobs
+// reuses the SAME full shape as DescribeMailboxExportJob (RoleArn, KmsKeyArn,
+// S3Path, S3Prefix, EstimatedProgress, and ErrorInfo are all present on the
+// wire, not summarized away).
 type mailboxExportJobSummaryJSON struct {
-	JobId        string `json:"JobId"`    //nolint:revive,staticcheck // existing issue.
-	EntityId     string `json:"EntityId"` //nolint:revive,staticcheck // existing issue.
-	Description  string `json:"Description,omitempty"`
-	S3BucketName string `json:"S3BucketName,omitempty"`
-	State        string `json:"State"`
-	StartTime    int64  `json:"StartTime,omitempty"`
-	EndTime      int64  `json:"EndTime,omitempty"`
+	JobId             string `json:"JobId"`    //nolint:revive,staticcheck // existing issue.
+	EntityId          string `json:"EntityId"` //nolint:revive,staticcheck // existing issue.
+	Description       string `json:"Description,omitempty"`
+	RoleArn           string `json:"RoleArn,omitempty"`
+	KmsKeyArn         string `json:"KmsKeyArn,omitempty"`
+	S3BucketName      string `json:"S3BucketName,omitempty"`
+	S3Prefix          string `json:"S3Prefix,omitempty"`
+	S3Path            string `json:"S3Path,omitempty"`
+	State             string `json:"State"`
+	ErrorInfo         string `json:"ErrorInfo,omitempty"`
+	StartTime         int64  `json:"StartTime,omitempty"`
+	EndTime           int64  `json:"EndTime,omitempty"`
+	EstimatedProgress int32  `json:"EstimatedProgress"`
 }
 
 type listMailboxExportJobsResp struct {
@@ -2393,12 +2446,18 @@ func (h *Handler) handleListMailboxExportJobs(
 	result := make([]mailboxExportJobSummaryJSON, 0, len(jobs))
 	for _, j := range jobs {
 		item := mailboxExportJobSummaryJSON{
-			JobId:        j.JobID,
-			EntityId:     j.EntityID,
-			Description:  j.Description,
-			S3BucketName: j.S3BucketName,
-			State:        j.State,
-			StartTime:    j.StartTime.Unix(),
+			JobId:             j.JobID,
+			EntityId:          j.EntityID,
+			Description:       j.Description,
+			RoleArn:           j.RoleARN,
+			KmsKeyArn:         j.KmsKeyARN,
+			S3BucketName:      j.S3BucketName,
+			S3Prefix:          j.S3Prefix,
+			S3Path:            j.S3Path,
+			State:             j.State,
+			ErrorInfo:         j.ErrorInfo,
+			StartTime:         j.StartTime.Unix(),
+			EstimatedProgress: j.EstimatedProgress,
 		}
 		if !j.EndTime.IsZero() {
 			item.EndTime = j.EndTime.Unix()

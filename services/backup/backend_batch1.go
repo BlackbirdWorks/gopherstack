@@ -456,7 +456,8 @@ func (b *InMemoryBackend) ListRecoveryPointsByResource(resourceArn string) []*Re
 
 // ---- Recovery Point lifecycle ----
 
-// UpdateRecoveryPointLifecycle updates the lifecycle of a recovery point.
+// UpdateRecoveryPointLifecycle updates the lifecycle of a recovery point,
+// recomputing its CalculatedLifecycle transition timestamps from CreationDate.
 func (b *InMemoryBackend) UpdateRecoveryPointLifecycle(
 	vaultName, recoveryPointArn string,
 	moveToColdStorageAfterDays, deleteAfterDays int64,
@@ -464,21 +465,44 @@ func (b *InMemoryBackend) UpdateRecoveryPointLifecycle(
 	b.mu.Lock("UpdateRecoveryPointLifecycle")
 	defer b.mu.Unlock()
 
-	if len(b.recoveryPointsByVault.Get(vaultName)) == 0 {
+	if !b.vaults.Has(vaultName) {
 		return fmt.Errorf("%w: %s", errVaultNotFoundB1, vaultName)
 	}
-	if !b.recoveryPoints.Has(recoveryPointKey(vaultName, recoveryPointArn)) {
+
+	rp, ok := b.recoveryPoints.Get(recoveryPointKey(vaultName, recoveryPointArn))
+	if !ok {
 		return fmt.Errorf("%w: %s", errRecoveryPointNotFound, recoveryPointArn)
 	}
-	// Store lifecycle settings in index map.
-	key := vaultName + ":" + recoveryPointArn
-	b.recoveryPointLifecycle[key] = fmt.Sprintf(
-		"%d,%d",
-		moveToColdStorageAfterDays,
-		deleteAfterDays,
-	)
+
+	lc := &Lifecycle{
+		MoveToColdStorageAfterDays: moveToColdStorageAfterDays,
+		DeleteAfterDays:            deleteAfterDays,
+	}
+	rp.Lifecycle = lc
+	rp.CalculatedLifecycle = calculateLifecycle(lc, rp.CreationDate)
 
 	return nil
+}
+
+// calculateLifecycle derives CalculatedLifecycle transition timestamps for a
+// recovery point's lifecycle policy, measured from the given reference time
+// (normally the recovery point's CreationDate). Returns nil if lc is nil.
+func calculateLifecycle(lc *Lifecycle, from time.Time) *CalculatedLifecycle {
+	if lc == nil {
+		return nil
+	}
+
+	cl := &CalculatedLifecycle{}
+	if lc.MoveToColdStorageAfterDays > 0 {
+		t := from.AddDate(0, 0, int(lc.MoveToColdStorageAfterDays))
+		cl.MoveToColdStorageAt = &t
+	}
+	if lc.DeleteAfterDays > 0 {
+		t := from.AddDate(0, 0, int(lc.DeleteAfterDays))
+		cl.DeleteAt = &t
+	}
+
+	return cl
 }
 
 // GetRecoveryPointIndexDetails returns index details for a recovery point.

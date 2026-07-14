@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -49,15 +49,27 @@ func isValidContactType(ct ContactType) bool {
 	return ct == ContactTypeBilling || ct == ContactTypeOperations || ct == ContactTypeSecurity
 }
 
-// Details holds information about the AWS account.
-type Details struct {
-	Arn             string `json:"Arn,omitempty"`
-	Email           string `json:"Email,omitempty"`
-	ID              string `json:"Id,omitempty"`
-	Name            string `json:"Name,omitempty"`
-	Status          string `json:"Status,omitempty"`
-	JoinedMethod    string `json:"JoinedMethod,omitempty"`
-	JoinedTimestamp string `json:"JoinedTimestamp,omitempty"`
+// State represents the lifecycle state of an AWS account as reported by
+// GetAccountInformation. Real Account Management never transitions an
+// account to SUSPENDED/CLOSED/PENDING_ACTIVATION from this service --
+// account closure is an AWS Organizations concept (see the CloseAccount
+// operation already implemented by services/organizations), so this
+// service's backend always reports ACTIVE.
+type State string
+
+const (
+	StateActive            State = "ACTIVE"
+	StatePendingActivation State = "PENDING_ACTIVATION"
+	StateSuspended         State = "SUSPENDED"
+	StateClosed            State = "CLOSED"
+)
+
+// Info holds the fields returned by GetAccountInformation.
+type Info struct {
+	AccountID          string `json:"AccountId"`
+	AccountName        string `json:"AccountName"`
+	AccountCreatedDate string `json:"AccountCreatedDate"`
+	AccountState       State  `json:"AccountState"`
 }
 
 // Region represents an AWS region and its opt-in status.
@@ -94,7 +106,7 @@ type ContactInformation struct {
 // StorageBackend defines the interface for the account service backend.
 type StorageBackend interface {
 	Reset()
-	DescribeAccount() (*Details, error)
+	GetAccountInformation() (*Info, error)
 	ListRegions(statusFilter []RegionOptStatus, maxResults int, nextToken string) ([]*Region, string, error)
 	EnableRegion(regionName string) error
 	DisableRegion(regionName string) error
@@ -108,7 +120,6 @@ type StorageBackend interface {
 	StartPrimaryEmailUpdate(email string) (string, error)
 	AcceptPrimaryEmailUpdate(otp, email string) error
 	PutAccountName(name string) error
-	CloseAccount() error
 
 	// Snapshot and Restore implement persistence.Persistable. Handler
 	// delegates to them (see persistence.go) so a persistence manager that
@@ -119,18 +130,18 @@ type StorageBackend interface {
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	registry          *store.Registry
-	alternateContacts *store.Table[AlternateContact]
-	contactInfo       *ContactInformation
-	accountID         string
-	region            string
-	accountName       string
-	primaryEmail      string
-	pendingEmail      string
-	pendingOTP        string
-	regions           []*Region
-	closed            bool
-	mu                sync.RWMutex
+	accountCreatedDate time.Time
+	registry           *store.Registry
+	alternateContacts  *store.Table[AlternateContact]
+	contactInfo        *ContactInformation
+	accountID          string
+	region             string
+	accountName        string
+	primaryEmail       string
+	pendingEmail       string
+	pendingOTP         string
+	regions            []*Region
+	mu                 sync.RWMutex
 }
 
 // simOTP is a fixed OTP used for simulation — callers pass it back to AcceptPrimaryEmailUpdate.
@@ -146,11 +157,12 @@ const defaultAccountName = "Test Account"
 // NewInMemoryBackend creates a new in-memory backend for the account service.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID:    accountID,
-		region:       region,
-		accountName:  defaultAccountName,
-		primaryEmail: defaultPrimaryEmail,
-		registry:     store.NewRegistry(),
+		accountID:          accountID,
+		region:             region,
+		accountName:        defaultAccountName,
+		primaryEmail:       defaultPrimaryEmail,
+		registry:           store.NewRegistry(),
+		accountCreatedDate: time.Now().UTC(),
 	}
 	registerAllTables(b)
 	b.initDefaultRegions()
@@ -183,22 +195,22 @@ func (b *InMemoryBackend) Reset() {
 	b.primaryEmail = defaultPrimaryEmail
 	b.pendingEmail = ""
 	b.pendingOTP = ""
-	b.closed = false
 	b.initDefaultRegions()
 }
 
-// DescribeAccount returns account details.
-func (b *InMemoryBackend) DescribeAccount() (*Details, error) {
+// GetAccountInformation returns the account's ID, display name, creation
+// date, and lifecycle state. AccountState is always ACTIVE: this service has
+// no operation that transitions it (account closure belongs to AWS
+// Organizations -- see services/organizations CloseAccount).
+func (b *InMemoryBackend) GetAccountInformation() (*Info, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return &Details{
-		Arn:          arn.Build("organizations", "", b.accountID, fmt.Sprintf("account/o-fake/%s", b.accountID)),
-		Email:        b.primaryEmail,
-		ID:           b.accountID,
-		Name:         b.accountName,
-		Status:       "ACTIVE",
-		JoinedMethod: "CREATED",
+	return &Info{
+		AccountID:          b.accountID,
+		AccountName:        b.accountName,
+		AccountCreatedDate: b.accountCreatedDate.Format(time.RFC3339),
+		AccountState:       StateActive,
 	}, nil
 }
 
@@ -436,16 +448,6 @@ func (b *InMemoryBackend) PutAccountName(name string) error {
 	defer b.mu.Unlock()
 
 	b.accountName = name
-
-	return nil
-}
-
-// CloseAccount marks the account as closed.
-func (b *InMemoryBackend) CloseAccount() error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.closed = true
 
 	return nil
 }

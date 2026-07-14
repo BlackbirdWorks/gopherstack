@@ -89,6 +89,12 @@ type QueryResult struct {
 	Columns     []ColumnInfo
 	Insights    QueryInsightsResponse
 	QueryStatus QueryStatusDetail
+	// Cancelled records whether CancelQuery has already been issued for this
+	// query. CancelQueryOutput.CancellationMessage is documented as returned
+	// "when a CancelQuery request for the query ... has already been issued",
+	// i.e. cancellation is idempotent -- a repeat CancelQuery call for the
+	// same QueryId must still succeed, not 404.
+	Cancelled bool
 }
 
 // AccountSettings holds the account-level settings for Timestream Query.
@@ -107,9 +113,11 @@ type PrepareQueryResult struct {
 }
 
 // maxRetainedQueries bounds the queries map so a long-running instance cannot
-// leak memory through repeated Query calls. The map only stores queries that
-// were not explicitly cancelled; in real Timestream, Query results are
-// transient anyway.
+// leak memory through repeated Query calls: once at the cap, an arbitrarily
+// chosen entry is evicted regardless of cancellation status (CancelQuery
+// marks an entry cancelled in place rather than deleting it, so that a
+// repeat CancelQuery call remains idempotent -- see CancelQuery); in real
+// Timestream, Query results are transient anyway.
 const maxRetainedQueries = 10000
 
 // InMemoryBackend is the in-memory backend for the Timestream Query service.
@@ -120,7 +128,8 @@ type InMemoryBackend struct {
 	scheduledQueriesByRegion *store.Index[ScheduledQuery] // region → *ScheduledQuery
 	queries                  *store.Table[QueryResult]    // keyed by QueryID; not region-isolated
 	accountSettings          map[string]AccountSettings   // region → settings
-	clientTokens             *clientTokenCache
+	clientTokens             *clientTokenCache            // Query ClientToken -> QueryID
+	scheduledQueryTokens     *clientTokenCache            // CreateScheduledQuery ClientToken -> Arn
 	pageStore                *nextTokenStore
 	accountID                string
 	defaultRegion            string
@@ -129,13 +138,14 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory Timestream Query backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID:       accountID,
-		defaultRegion:   region,
-		mu:              lockmetrics.New("timestreamquery"),
-		registry:        store.NewRegistry(),
-		accountSettings: make(map[string]AccountSettings),
-		clientTokens:    newClientTokenCache(),
-		pageStore:       newNextTokenStore(),
+		accountID:            accountID,
+		defaultRegion:        region,
+		mu:                   lockmetrics.New("timestreamquery"),
+		registry:             store.NewRegistry(),
+		accountSettings:      make(map[string]AccountSettings),
+		clientTokens:         newClientTokenCache(queryClientTokenTTL),
+		scheduledQueryTokens: newClientTokenCache(createScheduledQueryClientTokenTTL),
+		pageStore:            newNextTokenStore(),
 	}
 	registerAllTables(b)
 
@@ -149,7 +159,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.accountSettings = make(map[string]AccountSettings)
-	b.clientTokens = newClientTokenCache()
+	b.clientTokens = newClientTokenCache(queryClientTokenTTL)
+	b.scheduledQueryTokens = newClientTokenCache(createScheduledQueryClientTokenTTL)
 	b.pageStore = newNextTokenStore()
 }
 
@@ -164,7 +175,7 @@ func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 func defaultAccountSettings() AccountSettings {
 	return AccountSettings{
 		QueryPricingModel: pricingModelComputeUnits,
-		QueryCompute:      &QueryCompute{ComputeMode: "ON_DEMAND"},
+		QueryCompute:      &QueryCompute{ComputeMode: computeModeOnDemand},
 	}
 }
 
@@ -179,10 +190,17 @@ func (b *InMemoryBackend) accountSettingsFor(region string) AccountSettings {
 }
 
 // CreateScheduledQuery creates a new scheduled query.
+//
+// clientToken supports the idempotency contract documented on
+// CreateScheduledQueryInput.ClientToken: the aws-sdk-go-v2 client
+// auto-generates a ClientToken on every call via its idempotency-token-autofill
+// middleware, so a retried request (e.g. after a network blip following a
+// successful create) must replay the original success rather than surface a
+// spurious "already exists" conflict.
 func (b *InMemoryBackend) CreateScheduledQuery(
 	ctx context.Context,
 	name, queryString, scheduleExpression, executionRoleArn,
-	notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable string,
+	notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken string,
 	tags map[string]string,
 ) (*ScheduledQuery, error) {
 	if err := validateScheduleExpression(scheduleExpression); err != nil {
@@ -193,6 +211,18 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 
 	b.mu.Lock("CreateScheduledQuery")
 	defer b.mu.Unlock()
+
+	if clientToken != "" {
+		b.scheduledQueryTokens.sweep()
+
+		if cachedArn := b.scheduledQueryTokens.get(clientToken); cachedArn != "" {
+			if existing, ok := b.scheduledQueries.Get(cachedArn); ok {
+				return cloneScheduledQuery(existing), nil
+			}
+			// Cached entry outlived the resource (e.g. deleted); fall through
+			// and treat this as a fresh request.
+		}
+	}
 
 	arnStr := fmt.Sprintf(scheduledQueryArnFormat, region, b.accountID, name)
 	if b.scheduledQueries.Has(arnStr) {
@@ -219,6 +249,10 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	}
 
 	b.scheduledQueries.Put(sq)
+
+	if clientToken != "" {
+		b.scheduledQueryTokens.set(clientToken, arnStr)
+	}
 
 	return cloneScheduledQuery(sq), nil
 }
@@ -458,17 +492,22 @@ func (b *InMemoryBackend) Query(_ context.Context, queryString string) *QueryRes
 }
 
 // CancelQuery cancels a running query (simulated no-op if not found).
+// CancelQuery is documented as idempotent: cancelling a query that has
+// already been cancelled must still succeed (with a CancellationMessage),
+// not error, so the result is marked cancelled in place rather than deleted;
+// an unknown QueryId still returns ValidationException (gap #9).
 // ctx is accepted for interface consistency; query results are not region-isolated.
 func (b *InMemoryBackend) CancelQuery(_ context.Context, queryID string) error {
 	b.mu.Lock("CancelQuery")
 	defer b.mu.Unlock()
 
-	if !b.queries.Has(queryID) {
+	qr, ok := b.queries.Get(queryID)
+	if !ok {
 		// Real Timestream returns ValidationException for unknown IDs (gap #9).
 		return fmt.Errorf("%w: invalid identifier: query %q not found", ErrValidation, queryID)
 	}
 
-	b.queries.Delete(queryID)
+	qr.Cancelled = true
 
 	return nil
 }
@@ -616,25 +655,25 @@ func (b *InMemoryBackend) DescribeAccountSettings(ctx context.Context) AccountSe
 
 // PrepareQuery validates a query string and returns its column and parameter metadata.
 // It infers columns from the SELECT projection and parameters from ? markers.
-// When validateOnly is true, only parse errors are surfaced.
+//
+// Real Timestream documents ValidateOnly=true as the only supported mode for
+// this operation, and PrepareQueryOutput.Columns/Parameters are both required
+// (non-optional) response fields regardless of ValidateOnly -- they are the
+// entire point of the call (describing a query's shape before running it as a
+// scheduled query). validateOnly is accepted for wire-compatibility with the
+// input shape but does not change the response: an earlier version of this
+// method returned an empty Columns/Parameters list whenever ValidateOnly was
+// true, which discarded the inferred result for the one mode real clients
+// actually use.
 // ctx is accepted for interface consistency; PrepareQuery is stateless.
 func (b *InMemoryBackend) PrepareQuery(
-	_ context.Context, queryString string, validateOnly bool,
+	_ context.Context, queryString string, _ bool,
 ) (*PrepareQueryResult, error) {
 	if queryString == "" {
 		return nil, fmt.Errorf("%w: QueryString is required", ErrValidation)
 	}
 
 	cols, params := inferColumnsFromSQL(queryString)
-
-	if validateOnly {
-		// Surface syntax issues only — we use the inferred result either way.
-		return &PrepareQueryResult{
-			QueryString: queryString,
-			Columns:     []ColumnInfo{},
-			Parameters:  []ColumnInfo{},
-		}, nil
-	}
 
 	return &PrepareQueryResult{
 		QueryString: queryString,
@@ -649,10 +688,17 @@ func isValidPricingModel(model string) bool {
 }
 
 // UpdateAccountSettings updates the account-level settings for the request region and returns the new state.
-// Only non-empty queryPricingModel and non-nil maxQueryTCU values are applied;
-// omitted fields preserve their current values.
+// Only non-empty queryPricingModel, non-nil maxQueryTCU, and non-nil queryCompute
+// values are applied; omitted fields preserve their current values.
+//
+// queryCompute wires UpdateAccountSettingsInput.QueryCompute -- switching the
+// account between ON_DEMAND and PROVISIONED compute mode. An earlier version
+// of this method accepted only queryPricingModel/maxQueryTCU, silently
+// dropping QueryCompute from every request: the account could never actually
+// transition away from the ON_DEMAND default even though DescribeAccountSettings
+// always echoed a QueryCompute field back.
 func (b *InMemoryBackend) UpdateAccountSettings(
-	ctx context.Context, queryPricingModel string, maxQueryTCU *int32,
+	ctx context.Context, queryPricingModel string, maxQueryTCU *int32, queryCompute *QueryComputeUpdate,
 ) (AccountSettings, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
@@ -681,11 +727,59 @@ func (b *InMemoryBackend) UpdateAccountSettings(
 		settings.MaxQueryTCU = maxQueryTCU
 	}
 
+	if queryCompute != nil {
+		updated, err := applyQueryComputeUpdate(settings.QueryCompute, queryCompute)
+		if err != nil {
+			return AccountSettings{}, err
+		}
+
+		settings.QueryCompute = updated
+	}
+
 	now := time.Now()
 	settings.LastUpdatedTime = &now
 	b.accountSettings[region] = settings
 
 	return settings, nil
+}
+
+// applyQueryComputeUpdate validates a requested QueryComputeUpdate and
+// returns the resulting QueryCompute to store. This emulator applies the
+// change synchronously (LastUpdate.Status is always SUCCEEDED): switching to
+// PROVISIONED requires a positive TargetQueryTCU, which becomes the
+// (immediately active) ActiveQueryTCU; switching to ON_DEMAND clears any
+// provisioned capacity.
+func applyQueryComputeUpdate(_ *QueryCompute, update *QueryComputeUpdate) (*QueryCompute, error) {
+	switch update.ComputeMode {
+	case computeModeOnDemand:
+		return &QueryCompute{ComputeMode: computeModeOnDemand}, nil
+	case computeModeProvisioned:
+		if update.TargetQueryTCU == nil || *update.TargetQueryTCU <= 0 {
+			return nil, fmt.Errorf(
+				"%w: QueryCompute.ProvisionedCapacity.TargetQueryTCU is required and must be positive when ComputeMode is %s",
+				ErrValidation,
+				computeModeProvisioned,
+			)
+		}
+
+		active := *update.TargetQueryTCU
+
+		return &QueryCompute{
+			ComputeMode: computeModeProvisioned,
+			ProvisionedCapacity: &ProvisionedCapacity{
+				ActiveQueryTCU: &active,
+				LastUpdate: &LastUpdate{
+					Status:         "SUCCEEDED",
+					TargetQueryTCU: &active,
+				},
+			},
+		}, nil
+	default:
+		return nil, fmt.Errorf(
+			"%w: invalid QueryCompute.ComputeMode %q, must be one of %s or %s",
+			ErrValidation, update.ComputeMode, computeModeOnDemand, computeModeProvisioned,
+		)
+	}
 }
 
 // ListScheduledQueriesEnriched returns paged enriched scheduled query summaries for the request region.

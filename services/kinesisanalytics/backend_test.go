@@ -2,6 +2,7 @@ package kinesisanalytics_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -808,6 +809,113 @@ func TestInMemoryBackend_TagKeyValidation(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// TestInMemoryBackend_TagLimit covers the KDA-specific 50-user-tag cap (not the generic
+// 200 used by many other services) and the dedicated TooManyTagsException error AWS models
+// for CreateApplication/TagResource, distinct from the generic LimitExceededException.
+func TestInMemoryBackend_TagLimit(t *testing.T) {
+	t.Parallel()
+
+	manyTags := func(n int) map[string]string {
+		tags := make(map[string]string, n)
+		for i := range n {
+			tags[fmt.Sprintf("key%d", i)] = "value"
+		}
+
+		return tags
+	}
+
+	t.Run("CreateApplication accepts exactly the 50-tag cap", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend()
+		_, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "tag-cap-app", "", "", manyTags(50))
+		require.NoError(t, err)
+	})
+
+	t.Run("CreateApplication rejects more than 50 tags", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend()
+		_, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "tag-over-app", "", "", manyTags(51))
+		require.ErrorIs(t, err, kinesisanalytics.ErrTooManyTags)
+		assert.NotErrorIs(t, err, awserr.ErrConflict, "must not also match the generic LimitExceededException sentinel")
+	})
+
+	t.Run("CreateApplication validates tag keys (previously skipped entirely)", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend()
+		_, err := kinesisanalytics.CreateApp(
+			b, testRegion, testAccountID, "tag-invalid-app", "", "", map[string]string{"aws:reserved": "v"},
+		)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awserr.ErrInvalidParameter)
+	})
+
+	t.Run("TagResource rejects exceeding the cap", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend()
+		app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "tag-add-over-app", "", "", nil)
+		require.NoError(t, err)
+
+		err = b.TagResource(context.Background(), app.ApplicationARN, manyTags(51))
+		require.Error(t, err)
+		assert.ErrorIs(t, err, kinesisanalytics.ErrTooManyTags)
+	})
+}
+
+// TestInMemoryBackend_AddApplication_LimitErrorCode verifies that exceeding the per-application
+// input/output/reference-data-source/CloudWatch-logging-option caps surfaces as
+// InvalidArgumentException, matching the modeled error set for these operations
+// (AddApplicationInput/Output/ReferenceDataSource/CloudWatchLoggingOption have no
+// LimitExceededException in their AWS API definitions).
+func TestInMemoryBackend_AddApplication_LimitErrorCode(t *testing.T) {
+	t.Parallel()
+
+	t.Run("AddApplicationInput at capacity", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend()
+		app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "in-cap-app", "", "", nil)
+		require.NoError(t, err)
+
+		require.NoError(t, b.AddApplicationInput(
+			context.Background(), app.ApplicationName, app.ApplicationVersionID,
+			kinesisanalytics.InputDescription{NamePrefix: "IN1"},
+		))
+
+		err = b.AddApplicationInput(
+			context.Background(), app.ApplicationName, 2,
+			kinesisanalytics.InputDescription{NamePrefix: "IN2"},
+		)
+		require.ErrorIs(t, err, awserr.ErrInvalidParameter)
+		assert.NotErrorIs(t, err, awserr.ErrConflict)
+	})
+
+	t.Run("AddApplicationReferenceDataSource at capacity", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend()
+		app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "ref-cap-app", "", "", nil)
+		require.NoError(t, err)
+
+		ref := kinesisanalytics.ReferenceDataSourceDescription{
+			TableName: "T1",
+			S3ReferenceDataSourceDescription: &kinesisanalytics.S3ReferenceDataSourceDesc{
+				BucketARN: "arn:aws:s3:::b", FileKey: "k", ReferenceRoleARN: "arn:aws:iam::000000000000:role/r",
+			},
+		}
+		require.NoError(t, b.AddApplicationReferenceDataSource(
+			context.Background(), app.ApplicationName, app.ApplicationVersionID, ref,
+		))
+
+		err = b.AddApplicationReferenceDataSource(context.Background(), app.ApplicationName, 2, ref)
+		require.ErrorIs(t, err, awserr.ErrInvalidParameter)
+		assert.NotErrorIs(t, err, awserr.ErrConflict)
+	})
 }
 
 func TestInMemoryBackend_CancelFuncs_Lifecycle(t *testing.T) {

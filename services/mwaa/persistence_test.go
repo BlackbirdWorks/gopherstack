@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 // TestInMemoryBackend_RestoreRejectsBadSnapshots is the Phase 3.3
@@ -169,29 +171,35 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Empty(t, eastMetrics)
 }
 
-// TestHandler_SnapshotRestoreDelegate documents the current wiring of the
-// MWAA Handler with respect to persistence: unlike most services' Handler,
-// MWAA's Handler does not itself implement Snapshot/Restore (those live only
-// on InMemoryBackend, which satisfies StorageBackend). This predates Phase
-// 3.3 and is unrelated to the store.Table conversion, so it is left as-is
-// here; this test just pins the current (backend-level-only) behavior.
-func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
+// Test_Handler_SnapshotRestore verifies Handler.Snapshot/Restore
+// (persistence.go) delegate to the backend -- the shape persistence.Manager
+// actually drives. cli.go's setupPersistence registers a service.Registerable
+// (the *Handler returned by Provider.Init) in the persistence.Manager only if
+// that Handler itself satisfies Snapshot(ctx)/Restore(ctx, []byte);
+// InMemoryBackend implementing the same two methods is not enough on its own,
+// since Handler.Backend is the StorageBackend interface and does not promote
+// them. Mirrors services/securityhub's Test_Handler_SnapshotRestore.
+func Test_Handler_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
+	ctx := t.Context()
 	backend := NewInMemoryBackend("us-east-1", "000000000000")
 	h := NewHandler(backend)
+
+	// Compile-time proof Handler satisfies the persistence layer's contract.
+	var _ persistence.Persistable = h
 
 	_, err := backend.CreateEnvironment(isoCtxRegion("us-east-1"), "delegate-env", newIsoCreateReq())
 	require.NoError(t, err)
 
-	snap := h.Backend.Snapshot(t.Context())
+	snap := h.Snapshot(ctx)
 	require.NotNil(t, snap)
 
 	backend2 := NewInMemoryBackend("us-east-1", "000000000000")
 	h2 := NewHandler(backend2)
-	require.NoError(t, h2.Backend.Restore(t.Context(), snap))
+	require.NoError(t, h2.Restore(ctx, snap))
 
-	got, err := h2.Backend.GetEnvironment(isoCtxRegion("us-east-1"), "delegate-env")
+	got, err := backend2.GetEnvironment(isoCtxRegion("us-east-1"), "delegate-env")
 	require.NoError(t, err)
 	assert.Equal(t, "delegate-env", got.Name)
 }

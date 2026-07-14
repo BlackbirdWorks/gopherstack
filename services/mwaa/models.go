@@ -94,6 +94,15 @@ type NetworkConfig struct {
 	SubnetIDs        []string `json:"SubnetIds"`
 }
 
+// UpdateNetworkConfig is the network configuration shape accepted by
+// UpdateEnvironment. Unlike NetworkConfig (used by CreateEnvironment and
+// returned by GetEnvironment), AWS's UpdateNetworkConfigurationInput shape
+// has NO SubnetIds member -- subnets cannot be changed after an environment
+// is created, only SecurityGroupIds can.
+type UpdateNetworkConfig struct {
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+}
+
 // createEnvironmentRequest is the request body for creating an MWAA environment.
 type createEnvironmentRequest struct {
 	NetworkConfiguration         *NetworkConfig        `json:"NetworkConfiguration"`
@@ -125,7 +134,7 @@ type createEnvironmentRequest struct {
 
 // updateEnvironmentRequest is the request body for updating an MWAA environment.
 type updateEnvironmentRequest struct {
-	NetworkConfiguration         *NetworkConfig        `json:"NetworkConfiguration"`
+	NetworkConfiguration         *UpdateNetworkConfig  `json:"NetworkConfiguration"`
 	AirflowConfigurationOptions  map[string]string     `json:"AirflowConfigurationOptions"`
 	LoggingConfiguration         *LoggingConfiguration `json:"LoggingConfiguration"`
 	DagS3Path                    string                `json:"DagS3Path"`

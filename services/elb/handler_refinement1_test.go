@@ -430,7 +430,7 @@ func TestRefinement1_DescribeLoadBalancerPolicyTypes_UnknownReturnsError(t *test
 	b := newBackend()
 	_, err := b.DescribeLoadBalancerPolicyTypes(context.Background(), []string{"NoSuchPolicyType"})
 	require.Error(t, err)
-	require.ErrorIs(t, err, elb.ErrPolicyNotFound)
+	require.ErrorIs(t, err, elb.ErrPolicyTypeNotFound)
 }
 
 // TestRefinement1_PersistenceRoundTrip verifies Snapshot/Restore preserves LBs and policies.

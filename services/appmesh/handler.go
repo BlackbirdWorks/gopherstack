@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -36,13 +37,6 @@ const (
 
 	defaultMaxResults = 100
 
-	keyMesh               = "mesh"
-	keyVirtualNode        = "virtualNode"
-	keyVirtualRouter      = "virtualRouter"
-	keyVirtualGateway     = "virtualGateway"
-	keyRoute              = "route"
-	keyVirtualService     = "virtualService"
-	keyGatewayRoute       = "gatewayRoute"
 	keyArn                = "arn"
 	keyCreatedAt          = "createdAt"
 	keyLastUpdatedAt      = "lastUpdatedAt"
@@ -1214,6 +1208,13 @@ func tagsToMap(tags []tagInput) map[string]string {
 func listParams(c *echo.Context) (int32, string) {
 	nextToken := c.QueryParam("nextToken")
 	maxResults := int32(defaultMaxResults)
+	// AWS App Mesh list operations bind max page size to the "limit" query
+	// param (see e.g. ListMeshesInput.Limit), not "maxResults".
+	if limitStr := c.QueryParam("limit"); limitStr != "" {
+		if limit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && limit > 0 {
+			maxResults = int32(limit)
+		}
+	}
 
 	return maxResults, nextToken
 }

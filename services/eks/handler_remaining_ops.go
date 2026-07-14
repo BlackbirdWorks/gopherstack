@@ -202,50 +202,42 @@ func addonToJSON(a *Addon) map[string]any {
 func (h *Handler) dispatchCapabilityOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case opDeleteCapability:
-		return true, h.handleDeleteCapability(c, route.clusterName)
+		return true, h.handleDeleteCapability(c, route.clusterName, route.nodegroupName)
 	case opDescribeCapability:
-		return true, h.handleDescribeCapability(c, route.clusterName)
+		return true, h.handleDescribeCapability(c, route.clusterName, route.nodegroupName)
 	case opListCapabilities:
-		return true, h.handleListCapabilities(c)
+		return true, h.handleListCapabilities(c, route.clusterName)
 	case opUpdateCapability:
-		return true, h.handleUpdateCapability(c, route.clusterName, body)
+		return true, h.handleUpdateCapability(c, route.clusterName, route.nodegroupName, body)
 	}
 
 	return false, nil
 }
 
-func (h *Handler) handleDeleteCapability(c *echo.Context, name string) error {
-	capa, err := h.Backend.DeleteCapability(name)
+func (h *Handler) handleDeleteCapability(c *echo.Context, clusterName, capabilityName string) error {
+	capa, err := h.Backend.DeleteCapability(clusterName, capabilityName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyCapability: map[string]any{
-			keyName:        capa.Name,
-			keyVersion:     capa.Version,
-			keyStatusField: capa.Status,
-		},
+		keyCapability: capabilityToJSON(capa),
 	})
 }
 
-func (h *Handler) handleDescribeCapability(c *echo.Context, name string) error {
-	capa, err := h.Backend.DescribeCapability(name)
+func (h *Handler) handleDescribeCapability(c *echo.Context, clusterName, capabilityName string) error {
+	capa, err := h.Backend.DescribeCapability(clusterName, capabilityName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyCapability: map[string]any{
-			keyName:        capa.Name,
-			keyVersion:     capa.Version,
-			keyStatusField: capa.Status,
-		},
+		keyCapability: capabilityToJSON(capa),
 	})
 }
 
-func (h *Handler) handleListCapabilities(c *echo.Context) error {
-	names := h.Backend.ListCapabilities()
+func (h *Handler) handleListCapabilities(c *echo.Context, clusterName string) error {
+	names := h.Backend.ListCapabilities(clusterName)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"capabilities": names,
@@ -253,10 +245,11 @@ func (h *Handler) handleListCapabilities(c *echo.Context) error {
 }
 
 type updateCapabilityBody struct {
-	Version string `json:"version"`
+	RoleArn                 string `json:"roleArn"`
+	DeletePropagationPolicy string `json:"deletePropagationPolicy"`
 }
 
-func (h *Handler) handleUpdateCapability(c *echo.Context, name string, body []byte) error {
+func (h *Handler) handleUpdateCapability(c *echo.Context, clusterName, capabilityName string, body []byte) error {
 	var in updateCapabilityBody
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
@@ -264,18 +257,44 @@ func (h *Handler) handleUpdateCapability(c *echo.Context, name string, body []by
 		}
 	}
 
-	capa, err := h.Backend.UpdateCapability(name, in.Version)
+	capa, err := h.Backend.UpdateCapability(clusterName, capabilityName, in.RoleArn, in.DeletePropagationPolicy)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyCapability: map[string]any{
-			keyName:        capa.Name,
-			keyVersion:     capa.Version,
-			keyStatusField: capa.Status,
-		},
+		keyCapability: capabilityToJSON(capa),
 	})
+}
+
+func capabilityToJSON(capa *Capability) map[string]any {
+	m := map[string]any{
+		keyClusterName:   capa.ClusterName,
+		"capabilityName": capa.CapabilityName,
+		keyArn:           capa.ARN,
+		keyStatusField:   capa.Status,
+		keyCreatedAt:     capa.CreatedAt.Unix(),
+	}
+
+	if capa.Type != "" {
+		m[keyType] = capa.Type
+	}
+
+	if capa.RoleARN != "" {
+		m["roleArn"] = capa.RoleARN
+	}
+
+	if capa.DeletePropagationPolicy != "" {
+		m["deletePropagationPolicy"] = capa.DeletePropagationPolicy
+	}
+
+	if capa.Tags != nil {
+		m[keyTags] = capa.Tags.Clone()
+	} else {
+		m[keyTags] = map[string]string{}
+	}
+
+	return m
 }
 
 // --- Subscription ops ---
@@ -741,7 +760,7 @@ func (h *Handler) dispatchInsightsOps(c *echo.Context, route eksRoute, _ []byte)
 	case opStartInsightsRefresh:
 		return true, h.handleStartInsightsRefresh(c, route.clusterName)
 	case opDescribeInsightsRefresh:
-		return true, h.handleDescribeInsightsRefresh(c, route.clusterName, route.nodegroupName)
+		return true, h.handleDescribeInsightsRefresh(c, route.clusterName)
 	}
 
 	return false, nil
@@ -774,36 +793,43 @@ func (h *Handler) handleListInsights(c *echo.Context, clusterName string) error 
 	})
 }
 
+// Both StartInsightsRefresh and DescribeInsightsRefresh return their fields
+// directly at the response root (message, status, startedAt, endedAt) -- NOT
+// nested under an "insightsRefresh" envelope key -- verified against the SDK
+// deserializer.
 func (h *Handler) handleStartInsightsRefresh(c *echo.Context, clusterName string) error {
 	refresh, err := h.Backend.StartInsightsRefresh(clusterName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"insightsRefresh": map[string]any{
-			"id":           refresh.ID,
-			keyClusterName: refresh.ClusterName,
-			keyStatusField: refresh.Status,
-			"startedAt":    refresh.StartedAt.Unix(),
-		},
-	})
+	return c.JSON(http.StatusOK, insightsRefreshToJSON(refresh))
 }
 
-func (h *Handler) handleDescribeInsightsRefresh(c *echo.Context, clusterName, refreshID string) error {
-	refresh, err := h.Backend.DescribeInsightsRefresh(clusterName, refreshID)
+func (h *Handler) handleDescribeInsightsRefresh(c *echo.Context, clusterName string) error {
+	refresh, err := h.Backend.DescribeInsightsRefresh(clusterName)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"insightsRefresh": map[string]any{
-			"id":           refresh.ID,
-			keyClusterName: refresh.ClusterName,
-			keyStatusField: refresh.Status,
-			"startedAt":    refresh.StartedAt.Unix(),
-		},
-	})
+	return c.JSON(http.StatusOK, insightsRefreshToJSON(refresh))
+}
+
+func insightsRefreshToJSON(refresh *InsightsRefresh) map[string]any {
+	m := map[string]any{
+		keyStatusField: refresh.Status,
+		"startedAt":    refresh.StartedAt.Unix(),
+	}
+
+	if refresh.Message != "" {
+		m["message"] = refresh.Message
+	}
+
+	if !refresh.EndedAt.IsZero() {
+		m["endedAt"] = refresh.EndedAt.Unix()
+	}
+
+	return m
 }
 
 func insightToJSON(ins *Insight) map[string]any {

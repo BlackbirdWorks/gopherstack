@@ -1281,9 +1281,14 @@ func buildParameter(name, value, source string) *Parameter {
 		Source:         source,
 		DataType:       "integer",
 		IsModifiable:   "TRUE",
-		ChangeType:     "requires-reboot",
-		AllowedValues:  defaultParameterAllowedValues[name],
-		ParameterType:  ParameterTypeDefault,
+		// ChangeType uses the real DAX enum casing (types.ChangeType:
+		// "IMMEDIATE" | "REQUIRES_REBOOT"); the deserializer stores whatever
+		// string arrives verbatim, so a mismatched casing like the former
+		// "requires-reboot" would never equal types.ChangeTypeRequiresReboot
+		// for any client comparing against the SDK's typed constant.
+		ChangeType:    "REQUIRES_REBOOT",
+		AllowedValues: defaultParameterAllowedValues[name],
+		ParameterType: ParameterTypeDefault,
 	}
 }
 

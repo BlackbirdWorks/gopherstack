@@ -337,7 +337,7 @@ func TestRefinement1_NonNilEmptyDomainList(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
-	resp := doRequest(t, h, http.MethodGet, "/2015-01-01/es/domain", nil)
+	resp := doRequest(t, h, http.MethodGet, "/2015-01-01/domain", nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 

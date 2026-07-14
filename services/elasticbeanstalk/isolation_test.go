@@ -100,6 +100,11 @@ func TestEBAppVersionRegionIsolation(t *testing.T) {
 	ctxEast := ebCtxRegion("us-east-1")
 	ctxWest := ebCtxRegion("us-west-2")
 
+	_, err := backend.CreateApplication(ctxEast, "my-app", "", nil)
+	require.NoError(t, err)
+	_, err = backend.CreateApplication(ctxWest, "my-app", "", nil)
+	require.NoError(t, err)
+
 	eastVer, err := backend.CreateApplicationVersion(ctxEast, "my-app", "v1", "east v1", "", "", nil)
 	require.NoError(t, err)
 	assert.Contains(t, eastVer.ApplicationVersionARN, "us-east-1")

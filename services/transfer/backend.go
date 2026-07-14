@@ -913,9 +913,11 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 	merged := make(map[string]string, len(in.Tags))
 	maps.Copy(merged, in.Tags)
 
+	// AWS creates servers OFFLINE; StartServer is required to bring them
+	// ONLINE. See https://docs.aws.amazon.com/transfer/latest/userguide/create-server.html.
 	s := &Server{
 		ServerID:                      serverID,
-		State:                         serverStatusOnline,
+		State:                         serverStatusOffline,
 		Endpoint:                      fmt.Sprintf("%s.server.transfer.%s.amazonaws.com", serverID, b.region),
 		Protocols:                     protocols,
 		Domain:                        domain,
@@ -1305,6 +1307,7 @@ func (b *InMemoryBackend) CreateUserFull(in *CreateUserInput) (*User, error) {
 		Region:                b.region,
 	}
 	b.users.Put(u)
+	b.initTagsStore(userARN(b.accountID, b.region, in.ServerID, in.UserName), merged)
 
 	return cloneUser(u), nil
 }
@@ -1661,6 +1664,7 @@ func (b *InMemoryBackend) CreateAgreementFull(
 		Region:           b.region,
 	}
 	b.agreements.Put(ag)
+	b.initTagsStore(agreementARN(b.accountID, b.region, serverID, agreementID), merged)
 
 	return cloneAgreement(ag), nil
 }
@@ -1797,6 +1801,7 @@ func (b *InMemoryBackend) CreateProfile(
 		Region:      b.region,
 	}
 	b.profiles.Put(p)
+	b.initTagsStore(profileARN(b.accountID, b.region, profileID), merged)
 
 	return cloneProfile(p), nil
 }
@@ -1819,6 +1824,7 @@ func (b *InMemoryBackend) CreateWebApp(tags map[string]string) (*WebApp, error) 
 		Region:    b.region,
 	}
 	b.webApps.Put(w)
+	b.initTagsStore(webAppARN(b.accountID, b.region, webAppID), merged)
 
 	return cloneWebApp(w), nil
 }
@@ -2464,6 +2470,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		Region:        b.region,
 	}
 	b.certificates.Put(c)
+	b.initTagsStore(certificateARN(b.accountID, b.region, certID), merged)
 
 	cp := *c
 	cp.Tags = make(map[string]string, len(merged))
@@ -2704,6 +2711,7 @@ func (b *InMemoryBackend) ImportHostKey(
 		Region:      b.region,
 	}
 	b.hostKeys.Put(hk)
+	b.initTagsStore(hostKeyARN(b.accountID, b.region, serverID, hostKeyID), merged)
 
 	return cloneHostKey(hk), nil
 }

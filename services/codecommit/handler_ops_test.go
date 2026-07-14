@@ -820,7 +820,12 @@ func TestHandler_PutFile_GetFile(t *testing.T) {
 		"filePath":       "hello.txt",
 		"fileContent":    "aGVsbG8=", // base64 "hello"
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var putResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+	putBlobID, _ := putResp["blobId"].(string)
+	assert.NotEmpty(t, putBlobID, "PutFileOutput.blobId is a required AWS field")
 
 	rec = doRequest(t, h, "GetFile", map[string]any{
 		"repositoryName":  "file-repo",
@@ -832,6 +837,18 @@ func TestHandler_PutFile_GetFile(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "hello.txt", resp["filePath"])
+	assert.Equal(t, putBlobID, resp["blobId"], "GetFile's blobId must match the blobId PutFile returned")
+
+	// The blob ID PutFile returns must be usable with GetBlob (round trip).
+	rec = doRequest(t, h, "GetBlob", map[string]any{
+		"repositoryName": "file-repo",
+		"blobId":         putBlobID,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var blobResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &blobResp))
+	assert.Equal(t, "aGVsbG8=", blobResp["content"])
 }
 
 func TestHandler_GetFolder(t *testing.T) {
@@ -862,12 +879,17 @@ func TestHandler_DeleteFile(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "del-file-repo"})
-	doRequest(t, h, "PutFile", map[string]any{
+	putRec := doRequest(t, h, "PutFile", map[string]any{
 		"repositoryName": "del-file-repo",
 		"branchName":     "main",
 		"filePath":       "todelete.txt",
 		"fileContent":    "dG9kZWxldGU=",
 	})
+
+	var putResp map[string]any
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	putBlobID, _ := putResp["blobId"].(string)
+	require.NotEmpty(t, putBlobID)
 
 	rec := doRequest(t, h, "DeleteFile", map[string]any{
 		"repositoryName": "del-file-repo",
@@ -880,6 +902,72 @@ func TestHandler_DeleteFile(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp["commitId"])
+	assert.Equal(t, putBlobID, resp["blobId"],
+		"DeleteFileOutput.blobId must report the blob that was removed from the tree")
+}
+
+// TestHandler_DeleteFile_NotFound verifies AWS's FileDoesNotExistException is returned
+// (not a fabricated success) when deleting a path that was never added to the repository.
+func TestHandler_DeleteFile_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "del-file-repo-2"})
+
+	rec := doRequest(t, h, "DeleteFile", map[string]any{
+		"repositoryName": "del-file-repo-2",
+		"branchName":     "main",
+		"filePath":       "never-existed.txt",
+	})
+	require.Equal(t, http.StatusNotFound, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "FileDoesNotExistException", resp["__type"])
+}
+
+// TestHandler_CreateCommit_FilesAddedBlobID verifies CreateCommitOutput.filesAdded reports the
+// real per-file blob ID (a required AWS field) instead of a hardcoded empty string, and that
+// each entry's blobId is independently usable via GetBlob.
+func TestHandler_CreateCommit_FilesAddedBlobID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "cc-blob-repo"})
+
+	rec := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "cc-blob-repo",
+		"branchName":     "main",
+		"putFiles": []map[string]any{
+			{"filePath": "a.txt", "fileContent": "YQ=="},
+			{"filePath": "b.txt", "fileContent": "Yg=="},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	filesAdded, ok := resp["filesAdded"].([]any)
+	require.True(t, ok)
+	require.Len(t, filesAdded, 2)
+
+	seen := map[string]string{}
+	for _, raw := range filesAdded {
+		entry, entryOK := raw.(map[string]any)
+		require.True(t, entryOK)
+		blobID, _ := entry["blobId"].(string)
+		filePath, _ := entry["filePath"].(string)
+		assert.NotEmpty(t, blobID, "filesAdded[%s].blobId must be non-empty", filePath)
+		seen[filePath] = blobID
+	}
+	assert.NotEqual(t, seen["a.txt"], seen["b.txt"], "each file must get its own distinct blob ID")
+
+	// Each reported blob ID must round-trip through GetBlob.
+	blobRec := doRequest(t, h, "GetBlob", map[string]any{
+		"repositoryName": "cc-blob-repo",
+		"blobId":         seen["a.txt"],
+	})
+	require.Equal(t, http.StatusOK, blobRec.Code)
 }
 
 // --- Group 7: Triggers ---
@@ -1190,15 +1278,77 @@ func TestHandler_DescribeMergeConflicts(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "dmc-repo"})
 
 	rec := doRequest(t, h, "DescribeMergeConflicts", map[string]any{
-		"repositoryName":             "any-repo",
+		"repositoryName":             "dmc-repo",
 		"sourceCommitSpecifier":      "abc",
 		"destinationCommitSpecifier": "def",
 		"mergeOption":                "FAST_FORWARD_MERGE",
 		"filePath":                   "main.go",
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "abc", resp["sourceCommitId"])
+	assert.Equal(t, "def", resp["destinationCommitId"])
+	meta, ok := resp["conflictMetadata"].(map[string]any)
+	require.True(t, ok, "conflictMetadata must be an object")
+	assert.Equal(t, "main.go", meta["filePath"])
+}
+
+// TestHandler_DescribeMergeConflicts_RepositoryNotFound verifies that DescribeMergeConflicts,
+// like its BatchDescribeMergeConflicts sibling, validates the repository actually exists
+// instead of echoing the request back unexamined.
+func TestHandler_DescribeMergeConflicts_RepositoryNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DescribeMergeConflicts", map[string]any{
+		"repositoryName":             "no-such-repo",
+		"sourceCommitSpecifier":      "abc",
+		"destinationCommitSpecifier": "def",
+		"mergeOption":                "FAST_FORWARD_MERGE",
+		"filePath":                   "main.go",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestHandler_DescribeMergeConflicts_RequiredFields verifies that missing required
+// fields are rejected instead of silently defaulting, mirroring BatchDescribeMergeConflicts.
+func TestHandler_DescribeMergeConflicts_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "dmc-repo"})
+
+	base := map[string]any{
+		"repositoryName":             "dmc-repo",
+		"sourceCommitSpecifier":      "abc",
+		"destinationCommitSpecifier": "def",
+		"mergeOption":                "FAST_FORWARD_MERGE",
+		"filePath":                   "main.go",
+	}
+
+	for _, missing := range []string{
+		"repositoryName", "sourceCommitSpecifier", "destinationCommitSpecifier", "mergeOption", "filePath",
+	} {
+		t.Run("missing_"+missing, func(t *testing.T) {
+			t.Parallel()
+
+			body := map[string]any{}
+			for k, v := range base {
+				if k != missing {
+					body[k] = v
+				}
+			}
+
+			rec := doRequest(t, h, "DescribeMergeConflicts", body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
 }
 
 func TestHandler_MergeBranchesBySquash(t *testing.T) {
@@ -2524,6 +2674,82 @@ func TestHandler_BatchDescribeMergeConflicts_TableDriven(t *testing.T) {
 				conflicts := resp["conflicts"].([]any)
 				assert.Len(t, conflicts, tt.wantConflicts)
 			}
+		})
+	}
+}
+
+// TestHandler_NotFoundErrorTypes_AreResourceSpecific verifies that "not found" errors for
+// files, blobs, comments, and PR approval rules surface their own AWS exception type
+// (e.g. FileDoesNotExistException) instead of collapsing to RepositoryDoesNotExistException,
+// which is what the shared ErrNotFound sentinel produced before these resources got their
+// own sentinel errors.
+func TestHandler_NotFoundErrorTypes_AreResourceSpecific(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		action      string
+		body        func(t *testing.T, h *codecommit.Handler) map[string]any
+		wantErrType string
+	}{
+		{
+			name:   "GetFile_file_not_found",
+			action: "GetFile",
+			body: func(t *testing.T, h *codecommit.Handler) map[string]any {
+				t.Helper()
+				doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "nf-file-repo"})
+
+				return map[string]any{"repositoryName": "nf-file-repo", "filePath": "missing.txt"}
+			},
+			wantErrType: "FileDoesNotExistException",
+		},
+		{
+			name:   "GetBlob_blob_not_found",
+			action: "GetBlob",
+			body: func(t *testing.T, h *codecommit.Handler) map[string]any {
+				t.Helper()
+				doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "nf-blob-repo"})
+
+				return map[string]any{"repositoryName": "nf-blob-repo", "blobId": "no-such-blob"}
+			},
+			wantErrType: "BlobIdDoesNotExistException",
+		},
+		{
+			name:   "GetComment_comment_not_found",
+			action: "GetComment",
+			body: func(t *testing.T, _ *codecommit.Handler) map[string]any {
+				t.Helper()
+
+				return map[string]any{"commentId": "no-such-comment"}
+			},
+			wantErrType: "CommentDoesNotExistException",
+		},
+		{
+			name:   "DeletePullRequestApprovalRule_rule_not_found",
+			action: "DeletePullRequestApprovalRule",
+			body: func(t *testing.T, h *codecommit.Handler) map[string]any {
+				t.Helper()
+				prID := setupPR(t, h, "nf-rule-repo")
+
+				return map[string]any{"pullRequestId": prID, "approvalRuleName": "no-such-rule"}
+			},
+			wantErrType: "ApprovalRuleDoesNotExistException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			body := tt.body(t, h)
+
+			rec := doRequest(t, h, tt.action, body)
+			require.Equal(t, http.StatusNotFound, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.wantErrType, resp["__type"])
 		})
 	}
 }

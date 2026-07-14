@@ -247,7 +247,7 @@ func TestRefinement2_HTTP_TagResource(t *testing.T) {
 	h, _ := newAccuracyHandler(t)
 	rec := doTranscribeRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": "arn:aws:transcribe:us-east-1:123456789012:transcriptionjob/my-job",
-		"Tags":        map[string]string{"env": "prod"},
+		"Tags":        []map[string]string{{"Key": "env", "Value": "prod"}},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -260,7 +260,10 @@ func TestRefinement2_HTTP_ListTagsForResource_ReturnsStoredTags(t *testing.T) {
 
 	doTranscribeRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": arn,
-		"Tags":        map[string]string{"env": "prod", "team": "ml"},
+		"Tags": []map[string]string{
+			{"Key": "env", "Value": "prod"},
+			{"Key": "team", "Value": "ml"},
+		},
 	})
 
 	rec := doTranscribeRequest(t, h, "ListTagsForResource", map[string]any{
@@ -291,7 +294,10 @@ func TestRefinement2_HTTP_UntagResource(t *testing.T) {
 
 	doTranscribeRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": arn,
-		"Tags":        map[string]string{"env": "prod", "team": "ml"},
+		"Tags": []map[string]string{
+			{"Key": "env", "Value": "prod"},
+			{"Key": "team", "Value": "ml"},
+		},
 	})
 
 	doTranscribeRequest(t, h, "UntagResource", map[string]any{
@@ -352,7 +358,7 @@ func TestRefinement2_StartCallAnalyticsJob_TagsInInput(t *testing.T) {
 		"CallAnalyticsJobName": "ca-tagged-job",
 		"LanguageCode":         "en-US",
 		"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
-		"Tags":                 map[string]string{"project": "sales"},
+		"Tags":                 []map[string]string{{"Key": "project", "Value": "sales"}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -371,7 +377,7 @@ func TestRefinement2_StartMedicalScribeJob_TagsAndClinicalNotes(t *testing.T) {
 		"Media":                          map[string]any{"MediaFileUri": "s3://b/f"},
 		"DataAccessRoleArn":              "arn:aws:iam::123456789012:role/ScribeRole",
 		"OutputBucketName":               "scribe-output",
-		"Tags":                           map[string]string{"department": "cardiology"},
+		"Tags":                           []map[string]string{{"Key": "department", "Value": "cardiology"}},
 		"ClinicalNoteGenerationSettings": map[string]any{"NoteTemplate": "SOAP"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

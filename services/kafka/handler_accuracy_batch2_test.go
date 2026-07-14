@@ -87,7 +87,12 @@ func b2EncodedPath(arn string) string {
 	return url.PathEscape(arn)
 }
 
-func b2ParseOp(t *testing.T, h *kafka.Handler, method, path string, body any) (map[string]any, int) {
+func b2ParseOp(
+	t *testing.T,
+	h *kafka.Handler,
+	method, path string,
+	body any,
+) (map[string]any, int) {
 	t.Helper()
 
 	rec := doKafkaRequest(t, h, method, path, body)
@@ -125,7 +130,7 @@ func TestBatch2_UpdateBrokerCount_Persists(t *testing.T) {
 			encoded := b2EncodedPath(clusterArn)
 
 			resp, code := b2ParseOp(t, h, http.MethodPut,
-				"/api/v2/clusters/"+encoded+"/broker-count",
+				"/v1/clusters/"+encoded+"/nodes/count",
 				map[string]any{
 					"currentVersion":            kafka.DefaultClusterVersion,
 					"targetNumberOfBrokerNodes": tt.targetBrokers,
@@ -153,12 +158,16 @@ func TestBatch2_UpdateBrokerCount_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := b2NewHandler(t)
-	_, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/broker-count",
+	_, code := b2ParseOp(
+		t,
+		h,
+		http.MethodPut,
+		"/v1/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/nodes/count",
 		map[string]any{
 			"currentVersion":            kafka.DefaultClusterVersion,
 			"targetNumberOfBrokerNodes": int32(6),
-		})
+		},
+	)
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -174,7 +183,7 @@ func TestBatch2_UpdateBrokerStorage_Persists(t *testing.T) {
 	encoded := b2EncodedPath(clusterArn)
 
 	resp, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/"+encoded+"/broker-storage",
+		"/v1/clusters/"+encoded+"/nodes/storage",
 		map[string]any{
 			"currentVersion": kafka.DefaultClusterVersion,
 			"targetBrokerEBSVolumeInfo": []map[string]any{
@@ -202,9 +211,13 @@ func TestBatch2_UpdateBrokerStorage_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := b2NewHandler(t)
-	_, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/broker-storage",
-		map[string]any{"currentVersion": kafka.DefaultClusterVersion})
+	_, code := b2ParseOp(
+		t,
+		h,
+		http.MethodPut,
+		"/v1/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/nodes/storage",
+		map[string]any{"currentVersion": kafka.DefaultClusterVersion},
+	)
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -220,7 +233,7 @@ func TestBatch2_UpdateBrokerType_Persists(t *testing.T) {
 	encoded := b2EncodedPath(clusterArn)
 
 	resp, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/"+encoded+"/broker-type",
+		"/v1/clusters/"+encoded+"/nodes/type",
 		map[string]any{
 			"currentVersion":     kafka.DefaultClusterVersion,
 			"targetInstanceType": "kafka.m5.xlarge",
@@ -244,12 +257,16 @@ func TestBatch2_UpdateBrokerType_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := b2NewHandler(t)
-	_, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/broker-type",
+	_, code := b2ParseOp(
+		t,
+		h,
+		http.MethodPut,
+		"/v1/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/nodes/type",
 		map[string]any{
 			"currentVersion":     kafka.DefaultClusterVersion,
 			"targetInstanceType": "kafka.m5.xlarge",
-		})
+		},
+	)
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -265,7 +282,7 @@ func TestBatch2_UpdateClusterKafkaVersion_Persists(t *testing.T) {
 	encoded := b2EncodedPath(clusterArn)
 
 	resp, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/"+encoded+"/kafka-version",
+		"/v1/clusters/"+encoded+"/version",
 		map[string]any{
 			"currentVersion":     kafka.DefaultClusterVersion,
 			"targetKafkaVersion": "3.5.1",
@@ -281,7 +298,11 @@ func TestBatch2_UpdateClusterKafkaVersion_Persists(t *testing.T) {
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
 	clusterInfo, _ := descResp["clusterInfo"].(map[string]any)
 	provisioned, _ := clusterInfo["provisioned"].(map[string]any)
-	assert.Equal(t, "3.5.1", provisioned["currentBrokerSoftwareInfo"].(map[string]any)["kafkaVersion"])
+	assert.Equal(
+		t,
+		"3.5.1",
+		provisioned["currentBrokerSoftwareInfo"].(map[string]any)["kafkaVersion"],
+	)
 }
 
 func TestBatch2_UpdateClusterKafkaVersion_NotFound(t *testing.T) {
@@ -289,7 +310,7 @@ func TestBatch2_UpdateClusterKafkaVersion_NotFound(t *testing.T) {
 
 	h := b2NewHandler(t)
 	_, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/kafka-version",
+		"/v1/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/version",
 		map[string]any{
 			"currentVersion":     kafka.DefaultClusterVersion,
 			"targetKafkaVersion": "3.5.1",
@@ -308,12 +329,13 @@ func TestBatch2_StubUpdateOps_HappyPath(t *testing.T) {
 	tests := []struct {
 		name   string
 		suffix string
+		method string
 	}{
-		{name: "connectivity", suffix: "/connectivity"},
-		{name: "monitoring", suffix: "/monitoring"},
-		{name: "rebalancing", suffix: "/rebalancing"},
-		{name: "security", suffix: "/security"},
-		{name: "storage", suffix: "/storage"},
+		{name: "connectivity", suffix: "/connectivity", method: http.MethodPut},
+		{name: "monitoring", suffix: "/monitoring", method: http.MethodPut},
+		{name: "rebalancing", suffix: "/rebalancing", method: http.MethodPut},
+		{name: "security", suffix: "/security", method: http.MethodPatch},
+		{name: "storage", suffix: "/storage", method: http.MethodPut},
 	}
 
 	for _, tt := range tests {
@@ -324,8 +346,8 @@ func TestBatch2_StubUpdateOps_HappyPath(t *testing.T) {
 			clusterArn := b2CreateCluster(t, h, "stub-update-"+tt.name)
 			encoded := b2EncodedPath(clusterArn)
 
-			resp, code := b2ParseOp(t, h, http.MethodPut,
-				"/api/v2/clusters/"+encoded+tt.suffix,
+			resp, code := b2ParseOp(t, h, tt.method,
+				"/v1/clusters/"+encoded+tt.suffix,
 				map[string]any{"currentVersion": kafka.DefaultClusterVersion})
 			assert.Equal(t, http.StatusOK, code, "suffix=%s", tt.suffix)
 			assert.NotEmpty(t, resp["clusterOperationArn"],
@@ -340,12 +362,13 @@ func TestBatch2_StubUpdateOps_NotFound(t *testing.T) {
 	tests := []struct {
 		name   string
 		suffix string
+		method string
 	}{
-		{name: "connectivity", suffix: "/connectivity"},
-		{name: "monitoring", suffix: "/monitoring"},
-		{name: "rebalancing", suffix: "/rebalancing"},
-		{name: "security", suffix: "/security"},
-		{name: "storage", suffix: "/storage"},
+		{name: "connectivity", suffix: "/connectivity", method: http.MethodPut},
+		{name: "monitoring", suffix: "/monitoring", method: http.MethodPut},
+		{name: "rebalancing", suffix: "/rebalancing", method: http.MethodPut},
+		{name: "security", suffix: "/security", method: http.MethodPatch},
+		{name: "storage", suffix: "/storage", method: http.MethodPut},
 	}
 
 	missingARN := "arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1"
@@ -355,8 +378,8 @@ func TestBatch2_StubUpdateOps_NotFound(t *testing.T) {
 			t.Parallel()
 
 			h := b2NewHandler(t)
-			_, code := b2ParseOp(t, h, http.MethodPut,
-				"/api/v2/clusters/"+missingARN+tt.suffix,
+			_, code := b2ParseOp(t, h, tt.method,
+				"/v1/clusters/"+missingARN+tt.suffix,
 				map[string]any{"currentVersion": kafka.DefaultClusterVersion})
 			assert.Equal(t, http.StatusNotFound, code, "suffix=%s", tt.suffix)
 		})
@@ -400,9 +423,13 @@ func TestBatch2_RebootBroker_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := b2NewHandler(t)
-	_, code := b2ParseOp(t, h, http.MethodPut,
+	_, code := b2ParseOp(
+		t,
+		h,
+		http.MethodPut,
 		"/v1/clusters/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Fmissing%2F1/reboot-broker",
-		map[string]any{"brokerIds": []string{"0"}})
+		map[string]any{"brokerIds": []string{"0"}},
+	)
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -420,7 +447,7 @@ func TestBatch2_ClusterOperationTracking_V1(t *testing.T) {
 
 	// Trigger two update ops.
 	resp1, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/"+encoded+"/broker-count",
+		"/v1/clusters/"+encoded+"/nodes/count",
 		map[string]any{
 			"currentVersion":            kafka.DefaultClusterVersion,
 			"targetNumberOfBrokerNodes": int32(6),
@@ -430,7 +457,7 @@ func TestBatch2_ClusterOperationTracking_V1(t *testing.T) {
 	require.NotEmpty(t, op1Arn)
 
 	resp2, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/"+encoded+"/broker-type",
+		"/v1/clusters/"+encoded+"/nodes/type",
 		map[string]any{
 			"currentVersion":     kafka.DefaultClusterVersion,
 			"targetInstanceType": "kafka.m5.xlarge",
@@ -483,7 +510,7 @@ func TestBatch2_ClusterOperationTracking_V2(t *testing.T) {
 	encoded := b2EncodedPath(clusterArn)
 
 	resp, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/"+encoded+"/monitoring",
+		"/v1/clusters/"+encoded+"/monitoring",
 		map[string]any{"currentVersion": kafka.DefaultClusterVersion})
 	require.Equal(t, http.StatusOK, code)
 	opArn, _ := resp["clusterOperationArn"].(string)
@@ -610,9 +637,15 @@ func TestBatch2_ScramSecret_NotFound(t *testing.T) {
 	h := b2NewHandler(t)
 
 	// Associate on missing cluster.
-	rec := doKafkaRequest(t, h, http.MethodPost,
+	rec := doKafkaRequest(
+		t,
+		h,
+		http.MethodPost,
 		"/v1/clusters/"+missingARN+"/scram-secrets",
-		map[string]any{"secretArnList": []string{"arn:aws:secretsmanager:us-east-1:000000000000:secret:s1"}})
+		map[string]any{
+			"secretArnList": []string{"arn:aws:secretsmanager:us-east-1:000000000000:secret:s1"},
+		},
+	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// List on missing cluster.
@@ -658,8 +691,10 @@ func TestBatch2_VpcConnection_Lifecycle(t *testing.T) {
 	assert.Equal(t, vpcConnArn, descResp["vpcConnectionArn"])
 	assert.Equal(t, clusterArn, descResp["targetClusterArn"])
 
-	// ListVpcConnections — our connection is present.
-	listRec := doKafkaRequest(t, h, http.MethodGet, "/v1/vpc-connection", nil)
+	// ListVpcConnections — our connection is present. Note the plural path:
+	// AWS models Create/Describe/Delete under the singular /v1/vpc-connection
+	// root but List under the distinct plural /v1/vpc-connections.
+	listRec := doKafkaRequest(t, h, http.MethodGet, "/v1/vpc-connections", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
@@ -718,10 +753,12 @@ func TestBatch2_VpcConnection_RejectClientVpcConnection(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	vpcConnArn, _ := createResp["vpcConnectionArn"].(string)
 	encodedCluster := b2EncodedPath(clusterArn)
-	encodedVpc := b2EncodedPath(vpcConnArn)
 
+	// The real MSK API carries the VPC connection ARN in the JSON body
+	// (vpcConnectionArn), not the path -- the path only identifies the cluster.
 	rejectRec := doKafkaRequest(t, h, http.MethodPut,
-		"/v1/clusters/"+encodedCluster+"/reject-client-vpc-connection/"+encodedVpc, nil)
+		"/v1/clusters/"+encodedCluster+"/client-vpc-connection",
+		map[string]any{"vpcConnectionArn": vpcConnArn})
 	assert.Equal(t, http.StatusOK, rejectRec.Code)
 }
 
@@ -788,9 +825,13 @@ func TestBatch2_ConfigRevision_DescribeNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := b2NewHandler(t)
-	_, code := b2ParseOp(t, h, http.MethodGet,
+	_, code := b2ParseOp(
+		t,
+		h,
+		http.MethodGet,
 		"/v1/configurations/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Aconfiguration%2Fmissing%2F1/revisions/1",
-		nil)
+		nil,
+	)
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -804,11 +845,17 @@ func TestBatch2_Replicator_UpdateReplicationInfo(t *testing.T) {
 	h := b2NewHandler(t)
 
 	// Create a replicator.
-	createRec := doKafkaRequest(t, h, http.MethodPost, "/replication/v1/replicators", map[string]any{
-		"replicatorName":          "my-replicator",
-		"serviceExecutionRoleArn": "arn:aws:iam::000000000000:role/my-role",
-		"description":             "original description",
-	})
+	createRec := doKafkaRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/replication/v1/replicators",
+		map[string]any{
+			"replicatorName":          "my-replicator",
+			"serviceExecutionRoleArn": "arn:aws:iam::000000000000:role/my-role",
+			"description":             "original description",
+		},
+	)
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
@@ -817,9 +864,11 @@ func TestBatch2_Replicator_UpdateReplicationInfo(t *testing.T) {
 	require.NotEmpty(t, replicatorArn)
 	encodedArn := b2EncodedPath(replicatorArn)
 
-	// UpdateReplicationInfo.
+	// UpdateReplicationInfo. Real path suffixes the replicator ARN with
+	// /replication-info; a bare PUT to the ARN itself is DescribeReplicator's
+	// GET sibling and is not a valid PUT target.
 	updateRec := doKafkaRequest(t, h, http.MethodPut,
-		"/replication/v1/replicators/"+encodedArn,
+		"/replication/v1/replicators/"+encodedArn+"/replication-info",
 		map[string]any{"description": "updated description"})
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
@@ -833,9 +882,13 @@ func TestBatch2_Replicator_UpdateReplicationInfo_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := b2NewHandler(t)
-	_, code := b2ParseOp(t, h, http.MethodPut,
-		"/replication/v1/replicators/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Areplicator%2Fmissing",
-		map[string]any{"description": "nope"})
+	_, code := b2ParseOp(
+		t,
+		h,
+		http.MethodPut,
+		"/replication/v1/replicators/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Areplicator%2Fmissing/replication-info",
+		map[string]any{"description": "nope"},
+	)
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
@@ -867,7 +920,13 @@ func TestBatch2_Tag_CRUD(t *testing.T) {
 
 	// UntagResource — remove "team" tag.
 	untagValues := url.Values{"tagKeys": []string{"team"}}
-	untagRec := doKafkaRequest(t, h, http.MethodDelete, "/v1/tags/"+encoded+"?"+untagValues.Encode(), nil)
+	untagRec := doKafkaRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"/v1/tags/"+encoded+"?"+untagValues.Encode(),
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, untagRec.Code)
 
 	// ListTagsForResource — only "env" remains.
@@ -909,7 +968,8 @@ func TestBatch2_Tag_NotFound(t *testing.T) {
 }
 
 // ----------------------------------------
-// UpdateClusterConfiguration persists via HTTP (v2 path)
+// UpdateClusterConfiguration persists via HTTP (real V1 update path), verified
+// through the DescribeClusterV2 read path.
 // ----------------------------------------
 
 func TestBatch2_UpdateClusterConfiguration_V2Path(t *testing.T) {
@@ -921,7 +981,7 @@ func TestBatch2_UpdateClusterConfiguration_V2Path(t *testing.T) {
 	encoded := b2EncodedPath(clusterArn)
 
 	resp, code := b2ParseOp(t, h, http.MethodPut,
-		"/api/v2/clusters/"+encoded+"/configuration",
+		"/v1/clusters/"+encoded+"/configuration",
 		map[string]any{
 			"currentVersion": kafka.DefaultClusterVersion,
 			"configurationInfo": map[string]any{

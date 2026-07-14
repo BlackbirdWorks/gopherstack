@@ -208,10 +208,9 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 	switch {
 	case strings.HasPrefix(path, modelPathPrefix):
-		rest, _ := strings.CutPrefix(path, modelPathPrefix)
-		modelID, _, _ := strings.Cut(rest, "/")
+		op := pathToOperation(path, c.Request().Method)
 
-		return modelID
+		return extractModelID(path, op)
 	case strings.HasPrefix(path, guardrailPathPrefix):
 		rest, _ := strings.CutPrefix(path, guardrailPathPrefix)
 		guardrailID, _, _ := strings.Cut(rest, "/")
@@ -242,7 +241,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(r.Context(), "bedrockruntime: failed to read request body", "error", err)
 
-			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+			return c.JSON(
+				http.StatusInternalServerError,
+				errorResponse("InternalServerException", "internal server error"),
+			)
 		}
 
 		switch {
@@ -264,12 +266,12 @@ func (h *Handler) handleModelPath(c *echo.Context, method, path string, body []b
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("ValidationException", "method not allowed"))
 	}
 
-	modelID := extractModelID(path)
+	op := pathToOperation(path, method)
+
+	modelID := extractModelID(path, op)
 	if modelID == "" {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "missing modelId in path"))
 	}
-
-	op := pathToOperation(path, method)
 
 	switch op {
 	case opInvokeModel:
@@ -338,7 +340,7 @@ func (h *Handler) handleInvokeModel(
 
 	out, err := json.Marshal(resp)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 
 	h.Backend.RecordInvocation(opInvokeModel, modelID, truncateString(string(body)), truncateString(string(out)))
@@ -378,7 +380,7 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 
 	out, err := json.Marshal(resp)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 
 	h.Backend.RecordInvocation(
@@ -481,7 +483,7 @@ func (h *Handler) handleConverse(
 
 	out, err := json.Marshal(resp)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 
 	h.Backend.RecordInvocation(opConverse, modelID, truncateString(string(body)), truncateString(string(out)))
@@ -509,7 +511,7 @@ func (h *Handler) handleConverseStream(
 	respSummary := buildConverseResponse(&req)
 	out, err := json.Marshal(respSummary)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 
 	h.Backend.RecordInvocation(opConverseStream, modelID, truncateString(string(body)), truncateString(string(out)))
@@ -570,10 +572,39 @@ func (h *Handler) handleConverseStream(
 }
 
 // countTokensRequest represents the parsed CountTokens request body.
-type countTokensRequest struct {
-	Prompt   string            `json:"prompt,omitempty"`
+// countTokensConverse mirrors the wire-relevant fields of
+// types.ConverseTokensRequest (the "converse" member of the CountTokens
+// input union).
+type countTokensConverse struct {
 	Messages []converseMessage `json:"messages,omitempty"`
 	System   []converseContent `json:"system,omitempty"`
+}
+
+// countTokensInvokeModel mirrors types.InvokeModelTokensRequest (the
+// "invokeModel" member of the CountTokens input union). Body is a smithy
+// blob, serialized on the wire as a base64 string; encoding/json
+// transparently base64-decodes into a []byte field.
+type countTokensInvokeModel struct {
+	Body []byte `json:"body,omitempty"`
+}
+
+// countTokensInput mirrors the discriminated union types.CountTokensInput:
+// exactly one of InvokeModel or Converse is set.
+type countTokensInput struct {
+	InvokeModel *countTokensInvokeModel `json:"invokeModel,omitempty"`
+	Converse    *countTokensConverse    `json:"converse,omitempty"`
+}
+
+// countTokensRequest is the real CountTokens request wire shape:
+//
+//	{"input": {"invokeModel": {"body": "<base64>"}}}
+//	{"input": {"converse": {"messages": [...], "system": [...]}}}
+//
+// (see aws-sdk-go-v2/service/bedrockruntime serializers.go
+// awsRestjson1_serializeDocumentCountTokensInput). There is no top-level
+// "prompt"/"messages"/"system" field on this operation's request body.
+type countTokensRequest struct {
+	Input countTokensInput `json:"input"`
 }
 
 // estimateTokenCount returns an approximate token count for the CountTokens request body.
@@ -585,19 +616,28 @@ func estimateTokenCount(body []byte, modelID string) int {
 
 	var req countTokensRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return len(body) / charsPerToken
+		return max(1, len(body)/charsPerToken)
 	}
 
-	chars := len(req.Prompt)
+	chars := 0
 
-	for _, m := range req.Messages {
-		for _, c := range m.Content {
-			chars += len(c.Text)
+	switch {
+	case req.Input.InvokeModel != nil:
+		// The invokeModel body is itself a model-specific request payload
+		// (Claude "prompt"/"messages", Titan "inputText", etc.); its decoded
+		// byte length is used as the char proxy since gopherstack cannot
+		// know the tokenizer for arbitrary model families.
+		chars = len(req.Input.InvokeModel.Body)
+	case req.Input.Converse != nil:
+		for _, m := range req.Input.Converse.Messages {
+			for _, c := range m.Content {
+				chars += len(c.Text)
+			}
 		}
-	}
 
-	for _, s := range req.System {
-		chars += len(s.Text)
+		for _, s := range req.Input.Converse.System {
+			chars += len(s.Text)
+		}
 	}
 
 	if chars == 0 {
@@ -628,7 +668,7 @@ func (h *Handler) handleCountTokens(
 
 	out, err := json.Marshal(resp)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 
 	h.Backend.RecordInvocation(opCountTokens, modelID, truncateString(string(body)), truncateString(string(out)))
@@ -649,7 +689,7 @@ func (h *Handler) handleInvokeModelWithBidirectionalStream(
 
 	out, err := json.Marshal(resp)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 
 	h.Backend.RecordInvocation(
@@ -761,7 +801,7 @@ func (h *Handler) handleApplyGuardrail(
 
 	out, err := json.Marshal(resp)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 
 	h.Backend.RecordInvocation("ApplyGuardrail", guardrailID+"/"+guardrailVersion, string(body), string(out))
@@ -1104,10 +1144,50 @@ func truncateString(s string) string {
 
 // --- Helpers ---
 
-func extractModelID(path string) string {
+// modelPathSuffixForOp returns the fixed literal path suffix for a model-path
+// operation (and whether op is a known one). Used by extractModelID to
+// correctly bound the modelId segment when the modelId itself is an ARN
+// containing an embedded '/' (e.g. an inference-profile or custom-model ARN
+// such as "arn:aws:bedrock:us-east-1:111122223333:inference-profile/us.anthropic.claude-3-sonnet-20240229-v1:0").
+// The AWS SDK percent-encodes that embedded '/' on the wire (modelId is a
+// non-greedy `{modelId}` label), but net/http decodes it back to a literal
+// '/' in URL.Path -- so naively cutting at the FIRST '/' after "/model/"
+// truncates the modelId and silently drops the model-family suffix,
+// producing the wrong mock response envelope (see mockInvokeModelResponse's
+// family matching).
+func modelPathSuffixForOp(op string) (string, bool) {
+	switch op {
+	case opInvokeModel:
+		return "/invoke", true
+	case opInvokeModelWithResponseStream:
+		return "/invoke-with-response-stream", true
+	case opInvokeModelWithBidiStream:
+		return "/invoke-with-bidirectional-stream", true
+	case opConverse:
+		return "/converse", true
+	case opConverseStream:
+		return "/converse-stream", true
+	case opCountTokens:
+		return "/count-tokens", true
+	default:
+		return "", false
+	}
+}
+
+// extractModelID extracts the modelId path parameter from a decoded
+// /model/{modelId}/{suffix} path. op is the already-resolved operation (see
+// pathToOperation), used to look up the fixed literal suffix to trim from
+// the tail -- this correctly bounds ARN-style modelIds that themselves
+// contain a '/'. If op has no known suffix, falls back to cutting at the
+// first '/' (best effort for unrecognized/unsupported operations).
+func extractModelID(path, op string) string {
 	rest, ok := strings.CutPrefix(path, modelPathPrefix)
 	if !ok {
 		return ""
+	}
+
+	if suffix, known := modelPathSuffixForOp(op); known {
+		return strings.TrimSuffix(rest, suffix)
 	}
 
 	modelID, _, _ := strings.Cut(rest, "/")
@@ -1190,7 +1270,7 @@ func handleError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusNotFound, errorResponse("ResourceNotFoundException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
 }
 

@@ -137,7 +137,7 @@ func (b *InMemoryBackend) DescribeNotebookInstanceLifecycleConfig(
 
 	region := getRegion(ctx, b.region)
 
-	lc, ok := b.notebookLifecycleConfigsStore(region).Get(name)
+	lc, ok := b.notebookLifecycleConfigsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: notebook lifecycle config %q not found",
@@ -211,7 +211,7 @@ func (b *InMemoryBackend) ListNotebookInstanceLifecycleConfigs(
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.notebookLifecycleConfigsStore(region), nextToken, cloneNotebookLifecycleConfig,
+	return sagemakerListPaged(b.notebookLifecycleConfigsStoreRO(region), nextToken, cloneNotebookLifecycleConfig,
 		func(a, b *NotebookInstanceLifecycleConfig) bool { return a.Name < b.Name })
 }
 
@@ -645,8 +645,8 @@ func (b *InMemoryBackend) ListTrainingJobsFiltered(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*TrainingJob, 0, b.trainingJobsStore(region).Len())
-	for _, tj := range b.trainingJobsStore(region).All() {
+	list := make([]*TrainingJob, 0, b.trainingJobsStoreRO(region).Len())
+	for _, tj := range b.trainingJobsStoreRO(region).All() {
 		if f.StatusEquals != "" && !strings.EqualFold(tj.TrainingJobStatus, f.StatusEquals) {
 			continue
 		}
@@ -709,6 +709,14 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 		if ep, ok := b.endpointsStore(region).Get(name); ok {
 			ep.EndpointStatus = nextStatus
 			ep.LastModifiedTime = time.Now()
+
+			if nextStatus == statusInService {
+				for i := range ep.ProductionVariants {
+					ep.ProductionVariants[i].CurrentWeight = ep.ProductionVariants[i].DesiredWeight
+					ep.ProductionVariants[i].CurrentInstanceCount = ep.ProductionVariants[i].DesiredInstanceCount
+					ep.ProductionVariants[i].VariantStatus = []ProductionVariantStatus{{Status: statusInService}}
+				}
+			}
 		}
 	})
 }
@@ -773,10 +781,12 @@ func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
 		for i := range ep.ProductionVariants {
 			if ep.ProductionVariants[i].VariantName == change.VariantName {
 				if change.DesiredWeight != nil {
-					ep.ProductionVariants[i].InitialVariantWeight = *change.DesiredWeight
+					w := *change.DesiredWeight
+					ep.ProductionVariants[i].DesiredWeight = &w
 				}
 				if change.DesiredInstanceCount != nil {
-					ep.ProductionVariants[i].InitialInstanceCount = *change.DesiredInstanceCount
+					c := *change.DesiredInstanceCount
+					ep.ProductionVariants[i].DesiredInstanceCount = &c
 				}
 				found = true
 
@@ -998,7 +1008,7 @@ func (b *InMemoryBackend) DescribeProcessingJob(ctx context.Context, name string
 
 	region := getRegion(ctx, b.region)
 
-	pj, ok := b.processingJobsStore(region).Get(name)
+	pj, ok := b.processingJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: processing job %q not found", ErrProcessingJobNotFound, name)
 	}
@@ -1071,8 +1081,8 @@ func (b *InMemoryBackend) ListProcessingJobs(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*ProcessingJob, 0, b.processingJobsStore(region).Len())
-	for _, pj := range b.processingJobsStore(region).All() {
+	list := make([]*ProcessingJob, 0, b.processingJobsStoreRO(region).Len())
+	for _, pj := range b.processingJobsStoreRO(region).All() {
 		if statusEquals != "" && !strings.EqualFold(pj.ProcessingJobStatus, statusEquals) {
 			continue
 		}

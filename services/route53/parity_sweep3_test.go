@@ -214,7 +214,7 @@ func TestParitySweep3_DisassociateVPC_NotAssociated(t *testing.T) {
 
 			b := route53.NewInMemoryBackend()
 
-			hz, err := b.CreateHostedZone("example.com", "ref-priv", "", true)
+			hz, err := b.CreateHostedZone("example.com", "ref-priv", "", true, "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-aaa", "us-east-1"))
@@ -248,7 +248,7 @@ func TestParitySweep3_CreateTrafficPolicyInstance_Duplicate(t *testing.T) {
 
 			b := route53.NewInMemoryBackend()
 
-			hz, err := b.CreateHostedZone("example.com", "ref-tpi", "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-tpi", "", false, "")
 			require.NoError(t, err)
 
 			tp, err := b.CreateTrafficPolicy(
@@ -277,7 +277,7 @@ func TestParitySweep3_TagsPersistAcrossSnapshotRestore(t *testing.T) {
 
 	original := route53.NewInMemoryBackend()
 
-	hz, err := original.CreateHostedZone("example.com", "ref-tags-persist", "", false)
+	hz, err := original.CreateHostedZone("example.com", "ref-tags-persist", "", false, "")
 	require.NoError(t, err)
 
 	require.NoError(t, original.ChangeTagsForResource(

@@ -625,9 +625,26 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrLexiconNotFound):
 		return writeError(c, http.StatusNotFound, "LexiconNotFoundException", err.Error())
 	case errors.Is(err, ErrTaskNotFound):
-		return writeError(c, http.StatusNotFound, "SynthesisTaskNotFoundException", err.Error())
+		// AWS models SynthesisTaskNotFoundException with httpStatusCode 400, not 404.
+		return writeError(c, http.StatusBadRequest, "SynthesisTaskNotFoundException", err.Error())
 	case errors.Is(err, ErrResourceNotFound):
 		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+	case errors.Is(err, ErrTextLengthExceeded):
+		return writeError(c, http.StatusBadRequest, "TextLengthExceededException", err.Error())
+	case errors.Is(err, ErrInvalidSampleRate):
+		return writeError(c, http.StatusBadRequest, "InvalidSampleRateException", err.Error())
+	case errors.Is(err, ErrEngineNotSupported):
+		return writeError(c, http.StatusBadRequest, "EngineNotSupportedException", err.Error())
+	case errors.Is(err, ErrLanguageNotSupported):
+		return writeError(c, http.StatusBadRequest, "LanguageNotSupportedException", err.Error())
+	case errors.Is(err, ErrMarksNotSupportedForFormat):
+		return writeError(c, http.StatusBadRequest, "MarksNotSupportedForFormatException", err.Error())
+	case errors.Is(err, ErrSsmlMarksNotSupportedForTextType):
+		return writeError(c, http.StatusBadRequest, "SsmlMarksNotSupportedForTextTypeException", err.Error())
+	case errors.Is(err, ErrInvalidNextToken):
+		return writeError(c, http.StatusBadRequest, "InvalidNextTokenException", err.Error())
+	case errors.Is(err, ErrInvalidLexicon):
+		return writeError(c, http.StatusBadRequest, "InvalidLexiconException", err.Error())
 	case errors.Is(err, ErrValidation):
 		return writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
 	default:

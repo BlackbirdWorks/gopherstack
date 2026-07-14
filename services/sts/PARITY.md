@@ -1,12 +1,11 @@
 ---
 service: sts
-sdk_module: aws-sdk-go-v2/service/sts@v1.43.5   # version audited against (pinned in go.mod)
-last_audit_commit: 0407b38d                     # HEAD when this manifest was written
-last_audit_date: 2026-07-05
-overall: B                # already-accurate op-by-op; four genuine fixes layered on top of a
-                           # service that has clearly been through multiple prior parity sweeps
-                           # (parity_*_test.go, batch2_audit_test.go, refinement1-4_test.go,
-                           # sdk_completeness_test.go all pre-date this pass).
+sdk_module: aws-sdk-go-v2/service/sts@v1.44.0   # version audited against (pinned in go.mod)
+last_audit_commit: eb94f3c3                     # HEAD when this manifest was written
+last_audit_date: 2026-07-11
+overall: B                # already-accurate op-by-op; no local drift and no SDK surface
+                           # changes since the previous audit (see "Re-audit 2026-07-11" note
+                           # below) — ok rows below carried forward unchanged.
 ops:
   AssumeRole: {wire: ok, errors: ok, state: ok, persist: ok, note: "trust-policy Principal/Condition/Effect evaluation, ExternalId, MFA absent (n/a for this op), role-chaining 1h cap, transitive tags, PackedPolicySize — all verified correct pre-existing"}
   AssumeRoleWithSAML: {wire: ok, errors: ok, state: ok, persist: ok, note: "base64+temporal Conditions window, NameQualifier BASE64(SHA1(issuer;acct;idp)) per AWS spec, PrincipalArn shape — verified correct"}
@@ -116,3 +115,27 @@ write-exclusive everywhere a map mutation (session store/delete) occurs.
 `cli.go`'s `stsBk.SetRoleLookup(...)` / `stsBk.SetOIDCLookup(...)` wiring was
 read but not modified — the `RoleLookup`/`OIDCLookup` interfaces in
 `backend.go` are unchanged (additive-safe; no signature changes were needed).
+
+### Re-audit 2026-07-11 (HEAD eb94f3c3, no changes made)
+Ran the standard re-audit protocol before touching any code:
+- `git diff ce30166a..eb94f3c3 -- services/sts/` (the commit that actually
+  authored/committed this ledger, since `0407b38d` predates the sweep-3 squash
+  merge and is not an ancestor of any commit on this branch) — **empty**, no
+  local drift in `services/sts/` since the last audit.
+- `go.mod` bumped `aws-sdk-go-v2/service/sts` v1.43.5 → v1.44.0 in the interim
+  (dependency-upgrade commit `e51c0de9`, unrelated to sts specifically). Diffed
+  the two module versions on disk
+  (`go/pkg/mod/github.com/aws/aws-sdk-go-v2/service/sts@{v1.43.5,v1.44.0}`):
+  zero `api_op_*.go` or `types/` differences — the only changes upstream were
+  added `serde_snapshot`/`serde_snapshot_test.go` test-infrastructure files.
+  No new/changed operations, no new error types to model.
+- No `TODO`/`FIXME`/`XXX`/`HACK` markers in non-test source.
+- All five gates re-verified green with zero changes:
+  `go build`, `go vet`, `go test -race` (ok, 2.956s), `go fix -diff` (empty),
+  `golangci-lint run` (0 issues).
+
+Conclusion: nothing to fix this pass. All `ops`/`families` rows above are
+carried forward unchanged from the 2026-07-05 audit; `gaps`/`deferred` items
+remain open (still no reliable spec for the three unimplemented exception
+types; session-policy-content enforcement still correctly out of scope for a
+service-local audit).

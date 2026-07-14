@@ -2195,7 +2195,7 @@ func TestHandler_EventAPI_CRUD(t *testing.T) {
 
 	var listResp map[string]any
 	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&listResp))
-	items := listResp["items"].([]any)
+	items := listResp["apis"].([]any)
 	assert.Len(t, items, 1)
 
 	// Get API.
@@ -2220,7 +2220,7 @@ func TestHandler_EventAPI_CRUD(t *testing.T) {
 
 	var listResp2 map[string]any
 	require.NoError(t, json.NewDecoder(rec6.Body).Decode(&listResp2))
-	assert.Empty(t, listResp2["items"])
+	assert.Empty(t, listResp2["apis"])
 }
 
 func TestHandler_DisassociateAPI(t *testing.T) {
@@ -2425,7 +2425,9 @@ func TestHandler_ChannelNamespace_MethodNotAllowed(t *testing.T) {
 
 	h, _ := newTestHandler()
 
-	rec := doRequest(t, h, http.MethodPost, "/v2/apis/x/channelNamespaces/ns1", nil)
+	// POST is a valid method here (the real AWS SDK sends UpdateChannelNamespace as
+	// POST to this exact path, not PUT/PATCH); use a method nothing maps to instead.
+	rec := doRequest(t, h, http.MethodOptions, "/v2/apis/x/channelNamespaces/ns1", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 
@@ -2483,7 +2485,7 @@ func TestHandler_SourceAPIAssociations_CRUD(t *testing.T) {
 
 	var listResp map[string]any
 	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&listResp))
-	assocs := listResp["sourceApiAssociations"].([]any)
+	assocs := listResp["sourceApiAssociationSummaries"].([]any)
 	assert.Len(t, assocs, 1)
 
 	// Get source API association.
@@ -2543,7 +2545,7 @@ func TestHandler_ListSourceApiAssociations_Empty(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-	assert.Empty(t, resp["sourceApiAssociations"])
+	assert.Empty(t, resp["sourceApiAssociationSummaries"])
 }
 
 func TestHandler_EnvironmentVariables(t *testing.T) {

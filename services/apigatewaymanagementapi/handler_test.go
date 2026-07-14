@@ -120,6 +120,10 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		{name: "connections prefix", path: "/@connections/conn-1", want: true},
 		{name: "not connections", path: "/restapis/something", want: false},
 		{name: "dashboard", path: "/dashboard/apigatewaymanagementapi", want: false},
+		// Real connectionIds are base64url-ish and can contain '=' padding;
+		// the literal "@connections" prefix must still match with such an id.
+		{name: "connectionId with base64 padding", path: "/@connections/L0Xc123=", want: true},
+		{name: "connectionId with plus and equals", path: "/@connections/AbC+d==", want: true},
 	}
 
 	for _, tt := range tests {
@@ -133,6 +137,43 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			c := e.NewContext(req, rec)
 
 			assert.Equal(t, tt.want, h.RouteMatcher()(c))
+		})
+	}
+}
+
+// TestHandler_RouteMatcher_SameConnectionIDDifferentMethods verifies that
+// PostToConnection, GetConnection, and DeleteConnection -- which all share
+// the exact same /@connections/{connectionId} path -- are distinguished
+// purely by HTTP method, and that the matcher claims the path regardless of
+// method.
+func TestHandler_RouteMatcher_SameConnectionIDDifferentMethods(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		method  string
+		wantOp  string
+		matches bool
+	}{
+		{method: http.MethodPost, wantOp: "PostToConnection", matches: true},
+		{method: http.MethodGet, wantOp: "GetConnection", matches: true},
+		{method: http.MethodDelete, wantOp: "DeleteConnection", matches: true},
+	}
+
+	const path = "/@connections/L0Xc123="
+
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.matches, h.RouteMatcher()(c))
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+			assert.Equal(t, "L0Xc123=", h.ExtractResource(c))
 		})
 	}
 }
@@ -270,6 +311,81 @@ func TestHandler_DeleteConnection(t *testing.T) {
 			rec := doRequest(t, h, http.MethodDelete, "/@connections/"+tt.connectionID, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
+	}
+}
+
+// TestHandler_PostToConnection_LimitExceeded verifies that a full WebSocket
+// client-side buffer surfaces as a LimitExceededException (429) in the AWS
+// rest-json shape, matching real AWS's documented behavior for this exact
+// condition -- not a silently-dropped message reported as success.
+func TestHandler_PostToConnection_LimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	downstream := make(chan []byte, 1)
+	_, err := h.Backend.CreateConnection("conn-full", "127.0.0.1", "test", downstream)
+	require.NoError(t, err)
+
+	// Fill the bounded downstream buffer so the next post cannot be queued.
+	downstream <- []byte("filler")
+
+	rec := doRequest(t, h, http.MethodPost, "/@connections/conn-full", []byte("data"))
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	assert.Equal(t, "LimitExceededException", rec.Header().Get("X-Amzn-Errortype"))
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "LimitExceededException", body["__type"])
+	assert.NotEmpty(t, body["message"])
+
+	// The rejected message must not be recorded as delivered.
+	assert.Empty(t, h.Backend.GetMessages("conn-full"))
+}
+
+// TestHandler_PostToConnection_PayloadTooLarge_WireShape verifies that a
+// PayloadTooLargeException carries the modeled type in both the
+// X-Amzn-Errortype header and the body's __type field -- without these the
+// AWS SDK cannot resolve the response as a PayloadTooLargeException and
+// instead surfaces a generic/unknown error.
+func TestHandler_PostToConnection_PayloadTooLarge_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, err := h.Backend.CreateConnection("conn-big", "127.0.0.1", "test", nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPost, "/@connections/conn-big", make([]byte, 129*1024))
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Equal(t, "PayloadTooLargeException", rec.Header().Get("X-Amzn-Errortype"))
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "PayloadTooLargeException", body["__type"])
+	assert.NotEmpty(t, body["message"])
+}
+
+// TestHandler_DeleteConnection_ClosesDownstream verifies that DeleteConnection
+// forcibly disconnects the connection by closing its downstream delivery
+// channel, matching real AWS's "forcibly disconnects" semantics rather than
+// merely forgetting the connection while leaving the transport open.
+func TestHandler_DeleteConnection_ClosesDownstream(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	downstream := make(chan []byte, 1)
+	_, err := h.Backend.CreateConnection("conn-close", "127.0.0.1", "test", downstream)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodDelete, "/@connections/conn-close", nil)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	select {
+	case _, open := <-downstream:
+		assert.False(t, open, "downstream channel must be closed after DeleteConnection")
+	default:
+		t.Fatal("downstream channel must be closed (readable as closed) after DeleteConnection")
 	}
 }
 

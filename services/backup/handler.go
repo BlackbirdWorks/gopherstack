@@ -168,6 +168,7 @@ const (
 	pathBackupJobs          = "/backup-jobs"
 	pathCopyJobs            = "/copy-jobs"
 	pathTags                = "/tags/"
+	pathUntag               = "/untag/"
 	pathLegalHolds          = "/legal-holds"
 	pathAuditFrameworks     = "/audit/frameworks"
 	pathAuditReportPlans    = "/audit/report-plans"
@@ -175,15 +176,19 @@ const (
 	pathRestoreAccessVaults = "/restore-access-backup-vaults"
 	pathRestoreTestingPlans = "/restore-testing/plans"
 	pathGlobalSettings      = "/global-settings"
-	pathRegionSettings      = "/region-settings"
-	pathSupportedTypes      = "/supported-resource-types"
-	pathResources           = "/resources"
-	pathRestoreJobs         = "/restore-jobs"
-	pathRestoreJobsByRes    = "/restore-jobs-by-protected-resource/"
-	pathReportJobs          = "/report-jobs"
-	pathScanJobs            = "/jobs/scan"
-	pathTieringConf         = "/backup-vault-tiering"
-	pathStopJob             = "/backup-jobs/"
+	// pathRegionSettings is AWS's actual wire path for region-settings
+	// operations -- the API confusingly binds DescribeRegionSettings /
+	// UpdateRegionSettings to /account-settings, not /region-settings.
+	pathRegionSettings             = "/account-settings"
+	pathSupportedTypes             = "/supported-resource-types"
+	pathResources                  = "/resources"
+	pathRestoreJobs                = "/restore-jobs"
+	pathReportJobs                 = "/audit/report-jobs"
+	pathScanJobs                   = "/scan/jobs"
+	pathScanJobStart               = "/scan/job"
+	pathTieringConf                = "/backup-vault-tiering"
+	pathIndexedRecovery            = "/indexes/recovery-point"
+	pathRestoreTestingInferredMeta = "/restore-testing/inferred-metadata"
 
 	// splitTwo is the N argument for [strings.SplitN] to split into at most 2 parts.
 	splitTwo = 2
@@ -411,12 +416,18 @@ func matchesBackupPath(path string) bool {
 		pathBackupJobs + "/",
 		pathCopyJobs + "/",
 		pathTags + "arn:aws:backup:",
+		pathUntag,
 		pathLegalHolds + "/",
 		pathAuditFrameworks + "/",
 		pathAuditReportPlans + "/",
 		pathLogicallyAirGapped + "/",
 		pathRestoreAccessVaults + "/",
 		pathRestoreTestingPlans + "/",
+		pathResources + "/",
+		pathRestoreJobs + "/",
+		pathReportJobs + "/",
+		pathScanJobs + "/",
+		pathTieringConf + "/",
 	}
 
 	exacts := []string{
@@ -430,6 +441,17 @@ func matchesBackupPath(path string) bool {
 		pathLogicallyAirGapped,
 		pathRestoreAccessVaults,
 		pathRestoreTestingPlans,
+		pathGlobalSettings,
+		pathRegionSettings,
+		pathSupportedTypes,
+		pathResources,
+		pathRestoreJobs,
+		pathReportJobs,
+		pathScanJobs,
+		pathScanJobStart,
+		pathTieringConf,
+		pathIndexedRecovery,
+		pathRestoreTestingInferredMeta,
 	}
 
 	if slices.Contains(exacts, path) {
@@ -455,8 +477,6 @@ type backupRoute struct {
 }
 
 // parseBackupPath maps HTTP method + path to an operation name and resource ID.
-//
-//nolint:gocyclo,cyclop,funlen // route table is inherently complex
 func parseBackupPath(
 	method, rawPath string,
 ) backupRoute {
@@ -478,6 +498,15 @@ func parseBackupPath(
 	case strings.HasPrefix(path, pathCopyJobs):
 
 		return parseCopyJobRoute(method, strings.TrimPrefix(path, pathCopyJobs))
+	case strings.HasPrefix(path, pathUntag):
+		if method == http.MethodPost {
+			return backupRoute{
+				operation: opUntagResource,
+				resource:  strings.TrimPrefix(path, pathUntag),
+			}
+		}
+
+		return backupRoute{operation: opUnknown}
 	case strings.HasPrefix(path, pathTags):
 
 		return parseTagsRoute(method, strings.TrimPrefix(path, pathTags))
@@ -505,6 +534,30 @@ func parseBackupPath(
 	case strings.HasPrefix(path, pathRestoreTestingPlans):
 
 		return parseRestoreTestingRoute(method, strings.TrimPrefix(path, pathRestoreTestingPlans))
+	}
+
+	return parseBackupMiscPath(method, path)
+}
+
+// parseBackupMiscPath routes the remaining settings/jobs/resources path
+// families that don't nest under a shared resource-collection prefix. Split
+// out of parseBackupPath to keep both functions' cognitive complexity in check.
+func parseBackupMiscPath(method, path string) backupRoute {
+	if r := parseBackupSettingsPath(method, path); r.operation != opUnknown {
+		return r
+	}
+
+	return parseBackupJobFamilyPath(method, path)
+}
+
+// parseBackupSettingsPath routes global/region settings, supported resource
+// types, protected resources, and restore jobs.
+func parseBackupSettingsPath(method, path string) backupRoute {
+	switch {
+	case path == pathRestoreTestingInferredMeta:
+		if method == http.MethodGet {
+			return backupRoute{operation: opGetRestoreTestingInferredMetadata}
+		}
 	case path == pathGlobalSettings:
 		if method == http.MethodGet {
 			return backupRoute{operation: opDescribeGlobalSettings}
@@ -525,10 +578,7 @@ func parseBackupPath(
 		return backupRoute{operation: opListProtectedResources}
 	case strings.HasPrefix(path, pathResources+"/"):
 
-		return backupRoute{
-			operation: opDescribeProtectedResource,
-			resource:  strings.TrimPrefix(path, pathResources+"/"),
-		}
+		return parseResourceRoute(method, strings.TrimPrefix(path, pathResources+"/"))
 	case path == pathRestoreJobs:
 		if method == http.MethodGet {
 			return backupRoute{operation: opListRestoreJobs}
@@ -536,56 +586,102 @@ func parseBackupPath(
 
 		return backupRoute{operation: opStartRestoreJob}
 	case strings.HasPrefix(path, pathRestoreJobs+"/"):
-		suffix := strings.TrimPrefix(path, pathRestoreJobs+"/")
-		parts := strings.SplitN(suffix, "/", 2) //nolint:mnd // split into at most 2 segments
-		if len(parts) == 2 && parts[1] == "metadata" {
-			return backupRoute{operation: opGetRestoreJobMetadata, resource: parts[0]}
-		}
-		if len(parts) == 2 && parts[1] == "validations" {
-			return backupRoute{operation: opPutRestoreValidationResult, resource: parts[0]}
-		}
 
-		return backupRoute{operation: opDescribeRestoreJob, resource: parts[0]}
-	case strings.HasPrefix(path, pathRestoreJobsByRes):
+		return parseRestoreJobSubRoute(strings.TrimPrefix(path, pathRestoreJobs+"/"))
+	}
 
-		return backupRoute{
-			operation: opListRestoreJobsByProtectedResource,
-			resource:  strings.TrimPrefix(path, pathRestoreJobsByRes),
-		}
+	return backupRoute{operation: opUnknown}
+}
+
+// parseBackupJobFamilyPath routes report jobs, scan jobs, indexed recovery
+// points, and tiering configuration paths.
+func parseBackupJobFamilyPath(method, path string) backupRoute {
+	switch {
 	case path == pathReportJobs:
 		if method == http.MethodGet {
 			return backupRoute{operation: opListReportJobs}
 		}
-
-		return backupRoute{operation: opStartReportJob}
 	case strings.HasPrefix(path, pathReportJobs+"/"):
 
-		return backupRoute{
-			operation: opDescribeReportJob,
-			resource:  strings.TrimPrefix(path, pathReportJobs+"/"),
+		return parseReportJobRoute(method, strings.TrimPrefix(path, pathReportJobs+"/"))
+	case path == pathScanJobStart:
+		if method == http.MethodPut {
+			return backupRoute{operation: opStartScanJob}
 		}
 	case path == pathScanJobs:
 		if method == http.MethodGet {
 			return backupRoute{operation: opListScanJobs}
 		}
-
-		return backupRoute{operation: opStartScanJob}
 	case strings.HasPrefix(path, pathScanJobs+"/"):
-
-		return backupRoute{
-			operation: opDescribeScanJob,
-			resource:  strings.TrimPrefix(path, pathScanJobs+"/"),
+		if method == http.MethodGet {
+			return backupRoute{
+				operation: opDescribeScanJob,
+				resource:  strings.TrimPrefix(path, pathScanJobs+"/"),
+			}
 		}
-	case strings.HasSuffix(path, "/stop-backup-job"):
-		jobID := strings.TrimSuffix(
-			strings.TrimPrefix(path, pathBackupJobs+"/"),
-			"/stop-backup-job",
-		)
-
-		return backupRoute{operation: opStopBackupJob, resource: jobID}
+	case path == pathIndexedRecovery:
+		if method == http.MethodGet {
+			return backupRoute{operation: opListIndexedRecoveryPoints}
+		}
 	case strings.HasPrefix(path, pathTieringConf):
 
 		return parseTieringRoute(method, strings.TrimPrefix(path, pathTieringConf))
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// parseRestoreJobSubRoute routes /restore-jobs/{id}[/metadata|/validations].
+func parseRestoreJobSubRoute(suffix string) backupRoute {
+	parts := strings.SplitN(suffix, "/", splitTwo)
+	if len(parts) == splitTwo && parts[1] == "metadata" {
+		return backupRoute{operation: opGetRestoreJobMetadata, resource: parts[0]}
+	}
+	if len(parts) == splitTwo && parts[1] == "validations" {
+		return backupRoute{operation: opPutRestoreValidationResult, resource: parts[0]}
+	}
+
+	return backupRoute{operation: opDescribeRestoreJob, resource: parts[0]}
+}
+
+// parseResourceRoute routes /resources/{resourceArn}[/recovery-points|/restore-jobs].
+// The resource ARN itself may contain slashes (e.g. "...:instance/i-0123"), so
+// suffixes are matched from the end rather than by splitting on "/".
+func parseResourceRoute(method, rest string) backupRoute {
+	if arn, ok := strings.CutSuffix(rest, "/recovery-points"); ok {
+		if method == http.MethodGet {
+			return backupRoute{operation: opListRecoveryPointsByResource, resource: arn}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if arn, ok := strings.CutSuffix(rest, "/restore-jobs"); ok {
+		if method == http.MethodGet {
+			return backupRoute{operation: opListRestoreJobsByProtectedResource, resource: arn}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if method == http.MethodGet {
+		return backupRoute{operation: opDescribeProtectedResource, resource: rest}
+	}
+
+	return backupRoute{operation: opUnknown}
+}
+
+// parseReportJobRoute routes /audit/report-jobs/{name}. AWS reuses the same
+// path shape for both DescribeReportJob (name = ReportJobId, GET) and
+// StartReportJob (name = ReportPlanName, POST).
+func parseReportJobRoute(method, name string) backupRoute {
+	switch method {
+	case http.MethodGet:
+
+		return backupRoute{operation: opDescribeReportJob, resource: name}
+	case http.MethodPost:
+
+		return backupRoute{operation: opStartReportJob, resource: name}
 	}
 
 	return backupRoute{operation: opUnknown}
@@ -677,9 +773,18 @@ func parseVaultRoute(method, suffix string) backupRoute {
 func parseVaultSubResourceRoute(method, vaultName, sub string) backupRoute {
 	switch sub {
 	case "/mpaApprovalTeam":
-		if method == http.MethodPut {
+		switch method {
+		case http.MethodPut:
+
 			return backupRoute{
 				operation: opAssociateBackupVaultMpaApprovalTeam,
+				resource:  vaultName,
+			}
+		case http.MethodPost:
+			// AWS uses POST .../mpaApprovalTeam?delete for the disassociate call
+			// (same path as associate, distinguished by method + query string).
+			return backupRoute{
+				operation: opDisassociateBackupVaultMpaApprovalTeam,
 				resource:  vaultName,
 			}
 		}
@@ -723,7 +828,7 @@ func parseVaultSubResourceRoute(method, vaultName, sub string) backupRoute {
 
 // rpSubSuffix returns the recognized sub-resource suffixes for recovery points.
 func rpSubSuffixes() []string {
-	return []string{"/disassociate", "/parentAssociation", "/restore-metadata"}
+	return []string{"/disassociate", "/parentAssociation", "/restore-metadata", "/index"}
 }
 
 // parseVaultRecoveryPointRoute handles /backup-vaults/{name}/recovery-points[/{arn}[/...]]
@@ -762,6 +867,9 @@ func parseVaultRecoveryPointRoute(method, name string) backupRoute {
 		case http.MethodDelete:
 
 			return backupRoute{operation: opDeleteRecoveryPoint, resource: vaultName + "|" + rest}
+		case http.MethodPost:
+
+			return backupRoute{operation: opUpdateRecoveryPointLifecycle, resource: vaultName + "|" + rest}
 		}
 	}
 
@@ -783,6 +891,15 @@ func parseRecoveryPointSubRoute(method, vaultName, rpArn, sub string) backupRout
 	case "/restore-metadata":
 		if method == http.MethodGet {
 			return backupRoute{operation: opGetRecoveryPointRestoreMetadata, resource: res}
+		}
+	case "/index":
+		switch method {
+		case http.MethodGet:
+
+			return backupRoute{operation: opGetRecoveryPointIndexDetails, resource: res}
+		case http.MethodPost:
+
+			return backupRoute{operation: opUpdateRecoveryPointIndexSettings, resource: res}
 		}
 	}
 
@@ -907,15 +1024,23 @@ func parseJobRoute(method, suffix string) backupRoute {
 			return backupRoute{operation: opListBackupJobs}
 		}
 	} else if !strings.Contains(id, "/") {
-		// /backup-jobs/{id}
-		if method == http.MethodGet {
+		// /backup-jobs/{id}: GET describes, POST stops (AWS reuses the same
+		// path for both -- there is no "/stop-backup-job" suffix on the wire).
+		switch method {
+		case http.MethodGet:
+
 			return backupRoute{operation: opDescribeBackupJob, resource: id}
+		case http.MethodPost:
+
+			return backupRoute{operation: opStopBackupJob, resource: id}
 		}
 	}
 
 	return backupRoute{operation: opUnknown}
 }
 
+// parseTagsRoute routes /tags/{resourceArn}. AWS Backup's UntagResource lives
+// on a separate /untag/{resourceArn} path (see pathUntag), not DELETE here.
 func parseTagsRoute(method, resourceArn string) backupRoute {
 	switch method {
 	case http.MethodPost:
@@ -924,9 +1049,6 @@ func parseTagsRoute(method, resourceArn string) backupRoute {
 	case http.MethodGet:
 
 		return backupRoute{operation: opListTags, resource: resourceArn}
-	case http.MethodDelete:
-
-		return backupRoute{operation: opUntagResource, resource: resourceArn}
 	}
 
 	return backupRoute{operation: opUnknown}
@@ -936,13 +1058,35 @@ func parseLegalHoldRoute(method, suffix string) backupRoute {
 	id := strings.TrimPrefix(suffix, "/")
 	if id == "" {
 		// /legal-holds
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
+
 			return backupRoute{operation: opCreateLegalHold}
+		case http.MethodGet:
+
+			return backupRoute{operation: opListLegalHolds}
 		}
-	} else if !strings.Contains(id, "/") {
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if rpID, ok := strings.CutSuffix(id, "/recovery-points"); ok {
+		if method == http.MethodGet {
+			return backupRoute{operation: opListRecoveryPointsByLegalHold, resource: rpID}
+		}
+
+		return backupRoute{operation: opUnknown}
+	}
+
+	if !strings.Contains(id, "/") {
 		// /legal-holds/{id}
-		if method == http.MethodDelete {
+		switch method {
+		case http.MethodDelete:
+
 			return backupRoute{operation: opCancelLegalHold, resource: id}
+		case http.MethodGet:
+
+			return backupRoute{operation: opGetLegalHold, resource: id}
 		}
 	}
 
@@ -1043,7 +1187,7 @@ func parseRestoreAccessVaultRoute(method, suffix string) backupRoute {
 	id := strings.TrimPrefix(suffix, "/")
 	if id == "" {
 		// /restore-access-backup-vaults
-		if method == http.MethodPost {
+		if method == http.MethodPut {
 			return backupRoute{operation: opCreateRestoreAccessBackupVault}
 		}
 	}
@@ -1741,6 +1885,24 @@ func lifecycleToJSON(lc *Lifecycle) *lifecycleJSON {
 		DeleteAfterDays:                     lc.DeleteAfterDays,
 		OptInToArchiveForSupportedResources: lc.OptInToArchiveForSupportedResources,
 	}
+}
+
+// calculatedLifecycleToJSON renders a CalculatedLifecycle as epoch-seconds
+// timestamps (the restjson1 wire format), not Go's default RFC3339 encoding.
+func calculatedLifecycleToJSON(cl *CalculatedLifecycle) map[string]any {
+	if cl == nil {
+		return nil
+	}
+
+	out := map[string]any{}
+	if cl.MoveToColdStorageAt != nil {
+		out["MoveToColdStorageAt"] = epochSeconds(*cl.MoveToColdStorageAt)
+	}
+	if cl.DeleteAt != nil {
+		out["DeleteAt"] = epochSeconds(*cl.DeleteAt)
+	}
+
+	return out
 }
 
 func copyActionsFromJSON(in []copyActionJSON) []CopyAction {
@@ -2741,6 +2903,9 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 		if rp.Lifecycle != nil {
 			item["Lifecycle"] = lifecycleToJSON(rp.Lifecycle)
 		}
+		if rp.CalculatedLifecycle != nil {
+			item["CalculatedLifecycle"] = calculatedLifecycleToJSON(rp.CalculatedLifecycle)
+		}
 		items = append(items, item)
 	}
 
@@ -2804,7 +2969,7 @@ func (h *Handler) handleDescribeRecoveryPoint(c *echo.Context, resource string) 
 		resp["Lifecycle"] = lifecycleToJSON(rp.Lifecycle)
 	}
 	if rp.CalculatedLifecycle != nil {
-		resp["CalculatedLifecycle"] = rp.CalculatedLifecycle
+		resp["CalculatedLifecycle"] = calculatedLifecycleToJSON(rp.CalculatedLifecycle)
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -3791,11 +3956,10 @@ func (h *Handler) dispatchStubSettingsOps(
 	case opDescribeProtectedResource:
 		pr, err := h.Backend.DescribeProtectedResource(route.resource)
 		if err != nil {
-			return true, c.JSON(http.StatusOK, map[string]any{
-				keyResourceArn:   route.resource,
-				keyResourceType:  "EBS",
-				"LastBackupTime": epochSeconds(time.Now().UTC()),
-			})
+			return true, c.JSON(
+				http.StatusNotFound,
+				errResp("ResourceNotFoundException", err.Error()),
+			)
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{
@@ -3839,9 +4003,10 @@ func (h *Handler) dispatchStubRestoreOps(
 	case opDescribeRestoreJob:
 		job, err := h.Backend.DescribeRestoreJob(route.resource)
 		if err != nil {
-			return true, c.JSON(http.StatusOK, map[string]any{
-				keyRestoreJobID: route.resource, keyStatus: statusCompleted,
-			})
+			return true, c.JSON(
+				http.StatusNotFound,
+				errResp("ResourceNotFoundException", err.Error()),
+			)
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{
@@ -3950,12 +4115,10 @@ func (h *Handler) dispatchStubReportOps(
 	case opDescribeReportJob:
 		job, err := h.Backend.DescribeReportJob(route.resource)
 		if err != nil {
-			return true, c.JSON(http.StatusOK, map[string]any{
-				"ReportJob": map[string]any{
-					keyReportJobID: route.resource,
-					keyStatus:      statusCompleted,
-				},
-			})
+			return true, c.JSON(
+				http.StatusNotFound,
+				errResp("ResourceNotFoundException", err.Error()),
+			)
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{
@@ -3980,8 +4143,8 @@ func (h *Handler) dispatchStubReportOps(
 		job, err := h.Backend.DescribeScanJob(route.resource)
 		if err != nil {
 			return true, c.JSON(
-				http.StatusOK,
-				map[string]any{keyScanJobID: route.resource, keyStatus: statusCompleted},
+				http.StatusNotFound,
+				errResp("ResourceNotFoundException", err.Error()),
 			)
 		}
 
@@ -4004,16 +4167,23 @@ func (h *Handler) dispatchStubReportOps(
 			"ScanJobSummaries": []map[string]any{{"Count": len(jobs)}},
 		})
 	case opStartScanJob:
+		// StartScanJobInput carries BackupVaultName (not an ARN) in the JSON body.
 		var reqBody struct {
-			BackupVaultArn string `json:"BackupVaultArn"`
+			BackupVaultName string `json:"BackupVaultName"`
 		}
 		_ = json.Unmarshal(body, &reqBody)
-		if reqBody.BackupVaultArn == "" {
-			reqBody.BackupVaultArn = route.resource
-		}
-		job := h.Backend.StartScanJob(reqBody.BackupVaultArn)
 
-		return true, c.JSON(http.StatusOK, map[string]any{keyScanJobID: job.ScanJobID})
+		vaultArn := reqBody.BackupVaultName
+		if v, err := h.Backend.DescribeBackupVault(reqBody.BackupVaultName); err == nil {
+			vaultArn = v.BackupVaultArn
+		}
+
+		job := h.Backend.StartScanJob(vaultArn)
+
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyScanJobID:    job.ScanJobID,
+			keyCreationDate: epochSeconds(job.CreationTime),
+		})
 	}
 
 	return false, nil
@@ -4024,13 +4194,17 @@ func (h *Handler) dispatchStubLegalHoldOps(
 	route backupRoute,
 	body []byte,
 ) (bool, error) {
+	if ok, err := h.dispatchRecoveryPointIndexOps(c, route, body); ok {
+		return true, err
+	}
+
 	switch route.operation {
 	case opGetLegalHold:
 		lh, err := h.Backend.GetLegalHold(route.resource)
 		if err != nil {
 			return true, c.JSON(
 				http.StatusNotFound,
-				map[string]any{"Message": "LegalHold not found"},
+				errResp("ResourceNotFoundException", err.Error()),
 			)
 		}
 
@@ -4072,33 +4246,6 @@ func (h *Handler) dispatchStubLegalHoldOps(
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{keyRecoveryPoints: items})
-	case opGetRecoveryPointIndexDetails:
-		// resource = vaultName/recoveryPointArn
-		status, _ := h.Backend.GetRecoveryPointIndexDetails("", route.resource)
-
-		return true, c.JSON(http.StatusOK, map[string]any{
-			keyRecoveryPointArn: route.resource, "IndexStatus": status,
-		})
-	case opUpdateRecoveryPointIndexSettings:
-		var reqBody struct {
-			Index string `json:"Index"`
-		}
-		_ = json.Unmarshal(body, &reqBody)
-		_ = h.Backend.UpdateRecoveryPointIndexSettings("", route.resource, reqBody.Index)
-
-		return true, c.JSON(http.StatusOK, map[string]any{keyRecoveryPointArn: route.resource})
-	case opUpdateRecoveryPointLifecycle:
-		var reqBody struct {
-			Lifecycle struct {
-				MoveToColdStorageAfterDays int64 `json:"MoveToColdStorageAfterDays"`
-				DeleteAfterDays            int64 `json:"DeleteAfterDays"`
-			} `json:"Lifecycle"`
-		}
-		_ = json.Unmarshal(body, &reqBody)
-		_ = h.Backend.UpdateRecoveryPointLifecycle("", route.resource,
-			reqBody.Lifecycle.MoveToColdStorageAfterDays, reqBody.Lifecycle.DeleteAfterDays)
-
-		return true, c.JSON(http.StatusOK, map[string]any{keyRecoveryPointArn: route.resource})
 	case opListIndexedRecoveryPoints:
 		rps := h.Backend.ListIndexedRecoveryPoints()
 		items := make([]map[string]any, 0, len(rps))
@@ -4113,6 +4260,107 @@ func (h *Handler) dispatchStubLegalHoldOps(
 	}
 
 	return false, nil
+}
+
+// dispatchRecoveryPointIndexOps handles the recovery-point index and
+// lifecycle sub-resource operations. Split out of dispatchStubLegalHoldOps to
+// keep its cognitive complexity in check.
+func (h *Handler) dispatchRecoveryPointIndexOps(
+	c *echo.Context,
+	route backupRoute,
+	body []byte,
+) (bool, error) {
+	switch route.operation {
+	case opGetRecoveryPointIndexDetails:
+
+		return true, h.handleGetRecoveryPointIndexDetails(c, route.resource)
+	case opUpdateRecoveryPointIndexSettings:
+
+		return true, h.handleUpdateRecoveryPointIndexSettings(c, route.resource, body)
+	case opUpdateRecoveryPointLifecycle:
+
+		return true, h.handleUpdateRecoveryPointLifecycle(c, route.resource, body)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) handleGetRecoveryPointIndexDetails(c *echo.Context, resource string) error {
+	vaultName, rpArn, ok := splitVaultRP(resource)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid resource path"))
+	}
+
+	status, err := h.Backend.GetRecoveryPointIndexDetails(vaultName, rpArn)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyRecoveryPointArn: rpArn,
+		"IndexStatus":       status,
+	})
+}
+
+func (h *Handler) handleUpdateRecoveryPointIndexSettings(
+	c *echo.Context, resource string, body []byte,
+) error {
+	vaultName, rpArn, ok := splitVaultRP(resource)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid resource path"))
+	}
+
+	var reqBody struct {
+		Index string `json:"Index"`
+	}
+	_ = json.Unmarshal(body, &reqBody)
+
+	if err := h.Backend.UpdateRecoveryPointIndexSettings(vaultName, rpArn, reqBody.Index); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyRecoveryPointArn: rpArn,
+		"Index":             reqBody.Index,
+	})
+}
+
+func (h *Handler) handleUpdateRecoveryPointLifecycle(
+	c *echo.Context, resource string, body []byte,
+) error {
+	vaultName, rpArn, ok := splitVaultRP(resource)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid resource path"))
+	}
+
+	var reqBody struct {
+		Lifecycle struct {
+			MoveToColdStorageAfterDays int64 `json:"MoveToColdStorageAfterDays"`
+			DeleteAfterDays            int64 `json:"DeleteAfterDays"`
+		} `json:"Lifecycle"`
+	}
+	_ = json.Unmarshal(body, &reqBody)
+
+	if err := h.Backend.UpdateRecoveryPointLifecycle(vaultName, rpArn,
+		reqBody.Lifecycle.MoveToColdStorageAfterDays, reqBody.Lifecycle.DeleteAfterDays); err != nil {
+		return h.handleError(c, err)
+	}
+
+	v, err := h.Backend.DescribeBackupVault(vaultName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	rp, err := h.Backend.DescribeRecoveryPoint(vaultName, rpArn)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyBackupVaultArn:     v.BackupVaultArn,
+		"Lifecycle":           lifecycleToJSON(rp.Lifecycle),
+		"CalculatedLifecycle": calculatedLifecycleToJSON(rp.CalculatedLifecycle),
+	})
 }
 
 // builtinBackupPlanTemplate is one of the backup plan templates AWS Backup
@@ -4344,7 +4592,9 @@ func (h *Handler) dispatchStubTieringOps(
 ) (bool, error) {
 	switch route.operation {
 	case opStopBackupJob:
-		_ = h.Backend.StopBackupJob(route.resource)
+		if err := h.Backend.StopBackupJob(route.resource); err != nil {
+			return true, c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+		}
 
 		return true, c.NoContent(http.StatusNoContent)
 	case opListRestoreAccessBackupVaults:

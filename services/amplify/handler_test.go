@@ -936,3 +936,120 @@ func encodeARN(arn string) string {
 
 	return buf.String()
 }
+
+// TestHandler_ErrorResponseShape verifies that error responses carry both the
+// "X-Amzn-Errortype" header and a "__type" body field alongside "message".
+// aws-sdk-go-v2's generated restjson1 deserializer (see
+// awsRestjson1_deserializeOpErrorGetApp and friends) selects a typed
+// exception (types.NotFoundException, types.BadRequestException, ...) by
+// reading one of those two -- never from the HTTP status alone -- so a
+// response missing both deserializes client-side as a generic UnknownError
+// with an empty code, which breaks any caller that type-switches on a
+// specific Amplify exception.
+func TestHandler_ErrorResponseShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name:       "get_app_not_found",
+			method:     http.MethodGet,
+			path:       "/apps/does-not-exist",
+			wantStatus: http.StatusNotFound,
+			wantType:   "NotFoundException",
+		},
+		{
+			name:       "create_app_missing_name",
+			method:     http.MethodPost,
+			path:       "/apps",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "BadRequestException",
+		},
+		{
+			name:       "unknown_path",
+			method:     http.MethodGet,
+			path:       "/bogus",
+			wantStatus: http.StatusNotFound,
+			wantType:   "NotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler()
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Equal(t, tt.wantType, rec.Header().Get("X-Amzn-Errortype"))
+
+			var payload map[string]any
+
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+			assert.Equal(t, tt.wantType, payload["__type"])
+			assert.NotEmpty(t, payload["message"])
+		})
+	}
+}
+
+// TestHandler_StartJob_ResponseShape verifies StartJob's response wraps the
+// job summary under "jobSummary" and includes "jobArn" -- a required field
+// on types.JobSummary in the real SDK (see JobSummary in
+// aws-sdk-go-v2/service/amplify/types) that a caller may dereference
+// unconditionally.
+func TestHandler_StartJob_ResponseShape(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+
+	app, err := b.CreateApp("TestApp", "", "", "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateBranch(app.AppID, "main", "", "", false, nil)
+	require.NoError(t, err)
+
+	body := map[string]any{"jobType": "RELEASE"}
+	rec := doRequest(t, h, http.MethodPost, "/apps/"+app.AppID+"/branches/main/jobs", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var payload struct {
+		JobSummary struct {
+			JobID  string `json:"jobId"`
+			JobARN string `json:"jobArn"`
+			Status string `json:"status"`
+		} `json:"jobSummary"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	assert.NotEmpty(t, payload.JobSummary.JobID)
+	assert.NotEmpty(t, payload.JobSummary.JobARN)
+	assert.Contains(t, payload.JobSummary.JobARN, "arn:aws:amplify:")
+	assert.Equal(t, "RUNNING", payload.JobSummary.Status)
+}
+
+// TestHandler_CreateDomainAssociation_AppNotFound verifies that a duplicate
+// domain association create yields a BadRequestException-shaped error.
+func TestHandler_CreateDomainAssociation_DuplicateIsBadRequest(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+
+	app, err := b.CreateApp("TestApp", "", "", "", nil)
+	require.NoError(t, err)
+
+	body := map[string]any{"domainName": "example.com"}
+	rec := doRequest(t, h, http.MethodPost, "/apps/"+app.AppID+"/domains", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = doRequest(t, h, http.MethodPost, "/apps/"+app.AppID+"/domains", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-Errortype"))
+}

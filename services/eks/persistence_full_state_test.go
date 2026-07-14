@@ -63,7 +63,7 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	_, err = b.CreatePodIdentityAssociation("c1", "default", "sa1", "arn:aws:iam::123456789012:role/sa", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateCapability("cap1", "v1.0")
+	_, err = b.CreateCapability("c1", "cap1", "ARGOCD", "arn:aws:iam::123456789012:role/capability-role", "RETAIN", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateEksAnywhereSubscription("sub1", 3, "Cluster", nil)
@@ -115,9 +115,9 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	require.Len(t, podAssocs, 1)
 	assert.Equal(t, "sa1", podAssocs[0].ServiceAccount)
 
-	capa, err := b2.DescribeCapability("cap1")
+	capa, err := b2.DescribeCapability("c1", "cap1")
 	require.NoError(t, err)
-	assert.Equal(t, "v1.0", capa.Version)
+	assert.Equal(t, "ARGOCD", capa.Type)
 
 	subs := b2.ListEksAnywhereSubscriptions()
 	require.Len(t, subs, 1)

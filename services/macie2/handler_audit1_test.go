@@ -206,6 +206,38 @@ func TestMacie2_AllowLists(t *testing.T) {
 			wantCode: http.StatusNotFound,
 		},
 		{
+			// Real aws-sdk-go-v2 sends PUT for UpdateAllowList, not PATCH --
+			// this exercises the route-matcher path+method combination a real
+			// SDK client uses (see parseAllowListPath in handler.go).
+			name:   "UpdateAllowList via PUT updates name and description",
+			method: http.MethodPut,
+			setup: func(h *macie2.Handler) string {
+				rec := doRequest(t, h, http.MethodPost, "/allow-lists", map[string]any{
+					"clientToken": "tok4",
+					"name":        "orig-name",
+					"criteria":    map[string]any{"regex": "orig"},
+				})
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				return resp["id"]
+			},
+			pathFn: func(id string) string { return "/allow-lists/" + id },
+			body: map[string]any{
+				"name":        "updated-name",
+				"description": "updated desc",
+				"criteria":    map[string]any{"regex": "updated"},
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(body, &resp))
+				assert.NotEmpty(t, resp["arn"])
+				assert.NotEmpty(t, resp["id"])
+			},
+		},
+		{
 			name:     "ListAllowLists returns allowLists key",
 			method:   http.MethodGet,
 			pathFn:   func(_ string) string { return "/allow-lists" },

@@ -18,6 +18,7 @@ type StorageBackend interface {
 	DescribeWorkflowType(domain, name, version string) (*WorkflowType, error)
 	DeprecateWorkflowType(domain, name, version string) error
 	UndeprecateWorkflowType(domain, name, version string) error
+	DeleteWorkflowType(domain, name, version string) error
 
 	// ActivityType lifecycle
 	RegisterActivityType(domain, name, version, description string, defaults ActivityTypeDefaults) error
@@ -25,6 +26,7 @@ type StorageBackend interface {
 	DescribeActivityType(domain, name, version string) (*ActivityType, error)
 	DeprecateActivityType(domain, name, version string) error
 	UndeprecateActivityType(domain, name, version string) error
+	DeleteActivityType(domain, name, version string) error
 
 	// Execution counts
 	CountOpenWorkflowExecutions(domain string, filter ExecutionFilter) int

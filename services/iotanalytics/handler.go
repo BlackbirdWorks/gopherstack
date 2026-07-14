@@ -677,6 +677,10 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "channelName is required")
 	}
 
+	if err := validateTags(req.Tags); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
 	tags := tagsToMap(req.Tags)
 
 	ch, err := h.Backend.CreateChannel(
@@ -803,6 +807,10 @@ func (h *Handler) handleCreateDatastore(c *echo.Context, body []byte) error {
 
 	if req.DatastoreName == "" {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "datastoreName is required")
+	}
+
+	if err := validateTags(req.Tags); err != nil {
+		return h.writeBackendError(c, err)
 	}
 
 	tags := tagsToMap(req.Tags)
@@ -944,6 +952,10 @@ func (h *Handler) handleCreateDataset(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "datasetName is required")
 	}
 
+	if err := validateTags(req.Tags); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
 	tags := tagsToMap(req.Tags)
 
 	ds, err := h.Backend.CreateDataset(
@@ -1070,6 +1082,10 @@ func (h *Handler) handleCreatePipeline(c *echo.Context, body []byte) error {
 
 	if req.PipelineName == "" {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "pipelineName is required")
+	}
+
+	if err := validateTags(req.Tags); err != nil {
+		return h.writeBackendError(c, err)
 	}
 
 	tags := tagsToMap(req.Tags)
@@ -1384,6 +1400,12 @@ func (h *Handler) handleGetDatasetContent(c *echo.Context, datasetName string) e
 	})
 }
 
+// handleListDatasetContents paginates by position, not by a name-like cursor: unlike
+// ListChannels/ListDatastores/ListDatasets/ListPipelines, whose summaries are naturally
+// sorted ascending by the same field (Name) used as the cursor threshold, dataset content
+// summaries are sorted by CreationTime descending while their identity field (VersionID) is
+// a random UUID unrelated to that order. Thresholding on VersionID would skip or repeat
+// entries arbitrarily across pages, so the opaque token instead encodes a slice offset.
 func (h *Handler) handleListDatasetContents(c *echo.Context, datasetName string) error {
 	maxResults, cursor := parsePagination(c)
 
@@ -1392,30 +1414,31 @@ func (h *Handler) handleListDatasetContents(c *echo.Context, datasetName string)
 		return h.writeBackendError(c, err)
 	}
 
-	summaries := make([]datasetContentSummary, 0, len(contents))
-	var nextToken *string
+	start := 0
 
-	count := 0
-
-	for _, content := range contents {
-		if cursor != "" && content.VersionID <= cursor {
-			continue
+	if cursor != "" {
+		if n, convErr := strconv.Atoi(cursor); convErr == nil && n >= 0 && n <= len(contents) {
+			start = n
 		}
+	}
 
-		if count >= maxResults {
-			tok := encodeNextToken(summaries[len(summaries)-1].Version)
-			nextToken = &tok
+	end := min(start+maxResults, len(contents))
+	summaries := make([]datasetContentSummary, 0, end-start)
 
-			break
-		}
-
+	for _, content := range contents[start:end] {
 		summaries = append(summaries, datasetContentSummary{
 			Version:        content.VersionID,
 			Status:         &datasetContentStatusDTO{State: content.Status},
 			CreationTime:   content.CreationTime,
 			CompletionTime: content.CompletionTime,
 		})
-		count++
+	}
+
+	var nextToken *string
+
+	if end < len(contents) {
+		tok := encodeNextToken(strconv.Itoa(end))
+		nextToken = &tok
 	}
 
 	return c.JSON(http.StatusOK, listDatasetContentsResponse{

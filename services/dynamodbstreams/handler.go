@@ -28,6 +28,21 @@ const (
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 // Handler handles HTTP requests for DynamoDB Streams operations.
+//
+// Handler intentionally owns no independent state and therefore does not
+// implement the Snapshot/Restore persistable shape that cli.go's
+// setupPersistence auto-registers. Streams is wired (in cli.go's
+// wireDynamoDBStreams) directly to the DynamoDB service's *InMemoryDB
+// backend, which already persists everything durable about streams --
+// StreamARN, StreamsEnabled, StreamViewType, StreamCreatedAt, and the
+// StreamRecords ring buffer -- as part of each Table in its own
+// snapshot/restore (see services/dynamodb/persistence.go). Implementing
+// Snapshot/Restore here would register a second "DynamoDBStreams" entry
+// that duplicates and re-restores that same shared backend object. Shard
+// iterators (GetShardIterator) are genuinely ephemeral request-scoped
+// tokens with a short TTL in real AWS too, so not persisting them matches
+// AWS behavior rather than being a gap. See persistence_test.go for the
+// guard test on this invariant.
 type Handler struct {
 	Streams       ddbbackend.StreamsBackend
 	DefaultRegion string

@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -372,10 +373,13 @@ type groupConfigurationBody struct {
 	Configuration []GroupConfigurationItem `json:"Configuration,omitempty"`
 }
 
+// createGroupOutput mirrors CreateGroupOutput: Tags is a top-level sibling of
+// Group (types.Group itself carries no Tags member), matching the real API.
 type createGroupOutput struct {
-	Group              *Group                  `json:"Group"`
+	Group              *getGroupBody           `json:"Group"`
 	ResourceQuery      *ResourceQuery          `json:"ResourceQuery,omitempty"`
 	GroupConfiguration *groupConfigurationBody `json:"GroupConfiguration,omitempty"`
+	Tags               map[string]string       `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handleCreateGroup(ctx context.Context, in *handleCreateGroupInput) (*createGroupOutput, error) {
@@ -384,7 +388,16 @@ func (h *Handler) handleCreateGroup(ctx context.Context, in *handleCreateGroupIn
 		return nil, err
 	}
 
-	out := &createGroupOutput{Group: g, ResourceQuery: g.ResourceQuery}
+	out := &createGroupOutput{
+		Group:         groupBodyFromGroup(g),
+		ResourceQuery: g.ResourceQuery,
+	}
+
+	if g.Tags != nil {
+		if tagMap := g.Tags.Clone(); len(tagMap) > 0 {
+			out.Tags = tagMap
+		}
+	}
 
 	if len(in.Configuration) > 0 {
 		out.GroupConfiguration = &groupConfigurationBody{
@@ -396,14 +409,19 @@ func (h *Handler) handleCreateGroup(ctx context.Context, in *handleCreateGroupIn
 	return out, nil
 }
 
-type deleteGroupOutput struct{}
+// deleteGroupOutput mirrors DeleteGroupOutput: AWS echoes back the deleted
+// group's description in the response.
+type deleteGroupOutput struct {
+	Group *getGroupBody `json:"Group"`
+}
 
 func (h *Handler) handleDeleteGroup(ctx context.Context, in *groupNameInput) (*deleteGroupOutput, error) {
-	if err := h.Backend.DeleteGroup(ctx, in.resolvedName()); err != nil {
+	g, err := h.Backend.DeleteGroup(ctx, in.resolvedName())
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteGroupOutput{}, nil
+	return &deleteGroupOutput{Group: groupBodyFromGroup(g)}, nil
 }
 
 type listGroupsInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
@@ -416,13 +434,16 @@ type listGroupIdentifierOutput struct {
 	GroupName   string `json:"GroupName"`
 	GroupArn    string `json:"GroupArn"`
 	Description string `json:"Description,omitempty"`
+	Owner       string `json:"Owner,omitempty"`
+	DisplayName string `json:"DisplayName,omitempty"`
+	Criticality int    `json:"Criticality,omitempty"`
 }
 
 type listGroupsGroupOutput struct {
 	GroupArn    string `json:"GroupArn"`
 	Name        string `json:"Name"`
 	Description string `json:"Description,omitempty"`
-	OwnerID     string `json:"OwnerId,omitempty"`
+	Owner       string `json:"Owner,omitempty"`
 	DisplayName string `json:"DisplayName,omitempty"`
 	Criticality int    `json:"Criticality,omitempty"`
 }
@@ -443,12 +464,15 @@ func (h *Handler) handleListGroups(ctx context.Context, in *listGroupsInput) (*l
 			GroupName:   group.Name,
 			GroupArn:    group.ARN,
 			Description: group.Description,
+			Owner:       group.Owner,
+			DisplayName: group.DisplayName,
+			Criticality: group.Criticality,
 		})
 		groupsList = append(groupsList, listGroupsGroupOutput{
 			GroupArn:    group.ARN,
 			Name:        group.Name,
 			Description: group.Description,
-			OwnerID:     group.OwnerID,
+			Owner:       group.Owner,
 			DisplayName: group.DisplayName,
 			Criticality: group.Criticality,
 		})
@@ -457,14 +481,32 @@ func (h *Handler) handleListGroups(ctx context.Context, in *listGroupsInput) (*l
 	return &listGroupsOutput{Groups: groupsList, GroupIdentifiers: identifiers, NextToken: nextToken}, nil
 }
 
+// getGroupBody is the AWS-accurate wire shape of types.Group: it deliberately
+// excludes Tags and ResourceQuery, which travel as separate top-level
+// response fields (see createGroupOutput and getGroupQueryOutput) and are not
+// members of the Group shape itself.
 type getGroupBody struct {
 	ApplicationTag map[string]string `json:"ApplicationTag,omitempty"`
 	GroupArn       string            `json:"GroupArn"`
 	Name           string            `json:"Name"`
 	Description    string            `json:"Description,omitempty"`
-	OwnerID        string            `json:"OwnerId,omitempty"`
+	Owner          string            `json:"Owner,omitempty"`
 	DisplayName    string            `json:"DisplayName,omitempty"`
 	Criticality    int               `json:"Criticality,omitempty"`
+}
+
+// groupBodyFromGroup builds the AWS wire-shaped Group body from the backend's
+// internal representation.
+func groupBodyFromGroup(g *Group) *getGroupBody {
+	return &getGroupBody{
+		GroupArn:       g.ARN,
+		Name:           g.Name,
+		Description:    g.Description,
+		Owner:          g.Owner,
+		DisplayName:    g.DisplayName,
+		Criticality:    g.Criticality,
+		ApplicationTag: g.ApplicationTag,
+	}
 }
 
 type getGroupOutput struct {
@@ -477,15 +519,7 @@ func (h *Handler) handleGetGroup(ctx context.Context, in *groupNameInput) (*getG
 		return nil, err
 	}
 
-	return &getGroupOutput{Group: &getGroupBody{
-		GroupArn:       g.ARN,
-		Name:           g.Name,
-		Description:    g.Description,
-		OwnerID:        g.OwnerID,
-		DisplayName:    g.DisplayName,
-		Criticality:    g.Criticality,
-		ApplicationTag: g.ApplicationTag,
-	}}, nil
+	return &getGroupOutput{Group: groupBodyFromGroup(g)}, nil
 }
 
 type getGroupQueryOutput struct {
@@ -509,13 +543,12 @@ func (h *Handler) handleGetGroupQuery(ctx context.Context, in *groupNameInput) (
 	}}, nil
 }
 
+// getGroupConfigurationOutput mirrors GetGroupConfigurationOutput. The real
+// GroupConfiguration shape has no GroupName member (unlike GroupQuery); it
+// only carries Configuration, FailureReason, ProposedConfiguration, and
+// Status, so it reuses groupConfigurationBody rather than a bespoke type.
 type getGroupConfigurationOutput struct {
-	GroupConfiguration *groupConfigurationOutput `json:"GroupConfiguration"`
-}
-
-type groupConfigurationOutput struct {
-	GroupName     string            `json:"GroupName"`
-	Configuration []json.RawMessage `json:"Configuration"`
+	GroupConfiguration *groupConfigurationBody `json:"GroupConfiguration"`
 }
 
 func (h *Handler) handleGetGroupConfiguration(
@@ -532,21 +565,12 @@ func (h *Handler) handleGetGroupConfiguration(
 		return nil, err
 	}
 
-	rawItems := make([]json.RawMessage, 0, len(items))
-
-	for i := range items {
-		b, mErr := json.Marshal(items[i])
-		if mErr != nil {
-			continue
-		}
-
-		rawItems = append(rawItems, b)
+	body := &groupConfigurationBody{Configuration: items}
+	if len(items) > 0 {
+		body.Status = "UPDATE_COMPLETE"
 	}
 
-	return &getGroupConfigurationOutput{GroupConfiguration: &groupConfigurationOutput{
-		GroupName:     g.Name,
-		Configuration: rawItems,
-	}}, nil
+	return &getGroupConfigurationOutput{GroupConfiguration: body}, nil
 }
 
 type updateGroupInput struct {
@@ -580,14 +604,7 @@ func (h *Handler) handleUpdateGroup(ctx context.Context, in *updateGroupInput) (
 		return nil, err
 	}
 
-	return &updateGroupOutput{Group: &getGroupBody{
-		GroupArn:    g.ARN,
-		Name:        g.Name,
-		Description: g.Description,
-		OwnerID:     g.OwnerID,
-		DisplayName: g.DisplayName,
-		Criticality: g.Criticality,
-	}}, nil
+	return &updateGroupOutput{Group: groupBodyFromGroup(g)}, nil
 }
 
 type updateGroupQueryInput struct {
@@ -903,10 +920,23 @@ type listGroupingStatusesInput struct {
 	MaxResults int    `json:"MaxResults"`
 }
 
+// groupingStatusItemWire is the AWS wire shape of a GroupingStatusesItem.
+// UpdatedAt is serialized as a JSON number of seconds since the Unix epoch
+// (the unixTimestamp format used by the rest-json protocol), not an
+// RFC3339/ISO8601 string -- see pkgs/awstime.
+type groupingStatusItemWire struct {
+	ResourceArn  string  `json:"ResourceArn,omitempty"`
+	Action       string  `json:"Action,omitempty"`
+	Status       string  `json:"Status,omitempty"`
+	ErrorCode    string  `json:"ErrorCode,omitempty"`
+	ErrorMessage string  `json:"ErrorMessage,omitempty"`
+	UpdatedAt    float64 `json:"UpdatedAt,omitempty"`
+}
+
 type listGroupingStatusesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	Group            string               `json:"Group"`
-	GroupingStatuses []GroupingStatusItem `json:"GroupingStatuses"`
-	NextToken        string               `json:"NextToken,omitempty"`
+	Group            string                   `json:"Group"`
+	GroupingStatuses []groupingStatusItemWire `json:"GroupingStatuses"`
+	NextToken        string                   `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListGroupingStatuses(
@@ -922,9 +952,21 @@ func (h *Handler) handleListGroupingStatuses(
 		return nil, err
 	}
 
+	items := make([]groupingStatusItemWire, 0, len(statuses))
+	for i := range statuses {
+		items = append(items, groupingStatusItemWire{
+			ResourceArn:  statuses[i].ResourceArn,
+			Action:       statuses[i].Action,
+			Status:       statuses[i].Status,
+			ErrorCode:    statuses[i].ErrorCode,
+			ErrorMessage: statuses[i].ErrorMessage,
+			UpdatedAt:    awstime.Epoch(statuses[i].UpdatedAt),
+		})
+	}
+
 	return &listGroupingStatusesOutput{
 		Group:            in.Group,
-		GroupingStatuses: statuses,
+		GroupingStatuses: items,
 		NextToken:        nextToken,
 	}, nil
 }
@@ -1019,15 +1061,13 @@ func (h *Handler) handleCancelTagSyncTask(
 	return &cancelTagSyncTaskOutput{}, nil
 }
 
-// handleGetTagSyncTask returns the details of a tag-sync task.
-type getTagSyncTaskInput struct {
-	TaskArn string `json:"TaskArn"`
-}
-
-type getTagSyncTaskOutput struct {
+// tagSyncTaskItem is the AWS wire shape shared by GetTagSyncTask's response
+// body and each element of ListTagSyncTasks' TagSyncTasks array. CreatedAt is
+// serialized as a JSON number of seconds since the Unix epoch (the
+// unixTimestamp format used by the rest-json protocol), not an RFC3339/ISO8601
+// string -- see pkgs/awstime.
+type tagSyncTaskItem struct {
 	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
-	CreatedAt     *string        `json:"CreatedAt,omitempty"`
-	ErrorMessage  string         `json:"ErrorMessage,omitempty"`
 	GroupArn      string         `json:"GroupArn"`
 	GroupName     string         `json:"GroupName"`
 	RoleArn       string         `json:"RoleArn"`
@@ -1035,9 +1075,33 @@ type getTagSyncTaskOutput struct {
 	TagValue      string         `json:"TagValue,omitempty"`
 	TaskArn       string         `json:"TaskArn"`
 	Status        string         `json:"Status"`
+	ErrorMessage  string         `json:"ErrorMessage,omitempty"`
+	CreatedAt     float64        `json:"CreatedAt,omitempty"`
 }
 
-func (h *Handler) handleGetTagSyncTask(ctx context.Context, in *getTagSyncTaskInput) (*getTagSyncTaskOutput, error) {
+// tagSyncTaskItemFromTask builds the wire-shaped item from the backend's
+// internal representation.
+func tagSyncTaskItemFromTask(t *TagSyncTask) tagSyncTaskItem {
+	return tagSyncTaskItem{
+		TaskArn:       t.TaskArn,
+		GroupArn:      t.GroupArn,
+		GroupName:     t.GroupName,
+		RoleArn:       t.RoleArn,
+		TagKey:        t.TagKey,
+		TagValue:      t.TagValue,
+		ResourceQuery: t.ResourceQuery,
+		Status:        t.Status,
+		ErrorMessage:  t.ErrorMessage,
+		CreatedAt:     awstime.Epoch(t.CreatedAt),
+	}
+}
+
+// handleGetTagSyncTask returns the details of a tag-sync task.
+type getTagSyncTaskInput struct {
+	TaskArn string `json:"TaskArn"`
+}
+
+func (h *Handler) handleGetTagSyncTask(ctx context.Context, in *getTagSyncTaskInput) (*tagSyncTaskItem, error) {
 	if in.TaskArn == "" {
 		return nil, fmt.Errorf("%w: TaskArn is required", ErrValidation)
 	}
@@ -1047,20 +1111,9 @@ func (h *Handler) handleGetTagSyncTask(ctx context.Context, in *getTagSyncTaskIn
 		return nil, err
 	}
 
-	createdAt := task.CreatedAt.Format("2006-01-02T15:04:05Z")
+	out := tagSyncTaskItemFromTask(task)
 
-	return &getTagSyncTaskOutput{
-		TaskArn:       task.TaskArn,
-		GroupArn:      task.GroupArn,
-		GroupName:     task.GroupName,
-		RoleArn:       task.RoleArn,
-		TagKey:        task.TagKey,
-		TagValue:      task.TagValue,
-		ResourceQuery: task.ResourceQuery,
-		Status:        task.Status,
-		ErrorMessage:  task.ErrorMessage,
-		CreatedAt:     &createdAt,
-	}, nil
+	return &out, nil
 }
 
 // handleListTagSyncTasks lists tag-sync tasks.
@@ -1071,8 +1124,8 @@ type listTagSyncTasksInput struct { //nolint:govet // fieldalignment: readabilit
 }
 
 type listTagSyncTasksOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	TagSyncTasks []TagSyncTask `json:"TagSyncTasks"`
-	NextToken    string        `json:"NextToken,omitempty"`
+	TagSyncTasks []tagSyncTaskItem `json:"TagSyncTasks"`
+	NextToken    string            `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListTagSyncTasks(
@@ -1084,7 +1137,12 @@ func (h *Handler) handleListTagSyncTasks(
 		return nil, err
 	}
 
-	return &listTagSyncTasksOutput{TagSyncTasks: tasks, NextToken: nextToken}, nil
+	items := make([]tagSyncTaskItem, 0, len(tasks))
+	for i := range tasks {
+		items = append(items, tagSyncTaskItemFromTask(&tasks[i]))
+	}
+
+	return &listTagSyncTasksOutput{TagSyncTasks: items, NextToken: nextToken}, nil
 }
 
 // handleUngroupResources removes resources from a group.

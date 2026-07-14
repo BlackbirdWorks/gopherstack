@@ -991,3 +991,207 @@ func TestHandler_CreateTable_WithURLEncodedARN(t *testing.T) {
 	result := parseResponse(t, rec)
 	assert.NotEmpty(t, result["tableARN"])
 }
+
+// ----------------------------------------
+// GetTable via tableArn alone (real GetTableInput accepts either tableArn
+// OR the tableBucketARN+namespace+name triple -- see api_op_GetTable.go).
+// ----------------------------------------
+
+func TestHandler_GetTable_ByTableArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	bucketARN := createBucketHelper(t, h, "get-table-arn-bucket")
+	createNamespaceHelper(t, h, bucketARN, []string{"ns1"})
+	tableARN := createTableHelper(t, h, bucketARN, "ns1", "tbl")
+
+	q := url.Values{}
+	q.Set("tableArn", tableARN)
+	rec := doS3TablesRequest(t, h, http.MethodGet, "/get-table?"+q.Encode(), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	result := parseResponse(t, rec)
+	assert.Equal(t, "tbl", result["name"])
+	assert.Equal(t, tableARN, result["tableARN"])
+}
+
+func TestHandler_GetTable_MissingAllIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doS3TablesRequest(t, h, http.MethodGet, "/get-table", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ----------------------------------------
+// CreateTableBucket / CreateTable honor encryptionConfiguration,
+// storageClassConfiguration, and tags from the request body instead of
+// silently discarding them.
+// ----------------------------------------
+
+func TestHandler_CreateTableBucket_AppliesEncryptionStorageClassAndTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doS3TablesRequest(t, h, http.MethodPut, "/buckets", map[string]any{
+		"name": "wire-opts-bucket",
+		"encryptionConfiguration": map[string]any{
+			"sseAlgorithm": "aws:kms",
+			"kmsKeyArn":    "arn:aws:kms:us-east-1:000000000000:key/test",
+		},
+		"storageClassConfiguration": map[string]any{
+			"storageClass": "INTELLIGENT_TIERING",
+		},
+		"tags": map[string]any{"env": "prod"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	result := parseResponse(t, rec)
+	bucketARN, ok := result["arn"].(string)
+	require.True(t, ok)
+
+	encodedARN := url.PathEscape(bucketARN)
+
+	encRec := doS3TablesRequest(t, h, http.MethodGet, "/buckets/"+encodedARN+"/encryption", nil)
+	require.Equal(t, http.StatusOK, encRec.Code)
+	encResult := parseResponse(t, encRec)
+	encCfg, ok := encResult["encryptionConfiguration"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "aws:kms", encCfg["sseAlgorithm"])
+
+	scRec := doS3TablesRequest(t, h, http.MethodGet, "/buckets/"+encodedARN+"/storage-class", nil)
+	require.Equal(t, http.StatusOK, scRec.Code)
+	scResult := parseResponse(t, scRec)
+	assert.Equal(t, "INTELLIGENT_TIERING", scResult["storageClass"])
+
+	tagRec := doS3TablesRequest(t, h, http.MethodGet, "/tag/"+encodedARN, nil)
+	require.Equal(t, http.StatusOK, tagRec.Code)
+	tagResult := parseResponse(t, tagRec)
+	tags, ok := tagResult["tags"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "prod", tags["env"])
+}
+
+func TestHandler_CreateTable_AppliesEncryptionStorageClassAndTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	bucketARN := createBucketHelper(t, h, "wire-table-opts-bucket")
+	createNamespaceHelper(t, h, bucketARN, []string{"ns1"})
+	encodedARN := url.PathEscape(bucketARN)
+
+	rec := doS3TablesRequest(t, h, http.MethodPut, "/tables/"+encodedARN+"/ns1", map[string]any{
+		"name":   "opts-table",
+		"format": "ICEBERG",
+		"encryptionConfiguration": map[string]any{
+			"sseAlgorithm": "aws:kms",
+			"kmsKeyArn":    "arn:aws:kms:us-east-1:000000000000:key/tbl",
+		},
+		"tags": map[string]any{"team": "data"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	result := parseResponse(t, rec)
+	tableARN, ok := result["tableARN"].(string)
+	require.True(t, ok)
+
+	encRec := doS3TablesRequest(t, h, http.MethodGet, "/tables/"+encodedARN+"/ns1/opts-table/encryption", nil)
+	require.Equal(t, http.StatusOK, encRec.Code)
+	encResult := parseResponse(t, encRec)
+	encCfg, ok := encResult["encryptionConfiguration"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "aws:kms", encCfg["sseAlgorithm"])
+
+	tagRec := doS3TablesRequest(t, h, http.MethodGet, "/tag/"+url.PathEscape(tableARN), nil)
+	require.Equal(t, http.StatusOK, tagRec.Code)
+	tagResult := parseResponse(t, tagRec)
+	tags, ok := tagResult["tags"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "data", tags["team"])
+}
+
+// ----------------------------------------
+// List* pagination: continuationToken/maxX/prefix are honored, not silently
+// ignored -- previously every List op always returned every resource
+// regardless of maxBuckets/maxNamespaces/maxTables.
+// ----------------------------------------
+
+func TestHandler_ListTableBuckets_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 3 {
+		createBucketHelper(t, h, fmt.Sprintf("wire-page-bucket-%d", i))
+	}
+
+	rec := doS3TablesRequest(t, h, http.MethodGet, "/buckets?maxBuckets=2", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	result := parseResponse(t, rec)
+	buckets, ok := result["tableBuckets"].([]any)
+	require.True(t, ok)
+	assert.Len(t, buckets, 2)
+
+	token, ok := result[keyContinuationTokenTestKey].(string)
+	require.True(t, ok, "expected a continuationToken when more buckets remain")
+	require.NotEmpty(t, token)
+
+	q := url.Values{}
+	q.Set("continuationToken", token)
+	rec = doS3TablesRequest(t, h, http.MethodGet, "/buckets?"+q.Encode(), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	result = parseResponse(t, rec)
+	buckets, ok = result["tableBuckets"].([]any)
+	require.True(t, ok)
+	assert.Len(t, buckets, 1, "the final page must contain the one remaining bucket")
+	assert.NotContains(t, result, keyContinuationTokenTestKey, "no more pages means no continuationToken")
+}
+
+func TestHandler_ListNamespaces_MaxNamespacesLimitsPage(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	bucketARN := createBucketHelper(t, h, "wire-ns-page-bucket")
+
+	for _, ns := range []string{"a", "b", "c"} {
+		createNamespaceHelper(t, h, bucketARN, []string{ns})
+	}
+
+	encodedARN := url.PathEscape(bucketARN)
+	rec := doS3TablesRequest(t, h, http.MethodGet, "/namespaces/"+encodedARN+"?maxNamespaces=1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	result := parseResponse(t, rec)
+	namespaces, ok := result["namespaces"].([]any)
+	require.True(t, ok)
+	assert.Len(t, namespaces, 1)
+	assert.Contains(t, result, keyContinuationTokenTestKey)
+}
+
+func TestHandler_ListTables_MaxTablesLimitsPage(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	bucketARN := createBucketHelper(t, h, "wire-tbl-page-bucket")
+	createNamespaceHelper(t, h, bucketARN, []string{"ns1"})
+
+	for _, name := range []string{"a", "b", "c"} {
+		createTableHelper(t, h, bucketARN, "ns1", name)
+	}
+
+	encodedARN := url.PathEscape(bucketARN)
+	rec := doS3TablesRequest(t, h, http.MethodGet, "/tables/"+encodedARN+"?maxTables=1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	result := parseResponse(t, rec)
+	tables, ok := result["tables"].([]any)
+	require.True(t, ok)
+	assert.Len(t, tables, 1)
+	assert.Contains(t, result, keyContinuationTokenTestKey)
+}
+
+const keyContinuationTokenTestKey = "continuationToken"

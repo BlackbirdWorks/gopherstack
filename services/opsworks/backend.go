@@ -669,7 +669,14 @@ func (b *InMemoryBackend) DeleteStack(stackID string) error {
 	return nil
 }
 
-// StartStack transitions all instances in a stack to starting state.
+// StartStack transitions all stopped instances in a stack to online. Real AWS
+// OpsWorks moves an instance through several transient states (requested,
+// pending, booting, running_setup) before it reaches online; this backend has
+// no time-based scheduler (see CreateDeployment's synchronous-completion
+// convention), so it commits directly to the terminal state rather than
+// leaving the instance parked in a transient status that nothing ever
+// advances -- a stuck "starting" status previously left DescribeInstances
+// pollers spinning forever.
 func (b *InMemoryBackend) StartStack(stackID string) error {
 	b.mu.Lock("StartStack")
 	defer b.mu.Unlock()
@@ -680,14 +687,16 @@ func (b *InMemoryBackend) StartStack(stackID string) error {
 
 	for _, i := range b.instancesByStack.Get(stackID) {
 		if i.Status == instanceStatusStopped {
-			i.Status = instanceStatusStarting
+			i.Status = instanceStatusOnline
 		}
 	}
 
 	return nil
 }
 
-// StopStack transitions all instances in a stack to stopping state.
+// StopStack transitions all online instances in a stack to stopped. See
+// StartStack's doc comment for why this commits directly to the terminal
+// state instead of parking instances in the transient "stopping" status.
 func (b *InMemoryBackend) StopStack(stackID string) error {
 	b.mu.Lock("StopStack")
 	defer b.mu.Unlock()
@@ -698,7 +707,7 @@ func (b *InMemoryBackend) StopStack(stackID string) error {
 
 	for _, i := range b.instancesByStack.Get(stackID) {
 		if i.Status == instanceStatusOnline {
-			i.Status = instanceStatusStopping
+			i.Status = instanceStatusStopped
 		}
 	}
 
@@ -1037,7 +1046,14 @@ func (b *InMemoryBackend) DeleteInstance(instanceID string) error {
 	return nil
 }
 
-// StartInstance transitions an instance to starting state.
+// StartInstance transitions an instance to online. Real AWS moves an
+// instance through several transient states (requested, pending, booting,
+// running_setup) before reaching online; this backend has no time-based
+// scheduler, so it commits directly to the terminal state instead of
+// leaving the instance parked in a transient status that nothing ever
+// advances (previously "starting", which is not even a valid AWS OpsWorks
+// instance-status value, and which left DescribeInstances pollers spinning
+// forever since no code ever moved it on to "online").
 func (b *InMemoryBackend) StartInstance(instanceID string) error {
 	b.mu.Lock("StartInstance")
 	defer b.mu.Unlock()
@@ -1047,12 +1063,14 @@ func (b *InMemoryBackend) StartInstance(instanceID string) error {
 		return ErrInstanceNotFound
 	}
 
-	i.Status = instanceStatusStarting
+	i.Status = instanceStatusOnline
 
 	return nil
 }
 
-// StopInstance transitions an instance to stopping state.
+// StopInstance transitions an instance to stopped. See StartInstance's doc
+// comment for why this commits directly to the terminal state instead of
+// parking the instance in the transient "stopping" status.
 func (b *InMemoryBackend) StopInstance(instanceID string) error {
 	b.mu.Lock("StopInstance")
 	defer b.mu.Unlock()
@@ -1062,12 +1080,14 @@ func (b *InMemoryBackend) StopInstance(instanceID string) error {
 		return ErrInstanceNotFound
 	}
 
-	i.Status = instanceStatusStopping
+	i.Status = instanceStatusStopped
 
 	return nil
 }
 
-// RebootInstance transitions an instance to starting state.
+// RebootInstance transitions an instance back to online. See StartInstance's
+// doc comment for why this commits directly to the terminal state instead of
+// parking the instance in a transient status.
 func (b *InMemoryBackend) RebootInstance(instanceID string) error {
 	b.mu.Lock("RebootInstance")
 	defer b.mu.Unlock()
@@ -1077,7 +1097,7 @@ func (b *InMemoryBackend) RebootInstance(instanceID string) error {
 		return ErrInstanceNotFound
 	}
 
-	i.Status = instanceStatusStarting
+	i.Status = instanceStatusOnline
 
 	return nil
 }

@@ -353,8 +353,8 @@ func parseExtendedPathsCoreGroup(method string, segments []string) (string, stri
 	switch segments[0] {
 	case "account":
 		return parseAccountPath(method, segments)
-	case "suppressed-destination":
-		return parseSuppressedDestinationPath(method, segments)
+	case "suppression":
+		return parseSuppressionPath(method, segments)
 	case "contact-lists":
 		return parseContactListExtPath(method, segments)
 	case "custom-verification-email-templates":
@@ -399,10 +399,10 @@ func parseExtendedPathsExtGroup(method string, segments []string) (string, strin
 		return parseExportJobExtPath(method, segments)
 	case "import-jobs":
 		return parseImportJobPath(method, segments)
-	case "vdm-attributes":
-		return parseVdmAttributesPath(method)
 	case "outbound-bulk-emails":
 		return parseOutboundBulkEmailsPath(method, segments)
+	case "outbound-custom-verification-emails":
+		return parseOutboundCustomVerificationEmailsPath(method, segments)
 	case "multi-region-endpoints":
 		return parseMultiRegionEndpointPath(method, segments)
 	case "tenants":
@@ -441,22 +441,20 @@ func parseReputationPath(method string, segments []string) (string, string) {
 	return unknownAction, ""
 }
 
-// parseVdmAttributesPath routes VDM attributes paths.
-func parseVdmAttributesPath(method string) (string, string) {
-	switch method {
-	case http.MethodGet:
-		return opGetAccount, ""
-	case http.MethodPut:
-		return opPutAccountVdmAttributes, ""
+// parseOutboundBulkEmailsPath routes outbound bulk email paths.
+func parseOutboundBulkEmailsPath(method string, segments []string) (string, string) {
+	if method == http.MethodPost && len(segments) == 1 {
+		return opSendBulkEmail, ""
 	}
 
 	return unknownAction, ""
 }
 
-// parseOutboundBulkEmailsPath routes outbound bulk email paths.
-func parseOutboundBulkEmailsPath(method string, segments []string) (string, string) {
+// parseOutboundCustomVerificationEmailsPath routes
+// POST /v2/email/outbound-custom-verification-emails -> SendCustomVerificationEmail.
+func parseOutboundCustomVerificationEmailsPath(method string, segments []string) (string, string) {
 	if method == http.MethodPost && len(segments) == 1 {
-		return opSendBulkEmail, ""
+		return opSendCustomVerificationEmail, ""
 	}
 
 	return unknownAction, ""
@@ -471,10 +469,23 @@ func parseResourceTenantsPath(method string, segments []string) (string, string)
 	return unknownAction, ""
 }
 
-// parseAccountPath routes account and account attribute paths.
+// parseAccountPath routes account and account attribute paths. The real SDK
+// paths are (see aws-sdk-go-v2/service/sesv2 serializers.go):
+//
+//	GET  /v2/email/account                       -> GetAccount
+//	PUT  /v2/email/account/dedicated-ips/warmup  -> PutAccountDedicatedIpWarmupAttributes
+//	POST /v2/email/account/details                -> PutAccountDetails
+//	PUT  /v2/email/account/sending                -> PutAccountSendingAttributes
+//	PUT  /v2/email/account/suppression             -> PutAccountSuppressionAttributes
+//	PUT  /v2/email/account/vdm                     -> PutAccountVdmAttributes
 func parseAccountPath(method string, segments []string) (string, string) {
 	if len(segments) == 1 && method == http.MethodGet {
 		return opGetAccount, ""
+	}
+
+	if len(segments) == pathDepth3 && segments[1] == "dedicated-ips" && segments[2] == "warmup" &&
+		method == http.MethodPut {
+		return opPutAccountDedicatedIPWarmupAttributes, ""
 	}
 
 	if len(segments) != pathDepth2 {
@@ -487,23 +498,19 @@ func parseAccountPath(method string, segments []string) (string, string) {
 // parseAccountAttrPath routes account attribute sub-paths.
 func parseAccountAttrPath(method, sub string) (string, string) {
 	switch sub {
-	case "dedicated-ip-warmup-attributes":
-		if method == http.MethodPut {
-			return opPutAccountDedicatedIPWarmupAttributes, ""
-		}
 	case "details":
 		if method == http.MethodPost {
 			return opPutAccountDetails, ""
 		}
-	case "sending-attributes":
+	case "sending":
 		if method == http.MethodPut {
 			return opPutAccountSendingAttributes, ""
 		}
-	case "suppression-attributes":
+	case "suppression":
 		if method == http.MethodPut {
 			return opPutAccountSuppressionAttributes, ""
 		}
-	case "vdm-attributes":
+	case "vdm":
 		if method == http.MethodPut {
 			return opPutAccountVdmAttributes, ""
 		}
@@ -512,22 +519,35 @@ func parseAccountAttrPath(method, sub string) (string, string) {
 	return unknownAction, ""
 }
 
-func parseSuppressedDestinationPath(method string, segments []string) (string, string) {
+// parseSuppressionPath routes the real SDK suppression-list paths:
+//
+//	GET    /v2/email/suppression/addresses               -> ListSuppressedDestinations
+//	PUT    /v2/email/suppression/addresses               -> PutSuppressedDestination
+//	GET    /v2/email/suppression/addresses/{EmailAddress} -> GetSuppressedDestination
+//	DELETE /v2/email/suppression/addresses/{EmailAddress} -> DeleteSuppressedDestination
+func parseSuppressionPath(method string, segments []string) (string, string) {
+	if len(segments) < pathDepth2 || segments[1] != "addresses" {
+		return unknownAction, ""
+	}
+
 	switch {
-	case len(segments) == 1 && method == http.MethodGet:
+	case len(segments) == pathDepth2 && method == http.MethodGet:
 		return opListSuppressedDestinations, ""
-	case len(segments) == 1 && method == http.MethodPut:
+	case len(segments) == pathDepth2 && method == http.MethodPut:
 		return opPutSuppressedDestination, ""
-	case len(segments) == 2 && method == http.MethodGet:
-		return opGetSuppressedDestination, segments[1]
-	case len(segments) == 2 && method == http.MethodDelete:
-		return opDeleteSuppressedDestination, segments[1]
+	case len(segments) == pathDepth3 && method == http.MethodGet:
+		return opGetSuppressedDestination, segments[2]
+	case len(segments) == pathDepth3 && method == http.MethodDelete:
+		return opDeleteSuppressedDestination, segments[2]
 	}
 
 	return unknownAction, ""
 }
 
-// parseContactListExtPath routes contact list and contact paths.
+// parseContactListExtPath routes contact list and contact paths. Note that
+// ListContacts is POST .../contacts/list (filters/pagination travel in the
+// JSON body, not the query string) -- there is no GET .../contacts route in
+// the real API.
 func parseContactListExtPath(method string, segments []string) (string, string) {
 	switch len(segments) {
 	case 1:
@@ -543,21 +563,30 @@ func parseContactListExtPath(method string, segments []string) (string, string) 
 		case http.MethodPut:
 			return opUpdateContactList, segments[1]
 		}
-	case pathDepth3:
-		if segments[2] == segContacts && method == http.MethodGet {
-			return opListContacts, segments[1]
-		}
 	case pathDepth4:
 		if segments[2] == segContacts {
-			switch method {
-			case http.MethodGet:
-				return opGetContact, segments[1]
-			case http.MethodDelete:
-				return opDeleteContact, segments[1]
-			case http.MethodPut:
-				return opUpdateContact, segments[1]
-			}
+			return parseContactItemPath(method, segments)
 		}
+	}
+
+	return unknownAction, ""
+}
+
+// parseContactItemPath disambiguates the two 4-segment contact paths:
+// .../contacts/list (POST, ListContacts) vs .../contacts/{EmailAddress}
+// (GET/DELETE/PUT, Get/Delete/UpdateContact).
+func parseContactItemPath(method string, segments []string) (string, string) {
+	if segments[3] == "list" && method == http.MethodPost {
+		return opListContacts, segments[1]
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opGetContact, segments[1]
+	case http.MethodDelete:
+		return opDeleteContact, segments[1]
+	case http.MethodPut:
+		return opUpdateContact, segments[1]
 	}
 
 	return unknownAction, ""
@@ -586,7 +615,7 @@ func parseDedicatedIPPoolExtPath(method string, segments []string) (string, stri
 		return opGetDedicatedIPPool, segments[1]
 	case len(segments) == 2 && method == http.MethodDelete:
 		return opDeleteDedicatedIPPool, segments[1]
-	case len(segments) == pathDepth3 && segments[2] == "scaling-attributes" && method == http.MethodPut:
+	case len(segments) == pathDepth3 && segments[2] == "scaling" && method == http.MethodPut:
 		return opPutDedicatedIPPoolScalingAttributes, segments[1]
 	}
 
@@ -922,7 +951,7 @@ func parseConfigSetAttrPath(method, name, sub string) (string, string) {
 		return opPutConfigurationSetDeliveryOptions, name
 	case "reputation-options":
 		return opPutConfigurationSetReputationOptions, name
-	case "sending-options":
+	case "sending":
 		return opPutConfigurationSetSendingOptions, name
 	case "suppression-options":
 		return opPutConfigurationSetSuppressionOptions, name
@@ -1070,7 +1099,7 @@ func (h *Handler) handleGetSuppressedDestination(email string) (any, error) {
 		return nil, err
 	}
 
-	return dest, nil
+	return map[string]any{"SuppressedDestination": toSuppressedDestinationOutput(dest)}, nil
 }
 
 func (h *Handler) handleDeleteSuppressedDestination(email string) (any, error) {
@@ -1085,8 +1114,13 @@ func (h *Handler) handleListSuppressedDestinations(c *echo.Context) (any, error)
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListSuppressedDestinations(nextToken, 0)
 
+	items := make([]suppressedDestinationOutput, 0, len(pg.Data))
+	for _, d := range pg.Data {
+		items = append(items, toSuppressedDestinationOutput(d))
+	}
+
 	return map[string]any{
-		"SuppressedDestinationSummaries": pg.Data,
+		"SuppressedDestinationSummaries": items,
 		keyNextToken:                     pg.Next,
 	}, nil
 }
@@ -1099,7 +1133,7 @@ func (h *Handler) handleGetContactList(name string) (any, error) {
 		return nil, err
 	}
 
-	return cl, nil
+	return toContactListOutput(cl), nil
 }
 
 func (h *Handler) handleDeleteContactList(name string) (any, error) {
@@ -1132,8 +1166,13 @@ func (h *Handler) handleListContactLists(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListContactLists(nextToken, 0)
 
+	items := make([]contactListSummaryOutput, 0, len(pg.Data))
+	for _, cl := range pg.Data {
+		items = append(items, toContactListSummaryOutput(cl))
+	}
+
 	return map[string]any{
-		"ContactLists": pg.Data,
+		"ContactLists": items,
 		keyNextToken:   pg.Next,
 	}, nil
 }
@@ -1157,7 +1196,7 @@ func (h *Handler) handleGetContact(c *echo.Context, contactListName string) (any
 		return nil, err
 	}
 
-	return c2, nil
+	return toContactOutput(c2), nil
 }
 
 func (h *Handler) handleDeleteContact(c *echo.Context, contactListName string) (any, error) {
@@ -1208,16 +1247,30 @@ func (h *Handler) handleUpdateContact(c *echo.Context, contactListName string) (
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handleListContacts(c *echo.Context, contactListName string) (any, error) {
-	nextToken := c.QueryParam("NextToken")
+type listContactsInput struct {
+	NextToken string `json:"NextToken"`
+}
 
-	pg, err := h.Backend.ListContacts(contactListName, nextToken, 0)
+// handleListContacts serves POST .../contacts/list. Real SES v2 carries
+// NextToken/Filter/PageSize in the JSON body (not the query string) since
+// ListContacts is a POST operation.
+func (h *Handler) handleListContacts(c *echo.Context, contactListName string) (any, error) {
+	var in listContactsInput
+
+	_ = json.NewDecoder(c.Request().Body).Decode(&in)
+
+	pg, err := h.Backend.ListContacts(contactListName, in.NextToken, 0)
 	if err != nil {
 		return nil, err
 	}
 
+	items := make([]contactSummaryOutput, 0, len(pg.Data))
+	for _, c2 := range pg.Data {
+		items = append(items, toContactSummaryOutput(c2))
+	}
+
 	return map[string]any{
-		"Contacts":   pg.Data,
+		"Contacts":   items,
 		keyNextToken: pg.Next,
 	}, nil
 }
@@ -1230,7 +1283,7 @@ func (h *Handler) handleGetCustomVerificationEmailTemplate(name string) (any, er
 		return nil, err
 	}
 
-	return t, nil
+	return toCustomVerificationEmailTemplateOutput(t), nil
 }
 
 func (h *Handler) handleDeleteCustomVerificationEmailTemplate(name string) (any, error) {
@@ -1279,8 +1332,13 @@ func (h *Handler) handleListCustomVerificationEmailTemplates(c *echo.Context) (a
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListCustomVerificationEmailTemplates(nextToken, 0)
 
+	items := make([]customVerificationEmailTemplateMetadataOutput, 0, len(pg.Data))
+	for _, t := range pg.Data {
+		items = append(items, toCustomVerificationEmailTemplateMetadataOutput(t))
+	}
+
 	return map[string]any{
-		"CustomVerificationEmailTemplates": pg.Data,
+		"CustomVerificationEmailTemplates": items,
 		keyNextToken:                       pg.Next,
 	}, nil
 }
@@ -1313,7 +1371,7 @@ func (h *Handler) handleGetDedicatedIPPool(poolName string) (any, error) {
 		return nil, err
 	}
 
-	return pool, nil
+	return map[string]any{"DedicatedIpPool": toDedicatedIPPoolOutput(pool)}, nil
 }
 
 func (h *Handler) handleDeleteDedicatedIPPool(poolName string) (any, error) {
@@ -1431,15 +1489,27 @@ func (h *Handler) handleGetDeliverabilityTestReport(reportID string) (any, error
 		return nil, err
 	}
 
-	return r, nil
+	// IspPlacements and OverallPlacement are required members of
+	// GetDeliverabilityTestReportOutput; gopherstack doesn't model per-ISP
+	// placement data, so report an empty list (a nil/absent OverallPlacement
+	// decodes as its pointer zero value, which real SDK clients accept).
+	return map[string]any{
+		"DeliverabilityTestReport": toDeliverabilityTestReportItemOutput(r),
+		"IspPlacements":            []any{},
+	}, nil
 }
 
 func (h *Handler) handleListDeliverabilityTestReports(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListDeliverabilityTestReports(nextToken, 0)
 
+	items := make([]deliverabilityTestReportItemOutput, 0, len(pg.Data))
+	for _, r := range pg.Data {
+		items = append(items, toDeliverabilityTestReportItemOutput(r))
+	}
+
 	return map[string]any{
-		"DeliverabilityTestReports": pg.Data,
+		"DeliverabilityTestReports": items,
 		keyNextToken:                pg.Next,
 	}, nil
 }
@@ -1539,7 +1609,7 @@ func (h *Handler) handleGetEmailTemplate(name string) (any, error) {
 		return nil, err
 	}
 
-	return t, nil
+	return toEmailTemplateOutput(t), nil
 }
 
 func (h *Handler) handleDeleteEmailTemplate(name string) (any, error) {
@@ -1572,8 +1642,13 @@ func (h *Handler) handleListEmailTemplates(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListEmailTemplates(nextToken, 0)
 
+	items := make([]emailTemplateMetadataOutput, 0, len(pg.Data))
+	for _, t := range pg.Data {
+		items = append(items, toEmailTemplateMetadataOutput(t))
+	}
+
 	return map[string]any{
-		"TemplatesMetadata": pg.Data,
+		"TemplatesMetadata": items,
 		keyNextToken:        pg.Next,
 	}, nil
 }
@@ -1615,7 +1690,7 @@ func (h *Handler) handleCreateExportJob(c *echo.Context) (any, error) {
 		return nil, err
 	}
 
-	return job, nil
+	return map[string]any{"JobId": job.JobID}, nil
 }
 
 func (h *Handler) handleGetExportJob(jobID string) (any, error) {
@@ -1624,15 +1699,20 @@ func (h *Handler) handleGetExportJob(jobID string) (any, error) {
 		return nil, err
 	}
 
-	return job, nil
+	return toExportJobOutput(job), nil
 }
 
 func (h *Handler) handleListExportJobs(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListExportJobs(nextToken, 0)
 
+	items := make([]*exportJobOutput, 0, len(pg.Data))
+	for _, j := range pg.Data {
+		items = append(items, toExportJobOutput(j))
+	}
+
 	return map[string]any{
-		"ExportJobs": pg.Data,
+		"ExportJobs": items,
 		keyNextToken: pg.Next,
 	}, nil
 }
@@ -1653,7 +1733,7 @@ func (h *Handler) handleCreateImportJob(c *echo.Context) (any, error) {
 		return nil, err
 	}
 
-	return job, nil
+	return map[string]any{"JobId": job.JobID}, nil
 }
 
 func (h *Handler) handleGetImportJob(jobID string) (any, error) {
@@ -1662,15 +1742,20 @@ func (h *Handler) handleGetImportJob(jobID string) (any, error) {
 		return nil, err
 	}
 
-	return job, nil
+	return toImportJobOutput(job), nil
 }
 
 func (h *Handler) handleListImportJobs(c *echo.Context) (any, error) {
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListImportJobs(nextToken, 0)
 
+	items := make([]*importJobOutput, 0, len(pg.Data))
+	for _, j := range pg.Data {
+		items = append(items, toImportJobOutput(j))
+	}
+
 	return map[string]any{
-		"ImportJobs": pg.Data,
+		"ImportJobs": items,
 		keyNextToken: pg.Next,
 	}, nil
 }
@@ -1818,7 +1903,7 @@ func (h *Handler) handleGetConfigurationSetEventDestinations(configSetName strin
 		return nil, err
 	}
 
-	return map[string]any{"EventDestinations": dests}, nil
+	return map[string]any{"EventDestinations": toEventDestinationOutputs(dests)}, nil
 }
 
 func (h *Handler) handleDeleteConfigurationSetEventDestination(

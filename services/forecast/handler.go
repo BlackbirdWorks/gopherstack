@@ -195,7 +195,7 @@ func (h *Handler) execute(spec operationSpec, input map[string]any) (map[string]
 		return map[string]any{}, nil
 	case modeList:
 
-		return listOutput(spec, h.Backend.list(spec.kind), input), nil
+		return listOutput(spec, h.Backend.list(spec.kind), input)
 	default:
 
 		return nil, fmt.Errorf("%w: unsupported operation mode", ErrValidation)
@@ -311,12 +311,16 @@ func resourceOutput(spec operationSpec, resource *Resource) map[string]any {
 	return output
 }
 
-func listOutput(spec operationSpec, resources []*Resource, input map[string]any) map[string]any {
+func listOutput(spec operationSpec, resources []*Resource, input map[string]any) (map[string]any, error) {
 	maxResults := 0
 	if mr, ok := input["MaxResults"].(float64); ok {
 		maxResults = int(mr)
 	}
 	nextToken, _ := input["NextToken"].(string)
+
+	if err := page.ValidateToken(nextToken); err != nil {
+		return nil, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidNextToken, nextToken)
+	}
 
 	summaries := make([]map[string]any, 0, len(resources))
 	for _, r := range resources {
@@ -329,7 +333,7 @@ func listOutput(spec operationSpec, resources []*Resource, input map[string]any)
 		out["NextToken"] = pg.Next
 	}
 
-	return out
+	return out, nil
 }
 
 func createFails(kind resourceKind, input map[string]any) bool {
@@ -360,6 +364,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code, errType = http.StatusBadRequest, "ResourceNotFoundException"
 	case errors.Is(err, ErrAlreadyExists):
 		code, errType = http.StatusBadRequest, "ResourceAlreadyExistsException"
+	case errors.Is(err, ErrInvalidNextToken):
+		code, errType = http.StatusBadRequest, "InvalidNextTokenException"
 	case errors.Is(err, ErrValidation):
 		code, errType = http.StatusBadRequest, "InvalidInputException"
 	default:

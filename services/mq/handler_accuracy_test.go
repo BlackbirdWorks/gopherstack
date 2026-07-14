@@ -74,7 +74,7 @@ func createAccuracyBroker(t *testing.T, h *mq.Handler, name, engineType string) 
 		"brokerName": name,
 		"engineType": engineType,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code, "CreateBroker %s failed: %s", name, rec.Body.String())
+	require.Equal(t, http.StatusOK, rec.Code, "CreateBroker %s failed: %s", name, rec.Body.String())
 
 	resp := parseAccuracyMQ(t, rec)
 
@@ -123,7 +123,7 @@ func TestAccuracy_CreateBroker_NameExactly50Chars(t *testing.T) {
 		"brokerName": name,
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	assert.Equal(t, http.StatusAccepted, rec.Code, "50-char broker name must be accepted: %s", rec.Body.String())
+	assert.Equal(t, http.StatusOK, rec.Code, "50-char broker name must be accepted: %s", rec.Body.String())
 }
 
 func TestAccuracy_CreateBroker_NameStartsWithHyphen(t *testing.T) {
@@ -191,7 +191,7 @@ func TestAccuracy_CreateBroker_ValidNameFormats(t *testing.T) {
 				"brokerName": tt.brokerName,
 				"engineType": mq.EngineTypeActiveMQ,
 			})
-			assert.Equal(t, http.StatusAccepted, rec.Code,
+			assert.Equal(t, http.StatusOK, rec.Code,
 				"valid broker name %q should succeed: %s", tt.brokerName, rec.Body.String())
 		})
 	}
@@ -287,7 +287,7 @@ func TestAccuracy_CreateBroker_RabbitMQ_AcceptsClusterMultiAZ(t *testing.T) {
 		"engineType":     mq.EngineTypeRabbitMQ,
 		"deploymentMode": mq.DeploymentModeCluster,
 	})
-	assert.Equal(t, http.StatusAccepted, rec.Code,
+	assert.Equal(t, http.StatusOK, rec.Code,
 		"RabbitMQ + CLUSTER_MULTI_AZ should succeed: %s", rec.Body.String())
 }
 
@@ -300,7 +300,7 @@ func TestAccuracy_CreateBroker_ActiveMQ_AcceptsActiveStandby(t *testing.T) {
 		"engineType":     mq.EngineTypeActiveMQ,
 		"deploymentMode": mq.DeploymentModeActiveStandby,
 	})
-	assert.Equal(t, http.StatusAccepted, rec.Code,
+	assert.Equal(t, http.StatusOK, rec.Code,
 		"ActiveMQ + ACTIVE_STANDBY_MULTI_AZ should succeed: %s", rec.Body.String())
 }
 
@@ -325,7 +325,7 @@ func TestAccuracy_CreateBroker_DeploymentMode_BothEngines_SingleInstance(t *test
 				"engineType":     tt.engineType,
 				"deploymentMode": mq.DeploymentModeSingleInstance,
 			})
-			assert.Equal(t, http.StatusAccepted, rec.Code,
+			assert.Equal(t, http.StatusOK, rec.Code,
 				"%s + SINGLE_INSTANCE should succeed: %s", tt.engineType, rec.Body.String())
 		})
 	}
@@ -378,7 +378,7 @@ func TestAccuracy_CreateBroker_EndpointContainsBrokerID(t *testing.T) {
 		"brokerName": "endpoint-test",
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
@@ -406,7 +406,7 @@ func TestAccuracy_CreateBroker_ActiveMQ_EndpointFormat(t *testing.T) {
 		"brokerName": "amq-endpoint",
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
@@ -435,7 +435,7 @@ func TestAccuracy_CreateBroker_RabbitMQ_EndpointFormat(t *testing.T) {
 		"brokerName": "rmq-endpoint",
 		"engineType": mq.EngineTypeRabbitMQ,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
@@ -468,7 +468,7 @@ func TestAccuracy_CreateBroker_Endpoint_RegionFromBackend(t *testing.T) {
 		"brokerName": "eu-broker",
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
@@ -1025,7 +1025,7 @@ func TestAccuracy_DescribeBroker_AllCoreFieldsPresent(t *testing.T) {
 		"publiclyAccessible":      true,
 		"autoMinorVersionUpgrade": true,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	desc := doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+brokerID, nil)
@@ -1091,7 +1091,7 @@ func TestAccuracy_DescribeBroker_Tags_RoundTrip(t *testing.T) {
 		"engineType": mq.EngineTypeActiveMQ,
 		"tags":       map[string]string{"env": "test", "team": "platform"},
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	desc := doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+brokerID, nil)
@@ -1211,7 +1211,7 @@ func TestAccuracy_CreateTags_AppendsToExisting(t *testing.T) {
 		"engineType": mq.EngineTypeActiveMQ,
 		"tags":       map[string]string{"initial": "yes"},
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	desc := doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+brokerID, nil)
@@ -1221,7 +1221,7 @@ func TestAccuracy_CreateTags_AppendsToExisting(t *testing.T) {
 	addRec := doAccuracyMQ(t, h, http.MethodPost, "/v1/tags/"+brokerARN, map[string]any{
 		"tags": map[string]string{"added": "later"},
 	})
-	assert.Equal(t, http.StatusOK, addRec.Code)
+	assert.Equal(t, http.StatusNoContent, addRec.Code)
 
 	listRec := doAccuracyMQ(t, h, http.MethodGet, "/v1/tags/"+brokerARN, nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
@@ -1240,7 +1240,7 @@ func TestAccuracy_DeleteTags_RemovesSpecified(t *testing.T) {
 		"engineType": mq.EngineTypeActiveMQ,
 		"tags":       map[string]string{"keep": "yes", "remove": "no"},
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	brokerID := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	desc := doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+brokerID, nil)

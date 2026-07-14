@@ -320,7 +320,11 @@ func assertMembershipNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBack
 
 	gotQuery, err := fresh.GetProtectedQuery(membershipID, seed.query.ID)
 	require.NoError(t, err)
-	assert.Equal(t, seed.query.Status, gotQuery.Status)
+	assert.Equal(t, "SUBMITTED", seed.query.Status,
+		"StartProtectedQuery's synchronous response is always SUBMITTED")
+	assert.Equal(t, "SUCCESS", gotQuery.Status,
+		"GetProtectedQuery lazily advances a non-terminal query to a terminal status "+
+			"on read, so a restored query does not stay stuck at SUBMITTED forever")
 	queryItems, _, err := fresh.ListProtectedQueries(membershipID, "", "", "")
 	require.NoError(t, err)
 	assert.Len(t, queryItems, 1)
@@ -328,6 +332,10 @@ func assertMembershipNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBack
 	gotJob, err := fresh.GetProtectedJob(membershipID, seed.job.ID)
 	require.NoError(t, err)
 	assert.Equal(t, seed.job.Type, gotJob.Type)
+	assert.Equal(t, "SUBMITTED", seed.job.Status,
+		"StartProtectedJob's synchronous response is always SUBMITTED")
+	assert.Equal(t, "SUCCESS", gotJob.Status,
+		"GetProtectedJob lazily advances a non-terminal job to a terminal status on read")
 	jobItems, _, err := fresh.ListProtectedJobs(membershipID, "", "", "")
 	require.NoError(t, err)
 	assert.Len(t, jobItems, 1)

@@ -442,9 +442,10 @@ type detachPolicyRequest struct {
 }
 
 type listPoliciesForTargetRequest struct {
-	TargetID  string `json:"TargetId"`
-	Filter    string `json:"Filter"`
-	NextToken string `json:"NextToken,omitempty"`
+	TargetID   string `json:"TargetId"`
+	Filter     string `json:"Filter"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type listPoliciesForTargetResponse struct {
@@ -453,8 +454,9 @@ type listPoliciesForTargetResponse struct {
 }
 
 type listTargetsForPolicyRequest struct {
-	PolicyID  string `json:"PolicyId"`
-	NextToken string `json:"NextToken,omitempty"`
+	PolicyID   string `json:"PolicyId"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type policyTargetObject struct {
@@ -501,6 +503,7 @@ type untagResourceRequest struct {
 
 type listTagsForResourceRequest struct {
 	ResourceID string `json:"ResourceId"`
+	NextToken  string `json:"NextToken,omitempty"`
 }
 
 type listTagsForResourceResponse struct {
@@ -516,6 +519,11 @@ type enableAWSServiceAccessRequest struct {
 
 type disableAWSServiceAccessRequest struct {
 	ServicePrincipal string `json:"ServicePrincipal"`
+}
+
+type listAWSServiceAccessRequest struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type enabledServicePrincipalObject struct {
@@ -543,6 +551,7 @@ type deregisterDelegatedAdministratorRequest struct {
 type listDelegatedAdministratorsRequest struct {
 	ServicePrincipal string `json:"ServicePrincipal,omitempty"`
 	NextToken        string `json:"NextToken,omitempty"`
+	MaxResults       int    `json:"MaxResults,omitempty"`
 }
 
 type delegatedAdminObject struct {
@@ -729,8 +738,9 @@ type listHandshakesForOrganizationResponse struct {
 // -- ListCreateAccountStatus --
 
 type listCreateAccountStatusRequest struct {
-	NextToken string   `json:"NextToken,omitempty"`
-	States    []string `json:"States,omitempty"`
+	NextToken  string   `json:"NextToken,omitempty"`
+	States     []string `json:"States,omitempty"`
+	MaxResults int      `json:"MaxResults,omitempty"`
 }
 
 type listCreateAccountStatusResponse struct {
@@ -741,8 +751,9 @@ type listCreateAccountStatusResponse struct {
 // -- ListDelegatedServicesForAccount --
 
 type listDelegatedServicesForAccountRequest struct {
-	AccountID string `json:"AccountId"`
-	NextToken string `json:"NextToken,omitempty"`
+	AccountID  string `json:"AccountId"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type delegatedServiceObject struct {

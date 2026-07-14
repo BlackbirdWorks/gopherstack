@@ -182,7 +182,7 @@ func TestAccuracy_CountTokens_MultipleModelFamilies(t *testing.T) {
 			rec := doRequest(
 				t, h, http.MethodPost,
 				"/model/"+tt.modelID+"/count-tokens",
-				map[string]any{"prompt": tt.text},
+				countTokensInvokeModelBody(fmt.Sprintf(`{"prompt":%q}`, tt.text)),
 			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -202,12 +202,12 @@ func TestAccuracy_CountTokens_TitanUsesHigherDivisor(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	recClaude := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/count-tokens",
-		map[string]any{"prompt": text})
+	body := countTokensInvokeModelBody(fmt.Sprintf(`{"prompt":%q}`, text))
+
+	recClaude := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/count-tokens", body)
 	require.Equal(t, http.StatusOK, recClaude.Code)
 
-	recTitan := doRequest(t, h, http.MethodPost, "/model/amazon.titan-text-express-v1/count-tokens",
-		map[string]any{"prompt": text})
+	recTitan := doRequest(t, h, http.MethodPost, "/model/amazon.titan-text-express-v1/count-tokens", body)
 	require.Equal(t, http.StatusOK, recTitan.Code)
 
 	var claudeOut, titanOut map[string]any
@@ -251,7 +251,7 @@ func TestAccuracy_CountTokens_MultiMessageBody(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/count-tokens",
-				map[string]any{"messages": tt.messages})
+				countTokensConverseBody(tt.messages))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any

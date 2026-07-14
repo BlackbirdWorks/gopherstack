@@ -46,7 +46,7 @@ func TestMQ_Batch2_DescribeBroker_TagsEmptyNotNull(t *testing.T) {
 			}
 
 			rec := doAccuracyMQ(t, h, http.MethodPost, "/v1/brokers", body)
-			require.Equal(t, http.StatusAccepted, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
 			bid := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 			rec = doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+bid, nil)
@@ -72,7 +72,7 @@ func TestMQ_Batch2_DescribeBroker_UsersEmptyNotAbsent(t *testing.T) {
 		"brokerName": "nouser-broker",
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	bid := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	rec = doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+bid, nil)
@@ -171,7 +171,7 @@ func TestMQ_Batch2_BrokerID_Shape(t *testing.T) {
 		"brokerName": "shape-broker",
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	bid := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	// UUID format: 8-4-4-4-12 lowercase hex with dashes = 36 chars total
@@ -190,7 +190,7 @@ func TestMQ_Batch2_BrokerARN_Shape(t *testing.T) {
 		"brokerName": "arn-broker",
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	bid := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	rec = doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+bid, nil)
@@ -211,7 +211,7 @@ func TestMQ_Batch2_DescribeBroker_CreatedTimestamp(t *testing.T) {
 		"brokerName": "ts-broker",
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	bid := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	rec = doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+bid, nil)
@@ -314,7 +314,7 @@ func TestMQ_Batch2_TagResource_MergesWithCreationTimeTags(t *testing.T) {
 		"engineType": mq.EngineTypeActiveMQ,
 		"tags":       map[string]string{"env": "prod"},
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	bid := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	rec = doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+bid, nil)
@@ -323,7 +323,7 @@ func TestMQ_Batch2_TagResource_MergesWithCreationTimeTags(t *testing.T) {
 
 	rec = doAccuracyMQ(t, h, http.MethodPost, "/v1/tags/"+brokerARN,
 		map[string]any{"tags": map[string]string{"team": "infra"}})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
 
 	rec = doAccuracyMQ(t, h, http.MethodGet, "/v1/tags/"+brokerARN, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -345,7 +345,7 @@ func TestMQ_Batch2_UntagResource_RemovesOnlySpecifiedKey(t *testing.T) {
 		"engineType": mq.EngineTypeActiveMQ,
 		"tags":       map[string]string{"key1": "v1", "key2": "v2"},
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	bid := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	rec = doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+bid, nil)
@@ -375,7 +375,7 @@ func TestMQ_Batch2_CreationTimeTags_VisibleViaListTags(t *testing.T) {
 		"engineType": mq.EngineTypeActiveMQ,
 		"tags":       map[string]string{"created-with": "yes"},
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 	bid := parseAccuracyMQ(t, rec)["brokerId"].(string)
 
 	rec = doAccuracyMQ(t, h, http.MethodGet, "/v1/brokers/"+bid, nil)

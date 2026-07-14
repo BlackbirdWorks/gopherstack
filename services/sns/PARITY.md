@@ -1,8 +1,8 @@
 ---
 service: sns
-sdk_module: aws-sdk-go-v2/service/sns@v1.40.3
-last_audit_commit: 58e50f3a
-last_audit_date: 2026-07-05
+sdk_module: aws-sdk-go-v2/service/sns@v1.41.0
+last_audit_commit: 3d4de4f9
+last_audit_date: 2026-07-11
 overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -62,6 +62,18 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 
 Freeform notes for the next auditor — AWS-behavior specifics worth remembering, and
 "looks-wrong-but-correct" traps.
+
+### 2026-07-11 re-audit (parity-4)
+No code changes made — no genuine bugs found. `services/sns/` had zero commits between
+the prior ledger's `last_audit_commit` and current HEAD (that prior audit's own commit,
+`ce30166a`, is what's actually recorded in the ledger, so there was no local drift to
+re-check). SDK bumped `v1.40.3` -> `v1.41.0`: changelog is serialization-snapshot-test
+and dependency-only, zero new/changed SNS operations. Re-verified: `buildActions()`
+still routes all 42 real SDK operations 1:1 (no stubs, no missing ops); the four fixes
+called out in the prior pass are intact (`topicMessageArchive` cleanup on DeleteTopic +
+persistence round-trip, PublishBatch per-entry `MessageAttributes.` prefix, `ErrOptedOut`
+sentinel text, `appendBounded`-capped delivery buffers). All gates
+(build/vet/`-race` test/`go fix -diff`/golangci-lint) pass clean with zero issues.
 
 ### Protocol
 SNS is the **AWS query (XML) protocol** (`Version=2010-03-31`, form-encoded request,

@@ -238,6 +238,21 @@ func TestSWFHandler_RouteMatcher(t *testing.T) {
 	}
 }
 
+// TestSWFHandler_ResponseContentType verifies the response Content-Type
+// matches real SWF's wire protocol. SWF uses awsjson1.0
+// (application/x-amz-json-1.0), unlike the more common awsjson1.1 protocol
+// most other AWS JSON services use -- see the Content-Type/X-Amz-Target
+// headers the real aws-sdk-go-v2 swf serializer sets on every operation.
+func TestSWFHandler_ResponseContentType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	rec := doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": "my-domain"})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/x-amz-json-1.0", rec.Header().Get("Content-Type"))
+}
+
 func TestSWFHandler_Name(t *testing.T) {
 	t.Parallel()
 

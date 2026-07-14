@@ -128,7 +128,7 @@ func TestRAM_PersistenceSnapshotRestore(t *testing.T) {
 				require.Len(t, shares, 1)
 
 				versions, err := b.ListPermissionVersions(
-					b.ListResourceSharePermissions(shares[0].ARN)[0].ARN,
+					b.ListResourceSharePermissions(shares[0].ARN)[0].Permission.ARN,
 				)
 				require.NoError(t, err)
 				assert.Len(t, versions, 2)
@@ -240,7 +240,7 @@ func TestRAM_PersistenceFullStateRoundTrip(t *testing.T) {
 
 	sharePerms := fresh.ListResourceSharePermissions(shares[0].ARN)
 	require.Len(t, sharePerms, 1)
-	assert.Equal(t, perm.ARN, sharePerms[0].ARN)
+	assert.Equal(t, perm.ARN, sharePerms[0].Permission.ARN)
 
 	versions, err := fresh.ListPermissionVersions(perm.ARN)
 	require.NoError(t, err)

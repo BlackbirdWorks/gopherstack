@@ -285,6 +285,97 @@ func fieldToValue(f Field) any {
 	}
 }
 
+// JDBC-style type codes (java.sql.Types) reported in ColumnMetadata.Type,
+// chosen per the SQLite type affinity a column resolves to (see
+// sqliteAffinity).
+const (
+	jdbcTypeDecimal = 3
+	jdbcTypeInteger = 4
+	jdbcTypeDouble  = 8
+	jdbcTypeVarchar = 12
+	jdbcTypeBlob    = 2004
+)
+
+// AWS ColumnMetadata.Nullable codes: 0 = no nulls, 1 = nullable,
+// 2 = nullability unknown.
+const (
+	columnNoNulls         = 0
+	columnNullable        = 1
+	columnNullableUnknown = 2
+)
+
+// sqliteAffinity classifies a declared column type name into one of
+// SQLite's five type affinities, applying the determination rules in the
+// order documented at https://sqlite.org/datatype3.html#type_affinity
+// section 3.1 (first match wins). A column with no declared type (e.g. the
+// result of a literal SELECT expression) resolves to BLOB affinity per rule 3.
+func sqliteAffinity(decltype string) string {
+	switch {
+	case strings.Contains(decltype, "INT"):
+		return "INTEGER"
+	case strings.Contains(decltype, "CHAR"), strings.Contains(decltype, "CLOB"), strings.Contains(decltype, "TEXT"):
+		return "TEXT"
+	case strings.Contains(decltype, "BLOB"), decltype == "":
+		return "BLOB"
+	case strings.Contains(decltype, "REAL"), strings.Contains(decltype, "FLOA"), strings.Contains(decltype, "DOUB"):
+		return "REAL"
+	default:
+		return "NUMERIC"
+	}
+}
+
+// columnMetadataFor builds a ColumnMetadata for one result column. The
+// pure-Go SQLite driver exposes only the declared type name, nullability (it
+// always reports "nullable, known" -- see modernc.org/sqlite's
+// rows.ColumnTypeNullable), and decimal size (never known); schemaName,
+// tableName, isAutoIncrement, and arrayBaseColumnType have no equivalent in
+// database/sql's ColumnType and are left at their zero values.
+func columnMetadataFor(ct *sql.ColumnType) ColumnMetadata {
+	decltype := ct.DatabaseTypeName()
+
+	nullableCode := int32(columnNullableUnknown)
+	if nullable, ok := ct.Nullable(); ok {
+		if nullable {
+			nullableCode = columnNullable
+		} else {
+			nullableCode = columnNoNulls
+		}
+	}
+
+	precision, scale, hasPrecision := ct.DecimalSize()
+	if !hasPrecision {
+		precision, scale = 0, 0
+	}
+
+	meta := ColumnMetadata{
+		Name:      ct.Name(),
+		Label:     ct.Name(),
+		TypeName:  decltype,
+		Nullable:  nullableCode,
+		Precision: int32(precision),
+		Scale:     int32(scale),
+	}
+
+	switch sqliteAffinity(decltype) {
+	case "INTEGER":
+		meta.Type = jdbcTypeInteger
+		meta.IsSigned = true
+	case "TEXT":
+		meta.Type = jdbcTypeVarchar
+		meta.IsCaseSensitive = true
+	case "REAL":
+		meta.Type = jdbcTypeDouble
+		meta.IsSigned = true
+	case "NUMERIC":
+		meta.Type = jdbcTypeDecimal
+		meta.IsSigned = true
+	default: // BLOB, or no declared type
+		meta.Type = jdbcTypeBlob
+	}
+
+	return meta
+}
+
 // scanRows materialises an *sql.Rows cursor into the Data API record model.
 func scanRows(rows *sql.Rows) ([][]Field, []ColumnMetadata, error) {
 	cols, err := rows.ColumnTypes()
@@ -294,7 +385,7 @@ func scanRows(rows *sql.Rows) ([][]Field, []ColumnMetadata, error) {
 
 	columns := make([]ColumnMetadata, len(cols))
 	for i, ct := range cols {
-		columns[i] = ColumnMetadata{Name: ct.Name(), TypeName: ct.DatabaseTypeName()}
+		columns[i] = columnMetadataFor(ct)
 	}
 
 	records := [][]Field{}

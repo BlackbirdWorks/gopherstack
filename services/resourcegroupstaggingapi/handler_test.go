@@ -308,13 +308,13 @@ func TestHandler_StartReportCreation(t *testing.T) {
 			name:         "missing_bucket",
 			body:         map[string]any{},
 			wantCode:     http.StatusBadRequest,
-			wantContains: "ValidationException",
+			wantContains: "InvalidParameterException",
 		},
 		{
 			name:         "empty_bucket",
 			body:         map[string]any{"S3Bucket": ""},
 			wantCode:     http.StatusBadRequest,
-			wantContains: "ValidationException",
+			wantContains: "InvalidParameterException",
 		},
 	}
 

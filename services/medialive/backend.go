@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -26,9 +27,13 @@ const (
 
 	stateDetached = "DETACHED"
 
-	channelClassStandard     = "STANDARD"
-	inputTypeUDPPush         = "UDP_PUSH"
-	inputSecurityGroupActive = "IDLE"
+	channelClassStandard       = "STANDARD"
+	channelClassSinglePipeline = "SINGLE_PIPELINE"
+	inputTypeUDPPush           = "UDP_PUSH"
+	inputSecurityGroupActive   = "IDLE"
+
+	pipelinesRunningCountStandard       = 2
+	pipelinesRunningCountSinglePipeline = 1
 
 	offeringTypeNoUpfront        = "NO_UPFRONT"
 	offeringCurrencyUSD          = "USD"
@@ -287,6 +292,7 @@ func (m *storedMultiplex) toMultiplex() *Multiplex {
 			TransportStreamReservedBitrate:      m.Settings.TransportStreamReservedBitrate,
 			MaximumVideoBufferDelayMilliseconds: m.Settings.MaximumVideoBufferDelayMilliseconds,
 		},
+		ProgramCount: len(m.Programs),
 	}
 }
 
@@ -300,6 +306,7 @@ func (m *storedMultiplex) toSummary() *MultiplexSummary {
 		Name:              m.Name,
 		State:             m.State,
 		AvailabilityZones: zones,
+		ProgramCount:      len(m.Programs),
 	}
 }
 
@@ -423,6 +430,8 @@ func (n *storedNode) toSummary() *NodeSummary {
 }
 
 type storedSignalMap struct {
+	CreatedAt                       time.Time         `json:"createdAt"`
+	ModifiedAt                      time.Time         `json:"modifiedAt"`
 	Tags                            map[string]string `json:"tags"`
 	Arn                             string            `json:"arn"`
 	ID                              string            `json:"id"`
@@ -454,10 +463,14 @@ func (s *storedSignalMap) toSignalMap() *SignalMap {
 		DiscoveryEntryPointArn:          s.DiscoveryEntryPointArn,
 		Status:                          s.Status,
 		MonitorDeploymentStatus:         s.MonitorDeploymentStatus,
+		CreatedAt:                       s.CreatedAt,
+		ModifiedAt:                      s.ModifiedAt,
 	}
 }
 
 type storedCloudWatchAlarmTemplateGroup struct {
+	CreatedAt   time.Time         `json:"createdAt"`
+	ModifiedAt  time.Time         `json:"modifiedAt"`
 	Tags        map[string]string `json:"tags"`
 	Arn         string            `json:"arn"`
 	ID          string            `json:"id"`
@@ -475,10 +488,14 @@ func (g *storedCloudWatchAlarmTemplateGroup) toGroup() *CloudWatchAlarmTemplateG
 		ID:          g.ID,
 		Name:        g.Name,
 		Description: g.Description,
+		CreatedAt:   g.CreatedAt,
+		ModifiedAt:  g.ModifiedAt,
 	}
 }
 
 type storedCloudWatchAlarmTemplate struct {
+	CreatedAt          time.Time         `json:"createdAt"`
+	ModifiedAt         time.Time         `json:"modifiedAt"`
 	Tags               map[string]string `json:"tags"`
 	Arn                string            `json:"arn"`
 	ID                 string            `json:"id"`
@@ -509,10 +526,13 @@ func (t *storedCloudWatchAlarmTemplate) toTemplate() *CloudWatchAlarmTemplate {
 		ComparisonOperator: t.ComparisonOperator, TargetResourceType: t.TargetResourceType,
 		TreatMissingData: t.TreatMissingData, Threshold: t.Threshold,
 		EvaluationPeriods: t.EvaluationPeriods, DatapointsToAlarm: t.DatapointsToAlarm, Period: t.Period,
+		CreatedAt: t.CreatedAt, ModifiedAt: t.ModifiedAt,
 	}
 }
 
 type storedEventBridgeRuleTemplateGroup struct {
+	CreatedAt   time.Time         `json:"createdAt"`
+	ModifiedAt  time.Time         `json:"modifiedAt"`
 	Tags        map[string]string `json:"tags"`
 	Arn         string            `json:"arn"`
 	ID          string            `json:"id"`
@@ -530,10 +550,14 @@ func (g *storedEventBridgeRuleTemplateGroup) toGroup() *EventBridgeRuleTemplateG
 		ID:          g.ID,
 		Name:        g.Name,
 		Description: g.Description,
+		CreatedAt:   g.CreatedAt,
+		ModifiedAt:  g.ModifiedAt,
 	}
 }
 
 type storedEventBridgeRuleTemplate struct {
+	CreatedAt       time.Time                       `json:"createdAt"`
+	ModifiedAt      time.Time                       `json:"modifiedAt"`
 	Tags            map[string]string               `json:"tags"`
 	Arn             string                          `json:"arn"`
 	ID              string                          `json:"id"`
@@ -554,7 +578,7 @@ func (t *storedEventBridgeRuleTemplate) toTemplate() *EventBridgeRuleTemplate {
 	return &EventBridgeRuleTemplate{
 		Tags: tags, EventTargets: targets, Arn: t.Arn, ID: t.ID, Name: t.Name,
 		Description: t.Description, GroupID: t.GroupID, GroupIdentifier: t.GroupIdentifier,
-		EventType: t.EventType,
+		EventType: t.EventType, CreatedAt: t.CreatedAt, ModifiedAt: t.ModifiedAt,
 	}
 }
 
@@ -761,6 +785,7 @@ func seedOfferings(region string) []*Offering {
 			Duration:              offeringDuration,
 			DurationUnits:         offeringDurationMonths,
 			ResourceSpecification: hd,
+			Region:                region,
 		},
 		{
 			OfferingID:            "12345678",
@@ -773,6 +798,7 @@ func seedOfferings(region string) []*Offering {
 			Duration:              offeringDuration,
 			DurationUnits:         offeringDurationMonths,
 			ResourceSpecification: uhd,
+			Region:                region,
 		},
 		{
 			OfferingID:            "11223344",
@@ -785,6 +811,7 @@ func seedOfferings(region string) []*Offering {
 			Duration:              offeringDuration,
 			DurationUnits:         offeringDurationMonths,
 			ResourceSpecification: input,
+			Region:                region,
 		},
 	}
 }
@@ -1224,10 +1251,91 @@ func (b *InMemoryBackend) ListInputSecurityGroups(
 
 // --- Tag operations ---
 
+// findLiveTags scans items for the one whose ARN matches resourceARN and
+// returns its live Tags map (lazily initialized so callers can mutate it in
+// place), or ok=false if none matches. Extracted as a generic helper so
+// taggableResourceTags -- which tries five different resource tables --
+// stays a flat sequence of one-line calls instead of five inlined loops.
+func findLiveTags[T any](
+	items []*T,
+	resourceARN string,
+	arnOf func(*T) string,
+	tagsOf func(*T) *map[string]string,
+) (map[string]string, bool) {
+	for _, item := range items {
+		if arnOf(item) != resourceARN {
+			continue
+		}
+
+		tags := tagsOf(item)
+		if *tags == nil {
+			*tags = make(map[string]string)
+		}
+
+		return *tags, true
+	}
+
+	return nil, false
+}
+
+// taggableResourceTags resolves resourceARN to the live Tags map of the
+// underlying resource, for the resource families whose Describe/List
+// responses echo tags inline (Channel, Input, InputSecurityGroup,
+// Multiplex, InputDevice -- confirmed against the real DescribeXOutput
+// shapes). Their Tags field must stay in lockstep with CreateTags/
+// DeleteTags/ListTagsForResource instead of drifting behind a second,
+// disconnected b.tags[ARN] store (the pre-fix bug: CreateChannel(tags)
+// populated ch.Tags but never b.tags, so ListTagsForResource(channelArn)
+// always came back empty, and CreateTags(channelArn, ...) never showed up
+// in DescribeChannel). The returned map is the actual stored map (not a
+// copy) so callers may mutate it directly while holding b.mu. ok is false
+// for any ARN that isn't one of these five resource types, in which case
+// callers fall back to the legacy per-ARN b.tags store (used by every
+// other taggable resource family, e.g. Cluster, SignalMap, Reservation).
+func (b *InMemoryBackend) taggableResourceTags(resourceARN string) (map[string]string, bool) {
+	if tags, ok := findLiveTags(b.channels.All(), resourceARN,
+		func(c *storedChannel) string { return c.ARN },
+		func(c *storedChannel) *map[string]string { return &c.Tags }); ok {
+		return tags, true
+	}
+
+	if tags, ok := findLiveTags(b.inputs.All(), resourceARN,
+		func(i *storedInput) string { return i.ARN },
+		func(i *storedInput) *map[string]string { return &i.Tags }); ok {
+		return tags, true
+	}
+
+	if tags, ok := findLiveTags(b.inputSecurityGroups.All(), resourceARN,
+		func(g *storedInputSecurityGroup) string { return g.ARN },
+		func(g *storedInputSecurityGroup) *map[string]string { return &g.Tags }); ok {
+		return tags, true
+	}
+
+	if tags, ok := findLiveTags(b.multiplexes.All(), resourceARN,
+		func(m *storedMultiplex) string { return m.ARN },
+		func(m *storedMultiplex) *map[string]string { return &m.Tags }); ok {
+		return tags, true
+	}
+
+	if tags, ok := findLiveTags(b.inputDevices.All(), resourceARN,
+		func(d *storedInputDevice) string { return d.ARN },
+		func(d *storedInputDevice) *map[string]string { return &d.Tags }); ok {
+		return tags, true
+	}
+
+	return nil, false
+}
+
 // CreateTags adds tags to a resource.
 func (b *InMemoryBackend) CreateTags(resourceARN string, tags map[string]string) error {
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
+
+	if live, ok := b.taggableResourceTags(resourceARN); ok {
+		maps.Copy(live, tags)
+
+		return nil
+	}
 
 	if b.tags[resourceARN] == nil {
 		b.tags[resourceARN] = make(map[string]string)
@@ -1242,6 +1350,14 @@ func (b *InMemoryBackend) CreateTags(resourceARN string, tags map[string]string)
 func (b *InMemoryBackend) DeleteTags(resourceARN string, tagKeys []string) error {
 	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
+
+	if live, ok := b.taggableResourceTags(resourceARN); ok {
+		for _, k := range tagKeys {
+			delete(live, k)
+		}
+
+		return nil
+	}
 
 	existing := b.tags[resourceARN]
 	if existing == nil {
@@ -1259,6 +1375,13 @@ func (b *InMemoryBackend) DeleteTags(resourceARN string, tagKeys []string) error
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
+
+	if live, ok := b.taggableResourceTags(resourceARN); ok {
+		result := make(map[string]string, len(live))
+		maps.Copy(result, live)
+
+		return result, nil
+	}
 
 	existing := b.tags[resourceARN]
 	result := make(map[string]string, len(existing))
@@ -2109,14 +2232,20 @@ func (b *InMemoryBackend) ListClusterAlerts(
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
+	// Field names/casing here mirror the real ClusterAlert shape
+	// (id/alertType/message/state/setTimestamp -- verified against
+	// aws-sdk-go-v2/service/medialive's ClusterAlert deserializer); there
+	// is no "AlertCode"/"AlertMessage"/"SetTime"/"ClearedTime" on the real
+	// wire.
 	var alerts []map[string]any
 	if cl.State != clusterStateActive {
 		alerts = []map[string]any{
 			{
-				"AlertCode":    "CLUSTER_NOT_READY",
-				"AlertMessage": "Cluster is not in ACTIVE state",
-				"SetTime":      "1970-01-01T00:00:00Z",
-				"ClearedTime":  nil,
+				keyID:           "cluster-not-ready",
+				"alertType":     "CLUSTER_NOT_READY",
+				keyLowerMessage: "Cluster is not in ACTIVE state",
+				keyState:        "SET",
+				"setTimestamp":  formatISO8601(time.Unix(0, 0).UTC()),
 			},
 		}
 	} else {
@@ -2150,6 +2279,7 @@ func (b *InMemoryBackend) CreateSignalMap(
 	}
 
 	id := newID()
+	now := time.Now().UTC()
 	sm := &storedSignalMap{
 		Tags:                            copyTags(tags),
 		CloudWatchAlarmTemplateGroupIDs: append([]string{}, cwGroupIDs...),
@@ -2161,6 +2291,8 @@ func (b *InMemoryBackend) CreateSignalMap(
 		DiscoveryEntryPointArn:          discoveryEntryPointArn,
 		Status:                          "SUCCEEDED",
 		MonitorDeploymentStatus:         "NOT_DEPLOYED",
+		CreatedAt:                       now,
+		ModifiedAt:                      now,
 	}
 
 	b.mu.Lock("CreateSignalMap")
@@ -2237,6 +2369,7 @@ func (b *InMemoryBackend) StartUpdateSignalMap(
 		sm.EventBridgeRuleTemplateGroupIDs = append([]string{}, ebGroupIDs...)
 	}
 	sm.Status = "SUCCEEDED"
+	sm.ModifiedAt = time.Now().UTC()
 
 	return sm.toSignalMap(), nil
 }
@@ -2250,6 +2383,7 @@ func (b *InMemoryBackend) StartMonitorDeployment(identifier string) (*SignalMap,
 		return nil, fmt.Errorf("%w: signal map %s not found", ErrNotFound, identifier)
 	}
 	sm.MonitorDeploymentStatus = "DEPLOYED"
+	sm.ModifiedAt = time.Now().UTC()
 
 	return sm.toSignalMap(), nil
 }
@@ -2276,12 +2410,15 @@ func (b *InMemoryBackend) CreateCloudWatchAlarmTemplateGroup(
 		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
 	}
 	id := newID()
+	now := time.Now().UTC()
 	g := &storedCloudWatchAlarmTemplateGroup{
 		Tags:        copyTags(tags),
 		Arn:         b.cwAlarmTemplateGroupARN(id),
 		ID:          id,
 		Name:        name,
 		Description: description,
+		CreatedAt:   now,
+		ModifiedAt:  now,
 	}
 	b.mu.Lock("CreateCloudWatchAlarmTemplateGroup")
 	defer b.mu.Unlock()
@@ -2346,6 +2483,7 @@ func (b *InMemoryBackend) UpdateCloudWatchAlarmTemplateGroup(
 	if description != "" {
 		g.Description = description
 	}
+	g.ModifiedAt = time.Now().UTC()
 
 	return g.toGroup(), nil
 }
@@ -2406,6 +2544,7 @@ func (b *InMemoryBackend) CreateCloudWatchAlarmTemplate(
 		groupID = g.ID
 	}
 	id := newID()
+	now := time.Now().UTC()
 	t := &storedCloudWatchAlarmTemplate{
 		Tags: copyTags(
 			tags,
@@ -2414,6 +2553,7 @@ func (b *InMemoryBackend) CreateCloudWatchAlarmTemplate(
 		Statistic: statistic, ComparisonOperator: comparisonOperator, TargetResourceType: targetResourceType,
 		TreatMissingData: treatMissingData, Threshold: threshold,
 		EvaluationPeriods: evaluationPeriods, DatapointsToAlarm: datapointsToAlarm, Period: period,
+		CreatedAt: now, ModifiedAt: now,
 	}
 	b.cwAlarmTemplates.Put(t)
 
@@ -2514,6 +2654,7 @@ func (b *InMemoryBackend) updateCWTemplateFields(
 	if period != 0 {
 		t.Period = period
 	}
+	t.ModifiedAt = time.Now().UTC()
 }
 
 // UpdateCloudWatchAlarmTemplate updates a CW alarm template.
@@ -2596,10 +2737,12 @@ func (b *InMemoryBackend) CreateEventBridgeRuleTemplateGroup(
 		return nil, fmt.Errorf("%w: name required", ErrInvalidParameter)
 	}
 	id := newID()
+	now := time.Now().UTC()
 	g := &storedEventBridgeRuleTemplateGroup{
 		Tags: copyTags(
 			tags,
 		), Arn: b.ebRuleTemplateGroupARN(id), ID: id, Name: name, Description: description,
+		CreatedAt: now, ModifiedAt: now,
 	}
 	b.mu.Lock("CreateEventBridgeRuleTemplateGroup")
 	defer b.mu.Unlock()
@@ -2664,6 +2807,7 @@ func (b *InMemoryBackend) UpdateEventBridgeRuleTemplateGroup(
 	if description != "" {
 		g.Description = description
 	}
+	g.ModifiedAt = time.Now().UTC()
 
 	return g.toGroup(), nil
 }
@@ -2717,11 +2861,13 @@ func (b *InMemoryBackend) CreateEventBridgeRuleTemplate(
 	targets := make([]EventBridgeRuleTemplateTarget, len(eventTargets))
 	copy(targets, eventTargets)
 	id := newID()
+	now := time.Now().UTC()
 	t := &storedEventBridgeRuleTemplate{
 		Tags: copyTags(
 			tags,
 		), EventTargets: targets, Arn: b.ebRuleTemplateARN(id), ID: id, Name: name,
 		Description: description, GroupID: groupID, GroupIdentifier: groupIdentifier, EventType: eventType,
+		CreatedAt: now, ModifiedAt: now,
 	}
 	b.ebRuleTemplates.Put(t)
 
@@ -2801,6 +2947,7 @@ func (b *InMemoryBackend) UpdateEventBridgeRuleTemplate(
 		t.EventTargets = make([]EventBridgeRuleTemplateTarget, len(eventTargets))
 		copy(t.EventTargets, eventTargets)
 	}
+	t.ModifiedAt = time.Now().UTC()
 
 	return t.toTemplate(), nil
 }
@@ -2997,9 +3144,10 @@ func (b *InMemoryBackend) batchSetState(
 	return &result
 }
 
-// BatchStart starts channels/inputs/multiplexes in bulk.
+// BatchStart starts channels/multiplexes in bulk (BatchStartInput has no
+// inputIds field in the real API).
 func (b *InMemoryBackend) BatchStart(
-	channelIDs, _, multiplexIDs []string,
+	channelIDs, multiplexIDs []string,
 ) (*BatchResult, error) {
 	b.mu.Lock("BatchStart")
 	defer b.mu.Unlock()
@@ -3007,9 +3155,10 @@ func (b *InMemoryBackend) BatchStart(
 	return b.batchSetState(channelIDs, multiplexIDs, stateRunning), nil
 }
 
-// BatchStop stops channels/inputs/multiplexes in bulk.
+// BatchStop stops channels/multiplexes in bulk (BatchStopInput has no
+// inputIds field in the real API).
 func (b *InMemoryBackend) BatchStop(
-	channelIDs, _, multiplexIDs []string,
+	channelIDs, multiplexIDs []string,
 ) (*BatchResult, error) {
 	b.mu.Lock("BatchStop")
 	defer b.mu.Unlock()
@@ -3017,9 +3166,33 @@ func (b *InMemoryBackend) BatchStop(
 	return b.batchSetState(channelIDs, multiplexIDs, stateIdle), nil
 }
 
-// BatchDelete deletes channels/inputs/multiplexes in bulk.
+// batchDeleteInputSecurityGroups deletes each requested input security
+// group, appending to result. Split out of BatchDelete to keep that
+// function's cyclomatic complexity down now that it handles four resource
+// kinds.
+func (b *InMemoryBackend) batchDeleteInputSecurityGroups(
+	result *BatchResult,
+	inputSecurityGroupIDs []string,
+) {
+	for _, id := range inputSecurityGroupIDs {
+		g, ok := b.inputSecurityGroups.Get(id)
+		if !ok {
+			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
+
+			continue
+		}
+		b.inputSecurityGroups.Delete(id)
+		result.Successful = append(
+			result.Successful,
+			BatchSuccessfulResult{ID: id, Arn: g.ARN, State: g.State},
+		)
+	}
+}
+
+// BatchDelete deletes channels/inputs/multiplexes/input-security-groups in
+// bulk.
 func (b *InMemoryBackend) BatchDelete(
-	channelIDs, inputIDs, multiplexIDs []string,
+	channelIDs, inputIDs, multiplexIDs, inputSecurityGroupIDs []string,
 ) (*BatchResult, error) {
 	b.mu.Lock("BatchDelete")
 	defer b.mu.Unlock()
@@ -3079,6 +3252,7 @@ func (b *InMemoryBackend) BatchDelete(
 			BatchSuccessfulResult{ID: id, Arn: mx.ARN, State: stateDeleted},
 		)
 	}
+	b.batchDeleteInputSecurityGroups(&result, inputSecurityGroupIDs)
 
 	return &result, nil
 }
@@ -3709,6 +3883,7 @@ func (b *InMemoryBackend) StartDeleteMonitorDeployment(identifier string) (*Sign
 	}
 
 	sm.MonitorDeploymentStatus = "DELETING"
+	sm.ModifiedAt = time.Now().UTC()
 
 	return sm.toSignalMap(), nil
 }

@@ -13,7 +13,7 @@ type StorageBackend interface {
 	CreateScheduledQuery(
 		ctx context.Context,
 		name, queryString, scheduleExpression, executionRoleArn,
-		notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable string,
+		notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken string,
 		tags map[string]string,
 	) (*ScheduledQuery, error)
 	DescribeScheduledQuery(ctx context.Context, arnStr string) (*ScheduledQuery, error)
@@ -31,7 +31,9 @@ type StorageBackend interface {
 	ListTagsForResource(ctx context.Context, arnStr string) ([]map[string]string, error)
 	DescribeAccountSettings(ctx context.Context) AccountSettings
 	PrepareQuery(ctx context.Context, queryString string, validateOnly bool) (*PrepareQueryResult, error)
-	UpdateAccountSettings(ctx context.Context, queryPricingModel string, maxQueryTCU *int32) (AccountSettings, error)
+	UpdateAccountSettings(
+		ctx context.Context, queryPricingModel string, maxQueryTCU *int32, queryCompute *QueryComputeUpdate,
+	) (AccountSettings, error)
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.

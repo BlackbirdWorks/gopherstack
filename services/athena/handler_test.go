@@ -1150,7 +1150,7 @@ func TestHandler_BatchGetPreparedStatement(t *testing.T) {
 					`{"StatementName":"s1","WorkGroup":"primary","QueryStatement":"SELECT 1"}`)
 				require.Equal(t, http.StatusOK, createRec.Code)
 			},
-			body:            `{"WorkGroup":"primary","StatementNames":["s1","missing"]}`,
+			body:            `{"WorkGroup":"primary","PreparedStatementNames":["s1","missing"]}`,
 			wantStatus:      http.StatusOK,
 			wantFound:       1,
 			wantUnprocessed: 1,
@@ -1173,7 +1173,7 @@ func TestHandler_BatchGetPreparedStatement(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			found, _ := resp["PreparedStatements"].([]any)
 			assert.Len(t, found, tt.wantFound)
-			unprocessed, _ := resp["UnprocessedStatementNames"].([]any)
+			unprocessed, _ := resp["UnprocessedPreparedStatementNames"].([]any)
 			assert.Len(t, unprocessed, tt.wantUnprocessed)
 		})
 	}
@@ -1411,9 +1411,11 @@ func TestHandler_CreatePresignedNotebookUrl(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantURL {
-				var resp map[string]string
+				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp["NotebookSessionUrl"], tt.sessionID)
+				assert.Contains(t, resp["NotebookUrl"], tt.sessionID)
+				assert.NotEmpty(t, resp["AuthToken"])
+				assert.Positive(t, resp["AuthTokenExpirationTime"])
 			}
 		})
 	}
@@ -2109,7 +2111,7 @@ func TestHandler_ResultConfiguration_AclAndOwner(t *testing.T) {
 		"ResultConfiguration":{
 			"OutputLocation":"s3://my-bucket/results/",
 			"ExpectedBucketOwner":"111111111111",
-			"ACLConfiguration":{"S3AclOption":"BUCKET_OWNER_FULL_CONTROL"},
+			"AclConfiguration":{"S3AclOption":"BUCKET_OWNER_FULL_CONTROL"},
 			"EncryptionConfiguration":{"EncryptionOption":"SSE_KMS","KmsKey":"arn:aws:kms:us-east-1:000000000000:key/abc"}
 		}
 	}`
@@ -2127,7 +2129,9 @@ func TestHandler_ResultConfiguration_AclAndOwner(t *testing.T) {
 
 	assert.Equal(t, "s3://my-bucket/results/", rc["OutputLocation"])
 	assert.Equal(t, "111111111111", rc["ExpectedBucketOwner"])
-	acl := rc["ACLConfiguration"].(map[string]any)
+	// Wire key is "AclConfiguration" (not "ACLConfiguration") to match the real
+	// Athena deserializer's exact-case switch on the JSON key.
+	acl := rc["AclConfiguration"].(map[string]any)
 	assert.Equal(t, "BUCKET_OWNER_FULL_CONTROL", acl["S3AclOption"])
 	enc := rc["EncryptionConfiguration"].(map[string]any)
 	assert.Equal(t, "SSE_KMS", enc["EncryptionOption"])
@@ -2295,10 +2299,12 @@ func TestBackend_ARNsUseRegionAndAccount(t *testing.T) {
 			require.Len(t, gotTags, 1)
 			assert.Equal(t, "env", gotTags[0].Key)
 
-			presigned, err := b.CreatePresignedNotebookURL("sess-1")
+			presigned, authToken, authTokenExpiration, err := b.CreatePresignedNotebookURL("sess-1")
 			require.NoError(t, err)
 			assert.Contains(t, presigned, tt.region)
 			assert.Contains(t, presigned, "sess-1")
+			assert.NotEmpty(t, authToken)
+			assert.Positive(t, authTokenExpiration)
 		})
 	}
 }

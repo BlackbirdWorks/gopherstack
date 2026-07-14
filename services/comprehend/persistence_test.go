@@ -22,7 +22,7 @@ func newFullPersistenceTestBackend(t *testing.T) *comprehend.InMemoryBackend {
 	// jobs table.
 	job, err := b.StartJob("entities-detection-job", "full-job", map[string]any{
 		"LanguageCode": "en",
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	// resources table (a flywheel, so StartFlywheelIteration below has

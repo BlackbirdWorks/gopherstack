@@ -29,9 +29,16 @@ const (
 	keyAttributeName             = "AttributeName"
 	mockDestination              = "mock"
 	keyConfirmationCode          = "ConfirmationCode"
-	authTypeBearer               = "Bearer"
-	authFlowRefreshToken         = "REFRESH_TOKEN"
-	authFlowRefreshTokenAuth     = "REFRESH_TOKEN_AUTH"
+	// keyCustomMessage/keyCustomMessageSubject are gopherstack extensions (not part
+	// of the real AWS CodeDeliveryDetailsType) that surface a CustomMessage Lambda
+	// trigger's returned emailMessage/emailSubject (or smsMessage) so integration
+	// tests can observe the trigger fired and read its output, mirroring the
+	// existing keyConfirmationCode convenience above.
+	keyCustomMessage         = "CustomMessage"
+	keyCustomMessageSubject  = "CustomMessageSubject"
+	authTypeBearer           = "Bearer"
+	authFlowRefreshToken     = "REFRESH_TOKEN"
+	authFlowRefreshTokenAuth = "REFRESH_TOKEN_AUTH"
 )
 
 const (
@@ -421,6 +428,8 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrDeviceNotFound, ErrDeviceNotFound.Error()},
 	{ErrWebAuthnCredentialNotFound, ErrWebAuthnCredentialNotFound.Error()},
 	{ErrAuthEventNotFound, ErrAuthEventNotFound.Error()},
+	{ErrUserLambdaValidation, ErrUserLambdaValidation.Error()},
+	{ErrUnexpectedLambda, ErrUnexpectedLambda.Error()},
 	{errUnknownAction, "UnknownOperationException"},
 }
 

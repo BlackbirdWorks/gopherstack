@@ -473,6 +473,8 @@ func TestRefinement2_FailoverDBCluster(t *testing.T) {
 
 	h := newTestHandler(t)
 	createCluster(t, h, "failover-cluster")
+	createInstance(t, h, "failover-writer", "failover-cluster")
+	createInstance(t, h, "failover-reader", "failover-cluster")
 
 	rr := doRequest(t, h, url.Values{
 		"Action":              {"FailoverDBCluster"},
@@ -480,6 +482,7 @@ func TestRefinement2_FailoverDBCluster(t *testing.T) {
 		"DBClusterIdentifier": {"failover-cluster"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), "<IsClusterWriter>true</IsClusterWriter>")
 }
 
 // TestRefinement2_ModifyRebootDBInstance tests instance modify and reboot.
@@ -595,7 +598,7 @@ func TestRefinement2_DescribeDBClusterParameterGroups_NotFound(t *testing.T) {
 		"DBClusterParameterGroupName": {"nonexistent-cpg"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBClusterParameterGroupNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 // TestRefinement2_ModifyDBCluster tests cluster modification.

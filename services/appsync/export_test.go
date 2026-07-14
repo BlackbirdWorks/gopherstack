@@ -18,9 +18,10 @@ func ToDynamoDBJSON(val any) string {
 
 // SnapshotRegistry is the exported test hook for the backend's internal
 // store.Registry.SnapshotAll. It exists solely so appsync_test can exercise
-// the Phase 3.3 pkgs/store registry round trip (this service has no
-// persistence.go / Snapshot-Restore wiring of its own) without needing an
-// unexported field accessor.
+// the Phase 3.3 pkgs/store registry round trip in isolation -- i.e. without
+// the explicit apiKeys handling, version guard, and Tags-close housekeeping
+// that the production persistence.go's Snapshot/Restore layer adds on top --
+// without needing an unexported field accessor.
 func (b *InMemoryBackend) SnapshotRegistry() (map[string]json.RawMessage, error) {
 	return b.registry.SnapshotAll()
 }

@@ -534,9 +534,9 @@ func TestRefinement1_AddRefDataSourceRoundTrip(t *testing.T) {
 		"ReferenceDataSource": map[string]any{
 			"TableName": "MyTable",
 			"S3ReferenceDataSource": map[string]any{
-				"BucketARN": "arn:aws:s3:::my-bucket",
-				"FileKey":   "ref.csv",
-				"RoleARN":   "arn:aws:iam::000000000000:role/r",
+				"BucketARN":        "arn:aws:s3:::my-bucket",
+				"FileKey":          "ref.csv",
+				"ReferenceRoleARN": "arn:aws:iam::000000000000:role/r",
 			},
 			"ReferenceSchema": map[string]any{
 				"RecordFormat":  map[string]any{"RecordFormatType": "CSV"},

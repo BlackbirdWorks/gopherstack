@@ -312,7 +312,7 @@ func TestBatch1Ops_DBSubnetGroup_CreateAlreadyExists(t *testing.T) {
 		"SubnetIds.member.1": {"subnet-001"},
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBSubnetGroupAlreadyExistsFault")
+	assert.Contains(t, rr.Body.String(), "DBSubnetGroupAlreadyExists")
 }
 
 func TestBatch1Ops_DBSubnetGroup_SubnetGroupStatusComplete(t *testing.T) {
@@ -432,7 +432,7 @@ func TestBatch1Ops_DBClusterParameterGroup_DeleteNotFound(t *testing.T) {
 		"DBClusterParameterGroupName": {"nonexistent-pg"},
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBClusterParameterGroupNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 func TestBatch1Ops_DBClusterParameterGroup_DescribeParameters(t *testing.T) {
@@ -781,7 +781,7 @@ func TestBatch1Ops_EventSubscription_AlreadyExists(t *testing.T) {
 		"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:topic"},
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "SubscriptionAlreadyExistFault")
+	assert.Contains(t, rr.Body.String(), "SubscriptionAlreadyExist")
 }
 
 func TestBatch1Ops_EventSubscription_NotFound(t *testing.T) {
@@ -794,7 +794,7 @@ func TestBatch1Ops_EventSubscription_NotFound(t *testing.T) {
 		"SubscriptionName": {"nonexistent-sub"},
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "SubscriptionNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "SubscriptionNotFound")
 }
 
 func TestBatch1Ops_EventSubscription_DescribeAll(t *testing.T) {
@@ -1334,7 +1334,7 @@ func TestBatch1Ops_DBParameterGroup_CRUD(t *testing.T) {
 		"DBParameterGroupName": {"param-pg-1"},
 	})
 	require.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 func TestBatch1Ops_CopyDBParameterGroup_FieldsPreserved(t *testing.T) {

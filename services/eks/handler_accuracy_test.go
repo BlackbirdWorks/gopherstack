@@ -575,7 +575,7 @@ func TestAccuracy_Addon_UpdateAddon_Configuration_And_ResolveConflicts(t *testin
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	doREST(t, h, http.MethodPost, "/clusters/c1/addons", map[string]any{"addonName": "coredns"})
 
-	rec := doREST(t, h, http.MethodPut, "/clusters/c1/addons/coredns", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/clusters/c1/addons/coredns/update", map[string]any{
 		"configurationValues": `{"replicaCount":3}`,
 		"resolveConflicts":    "PRESERVE",
 	})
@@ -681,7 +681,7 @@ func TestAccuracy_Logging_HTTP_StructuredResponse(t *testing.T) {
 
 	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
-	doREST(t, h, http.MethodPut, "/clusters/c1", map[string]any{
+	doREST(t, h, http.MethodPost, "/clusters/c1/update-config", map[string]any{
 		"logging": map[string]any{
 			"clusterLogging": []map[string]any{
 				{"types": []string{"api", "audit"}, "enabled": true},
@@ -909,7 +909,7 @@ func TestAccuracy_Logging_HTTP_Disabled_Types_Preserved(t *testing.T) {
 	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
-	doREST(t, h, http.MethodPut, "/clusters/c1", map[string]any{
+	doREST(t, h, http.MethodPost, "/clusters/c1/update-config", map[string]any{
 		"logging": map[string]any{
 			"clusterLogging": []map[string]any{
 				{"types": []string{"api", "audit", "authenticator"}, "enabled": true},
@@ -917,7 +917,7 @@ func TestAccuracy_Logging_HTTP_Disabled_Types_Preserved(t *testing.T) {
 		},
 	})
 
-	doREST(t, h, http.MethodPut, "/clusters/c1", map[string]any{
+	doREST(t, h, http.MethodPost, "/clusters/c1/update-config", map[string]any{
 		"logging": map[string]any{
 			"clusterLogging": []map[string]any{
 				{"types": []string{"audit"}, "enabled": false},

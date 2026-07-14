@@ -858,7 +858,7 @@ func (rc *ResourceCreator) createRoute53HostedZone(
 		comment = resolve(cfg["Comment"], params, physicalIDs)
 	}
 
-	zone, err := rc.backends.Route53.Backend.CreateHostedZone(name, uuid.New().String(), comment, false)
+	zone, err := rc.backends.Route53.Backend.CreateHostedZone(name, uuid.New().String(), comment, false, "")
 	if err != nil {
 		return "", fmt.Errorf("create Route53 hosted zone %s: %w", name, err)
 	}

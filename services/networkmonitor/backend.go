@@ -44,6 +44,9 @@ const (
 	probeStateActive  = "ACTIVE"
 	probeStatePending = "PENDING"
 
+	protocolTCP  = "TCP"
+	protocolICMP = "ICMP"
+
 	defaultAggregationPeriod = int64(60)
 	minAggregationPeriod     = int64(30)
 
@@ -51,9 +54,31 @@ const (
 
 	arnColonParts  = 6
 	probePathParts = 2
+
+	// minPacketSize/maxPacketSize bound the probe packetSize (bytes), matching
+	// the real networkmonitor API's documented constraint ("must be a number
+	// between 56 and 8500").
+	minPacketSize = int32(56)
+	maxPacketSize = int32(8500)
+
+	// minDestinationPort/maxDestinationPort bound the probe destinationPort.
+	minDestinationPort = int32(1)
+	maxDestinationPort = int32(65535)
 )
 
 var monitorNameRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,200}$`)
+
+// isValidProbeState reports whether state is one of the known ProbeState
+// enum values from the real SDK (types.ProbeState.Values()): PENDING,
+// ACTIVE, INACTIVE, ERROR, DELETING, DELETED.
+func isValidProbeState(state string) bool {
+	switch state {
+	case "PENDING", "ACTIVE", "INACTIVE", "ERROR", "DELETING", "DELETED":
+		return true
+	default:
+		return false
+	}
+}
 
 // StorageBackend is the interface for the Network Monitor in-memory backend.
 type StorageBackend interface {
@@ -203,7 +228,8 @@ func (b *InMemoryBackend) CreateMonitor(
 	var probes []*Probe
 
 	for _, pi := range probeInputs {
-		if err := validateProbeInput(pi.Destination, pi.Protocol, pi.SourceArn, pi.DestinationPort); err != nil {
+		proto, err := validateProbeInput(pi.Destination, pi.Protocol, pi.SourceArn, pi.DestinationPort, pi.PacketSize)
+		if err != nil {
 			return nil, err
 		}
 
@@ -219,7 +245,7 @@ func (b *InMemoryBackend) CreateMonitor(
 			ProbeArn:        probeARN,
 			SourceArn:       pi.SourceArn,
 			Destination:     pi.Destination,
-			Protocol:        pi.Protocol,
+			Protocol:        proto,
 			DestinationPort: pi.DestinationPort,
 			PacketSize:      pi.PacketSize,
 			State:           probeStateActive,
@@ -389,7 +415,8 @@ func (b *InMemoryBackend) CreateProbe(
 		return nil, fmt.Errorf("%w: probe is required", ErrValidation)
 	}
 
-	if err := validateProbeInput(pi.Destination, pi.Protocol, pi.SourceArn, pi.DestinationPort); err != nil {
+	proto, err := validateProbeInput(pi.Destination, pi.Protocol, pi.SourceArn, pi.DestinationPort, pi.PacketSize)
+	if err != nil {
 		return nil, err
 	}
 
@@ -417,7 +444,7 @@ func (b *InMemoryBackend) CreateProbe(
 		ProbeArn:        probeARN,
 		SourceArn:       pi.SourceArn,
 		Destination:     pi.Destination,
-		Protocol:        pi.Protocol,
+		Protocol:        proto,
 		DestinationPort: pi.DestinationPort,
 		PacketSize:      pi.PacketSize,
 		State:           probeStateActive,
@@ -495,6 +522,11 @@ func (b *InMemoryBackend) UpdateProbe(
 		return nil, fmt.Errorf("%w: update request is required", ErrValidation)
 	}
 
+	normalizedProtocol, err := validateUpdateProbeRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock()
@@ -516,15 +548,79 @@ func (b *InMemoryBackend) UpdateProbe(
 	}
 
 	probe := m.Probes[idx]
-	now := time.Now().UTC()
 
+	if resultErr := validateProbeUpdateResult(probe, req, normalizedProtocol); resultErr != nil {
+		return nil, resultErr
+	}
+
+	now := time.Now().UTC()
+	applyProbeUpdate(probe, req, normalizedProtocol, now)
+	m.ModifiedAt = &now
+
+	return probeCopy(probe), nil
+}
+
+// validateUpdateProbeRequest validates an UpdateProbe request's optional
+// fields in isolation, before any resource lookup, and returns the
+// canonicalised (upper-cased) protocol if one was supplied ("" otherwise).
+func validateUpdateProbeRequest(req *updateProbeRequest) (string, error) {
+	if err := validateDestinationPort(req.DestinationPort); err != nil {
+		return "", err
+	}
+
+	if err := validatePacketSize(req.PacketSize); err != nil {
+		return "", err
+	}
+
+	if err := validateProbeState(req.State); err != nil {
+		return "", err
+	}
+
+	if req.Protocol == "" {
+		return "", nil
+	}
+
+	normalizedProtocol := strings.ToUpper(req.Protocol)
+	if normalizedProtocol != protocolTCP && normalizedProtocol != protocolICMP {
+		return "", fmt.Errorf("%w: probe protocol must be TCP or ICMP", ErrValidation)
+	}
+
+	return normalizedProtocol, nil
+}
+
+// validateProbeUpdateResult enforces the same TCP-requires-destinationPort
+// invariant CreateProbe enforces, against the *effective* post-update values
+// (an update may switch protocol to TCP without also supplying a port, or may
+// clear an existing port on an already-TCP probe -- neither is a valid end
+// state).
+func validateProbeUpdateResult(probe *Probe, req *updateProbeRequest, normalizedProtocol string) error {
+	effectiveProtocol := probe.Protocol
+	if normalizedProtocol != "" {
+		effectiveProtocol = normalizedProtocol
+	}
+
+	effectiveDestPort := probe.DestinationPort
+	if req.DestinationPort != nil {
+		effectiveDestPort = req.DestinationPort
+	}
+
+	if effectiveProtocol == protocolTCP && effectiveDestPort == nil {
+		return fmt.Errorf("%w: destinationPort is required when protocol is TCP", ErrValidation)
+	}
+
+	return nil
+}
+
+// applyProbeUpdate mutates probe in place with the already-validated fields
+// present in req, substituting normalizedProtocol for req.Protocol.
+func applyProbeUpdate(probe *Probe, req *updateProbeRequest, normalizedProtocol string, now time.Time) {
 	if req.Destination != "" {
 		probe.Destination = req.Destination
 		probe.AddressFamily = detectAddressFamily(req.Destination)
 	}
 
-	if req.Protocol != "" {
-		probe.Protocol = req.Protocol
+	if normalizedProtocol != "" {
+		probe.Protocol = normalizedProtocol
 	}
 
 	if req.DestinationPort != nil {
@@ -536,7 +632,7 @@ func (b *InMemoryBackend) UpdateProbe(
 	}
 
 	if req.State != "" {
-		probe.State = req.State
+		probe.State = strings.ToUpper(req.State)
 	}
 
 	if req.Tags != nil {
@@ -544,9 +640,6 @@ func (b *InMemoryBackend) UpdateProbe(
 	}
 
 	probe.ModifiedAt = &now
-	m.ModifiedAt = &now
-
-	return probeCopy(probe), nil
 }
 
 // ListTagsForResource returns tags for a monitor or probe by ARN.
@@ -701,30 +794,86 @@ func validateMonitorName(name string) error {
 	return nil
 }
 
-func validateProbeInput(destination, protocol, sourceARN string, destPort *int32) error {
+// validateProbeInput validates a full probe definition supplied at creation
+// time (CreateMonitor's nested probes and CreateProbe). It returns the
+// canonicalised (upper-cased) protocol so callers persist "TCP"/"ICMP"
+// rather than whatever case the caller sent, matching the AWS enum wire
+// contract.
+func validateProbeInput(destination, protocol, sourceARN string, destPort, packetSize *int32) (string, error) {
 	if destination == "" {
-		return fmt.Errorf("%w: probe destination is required", ErrValidation)
+		return "", fmt.Errorf("%w: probe destination is required", ErrValidation)
 	}
 
 	if protocol == "" {
-		return fmt.Errorf("%w: probe protocol is required", ErrValidation)
+		return "", fmt.Errorf("%w: probe protocol is required", ErrValidation)
 	}
 
 	proto := strings.ToUpper(protocol)
-	if proto != "TCP" && proto != "ICMP" {
-		return fmt.Errorf("%w: probe protocol must be TCP or ICMP", ErrValidation)
+	if proto != protocolTCP && proto != protocolICMP {
+		return "", fmt.Errorf("%w: probe protocol must be TCP or ICMP", ErrValidation)
 	}
 
 	if sourceARN == "" {
-		return fmt.Errorf("%w: probe sourceArn is required", ErrValidation)
+		return "", fmt.Errorf("%w: probe sourceArn is required", ErrValidation)
 	}
 
-	if proto == "TCP" && destPort == nil {
-		return fmt.Errorf("%w: destinationPort is required when protocol is TCP", ErrValidation)
+	if proto == protocolTCP && destPort == nil {
+		return "", fmt.Errorf("%w: destinationPort is required when protocol is TCP", ErrValidation)
 	}
 
-	if destPort != nil && (*destPort < 1 || *destPort > 65535) {
+	if err := validateDestinationPort(destPort); err != nil {
+		return "", err
+	}
+
+	if err := validatePacketSize(packetSize); err != nil {
+		return "", err
+	}
+
+	return proto, nil
+}
+
+// validateDestinationPort enforces the 1-65535 range documented for probe
+// destinationPort. A nil port (not provided) is always valid here; the
+// TCP-requires-destinationPort rule is enforced separately by callers.
+func validateDestinationPort(port *int32) error {
+	if port == nil {
+		return nil
+	}
+
+	if *port < minDestinationPort || *port > maxDestinationPort {
 		return fmt.Errorf("%w: destinationPort must be between 1 and 65535", ErrValidation)
+	}
+
+	return nil
+}
+
+// validatePacketSize enforces the 56-8500 byte range documented for probe
+// packetSize.
+func validatePacketSize(size *int32) error {
+	if size == nil {
+		return nil
+	}
+
+	if *size < minPacketSize || *size > maxPacketSize {
+		return fmt.Errorf("%w: packetSize must be between 56 and 8500", ErrValidation)
+	}
+
+	return nil
+}
+
+// validateProbeState enforces that a caller-supplied probe state (UpdateProbe's
+// optional state field) is one of the known ProbeState enum values. An empty
+// string (not provided) is always valid.
+func validateProbeState(state string) error {
+	if state == "" {
+		return nil
+	}
+
+	if !isValidProbeState(strings.ToUpper(state)) {
+		return fmt.Errorf(
+			"%w: state must be one of PENDING, ACTIVE, INACTIVE, ERROR, DELETING, DELETED",
+			ErrValidation,
+		)
 	}
 
 	return nil

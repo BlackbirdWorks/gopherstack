@@ -74,7 +74,11 @@ func (b *InMemoryBackend) DeleteStackSet(name string) error {
 	b.mu.Lock("DeleteStackSet")
 	defer b.mu.Unlock()
 	if !b.stackSets.Has(name) {
-		return ErrStackSetNotFound
+		// DeleteStackSet's modeled error set (OperationInProgressException,
+		// StackSetNotEmptyException) has no "not found" case — like DeleteStack,
+		// deleting a StackSet that doesn't exist (or was already deleted) is a
+		// silent no-op in real AWS, not an error.
+		return nil
 	}
 	if len(b.stackInstances[name]) > 0 {
 		return ErrStackSetNotEmpty
@@ -1107,7 +1111,10 @@ func (b *InMemoryBackend) DescribeStackRefactor(stackRefactorID string) (string,
 	defer b.mu.RUnlock()
 	r, ok := b.stackRefactors.Get(stackRefactorID)
 	if !ok {
-		return "", nil
+		// Unlike CreateStackRefactor/ExecuteStackRefactor/List*, DescribeStackRefactor's
+		// SDK-modeled error set includes StackRefactorNotFoundException — it is not
+		// fire-and-forget, so an unknown ID must be a real error, not an empty 200.
+		return "", fmt.Errorf("%w: %s", ErrStackRefactorNotFound, stackRefactorID)
 	}
 
 	return r.Status, nil

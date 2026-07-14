@@ -555,14 +555,38 @@ func (b *InMemoryBackend) SignUpWithValidation(
 	attrs := make(map[string]string, len(userAttributes))
 	maps.Copy(attrs, userAttributes)
 
-	// Auto-verify attributes that are configured on the pool.
-	autoConfirmed := false
+	preSignUpResp, err := b.invokeLambdaTrigger(
+		pool, triggerKeyPreSignUp, triggerSourcePreSignUpSignUp, clientID, username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(attrs),
+			"validationData":       map[string]any{},
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	lambdaAutoConfirm, lambdaAutoVerifyEmail, lambdaAutoVerifyPhone := parsePreSignUpResponse(preSignUpResp)
+
+	// Auto-verify attributes that are configured on the pool, or that the PreSignUp
+	// trigger explicitly requested verification for.
+	autoConfirmed := lambdaAutoConfirm
 
 	for _, attr := range pool.AutoVerifiedAttributes {
 		if _, hasAttr := attrs[attr]; hasAttr {
 			attrs[attr+"_verified"] = attrVerifiedTrue
 			autoConfirmed = true
 		}
+	}
+
+	if lambdaAutoVerifyEmail {
+		attrs[attrEmail+"_verified"] = attrVerifiedTrue
+	}
+
+	if lambdaAutoVerifyPhone {
+		attrs["phone_number_verified"] = attrVerifiedTrue
 	}
 
 	status := UserStatusUnconfirmed
@@ -642,7 +666,7 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 	user.UpdatedAt = time.Now()
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user)
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenNewPasswordFlow)
 	if err != nil {
 		return nil, err
 	}
@@ -995,7 +1019,7 @@ func (b *InMemoryBackend) RespondToSRPChallenge(clientID, session string) (*Toke
 
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user)
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
 	if err != nil {
 		return nil, err
 	}

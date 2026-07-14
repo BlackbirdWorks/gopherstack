@@ -641,7 +641,9 @@ func (h *Handler) handleListAccountsForParent(c *echo.Context, body []byte) erro
 		objs = append(objs, toAccountObject(a))
 	}
 
-	return c.JSON(http.StatusOK, listAccountsForParentResponse{Accounts: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listAccountsForParentResponse{Accounts: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleListParents(c *echo.Context, body []byte) error {
@@ -800,7 +802,9 @@ func (h *Handler) handleListPoliciesForTarget(c *echo.Context, body []byte) erro
 		objs = append(objs, toPolicySummaryObject(p))
 	}
 
-	return c.JSON(http.StatusOK, listPoliciesForTargetResponse{Policies: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listPoliciesForTargetResponse{Policies: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleListTargetsForPolicy(c *echo.Context, body []byte) error {
@@ -819,7 +823,9 @@ func (h *Handler) handleListTargetsForPolicy(c *echo.Context, body []byte) error
 		objs = append(objs, policyTargetObject(t))
 	}
 
-	return c.JSON(http.StatusOK, listTargetsForPolicyResponse{Targets: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listTargetsForPolicyResponse{Targets: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleEnablePolicyType(c *echo.Context, body []byte) error {
@@ -891,7 +897,9 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 		return h.handleBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, listTagsForResourceResponse{Tags: tags})
+	p := page.New(tags, req.NextToken, 0, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listTagsForResourceResponse{Tags: p.Data, NextToken: p.Next})
 }
 
 // ----------------------------------------
@@ -924,7 +932,14 @@ func (h *Handler) handleDisableAWSServiceAccess(c *echo.Context, body []byte) er
 	return c.JSON(http.StatusOK, struct{}{})
 }
 
-func (h *Handler) handleListAWSServiceAccessForOrganization(c *echo.Context, _ []byte) error {
+func (h *Handler) handleListAWSServiceAccessForOrganization(c *echo.Context, body []byte) error {
+	var req listAWSServiceAccessRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
+		}
+	}
+
 	sps, err := h.Backend.ListAWSServiceAccessForOrganization()
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -938,7 +953,9 @@ func (h *Handler) handleListAWSServiceAccessForOrganization(c *echo.Context, _ [
 		})
 	}
 
-	return c.JSON(http.StatusOK, listAWSServiceAccessResponse{EnabledServicePrincipals: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listAWSServiceAccessResponse{EnabledServicePrincipals: p.Data, NextToken: p.Next})
 }
 
 // ----------------------------------------
@@ -996,7 +1013,12 @@ func (h *Handler) handleListDelegatedAdministrators(c *echo.Context, body []byte
 		})
 	}
 
-	return c.JSON(http.StatusOK, listDelegatedAdministratorsResponse{DelegatedAdministrators: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listDelegatedAdministratorsResponse{
+		DelegatedAdministrators: p.Data,
+		NextToken:               p.Next,
+	})
 }
 
 // ----------------------------------------
@@ -1553,7 +1575,9 @@ func (h *Handler) handleListCreateAccountStatus(c *echo.Context, body []byte) er
 		objs = append(objs, *s)
 	}
 
-	return c.JSON(http.StatusOK, listCreateAccountStatusResponse{CreateAccountStatuses: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listCreateAccountStatusResponse{CreateAccountStatuses: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleListAccountsWithInvalidEffectivePolicy(c *echo.Context, body []byte) error {
@@ -1602,7 +1626,9 @@ func (h *Handler) handleListDelegatedServicesForAccount(c *echo.Context, body []
 		})
 	}
 
-	return c.JSON(http.StatusOK, listDelegatedServicesForAccountResponse{DelegatedServices: objs})
+	p := page.New(objs, req.NextToken, req.MaxResults, defaultMaxResults)
+
+	return c.JSON(http.StatusOK, listDelegatedServicesForAccountResponse{DelegatedServices: p.Data, NextToken: p.Next})
 }
 
 func (h *Handler) handleListEffectivePolicyValidationErrors(c *echo.Context, body []byte) error {

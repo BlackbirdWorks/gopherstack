@@ -163,6 +163,107 @@ func TestBatch2Audit_DeleteStackSet_NotEmpty(t *testing.T) {
 	}
 }
 
+// TestBatch2Audit_DeleteStackSet_Idempotent verifies that DeleteStackSet on a
+// StackSet name that was never created (or already deleted) is a silent
+// no-op, not a StackSetNotFoundException. Confirmed against the SDK's
+// generated DeleteStackSet error deserializer, whose modeled error set is
+// exactly {OperationInProgressException, StackSetNotEmptyException} — no
+// "not found" case — mirroring the already-established DeleteStack
+// idempotency fix in this codebase.
+func TestBatch2Audit_DeleteStackSet_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	rec := postForm(t, h, url.Values{
+		"Action":       {"DeleteStackSet"},
+		"StackSetName": {"never-existed-set"},
+	}.Encode())
+
+	assert.Equal(t, http.StatusOK, rec.Code,
+		"DeleteStackSet on a nonexistent StackSet must succeed idempotently")
+	assert.NotContains(t, rec.Body.String(), "StackSetNotFoundException")
+}
+
+// TestBatch2Audit_UnsuffixedNotFoundCodes verifies that GeneratedTemplate and
+// ResourceScan not-found errors use the exact (unsuffixed) wire code the SDK
+// models — ErrorCode() on GeneratedTemplateNotFoundException/
+// ResourceScanNotFoundException returns "GeneratedTemplateNotFound" /
+// "ResourceScanNotFound" with no "Exception" suffix (same bug class as the
+// already-fixed ChangeSetNotFound). Sending the "...Exception"-suffixed code
+// this codebase previously emitted means aws-sdk-go-v2 clients never
+// recognize it as the typed exception and fall back to a generic APIError.
+func TestBatch2Audit_UnsuffixedNotFoundCodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		action   string
+		idParam  string
+		wantCode string
+	}{
+		{
+			name:     "DescribeGeneratedTemplate",
+			action:   "DescribeGeneratedTemplate",
+			idParam:  "GeneratedTemplateName",
+			wantCode: "GeneratedTemplateNotFound",
+		},
+		{
+			name:     "GetGeneratedTemplate",
+			action:   "GetGeneratedTemplate",
+			idParam:  "GeneratedTemplateName",
+			wantCode: "GeneratedTemplateNotFound",
+		},
+		{
+			name:     "UpdateGeneratedTemplate",
+			action:   "UpdateGeneratedTemplate",
+			idParam:  "GeneratedTemplateName",
+			wantCode: "GeneratedTemplateNotFound",
+		},
+		{
+			name:     "DeleteGeneratedTemplate",
+			action:   "DeleteGeneratedTemplate",
+			idParam:  "GeneratedTemplateName",
+			wantCode: "GeneratedTemplateNotFound",
+		},
+		{
+			name:     "DescribeResourceScan",
+			action:   "DescribeResourceScan",
+			idParam:  "ResourceScanId",
+			wantCode: "ResourceScanNotFound",
+		},
+		{
+			name:     "ListResourceScanResources",
+			action:   "ListResourceScanResources",
+			idParam:  "ResourceScanId",
+			wantCode: "ResourceScanNotFound",
+		},
+		{
+			name:     "ListResourceScanRelatedResources",
+			action:   "ListResourceScanRelatedResources",
+			idParam:  "ResourceScanId",
+			wantCode: "ResourceScanNotFound",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			rec := postForm(t, h, url.Values{
+				"Action":   {tt.action},
+				tt.idParam: {"does-not-exist"},
+			}.Encode())
+
+			assert.NotEqual(t, http.StatusOK, rec.Code, "%s on an unknown ID must fail", tt.action)
+			assert.Contains(t, rec.Body.String(), "<Code>"+tt.wantCode+"</Code>",
+				"%s must use the exact unsuffixed SDK-modeled error code", tt.action)
+		})
+	}
+}
+
 // TestBatch2Audit_DescribeStackSetOperation_Action verifies that
 // DescribeStackSetOperation returns the Action field in its response, matching
 // AWS CloudFormation behaviour. Previously only OperationId and Status were

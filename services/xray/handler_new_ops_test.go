@@ -174,7 +174,7 @@ func TestHandler_GetInsight(t *testing.T) {
 				tt.setup(b)
 			}
 
-			rec := doXrayRequest(t, h, "/GetInsight", tt.body)
+			rec := doXrayRequest(t, h, "/Insight", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -192,7 +192,7 @@ func TestHandler_GetInsight_ResponseFields(t *testing.T) {
 		StartTime: time.Unix(1700000000, 0),
 	})
 
-	rec := doXrayRequest(t, h, "/GetInsight", map[string]any{"InsightId": "insight-abc"})
+	rec := doXrayRequest(t, h, "/Insight", map[string]any{"InsightId": "insight-abc"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -250,7 +250,7 @@ func TestHandler_GetInsightEvents(t *testing.T) {
 				tt.setup(b)
 			}
 
-			rec := doXrayRequest(t, h, "/GetInsightEvents", tt.body)
+			rec := doXrayRequest(t, h, "/InsightEvents", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -316,7 +316,7 @@ func TestHandler_GetInsightImpactGraph(t *testing.T) {
 				tt.setup(b)
 			}
 
-			rec := doXrayRequest(t, h, "/GetInsightImpactGraph", tt.body)
+			rec := doXrayRequest(t, h, "/InsightImpactGraph", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -379,7 +379,7 @@ func TestHandler_GetInsightSummaries(t *testing.T) {
 				tt.setup(b)
 			}
 
-			rec := doXrayRequest(t, h, "/GetInsightSummaries", tt.body)
+			rec := doXrayRequest(t, h, "/InsightSummaries", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
@@ -454,7 +454,7 @@ func TestHandler_GetSamplingStatisticSummaries(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/GetSamplingStatisticSummaries", nil)
+			rec := doXrayRequest(t, h, "/SamplingStatisticSummaries", nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
@@ -528,7 +528,7 @@ func TestHandler_GetSamplingTargets(t *testing.T) {
 			// Pre-seed the rule used in the "existing rule" case.
 			b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "my-rule", FixedRate: 0.05, ReservoirSize: 5})
 
-			rec := doXrayRequest(t, h, "/GetSamplingTargets", tt.body)
+			rec := doXrayRequest(t, h, "/SamplingTargets", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
@@ -551,7 +551,7 @@ func TestHandler_GetSamplingTargets_TargetFields(t *testing.T) {
 	h, b := newTestHandlerWithBackend(t)
 	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "check-rule", FixedRate: 0.1, ReservoirSize: 10})
 
-	rec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
+	rec := doXrayRequest(t, h, "/SamplingTargets", map[string]any{
 		"SamplingStatisticsDocuments": []map[string]any{
 			{"RuleName": "check-rule", "ClientId": "c-1", "RequestCount": 50, "SampledCount": 5, "BorrowCount": 0},
 		},

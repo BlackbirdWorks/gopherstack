@@ -231,12 +231,10 @@ func verifyRegistryFixtureFlatResources(t *testing.T, restored *appsync.InMemory
 }
 
 // Test_RegistrySnapshotRestore exercises the store.Registry round trip added
-// by the Phase 3.3 pkgs/store conversion (see store_setup.go). AppSync has no
-// persistence.go / Snapshot-Restore wiring of its own (unlike ec2/sqs), so
-// this is the substitute proof that every converted table survives a
-// SnapshotAll -> RestoreAll cycle into a fresh backend with the same
-// key/value shape a real persistence layer would rely on if one is ever
-// wired up for this service.
+// by the Phase 3.3 pkgs/store conversion (see store_setup.go) in isolation
+// from the rest of persistence.go's Snapshot/Restore (apiKeys handling,
+// version guard, Tags-close housekeeping) -- see persistence_test.go for the
+// full backend-level round trip that real snapshot/restore drives.
 //
 // This is a single sequential lifecycle test (populate -> snapshot -> restore
 // -> verify), not a table of independent cases, so it does not use t.Run --

@@ -3,10 +3,12 @@ package acmpca_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -14,6 +16,13 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/acmpca"
 )
+
+// b64 base64-encodes s the way aws-sdk-go-v2 encodes []byte-typed blob
+// fields (IssueCertificateInput.Csr, ImportCertificateAuthorityCertificateInput.
+// Certificate/CertificateChain) before putting them on the wire.
+func b64(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
+}
 
 func newACMPCAHandler() *acmpca.Handler {
 	return acmpca.NewHandler(acmpca.NewInMemoryBackend(testAccountID, testRegion))
@@ -312,7 +321,7 @@ func TestACMPCAHandler_TagValidationAndCertificateChain(t *testing.T) {
 
 				rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
 					"CertificateAuthorityArn": caARN,
-					"Csr":                     csr,
+					"Csr":                     b64(csr),
 					"SigningAlgorithm":        "SHA256WITHECDSA",
 					"Validity":                map[string]any{"Type": "MONTHS", "Value": 6},
 				})
@@ -362,4 +371,210 @@ func TestACMPCAHandler_TagValidationAndCertificateChain(t *testing.T) {
 			tt.run(t, newACMPCAHandler())
 		})
 	}
+}
+
+// TestACMPCAHandler_Base64BlobFields verifies that IssueCertificate.Csr and
+// ImportCertificateAuthorityCertificate.Certificate/CertificateChain are decoded
+// as base64, matching the wire format aws-sdk-go-v2 produces for their []byte
+// ([]byte) Go types (see serializers.go Base64EncodeBytes calls upstream). A raw
+// (non-base64) PEM string must be rejected, and a base64-encoded PEM must be
+// accepted.
+func TestACMPCAHandler_Base64BlobFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("IssueCertificate rejects raw (non-base64) Csr", func(t *testing.T) {
+		t.Parallel()
+
+		h := newACMPCAHandler()
+		caARN := createHandlerCA(t, h)
+
+		subCA, err := h.Backend.CreateCertificateAuthority(
+			context.Background(),
+			"SUBORDINATE",
+			acmpca.CertificateAuthorityConfiguration{
+				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+			},
+		)
+		require.NoError(t, err)
+
+		csr, err := h.Backend.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
+		require.NoError(t, err)
+
+		rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
+			"CertificateAuthorityArn": caARN,
+			"Csr":                     csr, // raw PEM, NOT base64-encoded
+			"SigningAlgorithm":        "SHA256WITHECDSA",
+			"Validity":                map[string]any{"Type": "DAYS", "Value": 365},
+		})
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		resp := parseACMPCAResponse(t, rec)
+		assert.Equal(t, "InvalidParameterException", resp["__type"])
+	})
+
+	t.Run("IssueCertificate accepts base64-encoded Csr", func(t *testing.T) {
+		t.Parallel()
+
+		h := newACMPCAHandler()
+		caARN := createHandlerCA(t, h)
+
+		subCA, err := h.Backend.CreateCertificateAuthority(
+			context.Background(),
+			"SUBORDINATE",
+			acmpca.CertificateAuthorityConfiguration{
+				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+			},
+		)
+		require.NoError(t, err)
+
+		csr, err := h.Backend.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
+		require.NoError(t, err)
+
+		rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
+			"CertificateAuthorityArn": caARN,
+			"Csr":                     b64(csr),
+			"SigningAlgorithm":        "SHA256WITHECDSA",
+			"Validity":                map[string]any{"Type": "DAYS", "Value": 365},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseACMPCAResponse(t, rec)
+		assert.NotEmpty(t, resp["CertificateArn"])
+	})
+
+	t.Run("ImportCertificateAuthorityCertificate rejects raw (non-base64) Certificate", func(t *testing.T) {
+		t.Parallel()
+
+		h := newACMPCAHandler()
+
+		subCA, err := h.Backend.CreateCertificateAuthority(
+			context.Background(),
+			"SUBORDINATE",
+			acmpca.CertificateAuthorityConfiguration{
+				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+			},
+		)
+		require.NoError(t, err)
+
+		rec := doACMPCARequest(t, h, "ImportCertificateAuthorityCertificate", map[string]any{
+			"CertificateAuthorityArn": subCA.ARN,
+			"Certificate":             "-----BEGIN CERTIFICATE-----\nnotbase64\n-----END CERTIFICATE-----",
+		})
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+		resp := parseACMPCAResponse(t, rec)
+		assert.Equal(t, "InvalidParameterException", resp["__type"])
+	})
+
+	t.Run("ImportCertificateAuthorityCertificate accepts base64-encoded Certificate", func(t *testing.T) {
+		t.Parallel()
+
+		h := newACMPCAHandler()
+
+		rootCA, err := h.Backend.CreateCertificateAuthority(
+			context.Background(),
+			"ROOT",
+			acmpca.CertificateAuthorityConfiguration{
+				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Root CA"},
+			},
+		)
+		require.NoError(t, err)
+
+		subCA, err := h.Backend.CreateCertificateAuthority(
+			context.Background(),
+			"SUBORDINATE",
+			acmpca.CertificateAuthorityConfiguration{
+				Subject: acmpca.CertificateAuthoritySubject{CommonName: "Sub CA"},
+			},
+		)
+		require.NoError(t, err)
+
+		csr, err := h.Backend.GetCertificateAuthorityCsr(context.Background(), subCA.ARN)
+		require.NoError(t, err)
+
+		cert, err := h.Backend.IssueCertificate(context.Background(), rootCA.ARN, csr, 365)
+		require.NoError(t, err)
+
+		issued, err := h.Backend.GetCertificate(context.Background(), rootCA.ARN, cert.ARN)
+		require.NoError(t, err)
+
+		rec := doACMPCARequest(t, h, "ImportCertificateAuthorityCertificate", map[string]any{
+			"CertificateAuthorityArn": subCA.ARN,
+			"Certificate":             b64(issued.CertBody),
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		describeRec := doACMPCARequest(t, h, "DescribeCertificateAuthority", map[string]any{
+			"CertificateAuthorityArn": subCA.ARN,
+		})
+		require.Equal(t, http.StatusOK, describeRec.Code)
+		describeResp := parseACMPCAResponse(t, describeRec)
+		caOut, ok := describeResp["CertificateAuthority"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "ACTIVE", caOut["Status"])
+	})
+}
+
+// TestACMPCAHandler_CreatePermission_Duplicate verifies that granting the same
+// principal/source-account permission twice returns PermissionAlreadyExistsException
+// on the wire, matching real AWS ACM PCA behavior.
+func TestACMPCAHandler_CreatePermission_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newACMPCAHandler()
+	caARN := createHandlerCA(t, h)
+
+	body := map[string]any{
+		"Actions":                 []string{"IssueCertificate"},
+		"CertificateAuthorityArn": caARN,
+		"Principal":               "acm.amazonaws.com",
+		"SourceAccount":           testAccountID,
+	}
+
+	firstRec := doACMPCARequest(t, h, "CreatePermission", body)
+	require.Equal(t, http.StatusOK, firstRec.Code)
+
+	secondRec := doACMPCARequest(t, h, "CreatePermission", body)
+	require.Equal(t, http.StatusBadRequest, secondRec.Code)
+	resp := parseACMPCAResponse(t, secondRec)
+	assert.Equal(t, "PermissionAlreadyExistsException", resp["__type"])
+}
+
+// TestACMPCAHandler_DeleteCertificateAuthority_RestorableUntil verifies that
+// DescribeCertificateAuthority reports RestorableUntil (epoch seconds) for a
+// DELETED CA, matching real AWS ACM PCA wire shape.
+func TestACMPCAHandler_DeleteCertificateAuthority_RestorableUntil(t *testing.T) {
+	t.Parallel()
+
+	h := newACMPCAHandler()
+	caARN := createHandlerCA(t, h)
+
+	// Active CAs have no restoration window.
+	activeRec := doACMPCARequest(t, h, "DescribeCertificateAuthority", map[string]any{
+		"CertificateAuthorityArn": caARN,
+	})
+	require.Equal(t, http.StatusOK, activeRec.Code)
+	activeResp := parseACMPCAResponse(t, activeRec)
+	activeCA, ok := activeResp["CertificateAuthority"].(map[string]any)
+	require.True(t, ok)
+	assert.Nil(t, activeCA["RestorableUntil"])
+
+	require.NoError(t, h.Backend.UpdateCertificateAuthority(context.Background(), caARN, "DISABLED"))
+
+	deleteRec := doACMPCARequest(t, h, "DeleteCertificateAuthority", map[string]any{
+		"CertificateAuthorityArn":     caARN,
+		"PermanentDeletionTimeInDays": 7,
+	})
+	require.Equal(t, http.StatusOK, deleteRec.Code)
+
+	describeRec := doACMPCARequest(t, h, "DescribeCertificateAuthority", map[string]any{
+		"CertificateAuthorityArn": caARN,
+	})
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	describeResp := parseACMPCAResponse(t, describeRec)
+	caOut, ok := describeResp["CertificateAuthority"].(map[string]any)
+	require.True(t, ok)
+
+	restorableUntil, ok := caOut["RestorableUntil"].(float64)
+	require.True(t, ok, "RestorableUntil must be present as an epoch-seconds number once the CA is DELETED")
+
+	wantUntil := time.Now().UTC().AddDate(0, 0, 7)
+	assert.WithinDuration(t, wantUntil, time.Unix(int64(restorableUntil), 0), time.Minute)
 }

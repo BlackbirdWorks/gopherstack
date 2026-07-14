@@ -25,7 +25,7 @@ type StorageBackend interface {
 	DisassociateMembership(graphARN string) error
 	ListInvitations(maxResults int32, nextToken string) ([]*MemberDetail, string, error)
 
-	StartInvestigation(graphARN, entityARN, entityType string, scopeStart, scopeEnd time.Time) (string, error)
+	StartInvestigation(graphARN, entityARN string, scopeStart, scopeEnd time.Time) (string, error)
 	GetInvestigation(graphARN, investigationID string) (*Investigation, error)
 	ListInvestigations(graphARN string, maxResults int32, nextToken string) ([]*InvestigationDetail, string, error)
 	UpdateInvestigationState(graphARN, investigationID, state string) error

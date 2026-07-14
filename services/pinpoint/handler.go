@@ -47,7 +47,7 @@ const (
 	subPathJobsExport       = "jobs/export"
 	subPathJobsImport       = "jobs/import"
 	subPathVersions         = "versions"
-	subPathExecutionMetrics = "execution/metrics"
+	subPathExecutionMetrics = "execution-metrics"
 	phoneValidatePath       = "/v1/phone/number/validate"
 
 	// dispatchSplitN is the split count used in journey/campaign/segment sub-path dispatch.
@@ -608,13 +608,13 @@ func (h *Handler) extractJourneySubOp(method, rest string) string {
 		return "GetJourneyDateRangeKpi"
 	case subPath == subPathExecutionMetrics:
 		return "GetJourneyExecutionMetrics"
-	case strings.HasPrefix(subPath, "activities/") && strings.HasSuffix(subPath, "/execution/metrics"):
+	case strings.HasPrefix(subPath, "activities/") && strings.HasSuffix(subPath, "/"+subPathExecutionMetrics):
 		return "GetJourneyExecutionActivityMetrics"
 	case subPath == "runs":
 		return "GetJourneyRuns"
 	case strings.HasPrefix(subPath, "runs/"):
 		runRest := strings.TrimPrefix(subPath, "runs/")
-		if strings.HasSuffix(runRest, "/execution/metrics") {
+		if strings.HasSuffix(runRest, "/"+subPathExecutionMetrics) {
 			if strings.Contains(runRest, "/activities/") {
 				return "GetJourneyRunExecutionActivityMetrics"
 			}
@@ -1797,9 +1797,9 @@ func (h *Handler) dispatchJourneys(c *echo.Context, appID string) error {
 
 func (h *Handler) dispatchJourneyByID(c *echo.Context, appID, rest string) error {
 	// rest: {id}, {id}/state, {id}/kpis/daterange/{kpi},
-	//       {id}/execution/metrics, {id}/activities/{aid}/execution/metrics,
-	//       {id}/runs, {id}/runs/{rid}/execution/metrics,
-	//       {id}/runs/{rid}/activities/{aid}/execution/metrics
+	//       {id}/execution-metrics, {id}/activities/{aid}/execution-metrics,
+	//       {id}/runs, {id}/runs/{rid}/execution-metrics,
+	//       {id}/runs/{rid}/activities/{aid}/execution-metrics
 	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
 	journeyID := parts[0]
 	subPath := ""
@@ -1826,9 +1826,9 @@ func (h *Handler) dispatchJourneyByID(c *echo.Context, appID, rest string) error
 		return h.handleGetJourneyDateRangeKpi(c, appID, journeyID, kpiName)
 	case subPath == subPathExecutionMetrics:
 		return h.handleGetJourneyExecutionMetrics(c, appID, journeyID)
-	case strings.HasPrefix(subPath, "activities/") && strings.HasSuffix(subPath, "/execution/metrics"):
+	case strings.HasPrefix(subPath, "activities/") && strings.HasSuffix(subPath, "/"+subPathExecutionMetrics):
 		activityID := strings.TrimPrefix(subPath, "activities/")
-		activityID = strings.TrimSuffix(activityID, "/execution/metrics")
+		activityID = strings.TrimSuffix(activityID, "/"+subPathExecutionMetrics)
 
 		return h.handleGetJourneyExecutionActivityMetrics(c, appID, journeyID, activityID)
 	case subPath == "runs":
@@ -1841,7 +1841,7 @@ func (h *Handler) dispatchJourneyByID(c *echo.Context, appID, rest string) error
 }
 
 func (h *Handler) dispatchJourneyRun(c *echo.Context, appID, journeyID, rest string) error {
-	// rest: {runId}/execution/metrics, {runId}/activities/{aid}/execution/metrics
+	// rest: {runId}/execution-metrics, {runId}/activities/{aid}/execution-metrics
 	parts := strings.SplitN(rest, "/", dispatchSplitTwo)
 	runID := parts[0]
 	subPath := ""
@@ -1853,9 +1853,9 @@ func (h *Handler) dispatchJourneyRun(c *echo.Context, appID, journeyID, rest str
 	switch {
 	case subPath == subPathExecutionMetrics:
 		return h.handleGetJourneyRunExecutionMetrics(c, appID, journeyID, runID)
-	case strings.HasPrefix(subPath, "activities/") && strings.HasSuffix(subPath, "/execution/metrics"):
+	case strings.HasPrefix(subPath, "activities/") && strings.HasSuffix(subPath, "/"+subPathExecutionMetrics):
 		activityID := strings.TrimPrefix(subPath, "activities/")
-		activityID = strings.TrimSuffix(activityID, "/execution/metrics")
+		activityID = strings.TrimSuffix(activityID, "/"+subPathExecutionMetrics)
 
 		return h.handleGetJourneyRunExecutionActivityMetrics(c, appID, journeyID, runID, activityID)
 	}

@@ -1358,3 +1358,150 @@ func TestResourceGroupsHandler_ListTagSyncTasks(t *testing.T) {
 		})
 	}
 }
+
+// TestResourceGroupsHandler_TagSyncTask_CreatedAtIsEpochSeconds verifies that
+// CreatedAt is serialized as a JSON number of seconds since the Unix epoch
+// (the rest-json unixTimestamp format), not an RFC3339/ISO8601 string, for
+// both GetTagSyncTask and ListTagSyncTasks.
+func TestResourceGroupsHandler_TagSyncTask_CreatedAtIsEpochSeconds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestResourceGroupsHandler(t)
+	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "epoch-group"})
+	startRec := doResourceGroupsRequest(t, h, "StartTagSyncTask", map[string]any{
+		"Group":    "epoch-group",
+		"RoleArn":  "arn:aws:iam::000000000000:role/r",
+		"TagKey":   "env",
+		"TagValue": "prod",
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startOut struct {
+		TaskArn string `json:"TaskArn"`
+	}
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+
+	getRec := doResourceGroupsRequest(t, h, "GetTagSyncTask", map[string]any{"TaskArn": startOut.TaskArn})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	_, isNumber := getOut["CreatedAt"].(float64)
+	assert.True(t, isNumber, "GetTagSyncTask CreatedAt must be a JSON number: %s", getRec.Body.String())
+
+	listRec := doResourceGroupsRequest(t, h, "ListTagSyncTasks", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut struct {
+		TagSyncTasks []map[string]any `json:"TagSyncTasks"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.Len(t, listOut.TagSyncTasks, 1)
+	_, isNumber = listOut.TagSyncTasks[0]["CreatedAt"].(float64)
+	assert.True(t, isNumber, "ListTagSyncTasks CreatedAt must be a JSON number: %s", listRec.Body.String())
+}
+
+// TestResourceGroupsHandler_GroupingStatuses_UpdatedAtIsEpochSeconds verifies
+// UpdatedAt is serialized as a JSON number of epoch seconds, not a string.
+func TestResourceGroupsHandler_GroupingStatuses_UpdatedAtIsEpochSeconds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestResourceGroupsHandler(t)
+	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "status-group"})
+	doResourceGroupsRequest(t, h, "GroupResources", map[string]any{
+		"Group":        "status-group",
+		"ResourceArns": []string{"arn:aws:s3:::my-bucket"},
+	})
+
+	rec := doResourceGroupsRequest(t, h, "ListGroupingStatuses", map[string]any{"Group": "status-group"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		GroupingStatuses []map[string]any `json:"GroupingStatuses"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.GroupingStatuses, 1)
+	_, isNumber := out.GroupingStatuses[0]["UpdatedAt"].(float64)
+	assert.True(t, isNumber, "ListGroupingStatuses UpdatedAt must be a JSON number: %s", rec.Body.String())
+}
+
+// TestResourceGroupsHandler_GetGroupConfiguration_Status verifies the
+// GetGroupConfiguration response matches types.GroupConfiguration: it carries
+// a Status field ("UPDATE_COMPLETE" once a configuration is set) and no
+// fabricated GroupName field.
+func TestResourceGroupsHandler_GetGroupConfiguration_Status(t *testing.T) {
+	t.Parallel()
+
+	h := newTestResourceGroupsHandler(t)
+	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{
+		"Name": "cfg-status-group",
+		"Configuration": []map[string]any{
+			{"Type": "AWS::ResourceGroups::Generic"},
+		},
+	})
+
+	rec := doResourceGroupsRequest(t, h, "GetGroupConfiguration", map[string]any{"Group": "cfg-status-group"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		GroupConfiguration struct {
+			Status string `json:"Status"`
+		} `json:"GroupConfiguration"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "UPDATE_COMPLETE", out.GroupConfiguration.Status)
+	assert.NotContains(t, rec.Body.String(), "GroupName")
+}
+
+// TestResourceGroupsHandler_ListGroups_IdentifierFields verifies that
+// GroupIdentifiers include DisplayName, Criticality, and Owner alongside
+// GroupName/GroupArn/Description, matching types.GroupIdentifier.
+func TestResourceGroupsHandler_ListGroups_IdentifierFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestResourceGroupsHandler(t)
+	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "ident-group"})
+	doResourceGroupsRequest(t, h, "UpdateGroup", map[string]any{
+		"Group":       "ident-group",
+		"DisplayName": "Ident Group",
+		"Criticality": 2,
+	})
+
+	rec := doResourceGroupsRequest(t, h, "ListGroups", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		GroupIdentifiers []map[string]any `json:"GroupIdentifiers"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.GroupIdentifiers, 1)
+	assert.Equal(t, "Ident Group", out.GroupIdentifiers[0]["DisplayName"])
+	criticality, ok := out.GroupIdentifiers[0]["Criticality"].(float64)
+	require.True(t, ok, "Criticality must be a JSON number")
+	assert.Equal(t, 2, int(criticality))
+}
+
+// TestResourceGroupsHandler_DeleteGroup_EchoesGroup verifies DeleteGroupOutput
+// echoes back the deleted group's description, matching AWS.
+func TestResourceGroupsHandler_DeleteGroup_EchoesGroup(t *testing.T) {
+	t.Parallel()
+
+	h := newTestResourceGroupsHandler(t)
+	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{
+		"Name":        "echo-group",
+		"Description": "echo desc",
+	})
+
+	rec := doResourceGroupsRequest(t, h, "DeleteGroup", map[string]any{"Group": "echo-group"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Group struct {
+			Name        string `json:"Name"`
+			Description string `json:"Description"`
+		} `json:"Group"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "echo-group", out.Group.Name)
+	assert.Equal(t, "echo desc", out.Group.Description)
+}

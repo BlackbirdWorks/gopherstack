@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- sentinel errors ---
@@ -871,10 +872,15 @@ func (b *InMemoryBackend) ListCisScans() ([]map[string]any, error) {
 			"scanName":              s.ScanName,
 			keyStatus:               s.Status,
 			"securityLevel":         s.SecurityLevel,
-			"scheduledBy":           s.ScheduledAt.Format(time.RFC3339),
-			"failedChecks":          s.FailedChecks,
-			"totalChecks":           s.TotalChecks,
-			"targetAccountId":       s.TargetAccountID,
+			// scanDate is the real CisScan wire field (a DateTimeTimestamp,
+			// epoch-seconds encoded); "scheduledBy" is a distinct *string*
+			// field (the account/org that scheduled the scan) this backend
+			// does not track, so it is not emitted rather than filled with
+			// a fabricated value.
+			"scanDate":        awstime.Epoch(s.ScheduledAt),
+			"failedChecks":    s.FailedChecks,
+			"totalChecks":     s.TotalChecks,
+			"targetAccountId": s.TargetAccountID,
 		})
 	}
 
@@ -1541,15 +1547,20 @@ func (b *InMemoryBackend) BatchGetFindingDetails(_ []map[string]any) (map[string
 func (b *InMemoryBackend) BatchGetFreeTrialInfo(accountIDs []string) (map[string]any, error) {
 	accounts := make([]map[string]any, 0, len(accountIDs))
 
+	now := time.Now().UTC()
+
 	for _, id := range accountIDs {
 		accounts = append(accounts, map[string]any{
 			"accountId": id,
 			"freeTrialInfo": []map[string]any{
 				{
-					"end":     time.Now().UTC().AddDate(0, 0, 30).Format(time.RFC3339), //nolint:mnd // existing issue.
-					"start":   time.Now().UTC().Format(time.RFC3339),
+					// end/start are FreeTrialInfo's required DateTimeTimestamp
+					// members: the restjson1 deserializer expects an
+					// epoch-seconds JSON number, not an RFC3339 string.
+					"end":     awstime.Epoch(now.AddDate(0, 0, 30)), //nolint:mnd // existing issue.
+					"start":   awstime.Epoch(now),
 					keyStatus: "ACTIVE",
-					"type":    "EC2",
+					keyType:   "EC2",
 				},
 			},
 		})

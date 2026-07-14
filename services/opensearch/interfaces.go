@@ -12,6 +12,7 @@ type StorageBackend interface {
 	DescribeDomains(names []string) ([]*Domain, error)
 	ListDomainNames() []string
 	UpdateDomainConfig(name string, input UpdateDomainConfigInput) (*Domain, error)
+	PreviewDomainConfig(name string, input UpdateDomainConfigInput) (*Domain, error)
 	GetDomainHealth(domainName string) (map[string]any, error)
 	GetDomainNodes(domainName string) ([]map[string]any, error)
 	GetChangeProgress(domainName string) (map[string]any, error)

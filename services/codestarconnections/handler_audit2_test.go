@@ -295,6 +295,14 @@ func TestAudit2_CreateHost_Validation(t *testing.T) {
 }
 
 // --- DeleteHost with active connections ---
+//
+// The real DeleteHost operation does not document a dedicated typed exception
+// for this dependency check (only ResourceNotFoundException/
+// ResourceUnavailableException are modeled), so gopherstack maps it to
+// ConflictException -- an error type that actually exists in the service's
+// catalog ("two conflicting operations... on the same resource"), unlike the
+// fabricated "ResourceInUseException" this used to return (which is not a
+// real codestar-connections exception at all).
 
 func TestAudit2_DeleteHost_ResourceInUse(t *testing.T) {
 	t.Parallel()
@@ -314,7 +322,7 @@ func TestAudit2_DeleteHost_ResourceInUse(t *testing.T) {
 			name:        "delete host with active connection fails",
 			setupConn:   true,
 			wantStatus:  http.StatusBadRequest,
-			wantErrType: "ResourceInUseException",
+			wantErrType: "ConflictException",
 		},
 	}
 
@@ -383,6 +391,11 @@ func TestAudit2_DeleteHost_AfterDeletingConnections(t *testing.T) {
 }
 
 // --- DeleteRepositoryLink with active sync configs ---
+//
+// The real DeleteRepositoryLink operation documents
+// SyncConfigurationStillExistsException for exactly this dependency check
+// (confirmed against the AWS API reference and aws-sdk-go-v2's per-op error
+// deserializer, which registers that error code for DeleteRepositoryLink).
 
 func TestAudit2_DeleteRepositoryLink_ResourceInUse(t *testing.T) {
 	t.Parallel()
@@ -402,7 +415,7 @@ func TestAudit2_DeleteRepositoryLink_ResourceInUse(t *testing.T) {
 			name:        "delete link with active sync config fails",
 			createSync:  true,
 			wantStatus:  http.StatusBadRequest,
-			wantErrType: "ResourceInUseException",
+			wantErrType: "SyncConfigurationStillExistsException",
 		},
 	}
 
@@ -1049,7 +1062,13 @@ func TestAudit2_SyncBlocker_CleanedUpOnDelete(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, getRec.Code)
 }
 
-// --- UpdateSyncBlocker with unknown ID returns gracefully ---
+// --- UpdateSyncBlocker with unknown ID returns SyncBlockerDoesNotExistException ---
+//
+// The real UpdateSyncBlocker operation documents SyncBlockerDoesNotExistException
+// ("Unable to continue. The sync blocker does not exist.") as one of its
+// modeled errors, and aws-sdk-go-v2's per-op error deserializer for
+// UpdateSyncBlocker explicitly registers that error code -- unknown IDs are
+// NOT resolved gracefully.
 
 func TestAudit2_UpdateSyncBlocker_UnknownID(t *testing.T) {
 	t.Parallel()
@@ -1062,8 +1081,10 @@ func TestAudit2_UpdateSyncBlocker_UnknownID(t *testing.T) {
 		"ResourceName":   "some-stack",
 		"SyncType":       "CFN_STACK_SYNC",
 	})
-	// AWS returns 200 even for unknown blocker IDs (graceful).
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	resp := parseResp(t, rec)
+	assert.Equal(t, "SyncBlockerDoesNotExistException", resp["__type"])
 }
 
 // --- UpdateSyncBlocker requires Id ---
@@ -1397,7 +1418,12 @@ func TestAudit2_GetSyncBlockerSummary_EmptyBlockersIsArray(t *testing.T) {
 	assert.Empty(t, blockers)
 }
 
-// --- GetRepositorySyncStatus: StartedAt is RFC3339 ---
+// --- GetRepositorySyncStatus: StartedAt is an epoch-seconds JSON number ---
+//
+// aws-sdk-go-v2's awsAwsjson10_deserializeDocumentRepositorySyncAttempt parses
+// StartedAt via smithytime.ParseEpochSeconds(json.Number), rejecting strings
+// with "expected Timestamp to be a JSON Number, got string instead" -- so the
+// wire value must be a number, not an RFC3339 string.
 
 func TestAudit2_GetRepositorySyncStatus_StartedAtFormat(t *testing.T) {
 	t.Parallel()
@@ -1415,14 +1441,20 @@ func TestAudit2_GetRepositorySyncStatus_StartedAtFormat(t *testing.T) {
 
 	resp := parseResp(t, rec)
 	latest := resp["LatestSync"].(map[string]any)
-	startedAt, ok := latest["StartedAt"].(string)
-	require.True(t, ok)
-	assert.NotEmpty(t, startedAt)
-	// RFC3339 contains 'T' between date and time.
-	assert.Contains(t, startedAt, "T", "StartedAt must be RFC3339 formatted")
+	startedAt, ok := latest["StartedAt"].(float64)
+	require.True(t, ok, "StartedAt must decode as a JSON number (epoch seconds)")
+	assert.Positive(t, startedAt)
 }
 
-// --- CreateConnection: Tags NOT returned in CreateConnection response ---
+// --- CreateConnection: Tags echoed back in CreateConnection response ---
+//
+// A prior sweep (b1146508) removed Tags from this response, reasoning by
+// analogy with GetConnection's Connection view (whose real AWS type,
+// types.Connection, indeed has no Tags field). But CreateConnectionOutput is
+// a *distinct* shape from types.Connection: aws-sdk-go-v2's generated
+// CreateConnectionOutput struct has its own `Tags []types.Tag` field, and
+// awsAwsjson10_deserializeOpDocumentCreateConnectionOutput explicitly
+// deserializes a "Tags" key. Restored here to match the verified wire shape.
 
 func TestAudit2_CreateConnection_TagsRoundtrip(t *testing.T) {
 	t.Parallel()
@@ -1439,24 +1471,29 @@ func TestAudit2_CreateConnection_TagsRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResp(t, rec)
-	_, hasTags := resp["Tags"]
-	assert.False(t, hasTags, "CreateConnection must not include Tags in response")
-
-	arn := resp["ConnectionArn"].(string)
-	recTags := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": arn})
-	require.Equal(t, http.StatusOK, recTags.Code)
-
-	tagsResp := parseResp(t, recTags)
-	tags := tagsResp["Tags"].([]any)
+	tags, ok := resp["Tags"].([]any)
+	require.True(t, ok, "CreateConnection must echo Tags in response (real CreateConnectionOutput.Tags)")
 	require.Len(t, tags, 2)
 
 	tag0 := tags[0].(map[string]any)
 	tag1 := tags[1].(map[string]any)
 	assert.Equal(t, "env", tag0["Key"])
 	assert.Equal(t, "team", tag1["Key"])
+
+	arn := resp["ConnectionArn"].(string)
+	recTags := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": arn})
+	require.Equal(t, http.StatusOK, recTags.Code)
+
+	tagsResp := parseResp(t, recTags)
+	listTags := tagsResp["Tags"].([]any)
+	require.Len(t, listTags, 2)
 }
 
-// --- Host: Tags NOT returned in CreateHost response ---
+// --- Host: Tags echoed back in CreateHost response (see rationale above) ---
+//
+// CreateHostOutput likewise has its own `Tags []types.Tag` field on the real
+// SDK, distinct from types.Host (which has no Tags field, matching GetHost's
+// unaffected getHostView/listHostView).
 
 func TestAudit2_CreateHost_TagsRoundtrip(t *testing.T) {
 	t.Parallel()
@@ -1473,18 +1510,19 @@ func TestAudit2_CreateHost_TagsRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResp(t, rec)
-	_, hasTags := resp["Tags"]
-	assert.False(t, hasTags, "CreateHost must not include Tags in response")
+	tags, ok := resp["Tags"].([]any)
+	require.True(t, ok, "CreateHost must echo Tags in response (real CreateHostOutput.Tags)")
+	require.Len(t, tags, 1)
+	assert.Equal(t, "cost-center", tags[0].(map[string]any)["Key"])
 
 	hostArn := resp["HostArn"].(string)
 	recTags := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": hostArn})
 	require.Equal(t, http.StatusOK, recTags.Code)
 
 	tagsResp := parseResp(t, recTags)
-	tags := tagsResp["Tags"].([]any)
-	require.Len(t, tags, 1)
-	tag := tags[0].(map[string]any)
-	assert.Equal(t, "cost-center", tag["Key"])
+	listTags := tagsResp["Tags"].([]any)
+	require.Len(t, listTags, 1)
+	assert.Equal(t, "cost-center", listTags[0].(map[string]any)["Key"])
 }
 
 // --- ListSyncConfigurations: filter by SyncType ---

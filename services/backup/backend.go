@@ -383,7 +383,6 @@ type InMemoryBackend struct {
 	tieringConfigs           *store.Table[TieringConfiguration]
 	protectedResources       *store.Table[ProtectedResource]
 	globalSettings           map[string]string
-	recoveryPointLifecycle   map[string]string // vaultName:rpArn → lifecycle spec
 	recoveryPointIndexStatus map[string]string // vaultName:rpArn → index status
 	restoreValidations       map[string]string // restoreJobID → validation status
 	globalSettingsLastUpdate time.Time
@@ -402,7 +401,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		frameworkARNIndex:        make(map[string]string),
 		reportPlanARNIndex:       make(map[string]string),
 		globalSettings:           make(map[string]string),
-		recoveryPointLifecycle:   make(map[string]string),
 		recoveryPointIndexStatus: make(map[string]string),
 		restoreValidations:       make(map[string]string),
 		accountID:                accountID,
@@ -1246,7 +1244,6 @@ func (b *InMemoryBackend) Reset() {
 	b.reportPlanARNIndex = make(map[string]string)
 	b.globalSettings = make(map[string]string)
 	b.regionSettings = nil
-	b.recoveryPointLifecycle = make(map[string]string)
 	b.recoveryPointIndexStatus = make(map[string]string)
 	b.restoreValidations = make(map[string]string)
 }

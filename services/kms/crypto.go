@@ -118,7 +118,7 @@ func generateKeyMaterial(keySpec string) (*keyMaterial, error) {
 	default:
 		// Wrap with ErrValidation (in addition to errUnsupportedKeySpec) so an
 		// unrecognized KeySpec/KeyPairSpec classifies as ValidationException (400)
-		// rather than falling through classifyKMSError's default InternalServiceError
+		// rather than falling through classifyKMSError's default KMSInternalException
 		// (500). CreateKey and GenerateDataKeyPair both route unvalidated spec
 		// strings here.
 		return nil, fmt.Errorf("%w: %w: %s", ErrValidation, errUnsupportedKeySpec, keySpec)

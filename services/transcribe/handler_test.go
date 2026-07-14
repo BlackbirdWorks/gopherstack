@@ -606,7 +606,7 @@ func TestTranscribe_CreateMedicalVocabulary(t *testing.T) {
 			name: "duplicate",
 			setup: func(t *testing.T, b *transcribe.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateMedicalVocabulary("dup-med-vocab", "en-US", "s3://bucket/f.txt")
+				_, err := b.CreateMedicalVocabulary("dup-med-vocab", "en-US", "s3://bucket/f.txt", nil)
 				require.NoError(t, err)
 			},
 			body: map[string]any{
@@ -897,5 +897,135 @@ func TestTranscribe_DeleteMedicalTranscriptionJob(t *testing.T) {
 			rec := doTranscribeRequest(t, h, "DeleteMedicalTranscriptionJob", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
+	}
+}
+
+// ── Timestamp wire shape: epoch-seconds numbers, not RFC3339 strings ───────────
+//
+// The real aws-sdk-go-v2 transcribe deserializer parses CreationTime/StartTime/
+// CompletionTime/CreateTime/LastModifiedTime via smithytime.ParseEpochSeconds,
+// which requires a JSON number. A JSON string in that position makes the real
+// SDK reject the response outright, so every timestamp field must round-trip
+// as encoding/json.Number, never as a quoted string.
+
+func TestTranscribe_TimestampFields_AreJSONNumbers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		action     string
+		body       map[string]any
+		timeFields []string
+	}{
+		{
+			name:   "GetTranscriptionJob",
+			action: "StartTranscriptionJob",
+			body: map[string]any{
+				"TranscriptionJobName": "ts-epoch-job",
+				"LanguageCode":         "en-US",
+				"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
+			},
+			timeFields: []string{"CreationTime", "StartTime", "CompletionTime"},
+		},
+		{
+			name:   "StartCallAnalyticsJob",
+			action: "StartCallAnalyticsJob",
+			body: map[string]any{
+				"CallAnalyticsJobName": "ca-epoch-job",
+				"LanguageCode":         "en-US",
+				"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
+			},
+			timeFields: []string{"CreationTime", "StartTime", "CompletionTime"},
+		},
+		{
+			name:   "StartMedicalScribeJob",
+			action: "StartMedicalScribeJob",
+			body: map[string]any{
+				"MedicalScribeJobName": "ms-epoch-job",
+				"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
+				"DataAccessRoleArn":    "arn:aws:iam::123456789012:role/Scribe",
+				"OutputBucketName":     "scribe-out",
+			},
+			timeFields: []string{"CreationTime", "StartTime", "CompletionTime"},
+		},
+		{
+			name:   "StartMedicalTranscriptionJob",
+			action: "StartMedicalTranscriptionJob",
+			body: map[string]any{
+				"MedicalTranscriptionJobName": "mt-epoch-job",
+				"LanguageCode":                "en-US",
+				"Specialty":                   "PRIMARYCARE",
+				"Type":                        "DICTATION",
+				"Media":                       map[string]any{"MediaFileUri": "s3://b/f"},
+			},
+			timeFields: []string{"CreationTime", "StartTime", "CompletionTime"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := transcribe.NewInMemoryBackend()
+			h := transcribe.NewHandler(b)
+
+			rec := doTranscribeRequest(t, h, tt.action, tt.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var raw map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+
+			// The response wraps the resource under a single top-level key; find it.
+			var inner map[string]json.RawMessage
+			for _, v := range raw {
+				_ = json.Unmarshal(v, &inner)
+
+				if inner != nil {
+					break
+				}
+			}
+			require.NotNil(t, inner, "expected a single wrapped resource object in %s", rec.Body.String())
+
+			for _, field := range tt.timeFields {
+				val, ok := inner[field]
+				require.True(t, ok, "expected field %s in response %s", field, rec.Body.String())
+
+				var num json.Number
+				err := json.Unmarshal(val, &num)
+				assert.NoError(t, err, "field %s must decode as a JSON number (epoch seconds), got %s", field, val)
+			}
+		})
+	}
+}
+
+func TestTranscribe_DescribeLanguageModel_TimestampFieldsAreJSONNumbers(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	h := transcribe.NewHandler(b)
+
+	doTranscribeRequest(t, h, "CreateLanguageModel", map[string]any{
+		"ModelName":     "lm-epoch-describe",
+		"BaseModelName": "WideBand",
+		"LanguageCode":  "en-US",
+	})
+
+	rec := doTranscribeRequest(t, h, "DescribeLanguageModel", map[string]any{
+		"ModelName": "lm-epoch-describe",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		LanguageModel map[string]json.RawMessage `json:"LanguageModel"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	for _, field := range []string{"CreateTime", "LastModifiedTime"} {
+		val, ok := out.LanguageModel[field]
+		require.True(t, ok, "expected field %s in response %s", field, rec.Body.String())
+
+		var num json.Number
+		err := json.Unmarshal(val, &num)
+		assert.NoError(t, err, "field %s must decode as a JSON number (epoch seconds), got %s", field, val)
 	}
 }

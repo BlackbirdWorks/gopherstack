@@ -219,6 +219,22 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			},
 		},
 		{
+			name:   "StopAppBlockBuilder on already-stopped builder succeeds (idempotent)",
+			action: "StopAppBlockBuilder",
+			setup: func(h *appstream.Handler) {
+				createAppBlockBuilder(t, h, "already-stopped-builder")
+			},
+			body:     map[string]any{"Name": "already-stopped-builder"},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, respBody []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &resp))
+				bb := resp["AppBlockBuilder"].(map[string]any)
+				assert.Equal(t, "STOPPED", bb["State"])
+			},
+		},
+		{
 			name:   "UpdateAppBlockBuilder changes description",
 			action: "UpdateAppBlockBuilder",
 			setup: func(h *appstream.Handler) {
@@ -942,6 +958,22 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			},
 		},
 		{
+			name:   "StopImageBuilder on already-stopped builder succeeds (idempotent)",
+			action: "StopImageBuilder",
+			setup: func(h *appstream.Handler) {
+				createImageBuilder(t, h, "already-stopped-ib")
+			},
+			body:     map[string]any{"Name": "already-stopped-ib"},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, respBody []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &resp))
+				ib := resp["ImageBuilder"].(map[string]any)
+				assert.Equal(t, "STOPPED", ib["State"])
+			},
+		},
+		{
 			name:   "CreateImageBuilderStreamingURL returns URL",
 			action: "CreateImageBuilderStreamingURL",
 			setup: func(h *appstream.Handler) {
@@ -1435,6 +1467,37 @@ func TestAppStream_Users(t *testing.T) {
 	}
 }
 
+// TestAppStream_UserARNPartition covers the user ARN partition (built via
+// pkgs/arn.Build rather than a hand-formatted "arn:aws:..." literal, which
+// would always emit the standard partition even for GovCloud/China/ISO
+// regions).
+func TestAppStream_UserARNPartition(t *testing.T) {
+	t.Parallel()
+
+	backend := appstream.NewInMemoryBackend("000000000000", "us-gov-west-1")
+	h := appstream.NewHandler(backend)
+
+	rec := doRequest(t, h, "CreateUser", map[string]any{
+		"UserName":           "govcloud-user",
+		"Email":              "govcloud-user@example.com",
+		"AuthenticationType": "USERPOOL",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	descRec := doRequest(t, h, "DescribeUsers", map[string]any{"AuthenticationType": "USERPOOL"})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	users := resp["Users"].([]any)
+	require.Len(t, users, 1)
+	assert.Equal(
+		t,
+		"arn:aws-us-gov:appstream:us-gov-west-1:000000000000:user/USERPOOL/govcloud-user",
+		users[0].(map[string]any)["Arn"],
+	)
+}
+
 // TestAppStream_UserStackAssociations covers batch user-stack association ops.
 func TestAppStream_UserStackAssociations(t *testing.T) {
 	t.Parallel()
@@ -1717,4 +1780,156 @@ func TestAppStream_DrainSessionInstance(t *testing.T) {
 
 	rec2 := doRequest(t, h, "DrainSessionInstance", map[string]any{"SessionId": sessionID})
 	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+// TestAppStream_DescribeByARN covers Describe operations whose real AWS
+// request identifies resources by ARN rather than Name (DescribeApplications,
+// DescribeAppBlocks, and the Arns branch of DescribeImages). Filtering these
+// through a Name-keyed lookup -- as opposed to matching the stored Arn field
+// -- would make every real SDK client's Describe-after-Create call fail with
+// ResourceNotFoundException, since real clients pass back the Arn a prior
+// Create/Describe call returned to them, never the bare Name.
+func TestAppStream_DescribeByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	appRec := doRequest(t, h, "CreateApplication", map[string]any{
+		"Name": "arn-app", "LaunchPath": "/app/arn-app",
+	})
+	require.Equal(t, http.StatusOK, appRec.Code)
+
+	var appResp map[string]any
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	appArn := appResp["Application"].(map[string]any)["Arn"].(string)
+	require.NotEmpty(t, appArn)
+
+	abRec := doRequest(t, h, "CreateAppBlock", map[string]any{"Name": "arn-appblock"})
+	require.Equal(t, http.StatusOK, abRec.Code)
+
+	var abResp map[string]any
+	require.NoError(t, json.Unmarshal(abRec.Body.Bytes(), &abResp))
+	appBlockArn := abResp["AppBlock"].(map[string]any)["Arn"].(string)
+	require.NotEmpty(t, appBlockArn)
+
+	imgRec := doRequest(t, h, "CreateImportedImage", map[string]any{"Name": "arn-image"})
+	require.Equal(t, http.StatusOK, imgRec.Code)
+
+	var imgResp map[string]any
+	require.NoError(t, json.Unmarshal(imgRec.Body.Bytes(), &imgResp))
+	imageArn := imgResp["Image"].(map[string]any)["Arn"].(string)
+	require.NotEmpty(t, imageArn)
+
+	t.Run("DescribeApplications filters by Arn", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, "DescribeApplications", map[string]any{"Arns": []string{appArn}})
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		apps := resp["Applications"].([]any)
+		require.Len(t, apps, 1)
+		assert.Equal(t, "arn-app", apps[0].(map[string]any)["Name"])
+	})
+
+	t.Run("DescribeAppBlocks filters by Arn", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, "DescribeAppBlocks", map[string]any{"Arns": []string{appBlockArn}})
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		blocks := resp["AppBlocks"].([]any)
+		require.Len(t, blocks, 1)
+		assert.Equal(t, "arn-appblock", blocks[0].(map[string]any)["Name"])
+	})
+
+	t.Run("DescribeImages filters by Arn", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, "DescribeImages", map[string]any{"Arns": []string{imageArn}})
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		images := resp["Images"].([]any)
+		require.Len(t, images, 1)
+		assert.Equal(t, "arn-image", images[0].(map[string]any)["Name"])
+	})
+}
+
+// TestAppStream_AssociationsAcceptARNIdentifiers covers association
+// operations whose real AWS request identifies one side of the link by ARN
+// (AssociateApplicationFleet's ApplicationArn, AssociateAppBlockBuilderAppBlock's
+// AppBlockArn). A real SDK client always supplies the Arn from a prior
+// Create/Describe response, so the backend must resolve it to the resource's
+// canonical Name rather than trying to index its Name-keyed table with it.
+func TestAppStream_AssociationsAcceptARNIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("AssociateApplicationFleet accepts ApplicationArn", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createFleet(t, h, "assoc-arn-fleet")
+
+		appRec := doRequest(t, h, "CreateApplication", map[string]any{
+			"Name": "assoc-arn-app", "LaunchPath": "/app/assoc-arn-app",
+		})
+		require.Equal(t, http.StatusOK, appRec.Code)
+
+		var appResp map[string]any
+		require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+		appArn := appResp["Application"].(map[string]any)["Arn"].(string)
+		require.NotEmpty(t, appArn)
+
+		assocRec := doRequest(t, h, "AssociateApplicationFleet", map[string]any{
+			"ApplicationArn": appArn, "FleetName": "assoc-arn-fleet",
+		})
+		require.Equal(t, http.StatusOK, assocRec.Code)
+
+		descRec := doRequest(t, h, "DescribeApplicationFleetAssociations", map[string]any{
+			"ApplicationArn": appArn,
+		})
+		require.Equal(t, http.StatusOK, descRec.Code)
+
+		var descResp map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		assocs := descResp["ApplicationFleetAssociations"].([]any)
+		require.Len(t, assocs, 1)
+		assert.Equal(t, "assoc-arn-fleet", assocs[0].(map[string]any)["FleetName"])
+	})
+
+	t.Run("AssociateAppBlockBuilderAppBlock accepts AppBlockArn", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createAppBlockBuilder(t, h, "assoc-arn-builder")
+
+		abRec := doRequest(t, h, "CreateAppBlock", map[string]any{"Name": "assoc-arn-appblock"})
+		require.Equal(t, http.StatusOK, abRec.Code)
+
+		var abResp map[string]any
+		require.NoError(t, json.Unmarshal(abRec.Body.Bytes(), &abResp))
+		appBlockArn := abResp["AppBlock"].(map[string]any)["Arn"].(string)
+		require.NotEmpty(t, appBlockArn)
+
+		assocRec := doRequest(t, h, "AssociateAppBlockBuilderAppBlock", map[string]any{
+			"AppBlockBuilderName": "assoc-arn-builder", "AppBlockArn": appBlockArn,
+		})
+		require.Equal(t, http.StatusOK, assocRec.Code)
+
+		descRec := doRequest(t, h, "DescribeAppBlockBuilderAppBlockAssociations", map[string]any{
+			"AppBlockBuilderName": "assoc-arn-builder",
+		})
+		require.Equal(t, http.StatusOK, descRec.Code)
+
+		var descResp map[string]any
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		assocs := descResp["AppBlockBuilderAppBlockAssociations"].([]any)
+		require.Len(t, assocs, 1)
+		assert.Equal(t, appBlockArn, assocs[0].(map[string]any)["AppBlockArn"])
+	})
 }

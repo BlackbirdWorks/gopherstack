@@ -449,3 +449,89 @@ func Test_KMS_Janitor_PurgeKey_CleansGrantByKeyIndex(t *testing.T) {
 	assert.Equal(t, 0, kms.GrantsByKeyCount(b, kms.MockRegion, keyID),
 		"grantsByKey submap must be dropped, not merely emptied, after a permanent key purge")
 }
+
+// Test_KMS_ErrorClassification_MissingTableEntries drives the full HTTP handler path
+// to confirm two sentinels that were absent from kmsErrorTable now classify correctly
+// instead of falling through to the generic 500 branch:
+//   - ErrExpiredKeyMaterial (raised by checkKeyMaterialExpiry when an imported key's
+//     material has passed its ValidTo) must surface as the real AWS
+//     ExpiredImportTokenException (400, client fault), not a 500.
+//   - ErrKeyMaterialUnavailable (raised when key material is absent, e.g. after
+//     restoring an old-format snapshot that never persisted key material) must surface
+//     as the real AWS KeyUnavailableException (500, server fault — matches the real
+//     SDK's ErrorFault: Server for this exception), not the made-up "InternalServiceError"
+//     type string that classifyKMSError's default branch used to emit (not a real KMS
+//     exception name at all).
+func Test_KMS_ErrorClassification_MissingTableEntries(t *testing.T) {
+	t.Parallel()
+
+	t.Run("expired_import_material", func(t *testing.T) {
+		t.Parallel()
+
+		e := echo.New()
+		backend := kms.NewInMemoryBackend()
+		h := kms.NewHandler(backend)
+
+		keyOut, err := backend.CreateKey(context.Background(), &kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+		require.NoError(t, err)
+		keyID := keyOut.KeyMetadata.KeyID
+
+		mat := make([]byte, 32)
+		for i := range mat {
+			mat[i] = byte(i + 1)
+		}
+		pastTS := float64(time.Now().Add(-time.Hour).UnixNano()) / 1e9
+		require.NoError(t, backend.ImportKeyMaterial(context.Background(), &kms.ImportKeyMaterialInput{
+			KeyID:       keyID,
+			KeyMaterial: mat,
+			ValidTo:     pastTS,
+		}))
+
+		body, err := json.Marshal(kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")})
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
+		req.Header.Set("X-Amz-Target", "TrentService.Encrypt")
+		rec := httptest.NewRecorder()
+		require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+		var errResp kms.ErrorResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		assert.Equal(t, "ExpiredImportTokenException", errResp.Type)
+	})
+
+	t.Run("key_material_unavailable_after_restore", func(t *testing.T) {
+		t.Parallel()
+
+		orig := kms.NewInMemoryBackend()
+		keyOut, err := orig.CreateKey(context.Background(), &kms.CreateKeyInput{})
+		require.NoError(t, err)
+		keyID := keyOut.KeyMetadata.KeyID
+
+		snap := orig.Snapshot(t.Context())
+		require.NotEmpty(t, snap)
+		stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
+
+		restored := kms.NewInMemoryBackend()
+		require.NoError(t, restored.Restore(t.Context(), []byte(stripped)))
+
+		e := echo.New()
+		h := kms.NewHandler(restored)
+
+		body, err := json.Marshal(kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")})
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
+		req.Header.Set("X-Amz-Target", "TrentService.Encrypt")
+		rec := httptest.NewRecorder()
+		require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+
+		var errResp kms.ErrorResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		assert.Equal(t, "KeyUnavailableException", errResp.Type)
+	})
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
@@ -896,7 +897,7 @@ func TestEMR_TerminateJobFlows_SetsEndDateTime(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	before := time.Now().UnixMilli()
+	before := awstime.Epoch(time.Now())
 	require.NoError(t, b.TerminateJobFlows(context.Background(), []string{cluster.ID}))
 
 	c, err := b.DescribeCluster(context.Background(), cluster.ID)
@@ -905,9 +906,12 @@ func TestEMR_TerminateJobFlows_SetsEndDateTime(t *testing.T) {
 	endRaw, ok := c.Status.Timeline["EndDateTime"]
 	require.True(t, ok, "EndDateTime must be set in the timeline after termination")
 
-	endMs, ok := endRaw.(int64)
-	require.True(t, ok, "EndDateTime must be an int64 Unix milliseconds value")
-	assert.GreaterOrEqual(t, endMs, before, "EndDateTime should be >= time before termination")
+	// EMR's awsjson1.1 wire format is epoch seconds (float64), not
+	// milliseconds -- see smithytime.ParseEpochSeconds in the real SDK
+	// deserializer.
+	endSeconds, ok := endRaw.(float64)
+	require.True(t, ok, "EndDateTime must be a float64 epoch-seconds value")
+	assert.GreaterOrEqual(t, endSeconds, before, "EndDateTime should be >= time before termination")
 }
 
 func TestEMR_AddInstanceFleet(t *testing.T) {
@@ -1224,12 +1228,12 @@ func TestEMR_SecurityConfiguration(t *testing.T) {
 
 			if tt.testType == "create" && tt.wantCode == http.StatusOK {
 				var out struct {
-					Name             string `json:"Name"`
-					CreationDateTime string `json:"CreationDateTime"`
+					Name             string  `json:"Name"`
+					CreationDateTime float64 `json:"CreationDateTime"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				assert.Equal(t, tt.scName, out.Name)
-				assert.NotEmpty(t, out.CreationDateTime)
+				assert.NotZero(t, out.CreationDateTime)
 			}
 		})
 	}

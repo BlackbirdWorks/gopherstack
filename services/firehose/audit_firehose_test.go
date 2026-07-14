@@ -108,6 +108,24 @@ func TestAuditFirehose_DescribeDeliveryStream_CoreFields(t *testing.T) {
 
 // --- Destination round-trip audit ---
 
+// singleDestination extracts the sole entry of the Describe response's "Destinations"
+// list and returns the nested map found under wireKey (e.g.
+// "ExtendedS3DestinationDescription"), matching AWS's DestinationDescription wrapper
+// shape where every destination type nests under one "Destinations" array entry.
+func singleDestination(t *testing.T, desc map[string]any, wireKey string) map[string]any {
+	t.Helper()
+
+	dests, ok := desc["Destinations"].([]any)
+	require.True(t, ok, "Destinations must be present")
+	require.Len(t, dests, 1)
+
+	entry := dests[0].(map[string]any)
+	d, ok := entry[wireKey].(map[string]any)
+	require.True(t, ok, "%s must be present in Destinations[0]", wireKey)
+
+	return d
+}
+
 // TestAuditFirehose_DestinationDescribe_AllTypes verifies that each of the
 // five destination types is persisted and returned in DescribeDeliveryStream
 // in the correct destination-specific field.
@@ -130,10 +148,7 @@ func TestAuditFirehose_DestinationDescribe_AllTypes(t *testing.T) {
 			},
 			checkDescribe: func(t *testing.T, desc map[string]any) {
 				t.Helper()
-				dests, ok := desc["S3DestinationDescriptions"].([]any)
-				require.True(t, ok, "S3DestinationDescriptions must be present")
-				require.Len(t, dests, 1)
-				d := dests[0].(map[string]any)
+				d := singleDestination(t, desc, "ExtendedS3DestinationDescription")
 				assert.Equal(t, "arn:aws:s3:::audit-bucket", d["BucketARN"])
 				assert.Equal(t, "logs/", d["Prefix"])
 			},
@@ -150,11 +165,7 @@ func TestAuditFirehose_DestinationDescribe_AllTypes(t *testing.T) {
 			},
 			checkDescribe: func(t *testing.T, desc map[string]any) {
 				t.Helper()
-				// ExtendedS3 maps to S3DestinationDescriptions.
-				dests, ok := desc["S3DestinationDescriptions"].([]any)
-				require.True(t, ok, "ExtendedS3 must appear in S3DestinationDescriptions")
-				require.Len(t, dests, 1)
-				d := dests[0].(map[string]any)
+				d := singleDestination(t, desc, "ExtendedS3DestinationDescription")
 				assert.Equal(t, "arn:aws:s3:::ext-bucket", d["BucketARN"])
 				assert.Equal(t, "GZIP", d["CompressionFormat"])
 				assert.Equal(t, "ext/", d["Prefix"])
@@ -176,10 +187,7 @@ func TestAuditFirehose_DestinationDescribe_AllTypes(t *testing.T) {
 			},
 			checkDescribe: func(t *testing.T, desc map[string]any) {
 				t.Helper()
-				dests, ok := desc["HTTPEndpointDestinationDescriptions"].([]any)
-				require.True(t, ok, "HTTPEndpointDestinationDescriptions must be present")
-				require.Len(t, dests, 1)
-				d := dests[0].(map[string]any)
+				d := singleDestination(t, desc, "HttpEndpointDestinationDescription")
 				ep := d["EndpointConfiguration"].(map[string]any)
 				assert.Equal(t, "https://ingest.example.com/firehose", ep["Url"])
 				assert.Equal(t, "audit-endpoint", ep["Name"])
@@ -189,21 +197,21 @@ func TestAuditFirehose_DestinationDescribe_AllTypes(t *testing.T) {
 			name: "redshift_destination",
 			createExtra: map[string]any{
 				"RedshiftDestinationConfiguration": map[string]any{
-					"ClusterJDBCURL":   "jdbc:redshift://my-cluster.abc.us-east-1.redshift.amazonaws.com:5439/mydb",
-					"RoleARN":          "arn:aws:iam::000000000000:role/firehose",
-					"DataTableName":    "events",
-					"DataTableColumns": "ts,payload",
-					"Username":         "admin",
+					"ClusterJDBCURL": "jdbc:redshift://my-cluster.abc.us-east-1.redshift.amazonaws.com:5439/mydb",
+					"RoleARN":        "arn:aws:iam::000000000000:role/firehose",
+					"CopyCommand": map[string]any{
+						"DataTableName":    "events",
+						"DataTableColumns": "ts,payload",
+					},
+					"Username": "admin",
 				},
 			},
 			checkDescribe: func(t *testing.T, desc map[string]any) {
 				t.Helper()
-				dests, ok := desc["RedshiftDestinationDescriptions"].([]any)
-				require.True(t, ok, "RedshiftDestinationDescriptions must be present")
-				require.Len(t, dests, 1)
-				d := dests[0].(map[string]any)
+				d := singleDestination(t, desc, "RedshiftDestinationDescription")
 				assert.Contains(t, d["ClusterJDBCURL"].(string), "redshift")
-				assert.Equal(t, "events", d["DataTableName"])
+				copyCommand := d["CopyCommand"].(map[string]any)
+				assert.Equal(t, "events", copyCommand["DataTableName"])
 				assert.Equal(t, "admin", d["Username"])
 			},
 		},
@@ -219,10 +227,7 @@ func TestAuditFirehose_DestinationDescribe_AllTypes(t *testing.T) {
 			},
 			checkDescribe: func(t *testing.T, desc map[string]any) {
 				t.Helper()
-				dests, ok := desc["AmazonOpenSearchServiceDestinationDescriptions"].([]any)
-				require.True(t, ok, "AmazonOpenSearchServiceDestinationDescriptions must be present")
-				require.Len(t, dests, 1)
-				d := dests[0].(map[string]any)
+				d := singleDestination(t, desc, "AmazonopensearchserviceDestinationDescription")
 				assert.Equal(t, "https://search-my-domain.us-east-1.es.amazonaws.com", d["ClusterEndpoint"])
 				assert.Equal(t, "firehose-logs", d["IndexName"])
 				assert.Equal(t, "OneDay", d["IndexRotationPeriod"])
@@ -239,10 +244,7 @@ func TestAuditFirehose_DestinationDescribe_AllTypes(t *testing.T) {
 			},
 			checkDescribe: func(t *testing.T, desc map[string]any) {
 				t.Helper()
-				dests, ok := desc["SplunkDestinationDescriptions"].([]any)
-				require.True(t, ok, "SplunkDestinationDescriptions must be present")
-				require.Len(t, dests, 1)
-				d := dests[0].(map[string]any)
+				d := singleDestination(t, desc, "SplunkDestinationDescription")
 				assert.Equal(t, "https://splunk.example.com:8088", d["HECEndpoint"])
 				assert.Equal(t, "Raw", d["HECEndpointType"])
 				assert.Equal(t, "splunk-token-abc", d["HECToken"])
@@ -617,10 +619,10 @@ func TestAuditFirehose_Encryption_StartStopLifecycle(t *testing.T) {
 			startRec := doFirehoseRequest(t, h, "StartDeliveryStreamEncryption", tc.startBody)
 			require.Equal(t, http.StatusOK, startRec.Code)
 
-			// Describe: EncryptionConfiguration must show ENABLED.
+			// Describe: DeliveryStreamEncryptionConfiguration must show ENABLED.
 			desc := auditDescribe(t, h, streamName)
-			enc, ok := desc["EncryptionConfiguration"].(map[string]any)
-			require.True(t, ok, "EncryptionConfiguration must be present")
+			enc, ok := desc["DeliveryStreamEncryptionConfiguration"].(map[string]any)
+			require.True(t, ok, "DeliveryStreamEncryptionConfiguration must be present")
 			assert.Equal(t, "ENABLED", enc["Status"])
 			assert.Equal(t, tc.wantKeyType, enc["KeyType"])
 
@@ -631,7 +633,7 @@ func TestAuditFirehose_Encryption_StartStopLifecycle(t *testing.T) {
 
 			// Describe: status must be DISABLED.
 			desc2 := auditDescribe(t, h, streamName)
-			enc2, ok := desc2["EncryptionConfiguration"].(map[string]any)
+			enc2, ok := desc2["DeliveryStreamEncryptionConfiguration"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "DISABLED", enc2["Status"])
 		})
@@ -883,9 +885,7 @@ func TestAuditFirehose_S3BackupMode_PersistedInDescribe(t *testing.T) {
 			},
 			checkDescribe: func(t *testing.T, desc map[string]any) {
 				t.Helper()
-				dests := desc["S3DestinationDescriptions"].([]any)
-				require.Len(t, dests, 1)
-				d := dests[0].(map[string]any)
+				d := singleDestination(t, desc, "ExtendedS3DestinationDescription")
 				assert.Equal(t, "Enabled", d["S3BackupMode"])
 				backup := d["S3BackupDescription"].(map[string]any)
 				assert.Equal(t, "arn:aws:s3:::backup-bucket", backup["BucketARN"])
@@ -907,9 +907,7 @@ func TestAuditFirehose_S3BackupMode_PersistedInDescribe(t *testing.T) {
 			},
 			checkDescribe: func(t *testing.T, desc map[string]any) {
 				t.Helper()
-				dests := desc["HTTPEndpointDestinationDescriptions"].([]any)
-				require.Len(t, dests, 1)
-				d := dests[0].(map[string]any)
+				d := singleDestination(t, desc, "HttpEndpointDestinationDescription")
 				assert.Equal(t, "Enabled", d["S3BackupMode"])
 			},
 		},

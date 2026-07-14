@@ -177,7 +177,12 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 		return h.writeError(c, putErr)
 	}
 
-	// Echo the ETag as a response header (matches real AWS behaviour).
+	// Real MediaStore Data returns ETag only in the JSON response body (see
+	// aws-sdk-go-v2/service/mediastoredata's PutObjectOutput deserializer,
+	// which has no HTTP-binding for ETag). Echoing it as a response header
+	// too is extra and harmless -- the SDK client only reads the body -- but
+	// keep this comment accurate so a future auditor doesn't mistake it for
+	// a documented wire requirement.
 	c.Response().Header().Set("ETag", obj.ETag)
 
 	return c.JSON(http.StatusOK, map[string]string{

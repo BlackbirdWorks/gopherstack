@@ -702,7 +702,7 @@ func TestDomain_OffPeakWindowOptions_UpdateConfig(t *testing.T) {
 // Domain IAM Identity Center options
 // ---------------------------------------------------------------------------
 
-func TestDomain_IamIdentityCenterOptions_Create(t *testing.T) {
+func TestDomain_IdentityCenterOptions_Create(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -710,10 +710,11 @@ func TestDomain_IamIdentityCenterOptions_Create(t *testing.T) {
 	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
 		map[string]any{
 			"DomainName": "idc-domain",
-			"IamIdentityCenterOptions": map[string]any{
-				"EnabledAPIAccess":                       true,
-				"IamIdentityCenterArn":                   "arn:aws:sso:::instance/ssoins-abc123",
-				"IamRoleForIdentityCenterApplicationArn": "arn:aws:iam::123456789012:role/MyRole",
+			"IdentityCenterOptions": map[string]any{
+				"EnabledAPIAccess":          true,
+				"IdentityCenterInstanceARN": "arn:aws:sso:::instance/ssoins-abc123",
+				"RolesKey":                  "GroupName",
+				"SubjectKey":                "UserName",
 			},
 		})
 	defer resp.Body.Close()
@@ -723,13 +724,15 @@ func TestDomain_IamIdentityCenterOptions_Create(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	st := out["DomainStatus"].(map[string]any)
 
-	idcOpts, ok := st["IamIdentityCenterOptions"].(map[string]any)
-	require.True(t, ok, "IamIdentityCenterOptions missing")
+	idcOpts, ok := st["IdentityCenterOptions"].(map[string]any)
+	require.True(t, ok, "IdentityCenterOptions missing")
 	assert.Equal(t, true, idcOpts["EnabledAPIAccess"])
-	assert.Equal(t, "arn:aws:sso:::instance/ssoins-abc123", idcOpts["IamIdentityCenterArn"])
+	assert.Equal(t, "arn:aws:sso:::instance/ssoins-abc123", idcOpts["IdentityCenterInstanceARN"])
+	assert.Equal(t, "GroupName", idcOpts["RolesKey"])
+	assert.Equal(t, "UserName", idcOpts["SubjectKey"])
 }
 
-func TestDomain_IamIdentityCenterOptions_UpdateConfig(t *testing.T) {
+func TestDomain_IdentityCenterOptions_UpdateConfig(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -740,9 +743,9 @@ func TestDomain_IamIdentityCenterOptions_UpdateConfig(t *testing.T) {
 	upResp := doRequest(t, h, http.MethodPut,
 		"/2021-01-01/opensearch/domain/idc-upd-domain/config",
 		map[string]any{
-			"IamIdentityCenterOptions": map[string]any{
-				"EnabledAPIAccess":     true,
-				"IamIdentityCenterArn": "arn:aws:sso:::instance/ssoins-xyz",
+			"IdentityCenterOptions": map[string]any{
+				"EnabledAPIAccess":          true,
+				"IdentityCenterInstanceARN": "arn:aws:sso:::instance/ssoins-xyz",
 			},
 		})
 	defer upResp.Body.Close()
@@ -751,7 +754,7 @@ func TestDomain_IamIdentityCenterOptions_UpdateConfig(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(upResp.Body).Decode(&out))
 	cfg := out["DomainConfig"].(map[string]any)
-	idcCfg := cfg["IamIdentityCenterOptions"].(map[string]any)
+	idcCfg := cfg["IdentityCenterOptions"].(map[string]any)
 	idcOpts := idcCfg["Options"].(map[string]any)
 	assert.Equal(t, true, idcOpts["EnabledAPIAccess"])
 }

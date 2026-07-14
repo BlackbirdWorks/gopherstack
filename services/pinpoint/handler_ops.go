@@ -145,7 +145,7 @@ func parseAPNSChannelExtra(body []byte) (bool, map[string]any) {
 		return false, nil
 	}
 
-	extra := map[string]any{"DefaultAuthMethod": req.DefaultAuthMethod}
+	extra := map[string]any{"DefaultAuthenticationMethod": req.DefaultAuthenticationMethod}
 
 	for k, v := range map[string]string{
 		"BundleId": req.BundleID, "Certificate": req.Certificate,
@@ -748,7 +748,7 @@ func (h *Handler) handleGetJourneyDateRangeKpi(c *echo.Context, appID, journeyID
 	return nil
 }
 
-// handleGetJourneyExecutionMetrics handles GET /v1/apps/{appId}/journeys/{journeyId}/execution/metrics.
+// handleGetJourneyExecutionMetrics handles GET /v1/apps/{appId}/journeys/{journeyId}/execution-metrics.
 func (h *Handler) handleGetJourneyExecutionMetrics(c *echo.Context, appID, journeyID string) error {
 	resp, err := h.Backend.GetJourneyExecutionMetrics(appID, journeyID)
 	if err != nil {
@@ -796,7 +796,7 @@ func (h *Handler) handleGetJourneyRuns(c *echo.Context, appID, journeyID string)
 	return nil
 }
 
-// handleGetJourneyRunExecutionMetrics handles GET /v1/apps/{appId}/journeys/{journeyId}/runs/{runId}/execution/metrics.
+// handleGetJourneyRunExecutionMetrics handles GET /v1/apps/{appId}/journeys/{journeyId}/runs/{runId}/execution-metrics.
 func (h *Handler) handleGetJourneyRunExecutionMetrics(c *echo.Context, appID, journeyID, runID string) error {
 	resp, err := h.Backend.GetJourneyRunExecutionMetrics(appID, journeyID, runID)
 	if err != nil {
@@ -1344,7 +1344,10 @@ func (h *Handler) handleSendMessages(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	httputils.WriteJSON(
+		c.Request().Context(), c.Response(),
+		http.StatusOK, sendMessagesResponse{MessageResponse: *resp},
+	)
 
 	return nil
 }
@@ -1372,7 +1375,10 @@ func (h *Handler) handleSendUsersMessages(c *echo.Context, appID string) error {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
+	httputils.WriteJSON(
+		c.Request().Context(), c.Response(),
+		http.StatusOK, sendUsersMessagesResponse{SendUsersMessageResponse: *resp},
+	)
 
 	return nil
 }
@@ -1482,9 +1488,16 @@ func (h *Handler) handlePhoneNumberValidate(c *echo.Context) error {
 
 // handleRemoveAttributes handles PUT /v1/apps/{appId}/attributes/{attributeType}.
 func (h *Handler) handleRemoveAttributes(c *echo.Context, appID, attributeType string) error {
-	_, _ = httputils.ReadBody(c.Request())
+	body, _ := httputils.ReadBody(c.Request())
 
-	resp, err := h.Backend.RemoveAttributes(appID, attributeType)
+	var req removeAttributesRequest
+	if len(body) > 0 {
+		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		}
+	}
+
+	resp, err := h.Backend.RemoveAttributes(appID, attributeType, req.Blacklist)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", err.Error())

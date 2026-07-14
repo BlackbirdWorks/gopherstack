@@ -6,10 +6,16 @@ import "context"
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Trust anchor operations
-	CreateTrustAnchor(ctx context.Context, name string, source TrustAnchorSource, tags []TagEntry) (*TrustAnchor, error)
+	CreateTrustAnchor(
+		ctx context.Context,
+		name string,
+		source TrustAnchorSource,
+		tags []TagEntry,
+		enabled *bool,
+	) (*TrustAnchor, error)
 	GetTrustAnchor(ctx context.Context, id string) (*TrustAnchor, error)
 	ListTrustAnchors(ctx context.Context, pageToken string, maxResults int) ([]*TrustAnchor, string, error)
-	DeleteTrustAnchor(ctx context.Context, id string) error
+	DeleteTrustAnchor(ctx context.Context, id string) (*TrustAnchor, error)
 	UpdateTrustAnchor(ctx context.Context, id, name string, source *TrustAnchorSource) (*TrustAnchor, error)
 	EnableTrustAnchor(ctx context.Context, id string) (*TrustAnchor, error)
 	DisableTrustAnchor(ctx context.Context, id string) (*TrustAnchor, error)
@@ -27,7 +33,7 @@ type StorageBackend interface {
 	) (*Profile, error)
 	GetProfile(ctx context.Context, id string) (*Profile, error)
 	ListProfiles(ctx context.Context, pageToken string, maxResults int) ([]*Profile, string, error)
-	DeleteProfile(ctx context.Context, id string) error
+	DeleteProfile(ctx context.Context, id string) (*Profile, error)
 	UpdateProfile(
 		ctx context.Context,
 		id, name string,

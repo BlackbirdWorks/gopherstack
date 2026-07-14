@@ -401,8 +401,8 @@ func TestRefinement1_DeploymentModeConstants(t *testing.T) {
 func TestRefinement1_StorageTypeConstants(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "efs", mq.StorageTypeEFS)
-	assert.Equal(t, "ebs", mq.StorageTypeEBS)
+	assert.Equal(t, "EFS", mq.StorageTypeEFS)
+	assert.Equal(t, "EBS", mq.StorageTypeEBS)
 }
 
 func TestRefinement1_BrokerStateConstants(t *testing.T) {

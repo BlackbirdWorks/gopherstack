@@ -512,7 +512,10 @@ func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusAccepted, map[string]string{
+	// AWS MQ's CreateBroker returns HTTP 200 despite being an asynchronous
+	// operation (the broker itself starts in CREATION_IN_PROGRESS); it does
+	// not return 202 Accepted.
+	return c.JSON(http.StatusOK, map[string]string{
 		keyBrokerID: br.BrokerID,
 		"brokerArn": br.BrokerArn,
 	})
@@ -591,22 +594,34 @@ type updateBrokerInput struct {
 }
 
 // updateBrokerResponse matches the AWS MQ UpdateBroker response shape.
+// Note: the real UpdateBrokerOutput shape (see aws-sdk-go-v2/service/mq)
+// does not have pendingAuthenticationStrategy/pendingEngineVersion/
+// pendingHostInstanceType/pendingSecurityGroups/pendingLdapServerMetadata
+// members -- those only appear on DescribeBrokerOutput. They are kept here
+// for backward compatibility (extra JSON fields are ignored by the real
+// SDK's deserializer) but dataReplicationMode/dataReplicationMetadata and
+// their pending counterparts ARE real UpdateBrokerOutput members and must
+// be populated.
 type updateBrokerResponse struct {
-	LdapServerMetadata         *LdapServerMetadata `json:"ldapServerMetadata,omitempty"`
-	Logs                       *LogsSummary        `json:"logs,omitempty"`
-	MaintenanceWindowStartTime *WeeklyStartTime    `json:"maintenanceWindowStartTime,omitempty"`
-	PendingLdapServerMetadata  *LdapServerMetadata `json:"pendingLdapServerMetadata,omitempty"`
-	Configuration              *ConfigurationID    `json:"configuration,omitempty"`
-	PendingAuthStrategy        string              `json:"pendingAuthenticationStrategy,omitempty"`
-	PendingEngineVersion       string              `json:"pendingEngineVersion,omitempty"`
-	PendingHostInstanceType    string              `json:"pendingHostInstanceType,omitempty"`
-	AuthenticationStrategy     string              `json:"authenticationStrategy,omitempty"`
-	EngineVersion              string              `json:"engineVersion"`
-	HostInstanceType           string              `json:"hostInstanceType"`
-	BrokerID                   string              `json:"brokerId"`
-	PendingSecurityGroups      []string            `json:"pendingSecurityGroups,omitempty"`
-	SecurityGroups             []string            `json:"securityGroups,omitempty"`
-	AutoMinorVersionUpgrade    bool                `json:"autoMinorVersionUpgrade"`
+	LdapServerMetadata         *LdapServerMetadata      `json:"ldapServerMetadata,omitempty"`
+	Logs                       *LogsSummary             `json:"logs,omitempty"`
+	MaintenanceWindowStartTime *WeeklyStartTime         `json:"maintenanceWindowStartTime,omitempty"`
+	PendingLdapServerMetadata  *LdapServerMetadata      `json:"pendingLdapServerMetadata,omitempty"`
+	Configuration              *ConfigurationID         `json:"configuration,omitempty"`
+	DataReplicationMetadata    *DataReplicationMetadata `json:"dataReplicationMetadata,omitempty"`
+	PendingDataReplicationMeta *DataReplicationMetadata `json:"pendingDataReplicationMetadata,omitempty"`
+	PendingAuthStrategy        string                   `json:"pendingAuthenticationStrategy,omitempty"`
+	PendingEngineVersion       string                   `json:"pendingEngineVersion,omitempty"`
+	PendingHostInstanceType    string                   `json:"pendingHostInstanceType,omitempty"`
+	AuthenticationStrategy     string                   `json:"authenticationStrategy,omitempty"`
+	EngineVersion              string                   `json:"engineVersion"`
+	HostInstanceType           string                   `json:"hostInstanceType"`
+	BrokerID                   string                   `json:"brokerId"`
+	DataReplicationMode        string                   `json:"dataReplicationMode,omitempty"`
+	PendingDataReplicationMode string                   `json:"pendingDataReplicationMode,omitempty"`
+	PendingSecurityGroups      []string                 `json:"pendingSecurityGroups,omitempty"`
+	SecurityGroups             []string                 `json:"securityGroups,omitempty"`
+	AutoMinorVersionUpgrade    bool                     `json:"autoMinorVersionUpgrade"`
 }
 
 func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []byte) error {
@@ -655,6 +670,10 @@ func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []by
 		MaintenanceWindowStartTime: br.MaintenanceWindowStartTime,
 		PendingLdapServerMetadata:  br.PendingLdapServerMetadata,
 		Configuration:              cfgID,
+		DataReplicationMode:        br.DataReplicationMode,
+		DataReplicationMetadata:    br.DataReplicationMetadata,
+		PendingDataReplicationMode: br.PendingDataReplicationMode,
+		PendingDataReplicationMeta: br.PendingDataReplicationMeta,
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -996,7 +1015,7 @@ func (h *Handler) handleCreateTags(c *echo.Context, resourceARN string, body []b
 		return h.writeError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleDeleteTags(c *echo.Context, resourceARN string) error {

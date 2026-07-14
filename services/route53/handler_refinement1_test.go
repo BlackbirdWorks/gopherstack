@@ -49,7 +49,7 @@ func TestRefinement1_ZoneCount(t *testing.T) {
 			b := route53.NewInMemoryBackend()
 
 			for i := range tt.creates {
-				_, err := b.CreateHostedZone("example.com", "ref-"+string(rune('A'+i)), "", false)
+				_, err := b.CreateHostedZone("example.com", "ref-"+string(rune('A'+i)), "", false, "")
 				require.NoError(t, err)
 			}
 
@@ -121,7 +121,7 @@ func TestRefinement1_KeySigningKeyCount(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
 			require.NoError(t, err)
 
 			for _, name := range tt.kskNames {
@@ -162,7 +162,7 @@ func TestRefinement1_DuplicateKSK(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
 			require.NoError(t, err)
 
 			_, err = b.CreateKeySigningKey(hz.ID, "caller-1", tt.kskName, "arn:kms:test", "")
@@ -212,7 +212,7 @@ func TestRefinement1_DuplicateVPC(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true)
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "")
 			require.NoError(t, err)
 
 			err = b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1")
@@ -261,7 +261,7 @@ func TestRefinement1_DeleteZone_CascadesKSK(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
 			require.NoError(t, err)
 
 			_, err = b.CreateKeySigningKey(hz.ID, "caller-1", "key1", "arn:kms:test", "")
@@ -303,7 +303,7 @@ func TestRefinement1_DeleteZone_CascadesVPC(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true)
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-abc", "us-east-1"))
@@ -343,7 +343,7 @@ func TestRefinement1_DeleteZone_CascadesQueryLogging(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
 			require.NoError(t, err)
 
 			_, err = b.CreateQueryLoggingConfig(hz.ID, "arn:aws:logs:us-east-1:123456789012:log-group:test")
@@ -723,7 +723,7 @@ func TestRefinement1_SnapshotRestore_KSK(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
 			require.NoError(t, err)
 
 			_, err = b.CreateKeySigningKey(hz.ID, "caller-1", "key1", "arn:kms:test", "ACTIVE")
@@ -758,7 +758,7 @@ func TestRefinement1_SnapshotRestore_VPCAssociation(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true)
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1"))

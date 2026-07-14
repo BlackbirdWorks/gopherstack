@@ -114,7 +114,10 @@ func TestKafka_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, service.PriorityPathVersioned, h.MatchPriority())
+	// Kafka must be evaluated strictly before same-tier services (e.g. AppSync,
+	// also at PriorityPathVersioned) whose broader "/v1/tags" matcher would
+	// otherwise steal Kafka's "/v1/tags/{arn}" tag-operation requests.
+	assert.Greater(t, h.MatchPriority(), service.PriorityPathVersioned)
 }
 
 func TestKafka_RouteMatcher(t *testing.T) {

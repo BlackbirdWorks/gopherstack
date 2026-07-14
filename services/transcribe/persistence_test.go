@@ -116,7 +116,7 @@ func newFullPersistenceTestBackend(t *testing.T) *transcribe.InMemoryBackend {
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateMedicalVocabulary("full-medical-vocab", "en-US", "s3://my-bucket/vocab.txt")
+	_, err = b.CreateMedicalVocabulary("full-medical-vocab", "en-US", "s3://my-bucket/vocab.txt", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateVocabulary(&transcribe.Vocabulary{

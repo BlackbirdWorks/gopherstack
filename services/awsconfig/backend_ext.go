@@ -9,8 +9,22 @@ import "fmt"
 // DeletePendingAggregationRequest is a no-op stub.
 func (b *InMemoryBackend) DeletePendingAggregationRequest(_, _ string) error { return nil }
 
-// DeleteResourceConfig is a no-op stub.
-func (b *InMemoryBackend) DeleteResourceConfig(_, _ string) error { return nil }
+// DeleteResourceConfig removes the discovered configuration item for a
+// resource from b.resourceConfigs. Deletion is idempotent (no error for an
+// already-absent resource), matching real AWS Config's DeleteResourceConfig
+// error model (verified against aws-sdk-go-v2/service/configservice's
+// deserializer: only NoRunningConfigurationRecorderException/
+// ValidationException, never a not-found exception). The resource's history
+// (b.resourceHistory) is intentionally preserved, mirroring AWS which keeps
+// prior configuration history entries after a resource is deleted.
+func (b *InMemoryBackend) DeleteResourceConfig(resourceType, resourceID string) error {
+	b.mu.Lock("DeleteResourceConfig")
+	defer b.mu.Unlock()
+
+	b.resourceConfigs.Delete(resourceConfigItemKey(resourceType, resourceID))
+
+	return nil
+}
 
 // DeleteServiceLinkedConfigurationRecorder is a no-op stub.
 func (b *InMemoryBackend) DeleteServiceLinkedConfigurationRecorder(_ string) error { return nil }
@@ -93,8 +107,34 @@ func (b *InMemoryBackend) DescribePendingAggregationRequests() []any {
 	return []any{}
 }
 
-// DisassociateResourceTypes is a no-op stub.
-func (b *InMemoryBackend) DisassociateResourceTypes(_ string, _ []string) error { return nil }
+// DisassociateResourceTypes removes resourceTypes from a configuration
+// recorder's RecordingGroup, the inverse of AssociateResourceTypes.
+// recorderARN may be the recorder's bare name or its full ARN. Errors with
+// ErrNotFound (wire type NoSuchConfigurationRecorderException) when no
+// matching recorder exists, matching the real API's declared error model
+// (verified against aws-sdk-go-v2/service/configservice's
+// DisassociateResourceTypes deserializer).
+func (b *InMemoryBackend) DisassociateResourceTypes(recorderARN string, resourceTypes []string) error {
+	if recorderARN == "" {
+		return fmt.Errorf("%w: ConfigurationRecorderArn is required", ErrValidation)
+	}
+
+	b.mu.Lock("DisassociateResourceTypes")
+	defer b.mu.Unlock()
+
+	name := recorderNameFromArn(recorderARN)
+
+	r, ok := b.recorders.Get(name)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotFound, recorderARN)
+	}
+
+	if r.RecordingGroup != nil {
+		r.RecordingGroup.ResourceTypes = removeResourceTypes(r.RecordingGroup.ResourceTypes, resourceTypes)
+	}
+
+	return nil
+}
 
 // GetDiscoveredResourceCounts returns zero counts.
 func (b *InMemoryBackend) GetDiscoveredResourceCounts() int64 { return 0 }

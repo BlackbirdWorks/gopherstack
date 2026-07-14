@@ -65,8 +65,14 @@ func newPersistenceTestBackend(t *testing.T) (*bedrockagent.InMemoryBackend, per
 	})
 	require.NoError(t, err)
 
+	// Routing to the version created above explicitly, rather than leaving
+	// RoutingConfiguration empty, keeps this fixture at exactly one
+	// agentVersions row: an empty routingConfiguration makes CreateAgentAlias
+	// auto-provision a new version (real AWS behavior -- see the wire-shape
+	// note on InMemoryBackend.CreateAgentVersion in backend.go).
 	alias, err := b.CreateAgentAlias(ctx, agent.AgentID, bedrockagent.AliasConfig{
-		AliasName: "test-alias",
+		AliasName:            "test-alias",
+		RoutingConfiguration: []bedrockagent.AliasRouting{{AgentVersion: av.AgentVersion}},
 	})
 	require.NoError(t, err)
 

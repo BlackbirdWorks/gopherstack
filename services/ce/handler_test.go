@@ -254,11 +254,11 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 				})
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
-				// Describe should return 404
+				// Describe should return ResourceNotFoundException (real AWS CE: HTTP 400).
 				rec3 := doRequest(t, h, "DescribeCostCategoryDefinition", map[string]any{
 					"CostCategoryArn": arn,
 				})
-				assert.Equal(t, http.StatusNotFound, rec3.Code)
+				assert.Equal(t, http.StatusBadRequest, rec3.Code)
 			},
 		},
 		{
@@ -272,13 +272,13 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 			},
 		},
 		{
-			name: "describe_not_found_returns_404",
+			name: "describe_not_found_returns_400",
 			setup: func(t *testing.T, h *ce.Handler) {
 				t.Helper()
 				rec := doRequest(t, h, "DescribeCostCategoryDefinition", map[string]any{
 					"CostCategoryArn": "arn:aws:ce::000000000000:costcategory/nonexistent",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -700,10 +700,12 @@ func TestHandler_GetAnomalySubscriptions(t *testing.T) {
 			wantStatusCode: http.StatusOK,
 		},
 		{
-			name:           "returns_empty_for_missing_arns",
+			// Real AWS CE returns UnknownSubscriptionException (HTTP 400) when
+			// SubscriptionArnList references an ARN that doesn't exist -- it does not
+			// silently filter it out.
+			name:           "unknown_arn_returns_400",
 			filterARNs:     []string{"arn:aws:ce::000:sub/does-not-exist"},
-			wantLen:        0,
-			wantStatusCode: http.StatusOK,
+			wantStatusCode: http.StatusBadRequest,
 		},
 	}
 
@@ -731,6 +733,10 @@ func TestHandler_GetAnomalySubscriptions(t *testing.T) {
 
 			rec := doRequest(t, h, "GetAnomalySubscriptions", body)
 			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			if tt.wantStatusCode != http.StatusOK {
+				return
+			}
 
 			var out struct {
 				AnomalySubscriptions []map[string]any `json:"AnomalySubscriptions"`
@@ -767,12 +773,12 @@ func TestHandler_UpdateAnomalySubscription(t *testing.T) {
 			wantStatusCode: http.StatusBadRequest,
 		},
 		{
-			name: "not_found_returns_404",
+			name: "not_found_returns_400",
 			updateBody: map[string]any{
 				"SubscriptionArn": "arn:aws:ce::000:sub/not-found",
 				"Frequency":       "WEEKLY",
 			},
-			wantStatusCode: http.StatusNotFound,
+			wantStatusCode: http.StatusBadRequest,
 		},
 	}
 
@@ -986,7 +992,7 @@ func TestHandler_TagOperations_NotFound(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, tt.action, tt.body)
-			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
 }
@@ -1025,7 +1031,7 @@ func TestHandler_DeleteOperations_NotFound(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, tt.action, tt.body)
-			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
 }
@@ -1123,7 +1129,7 @@ func TestHandler_UpdateOperations_NotFound(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequest(t, h, tt.action, tt.body)
-			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
 }
@@ -1224,7 +1230,7 @@ func TestHandler_GetCommitmentPurchaseAnalysis(t *testing.T) {
 		{
 			name:           "not_found_for_unknown_analysis",
 			body:           map[string]any{"AnalysisId": "analysis-123"},
-			wantStatusCode: http.StatusNotFound,
+			wantStatusCode: http.StatusBadRequest,
 		},
 		{
 			name:           "missing_analysis_id_returns_400",
@@ -1895,7 +1901,7 @@ func TestHandler_DuplicateCostCategory(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	rec2 := doRequest(t, h, "CreateCostCategoryDefinition", body)
-	assert.Equal(t, http.StatusConflict, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 func TestHandler_SortedOutput(t *testing.T) {
@@ -2106,9 +2112,12 @@ func TestHandler_UpdateAnomalySubscription_AllBranches(t *testing.T) {
 			wantSubName:    "OriginalName",
 		},
 		{
+			// MonitorArnList entries must reference a real monitor -- real AWS CE returns
+			// UnknownMonitorException otherwise. The placeholder is swapped for a real
+			// monitor ARN below.
 			name: "update_monitor_arn_list",
 			updateBody: map[string]any{
-				"MonitorArnList": []string{"arn:aws:ce::000:anomalymonitor/test"},
+				"MonitorArnList": []string{"PLACEHOLDER"},
 			},
 			wantStatusCode: http.StatusOK,
 			wantFrequency:  "DAILY",
@@ -2121,6 +2130,23 @@ func TestHandler_UpdateAnomalySubscription_AllBranches(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+
+			monRec := doRequest(t, h, "CreateAnomalyMonitor", map[string]any{
+				"AnomalyMonitor": map[string]any{
+					"MonitorName": "UpdateSubMon",
+					"MonitorType": "DIMENSIONAL",
+				},
+			})
+			require.Equal(t, http.StatusOK, monRec.Code)
+
+			var monOut map[string]any
+			require.NoError(t, json.NewDecoder(monRec.Body).Decode(&monOut))
+			monARN := monOut["MonitorArn"].(string)
+
+			arns, ok := tt.updateBody["MonitorArnList"].([]string)
+			if ok && len(arns) == 1 && arns[0] == "PLACEHOLDER" {
+				tt.updateBody["MonitorArnList"] = []string{monARN}
+			}
 
 			createRec := doRequest(t, h, "CreateAnomalySubscription", map[string]any{
 				"AnomalySubscription": map[string]any{
@@ -2186,4 +2212,100 @@ func TestHandler_SnapshotRestoreWithAnomalies(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 	assert.Len(t, out.Anomalies, 1)
 	assert.Equal(t, "snap-anomaly-1", out.Anomalies[0]["AnomalyId"])
+}
+
+// TestHandler_ErrorWireShape verifies the on-the-wire HTTP status and JSON "__type" for
+// every CE error family, matching the real service's AWSInsightsIndexService errors
+// (all client-fault CE exceptions are documented as HTTP 400, and AnomalyMonitor /
+// AnomalySubscription lookups use their own Unknown*Exception types rather than the
+// generic ResourceNotFoundException).
+func TestHandler_ErrorWireShape(t *testing.T) {
+	t.Parallel()
+
+	const missingARN = "arn:aws:ce::000000000000:does-not-exist"
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		action     string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name:       "cost_category_not_found",
+			action:     "DescribeCostCategoryDefinition",
+			body:       map[string]any{"CostCategoryArn": missingARN},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "ResourceNotFoundException",
+		},
+		{
+			name:       "anomaly_monitor_not_found",
+			action:     "DeleteAnomalyMonitor",
+			body:       map[string]any{"MonitorArn": missingARN},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "UnknownMonitorException",
+		},
+		{
+			name:       "anomaly_subscription_not_found",
+			action:     "DeleteAnomalySubscription",
+			body:       map[string]any{"SubscriptionArn": missingARN},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "UnknownSubscriptionException",
+		},
+		{
+			name:   "create_anomaly_subscription_unknown_monitor",
+			action: "CreateAnomalySubscription",
+			body: map[string]any{
+				"AnomalySubscription": map[string]any{
+					"SubscriptionName": "BadSub",
+					"Frequency":        "DAILY",
+					"MonitorArnList":   []string{missingARN},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "UnknownMonitorException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var out struct {
+				Type string `json:"__type"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Equal(t, tt.wantType, out.Type)
+		})
+	}
+}
+
+// TestHandler_DuplicateCostCategory_WireStatusIs400 verifies ServiceQuotaExceededException
+// is returned as HTTP 400 (real AWS CE), not 409.
+func TestHandler_DuplicateCostCategory_WireStatusIs400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := map[string]any{
+		"Name":        "WireDupCat",
+		"RuleVersion": "CostCategoryExpression.v1",
+		"Rules":       []map[string]any{{"Value": "Prod"}},
+	}
+
+	rec1 := doRequest(t, h, "CreateCostCategoryDefinition", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := doRequest(t, h, "CreateCostCategoryDefinition", body)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+
+	var out struct {
+		Type string `json:"__type"`
+	}
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out))
+	assert.Equal(t, "ServiceQuotaExceededException", out.Type)
 }

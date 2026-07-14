@@ -560,7 +560,7 @@ func TestAccuracy_CreateDeliveryStream_Redshift(t *testing.T) {
 	desc := doFirehoseRequest(t, h, "DescribeDeliveryStream",
 		map[string]any{"DeliveryStreamName": "rs-stream"})
 	require.Equal(t, http.StatusOK, desc.Code)
-	assert.Contains(t, desc.Body.String(), "RedshiftDestinationDescriptions")
+	assert.Contains(t, desc.Body.String(), "RedshiftDestinationDescription")
 }
 
 // --- Issue #17: HTTPEndpoint extended fields ---

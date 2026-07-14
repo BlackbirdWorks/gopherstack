@@ -908,69 +908,54 @@ func (h *Handler) writeTypedError(
 	return c.JSON(status, resp)
 }
 
-// exceptionTypeFor maps a sentinel error to the AWS exception type string.
-func exceptionTypeFor(err error) string {
+// errorClass holds the AWS exception type name and HTTP status code that a sentinel
+// backend error maps to.
+type errorClass struct {
+	exceptionType string
+	httpStatus    int
+}
+
+// classifyError maps a backend sentinel error to its AWS exception type and HTTP
+// status. The real FIS API model defines exactly four exception shapes service-wide
+// (ValidationException, ResourceNotFoundException, ConflictException,
+// ServiceQuotaExceededException) — there are no per-resource "XyzNotFoundException"
+// or "TooManyTagsException" shapes, and every operation's generated deserializer in
+// aws-sdk-go-v2/service/fis only recognizes these four __type strings. Emitting any
+// other type name causes real SDK clients to fall back to a generic, untyped error
+// even where the operation supports a typed one, breaking `errors.As` checks against
+// the modeled exception types.
+//
+// Per the SDK's per-operation deserializers: every not-found condition (template,
+// experiment, action, target resource type, safety lever, target account
+// configuration, or a generically tagged resource) maps to ResourceNotFoundException;
+// StopExperiment does not model ConflictException, so stopping a non-running
+// experiment maps to ValidationException; and ServiceQuotaExceededException carries
+// HTTP 402 (Payment Required), not 429.
+func classifyError(err error) errorClass {
 	switch {
-	case errors.Is(err, ErrValidation):
-		return "ValidationException"
+	case errors.Is(err, ErrValidation), errors.Is(err, ErrTooManyTags), errors.Is(err, ErrExperimentNotRunning):
+		return errorClass{exceptionType: "ValidationException", httpStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrTooManyExperiments):
-		return "ServiceQuotaExceededException"
-	case errors.Is(err, ErrTooManyTags):
-		return "TooManyTagsException"
-	case errors.Is(err, ErrTemplateNotFound):
-		return "ExperimentTemplateNotFoundException"
-	case errors.Is(err, ErrExperimentNotFound):
-		return "ExperimentNotFoundException"
-	case errors.Is(err, ErrExperimentNotRunning):
-		return "ConflictException"
-	case errors.Is(err, ErrActionNotFound):
-		return "ActionNotFoundException"
-	case errors.Is(err, ErrTargetResourceTypeNotFound):
-		return "TargetResourceTypeNotFoundException"
-	case errors.Is(err, ErrResourceNotFound):
-		return "ResourceNotFoundException"
-	case errors.Is(err, ErrSafetyLeverNotFound):
-		return "SafetyLeverNotFoundException"
+		return errorClass{exceptionType: "ServiceQuotaExceededException", httpStatus: http.StatusPaymentRequired}
 	case errors.Is(err, ErrSafetyLeverEngaged):
-		return "ConflictException"
-	case errors.Is(err, ErrTargetAccountConfigNotFound):
-		return "TargetAccountConfigurationNotFoundException"
+		return errorClass{exceptionType: "ConflictException", httpStatus: http.StatusConflict}
+	case errors.Is(err, ErrTemplateNotFound),
+		errors.Is(err, ErrExperimentNotFound),
+		errors.Is(err, ErrActionNotFound),
+		errors.Is(err, ErrTargetResourceTypeNotFound),
+		errors.Is(err, ErrResourceNotFound),
+		errors.Is(err, ErrSafetyLeverNotFound),
+		errors.Is(err, ErrTargetAccountConfigNotFound):
+		return errorClass{exceptionType: "ResourceNotFoundException", httpStatus: http.StatusNotFound}
 	default:
-		return "InternalServerError"
+		return errorClass{exceptionType: "InternalServerError", httpStatus: http.StatusInternalServerError}
 	}
 }
 
 func (h *Handler) writeBackendError(c *echo.Context, err error, id string) error {
-	errType := exceptionTypeFor(err)
+	ec := classifyError(err)
 
-	switch {
-	case errors.Is(err, ErrValidation):
-		return h.writeTypedError(c, http.StatusBadRequest, errType, err.Error(), id)
-	case errors.Is(err, ErrTooManyExperiments):
-		return h.writeTypedError(c, http.StatusTooManyRequests, errType, err.Error(), id)
-	case errors.Is(err, ErrTooManyTags):
-		return h.writeTypedError(c, http.StatusBadRequest, errType, err.Error(), id)
-	case errors.Is(err, ErrActionNotFound):
-		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
-	case errors.Is(err, ErrTargetResourceTypeNotFound):
-		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
-	case errors.Is(err, ErrTemplateNotFound):
-		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
-	case errors.Is(err, ErrExperimentNotFound):
-		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
-	case errors.Is(err, ErrExperimentNotRunning):
-		return h.writeTypedError(c, http.StatusConflict, errType, err.Error(), id)
-	case errors.Is(err, ErrResourceNotFound):
-		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
-	case errors.Is(err, ErrSafetyLeverNotFound):
-		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
-	case errors.Is(err, ErrSafetyLeverEngaged):
-		return h.writeTypedError(c, http.StatusConflict, errType, err.Error(), id)
-	case errors.Is(err, ErrTargetAccountConfigNotFound):
-		return h.writeTypedError(c, http.StatusNotFound, errType, err.Error(), id)
-	default:
-		return h.writeTypedError(c, http.StatusInternalServerError, errType, err.Error(), id)
-	}
+	return h.writeTypedError(c, ec.httpStatus, ec.exceptionType, err.Error(), id)
 }
 
 // ----------------------------------------
@@ -1291,8 +1276,9 @@ func toExperimentDTO(exp *Experiment) experimentDTO {
 
 	if exp.Status.Error != nil {
 		statusDTO.Error = &experimentStatusErrorDTO{
-			ExceptionName: exp.Status.Error.ExceptionName,
-			AccountID:     exp.Status.Error.AccountID,
+			Code:      exp.Status.Error.Code,
+			Location:  exp.Status.Error.Location,
+			AccountID: exp.Status.Error.AccountID,
 		}
 	}
 

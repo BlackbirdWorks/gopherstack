@@ -36,6 +36,11 @@ const (
 	// nanosPerSecond is used to convert UnixNano to fractional seconds (AWS timestamp format).
 	nanosPerSecond = 1e9
 
+	// secondsPerDay converts a day-granularity commitment period into the
+	// seconds-granularity value the wire format expects (see subscriptionLimits
+	// callers of TimeCommitmentInSeconds below).
+	secondsPerDay = 86400
+
 	// maxProtectionsPerPage is the upper bound for ListProtections pagination.
 	maxProtectionsPerPage = 1000
 	// maxProtectionGroupsPerPage is the upper bound for ListProtectionGroups pagination.
@@ -509,10 +514,12 @@ func (h *Handler) handleDescribeSubscription() ([]byte, error) {
 
 	return json.Marshal(map[string]any{
 		"Subscription": map[string]any{
-			keyStartTime:                floatSeconds(sub.StartTime),
-			keyEndTime:                  floatSeconds(sub.EndTime),
-			"AutoRenew":                 sub.AutoRenew,
-			"TimeCommitmentInDays":      sub.TimeCommitmentInDays,
+			keyStartTime: floatSeconds(sub.StartTime),
+			keyEndTime:   floatSeconds(sub.EndTime),
+			"AutoRenew":  sub.AutoRenew,
+			// AWS wire field is TimeCommitmentInSeconds (seconds), not days -- see
+			// types.Subscription.TimeCommitmentInSeconds in aws-sdk-go-v2.
+			"TimeCommitmentInSeconds":   sub.TimeCommitmentInDays * secondsPerDay,
 			"SubscriptionArn":           subscriptionArn,
 			"ProactiveEngagementStatus": h.Backend.GetProactiveEngagementStatus(),
 			"Limits":                    subscriptionResourceLimits(),

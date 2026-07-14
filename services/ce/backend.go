@@ -92,6 +92,15 @@ var (
 	ErrValidation = errors.New("InvalidParameterException")
 	// ErrDataUnavailable is returned when queried data is not available for the time range.
 	ErrDataUnavailable = awserr.New("DataUnavailableException", awserr.ErrNotFound)
+	// ErrUnknownMonitor is returned when a referenced cost anomaly monitor ARN does not
+	// exist. Real AWS CE returns this (not the generic ResourceNotFoundException) from
+	// every anomaly-monitor op and from any op whose MonitorArnList references a monitor
+	// that doesn't exist.
+	ErrUnknownMonitor = awserr.New("UnknownMonitorException", awserr.ErrNotFound)
+	// ErrUnknownSubscription is returned when a referenced cost anomaly subscription ARN
+	// does not exist. Real AWS CE returns this (not the generic ResourceNotFoundException)
+	// from every anomaly-subscription op.
+	ErrUnknownSubscription = awserr.New("UnknownSubscriptionException", awserr.ErrNotFound)
 )
 
 // isValidMonitorType reports whether t is a valid AnomalyMonitor MonitorType.
@@ -821,7 +830,7 @@ func (b *InMemoryBackend) DeleteAnomalyMonitor(monARN string) error {
 	defer b.mu.Unlock()
 
 	if !b.anomalyMonitors.Has(monARN) {
-		return ErrNotFound
+		return ErrUnknownMonitor
 	}
 
 	b.anomalyMonitors.Delete(monARN)
@@ -831,9 +840,11 @@ func (b *InMemoryBackend) DeleteAnomalyMonitor(monARN string) error {
 
 // GetAnomalyMonitors returns anomaly monitors, optionally filtered by ARNs, sorted by MonitorARN.
 // maxResults and nextPageToken implement opaque-cursor pagination (real AWS behaviour).
+// If monitorARNList references an ARN that doesn't exist, it returns ErrUnknownMonitor,
+// matching real AWS.
 func (b *InMemoryBackend) GetAnomalyMonitors(
 	monitorARNList []string, maxResults int, nextPageToken string,
-) ([]*AnomalyMonitor, string) {
+) ([]*AnomalyMonitor, string, error) {
 	b.mu.RLock("GetAnomalyMonitors")
 	defer b.mu.RUnlock()
 
@@ -849,6 +860,10 @@ func (b *InMemoryBackend) GetAnomalyMonitors(
 	} else {
 		set := make(map[string]struct{}, len(monitorARNList))
 		for _, a := range monitorARNList {
+			if !b.anomalyMonitors.Has(a) {
+				return nil, "", ErrUnknownMonitor
+			}
+
 			set[a] = struct{}{}
 		}
 
@@ -862,9 +877,11 @@ func (b *InMemoryBackend) GetAnomalyMonitors(
 		}
 	}
 
-	return paginateList(result, maxResults, nextPageToken, func(m *AnomalyMonitor) string {
+	page, next := paginateList(result, maxResults, nextPageToken, func(m *AnomalyMonitor) string {
 		return m.MonitorARN
 	})
+
+	return page, next, nil
 }
 
 // UpdateAnomalyMonitor updates the name of an anomaly monitor.
@@ -876,7 +893,7 @@ func (b *InMemoryBackend) UpdateAnomalyMonitor(
 
 	mon, exists := b.anomalyMonitors.Get(monARN)
 	if !exists {
-		return nil, ErrNotFound
+		return nil, ErrUnknownMonitor
 	}
 
 	mon.MonitorName = monitorName
@@ -904,6 +921,12 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 				"%w: Frequency must be one of DAILY, IMMEDIATE, WEEKLY",
 				ErrValidation,
 			)
+		}
+	}
+
+	for _, monARN := range monitorARNList {
+		if !b.anomalyMonitors.Has(monARN) {
+			return nil, ErrUnknownMonitor
 		}
 	}
 
@@ -941,7 +964,7 @@ func (b *InMemoryBackend) DeleteAnomalySubscription(subARN string) error {
 	defer b.mu.Unlock()
 
 	if !b.anomalySubscriptions.Has(subARN) {
-		return ErrNotFound
+		return ErrUnknownSubscription
 	}
 
 	b.anomalySubscriptions.Delete(subARN)
@@ -951,54 +974,67 @@ func (b *InMemoryBackend) DeleteAnomalySubscription(subARN string) error {
 
 // GetAnomalySubscriptions returns anomaly subscriptions, optionally filtered by ARNs or monitor ARN,
 // sorted by SubscriptionARN. maxResults and nextPageToken implement opaque-cursor pagination.
+// If subscriptionARNList references an ARN that doesn't exist, it returns
+// ErrUnknownSubscription, matching real AWS. monitorARN is a simple filter (real AWS does
+// not require it to reference an existing monitor).
 func (b *InMemoryBackend) GetAnomalySubscriptions(
 	subscriptionARNList []string,
 	monitorARN string,
 	maxResults int,
 	nextPageToken string,
-) ([]*AnomalySubscription, string) {
+) ([]*AnomalySubscription, string, error) {
 	b.mu.RLock("GetAnomalySubscriptions")
 	defer b.mu.RUnlock()
 
-	var result []*AnomalySubscription
+	var arnFilter map[string]struct{}
 
-	if len(subscriptionARNList) == 0 {
-		all := b.anomalySubscriptions.All()
-		result = make([]*AnomalySubscription, 0, len(all))
+	if len(subscriptionARNList) > 0 {
+		var err error
 
-		for _, sub := range all {
-			if monitorARN != "" && !containsString(sub.MonitorARNList, monitorARN) {
-				continue
-			}
-
-			out := *sub
-			result = append(result, &out)
-		}
-	} else {
-		set := make(map[string]struct{}, len(subscriptionARNList))
-		for _, a := range subscriptionARNList {
-			set[a] = struct{}{}
-		}
-
-		result = make([]*AnomalySubscription, 0, len(subscriptionARNList))
-
-		for _, sub := range b.anomalySubscriptions.All() {
-			if _, ok := set[sub.SubscriptionARN]; !ok {
-				continue
-			}
-
-			if monitorARN != "" && !containsString(sub.MonitorARNList, monitorARN) {
-				continue
-			}
-
-			out := *sub
-			result = append(result, &out)
+		arnFilter, err = b.anomalySubscriptionARNSet(subscriptionARNList)
+		if err != nil {
+			return nil, "", err
 		}
 	}
 
-	return paginateList(result, maxResults, nextPageToken, func(s *AnomalySubscription) string {
+	all := b.anomalySubscriptions.All()
+	result := make([]*AnomalySubscription, 0, len(all))
+
+	for _, sub := range all {
+		if _, ok := arnFilter[sub.SubscriptionARN]; arnFilter != nil && !ok {
+			continue
+		}
+
+		if monitorARN != "" && !containsString(sub.MonitorARNList, monitorARN) {
+			continue
+		}
+
+		out := *sub
+		result = append(result, &out)
+	}
+
+	page, next := paginateList(result, maxResults, nextPageToken, func(s *AnomalySubscription) string {
 		return s.SubscriptionARN
 	})
+
+	return page, next, nil
+}
+
+// anomalySubscriptionARNSet validates that every ARN in arns names an existing anomaly
+// subscription and returns the set for membership filtering. Returns ErrUnknownSubscription
+// on the first unknown ARN, matching real AWS. Caller must hold at least a read lock.
+func (b *InMemoryBackend) anomalySubscriptionARNSet(arns []string) (map[string]struct{}, error) {
+	set := make(map[string]struct{}, len(arns))
+
+	for _, a := range arns {
+		if !b.anomalySubscriptions.Has(a) {
+			return nil, ErrUnknownSubscription
+		}
+
+		set[a] = struct{}{}
+	}
+
+	return set, nil
 }
 
 // containsString reports whether s appears in slice.
@@ -1055,7 +1091,15 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 
 	sub, exists := b.anomalySubscriptions.Get(subARN)
 	if !exists {
-		return nil, ErrNotFound
+		return nil, ErrUnknownSubscription
+	}
+
+	if len(monitorARNList) > 0 {
+		for _, monARN := range monitorARNList {
+			if !b.anomalyMonitors.Has(monARN) {
+				return nil, ErrUnknownMonitor
+			}
+		}
 	}
 
 	if frequency != "" {

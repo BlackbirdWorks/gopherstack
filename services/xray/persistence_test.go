@@ -130,6 +130,10 @@ func TestXRay_PersistenceFullStateRoundTrip(t *testing.T) {
 	_, err = b.UpdateIndexingRule("Default")
 	require.NoError(t, err)
 
+	// traceSegmentDest.
+	dest := b.UpdateTraceSegmentDestination("CloudWatchLogs")
+	require.Equal(t, "CloudWatchLogs", dest)
+
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
@@ -206,4 +210,26 @@ func TestXRay_PersistenceFullStateRoundTrip(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
+
+	// traceSegmentDest must survive the round trip; UpdateTraceSegmentDestination
+	// mutates real backend state, so Restore losing it would silently revert
+	// callers to the default "XRay" destination after a gopherstack restart.
+	assert.Equal(t, "CloudWatchLogs", b2.GetTraceSegmentDestination())
+}
+
+// TestXRay_Reset_ClearsTraceSegmentDestination guards against Reset leaving
+// traceSegmentDest stale: every other mutable field on InMemoryBackend is
+// cleared by Reset (see InMemoryBackend.Reset), and traceSegmentDest must be
+// too so a fresh Reset() truly returns to the default "XRay" destination.
+func TestXRay_Reset_ClearsTraceSegmentDestination(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+
+	dest := b.UpdateTraceSegmentDestination("CloudWatchLogs")
+	require.Equal(t, "CloudWatchLogs", dest)
+
+	b.Reset()
+
+	assert.Equal(t, "XRay", b.GetTraceSegmentDestination())
 }

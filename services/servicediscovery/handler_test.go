@@ -1201,6 +1201,26 @@ func TestHandler_TagsErrors(t *testing.T) {
 	}
 }
 
+// TestHandler_TagResource_TooManyTags verifies that exceeding the 50-tag limit
+// returns the dedicated TooManyTagsException error, not a generic InvalidInput.
+func TestHandler_TagResource_TooManyTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tags := make([]map[string]string, 0, 51)
+	for i := range 51 {
+		tags = append(tags, map[string]string{"Key": fmt.Sprintf("k%d", i), "Value": "v"})
+	}
+
+	rec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{
+		"Name": "too-many-tags-ns",
+		"Tags": tags,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "TooManyTagsException")
+}
+
 func TestHandler_UnknownOperation(t *testing.T) {
 	t.Parallel()
 

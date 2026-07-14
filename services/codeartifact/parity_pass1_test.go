@@ -21,7 +21,9 @@ func TestParity_ListDomains_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	rec1 := doRequest(t, h, http.MethodGet, "/v1/domains?maxResults=2", nil)
+	// Unlike every other List op, ListDomains sends maxResults/nextToken as JSON body
+	// fields, not query params -- see listDomainsBody's doc comment in handler.go.
+	rec1 := doRequest(t, h, http.MethodPost, "/v1/domains", map[string]any{"maxResults": 2})
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
@@ -31,7 +33,7 @@ func TestParity_ListDomains_Pagination(t *testing.T) {
 	nextToken, ok := out1["nextToken"].(string)
 	assert.True(t, ok && nextToken != "", "nextToken must be present after partial page")
 
-	rec2 := doRequest(t, h, http.MethodGet, "/v1/domains?maxResults=2&nextToken="+nextToken, nil)
+	rec2 := doRequest(t, h, http.MethodPost, "/v1/domains", map[string]any{"maxResults": 2, "nextToken": nextToken})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
@@ -51,7 +53,7 @@ func TestParity_ListRepositoriesInDomain_Pagination(t *testing.T) {
 		doRequest(t, h, http.MethodPost, fmt.Sprintf("/v1/repository?domain=pag-domain&repository=repo-%02d", i), nil)
 	}
 
-	rec1 := doRequest(t, h, http.MethodGet, "/v1/domain/repositories?domain=pag-domain&maxResults=2", nil)
+	rec1 := doRequest(t, h, http.MethodGet, "/v1/domain/repositories?domain=pag-domain&max-results=2", nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
@@ -62,7 +64,7 @@ func TestParity_ListRepositoriesInDomain_Pagination(t *testing.T) {
 	assert.True(t, ok && nextToken != "", "nextToken must be present after partial page")
 
 	rec2 := doRequest(t, h, http.MethodGet,
-		"/v1/domain/repositories?domain=pag-domain&maxResults=2&nextToken="+nextToken, nil)
+		"/v1/domain/repositories?domain=pag-domain&max-results=2&next-token="+nextToken, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
@@ -88,7 +90,7 @@ func TestParity_ListPackages_Pagination(t *testing.T) {
 	}
 
 	rec1 := doRequest(t, h, http.MethodGet,
-		"/v1/packages?domain=pkgpag-domain&repository=pkgpag-repo&maxResults=2", nil)
+		"/v1/packages?domain=pkgpag-domain&repository=pkgpag-repo&max-results=2", nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
@@ -99,7 +101,7 @@ func TestParity_ListPackages_Pagination(t *testing.T) {
 	assert.True(t, ok && nextToken != "", "nextToken must be present after partial page")
 
 	rec2 := doRequest(t, h, http.MethodGet,
-		"/v1/packages?domain=pkgpag-domain&repository=pkgpag-repo&maxResults=2&nextToken="+nextToken, nil)
+		"/v1/packages?domain=pkgpag-domain&repository=pkgpag-repo&max-results=2&next-token="+nextToken, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
@@ -125,7 +127,7 @@ func TestParity_ListPackageVersions_Pagination(t *testing.T) {
 	}
 
 	rec1 := doRequest(t, h, http.MethodGet,
-		"/v1/package/versions?domain=pvpag-domain&repository=pvpag-repo&format=npm&package=mypkg&maxResults=2", nil)
+		"/v1/package/versions?domain=pvpag-domain&repository=pvpag-repo&format=npm&package=mypkg&max-results=2", nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
@@ -137,7 +139,7 @@ func TestParity_ListPackageVersions_Pagination(t *testing.T) {
 
 	rec2 := doRequest(t, h, http.MethodGet,
 		"/v1/package/versions?domain=pvpag-domain&repository=pvpag-repo&format=npm&package=mypkg"+
-			"&maxResults=2&nextToken="+nextToken,
+			"&max-results=2&next-token="+nextToken,
 		nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -198,7 +200,7 @@ func TestParity_CreateRepository_UpstreamRepositories(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodPost, "/v1/repository?domain=up-domain&repository=my-repo",
 		map[string]any{
-			"upstreamRepositories": []map[string]any{
+			"upstreams": []map[string]any{
 				{"repositoryName": "upstream-repo"},
 			},
 		},
@@ -208,7 +210,7 @@ func TestParity_CreateRepository_UpstreamRepositories(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	repo, _ := out["repository"].(map[string]any)
-	upstreams, _ := repo["upstreamRepositories"].([]any)
+	upstreams, _ := repo["upstreams"].([]any)
 	require.Len(t, upstreams, 1)
 	entry, _ := upstreams[0].(map[string]any)
 	assert.Equal(t, "upstream-repo", entry["repositoryName"])
@@ -226,7 +228,7 @@ func TestParity_UpdateRepository_UpstreamRepositories(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodPut, "/v1/repository?domain=upd-domain&repository=my-repo",
 		map[string]any{
-			"upstreamRepositories": []map[string]any{
+			"upstreams": []map[string]any{
 				{"repositoryName": "upstream-repo"},
 			},
 		},
@@ -236,7 +238,7 @@ func TestParity_UpdateRepository_UpstreamRepositories(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	repo, _ := out["repository"].(map[string]any)
-	upstreams, _ := repo["upstreamRepositories"].([]any)
+	upstreams, _ := repo["upstreams"].([]any)
 	require.Len(t, upstreams, 1)
 	entry, _ := upstreams[0].(map[string]any)
 	assert.Equal(t, "upstream-repo", entry["repositoryName"])
@@ -256,7 +258,7 @@ func TestParity_ListPackageGroups_Pagination(t *testing.T) {
 	}
 
 	rec1 := doRequest(t, h, http.MethodGet,
-		"/v1/package-groups?domain=pgpag-domain&maxResults=2", nil)
+		"/v1/package-groups?domain=pgpag-domain&max-results=2", nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
@@ -267,7 +269,7 @@ func TestParity_ListPackageGroups_Pagination(t *testing.T) {
 	assert.True(t, ok && nextToken != "", "nextToken must be present after partial page")
 
 	rec2 := doRequest(t, h, http.MethodGet,
-		"/v1/package-groups?domain=pgpag-domain&maxResults=2&nextToken="+nextToken, nil)
+		"/v1/package-groups?domain=pgpag-domain&max-results=2&next-token="+nextToken, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any

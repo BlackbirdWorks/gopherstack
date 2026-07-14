@@ -278,7 +278,7 @@ func TestParity_CreateTable_DefaultRetentionViaBackend(t *testing.T) {
 			t.Parallel()
 
 			b := timestreamwrite.NewInMemoryBackend()
-			_, err := b.CreateDatabase("def-b-db", nil)
+			_, err := b.CreateDatabase("def-b-db", "", nil)
 			require.NoError(t, err)
 
 			tbl, err := b.CreateTable("def-b-db", "def-b-tbl", nil, tt.inp)

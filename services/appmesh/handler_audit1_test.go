@@ -345,6 +345,36 @@ func TestAppMesh_NotFoundErrors(t *testing.T) {
 	}
 }
 
+// ─── List "limit" query param ──────────────────────────────────────────────────
+
+// TestAppMesh_ListLimitQueryParam verifies that the client-supplied "limit"
+// query param (the real wire name for max page size on App Mesh List*
+// operations — see ListMeshesInput.Limit in aws-sdk-go-v2) is honored, not
+// silently ignored in favor of a fixed default page size.
+func TestAppMesh_ListLimitQueryParam(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	for _, name := range []string{"a", "b", "c"} {
+		doRequest(t, h, http.MethodPut, "/meshes", map[string]any{"meshName": name})
+	}
+
+	rec := doRequest(t, h, http.MethodGet, "/meshes?limit=2", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := getBody(t, rec)
+	meshes := body["meshes"].([]any)
+	assert.Len(t, meshes, 2, "limit=2 must cap the page at 2 items")
+	assert.NotEmpty(t, body["nextToken"], "a capped page must return a nextToken")
+
+	// Second page via nextToken picks up the remainder.
+	rec = doRequest(t, h, http.MethodGet,
+		fmt.Sprintf("/meshes?limit=2&nextToken=%s", body["nextToken"]), nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body = getBody(t, rec)
+	assert.Len(t, body["meshes"].([]any), 1)
+	assert.Empty(t, body["nextToken"])
+}
+
 // ─── List empty results ───────────────────────────────────────────────────────
 
 func TestAppMesh_ListEmptyResults(t *testing.T) {

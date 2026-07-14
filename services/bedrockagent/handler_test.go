@@ -527,7 +527,10 @@ func TestHandlerAgentVersions(t *testing.T) {
 	// Prepare first so we can create a version
 	doRequest(t, h, e, http.MethodPost, "/agents/"+agentID+"/prepare", nil)
 
-	t.Run("create version", func(t *testing.T) {
+	// POST to the agentversions collection path is ListAgentVersions on the
+	// real wire (there is no CreateAgentVersion SDK operation) -- it must
+	// return 200 with agentVersionSummaries, not create anything.
+	t.Run("list versions via POST", func(t *testing.T) {
 		t.Parallel()
 
 		h2, e2 := setupHandler(t)
@@ -538,11 +541,16 @@ func TestHandlerAgentVersions(t *testing.T) {
 		aid := resp["agent"]["agentId"].(string)
 		doRequest(t, h2, e2, http.MethodPost, "/agents/"+aid+"/prepare", nil)
 
-		rec2 := doRequest(t, h2, e2, http.MethodPost, "/agents/"+aid+"/agentversions", map[string]any{
-			"description": "initial version",
-		})
-		if rec2.Code != http.StatusAccepted {
-			t.Errorf("got %d want 202: %s", rec2.Code, rec2.Body.String())
+		rec2 := doRequest(t, h2, e2, http.MethodPost, "/agents/"+aid+"/agentversions", nil)
+		if rec2.Code != http.StatusOK {
+			t.Errorf("got %d want 200: %s", rec2.Code, rec2.Body.String())
+		}
+
+		var listResp map[string]any
+		_ = json.Unmarshal(rec2.Body.Bytes(), &listResp)
+
+		if _, ok := listResp["agentVersionSummaries"]; !ok {
+			t.Errorf("response missing agentVersionSummaries: %s", rec2.Body.String())
 		}
 	})
 

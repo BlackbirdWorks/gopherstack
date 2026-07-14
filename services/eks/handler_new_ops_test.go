@@ -428,8 +428,17 @@ func TestEKS_CreateAddon(t *testing.T) {
 }
 
 // TestEKS_CreateCapability verifies CreateCapability and error cases.
+// Capabilities are cluster-scoped: POST /clusters/{name}/capabilities --
+// verified against aws-sdk-go-v2/service/eks's serializer.
 func TestEKS_CreateCapability(t *testing.T) {
 	t.Parallel()
+
+	validBody := map[string]any{
+		"capabilityName":          "my-capability",
+		"type":                    "ARGOCD",
+		"roleArn":                 "arn:aws:iam::123456789012:role/capability-role",
+		"deletePropagationPolicy": "RETAIN",
+	}
 
 	tests := []struct {
 		body       map[string]any
@@ -438,24 +447,27 @@ func TestEKS_CreateCapability(t *testing.T) {
 	}{
 		{
 			name:       "create_capability_success",
-			body:       map[string]any{"name": "my-capability", "version": "v1.0"},
+			body:       validBody,
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "create_capability_missing_name",
-			body:       map[string]any{"version": "v1.0"},
+			name: "create_capability_missing_name",
+			body: map[string]any{
+				"type": "ARGOCD", "roleArn": "arn:aws:iam::123456789012:role/x", "deletePropagationPolicy": "RETAIN",
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "create_capability_duplicate",
-			body:       map[string]any{"name": "dup-cap"},
+			body:       validBody,
 			wantStatus: http.StatusConflict,
 		},
 	}
 
 	h := newTestEKSHandler(t)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "cap-cluster"})
 	// Pre-create duplicate for the last test.
-	doREST(t, h, http.MethodPost, "/capabilities", map[string]any{"name": "dup-cap"})
+	doREST(t, h, http.MethodPost, "/clusters/cap-cluster/capabilities", validBody)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -466,16 +478,18 @@ func TestEKS_CreateCapability(t *testing.T) {
 				handler = h
 			} else {
 				handler = newTestEKSHandler(t)
+				doREST(t, handler, http.MethodPost, "/clusters", map[string]any{"name": "cap-cluster"})
 			}
 
-			rec := doREST(t, handler, http.MethodPost, "/capabilities", tt.body)
+			rec := doREST(t, handler, http.MethodPost, "/clusters/cap-cluster/capabilities", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
 				resp := parseResp(t, rec)
 				capa, ok := resp["capability"].(map[string]any)
 				require.True(t, ok)
-				assert.Equal(t, "my-capability", capa["name"])
+				assert.Equal(t, "my-capability", capa["capabilityName"])
+				assert.Equal(t, "cap-cluster", capa["clusterName"])
 				assert.Equal(t, "ACTIVE", capa["status"])
 			}
 		})
@@ -512,7 +526,7 @@ func TestEKS_CreateEksAnywhereSubscription(t *testing.T) {
 			t.Parallel()
 
 			h := newTestEKSHandler(t)
-			rec := doREST(t, h, http.MethodPost, "/subscriptions", tt.body)
+			rec := doREST(t, h, http.MethodPost, "/eks-anywhere-subscriptions", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -706,7 +720,7 @@ func TestEKS_NewOps_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create capability.
-	_, err = b.CreateCapability("cap1", "v1.0")
+	_, err = b.CreateCapability("c1", "cap1", "ARGOCD", "arn:aws:iam::123456789012:role/capability-role", "RETAIN", nil)
 	require.NoError(t, err)
 
 	// Create subscription.
@@ -771,8 +785,12 @@ func TestEKS_RouteMatcher_NewPaths(t *testing.T) {
 		name    string
 		matches bool
 	}{
-		{name: "capabilities", path: "/capabilities", matches: true},
-		{name: "subscriptions", path: "/subscriptions", matches: true},
+		{name: "capabilities", path: "/clusters/c1/capabilities", matches: true},
+		{name: "subscriptions", path: "/eks-anywhere-subscriptions", matches: true},
+		{name: "cluster_registrations", path: "/cluster-registrations", matches: true},
+		{name: "cluster_registrations_named", path: "/cluster-registrations/c1", matches: true},
+		{name: "addon_supported_versions", path: "/addons/supported-versions", matches: true},
+		{name: "addon_configuration_schemas", path: "/addons/configuration-schemas", matches: true},
 		{name: "access_entries", path: "/clusters/c1/access-entries", matches: true},
 		{name: "addons", path: "/clusters/c1/addons", matches: true},
 		{name: "fargate_profiles", path: "/clusters/c1/fargate-profiles", matches: true},
@@ -780,6 +798,8 @@ func TestEKS_RouteMatcher_NewPaths(t *testing.T) {
 		{name: "encryption_config", path: "/clusters/c1/encryption-config/associate", matches: true},
 		{name: "idp_configs", path: "/clusters/c1/identity-provider-configs/associate", matches: true},
 		{name: "unrelated", path: "/other", matches: false},
+		{name: "old_subscriptions_path_no_longer_matches", path: "/subscriptions", matches: false},
+		{name: "old_capabilities_path_no_longer_matches", path: "/capabilities", matches: false},
 	}
 
 	for _, tt := range tests {

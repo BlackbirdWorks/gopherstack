@@ -161,8 +161,12 @@ func (b *InMemoryBackend) Reset() {
 	b.policyRevisions = make(map[string]string)
 }
 
-// StartJob submits an analysis job with AWS-style initial status.
-func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any) (*Job, error) {
+// StartJob submits an analysis job with AWS-style initial status. tags are
+// associated with the job's ARN in the same tag store Create* resources use,
+// so ListTagsForResource/TagResource/UntagResource work against job ARNs too
+// (Start*DetectionJob requests all accept an optional Tags field in the real
+// API).
+func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any, tags []Tag) (*Job, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: JobName is required", ErrValidation)
 	}
@@ -194,6 +198,7 @@ func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any) 
 		shouldFail:            strings.Contains(strings.ToLower(name), failedMarker),
 	}
 	b.jobs.Put(job)
+	b.tags[job.JobArn] = tagsMap(tags)
 
 	return cloneJob(job), nil
 }

@@ -347,7 +347,7 @@ func TestNotificationSettings_PutResetCycle(t *testing.T) {
 
 			b := newBackend(t)
 			src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-			ta, err := b.CreateTrustAnchor(context.Background(), "notif-anchor", src, nil)
+			ta, err := b.CreateTrustAnchor(context.Background(), "notif-anchor", src, nil, nil)
 			require.NoError(t, err)
 
 			_, err = b.PutNotificationSettings(context.Background(), ta.TrustAnchorID, tc.settings)
@@ -386,7 +386,7 @@ func TestNotificationSettings_UpdateExisting(t *testing.T) {
 
 	b := newBackend(t)
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-	ta, _ := b.CreateTrustAnchor(context.Background(), "update-notif-anchor", src, nil)
+	ta, _ := b.CreateTrustAnchor(context.Background(), "update-notif-anchor", src, nil, nil)
 
 	_, err := b.PutNotificationSettings(context.Background(), ta.TrustAnchorID, []rolesanywhere.NotificationSetting{
 		{Event: "CA_CERTIFICATE_EXPIRY", Enabled: true},

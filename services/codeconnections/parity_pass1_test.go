@@ -1,6 +1,7 @@
 package codeconnections_test
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"testing"
@@ -340,18 +341,21 @@ func TestParity_UpdateSyncConfiguration_PublishDeploymentStatus(t *testing.T) {
 }
 
 // TestParity_UpdateSyncBlocker_ResourceName verifies that UpdateSyncBlocker returns the
-// ResourceName from the input in the SyncBlockerSummary response.
-// Real AWS echoes the ResourceName in the blocker summary.
+// real blocker's ResourceName (from the resolved blocker record, not merely echoed from
+// the request) in the response, and that an unknown blocker ID is rejected rather than
+// resolved gracefully -- the real operation documents SyncBlockerDoesNotExistException
+// for exactly this case.
 func TestParity_UpdateSyncBlocker_ResourceName(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		resourceName string
-		wantName     string
+		name       string
+		wantName   string
+		wantStatus int
+		useRealID  bool
 	}{
-		{name: "resource_name_echoed", resourceName: "my-cfn-stack", wantName: "my-cfn-stack"},
-		{name: "empty_resource_name", resourceName: "", wantName: ""},
+		{name: "resource_name_echoed", useRealID: true, wantStatus: http.StatusOK, wantName: "my-cfn-stack"},
+		{name: "unknown_id_rejected", useRealID: false, wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -359,23 +363,41 @@ func TestParity_UpdateSyncBlocker_ResourceName(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-
-			body := map[string]any{
-				"Id":             "blocker-123",
-				"SyncType":       "CFN_STACK_SYNC",
-				"ResolvedReason": "fixed",
-			}
-			if tt.resourceName != "" {
-				body["ResourceName"] = tt.resourceName
-			}
-
-			rec := doJSON(t, h, "UpdateSyncBlocker", body)
+			connArn := createConn(t, h, "sb-name-conn", "GitHub")
+			linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+			rec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+				"Branch":           "main",
+				"ConfigFile":       "sync.yaml",
+				"RepositoryLinkId": linkID,
+				"ResourceName":     "my-cfn-stack",
+				"RoleArn":          "arn:aws:iam::123456789012:role/r",
+				"SyncType":         "CFN_STACK_SYNC",
+			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			resp := parseResp(t, rec)
-			summary, ok := resp["SyncBlockerSummary"].(map[string]any)
-			require.True(t, ok)
-			assert.Equal(t, tt.wantName, summary["ResourceName"])
+			id := "blocker-123"
+			if tt.useRealID {
+				blocker, err := h.Backend.CreateSyncBlocker(
+					context.Background(), "my-cfn-stack", "CFN_STACK_SYNC", "AUTOMATED", "blocked",
+				)
+				require.NoError(t, err)
+				id = blocker.ID
+			}
+
+			body := map[string]any{
+				"Id":             id,
+				"SyncType":       "CFN_STACK_SYNC",
+				"ResourceName":   "my-cfn-stack",
+				"ResolvedReason": "fixed",
+			}
+
+			rec = doJSON(t, h, "UpdateSyncBlocker", body)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				resp := parseResp(t, rec)
+				assert.Equal(t, tt.wantName, resp["ResourceName"])
+			}
 		})
 	}
 }
@@ -433,7 +455,11 @@ func TestParity_CreateConnection_AllProviderTypes(t *testing.T) {
 		{name: "gitlab", providerType: "GitLab", wantStatus: http.StatusOK},
 		{name: "gitlab_self_managed", providerType: "GitLabSelfManaged", wantStatus: http.StatusOK},
 		{name: "github_enterprise", providerType: "GitHubEnterpriseServer", wantStatus: http.StatusOK},
-		{name: "invalid_type", providerType: "AzureDevOps", wantStatus: http.StatusBadRequest},
+		// AzureDevOps is a real CodeConnections provider type (types.ProviderTypeAzureDevOps
+		// in aws-sdk-go-v2/service/codeconnections/types/enums.go) -- unlike the older
+		// CodeStarConnections service, which predates it and has no such enum value.
+		{name: "azure_devops", providerType: "AzureDevOps", wantStatus: http.StatusOK},
+		{name: "invalid_type", providerType: "NotARealProvider", wantStatus: http.StatusBadRequest},
 	}
 
 	for i, tt := range tests {

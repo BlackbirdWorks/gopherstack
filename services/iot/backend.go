@@ -350,6 +350,42 @@ func cloneTopicRule(r *TopicRule) *TopicRule {
 	}
 }
 
+// applyAttributePayload returns the attribute map that results from applying
+// an AttributePayload update on top of an existing attribute set, matching
+// AWS IoT's documented UpdateThing/UpdateThingGroup semantics:
+//
+//   - merge unset or false (the default) REPLACES the existing attributes
+//     with the payload's attributes rather than merging them.
+//   - merge true merges the payload into the existing attributes.
+//   - In either mode, an attribute present in the payload with an empty
+//     string value is removed from the result (AWS's documented mechanism
+//     for deleting an attribute via UpdateThing/UpdateThingGroup).
+//   - A nil payload, or a payload with a nil Attributes map (i.e. the
+//     request didn't include an attributes field at all), leaves the
+//     existing attributes untouched.
+func applyAttributePayload(existing map[string]string, payload *AttributePayload) map[string]string {
+	if payload == nil || payload.Attributes == nil {
+		return existing
+	}
+
+	merge := payload.Merge != nil && *payload.Merge
+
+	result := make(map[string]string, len(existing)+len(payload.Attributes))
+	if merge {
+		maps.Copy(result, existing)
+	}
+
+	for k, v := range payload.Attributes {
+		if v == "" {
+			delete(result, k)
+		} else {
+			result[k] = v
+		}
+	}
+
+	return result
+}
+
 // cloneSbomDocument creates a deep copy of a SbomDocument.
 func cloneSbomDocument(s *SbomDocument) *SbomDocument {
 	if s == nil {
@@ -411,6 +447,10 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 		CreatedAt:     time.Now(),
 	})
 
+	if input.BillingGroupName != "" {
+		b.thingBillingGroups[input.ThingName] = input.BillingGroupName
+	}
+
 	return &CreateThingOutput{
 		ThingName: input.ThingName,
 		ThingARN:  arn,
@@ -428,7 +468,10 @@ func (b *InMemoryBackend) DescribeThing(thingName string) (*Thing, error) {
 		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
-	return cloneThing(t), nil
+	clone := cloneThing(t)
+	clone.BillingGroupName = b.thingBillingGroups[thingName]
+
+	return clone, nil
 }
 
 // ListThings returns all Things sorted by name.
@@ -604,9 +647,20 @@ func (b *InMemoryBackend) AttachPrincipalPolicy(input *AttachPrincipalPolicyInpu
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.policyTargets[input.PolicyName] = append(b.policyTargets[input.PolicyName], input.Principal)
+	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Principal)
 
 	return nil
+}
+
+// appendUnique appends v to items unless it's already present, matching AWS
+// IoT's idempotent attach semantics (re-attaching an already-attached
+// principal/policy/target succeeds without creating a duplicate list entry).
+func appendUnique(items []string, v string) []string {
+	if slices.Contains(items, v) {
+		return items
+	}
+
+	return append(items, v)
 }
 
 // DescribeEndpoint returns the MQTT broker endpoint address.
@@ -713,7 +767,7 @@ func (b *InMemoryBackend) AttachPolicy(input *AttachPolicyInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.policyTargets[input.PolicyName] = append(b.policyTargets[input.PolicyName], input.Target)
+	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Target)
 
 	return nil
 }
@@ -723,7 +777,7 @@ func (b *InMemoryBackend) AttachSecurityProfile(input *AttachSecurityProfileInpu
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.securityProfileTargets[input.SecurityProfileName] = append(
+	b.securityProfileTargets[input.SecurityProfileName] = appendUnique(
 		b.securityProfileTargets[input.SecurityProfileName],
 		input.SecurityProfileTargetArn,
 	)
@@ -736,7 +790,7 @@ func (b *InMemoryBackend) AttachThingPrincipal(input *AttachThingPrincipalInput)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.thingPrincipals[input.ThingName] = append(b.thingPrincipals[input.ThingName], input.Principal)
+	b.thingPrincipals[input.ThingName] = appendUnique(b.thingPrincipals[input.ThingName], input.Principal)
 
 	return nil
 }
@@ -927,17 +981,7 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 		t.ThingType = input.ThingTypeName
 	}
 
-	if input.AttributePayload != nil {
-		if input.AttributePayload.Merge != nil && !*input.AttributePayload.Merge {
-			t.Attributes = make(map[string]string)
-		} else if t.Attributes == nil {
-			t.Attributes = make(map[string]string)
-		}
-
-		if input.AttributePayload.Attributes != nil {
-			maps.Copy(t.Attributes, input.AttributePayload.Attributes)
-		}
-	}
+	t.Attributes = applyAttributePayload(t.Attributes, input.AttributePayload)
 
 	t.Version++
 
@@ -1286,10 +1330,10 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64,
 	}
 
 	if input.Attributes != nil {
-		if tg.Attributes == nil {
-			tg.Attributes = make(map[string]string)
-		}
-		maps.Copy(tg.Attributes, input.Attributes)
+		tg.Attributes = applyAttributePayload(tg.Attributes, &AttributePayload{
+			Attributes: input.Attributes,
+			Merge:      input.Merge,
+		})
 	}
 
 	tg.Version++

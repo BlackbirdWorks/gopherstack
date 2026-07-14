@@ -18,8 +18,9 @@ const (
 	// maxPollIntervalSeconds is the AWS-enforced maximum for RequiredMinimumPollIntervalInSeconds.
 	maxPollIntervalSeconds = 86400
 	// maxIdentifierLength is the AWS-enforced maximum length for application, environment,
-	// and configuration profile identifiers.
-	maxIdentifierLength = 2048
+	// and configuration profile identifiers. Verified against the real service model's
+	// "Identifier" shape (min: 1, max: 128) -- NOT 2048, which was never the real bound.
+	maxIdentifierLength = 128
 	// DefaultSessionTTL is how long a session may be idle before the janitor evicts it.
 	// AWS tokens expire after ~24 h; we use 1 h idle TTL with absolute 24 h cap.
 	DefaultSessionTTL = 1 * time.Hour
@@ -39,12 +40,16 @@ const (
 )
 
 // AWS exception type names as returned in error response bodies and X-Amzn-ErrorType header.
+// These are the complete set of exceptions modeled for AppConfigData -- verified against the
+// real service-2.json: BadRequestException, InternalServerException, ResourceNotFoundException,
+// and ThrottlingException. There is no PayloadTooLargeException in the real API for this
+// service (SetConfiguration is an internal seeding helper reached only via the dashboard, not
+// a routed AWS operation, so its size-limit error never needs an AWS exception-type mapping).
 const (
 	exceptionBadRequest       = "BadRequestException"
 	exceptionResourceNotFound = "ResourceNotFoundException"
 	exceptionInternalServer   = "InternalServerException"
 	exceptionThrottling       = "ThrottlingException"
-	exceptionPayloadTooLarge  = "PayloadTooLargeException"
 )
 
 // AWS BadRequestReason values.
@@ -98,7 +103,7 @@ var (
 		"resource not found: no active deployment found for the given application, environment, and configuration profile",
 	)
 	// ErrIdentifierTooLong is returned when an identifier exceeds the maximum allowed length.
-	ErrIdentifierTooLong = errors.New("bad request: identifier exceeds maximum length of 2048 characters")
+	ErrIdentifierTooLong = errors.New("bad request: identifier exceeds maximum length of 128 characters")
 )
 
 // ConfigVersion records a historical snapshot of configuration content.

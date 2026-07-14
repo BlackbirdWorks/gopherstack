@@ -724,6 +724,7 @@ func TestHandler_GetPipeline_VersionHandling(t *testing.T) {
 
 	tests := []struct {
 		name       string
+		wantType   string
 		version    int
 		wantStatus int
 	}{
@@ -738,9 +739,14 @@ func TestHandler_GetPipeline_VersionHandling(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "wrong version returns not found",
+			// AWS distinguishes a missing pipeline (PipelineNotFoundException)
+			// from a missing version of an existing pipeline
+			// (PipelineVersionNotFoundException) -- these are different error
+			// types on the wire, not just different messages.
+			name:       "wrong version returns PipelineVersionNotFoundException",
 			version:    99,
 			wantStatus: http.StatusBadRequest,
+			wantType:   "PipelineVersionNotFoundException",
 		},
 	}
 
@@ -757,6 +763,133 @@ func TestHandler_GetPipeline_VersionHandling(t *testing.T) {
 				"version": tt.version,
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantType != "" {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Equal(t, tt.wantType, out["__type"])
+			}
+		})
+	}
+}
+
+// TestHandler_PipelineExecution_TerminalStatus verifies that
+// StartPipelineExecution and StopPipelineExecution reach a terminal status
+// ("Succeeded" / "Stopped") instead of leaving the execution stuck at
+// "InProgress" / "Stopping" forever, and that operating on an unknown
+// execution ID returns PipelineExecutionNotFoundException rather than a
+// fabricated success response.
+func TestHandler_PipelineExecution_TerminalStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run        func(t *testing.T, h *codepipeline.Handler, execID string) *httptest.ResponseRecorder
+		name       string
+		wantStatus string
+		wantType   string
+		httpStatus int
+	}{
+		{
+			name: "GetPipelineExecution reaches Succeeded after Start",
+			run: func(t *testing.T, h *codepipeline.Handler, execID string) *httptest.ResponseRecorder {
+				t.Helper()
+
+				return doRequest(t, h, "GetPipelineExecution", map[string]any{
+					"pipelineName":        "term-pipeline",
+					"pipelineExecutionId": execID,
+				})
+			},
+			httpStatus: http.StatusOK,
+			wantStatus: "Succeeded",
+		},
+		{
+			// StopPipelineExecutionOutput carries no status field on the
+			// wire (matching real AWS), so the terminal status is verified
+			// via a follow-up GetPipelineExecution instead.
+			name: "StopPipelineExecution reaches Stopped",
+			run: func(t *testing.T, h *codepipeline.Handler, execID string) *httptest.ResponseRecorder {
+				t.Helper()
+
+				stopRec := doRequest(t, h, "StopPipelineExecution", map[string]any{
+					"pipelineName":        "term-pipeline",
+					"pipelineExecutionId": execID,
+					"reason":              "manual stop",
+					"abandon":             true,
+				})
+				require.Equal(t, http.StatusOK, stopRec.Code)
+
+				return doRequest(t, h, "GetPipelineExecution", map[string]any{
+					"pipelineName":        "term-pipeline",
+					"pipelineExecutionId": execID,
+				})
+			},
+			httpStatus: http.StatusOK,
+			wantStatus: "Stopped",
+		},
+		{
+			name: "GetPipelineExecution on unknown ID returns PipelineExecutionNotFoundException",
+			run: func(t *testing.T, h *codepipeline.Handler, _ string) *httptest.ResponseRecorder {
+				t.Helper()
+
+				return doRequest(t, h, "GetPipelineExecution", map[string]any{
+					"pipelineName":        "term-pipeline",
+					"pipelineExecutionId": "no-such-execution",
+				})
+			},
+			httpStatus: http.StatusBadRequest,
+			wantType:   "PipelineExecutionNotFoundException",
+		},
+		{
+			name: "StopPipelineExecution on unknown ID returns PipelineExecutionNotFoundException",
+			run: func(t *testing.T, h *codepipeline.Handler, _ string) *httptest.ResponseRecorder {
+				t.Helper()
+
+				return doRequest(t, h, "StopPipelineExecution", map[string]any{
+					"pipelineName":        "term-pipeline",
+					"pipelineExecutionId": "no-such-execution",
+				})
+			},
+			httpStatus: http.StatusBadRequest,
+			wantType:   "PipelineExecutionNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("term-pipeline"), nil)
+			require.NoError(t, err)
+
+			startRec := doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "term-pipeline"})
+			require.Equal(t, http.StatusOK, startRec.Code)
+
+			var startOut map[string]any
+			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+			execID, _ := startOut["pipelineExecutionId"].(string)
+			require.NotEmpty(t, execID)
+
+			rec := tt.run(t, h, execID)
+			require.Equal(t, tt.httpStatus, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			if tt.wantType != "" {
+				assert.Equal(t, tt.wantType, out["__type"])
+			}
+
+			if tt.wantStatus != "" {
+				// GetPipelineExecution nests its result under a
+				// "pipelineExecution" envelope; other successful ops in this
+				// table (StopPipelineExecution) put "status" at the top level.
+				if nested, ok := out["pipelineExecution"].(map[string]any); ok {
+					assert.Equal(t, tt.wantStatus, nested["status"])
+				} else {
+					assert.Equal(t, tt.wantStatus, out["status"])
+				}
+			}
 		})
 	}
 }

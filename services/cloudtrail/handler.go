@@ -3,6 +3,7 @@ package cloudtrail
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ const (
 	keyResourceArn          = "ResourceArn"
 	keyCreatedTimestamp     = "CreatedTimestamp"
 	keyUpdatedTimestamp     = "UpdatedTimestamp"
+	keyInsightSelectors     = "InsightSelectors"
 	statusEnabled           = "ENABLED"
 	statusDisabled          = "DISABLED"
 )
@@ -302,7 +304,7 @@ type createTrailBody struct {
 	SnsTopicName              string `json:"SnsTopicName"`
 	CloudWatchLogsLogGroupArn string `json:"CloudWatchLogsLogGroupArn"`
 	CloudWatchLogsRoleArn     string `json:"CloudWatchLogsRoleArn"`
-	KMSKeyID                  string `json:"KMSKeyId"`
+	KMSKeyID                  string `json:"KmsKeyId"`
 	TagsList                  []struct {
 		Key   string `json:"Key"`
 		Value string `json:"Value"`
@@ -404,7 +406,7 @@ type updateTrailBody struct {
 	SnsTopicName               string `json:"SnsTopicName"`
 	CloudWatchLogsLogGroupArn  string `json:"CloudWatchLogsLogGroupArn"`
 	CloudWatchLogsRoleArn      string `json:"CloudWatchLogsRoleArn"`
-	KMSKeyID                   string `json:"KMSKeyId"`
+	KMSKeyID                   string `json:"KmsKeyId"`
 }
 
 func (h *Handler) handleUpdateTrail(c *echo.Context, body []byte) error {
@@ -1209,6 +1211,7 @@ func (h *Handler) handleGetChannel(c *echo.Context, body []byte) error {
 
 type updateChannelBody struct {
 	Channel      string        `json:"Channel"`
+	Name         string        `json:"Name"`
 	Destinations []Destination `json:"Destinations"`
 }
 
@@ -1218,7 +1221,7 @@ func (h *Handler) handleUpdateChannel(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	ch, err := h.Backend.UpdateChannel(in.Channel, in.Destinations)
+	ch, err := h.Backend.UpdateChannel(in.Channel, in.Name, in.Destinations)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -1492,8 +1495,12 @@ func (h *Handler) handleListImportFailures(c *echo.Context, body []byte) error {
 
 // --- PutInsightSelectors ---
 
+// putInsightSelectorsBody mirrors PutInsightSelectorsInput. TrailName and
+// EventDataStore are mutually exclusive: Insights can be configured on
+// either a trail or an event data store.
 type putInsightSelectorsBody struct {
 	TrailName        string            `json:"TrailName"`
+	EventDataStore   string            `json:"EventDataStore"`
 	InsightSelectors []InsightSelector `json:"InsightSelectors"`
 }
 
@@ -1503,25 +1510,42 @@ func (h *Handler) handlePutInsightSelectors(c *echo.Context, body []byte) error 
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	if in.TrailName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "TrailName is required"))
-	}
+	switch {
+	case in.TrailName != "":
+		t, err := h.Backend.PutInsightSelectors(in.TrailName, in.InsightSelectors)
+		if err != nil {
+			return h.handleError(c, err)
+		}
 
-	t, err := h.Backend.PutInsightSelectors(in.TrailName, in.InsightSelectors)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+		return c.JSON(http.StatusOK, map[string]any{
+			keyTrailARN:         t.TrailARN,
+			keyInsightSelectors: t.InsightSelectors,
+		})
+	case in.EventDataStore != "":
+		eds, err := h.Backend.PutEDSInsightSelectors(in.EventDataStore, in.InsightSelectors)
+		if err != nil {
+			return h.handleError(c, err)
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyTrailARN:        t.TrailARN,
-		"InsightSelectors": t.InsightSelectors,
-	})
+		return c.JSON(http.StatusOK, map[string]any{
+			keyEDSArn:           eds.EventDataStoreARN,
+			keyInsightSelectors: eds.InsightSelectors,
+		})
+	default:
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "TrailName or EventDataStore is required"),
+		)
+	}
 }
 
 // --- GetInsightSelectors ---
 
+// getInsightSelectorsBody mirrors GetInsightSelectorsInput. TrailName and
+// EventDataStore are mutually exclusive.
 type getInsightSelectorsBody struct {
-	TrailName string `json:"TrailName"`
+	TrailName      string `json:"TrailName"`
+	EventDataStore string `json:"EventDataStore"`
 }
 
 func (h *Handler) handleGetInsightSelectors(c *echo.Context, body []byte) error {
@@ -1530,19 +1554,33 @@ func (h *Handler) handleGetInsightSelectors(c *echo.Context, body []byte) error 
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	if in.TrailName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "TrailName is required"))
-	}
+	switch {
+	case in.TrailName != "":
+		trailARN, selectors, err := h.Backend.GetInsightSelectors(in.TrailName)
+		if err != nil {
+			return h.handleError(c, err)
+		}
 
-	trailARN, selectors, err := h.Backend.GetInsightSelectors(in.TrailName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+		return c.JSON(http.StatusOK, map[string]any{
+			keyTrailARN:         trailARN,
+			keyInsightSelectors: selectors,
+		})
+	case in.EventDataStore != "":
+		edsARN, selectors, err := h.Backend.GetEDSInsightSelectors(in.EventDataStore)
+		if err != nil {
+			return h.handleError(c, err)
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyTrailARN:        trailARN,
-		"InsightSelectors": selectors,
-	})
+		return c.JSON(http.StatusOK, map[string]any{
+			keyEDSArn:           edsARN,
+			keyInsightSelectors: selectors,
+		})
+	default:
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "TrailName or EventDataStore is required"),
+		)
+	}
 }
 
 // --- GetResourcePolicy ---
@@ -1673,8 +1711,8 @@ func (h *Handler) handleEnableFederation(c *echo.Context, body []byte) error {
 // --- GenerateQuery ---
 
 type generateQueryBody struct {
-	EventDataStores          []string `json:"EventDataStores"`
-	RequestedQueryMaxResults int32    `json:"RequestedQueryMaxResults"`
+	Prompt          string   `json:"Prompt"`
+	EventDataStores []string `json:"EventDataStores"`
 }
 
 func (h *Handler) handleGenerateQuery(c *echo.Context, body []byte) error {
@@ -1683,26 +1721,30 @@ func (h *Handler) handleGenerateQuery(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	maxResults := in.RequestedQueryMaxResults
-	if maxResults == 0 {
-		maxResults = 1000
+	if len(in.EventDataStores) == 0 {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "EventDataStores is required"),
+		)
+	}
+	if in.Prompt == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "Prompt is required"))
 	}
 
-	q, err := h.Backend.GenerateQuery(in.EventDataStores, maxResults)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	gq := h.Backend.GenerateQuery(in.EventDataStores, in.Prompt)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyQueryID:    q.QueryID,
-		"QueryString": q.QueryString,
+		"QueryStatement":               gq.QueryStatement,
+		"QueryAlias":                   gq.QueryAlias,
+		"EventDataStoreOwnerAccountId": gq.OwnerAccountID,
 	})
 }
 
 // --- GetEventConfiguration ---
 
 type getEventConfigurationBody struct {
-	ResourceArn string `json:"ResourceArn"`
+	EventDataStore string `json:"EventDataStore"`
+	TrailName      string `json:"TrailName"`
 }
 
 func (h *Handler) handleGetEventConfiguration(c *echo.Context, body []byte) error {
@@ -1711,15 +1753,24 @@ func (h *Handler) handleGetEventConfiguration(c *echo.Context, body []byte) erro
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	result := h.Backend.GetEventConfiguration(in.ResourceArn)
+	resourceARN, isTrail, err := h.resolveEventConfigResource(in.EventDataStore, in.TrailName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
 
-	return c.JSON(http.StatusOK, result)
+	cfg := h.Backend.GetEventConfiguration(resourceARN)
+
+	return c.JSON(http.StatusOK, eventConfigToMap(resourceARN, isTrail, cfg))
 }
 
 // --- PutEventConfiguration ---
 
 type putEventConfigurationBody struct {
-	ResourceArn string `json:"ResourceArn"`
+	EventDataStore            string           `json:"EventDataStore"`
+	TrailName                 string           `json:"TrailName"`
+	MaxEventSize              string           `json:"MaxEventSize"`
+	AggregationConfigurations []map[string]any `json:"AggregationConfigurations"`
+	ContextKeySelectors       []map[string]any `json:"ContextKeySelectors"`
 }
 
 func (h *Handler) handlePutEventConfiguration(c *echo.Context, body []byte) error {
@@ -1728,11 +1779,70 @@ func (h *Handler) handlePutEventConfiguration(c *echo.Context, body []byte) erro
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	if err := h.Backend.PutEventConfiguration(in.ResourceArn); err != nil {
+	resourceARN, isTrail, err := h.resolveEventConfigResource(in.EventDataStore, in.TrailName)
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	cfg := h.Backend.PutEventConfiguration(
+		resourceARN, in.AggregationConfigurations, in.ContextKeySelectors, in.MaxEventSize,
+	)
+
+	return c.JSON(http.StatusOK, eventConfigToMap(resourceARN, isTrail, cfg))
+}
+
+// resolveEventConfigResource resolves the TrailName or EventDataStore
+// parameter shared by GetEventConfiguration/PutEventConfiguration to a
+// concrete resource ARN, reporting whether it is a trail (as opposed to an
+// event data store) -- the response echoes back TrailARN or
+// EventDataStoreArn depending on which kind of resource was targeted.
+func (h *Handler) resolveEventConfigResource(eventDataStore, trailName string) (string, bool, error) {
+	switch {
+	case trailName != "":
+		t, err := h.Backend.GetTrail(trailName)
+		if err != nil {
+			return "", false, err
+		}
+
+		return t.TrailARN, true, nil
+	case eventDataStore != "":
+		eds, err := h.Backend.GetEventDataStore(eventDataStore)
+		if err != nil {
+			return "", false, err
+		}
+
+		return eds.EventDataStoreARN, false, nil
+	default:
+		return "", false, fmt.Errorf("%w: EventDataStore or TrailName is required", errInvalidRequest)
+	}
+}
+
+// eventConfigToMap converts an EventConfiguration to the JSON map used by
+// GetEventConfiguration/PutEventConfiguration API responses.
+func eventConfigToMap(resourceARN string, isTrail bool, cfg *EventConfiguration) map[string]any {
+	aggCfgs := cfg.AggregationConfigurations
+	if aggCfgs == nil {
+		aggCfgs = []map[string]any{}
+	}
+	ctxSelectors := cfg.ContextKeySelectors
+	if ctxSelectors == nil {
+		ctxSelectors = []map[string]any{}
+	}
+
+	m := map[string]any{
+		"AggregationConfigurations": aggCfgs,
+		"ContextKeySelectors":       ctxSelectors,
+	}
+	if cfg.MaxEventSize != "" {
+		m["MaxEventSize"] = cfg.MaxEventSize
+	}
+	if isTrail {
+		m[keyTrailARN] = resourceARN
+	} else {
+		m[keyEDSArn] = resourceARN
+	}
+
+	return m
 }
 
 // --- SearchSampleQueries ---
@@ -1798,7 +1908,7 @@ func edsToMap(eds *EventDataStore) map[string]any {
 	}
 	m["AdvancedEventSelectors"] = advSels
 	if len(eds.InsightSelectors) > 0 {
-		m["InsightSelectors"] = eds.InsightSelectors
+		m[keyInsightSelectors] = eds.InsightSelectors
 	}
 
 	return m
@@ -1842,7 +1952,7 @@ func trailToMap(t *Trail) map[string]any {
 		m["CloudWatchLogsRoleArn"] = t.CloudWatchLogsRoleARN
 	}
 	if t.KMSKeyID != "" {
-		m["KMSKeyId"] = t.KMSKeyID
+		m["KmsKeyId"] = t.KMSKeyID
 	}
 
 	return m

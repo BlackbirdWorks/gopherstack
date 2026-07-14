@@ -138,7 +138,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	dest, err := original.CreatePublishingDestination(detectorID, "S3", guardduty.DestinationProperties{
 		DestinationArn: "arn:aws:s3:::bucket",
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	scanID, err := original.StartMalwareScan("arn:aws:ec2:us-west-2:222233334444:instance/i-1")

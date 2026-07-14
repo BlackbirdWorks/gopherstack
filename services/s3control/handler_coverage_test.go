@@ -825,7 +825,7 @@ func TestHandler_UpdateJobPriority(t *testing.T) {
 			h := newTestS3ControlHandler(t)
 			jobID := tt.setup(h)
 
-			rec := doS3Request(t, h, http.MethodPut, "/v20180820/jobs/"+jobID+"/priority", tt.body)
+			rec := doS3Request(t, h, http.MethodPost, "/v20180820/jobs/"+jobID+"/priority", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantBody != "" {
@@ -892,7 +892,7 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 			h := newTestS3ControlHandler(t)
 			jobID := tt.setup(h)
 
-			rec := doS3Request(t, h, http.MethodPut, "/v20180820/jobs/"+jobID+"/status", tt.body)
+			rec := doS3Request(t, h, http.MethodPost, "/v20180820/jobs/"+jobID+"/status", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantBody != "" {
@@ -1114,7 +1114,7 @@ func TestHandler_PutMultiRegionAccessPointPolicy(t *testing.T) {
 				t,
 				h,
 				http.MethodPost,
-				"/v20180820/async-requests/mrap/put_policy/token1",
+				"/v20180820/async-requests/mrap/put-policy/token1",
 				tt.body,
 			)
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -1426,13 +1426,13 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{name: "describe_job", method: http.MethodGet, path: "/v20180820/jobs/job-1", wantOp: "DescribeJob"},
 		{
 			name:   "update_job_priority",
-			method: http.MethodPut,
+			method: http.MethodPost,
 			path:   "/v20180820/jobs/job-1/priority",
 			wantOp: "UpdateJobPriority",
 		},
 		{
 			name:   "update_job_status",
-			method: http.MethodPut,
+			method: http.MethodPost,
 			path:   "/v20180820/jobs/job-1/status",
 			wantOp: "UpdateJobStatus",
 		},
@@ -1579,7 +1579,7 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{
 			name:   "put_mrap_policy",
 			method: http.MethodPost,
-			path:   "/v20180820/async-requests/mrap/put_policy/token1",
+			path:   "/v20180820/async-requests/mrap/put-policy/token1",
 			wantOp: "PutMultiRegionAccessPointPolicy",
 		},
 		{name: "unknown_op", method: http.MethodPost, path: "/v20180820/unknownresource", wantOp: "Unknown"},

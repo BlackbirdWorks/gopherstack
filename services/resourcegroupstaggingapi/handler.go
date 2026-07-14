@@ -155,14 +155,21 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		code = http.StatusBadRequest
 		errType = "UnknownOperationException"
 	case errors.Is(err, ErrMissingS3Bucket), errors.Is(err, ErrValidation):
+		// Real resourcegroupstaggingapi has no "ValidationException" shape; parameter
+		// validation failures are modeled as InvalidParameterException (see
+		// aws-sdk-go-v2/service/resourcegroupstaggingapi/types/errors.go).
 		code = http.StatusBadRequest
-		errType = "ValidationException"
+		errType = errCodeInvalidParameter
 	case errors.Is(err, ErrConcurrentModification):
 		code = http.StatusConflict
 		errType = "ConcurrentModificationException"
 	case errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		// Malformed request bodies are a protocol-level failure, not a modeled
+		// operation error; the AWS JSON 1.1 protocol reports these as
+		// SerializationException (matches services/organizations' convention for
+		// the same protocol).
 		code = http.StatusBadRequest
-		errType = "ValidationException"
+		errType = "SerializationException"
 	}
 
 	payload, _ := json.Marshal(service.JSONErrorResponse{

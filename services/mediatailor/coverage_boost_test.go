@@ -235,12 +235,12 @@ func TestTagResource(t *testing.T) {
 		{
 			name:     "tag existing resource succeeds",
 			wantCode: http.StatusNoContent,
-			tagBody:  map[string]any{"Tags": map[string]any{"env": "prod"}},
+			tagBody:  map[string]any{"tags": map[string]any{"env": "prod"}},
 		},
 		{
 			name:     "tag any arn succeeds (backend does not validate existence)",
 			wantCode: http.StatusNoContent,
-			tagBody:  map[string]any{"Tags": map[string]any{"env": "prod"}},
+			tagBody:  map[string]any{"tags": map[string]any{"env": "prod"}},
 		},
 	}
 
@@ -293,7 +293,7 @@ func TestListTagsForResource(t *testing.T) {
 					"Name":                  "list-tags-cfg",
 					"AdDecisionServerUrl":   "https://ads.com",
 					"VideoContentSourceUrl": "https://video.com",
-					"Tags":                  map[string]any{"key1": "val1"},
+					"tags":                  map[string]any{"key1": "val1"},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
@@ -331,7 +331,7 @@ func TestUntagResource(t *testing.T) {
 					"Name":                  "untag-cfg",
 					"AdDecisionServerUrl":   "https://ads.com",
 					"VideoContentSourceUrl": "https://video.com",
-					"Tags":                  map[string]any{"key1": "val1"},
+					"tags":                  map[string]any{"key1": "val1"},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
@@ -340,25 +340,26 @@ func TestUntagResource(t *testing.T) {
 
 				// Actually tag it first
 				doRequest(t, h, http.MethodPost, "/tags/"+arn, map[string]any{
-					"Tags": map[string]any{"key1": "val1"},
+					"tags": map[string]any{"key1": "val1"},
 				})
 			} else {
 				arn = "arn:aws:mediatailor:us-east-1:000000000000:playbackConfiguration/nonexistent"
 			}
 
 			// Use direct request builder to add query params
-			rec := doRequestWithQuery(t, h, http.MethodDelete, "/tags/"+arn, "tagKeys=key1", nil)
+			rec := doRequestWithQuery(t, h, http.MethodDelete, "/tags/"+arn, "tagKeys=key1")
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
 }
 
 // doRequestWithQuery is like doRequest but with a query string appended.
+// Every call site issues a bodyless request (GET/DELETE with query
+// parameters), so unlike doRequest this helper has no body parameter.
 func doRequestWithQuery(
 	t *testing.T,
 	h *mediatailor.Handler,
 	method, path, query string,
-	body any,
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -367,7 +368,7 @@ func doRequestWithQuery(
 		fullPath = path + "?" + query
 	}
 
-	return doRequest(t, h, method, fullPath, body)
+	return doRequest(t, h, method, fullPath, nil)
 }
 
 // --- classifyPath edge cases via ExtractOperation / ExtractResource ---
@@ -543,7 +544,7 @@ func TestExtractOperation(t *testing.T) {
 		},
 		{
 			name:   "list prefetch schedules",
-			method: http.MethodGet,
+			method: http.MethodPost,
 			path:   "/prefetchSchedule/pc1",
 			wantOp: "ListPrefetchSchedules",
 		},
@@ -847,7 +848,7 @@ func TestListPrefetchSchedules_WithItems(t *testing.T) {
 				doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1/"+name, nil)
 			}
 
-			rec := doRequest(t, h, http.MethodGet, "/prefetchSchedule/pc1", nil)
+			rec := doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any

@@ -78,6 +78,10 @@ const (
 	authorizationTypeAWSIAM = "AWS_IAM"
 	protocolTypeHTTP        = "HTTP"
 	integrationTypeHTTP     = "HTTP"
+	// httpMethodAny is the HTTP route-key method wildcard ("ANY /path")
+	// matching every HTTP method, also used as the default IntegrationMethod
+	// for the integration CreateApi's quick-create shortcut auto-provisions.
+	httpMethodAny = "ANY"
 
 	integrationTimeoutMin = int32(50)
 	// integrationTimeoutMaxWebSocket is the maximum (and default) integration
@@ -108,7 +112,7 @@ func validRouteAuthorizationType(t string) bool {
 // isValidHTTPRouteKeyMethod reports whether method is accepted in an HTTP API route key.
 func isValidHTTPRouteKeyMethod(method string) bool {
 	switch method {
-	case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "ANY":
+	case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", httpMethodAny:
 		return true
 	default:
 		return false
@@ -587,6 +591,10 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 		return nil, fmt.Errorf("%w: protocolType must be HTTP or WEBSOCKET", ErrBadRequest)
 	}
 
+	if err := validateQuickCreateInput(input); err != nil {
+		return nil, err
+	}
+
 	// Apply AWS-realistic default RouteSelectionExpression when not provided.
 	rse := input.RouteSelectionExpression
 	if rse == "" {
@@ -630,9 +638,98 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 
 	b.apis.Put(&api)
 
+	if input.RouteKey != "" && input.Target != "" {
+		if err := b.quickCreateLocked(id, input.RouteKey, input.Target); err != nil {
+			return nil, err
+		}
+	}
+
 	cp := api
 
 	return &cp, nil
+}
+
+// validateQuickCreateInput enforces CreateApi's routeKey/target ("quick
+// create") rules: both fields are supported only for HTTP APIs, AWS requires
+// both or neither, and a provided routeKey must be a valid HTTP route key.
+func validateQuickCreateInput(input CreateAPIInput) error {
+	if input.RouteKey == "" && input.Target == "" {
+		return nil
+	}
+
+	if input.ProtocolType != protocolTypeHTTP {
+		return fmt.Errorf("%w: routeKey and target are supported only for HTTP APIs", ErrBadRequest)
+	}
+
+	if input.RouteKey == "" || input.Target == "" {
+		return fmt.Errorf("%w: routeKey and target must both be specified", ErrBadRequest)
+	}
+
+	return validateHTTPRouteKey(input.RouteKey)
+}
+
+// quickCreateLocked implements CreateApi's routeKey+target shortcut: it
+// auto-provisions the integration, $default route, and auto-deployed
+// $default stage that real AWS creates for a "quick create" HTTP API,
+// mirroring the resources a caller would otherwise create by hand via
+// CreateIntegration/CreateRoute/CreateStage. All three are marked
+// apiGatewayManaged, matching AWS (the $default route key and $default stage
+// become immutable; the integration stays updatable but not deletable while
+// the API exists). Callers must already hold b.mu and have inserted apiID
+// into b.apis.
+func (b *InMemoryBackend) quickCreateLocked(apiID, routeKey, target string) error {
+	integrationType := integrationTypeHTTPProxy
+	if isLambdaFunctionARN(target) {
+		integrationType = IntegrationTypeAWSProxy
+	}
+
+	integration, err := buildIntegration(apiID, protocolTypeHTTP, CreateIntegrationInput{
+		IntegrationType:   integrationType,
+		IntegrationURI:    target,
+		IntegrationMethod: httpMethodAny,
+	})
+	if err != nil {
+		return err
+	}
+
+	integration.APIGatewayManaged = true
+	b.integrations.Put(integration)
+
+	route := &Route{
+		RouteID:             randomID(),
+		APIID:               apiID,
+		RouteKey:            routeKey,
+		Target:              "integrations/" + integration.IntegrationID,
+		AuthorizationType:   authorizationTypeNone,
+		AuthorizationScopes: []string{},
+		APIGatewayManaged:   true,
+	}
+	b.routes.Put(route)
+
+	now := isoTime{time.Now()}
+	b.stages.Put(&Stage{
+		StageName:         routeKeyDefault,
+		APIID:             apiID,
+		AutoDeploy:        true,
+		CreatedDate:       now,
+		LastUpdatedDate:   now,
+		APIGatewayManaged: true,
+	})
+
+	b.autoDeployLocked(apiID)
+
+	return nil
+}
+
+// isLambdaFunctionARN reports whether target looks like a Lambda function
+// ARN (arn:{partition}:lambda:...:function:...). CreateApi's quick-create
+// shortcut uses this to pick AWS_PROXY vs HTTP_PROXY for the auto-created
+// integration: per AWS, a Lambda ARN target yields AWS_PROXY, any other
+// (URL) target yields HTTP_PROXY.
+func isLambdaFunctionARN(target string) bool {
+	return strings.HasPrefix(target, "arn:") &&
+		strings.Contains(target, ":lambda:") &&
+		strings.Contains(target, ":function:")
 }
 
 // GetAPI retrieves an API by ID.
@@ -777,9 +874,81 @@ func (b *InMemoryBackend) UpdateAPI(apiID string, input UpdateAPIInput) (*API, e
 		api.DisableExecuteAPIEndpoint = *input.DisableExecuteAPIEndpoint
 	}
 
+	if err := b.applyQuickCreateUpdateLocked(apiID, input); err != nil {
+		return nil, err
+	}
+
 	cp := *api
 
 	return &cp, nil
+}
+
+// applyQuickCreateUpdateLocked applies UpdateApiInput's routeKey/target
+// fields, which are "part of quick create": each independently replaces the
+// route key / integration target+type of the API's existing quick-create
+// route/integration (found via APIGatewayManaged), matching AWS ("you can
+// update a quick-created target, but you can't remove it from an API").
+// Callers must already hold b.mu.
+func (b *InMemoryBackend) applyQuickCreateUpdateLocked(apiID string, input UpdateAPIInput) error {
+	if input.RouteKey != "" {
+		route := findManagedRoute(b.routesByAPI.Get(apiID))
+		if route == nil {
+			return fmt.Errorf("%w: API has no quick-create route to update", ErrBadRequest)
+		}
+
+		if err := validateHTTPRouteKey(input.RouteKey); err != nil {
+			return err
+		}
+
+		for _, existing := range b.routesByAPI.Get(apiID) {
+			if existing.RouteID != route.RouteID && existing.RouteKey == input.RouteKey {
+				return fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
+			}
+		}
+
+		route.RouteKey = input.RouteKey
+	}
+
+	if input.Target != "" {
+		integration := findManagedIntegration(b.integrationsByAPI.Get(apiID))
+		if integration == nil {
+			return fmt.Errorf("%w: API has no quick-create target to update", ErrBadRequest)
+		}
+
+		integration.IntegrationURI = input.Target
+		integration.IntegrationType = integrationTypeHTTPProxy
+
+		if isLambdaFunctionARN(input.Target) {
+			integration.IntegrationType = IntegrationTypeAWSProxy
+		}
+	}
+
+	return nil
+}
+
+// findManagedRoute returns the quick-create-provisioned route among routes,
+// or nil if none is managed (the API wasn't quick-created).
+func findManagedRoute(routes []*Route) *Route {
+	for _, r := range routes {
+		if r.APIGatewayManaged {
+			return r
+		}
+	}
+
+	return nil
+}
+
+// findManagedIntegration returns the quick-create-provisioned integration
+// among integrations, or nil if none is managed (the API wasn't
+// quick-created).
+func findManagedIntegration(integrations []*Integration) *Integration {
+	for _, i := range integrations {
+		if i.APIGatewayManaged {
+			return i
+		}
+	}
+
+	return nil
 }
 
 // --- Stages ---
@@ -1188,6 +1357,25 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 		return nil, ErrAPINotFound
 	}
 
+	integration, err := buildIntegration(apiID, api.ProtocolType, input)
+	if err != nil {
+		return nil, err
+	}
+
+	b.integrations.Put(integration)
+	b.autoDeployLocked(apiID)
+
+	cp := *integration
+
+	return &cp, nil
+}
+
+// buildIntegration validates input and constructs a new Integration for apiID
+// (of the given protocolType), applying the same AWS-realistic defaults
+// CreateIntegration always has. It does not touch backend state -- callers
+// (CreateIntegration, and CreateAPI's quick-create shortcut) store it and
+// hold b.mu themselves.
+func buildIntegration(apiID, protocolType string, input CreateIntegrationInput) (*Integration, error) {
 	validTypes := map[string]bool{
 		"AWS":                    true,
 		integrationTypeHTTP:      true,
@@ -1224,14 +1412,13 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 
 	timeoutMs := input.TimeoutInMillis
 	if timeoutMs == 0 {
-		timeoutMs = integrationTimeoutMaxFor(api.ProtocolType)
-	} else if err := validateTimeoutInMillis(timeoutMs, api.ProtocolType); err != nil {
+		timeoutMs = integrationTimeoutMaxFor(protocolType)
+	} else if err := validateTimeoutInMillis(timeoutMs, protocolType); err != nil {
 		return nil, err
 	}
 
-	id := randomID()
-	integration := &Integration{
-		IntegrationID:               id,
+	return &Integration{
+		IntegrationID:               randomID(),
 		APIID:                       apiID,
 		IntegrationType:             input.IntegrationType,
 		IntegrationSubtype:          input.IntegrationSubtype,
@@ -1247,14 +1434,7 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 		TemplateSelectionExpression: input.TemplateSelectionExpression,
 		PassthroughBehavior:         passthroughBehavior,
 		TLSConfig:                   cloneIntegrationTLSConfig(input.TLSConfig),
-	}
-
-	b.integrations.Put(integration)
-	b.autoDeployLocked(apiID)
-
-	cp := *integration
-
-	return &cp, nil
+	}, nil
 }
 
 // GetIntegration retrieves an integration by ID.

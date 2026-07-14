@@ -102,9 +102,10 @@ func TestRefinement1_ErrValidationMapping(t *testing.T) {
 	t.Parallel()
 
 	h := newTestEKSHandler(t)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
-	// CreateCapability with no name → ErrValidation → 400
-	rec := doREST(t, h, http.MethodPost, "/capabilities", map[string]any{})
+	// CreateCapability with no capabilityName → ErrValidation → 400
+	rec := doREST(t, h, http.MethodPost, "/clusters/c1/capabilities", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -334,7 +335,7 @@ func TestRefinement1_AddCapabilityAndSubscription(t *testing.T) {
 
 	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
-	b.AddCapabilityInternal(&eks.Capability{Name: "cap1", Status: "ACTIVE"})
+	b.AddCapabilityInternal(&eks.Capability{ClusterName: "c1", CapabilityName: "cap1", Status: "ACTIVE"})
 	b.AddSubscriptionInternal(&eks.AnywhereSubscription{ID: "sub1", Name: "s1", Status: "ACTIVE"})
 
 	assert.Equal(t, 1, b.CapabilityCount())
@@ -357,8 +358,13 @@ func TestRefinement1_ResetAfterNewOps(t *testing.T) {
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 	doREST(t, h, http.MethodPost, "/clusters/c1/addons", map[string]any{"addonName": "addon1"})
-	doREST(t, h, http.MethodPost, "/capabilities", map[string]any{"name": "cap1"})
-	doREST(t, h, http.MethodPost, "/subscriptions", map[string]any{"name": "sub1"})
+	doREST(t, h, http.MethodPost, "/clusters/c1/capabilities", map[string]any{
+		"capabilityName":          "cap1",
+		"type":                    "ARGOCD",
+		"roleArn":                 "arn:aws:iam::123456789012:role/capability-role",
+		"deletePropagationPolicy": "RETAIN",
+	})
+	doREST(t, h, http.MethodPost, "/eks-anywhere-subscriptions", map[string]any{"name": "sub1"})
 
 	assert.Equal(t, 1, h.Backend.ClusterCount())
 	assert.Equal(t, 1, h.Backend.AddonCount())

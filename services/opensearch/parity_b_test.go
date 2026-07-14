@@ -268,8 +268,8 @@ func TestParityB_ListDomainNames_ReturnsBothDomains(t *testing.T) {
 
 			var got struct {
 				DomainNames []struct {
-					DomainName    string `json:"DomainName"`
-					EngineVersion string `json:"EngineVersion"`
+					DomainName string `json:"DomainName"`
+					EngineType string `json:"EngineType"`
 				} `json:"DomainNames"`
 			}
 			require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
@@ -279,7 +279,7 @@ func TestParityB_ListDomainNames_ReturnsBothDomains(t *testing.T) {
 
 			for _, e := range got.DomainNames {
 				returnedNames[e.DomainName] = true
-				assert.NotEmpty(t, e.EngineVersion, "expected non-empty EngineVersion for %s", e.DomainName)
+				assert.Equal(t, "OpenSearch", e.EngineType, "expected OpenSearch EngineType for %s", e.DomainName)
 			}
 
 			for _, dn := range tt.domainNames {

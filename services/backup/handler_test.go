@@ -1188,7 +1188,7 @@ func TestCreateRestoreAccessBackupVault(t *testing.T) {
 			name: "success",
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
-				rec := doREST(t, h, http.MethodPost, "/restore-access-backup-vaults", map[string]any{
+				rec := doREST(t, h, http.MethodPut, "/restore-access-backup-vaults", map[string]any{
 					"SourceBackupVaultArn": "arn:aws:backup:us-east-1:123456789012:backup-vault:source-vault",
 					"BackupVaultName":      "restore-access-vault",
 				})
@@ -1203,7 +1203,7 @@ func TestCreateRestoreAccessBackupVault(t *testing.T) {
 			name: "missing_source_arn",
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
-				rec := doREST(t, h, http.MethodPost, "/restore-access-backup-vaults", map[string]any{
+				rec := doREST(t, h, http.MethodPut, "/restore-access-backup-vaults", map[string]any{
 					"BackupVaultName": "some-vault",
 				})
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -1528,7 +1528,7 @@ func TestUntagResource(t *testing.T) {
 				vaultARN := parseResp(t, rec)["BackupVaultArn"].(string)
 
 				// Remove one tag.
-				delRec := doREST(t, h, http.MethodDelete, "/tags/"+vaultARN, map[string]any{
+				delRec := doREST(t, h, http.MethodPost, "/untag/"+vaultARN, map[string]any{
 					"TagKeyList": []string{"env"},
 				})
 				require.Equal(t, http.StatusOK, delRec.Code)
@@ -1555,7 +1555,7 @@ func TestUntagResource(t *testing.T) {
 				doREST(t, h, http.MethodPost, "/tags/"+fwARN, map[string]any{
 					"Tags": map[string]string{"k": "v"},
 				})
-				delRec := doREST(t, h, http.MethodDelete, "/tags/"+fwARN, map[string]any{
+				delRec := doREST(t, h, http.MethodPost, "/untag/"+fwARN, map[string]any{
 					"TagKeyList": []string{"k"},
 				})
 				assert.Equal(t, http.StatusOK, delRec.Code)
@@ -1565,8 +1565,8 @@ func TestUntagResource(t *testing.T) {
 			name: "untag_not_found",
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
-				const missingARN = "/tags/arn:aws:backup:us-east-1:000000000000:backup-vault:missing"
-				rec := doREST(t, h, http.MethodDelete, missingARN, map[string]any{
+				const missingARN = "/untag/arn:aws:backup:us-east-1:000000000000:backup-vault:missing"
+				rec := doREST(t, h, http.MethodPost, missingARN, map[string]any{
 					"TagKeyList": []string{"k"},
 				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)

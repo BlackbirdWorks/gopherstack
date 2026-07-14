@@ -216,8 +216,8 @@ func (b *InMemoryBackend) CreateWorkspace(
 	defer b.mu.Unlock()
 
 	if !b.dirSettings.Has(spec.DirectoryID) {
-		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"directory %q is not registered", spec.DirectoryID)
+		return nil, awserr.Newf(
+			"directory %q is not registered", awserr.ErrInvalidParameter, spec.DirectoryID)
 	}
 
 	b.counter++
@@ -351,18 +351,18 @@ func resolvePageSize(limit int32) int {
 // validateTagEntry checks a single tag key and value for AWS constraints.
 func validateTagEntry(key, value string) error {
 	if key == "" {
-		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"tag key must not be empty")
+		return awserr.New("tag key must not be empty", awserr.ErrInvalidParameter)
 	}
 
 	if len(key) > maxTagKeyLen {
-		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"tag key exceeds maximum length of %d", maxTagKeyLen)
+		return awserr.Newf(
+			"tag key exceeds maximum length of %d", awserr.ErrInvalidParameter, maxTagKeyLen)
 	}
 
 	if len(value) > maxTagValueLen {
-		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"tag value for key %q exceeds maximum length of %d", key, maxTagValueLen)
+		return awserr.Newf(
+			"tag value for key %q exceeds maximum length of %d",
+			awserr.ErrInvalidParameter, key, maxTagValueLen)
 	}
 
 	return nil
@@ -452,13 +452,14 @@ func (b *InMemoryBackend) ModifyWorkspaceProperties(
 	props WorkspaceProperties,
 ) error {
 	if props.ComputeTypeName != "" && !isValidComputeTypeName(props.ComputeTypeName) {
-		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"invalid ComputeTypeName: %q", props.ComputeTypeName)
+		return awserr.Newf(
+			"invalid ComputeTypeName: %q", awserr.ErrInvalidParameter, props.ComputeTypeName)
 	}
 
 	if props.RunningMode != "" && !isValidRunningMode(props.RunningMode) {
-		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"invalid RunningMode: %q, must be ALWAYS_ON or AUTO_STOP", props.RunningMode)
+		return awserr.Newf(
+			"invalid RunningMode: %q, must be ALWAYS_ON or AUTO_STOP",
+			awserr.ErrInvalidParameter, props.RunningMode)
 	}
 
 	if props.RunningModeAutoStopTimeoutInMinutes != 0 {
@@ -466,9 +467,8 @@ func (b *InMemoryBackend) ModifyWorkspaceProperties(
 		t := props.RunningModeAutoStopTimeoutInMinutes
 		if t < 60 || t > 600 || t%60 != 0 {
 			return awserr.Newf(
-				errInvalidParameterValues,
-				awserr.ErrInvalidParameter,
 				"RunningModeAutoStopTimeoutInMinutes must be a multiple of 60 between 60 and 600, got %d",
+				awserr.ErrInvalidParameter,
 				t,
 			)
 		}
@@ -647,8 +647,9 @@ func (b *InMemoryBackend) CreateTags(resourceID string, tags map[string]string) 
 	}
 
 	if newCount > maxTagsPerResource {
-		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"resource %q would exceed maximum tag count of %d", resourceID, maxTagsPerResource)
+		return awserr.Newf(
+			"resource %q would exceed maximum tag count of %d",
+			awserr.ErrInvalidParameter, resourceID, maxTagsPerResource)
 	}
 
 	if b.tags[resourceID] == nil {

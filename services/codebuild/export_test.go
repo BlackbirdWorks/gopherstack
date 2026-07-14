@@ -44,7 +44,7 @@ func (b *InMemoryBackend) SetBuildEndTime(id string, status string, endTime time
 
 	if build, ok := b.builds.Get(id); ok {
 		build.BuildStatus = status
-		build.CurrentPhase = "COMPLETED"
+		build.CurrentPhase = phaseCompleted
 
 		if endTime.IsZero() {
 			build.EndTime = 0

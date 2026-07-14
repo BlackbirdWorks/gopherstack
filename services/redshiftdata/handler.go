@@ -35,7 +35,7 @@ const (
 	keyCreatedAt           = "CreatedAt"
 	valColumn1             = "column1"
 	keyTypeName            = "typeName"
-	keyColumnSize          = "columnSize"
+	keyLength              = "length"
 	keyNullable            = "nullable"
 	keyNextToken           = "NextToken"
 	keyStatusField         = "Status"
@@ -51,6 +51,7 @@ const (
 	keyResultFormat        = "ResultFormat"
 	valCurated             = "curated"
 	keySchemaName          = "schemaName"
+	keyCSVRecords          = "CSVRecords"
 )
 
 const (
@@ -377,11 +378,11 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 		},
 		"ColumnMetadata": []map[string]any{
 			{
-				keyName:       valColumn1,
-				"label":       valColumn1,
-				keyTypeName:   typeVarchar,
-				keyColumnSize: mockColumnSize,
-				keyNullable:   mockColumnNullable,
+				keyName:     valColumn1,
+				"label":     valColumn1,
+				keyTypeName: typeVarchar,
+				keyLength:   mockColumnSize,
+				keyNullable: mockColumnNullable,
 			},
 		},
 		"TotalNumRows": int64(1),
@@ -422,15 +423,22 @@ func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) (
 
 	// Return a single demo CSV record matching the V2 format.
 	// NextToken is empty because the demo result set fits on one page.
+	//
+	// Records is []types.QueryRecords, a union whose only member is
+	// CSVRecords (a comma-joined string per row) — each element must be an
+	// object of the form {"CSVRecords": "..."}, not a bare string, or the
+	// SDK's union deserializer treats it as an unknown member and drops it.
 	return json.Marshal(map[string]any{
-		"Records": []string{"mock_value"},
+		"Records": []map[string]any{
+			{keyCSVRecords: "mock_value"},
+		},
 		"ColumnMetadata": []map[string]any{
 			{
-				keyName:       valColumn1,
-				"label":       valColumn1,
-				keyTypeName:   typeVarchar,
-				keyColumnSize: mockColumnSize,
-				keyNullable:   mockColumnNullable,
+				keyName:     valColumn1,
+				"label":     valColumn1,
+				keyTypeName: typeVarchar,
+				keyLength:   mockColumnSize,
+				keyNullable: mockColumnNullable,
 			},
 		},
 		"TotalNumRows":  int64(1),
@@ -656,13 +664,14 @@ func (h *Handler) handleDescribeTable(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	// DescribeTableOutput.TableName is a plain string in the real API (see
+	// aws-sdk-go-v2/service/redshiftdata's DescribeTableOutput), not a nested
+	// schema/name/type object. Sending an object here would be silently
+	// ignored by the SDK's deserializer (unknown-field default case),
+	// leaving TableName unset for callers.
 	return json.Marshal(map[string]any{
 		"ColumnList": buildDemoColumns(),
-		"TableName": map[string]any{
-			keySchema: req.Schema,
-			keyName:   req.Table,
-			keyType:   valTABLE,
-		},
+		"TableName":  req.Table,
 	})
 }
 
@@ -813,6 +822,17 @@ func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix()) + float64(t.Nanosecond())/1e9
 }
 
+// durationNanos converts a duration tracked internally in milliseconds
+// (Statement.DurationMs / SubStatementData.DurationMs) to the nanoseconds
+// unit the wire protocol's "Duration" field requires (see
+// DescribeStatementOutput.Duration and SubStatementData.Duration in
+// aws-sdk-go-v2/service/redshiftdata: "The amount of time in nanoseconds
+// that the statement ran"). Sending raw milliseconds under that field
+// understates real durations by a factor of 1e6.
+func durationNanos(ms int64) int64 {
+	return ms * int64(time.Millisecond/time.Nanosecond)
+}
+
 // statementToListItem converts a statement to the summary map used in ListStatements.
 func statementToListItem(stmt *Statement) map[string]any {
 	item := map[string]any{
@@ -823,7 +843,7 @@ func statementToListItem(stmt *Statement) map[string]any {
 		keyHasResultSet:    stmt.HasResultSet,
 		keyCreatedAt:       epochSeconds(stmt.CreatedAt),
 		keyUpdatedAt:       epochSeconds(stmt.UpdatedAt),
-		keyDuration:        stmt.DurationMs,
+		keyDuration:        durationNanos(stmt.DurationMs),
 		keyResultFormat:    statementResultFormat(stmt),
 	}
 
@@ -864,7 +884,7 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		"IsBatchStatement": stmt.IsBatchStatement,
 		keyCreatedAt:       epochSeconds(stmt.CreatedAt),
 		keyUpdatedAt:       epochSeconds(stmt.UpdatedAt),
-		keyDuration:        stmt.DurationMs,
+		keyDuration:        durationNanos(stmt.DurationMs),
 		"ResultRows":       stmt.ResultRows,
 		"ResultSize":       stmt.ResultSize,
 		"WithEvent":        stmt.WithEvent,
@@ -917,9 +937,14 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 				keyQueryString:  sub.QueryString,
 				keyStatusField:  sub.Status,
 				keyHasResultSet: sub.HasResultSet,
-				keyDuration:     sub.DurationMs,
+				keyDuration:     durationNanos(sub.DurationMs),
 				"ResultRows":    sub.ResultRows,
 				"ResultSize":    sub.ResultSize,
+				// RedshiftQueryId mirrors the top-level statement's synthetic
+				// identifier (see statementToDescribeResponse): AWS includes
+				// this per sub-statement for provisioned clusters, we return
+				// 0 since there is no real cluster backing.
+				"RedshiftQueryId": int64(0),
 			}
 
 			if sub.Error != "" {
@@ -974,35 +999,35 @@ func buildDemoColumns() []map[string]any {
 		{
 			keyName:       "id",
 			keyTypeName:   "int4",
-			keyColumnSize: sizeInt,
+			keyLength:     sizeInt,
 			keyNullable:   notNull,
 			keySchemaName: schemaPublic,
 		},
 		{
 			keyName:       keyName,
 			keyTypeName:   typeVarchar,
-			keyColumnSize: sizeVarchar,
+			keyLength:     sizeVarchar,
 			keyNullable:   nullable,
 			keySchemaName: schemaPublic,
 		},
 		{
 			keyName:       "email",
 			keyTypeName:   typeVarchar,
-			keyColumnSize: sizeVarchar,
+			keyLength:     sizeVarchar,
 			keyNullable:   nullable,
 			keySchemaName: schemaPublic,
 		},
 		{
 			keyName:       "created_at",
 			keyTypeName:   "timestamp",
-			keyColumnSize: sizeTimestamp,
+			keyLength:     sizeTimestamp,
 			keyNullable:   nullable,
 			keySchemaName: schemaPublic,
 		},
 		{
 			keyName:       "updated_at",
 			keyTypeName:   "timestamp",
-			keyColumnSize: sizeTimestamp,
+			keyLength:     sizeTimestamp,
 			keyNullable:   nullable,
 			keySchemaName: schemaPublic,
 		},

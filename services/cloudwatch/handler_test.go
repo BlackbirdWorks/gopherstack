@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -257,16 +258,18 @@ func TestCloudWatchHandler(t *testing.T) {
 			name: "GetMetricData",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
 				t.Helper()
+				anchor := cloudwatch.RecentTestAnchor()
 				postForm(t, h,
 					"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency"+
-						"&MetricData.member.1.Value=100&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z")
+						"&MetricData.member.1.Value=100&MetricData.member.1.Timestamp="+anchor.Format(time.RFC3339))
 				postForm(t, h,
 					"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency"+
-						"&MetricData.member.1.Value=200&MetricData.member.1.Timestamp=2024-01-01T00:01:00Z")
+						"&MetricData.member.1.Value=200&MetricData.member.1.Timestamp="+
+						anchor.Add(time.Minute).Format(time.RFC3339))
 			},
 			body: "Action=GetMetricData" +
-				"&StartTime=2024-01-01T00:00:00Z" +
-				"&EndTime=2024-01-01T00:10:00Z" +
+				"&StartTime=" + cloudwatch.RecentTestAnchor().Format(time.RFC3339) +
+				"&EndTime=" + cloudwatch.RecentTestAnchor().Add(10*time.Minute).Format(time.RFC3339) +
 				"&MetricDataQueries.member.1.Id=latency1" +
 				"&MetricDataQueries.member.1.MetricStat.Metric.Namespace=MyNS" +
 				"&MetricDataQueries.member.1.MetricStat.Metric.MetricName=Latency" +
@@ -1835,21 +1838,22 @@ func TestCloudWatchHandler_GetMetricData_ScanByDescending(t *testing.T) {
 	h := cloudwatch.NewHandler(b)
 
 	// Put data via backend to avoid timestamp URL-encoding issues.
-	base := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	base := cloudwatch.RecentTestAnchor()
 	for i := 1; i <= 3; i++ {
 		ts := base.Add(time.Duration(i) * time.Minute)
-		_ = b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{
 				MetricName: "Counter", Value: float64(i), Count: 1,
 				Sum: float64(i), Min: float64(i), Max: float64(i), Timestamp: ts,
 			},
 		})
+		require.NoError(t, err)
 	}
 
 	queryBody := strings.Join([]string{
 		"Action=GetMetricData",
-		"StartTime=2020-01-01T00%3A00%3A00Z",
-		"EndTime=2020-01-01T00%3A10%3A00Z",
+		"StartTime=" + url.QueryEscape(base.Format(time.RFC3339)),
+		"EndTime=" + url.QueryEscape(base.Add(10*time.Minute).Format(time.RFC3339)),
 		"ScanBy=TimestampDescending",
 		"MetricDataQueries.member.1.Id=m1",
 		"MetricDataQueries.member.1.MetricStat.Metric.Namespace=NS",
@@ -1888,11 +1892,12 @@ func TestCloudWatchHandler_PutMetricData_RejectedOnCap(t *testing.T) {
 
 	// Fill up the namespace to the cap first.
 	b := h.Backend.(*cloudwatch.InMemoryBackend)
+	ts := cloudwatch.RecentTestAnchor()
 	for i := range cloudwatch.CwMaxMetricNamesPerNamespace {
 		_ = b.PutMetricData("FullNS", []cloudwatch.MetricDatum{
 			{
 				MetricName: strings.Repeat("x", 1) + strings.Repeat("y", i%10) + strings.Repeat("z", i/10),
-				Value:      1, Count: 1, Sum: 1, Min: 1, Max: 1,
+				Value:      1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: ts,
 			},
 		})
 	}

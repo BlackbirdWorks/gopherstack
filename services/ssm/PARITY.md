@@ -5,14 +5,21 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ssm
-sdk_module: aws-sdk-go-v2/service/ssm@v1.69.5
-last_audit_commit: 647d2017
-last_audit_date: 2026-07-05
-overall: B                 # already-accurate op-by-op for the bulk of the surface (2 prior
-                            # sweeps did the heavy lifting); this pass found and fixed 6 genuine
-                            # bugs concentrated in Parameter Store tier/version/hierarchy rules and
-                            # Document version-selector/wire-shape handling — real but narrower
-                            # than a from-scratch ~1k-LOC sweep. See gaps/Notes for what's proven.
+sdk_module: aws-sdk-go-v2/service/ssm@v1.71.0
+last_audit_commit: 2d2b1b9b
+last_audit_date: 2026-07-11
+overall: B                 # This pass: local drift since the last audit was a single test-file
+                            # change (sdk_completeness_test.go excluding the 6 new CloudConnector
+                            # ops added by the aws-sdk-go-v2 bump from v1.69.5 to v1.71.0). Audited
+                            # that new surface per protocol: CloudConnector (Create/Delete/Get/
+                            # List/Update/Validate) was entirely unimplemented (excluded from the
+                            # completeness check rather than stubbed) — implemented for real this
+                            # pass (state, wire shapes verified against serializers.go/
+                            # deserializers.go, errors, persistence, tagging integration). Every
+                            # row carried over from the prior audit (last_audit_commit 647d2017,
+                            # itself unreachable from current HEAD — a cross-service commit hash;
+                            # baseline re-derived as ce30166a per the re-audit protocol, whose diff
+                            # against HEAD touched only that one test file) is trusted unchanged.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -55,7 +62,15 @@ ops:
   CreatePatchBaseline: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePatchBaseline: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPatchBaseline: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateCloudConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass — see Notes: implemented from scratch, previously entirely unimplemented (excluded from sdk_completeness_test.go rather than stubbed)"}
+  DeleteCloudConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  GetCloudConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  ListCloudConnectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass — SubscriptionId/TenantId filters incl. documented \"NONE\" tenant-level-only value, opaque index-token pagination matching DescribeParameters"}
+  UpdateCloudConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  ValidateCloudConnector: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass — see Notes: no real Azure tenant to call out to, so findings are deterministically derived from the connector's own stored configuration rather than a fabricated always-success stub"}
 families:
+  cloud-connectors: {status: ok, note: "NEW this pass — aws-sdk-go-v2 bumped v1.69.5 to v1.71.0 (see sdk_module) added CreateCloudConnector/DeleteCloudConnector/GetCloudConnector/ListCloudConnectors/UpdateCloudConnector/ValidateCloudConnector (Azure-only third-party cloud environment connectors). Implemented as a real *store.Table[CloudConnector]-backed resource (services/ssm/cloud_connector.go): required-field validation (ConfigConnectorArn/DisplayName/RoleArn/Configuration.AzureConfiguration.{ApplicationId,TenantId}) on Create, ResourceNotFoundException (the SDK's generic not-found type — no CloudConnector-specific error exists) on Get/Delete/Update/Validate of an unknown ID, tag integration via the existing generic miscResourceTags fallback path (ResourceTypeForTagging enum confirms \"CloudConnector\" is a valid AddTagsToResource/ListTagsForResource resource type, and that path was already resource-type-agnostic), and full Snapshot/Restore persistence via the existing store.Registry generic mechanism (store_setup.go's getOrCreateTable/tableAccessorsByPrefix — no persistence.go changes needed). Wire shapes verified against aws-sdk-go-v2/service/ssm@v1.71.0's serializers.go/deserializers.go directly (not the SDK's own doc comments): CreatedAt/UpdatedAt are epoch-seconds JSON numbers, matching this package's existing UnixTimeFloat convention, NOT ISO8601 strings; Configuration is a one-member Azure-only union wire-wrapped by member name (\"AzureConfiguration\")."}
+
   parameter-store: {status: ok, note: "FIXED this pass (PutParameter): 15-level hierarchy limit (HierarchyLevelLimitExceededException, previously unenforced), labeled-oldest-version eviction guard (ParameterMaxVersionLimitExceeded, previously silently evicted labeled versions and leaked their parameterLabels entries forever), Intelligent-Tiering auto-upgrade-to-Advanced on >4KiB value or Policies attached (previously hard-rejected instead of auto-selecting Advanced, defeating the entire point of Intelligent-Tiering), Policies-require-Advanced-tier (previously any tier accepted policies). Tier value-size limits (4096 Standard / 8192 Advanced), AllowedPattern regex validation, SecureString KMS encrypt/decrypt round-trip via per-instance AES-256 key, parameter selector suffix (:version/:label) parsing were all already correct."
   documents: {status: ok, note: "FIXED this pass: CreateDocument/UpdateDocument/DescribeDocument were all returning the internal Document struct (which carries Content) as their metadata-only response — added a DocumentDescription wire type (matches AWS's real DocumentDescription, no Content field) and a Document.toDocumentDescription() converter. Also: GetDocument/DescribeDocument's DocumentVersion selector conflated explicit \"$DEFAULT\" with \"$LATEST\"/omitted, always serving the latest version's content/metadata even when a caller explicitly asked for $DEFAULT after UpdateDocumentDefaultVersion pinned an older version. Left the omitted-DocumentVersion behavior as latest (unchanged) since AWS's own API/CLI reference docs do not state a default and an existing, deliberately-written test (document_test.go TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands) depends on that behavior — only the unambiguous explicit-$DEFAULT case was fixed. Document version cap (1000) and content-hash-free JSON/YAML round-trip were already correct."
   command-execution: {status: ok, note: "no goroutines/timers in command_exec.go or automation_exec.go — command progression is driven synchronously plus the single ctx-cancel-aware janitor sweep (janitor.go), not per-command background workers. Nothing to leak."}
@@ -64,6 +79,8 @@ families:
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "Document version-cap eviction (maxDocumentVersionCap=1000) can, in a very long-lived document, evict the version currently pinned as DefaultVersion, orphaning the $DEFAULT selector (GetDocument/DescribeDocument would then return ErrInvalidDocumentVersion instead of re-pointing or falling back). Needs 1000+ UpdateDocument calls after pinning an old DefaultVersion — rare in practice, not fixed this pass (bd: gopherstack-1hg)"
   - "NoChangeNotification parameter policy is stored (Policies field round-trips) but never evaluated/acted on — no EventBridge event is emitted when a parameter goes unchanged past its configured window. ExpirationNotification has the same gap. Only Expiration is enforced (janitor sweep deletes on expiry). Out of scope for this pass — would require EventBridge cross-service wiring (shared-file, not fixed)."
+  - "ListCloudConnectors/ValidateCloudConnector MaxResults default/cap (defaultCloudConnectorMaxResults=50, aliased to the existing defaultDescribeMaxResults) is a reasonable-default guess, not a value confirmed against real AWS docs — this brand-new API family (added in aws-sdk-go-v2 v1.70/1.71) has no documented bound in the SDK's Go doc comments or a public API reference at time of this pass. Revisit if AWS publishes the real bound."
+  - "ValidateCloudConnector cannot make a real outbound call to Azure (gopherstack has no Azure tenant), so its ValidationFindings are derived deterministically from the connector's own stored Configuration (tenant/subscription IDs) rather than reflecting real third-party connectivity/permission state. This is the best achievable emulation for a cross-cloud connectivity check, not a wire/state bug — documented here so a future reader doesn't mistake the mocked findings for verified AWS behavior."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - Session Manager (StartSession/TerminateSession/ResumeSession) full op-by-op re-verification
   - Patch baselines / patch groups / compliance op-by-op re-verification (spot-checked only)
@@ -183,3 +200,25 @@ unambiguous explicit-`$DEFAULT` case was fixed.
   declared in `backend_ops.go`/`backend_batch2.go` are dead code from an earlier pass, not evidence
   of missing error handling — the operations that would use them either don't need a not-found path
   (see DeleteInventory above) or already return a differently-named sentinel with the same string.
+
+### New feature this pass: Cloud Connectors (aws-sdk-go-v2 v1.69.5 → v1.71.0 added surface)
+
+The re-audit protocol's "check the SDK module for ops added since sdk_version" step turned up 6
+brand-new operations (`CreateCloudConnector`, `DeleteCloudConnector`, `GetCloudConnector`,
+`ListCloudConnectors`, `UpdateCloudConnector`, `ValidateCloudConnector`) that the prior dependency
+bump (`e51c0de9`) had silently carved out of `sdk_completeness_test.go`'s exclusion list rather
+than stubbing or implementing — i.e. genuinely unimplemented surface, not a disguised stub. Per
+parity-principles.md rule 1 ("if an op genuinely can't be implemented yet, say so explicitly —
+never a half-working stub"), the alternative to implementing it would have been to leave it
+excluded and documented; since Cloud Connectors turned out to be a well-scoped, single-union
+(Azure-only) CRUD resource with no cross-service dependency, it was implemented for real instead
+(`services/ssm/cloud_connector.go`, ~410 LOC + `cloud_connector_test.go`, ~340 LOC). All wire
+shapes (field names, the epoch-seconds `CreatedAt`/`UpdatedAt` DateTime shape, the
+`{"AzureConfiguration": {...}}` union-by-member-name wrapping, `CloudConnectorSummary`'s narrower
+field set vs. the full `CloudConnector`/`GetCloudConnectorOutput`) were read directly out of
+`aws-sdk-go-v2/service/ssm@v1.71.0`'s generated `serializers.go`/`deserializers.go`, not inferred
+from Go doc comments. `ResourceNotFoundException` (a generic SDK error type, not a
+CloudConnector-specific one) was chosen for the not-found case since no dedicated error type exists
+for this resource. See `gaps` for the two known limitations (unconfirmed pagination bound; findings
+are derived from stored config rather than a real Azure connectivity check) that were consciously
+left as-is rather than guessed at with false confidence.

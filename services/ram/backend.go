@@ -348,6 +348,20 @@ func (b *InMemoryBackend) CreateResourceShare(
 		}
 	}
 
+	// Validate every principal against AllowExternalPrincipals before
+	// mutating any state. Checking this inside the mutation loop below would
+	// leave an orphaned resource share (and any associations/invitations
+	// already appended for earlier principals) committed to the backend even
+	// though the overall call returns an error to the caller.
+	for _, p := range principals {
+		if b.isExternalPrincipal(p) && !allowExternalPrincipals {
+			return nil, fmt.Errorf(
+				"%w: external principals not allowed for this resource share",
+				ErrValidation,
+			)
+		}
+	}
+
 	now := time.Now()
 	// Use a stable UUID-based resource share ID so the ARN remains valid
 	// even if the share is later renamed via UpdateResourceShare.
@@ -366,15 +380,9 @@ func (b *InMemoryBackend) CreateResourceShare(
 	}
 	b.resourceShares.Put(rs)
 
-	// Add principal associations, enforcing AllowExternalPrincipals.
+	// Add principal associations. AllowExternalPrincipals was already validated above.
 	for _, p := range principals {
 		external := b.isExternalPrincipal(p)
-		if external && !allowExternalPrincipals {
-			return nil, fmt.Errorf(
-				"%w: external principals not allowed for this resource share",
-				ErrValidation,
-			)
-		}
 
 		b.associations = append(b.associations, &ResourceShareAssociation{
 			ResourceShareARN:  shareARN,
@@ -606,6 +614,25 @@ func (b *InMemoryBackend) AssociateResourceShare(
 		}
 	}
 
+	// Validate every non-duplicate principal against AllowExternalPrincipals
+	// before mutating any state. Checking this inside the mutation loop below
+	// would leave associations (and invitations) already appended for
+	// earlier principals committed to the backend even though the overall
+	// call returns an error to the caller.
+	for _, p := range principals {
+		if _, dup := existing[p]; dup {
+			continue
+		}
+
+		if b.isExternalPrincipal(p) && !rs.AllowExternalPrincipals {
+			return nil, fmt.Errorf(
+				"%w: external principals not allowed for resource share %s",
+				ErrValidation,
+				shareARN,
+			)
+		}
+	}
+
 	now := time.Now()
 	added := make([]*ResourceShareAssociation, 0, len(principals)+len(resourceARNs))
 
@@ -615,13 +642,6 @@ func (b *InMemoryBackend) AssociateResourceShare(
 		}
 
 		external := b.isExternalPrincipal(p)
-		if external && !rs.AllowExternalPrincipals {
-			return nil, fmt.Errorf(
-				"%w: external principals not allowed for resource share %s",
-				ErrValidation,
-				shareARN,
-			)
-		}
 
 		assoc := &ResourceShareAssociation{
 			ResourceShareARN:  shareARN,
@@ -1123,25 +1143,42 @@ func (b *InMemoryBackend) DisassociateResourceSharePermission(
 	return nil
 }
 
+// ResourceSharePermissionDetail pairs a managed permission with the specific
+// version that is associated with a particular resource share. AWS tracks the
+// associated version per (share, permission) pair -- AssociateResourceSharePermission
+// can pin a non-default version -- so this must be reported per share rather
+// than assumed to be the permission's current default version.
+type ResourceSharePermissionDetail struct {
+	Permission *Permission
+	Version    int32
+}
+
 // ListResourceSharePermissions returns the permissions associated with a resource share,
-// sorted by ARN for deterministic output.
-func (b *InMemoryBackend) ListResourceSharePermissions(shareARN string) []*Permission {
+// each paired with the version actually associated with that share (which may differ
+// from the permission's current default version), sorted by ARN for deterministic output.
+func (b *InMemoryBackend) ListResourceSharePermissions(shareARN string) []*ResourceSharePermissionDetail {
 	b.mu.RLock("ListResourceSharePermissions")
 	defer b.mu.RUnlock()
 
 	permARNs := b.sharePermissions[shareARN]
-	result := make([]*Permission, 0, len(permARNs))
+	result := make([]*ResourceSharePermissionDetail, 0, len(permARNs))
 
-	for pARN := range permARNs {
+	for pARN, version := range permARNs {
 		p, ok := b.permissions.Get(pARN)
 		if !ok || p.Deleted {
 			continue
 		}
 
-		result = append(result, clonePermission(p))
+		result = append(result, &ResourceSharePermissionDetail{
+			Permission: clonePermission(p),
+			Version:    version,
+		})
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].ARN < result[j].ARN })
+	sort.Slice(
+		result,
+		func(i, j int) bool { return result[i].Permission.ARN < result[j].Permission.ARN },
+	)
 
 	return result
 }

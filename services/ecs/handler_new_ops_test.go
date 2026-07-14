@@ -140,11 +140,12 @@ func TestECS_DescribeCapacityProviders(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		input     map[string]any
-		name      string
-		seedNames []string
-		wantCount int
-		wantCode  int
+		input        map[string]any
+		name         string
+		seedNames    []string
+		wantCount    int
+		wantFailures int
+		wantCode     int
 	}{
 		{
 			name:      "describe all when no filter",
@@ -168,9 +169,22 @@ func TestECS_DescribeCapacityProviders(t *testing.T) {
 			wantCount: 0,
 		},
 		{
-			name:     "unknown capacity provider returns 400",
-			input:    map[string]any{"capacityProviders": []string{"unknown-cp"}},
-			wantCode: http.StatusBadRequest,
+			// AWS reports unknown capacity providers as a Failure entry (reason
+			// MISSING), not as a whole-request error — matches DescribeClusters,
+			// DescribeContainerInstances, etc.
+			name:         "unknown capacity provider returns failure not error",
+			input:        map[string]any{"capacityProviders": []string{"unknown-cp"}},
+			wantCode:     http.StatusOK,
+			wantCount:    0,
+			wantFailures: 1,
+		},
+		{
+			name:         "mix of known and unknown returns partial success",
+			seedNames:    []string{"cp-a"},
+			input:        map[string]any{"capacityProviders": []string{"cp-a", "unknown-cp"}},
+			wantCode:     http.StatusOK,
+			wantCount:    1,
+			wantFailures: 1,
 		},
 	}
 
@@ -198,6 +212,10 @@ func TestECS_DescribeCapacityProviders(t *testing.T) {
 			providers, ok := resp["capacityProviders"].([]any)
 			require.True(t, ok)
 			assert.Len(t, providers, tt.wantCount)
+
+			failures, ok := resp["failures"].([]any)
+			require.True(t, ok)
+			assert.Len(t, failures, tt.wantFailures)
 		})
 	}
 }

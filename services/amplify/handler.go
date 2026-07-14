@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -36,6 +37,7 @@ const (
 // Handler is the Echo HTTP handler for Amplify operations.
 type Handler struct {
 	Backend       StorageBackend
+	janitor       *Janitor
 	DefaultRegion string
 	AccountID     string
 }
@@ -43,6 +45,37 @@ type Handler struct {
 // NewHandler creates a new Amplify handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// WithJanitor attaches a background janitor to the handler. backend must be
+// the concrete *InMemoryBackend backing this Handler -- the janitor needs
+// direct access to the backend's tables and lock, which the StorageBackend
+// interface (used for h.Backend so the handler stays mockable) does not
+// expose.
+func (h *Handler) WithJanitor(
+	backend *InMemoryBackend,
+	interval time.Duration,
+	taskTimeout ...time.Duration,
+) *Handler {
+	j := NewJanitor(backend, interval)
+	if len(taskTimeout) > 0 {
+		j.TaskTimeout = taskTimeout[0]
+	}
+
+	h.janitor = j
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured. It implements the
+// worker-lifecycle hook of service.Registerable, so cli.go's generic startup
+// dispatch starts it without any Amplify-specific wiring there.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.
@@ -280,7 +313,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		segs := splitAmplifyPath(path)
 		if len(segs) == 0 {
-			return c.JSON(http.StatusNotFound, amplifyError("not found"))
+			return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 		}
 
 		switch segs[0] {
@@ -291,7 +324,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case subArtifactsRoot:
 			return h.routeArtifacts(ctx, c, segs)
 		default:
-			return c.JSON(http.StatusNotFound, amplifyError("not found"))
+			return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 		}
 	}
 }
@@ -304,7 +337,7 @@ func (h *Handler) handleApps(ctx context.Context, c *echo.Context) error {
 	case http.MethodGet:
 		return h.listApps(ctx, c)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -318,7 +351,7 @@ func (h *Handler) handleAppID(ctx context.Context, c *echo.Context, appID string
 	case http.MethodPost:
 		return h.updateApp(ctx, c, appID)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -330,7 +363,7 @@ func (h *Handler) handleBranches(ctx context.Context, c *echo.Context, appID str
 	case http.MethodGet:
 		return h.listBranches(ctx, c, appID)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -344,7 +377,7 @@ func (h *Handler) handleBranchName(ctx context.Context, c *echo.Context, appID, 
 	case http.MethodPost:
 		return h.updateBranch(ctx, c, appID, branchName)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -360,7 +393,7 @@ func (h *Handler) handleTags(ctx context.Context, c *echo.Context) error {
 	case http.MethodDelete:
 		return h.untagResource(ctx, c, resourceARN)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -368,7 +401,7 @@ func (h *Handler) handleTags(ctx context.Context, c *echo.Context) error {
 func (h *Handler) createApp(ctx context.Context, c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -380,11 +413,11 @@ func (h *Handler) createApp(ctx context.Context, c *echo.Context) error {
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	if input.Name == "" {
-		return c.JSON(http.StatusBadRequest, amplifyError("name is required"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "name is required")
 	}
 
 	app, createErr := h.Backend.CreateApp(input.Name, input.Description, input.Repository, input.Platform, input.Tags)
@@ -443,7 +476,7 @@ func (h *Handler) deleteApp(ctx context.Context, c *echo.Context, appID string) 
 func (h *Handler) createBranch(ctx context.Context, c *echo.Context, appID string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -455,11 +488,11 @@ func (h *Handler) createBranch(ctx context.Context, c *echo.Context, appID strin
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	if input.BranchName == "" {
-		return c.JSON(http.StatusBadRequest, amplifyError("branchName is required"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "branchName is required")
 	}
 
 	branch, createErr := h.Backend.CreateBranch(
@@ -535,7 +568,7 @@ func (h *Handler) listTagsForResource(ctx context.Context, c *echo.Context, reso
 func (h *Handler) tagResource(ctx context.Context, c *echo.Context, resourceARN string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -543,7 +576,7 @@ func (h *Handler) tagResource(ctx context.Context, c *echo.Context, resourceARN 
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	if tagErr := h.Backend.TagResource(resourceARN, input.Tags); tagErr != nil {
@@ -570,14 +603,14 @@ func (h *Handler) handleBackendError(ctx context.Context, c *echo.Context, op st
 	log.ErrorContext(ctx, "Amplify operation failed", "operation", op, "error", err)
 
 	if errors.Is(err, awserr.ErrNotFound) {
-		return c.JSON(http.StatusNotFound, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusNotFound, err.Error())
 	}
 
 	if errors.Is(err, awserr.ErrAlreadyExists) || errors.Is(err, awserr.ErrConflict) {
-		return c.JSON(http.StatusBadRequest, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusBadRequest, err.Error())
 	}
 
-	return c.JSON(http.StatusInternalServerError, amplifyError("internal error: "+err.Error()))
+	return amplifyErrorJSON(c, http.StatusInternalServerError, "internal error: "+err.Error())
 }
 
 // appView is the JSON representation of an App with timestamps as Unix epoch
@@ -666,7 +699,34 @@ func toBranchViews(branches []*Branch) []branchView {
 	return views
 }
 
-// amplifyError builds a standard Amplify error response body.
-func amplifyError(message string) map[string]any {
-	return map[string]any{"message": message}
+// codeForStatus maps an HTTP status code to the Amplify restjson1 exception
+// type name that would accompany it. aws-sdk-go-v2's generated deserializer
+// (awsRestjson1_deserializeOpErrorGetApp and friends) selects a typed
+// exception (types.NotFoundException, types.BadRequestException, ...) by
+// reading the "X-Amzn-Errortype" response header or, failing that, a
+// "code"/"__type" field in the JSON body -- never the HTTP status alone. A
+// response with neither deserializes client-side as a generic UnknownError,
+// so any caller that type-switches on a specific Amplify exception (a common
+// pattern for e.g. treating NotFoundException as "already gone") breaks even
+// though the HTTP status and message are otherwise correct.
+func codeForStatus(status int) string {
+	switch status {
+	case http.StatusNotFound:
+		return "NotFoundException"
+	case http.StatusBadRequest, http.StatusMethodNotAllowed:
+		return "BadRequestException"
+	default:
+		return "InternalFailureException"
+	}
+}
+
+// amplifyErrorJSON writes an Amplify-shaped restjson1 error response: the
+// HTTP status, the "X-Amzn-Errortype" header, and a JSON body carrying both
+// "__type" and "message" so aws-sdk-go-v2 resolves the correct typed
+// exception (see codeForStatus).
+func amplifyErrorJSON(c *echo.Context, status int, message string) error {
+	code := codeForStatus(status)
+	c.Response().Header().Set("X-Amzn-Errortype", code)
+
+	return c.JSON(status, map[string]any{"__type": code, "message": message})
 }

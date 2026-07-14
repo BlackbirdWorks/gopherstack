@@ -1,7 +1,6 @@
 package support
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -58,8 +57,6 @@ const (
 var (
 	// ErrNotFound is returned when a support case is not found.
 	ErrNotFound = awserr.New("CaseIdNotFound", awserr.ErrNotFound)
-	// ErrAlreadyResolved is returned when trying to resolve an already-resolved case.
-	ErrAlreadyResolved = errors.New("CaseAlreadyResolved")
 	// ErrAttachmentNotFound is returned when an attachment is not found.
 	ErrAttachmentNotFound = awserr.New("AttachmentIdNotFound", awserr.ErrNotFound)
 	// ErrValidation is returned when required input fields are missing or invalid.
@@ -437,7 +434,9 @@ func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases b
 	return out
 }
 
-// ResolveCase resolves a support case by caseId.
+// ResolveCase resolves a support case by caseId. Resolving an
+// already-resolved case is a no-op (see ResolveCaseWithStatus): real AWS
+// Support has no "already resolved" error for this operation.
 func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -447,13 +446,11 @@ func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, caseID)
 	}
 
-	if c.Status == caseStatusResolved {
-		return nil, fmt.Errorf("%w: %s", ErrAlreadyResolved, caseID)
+	if c.Status != caseStatusResolved {
+		now := time.Now()
+		c.Status = caseStatusResolved
+		c.ResolvedTime = &now
 	}
-
-	now := time.Now()
-	c.Status = caseStatusResolved
-	c.ResolvedTime = &now
 
 	cp := *c
 

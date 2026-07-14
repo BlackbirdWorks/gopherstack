@@ -231,8 +231,8 @@ type InsightSelector struct {
 
 // InMemoryBackend is the in-memory store for CloudTrail resources.
 type InMemoryBackend struct {
-	edsByARN         *store.Index[EventDataStore]
-	dashboardsByName *store.Index[Dashboard]
+	dashboardsByARN  *store.Index[Dashboard]
+	eventConfigs     map[string]*EventConfiguration
 	trailsByARN      *store.Index[Trail]
 	channels         *store.Table[Channel]
 	channelsByARN    *store.Index[Channel]
@@ -243,12 +243,13 @@ type InMemoryBackend struct {
 	eventDataStores  *store.Table[EventDataStore]
 	trails           *store.Table[Trail]
 	mu               *lockmetrics.RWMutex
-	dashboardsByARN  *store.Index[Dashboard]
+	dashboardsByName *store.Index[Dashboard]
 	resourcePolicies *store.Table[ResourcePolicy]
-	imports          *store.Table[Import]
+	edsByARN         *store.Index[EventDataStore]
 	registry         *store.Registry
-	accountID        string
+	imports          *store.Table[Import]
 	region           string
+	accountID        string
 	events           []Event
 	channelCounter   int
 	dashboardCounter int
@@ -260,10 +261,11 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory CloudTrail backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("cloudtrail"),
-		registry:  store.NewRegistry(),
+		accountID:    accountID,
+		region:       region,
+		mu:           lockmetrics.New("cloudtrail"),
+		registry:     store.NewRegistry(),
+		eventConfigs: make(map[string]*EventConfiguration),
 	}
 
 	registerAllTables(b)
@@ -291,6 +293,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.events = nil
+	b.eventConfigs = make(map[string]*EventConfiguration)
 	b.channelCounter = 0
 	b.dashboardCounter = 0
 	b.edsCounter = 0
@@ -1159,14 +1162,25 @@ func (b *InMemoryBackend) GetChannel(channelIDOrARN string) (*Channel, error) {
 	return &cp, nil
 }
 
-// UpdateChannel updates an existing channel.
-func (b *InMemoryBackend) UpdateChannel(channelIDOrARN string, destinations []Destination) (*Channel, error) {
+// UpdateChannel updates an existing channel's name and/or destinations.
+func (b *InMemoryBackend) UpdateChannel(
+	channelIDOrARN, name string,
+	destinations []Destination,
+) (*Channel, error) {
 	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
 
 	ch := b.findChannelLocked(channelIDOrARN)
 	if ch == nil {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrChannelNotFound, channelIDOrARN)
+	}
+	if name != "" && name != ch.Name {
+		// ch.Name is an indexed field (channelsByName): delete before mutating
+		// so the old index entry is removed using the pre-mutation value, then
+		// re-Put to rebuild every index (byARN, byName) under the new state.
+		b.channels.Delete(ch.ChannelID)
+		ch.Name = name
+		b.channels.Put(ch)
 	}
 	if destinations != nil {
 		ch.Destinations = destinations
@@ -1398,6 +1412,27 @@ func (b *InMemoryBackend) GetInsightSelectors(trailNameOrARN string) (string, []
 	return t.TrailARN, cp, nil
 }
 
+// GetEDSInsightSelectors returns insight selectors for an event data store.
+// AWS returns InsightNotEnabledException when no insight selectors are configured.
+func (b *InMemoryBackend) GetEDSInsightSelectors(edsIDOrARN string) (string, []InsightSelector, error) {
+	b.mu.RLock("GetEDSInsightSelectors")
+	defer b.mu.RUnlock()
+
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
+		return "", nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
+	}
+	if len(eds.InsightSelectors) == 0 {
+		return "", nil, fmt.Errorf(
+			"%w: event data store %s does not have Insights enabled", ErrInsightNotEnabled, edsIDOrARN,
+		)
+	}
+	cp := make([]InsightSelector, len(eds.InsightSelectors))
+	copy(cp, eds.InsightSelectors)
+
+	return eds.EventDataStoreARN, cp, nil
+}
+
 // GetResourcePolicy returns the resource policy for the given ARN.
 func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (*ResourcePolicy, error) {
 	b.mu.RLock("GetResourcePolicy")
@@ -1467,40 +1502,79 @@ func (b *InMemoryBackend) EnableFederation(edsIDOrARN, federationRoleArn string)
 	return &cp, nil
 }
 
-// GenerateQuery generates a query for an event data store (stub).
-func (b *InMemoryBackend) GenerateQuery(_ []string, requestedQueryMaxResults int32) (*Query, error) {
+// GeneratedQuery holds the result of a GenerateQuery call: a synthesized
+// CloudTrail Lake SQL statement (and alias) for a natural-language prompt.
+// Unlike StartQuery, GenerateQuery does not create a persisted, runnable
+// query record -- AWS only returns the generated statement text.
+type GeneratedQuery struct {
+	QueryStatement string
+	QueryAlias     string
+	OwnerAccountID string
+}
+
+// GenerateQuery synthesizes a CloudTrail Lake SQL query statement from a
+// natural-language prompt against the given event data stores.
+func (b *InMemoryBackend) GenerateQuery(eventDataStores []string, prompt string) *GeneratedQuery {
 	b.mu.Lock("GenerateQuery")
 	defer b.mu.Unlock()
 
 	b.queryCounter++
-	qid := fmt.Sprintf("query-%06d", b.queryCounter)
-	q := &Query{
-		QueryID:      qid,
-		QueryString:  "SELECT * FROM events LIMIT " + strconv.Itoa(int(requestedQueryMaxResults)),
-		QueryStatus:  "QUEUED",
-		CreationTime: time.Now().UTC(),
-	}
-	b.queries.Put(q)
-	cp := *q
+	alias := fmt.Sprintf("query-%06d", b.queryCounter)
+	stmt := fmt.Sprintf("SELECT * FROM %s -- generated from prompt: %s", eventDataStores[0], prompt)
 
-	return &cp, nil
-}
-
-// GetEventConfiguration returns event configuration (stub).
-func (b *InMemoryBackend) GetEventConfiguration(resourceARN string) map[string]any {
-	return map[string]any{
-		keyResourceArn:       resourceARN,
-		"EventConfiguration": []any{},
+	return &GeneratedQuery{
+		QueryStatement: stmt,
+		QueryAlias:     alias,
+		OwnerAccountID: b.accountID,
 	}
 }
 
-// PutEventConfiguration sets event configuration (no-op stub).
-func (b *InMemoryBackend) PutEventConfiguration(resourceARN string) error {
-	if resourceARN == "" {
-		return fmt.Errorf("%w: ResourceArn is required", ErrValidation)
-	}
+// EventConfiguration holds the event-aggregation and enriched-context
+// settings for a single trail or event data store (keyed by its ARN).
+// AggregationConfigurations and ContextKeySelectors are stored as generic
+// maps (rather than fully modeled types) because the backend only needs to
+// persist and echo back exactly what the caller configured -- CloudTrail
+// itself does not evaluate aggregation templates or context key matches.
+type EventConfiguration struct {
+	MaxEventSize              string           `json:"maxEventSize,omitempty"`
+	AggregationConfigurations []map[string]any `json:"aggregationConfigurations,omitempty"`
+	ContextKeySelectors       []map[string]any `json:"contextKeySelectors,omitempty"`
+}
 
-	return nil
+// GetEventConfiguration returns the event configuration for a trail or event
+// data store ARN. AWS returns an empty configuration when none has been set.
+func (b *InMemoryBackend) GetEventConfiguration(resourceARN string) *EventConfiguration {
+	b.mu.RLock("GetEventConfiguration")
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.eventConfigs[resourceARN]
+	if !ok {
+		return &EventConfiguration{}
+	}
+	cp := *cfg
+
+	return &cp
+}
+
+// PutEventConfiguration sets the event configuration for a trail or event
+// data store ARN.
+func (b *InMemoryBackend) PutEventConfiguration(
+	resourceARN string,
+	aggregationConfigurations, contextKeySelectors []map[string]any,
+	maxEventSize string,
+) *EventConfiguration {
+	b.mu.Lock("PutEventConfiguration")
+	defer b.mu.Unlock()
+
+	cfg := &EventConfiguration{
+		AggregationConfigurations: aggregationConfigurations,
+		ContextKeySelectors:       contextKeySelectors,
+		MaxEventSize:              maxEventSize,
+	}
+	b.eventConfigs[resourceARN] = cfg
+	cp := *cfg
+
+	return &cp
 }
 
 // SearchSampleQueries returns empty sample queries (stub).

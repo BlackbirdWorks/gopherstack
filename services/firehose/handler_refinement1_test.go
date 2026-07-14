@@ -190,7 +190,7 @@ func TestDescribeDeliveryStream_ReturnsEncryption(t *testing.T) {
 		"DeliveryStreamName": "enc-stream",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"EncryptionConfiguration"`)
+	assert.Contains(t, rec.Body.String(), `"DeliveryStreamEncryptionConfiguration"`)
 	assert.Contains(t, rec.Body.String(), `"ENABLED"`)
 }
 

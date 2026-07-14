@@ -231,7 +231,7 @@ func TestChangeResourceRecordSets_BatchLimit(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref", "", false)
+	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "")
 	require.NoError(t, err)
 
 	changes := make([]route53.Change, 1001)
@@ -373,7 +373,7 @@ func TestListResourceRecordSets_Pagination(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref", "", false)
+	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "")
 	require.NoError(t, err)
 
 	// Create 5 A records.
@@ -662,7 +662,7 @@ func TestDisassociateVPCFromHostedZone(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("private.example.com", "ref", "", true)
+	hz, err := b.CreateHostedZone("private.example.com", "ref", "", true, "")
 	require.NoError(t, err)
 
 	// Associate two VPCs so we can remove one without hitting the last-VPC guard.
@@ -686,7 +686,7 @@ func TestCreateQueryLoggingConfig_Uniqueness(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref", "", false)
+	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "")
 	require.NoError(t, err)
 
 	_, err = b.CreateQueryLoggingConfig(hz.ID, "arn:aws:logs:us-east-1:123:log-group:test")
@@ -841,7 +841,7 @@ func TestChangeCidrCollection_StoresLocations(t *testing.T) {
 		},
 	}
 
-	updated, err := b.ChangeCidrCollection(col.ID, changes)
+	updated, err := b.ChangeCidrCollection(col.ID, changes, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), updated.Version)
 
@@ -862,7 +862,7 @@ func TestChangeCidrCollection_StoresLocations(t *testing.T) {
 			Action:       "DELETE_IF_EXISTS",
 			CidrList:     []string{"10.0.0.0/8"},
 		},
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	blocks, err = b.ListCidrBlocks(col.ID, "office")
@@ -1010,7 +1010,7 @@ func TestEnableDNSSEC_RequiresActiveKSK(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref", "", false)
+	hz, err := b.CreateHostedZone("example.com", "ref", "", false, "")
 	require.NoError(t, err)
 
 	// No KSK — should fail.
@@ -1084,7 +1084,7 @@ func TestListHostedZonesByVPC(t *testing.T) {
 
 	b := route53.NewInMemoryBackend()
 
-	hz, err := b.CreateHostedZone("private.example.com", "ref", "", true)
+	hz, err := b.CreateHostedZone("private.example.com", "ref", "", true, "")
 	require.NoError(t, err)
 
 	require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1"))

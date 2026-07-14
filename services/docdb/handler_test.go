@@ -316,13 +316,13 @@ func TestHandler_SubnetGroups(t *testing.T) {
 		{
 			name: "create_subnet_group",
 			vals: url.Values{
-				"Action":                   {"CreateDBSubnetGroup"},
-				"Version":                  {"2014-10-31"},
-				"DBSubnetGroupName":        {"my-sg"},
-				"DBSubnetGroupDescription": {"test sg"},
-				"VpcId":                    {"vpc-12345"},
-				"SubnetIds.member.1":       {"subnet-aaa"},
-				"SubnetIds.member.2":       {"subnet-bbb"},
+				"Action":                       {"CreateDBSubnetGroup"},
+				"Version":                      {"2014-10-31"},
+				"DBSubnetGroupName":            {"my-sg"},
+				"DBSubnetGroupDescription":     {"test sg"},
+				"VpcId":                        {"vpc-12345"},
+				"SubnetIds.SubnetIdentifier.1": {"subnet-aaa"},
+				"SubnetIds.SubnetIdentifier.2": {"subnet-bbb"},
 			},
 			wantStatus:   http.StatusOK,
 			wantContains: "my-sg",
@@ -741,7 +741,7 @@ func TestHandler_Errors(t *testing.T) {
 				"DBClusterParameterGroupName": {"nonexistent"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name: "missing_cluster_id",
@@ -985,7 +985,7 @@ func TestHandler_EventSubscriptions(t *testing.T) {
 				"SubscriptionName": {"dup-sub"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "SubscriptionAlreadyExistFault",
+			wantContains: "SubscriptionAlreadyExist",
 		},
 		{
 			name: "delete_nonexistent_subscription",
@@ -995,7 +995,7 @@ func TestHandler_EventSubscriptions(t *testing.T) {
 				"SubscriptionName": {"nonexistent"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "SubscriptionNotFoundFault",
+			wantContains: "SubscriptionNotFound",
 		},
 		{
 			name: "add_source_id_nonexistent_subscription",
@@ -1006,7 +1006,7 @@ func TestHandler_EventSubscriptions(t *testing.T) {
 				"SourceIdentifier": {"some-cluster"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "SubscriptionNotFoundFault",
+			wantContains: "SubscriptionNotFound",
 		},
 	}
 
@@ -1151,7 +1151,7 @@ func TestHandler_CopyOperations(t *testing.T) {
 				"TargetDBClusterParameterGroupIdentifier": {"target-pg"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name: "copy_snapshot",
@@ -1334,7 +1334,7 @@ func TestHandler_DescribeDBClusterParameters(t *testing.T) {
 				"DBClusterParameterGroupName": {"nonexistent"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name: "describe_parameters_missing_group_name",
@@ -2436,7 +2436,7 @@ func TestHandler_ResetDBClusterParameterGroup(t *testing.T) {
 				"DBClusterParameterGroupName": {"nonexistent"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 	}
 
@@ -2566,7 +2566,7 @@ func TestHandler_ModifyEventSubscription(t *testing.T) {
 				"SubscriptionName": {"nonexistent"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "SubscriptionNotFoundFault",
+			wantContains: "SubscriptionNotFound",
 		},
 	}
 
@@ -2625,7 +2625,7 @@ func TestHandler_RemoveSourceIdentifierFromSubscription(t *testing.T) {
 				"SourceIdentifier": {"my-cluster"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "SubscriptionNotFoundFault",
+			wantContains: "SubscriptionNotFound",
 		},
 	}
 
@@ -2756,11 +2756,11 @@ func TestHandler_ModifyDBSubnetGroup(t *testing.T) {
 			setup: func(t *testing.T, h *docdb.Handler) {
 				t.Helper()
 				doRequest(t, h, url.Values{
-					"Action":                   {"CreateDBSubnetGroup"},
-					"Version":                  {"2014-10-31"},
-					"DBSubnetGroupName":        {"my-sg"},
-					"DBSubnetGroupDescription": {"original"},
-					"SubnetIds.member.1":       {"subnet-aaa"},
+					"Action":                       {"CreateDBSubnetGroup"},
+					"Version":                      {"2014-10-31"},
+					"DBSubnetGroupName":            {"my-sg"},
+					"DBSubnetGroupDescription":     {"original"},
+					"SubnetIds.SubnetIdentifier.1": {"subnet-aaa"},
 				})
 			},
 			vals: url.Values{
@@ -3798,7 +3798,7 @@ func TestRefinement2_DeleteParameterGroupInUse(t *testing.T) {
 		{
 			name:         "parameter_group_in_use_rejected",
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "InvalidDBParameterGroupStateFault",
+			wantContains: "InvalidDBParameterGroupState",
 		},
 	}
 
@@ -3852,11 +3852,11 @@ func TestRefinement2_DeleteSubnetGroupInUse(t *testing.T) {
 
 			h := newTestHandler(t)
 			doRequest(t, h, url.Values{
-				"Action":                   {"CreateDBSubnetGroup"},
-				"Version":                  {"2014-10-31"},
-				"DBSubnetGroupName":        {"my-sg"},
-				"DBSubnetGroupDescription": {"test sg"},
-				"SubnetIds.member.1":       {"subnet-aaa"},
+				"Action":                       {"CreateDBSubnetGroup"},
+				"Version":                      {"2014-10-31"},
+				"DBSubnetGroupName":            {"my-sg"},
+				"DBSubnetGroupDescription":     {"test sg"},
+				"SubnetIds.SubnetIdentifier.1": {"subnet-aaa"},
 			})
 			doRequest(t, h, url.Values{
 				"Action":              {"CreateDBCluster"},
@@ -3917,7 +3917,7 @@ func TestAudit_CreateCluster_VpcSecurityGroups(t *testing.T) {
 				"DBClusterIdentifier": {"vpc-test-cluster"},
 			}
 			for i, sgID := range tt.vpcSGIDs {
-				vals.Set(fmt.Sprintf("VpcSecurityGroupIds.member.%d", i+1), sgID)
+				vals.Set(fmt.Sprintf("VpcSecurityGroupIds.VpcSecurityGroupId.%d", i+1), sgID)
 			}
 
 			rr := doRequest(t, h, vals)
@@ -4620,7 +4620,7 @@ func TestAudit_ClusterVpcSGPersistedToBackend(t *testing.T) {
 				"DBClusterIdentifier": {"sg-test-cluster"},
 			}
 			for i, sgID := range tt.sgIDs {
-				vals.Set(fmt.Sprintf("VpcSecurityGroupIds.member.%d", i+1), sgID)
+				vals.Set(fmt.Sprintf("VpcSecurityGroupIds.VpcSecurityGroupId.%d", i+1), sgID)
 			}
 			doRequest(t, h, vals)
 
@@ -4671,7 +4671,7 @@ func TestAudit_ModifyCluster_VpcSecurityGroups(t *testing.T) {
 				"DBClusterIdentifier": {"modify-sg-cluster"},
 			}
 			for i, sgID := range tt.newSGIDs {
-				vals.Set(fmt.Sprintf("VpcSecurityGroupIds.member.%d", i+1), sgID)
+				vals.Set(fmt.Sprintf("VpcSecurityGroupIds.VpcSecurityGroupId.%d", i+1), sgID)
 			}
 			doRequest(t, h, vals)
 
@@ -5328,11 +5328,11 @@ func TestAudit_SubnetGroup_ModifyDescription(t *testing.T) {
 
 			h := newTestHandler(t)
 			doRequest(t, h, url.Values{
-				"Action":                   {"CreateDBSubnetGroup"},
-				"Version":                  {"2014-10-31"},
-				"DBSubnetGroupName":        {"mod-sg"},
-				"DBSubnetGroupDescription": {"original"},
-				"SubnetIds.member.1":       {"subnet-111"},
+				"Action":                       {"CreateDBSubnetGroup"},
+				"Version":                      {"2014-10-31"},
+				"DBSubnetGroupName":            {"mod-sg"},
+				"DBSubnetGroupDescription":     {"original"},
+				"SubnetIds.SubnetIdentifier.1": {"subnet-111"},
 			})
 			vals := url.Values{
 				"Action":            {"ModifyDBSubnetGroup"},
@@ -5664,11 +5664,11 @@ func TestAudit_SubnetGroup_DeleteInUseFails(t *testing.T) {
 
 			h := newTestHandler(t)
 			doRequest(t, h, url.Values{
-				"Action":                   {"CreateDBSubnetGroup"},
-				"Version":                  {"2014-10-31"},
-				"DBSubnetGroupName":        {"inuse-sg"},
-				"DBSubnetGroupDescription": {"test"},
-				"SubnetIds.member.1":       {"subnet-aaa"},
+				"Action":                       {"CreateDBSubnetGroup"},
+				"Version":                      {"2014-10-31"},
+				"DBSubnetGroupName":            {"inuse-sg"},
+				"DBSubnetGroupDescription":     {"test"},
+				"SubnetIds.SubnetIdentifier.1": {"subnet-aaa"},
 			})
 			if tt.useInCluster {
 				h.Backend.AddDBClusterInternal(&docdb.DBCluster{

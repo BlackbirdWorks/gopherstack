@@ -104,7 +104,7 @@ func (b *InMemoryBackend) DescribeDeviceFleet(ctx context.Context, name string) 
 
 	region := getRegion(ctx, b.region)
 
-	f, ok := b.deviceFleetsStore(region).Get(name)
+	f, ok := b.deviceFleetsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, name)
 	}
@@ -120,7 +120,7 @@ func (b *InMemoryBackend) ListDeviceFleets(ctx context.Context, nextToken string
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.deviceFleetsStore(region),
+		b.deviceFleetsStoreRO(region),
 		nextToken,
 		cloneDeviceFleet,
 		func(v *DeviceFleet) string { return v.DeviceFleetName },
@@ -314,7 +314,7 @@ func (b *InMemoryBackend) DescribeDevice(ctx context.Context, fleetName, deviceN
 
 	region := getRegion(ctx, b.region)
 
-	d, ok := b.devicesStore(region).Get(deviceKeyString(deviceKey{fleetName: fleetName, deviceName: deviceName}))
+	d, ok := b.devicesStoreRO(region).Get(deviceKeyString(deviceKey{fleetName: fleetName, deviceName: deviceName}))
 	if !ok {
 		return nil, fmt.Errorf("%w: device %q in fleet %q", ErrDeviceNotFound, deviceName, fleetName)
 	}
@@ -329,7 +329,7 @@ func (b *InMemoryBackend) ListDevices(ctx context.Context, fleetFilter, nextToke
 
 	region := getRegion(ctx, b.region)
 
-	return devicesInFleetPaged(b.devicesStore(region), fleetFilter, nextToken)
+	return devicesInFleetPaged(b.devicesStoreRO(region), fleetFilter, nextToken)
 }
 
 // devicesInFleetPaged filters tbl by fleetFilter (or all devices if empty),
@@ -475,7 +475,7 @@ func (b *InMemoryBackend) DescribeInferenceComponent(ctx context.Context, name s
 
 	region := getRegion(ctx, b.region)
 
-	c, ok := b.inferenceComponentsStore(region).Get(name)
+	c, ok := b.inferenceComponentsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: inference component %q", ErrInferenceComponentNotFound, name)
 	}
@@ -492,7 +492,7 @@ func (b *InMemoryBackend) ListInferenceComponents(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.inferenceComponentsStore(region)
+	store := b.inferenceComponentsStoreRO(region)
 
 	keys := make([]string, 0, store.Len())
 	for _, c := range store.All() {
@@ -672,7 +672,7 @@ func (b *InMemoryBackend) DescribeClusterSchedulerConfig(
 
 	region := getRegion(ctx, b.region)
 
-	c, ok := b.clusterSchedulerConfigsStore(region).Get(name)
+	c, ok := b.clusterSchedulerConfigsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
 	}
@@ -691,7 +691,7 @@ func (b *InMemoryBackend) ListClusterSchedulerConfigs(
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.clusterSchedulerConfigsStore(region),
+		b.clusterSchedulerConfigsStoreRO(region),
 		nextToken,
 		cloneClusterSchedulerConfig,
 		func(v *ClusterSchedulerConfig) string { return v.ClusterSchedulerConfigName },
@@ -809,7 +809,7 @@ func (b *InMemoryBackend) DescribeComputeQuota(ctx context.Context, name string)
 
 	region := getRegion(ctx, b.region)
 
-	q, ok := b.computeQuotasStore(region).Get(name)
+	q, ok := b.computeQuotasStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
 	}
@@ -825,7 +825,7 @@ func (b *InMemoryBackend) ListComputeQuotas(ctx context.Context, nextToken strin
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.computeQuotasStore(region),
+		b.computeQuotasStoreRO(region),
 		nextToken,
 		cloneComputeQuota,
 		func(v *ComputeQuota) string { return v.ComputeQuotaName },

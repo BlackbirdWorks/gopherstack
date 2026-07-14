@@ -21,11 +21,21 @@ import (
 
 const (
 	statusActive          = "ACTIVE"
+	statusSucceeded       = "SUCCEEDED"
 	errCodeInvalidRequest = "InvalidRequestException"
 	maxRetentionDays      = 2147483647
 	// defaultRegion is used when the request context carries no region (e.g.
 	// an unsigned request); ARNs must still be well-formed.
 	defaultRegion = config.DefaultRegion
+	// latestVersion is the special versionId string clients may pass to GetDatasetContent
+	// / DeleteDatasetContent to select the most recently created content version,
+	// regardless of its status.
+	latestVersion = "$LATEST"
+	// latestSucceededVersion is the special versionId string clients may pass to
+	// GetDatasetContent / DeleteDatasetContent to select the most recently created
+	// content version whose status is SUCCEEDED. It is also the AWS-documented default
+	// when versionId is omitted.
+	latestSucceededVersion = "$LATEST_SUCCEEDED"
 )
 
 // StorageBackend is the interface for the IoT Analytics backend.
@@ -212,8 +222,15 @@ func isValidTagChar(r rune) bool {
 		r == '=' || r == '+' || r == '-' || r == '@'
 }
 
-// validateTags validates a slice of tag DTOs.
+// validateTags validates a slice of tag DTOs, including the AWS-wide 50-tag-per-resource
+// limit. Callers that merge this batch with an existing tag set (e.g. TagResource) must
+// additionally check the combined count; this only bounds the incoming batch itself, which
+// is exactly the limit for a resource created with these tags in a single call.
 func validateTags(tags []TagDTO) error {
+	if len(tags) > maxTagsPerResource {
+		return fmt.Errorf("%w: resource may not have more than %d tags", ErrValidation, maxTagsPerResource)
+	}
+
 	for _, t := range tags {
 		if err := validateTagKey(t.Key); err != nil {
 			return err
@@ -1452,7 +1469,7 @@ func (b *InMemoryBackend) CreateDatasetContent(datasetName string) (*DatasetCont
 	now := epochSeconds(time.Now())
 	content := &DatasetContent{
 		VersionID:      uuid.NewString(),
-		Status:         "SUCCEEDED",
+		Status:         statusSucceeded,
 		CreationTime:   now,
 		CompletionTime: now,
 	}
@@ -1467,7 +1484,22 @@ func (b *InMemoryBackend) CreateDatasetContent(datasetName string) (*DatasetCont
 	return content, nil
 }
 
-// GetDatasetContent retrieves a specific or the latest content version of a dataset.
+// latestSucceededContent returns the most recently created content version (contents is in
+// creation order, oldest first) whose status is SUCCEEDED, or ErrDatasetContentNotFound if
+// none match.
+func latestSucceededContent(contents []*DatasetContent) (*DatasetContent, error) {
+	for _, c := range slices.Backward(contents) {
+		if c.Status == statusSucceeded {
+			return c, nil
+		}
+	}
+
+	return nil, ErrDatasetContentNotFound
+}
+
+// GetDatasetContent retrieves a specific, latest ($LATEST), or latest-succeeded
+// ($LATEST_SUCCEEDED, also the default when versionID is empty) content version of a
+// dataset, matching AWS GetDatasetContent versionId semantics.
 func (b *InMemoryBackend) GetDatasetContent(datasetName, versionID string) (*DatasetContent, error) {
 	b.mu.RLock("GetDatasetContent")
 	defer b.mu.RUnlock()
@@ -1481,7 +1513,10 @@ func (b *InMemoryBackend) GetDatasetContent(datasetName, versionID string) (*Dat
 		return nil, ErrDatasetContentNotFound
 	}
 
-	if versionID == "" || versionID == "$latest" {
+	switch versionID {
+	case "", latestSucceededVersion:
+		return latestSucceededContent(contents)
+	case latestVersion:
 		return contents[len(contents)-1], nil
 	}
 
@@ -1494,7 +1529,14 @@ func (b *InMemoryBackend) GetDatasetContent(datasetName, versionID string) (*Dat
 	return nil, ErrDatasetContentNotFound
 }
 
-// ListDatasetContents returns all content versions for a dataset, sorted by creation time descending.
+// ListDatasetContents returns all content versions for a dataset, sorted by creation time
+// descending, ties broken by insertion order (most recently created first). CreationTime has
+// only second-level resolution (epochSeconds), so content versions created within the same
+// test or request burst routinely tie; a plain slices.SortFunc is explicitly documented as
+// unstable and would then reorder tied entries arbitrarily between calls, which breaks the
+// offset-based pagination in handleListDatasetContents (two calls for page 1 and page 2 could
+// disagree on ordering with nothing mutated in between). Reversing to newest-inserted-first
+// before a *stable* sort makes ties resolve deterministically in that same direction.
 func (b *InMemoryBackend) ListDatasetContents(datasetName string) ([]*DatasetContent, error) {
 	b.mu.RLock("ListDatasetContents")
 	defer b.mu.RUnlock()
@@ -1506,15 +1548,20 @@ func (b *InMemoryBackend) ListDatasetContents(datasetName string) ([]*DatasetCon
 	contents := b.datasetContents[datasetName]
 	result := make([]*DatasetContent, len(contents))
 	copy(result, contents)
+	slices.Reverse(result)
 
-	slices.SortFunc(result, func(a, b *DatasetContent) int {
+	slices.SortStableFunc(result, func(a, b *DatasetContent) int {
 		return cmp.Compare(b.CreationTime, a.CreationTime)
 	})
 
 	return result, nil
 }
 
-// DeleteDatasetContent deletes a specific content version (or all if versionID is empty).
+// DeleteDatasetContent deletes a single content version, matching AWS DeleteDatasetContent
+// versionId semantics: a specific versionId, $LATEST (the most recently created version
+// regardless of status), or $LATEST_SUCCEEDED (the default when versionID is empty --
+// the most recently created SUCCEEDED version). Unlike an unqualified "delete all", AWS
+// never removes more than one content version per call.
 func (b *InMemoryBackend) DeleteDatasetContent(datasetName, versionID string) error {
 	b.mu.Lock("DeleteDatasetContent")
 	defer b.mu.Unlock()
@@ -1523,12 +1570,30 @@ func (b *InMemoryBackend) DeleteDatasetContent(datasetName, versionID string) er
 		return ErrDatasetNotFound
 	}
 
-	if versionID == "" {
-		b.datasetContents[datasetName] = nil
+	contents := b.datasetContents[datasetName]
 
-		return nil
+	switch versionID {
+	case "", latestSucceededVersion:
+		target, err := latestSucceededContent(contents)
+		if err != nil {
+			return err
+		}
+
+		return b.deleteDatasetContentVersion(datasetName, target.VersionID)
+	case latestVersion:
+		if len(contents) == 0 {
+			return ErrDatasetContentNotFound
+		}
+
+		return b.deleteDatasetContentVersion(datasetName, contents[len(contents)-1].VersionID)
 	}
 
+	return b.deleteDatasetContentVersion(datasetName, versionID)
+}
+
+// deleteDatasetContentVersion removes the content version with the given versionID from
+// datasetName's content list. Returns ErrDatasetContentNotFound if no version matches.
+func (b *InMemoryBackend) deleteDatasetContentVersion(datasetName, versionID string) error {
 	contents := b.datasetContents[datasetName]
 
 	for i, c := range contents {

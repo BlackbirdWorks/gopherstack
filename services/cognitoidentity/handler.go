@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -18,10 +19,6 @@ import (
 const (
 	cognitoIdentityTargetPrefix = "AWSCognitoIdentityService."
 	contentType                 = "application/x-amz-json-1.1"
-
-	// millisPerSecond is the divisor to convert Unix milliseconds to seconds
-	// (as a float64) for AWS timestamp fields.
-	millisPerSecond = 1000.0
 )
 
 var errUnknownAction = errors.New("UnknownOperationException")
@@ -248,7 +245,7 @@ type cognitoIdentityProviderInput struct {
 type identityPoolOutput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders,omitempty"`
 	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags,omitempty"`
-	OpenIDConnectProviderARNs      []string                       `json:"OpenIDConnectProviderARNs,omitempty"`
+	OpenIDConnectProviderARNs      []string                       `json:"OpenIdConnectProviderARNs,omitempty"`
 	SamlProviderARNs               []string                       `json:"SamlProviderARNs,omitempty"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
@@ -261,7 +258,7 @@ type identityPoolOutput struct {
 type createIdentityPoolInput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders"`
 	Tags                           map[string]string              `json:"IdentityPoolTags"`
-	OpenIDConnectProviderARNs      []string                       `json:"OpenIDConnectProviderARNs"`
+	OpenIDConnectProviderARNs      []string                       `json:"OpenIdConnectProviderARNs"`
 	SamlProviderARNs               []string                       `json:"SamlProviderARNs"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
 	DeveloperProviderName          string                         `json:"DeveloperProviderName"`
@@ -373,7 +370,7 @@ func (h *Handler) handleListIdentityPools(
 type updateIdentityPoolInput struct {
 	SupportedLoginProviders        map[string]string              `json:"SupportedLoginProviders"`
 	IdentityPoolTags               map[string]string              `json:"IdentityPoolTags"`
-	OpenIDConnectProviderARNs      []string                       `json:"OpenIDConnectProviderARNs"`
+	OpenIDConnectProviderARNs      []string                       `json:"OpenIdConnectProviderARNs"`
 	SamlProviderARNs               []string                       `json:"SamlProviderARNs"`
 	IdentityPoolID                 string                         `json:"IdentityPoolId"`
 	IdentityPoolName               string                         `json:"IdentityPoolName"`
@@ -445,10 +442,10 @@ type getCredentialsForIdentityInput struct {
 }
 
 type credentialsOutput struct {
-	AccessKeyID  string `json:"AccessKeyId"`
-	SecretKey    string `json:"SecretKey"`
-	SessionToken string `json:"SessionToken"`
-	Expiration   int64  `json:"Expiration"`
+	AccessKeyID  string  `json:"AccessKeyId"`
+	SecretKey    string  `json:"SecretKey"`
+	SessionToken string  `json:"SessionToken"`
+	Expiration   float64 `json:"Expiration"`
 }
 
 type getCredentialsForIdentityOutput struct {
@@ -471,7 +468,7 @@ func (h *Handler) handleGetCredentialsForIdentity(
 			AccessKeyID:  creds.AccessKeyID,
 			SecretKey:    creds.SecretAccessKey,
 			SessionToken: creds.SessionToken,
-			Expiration:   creds.Expiration.UnixMilli(),
+			Expiration:   awstime.Epoch(creds.Expiration),
 		},
 	}, nil
 }
@@ -762,8 +759,8 @@ func (h *Handler) handleDescribeIdentity(
 	return &describeIdentityOutput{
 		IdentityID:       desc.IdentityID,
 		Logins:           logins,
-		CreationDate:     float64(desc.CreationDate.UnixMilli()) / millisPerSecond,
-		LastModifiedDate: float64(desc.LastModifiedDate.UnixMilli()) / millisPerSecond,
+		CreationDate:     awstime.Epoch(desc.CreationDate),
+		LastModifiedDate: awstime.Epoch(desc.LastModifiedDate),
 	}, nil
 }
 
@@ -868,8 +865,8 @@ func (h *Handler) handleListIdentities(
 		items = append(items, identityDescriptionOutput{
 			IdentityID:       id.IdentityID,
 			Logins:           logins,
-			CreationDate:     float64(id.CreationDate.UnixMilli()) / millisPerSecond,
-			LastModifiedDate: float64(id.LastModifiedDate.UnixMilli()) / millisPerSecond,
+			CreationDate:     awstime.Epoch(id.CreationDate),
+			LastModifiedDate: awstime.Epoch(id.LastModifiedDate),
 		})
 	}
 

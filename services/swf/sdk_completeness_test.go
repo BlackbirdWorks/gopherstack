@@ -18,9 +18,6 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := swf.NewInMemoryBackend()
 	h := swf.NewHandler(backend)
-	notImplemented := []string{
-		"DeleteActivityType",
-		"DeleteWorkflowType",
-	}
+	notImplemented := []string{}
 	sdkcheck.CheckCompleteness(t, &swfsdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

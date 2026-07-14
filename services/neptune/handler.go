@@ -631,7 +631,8 @@ func (h *Handler) handleStartDBCluster(ctx context.Context, vals url.Values) (an
 
 func (h *Handler) handleFailoverDBCluster(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.FailoverDBCluster(ctx, id)
+	targetInstanceID := vals.Get("TargetDBInstanceIdentifier")
+	cluster, err := h.Backend.FailoverDBCluster(ctx, id, targetInstanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -1140,7 +1141,14 @@ func (h *Handler) handleApplyPendingMaintenanceAction(
 		return nil, err
 	}
 
-	return &applyPendingMaintenanceActionResponse{Xmlns: neptuneXMLNS}, nil
+	return &applyPendingMaintenanceActionResponse{
+		Xmlns: neptuneXMLNS,
+		Result: applyPendingMaintenanceActionResult{
+			ResourcePendingMaintenanceActions: xmlResourcePendingMaintenanceActions{
+				ResourceIdentifier: resourceID,
+			},
+		},
+	}, nil
 }
 
 func (h *Handler) handleCopyDBClusterParameterGroup(
@@ -1260,11 +1268,15 @@ func (h *Handler) handleCreateGlobalCluster(ctx context.Context, vals url.Values
 
 func (h *Handler) handleDeleteDBClusterEndpoint(ctx context.Context, vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
-	if err := h.Backend.DeleteDBClusterEndpoint(ctx, endpointID); err != nil {
+	ep, err := h.Backend.DeleteDBClusterEndpoint(ctx, endpointID)
+	if err != nil {
 		return nil, err
 	}
 
-	return &deleteDBClusterEndpointResponse{Xmlns: neptuneXMLNS}, nil
+	return &deleteDBClusterEndpointResponse{
+		Xmlns:             neptuneXMLNS,
+		DBClusterEndpoint: toXMLClusterEndpoint(ep),
+	}, nil
 }
 
 func (h *Handler) handleDescribeDBClusterEndpoints(
@@ -1404,23 +1416,47 @@ func (h *Handler) handleDescribeDBClusterParameters(
 	}, nil
 }
 
+// toXMLClusterSnapshotAttributesResult builds the DBClusterSnapshotAttributesResult
+// AWS returns from both DescribeDBClusterSnapshotAttributes and
+// ModifyDBClusterSnapshotAttribute. AWS always includes an entry for the
+// "restore" attribute (empty AttributeValues when nothing is shared), never
+// an empty list -- see the real API's describe-db-cluster-snapshot-attributes
+// output shape.
+func toXMLClusterSnapshotAttributesResult(snap *DBClusterSnapshot) xmlDBClusterSnapshotAttributesResult {
+	values := make([]string, len(snap.RestoreAttributeValues))
+	copy(values, snap.RestoreAttributeValues)
+
+	return xmlDBClusterSnapshotAttributesResult{
+		DBClusterSnapshotIdentifier: snap.DBClusterSnapshotIdentifier,
+		DBClusterSnapshotAttributes: xmlDBClusterSnapshotAttrList{
+			Members: []xmlDBClusterSnapshotAttribute{
+				{
+					AttributeName:   dbClusterSnapshotRestoreAttribute,
+					AttributeValues: xmlAttributeValueList{Members: values},
+				},
+			},
+		},
+	}
+}
+
 func (h *Handler) handleDescribeDBClusterSnapshotAttributes(
 	ctx context.Context,
 	vals url.Values,
 ) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
-	if snapshotID != "" {
-		if _, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, "", ""); err != nil {
-			return nil, err
-		}
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier is required", ErrInvalidParameter)
 	}
+	snaps, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, "", "")
+	if err != nil {
+		return nil, err
+	}
+	snap := snaps[0]
 
 	return &describeDBClusterSnapshotAttributesResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeDBClusterSnapshotAttributesResult{
-			DBClusterSnapshotAttributesResult: xmlDBClusterSnapshotAttributesResult{
-				DBClusterSnapshotIdentifier: snapshotID,
-			},
+			DBClusterSnapshotAttributesResult: toXMLClusterSnapshotAttributesResult(&snap),
 		},
 	}, nil
 }
@@ -1430,13 +1466,26 @@ func (h *Handler) handleModifyDBClusterSnapshotAttribute(
 	vals url.Values,
 ) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
-	if snapshotID != "" {
-		if _, err := h.Backend.DescribeDBClusterSnapshots(ctx, snapshotID, "", ""); err != nil {
-			return nil, err
-		}
+	attributeName := vals.Get("AttributeName")
+	// The wire item name here is "AttributeValue" (see
+	// awsAwsquery_serializeDocumentAttributeValueList in the SDK's
+	// serializers.go), not the generic "member" most other Neptune list
+	// params use -- ValuesToAdd.AttributeValue.1, not ValuesToAdd.member.1.
+	valuesToAdd := parseMemberList(vals, "ValuesToAdd.AttributeValue")
+	valuesToRemove := parseMemberList(vals, "ValuesToRemove.AttributeValue")
+	snap, err := h.Backend.ModifyDBClusterSnapshotAttribute(
+		ctx, snapshotID, attributeName, valuesToAdd, valuesToRemove,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	return &modifyDBClusterSnapshotAttributeResponse{Xmlns: neptuneXMLNS}, nil
+	return &modifyDBClusterSnapshotAttributeResponse{
+		Xmlns: neptuneXMLNS,
+		Result: modifyDBClusterSnapshotAttributeResult{
+			DBClusterSnapshotAttributesResult: toXMLClusterSnapshotAttributesResult(snap),
+		},
+	}, nil
 }
 
 func (h *Handler) handleResetDBClusterParameterGroup(
@@ -1693,7 +1742,7 @@ func (h *Handler) handleDescribePendingMaintenanceActions(
 	return &describePendingMaintenanceActionsResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describePendingMaintenanceActionsResult{
-			PendingMaintenanceActions: xmlPendingMaintenanceActionsList{},
+			PendingMaintenanceActions: xmlResourcePendingMaintenanceActionsList{},
 		},
 	}, nil
 }
@@ -1812,29 +1861,51 @@ func neptuneErrorCode(opErr error) string {
 		sentinel error
 		code     string
 	}
+	// Error code strings below are verified against each fault type's
+	// ErrorCode() method in aws-sdk-go-v2/service/neptune/types/errors.go (and
+	// cross-checked against the per-operation error-deserializer switch
+	// statements in deserializers.go). Neptune's generated API model is
+	// inconsistent about the "Fault" suffix -- e.g. DBClusterNotFoundFault
+	// keeps it ("DBClusterNotFoundFault") but DBInstanceNotFoundFault drops it
+	// ("DBInstanceNotFound") -- so do not assume every *Fault sentinel maps to
+	// a same-named code with "Fault" appended; a wrong string here means the
+	// SDK client can't type-match the fault (errors.As silently fails and the
+	// caller sees a generic *smithy.GenericAPIError instead of the typed
+	// fault) even though the HTTP status/message still look correct.
+	//
+	// The cluster-parameter-group family is the most surprising case: Neptune
+	// has no distinct "DBClusterParameterGroupAlreadyExists"/"...NotFound"
+	// fault for its own CRUD ops -- CreateDBClusterParameterGroup,
+	// DeleteDBClusterParameterGroup, ModifyDBClusterParameterGroup, and
+	// ResetDBClusterParameterGroup all reuse the plain (non-cluster)
+	// "DBParameterGroupAlreadyExists"/"DBParameterGroupNotFound" codes. (A
+	// "DBClusterParameterGroupNotFound" fault does exist in the model, but
+	// only for other ops referencing a cluster's parameter group by name --
+	// e.g. CreateDBCluster/ModifyDBCluster/RestoreDBCluster* -- which this
+	// backend does not validate, so it never needs that code.)
 	mappings := []errorMapping{
 		{ErrClusterNotFound, "DBClusterNotFoundFault"},
 		{ErrClusterAlreadyExists, "DBClusterAlreadyExistsFault"},
-		{ErrInstanceNotFound, "DBInstanceNotFoundFault"},
-		{ErrInstanceAlreadyExists, "DBInstanceAlreadyExistsFault"},
+		{ErrInstanceNotFound, "DBInstanceNotFound"},
+		{ErrInstanceAlreadyExists, "DBInstanceAlreadyExists"},
 		{ErrSubnetGroupNotFound, "DBSubnetGroupNotFoundFault"},
-		{ErrSubnetGroupAlreadyExists, "DBSubnetGroupAlreadyExistsFault"},
-		{ErrClusterParameterGroupNotFound, "DBClusterParameterGroupNotFoundFault"},
-		{ErrClusterParameterGroupAlreadyExists, "DBClusterParameterGroupAlreadyExistsFault"},
+		{ErrSubnetGroupAlreadyExists, "DBSubnetGroupAlreadyExists"},
+		{ErrClusterParameterGroupNotFound, "DBParameterGroupNotFound"},
+		{ErrClusterParameterGroupAlreadyExists, "DBParameterGroupAlreadyExists"},
 		{ErrClusterSnapshotNotFound, "DBClusterSnapshotNotFoundFault"},
 		{ErrClusterSnapshotAlreadyExists, "DBClusterSnapshotAlreadyExistsFault"},
-		{ErrParameterGroupNotFound, "DBParameterGroupNotFoundFault"},
-		{ErrParameterGroupAlreadyExists, "DBParameterGroupAlreadyExistsFault"},
+		{ErrParameterGroupNotFound, "DBParameterGroupNotFound"},
+		{ErrParameterGroupAlreadyExists, "DBParameterGroupAlreadyExists"},
 		{ErrClusterEndpointNotFound, "DBClusterEndpointNotFoundFault"},
 		{ErrClusterEndpointAlreadyExists, "DBClusterEndpointAlreadyExistsFault"},
-		{ErrSubscriptionNotFound, "SubscriptionNotFoundFault"},
-		{ErrSubscriptionAlreadyExists, "SubscriptionAlreadyExistFault"},
+		{ErrSubscriptionNotFound, "SubscriptionNotFound"},
+		{ErrSubscriptionAlreadyExists, "SubscriptionAlreadyExist"},
 		{ErrGlobalClusterNotFound, "GlobalClusterNotFoundFault"},
 		{ErrGlobalClusterAlreadyExists, "GlobalClusterAlreadyExistsFault"},
 		{ErrInvalidParameter, "InvalidParameterValue"},
 		{ErrUnknownAction, "InvalidAction"},
 		{ErrInvalidDBClusterStateFault, "InvalidDBClusterStateFault"},
-		{ErrInvalidDBInstanceStateFault, "InvalidDBInstanceStateFault"},
+		{ErrInvalidDBInstanceStateFault, "InvalidDBInstanceState"},
 		{ErrInvalidDBClusterSnapshotStateFault, "InvalidDBClusterSnapshotStateFault"},
 		{ErrSnapshotRequired, "InvalidParameterCombination"},
 	}
@@ -2052,6 +2123,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		Engine:                          inst.Engine,
 		EngineVersion:                   inst.EngineVersion,
 		DBInstanceStatus:                inst.DBInstanceStatus,
+		InstanceCreateTime:              inst.InstanceCreateTime,
 		Endpoint:                        inst.Endpoint,
 		DBSubnetGroupName:               inst.DBSubnetGroupName,
 		Port:                            inst.Port,
@@ -2104,6 +2176,8 @@ func toXMLClusterSnapshot(snap *DBClusterSnapshot) xmlDBClusterSnapshot {
 		Status:                           snap.Status,
 		StorageEncrypted:                 snap.StorageEncrypted,
 		SnapshotType:                     snap.SnapshotType,
+		SnapshotCreateTime:               snap.SnapshotCreateTime,
+		ClusterCreateTime:                snap.ClusterCreateTime,
 		KmsKeyID:                         snap.KmsKeyID,
 		VpcID:                            snap.VpcID,
 		IAMDatabaseAuthenticationEnabled: snap.IAMDatabaseAuthenticationEnabled,
@@ -2357,6 +2431,7 @@ type xmlDBInstance struct {
 	Engine                          string `xml:"Engine"`
 	EngineVersion                   string `xml:"EngineVersion,omitempty"`
 	DBInstanceStatus                string `xml:"DBInstanceStatus"`
+	InstanceCreateTime              string `xml:"InstanceCreateTime,omitempty"`
 	Endpoint                        string `xml:"Endpoint>Address,omitempty"`
 	DBSubnetGroupName               string `xml:"DBSubnetGroup,omitempty"`
 	DBParameterGroupName            string `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"`
@@ -2502,6 +2577,8 @@ type xmlDBClusterSnapshot struct {
 	EngineVersion                    string `xml:"EngineVersion,omitempty"`
 	Status                           string `xml:"Status"`
 	SnapshotType                     string `xml:"SnapshotType,omitempty"`
+	SnapshotCreateTime               string `xml:"SnapshotCreateTime,omitempty"`
+	ClusterCreateTime                string `xml:"ClusterCreateTime,omitempty"`
 	KmsKeyID                         string `xml:"KmsKeyId,omitempty"`
 	VpcID                            string `xml:"VpcId,omitempty"`
 	StorageEncrypted                 bool   `xml:"StorageEncrypted"`
@@ -2610,9 +2687,14 @@ type addRoleToDBClusterResponse struct {
 	Xmlns   string   `xml:"xmlns,attr"`
 }
 
+type applyPendingMaintenanceActionResult struct {
+	ResourcePendingMaintenanceActions xmlResourcePendingMaintenanceActions `xml:"ResourcePendingMaintenanceActions"`
+}
+
 type applyPendingMaintenanceActionResponse struct {
-	XMLName xml.Name `xml:"ApplyPendingMaintenanceActionResponse"`
-	Xmlns   string   `xml:"xmlns,attr"`
+	XMLName xml.Name                            `xml:"ApplyPendingMaintenanceActionResponse"`
+	Xmlns   string                              `xml:"xmlns,attr"`
+	Result  applyPendingMaintenanceActionResult `xml:"ApplyPendingMaintenanceActionResult"`
 }
 
 type xmlDBParameterGroup struct {
@@ -2782,8 +2864,9 @@ type describeDBClusterEndpointsResponse struct {
 }
 
 type deleteDBClusterEndpointResponse struct {
-	XMLName xml.Name `xml:"DeleteDBClusterEndpointResponse"`
-	Xmlns   string   `xml:"xmlns,attr"`
+	XMLName           xml.Name             `xml:"DeleteDBClusterEndpointResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	DBClusterEndpoint xmlDBClusterEndpoint `xml:"DeleteDBClusterEndpointResult"`
 }
 
 type modifyDBClusterEndpointResponse struct {
@@ -2856,9 +2939,13 @@ type describeDBClusterParametersResponse struct {
 	Result  describeDBClusterParametersResult `xml:"DescribeDBClusterParametersResult"`
 }
 
+type xmlAttributeValueList struct {
+	Members []string `xml:"AttributeValue"`
+}
+
 type xmlDBClusterSnapshotAttribute struct {
-	AttributeName   string `xml:"AttributeName"`
-	AttributeValues string `xml:"AttributeValues,omitempty"`
+	AttributeName   string                `xml:"AttributeName"`
+	AttributeValues xmlAttributeValueList `xml:"AttributeValues"`
 }
 
 type xmlDBClusterSnapshotAttrList struct {
@@ -2880,9 +2967,14 @@ type describeDBClusterSnapshotAttributesResponse struct {
 	Result  describeDBClusterSnapshotAttributesResult `xml:"DescribeDBClusterSnapshotAttributesResult"`
 }
 
+type modifyDBClusterSnapshotAttributeResult struct {
+	DBClusterSnapshotAttributesResult xmlDBClusterSnapshotAttributesResult `xml:"DBClusterSnapshotAttributesResult"`
+}
+
 type modifyDBClusterSnapshotAttributeResponse struct {
-	XMLName xml.Name `xml:"ModifyDBClusterSnapshotAttributeResponse"`
-	Xmlns   string   `xml:"xmlns,attr"`
+	XMLName xml.Name                               `xml:"ModifyDBClusterSnapshotAttributeResponse"`
+	Xmlns   string                                 `xml:"xmlns,attr"`
+	Result  modifyDBClusterSnapshotAttributeResult `xml:"ModifyDBClusterSnapshotAttributeResult"`
 }
 
 type resetDBClusterParameterGroupResponse struct {
@@ -3024,17 +3116,34 @@ type describeEngineDefaultParametersResponse struct {
 	Result  describeEngineDefaultParametersResult `xml:"DescribeEngineDefaultParametersResult"`
 }
 
+// xmlPendingMaintenanceAction represents a single queued action for a resource.
 type xmlPendingMaintenanceAction struct {
 	Action      string `xml:"Action"`
 	Description string `xml:"Description,omitempty"`
 }
 
-type xmlPendingMaintenanceActionsList struct {
-	Members []xmlPendingMaintenanceAction `xml:"ResourcePendingMaintenanceActions"`
+// xmlPendingMaintenanceActionList wraps a resource's list of individual
+// pending actions -- the PendingMaintenanceActionDetails member of
+// types.ResourcePendingMaintenanceActions.
+type xmlPendingMaintenanceActionList struct {
+	Members []xmlPendingMaintenanceAction `xml:"PendingMaintenanceAction"`
+}
+
+// xmlResourcePendingMaintenanceActions bundles one resource's pending
+// actions with the resource's identifier/ARN (types.ResourcePendingMaintenanceActions).
+type xmlResourcePendingMaintenanceActions struct {
+	ResourceIdentifier              string                          `xml:"ResourceIdentifier,omitempty"`
+	PendingMaintenanceActionDetails xmlPendingMaintenanceActionList `xml:"PendingMaintenanceActionDetails"`
+}
+
+// xmlResourcePendingMaintenanceActionsList wraps the outer list of
+// per-resource pending-action bundles returned by DescribePendingMaintenanceActions.
+type xmlResourcePendingMaintenanceActionsList struct {
+	Members []xmlResourcePendingMaintenanceActions `xml:"ResourcePendingMaintenanceActions"`
 }
 
 type describePendingMaintenanceActionsResult struct {
-	PendingMaintenanceActions xmlPendingMaintenanceActionsList `xml:"PendingMaintenanceActions"`
+	PendingMaintenanceActions xmlResourcePendingMaintenanceActionsList `xml:"PendingMaintenanceActions"`
 }
 
 type describePendingMaintenanceActionsResponse struct {

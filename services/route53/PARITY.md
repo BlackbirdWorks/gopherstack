@@ -1,14 +1,19 @@
 ---
 service: route53
 sdk_module: aws-sdk-go-v2/service/route53@v1.62.3
-last_audit_commit: 017fc20a
-last_audit_date: 2026-07-05
-overall: A          # ~1000 LOC genuine fixes this pass (error codes/statuses, tag-family
-                    # existence checks, CallerReference idempotency, routing bug, persistence gap)
+last_audit_commit: ee7d2bae
+last_audit_date: 2026-07-12
+overall: A          # this pass: closed 3 of the 4 tracked gaps from the prior audit
+                    # (~600 LOC genuine fixes + tests) — HealthCheckVersion/CollectionVersion
+                    # optimistic concurrency, CidrCollectionInUse non-empty guard, and full
+                    # reusable-delegation-set <-> hosted-zone linkage. No local code drift
+                    # since the prior audit commit (ce30166a), so this pass targeted only the
+                    # `partial` rows the prior ledger flagged; all other `ok` rows trusted
+                    # unchanged per the re-audit protocol.
 ops:
-  CreateHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CallerReference reuse with different Name/Comment/PrivateZone now returns HostedZoneAlreadyExists (409) instead of silently returning the wrong zone"}
+  CreateHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CallerReference reuse with different Name/Comment/PrivateZone now returns HostedZoneAlreadyExists (409) instead of silently returning the wrong zone; fixed this pass: DelegationSetId was parsed off the wire and then silently dropped — every zone got the same hardcoded default name servers regardless of what was requested. Now accepts a reusable delegation set (bare or /delegationset/-prefixed ID), validates it exists (NoSuchDelegationSet), and both the CreateHostedZone/GetHostedZone DelegationSet response element and the zone's auto-seeded NS/SOA records use the linked set's real name servers"}
   DeleteHostedZone: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetHostedZone: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetHostedZone: {wire: ok, errors: ok, state: ok, persist: ok, note: "DelegationSet response element now reflects the zone's actual linked reusable delegation set (Id + NameServers) instead of always the fixed default pair — see CreateHostedZone"}
   ListHostedZones: {wire: ok, errors: ok, state: ok, persist: ok}
   ListHostedZonesByName: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateHostedZoneComment: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -22,7 +27,7 @@ ops:
   ListHealthChecks: {wire: ok, errors: ok, state: ok, persist: ok}
   GetHealthCheckCount: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateHealthCheck: {wire: ok, errors: partial, state: ok, persist: ok, note: "no HealthCheckVersion optimistic-concurrency check, see gaps"}
+  UpdateHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: HealthCheckVersion was entirely missing from the wire (CreateHealthCheck/GetHealthCheck/ListHealthChecks/UpdateHealthCheck responses never emitted it, even though it's a required field in the real HealthCheck shape). Now every health check carries a Version starting at 1, incremented on each successful update; UpdateHealthCheck's optional request-side HealthCheckVersion is checked for optimistic concurrency and returns HealthCheckVersionMismatch (409) on a stale value"}
   GetHealthCheckStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   GetHealthCheckLastFailureReason: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer silently returns empty tags for a nonexistent hosted zone/health check — now validates existence and returns NoSuchHostedZone/NoSuchHealthCheck (404)"}
@@ -44,8 +49,8 @@ ops:
   ListVPCAssociationAuthorizations: {wire: ok, errors: ok, state: ok, persist: ok}
   CountAssociatedVPCs: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCidrCollection: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: duplicate collection name now returns CidrCollectionAlreadyExistsException (400) instead of allowing an unbounded number of same-named collections"}
-  ChangeCidrCollection: {wire: ok, errors: partial, state: ok, persist: ok, note: "no CollectionVersion optimistic-concurrency check, see gaps"}
-  DeleteCidrCollection: {wire: ok, errors: partial, state: ok, persist: ok, note: "no in-use check against CidrRoutingConfig references, see gaps"}
+  ChangeCidrCollection: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: added the optional CollectionVersion request field; when supplied it is checked against the collection's current Version and a mismatch returns CidrCollectionVersionMismatchException (409)"}
+  DeleteCidrCollection: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: real AWS requires a CIDR collection to be empty (no locations/CIDR blocks) before it can be deleted; gopherstack previously deleted non-empty collections unconditionally. Now returns CidrCollectionInUseException (400) when Locations is non-empty"}
   ListCidrCollections: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCidrLocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "code fix: NoSuchCidrCollection -> NoSuchCidrCollectionException (real AWS shape name has the Exception suffix, confirmed against aws-sdk-go-v2 types/errors.go — unlike every other Route53 NoSuch* error)"}
   ListCidrBlocks: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -53,11 +58,11 @@ ops:
   GetQueryLoggingConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteQueryLoggingConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   ListQueryLoggingConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateReusableDelegationSet: {wire: ok, errors: partial, state: partial, persist: ok, note: "not linked to hosted zones at all, see gaps; status fix: NoSuchDelegationSet 404 -> 400"}
+  CreateReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix (prior pass): NoSuchDelegationSet 404 -> 400. The hostedZoneID param remains intentionally unused — real AWS's CreateReusableDelegationSet(HostedZoneId=...) mode creates a new reusable set that reuses an *existing* hosted zone's current name servers, a distinct (and rare) code path from the always-used CallerReference-only mode; not implemented this pass, see gaps. Linkage direction (CreateHostedZone -> reusable delegation set) fixed this pass, see CreateHostedZone/DeleteReusableDelegationSet/CountZonesByReusableDelegationSet"}
   GetReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteReusableDelegationSet: {wire: ok, errors: partial, state: partial, persist: ok, note: "no DelegationSetInUse check, see gaps"}
+  DeleteReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: now returns DelegationSetInUse (400) if any hosted zone is still linked to the set, instead of deleting it out from under live zones"}
   ListReusableDelegationSets: {wire: ok, errors: ok, state: ok, persist: ok}
-  CountZonesByReusableDelegationSet: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns 0 — see gaps (same root cause as CreateReusableDelegationSet)"}
+  CountZonesByReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: previously always returned 0 (hosted zones were never linked to delegation sets at all); now counts real linked zones"}
   TestDNSAnswer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not re-derived line-by-line against AWS routing-policy selection docs this pass, see deferred"}
   CreateTrafficPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix: TrafficPolicyAlreadyExists 400 -> 409"}
   CreateTrafficPolicyVersion: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -79,10 +84,8 @@ families:
   dnssec: {status: ok, note: "EnableHostedZoneDNSSEC requires >=1 ACTIVE KSK (KeySigningKeyWithActiveStatusNotFound), KSK lifecycle (create/activate/deactivate/delete) state machine verified"}
   errCodeLookup: {status: ok, note: "every route53 sentinel error's wire code + HTTP status cross-checked this pass against aws-sdk-go-v2/service/route53@v1.62.3 types/errors.go and the botocore api-2.json httpStatusCode field — see fixes in ops table above"}
 gaps:
-  - UpdateHealthCheck has no HealthCheckVersion optimistic-concurrency check (HealthCheckVersionMismatch never returned) (bd: gopherstack-8l0.1)
-  - ChangeCidrCollection has no CollectionVersion check (CidrCollectionVersionMismatchException never returned); DeleteCidrCollection has no in-use check against CidrRoutingConfig references (CidrCollectionInUseException never returned) (bd: gopherstack-8l0.2)
-  - Reusable delegation sets are never linked to hosted zones (CreateHostedZone has no DelegationSetId param) — CreateReusableDelegationSet's hostedZoneID param is ignored, DeleteReusableDelegationSet never checks DelegationSetInUse, CountZonesByReusableDelegationSet always returns 0 (bd: gopherstack-8l0.3)
-  - AssociateVPCWithHostedZone returns generic InvalidInput for a duplicate VPC association; could not confirm the real AWS behavior (error vs. idempotent no-op) with high confidence this pass (bd: gopherstack-8l0.5)
+  - AssociateVPCWithHostedZone returns generic InvalidInput for a duplicate VPC association; could not confirm the real AWS behavior (error vs. idempotent no-op) with high confidence this pass either — the real ConflictingDomainExists error shape's documented cause ("the VPC is already associated with *another* hosted zone with the same name") rules it out as the error for this exact same-VPC-same-zone case, which is weak evidence AWS may treat re-association as an idempotent no-op rather than an error, but not strong enough to change behavior without a live-AWS check (bd: gopherstack-8l0.5)
+  - CreateReusableDelegationSet's HostedZoneId param (mark an *existing* hosted zone's current delegation set as reusable) is still unimplemented/ignored — only the CallerReference-only "brand new reusable set" mode works. This pass implemented the CreateHostedZone -> reusable-delegation-set linkage in the other direction (DelegationSetId on CreateHostedZone), which was the bigger gap (bd: gopherstack-8l0.3)
 deferred:
   - TestDNSAnswer / selectAnswer / collectRoutingCandidates / resolveAlias / multiValueAnswer: routing-policy answer-selection algorithms not re-derived line-by-line against AWS docs this pass (bd: gopherstack-8l0.4)
   - SDK-driven integration tests (test/integration/*_parity_test.go) not run for route53 this pass — this pass's fixes are proven by unit/handler tests only, which parity-principles.md notes is not full parity proof (bd: gopherstack-8l0.4)
@@ -163,3 +166,66 @@ surfaced over the wire. This is the "real-looking op that's actually a disguised
 stub" pattern from parity-principles.md: grepping for the backend method alone
 would have shown correct-looking code; the bug was purely in the handler
 throwing the result away.
+
+## 2026-07-12 re-audit (this pass)
+
+No local drift in `services/route53/` between the prior audit commit
+(`ce30166a`, which the ledger's `last_audit_commit: 017fc20a` predates on a
+squashed/rebased branch — see re-audit protocol) and this pass's start.
+Per the re-audit protocol, only the `partial`-rated rows the prior ledger
+flagged were re-examined; all `ok` rows were trusted unchanged. Three of the
+four tracked gaps were closed:
+
+**`HealthCheckVersion` was missing from the wire entirely, not just
+unchecked.** The prior ledger described this gap as "no optimistic-concurrency
+check", implying the field existed but wasn't validated. In fact
+`HealthCheckVersion` — a *required* field on AWS's `HealthCheck` shape,
+confirmed against `aws-sdk-go-v2/service/route53@v1.62.3` `types/types.go`
+— was never serialized into `CreateHealthCheck`/`GetHealthCheck`/
+`ListHealthChecks`/`UpdateHealthCheck` responses at all; `HealthCheck` had no
+`Version` field on the backend struct. This is the "wrong wire shape",
+not just "missing error check", bug class from parity-principles.md. Fixed:
+`HealthCheck.Version` now starts at 1 and increments on every successful
+`UpdateHealthCheck`; the optional request-side `HealthCheckVersion` is
+checked when present and returns `HealthCheckVersionMismatch` (409,
+confirmed via `botocore`'s `route53/2013-04-01/service-2.json`
+`error.httpStatusCode`) on a stale value.
+
+**`ChangeCidrCollection`/`DeleteCidrCollection`** — added the optional
+`CollectionVersion` optimistic-concurrency check (mirrors the
+`HealthCheckVersion` fix; `CidrCollectionVersionMismatchException`, 409) and
+the "collection must be empty before it can be deleted" guard
+(`CidrCollectionInUseException`, 400 — confirmed via botocore: despite the
+similar name/shape to the 409 version-mismatch error, this one really is
+400, not 409).
+
+**Reusable delegation set <-> hosted zone linkage** was the largest gap:
+`CreateHostedZoneRequest.DelegationSetId` was parsed off the XML wire and
+then silently dropped on the floor — every hosted zone got the same
+hardcoded default name-server pair no matter what was requested, and
+`CountZonesByReusableDelegationSet` always returned 0 / `DeleteReusableDelegationSet`
+never checked for in-use sets because zones were *structurally* never linked
+to delegation sets at all (no field to link them). Fixed by adding
+`HostedZone.DelegationSetID`/`NameServers` fields; `CreateHostedZone` now
+resolves and validates a supplied `DelegationSetId` (accepting both the bare
+`N...` form and the `/delegationset/N...` form real AWS returns, matching
+the existing normalization convention in `handler_completeness.go`'s
+delegation-set routes — factored out into the shared `normaliseDelegationSetID`
+helper), uses the linked set's real name servers for both the
+`DelegationSet` response element and the zone's auto-seeded NS/SOA records,
+and `DeleteReusableDelegationSet`/`CountZonesByReusableDelegationSet` now
+walk live zones instead of a permanently-empty relationship.
+
+Not fixed: `CreateReusableDelegationSet`'s `HostedZoneId` param (the
+opposite-direction "mark an existing zone's current delegation set as
+reusable" mode) — confirmed via botocore this is a real, distinct
+`CreateReusableDelegationSet` request mode, but out of scope for this pass
+given it requires a different code path (extracting an *existing* zone's
+current name servers into a new reusable set, rather than assigning an
+existing reusable set's name servers to a *new* zone). Tracked as a
+follow-up gap. `AssociateVPCWithHostedZone`'s duplicate-VPC error code
+remains unverified — this pass found that `ConflictingDomainExists`'s
+documented cause is specifically about *another* hosted zone sharing the
+same name, not a same-VPC-same-zone re-association, which is suggestive
+(AWS may treat this as an idempotent no-op) but not conclusive enough to
+change behavior without a live-AWS check.

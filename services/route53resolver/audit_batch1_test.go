@@ -484,7 +484,7 @@ func TestAudit_ResolverRule_CreatorAndTimestamps(t *testing.T) {
 	rule := resp["ResolverRule"].(map[string]any)
 
 	assert.Equal(t, "req-rule-001", rule["CreatorRequestId"])
-	assert.NotEmpty(t, rule["OwnerID"])
+	assert.NotEmpty(t, rule["OwnerId"])
 	assert.NotEmpty(t, rule["CreationTime"])
 	assert.NotEmpty(t, rule["ModificationTime"])
 }
@@ -770,7 +770,7 @@ func TestAudit_FirewallConfig_NoArn(t *testing.T) {
 	_, hasArn := cfg["Arn"]
 	assert.False(t, hasArn, "FirewallConfig should not have an Arn field")
 	assert.NotEmpty(t, cfg["Id"])
-	assert.NotEmpty(t, cfg["OwnerID"])
+	assert.NotEmpty(t, cfg["OwnerId"])
 	assert.NotEmpty(t, cfg["ResourceId"])
 }
 
@@ -1232,13 +1232,12 @@ func TestAudit_ResolverQueryLogConfig_AssociationCountDecrement(t *testing.T) {
 		"ResourceId":               "vpc-dec-test",
 	})
 	require.Equal(t, http.StatusOK, assocRec.Code)
-	var assocResp map[string]any
-	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
-	assocID := assocResp["ResolverQueryLogConfigAssociation"].(map[string]any)["Id"].(string)
 
-	// Disassociate.
+	// Disassociate: the real API keys this by (ResolverQueryLogConfigId,
+	// ResourceId), not the opaque association ID returned by Associate/Get.
 	doRequest(t, h, "DisassociateResolverQueryLogConfig", map[string]any{
-		"ResolverQueryLogConfigAssociationId": assocID,
+		"ResolverQueryLogConfigId": cfgID,
+		"ResourceId":               "vpc-dec-test",
 	})
 
 	// Count should be 0.
@@ -1681,7 +1680,7 @@ func TestAudit_FullCRUDLifecycle(t *testing.T) {
 	rule := ruleResp["ResolverRule"].(map[string]any)
 	ruleID := rule["Id"].(string)
 	assert.Equal(t, "req-rule-lifecycle", rule["CreatorRequestId"])
-	assert.NotEmpty(t, rule["OwnerID"])
+	assert.NotEmpty(t, rule["OwnerId"])
 
 	// 3. Query log config.
 	qlcRec := doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{

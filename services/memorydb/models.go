@@ -1,6 +1,7 @@
 package memorydb
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -574,12 +575,12 @@ type EngineVersion struct {
 
 // ServiceUpdate represents an in-memory MemoryDB service update.
 type ServiceUpdate struct {
-	ServiceUpdateName   string `json:"serviceUpdateName"`
-	ReleaseDate         string `json:"releaseDate"`
-	Description         string `json:"description"`
-	Status              string `json:"status"`
-	Type                string `json:"type"`
-	AutoUpdateStartDate string `json:"autoUpdateStartDate"`
+	ReleaseDate         time.Time `json:"releaseDate"`
+	AutoUpdateStartDate time.Time `json:"autoUpdateStartDate"`
+	ServiceUpdateName   string    `json:"serviceUpdateName"`
+	Description         string    `json:"description"`
+	Status              string    `json:"status"`
+	Type                string    `json:"type"`
 }
 
 // Event represents a MemoryDB event.
@@ -645,6 +646,8 @@ type deleteSnapshotRequest struct {
 	SnapshotName string `json:"SnapshotName"`
 }
 
+// snapshotObject.CreatedAt is epoch seconds (float64), matching the real
+// Snapshot.SnapshotCreationTime TStamp shape.
 type snapshotObject struct {
 	ClusterConfiguration *snapshotClusterConfig `json:"ClusterConfiguration,omitempty"`
 	ARN                  string                 `json:"ARN,omitempty"`
@@ -653,7 +656,7 @@ type snapshotObject struct {
 	KmsKeyID             string                 `json:"KmsKeyId,omitempty"`
 	SnapshotType         string                 `json:"SnapshotType,omitempty"`
 	Source               string                 `json:"Source,omitempty"`
-	CreatedAt            string                 `json:"SnapshotCreationTime,omitempty"`
+	CreatedAt            float64                `json:"SnapshotCreationTime,omitempty"`
 }
 
 type createSnapshotResponse struct {
@@ -709,21 +712,28 @@ type describeEngineVersionsResponse struct {
 
 // -- Event request/response types --------------------------------------------
 
+// describeEventsRequest.StartTime/EndTime use json.Number, not time.Time:
+// real aws-sdk-go-v2 clients serialize these TStamp shapes as a JSON number
+// of epoch seconds (awsjson1.1), and json.Unmarshal into a time.Time field
+// requires a quoted RFC3339 string -- decoding a real client's request would
+// fail with a SerializationException. See parseEpochRequestTime (backend.go).
 type describeEventsRequest struct {
-	StartTime  *time.Time `json:"StartTime,omitempty"`
-	EndTime    *time.Time `json:"EndTime,omitempty"`
-	MaxResults *int32     `json:"MaxResults,omitempty"`
-	Duration   *int32     `json:"Duration,omitempty"`
-	SourceName string     `json:"SourceName,omitempty"`
-	SourceType string     `json:"SourceType,omitempty"`
-	NextToken  string     `json:"NextToken,omitempty"`
+	MaxResults *int32      `json:"MaxResults,omitempty"`
+	Duration   *int32      `json:"Duration,omitempty"`
+	StartTime  json.Number `json:"StartTime,omitempty"`
+	EndTime    json.Number `json:"EndTime,omitempty"`
+	SourceName string      `json:"SourceName,omitempty"`
+	SourceType string      `json:"SourceType,omitempty"`
+	NextToken  string      `json:"NextToken,omitempty"`
 }
 
+// eventObject.Date is epoch seconds (float64), matching the real
+// Event.Date TStamp shape -- see toEventObject / awstime.Epoch.
 type eventObject struct {
-	Date       string `json:"Date,omitempty"`
-	SourceName string `json:"SourceName,omitempty"`
-	SourceType string `json:"SourceType,omitempty"`
-	Message    string `json:"Message,omitempty"`
+	SourceName string  `json:"SourceName,omitempty"`
+	SourceType string  `json:"SourceType,omitempty"`
+	Message    string  `json:"Message,omitempty"`
+	Date       float64 `json:"Date,omitempty"`
 }
 
 type describeEventsResponse struct {
@@ -917,13 +927,15 @@ type describeServiceUpdatesRequest struct {
 	Status            []string `json:"Status,omitempty"`
 }
 
+// serviceUpdateObject.ReleaseDate/AutoUpdateStartDate are epoch seconds
+// (float64), matching the real ServiceUpdate TStamp shapes.
 type serviceUpdateObject struct {
-	ServiceUpdateName   string `json:"ServiceUpdateName,omitempty"`
-	ReleaseDate         string `json:"ReleaseDate,omitempty"`
-	Description         string `json:"Description,omitempty"`
-	Status              string `json:"Status,omitempty"`
-	Type                string `json:"Type,omitempty"`
-	AutoUpdateStartDate string `json:"AutoUpdateStartDate,omitempty"`
+	ServiceUpdateName   string  `json:"ServiceUpdateName,omitempty"`
+	Description         string  `json:"Description,omitempty"`
+	Status              string  `json:"Status,omitempty"`
+	Type                string  `json:"Type,omitempty"`
+	ReleaseDate         float64 `json:"ReleaseDate,omitempty"`
+	AutoUpdateStartDate float64 `json:"AutoUpdateStartDate,omitempty"`
 }
 
 type describeServiceUpdatesResponse struct {
@@ -933,9 +945,12 @@ type describeServiceUpdatesResponse struct {
 
 // -- ReservedNode request/response types -------------------------------------
 
-// ReservedNode represents a reserved MemoryDB node.
+// ReservedNode represents a reserved MemoryDB node. StartTime is epoch
+// seconds (float64), matching the real ReservedNode TStamp shape; this
+// struct is serialized directly as the wire response (see
+// describeReservedNodesResponse / purchaseReservedNodesOfferingResponse), so
+// its field types must match the wire, not just internal convenience.
 type ReservedNode struct {
-	StartTime        string                  `json:"StartTime,omitempty"`
 	ReservedNodeID   string                  `json:"ReservedNodeId,omitempty"`
 	ReservationID    string                  `json:"ReservationId,omitempty"`
 	NodeType         string                  `json:"NodeType,omitempty"`
@@ -945,6 +960,7 @@ type ReservedNode struct {
 	RecurringCharges []recurringChargeObject `json:"RecurringCharges,omitempty"`
 	FixedPrice       float64                 `json:"FixedPrice,omitempty"`
 	UsagePrice       float64                 `json:"UsagePrice,omitempty"`
+	StartTime        float64                 `json:"StartTime,omitempty"`
 	NodeCount        int32                   `json:"NodeCount,omitempty"`
 	Duration         int32                   `json:"Duration,omitempty"`
 }

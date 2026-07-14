@@ -445,7 +445,19 @@ type pipeResponse struct {
 	LastModifiedTime        float64                  `json:"LastModifiedTime"`
 }
 
+// desiredStateDeleted is the DesiredState value the real Pipes API reports
+// (via the RequestedPipeStateDescribeResponse wire enum, distinct from the
+// 2-value RequestedPipeState used by Create/Update/Start/Stop) on
+// DescribePipe and DeletePipe responses while a pipe is being deleted,
+// instead of echoing back its last RUNNING/STOPPED desired state.
+const desiredStateDeleted = "DELETED"
+
 func toPipeResponse(p *Pipe) pipeResponse {
+	desiredState := p.DesiredState
+	if p.CurrentState == stateDeleting {
+		desiredState = desiredStateDeleted
+	}
+
 	return pipeResponse{
 		Arn:                     p.ARN,
 		Name:                    p.Name,
@@ -455,7 +467,7 @@ func toPipeResponse(p *Pipe) pipeResponse {
 		Description:             p.Description,
 		Enrichment:              p.Enrichment,
 		KmsKeyIdentifier:        p.KmsKeyIdentifier,
-		DesiredState:            p.DesiredState,
+		DesiredState:            desiredState,
 		CurrentState:            p.CurrentState,
 		StateReason:             p.StateReason,
 		CreationTime:            epochMillis(p.CreationTime),

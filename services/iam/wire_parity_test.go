@@ -251,6 +251,106 @@ func Test_GetAccountAuthorizationDetails_PolicyVersions(t *testing.T) {
 	assert.Contains(t, v2XML.Document, "s3%3A%2A")
 }
 
+// Test_GetAccountAuthorizationDetails_InstanceProfileList verifies that
+// RoleDetail.InstanceProfileList reports every instance profile containing the
+// role, matching the real IAM RoleDetail shape
+// (https://docs.aws.amazon.com/IAM/latest/APIReference/API_RoleDetail.html).
+// Previously RoleDetailXML had no InstanceProfileList field at all, so this
+// element was always absent from the wire response regardless of backend state.
+func Test_GetAccountAuthorizationDetails_InstanceProfileList(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup             func(t *testing.T, b *iam.InMemoryBackend)
+		name              string
+		roleName          string
+		wantProfileNames  []string
+		wantProfileRoleID bool
+	}{
+		{
+			name: "role_with_one_profile",
+			setup: func(t *testing.T, b *iam.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateRole("MyRole", "/", "{}", "")
+				require.NoError(t, err)
+				_, err = b.CreateInstanceProfile("MyProfile", "/")
+				require.NoError(t, err)
+				require.NoError(t, b.AddRoleToInstanceProfile("MyProfile", "MyRole"))
+			},
+			roleName:          "MyRole",
+			wantProfileNames:  []string{"MyProfile"},
+			wantProfileRoleID: true,
+		},
+		{
+			name: "role_with_two_profiles_sorted",
+			setup: func(t *testing.T, b *iam.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateRole("SharedRole", "/", "{}", "")
+				require.NoError(t, err)
+				_, err = b.CreateInstanceProfile("ZProfile", "/")
+				require.NoError(t, err)
+				_, err = b.CreateInstanceProfile("AProfile", "/")
+				require.NoError(t, err)
+				require.NoError(t, b.AddRoleToInstanceProfile("ZProfile", "SharedRole"))
+				require.NoError(t, b.AddRoleToInstanceProfile("AProfile", "SharedRole"))
+			},
+			roleName:         "SharedRole",
+			wantProfileNames: []string{"AProfile", "ZProfile"},
+		},
+		{
+			name: "role_with_no_profiles",
+			setup: func(t *testing.T, b *iam.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateRole("LonelyRole", "/", "{}", "")
+				require.NoError(t, err)
+			},
+			roleName:         "LonelyRole",
+			wantProfileNames: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			tt.setup(t, b)
+
+			req := iamRequest("GetAccountAuthorizationDetails", nil)
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp iam.GetAccountAuthorizationDetailsResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+			var role *iam.RoleDetailXML
+			for i := range resp.GetAccountAuthorizationDetailsResult.RoleDetailList {
+				if resp.GetAccountAuthorizationDetailsResult.RoleDetailList[i].RoleName == tt.roleName {
+					role = &resp.GetAccountAuthorizationDetailsResult.RoleDetailList[i]
+				}
+			}
+			require.NotNil(t, role, "role %q must be present in RoleDetailList", tt.roleName)
+
+			gotNames := make([]string, 0, len(role.InstanceProfileList))
+			for _, ip := range role.InstanceProfileList {
+				gotNames = append(gotNames, ip.InstanceProfileName)
+			}
+			assert.Equal(t, tt.wantProfileNames, gotNames)
+
+			if tt.wantProfileRoleID {
+				require.Len(t, role.InstanceProfileList, 1)
+				require.Len(t, role.InstanceProfileList[0].Roles, 1,
+					"instance profile must report the full nested role, not just its name")
+				assert.Equal(t, tt.roleName, role.InstanceProfileList[0].Roles[0].RoleName)
+				assert.NotEmpty(t, role.InstanceProfileList[0].Roles[0].RoleID,
+					"nested role must be resolved to the full RoleXML, not a bare-name placeholder")
+			}
+		})
+	}
+}
+
 // Test_HandlerPersistence_RoundTrip verifies that a Handler.Snapshot/Restore
 // cycle preserves state that previously lived outside backendSnapshot:
 // Handler-level resource tags (instance profiles, MFA devices, SAML/OIDC

@@ -228,6 +228,82 @@ func Test_LifecycleHookGatesTermination(t *testing.T) {
 	assert.Equal(t, int32(0), group.DesiredCapacity, "ShouldDecrementDesiredCapacity must apply once resolved")
 }
 
+// Test_LifecycleHookGatesDesiredCapacityScaleIn verifies that an
+// EC2_INSTANCE_TERMINATING lifecycle hook also gates the desired-capacity-driven
+// scale-in path (SetDesiredCapacity), not just TerminateInstanceInAutoScalingGroup.
+// Before this fix, applyDesiredCapacityChange's scale-in branch removed instances
+// immediately regardless of any registered terminating hook.
+func Test_LifecycleHookGatesDesiredCapacityScaleIn(t *testing.T) {
+	t.Parallel()
+
+	h := newAutoscalingHandler()
+	asgName := "scale-in-hook-asg"
+
+	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+		"AutoScalingGroupName":       {asgName},
+		"MinSize":                    {"0"},
+		"MaxSize":                    {"5"},
+		"DesiredCapacity":            {"1"},
+		"AvailabilityZones.member.1": {"us-east-1a"},
+	})
+	require.Equal(t, 200, code, body)
+
+	code, body = doAS(t, h, "DescribeAutoScalingGroups", url.Values{
+		"AutoScalingGroupNames.member.1": {asgName},
+	})
+	require.Equal(t, 200, code, body)
+
+	parsed := describeASGInstances(t, body)
+	require.Len(t, parsed.Result.AutoScalingGroups.Members[0].Instances.Members, 1)
+	instanceID := parsed.Result.AutoScalingGroups.Members[0].Instances.Members[0].InstanceID
+
+	code, body = doAS(t, h, "PutLifecycleHook", url.Values{
+		"AutoScalingGroupName": {asgName},
+		"LifecycleHookName":    {"scale-in-terminate-hook"},
+		"LifecycleTransition":  {"autoscaling:EC2_INSTANCE_TERMINATING"},
+		"HeartbeatTimeout":     {"60"},
+	})
+	require.Equal(t, 200, code, body)
+
+	code, body = doAS(t, h, "SetDesiredCapacity", url.Values{
+		"AutoScalingGroupName": {asgName},
+		"DesiredCapacity":      {"0"},
+	})
+	require.Equal(t, 200, code, body)
+
+	code, body = doAS(t, h, "DescribeAutoScalingGroups", url.Values{
+		"AutoScalingGroupNames.member.1": {asgName},
+	})
+	require.Equal(t, 200, code, body)
+
+	parsed = describeASGInstances(t, body)
+	group := parsed.Result.AutoScalingGroups.Members[0]
+	require.Len(t, group.Instances.Members, 1,
+		"instance behind an active terminating hook must remain present during scale-in, not be removed instantly")
+	assert.Equal(t, "Terminating:Wait", group.Instances.Members[0].LifecycleState)
+	assert.Equal(t, instanceID, group.Instances.Members[0].InstanceID)
+	assert.Equal(t, int32(0), group.DesiredCapacity,
+		"DesiredCapacity reflects the new target immediately, even while the instance removal itself is deferred")
+
+	code, body = doAS(t, h, "CompleteLifecycleAction", url.Values{
+		"AutoScalingGroupName":  {asgName},
+		"LifecycleHookName":     {"scale-in-terminate-hook"},
+		"InstanceId":            {instanceID},
+		"LifecycleActionResult": {"CONTINUE"},
+	})
+	require.Equal(t, 200, code, body)
+
+	code, body = doAS(t, h, "DescribeAutoScalingGroups", url.Values{
+		"AutoScalingGroupNames.member.1": {asgName},
+	})
+	require.Equal(t, 200, code, body)
+
+	parsed = describeASGInstances(t, body)
+	group = parsed.Result.AutoScalingGroups.Members[0]
+	assert.Empty(t, group.Instances.Members, "instance must be removed once the terminating hook resolves")
+	assert.Equal(t, int32(0), group.DesiredCapacity, "DesiredCapacity must not be double-decremented on resolution")
+}
+
 // Test_RecordLifecycleActionHeartbeatByInstanceID verifies that
 // RecordLifecycleActionHeartbeat can locate a pending action by (group, hook,
 // instance) when no LifecycleActionToken is supplied -- AWS accepts either.

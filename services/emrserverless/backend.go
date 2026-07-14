@@ -82,32 +82,50 @@ var (
 
 // Application represents an EMR Serverless application.
 type Application struct {
-	Tags          map[string]string `json:"tags,omitempty"`
-	CreatedAt     time.Time         `json:"createdAt"`
-	UpdatedAt     time.Time         `json:"updatedAt"`
-	ApplicationID string            `json:"applicationId"`
-	Arn           string            `json:"arn"`
-	Name          string            `json:"name"`
-	Type          string            `json:"type"`
-	ReleaseLabel  string            `json:"releaseLabel"`
-	Architecture  string            `json:"architecture,omitempty"`
-	State         string            `json:"state"`
+	Tags map[string]string `json:"tags,omitempty"`
+	// ExtraConfig holds application configuration sub-objects that this
+	// in-memory backend does not interpret (initialCapacity, maximumCapacity,
+	// autoStartConfiguration, autoStopConfiguration, networkConfiguration,
+	// imageConfiguration, monitoringConfiguration, workerTypeSpecifications,
+	// runtimeConfiguration, interactiveConfiguration) but must still store and
+	// echo back verbatim on GetApplication/ListApplications -- AWS clients
+	// (Terraform, drift-detection tooling) commonly round-trip these values,
+	// and CreateApplication/UpdateApplication silently discarding them is a
+	// disguised no-op. Keyed by AWS wire field name; see applicationToMap.
+	ExtraConfig   map[string]any `json:"extraConfig,omitempty"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+	ApplicationID string         `json:"applicationId"`
+	Arn           string         `json:"arn"`
+	Name          string         `json:"name"`
+	Type          string         `json:"type"`
+	ReleaseLabel  string         `json:"releaseLabel"`
+	Architecture  string         `json:"architecture,omitempty"`
+	State         string         `json:"state"`
 }
 
 // JobRun represents an EMR Serverless job run.
 type JobRun struct {
-	Tags             map[string]string `json:"tags,omitempty"`
-	CreatedAt        time.Time         `json:"createdAt"`
-	UpdatedAt        time.Time         `json:"updatedAt"`
-	ApplicationID    string            `json:"applicationId"`
-	JobRunID         string            `json:"jobRunId"`
-	Arn              string            `json:"arn"`
-	Name             string            `json:"name"`
-	State            string            `json:"state"`
-	ExecutionRoleArn string            `json:"executionRoleArn"`
-	Mode             string            `json:"mode,omitempty"`
-	ReleaseLabel     string            `json:"releaseLabel,omitempty"`
-	StateDetails     string            `json:"stateDetails,omitempty"`
+	Tags map[string]string `json:"tags,omitempty"`
+	// JobDriver is the job driver (sparkSubmit/hive) supplied to StartJobRun.
+	// GetJobRun/ListJobRuns mark this as a required response field in the
+	// real API; storing and echoing it verbatim (rather than discarding it)
+	// avoids silently dropping the job specification the caller submitted.
+	JobDriver any `json:"jobDriver,omitempty"`
+	// ConfigurationOverrides is the configurationOverrides supplied to
+	// StartJobRun, echoed back verbatim.
+	ConfigurationOverrides any       `json:"configurationOverrides,omitempty"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
+	ApplicationID          string    `json:"applicationId"`
+	JobRunID               string    `json:"jobRunId"`
+	Arn                    string    `json:"arn"`
+	Name                   string    `json:"name"`
+	State                  string    `json:"state"`
+	ExecutionRoleArn       string    `json:"executionRoleArn"`
+	Mode                   string    `json:"mode,omitempty"`
+	ReleaseLabel           string    `json:"releaseLabel,omitempty"`
+	StateDetails           string    `json:"stateDetails,omitempty"`
 }
 
 // InMemoryBackend stores EMR Serverless state in memory.
@@ -123,20 +141,30 @@ type InMemoryBackend struct {
 	// sessionTokens maps applicationID -> clientToken -> sessionID. Left as a
 	// plain map (not store.Table-backed): see store_setup.go's file doc.
 	sessionTokens map[string]map[string]string
-	registry      *store.Registry
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
+	// applicationTokens maps clientToken -> applicationID, giving
+	// CreateApplication the same client-idempotency-token replay behavior
+	// StartSession already has: a retried request (same clientToken) returns
+	// the previously created application instead of erroring or duplicating.
+	applicationTokens map[string]string
+	// jobRunTokens maps applicationID -> clientToken -> jobRunID, giving
+	// StartJobRun the same idempotency-token replay behavior as sessionTokens.
+	jobRunTokens map[string]map[string]string
+	registry     *store.Registry
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		sessionTokens: make(map[string]map[string]string),
-		accountID:     accountID,
-		region:        region,
-		registry:      store.NewRegistry(),
-		mu:            lockmetrics.New("emrserverless"),
+		sessionTokens:     make(map[string]map[string]string),
+		applicationTokens: make(map[string]string),
+		jobRunTokens:      make(map[string]map[string]string),
+		accountID:         accountID,
+		region:            region,
+		registry:          store.NewRegistry(),
+		mu:                lockmetrics.New("emrserverless"),
 	}
 
 	registerAllTables(b)
@@ -151,6 +179,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.sessionTokens = make(map[string]map[string]string)
+	b.applicationTokens = make(map[string]string)
+	b.jobRunTokens = make(map[string]map[string]string)
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -185,13 +215,34 @@ func (b *InMemoryBackend) sessionARN(applicationID, sessionID string) string {
 		fmt.Sprintf("/applications/%s/sessions/%s", applicationID, sessionID))
 }
 
-// CreateApplication creates a new EMR Serverless application.
+// CreateApplicationOptions carries optional CreateApplication parameters
+// beyond the always-present name/type/releaseLabel/architecture/tags: the
+// client idempotency token (matching AWS's CreateApplicationInput.ClientToken,
+// a required input field on the real API) and the configuration sub-objects
+// this backend stores but does not interpret. Passed as a trailing variadic
+// argument so existing call sites that don't need these are unaffected.
+type CreateApplicationOptions struct {
+	ExtraConfig map[string]any
+	ClientToken string
+}
+
+// CreateApplication creates a new EMR Serverless application. If opts carries
+// a non-empty ClientToken that was already used successfully, the previously
+// created application is returned instead of erroring or creating a
+// duplicate -- matching AWS's client-idempotency-token contract, which real
+// SDKs rely on when retrying a CreateApplication call after a timeout.
 func (b *InMemoryBackend) CreateApplication(
 	name, appType, releaseLabel, architecture string,
 	tags map[string]string,
+	opts ...CreateApplicationOptions,
 ) (*Application, error) {
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
+
+	var opt CreateApplicationOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
@@ -199,6 +250,14 @@ func (b *InMemoryBackend) CreateApplication(
 
 	if appType == "" {
 		return nil, fmt.Errorf("%w: type is required", ErrValidation)
+	}
+
+	if opt.ClientToken != "" {
+		if appID, tokenOK := b.applicationTokens[opt.ClientToken]; tokenOK {
+			if app, appOK := b.applications.Get(appID); appOK {
+				return cloneApplication(app), nil
+			}
+		}
 	}
 
 	for _, app := range b.applications.All() {
@@ -224,8 +283,13 @@ func (b *InMemoryBackend) CreateApplication(
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		Tags:          tagsCopy,
+		ExtraConfig:   cloneExtraConfig(opt.ExtraConfig),
 	}
 	b.applications.Put(app)
+
+	if opt.ClientToken != "" {
+		b.applicationTokens[opt.ClientToken] = id
+	}
 
 	return cloneApplication(app), nil
 }
@@ -331,6 +395,7 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 
 	b.applications.Delete(id)
 	delete(b.sessionTokens, id)
+	delete(b.jobRunTokens, id)
 
 	return nil
 }
@@ -387,13 +452,38 @@ func (b *InMemoryBackend) StopApplication(id string) error {
 	return nil
 }
 
-// StartJobRun creates and starts a new job run.
+// StartJobRunOptions carries optional StartJobRun parameters beyond the
+// always-present applicationID/executionRoleArn/name/mode/tags: the client
+// idempotency token (matching AWS's StartJobRunInput.ClientToken, a required
+// input field on the real API), the job driver, and configuration overrides.
+// Passed as a trailing variadic argument so existing call sites that don't
+// need these are unaffected.
+type StartJobRunOptions struct {
+	JobDriver              any
+	ConfigurationOverrides any
+	ClientToken            string
+}
+
+// StartJobRun creates and starts a new job run. If opts carries a non-empty
+// ClientToken that was already used successfully for this application, the
+// previously created job run is returned instead of creating a duplicate --
+// matching AWS's client-idempotency-token contract. JobDriver and
+// ConfigurationOverrides are stored and echoed back verbatim by
+// GetJobRun/ListJobRuns rather than discarded: JobDriver is a required field
+// on the real JobRun response shape, so dropping it there would silently
+// erase the job specification the caller submitted.
 func (b *InMemoryBackend) StartJobRun(
 	applicationID, executionRoleArn, name, mode string,
 	tags map[string]string,
+	opts ...StartJobRunOptions,
 ) (*JobRun, error) {
 	b.mu.Lock("StartJobRun")
 	defer b.mu.Unlock()
+
+	var opt StartJobRunOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 
 	if executionRoleArn == "" {
 		return nil, fmt.Errorf("%w: executionRoleArn is required", ErrValidation)
@@ -402,6 +492,12 @@ func (b *InMemoryBackend) StartJobRun(
 	app, ok := b.applications.Get(applicationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
+	}
+
+	if opt.ClientToken != "" {
+		if jr := b.jobRunForToken(applicationID, opt.ClientToken); jr != nil {
+			return cloneJobRun(jr), nil
+		}
 	}
 
 	if mode == "" {
@@ -415,22 +511,51 @@ func (b *InMemoryBackend) StartJobRun(
 	maps.Copy(tagsCopy, tags)
 
 	jr := &JobRun{
-		ApplicationID:    applicationID,
-		JobRunID:         jobRunID,
-		Arn:              b.jobRunARN(applicationID, jobRunID),
-		Name:             name,
-		State:            JobRunStateSubmitted,
-		ExecutionRoleArn: executionRoleArn,
-		Mode:             mode,
-		ReleaseLabel:     app.ReleaseLabel,
-		CreatedAt:        now,
-		UpdatedAt:        now,
-		Tags:             tagsCopy,
+		ApplicationID:          applicationID,
+		JobRunID:               jobRunID,
+		Arn:                    b.jobRunARN(applicationID, jobRunID),
+		Name:                   name,
+		State:                  JobRunStateSubmitted,
+		ExecutionRoleArn:       executionRoleArn,
+		Mode:                   mode,
+		ReleaseLabel:           app.ReleaseLabel,
+		JobDriver:              cloneJSONValue(opt.JobDriver),
+		ConfigurationOverrides: cloneJSONValue(opt.ConfigurationOverrides),
+		CreatedAt:              now,
+		UpdatedAt:              now,
+		Tags:                   tagsCopy,
 	}
 
 	b.jobRuns.Put(jr)
 
+	if opt.ClientToken != "" {
+		if b.jobRunTokens[applicationID] == nil {
+			b.jobRunTokens[applicationID] = make(map[string]string)
+		}
+
+		b.jobRunTokens[applicationID][opt.ClientToken] = jobRunID
+	}
+
 	return cloneJobRun(jr), nil
+}
+
+// jobRunForToken looks up a previously started job run by its client
+// idempotency token, scoped to applicationID. Returns nil if the token is
+// unknown or the job run it pointed to no longer exists (a stale token is
+// treated as a miss, not an error, so StartJobRun falls through to creating
+// a fresh job run). Caller must hold the write lock.
+func (b *InMemoryBackend) jobRunForToken(applicationID, clientToken string) *JobRun {
+	jobRunID := b.jobRunTokens[applicationID][clientToken]
+	if jobRunID == "" {
+		return nil
+	}
+
+	jr, ok := b.jobRuns.Get(jobRunID)
+	if !ok || jr.ApplicationID != applicationID {
+		return nil
+	}
+
+	return jr
 }
 
 // GetJobRun retrieves a job run by application ID and job run ID.
@@ -685,6 +810,7 @@ func cloneApplication(app *Application) *Application {
 	cp := *app
 	cp.Tags = make(map[string]string, len(app.Tags))
 	maps.Copy(cp.Tags, app.Tags)
+	cp.ExtraConfig = cloneExtraConfig(app.ExtraConfig)
 
 	return &cp
 }
@@ -695,8 +821,41 @@ func cloneJobRun(jr *JobRun) *JobRun {
 	cp := *jr
 	cp.Tags = make(map[string]string, len(jr.Tags))
 	maps.Copy(cp.Tags, jr.Tags)
+	cp.JobDriver = cloneJSONValue(jr.JobDriver)
+	cp.ConfigurationOverrides = cloneJSONValue(jr.ConfigurationOverrides)
 
 	return &cp
+}
+
+// cloneExtraConfig returns a shallow copy of an Application's pass-through
+// configuration map (see Application.ExtraConfig), with each entry itself
+// shallow-cloned via cloneJSONValue.
+func cloneExtraConfig(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+
+	cp := make(map[string]any, len(m))
+	for k, v := range m {
+		cp[k] = cloneJSONValue(v)
+	}
+
+	return cp
+}
+
+// cloneJSONValue returns a shallow copy of a value produced by decoding JSON
+// into `any` (a map[string]any or []any; scalars are returned as-is). Nested
+// values are not recursively cloned -- this matches the shallow-copy
+// convention already used for Session.ConfigurationOverrides in cloneSession.
+func cloneJSONValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		return maps.Clone(val)
+	case []any:
+		return slices.Clone(val)
+	default:
+		return val
+	}
 }
 
 // AddApplicationInternal directly inserts an Application into the backend without

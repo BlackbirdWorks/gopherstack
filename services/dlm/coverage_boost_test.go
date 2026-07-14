@@ -87,7 +87,7 @@ func TestBackend_Reset(t *testing.T) {
 
 			b.Reset()
 
-			policies, err := b.GetLifecyclePolicies(nil, "")
+			policies, err := b.GetLifecyclePolicies(dlm.PolicyFilter{})
 			require.NoError(t, err)
 			assert.Empty(t, policies)
 		})
@@ -170,7 +170,7 @@ func TestBackend_SnapshotNullFields(t *testing.T) {
 			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
 			require.NoError(t, b.Restore(t.Context(), tc.payload))
 
-			policies, err := b.GetLifecyclePolicies(nil, "")
+			policies, err := b.GetLifecyclePolicies(dlm.PolicyFilter{})
 			require.NoError(t, err)
 			assert.Empty(t, policies)
 		})
@@ -789,7 +789,7 @@ func TestBackend_GetLifecyclePolicies_MultipleIDFilter(t *testing.T) {
 				filter = ids[:tc.filterN]
 			}
 
-			result, err := b.GetLifecyclePolicies(filter, "")
+			result, err := b.GetLifecyclePolicies(dlm.PolicyFilter{PolicyIDs: filter})
 			require.NoError(t, err)
 			assert.Len(t, result, tc.wantCount)
 		})

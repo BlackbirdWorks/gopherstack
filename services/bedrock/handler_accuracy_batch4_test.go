@@ -511,7 +511,7 @@ func TestAccuracy_ModelInvocationJob_JobNamePreserved(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/model-invocation-jobs",
+			rec := doRequest(t, h, http.MethodPost, "/model-invocation-job",
 				map[string]any{"jobName": jobName})
 			require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -519,7 +519,7 @@ func TestAccuracy_ModelInvocationJob_JobNamePreserved(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 			jobArn := out["jobArn"].(string)
 
-			getRec := doRequest(t, h, http.MethodGet, "/model-invocation-jobs/"+jobArn, nil)
+			getRec := doRequest(t, h, http.MethodGet, "/model-invocation-job/"+jobArn, nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getOut map[string]any
@@ -533,7 +533,7 @@ func TestAccuracy_ModelInvocationJob_StatusProgression(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model-invocation-jobs",
+	rec := doRequest(t, h, http.MethodPost, "/model-invocation-job",
 		map[string]any{"jobName": "status-test-job"})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -541,7 +541,7 @@ func TestAccuracy_ModelInvocationJob_StatusProgression(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	jobArn := out["jobArn"].(string)
 
-	getRec := doRequest(t, h, http.MethodGet, "/model-invocation-jobs/"+jobArn, nil)
+	getRec := doRequest(t, h, http.MethodGet, "/model-invocation-job/"+jobArn, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
@@ -554,7 +554,7 @@ func TestAccuracy_ModelInvocationJob_StopChangesStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model-invocation-jobs",
+	rec := doRequest(t, h, http.MethodPost, "/model-invocation-job",
 		map[string]any{"jobName": "stoppable-job"})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -562,10 +562,10 @@ func TestAccuracy_ModelInvocationJob_StopChangesStatus(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	jobArn := out["jobArn"].(string)
 
-	stopRec := doRequest(t, h, http.MethodDelete, "/model-invocation-jobs/"+jobArn, nil)
+	stopRec := doRequest(t, h, http.MethodPost, "/model-invocation-job/"+jobArn+"/stop", nil)
 	require.Equal(t, http.StatusNoContent, stopRec.Code)
 
-	getRec := doRequest(t, h, http.MethodGet, "/model-invocation-jobs/"+jobArn, nil)
+	getRec := doRequest(t, h, http.MethodGet, "/model-invocation-job/"+jobArn, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
@@ -608,7 +608,7 @@ func TestAccuracy_CustomModelDeployment_StatusIsActive(t *testing.T) {
 	depARN := depOut["customModelDeploymentArn"].(string)
 	assert.NotEmpty(t, depARN)
 
-	getRec := doRequest(t, h, http.MethodGet, "/custom-model-deployments/"+depARN, nil)
+	getRec := doRequest(t, h, http.MethodGet, "/model-customization/custom-model-deployments/"+depARN, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
@@ -631,7 +631,7 @@ func TestAccuracy_CustomModelDeployment_ListAfterMultipleCreates(t *testing.T) {
 		})
 	}
 
-	listRec := doRequest(t, h, http.MethodGet, "/custom-model-deployments", nil)
+	listRec := doRequest(t, h, http.MethodGet, "/model-customization/custom-model-deployments", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
@@ -658,11 +658,11 @@ func TestAccuracy_CustomModelDeployment_DeleteRemovesFromList(t *testing.T) {
 	depARN := depOut["customModelDeploymentArn"].(string)
 
 	// Delete it
-	deleteRec := doRequest(t, h, http.MethodDelete, "/custom-model-deployments/"+depARN, nil)
+	deleteRec := doRequest(t, h, http.MethodDelete, "/model-customization/custom-model-deployments/"+depARN, nil)
 	assert.Equal(t, http.StatusNoContent, deleteRec.Code)
 
 	// Get should return 404
-	getRec := doRequest(t, h, http.MethodGet, "/custom-model-deployments/"+depARN, nil)
+	getRec := doRequest(t, h, http.MethodGet, "/model-customization/custom-model-deployments/"+depARN, nil)
 	assert.Equal(t, http.StatusNotFound, getRec.Code)
 }
 
@@ -861,11 +861,9 @@ func TestAccuracy_GuardrailVersion_PoliciesPreservedInVersion(t *testing.T) {
 	// Create guardrail with content policy
 	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{
 		"name": "versioned-policy-guardrail",
-		"policies": map[string]any{
-			"contentPolicyConfig": map[string]any{
-				"filtersConfig": []map[string]any{
-					{"type": "HATE", "inputStrength": "HIGH", "outputStrength": "HIGH"},
-				},
+		"contentPolicyConfig": map[string]any{
+			"filtersConfig": []map[string]any{
+				{"type": "HATE", "inputStrength": "HIGH", "outputStrength": "HIGH"},
 			},
 		},
 	})
@@ -891,5 +889,5 @@ func TestAccuracy_GuardrailVersion_PoliciesPreservedInVersion(t *testing.T) {
 
 	var verDetailOut map[string]any
 	require.NoError(t, json.Unmarshal(getVerRec.Body.Bytes(), &verDetailOut))
-	assert.NotNil(t, verDetailOut["policies"], "version should preserve policies")
+	assert.NotNil(t, verDetailOut["contentPolicy"], "version should preserve policies")
 }

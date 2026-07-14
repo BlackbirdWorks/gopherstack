@@ -23,6 +23,7 @@ func TestParity_SpeechMarkCounts(t *testing.T) {
 		wantNotCounts map[string]int // type → count that must NOT appear
 		name          string
 		text          string
+		textType      string
 		marks         []string
 	}{
 		{
@@ -44,8 +45,11 @@ func TestParity_SpeechMarkCounts(t *testing.T) {
 			wantCounts: map[string]int{"sentence": 3},
 		},
 		{
+			// SpeechMarkTypes "ssml" requires TextType ssml (AWS:
+			// SsmlMarksNotSupportedForTextTypeException otherwise).
 			name:       "ssml_once_regardless_of_word_count",
 			text:       "one two three four five",
+			textType:   "ssml",
 			marks:      []string{"ssml"},
 			wantCounts: map[string]int{"ssml": 1},
 		},
@@ -71,6 +75,7 @@ func TestParity_SpeechMarkCounts(t *testing.T) {
 		{
 			name:       "ssml_not_per_word",
 			text:       "one two three",
+			textType:   "ssml",
 			marks:      []string{"ssml"},
 			wantCounts: map[string]int{"ssml": 1},
 			wantNotCounts: map[string]int{
@@ -88,6 +93,7 @@ func TestParity_SpeechMarkCounts(t *testing.T) {
 				"OutputFormat":    "json",
 				"SpeechMarkTypes": tc.marks,
 				"Text":            tc.text,
+				"TextType":        tc.textType,
 				"VoiceId":         "Joanna",
 			})
 			require.Equal(t, http.StatusOK, rec.Code)

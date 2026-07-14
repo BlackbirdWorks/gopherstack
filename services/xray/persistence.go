@@ -37,15 +37,16 @@ const xraySnapshotVersion = 1
 //     behaviour), so it is simply Reset rather than round-tripped.
 type backendSnapshot struct {
 	LastRuleModification time.Time                   `json:"lastRuleModification"`
+	RetrievedTraces      map[string][]*Trace         `json:"retrievedTraces,omitempty"`
+	InsightEvents        map[string][]*InsightEvent  `json:"insightEvents"`
 	EncryptionConfig     *EncryptionConfig           `json:"encryptionConfig,omitempty"`
+	TraceSegmentDest     string                      `json:"traceSegmentDest,omitempty"`
 	Groups               []*Group                    `json:"groups"`
 	SamplingRules        []*SamplingRule             `json:"samplingRules"`
 	Traces               []*Trace                    `json:"traces"`
 	Insights             []*Insight                  `json:"insights"`
-	InsightEvents        map[string][]*InsightEvent  `json:"insightEvents"`
 	ResourcePolicies     []*ResourcePolicy           `json:"resourcePolicies"`
 	TraceRetrievals      []*TraceRetrieval           `json:"traceRetrievals"`
-	RetrievedTraces      map[string][]*Trace         `json:"retrievedTraces,omitempty"`
 	SamplingStats        []*SamplingStatisticSummary `json:"samplingStats,omitempty"`
 	IndexingRules        []*IndexingRule             `json:"indexingRules,omitempty"`
 	Version              int                         `json:"version"`
@@ -79,6 +80,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		IndexingRules:        rules,
 		SamplingStats:        b.samplingStats.Snapshot(),
 		LastRuleModification: b.lastRuleModification,
+		TraceSegmentDest:     b.traceSegmentDest,
 	}
 
 	data, err := json.Marshal(snap)
@@ -146,6 +148,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.insightEvents = snap.InsightEvents
 	b.retrievedTraces = snap.RetrievedTraces
 	b.lastRuleModification = snap.LastRuleModification
+	b.traceSegmentDest = snap.TraceSegmentDest
 
 	if snap.EncryptionConfig != nil {
 		b.encryptionConfig = snap.EncryptionConfig

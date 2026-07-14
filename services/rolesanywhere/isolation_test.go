@@ -27,11 +27,11 @@ func TestRolesAnywhereRegionIsolation(t *testing.T) {
 	src := TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
 
 	// 1. Create a trust anchor with the SAME name in both regions.
-	eastTA, err := b.CreateTrustAnchor(ctxEast, "shared-anchor", src, nil)
+	eastTA, err := b.CreateTrustAnchor(ctxEast, "shared-anchor", src, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, eastTA.TrustAnchorArn, "us-east-1")
 
-	westTA, err := b.CreateTrustAnchor(ctxWest, "shared-anchor", src, nil)
+	westTA, err := b.CreateTrustAnchor(ctxWest, "shared-anchor", src, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, westTA.TrustAnchorArn, "us-west-2")
 
@@ -87,7 +87,8 @@ func TestRolesAnywhereRegionIsolation(t *testing.T) {
 	assert.Equal(t, "arn:aws:iam::000000000000:role/West", westProfiles[0].RoleArns[0])
 
 	// 4. Deleting the east trust anchor must not affect west.
-	require.NoError(t, b.DeleteTrustAnchor(ctxEast, eastTA.TrustAnchorID))
+	_, err = b.DeleteTrustAnchor(ctxEast, eastTA.TrustAnchorID)
+	require.NoError(t, err)
 
 	eastGone, _, err := b.ListTrustAnchors(ctxEast, "", 0)
 	require.NoError(t, err)
@@ -127,7 +128,7 @@ func TestRolesAnywhereDefaultRegionFallback(t *testing.T) {
 	src := TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
 
 	// No region in context → default region store.
-	_, err := b.CreateTrustAnchor(context.Background(), "fallback-anchor", src, nil)
+	_, err := b.CreateTrustAnchor(context.Background(), "fallback-anchor", src, nil, nil)
 	require.NoError(t, err)
 
 	// Reading via the explicit default region sees it.
@@ -154,10 +155,10 @@ func TestRolesAnywhereTagIsolation(t *testing.T) {
 
 	src := TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
 
-	eastTA, err := b.CreateTrustAnchor(ctxEast, "tag-anchor-east", src, nil)
+	eastTA, err := b.CreateTrustAnchor(ctxEast, "tag-anchor-east", src, nil, nil)
 	require.NoError(t, err)
 
-	westTA, err := b.CreateTrustAnchor(ctxWest, "tag-anchor-west", src, nil)
+	westTA, err := b.CreateTrustAnchor(ctxWest, "tag-anchor-west", src, nil, nil)
 	require.NoError(t, err)
 
 	// Tag the east anchor's ARN; region is derived from the ARN, not ctx.

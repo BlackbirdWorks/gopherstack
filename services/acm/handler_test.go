@@ -1427,8 +1427,8 @@ func TestACMHandler_DescribeCertificate_KeyUsageAndInUseBy(t *testing.T) {
 
 	var descOut struct {
 		Certificate struct {
-			KeyUsage         []map[string]string `json:"KeyUsage"`
-			ExtendedKeyUsage []map[string]string `json:"ExtendedKeyUsage"`
+			KeyUsage         []map[string]string `json:"KeyUsages"`
+			ExtendedKeyUsage []map[string]string `json:"ExtendedKeyUsages"`
 			InUseBy          []string            `json:"InUseBy"`
 		} `json:"Certificate"`
 	}

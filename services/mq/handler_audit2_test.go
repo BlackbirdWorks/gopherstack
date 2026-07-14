@@ -27,7 +27,7 @@ func createAudit2Broker(t *testing.T, h *mq.Handler, name string) string {
 		"brokerName": name,
 		"engineType": mq.EngineTypeActiveMQ,
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code, "CreateBroker failed: %s", rec.Body.String())
+	require.Equal(t, http.StatusOK, rec.Code, "CreateBroker failed: %s", rec.Body.String())
 
 	return parseAccuracyMQ(t, rec)["brokerId"].(string)
 }
@@ -329,12 +329,12 @@ func TestMQ_Audit2_CreateTags_KeyValueValidation(t *testing.T) {
 		{
 			name:     "valid key and value accepted",
 			tags:     map[string]string{"env": "prod"},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNoContent,
 		},
 		{
 			name:     "key at 128 chars accepted",
 			tags:     map[string]string{strings.Repeat("k", 128): "v"},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNoContent,
 		},
 		{
 			name:     "key over 128 chars rejected",
@@ -349,7 +349,7 @@ func TestMQ_Audit2_CreateTags_KeyValueValidation(t *testing.T) {
 		{
 			name:     "value at 256 chars accepted",
 			tags:     map[string]string{"k": strings.Repeat("v", 256)},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNoContent,
 		},
 		{
 			name:     "value over 256 chars rejected",
@@ -359,7 +359,7 @@ func TestMQ_Audit2_CreateTags_KeyValueValidation(t *testing.T) {
 		{
 			name:     "empty value accepted",
 			tags:     map[string]string{"k": ""},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNoContent,
 		},
 	}
 
@@ -402,7 +402,7 @@ func TestMQ_Audit2_CreateTags_MaxTagsPerResource(t *testing.T) {
 			name:     "adding tags when at 49 (to reach 50) succeeds",
 			existing: 49,
 			addTags:  map[string]string{"tag50": "v"},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNoContent,
 		},
 		{
 			name:     "adding tag to resource already at 50 fails",
@@ -414,7 +414,7 @@ func TestMQ_Audit2_CreateTags_MaxTagsPerResource(t *testing.T) {
 			name:     "overwriting existing key does not count as new tag",
 			existing: 50,
 			addTags:  map[string]string{"tag0": "updated"},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNoContent,
 		},
 	}
 
@@ -467,7 +467,7 @@ func TestMQ_Audit2_CreateBroker_Tags_KeyValueValidation(t *testing.T) {
 		{
 			name:     "valid tags accepted at create time",
 			tags:     map[string]string{"env": "prod"},
-			wantCode: http.StatusAccepted,
+			wantCode: http.StatusOK,
 		},
 		{
 			name:     "key over 128 chars rejected at create time",

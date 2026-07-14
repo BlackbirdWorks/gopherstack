@@ -489,7 +489,7 @@ func TestRefinement1_TagResourceAndListTags(t *testing.T) {
 
 	tagRec := doSchedulerRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": schedARN,
-		"Tags":        map[string]string{"env": "prod", "team": "platform"},
+		"Tags":        wireTagsBody(map[string]string{"env": "prod", "team": "platform"}),
 	})
 	require.Equal(t, http.StatusOK, tagRec.Code)
 
@@ -498,7 +498,7 @@ func TestRefinement1_TagResourceAndListTags(t *testing.T) {
 
 	var tagsResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp))
-	tags := tagsResp["Tags"].(map[string]any)
+	tags := wireTagsToMap(t, tagsResp["Tags"])
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "platform", tags["team"])
 }
@@ -523,7 +523,7 @@ func TestRefinement1_UntagResource(t *testing.T) {
 
 	var tagsResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp))
-	tags := tagsResp["Tags"].(map[string]any)
+	tags := wireTagsToMap(t, tagsResp["Tags"])
 	assert.NotContains(t, tags, "k1")
 	assert.Contains(t, tags, "k2")
 }
@@ -583,7 +583,7 @@ func TestRefinement1_TagResourceNotFound(t *testing.T) {
 	h := newTestSchedulerHandler(t)
 	rec := doSchedulerRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": "arn:aws:scheduler:us-east-1:000000000000:schedule/default/nonexistent",
-		"Tags":        map[string]string{"k": "v"},
+		"Tags":        wireTagsBody(map[string]string{"k": "v"}),
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

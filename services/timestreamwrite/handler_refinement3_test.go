@@ -41,7 +41,7 @@ func TestRefinement3_TagResourceRequiresExistingResource(t *testing.T) {
 		{
 			name: "known database ARN succeeds",
 			setup: func(b *timestreamwrite.InMemoryBackend) {
-				_, _ = b.CreateDatabase("known-db", nil)
+				_, _ = b.CreateDatabase("known-db", "", nil)
 			},
 			arn:     "arn:aws:timestream:us-east-1:000000000000:database/known-db",
 			wantErr: false,
@@ -49,7 +49,7 @@ func TestRefinement3_TagResourceRequiresExistingResource(t *testing.T) {
 		{
 			name: "known table ARN succeeds",
 			setup: func(b *timestreamwrite.InMemoryBackend) {
-				_, _ = b.CreateDatabase("tbl-db", nil)
+				_, _ = b.CreateDatabase("tbl-db", "", nil)
 				_, _ = b.CreateTable("tbl-db", "tbl", nil, nil)
 			},
 			arn:     "arn:aws:timestream:us-east-1:000000000000:database/tbl-db/table/tbl",
@@ -482,7 +482,7 @@ func TestRefinement3_BackendRetentionPropertiesRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("rp-db", nil)
+	_, err := b.CreateDatabase("rp-db", "", nil)
 	require.NoError(t, err)
 
 	inp := &timestreamwrite.CreateTableInput{
@@ -511,7 +511,7 @@ func TestRefinement3_BackendUpdateTableMagneticStoreProps(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("ms2-db", nil)
+	_, err := b.CreateDatabase("ms2-db", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateTable("ms2-db", "ms2-tbl", nil, &timestreamwrite.CreateTableInput{
@@ -533,7 +533,7 @@ func TestRefinement3_WriteRecordsOutputTypeIsInt32(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("wr2-db", nil)
+	_, err := b.CreateDatabase("wr2-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("wr2-db", "wr2-tbl", nil, nil)
 	require.NoError(t, err)
@@ -672,7 +672,7 @@ func TestRefinement3_DeleteDatabaseCascadesTableTags(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("casc-db", nil)
+	_, err := b.CreateDatabase("casc-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("casc-db", "casc-tbl", nil, nil)
 	require.NoError(t, err)
@@ -700,7 +700,7 @@ func TestRefinement3_DeleteTableCleansUpTags(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("dtag-db", nil)
+	_, err := b.CreateDatabase("dtag-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("dtag-db", "dtag-tbl", nil, nil)
 	require.NoError(t, err)
@@ -805,7 +805,7 @@ func TestRefinement3_PersistenceRetentionPropertiesRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b1 := timestreamwrite.NewInMemoryBackend()
-	_, err := b1.CreateDatabase("snap-rp-db", nil)
+	_, err := b1.CreateDatabase("snap-rp-db", "", nil)
 	require.NoError(t, err)
 	_, err = b1.CreateTable("snap-rp-db", "snap-rp-tbl", nil, &timestreamwrite.CreateTableInput{
 		RetentionProperties: &timestreamwrite.RetentionProperties{
@@ -834,7 +834,7 @@ func TestRefinement3_PersistenceDataSourceConfigRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b1 := timestreamwrite.NewInMemoryBackend()
-	_, err := b1.CreateDatabase("snap-blt-db", nil)
+	_, err := b1.CreateDatabase("snap-blt-db", "", nil)
 	require.NoError(t, err)
 	_, err = b1.CreateTable("snap-blt-db", "snap-blt-tbl", nil, nil)
 	require.NoError(t, err)

@@ -6,13 +6,21 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
 sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.55.1
-last_audit_commit: 58eec068
-last_audit_date: 2026-07-05
-overall: A            # ~1.1k LOC of genuine fixes (624/223 non-test, ~500 net test) this pass
+last_audit_commit: 95dfa093
+last_audit_date: 2026-07-11
+overall: A            # re-audit pass: no local drift vs ce30166a baseline (recorded
+                      # last_audit_commit 58eec068 predates this file and is not an
+                      # ancestor of HEAD; ce30166a — the commit that authored this
+                      # ledger — was used as the diff baseline per protocol). SDK
+                      # version unchanged (still v1.55.1), so all rows below were
+                      # trusted as-is except the PutMetricData timestamp-window gap,
+                      # which this pass fixed (~40 LOC backend/validation change,
+                      # ~220 LOC test fallout since ~15 tests relied on a hardcoded
+                      # 2024-01-01 anchor that is now outside the enforced window).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  PutMetricData: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — see Notes: fabricated UnprocessedMetricData wire field removed, all-or-nothing semantics, Values/Counts array support added, NaN/Inf/range validation added"}
+  PutMetricData: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (2026-07-11) — write-time Timestamp acceptance window (2 weeks past / 2 hours future) now enforced, closing bd gopherstack-pyv. Prior pass's fixes (fabricated UnprocessedMetricData field removed, all-or-nothing semantics, Values/Counts array support, NaN/Inf/range validation) remain correct, unchanged."}
   GetMetricStatistics: {wire: ok, errors: ok, state: ok, persist: ok, note: "proven correct: period-aligned buckets, Average/Sum/Min/Max/SampleCount, extended-statistic percentiles via collectRawBuckets, anomaly band annotation"}
   GetMetricData: {wire: ok, errors: ok, state: ok, persist: ok, note: "proven correct: metric-math expressions (topo-sorted), ScanBy asc/desc, MaxDatapoints pagination with resumable cursor, PartialData/ArithmeticError messages, cross-account AccountId returns empty not error"}
   ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — RecentlyActive=PT3H filter was parsed nowhere (silently ignored); now validated and enforced"}
@@ -70,7 +78,8 @@ families:
   persistence: {status: ok, note: "backendSnapshot/persistence.go covers metrics, alarms, composite alarms, alarm history, dashboards, anomaly detectors, insight rules, metric streams, alarm mute rules, metric filters; field names unchanged by this pass (MetricDatum gained Values/Counts/Has* fields, additive only, so existing snapshots restore unchanged for the fields they populate)"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - PutDashboard never validates DashboardBody JSON/widget schema, so DashboardValidationMessages is always empty even for malformed input (bd: gopherstack-3ro)
-  - PutMetricData does not enforce AWS's timestamp acceptance window (2 weeks past / 2 hours future) (bd: gopherstack-pyv)
+  # PutMetricData timestamp acceptance window (bd: gopherstack-pyv) — FIXED this
+  # pass, see PutMetricData row and Notes below. bd issue should be closed.
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - widget.go / widget_draw.go / widget_font.go (GetMetricWidgetImage PNG rendering internals — not a wire-shape or state-correctness concern, only visual fidelity)
   - metric-stream Firehose delivery payload format (OutputFormat json/opentelemetry0.7 byte-level shape)
@@ -181,3 +190,43 @@ filter was silently a no-op (every metric always returned regardless of the para
   synchronously enforced by PutMetricData. Do not "fix" the LimitExceeded error code/behavior
   without first checking whether AWS actually enforces a limit at write time (it does not, for
   the metrics-count quota).
+
+### PutMetricData Timestamp acceptance window (2026-07-11 pass)
+
+`validateMetricDatum` (`backend_accuracy.go`) now rejects any `MetricDatum.Timestamp` more than
+`cwMetricTimestampPastWindow` (14 days) in the past or `cwMetricTimestampFutureWindow` (2 hours) in
+the future, relative to a `now` snapshotted once per `validatePutMetricDataBatch` call (matches
+AWS's documented PutMetricData timestamp acceptance window; closes bd `gopherstack-pyv`, previously
+deferred by the prior pass "to keep [that pass's] PutMetricData fix reviewable as one change").
+`validateMetricDatum`'s signature gained a `now time.Time` parameter — unexported, only two call
+sites (`backend.go`'s `validatePutMetricDataBatch` and the `export_test.go` test wrapper), does
+**not** touch `PutMetricData`'s exported signature that `cli.go` calls (`cli.go`'s two call sites
+already set `Timestamp: time.Now()` explicitly, so they were never at risk).
+
+**Test-suite blast radius**: ~15 existing tests seeded `MetricDatum`/form-encoded `Timestamp`
+values from a hardcoded `2024-01-01` (or `2020-01-01`) calendar-date literal, which is now well
+outside the enforced window and was silently rejected. Fixed by:
+- `export_test.go` adds `RecentTestAnchor()` (now-1h, minute-truncated — safely inside the window,
+  and truncation keeps period-bucket-alignment tests behaving like they did with a fixed anchor)
+  and `ShiftTestTimestampForTest(anchor, legacyLiteral)` (remaps a `2024-01-01`-relative RFC3339
+  literal onto one relative to a real anchor, preserving the offset) for tests that read better
+  keeping their literal-date-with-offset structure.
+- `export_test.go` also adds `StoreDatumForTest`, a raw bypass of `PutMetricData`'s validation
+  used **only** by `SweepExpiredMetrics` eviction tests (`parity_test.go`, `backend_test.go`,
+  `batch1_accuracy_test.go`) that need to seed a datapoint already aged past
+  `cwMetricRetentionDays` (15 days) — such a point is now impossible to create via the public
+  `PutMetricData` API in real AWS too (the write-time window caps at 14 days), so these tests
+  model "data that was valid when written and has since aged past retention," which is the only
+  way real data ever gets old enough to sweep.
+- `rpcv2cbor_test.go`'s `fixedTS` changed from a compile-time `const` (2024-06-01) to a
+  test-run-time `var` computed from `time.Now()` — every one of its ~10 call sites (`fixedTS`,
+  `fixedTS - 3600`, `fixedTS + 60`, etc.) kept working unchanged.
+- A few tests only asserted HTTP status codes / envelope shape and would have silently kept
+  passing with zero stored data after this fix (e.g. `TestCloudWatchHandler_GetMetricData_
+  ScanByDescending`'s `if len(...) >= 2 { assert... }` guard, `TestHandler_GetMetricStatistics_
+  WithDimensions`'s bare `assert.Equal(200, ...)`); these were fixed too so they keep exercising
+  real stored-data paths instead of decaying into no-op assertions.
+- **Trap for the next auditor**: `TestSweepExpiredMetrics_TwoPhase`'s "fresh datapoint survives
+  sweep" case and any test using `RecentTestAnchor()`/`time.Now()`-relative timestamps for
+  non-eviction scenarios must go through real `PutMetricData` (not `StoreDatumForTest`) — the
+  bypass exists solely to model already-aged data, not as a general test convenience.

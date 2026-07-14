@@ -245,18 +245,29 @@ type SourceDescription struct {
 	MSKSourceDescription           *MSKSourceDescription           `json:"MSKSourceDescription,omitempty"`
 }
 
+// RedshiftCopyCommand holds the Redshift COPY command configuration. On the wire this
+// nests under RedshiftDestinationDescription.CopyCommand (and, on the request side,
+// RedshiftDestinationConfiguration.CopyCommand) rather than as flat fields.
+type RedshiftCopyCommand struct {
+	DataTableName    string `json:"DataTableName"`
+	DataTableColumns string `json:"DataTableColumns,omitempty"`
+	CopyOptions      string `json:"CopyOptions,omitempty"`
+}
+
 // RedshiftDestinationDescription holds a Redshift destination config.
 type RedshiftDestinationDescription struct {
 	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration,omitempty"`
 	RetryOptions            *RetryOptions            `json:"RetryOptions,omitempty"`
 	S3BackupDescription     *S3BackupDescription     `json:"S3BackupDescription,omitempty"`
-	ClusterJDBCURL          string                   `json:"ClusterJDBCURL,omitempty"`
-	DataTableName           string                   `json:"DataTableName,omitempty"`
-	CopyOptions             string                   `json:"CopyOptions,omitempty"`
-	DataTableColumns        string                   `json:"DataTableColumns,omitempty"`
-	Username                string                   `json:"Username,omitempty"`
-	RoleARN                 string                   `json:"RoleARN,omitempty"`
-	S3BackupMode            string                   `json:"S3BackupMode,omitempty"`
+	// S3Destination is the required intermediate S3 staging location that Amazon
+	// Redshift's COPY command reads from (wire field "S3DestinationDescription").
+	S3Destination  *S3DestinationDescription `json:"S3DestinationDescription,omitempty"`
+	CopyCommand    *RedshiftCopyCommand      `json:"CopyCommand,omitempty"`
+	ClusterJDBCURL string                    `json:"ClusterJDBCURL,omitempty"`
+	Username       string                    `json:"Username,omitempty"`
+	RoleARN        string                    `json:"RoleARN,omitempty"`
+	S3BackupMode   string                    `json:"S3BackupMode,omitempty"`
+	DestinationID  string                    `json:"DestinationId,omitempty"`
 }
 
 // OpenSearchDestinationDescription holds an OpenSearch (Elasticsearch) destination config.
@@ -850,6 +861,8 @@ func currentDestinationID(s *DeliveryStream) string {
 		return s.OpenSearchDestination.DestinationID
 	case s.SplunkDestination != nil && s.SplunkDestination.DestinationID != "":
 		return s.SplunkDestination.DestinationID
+	case s.RedshiftDestination != nil && s.RedshiftDestination.DestinationID != "":
+		return s.RedshiftDestination.DestinationID
 	default:
 		return "destinationId-000000000001"
 	}
@@ -866,6 +879,8 @@ func setDestinationID(s *DeliveryStream, destID string) {
 		s.OpenSearchDestination.DestinationID = destID
 	case s.SplunkDestination != nil:
 		s.SplunkDestination.DestinationID = destID
+	case s.RedshiftDestination != nil:
+		s.RedshiftDestination.DestinationID = destID
 	}
 }
 
@@ -1941,24 +1956,15 @@ func buildRedshiftInsertSQL(tableName, columns string, records [][]byte) (string
 //
 // The ClusterJDBCURL is parsed to extract the cluster endpoint and database name.
 // Format: jdbc:redshift://<host>:<port>/<database>
-func (b *InMemoryBackend) deliverToRedshift(
-	ctx context.Context,
-	records [][]byte,
-	dest *RedshiftDestinationDescription,
-	streamARN string,
-) {
-	if dest.ClusterJDBCURL == "" || dest.DataTableName == "" {
-		return
-	}
-
-	// Parse JDBC URL: jdbc:redshift://host:port/database
-	jdbcURL := strings.TrimPrefix(dest.ClusterJDBCURL, "jdbc:redshift://")
+// parseRedshiftJDBCURL extracts the cluster identifier and database name from a
+// Redshift JDBC connection string of the form
+// jdbc:redshift://<cluster>.<suffix>.redshift.amazonaws.com:<port>/<database>.
+// Returns an error when the URL cannot be parsed or is missing a cluster or database.
+func parseRedshiftJDBCURL(clusterJDBCURL string) (string, string, error) {
+	jdbcURL := strings.TrimPrefix(clusterJDBCURL, "jdbc:redshift://")
 	parsed, parseErr := url.Parse("https://" + jdbcURL)
 	if parseErr != nil {
-		logger.Load(ctx).WarnContext(ctx, "firehose: cannot parse Redshift JDBC URL",
-			"url", dest.ClusterJDBCURL, "stream", streamARN, "error", parseErr)
-
-		return
+		return "", "", parseErr
 	}
 
 	host := parsed.Hostname()
@@ -1968,23 +1974,20 @@ func (b *InMemoryBackend) deliverToRedshift(
 	clusterID := strings.SplitN(host, ".", redshiftHostParts)[0]
 
 	if clusterID == "" || database == "" {
-		logger.Load(ctx).WarnContext(ctx, "firehose: Redshift JDBC URL missing cluster or database",
-			"url", dest.ClusterJDBCURL, "stream", streamARN)
-
-		return
+		return "", "", fmt.Errorf("%w: JDBC URL missing cluster or database", ErrValidation)
 	}
 
-	insertSQL, ok := buildRedshiftInsertSQL(dest.DataTableName, dest.DataTableColumns, records)
-	if !ok {
-		return
-	}
+	return clusterID, database, nil
+}
 
+// executeRedshiftInsertWithRetry runs insertSQL via the Redshift Data API, retrying
+// with exponential back-off until maxRetry elapses or ctx is cancelled.
+func (b *InMemoryBackend) executeRedshiftInsertWithRetry(
+	ctx context.Context,
+	clusterID, database, dbUser, insertSQL, streamARN string,
+	maxRetry time.Duration,
+) {
 	rdClient := sdk_rddata.NewFromConfig(aws.Config{Region: b.region})
-
-	maxRetry := redshiftRetryDuration
-	if dest.RetryOptions != nil && dest.RetryOptions.DurationInSeconds > 0 {
-		maxRetry = time.Duration(dest.RetryOptions.DurationInSeconds) * time.Second
-	}
 
 	deadline := time.Now().Add(maxRetry)
 	backoff := redshiftBackoffInitial
@@ -1993,7 +1996,7 @@ func (b *InMemoryBackend) deliverToRedshift(
 		_, execErr := rdClient.ExecuteStatement(ctx, &sdk_rddata.ExecuteStatementInput{
 			ClusterIdentifier: aws.String(clusterID),
 			Database:          aws.String(database),
-			DbUser:            aws.String(dest.Username),
+			DbUser:            aws.String(dbUser),
 			Sql:               aws.String(insertSQL),
 		})
 		if execErr == nil {
@@ -2017,6 +2020,37 @@ func (b *InMemoryBackend) deliverToRedshift(
 			}
 		}
 	}
+}
+
+func (b *InMemoryBackend) deliverToRedshift(
+	ctx context.Context,
+	records [][]byte,
+	dest *RedshiftDestinationDescription,
+	streamARN string,
+) {
+	if dest.ClusterJDBCURL == "" || dest.CopyCommand == nil || dest.CopyCommand.DataTableName == "" {
+		return
+	}
+
+	clusterID, database, parseErr := parseRedshiftJDBCURL(dest.ClusterJDBCURL)
+	if parseErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "firehose: cannot parse Redshift JDBC URL",
+			"url", dest.ClusterJDBCURL, "stream", streamARN, "error", parseErr)
+
+		return
+	}
+
+	insertSQL, ok := buildRedshiftInsertSQL(dest.CopyCommand.DataTableName, dest.CopyCommand.DataTableColumns, records)
+	if !ok {
+		return
+	}
+
+	maxRetry := redshiftRetryDuration
+	if dest.RetryOptions != nil && dest.RetryOptions.DurationInSeconds > 0 {
+		maxRetry = time.Duration(dest.RetryOptions.DurationInSeconds) * time.Second
+	}
+
+	b.executeRedshiftInsertWithRetry(ctx, clusterID, database, dest.Username, insertSQL, streamARN, maxRetry)
 }
 
 // openSearchBulkTimeout is the HTTP timeout for an OpenSearch bulk index request.

@@ -348,6 +348,192 @@ func TestHandler_UpdateApplication(t *testing.T) {
 	}
 }
 
+// TestHandler_UpdateApplication_NestedWireShapes exercises UpdateApplication's
+// InputUpdates/OutputUpdates/ReferenceDataSourceUpdates nested payloads using the real AWS
+// "Update"-suffixed field names (e.g. "ResourceARNUpdate", not "ResourceARN"). These nested
+// shapes are distinct wire types from their Add* counterparts; reusing the Add* JSON field
+// names here previously caused UpdateApplication to silently no-op (or wipe fields to empty
+// strings) instead of applying the update.
+func TestHandler_UpdateApplication_NestedWireShapes(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandlerWithBackend(t)
+	app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "wire-upd-app", "", "", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.AddApplicationInput(
+		context.Background(), app.ApplicationName, app.ApplicationVersionID,
+		kinesisanalytics.InputDescription{
+			NamePrefix:       "IN",
+			InputParallelism: &kinesisanalytics.InputParallelism{Count: 1},
+			KinesisStreamsInputDescription: &kinesisanalytics.KinesisStreamsInputDesc{
+				ResourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/old-in",
+				RoleARN:     "arn:aws:iam::000000000000:role/old-in-role",
+			},
+		},
+	))
+
+	require.NoError(t, b.AddApplicationOutput(
+		context.Background(), app.ApplicationName, 2,
+		kinesisanalytics.OutputDescription{
+			Name: "OUT",
+			KinesisStreamsOutputDescription: &kinesisanalytics.KinesisStreamsOutputDesc{
+				ResourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/old-out",
+				RoleARN:     "arn:aws:iam::000000000000:role/old-out-role",
+			},
+			DestinationSchema: &kinesisanalytics.DestinationSchemaDesc{RecordFormatType: "JSON"},
+		},
+	))
+
+	require.NoError(t, b.AddApplicationReferenceDataSource(
+		context.Background(), app.ApplicationName, 3,
+		kinesisanalytics.ReferenceDataSourceDescription{
+			TableName: "TBL",
+			S3ReferenceDataSourceDescription: &kinesisanalytics.S3ReferenceDataSourceDesc{
+				BucketARN:        "arn:aws:s3:::old-bucket",
+				FileKey:          "old.csv",
+				ReferenceRoleARN: "arn:aws:iam::000000000000:role/old-ref-role",
+			},
+		},
+	))
+
+	seeded, err := b.DescribeApplication(context.Background(), app.ApplicationName)
+	require.NoError(t, err)
+	require.Len(t, seeded.Inputs, 1)
+	require.Len(t, seeded.Outputs, 1)
+	require.Len(t, seeded.ReferenceDataSources, 1)
+
+	inputID := seeded.Inputs[0].InputID
+	outputID := seeded.Outputs[0].OutputID
+	referenceID := seeded.ReferenceDataSources[0].ReferenceID
+
+	rec := doRequest(t, h, "UpdateApplication", map[string]any{
+		"ApplicationName":             app.ApplicationName,
+		"CurrentApplicationVersionId": seeded.ApplicationVersionID,
+		"ApplicationUpdate": map[string]any{
+			"InputUpdates": []map[string]any{
+				{
+					"InputId":          inputID,
+					"NamePrefixUpdate": "IN2",
+					"KinesisStreamsInputUpdate": map[string]any{
+						"ResourceARNUpdate": "arn:aws:kinesis:us-east-1:000000000000:stream/new-in",
+						"RoleARNUpdate":     "arn:aws:iam::000000000000:role/new-in-role",
+					},
+					"InputParallelismUpdate": map[string]any{"CountUpdate": 3},
+				},
+			},
+			"OutputUpdates": []map[string]any{
+				{
+					"OutputId":   outputID,
+					"NameUpdate": "OUT2",
+					"KinesisStreamsOutputUpdate": map[string]any{
+						"ResourceARNUpdate": "arn:aws:kinesis:us-east-1:000000000000:stream/new-out",
+						"RoleARNUpdate":     "arn:aws:iam::000000000000:role/new-out-role",
+					},
+				},
+			},
+			"ReferenceDataSourceUpdates": []map[string]any{
+				{
+					"ReferenceId":     referenceID,
+					"TableNameUpdate": "TBL2",
+					"S3ReferenceDataSourceUpdate": map[string]any{
+						"BucketARNUpdate":        "arn:aws:s3:::new-bucket",
+						"FileKeyUpdate":          "new.csv",
+						"ReferenceRoleARNUpdate": "arn:aws:iam::000000000000:role/new-ref-role",
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	describeRec := doRequest(t, h, "DescribeApplication", map[string]any{"ApplicationName": app.ApplicationName})
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp))
+	detail := resp["ApplicationDetail"].(map[string]any)
+
+	inList := detail["InputDescriptions"].([]any)
+	require.Len(t, inList, 1)
+	in := inList[0].(map[string]any)
+	assert.Equal(t, "IN2", in["NamePrefix"])
+	assert.InDelta(t, float64(3), in["InputParallelism"].(map[string]any)["Count"], 0)
+	assert.Len(t, in["InAppStreamNames"].([]any), 3)
+	ksInput := in["KinesisStreamsInputDescription"].(map[string]any)
+	assert.Equal(t, "arn:aws:kinesis:us-east-1:000000000000:stream/new-in", ksInput["ResourceARN"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/new-in-role", ksInput["RoleARN"])
+
+	outList := detail["OutputDescriptions"].([]any)
+	require.Len(t, outList, 1)
+	out := outList[0].(map[string]any)
+	assert.Equal(t, "OUT2", out["Name"])
+	ksOutput := out["KinesisStreamsOutputDescription"].(map[string]any)
+	assert.Equal(t, "arn:aws:kinesis:us-east-1:000000000000:stream/new-out", ksOutput["ResourceARN"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/new-out-role", ksOutput["RoleARN"])
+
+	refList := detail["ReferenceDataSourceDescriptions"].([]any)
+	require.Len(t, refList, 1)
+	ref := refList[0].(map[string]any)
+	assert.Equal(t, "TBL2", ref["TableName"])
+	s3Ref := ref["S3ReferenceDataSourceDescription"].(map[string]any)
+	assert.Equal(t, "arn:aws:s3:::new-bucket", s3Ref["BucketARN"])
+	assert.Equal(t, "new.csv", s3Ref["FileKey"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/new-ref-role", s3Ref["ReferenceRoleARN"])
+}
+
+// TestHandler_UpdateApplication_InputSchemaUpdateIsPartialPatch verifies that InputSchemaUpdate
+// only overwrites the sub-fields supplied by the caller (RecordFormatUpdate / RecordEncodingUpdate
+// / RecordColumnUpdates), unlike ReferenceSchemaUpdate which replaces the whole schema.
+func TestHandler_UpdateApplication_InputSchemaUpdateIsPartialPatch(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandlerWithBackend(t)
+	app, err := kinesisanalytics.CreateApp(b, testRegion, testAccountID, "schema-upd-app", "", "", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.AddApplicationInput(
+		context.Background(), app.ApplicationName, app.ApplicationVersionID,
+		kinesisanalytics.InputDescription{
+			NamePrefix: "IN",
+			InputSchema: &kinesisanalytics.SourceSchema{
+				RecordEncoding: "UTF-8",
+				RecordFormat:   kinesisanalytics.RecordFormat{RecordFormatType: "CSV"},
+				RecordColumns:  []kinesisanalytics.RecordColumn{{Name: "COL1", SQLType: "VARCHAR(4)"}},
+			},
+		},
+	))
+
+	seeded, err := b.DescribeApplication(context.Background(), app.ApplicationName)
+	require.NoError(t, err)
+	require.Len(t, seeded.Inputs, 1)
+
+	// Only RecordEncodingUpdate is supplied; RecordFormat/RecordColumns must survive untouched.
+	rec := doRequest(t, h, "UpdateApplication", map[string]any{
+		"ApplicationName":             app.ApplicationName,
+		"CurrentApplicationVersionId": seeded.ApplicationVersionID,
+		"ApplicationUpdate": map[string]any{
+			"InputUpdates": []map[string]any{
+				{
+					"InputId": seeded.Inputs[0].InputID,
+					"InputSchemaUpdate": map[string]any{
+						"RecordEncodingUpdate": "UTF-16",
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	after, err := b.DescribeApplication(context.Background(), app.ApplicationName)
+	require.NoError(t, err)
+	require.NotNil(t, after.Inputs[0].InputSchema)
+	assert.Equal(t, "UTF-16", after.Inputs[0].InputSchema.RecordEncoding)
+	assert.Equal(t, "CSV", after.Inputs[0].InputSchema.RecordFormat.RecordFormatType)
+	require.Len(t, after.Inputs[0].InputSchema.RecordColumns, 1)
+	assert.Equal(t, "COL1", after.Inputs[0].InputSchema.RecordColumns[0].Name)
+}
+
 func TestHandler_TagOperations(t *testing.T) {
 	t.Parallel()
 
@@ -769,6 +955,26 @@ func TestHandler_AddApplicationInput(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 		},
+		{
+			// AWS models Input.NamePrefix as a required member; a request missing it must be
+			// rejected, not silently stored with an empty prefix (which also breaks
+			// InAppStreamNames derivation).
+			name: "missing NamePrefix is rejected",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "input-noprefix-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "input-noprefix-app",
+				"CurrentApplicationVersionId": 1,
+				"Input": map[string]any{
+					"KinesisStreamsInput": map[string]any{
+						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
+						"RoleARN":     "arn:aws:iam::000000000000:role/role",
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -937,6 +1143,26 @@ func TestHandler_AddApplicationOutput(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 		},
+		{
+			// AWS models Output.Name as a required member; a request missing it must be
+			// rejected rather than silently stored with an empty name.
+			name: "missing Name is rejected",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "output-noname-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "output-noname-app",
+				"CurrentApplicationVersionId": 1,
+				"Output": map[string]any{
+					"KinesisStreamsOutput": map[string]any{
+						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/out",
+						"RoleARN":     "arn:aws:iam::000000000000:role/role",
+					},
+					"DestinationSchema": map[string]any{"RecordFormatType": "JSON"},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -980,9 +1206,9 @@ func TestHandler_AddApplicationReferenceDataSource(t *testing.T) {
 				"ReferenceDataSource": map[string]any{
 					"TableName": "MY_REF_TABLE",
 					"S3ReferenceDataSource": map[string]any{
-						"BucketARN": "arn:aws:s3:::my-bucket",
-						"FileKey":   "data.csv",
-						"RoleARN":   "arn:aws:iam::000000000000:role/role",
+						"BucketARN":        "arn:aws:s3:::my-bucket",
+						"FileKey":          "data.csv",
+						"ReferenceRoleARN": "arn:aws:iam::000000000000:role/role",
 					},
 					"ReferenceSchema": map[string]any{
 						"RecordFormat":  map[string]any{"RecordFormatType": "CSV"},
@@ -1005,9 +1231,9 @@ func TestHandler_AddApplicationReferenceDataSource(t *testing.T) {
 				"ReferenceDataSource": map[string]any{
 					"TableName": "MY_REF",
 					"S3ReferenceDataSource": map[string]any{
-						"BucketARN": "arn:aws:s3:::my-bucket",
-						"FileKey":   "data.csv",
-						"RoleARN":   "arn:aws:iam::000000000000:role/r",
+						"BucketARN":        "arn:aws:s3:::my-bucket",
+						"FileKey":          "data.csv",
+						"ReferenceRoleARN": "arn:aws:iam::000000000000:role/r",
 					},
 					"ReferenceSchema": map[string]any{
 						"RecordFormat":  map[string]any{"RecordFormatType": "CSV"},

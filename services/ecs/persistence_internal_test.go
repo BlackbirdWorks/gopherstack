@@ -200,7 +200,7 @@ func assertCoreResourcesRestored(t *testing.T, b *InMemoryBackend, f fullStateFi
 		t.Fatalf("DescribeTaskSets: got %d task sets, err=%v, want 1 task set", len(taskSets), err)
 	}
 
-	caps, err := b.DescribeCapacityProviders([]string{"full-state-cp"})
+	caps, _, err := b.DescribeCapacityProviders([]string{"full-state-cp"})
 	if err != nil || len(caps) != 1 {
 		t.Fatalf("DescribeCapacityProviders: got %d providers, err=%v, want 1 provider", len(caps), err)
 	}

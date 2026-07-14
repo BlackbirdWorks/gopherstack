@@ -312,8 +312,11 @@ func TestAudit1_ConfigurationTypeValidation(t *testing.T) {
 	}
 }
 
-// TestAudit1_GroupFields covers issue #6: GetGroup returns OwnerId, Criticality,
-// DisplayName fields; Tags are NOT included in the Group body.
+// TestAudit1_GroupFields covers issue #6: GetGroup returns Criticality and
+// DisplayName fields; Tags are NOT included in the Group body. It also
+// verifies the real wire field for the group owner is "Owner" (never the
+// legacy "OwnerId"), and that it is unset by default since neither
+// CreateGroup nor UpdateGroup accept an Owner input in this emulator.
 func TestAudit1_GroupFields(t *testing.T) {
 	t.Parallel()
 
@@ -325,15 +328,24 @@ func TestAudit1_GroupFields(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	updRec := doResourceGroupsRequest(t, h, "UpdateGroup", map[string]any{
+		"Group":       "field-group",
+		"DisplayName": "Field Group",
+		"Criticality": 3,
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
 	rec2 := doResourceGroupsRequest(t, h, "GetGroup", map[string]any{"Group": "field-group"})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	body := rec2.Body.String()
-	assert.Contains(t, body, `"OwnerId"`)
-	assert.Contains(t, body, `"000000000000"`)
+	assert.Contains(t, body, `"DisplayName":"Field Group"`)
+	assert.Contains(t, body, `"Criticality":3`)
 	assert.Contains(t, body, `"Name"`)
 	assert.Contains(t, body, `"field-group"`)
 	assert.NotContains(t, body, `"Tags"`, "GetGroup should NOT include Tags in the Group body")
+	assert.NotContains(t, body, `"OwnerId"`, "the AWS wire field is Owner, not the legacy OwnerId")
+	assert.NotContains(t, body, `"Owner"`, "Owner is unset by default")
 }
 
 // TestAudit1_UpdateGroupCriticalityDisplayName covers issue #7: UpdateGroup
@@ -599,8 +611,11 @@ func TestAudit1_ReservedTagNamespaceOnAddTags(t *testing.T) {
 	assert.ErrorIs(t, err, resourcegroups.ErrValidation)
 }
 
-// TestAudit1_CancelTagSyncTaskState covers issue #22: CancelTagSyncTask must
-// transition to CANCELLED status, not delete the task.
+// TestAudit1_CancelTagSyncTaskState verifies that CancelTagSyncTask deletes
+// the task rather than transitioning it to a fabricated CANCELLED status:
+// TagSyncTaskStatus's only documented wire values are ACTIVE and ERROR, and
+// AWS documents CancelTagSyncTask as taking "the TaskArn of the tag-sync task
+// you want to delete".
 func TestAudit1_CancelTagSyncTaskState(t *testing.T) {
 	t.Parallel()
 
@@ -627,21 +642,20 @@ func TestAudit1_CancelTagSyncTaskState(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, cancelRec.Code)
 
-	// Task must still be visible after cancellation (not deleted).
+	// Task must be gone after cancellation, not lingering with an invalid status.
 	getRec := doResourceGroupsRequest(t, h, "GetTagSyncTask", map[string]any{"TaskArn": taskARN})
 	assert.Equal(
 		t,
-		http.StatusOK,
+		http.StatusNotFound,
 		getRec.Code,
-		"cancelled task must still be retrievable: %s",
+		"cancelled task must no longer be retrievable: %s",
 		getRec.Body.String(),
 	)
-	assert.Contains(t, getRec.Body.String(), "CANCELLED")
 
-	// Must also appear in ListTagSyncTasks.
+	// Must no longer appear in ListTagSyncTasks either.
 	listRec := doResourceGroupsRequest(t, h, "ListTagSyncTasks", map[string]any{})
 	assert.Equal(t, http.StatusOK, listRec.Code)
-	assert.Contains(t, listRec.Body.String(), "CANCELLED")
+	assert.NotContains(t, listRec.Body.String(), taskARN)
 }
 
 // TestAudit1_UngroupResourcesFailures covers issue #25: UngroupResources must
@@ -850,7 +864,10 @@ func TestAudit1_UpdateGroupQueryValidation(t *testing.T) {
 	}
 }
 
-// TestAudit1_OwnerId verifies that CreateGroup populates OwnerId from accountID.
+// TestAudit1_OwnerId verifies the account ID appears in the group's ARN (the
+// only place AWS embeds account ownership), and that the Owner field -- a
+// free-form, caller-supplied identifier unrelated to the account ID -- is
+// left unset rather than fabricated from the account ID.
 func TestAudit1_OwnerId(t *testing.T) {
 	t.Parallel()
 
@@ -860,7 +877,15 @@ func TestAudit1_OwnerId(t *testing.T) {
 
 	rec := doResourceGroupsRequest(t, h, "GetGroup", map[string]any{"Group": "owner-group"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "111111111111")
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	group, ok := out["Group"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Contains(t, group["GroupArn"], "111111111111")
+	assert.NotContains(t, group, "Owner")
+	assert.NotContains(t, group, "OwnerId")
 }
 
 // TestAudit1_BackendCreateGroupWithReservedTag verifies backend-level tag validation.

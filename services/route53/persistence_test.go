@@ -21,7 +21,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *route53.InMemoryBackend) string {
-				zone, err := b.CreateHostedZone("example.com.", "ref-001", "test zone", false)
+				zone, err := b.CreateHostedZone("example.com.", "ref-001", "test zone", false, "")
 				if err != nil {
 					return ""
 				}
@@ -83,7 +83,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	b := route53.NewInMemoryBackend()
 
-	zone, err := b.CreateHostedZone("full-state.example.com.", "ref-full-zone", "full state zone", true)
+	zone, err := b.CreateHostedZone("full-state.example.com.", "ref-full-zone", "full state zone", true, "")
 	require.NoError(t, err)
 
 	changeID, err := b.ChangeResourceRecordSets(zone.ID, []route53.Change{
@@ -116,7 +116,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	_, err = b.ChangeCidrCollection(col.ID, []route53.CidrCollectionChange{
 		{LocationName: "loc-1", Action: "PUT", CidrList: []string{"192.0.2.0/24"}},
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	qlc, err := b.CreateQueryLoggingConfig(zone.ID, "arn:aws:logs:us-east-1:123456789012:log-group:/route53/full-state")

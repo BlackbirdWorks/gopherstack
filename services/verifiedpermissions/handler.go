@@ -221,12 +221,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 	case errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    "ResourceConflictException",
+			keyTypeField:    "ConflictException",
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "UnknownOperationException",
+			keyMessageField: err.Error(),
+		})
+	case errors.Is(err, ErrTooManyTags):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "TooManyTagsException",
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter), errors.Is(err, errInvalidRequest),
@@ -642,11 +647,20 @@ func (h *Handler) handleGetPolicy(_ context.Context, in *policyInput) (*getPolic
 	}, nil
 }
 
+// entityReferenceJSON mirrors the real SDK's EntityReference union: a
+// PolicyFilter's principal/resource is NOT a flat entityIdentifier, it's
+// wrapped as {"identifier": {entityType, entityId}} or {"unspecified": true}
+// (unlike GetPolicy's top-level principal/resource, which ARE flat).
+type entityReferenceJSON struct {
+	Identifier  *entityIdentifier `json:"identifier,omitempty"`
+	Unspecified *bool             `json:"unspecified,omitempty"`
+}
+
 type listPoliciesFilterJSON struct {
-	Principal                 *entityIdentifier `json:"principal,omitempty"`
-	Resource                  *entityIdentifier `json:"resource,omitempty"`
-	PolicyType                string            `json:"policyType,omitempty"`
-	PolicyTemplateIDForFilter string            `json:"policyTemplateId,omitempty"`
+	Principal                 *entityReferenceJSON `json:"principal,omitempty"`
+	Resource                  *entityReferenceJSON `json:"resource,omitempty"`
+	PolicyType                string               `json:"policyType,omitempty"`
+	PolicyTemplateIDForFilter string               `json:"policyTemplateId,omitempty"`
 }
 
 type listPoliciesInput struct {
@@ -661,27 +675,60 @@ type listPoliciesOutput struct {
 	Policies  []policyView `json:"policies"`
 }
 
+// resolvedEntityReference holds the fields extracted from an EntityReference
+// union (see entityReferenceJSON).
+type resolvedEntityReference struct {
+	entityType  string
+	entityID    string
+	unspecified bool
+}
+
+// resolveEntityReference extracts entityType/entityId/unspecified from an
+// EntityReference union. unspecified is true only when the wire sent
+// {"unspecified": true}.
+func resolveEntityReference(ref *entityReferenceJSON) resolvedEntityReference {
+	if ref == nil {
+		return resolvedEntityReference{}
+	}
+
+	if ref.Identifier != nil {
+		return resolvedEntityReference{entityType: ref.Identifier.EntityType, entityID: ref.Identifier.EntityID}
+	}
+
+	return resolvedEntityReference{unspecified: ref.Unspecified != nil && *ref.Unspecified}
+}
+
+// buildListPoliciesFilter converts the wire filter (nil-safe) into the
+// backend's ListPoliciesFilter.
+func buildListPoliciesFilter(in *listPoliciesFilterJSON) ListPoliciesFilter {
+	if in == nil {
+		return ListPoliciesFilter{}
+	}
+
+	filter := ListPoliciesFilter{
+		PolicyType:       in.PolicyType,
+		PolicyTemplateID: in.PolicyTemplateIDForFilter,
+	}
+
+	principal := resolveEntityReference(in.Principal)
+	filter.PrincipalEntityType = principal.entityType
+	filter.PrincipalEntityID = principal.entityID
+	filter.PrincipalUnspecified = principal.unspecified
+
+	resource := resolveEntityReference(in.Resource)
+	filter.ResourceEntityType = resource.entityType
+	filter.ResourceEntityID = resource.entityID
+	filter.ResourceUnspecified = resource.unspecified
+
+	return filter
+}
+
 func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (*listPoliciesOutput, error) {
 	if in.PolicyStoreID == "" {
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
-	var filter ListPoliciesFilter
-
-	if in.Filter != nil {
-		filter.PolicyType = in.Filter.PolicyType
-		filter.PolicyTemplateID = in.Filter.PolicyTemplateIDForFilter
-
-		if in.Filter.Principal != nil {
-			filter.PrincipalEntityType = in.Filter.Principal.EntityType
-			filter.PrincipalEntityID = in.Filter.Principal.EntityID
-		}
-
-		if in.Filter.Resource != nil {
-			filter.ResourceEntityType = in.Filter.Resource.EntityType
-			filter.ResourceEntityID = in.Filter.Resource.EntityID
-		}
-	}
+	filter := buildListPoliciesFilter(in.Filter)
 
 	policies, nextToken, err := h.Backend.ListPolicies(in.PolicyStoreID, filter, in.NextToken, in.MaxResults)
 	if err != nil {
@@ -1101,11 +1148,72 @@ type batchIsAuthorizedInput struct {
 	Requests      []batchIsAuthorizedRequestItem `json:"requests"`
 }
 
+// determiningPolicyItemJSON mirrors the real SDK's types.DeterminingPolicyItem:
+// each determining policy is wire-encoded as an object {"policyId": "..."},
+// NOT a bare string.
+type determiningPolicyItemJSON struct {
+	PolicyID string `json:"policyId"`
+}
+
+// evaluationErrorItemJSON mirrors the real SDK's types.EvaluationErrorItem:
+// each evaluation error is wire-encoded as an object
+// {"errorDescription": "..."}, NOT a bare string.
+type evaluationErrorItemJSON struct {
+	ErrorDescription string `json:"errorDescription"`
+}
+
+func toDeterminingPolicyItems(ids []string) []determiningPolicyItemJSON {
+	out := make([]determiningPolicyItemJSON, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, determiningPolicyItemJSON{PolicyID: id})
+	}
+
+	return out
+}
+
+func toEvaluationErrorItems(msgs []string) []evaluationErrorItemJSON {
+	out := make([]evaluationErrorItemJSON, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, evaluationErrorItemJSON{ErrorDescription: m})
+	}
+
+	return out
+}
+
+// batchIsAuthorizedRequestEchoJSON mirrors the real SDK's
+// BatchIsAuthorizedInputItem echoed back in each output item's "request"
+// field: principal/action/resource are nested objects, not the flat
+// principalEntityType/actionType/... fields AuthorizationRequest uses
+// internally.
+type batchIsAuthorizedRequestEchoJSON struct {
+	Principal *entityIdentifierJSON `json:"principal,omitempty"`
+	Action    *actionIdentifierJSON `json:"action,omitempty"`
+	Resource  *entityIdentifierJSON `json:"resource,omitempty"`
+}
+
+func toBatchRequestEcho(req AuthorizationRequest) batchIsAuthorizedRequestEchoJSON {
+	echo := batchIsAuthorizedRequestEchoJSON{}
+
+	if req.PrincipalEntityType != "" {
+		echo.Principal = &entityIdentifierJSON{EntityType: req.PrincipalEntityType, EntityID: req.PrincipalEntityID}
+	}
+
+	if req.ActionType != "" {
+		echo.Action = &actionIdentifierJSON{ActionType: req.ActionType, ActionID: req.ActionID}
+	}
+
+	if req.ResourceEntityType != "" {
+		echo.Resource = &entityIdentifierJSON{EntityType: req.ResourceEntityType, EntityID: req.ResourceEntityID}
+	}
+
+	return echo
+}
+
 type batchIsAuthorizedDecision struct {
-	Request             AuthorizationRequest `json:"request"`
-	Decision            string               `json:"decision"`
-	DeterminingPolicies []string             `json:"determiningPolicies"`
-	Errors              []string             `json:"errors"`
+	Request             batchIsAuthorizedRequestEchoJSON `json:"request"`
+	Decision            string                           `json:"decision"`
+	DeterminingPolicies []determiningPolicyItemJSON      `json:"determiningPolicies"`
+	Errors              []evaluationErrorItemJSON        `json:"errors"`
 }
 
 type batchIsAuthorizedOutput struct {
@@ -1116,7 +1224,12 @@ func toBatchDecisions(decisions []AuthDecision) []batchIsAuthorizedDecision {
 	out := make([]batchIsAuthorizedDecision, 0, len(decisions))
 
 	for _, d := range decisions {
-		out = append(out, batchIsAuthorizedDecision(d))
+		out = append(out, batchIsAuthorizedDecision{
+			Request:             toBatchRequestEcho(d.Request),
+			Decision:            d.Decision,
+			DeterminingPolicies: toDeterminingPolicyItems(d.DeterminingPolicies),
+			Errors:              toEvaluationErrorItems(d.Errors),
+		})
 	}
 
 	return out
@@ -1247,7 +1360,11 @@ type cognitoGroupConfigJSON struct {
 type cognitoUserPoolConfigJSON struct {
 	GroupConfiguration *cognitoGroupConfigJSON `json:"groupConfiguration,omitempty"`
 	UserPoolArn        string                  `json:"userPoolArn"`
-	ClientIDs          []string                `json:"clientIds,omitempty"`
+	// Issuer is a required response field (CognitoUserPoolConfigurationDetail/
+	// Item.Issuer in the real SDK) that AWS derives from UserPoolArn; it is
+	// never present on the request side, so omitempty keeps it silent there.
+	Issuer    string   `json:"issuer,omitempty"`
+	ClientIDs []string `json:"clientIds,omitempty"`
 }
 
 type oidcGroupConfigJSON struct {
@@ -1256,11 +1373,23 @@ type oidcGroupConfigJSON struct {
 }
 
 type oidcTokenSelectionJSON struct {
-	IdentityTokenOnly *oidcTokenOnlyJSON `json:"identityTokenOnly,omitempty"`
-	AccessTokenOnly   *oidcTokenOnlyJSON `json:"accessTokenOnly,omitempty"`
+	IdentityTokenOnly *oidcIdentityTokenOnlyJSON `json:"identityTokenOnly,omitempty"`
+	AccessTokenOnly   *oidcAccessTokenOnlyJSON   `json:"accessTokenOnly,omitempty"`
 }
 
-type oidcTokenOnlyJSON struct {
+// oidcIdentityTokenOnlyJSON mirrors the real SDK's
+// OpenIdConnectIdentityTokenConfiguration(Detail): the audience-restriction
+// list for ID tokens is wire-named "clientIds", NOT "audiences" (that name is
+// reserved for the accessTokenOnly variant below).
+type oidcIdentityTokenOnlyJSON struct {
+	PrincipalIDClaim string   `json:"principalIdClaim,omitempty"`
+	ClientIDs        []string `json:"clientIds,omitempty"`
+}
+
+// oidcAccessTokenOnlyJSON mirrors the real SDK's
+// OpenIdConnectAccessTokenConfiguration(Detail): the audience-restriction
+// list for access tokens is wire-named "audiences".
+type oidcAccessTokenOnlyJSON struct {
 	PrincipalIDClaim string   `json:"principalIdClaim,omitempty"`
 	Audiences        []string `json:"audiences,omitempty"`
 }
@@ -1298,6 +1427,7 @@ func identitySourceToConfigJSON(is *IdentitySource) *identitySourceConfigJSON {
 		cfg := &identitySourceConfigJSON{
 			CognitoUserPool: &cognitoUserPoolConfigJSON{
 				UserPoolArn: is.UserPoolArn,
+				Issuer:      cognitoIssuerFromUserPoolArn(is.UserPoolArn),
 				ClientIDs:   is.ClientIDs,
 			},
 		}
@@ -1332,12 +1462,12 @@ func identitySourceToConfigJSON(is *IdentitySource) *identitySourceConfigJSON {
 
 			switch sel.TokenType {
 			case "IDENTITY":
-				tok.IdentityTokenOnly = &oidcTokenOnlyJSON{
+				tok.IdentityTokenOnly = &oidcIdentityTokenOnlyJSON{
 					PrincipalIDClaim: sel.PrincipalIDClaim,
-					Audiences:        sel.Audiences,
+					ClientIDs:        sel.Audiences,
 				}
 			case "ACCESS":
-				tok.AccessTokenOnly = &oidcTokenOnlyJSON{
+				tok.AccessTokenOnly = &oidcAccessTokenOnlyJSON{
 					PrincipalIDClaim: sel.PrincipalIDClaim,
 					Audiences:        sel.Audiences,
 				}
@@ -1388,7 +1518,7 @@ func configJSONToBackend(cfg identitySourceConfigJSON) IdentitySourceConfig {
 				tok := cfg.OpenIDConnect.TokenSelection.IdentityTokenOnly
 				out.TokenType = "IDENTITY"
 				out.PrincipalIDClaim = tok.PrincipalIDClaim
-				out.Audiences = tok.Audiences
+				out.Audiences = tok.ClientIDs
 			} else if cfg.OpenIDConnect.TokenSelection.AccessTokenOnly != nil {
 				tok := cfg.OpenIDConnect.TokenSelection.AccessTokenOnly
 				out.TokenType = "ACCESS"
@@ -1475,10 +1605,15 @@ func (h *Handler) handleDeleteIdentitySource(_ context.Context, in *identitySour
 	return &struct{}{}, nil
 }
 
+type identitySourceFilterJSON struct {
+	PrincipalEntityType string `json:"principalEntityType,omitempty"`
+}
+
 type listIdentitySourcesInput struct {
-	PolicyStoreID string `json:"policyStoreId"`
-	NextToken     string `json:"nextToken,omitempty"`
-	MaxResults    int    `json:"maxResults,omitempty"`
+	PolicyStoreID string                     `json:"policyStoreId"`
+	NextToken     string                     `json:"nextToken,omitempty"`
+	Filters       []identitySourceFilterJSON `json:"filters,omitempty"`
+	MaxResults    int                        `json:"maxResults,omitempty"`
 }
 
 type listIdentitySourcesOutput struct {
@@ -1494,7 +1629,17 @@ func (h *Handler) handleListIdentitySources(
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
-	sources, nextToken, err := h.Backend.ListIdentitySources(in.PolicyStoreID, in.NextToken, in.MaxResults)
+	principalEntityTypes := make([]string, 0, len(in.Filters))
+
+	for _, f := range in.Filters {
+		if f.PrincipalEntityType != "" {
+			principalEntityTypes = append(principalEntityTypes, f.PrincipalEntityType)
+		}
+	}
+
+	sources, nextToken, err := h.Backend.ListIdentitySources(
+		in.PolicyStoreID, in.NextToken, in.MaxResults, principalEntityTypes,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1599,9 +1744,9 @@ type isAuthorizedInput struct {
 }
 
 type isAuthorizedOutput struct {
-	Decision            string   `json:"decision"`
-	DeterminingPolicies []string `json:"determiningPolicies"`
-	Errors              []string `json:"errors"`
+	Decision            string                      `json:"decision"`
+	DeterminingPolicies []determiningPolicyItemJSON `json:"determiningPolicies"`
+	Errors              []evaluationErrorItemJSON   `json:"errors"`
 }
 
 func (h *Handler) handleIsAuthorized(_ context.Context, in *isAuthorizedInput) (*isAuthorizedOutput, error) {
@@ -1633,8 +1778,8 @@ func (h *Handler) handleIsAuthorized(_ context.Context, in *isAuthorizedInput) (
 
 	return &isAuthorizedOutput{
 		Decision:            decision.Decision,
-		DeterminingPolicies: decision.DeterminingPolicies,
-		Errors:              decision.Errors,
+		DeterminingPolicies: toDeterminingPolicyItems(decision.DeterminingPolicies),
+		Errors:              toEvaluationErrorItems(decision.Errors),
 	}, nil
 }
 
@@ -1665,7 +1810,7 @@ func parseJWTClaims(token string) (map[string]any, error) {
 // principalFromToken resolves PrincipalEntityType and PrincipalEntityID from a JWT
 // token using the first matching identity source in the policy store.
 func (h *Handler) principalFromToken(policyStoreID, token string) (string, string) {
-	sources, _, err := h.Backend.ListIdentitySources(policyStoreID, "", 0)
+	sources, _, err := h.Backend.ListIdentitySources(policyStoreID, "", 0, nil)
 	if err != nil || len(sources) == 0 {
 		return "", ""
 	}
@@ -1735,8 +1880,8 @@ func (h *Handler) handleIsAuthorizedWithToken(
 
 	return &isAuthorizedOutput{
 		Decision:            decision.Decision,
-		DeterminingPolicies: decision.DeterminingPolicies,
-		Errors:              decision.Errors,
+		DeterminingPolicies: toDeterminingPolicyItems(decision.DeterminingPolicies),
+		Errors:              toEvaluationErrorItems(decision.Errors),
 	}, nil
 }
 

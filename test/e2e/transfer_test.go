@@ -6,6 +6,7 @@ package e2e_test
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/assert"
@@ -16,8 +17,18 @@ import (
 func TestTransferDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.TransferHandler.Backend.CreateServer([]string{"SFTP"}, nil)
+	srv, err := stack.TransferHandler.Backend.CreateServer([]string{"SFTP"}, nil)
 	require.NoError(t, err)
+
+	// A freshly created server is OFFLINE (matching real AWS Transfer); bring it ONLINE
+	// via StartServer and wait for the async STARTING->ONLINE transition so the dashboard
+	// renders it as ONLINE.
+	require.NoError(t, stack.TransferHandler.Backend.StartServer(srv.ServerID))
+	require.Eventually(t, func() bool {
+		s, derr := stack.TransferHandler.Backend.DescribeServer(srv.ServerID)
+
+		return derr == nil && s.State == "ONLINE"
+	}, 5*time.Second, 20*time.Millisecond)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()

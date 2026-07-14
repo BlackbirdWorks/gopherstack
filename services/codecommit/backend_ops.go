@@ -515,7 +515,7 @@ func (b *InMemoryBackend) DeletePullRequestApprovalRule(prID, ruleName string) e
 	}
 
 	if !b.prApprovalRules.Has(prApprovalRuleKey(prID, ruleName)) {
-		return fmt.Errorf("%w: approval rule %s not found on pull request %s", ErrNotFound, ruleName, prID)
+		return fmt.Errorf("%w: approval rule %s not found on pull request %s", ErrApprovalRuleNotFound, ruleName, prID)
 	}
 	b.prApprovalRules.Delete(prApprovalRuleKey(prID, ruleName))
 
@@ -533,7 +533,7 @@ func (b *InMemoryBackend) UpdatePullRequestApprovalRuleContent(prID, ruleName, c
 
 	rule, ok := b.prApprovalRules.Get(prApprovalRuleKey(prID, ruleName))
 	if !ok {
-		return fmt.Errorf("%w: approval rule %s not found on pull request %s", ErrNotFound, ruleName, prID)
+		return fmt.Errorf("%w: approval rule %s not found on pull request %s", ErrApprovalRuleNotFound, ruleName, prID)
 	}
 	rule.ApprovalRuleContent = content
 
@@ -637,7 +637,7 @@ func (b *InMemoryBackend) PostCommentReply(inReplyTo, content string) (*Comment,
 	defer b.mu.Unlock()
 
 	if !b.comments.Has(inReplyTo) {
-		return nil, fmt.Errorf("%w: comment %s not found", ErrNotFound, inReplyTo)
+		return nil, fmt.Errorf("%w: comment %s not found", ErrCommentNotFound, inReplyTo)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -661,7 +661,7 @@ func (b *InMemoryBackend) GetComment(commentID string) (*Comment, error) {
 
 	c, ok := b.comments.Get(commentID)
 	if !ok {
-		return nil, fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
+		return nil, fmt.Errorf("%w: comment %s not found", ErrCommentNotFound, commentID)
 	}
 	cp := *c
 
@@ -674,7 +674,7 @@ func (b *InMemoryBackend) GetCommentReactions(commentID string) ([]Reaction, err
 	defer b.mu.RUnlock()
 
 	if !b.comments.Has(commentID) {
-		return nil, fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
+		return nil, fmt.Errorf("%w: comment %s not found", ErrCommentNotFound, commentID)
 	}
 
 	reactions := b.commentReactions[commentID]
@@ -730,7 +730,7 @@ func (b *InMemoryBackend) PutCommentReaction(commentID, emoji string) error {
 	defer b.mu.Unlock()
 
 	if !b.comments.Has(commentID) {
-		return fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
+		return fmt.Errorf("%w: comment %s not found", ErrCommentNotFound, commentID)
 	}
 	b.commentReactions[commentID] = append(b.commentReactions[commentID], Reaction{Emoji: emoji})
 
@@ -744,7 +744,7 @@ func (b *InMemoryBackend) UpdateComment(commentID, content string) error {
 
 	c, ok := b.comments.Get(commentID)
 	if !ok {
-		return fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
+		return fmt.Errorf("%w: comment %s not found", ErrCommentNotFound, commentID)
 	}
 	c.Content = content
 	c.LastModifiedDate = time.Now().UTC().Format(time.RFC3339)
@@ -759,7 +759,7 @@ func (b *InMemoryBackend) DeleteCommentContent(commentID string) error {
 
 	c, ok := b.comments.Get(commentID)
 	if !ok {
-		return fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
+		return fmt.Errorf("%w: comment %s not found", ErrCommentNotFound, commentID)
 	}
 	c.Deleted = true
 	c.Content = ""
@@ -770,13 +770,15 @@ func (b *InMemoryBackend) DeleteCommentContent(commentID string) error {
 
 // --- Group 6: File/Blob ops ---
 
-// PutFile stores a file and creates a commit.
-func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content []byte) (*Commit, error) {
+// PutFile stores a file and creates a commit. It returns the new commit and
+// the blob ID of the stored file content (AWS's PutFileOutput.BlobId is a
+// required field, so callers must round-trip this into GetBlob).
+func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content []byte) (*Commit, string, error) {
 	b.mu.Lock("PutFile")
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, "", fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
 	blobID := uuid.NewString()
@@ -812,7 +814,7 @@ func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content
 
 	cp := *commit
 
-	return &cp, nil
+	return &cp, blobID, nil
 }
 
 // GetFile retrieves a file by repository, commit specifier, and path.
@@ -826,7 +828,7 @@ func (b *InMemoryBackend) GetFile(repoName, _ /* commitSpecifier */, filePath st
 
 	f, ok := b.files.Get(fileKey(repoName, filePath))
 	if !ok {
-		return nil, fmt.Errorf("%w: file %s not found", ErrNotFound, filePath)
+		return nil, fmt.Errorf("%w: file %s not found", ErrFileNotFound, filePath)
 	}
 	cp := *f
 
@@ -889,14 +891,27 @@ func (b *InMemoryBackend) GetFolderFiles(repoName, _ /* commitSpecifier */, fold
 	return files, nil
 }
 
-// DeleteFile removes a file and creates a delete commit.
-func (b *InMemoryBackend) DeleteFile(repoName, branchName, filePath, _ /* parentCommitID */ string) (*Commit, error) {
+// DeleteFile removes a file and creates a delete commit. It returns the new
+// commit and the blob ID of the removed file (AWS's DeleteFileOutput.BlobId
+// is a required field reporting the blob that was taken out of the tree).
+// AWS rejects deletion of a path that does not exist with
+// FileDoesNotExistException, so callers must not be able to fabricate a
+// delete commit for a file that was never there.
+func (b *InMemoryBackend) DeleteFile(
+	repoName, branchName, filePath, _ /* parentCommitID */ string,
+) (*Commit, string, error) {
 	b.mu.Lock("DeleteFile")
 	defer b.mu.Unlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return nil, "", fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
+
+	existing, ok := b.files.Get(fileKey(repoName, filePath))
+	if !ok {
+		return nil, "", fmt.Errorf("%w: file %s not found", ErrFileNotFound, filePath)
+	}
+	blobID := existing.BlobID
 
 	b.files.Delete(fileKey(repoName, filePath))
 
@@ -923,7 +938,7 @@ func (b *InMemoryBackend) DeleteFile(repoName, branchName, filePath, _ /* parent
 
 	cp := *commit
 
-	return &cp, nil
+	return &cp, blobID, nil
 }
 
 // --- Group 7: Triggers ---
@@ -1110,7 +1125,7 @@ func (b *InMemoryBackend) GetBlob(repoName, blobID string) ([]byte, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("%w: blob %s not found", ErrNotFound, blobID)
+	return nil, fmt.Errorf("%w: blob %s not found", ErrBlobNotFound, blobID)
 }
 
 // ListFileCommitHistory returns commits that touched the given filePath.

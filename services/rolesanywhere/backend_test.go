@@ -27,7 +27,7 @@ func TestCreateTrustAnchor_Success(t *testing.T) {
 		SourceData: map[string]string{"acmPcaArn": "arn:aws:acm-pca:us-east-1:123456789012:certificate-authority/abc"},
 	}
 
-	ta, err := b.CreateTrustAnchor(context.Background(), "my-anchor", source, nil)
+	ta, err := b.CreateTrustAnchor(context.Background(), "my-anchor", source, nil, nil)
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, ta.TrustAnchorID)
@@ -43,10 +43,10 @@ func TestCreateTrustAnchor_DuplicateNameRejected(t *testing.T) {
 	b := newBackend(t)
 	source := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
 
-	_, err := b.CreateTrustAnchor(context.Background(), "dup-anchor", source, nil)
+	_, err := b.CreateTrustAnchor(context.Background(), "dup-anchor", source, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTrustAnchor(context.Background(), "dup-anchor", source, nil)
+	_, err = b.CreateTrustAnchor(context.Background(), "dup-anchor", source, nil, nil)
 	require.Error(t, err)
 }
 
@@ -63,8 +63,8 @@ func TestListTrustAnchors_ReturnsAll(t *testing.T) {
 
 	b := newBackend(t)
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-	_, _ = b.CreateTrustAnchor(context.Background(), "anchor-1", src, nil)
-	_, _ = b.CreateTrustAnchor(context.Background(), "anchor-2", src, nil)
+	_, _ = b.CreateTrustAnchor(context.Background(), "anchor-1", src, nil, nil)
+	_, _ = b.CreateTrustAnchor(context.Background(), "anchor-2", src, nil, nil)
 
 	all, next, err := b.ListTrustAnchors(context.Background(), "", 0)
 	require.NoError(t, err)
@@ -77,10 +77,12 @@ func TestDeleteTrustAnchor_RemovesEntry(t *testing.T) {
 
 	b := newBackend(t)
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-	ta, err := b.CreateTrustAnchor(context.Background(), "del-anchor", src, nil)
+	ta, err := b.CreateTrustAnchor(context.Background(), "del-anchor", src, nil, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeleteTrustAnchor(context.Background(), ta.TrustAnchorID))
+	deleted, err := b.DeleteTrustAnchor(context.Background(), ta.TrustAnchorID)
+	require.NoError(t, err)
+	assert.Equal(t, ta.TrustAnchorID, deleted.TrustAnchorID)
 
 	_, err = b.GetTrustAnchor(context.Background(), ta.TrustAnchorID)
 	require.Error(t, err)
@@ -91,7 +93,7 @@ func TestUpdateTrustAnchor_ChangesName(t *testing.T) {
 
 	b := newBackend(t)
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-	ta, _ := b.CreateTrustAnchor(context.Background(), "orig-anchor", src, nil)
+	ta, _ := b.CreateTrustAnchor(context.Background(), "orig-anchor", src, nil, nil)
 
 	updated, err := b.UpdateTrustAnchor(context.Background(), ta.TrustAnchorID, "renamed-anchor", nil)
 	require.NoError(t, err)
@@ -103,7 +105,7 @@ func TestEnableDisableTrustAnchor(t *testing.T) {
 
 	b := newBackend(t)
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-	ta, _ := b.CreateTrustAnchor(context.Background(), "toggle-anchor", src, nil)
+	ta, _ := b.CreateTrustAnchor(context.Background(), "toggle-anchor", src, nil, nil)
 	assert.True(t, ta.Enabled)
 
 	disabled, err := b.DisableTrustAnchor(context.Background(), ta.TrustAnchorID)
@@ -173,7 +175,9 @@ func TestDeleteProfile_RemovesEntry(t *testing.T) {
 	p, err := b.CreateProfile(context.Background(), "del-profile", nil, nil, nil, nil, "", false)
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeleteProfile(context.Background(), p.ProfileID))
+	deleted, err := b.DeleteProfile(context.Background(), p.ProfileID)
+	require.NoError(t, err)
+	assert.Equal(t, p.ProfileID, deleted.ProfileID)
 
 	_, err = b.GetProfile(context.Background(), p.ProfileID)
 	require.Error(t, err)
@@ -283,7 +287,7 @@ func TestReset_ClearsState(t *testing.T) {
 
 	b := newBackend(t)
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-	_, _ = b.CreateTrustAnchor(context.Background(), "reset-anchor", src, nil)
+	_, _ = b.CreateTrustAnchor(context.Background(), "reset-anchor", src, nil, nil)
 	_, _ = b.CreateProfile(context.Background(), "reset-profile", nil, nil, nil, nil, "", false)
 
 	b.Reset()

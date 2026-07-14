@@ -135,13 +135,15 @@ type Alias struct {
 
 // CreateKeyInput is the request payload for CreateKey.
 type CreateKeyInput struct {
-	Description string `json:"Description,omitempty"`
-	KeyUsage    string `json:"KeyUsage,omitempty"`
-	KeySpec     string `json:"KeySpec,omitempty"`
-	Origin      string `json:"Origin,omitempty"`
-	Region      string `json:"-"`
-	Tags        []Tag  `json:"Tags,omitempty"`
-	MultiRegion bool   `json:"MultiRegion,omitempty"`
+	Description                    string `json:"Description,omitempty"`
+	KeyUsage                       string `json:"KeyUsage,omitempty"`
+	KeySpec                        string `json:"KeySpec,omitempty"`
+	Origin                         string `json:"Origin,omitempty"`
+	Policy                         string `json:"Policy,omitempty"`
+	Region                         string `json:"-"`
+	Tags                           []Tag  `json:"Tags,omitempty"`
+	MultiRegion                    bool   `json:"MultiRegion,omitempty"`
+	BypassPolicyLockoutSafetyCheck bool   `json:"BypassPolicyLockoutSafetyCheck,omitempty"`
 }
 
 // CreateKeyOutput is the response payload for CreateKey.
@@ -154,6 +156,12 @@ type CreateKeyOutput struct {
 type DescribeKeyInput struct {
 	// KeyId is the key ID or alias to describe.
 	KeyID string `json:"KeyId"`
+	// GrantTokens is an optional list of grant tokens used to make a just-created
+	// grant that permits DescribeKey immediately effective. DescribeKey is a valid
+	// grant operation (see isValidGrantOperation) and the real DescribeKey op
+	// declares InvalidGrantTokenException in its error set, so a supplied token
+	// must resolve to an existing, unexpired grant.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
 }
 
 // DescribeKeyOutput is the response payload for DescribeKey.
@@ -628,8 +636,15 @@ type ReplicateKeyInput struct {
 	KeyID         string `json:"KeyId"`
 	ReplicaRegion string `json:"ReplicaRegion"`
 	Description   string `json:"Description,omitempty"`
+	// Policy is the key policy to attach to the replica. If omitted, KMS
+	// attaches the default key policy (matches CreateKey's Policy field).
+	// The key policy is NOT a shared property of multi-region keys: the
+	// replica gets its own independent policy rather than inheriting the
+	// primary's.
+	Policy string `json:"Policy,omitempty"`
 	// Tags are optional tags to apply to the replica key.
-	Tags []Tag `json:"Tags,omitempty"`
+	Tags                           []Tag `json:"Tags,omitempty"`
+	BypassPolicyLockoutSafetyCheck bool  `json:"BypassPolicyLockoutSafetyCheck,omitempty"`
 }
 
 // ReplicateKeyOutput is the response payload for ReplicateKey.

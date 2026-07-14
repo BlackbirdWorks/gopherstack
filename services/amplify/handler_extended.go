@@ -83,6 +83,7 @@ type domainAssociationView struct {
 
 type jobSummaryView struct {
 	JobID     string  `json:"jobId"`
+	JobARN    string  `json:"jobArn"`
 	CommitID  string  `json:"commitId,omitempty"`
 	CommitMsg string  `json:"commitMessage,omitempty"`
 	Status    string  `json:"status"`
@@ -180,6 +181,7 @@ func toJobSummaryView(j *Job) jobSummaryView {
 	v := jobSummaryView{
 		StartTime: float64(j.StartTime.Unix()),
 		JobID:     j.JobID,
+		JobARN:    j.JobARN,
 		CommitID:  j.CommitID,
 		CommitMsg: j.CommitMsg,
 		Status:    string(j.Status),
@@ -371,7 +373,7 @@ func (h *Handler) routeApps(ctx context.Context, c *echo.Context, segs []string)
 	case pathSegsJobAction:
 		return h.routeJobAction(ctx, c, segs)
 	default:
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
@@ -390,7 +392,7 @@ func (h *Handler) routeAppSub(ctx context.Context, c *echo.Context, segs []strin
 	case subAccessLogs:
 		return h.generateAccessLogs(ctx, c, appID)
 	default:
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
@@ -405,14 +407,14 @@ func (h *Handler) routeAppItem(ctx context.Context, c *echo.Context, segs []stri
 	case subDomains:
 		return h.handleDomainAssociationName(ctx, c, appID, item)
 	default:
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
 // routeAppBranchSub dispatches /apps/{appId}/branches/{branchName}/{sub}.
 func (h *Handler) routeAppBranchSub(ctx context.Context, c *echo.Context, segs []string) error {
 	if segs[2] != arnResourceBranches {
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 
 	appID, branchName, sub := segs[1], segs[3], segs[4]
@@ -422,14 +424,14 @@ func (h *Handler) routeAppBranchSub(ctx context.Context, c *echo.Context, segs [
 	case subDeployments:
 		return h.createDeployment(ctx, c, appID, branchName)
 	default:
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
 // routeAppBranchItem dispatches /apps/{appId}/branches/{branchName}/{sub}/{item}.
 func (h *Handler) routeAppBranchItem(ctx context.Context, c *echo.Context, segs []string) error {
 	if segs[2] != arnResourceBranches {
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 
 	appID, branchName, sub, item := segs[1], segs[3], segs[4], segs[5]
@@ -438,19 +440,19 @@ func (h *Handler) routeAppBranchItem(ctx context.Context, c *echo.Context, segs 
 		return h.handleBranchJobID(ctx, c, appID, branchName, item)
 	case subDeployments:
 		if item != subStart {
-			return c.JSON(http.StatusNotFound, amplifyError("not found"))
+			return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 		}
 
 		return h.startDeployment(ctx, c, appID, branchName)
 	default:
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
 // routeJobAction dispatches /apps/{appId}/branches/{branchName}/jobs/{jobId}/{action}.
 func (h *Handler) routeJobAction(ctx context.Context, c *echo.Context, segs []string) error {
 	if segs[2] != arnResourceBranches || segs[4] != subJobs {
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 
 	appID, branchName, jobID, action := segs[1], segs[3], segs[5], segs[6]
@@ -460,7 +462,7 @@ func (h *Handler) routeJobAction(ctx context.Context, c *echo.Context, segs []st
 	case subArtifactsRoot:
 		return h.listArtifacts(ctx, c, appID, branchName, jobID)
 	default:
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
@@ -468,7 +470,7 @@ func (h *Handler) routeJobAction(ctx context.Context, c *echo.Context, segs []st
 func (h *Handler) routeWebhooks(ctx context.Context, c *echo.Context, segs []string) error {
 	const webhookIDSegs = 2
 	if len(segs) != webhookIDSegs {
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 
 	return h.handleWebhookID(ctx, c, segs[1])
@@ -478,7 +480,7 @@ func (h *Handler) routeWebhooks(ctx context.Context, c *echo.Context, segs []str
 func (h *Handler) routeArtifacts(ctx context.Context, c *echo.Context, segs []string) error {
 	const artifactIDSegs = 2
 	if len(segs) != artifactIDSegs {
-		return c.JSON(http.StatusNotFound, amplifyError("not found"))
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 
 	return h.getArtifactURL(ctx, c, segs[1])
@@ -494,7 +496,7 @@ func (h *Handler) handleAppWebhooks(ctx context.Context, c *echo.Context, appID 
 	case http.MethodGet:
 		return h.listWebhooks(ctx, c, appID)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -508,7 +510,7 @@ func (h *Handler) handleWebhookID(ctx context.Context, c *echo.Context, webhookI
 	case http.MethodDelete:
 		return h.deleteWebhook(ctx, c, webhookID)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -520,7 +522,7 @@ func (h *Handler) handleBackendEnvironments(ctx context.Context, c *echo.Context
 	case http.MethodGet:
 		return h.listBackendEnvironments(ctx, c, appID)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -536,7 +538,7 @@ func (h *Handler) handleBackendEnvironmentName(
 	case http.MethodDelete:
 		return h.deleteBackendEnvironment(ctx, c, appID, environmentName)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -548,7 +550,7 @@ func (h *Handler) handleDomainAssociations(ctx context.Context, c *echo.Context,
 	case http.MethodGet:
 		return h.listDomainAssociations(ctx, c, appID)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -566,7 +568,7 @@ func (h *Handler) handleDomainAssociationName(
 	case http.MethodPost:
 		return h.updateDomainAssociation(ctx, c, appID, domainName)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -578,7 +580,7 @@ func (h *Handler) handleBranchJobs(ctx context.Context, c *echo.Context, appID, 
 	case http.MethodGet:
 		return h.listJobs(ctx, c, appID, branchName)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -594,7 +596,7 @@ func (h *Handler) handleBranchJobID(
 	case http.MethodDelete:
 		return h.deleteJob(ctx, c, appID, branchName, jobID)
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -604,7 +606,7 @@ func (h *Handler) handleBranchJobID(
 func (h *Handler) updateApp(ctx context.Context, c *echo.Context, appID string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -615,7 +617,7 @@ func (h *Handler) updateApp(ctx context.Context, c *echo.Context, appID string) 
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	app, updateErr := h.Backend.UpdateApp(appID, input.Name, input.Description, input.Repository, input.Platform)
@@ -630,7 +632,7 @@ func (h *Handler) updateApp(ctx context.Context, c *echo.Context, appID string) 
 func (h *Handler) updateBranch(ctx context.Context, c *echo.Context, appID, branchName string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -640,7 +642,7 @@ func (h *Handler) updateBranch(ctx context.Context, c *echo.Context, appID, bran
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	branch, updateErr := h.Backend.UpdateBranch(
@@ -659,7 +661,7 @@ func (h *Handler) updateBranch(ctx context.Context, c *echo.Context, appID, bran
 func (h *Handler) createWebhook(ctx context.Context, c *echo.Context, appID string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -668,7 +670,7 @@ func (h *Handler) createWebhook(ctx context.Context, c *echo.Context, appID stri
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	wh, createErr := h.Backend.CreateWebhook(appID, input.BranchName, input.Description)
@@ -718,7 +720,7 @@ func (h *Handler) getWebhook(ctx context.Context, c *echo.Context, webhookID str
 func (h *Handler) updateWebhook(ctx context.Context, c *echo.Context, webhookID string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -727,7 +729,7 @@ func (h *Handler) updateWebhook(ctx context.Context, c *echo.Context, webhookID 
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	wh, updateErr := h.Backend.UpdateWebhook(webhookID, input.BranchName, input.Description)
@@ -754,7 +756,7 @@ func (h *Handler) deleteWebhook(ctx context.Context, c *echo.Context, webhookID 
 func (h *Handler) createBackendEnvironment(ctx context.Context, c *echo.Context, appID string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -764,7 +766,7 @@ func (h *Handler) createBackendEnvironment(ctx context.Context, c *echo.Context,
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	be, createErr := h.Backend.CreateBackendEnvironment(
@@ -836,7 +838,7 @@ func (h *Handler) deleteBackendEnvironment(
 func (h *Handler) createDomainAssociation(ctx context.Context, c *echo.Context, appID string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -846,7 +848,7 @@ func (h *Handler) createDomainAssociation(ctx context.Context, c *echo.Context, 
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	domain, createErr := h.Backend.CreateDomainAssociation(
@@ -920,7 +922,7 @@ func (h *Handler) updateDomainAssociation(
 ) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -929,7 +931,7 @@ func (h *Handler) updateDomainAssociation(
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	domain, updateErr := h.Backend.UpdateDomainAssociation(
@@ -948,7 +950,7 @@ func (h *Handler) updateDomainAssociation(
 func (h *Handler) startJob(ctx context.Context, c *echo.Context, appID, branchName string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -958,7 +960,7 @@ func (h *Handler) startJob(ctx context.Context, c *echo.Context, appID, branchNa
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	job, startErr := h.Backend.StartJob(appID, branchName, input.JobType, input.CommitID, input.CommitMsg)
@@ -1034,7 +1036,7 @@ func (h *Handler) stopJob(ctx context.Context, c *echo.Context, appID, branchNam
 // createDeployment handles POST /apps/{appId}/branches/{branchName}/deployments.
 func (h *Handler) createDeployment(ctx context.Context, c *echo.Context, appID, branchName string) error {
 	if c.Request().Method != http.MethodPost {
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 
 	jobID, zipUploadURL, err := h.Backend.CreateDeployment(appID, branchName)
@@ -1052,12 +1054,12 @@ func (h *Handler) createDeployment(ctx context.Context, c *echo.Context, appID, 
 // startDeployment handles POST /apps/{appId}/branches/{branchName}/deployments/start.
 func (h *Handler) startDeployment(ctx context.Context, c *echo.Context, appID, branchName string) error {
 	if c.Request().Method != http.MethodPost {
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -1066,7 +1068,7 @@ func (h *Handler) startDeployment(ctx context.Context, c *echo.Context, appID, b
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	job, startErr := h.Backend.StartDeployment(appID, branchName, input.JobID, input.SourceURL)
@@ -1082,12 +1084,12 @@ func (h *Handler) startDeployment(ctx context.Context, c *echo.Context, appID, b
 // generateAccessLogs handles POST /apps/{appId}/accesslogs.
 func (h *Handler) generateAccessLogs(ctx context.Context, c *echo.Context, appID string) error {
 	if c.Request().Method != http.MethodPost {
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, amplifyError(err.Error()))
+		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
 	}
 
 	var input struct {
@@ -1097,7 +1099,7 @@ func (h *Handler) generateAccessLogs(ctx context.Context, c *echo.Context, appID
 	}
 
 	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, amplifyError("invalid request body"))
+		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 
 	logURL, logErr := h.Backend.GenerateAccessLogs(appID, input.DomainName, input.StartTime, input.EndTime)
@@ -1113,7 +1115,7 @@ func (h *Handler) generateAccessLogs(ctx context.Context, c *echo.Context, appID
 // getArtifactURL handles GET /artifacts/{artifactId}.
 func (h *Handler) getArtifactURL(ctx context.Context, c *echo.Context, artifactID string) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 
 	id, artifactURL, err := h.Backend.GetArtifactURL(artifactID)
@@ -1130,7 +1132,7 @@ func (h *Handler) getArtifactURL(ctx context.Context, c *echo.Context, artifactI
 // listArtifacts handles GET /apps/{appId}/branches/{branchName}/jobs/{jobId}/artifacts.
 func (h *Handler) listArtifacts(ctx context.Context, c *echo.Context, appID, branchName, jobID string) error {
 	if c.Request().Method != http.MethodGet {
-		return c.JSON(http.StatusMethodNotAllowed, amplifyError("method not allowed"))
+		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
 	}
 
 	q := c.Request().URL.Query()

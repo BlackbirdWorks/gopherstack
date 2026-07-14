@@ -156,17 +156,15 @@ func TestAccuracy_CountTokens_ReflectsInputLength(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	shortBody := map[string]any{"prompt": "Hi"}
-	longBody := map[string]any{
-		"messages": []map[string]any{
-			{"role": "user", "content": []map[string]any{
-				{
-					"text": "This is a long prompt with enough words" +
-						" to produce a meaningful token count approximation.",
-				},
-			}},
-		},
-	}
+	shortBody := countTokensInvokeModelBody(`{"prompt":"Hi"}`)
+	longBody := countTokensConverseBody([]map[string]any{
+		{"role": "user", "content": []map[string]any{
+			{
+				"text": "This is a long prompt with enough words" +
+					" to produce a meaningful token count approximation.",
+			},
+		}},
+	})
 
 	recShort := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/count-tokens", shortBody)
 	recLong := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/count-tokens", longBody)
@@ -190,9 +188,9 @@ func TestAccuracy_CountTokens_TitanUsesLargerDivisor(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Same body, different models — Titan uses ~6 chars/token vs ~4 for others.
-	body := map[string]any{
-		"inputText": "This is a moderately long prompt that should produce different token counts across model families.",
-	}
+	body := countTokensInvokeModelBody(
+		`{"inputText":"This is a moderately long prompt that should produce different token counts across model families."}`,
+	)
 
 	recClaude := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/count-tokens", body)
 	recTitan := doRequest(t, h, http.MethodPost, "/model/amazon.titan-text-express-v1/count-tokens", body)

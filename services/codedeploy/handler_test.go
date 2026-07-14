@@ -1838,3 +1838,125 @@ func TestRefinement1_UntagDeploymentGroup(t *testing.T) {
 	assert.NotContains(t, kv, "team")
 	assert.Contains(t, kv, "env")
 }
+
+// TestHandler_OnPremisesInstanceNotFound_ErrorMapping verifies that a
+// not-found on-premises instance lookup surfaces as a 404
+// InstanceDoesNotExistException, not a fallback 500 ServiceException.
+// ErrOnPremisesInstanceNotFound previously had no errorMappings entry, so it
+// fell through to the generic 500 branch regardless of its sentinel code.
+func TestHandler_OnPremisesInstanceNotFound_ErrorMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input  map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "GetOnPremisesInstance",
+			action: "GetOnPremisesInstance",
+			input:  map[string]any{"instanceName": "no-such-instance"},
+		},
+		{
+			name:   "DeregisterOnPremisesInstance",
+			action: "DeregisterOnPremisesInstance",
+			input:  map[string]any{"instanceName": "no-such-instance"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.input)
+			require.Equal(t, http.StatusNotFound, rec.Code)
+
+			var resp map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, "InstanceDoesNotExistException", resp["__type"])
+		})
+	}
+}
+
+// TestHandler_DeploymentScopedOps_DeploymentNotFound verifies that
+// SkipWaitTimeForInstanceTermination and PutLifecycleEventHookExecutionStatus
+// validate the deploymentId against the backend like their sibling
+// deployment-scoped ops (GetDeploymentInstance, ListDeploymentTargets, etc.)
+// instead of unconditionally succeeding for an unknown deployment.
+func TestHandler_DeploymentScopedOps_DeploymentNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input  map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "SkipWaitTimeForInstanceTermination",
+			action: "SkipWaitTimeForInstanceTermination",
+			input:  map[string]any{"deploymentId": "d-NOTFOUND1"},
+		},
+		{
+			name:   "PutLifecycleEventHookExecutionStatus",
+			action: "PutLifecycleEventHookExecutionStatus",
+			input: map[string]any{
+				"deploymentId":                  "d-NOTFOUND1",
+				"lifecycleEventHookExecutionId": "hook-1",
+				"status":                        "Succeeded",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.input)
+			require.Equal(t, http.StatusNotFound, rec.Code)
+
+			var resp map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, "DeploymentDoesNotExistException", resp["__type"])
+		})
+	}
+}
+
+// TestHandler_DeploymentScopedOps_DeploymentFound verifies the happy path
+// still succeeds once the deployment exists, guarding against an
+// over-eager existence check breaking the normal flow.
+func TestHandler_DeploymentScopedOps_DeploymentFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createAppAndDG(t, h, "hook-app", "hook-dg")
+
+	createRec := doRequest(t, h, "CreateDeployment", map[string]any{
+		"applicationName":     "hook-app",
+		"deploymentGroupName": "hook-dg",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut map[string]string
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	deployID := createOut["deploymentId"]
+
+	skipRec := doRequest(t, h, "SkipWaitTimeForInstanceTermination", map[string]any{
+		"deploymentId": deployID,
+	})
+	assert.Equal(t, http.StatusOK, skipRec.Code)
+
+	hookRec := doRequest(t, h, "PutLifecycleEventHookExecutionStatus", map[string]any{
+		"deploymentId":                  deployID,
+		"lifecycleEventHookExecutionId": "hook-1",
+		"status":                        "Succeeded",
+	})
+	require.Equal(t, http.StatusOK, hookRec.Code)
+
+	var hookOut struct {
+		LifecycleEventHookExecutionID string `json:"lifecycleEventHookExecutionId"`
+	}
+	require.NoError(t, json.Unmarshal(hookRec.Body.Bytes(), &hookOut))
+	assert.Equal(t, "hook-1", hookOut.LifecycleEventHookExecutionID)
+}

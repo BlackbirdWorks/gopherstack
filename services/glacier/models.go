@@ -43,21 +43,34 @@ type Job struct {
 	// promoted to Succeeded. It is internal state and never serialized.
 	readyAt time.Time
 
-	VaultARN           string `json:"vaultARN"`
-	VaultName          string `json:"vaultName"`
-	JobID              string `json:"jobID"`
-	JobDescription     string `json:"jobDescription,omitempty"`
-	Action             string `json:"action"`
-	ArchiveID          string `json:"archiveID,omitempty"`
+	VaultARN       string `json:"vaultARN"`
+	VaultName      string `json:"vaultName"`
+	JobID          string `json:"jobID"`
+	JobDescription string `json:"jobDescription,omitempty"`
+	Action         string `json:"action"`
+	ArchiveID      string `json:"archiveID,omitempty"`
+	// ArchiveDescription is the description of the archive being retrieved, copied
+	// from the Archive at InitiateJob time. It is not part of the DescribeJob wire
+	// response (AWS has no such field there); it exists solely so GetJobOutput can
+	// echo it back via the X-Amz-Archive-Description response header, matching
+	// real Glacier's GetJobOutputOutput.ArchiveDescription.
+	ArchiveDescription string `json:"archiveDescription,omitempty"`
 	InventoryFormat    string `json:"inventoryFormat,omitempty"`
 	StatusCode         string `json:"statusCode"`
 	StatusMessage      string `json:"statusMessage,omitempty"`
 	CreationDate       string `json:"creationDate"`
 	CompletionDate     string `json:"completionDate,omitempty"`
 	Tier               string `json:"tier,omitempty"`
-	SHA256TreeHash     string `json:"sha256TreeHash,omitempty"`
-	SNSTopic           string `json:"snsTopic,omitempty"`
-	RetrievalByteRange string `json:"retrievalByteRange,omitempty"`
+	// SHA256TreeHash is the tree hash of the *retrieved range*; per AWS it is only
+	// populated once the job has Completed (null while InProgress). For whole-archive
+	// retrievals it equals ArchiveSHA256TreeHash.
+	SHA256TreeHash string `json:"sha256TreeHash,omitempty"`
+	// ArchiveSHA256TreeHash is the tree hash of the entire archive, present as soon
+	// as the archive-retrieval job is created (it is archive metadata, not
+	// job-completion-dependent) -- distinct from SHA256TreeHash on the real wire.
+	ArchiveSHA256TreeHash string `json:"archiveSHA256TreeHash,omitempty"`
+	SNSTopic              string `json:"snsTopic,omitempty"`
+	RetrievalByteRange    string `json:"retrievalByteRange,omitempty"`
 
 	ArchiveSizeInBytes   int64 `json:"archiveSizeInBytes,omitempty"`
 	InventorySizeInBytes int64 `json:"inventorySizeInBytes,omitempty"`
@@ -142,9 +155,13 @@ type describeJobResponse struct {
 	InventoryFormat      string `json:"Format,omitempty"`
 	Tier                 string `json:"Tier,omitempty"`
 	SHA256TreeHash       string `json:"SHA256TreeHash,omitempty"`
-	SNSTopic             string `json:"SNSTopic,omitempty"`
-	RetrievalByteRange   string `json:"RetrievalByteRange,omitempty"`
-	Completed            bool   `json:"Completed"`
+	// ArchiveSHA256TreeHash is a distinct wire field from SHA256TreeHash: it carries
+	// the checksum of the entire archive (always present for a completed archive
+	// retrieval job), whereas SHA256TreeHash is the checksum of the retrieved range.
+	ArchiveSHA256TreeHash string `json:"ArchiveSHA256TreeHash,omitempty"`
+	SNSTopic              string `json:"SNSTopic,omitempty"`
+	RetrievalByteRange    string `json:"RetrievalByteRange,omitempty"`
+	Completed             bool   `json:"Completed"`
 }
 
 // listJobsResponse is the response body for ListJobs.

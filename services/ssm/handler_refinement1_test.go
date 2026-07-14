@@ -44,7 +44,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := ssm.NewHandler(ssm.NewInMemoryBackend())
-	assert.Len(t, h.GetSupportedOperations(), 146)
+	assert.Len(t, h.GetSupportedOperations(), 152)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.

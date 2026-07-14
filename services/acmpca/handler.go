@@ -2,6 +2,7 @@ package acmpca
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -286,6 +287,7 @@ type certAuthorityOutput struct {
 	CreatedAt                         int64                  `json:"CreatedAt"`
 	NotBefore                         int64                  `json:"NotBefore,omitempty"`
 	NotAfter                          int64                  `json:"NotAfter,omitempty"`
+	RestorableUntil                   int64                  `json:"RestorableUntil,omitempty"`
 }
 
 type describeCertificateAuthorityOutput struct {
@@ -676,13 +678,23 @@ func (h *Handler) jsonImportCACert(ctx context.Context, body []byte) (any, error
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.ImportCertificateAuthorityCertificate(
+	certPEM, err := decodeBase64Field(input.Certificate, "Certificate")
+	if err != nil {
+		return nil, err
+	}
+
+	chainPEM, err := decodeBase64Field(input.CertificateChain, "CertificateChain")
+	if err != nil {
+		return nil, err
+	}
+
+	if importErr := h.Backend.ImportCertificateAuthorityCertificate(
 		ctx,
 		input.CertificateAuthorityArn,
-		input.Certificate,
-		input.CertificateChain,
-	); err != nil {
-		return nil, err
+		certPEM,
+		chainPEM,
+	); importErr != nil {
+		return nil, importErr
 	}
 
 	return &importCertificateAuthorityCertificateOutput{}, nil
@@ -708,6 +720,11 @@ func (h *Handler) jsonIssueCert(ctx context.Context, body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
+	csrPEM, err := decodeBase64Field(input.Csr, "Csr")
+	if err != nil {
+		return nil, err
+	}
+
 	var days int
 	switch input.Validity.Type {
 	case "YEARS":
@@ -727,7 +744,7 @@ func (h *Handler) jsonIssueCert(ctx context.Context, body []byte) (any, error) {
 			ErrInvalidParameter, input.Validity.Type)
 	}
 
-	cert, err := h.Backend.IssueCertificate(ctx, input.CertificateAuthorityArn, input.Csr, days)
+	cert, err := h.Backend.IssueCertificate(ctx, input.CertificateAuthorityArn, csrPEM, days)
 	if err != nil {
 		return nil, err
 	}
@@ -1017,6 +1034,8 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "InvalidParameterException"
 	case errors.Is(opErr, ErrInvalidState):
 		code = "InvalidStateException"
+	case errors.Is(opErr, ErrPermissionAlreadyExists):
+		code = "PermissionAlreadyExistsException"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
@@ -1065,11 +1084,36 @@ func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 		out.NotAfter = ca.NotAfter.Unix()
 	}
 
+	if !ca.RestorableUntil.IsZero() {
+		out.RestorableUntil = ca.RestorableUntil.Unix()
+	}
+
 	return out
 }
 
 func copyStringSlice(values []string) []string {
 	return append([]string(nil), values...)
+}
+
+// decodeBase64Field decodes a base64-encoded blob field. aws-sdk-go-v2 declares
+// Csr (IssueCertificate) and Certificate/CertificateChain
+// (ImportCertificateAuthorityCertificate) as Go []byte, which the awsjson1.1
+// serializer base64-encodes on the wire (see serializers.go
+// awsAwsjson11_serializeOpDocumentIssueCertificateInput /
+// ...ImportCertificateAuthorityCertificateInput: both call Base64EncodeBytes).
+// Using the JSON string as-is here would hand raw base64 text to pem.Decode and
+// always fail for real SDK clients.
+func decodeBase64Field(encoded, fieldName string) (string, error) {
+	if encoded == "" {
+		return "", nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s must be base64-encoded: %w", ErrInvalidParameter, fieldName, err)
+	}
+
+	return string(decoded), nil
 }
 
 // extractFirstResourceByKeys returns the first string resource found for the provided JSON field names.

@@ -25,6 +25,34 @@ func newTestHandler(t *testing.T) *bedrockruntime.Handler {
 	return bedrockruntime.NewHandler(bedrockruntime.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
+// countTokensInvokeModelBody builds a real CountTokens request body wrapping
+// modelBody (a model-specific InvokeModel-style payload, e.g. `{"prompt":"hi"}`)
+// as the "input.invokeModel.body" blob member. encoding/json base64-encodes
+// the []byte value automatically, matching the wire shape produced by
+// aws-sdk-go-v2's awsRestjson1_serializeDocumentInvokeModelTokensRequest.
+func countTokensInvokeModelBody(modelBody string) map[string]any {
+	return map[string]any{
+		"input": map[string]any{
+			"invokeModel": map[string]any{
+				"body": []byte(modelBody),
+			},
+		},
+	}
+}
+
+// countTokensConverseBody builds a real CountTokens request body wrapping
+// messages as the "input.converse.messages" member, matching
+// awsRestjson1_serializeDocumentConverseTokensRequest.
+func countTokensConverseBody(messages []map[string]any) map[string]any {
+	return map[string]any{
+		"input": map[string]any{
+			"converse": map[string]any{
+				"messages": messages,
+			},
+		},
+	}
+}
+
 func doRequest(
 	t *testing.T,
 	h *bedrockruntime.Handler,
@@ -204,6 +232,26 @@ func TestHandler_ExtractResource(t *testing.T) {
 			name:      "titan model id",
 			path:      "/model/amazon.titan-text-express-v1/converse",
 			wantModel: "amazon.titan-text-express-v1",
+		},
+		{
+			// Inference-profile / custom-model ARNs contain an embedded '/'
+			// (percent-encoded as %2F on the wire, decoded back to a literal
+			// '/' by net/http). Naively cutting the modelId at the first '/'
+			// after "/model/" truncates it and loses the model family
+			// suffix -- verify the full ARN is recovered by bounding on the
+			// known "/invoke" suffix instead.
+			name: "ARN model id with embedded slash on invoke",
+			path: "/model/arn:aws:bedrock:us-east-1:111122223333:inference-profile/" +
+				"us.anthropic.claude-3-sonnet-20240229-v1:0/invoke",
+			wantModel: "arn:aws:bedrock:us-east-1:111122223333:inference-profile/" +
+				"us.anthropic.claude-3-sonnet-20240229-v1:0",
+		},
+		{
+			name: "ARN model id with embedded slash on converse",
+			path: "/model/arn:aws:bedrock:us-east-1:111122223333:inference-profile/" +
+				"us.anthropic.claude-3-sonnet-20240229-v1:0/converse",
+			wantModel: "arn:aws:bedrock:us-east-1:111122223333:inference-profile/" +
+				"us.anthropic.claude-3-sonnet-20240229-v1:0",
 		},
 	}
 
@@ -487,12 +535,12 @@ func TestHandler_CountTokens(t *testing.T) {
 		{
 			name:    "counts tokens for claude",
 			modelID: "anthropic.claude-v2",
-			body:    map[string]any{"prompt": "Hello, how are you?"},
+			body:    countTokensInvokeModelBody(`{"prompt":"Hello, how are you?"}`),
 		},
 		{
 			name:    "counts tokens for titan",
 			modelID: "amazon.titan-text-express-v1",
-			body:    map[string]any{"inputText": "Count these tokens"},
+			body:    countTokensInvokeModelBody(`{"inputText":"Count these tokens"}`),
 		},
 	}
 
@@ -513,6 +561,54 @@ func TestHandler_CountTokens(t *testing.T) {
 			require.Len(t, invocations, 1)
 			assert.Equal(t, "CountTokens", invocations[0].Operation)
 			assert.Equal(t, tt.modelID, invocations[0].ModelID)
+		})
+	}
+}
+
+// TestHandler_CountTokens_WireShape verifies the real CountTokens request
+// wire shape is actually parsed: {"input":{"invokeModel":{"body":"<base64>"}}}
+// or {"input":{"converse":{"messages":[...]}}} -- NOT a top-level
+// "prompt"/"messages" field (which never existed on this operation's real
+// request; see aws-sdk-go-v2's awsRestjson1_serializeDocumentCountTokensInput).
+// If the handler fell back to counting the raw JSON envelope's byte length
+// (the pre-fix behavior when the expected fields were never found), these
+// exact expected counts would be far larger than the values asserted here.
+func TestHandler_CountTokens_WireShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantTokens float64
+	}{
+		{
+			// `{"prompt":"hi"}` is 15 bytes -> max(1, 15/4) = 3.
+			name:       "invokeModel body is decoded and measured, not the envelope",
+			body:       countTokensInvokeModelBody(`{"prompt":"hi"}`),
+			wantTokens: 3,
+		},
+		{
+			// "hello" is 5 chars -> max(1, 5/4) = 1.
+			name: "converse messages text is measured, not the envelope",
+			body: countTokensConverseBody([]map[string]any{
+				{"role": "user", "content": []map[string]any{{"text": "hello"}}},
+			}),
+			wantTokens: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/model/anthropic.claude-v2/count-tokens", tt.body)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.InDelta(t, tt.wantTokens, out["inputTokens"], 0)
 		})
 	}
 }

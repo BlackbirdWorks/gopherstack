@@ -196,7 +196,7 @@ func parseDatasourcesPath(method string, parts []string) (string, string) {
 		}
 	case 3: //nolint:mnd // existing issue.
 		if parts[1] == "s3" && parts[2] == "statistics" && //nolint:goconst // existing issue.
-			method == http.MethodGet {
+			method == http.MethodPost {
 			return opGetBucketStatistics, ""
 		}
 	}
@@ -322,7 +322,7 @@ func parseTemplatesPath(method string, parts []string) (string, string) {
 		switch method {
 		case http.MethodGet:
 			return opGetSensitivityInspectionTemplate, parts[2]
-		case http.MethodPatch:
+		case http.MethodPut:
 			return opUpdateSensitivityInspectionTemplate, parts[2]
 		}
 	}
@@ -467,7 +467,7 @@ func (h *Handler) dispatchAdminOps(
 		return nil, code, true, err
 
 	case opDisableOrganizationAdminAccount:
-		accountID := extractQueryParam(query, "accountId")
+		accountID := extractQueryParam(query, "adminAccountId")
 		code, err := h.handleDisableOrganizationAdminAccount(accountID)
 
 		return nil, code, true, err
@@ -517,7 +517,7 @@ func (h *Handler) dispatchAutomatedDiscoveryOps(op string, body []byte) (any, in
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchBucketOps(op, query string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchBucketOps(op string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opDescribeBuckets:
 		result, code, err := h.handleDescribeBuckets(body)
@@ -525,8 +525,7 @@ func (h *Handler) dispatchBucketOps(op, query string, body []byte) (any, int, bo
 		return result, code, true, err
 
 	case opGetBucketStatistics:
-		accountID := extractQueryParam(query, "accountId")
-		result, code, err := h.handleGetBucketStatistics(accountID)
+		result, code, err := h.handleGetBucketStatistics(body)
 
 		return result, code, true, err
 
@@ -668,8 +667,8 @@ func (h *Handler) dispatchUsageOps(op, query string, body []byte) (any, int, boo
 		return result, code, true, err
 
 	case opGetUsageTotals:
-		currencyCode := extractQueryParam(query, "currencyCode")
-		result, code, err := h.handleGetUsageTotals(currencyCode)
+		timeRange := extractQueryParam(query, "timeRange")
+		result, code, err := h.handleGetUsageTotals(timeRange)
 
 		return result, code, true, err
 
@@ -715,7 +714,7 @@ func (h *Handler) handleCreateClassificationJob(body []byte) (any, int, error) {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	id, err := h.Backend.CreateClassificationJob(
+	id, jobArn, err := h.Backend.CreateClassificationJob(
 		req.Name, req.Description, req.JobType, req.ClientToken,
 		req.S3JobDefinition, req.ScheduleFrequency, req.Tags,
 		req.SamplingPercentage, req.InitialRun,
@@ -724,7 +723,7 @@ func (h *Handler) handleCreateClassificationJob(body []byte) (any, int, error) {
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]string{"jobId": id, "jobStatus": "RUNNING"}, http.StatusOK, nil
+	return map[string]string{"jobArn": jobArn, "jobId": id, "jobStatus": "RUNNING"}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDescribeClassificationJob(jobID string) (any, int, error) {
@@ -1145,8 +1144,18 @@ func (h *Handler) handleDescribeBuckets(body []byte) (any, int, error) {
 	return map[string]any{"buckets": buckets}, http.StatusOK, nil
 }
 
-func (h *Handler) handleGetBucketStatistics(accountID string) (any, int, error) {
-	stats, err := h.Backend.GetBucketStatistics(accountID)
+func (h *Handler) handleGetBucketStatistics(body []byte) (any, int, error) {
+	var req struct {
+		AccountID string `json:"accountId"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, http.StatusBadRequest, ErrValidation
+		}
+	}
+
+	stats, err := h.Backend.GetBucketStatistics(req.AccountID)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
@@ -1168,7 +1177,25 @@ func (h *Handler) handleBatchGetCustomDataIdentifiers(body []byte) (any, int, er
 		return nil, http.StatusInternalServerError, err
 	}
 
-	return map[string]any{"items": items}, http.StatusOK, nil
+	found := make(map[string]bool, len(items))
+	for _, item := range items {
+		found[item.ID] = true
+	}
+
+	notFound := make([]string, 0)
+
+	for _, id := range req.IDs {
+		if !found[id] {
+			notFound = append(notFound, id)
+		}
+	}
+
+	resp := map[string]any{"customDataIdentifiers": items}
+	if len(notFound) > 0 {
+		resp["notFoundIdentifierIds"] = notFound
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleGetClassificationExportConfiguration() (any, int, error) {
@@ -1458,8 +1485,8 @@ func (h *Handler) handleGetUsageStatistics(body []byte) (any, int, error) {
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleGetUsageTotals(currencyCode string) (any, int, error) {
-	totals, err := h.Backend.GetUsageTotals(currencyCode)
+func (h *Handler) handleGetUsageTotals(timeRange string) (any, int, error) {
+	totals, err := h.Backend.GetUsageTotals(timeRange)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err
 	}

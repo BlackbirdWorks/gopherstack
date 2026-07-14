@@ -51,9 +51,15 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 	return defaultRegion
 }
 
-// isValidStorageClass reports whether sc is a known MediaStore Data storage class.
+// isValidStorageClass reports whether sc is a known MediaStore Data storage
+// class. Real AWS Elemental MediaStore Data has exactly one StorageClass
+// value ("TEMPORAL" -- see aws-sdk-go-v2/service/mediastoredata/types.
+// StorageClass, whose only enum member is StorageClassTemporal). "STANDARD"
+// is NOT a storage class: it is a value of the unrelated
+// x-amz-upload-availability header (UploadAvailability), and must not be
+// accepted here.
 func isValidStorageClass(sc string) bool {
-	return sc == "TEMPORAL" || sc == "STANDARD"
+	return sc == "TEMPORAL"
 }
 
 // Object represents a stored media object.

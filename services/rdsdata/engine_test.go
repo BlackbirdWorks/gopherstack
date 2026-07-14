@@ -244,6 +244,50 @@ func TestEngine_ResetClearsTables(t *testing.T) {
 	assert.Empty(t, records)
 }
 
+// TestEngine_ColumnMetadata_TypeAffinity verifies that ColumnMetadata.Type,
+// IsSigned, and IsCaseSensitive are derived from each column's declared
+// SQLite type affinity (see sqliteAffinity), not left at zero values.
+func TestEngine_ColumnMetadata_TypeAffinity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		wantType      int32
+		wantSigned    bool
+		wantCaseSense bool
+		wantNullable  int32
+	}{
+		{name: "n INTEGER", wantType: 4, wantSigned: true, wantNullable: 1},
+		{name: "s TEXT", wantType: 12, wantCaseSense: true, wantNullable: 1},
+		{name: "d REAL", wantType: 8, wantSigned: true, wantNullable: 1},
+		{name: "m NUMERIC", wantType: 3, wantSigned: true, wantNullable: 1},
+		{name: "b BLOB", wantType: 2004, wantNullable: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newEngineBackend()
+			ctx := context.Background()
+			arn := "arn:aws:rds:us-east-1:000000000000:cluster:coltype-" + tt.name
+
+			_, _, _, err := b.ExecuteStatement(ctx, arn, "CREATE TABLE t ("+tt.name+")", "")
+			require.NoError(t, err)
+
+			_, columns, _, err := b.ExecuteStatement(ctx, arn, "SELECT * FROM t", "")
+			require.NoError(t, err)
+			require.Len(t, columns, 1)
+
+			col := columns[0]
+			assert.Equal(t, tt.wantType, col.Type, "Type")
+			assert.Equal(t, tt.wantSigned, col.IsSigned, "IsSigned")
+			assert.Equal(t, tt.wantCaseSense, col.IsCaseSensitive, "IsCaseSensitive")
+			assert.Equal(t, tt.wantNullable, col.Nullable, "Nullable")
+		})
+	}
+}
+
 // TestEngine_ExecuteSQLUpdatesCount verifies the deprecated ExecuteSql path
 // reports the real update count.
 func TestEngine_ExecuteSQLUpdatesCount(t *testing.T) {

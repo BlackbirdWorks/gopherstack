@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 const (
@@ -448,6 +449,7 @@ func (h *Handler) handleModifyClusterSnapshot(vals url.Values) (any, error) {
 type xmlClusterCredentials struct {
 	DBUser     string `xml:"DbUser"`
 	DBPassword string `xml:"DbPassword"`
+	Expiration string `xml:"Expiration,omitempty"`
 }
 
 type getClusterCredentialsResponse struct {
@@ -471,6 +473,7 @@ func (h *Handler) handleGetClusterCredentials(vals url.Values) (any, error) {
 		Result: xmlClusterCredentials{
 			DBUser:     creds.DBUser,
 			DBPassword: creds.DBPassword,
+			Expiration: creds.Expiration.UTC().Format(time.RFC3339),
 		},
 	}, nil
 }

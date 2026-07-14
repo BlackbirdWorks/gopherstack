@@ -45,6 +45,7 @@ type stageSnapshot struct {
 	Description          string                   `json:"description,omitempty"`
 	ClientCertificateID  string                   `json:"clientCertificateId,omitempty"`
 	AutoDeploy           bool                     `json:"autoDeploy"`
+	APIGatewayManaged    bool                     `json:"apiGatewayManaged"`
 }
 
 func stageSnapshotKey(v *stageSnapshot) string { return stageKey(v.APIID, v.StageName) }
@@ -64,6 +65,7 @@ func toStageSnapshot(v *Stage) *stageSnapshot {
 		Description:          v.Description,
 		ClientCertificateID:  v.ClientCertificateID,
 		AutoDeploy:           v.AutoDeploy,
+		APIGatewayManaged:    v.APIGatewayManaged,
 	}
 }
 
@@ -82,6 +84,7 @@ func fromStageSnapshot(v *stageSnapshot) *Stage {
 		Description:          v.Description,
 		ClientCertificateID:  v.ClientCertificateID,
 		AutoDeploy:           v.AutoDeploy,
+		APIGatewayManaged:    v.APIGatewayManaged,
 	}
 }
 
@@ -98,6 +101,7 @@ type routeSnapshot struct {
 	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
 	AuthorizationScopes      []string                          `json:"authorizationScopes"`
 	APIKeyRequired           bool                              `json:"apiKeyRequired"`
+	APIGatewayManaged        bool                              `json:"apiGatewayManaged"`
 }
 
 func routeSnapshotKey(v *routeSnapshot) string { return routeKey(v.APIID, v.RouteID) }
@@ -116,6 +120,7 @@ func toRouteSnapshot(v *Route) *routeSnapshot {
 		ModelSelectionExpression: v.ModelSelectionExpression,
 		AuthorizationScopes:      v.AuthorizationScopes,
 		APIKeyRequired:           v.APIKeyRequired,
+		APIGatewayManaged:        v.APIGatewayManaged,
 	}
 }
 
@@ -133,6 +138,7 @@ func fromRouteSnapshot(v *routeSnapshot) *Route {
 		ModelSelectionExpression: v.ModelSelectionExpression,
 		AuthorizationScopes:      v.AuthorizationScopes,
 		APIKeyRequired:           v.APIKeyRequired,
+		APIGatewayManaged:        v.APIGatewayManaged,
 	}
 }
 
@@ -153,6 +159,7 @@ type integrationSnapshot struct {
 	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
 	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
 	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
+	APIGatewayManaged           bool                  `json:"apiGatewayManaged"`
 }
 
 func integrationSnapshotKey(v *integrationSnapshot) string {
@@ -177,6 +184,7 @@ func toIntegrationSnapshot(v *Integration) *integrationSnapshot {
 		TemplateSelectionExpression: v.TemplateSelectionExpression,
 		PassthroughBehavior:         v.PassthroughBehavior,
 		TimeoutInMillis:             v.TimeoutInMillis,
+		APIGatewayManaged:           v.APIGatewayManaged,
 	}
 }
 
@@ -198,6 +206,7 @@ func fromIntegrationSnapshot(v *integrationSnapshot) *Integration {
 		TemplateSelectionExpression: v.TemplateSelectionExpression,
 		PassthroughBehavior:         v.PassthroughBehavior,
 		TimeoutInMillis:             v.TimeoutInMillis,
+		APIGatewayManaged:           v.APIGatewayManaged,
 	}
 }
 

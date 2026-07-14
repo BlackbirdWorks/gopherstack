@@ -202,6 +202,95 @@ func TestJanitor_SweepCleansARNIndex(t *testing.T) {
 	require.ErrorIs(t, err, codebuild.ErrNotFound)
 }
 
+// TestJanitor_AdvanceInProgressBuilds verifies that the janitor transitions
+// IN_PROGRESS builds and build batches to a terminal SUCCEEDED state, so that
+// clients polling BatchGetBuilds/BatchGetBuildBatches observe real progress
+// instead of spinning on IN_PROGRESS forever.
+func TestJanitor_AdvanceInProgressBuilds(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+
+	src := codebuild.ProjectSource{Type: "NO_SOURCE"}
+	arts := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
+	env := codebuild.ProjectEnvironment{
+		Type:        "LINUX_CONTAINER",
+		Image:       "img",
+		ComputeType: "BUILD_GENERAL1_SMALL",
+	}
+	_, err := backend.CreateProject(codebuild.ProjectConfig{
+		Name:        "advance-proj",
+		Source:      &src,
+		Artifacts:   &arts,
+		Environment: &env,
+	})
+	require.NoError(t, err)
+
+	build, err := backend.StartBuild("advance-proj", codebuild.StartBuildConfig{})
+	require.NoError(t, err)
+	require.Equal(t, "IN_PROGRESS", build.BuildStatus)
+
+	batch, err := backend.StartBuildBatch("advance-proj")
+	require.NoError(t, err)
+	require.Equal(t, "IN_PROGRESS", batch.BuildBatchStatus)
+
+	janitor := codebuild.NewJanitor(backend, time.Hour, 24*time.Hour)
+	janitor.SweepOnce(t.Context())
+
+	gotBuilds, notFound := backend.BatchGetBuilds([]string{build.ID})
+	require.Empty(t, notFound)
+	require.Len(t, gotBuilds, 1)
+	assert.Equal(t, "SUCCEEDED", gotBuilds[0].BuildStatus, "IN_PROGRESS build must advance to SUCCEEDED")
+	assert.True(t, gotBuilds[0].BuildComplete, "advanced build must be marked complete")
+	assert.Equal(t, "COMPLETED", gotBuilds[0].CurrentPhase)
+	assert.Greater(t, gotBuilds[0].EndTime, float64(0), "advanced build must have an endTime")
+
+	gotBatches, batchNotFound := backend.BatchGetBuildBatches([]string{batch.ID})
+	require.Empty(t, batchNotFound)
+	require.Len(t, gotBatches, 1)
+	assert.Equal(t, "SUCCEEDED", gotBatches[0].BuildBatchStatus, "IN_PROGRESS build batch must advance to SUCCEEDED")
+	assert.Greater(t, gotBatches[0].EndTime, float64(0), "advanced build batch must have an endTime")
+}
+
+// TestJanitor_AdvanceInProgressBuilds_LeavesTerminalBuildsAlone verifies that the
+// advancement pass does not touch builds/batches already in a terminal state
+// (e.g. explicitly stopped by the caller).
+func TestJanitor_AdvanceInProgressBuilds_LeavesTerminalBuildsAlone(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+
+	src := codebuild.ProjectSource{Type: "NO_SOURCE"}
+	arts := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
+	env := codebuild.ProjectEnvironment{
+		Type:        "LINUX_CONTAINER",
+		Image:       "img",
+		ComputeType: "BUILD_GENERAL1_SMALL",
+	}
+	_, err := backend.CreateProject(codebuild.ProjectConfig{
+		Name:        "stopped-proj",
+		Source:      &src,
+		Artifacts:   &arts,
+		Environment: &env,
+	})
+	require.NoError(t, err)
+
+	build, err := backend.StartBuild("stopped-proj", codebuild.StartBuildConfig{})
+	require.NoError(t, err)
+
+	stopped, err := backend.StopBuild(build.ID)
+	require.NoError(t, err)
+	require.Equal(t, "STOPPED", stopped.BuildStatus)
+
+	janitor := codebuild.NewJanitor(backend, time.Hour, 24*time.Hour)
+	janitor.SweepOnce(t.Context())
+
+	gotBuilds, notFound := backend.BatchGetBuilds([]string{build.ID})
+	require.Empty(t, notFound)
+	require.Len(t, gotBuilds, 1)
+	assert.Equal(t, "STOPPED", gotBuilds[0].BuildStatus, "already-terminal build must not be re-advanced to SUCCEEDED")
+}
+
 // TestJanitor_RunContext verifies that the janitor stops when context is cancelled.
 func TestCodeBuildJanitor_RunContext(t *testing.T) {
 	t.Parallel()

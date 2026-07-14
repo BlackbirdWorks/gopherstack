@@ -223,7 +223,10 @@ func (b *InMemoryBackend) CreateSchema(
 	b.schemas.Put(s)
 	b.schemaVersions[schemaVersionListKey(schARN)] = nil // init empty version list
 
-	return s, nil
+	cp := *s
+	cp.Tags = maps.Clone(s.Tags)
+
+	return &cp, nil
 }
 
 // DescribeSchema retrieves a schema by registry and schema name.

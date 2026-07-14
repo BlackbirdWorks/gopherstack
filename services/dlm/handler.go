@@ -226,16 +226,20 @@ func (h *Handler) handleDeleteLifecyclePolicy(c *echo.Context, policyID string) 
 }
 
 func (h *Handler) handleGetLifecyclePolicies(c *echo.Context) error {
+	// The real client sends each list-valued filter as repeated query keys
+	// (e.g. policyIds=a&policyIds=b), never comma-joined, so every value
+	// under a given key must be read via q[key], not q.Get(key).
 	q := c.Request().URL.Query()
-	policyIDsRaw := q.Get("policyIds")
-	stateFilter := q.Get("state")
 
-	var policyIDs []string
-	if policyIDsRaw != "" {
-		policyIDs = strings.Split(policyIDsRaw, ",")
+	filter := PolicyFilter{
+		PolicyIDs:     q["policyIds"],
+		State:         q.Get("state"),
+		ResourceTypes: q["resourceTypes"],
+		TargetTags:    q["targetTags"],
+		TagsToAdd:     q["tagsToAdd"],
 	}
 
-	summaries, err := h.Backend.GetLifecyclePolicies(policyIDs, stateFilter)
+	summaries, err := h.Backend.GetLifecyclePolicies(filter)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -245,6 +249,7 @@ func (h *Handler) handleGetLifecyclePolicies(c *echo.Context) error {
 		PolicyID    string            `json:"PolicyId"`
 		Description string            `json:"Description"`
 		State       string            `json:"State"`
+		PolicyType  string            `json:"PolicyType"`
 	}
 
 	resp := make([]summaryResp, 0, len(summaries))
@@ -254,6 +259,7 @@ func (h *Handler) handleGetLifecyclePolicies(c *echo.Context) error {
 			Description: s.Description,
 			State:       s.State,
 			Tags:        s.Tags,
+			PolicyType:  s.PolicyType,
 		})
 	}
 

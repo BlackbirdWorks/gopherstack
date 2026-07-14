@@ -143,7 +143,9 @@ func TestHandler_CreateDatabase_Conflict(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, "CreateDatabase", body)
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	// awsJson1.0 reports every client-fault error (including ConflictException) as
+	// HTTP 400; the SDK resolves the concrete exception from the body's __type field.
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_DescribeDatabase(t *testing.T) {
@@ -976,7 +978,7 @@ func TestHandler_ResumeBatchLoadTask_Success(t *testing.T) {
 	b := timestreamwrite.NewInMemoryBackend()
 	h := timestreamwrite.NewHandler(b)
 
-	_, err := b.CreateDatabase("db", nil)
+	_, err := b.CreateDatabase("db", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateTable("db", "tbl", nil, nil)

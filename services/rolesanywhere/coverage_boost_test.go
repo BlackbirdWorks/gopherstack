@@ -1272,13 +1272,17 @@ func TestHandler_Tags_HTTP(t *testing.T) {
 			tags := listResp["tags"].([]any)
 			assert.Len(t, tags, 2)
 
-			// Untag resource.
+			// Untag resource. AWS sends resourceArn/tagKeys as a JSON body on
+			// POST /UntagResource, not as query params.
 			recUntag := doREST(
 				t,
 				h,
 				http.MethodPost,
-				"/UntagResource?resourceArn="+resARN+"&tagKeys=env",
-				nil,
+				"/UntagResource",
+				map[string]any{
+					"resourceArn": resARN,
+					"tagKeys":     []string{"env"},
+				},
 			)
 			assert.Equal(t, http.StatusOK, recUntag.Code)
 
@@ -1410,7 +1414,7 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 
 			b := newBackend(t)
 			src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-			_, err := b.CreateTrustAnchor(context.Background(), tt.anchorName, src, nil)
+			_, err := b.CreateTrustAnchor(context.Background(), tt.anchorName, src, nil, nil)
 			require.NoError(t, err)
 			_, err = b.CreateProfile(context.Background(), tt.profileName, nil, nil, nil, nil, "", false)
 			require.NoError(t, err)
@@ -1480,7 +1484,7 @@ func TestBackend_CreateTrustAnchor_EmptyName(t *testing.T) {
 
 			b := newBackend(t)
 			src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-			_, err := b.CreateTrustAnchor(context.Background(), tt.taName, src, nil)
+			_, err := b.CreateTrustAnchor(context.Background(), tt.taName, src, nil, nil)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

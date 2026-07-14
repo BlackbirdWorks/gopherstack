@@ -32,11 +32,13 @@ const emrserverlessSnapshotVersion = 1
 // against decoding a snapshot from an incompatible (older or newer) build of
 // this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables        map[string]json.RawMessage   `json:"tables"`
-	SessionTokens map[string]map[string]string `json:"sessionTokens"`
-	AccountID     string                       `json:"accountID"`
-	Region        string                       `json:"region"`
-	Version       int                          `json:"version"`
+	Tables            map[string]json.RawMessage   `json:"tables"`
+	SessionTokens     map[string]map[string]string `json:"sessionTokens"`
+	ApplicationTokens map[string]string            `json:"applicationTokens"`
+	JobRunTokens      map[string]map[string]string `json:"jobRunTokens"`
+	AccountID         string                       `json:"accountID"`
+	Region            string                       `json:"region"`
+	Version           int                          `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -52,11 +54,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:       emrserverlessSnapshotVersion,
-		Tables:        tables,
-		SessionTokens: b.sessionTokens,
-		AccountID:     b.accountID,
-		Region:        b.region,
+		Version:           emrserverlessSnapshotVersion,
+		Tables:            tables,
+		SessionTokens:     b.sessionTokens,
+		ApplicationTokens: b.applicationTokens,
+		JobRunTokens:      b.jobRunTokens,
+		AccountID:         b.accountID,
+		Region:            b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -93,6 +97,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.sessionTokens = make(map[string]map[string]string)
+		b.applicationTokens = make(map[string]string)
+		b.jobRunTokens = make(map[string]map[string]string)
 
 		return nil
 	}
@@ -113,7 +119,23 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		}
 	}
 
+	if snap.ApplicationTokens == nil {
+		snap.ApplicationTokens = make(map[string]string)
+	}
+
+	if snap.JobRunTokens == nil {
+		snap.JobRunTokens = make(map[string]map[string]string)
+	}
+
+	for appID, tokens := range snap.JobRunTokens {
+		if tokens == nil {
+			snap.JobRunTokens[appID] = make(map[string]string)
+		}
+	}
+
 	b.sessionTokens = snap.SessionTokens
+	b.applicationTokens = snap.ApplicationTokens
+	b.jobRunTokens = snap.JobRunTokens
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

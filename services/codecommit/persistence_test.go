@@ -86,7 +86,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		tmpl.ApprovalRuleTemplateName, repo.RepositoryName,
 	))
 
-	commit1, err := original.CreateCommit(
+	commit1, _, err := original.CreateCommit(
 		repo.RepositoryName, "main", "author", "author@example.com", "init", "",
 		[]codecommit.PutFileEntry{{FilePath: "README.md", FileMode: "NORMAL", FileContent: []byte("hello")}}, nil,
 	)
@@ -96,7 +96,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		{Name: "trigger-1", DestinationARN: "arn:aws:sns:us-west-2:111122223333:topic", Events: []string{"all"}},
 	}))
 
-	commit2, err := original.PutFile(repo.RepositoryName, "main", "docs/guide.md", []byte("guide"))
+	commit2, _, err := original.PutFile(repo.RepositoryName, "main", "docs/guide.md", []byte("guide"))
 	require.NoError(t, err)
 	_ = commit2
 

@@ -47,6 +47,11 @@ var (
 	ErrMissingMemberID = errors.New("MemberId is required for CreateProposal")
 	// ErrMissingVoterMemberID is returned when the voter member ID is missing for VoteOnProposal.
 	ErrMissingVoterMemberID = errors.New("VoterMemberId is required for VoteOnProposal")
+	// ErrMissingNodeMemberID is returned when MemberId is missing for a node operation. Real AWS
+	// documents MemberId as "required for Hyperledger Fabric" on every node op (CreateNode's body
+	// field, GetNode/ListNodes/DeleteNode/UpdateNode's "memberId" query parameter); gopherstack
+	// only emulates Hyperledger Fabric networks, so it is always required here.
+	ErrMissingNodeMemberID = errors.New("MemberId is required for Hyperledger Fabric node operations")
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("InvalidRequestException: validation error", awserr.ErrInvalidParameter)
 )

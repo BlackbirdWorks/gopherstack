@@ -91,7 +91,7 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*Ruleset, error)
 	DescribeRuleset(ctx context.Context, name string) (*Ruleset, error)
-	ListRulesets(ctx context.Context, maxResults int, nextToken string) ([]*Ruleset, string)
+	ListRulesets(ctx context.Context, maxResults int, nextToken, targetArn string) ([]*Ruleset, string)
 	UpdateRuleset(ctx context.Context, name, description string, rules []Rule) error
 	DeleteRuleset(ctx context.Context, name string) error
 

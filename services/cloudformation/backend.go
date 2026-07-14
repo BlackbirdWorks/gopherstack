@@ -53,6 +53,7 @@ var (
 	ErrInsufficientCapabilities  = errors.New(
 		"requires capabilities: CAPABILITY_IAM or CAPABILITY_NAMED_IAM",
 	)
+	ErrStackRefactorNotFound = errors.New("stack refactor not found")
 )
 
 // StackOptions carries optional attributes for CreateStack and UpdateStack.

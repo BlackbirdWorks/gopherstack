@@ -496,6 +496,55 @@ func TestHandler_ExtractOperationAndResource(t *testing.T) {
 			wantResource:  "net123/mem456",
 		},
 		{
+			// Real aws-sdk-go-v2 wire shape: node paths nest directly under the
+			// network, NOT under the member (see serializers.go's opPath for
+			// CreateNode/GetNode/ListNodes/DeleteNode/UpdateNode, which all
+			// resolve to "/networks/{NetworkId}/nodes[/{NodeId}]" -- MemberId
+			// travels as a query parameter or body field, never in the URI).
+			name:          "create node",
+			method:        http.MethodPost,
+			path:          "/networks/net123/nodes",
+			wantOperation: "CreateNode",
+			wantResource:  "net123",
+		},
+		{
+			name:          "list nodes",
+			method:        http.MethodGet,
+			path:          "/networks/net123/nodes",
+			wantOperation: "ListNodes",
+			wantResource:  "net123",
+		},
+		{
+			name:          "get node",
+			method:        http.MethodGet,
+			path:          "/networks/net123/nodes/node456",
+			wantOperation: "GetNode",
+			wantResource:  "net123/node456",
+		},
+		{
+			name:          "delete node",
+			method:        http.MethodDelete,
+			path:          "/networks/net123/nodes/node456",
+			wantOperation: "DeleteNode",
+			wantResource:  "net123/node456",
+		},
+		{
+			name:          "update node",
+			method:        http.MethodPatch,
+			path:          "/networks/net123/nodes/node456",
+			wantOperation: "UpdateNode",
+			wantResource:  "net123/node456",
+		},
+		{
+			// The old (never-real) member-nested node shape must NOT resolve
+			// to any operation -- it never matches a real SDK request.
+			name:          "member-nested node shape is not a valid route",
+			method:        http.MethodPost,
+			path:          "/networks/net123/members/mem456/nodes",
+			wantOperation: "",
+			wantResource:  "",
+		},
+		{
 			name:          "unknown path",
 			method:        http.MethodGet,
 			path:          "/unknown",
@@ -635,32 +684,135 @@ func createTestNetwork(t *testing.T, h *managedblockchain.Handler) (string, stri
 	return out.NetworkID, out.MemberID
 }
 
+// doRoutedRequest sends a request through both h.RouteMatcher() (with a
+// managedblockchain Authorization header, as a real SDK client would send)
+// and h.Handler(), proving the route is accepted by the matcher AND
+// resolves to the right operation -- not just that Handler()'s internal
+// parsePath accepts it directly. See .claude/memories/parity-principles.md's
+// route-matcher bug class: unit tests calling h.Handler() alone can miss a
+// matcher/parser mismatch that a real client would hit.
+func doRoutedRequest(
+	t *testing.T, h *managedblockchain.Handler, method, path string, body any,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var bodyBytes []byte
+
+	if body != nil {
+		var err error
+		bodyBytes, err = json.Marshal(body)
+		require.NoError(t, err)
+	}
+
+	e := echo.New()
+
+	var req *http.Request
+	if len(bodyBytes) > 0 {
+		req = httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req = httptest.NewRequest(method, path, http.NoBody)
+	}
+
+	req.Header.Set("Authorization",
+		"AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/managedblockchain/aws4_request")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	require.True(t, h.RouteMatcher()(c),
+		"RouteMatcher rejected a real managedblockchain wire path: %s %s", method, path)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+// TestHandler_NodeLifecycle_RealWireShape drives CreateNode/GetNode/ListNodes/
+// UpdateNode/DeleteNode through the exact path+body/query shape a real
+// aws-sdk-go-v2 managedblockchain client sends (MemberId in the CreateNode
+// body, "memberId" as a query parameter everywhere else, node paths nested
+// directly under the network -- never under the member). Regressing to the
+// old, never-real "/networks/{id}/members/{id}/nodes" shape would 404 every
+// case here.
+func TestHandler_NodeLifecycle_RealWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	netID, memID := createTestNetwork(t, h)
+
+	createRec := doRoutedRequest(t, h, http.MethodPost, "/networks/"+netID+"/nodes", map[string]any{
+		"MemberId": memID,
+		"NodeConfiguration": map[string]any{
+			"InstanceType":     "bc.t3.small",
+			"AvailabilityZone": "us-east-1a",
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut struct {
+		NodeID string `json:"NodeId"`
+	}
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NotEmpty(t, createOut.NodeID)
+
+	nodePath := "/networks/" + netID + "/nodes/" + createOut.NodeID + "?memberId=" + memID
+
+	getRec := doRoutedRequest(t, h, http.MethodGet, nodePath, nil)
+	assert.Equal(t, http.StatusOK, getRec.Code)
+	assert.Contains(t, getRec.Body.String(), createOut.NodeID)
+
+	listRec := doRoutedRequest(t, h, http.MethodGet, "/networks/"+netID+"/nodes?memberId="+memID, nil)
+	assert.Equal(t, http.StatusOK, listRec.Code)
+
+	patchRec := doRoutedRequest(t, h, http.MethodPatch, nodePath, map[string]any{
+		"LogPublishingConfiguration": map[string]any{
+			"Fabric": map[string]any{
+				"ChaincodeLogs": map[string]any{"CloudWatch": map[string]any{"Enabled": true}},
+			},
+		},
+	})
+	assert.Equal(t, http.StatusNoContent, patchRec.Code)
+
+	delRec := doRoutedRequest(t, h, http.MethodDelete, nodePath, nil)
+	assert.Equal(t, http.StatusNoContent, delRec.Code)
+
+	confirmRec := doRoutedRequest(t, h, http.MethodGet, nodePath, nil)
+	assert.Equal(t, http.StatusNotFound, confirmRec.Code)
+}
+
 func TestHandler_CreateNode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       map[string]any
+		nodeConfig map[string]any
 		name       string
 		networkID  string
 		wantKey    string
 		wantStatus int
+		omitMember bool
 	}{
 		{
 			name: "success",
-			body: map[string]any{
-				"NodeConfiguration": map[string]any{
-					"InstanceType":     "bc.t3.small",
-					"AvailabilityZone": "us-east-1a",
-				},
+			nodeConfig: map[string]any{
+				"InstanceType":     "bc.t3.small",
+				"AvailabilityZone": "us-east-1a",
 			},
 			wantStatus: http.StatusOK,
 			wantKey:    "NodeId",
 		},
 		{
 			name:       "network_not_found",
-			body:       map[string]any{"NodeConfiguration": map[string]any{"InstanceType": "bc.t3.small"}},
+			nodeConfig: map[string]any{"InstanceType": "bc.t3.small"},
 			networkID:  "nonexistent-network-id",
 			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "missing_member_id",
+			nodeConfig: map[string]any{"InstanceType": "bc.t3.small"},
+			omitMember: true,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -675,8 +827,13 @@ func TestHandler_CreateNode(t *testing.T) {
 				netID = tt.networkID
 			}
 
-			path := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
-			rec := doRequest(t, h, http.MethodPost, path, tt.body)
+			body := map[string]any{"NodeConfiguration": tt.nodeConfig}
+			if !tt.omitMember {
+				body["MemberId"] = memID
+			}
+
+			path := fmt.Sprintf("/networks/%s/nodes", netID)
+			rec := doRequest(t, h, http.MethodPost, path, body)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.wantKey != "" {
@@ -705,9 +862,10 @@ func TestHandler_GetNode(t *testing.T) {
 
 			h := newTestHandler(t)
 			netID, memID := createTestNetwork(t, h)
-			nodePath := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
+			nodesPath := fmt.Sprintf("/networks/%s/nodes", netID)
 
-			createRec := doRequest(t, h, http.MethodPost, nodePath, map[string]any{
+			createRec := doRequest(t, h, http.MethodPost, nodesPath, map[string]any{
+				"MemberId": memID,
 				"NodeConfiguration": map[string]any{
 					"InstanceType":     "bc.t3.small",
 					"AvailabilityZone": "us-east-1a",
@@ -720,7 +878,7 @@ func TestHandler_GetNode(t *testing.T) {
 			}
 			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
 
-			getPath := fmt.Sprintf("%s/%s", nodePath, createOut.NodeID)
+			getPath := fmt.Sprintf("%s/%s?memberId=%s", nodesPath, createOut.NodeID, memID)
 			rec := doRequest(t, h, http.MethodGet, getPath, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			assert.Contains(t, rec.Body.String(), "Node")
@@ -746,10 +904,11 @@ func TestHandler_ListNodes(t *testing.T) {
 
 			h := newTestHandler(t)
 			netID, memID := createTestNetwork(t, h)
-			nodePath := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
+			nodesPath := fmt.Sprintf("/networks/%s/nodes", netID)
 
 			for range tt.nodeCount {
-				rec := doRequest(t, h, http.MethodPost, nodePath, map[string]any{
+				rec := doRequest(t, h, http.MethodPost, nodesPath, map[string]any{
+					"MemberId": memID,
 					"NodeConfiguration": map[string]any{
 						"InstanceType": "bc.t3.small",
 					},
@@ -757,7 +916,7 @@ func TestHandler_ListNodes(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
-			listRec := doRequest(t, h, http.MethodGet, nodePath, nil)
+			listRec := doRequest(t, h, http.MethodGet, nodesPath+"?memberId="+memID, nil)
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var out struct {
@@ -785,9 +944,10 @@ func TestHandler_DeleteNode(t *testing.T) {
 
 			h := newTestHandler(t)
 			netID, memID := createTestNetwork(t, h)
-			nodePath := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
+			nodesPath := fmt.Sprintf("/networks/%s/nodes", netID)
 
-			createRec := doRequest(t, h, http.MethodPost, nodePath, map[string]any{
+			createRec := doRequest(t, h, http.MethodPost, nodesPath, map[string]any{
+				"MemberId":          memID,
 				"NodeConfiguration": map[string]any{"InstanceType": "bc.t3.small"},
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
@@ -797,7 +957,7 @@ func TestHandler_DeleteNode(t *testing.T) {
 			}
 			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
 
-			delPath := fmt.Sprintf("%s/%s", nodePath, createOut.NodeID)
+			delPath := fmt.Sprintf("%s/%s?memberId=%s", nodesPath, createOut.NodeID, memID)
 			rec := doRequest(t, h, http.MethodDelete, delPath, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -1291,7 +1451,7 @@ func TestHandler_DeleteNodeErrors(t *testing.T) {
 
 			h := newTestHandler(t)
 			netID, memID := createTestNetwork(t, h)
-			path := fmt.Sprintf("/networks/%s/members/%s/nodes/%s", netID, memID, tt.nodeID)
+			path := fmt.Sprintf("/networks/%s/nodes/%s?memberId=%s", netID, tt.nodeID, memID)
 
 			rec := doRequest(t, h, http.MethodDelete, path, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)

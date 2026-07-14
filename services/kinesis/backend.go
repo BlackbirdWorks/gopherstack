@@ -1715,10 +1715,17 @@ func (b *InMemoryBackend) DisableEnhancedMonitoring(
 }
 
 // IncreaseStreamRetentionPeriod increases the retention period for a stream.
-// If the new value equals the current retention period the call is a no-op
-// and returns success — this matches the idempotent behaviour expected by the
-// AWS Terraform provider, which may call this with the default value (24h) even
-// on freshly created streams. The new value must not exceed maxRetentionHours.
+// A target equal to the current retention period is treated as an idempotent
+// no-op returning success (HTTP 200), matching real AWS behaviour: the
+// Terraform AWS provider calls IncreaseStreamRetentionPeriod on stream create
+// for ANY configured retention_period > 0 (see the provider's resourceStreamCreate,
+// guard `v.(int) > 0`), so a stream created with the default retention_period
+// of 24h receives IncreaseStreamRetentionPeriod(24) against a stream already at
+// 24h. Rejecting that equal value with InvalidArgumentException (as a strict
+// reading of the SDK doc "Must be more than the current retention period" would
+// suggest) breaks every default-retention Terraform stream, so real AWS accepts
+// it. A target below the current period, below minRetentionHours (24h), or above
+// maxRetentionHours (8760h) is rejected with InvalidArgumentException.
 func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
 	ctx context.Context,
 	input *IncreaseStreamRetentionPeriodInput,
@@ -1735,13 +1742,13 @@ func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
 	stream.mu.Lock("IncreaseStreamRetentionPeriod.stream")
 	defer stream.mu.Unlock()
 
-	// Idempotent: same value → no-op.
+	// Idempotent: a target equal to the current retention period is a no-op.
 	if input.RetentionPeriodHours == stream.RetentionPeriod {
 		return nil
 	}
 
-	if input.RetentionPeriodHours < minRetentionHours ||
-		input.RetentionPeriodHours < stream.RetentionPeriod ||
+	if input.RetentionPeriodHours < stream.RetentionPeriod ||
+		input.RetentionPeriodHours < minRetentionHours ||
 		input.RetentionPeriodHours > maxRetentionHours {
 		return ErrInvalidArgument
 	}
@@ -1752,8 +1759,10 @@ func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
 }
 
 // DecreaseStreamRetentionPeriod decreases the retention period for a stream.
-// If the new value equals the current retention period the call is a no-op
-// and returns success. The new value must be at least minRetentionHours.
+// Mirroring IncreaseStreamRetentionPeriod, a target equal to the current
+// retention period is an idempotent no-op returning success (HTTP 200), matching
+// real AWS behaviour. A target above the current period or below
+// minRetentionHours (24h) is rejected with InvalidArgumentException.
 func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
 	ctx context.Context,
 	input *DecreaseStreamRetentionPeriodInput,
@@ -1770,7 +1779,7 @@ func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
 	stream.mu.Lock("DecreaseStreamRetentionPeriod.stream")
 	defer stream.mu.Unlock()
 
-	// Idempotent: same value → no-op.
+	// Idempotent: a target equal to the current retention period is a no-op.
 	if input.RetentionPeriodHours == stream.RetentionPeriod {
 		return nil
 	}

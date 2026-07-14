@@ -101,7 +101,8 @@ func newPersistenceTestBackend(t *testing.T) (*InMemoryBackend, persistenceFixtu
 		},
 	))
 
-	require.NoError(t, b.StartApplication(ctx, app.ApplicationName))
+	_, err = b.StartApplication(ctx, app.ApplicationName)
+	require.NoError(t, err)
 
 	snap, err := b.CreateApplicationSnapshot(ctx, app.ApplicationName, "snap1")
 	require.NoError(t, err)

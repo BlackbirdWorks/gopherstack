@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
@@ -829,7 +830,23 @@ func (b *InMemoryBackend) DeleteColumnStatisticsForPartition(
 
 const globalPolicyKey = "__global__"
 
-func (b *InMemoryBackend) PutResourcePolicy(policy, resourceARN string) (string, error) {
+// ErrResourcePolicyConditionFailed is returned when PutResourcePolicy's
+// PolicyExistsCondition or PolicyHashCondition does not match the current backend
+// state, mirroring AWS's ConditionCheckFailureException — the optimistic-concurrency
+// guard PutResourcePolicy documents to prevent callers from clobbering a policy
+// someone else has since changed.
+var ErrResourcePolicyConditionFailed = awserr.New(
+	"ConditionCheckFailureException",
+	awserr.ErrConflict,
+)
+
+// PutResourcePolicy creates or updates a resource policy (or the account-level
+// policy when resourceARN is empty). existsCondition ("MUST_EXIST"/"NOT_EXIST"/""
+// or "NONE") and hashCondition mirror PutResourcePolicyInput's
+// PolicyExistsCondition/PolicyHashCondition optimistic-concurrency guards.
+func (b *InMemoryBackend) PutResourcePolicy(
+	policy, resourceARN, existsCondition, hashCondition string,
+) (string, error) {
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
@@ -837,11 +854,29 @@ func (b *InMemoryBackend) PutResourcePolicy(policy, resourceARN string) (string,
 	if key == "" {
 		key = globalPolicyKey
 	}
+
+	existing, hasExisting := b.resourcePolicies[key]
+
+	switch existsCondition {
+	case "MUST_EXIST":
+		if !hasExisting {
+			return "", fmt.Errorf("resource policy not found: %w", ErrNotFound)
+		}
+	case "NOT_EXIST":
+		if hasExisting {
+			return "", ErrResourcePolicyConditionFailed
+		}
+	}
+
+	if hashCondition != "" && (!hasExisting || existing.Hash != hashCondition) {
+		return "", ErrResourcePolicyConditionFailed
+	}
+
 	hash := uuid.NewString()[:8]
 	now := float64(time.Now().Unix())
 
 	createTime := now
-	if existing, ok := b.resourcePolicies[key]; ok {
+	if hasExisting {
 		createTime = existing.CreateTime
 	}
 
@@ -896,7 +931,7 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (string, string,
 	return e.Policy, e.Hash, nil
 }
 
-func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN, _ string) error {
+func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN, policyHash string) error {
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
@@ -904,9 +939,19 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN, _ string) error {
 	if key == "" {
 		key = globalPolicyKey
 	}
-	if _, ok := b.resourcePolicies[key]; !ok {
+
+	e, ok := b.resourcePolicies[key]
+	if !ok {
 		return fmt.Errorf("resource policy not found: %w", ErrNotFound)
 	}
+
+	// PolicyHashCondition, when supplied, must match the stored hash — this was
+	// previously accepted and silently ignored, so a stale caller could delete a
+	// policy someone else had since updated.
+	if policyHash != "" && e.Hash != policyHash {
+		return ErrResourcePolicyConditionFailed
+	}
+
 	delete(b.resourcePolicies, key)
 
 	return nil

@@ -342,14 +342,17 @@ func TestRefinement3_Queue_ReservationPlan(t *testing.T) {
 	assert.Equal(t, "ACTIVE", q.ReservationPlan.Status)
 }
 
-// TestRefinement3_Queue_ReservationPlan_Via_HTTP verifies JSON parsing.
+// TestRefinement3_Queue_ReservationPlan_Via_HTTP verifies JSON parsing. The
+// real CreateQueueInput wire field is "reservationPlanSettings" (the
+// response Queue resource echoes it back as "reservationPlan" -- request
+// and response field names differ).
 func TestRefinement3_Queue_ReservationPlan_Via_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := mediaconvert.NewHandler(r3Backend())
 	rec := r3Do(t, h, http.MethodPost, "/2017-08-29/queues", map[string]any{
 		"name": "rp-http-queue",
-		"reservationPlan": map[string]any{
+		"reservationPlanSettings": map[string]any{
 			"reservedSlots": 3,
 			"status":        "ACTIVE",
 		},
@@ -703,14 +706,17 @@ func TestRefinement3_JobEngineVersion_RequestedStored(t *testing.T) {
 	assert.Equal(t, "2017-08-29", j.JobEngineVersionUsed)
 }
 
-// TestRefinement3_JobEngineVersion_Via_HTTP verifies field parsed from HTTP body.
+// TestRefinement3_JobEngineVersion_Via_HTTP verifies field parsed from HTTP
+// body. The real CreateJobInput wire field is "jobEngineVersion" (the
+// response Job resource echoes it back as "jobEngineVersionRequested" --
+// request and response field names differ).
 func TestRefinement3_JobEngineVersion_Via_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := mediaconvert.NewHandler(r3Backend())
 	rec := r3Do(t, h, http.MethodPost, "/2017-08-29/jobs", map[string]any{
-		"role":                      "arn:aws:iam::123:role/r",
-		"jobEngineVersionRequested": "2017-08-29",
+		"role":             "arn:aws:iam::123:role/r",
+		"jobEngineVersion": "2017-08-29",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 

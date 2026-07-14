@@ -771,13 +771,12 @@ type getConfigurationSetOutput struct {
 	Tags                 []tagEntry                `json:"Tags,omitempty"`
 }
 
-type configurationSetSummary struct {
-	Name string `json:"Name"`
-}
-
+// listConfigurationSetsOutput.ConfigurationSets is a plain array of names --
+// see ListConfigurationSetsOutput in aws-sdk-go-v2/service/sesv2, whose
+// ConfigurationSets field is []string, not a list of name-wrapping objects.
 type listConfigurationSetsOutput struct {
-	NextToken         string                    `json:"NextToken,omitempty"`
-	ConfigurationSets []configurationSetSummary `json:"ConfigurationSets"`
+	NextToken         string   `json:"NextToken,omitempty"`
+	ConfigurationSets []string `json:"ConfigurationSets"`
 }
 
 type tagEntry struct {
@@ -1025,14 +1024,14 @@ func (h *Handler) handleListConfigurationSets(c *echo.Context) any {
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListConfigurationSets(nextToken, 0)
 
-	items := make([]configurationSetSummary, 0, len(pg.Data))
+	names := make([]string, 0, len(pg.Data))
 
 	for _, cs := range pg.Data {
-		items = append(items, configurationSetSummary{Name: cs.Name})
+		names = append(names, cs.Name)
 	}
 
 	return &listConfigurationSetsOutput{
-		ConfigurationSets: items,
+		ConfigurationSets: names,
 		NextToken:         pg.Next,
 	}
 }

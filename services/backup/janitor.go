@@ -15,6 +15,7 @@ const (
 
 	backupWorkerServiceName = "backup"
 	jobSweeperComponent     = "CompletedJobSweeper"
+	jobAdvanceComponent     = "CreatedJobAdvancer"
 )
 
 // isTerminalJob reports whether the given backup job state is terminal.
@@ -56,7 +57,7 @@ func (j *Janitor) Run(ctx context.Context) {
 		jobSweeperComponent,
 		j.Interval,
 		j.TaskTimeout,
-		j.sweepCompletedJobs,
+		j.SweepOnce,
 	)
 
 	<-ctx.Done()
@@ -65,7 +66,42 @@ func (j *Janitor) Run(ctx context.Context) {
 
 // SweepOnce runs a single sweep pass. Exposed for testing.
 func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.advanceCreatedJobs(ctx)
 	j.sweepCompletedJobs(ctx)
+}
+
+// advanceCreatedJobs completes backup jobs still in the CREATED state, moving
+// them to COMPLETED and materializing a recovery point. Real AWS Backup jobs
+// transition asynchronously (CREATED -> RUNNING -> COMPLETED); the emulator
+// models that by completing them on the next janitor tick instead of leaving
+// them stuck in CREATED forever (StartBackupJob itself must stay synchronous
+// so callers immediately observe CREATED, matching AWS's StartBackupJob
+// response).
+func (j *Janitor) advanceCreatedJobs(ctx context.Context) {
+	var toComplete []string
+
+	j.Backend.mu.RLock("BackupJanitorAdvanceJobsLock")
+	for _, job := range j.Backend.jobs.All() {
+		if job.State == statusCreated {
+			toComplete = append(toComplete, job.BackupJobID)
+		}
+	}
+	j.Backend.mu.RUnlock()
+
+	if len(toComplete) == 0 {
+		return
+	}
+
+	for _, id := range toComplete {
+		_ = j.Backend.CompleteBackupJob(id)
+	}
+
+	telemetry.RecordWorkerTask(backupWorkerServiceName, jobAdvanceComponent, "success")
+	telemetry.RecordWorkerItems(backupWorkerServiceName, jobAdvanceComponent, len(toComplete))
+
+	logger.Load(ctx).InfoContext(
+		ctx, "Backup janitor: backup jobs completed", "count", len(toComplete),
+	)
 }
 
 // sweepCompletedJobs removes backup jobs in terminal states whose CompletionTime

@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -152,6 +153,14 @@ const (
 	// ApplicationStatusDeleting indicates an application being deleted.
 	ApplicationStatusDeleting = "DELETING"
 )
+
+// OperationStatusSuccessful is the real Kinesis Analytics v2 OperationStatus
+// enum value ("SUCCESSFUL", not "SUCCESS") for a completed operation.
+// gopherstack applies application-lifecycle operations
+// (Start/Stop/UpdateApplication/RollbackApplication) synchronously, so every
+// recorded operation goes straight to SUCCESSFUL -- there is no IN_PROGRESS
+// window to observe via DescribeApplicationOperation/ListApplicationOperations.
+const OperationStatusSuccessful = "SUCCESSFUL"
 
 // ApplicationOperation represents a single KDA v2 application operation record.
 type ApplicationOperation struct {
@@ -335,6 +344,82 @@ func (b *InMemoryBackend) CreateApplication(
 	return app, nil
 }
 
+// SeedApplicationConfiguration sets a newly created application's initial
+// input/output/reference-data-source/VPC/CloudWatch-logging configuration in
+// one step, without bumping ApplicationVersionId or appending a second
+// version-history entry -- this mirrors real AWS, where CreateApplication's
+// inline ApplicationConfiguration is part of the application's first
+// version (ApplicationVersionId stays 1), unlike the separately-versioned
+// Add* operations. Callers (handleCreateApplication) must invoke this
+// immediately after CreateApplication succeeds, before the new application
+// is exposed to any other caller. Returns ErrNotFound if name doesn't exist.
+func (b *InMemoryBackend) SeedApplicationConfiguration(
+	ctx context.Context,
+	name string,
+	inputs []InputDescription,
+	outputs []OutputDescription,
+	refDataSources []ReferenceDataSourceDescription,
+	vpcConfigs []VpcConfigurationDescription,
+	cwlOptions []CloudWatchLoggingOptionDesc,
+) error {
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock("SeedApplicationConfiguration")
+	defer b.mu.Unlock()
+
+	app, ok := b.findApplication(region, name)
+	if !ok {
+		return ErrNotFound
+	}
+
+	for i := range inputs {
+		inputs[i].InputID = b.newResourceID("input")
+	}
+
+	app.InputDescriptions = append(app.InputDescriptions, inputs...)
+
+	for i := range outputs {
+		outputs[i].OutputID = b.newResourceID("output")
+	}
+
+	app.OutputDescriptions = append(app.OutputDescriptions, outputs...)
+
+	for i := range refDataSources {
+		refDataSources[i].ReferenceID = b.newResourceID("ref")
+	}
+
+	app.ReferenceDataSourceDescriptions = append(app.ReferenceDataSourceDescriptions, refDataSources...)
+
+	for i := range vpcConfigs {
+		vpcConfigs[i].VpcConfigurationID = b.newResourceID("vpc")
+
+		if vpcConfigs[i].SubnetIDs == nil {
+			vpcConfigs[i].SubnetIDs = []string{}
+		}
+
+		if vpcConfigs[i].SecurityGroupIDs == nil {
+			vpcConfigs[i].SecurityGroupIDs = []string{}
+		}
+	}
+
+	app.VpcConfigurationDescriptions = append(app.VpcConfigurationDescriptions, vpcConfigs...)
+
+	for i := range cwlOptions {
+		cwlOptions[i].CloudWatchLoggingOptionID = b.newResourceID("cwl")
+	}
+
+	app.CloudWatchLoggingOptionDescs = append(app.CloudWatchLoggingOptionDescs, cwlOptions...)
+
+	// Refresh the version-1 history snapshot recorded by CreateApplication so
+	// DescribeApplicationVersion(name, 1) reflects the seeded configuration
+	// too, not just the bare application.
+	if vers := b.versionsStore(region)[name]; len(vers) > 0 {
+		vers[len(vers)-1] = appCopy(app)
+	}
+
+	return nil
+}
+
 // DescribeApplication retrieves an application by name.
 // Returns a deep copy so callers cannot mutate internal state.
 func (b *InMemoryBackend) DescribeApplication(ctx context.Context, name string) (*Application, error) {
@@ -377,12 +462,18 @@ func (b *InMemoryBackend) ListApplications(ctx context.Context, nextToken string
 	return out[startIdx:end], outToken
 }
 
-// UpdateApplication updates an application's description and service role.
+// UpdateApplication updates an application's description and service role,
+// returning the OperationID of the recorded UpdateApplication operation (see
+// recordOperation). currentVersionID implements the optimistic-concurrency
+// check real AWS performs via CurrentApplicationVersionId (a zero/negative
+// value skips the check, matching checkAndBumpVersion's convention for the
+// Add*/Delete* config ops elsewhere in this file).
 func (b *InMemoryBackend) UpdateApplication(
 	ctx context.Context,
 	name string,
+	currentVersionID int64,
 	serviceRole, description string,
-) (*Application, error) {
+) (*Application, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("UpdateApplication")
@@ -390,8 +481,14 @@ func (b *InMemoryBackend) UpdateApplication(
 
 	app, ok := b.findApplication(region, name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, "", ErrNotFound
 	}
+
+	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
+		return nil, "", err
+	}
+
+	defer b.snapshotVersion(region, name, app)
 
 	if serviceRole != "" {
 		app.ServiceExecutionRole = serviceRole
@@ -401,9 +498,9 @@ func (b *InMemoryBackend) UpdateApplication(
 		app.ApplicationDescription = description
 	}
 
-	app.ApplicationVersionID++
+	opID := b.recordOperation(region, name, "UpdateApplication")
 
-	return app, nil
+	return app, opID, nil
 }
 
 // DeleteApplication deletes an application by name.
@@ -431,10 +528,11 @@ func (b *InMemoryBackend) DeleteApplication(ctx context.Context, name string) er
 	return nil
 }
 
-// StartApplication sets the application status to RUNNING.
+// StartApplication sets the application status to RUNNING and returns the
+// OperationID of the recorded StartApplication operation (see recordOperation).
 // Returns ResourceInUseException if the application is not in READY state,
 // matching real AWS Kinesis Analytics v2 behavior.
-func (b *InMemoryBackend) StartApplication(ctx context.Context, name string) error {
+func (b *InMemoryBackend) StartApplication(ctx context.Context, name string) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("StartApplication")
@@ -442,22 +540,23 @@ func (b *InMemoryBackend) StartApplication(ctx context.Context, name string) err
 
 	app, ok := b.findApplication(region, name)
 	if !ok {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 
 	if app.ApplicationStatus != ApplicationStatusReady {
-		return ErrAlreadyExists
+		return "", ErrAlreadyExists
 	}
 
 	app.ApplicationStatus = ApplicationStatusRunning
 
-	return nil
+	return b.recordOperation(region, name, "StartApplication"), nil
 }
 
-// StopApplication sets the application status to READY.
+// StopApplication sets the application status to READY and returns the
+// OperationID of the recorded StopApplication operation (see recordOperation).
 // Returns ResourceInUseException if the application is not in RUNNING state,
 // matching real AWS Kinesis Analytics v2 behavior.
-func (b *InMemoryBackend) StopApplication(ctx context.Context, name string) error {
+func (b *InMemoryBackend) StopApplication(ctx context.Context, name string) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("StopApplication")
@@ -465,16 +564,16 @@ func (b *InMemoryBackend) StopApplication(ctx context.Context, name string) erro
 
 	app, ok := b.findApplication(region, name)
 	if !ok {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 
 	if app.ApplicationStatus != ApplicationStatusRunning {
-		return ErrAlreadyExists
+		return "", ErrAlreadyExists
 	}
 
 	app.ApplicationStatus = ApplicationStatusReady
 
-	return nil
+	return b.recordOperation(region, name, "StopApplication"), nil
 }
 
 // CreateApplicationSnapshot creates a snapshot for an application.
@@ -720,7 +819,8 @@ func (b *InMemoryBackend) newResourceID(prefix string) string {
 
 // checkAndBumpVersion validates the current version and increments it.
 // A zero/negative currentVersionID is treated as "skip version check".
-// Must be called under b.mu.
+// Callers must follow a successful call with `defer b.snapshotVersion(region,
+// name, app)` (see below) to record the version history.
 func checkAndBumpVersion(app *Application, currentVersionID int64) error {
 	if currentVersionID > 0 && app.ApplicationVersionID != currentVersionID {
 		return ErrConcurrentModification
@@ -729,6 +829,49 @@ func checkAndBumpVersion(app *Application, currentVersionID int64) error {
 	app.ApplicationVersionID++
 
 	return nil
+}
+
+// snapshotVersion appends a copy of app's current state to the (region,
+// name) version history. Callers invoke this via `defer` immediately after a
+// successful checkAndBumpVersion so it captures state *after* the caller's
+// subsequent field mutations run, not the state at the moment of the version
+// bump -- deferred calls execute at function return, once all of the
+// function's own statements (including those mutations) have completed.
+// Without this, DescribeApplicationVersion, ListApplicationVersions, and
+// RollbackApplication would only ever see the single version-1 snapshot
+// CreateApplication seeds -- every Add*/Delete* config op and
+// UpdateApplication bumps ApplicationVersionID but previously left
+// b.versions untouched, so RollbackApplication's "len(vers) < 2" guard could
+// never be satisfied by real traffic and always failed with ErrValidation.
+// Must run under b.mu.
+func (b *InMemoryBackend) snapshotVersion(region, name string, app *Application) {
+	b.versionsStore(region)[name] = append(b.versionsStore(region)[name], appCopy(app))
+}
+
+// recordOperation appends a completed ApplicationOperation record for
+// (region, appName) and returns its OperationID, so DescribeApplicationOperation
+// and ListApplicationOperations have real data to serve instead of being
+// permanently empty. Must be called under b.mu.
+func (b *InMemoryBackend) recordOperation(region, appName, opType string) string {
+	now := time.Now().UTC()
+	opID := b.newResourceID("op")
+
+	op := &ApplicationOperation{
+		OperationID:     opID,
+		ApplicationName: appName,
+		Operation:       opType,
+		OperationStatus: OperationStatusSuccessful,
+		StartTimestamp:  now,
+		EndTimestamp:    now,
+	}
+
+	if b.operations[region] == nil {
+		b.operations[region] = make(map[string][]*ApplicationOperation)
+	}
+
+	b.operations[region][appName] = append(b.operations[region][appName], op)
+
+	return opID
 }
 
 // AddApplicationCloudWatchLoggingOption adds a CloudWatch logging option to an application.
@@ -749,6 +892,8 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
 		return err
 	}
+
+	defer b.snapshotVersion(region, name, app)
 
 	app.CloudWatchLoggingOptionDescs = append(
 		app.CloudWatchLoggingOptionDescs,
@@ -780,6 +925,8 @@ func (b *InMemoryBackend) AddApplicationInput(
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
 		return err
 	}
+
+	defer b.snapshotVersion(region, name, app)
 
 	input.InputID = b.newResourceID("input")
 	app.InputDescriptions = append(app.InputDescriptions, input)
@@ -824,6 +971,8 @@ func (b *InMemoryBackend) AddApplicationInputProcessingConfiguration(
 		return err
 	}
 
+	defer b.snapshotVersion(region, name, app)
+
 	app.InputDescriptions[idx].InputProcessingConfigurationDescription = config
 
 	return nil
@@ -847,6 +996,8 @@ func (b *InMemoryBackend) AddApplicationOutput(
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
 		return err
 	}
+
+	defer b.snapshotVersion(region, name, app)
 
 	output.OutputID = b.newResourceID("output")
 	app.OutputDescriptions = append(app.OutputDescriptions, output)
@@ -873,6 +1024,8 @@ func (b *InMemoryBackend) AddApplicationReferenceDataSource(
 		return err
 	}
 
+	defer b.snapshotVersion(region, name, app)
+
 	ref.ReferenceID = b.newResourceID("ref")
 	app.ReferenceDataSourceDescriptions = append(app.ReferenceDataSourceDescriptions, ref)
 
@@ -897,6 +1050,8 @@ func (b *InMemoryBackend) AddApplicationVpcConfiguration(
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
 		return err
 	}
+
+	defer b.snapshotVersion(region, name, app)
 
 	vpc.VpcConfigurationID = b.newResourceID("vpc")
 
@@ -947,6 +1102,8 @@ func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 		return err
 	}
 
+	defer b.snapshotVersion(region, name, app)
+
 	app.CloudWatchLoggingOptionDescs = append(
 		app.CloudWatchLoggingOptionDescs[:idx],
 		app.CloudWatchLoggingOptionDescs[idx+1:]...,
@@ -989,6 +1146,8 @@ func (b *InMemoryBackend) DeleteApplicationInputProcessingConfiguration(
 		return err
 	}
 
+	defer b.snapshotVersion(region, name, app)
+
 	app.InputDescriptions[idx].InputProcessingConfigurationDescription = nil
 
 	return nil
@@ -1027,6 +1186,8 @@ func (b *InMemoryBackend) DeleteApplicationOutput(
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
 		return err
 	}
+
+	defer b.snapshotVersion(region, name, app)
 
 	app.OutputDescriptions = append(
 		app.OutputDescriptions[:idx],
@@ -1175,7 +1336,7 @@ func toSnapshotDetail(s *Snapshot) snapshotDetail {
 		SnapshotName:              s.SnapshotName,
 		SnapshotStatus:            s.SnapshotStatus,
 		ApplicationVersion:        s.ApplicationVersion,
-		SnapshotCreationTimestamp: float64(s.SnapshotCreation.Unix()),
+		SnapshotCreationTimestamp: awstime.Epoch(s.SnapshotCreation),
 	}
 }
 
@@ -1211,6 +1372,8 @@ func (b *InMemoryBackend) DeleteApplicationReferenceDataSource(
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
 		return err
 	}
+
+	defer b.snapshotVersion(region, name, app)
 
 	app.ReferenceDataSourceDescriptions = append(
 		app.ReferenceDataSourceDescriptions[:idx],
@@ -1252,6 +1415,8 @@ func (b *InMemoryBackend) DeleteApplicationVpcConfiguration(
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
 		return err
 	}
+
+	defer b.snapshotVersion(region, name, app)
 
 	app.VpcConfigurationDescriptions = append(
 		app.VpcConfigurationDescriptions[:idx],
@@ -1384,12 +1549,14 @@ func (b *InMemoryBackend) ListApplicationVersions(
 	return summaries[startIdx:end], outToken, nil
 }
 
-// RollbackApplication rolls back an application to its previous version.
+// RollbackApplication rolls back an application to its previous version,
+// returning the OperationID of the recorded RollbackApplication operation
+// (see recordOperation).
 func (b *InMemoryBackend) RollbackApplication(
 	ctx context.Context,
 	name string,
 	currentVersionID int64,
-) (*Application, error) {
+) (*Application, string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("RollbackApplication")
@@ -1397,17 +1564,17 @@ func (b *InMemoryBackend) RollbackApplication(
 
 	app, ok := b.findApplication(region, name)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, "", ErrNotFound
 	}
 
 	if currentVersionID > 0 && app.ApplicationVersionID != currentVersionID {
-		return nil, ErrConcurrentModification
+		return nil, "", ErrConcurrentModification
 	}
 
 	const minVersionsForRollback = 2
 	vers := b.versions[region][name]
 	if len(vers) < minVersionsForRollback {
-		return nil, ErrValidation
+		return nil, "", ErrValidation
 	}
 
 	// Roll back to the second-to-last stored version.
@@ -1416,7 +1583,9 @@ func (b *InMemoryBackend) RollbackApplication(
 	b.applications.Put(prev)
 	b.versions[region][name] = append(b.versions[region][name], appCopy(prev))
 
-	return appCopy(prev), nil
+	opID := b.recordOperation(region, name, "RollbackApplication")
+
+	return appCopy(prev), opID, nil
 }
 
 // UpdateApplicationMaintenanceConfiguration sets the maintenance window start time.

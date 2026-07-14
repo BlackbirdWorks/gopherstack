@@ -84,8 +84,10 @@ const (
 	jwksRetrievalOpenIDDiscovery = "OPEN_ID_DISCOVERY"
 	maxIssuerURLLen              = 512
 
-	// Region scope type for SSO instance regions.
-	regionScopeTypeAllRegions = "ALL_REGIONS"
+	// Region status values for multi-region SSO instances.
+	regionStatusActive   = "ACTIVE"
+	regionStatusAdding   = "ADDING"
+	regionStatusRemoving = "REMOVING"
 
 	// Valid principal types for account assignments.
 	principalTypeUser  = "USER"
@@ -141,7 +143,11 @@ var (
 	ErrGrantNotFound                   = errors.New("ResourceNotFoundException")
 	ErrACAAlreadyExists                = errors.New("ConflictException")
 	ErrPermissionsBoundaryNotFound     = errors.New("ResourceNotFoundException")
-	ErrTooManyTagsException            = errors.New("TooManyTagsException")
+	// ErrServiceQuotaExceeded is returned when a resource would exceed the
+	// 50-tags-per-resource limit. Real ssoadmin has no TooManyTagsException in
+	// its error model (see types/errors.go) -- quota overruns map to
+	// ServiceQuotaExceededException like every other ssoadmin limit.
+	ErrServiceQuotaExceeded = errors.New("ServiceQuotaExceededException")
 )
 
 // Instance represents an AWS SSO instance.
@@ -289,10 +295,15 @@ type InstanceAccessControlAttributeConfiguration struct {
 	AccessControlAttributes []AccessControlAttribute `json:"AccessControlAttributes"`
 }
 
-// RegionMetadata represents a region associated with an SSO instance.
+// RegionMetadata represents a region associated with an SSO instance. Field
+// names and JSON tags mirror the real ssoadmin.RegionMetadata wire shape
+// (AddedDate, IsPrimaryRegion, RegionName, Status) -- see
+// aws-sdk-go-v2/service/ssoadmin/types.RegionMetadata.
 type RegionMetadata struct {
-	Region          string `json:"Region"`
-	RegionScopeType string `json:"RegionScopeType"`
+	AddedDate       time.Time `json:"AddedDate"`
+	RegionName      string    `json:"RegionName"`
+	Status          string    `json:"Status"`
+	IsPrimaryRegion bool      `json:"IsPrimaryRegion"`
 }
 
 // OidcJwtConfiguration holds OIDC JWT trusted token issuer configuration.
@@ -335,7 +346,7 @@ type InMemoryBackend struct {
 	applications            *store.Table[Application]
 	applicationsByInstance  *store.Index[Application]
 	applicationAssignments  map[string][]*ApplicationAssignment
-	applicationScopes       map[string][]string
+	applicationScopes       map[string]map[string][]string
 	// applicationAuthMethods stores per-app authentication methods: appArn → methodType → full JSON body.
 	applicationAuthMethods map[string]map[string]json.RawMessage
 	// applicationGrants stores per-app grants: appArn → grantType → full JSON body.
@@ -382,7 +393,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		instanceRegions:         make(map[string][]RegionMetadata),
 		customerManagedPolicies: make(map[string][]CustomerManagedPolicyReference),
 		applicationAssignments:  make(map[string][]*ApplicationAssignment),
-		applicationScopes:       make(map[string][]string),
+		applicationScopes:       make(map[string]map[string][]string),
 		applicationAuthMethods:  make(map[string]map[string]json.RawMessage),
 		applicationGrants:       make(map[string]map[string]json.RawMessage),
 		applicationAssignConfig: make(map[string]bool),
@@ -415,7 +426,7 @@ func (b *InMemoryBackend) Reset() {
 	b.assignmentCreationIDs = make(map[string]string)
 	b.customerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
 	b.applicationAssignments = make(map[string][]*ApplicationAssignment)
-	b.applicationScopes = make(map[string][]string)
+	b.applicationScopes = make(map[string]map[string][]string)
 	b.applicationAuthMethods = make(map[string]map[string]json.RawMessage)
 	b.applicationGrants = make(map[string]map[string]json.RawMessage)
 	b.applicationAssignConfig = make(map[string]bool)
@@ -1359,7 +1370,7 @@ func applyTagsWithLimit(existing map[string]string, newTags map[string]string) e
 		}
 	}
 	if len(existing)+netNew > maxTagsPerResource {
-		return ErrTooManyTagsException
+		return ErrServiceQuotaExceeded
 	}
 	maps.Copy(existing, newTags)
 
@@ -1629,25 +1640,29 @@ func (b *InMemoryBackend) AddApplicationInternal(instanceArn, name string) *Appl
 	return copyApplication(app)
 }
 
-// AddRegion adds a region to an SSO instance.
-func (b *InMemoryBackend) AddRegion(instanceArn, regionName string) error {
+// AddRegion adds a region to an SSO instance, simulating the asynchronous
+// replication workflow AWS documents (status starts ADDING, transitions to
+// ACTIVE once observed via ListRegions/DescribeRegion). Returns the region's
+// current status, matching AddRegionOutput.Status.
+func (b *InMemoryBackend) AddRegion(instanceArn, regionName string) (string, error) {
 	b.mu.Lock("AddRegion")
 	defer b.mu.Unlock()
 
 	if !b.instances.Has(instanceArn) {
-		return ErrInstanceNotFound
+		return "", ErrInstanceNotFound
 	}
 	for _, r := range b.instanceRegions[instanceArn] {
-		if r.Region == regionName {
-			return nil
+		if r.RegionName == regionName {
+			return r.Status, nil
 		}
 	}
 	b.instanceRegions[instanceArn] = append(b.instanceRegions[instanceArn], RegionMetadata{
-		Region:          regionName,
-		RegionScopeType: regionScopeTypeAllRegions,
+		RegionName: regionName,
+		Status:     regionStatusAdding,
+		AddedDate:  time.Now().UTC(),
 	})
 
-	return nil
+	return regionStatusAdding, nil
 }
 
 // AttachCustomerManagedPolicyReferenceToPermissionSet attaches a customer-managed policy reference to a permission set.
@@ -1935,6 +1950,14 @@ func (b *InMemoryBackend) PutApplicationAssignmentConfiguration(applicationArn s
 	return nil
 }
 
+// ScopeDetails describes an access scope and the ARNs it authorizes, matching
+// the real ssoadmin.types.ScopeDetails wire shape returned by
+// ListApplicationAccessScopes.
+type ScopeDetails struct {
+	Scope             string   `json:"Scope"`
+	AuthorizedTargets []string `json:"AuthorizedTargets"`
+}
+
 // DeleteApplicationAccessScope removes an access scope from an application.
 func (b *InMemoryBackend) DeleteApplicationAccessScope(applicationArn, scope string) error {
 	b.mu.Lock("DeleteApplicationAccessScope")
@@ -1943,42 +1966,36 @@ func (b *InMemoryBackend) DeleteApplicationAccessScope(applicationArn, scope str
 	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
-	all := b.applicationScopes[applicationArn]
-	found := false
-	var remaining []string
-	for _, s := range all {
-		if s == scope {
-			found = true
-		} else {
-			remaining = append(remaining, s)
-		}
-	}
-	if !found {
+	scopes := b.applicationScopes[applicationArn]
+	if _, ok := scopes[scope]; !ok {
 		return ErrAccessScopeNotFound
 	}
-	b.applicationScopes[applicationArn] = remaining
+	delete(scopes, scope)
 
 	return nil
 }
 
-// PutApplicationAccessScope adds an access scope to an application.
-func (b *InMemoryBackend) PutApplicationAccessScope(applicationArn, scope string) error {
+// PutApplicationAccessScope adds or updates an access scope and its
+// authorized target ARNs on an application. Real AWS "Put" semantics replace
+// the full authorizedTargets list on each call rather than merging.
+func (b *InMemoryBackend) PutApplicationAccessScope(applicationArn, scope string, authorizedTargets []string) error {
 	b.mu.Lock("PutApplicationAccessScope")
 	defer b.mu.Unlock()
 
 	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
-	if slices.Contains(b.applicationScopes[applicationArn], scope) {
-		return nil
+	if b.applicationScopes[applicationArn] == nil {
+		b.applicationScopes[applicationArn] = make(map[string][]string)
 	}
-	b.applicationScopes[applicationArn] = append(b.applicationScopes[applicationArn], scope)
+	b.applicationScopes[applicationArn][scope] = slices.Clone(authorizedTargets)
 
 	return nil
 }
 
-// ListApplicationAccessScopes lists access scopes on an application.
-func (b *InMemoryBackend) ListApplicationAccessScopes(applicationArn string) ([]string, error) {
+// ListApplicationAccessScopes lists access scopes and their authorized
+// targets on an application, sorted by scope name for deterministic output.
+func (b *InMemoryBackend) ListApplicationAccessScopes(applicationArn string) ([]ScopeDetails, error) {
 	b.mu.RLock("ListApplicationAccessScopes")
 	defer b.mu.RUnlock()
 
@@ -1986,7 +2003,15 @@ func (b *InMemoryBackend) ListApplicationAccessScopes(applicationArn string) ([]
 		return nil, ErrApplicationNotFound
 	}
 
-	return slices.Clone(b.applicationScopes[applicationArn]), nil
+	scopes := b.applicationScopes[applicationArn]
+	result := make([]ScopeDetails, 0, len(scopes))
+	for scope, targets := range scopes {
+		// Normalize nil to a non-nil empty slice; see GetApplicationAccessScope.
+		result = append(result, ScopeDetails{Scope: scope, AuthorizedTargets: append([]string{}, targets...)})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Scope < result[j].Scope })
+
+	return result, nil
 }
 
 // AuthMethod holds a typed authentication method with its full structured body.
@@ -2593,45 +2618,88 @@ func (b *InMemoryBackend) ListCustomerManagedPolicyReferencesInPermissionSet(
 	return result, nil
 }
 
-// RemoveRegion removes a region from an SSO instance.
-func (b *InMemoryBackend) RemoveRegion(instanceArn, regionName string) error {
+// RemoveRegion initiates removal of a region from an SSO instance. The entry
+// is retained with REMOVING status and pruned on the next ListRegions or
+// DescribeRegion call, mirroring the DeleteInstance/cascadeDeleteInstance
+// lazy-prune pattern. Returns the region's status (REMOVING), matching
+// RemoveRegionOutput.Status.
+func (b *InMemoryBackend) RemoveRegion(instanceArn, regionName string) (string, error) {
 	b.mu.Lock("RemoveRegion")
 	defer b.mu.Unlock()
 
 	if !b.instances.Has(instanceArn) {
-		return ErrInstanceNotFound
+		return "", ErrInstanceNotFound
 	}
 	regions := b.instanceRegions[instanceArn]
-	found := false
-	remaining := make([]RegionMetadata, 0, len(regions))
-	for _, r := range regions {
-		if r.Region == regionName {
-			found = true
-		} else {
-			remaining = append(remaining, r)
+	for i := range regions {
+		if regions[i].RegionName == regionName {
+			regions[i].Status = regionStatusRemoving
+
+			return regionStatusRemoving, nil
 		}
 	}
-	if !found {
-		return ErrRequestNotFound
-	}
-	b.instanceRegions[instanceArn] = remaining
 
-	return nil
+	return "", ErrRequestNotFound
 }
 
-// ListRegions returns the regions associated with an SSO instance.
+// ListRegions returns the regions associated with an SSO instance. Entries in
+// ADDING status lazily transition to ACTIVE and entries in REMOVING status
+// are pruned, matching the lazy-transition pattern used elsewhere in this
+// backend (e.g. ListInstances, DescribeAccountAssignmentCreationStatus).
 func (b *InMemoryBackend) ListRegions(instanceArn string) ([]RegionMetadata, error) {
-	b.mu.RLock("ListRegions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListRegions")
+	defer b.mu.Unlock()
 
 	if !b.instances.Has(instanceArn) {
 		return nil, ErrInstanceNotFound
 	}
+
 	regions := b.instanceRegions[instanceArn]
-	result := make([]RegionMetadata, len(regions))
-	copy(result, regions)
+	kept := regions[:0]
+
+	for i := range regions {
+		if regions[i].Status == regionStatusRemoving {
+			continue
+		}
+		if regions[i].Status == regionStatusAdding {
+			regions[i].Status = regionStatusActive
+		}
+		kept = append(kept, regions[i])
+	}
+	b.instanceRegions[instanceArn] = kept
+
+	result := make([]RegionMetadata, len(kept))
+	copy(result, kept)
 
 	return result, nil
+}
+
+// DescribeRegion returns metadata for a specific region associated with an
+// SSO instance, lazily transitioning ADDING → ACTIVE on first describe (see
+// ListRegions doc comment). Returns ResourceNotFoundException if the region
+// was never added, or has finished being removed, on this instance.
+func (b *InMemoryBackend) DescribeRegion(instanceArn, regionName string) (*RegionMetadata, error) {
+	b.mu.Lock("DescribeRegion")
+	defer b.mu.Unlock()
+
+	if !b.instances.Has(instanceArn) {
+		return nil, ErrInstanceNotFound
+	}
+
+	regions := b.instanceRegions[instanceArn]
+	for i := range regions {
+		if regions[i].RegionName != regionName || regions[i].Status == regionStatusRemoving {
+			continue
+		}
+		if regions[i].Status == regionStatusAdding {
+			regions[i].Status = regionStatusActive
+		}
+		cp := regions[i]
+
+		return &cp, nil
+	}
+
+	return nil, ErrRequestNotFound
 }
 
 // UpdateInstance updates the name of an SSO instance.
@@ -2762,18 +2830,21 @@ func (b *InMemoryBackend) ListAccountAssignmentsForPrincipal(
 }
 
 // GetApplicationAccessScope returns whether a specific access scope exists for an application.
-func (b *InMemoryBackend) GetApplicationAccessScope(applicationArn, scope string) (string, error) {
+func (b *InMemoryBackend) GetApplicationAccessScope(applicationArn, scope string) ([]string, error) {
 	b.mu.RLock("GetApplicationAccessScope")
 	defer b.mu.RUnlock()
 
 	if !b.applications.Has(applicationArn) {
-		return "", ErrApplicationNotFound
+		return nil, ErrApplicationNotFound
 	}
-	if slices.Contains(b.applicationScopes[applicationArn], scope) {
-		return scope, nil
+	targets, ok := b.applicationScopes[applicationArn][scope]
+	if !ok {
+		return nil, ErrAccessScopeNotFound
 	}
 
-	return "", ErrAccessScopeNotFound
+	// Normalize nil to a non-nil empty slice so the wire response carries
+	// AuthorizedTargets: [] rather than null when none were set.
+	return append([]string{}, targets...), nil
 }
 
 // GetApplicationAuthenticationMethod and GetApplicationGrant are implemented earlier in this file

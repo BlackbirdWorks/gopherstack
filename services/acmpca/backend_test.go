@@ -3,6 +3,7 @@ package acmpca_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -257,6 +258,58 @@ func TestInMemoryBackend_DeleteCertificateAuthority(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_DeleteCertificateAuthority_RestorableUntil verifies that
+// deleting a CA sets RestorableUntil to now+PermanentDeletionTimeInDays (defaulting
+// to 30 days when unset, matching real AWS ACM PCA behavior), and that restoring
+// the CA clears it again.
+func TestInMemoryBackend_DeleteCertificateAuthority_RestorableUntil(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		days     int32
+		wantDays int
+	}{
+		{name: "default (unset) is 30 days", days: 0, wantDays: 30},
+		{name: "explicit minimum", days: 7, wantDays: 7},
+		{name: "explicit maximum", days: 30, wantDays: 30},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			ca, err := b.CreateCertificateAuthority(
+				context.Background(),
+				"ROOT",
+				acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Restorable CA"},
+				},
+			)
+			require.NoError(t, err)
+			require.NoError(t, b.UpdateCertificateAuthority(context.Background(), ca.ARN, "DISABLED"))
+
+			before := time.Now().UTC()
+			require.NoError(t, b.DeleteCertificateAuthority(context.Background(), ca.ARN, tt.days))
+
+			deleted, err := b.DescribeCertificateAuthority(context.Background(), ca.ARN)
+			require.NoError(t, err)
+			assert.Equal(t, "DELETED", deleted.Status)
+
+			wantUntil := before.AddDate(0, 0, tt.wantDays)
+			assert.WithinDuration(t, wantUntil, deleted.RestorableUntil, time.Minute)
+
+			require.NoError(t, b.RestoreCertificateAuthority(context.Background(), ca.ARN))
+
+			restored, err := b.DescribeCertificateAuthority(context.Background(), ca.ARN)
+			require.NoError(t, err)
+			assert.Equal(t, "DISABLED", restored.Status)
+			assert.True(t, restored.RestorableUntil.IsZero(), "RestorableUntil must be cleared after restore")
+		})
+	}
+}
+
 func TestInMemoryBackend_GetCertificateAuthorityCsr(t *testing.T) {
 	t.Parallel()
 
@@ -414,6 +467,43 @@ func TestInMemoryBackend_PermissionsAndPolicies(t *testing.T) {
 		run  func(t *testing.T, b *acmpca.InMemoryBackend, caARN string)
 		name string
 	}{
+		{
+			name: "create_permission_duplicate_rejected",
+			run: func(t *testing.T, b *acmpca.InMemoryBackend, caARN string) {
+				t.Helper()
+
+				_, err := b.CreatePermission(
+					context.Background(),
+					caARN,
+					"acm.amazonaws.com",
+					testAccountID,
+					[]string{"IssueCertificate"},
+				)
+				require.NoError(t, err)
+
+				// Granting the same principal/source-account pair again must be
+				// rejected with PermissionAlreadyExistsException, matching real
+				// AWS ACM PCA behavior.
+				_, err = b.CreatePermission(
+					context.Background(),
+					caARN,
+					"acm.amazonaws.com",
+					testAccountID,
+					[]string{"IssueCertificate", "GetCertificate"},
+				)
+				require.ErrorIs(t, err, acmpca.ErrPermissionAlreadyExists)
+
+				// A different source account is a distinct permission and must succeed.
+				_, err = b.CreatePermission(
+					context.Background(),
+					caARN,
+					"acm.amazonaws.com",
+					"111111111111",
+					[]string{"IssueCertificate"},
+				)
+				require.NoError(t, err)
+			},
+		},
 		{
 			name: "permissions_crud",
 			run: func(t *testing.T, b *acmpca.InMemoryBackend, caARN string) {

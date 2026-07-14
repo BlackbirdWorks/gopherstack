@@ -1358,10 +1358,10 @@ func TestRefinement4_VersionConflict_ErrorShape(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "VersionConflictException", resp["error"])
+	assert.Equal(t, "ConflictException", resp["error"])
 	// AWS includes the numeric code in the body.
 	code, hasCode := resp["code"]
-	require.True(t, hasCode, "VersionConflictException body must include code")
+	require.True(t, hasCode, "ConflictException body must include code")
 	assert.InDelta(t, float64(http.StatusConflict), code, 0)
 }
 

@@ -1,0 +1,309 @@
+package sesv2
+
+// This file holds AWS-shaped ("wire") response DTOs and conversion helpers
+// for backend entities whose internal Go structs (backend.go, backend_ops.go)
+// intentionally keep lowerCamelCase JSON tags for the on-disk snapshot format
+// (see persistence.go). Marshalling those internal structs directly as HTTP
+// responses produced the wrong field casing/shape for a real aws-sdk-go-v2
+// client (e.g. "poolName" instead of "PoolName", or a missing
+// "DedicatedIpPool" wrapper) -- these types fix that without touching the
+// persisted shape. Field names and nesting were verified against
+// aws-sdk-go-v2/service/sesv2 v1.60.1's types package; see PARITY.md.
+
+import "github.com/blackbirdworks/gopherstack/pkgs/awstime"
+
+// ---- contact list ----
+
+// contactListOutput mirrors GetContactListOutput's top-level fields.
+type contactListOutput struct {
+	ContactListName      string     `json:"ContactListName"`
+	Description          string     `json:"Description,omitempty"`
+	Tags                 []tagEntry `json:"Tags,omitempty"`
+	CreatedTimestamp     float64    `json:"CreatedTimestamp,omitempty"`
+	LastUpdatedTimestamp float64    `json:"LastUpdatedTimestamp,omitempty"`
+}
+
+func toContactListOutput(cl *ContactList) *contactListOutput {
+	return &contactListOutput{
+		ContactListName:      cl.Name,
+		Description:          cl.Description,
+		CreatedTimestamp:     awstime.Epoch(cl.CreatedAt),
+		LastUpdatedTimestamp: awstime.Epoch(cl.LastUpdatedAt),
+		Tags:                 tagsToEntries(cl.Tags),
+	}
+}
+
+// contactListSummaryOutput mirrors types.ContactList, the ListContactLists
+// item shape -- notably it has neither Description nor CreatedTimestamp.
+type contactListSummaryOutput struct {
+	ContactListName      string  `json:"ContactListName"`
+	LastUpdatedTimestamp float64 `json:"LastUpdatedTimestamp,omitempty"`
+}
+
+func toContactListSummaryOutput(cl *ContactList) contactListSummaryOutput {
+	return contactListSummaryOutput{
+		ContactListName:      cl.Name,
+		LastUpdatedTimestamp: awstime.Epoch(cl.LastUpdatedAt),
+	}
+}
+
+// ---- contact ----
+
+// topicPreferenceOutput mirrors types.TopicPreference.
+type topicPreferenceOutput struct {
+	TopicName          string `json:"TopicName"`
+	SubscriptionStatus string `json:"SubscriptionStatus"`
+}
+
+func toTopicPreferenceOutputs(prefs []TopicPreference) []topicPreferenceOutput {
+	if len(prefs) == 0 {
+		return nil
+	}
+
+	out := make([]topicPreferenceOutput, len(prefs))
+	for i, p := range prefs {
+		out[i] = topicPreferenceOutput(p)
+	}
+
+	return out
+}
+
+// contactOutput mirrors GetContactOutput's top-level fields.
+type contactOutput struct {
+	ContactListName      string                  `json:"ContactListName"`
+	EmailAddress         string                  `json:"EmailAddress"`
+	TopicPreferences     []topicPreferenceOutput `json:"TopicPreferences,omitempty"`
+	CreatedTimestamp     float64                 `json:"CreatedTimestamp,omitempty"`
+	LastUpdatedTimestamp float64                 `json:"LastUpdatedTimestamp,omitempty"`
+	UnsubscribeAll       bool                    `json:"UnsubscribeAll"`
+}
+
+func toContactOutput(c *Contact) *contactOutput {
+	return &contactOutput{
+		ContactListName:      c.ContactListName,
+		EmailAddress:         c.EmailAddress,
+		CreatedTimestamp:     awstime.Epoch(c.CreatedAt),
+		LastUpdatedTimestamp: awstime.Epoch(c.LastUpdatedAt),
+		TopicPreferences:     toTopicPreferenceOutputs(c.TopicPreferences),
+		UnsubscribeAll:       c.UnsubscribeAll,
+	}
+}
+
+// contactSummaryOutput mirrors types.Contact, the ListContacts item shape --
+// notably it has neither ContactListName nor CreatedTimestamp.
+type contactSummaryOutput struct {
+	EmailAddress         string                  `json:"EmailAddress"`
+	TopicPreferences     []topicPreferenceOutput `json:"TopicPreferences,omitempty"`
+	LastUpdatedTimestamp float64                 `json:"LastUpdatedTimestamp,omitempty"`
+	UnsubscribeAll       bool                    `json:"UnsubscribeAll"`
+}
+
+func toContactSummaryOutput(c *Contact) contactSummaryOutput {
+	return contactSummaryOutput{
+		EmailAddress:         c.EmailAddress,
+		LastUpdatedTimestamp: awstime.Epoch(c.LastUpdatedAt),
+		TopicPreferences:     toTopicPreferenceOutputs(c.TopicPreferences),
+		UnsubscribeAll:       c.UnsubscribeAll,
+	}
+}
+
+// ---- suppressed destination ----
+
+// suppressedDestinationOutput mirrors types.SuppressedDestination, used both
+// for the GetSuppressedDestination wrapper payload and (since
+// SuppressedDestinationSummary has the same three fields) for
+// ListSuppressedDestinations items.
+type suppressedDestinationOutput struct {
+	EmailAddress   string  `json:"EmailAddress"`
+	Reason         string  `json:"Reason"`
+	LastUpdateTime float64 `json:"LastUpdateTime,omitempty"`
+}
+
+func toSuppressedDestinationOutput(d *SuppressedDestination) suppressedDestinationOutput {
+	return suppressedDestinationOutput{
+		EmailAddress:   d.EmailAddress,
+		Reason:         d.Reason,
+		LastUpdateTime: awstime.Epoch(d.LastUpdateTime),
+	}
+}
+
+// ---- dedicated IP pool ----
+
+// dedicatedIPPoolOutput mirrors types.DedicatedIpPool.
+type dedicatedIPPoolOutput struct {
+	PoolName    string `json:"PoolName"`
+	ScalingMode string `json:"ScalingMode"`
+}
+
+func toDedicatedIPPoolOutput(p *DedicatedIPPool) dedicatedIPPoolOutput {
+	return dedicatedIPPoolOutput{PoolName: p.PoolName, ScalingMode: p.ScalingMode}
+}
+
+// ---- configuration set event destination ----
+
+// eventDestinationOutput mirrors types.EventDestination's modelled subset
+// (Name, Enabled, MatchingEventTypes). Note the real type has no
+// ConfigurationSetName or creation-time field.
+type eventDestinationOutput struct {
+	Name               string   `json:"Name"`
+	MatchingEventTypes []string `json:"MatchingEventTypes"`
+	Enabled            bool     `json:"Enabled"`
+}
+
+func toEventDestinationOutput(d *EventDestination) eventDestinationOutput {
+	return eventDestinationOutput{Name: d.Name, Enabled: d.Enabled, MatchingEventTypes: d.MatchingEventTypes}
+}
+
+func toEventDestinationOutputs(dests []*EventDestination) []eventDestinationOutput {
+	out := make([]eventDestinationOutput, 0, len(dests))
+	for _, d := range dests {
+		out = append(out, toEventDestinationOutput(d))
+	}
+
+	return out
+}
+
+// ---- email template ----
+
+// emailTemplateContentOutput mirrors types.EmailTemplateContent -- note the
+// HTML field name is "Html", not "HTML".
+type emailTemplateContentOutput struct {
+	Subject string `json:"Subject,omitempty"`
+	HTML    string `json:"Html,omitempty"`
+	Text    string `json:"Text,omitempty"`
+}
+
+func toEmailTemplateContentOutput(c *EmailTemplateContent) *emailTemplateContentOutput {
+	if c == nil {
+		return nil
+	}
+
+	return &emailTemplateContentOutput{Subject: c.Subject, HTML: c.HTML, Text: c.Text}
+}
+
+// emailTemplateOutput mirrors GetEmailTemplateOutput's top-level fields
+// (flat -- no wrapper, and no creation timestamp).
+type emailTemplateOutput struct {
+	TemplateContent *emailTemplateContentOutput `json:"TemplateContent,omitempty"`
+	TemplateName    string                      `json:"TemplateName"`
+}
+
+func toEmailTemplateOutput(t *EmailTemplate) *emailTemplateOutput {
+	return &emailTemplateOutput{
+		TemplateName:    t.TemplateName,
+		TemplateContent: toEmailTemplateContentOutput(t.TemplateContent),
+	}
+}
+
+// emailTemplateMetadataOutput mirrors types.EmailTemplateMetadata, the
+// ListEmailTemplates item shape (name + creation time only, no content).
+type emailTemplateMetadataOutput struct {
+	TemplateName     string  `json:"TemplateName"`
+	CreatedTimestamp float64 `json:"CreatedTimestamp,omitempty"`
+}
+
+func toEmailTemplateMetadataOutput(t *EmailTemplate) emailTemplateMetadataOutput {
+	return emailTemplateMetadataOutput{
+		TemplateName:     t.TemplateName,
+		CreatedTimestamp: awstime.Epoch(t.CreatedAt),
+	}
+}
+
+// ---- custom verification email template ----
+
+// customVerificationEmailTemplateOutput mirrors
+// GetCustomVerificationEmailTemplateOutput's top-level fields.
+type customVerificationEmailTemplateOutput struct {
+	TemplateName          string `json:"TemplateName"`
+	FromEmailAddress      string `json:"FromEmailAddress"`
+	TemplateSubject       string `json:"TemplateSubject"`
+	TemplateContent       string `json:"TemplateContent,omitempty"`
+	SuccessRedirectionURL string `json:"SuccessRedirectionURL"`
+	FailureRedirectionURL string `json:"FailureRedirectionURL"`
+}
+
+func toCustomVerificationEmailTemplateOutput(
+	t *CustomVerificationEmailTemplate,
+) *customVerificationEmailTemplateOutput {
+	return &customVerificationEmailTemplateOutput{
+		TemplateName:          t.TemplateName,
+		FromEmailAddress:      t.FromEmailAddress,
+		TemplateSubject:       t.TemplateSubject,
+		TemplateContent:       t.TemplateContent,
+		SuccessRedirectionURL: t.SuccessRedirectionURL,
+		FailureRedirectionURL: t.FailureRedirectionURL,
+	}
+}
+
+// customVerificationEmailTemplateMetadataOutput mirrors
+// types.CustomVerificationEmailTemplateMetadata, the
+// ListCustomVerificationEmailTemplates item shape (no TemplateContent).
+type customVerificationEmailTemplateMetadataOutput struct {
+	TemplateName          string `json:"TemplateName"`
+	FromEmailAddress      string `json:"FromEmailAddress"`
+	TemplateSubject       string `json:"TemplateSubject"`
+	SuccessRedirectionURL string `json:"SuccessRedirectionURL"`
+	FailureRedirectionURL string `json:"FailureRedirectionURL"`
+}
+
+func toCustomVerificationEmailTemplateMetadataOutput(
+	t *CustomVerificationEmailTemplate,
+) customVerificationEmailTemplateMetadataOutput {
+	return customVerificationEmailTemplateMetadataOutput{
+		TemplateName:          t.TemplateName,
+		FromEmailAddress:      t.FromEmailAddress,
+		TemplateSubject:       t.TemplateSubject,
+		SuccessRedirectionURL: t.SuccessRedirectionURL,
+		FailureRedirectionURL: t.FailureRedirectionURL,
+	}
+}
+
+// ---- deliverability test report ----
+
+// deliverabilityTestReportItemOutput mirrors types.DeliverabilityTestReport,
+// used both nested inside the GetDeliverabilityTestReport wrapper and as the
+// ListDeliverabilityTestReports item shape.
+type deliverabilityTestReportItemOutput struct {
+	ReportID                 string  `json:"ReportId"`
+	ReportName               string  `json:"ReportName,omitempty"`
+	FromEmailAddress         string  `json:"FromEmailAddress"`
+	DeliverabilityTestStatus string  `json:"DeliverabilityTestStatus"`
+	CreateDate               float64 `json:"CreateDate,omitempty"`
+}
+
+func toDeliverabilityTestReportItemOutput(r *DeliverabilityTestReport) deliverabilityTestReportItemOutput {
+	return deliverabilityTestReportItemOutput{
+		ReportID:                 r.ReportID,
+		ReportName:               r.ReportName,
+		FromEmailAddress:         r.FromEmailAddress,
+		DeliverabilityTestStatus: r.DeliverabilityTestStatus,
+		CreateDate:               awstime.Epoch(r.CreateDate),
+	}
+}
+
+// ---- export / import jobs ----
+
+// exportJobOutput mirrors both GetExportJobOutput's top-level fields and
+// types.ExportJobSummary, the ListExportJobs item shape (both reduce to
+// JobId/JobStatus/CreatedTimestamp for the fields gopherstack models).
+type exportJobOutput struct {
+	JobID            string  `json:"JobId"`
+	JobStatus        string  `json:"JobStatus"`
+	CreatedTimestamp float64 `json:"CreatedTimestamp,omitempty"`
+}
+
+func toExportJobOutput(j *ExportJob) *exportJobOutput {
+	return &exportJobOutput{JobID: j.JobID, JobStatus: j.JobStatus, CreatedTimestamp: awstime.Epoch(j.CreatedAt)}
+}
+
+// importJobOutput mirrors both GetImportJobOutput's top-level fields and
+// types.ImportJobSummary, the ListImportJobs item shape.
+type importJobOutput struct {
+	JobID            string  `json:"JobId"`
+	JobStatus        string  `json:"JobStatus"`
+	CreatedTimestamp float64 `json:"CreatedTimestamp,omitempty"`
+}
+
+func toImportJobOutput(j *ImportJob) *importJobOutput {
+	return &importJobOutput{JobID: j.JobID, JobStatus: j.JobStatus, CreatedTimestamp: awstime.Epoch(j.CreatedAt)}
+}

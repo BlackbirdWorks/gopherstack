@@ -74,3 +74,9 @@ const MaxRetainedEmails = maxRetainedEmails
 
 // EmailCompactionHighWater exposes the compaction trigger for tests.
 const EmailCompactionHighWater = emailCompactionHighWater
+
+// ParseSESv2Path exposes parseSESv2Path -- the method+path parser backing
+// RouteMatcher/ExtractOperation/Handler -- for external route-matrix tests.
+func ParseSESv2Path(method, path string) (string, string) {
+	return parseSESv2Path(method, path)
+}

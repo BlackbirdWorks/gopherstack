@@ -44,8 +44,12 @@ func TestRefinement2_ListRegionsReturnsMetadata(t *testing.T) {
 	require.Len(t, regions, 1)
 
 	region := regions[0].(map[string]any)
-	assert.Equal(t, "eu-west-1", region["Region"])
-	assert.Equal(t, "ALL_REGIONS", region["RegionScopeType"])
+	assert.Equal(t, "eu-west-1", region["RegionName"])
+	// ListRegions lazily transitions ADDING -> ACTIVE on read, mirroring
+	// ListInstances' CREATE_IN_PROGRESS -> ACTIVE transition.
+	assert.Equal(t, "ACTIVE", region["Status"])
+	assert.Equal(t, false, region["IsPrimaryRegion"])
+	assert.NotNil(t, region["AddedDate"])
 }
 
 // TestRefinement2_ResetReseeds verifies that Reset re-seeds the default instance.
@@ -257,13 +261,17 @@ func TestRefinement2_TagResourceTooManyTags(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Adding 1 more tag should fail.
+	// Adding 1 more tag should fail with the real ssoadmin exception type --
+	// TooManyTagsException is not in the ssoadmin error model; AWS returns
+	// ServiceQuotaExceededException for this limit (see types/errors.go).
 	rec = doRequest(t, h, "TagResource", map[string]any{
 		"InstanceArn": instanceArn,
 		"ResourceArn": instanceArn,
 		"Tags":        []map[string]any{{"Key": "extra", "Value": "v"}},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	resp := parseResponse(t, rec)
+	assert.Equal(t, "ServiceQuotaExceededException", resp["__type"])
 }
 
 // TestRefinement2_CreateAccountAssignmentIdempotency verifies deterministic idempotency.

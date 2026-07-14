@@ -2722,7 +2722,7 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	ds, err := h.Backend.CreateDataSet(
+	ds, ingestion, err := h.Backend.CreateDataSet(
 		accountID,
 		strField(body, "DataSetId"),
 		strField(body, "Name"),
@@ -2734,14 +2734,20 @@ func (h *Handler) handleCreateDataSet(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusCreated, map[string]any{
-		keyArn:         ds.Arn,
-		keyDataSetID:   ds.DataSetID,
-		"IngestionArn": fmt.Sprintf("%s/ingestion/auto", ds.Arn),
-		"IngestionId":  "auto",
-		keyRequestID:   newReqID(),
-		keyStatus:      http.StatusCreated,
-	})
+	resp := map[string]any{
+		keyArn:       ds.Arn,
+		keyDataSetID: ds.DataSetID,
+		keyRequestID: newReqID(),
+		keyStatus:    http.StatusCreated,
+	}
+	// AWS only triggers (and reports) an ingestion when the dataset's import
+	// mode is SPICE; DIRECT_QUERY datasets omit these fields.
+	if ingestion != nil {
+		resp["IngestionArn"] = ingestion.Arn
+		resp["IngestionId"] = ingestion.IngestionID
+	}
+
+	return writeJSON(c, http.StatusCreated, resp)
 }
 
 func (h *Handler) handleDescribeDataSet(c *echo.Context) error {
@@ -3048,11 +3054,12 @@ func (h *Handler) handleUpdateDashboard(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyArn:         d.Arn,
-		keyDashboardID: d.DashboardID,
-		keyRequestID:   newReqID(),
-		keyStatus:      http.StatusOK,
-		"VersionArn":   fmt.Sprintf("%s/version/%d", d.Arn, d.VersionNumber),
+		keyArn:            d.Arn,
+		keyCreationStatus: d.Status,
+		keyDashboardID:    d.DashboardID,
+		keyRequestID:      newReqID(),
+		keyStatus:         http.StatusOK,
+		"VersionArn":      fmt.Sprintf("%s/version/%d", d.Arn, d.VersionNumber),
 	})
 }
 
@@ -3141,7 +3148,7 @@ func dashboardToMap(d *Dashboard) map[string]any {
 		keyDashboardID:           d.DashboardID,
 		keyLastUpdatedTime:       d.LastUpdatedTime.Unix(),
 		keyName:                  d.Name,
-		"PublishedVersionNumber": d.VersionNumber,
+		"PublishedVersionNumber": d.PublishedVersionNumber,
 	}
 }
 

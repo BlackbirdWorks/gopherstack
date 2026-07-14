@@ -168,11 +168,13 @@ func TestHandler_StopStartFailoverDBCluster(t *testing.T) {
 	t.Run("failover_cluster", func(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
-		createCluster(t, h, "stop-cluster")
+		createCluster(t, h, "failover-stop-cluster")
+		createInstance(t, h, "failover-stop-writer", "failover-stop-cluster")
+		createInstance(t, h, "failover-stop-reader", "failover-stop-cluster")
 		rr := doRequest(t, h, url.Values{
 			"Action":              {"FailoverDBCluster"},
 			"Version":             {"2014-10-31"},
-			"DBClusterIdentifier": {"stop-cluster"},
+			"DBClusterIdentifier": {"failover-stop-cluster"},
 		})
 		assert.Equal(t, http.StatusOK, rr.Code)
 	})
@@ -625,7 +627,7 @@ func TestHandler_Errors(t *testing.T) {
 				"DBClusterParameterGroupName": {"nonexistent"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name: "snapshot_not_found",
@@ -1077,6 +1079,9 @@ func TestHandler_ModifyReboot(t *testing.T) {
 		},
 		{
 			name: "failover cluster",
+			setup: func(h *neptune.Handler) {
+				createInstance(t, h, "mod-inst-2", "mod-cluster")
+			},
 			vals: url.Values{
 				"Action":              {"FailoverDBCluster"},
 				"Version":             {"2014-10-31"},
@@ -1309,7 +1314,7 @@ func TestHandler_NewOps_CreateEventSubscription(t *testing.T) {
 				"SnsTopicArn":      {"arn:aws:sns:us-east-1:000000000000:neptune-events"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "SubscriptionAlreadyExistFault",
+			wantContains: "SubscriptionAlreadyExist",
 		},
 		{
 			name: "create_subscription_missing_topic",
@@ -1375,7 +1380,7 @@ func TestHandler_NewOps_AddSourceIdentifierToSubscription(t *testing.T) {
 				"SourceIdentifier": {"my-cluster"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "SubscriptionNotFoundFault",
+			wantContains: "SubscriptionNotFound",
 		},
 		{
 			name: "add_source_id_missing_source",
@@ -1496,7 +1501,7 @@ func TestHandler_NewOps_CopyDBClusterParameterGroup(t *testing.T) {
 				"TargetDBClusterParameterGroupIdentifier": {"new-pg"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 	}
 
@@ -1655,7 +1660,7 @@ func TestHandler_NewOps_CopyDBParameterGroup(t *testing.T) {
 				"TargetDBParameterGroupIdentifier": {"dst-pg"},
 			},
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 	}
 

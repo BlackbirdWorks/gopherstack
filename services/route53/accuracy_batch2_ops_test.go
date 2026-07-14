@@ -206,12 +206,12 @@ func TestBatch2_CreateHostedZone_DuplicateCallerReference(t *testing.T) {
 
 			b := route53.NewInMemoryBackend()
 
-			first, err := b.CreateHostedZone("example.com", tt.ref, "first", false)
+			first, err := b.CreateHostedZone("example.com", tt.ref, "first", false, "")
 			require.NoError(t, err)
 
 			// Same CallerReference *and* identical other parameters is a safe
 			// retry: AWS returns the original zone.
-			second, err := b.CreateHostedZone(tt.name2, tt.ref, tt.comment, false)
+			second, err := b.CreateHostedZone(tt.name2, tt.ref, tt.comment, false, "")
 			require.NoError(t, err)
 
 			assert.Equal(t, first.ID, second.ID,
@@ -244,10 +244,10 @@ func TestBatch2_CreateHostedZone_DuplicateCallerReference_DifferentParams(t *tes
 
 			b := route53.NewInMemoryBackend()
 
-			_, err := b.CreateHostedZone("example.com", tt.ref, "first", false)
+			_, err := b.CreateHostedZone("example.com", tt.ref, "first", false, "")
 			require.NoError(t, err)
 
-			_, err = b.CreateHostedZone("other.com", tt.ref, "second", false)
+			_, err = b.CreateHostedZone("other.com", tt.ref, "second", false, "")
 			require.Error(t, err)
 			assert.ErrorIs(t, err, route53.ErrHostedZoneAlreadyExists)
 		})
@@ -271,10 +271,10 @@ func TestBatch2_CreateHostedZone_UniqueCallerReference_CreatesNew(t *testing.T) 
 
 			b := route53.NewInMemoryBackend()
 
-			z1, err := b.CreateHostedZone("example.com", tt.ref1, "", false)
+			z1, err := b.CreateHostedZone("example.com", tt.ref1, "", false, "")
 			require.NoError(t, err)
 
-			z2, err := b.CreateHostedZone("example.com", tt.ref2, "", false)
+			z2, err := b.CreateHostedZone("example.com", tt.ref2, "", false, "")
 			require.NoError(t, err)
 
 			assert.NotEqual(t, z1.ID, z2.ID,
@@ -481,7 +481,7 @@ func TestBatch2_DisassociateVPC_LastVPCRejected(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("private.example.com", "priv-ref", "", true)
+			hz, err := b.CreateHostedZone("private.example.com", "priv-ref", "", true, "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-only", "us-east-1"))
@@ -555,7 +555,7 @@ func TestBatch2_DisassociateVPC_WithMultipleVPCs_Succeeds(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("private.example.com", "priv-multi-ref-"+tt.name, "", true)
+			hz, err := b.CreateHostedZone("private.example.com", "priv-multi-ref-"+tt.name, "", true, "")
 			require.NoError(t, err)
 
 			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-keep", "us-east-1"))
@@ -626,7 +626,7 @@ func TestChangeResourceRecordSets_DeleteExactMatch(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-"+tt.name, "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-"+tt.name, "", false, "")
 			require.NoError(t, err)
 
 			// Seed a multi-value A record (TTL 300, values 1.2.3.4 + 5.6.7.8).

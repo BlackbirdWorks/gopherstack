@@ -67,6 +67,42 @@ func doInvalidSchedulerRequest(t *testing.T, h *scheduler.Handler, action string
 	return rec
 }
 
+// wireTagsBody builds the []{"Key":...,"Value":...} shape EventBridge Scheduler
+// uses on the wire for resource-level tags (CreateScheduleGroup.Tags,
+// TagResource.Tags, ListTagsForResource.Tags), from a convenience Go map.
+func wireTagsBody(kv map[string]string) []map[string]string {
+	out := make([]map[string]string, 0, len(kv))
+	for k, v := range kv {
+		out = append(out, map[string]string{"Key": k, "Value": v})
+	}
+
+	return out
+}
+
+// wireTagsToMap converts a decoded []{"Key":...,"Value":...} JSON response (as
+// produced by json.Unmarshal into map[string]any) back into a plain Go map for
+// easy test assertions.
+func wireTagsToMap(t *testing.T, raw any) map[string]string {
+	t.Helper()
+
+	out := map[string]string{}
+
+	list, ok := raw.([]any)
+	if !ok {
+		return out
+	}
+
+	for _, item := range list {
+		entry, entryOK := item.(map[string]any)
+		require.True(t, entryOK)
+		key, _ := entry["Key"].(string)
+		value, _ := entry["Value"].(string)
+		out[key] = value
+	}
+
+	return out
+}
+
 func TestSchedulerHandler_Name(t *testing.T) {
 	t.Parallel()
 
@@ -368,7 +404,7 @@ func TestSchedulerHandler_TagResource(t *testing.T) {
 
 	rec := doSchedulerRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": arn,
-		"Tags":        map[string]string{"env": "test", "team": "platform"},
+		"Tags":        wireTagsBody(map[string]string{"env": "test", "team": "platform"}),
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -394,7 +430,7 @@ func TestSchedulerHandler_ListTagsForResource(t *testing.T) {
 
 	doSchedulerRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": arn,
-		"Tags":        map[string]string{"env": "prod"},
+		"Tags":        wireTagsBody(map[string]string{"env": "prod"}),
 	})
 
 	rec := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": arn})
@@ -403,8 +439,7 @@ func TestSchedulerHandler_ListTagsForResource(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Contains(t, resp, "Tags")
-	tags, ok := resp["Tags"].(map[string]any)
-	require.True(t, ok)
+	tags := wireTagsToMap(t, resp["Tags"])
 	assert.Equal(t, "prod", tags["env"])
 }
 
@@ -445,7 +480,7 @@ func TestSchedulerHandler_ErrorStatus(t *testing.T) {
 			action: "TagResource",
 			body: map[string]any{
 				"ResourceArn": "arn:aws:scheduler:us-east-1:000000000000:schedule/default/nonexistent",
-				"Tags":        map[string]string{"env": "test"},
+				"Tags":        wireTagsBody(map[string]string{"env": "test"}),
 			},
 			wantCode: http.StatusNotFound,
 		},

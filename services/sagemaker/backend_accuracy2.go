@@ -190,7 +190,7 @@ func (b *InMemoryBackend) DescribeTransformJob(ctx context.Context, name string)
 	b.mu.RLock("DescribeTransformJob")
 	defer b.mu.RUnlock()
 
-	tj, ok := b.transformJobsStore(region).Get(name)
+	tj, ok := b.transformJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: transform job %q not found", ErrTransformJobNotFound, name)
 	}
@@ -252,9 +252,9 @@ func (b *InMemoryBackend) ListTransformJobs(
 	b.mu.RLock("ListTransformJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*TransformJob, 0, b.transformJobsStore(region).Len())
+	list := make([]*TransformJob, 0, b.transformJobsStoreRO(region).Len())
 
-	for _, tj := range b.transformJobsStore(region).All() {
+	for _, tj := range b.transformJobsStoreRO(region).All() {
 		if filter.StatusEquals != "" && tj.TransformJobStatus != filter.StatusEquals {
 			continue
 		}

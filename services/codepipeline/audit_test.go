@@ -1667,6 +1667,73 @@ func TestInMemoryBackend_DeletePipeline_ClearsExecutions(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_DeletePipeline_ClearsActionExecutions verifies that
+// deleting a pipeline also clears its recorded action-execution history, not
+// just its pipeline-execution history. Without this, recreating a pipeline
+// with the same name resurrected phantom ListActionExecutions entries from
+// the deleted pipeline's earlier runs, since actionExecutions is keyed only
+// by pipeline name.
+func TestInMemoryBackend_DeletePipeline_ClearsActionExecutions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		checkFn func(t *testing.T)
+		name    string
+	}{
+		{
+			name: "action executions removed on pipeline delete and do not leak into a recreated pipeline",
+			checkFn: func(t *testing.T) {
+				t.Helper()
+
+				b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+				decl := samplePipeline("del-ae-pl")
+
+				_, err := b.CreatePipeline(context.Background(), decl, nil)
+				require.NoError(t, err)
+
+				_, err = b.StartPipelineExecution(context.Background(), "del-ae-pl")
+				require.NoError(t, err)
+
+				h := codepipeline.NewHandler(b)
+				rec := doRequest(t, h, "ListActionExecutions", map[string]any{"pipelineName": "del-ae-pl"})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var before map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before))
+				beforeDetails, _ := before["actionExecutionDetails"].([]any)
+				require.NotEmpty(t, beforeDetails, "action executions must be recorded before delete")
+
+				require.NoError(t, b.DeletePipeline(context.Background(), "del-ae-pl"))
+
+				// Recreate a pipeline with the same name; its action-execution
+				// history must start clean, not inherit the deleted pipeline's.
+				_, err = b.CreatePipeline(context.Background(), decl, nil)
+				require.NoError(t, err)
+
+				rec = doRequest(t, h, "ListActionExecutions", map[string]any{"pipelineName": "del-ae-pl"})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var after map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+				afterDetails, _ := after["actionExecutionDetails"].([]any)
+				assert.Empty(
+					t,
+					afterDetails,
+					"recreated pipeline must not inherit the deleted pipeline's action executions",
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.checkFn(t)
+		})
+	}
+}
+
 // --------------------------------------------------------------------------
 // GetPipelineState includes latestExecution in actionStates
 // --------------------------------------------------------------------------

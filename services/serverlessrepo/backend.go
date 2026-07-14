@@ -1019,24 +1019,35 @@ func (b *InMemoryBackend) UnshareApplication(appName, _ string) error {
 	return nil
 }
 
-// validPolicyActions returns a set of AWS SAR application policy actions (case-sensitive map).
+// validPolicyActionVariantCount is the number of case variants (PascalCase and all-lowercase)
+// registered per documented policy action in [validPolicyActionsSet].
+const validPolicyActionVariantCount = 2
+
+// validPolicyActionsSet returns the set of AWS SAR application policy actions documented in
+// the "Application Permissions" table of the SAR access-control guide: GetApplication,
+// CreateCloudFormationChangeSet, CreateCloudFormationTemplate, ListApplicationVersions,
+// ListApplicationDependencies, SearchApplications, Deploy (which implies all of the
+// preceding), and UnshareApplication (used to revoke an AWS Organization share). Both the
+// documented PascalCase spelling and an all-lowercase variant are accepted per each action.
 func validPolicyActionsSet() map[string]struct{} {
-	return map[string]struct{}{
-		"deploy":                     {},
-		"Deploy":                     {},
-		"getapplication":             {},
-		"GetApplication":             {},
-		"listapplicationversions":    {},
-		"ListApplicationVersions":    {},
-		"searchapplications":         {},
-		"SearchApplications":         {},
-		"searchanddeploy":            {},
-		"SearchAndDeploy":            {},
-		"unshareapplication":         {},
-		"UnshareApplication":         {},
-		"unsubscribeapplication":     {},
-		"UnSubscribeFromApplication": {},
+	pascalCase := []string{
+		"GetApplication",
+		"CreateCloudFormationChangeSet",
+		"CreateCloudFormationTemplate",
+		"ListApplicationVersions",
+		"ListApplicationDependencies",
+		"SearchApplications",
+		"Deploy",
+		"UnshareApplication",
 	}
+
+	set := make(map[string]struct{}, len(pascalCase)*validPolicyActionVariantCount)
+	for _, action := range pascalCase {
+		set[action] = struct{}{}
+		set[strings.ToLower(action)] = struct{}{}
+	}
+
+	return set
 }
 
 // isValidPolicyAction returns true if the given action is a supported SAR policy action.

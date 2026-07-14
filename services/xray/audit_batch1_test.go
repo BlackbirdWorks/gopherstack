@@ -1074,7 +1074,7 @@ func TestAudit_GetInsight_FieldsReturned(t *testing.T) {
 			h, b := newTestHandlerWithBackend(t)
 			b.AddInsightInternal(tt.insight)
 
-			rec := doXrayRequest(t, h, "/GetInsight", map[string]any{"InsightId": tt.insight.InsightID})
+			rec := doXrayRequest(t, h, "/Insight", map[string]any{"InsightId": tt.insight.InsightID})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -1094,7 +1094,7 @@ func TestAudit_GetInsight_NotFoundReturns400(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doXrayRequest(t, h, "/GetInsight", map[string]any{"InsightId": "no-such-insight"})
+	rec := doXrayRequest(t, h, "/Insight", map[string]any{"InsightId": "no-such-insight"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -1103,7 +1103,7 @@ func TestAudit_GetInsight_MissingInsightIdReturns400(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doXrayRequest(t, h, "/GetInsight", map[string]any{})
+	rec := doXrayRequest(t, h, "/Insight", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -1117,7 +1117,7 @@ func TestAudit_GetInsightEvents_ReturnsEventsForInsight(t *testing.T) {
 		xray.InsightEvent{InsightID: "i-evt-001", Summary: "Spike worsened", EventTime: time.Now()},
 	)
 
-	rec := doXrayRequest(t, h, "/GetInsightEvents", map[string]any{"InsightId": "i-evt-001"})
+	rec := doXrayRequest(t, h, "/InsightEvents", map[string]any{"InsightId": "i-evt-001"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -1171,7 +1171,7 @@ func TestAudit_GetInsightImpactGraph_ReturnsInsightId(t *testing.T) {
 			h, b := newTestHandlerWithBackend(t)
 			b.AddInsightInternal(xray.Insight{InsightID: "i-impact-001", State: "ACTIVE", StartTime: time.Now()})
 
-			rec := doXrayRequest(t, h, "/GetInsightImpactGraph", tt.body)
+			rec := doXrayRequest(t, h, "/InsightImpactGraph", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -1222,7 +1222,7 @@ func TestAudit_GetInsightSummaries_StatesValidation(t *testing.T) {
 				body["States"] = tt.states
 			}
 
-			rec := doXrayRequest(t, h, "/GetInsightSummaries", body)
+			rec := doXrayRequest(t, h, "/InsightSummaries", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK && tt.wantCount > 0 {
@@ -1494,7 +1494,7 @@ func TestAudit_GetSamplingTargets_LastRuleModification(t *testing.T) {
 	h, b := newTestHandlerWithBackend(t)
 	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "mod-rule", FixedRate: 0.05, ReservoirSize: 5, Priority: 1})
 
-	rec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
+	rec := doXrayRequest(t, h, "/SamplingTargets", map[string]any{
 		"SamplingStatisticsDocuments": []map[string]any{
 			{"RuleName": "mod-rule", "ClientId": "c-1", "RequestCount": 100, "SampledCount": 5, "BorrowCount": 0},
 		},
@@ -1515,7 +1515,7 @@ func TestAudit_GetSamplingTargets_ReservoirQuotaTTL(t *testing.T) {
 	h, b := newTestHandlerWithBackend(t)
 	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "ttl-rule", FixedRate: 0.1, ReservoirSize: 10, Priority: 1})
 
-	rec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
+	rec := doXrayRequest(t, h, "/SamplingTargets", map[string]any{
 		"SamplingStatisticsDocuments": []map[string]any{
 			{"RuleName": "ttl-rule", "ClientId": "c-1", "RequestCount": 50, "SampledCount": 5, "BorrowCount": 0},
 		},
@@ -1587,7 +1587,7 @@ func TestAudit_GetSamplingTargets_UnprocessedForUnknownRules(t *testing.T) {
 				xray.SamplingRule{RuleName: "known-rule", FixedRate: 0.05, ReservoirSize: 5, Priority: 1},
 			)
 
-			rec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
+			rec := doXrayRequest(t, h, "/SamplingTargets", map[string]any{
 				"SamplingStatisticsDocuments": tt.docs,
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -1615,14 +1615,14 @@ func TestAudit_GetSamplingStatisticSummaries_AccumulationFromTargets(t *testing.
 	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "stat-rule", FixedRate: 0.05, ReservoirSize: 5, Priority: 1})
 
 	// Submit statistics via GetSamplingTargets.
-	putRec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
+	putRec := doXrayRequest(t, h, "/SamplingTargets", map[string]any{
 		"SamplingStatisticsDocuments": []map[string]any{
 			{"RuleName": "stat-rule", "ClientId": "c-1", "RequestCount": 200, "SampledCount": 10, "BorrowCount": 2},
 		},
 	})
 	require.Equal(t, http.StatusOK, putRec.Code)
 
-	rec := doXrayRequest(t, h, "/GetSamplingStatisticSummaries", nil)
+	rec := doXrayRequest(t, h, "/SamplingStatisticSummaries", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -1645,7 +1645,7 @@ func TestAudit_GetSamplingStatisticSummaries_EmptyWithoutStats(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	rec := doXrayRequest(t, h, "/GetSamplingStatisticSummaries", nil)
+	rec := doXrayRequest(t, h, "/SamplingStatisticSummaries", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -1663,7 +1663,7 @@ func TestAudit_GetSamplingStatisticSummaries_AccumulatesAcrossCalls(t *testing.T
 	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "accum-rule", FixedRate: 0.05, ReservoirSize: 5, Priority: 1})
 
 	for range 3 {
-		putRec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
+		putRec := doXrayRequest(t, h, "/SamplingTargets", map[string]any{
 			"SamplingStatisticsDocuments": []map[string]any{
 				{"RuleName": "accum-rule", "ClientId": "c-1", "RequestCount": 100, "SampledCount": 5, "BorrowCount": 0},
 			},
@@ -1671,7 +1671,7 @@ func TestAudit_GetSamplingStatisticSummaries_AccumulatesAcrossCalls(t *testing.T
 		require.Equal(t, http.StatusOK, putRec.Code)
 	}
 
-	rec := doXrayRequest(t, h, "/GetSamplingStatisticSummaries", nil)
+	rec := doXrayRequest(t, h, "/SamplingStatisticSummaries", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any

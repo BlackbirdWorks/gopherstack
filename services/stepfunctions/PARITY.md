@@ -1,9 +1,13 @@
 ---
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.40.8
-last_audit_commit: e5a9ac69
-last_audit_date: 2026-07-05
-overall: A            # ~1150 LOC genuine fixes this pass (see gaps/notes); the rest is op-by-op proof (B)
+last_audit_commit: 43aa6d65
+last_audit_date: 2026-07-11
+overall: A            # zero code drift vs. baseline ce30166a (previous pass); 0 LOC changed this
+                       # pass -- confirmed via git diff ce30166a..HEAD -- services/stepfunctions/
+                       # (empty) and identical sfn SDK pin (v1.40.8, no new ops: 34/34 match). All
+                       # gates green (build/vet/fix/race-test/lint). One severe cli.go wiring gap
+                       # newly discovered and documented under gaps (out of scope to fix here).
 ops:
   CreateStateMachine: {wire: ok, errors: ok, state: ok, persist: ok, note: "STANDARD/EXPRESS, roleArn validation, tags, logging/tracing config; unchanged this pass"}
   UpdateStateMachine: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -193,6 +197,26 @@ families:
     status: ok
     note: "AWSStepFunctions.<Op> X-Amz-Target headers, json content-type, error shapes (__type + message) verified consistent with other json-1.0 services in this codebase. No changes."
 gaps:
+  - "SEVERE, cli.go-only (out of scope for this service dir): cli.go wires SetLambdaInvoker/
+    SetSQSIntegration/SetSNSIntegration/SetDynamoDBIntegration onto the Step Functions backend
+    (cli.go ~L3487-3514) but NEVER calls SetECSIntegration/SetGlueIntegration/
+    SetEventBridgeIntegration. asl.Executor fully implements ecs:runTask/glue:startJobRun/
+    events:putEvents Task-state routing (asl/executor.go ECSIntegration/GlueIntegration/
+    EventBridgeIntegration interfaces, unit-tested with mocks in
+    asl/service_integration_ecs_glue_eb_test.go) and the target backends already satisfy
+    those interfaces directly with matching method signatures with zero adapter code needed
+    (services/ecs/sfn_integration.go SFNRunTask, services/glue/sfn_integration.go
+    SFNStartJobRun, services/eventbridge/sfn_integration.go SFNPutEvents -- verified signatures
+    match asl's interfaces exactly). Because cli.go never wires them, every real (non-test)
+    gopherstack process will hard-fail any ASL Task using an ecs:/glue:/events: resource ARN
+    with ErrECSIntegrationNotConfigured/ErrGlueIntegrationNotConfigured/
+    ErrEventBridgeIntegrationNotConfigured, even though the emulator's own PARITY.md previously
+    claimed ECS/Glue/EventBridge resource ARN resolution was verified 'ok' -- that verification
+    was executor-level (mocks) only and never checked end-to-end wiring. FIX is 3 lines in
+    cli.go: sfnBk.SetECSIntegration(ecsH.Backend), sfnBk.SetGlueIntegration(glueH.Backend),
+    sfnBk.SetEventBridgeIntegration(ebH.Backend), alongside the existing SQS/SNS/DynamoDB calls.
+    Not fixed here per this pass's services/stepfunctions/-only scope; file bd issue and fix in
+    cli.go directly (no new services/stepfunctions/ code needed)."
   - "Map Distributed Map ResultWriter (S3 write-out) not implemented -- needs new S3Writer integration wired from cli.go (bd: gopherstack-8j8)"
   - "Map ItemProcessor.ProcessorConfig.Mode (INLINE/DISTRIBUTED) not parsed/validated (bd: gopherstack-8im)"
   - "Retry.JitterStrategy accepts any string; only \"FULL\" is special-cased, invalid values silently behave as NONE instead of ValidationException at Create/UpdateStateMachine (bd: gopherstack-xtl)"
@@ -281,3 +305,38 @@ cap existed, unrelated to the ASL-level `MaxDelaySeconds` field).
 **Protocol**: json-1.0 (`X-Amz-Target: AWSStepFunctions.<Operation>`),
 consistent with the rest of the codebase's json-1.0 services. No wire-format
 regressions found in this family.
+
+## 2026-07-11 re-audit (zero-drift pass)
+
+`last_audit_commit` in the previous ledger (`e5a9ac69`) turned out to be a
+stale/wrong hash (it's actually a **kinesis** commit, not a stepfunctions
+one, and isn't an ancestor of the current HEAD). Used `ce30166a` ("Parity
+sweep 3", the commit that actually authored this file) as baseline per the
+re-audit protocol instead. `git diff ce30166a..HEAD -- services/stepfunctions/`
+is **empty** — no commits touched this service directory since the last deep
+audit. The SDK pin is also unchanged (`aws-sdk-go-v2/service/sfn v1.40.8`,
+same 34 `api_op_*.go` files, no new ops). Per protocol, with zero drift and
+zero not-ok rows there was no changed/new surface requiring re-audit; all
+`ops:`/`families:` rows above are carried forward unchanged from the prior
+pass and still trusted.
+
+**No code changes made this pass.** All scoped gates pass clean: `go build`,
+`go vet`, `go test -race` (both `stepfunctions` and `stepfunctions/asl`
+packages), `go fix -diff` (empty), `golangci-lint run` (0 issues).
+
+**New finding (reported, not fixed — lives in cli.go, out of this pass's
+services/stepfunctions/-only scope)**: while spot-checking the
+service-integration delivery path called out in this pass's brief, found
+that `cli.go` wires Lambda/SQS/SNS/DynamoDB onto the Step Functions backend
+but never calls `SetECSIntegration`/`SetGlueIntegration`/
+`SetEventBridgeIntegration` — see the new first entry under `gaps:` above
+for the full trace and 3-line fix. This means `ecs:runTask`/
+`glue:startJobRun`/`events:putEvents` Task-state resource ARNs, despite
+being fully implemented and unit-tested at the `asl.Executor` level, can
+never actually deliver in a real running gopherstack process today. **Trap
+for the next auditor**: an `asl_task` family marked "ok" for resource ARN
+resolution only proves the *executor* dispatches correctly against a mock —
+it says nothing about whether the concrete integration is ever wired up by
+the process entrypoint. Cross-check `cli.go`'s `SetXIntegration` calls
+against every interface `asl/executor.go` defines whenever auditing this
+family again.

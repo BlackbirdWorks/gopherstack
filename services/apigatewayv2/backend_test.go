@@ -2,6 +2,7 @@ package apigatewayv2_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1669,4 +1670,222 @@ func Test_StageTags(t *testing.T) {
 
 	_, err = b.GetTags("arn:aws:apigateway:us-east-1::/apis/nonexistent/stages/prod")
 	require.ErrorIs(t, err, apigatewayv2.ErrAPINotFound)
+}
+
+// Test_CreateAPI_QuickCreate covers CreateApi's routeKey+target shortcut,
+// which was previously entirely unimplemented: CreateAPIInput had no
+// RouteKey/Target fields, so real quick-create requests (e.g. `aws
+// apigatewayv2 create-api --target ...`) silently succeeded but produced an
+// API with no route, integration, or stage at all. AWS instead auto-creates
+// a $default route, a matching integration (HTTP_PROXY for a URL target,
+// AWS_PROXY for a Lambda ARN target), and an auto-deployed $default stage,
+// all marked apiGatewayManaged.
+func Test_CreateAPI_QuickCreate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		target              string
+		wantIntegrationType string
+	}{
+		{
+			name:                "http_url_target_is_http_proxy",
+			target:              "https://example.com/backend",
+			wantIntegrationType: "HTTP_PROXY",
+		},
+		{
+			name:                "lambda_arn_target_is_aws_proxy",
+			target:              "arn:aws:lambda:us-east-1:123456789012:function:my-func",
+			wantIntegrationType: "AWS_PROXY",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+				Name:         "quick-create-api",
+				ProtocolType: "HTTP",
+				RouteKey:     "GET /",
+				Target:       tt.target,
+			})
+			require.NoError(t, err)
+
+			routes, err := b.GetRoutes(api.APIID)
+			require.NoError(t, err)
+			require.Len(t, routes, 1)
+			assert.Equal(t, "GET /", routes[0].RouteKey)
+			assert.True(t, routes[0].APIGatewayManaged)
+			assert.True(t, strings.HasPrefix(routes[0].Target, "integrations/"))
+
+			integrations, err := b.GetIntegrations(api.APIID)
+			require.NoError(t, err)
+			require.Len(t, integrations, 1)
+			assert.Equal(t, tt.wantIntegrationType, integrations[0].IntegrationType)
+			assert.Equal(t, tt.target, integrations[0].IntegrationURI)
+			assert.True(t, integrations[0].APIGatewayManaged)
+			assert.Equal(t, "integrations/"+integrations[0].IntegrationID, routes[0].Target)
+
+			stages, err := b.GetStages(api.APIID)
+			require.NoError(t, err)
+			require.Len(t, stages, 1)
+			assert.Equal(t, "$default", stages[0].StageName)
+			assert.True(t, stages[0].AutoDeploy)
+			assert.True(t, stages[0].APIGatewayManaged)
+			assert.NotEmpty(t, stages[0].DeploymentID, "quick create should auto-deploy the $default stage")
+
+			deployments, err := b.GetDeployments(api.APIID)
+			require.NoError(t, err)
+			require.Len(t, deployments, 1)
+			assert.Equal(t, "DEPLOYED", deployments[0].DeploymentStatus)
+		})
+	}
+}
+
+// Test_CreateAPI_QuickCreate_Validation covers the input-validation edge
+// cases for the routeKey+target shortcut: AWS requires both fields together
+// and only supports them for HTTP APIs.
+func Test_CreateAPI_QuickCreate_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		protocolType string
+		routeKey     string
+		target       string
+	}{
+		{name: "route_key_without_target", protocolType: "HTTP", routeKey: "GET /", target: ""},
+		{name: "target_without_route_key", protocolType: "HTTP", routeKey: "", target: "https://example.com"},
+		{
+			name: "websocket_rejects_quick_create", protocolType: "WEBSOCKET",
+			routeKey: "$default", target: "https://example.com",
+		},
+		{
+			name: "invalid_http_route_key_format", protocolType: "HTTP",
+			routeKey: "not-a-route-key", target: "https://example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			_, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+				Name:         "api",
+				ProtocolType: tt.protocolType,
+				RouteKey:     tt.routeKey,
+				Target:       tt.target,
+			})
+			require.Error(t, err)
+			assert.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+		})
+	}
+}
+
+// Test_CreateAPI_NoQuickCreate_NotManaged confirms a normal CreateApi call
+// (no routeKey/target) does not create any child resources and that
+// directly-created routes/integrations/stages are not apiGatewayManaged --
+// the flag must stay false for the overwhelming majority of resources that
+// weren't produced by the quick-create shortcut.
+func Test_CreateAPI_NoQuickCreate_NotManaged(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name:         "plain-api",
+		ProtocolType: "HTTP",
+	})
+	require.NoError(t, err)
+
+	routes, err := b.GetRoutes(api.APIID)
+	require.NoError(t, err)
+	assert.Empty(t, routes)
+
+	integrations, err := b.GetIntegrations(api.APIID)
+	require.NoError(t, err)
+	assert.Empty(t, integrations)
+
+	stages, err := b.GetStages(api.APIID)
+	require.NoError(t, err)
+	assert.Empty(t, stages)
+
+	route, err := b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: "GET /foo"})
+	require.NoError(t, err)
+	assert.False(t, route.APIGatewayManaged)
+
+	integration, err := b.CreateIntegration(api.APIID, apigatewayv2.CreateIntegrationInput{
+		IntegrationType: "HTTP_PROXY",
+		IntegrationURI:  "https://example.com",
+	})
+	require.NoError(t, err)
+	assert.False(t, integration.APIGatewayManaged)
+
+	stage, err := b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
+	require.NoError(t, err)
+	assert.False(t, stage.APIGatewayManaged)
+}
+
+// Test_UpdateAPI_QuickCreate covers UpdateApiInput's routeKey/target fields,
+// which the SDK docs mark "part of quick create": each independently
+// replaces the route key / integration target+type of the API's existing
+// quick-create route/integration. Before this fix UpdateAPIInput had no
+// such fields, so these updates silently no-opped.
+func Test_UpdateAPI_QuickCreate(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name:         "quick-create-api",
+		ProtocolType: "HTTP",
+		RouteKey:     "GET /",
+		Target:       "https://example.com/backend",
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{
+		RouteKey: "POST /submit",
+		Target:   "arn:aws:lambda:us-east-1:123456789012:function:my-func",
+	})
+	require.NoError(t, err)
+
+	routes, err := b.GetRoutes(api.APIID)
+	require.NoError(t, err)
+	require.Len(t, routes, 1)
+	assert.Equal(t, "POST /submit", routes[0].RouteKey)
+	assert.True(t, routes[0].APIGatewayManaged)
+
+	integrations, err := b.GetIntegrations(api.APIID)
+	require.NoError(t, err)
+	require.Len(t, integrations, 1)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:my-func", integrations[0].IntegrationURI)
+	assert.Equal(t, "AWS_PROXY", integrations[0].IntegrationType)
+	assert.True(t, integrations[0].APIGatewayManaged)
+}
+
+// Test_UpdateAPI_QuickCreate_NoExistingQuickCreate confirms routeKey/target
+// on UpdateApi is rejected (not silently ignored) when the API has no
+// quick-create route/integration to update.
+func Test_UpdateAPI_QuickCreate_NoExistingQuickCreate(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name:         "plain-api",
+		ProtocolType: "HTTP",
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{RouteKey: "GET /"})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{Target: "https://example.com"})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
 }

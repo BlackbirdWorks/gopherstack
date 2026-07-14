@@ -845,8 +845,10 @@ func TestHandlerOps_PartnerAccounts(t *testing.T) {
 
 	h := newTestHandlerHTTP()
 
-	// Associate partner account
-	rec := doIoTWRequest(t, h, http.MethodPut, "/partner-accounts/partner-123", `{"Tags":{}}`)
+	// Associate partner account. Real AWS binds this op to the bare
+	// collection path (POST /partner-accounts): the partner account ID
+	// travels as Sidewalk.AmazonId in the body, never as a path parameter.
+	rec := doIoTWRequest(t, h, http.MethodPost, "/partner-accounts", `{"Sidewalk":{"AmazonId":"partner-123"}}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var assocResp map[string]any

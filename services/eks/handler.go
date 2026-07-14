@@ -131,14 +131,21 @@ const (
 const (
 	eksMatchPriority = service.PriorityPathVersioned
 
-	pathClusters           = "/clusters"
-	pathEKSTags            = "/tags/"
-	pathCapabilities       = "/capabilities"
-	pathSubscriptions      = "/subscriptions"
+	pathClusters = "/clusters"
+	pathEKSTags  = "/tags/"
+	// pathSubscriptions is /eks-anywhere-subscriptions on the wire (not
+	// "/subscriptions" -- verified against aws-sdk-go-v2/service/eks
+	// serializers.go's httpbinding.SplitURI for Create/List/Describe/Delete/
+	// UpdateEksAnywhereSubscription). The Go identifier keeps the old name for
+	// minimal diff churn across call sites.
+	pathSubscriptions      = "/eks-anywhere-subscriptions"
 	pathAccessPolicies     = "/access-policies"
-	pathAddonVersions      = "/addon-versions"
-	pathAddonConfiguration = "/addon-configuration"
+	pathAddonVersions      = "/addons/supported-versions"
+	pathAddonConfiguration = "/addons/configuration-schemas"
 	pathClusterVersions    = "/cluster-versions"
+	// pathClusterRegistrations is the global (non-cluster-nested) path for
+	// RegisterCluster (POST, no id) and DeregisterCluster (DELETE /{name}).
+	pathClusterRegistrations = "/cluster-registrations"
 )
 
 // Handler is the Echo HTTP handler for AWS EKS operations (REST-JSON protocol).
@@ -249,14 +256,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		return path == pathClusters ||
 			strings.HasPrefix(path, pathClusters+"/") ||
 			strings.HasPrefix(path, pathEKSTags+"arn:aws:eks:") ||
-			path == pathCapabilities ||
-			strings.HasPrefix(path, pathCapabilities+"/") ||
 			path == pathSubscriptions ||
 			strings.HasPrefix(path, pathSubscriptions+"/") ||
 			path == pathAccessPolicies ||
 			path == pathAddonVersions ||
-			strings.HasPrefix(path, pathAddonConfiguration) ||
-			path == pathClusterVersions
+			path == pathAddonConfiguration ||
+			path == pathClusterVersions ||
+			path == pathClusterRegistrations ||
+			strings.HasPrefix(path, pathClusterRegistrations+"/")
 	}
 }
 
@@ -297,13 +304,21 @@ func parseNodegroupRoute(method, clusterName string, parts []string) eksRoute {
 		return eksRoute{operation: opUnknown}
 	}
 
+	// Real path is /clusters/{clusterName}/node-groups/{nodegroupName}/update-config
+	// (POST), NOT a bare-path PUT -- verified against the SDK serializer.
+	if before, ok := strings.CutSuffix(tail, "/update-config"); ok {
+		if method == http.MethodPost {
+			return eksRoute{operation: opUpdateNodegroupConfig, clusterName: clusterName, nodegroupName: before}
+		}
+
+		return eksRoute{operation: opUnknown}
+	}
+
 	switch method {
 	case http.MethodGet:
 		return eksRoute{operation: opDescribeNodegroup, clusterName: clusterName, nodegroupName: tail}
 	case http.MethodDelete:
 		return eksRoute{operation: opDeleteNodegroup, clusterName: clusterName, nodegroupName: tail}
-	case http.MethodPost:
-		return eksRoute{operation: opUpdateNodegroupConfig, clusterName: clusterName, nodegroupName: tail}
 	}
 
 	return eksRoute{operation: opUnknown}
@@ -362,13 +377,14 @@ func parseAccessEntryRoute(method, clusterName string, parts []string) eksRoute 
 		return eksRoute{operation: opUnknown}
 	}
 
-	// plain principalArn
+	// plain principalArn. UpdateAccessEntry is POST to this same path (not PUT)
+	// -- verified against the SDK serializer.
 	switch method {
 	case http.MethodDelete:
 		return eksRoute{operation: opDeleteAccessEntry, clusterName: clusterName, principalARN: tail}
 	case http.MethodGet:
 		return eksRoute{operation: opDescribeAccessEntry, clusterName: clusterName, principalARN: tail}
-	case http.MethodPut:
+	case http.MethodPost:
 		return eksRoute{operation: opUpdateAccessEntry, clusterName: clusterName, principalARN: tail}
 	}
 
@@ -390,15 +406,23 @@ func parseAddonRoute(method, clusterName string, parts []string) eksRoute {
 		return eksRoute{operation: opUnknown}
 	}
 
-	addonName := parts[2]
+	tail := parts[2]
+
+	// Real path is /clusters/{clusterName}/addons/{addonName}/update (POST),
+	// NOT a bare-path PUT -- verified against the SDK serializer.
+	if before, ok := strings.CutSuffix(tail, "/update"); ok {
+		if method == http.MethodPost {
+			return eksRoute{operation: opUpdateAddon, clusterName: clusterName, nodegroupName: before}
+		}
+
+		return eksRoute{operation: opUnknown}
+	}
 
 	switch method {
 	case http.MethodGet:
-		return eksRoute{operation: opDescribeAddon, clusterName: clusterName, nodegroupName: addonName}
+		return eksRoute{operation: opDescribeAddon, clusterName: clusterName, nodegroupName: tail}
 	case http.MethodDelete:
-		return eksRoute{operation: opDeleteAddon, clusterName: clusterName, nodegroupName: addonName}
-	case http.MethodPut:
-		return eksRoute{operation: opUpdateAddon, clusterName: clusterName, nodegroupName: addonName}
+		return eksRoute{operation: opDeleteAddon, clusterName: clusterName, nodegroupName: tail}
 	}
 
 	return eksRoute{operation: opUnknown}
@@ -448,12 +472,14 @@ func parsePodIdentityRoute(method, clusterName string, parts []string) eksRoute 
 
 	assocID := parts[2]
 
+	// UpdatePodIdentityAssociation is POST to this same path (not PUT) --
+	// verified against the SDK serializer.
 	switch method {
 	case http.MethodGet:
 		return eksRoute{operation: opDescribePodIdentityAssociation, clusterName: clusterName, nodegroupName: assocID}
 	case http.MethodDelete:
 		return eksRoute{operation: opDeletePodIdentityAssociation, clusterName: clusterName, nodegroupName: assocID}
-	case http.MethodPut:
+	case http.MethodPost:
 		return eksRoute{operation: opUpdatePodIdentityAssociation, clusterName: clusterName, nodegroupName: assocID}
 	}
 
@@ -503,15 +529,15 @@ func parseIdentityProviderRoute(method, clusterName string, parts []string, maxP
 func parseClusterSubPath(method, clusterName string, parts []string) eksRoute {
 	const maxPathParts = 3
 
-	// /clusters/{name}
+	// /clusters/{name}. UpdateClusterConfig is NOT a bare-path PUT on this
+	// route -- its real path is /clusters/{name}/update-config (POST), handled
+	// below alongside "capabilities" and "updates".
 	if len(parts) == 1 {
 		switch method {
 		case http.MethodGet:
 			return eksRoute{operation: opDescribeCluster, clusterName: clusterName}
 		case http.MethodDelete:
 			return eksRoute{operation: opDeleteCluster, clusterName: clusterName}
-		case http.MethodPut:
-			return eksRoute{operation: opUpdateClusterConfig, clusterName: clusterName}
 		}
 
 		return eksRoute{operation: opUnknown}
@@ -524,52 +550,97 @@ func parseClusterSubPath(method, clusterName string, parts []string) eksRoute {
 		return parseAccessEntryRoute(method, clusterName, parts)
 	case keyAddons:
 		return parseAddonRoute(method, clusterName, parts)
+	case "capabilities":
+		return parseCapabilityRoute(method, clusterName, parts)
 	case "fargate-profiles":
 		return parseFargateProfileRoute(method, clusterName, parts)
 	case "insights":
 		return parseInsightsRoute(method, clusterName, parts)
+	case "insights-refresh":
+		return parseInsightsRefreshRoute(method, clusterName, parts)
 	case "updates":
 		return parseUpdatesRoute(method, clusterName, parts)
-	case "update-version", "register", "deregister":
-		return parseClusterLifecycleRoute(method, clusterName, parts)
+	case "update-config":
+		const updateConfigParts = 2
+		if len(parts) == updateConfigParts && method == http.MethodPost {
+			return eksRoute{operation: opUpdateClusterConfig, clusterName: clusterName}
+		}
+
+		return eksRoute{operation: opUnknown}
 	}
 
 	return parseClusterAssocPath(method, clusterName, parts, maxPathParts)
 }
 
-// parseInsightsRoute returns the route for /clusters/{name}/insights[/{id}[/refresh[/{refreshId}]]].
+// parseCapabilityRoute returns the route for
+// /clusters/{name}/capabilities[/{capabilityName}]. UpdateCapability is POST
+// to the same leaf path as Describe/Delete -- verified against the SDK
+// serializer.
+func parseCapabilityRoute(method, clusterName string, parts []string) eksRoute {
+	const capabilityParts = 2
+
+	if len(parts) == capabilityParts {
+		switch method {
+		case http.MethodPost:
+			return eksRoute{operation: opCreateCapability, clusterName: clusterName}
+		case http.MethodGet:
+			return eksRoute{operation: opListCapabilities, clusterName: clusterName}
+		}
+
+		return eksRoute{operation: opUnknown}
+	}
+
+	capabilityName := parts[2]
+
+	switch method {
+	case http.MethodGet:
+		return eksRoute{operation: opDescribeCapability, clusterName: clusterName, nodegroupName: capabilityName}
+	case http.MethodDelete:
+		return eksRoute{operation: opDeleteCapability, clusterName: clusterName, nodegroupName: capabilityName}
+	case http.MethodPost:
+		return eksRoute{operation: opUpdateCapability, clusterName: clusterName, nodegroupName: capabilityName}
+	}
+
+	return eksRoute{operation: opUnknown}
+}
+
+// parseInsightsRoute returns the route for /clusters/{name}/insights[/{id}].
+// ListInsights is POST (it carries an optional filter body), not GET --
+// verified against the SDK serializer.
 func parseInsightsRoute(method, clusterName string, parts []string) eksRoute {
 	const insightsParts = 2
 
 	if len(parts) == insightsParts {
-		if method == http.MethodGet {
+		if method == http.MethodPost {
 			return eksRoute{operation: opListInsights, clusterName: clusterName}
 		}
 
 		return eksRoute{operation: opUnknown}
 	}
 
-	tail := parts[2]
-
-	if before, ok := strings.CutSuffix(tail, "/refresh"); ok {
-		if method == http.MethodPost {
-			return eksRoute{operation: opStartInsightsRefresh, clusterName: clusterName, nodegroupName: before}
-		}
-
-		return eksRoute{operation: opUnknown}
-	}
-
-	if _, after, ok := strings.Cut(tail, "/refresh/"); ok {
-		refreshID := after
-		if method == http.MethodGet {
-			return eksRoute{operation: opDescribeInsightsRefresh, clusterName: clusterName, nodegroupName: refreshID}
-		}
-
-		return eksRoute{operation: opUnknown}
-	}
-
 	if method == http.MethodGet {
-		return eksRoute{operation: opDescribeInsight, clusterName: clusterName, nodegroupName: tail}
+		return eksRoute{operation: opDescribeInsight, clusterName: clusterName, nodegroupName: parts[2]}
+	}
+
+	return eksRoute{operation: opUnknown}
+}
+
+// parseInsightsRefreshRoute returns the route for
+// /clusters/{name}/insights-refresh. This is a cluster-level singleton (no
+// per-refresh id in the real API): POST starts a refresh, GET describes its
+// status -- verified against the SDK serializer.
+func parseInsightsRefreshRoute(method, clusterName string, parts []string) eksRoute {
+	const insightsRefreshParts = 2
+
+	if len(parts) != insightsRefreshParts {
+		return eksRoute{operation: opUnknown}
+	}
+
+	switch method {
+	case http.MethodPost:
+		return eksRoute{operation: opStartInsightsRefresh, clusterName: clusterName}
+	case http.MethodGet:
+		return eksRoute{operation: opDescribeInsightsRefresh, clusterName: clusterName}
 	}
 
 	return eksRoute{operation: opUnknown}
@@ -579,9 +650,15 @@ func parseInsightsRoute(method, clusterName string, parts []string) eksRoute {
 func parseUpdatesRoute(method, clusterName string, parts []string) eksRoute {
 	const updatesParts = 2
 
+	// GET lists updates; POST on the same path starts a new
+	// UpdateClusterVersion (there is no separate "/update-version" cluster
+	// path in the real API) -- verified against the SDK serializer.
 	if len(parts) == updatesParts {
-		if method == http.MethodGet {
+		switch method {
+		case http.MethodGet:
 			return eksRoute{operation: opListUpdates, clusterName: clusterName}
+		case http.MethodPost:
+			return eksRoute{operation: opUpdateClusterVersion, clusterName: clusterName}
 		}
 
 		return eksRoute{operation: opUnknown}
@@ -702,7 +779,7 @@ func parseStaticEKSPath(method, path string) (eksRoute, bool) {
 }
 
 func parseResourceEKSPath(method, path string) (eksRoute, bool) {
-	if strings.HasPrefix(path, pathAddonConfiguration) {
+	if path == pathAddonConfiguration {
 		if method == http.MethodGet {
 			return eksRoute{operation: opDescribeAddonConfiguration}, true
 		}
@@ -710,33 +787,39 @@ func parseResourceEKSPath(method, path string) (eksRoute, bool) {
 		return eksRoute{operation: opUnknown}, true
 	}
 
-	if path == pathCapabilities {
-		if method == http.MethodPost {
-			return eksRoute{operation: opCreateCapability}, true
-		}
-		if method == http.MethodGet {
-			return eksRoute{operation: opListCapabilities}, true
-		}
-
-		return eksRoute{operation: opUnknown}, true
-	}
-
-	if after, ok := strings.CutPrefix(path, pathCapabilities+"/"); ok {
-		switch method {
-		case http.MethodGet:
-			return eksRoute{operation: opDescribeCapability, clusterName: after}, true
-		case http.MethodDelete:
-			return eksRoute{operation: opDeleteCapability, clusterName: after}, true
-		case http.MethodPut:
-			return eksRoute{operation: opUpdateCapability, clusterName: after}, true
-		}
-
-		return eksRoute{operation: opUnknown}, true
+	if r, ok := parseClusterRegistrationsEKSPath(method, path); ok {
+		return r, true
 	}
 
 	return parseSubscriptionEKSPath(method, path)
 }
 
+// parseClusterRegistrationsEKSPath returns the route for the global (not
+// cluster-nested) RegisterCluster/DeregisterCluster paths: POST
+// /cluster-registrations and DELETE /cluster-registrations/{name} --
+// verified against the SDK serializer.
+func parseClusterRegistrationsEKSPath(method, path string) (eksRoute, bool) {
+	if path == pathClusterRegistrations {
+		if method == http.MethodPost {
+			return eksRoute{operation: opRegisterCluster}, true
+		}
+
+		return eksRoute{operation: opUnknown}, true
+	}
+
+	if after, ok := strings.CutPrefix(path, pathClusterRegistrations+"/"); ok {
+		if method == http.MethodDelete {
+			return eksRoute{operation: opDeregisterCluster, clusterName: after}, true
+		}
+
+		return eksRoute{operation: opUnknown}, true
+	}
+
+	return eksRoute{}, false
+}
+
+// UpdateEksAnywhereSubscription is POST to the same leaf path as
+// Describe/Delete (not PUT) -- verified against the SDK serializer.
 func parseSubscriptionEKSPath(method, path string) (eksRoute, bool) {
 	if path == pathSubscriptions {
 		if method == http.MethodPost {
@@ -755,7 +838,7 @@ func parseSubscriptionEKSPath(method, path string) (eksRoute, bool) {
 			return eksRoute{operation: opDescribeEksAnywhereSubscription, clusterName: after}, true
 		case http.MethodDelete:
 			return eksRoute{operation: opDeleteEksAnywhereSubscription, clusterName: after}, true
-		case http.MethodPut:
+		case http.MethodPost:
 			return eksRoute{operation: opUpdateEksAnywhereSubscription, clusterName: after}, true
 		}
 
@@ -763,25 +846,6 @@ func parseSubscriptionEKSPath(method, path string) (eksRoute, bool) {
 	}
 
 	return eksRoute{}, false
-}
-
-func parseClusterLifecycleRoute(method, clusterName string, parts []string) eksRoute {
-	switch parts[1] {
-	case "update-version":
-		if method == http.MethodPost {
-			return eksRoute{operation: opUpdateClusterVersion, clusterName: clusterName}
-		}
-	case "register":
-		if method == http.MethodPost {
-			return eksRoute{operation: opRegisterCluster}
-		}
-	case "deregister":
-		if method == http.MethodPost {
-			return eksRoute{operation: opDeregisterCluster, clusterName: clusterName}
-		}
-	}
-
-	return eksRoute{operation: opUnknown}
 }
 
 // ExtractOperation extracts the EKS operation name from the REST path.
@@ -898,7 +962,7 @@ func (h *Handler) dispatchNewOps(c *echo.Context, route eksRoute, body []byte) (
 	case opCreateAddon:
 		return true, h.handleCreateAddon(c, route.clusterName, body)
 	case opCreateCapability:
-		return true, h.handleCreateCapability(c, body)
+		return true, h.handleCreateCapability(c, route.clusterName, body)
 	case opCreateEksAnywhereSubscription:
 		return true, h.handleCreateEksAnywhereSubscription(c, body)
 	case opCreateFargateProfile:
@@ -1926,31 +1990,47 @@ func (h *Handler) handleCreateAddon(c *echo.Context, clusterName string, body []
 }
 
 type createCapabilityBody struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Tags                    map[string]string `json:"tags"`
+	CapabilityName          string            `json:"capabilityName"`
+	Type                    string            `json:"type"`
+	RoleArn                 string            `json:"roleArn"`
+	DeletePropagationPolicy string            `json:"deletePropagationPolicy"`
 }
 
-func (h *Handler) handleCreateCapability(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateCapability(c *echo.Context, clusterName string, body []byte) error {
 	var in createCapabilityBody
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 
-	if in.Name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "name is required"))
+	if in.CapabilityName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "capabilityName is required"))
 	}
 
-	capa, err := h.Backend.CreateCapability(in.Name, in.Version)
+	if in.Type == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "type is required"))
+	}
+
+	if in.RoleArn == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "roleArn is required"))
+	}
+
+	if in.DeletePropagationPolicy == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "deletePropagationPolicy is required"),
+		)
+	}
+
+	capa, err := h.Backend.CreateCapability(
+		clusterName, in.CapabilityName, in.Type, in.RoleArn, in.DeletePropagationPolicy, in.Tags,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyCapability: map[string]any{
-			keyName:        capa.Name,
-			keyVersion:     capa.Version,
-			keyStatusField: capa.Status,
-		},
+		keyCapability: capabilityToJSON(capa),
 	})
 }
 

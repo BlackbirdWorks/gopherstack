@@ -329,7 +329,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchConfigurationRecorder", err.Error()))
+		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchConfigurationRecorderException", err.Error()))
 	case errors.Is(err, ErrNoSuchDeliveryChannel):
 		return c.JSONBlob(http.StatusNotFound, marshalError("NoSuchDeliveryChannelException", err.Error()))
 	case errors.Is(err, ErrNoSuchConfigRule):
@@ -349,12 +349,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrNoSuchOrganizationConformancePack):
 		return c.JSONBlob(
 			http.StatusNotFound,
-			marshalError("OrganizationConformancePackNotFoundException", err.Error()),
-		)
-	case errors.Is(err, ErrNoSuchAggregationAuthorization):
-		return c.JSONBlob(
-			http.StatusNotFound,
-			marshalError("NoSuchAggregationAuthorizationException", err.Error()),
+			marshalError("NoSuchOrganizationConformancePackException", err.Error()),
 		)
 	case errors.Is(err, ErrResourceNotFound):
 		return c.JSONBlob(http.StatusBadRequest, marshalError("ResourceNotFoundException", err.Error()))
@@ -363,7 +358,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			http.StatusConflict,
 			marshalError("MaxNumberOfConfigurationRecordersExceededException", err.Error()),
 		)
-	case errors.Is(err, ErrValidation), errors.Is(err, ErrNoDeliveryChannel):
+	case errors.Is(err, ErrNoDeliveryChannel):
+		return c.JSONBlob(http.StatusBadRequest, marshalError("NoAvailableDeliveryChannelException", err.Error()))
+	case errors.Is(err, ErrValidation):
 		return c.JSONBlob(http.StatusBadRequest, marshalError("ValidationException", err.Error()))
 	case errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})

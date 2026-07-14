@@ -3,6 +3,8 @@ package appstream
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
@@ -90,9 +92,7 @@ func (t *storedTheme) toTheme() *Theme {
 func userKey(userName, authType string) string { return userName + "\x00" + authType }
 
 func (b *InMemoryBackend) userARN(userName, authType string) string {
-	return fmt.Sprintf(
-		"arn:aws:appstream:%s:%s:user/%s/%s", b.region, b.accountID, authType, userName,
-	)
+	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("user/%s/%s", authType, userName))
 }
 
 func (b *InMemoryBackend) nextSessionID() string {

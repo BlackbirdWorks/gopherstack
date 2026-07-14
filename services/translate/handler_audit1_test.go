@@ -76,7 +76,7 @@ func TestAudit1_ImportTerminology(t *testing.T) {
 			body: map[string]any{
 				"Name":            "my-terminology",
 				"MergeStrategy":   "OVERWRITE",
-				"TerminologyData": map[string]any{"File": "en,fr\nhello,bonjour", "Format": "CSV"},
+				"TerminologyData": map[string]any{"File": b64("en,fr\nhello,bonjour"), "Format": "CSV"},
 			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body []byte) {
@@ -101,7 +101,7 @@ func TestAudit1_ImportTerminology(t *testing.T) {
 				"Name":            "my-terminology",
 				"MergeStrategy":   "OVERWRITE",
 				"Description":     "updated",
-				"TerminologyData": map[string]any{"File": "en,de\nhello,hallo", "Format": "CSV"},
+				"TerminologyData": map[string]any{"File": b64("en,de\nhello,hallo"), "Format": "CSV"},
 			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, body []byte) {
@@ -446,7 +446,7 @@ func TestAudit1_StartTextTranslationJob(t *testing.T) {
 
 	m := unmarshalJSON(t, rec.Body.Bytes())
 	assert.NotEmpty(t, m["JobId"])
-	assert.Equal(t, "IN_PROGRESS", m["JobStatus"])
+	assert.Equal(t, "SUBMITTED", m["JobStatus"])
 }
 
 func TestAudit1_DescribeTextTranslationJob(t *testing.T) {

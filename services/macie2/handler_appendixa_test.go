@@ -45,6 +45,8 @@ func TestAppendixA_ClassificationJobs(t *testing.T) {
 				jobID := createResp["jobId"]
 				assert.NotEmpty(t, jobID)
 				assert.Equal(t, "RUNNING", createResp["jobStatus"])
+				// Real CreateClassificationJobOutput always includes jobArn.
+				assert.Contains(t, createResp["jobArn"], "arn:aws:macie2:")
 
 				// DescribeClassificationJob
 				rec = doRequest(t, h, http.MethodGet, "/jobs/"+jobID, nil)
@@ -55,6 +57,7 @@ func TestAppendixA_ClassificationJobs(t *testing.T) {
 				assert.Equal(t, jobID, descResp["jobId"])
 				assert.Equal(t, "ONE_TIME", descResp["jobType"])
 				assert.Equal(t, "test-job", descResp["name"])
+				assert.Equal(t, createResp["jobArn"], descResp["jobArn"])
 
 				// ListClassificationJobs
 				rec = doRequest(t, h, http.MethodPost, "/jobs/list", nil)
@@ -152,6 +155,10 @@ func TestAppendixA_Members(t *testing.T) {
 				assert.Equal(t, "111111111111", getMem["accountId"])
 				assert.Equal(t, "member@example.com", getMem["email"])
 				assert.Equal(t, "CREATED", getMem["relationshipStatus"])
+				// Real GetMemberOutput always includes arn and masterAccountId
+				// (the deprecated wire name for administratorAccountId).
+				assert.Contains(t, getMem["arn"], "arn:aws:macie2:")
+				assert.NotEmpty(t, getMem["masterAccountId"])
 
 				// ListMembers
 				rec = doRequest(t, h, http.MethodGet, "/members", nil)
@@ -479,7 +486,7 @@ func TestAppendixA_OrgAdmin(t *testing.T) {
 				assert.Len(t, accounts, 1)
 
 				// DisableOrganizationAdminAccount
-				rec = doRequest(t, h, http.MethodDelete, "/admin?accountId=111111111111", nil)
+				rec = doRequest(t, h, http.MethodDelete, "/admin?adminAccountId=111111111111", nil)
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				// Verify removed
@@ -628,7 +635,7 @@ func TestAppendixA_BucketsAndBatch(t *testing.T) {
 			fn: func(t *testing.T, h *macie2.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodGet, "/datasources/s3/statistics", nil)
+				rec := doRequest(t, h, http.MethodPost, "/datasources/s3/statistics", nil)
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
@@ -661,7 +668,7 @@ func TestAppendixA_BucketsAndBatch(t *testing.T) {
 
 				var batchResp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchResp))
-				items, _ := batchResp["items"].([]any)
+				items, _ := batchResp["customDataIdentifiers"].([]any)
 				assert.Len(t, items, 1)
 			},
 		},
@@ -1084,7 +1091,7 @@ func TestAppendixA_SensitivityInspectionTemplates(t *testing.T) {
 				rec = doRequest(
 					t,
 					h,
-					http.MethodPatch,
+					http.MethodPut,
 					"/templates/sensitivity-inspections/"+templateID,
 					map[string]any{
 						"description": "Updated description",

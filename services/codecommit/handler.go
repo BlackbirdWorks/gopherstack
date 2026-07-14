@@ -342,51 +342,66 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 	return json.Marshal(resp)
 }
 
+// errCodeEntry maps a backend sentinel error to its AWS HTTP status and exception type.
+type errCodeEntry struct {
+	sentinel error
+	errType  string
+	code     int
+}
+
+// errCodeLookup is checked in order against err via errors.Is; the first match wins.
+// Extend this table (not handleError's control flow) when a new backend sentinel error
+// is introduced, so handleError itself never grows another branch.
+//
+//nolint:gochecknoglobals // static AWS error-code lookup table, same pattern as other services' errCodeLookup
+var errCodeLookup = []errCodeEntry{
+	{sentinel: ErrNotFound, code: http.StatusNotFound, errType: "RepositoryDoesNotExistException"},
+	{sentinel: ErrAlreadyExists, code: http.StatusBadRequest, errType: "RepositoryNameExistsException"},
+	{
+		sentinel: ErrApprovalRuleTemplateNotFound,
+		code:     http.StatusNotFound,
+		errType:  "ApprovalRuleTemplateDoesNotExistException",
+	},
+	{
+		sentinel: ErrApprovalRuleTemplateAlreadyExists,
+		code:     http.StatusBadRequest,
+		errType:  "ApprovalRuleTemplateNameAlreadyExistsException",
+	},
+	{sentinel: ErrBranchNotFound, code: http.StatusNotFound, errType: "BranchDoesNotExistException"},
+	{sentinel: ErrBranchAlreadyExists, code: http.StatusBadRequest, errType: "BranchNameExistsException"},
+	{sentinel: ErrCommitNotFound, code: http.StatusNotFound, errType: "CommitDoesNotExistException"},
+	{sentinel: ErrFileNotFound, code: http.StatusNotFound, errType: "FileDoesNotExistException"},
+	{sentinel: ErrBlobNotFound, code: http.StatusNotFound, errType: "BlobIdDoesNotExistException"},
+	{sentinel: ErrCommentNotFound, code: http.StatusNotFound, errType: "CommentDoesNotExistException"},
+	{sentinel: ErrApprovalRuleNotFound, code: http.StatusNotFound, errType: "ApprovalRuleDoesNotExistException"},
+	{sentinel: ErrPullRequestNotFound, code: http.StatusNotFound, errType: "PullRequestDoesNotExistException"},
+	{
+		sentinel: ErrPullRequestAlreadyMerged,
+		code:     http.StatusBadRequest,
+		errType:  "PullRequestAlreadyClosedException",
+	},
+	{sentinel: ErrInvalidRepositoryName, code: http.StatusBadRequest, errType: "InvalidRepositoryNameException"},
+	{
+		sentinel: ErrMaxRepositoriesExceeded,
+		code:     http.StatusBadRequest,
+		errType:  "MaximumRepositoryNamesExceededException",
+	},
+	{sentinel: ErrValidation, code: http.StatusBadRequest, errType: "InvalidParameterException"},
+	{sentinel: errInvalidRequest, code: http.StatusBadRequest, errType: "ValidationException"},
+}
+
 // handleError maps backend errors to HTTP error responses.
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	code := http.StatusBadRequest
 	errType := "ValidationException"
 
-	switch {
-	case errors.Is(err, ErrNotFound):
-		code = http.StatusNotFound
-		errType = "RepositoryDoesNotExistException"
-	case errors.Is(err, ErrAlreadyExists):
-		code = http.StatusBadRequest
-		errType = "RepositoryNameExistsException"
-	case errors.Is(err, ErrApprovalRuleTemplateNotFound):
-		code = http.StatusNotFound
-		errType = "ApprovalRuleTemplateDoesNotExistException"
-	case errors.Is(err, ErrApprovalRuleTemplateAlreadyExists):
-		code = http.StatusBadRequest
-		errType = "ApprovalRuleTemplateNameAlreadyExistsException"
-	case errors.Is(err, ErrBranchNotFound):
-		code = http.StatusNotFound
-		errType = "BranchDoesNotExistException"
-	case errors.Is(err, ErrBranchAlreadyExists):
-		code = http.StatusBadRequest
-		errType = "BranchNameExistsException"
-	case errors.Is(err, ErrCommitNotFound):
-		code = http.StatusNotFound
-		errType = "CommitDoesNotExistException"
-	case errors.Is(err, ErrPullRequestNotFound):
-		code = http.StatusNotFound
-		errType = "PullRequestDoesNotExistException"
-	case errors.Is(err, ErrPullRequestAlreadyMerged):
-		code = http.StatusBadRequest
-		errType = "PullRequestAlreadyClosedException"
-	case errors.Is(err, ErrInvalidRepositoryName):
-		code = http.StatusBadRequest
-		errType = "InvalidRepositoryNameException"
-	case errors.Is(err, ErrMaxRepositoriesExceeded):
-		code = http.StatusBadRequest
-		errType = "MaximumRepositoryNamesExceededException"
-	case errors.Is(err, ErrValidation):
-		code = http.StatusBadRequest
-		errType = "InvalidParameterException"
-	case errors.Is(err, errInvalidRequest):
-		code = http.StatusBadRequest
-		errType = "ValidationException"
+	for _, entry := range errCodeLookup {
+		if errors.Is(err, entry.sentinel) {
+			code = entry.code
+			errType = entry.errType
+
+			break
+		}
 	}
 
 	return c.JSON(code, map[string]string{
@@ -1027,7 +1042,7 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 
 	// Decode putFiles entries.
 	putFiles := make([]PutFileEntry, 0, len(in.PutFiles))
-	filesAdded := make([]any, 0, len(in.PutFiles))
+	fileModes := make(map[string]string, len(in.PutFiles))
 	for _, pf := range in.PutFiles {
 		content, err := base64.StdEncoding.DecodeString(pf.FileContent)
 		if err != nil {
@@ -1042,12 +1057,7 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 			FileContent: content,
 			FileMode:    fileMode,
 		})
-		filesAdded = append(filesAdded, map[string]any{
-			keyFilePath:    pf.FilePath,
-			"blobId":       "",
-			keyFileMode:    fileMode,
-			"absolutePath": pf.FilePath,
-		})
+		fileModes[pf.FilePath] = fileMode
 	}
 
 	deleteFiles := make([]string, 0, len(in.DeleteFiles))
@@ -1057,13 +1067,26 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 		filesDeleted = append(filesDeleted, map[string]any{keyFilePath: df.FilePath})
 	}
 
-	commit, err := h.Backend.CreateCommit(
+	commit, blobIDs, err := h.Backend.CreateCommit(
 		in.RepositoryName, in.BranchName,
 		in.AuthorName, in.Email, in.CommitMessage,
 		in.ParentCommitID, putFiles, deleteFiles,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// filesAdded is built from the backend's assigned blob IDs (not the
+	// request order) so the response reflects the real blob per file — AWS's
+	// CreateCommitOutput.filesAdded.blobId is a required field.
+	filesAdded := make([]any, 0, len(in.PutFiles))
+	for _, pf := range in.PutFiles {
+		filesAdded = append(filesAdded, map[string]any{
+			keyFilePath:    pf.FilePath,
+			"blobId":       blobIDs[pf.FilePath],
+			keyFileMode:    fileModes[pf.FilePath],
+			"absolutePath": pf.FilePath,
+		})
 	}
 
 	return map[string]any{

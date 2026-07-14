@@ -111,7 +111,7 @@ func TestProtectedResourceLastBackupTimeEpoch(t *testing.T) {
 			resourceID: "arn:aws:ec2:us-east-1:000000000000:instance/i-pr-test",
 		},
 		{
-			name:       "fallback_resource_returns_epoch",
+			name:       "never_backed_up_resource_not_found",
 			createJob:  false,
 			resourceID: "arn:aws:ec2:us-east-1:000000000000:instance/i-unknown",
 		},
@@ -120,18 +120,33 @@ func TestProtectedResourceLastBackupTimeEpoch(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, b := newBatch1Handler(t)
 
 			if tc.createJob {
 				doBatch1Request(t, h, http.MethodPut, "/backup-vaults/pr-vault", `{}`)
-				doBatch1Request(t, h, http.MethodPut, "/backup-jobs", `{
+				startResp := doBatch1Request(t, h, http.MethodPut, "/backup-jobs", `{
 					"BackupVaultName": "pr-vault",
 					"ResourceArn": "`+tc.resourceID+`",
 					"IamRoleArn": "arn:aws:iam::000000000000:role/backup-role"
 				}`)
+				var startData map[string]any
+				require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &startData))
+				// Real AWS Backup jobs complete asynchronously; the emulator
+				// models that via the janitor. Complete it synchronously here
+				// so the resource is recorded as protected.
+				require.NoError(t, b.CompleteBackupJob(startData["BackupJobId"].(string)))
 			}
 
 			resp := doBatch1Request(t, h, http.MethodGet, "/resources/"+tc.resourceID, "")
+
+			if !tc.createJob {
+				// A resource that was never backed up is not "protected" --
+				// AWS returns ResourceNotFoundException, not a fabricated record.
+				assert.Equal(t, http.StatusNotFound, resp.Code)
+
+				return
+			}
+
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any

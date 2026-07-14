@@ -33,7 +33,7 @@ func TestPersistence_SnapshotRestoreRoundTrip(t *testing.T) {
 				ctx := context.Background()
 				src := TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
 
-				ta, err := b.CreateTrustAnchor(ctx, "anchor-1", src, []TagEntry{{Key: "env", Value: "prod"}})
+				ta, err := b.CreateTrustAnchor(ctx, "anchor-1", src, []TagEntry{{Key: "env", Value: "prod"}}, nil)
 				require.NoError(t, err)
 				require.NoError(t, b.TagResource(ctx, ta.TrustAnchorArn, []TagEntry{{Key: "team", Value: "platform"}}))
 
@@ -238,7 +238,7 @@ func TestPersistence_RestoreVersionMismatch(t *testing.T) {
 			src := TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
 
 			donor := NewInMemoryBackend("000000000000", "us-east-1")
-			_, err := donor.CreateTrustAnchor(ctx, "donor-anchor", src, nil)
+			_, err := donor.CreateTrustAnchor(ctx, "donor-anchor", src, nil, nil)
 			require.NoError(t, err)
 
 			var snapMap map[string]any
@@ -252,7 +252,7 @@ func TestPersistence_RestoreVersionMismatch(t *testing.T) {
 			// can prove the mismatch discards it rather than leaving it
 			// untouched or merging in the donor's trust anchor.
 			target := NewInMemoryBackend("000000000000", "us-east-1")
-			_, err = target.CreateTrustAnchor(ctx, "target-anchor", src, nil)
+			_, err = target.CreateTrustAnchor(ctx, "target-anchor", src, nil, nil)
 			require.NoError(t, err)
 
 			require.NoError(t, target.Restore(ctx, mutatedSnap))
@@ -292,7 +292,7 @@ func TestHandler_SnapshotRestore_Delegates(t *testing.T) {
 	backend := NewInMemoryBackend("000000000000", "us-east-1")
 	h := NewHandler(backend)
 
-	_, err := backend.CreateTrustAnchor(ctx, "handler-anchor", src, nil)
+	_, err := backend.CreateTrustAnchor(ctx, "handler-anchor", src, nil, nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(ctx)

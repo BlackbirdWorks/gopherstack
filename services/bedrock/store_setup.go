@@ -6,12 +6,15 @@ package bedrock
 // the services/ec2 (commit 12e611a4) and services/sqs (commit 0f09d77c)
 // pilots for the pattern this follows.
 //
-// bedrock has no pre-existing persistence.go (it was never wired into
-// pkgs/persistence's Manager -- see cli.go, which only registers backends
-// that implement persistence.Persistable). This conversion is therefore an
-// internal storage-layer swap only: it eliminates the map init/Reset
-// boilerplate but does not add Snapshot/Restore, since none existed to
-// preserve.
+// At the time this file was written bedrock had no persistence.go (it was
+// never wired into pkgs/persistence's Manager -- see cli.go, which only
+// registers backends that implement persistence.Persistable), so this
+// conversion was originally an internal storage-layer swap only: it
+// eliminated the map init/Reset boilerplate but did not add Snapshot/Restore.
+// See persistence.go for the Snapshot/Restore pair added on top of this
+// conversion, which is what now drives every b.registry-registered table
+// (including the four lazy per-parent kinds below, via
+// lazyTableAccessorsByPrefix) through a real snapshot/restore cycle.
 //
 // flowVersions, promptVersions, agentVersions, and agentCollaborators were
 // previously two-level maps (map[string]map[string]*T, parent ID -> child ID
@@ -193,6 +196,28 @@ func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)
 	}
+}
+
+// lazyTableAccessorsByPrefix maps each lazily-registered per-parent table
+// kind's name prefix (see flowVersionsStore, promptVersionsStore,
+// agentVersionsStore, agentCollaboratorsStore above -- each registers its
+// table under "<prefix>:<parentID>" on first use) to a callback that forces
+// that same lazy registration for a given parent ID. persistence.go's Restore
+// uses this to pre-register every (prefix, parentID) pair present in an
+// incoming snapshot's Tables blob before calling b.registry.RestoreAll --
+// RestoreAll only restores tables already registered on b.registry (see
+// [github.com/blackbirdworks/gopherstack/pkgs/store.Registry.RestoreAll]), so
+// a parent ID a fresh backend has never touched would otherwise have its
+// per-parent table silently dropped instead of restored. Mirrors
+// services/ssm's tableAccessorsByPrefix (store_setup.go), adapted for a
+// ":"-separated name instead of ssm's "/"-separated region suffix.
+//
+//nolint:gochecknoglobals // registration table, analogous to errCodeLookup-style lookup tables elsewhere
+var lazyTableAccessorsByPrefix = map[string]func(b *InMemoryBackend, parentID string){
+	"flowVersions":       func(b *InMemoryBackend, parentID string) { b.flowVersionsStore(parentID) },
+	"promptVersions":     func(b *InMemoryBackend, parentID string) { b.promptVersionsStore(parentID) },
+	"agentVersions":      func(b *InMemoryBackend, parentID string) { b.agentVersionsStore(parentID) },
+	"agentCollaborators": func(b *InMemoryBackend, parentID string) { b.agentCollaboratorsStore(parentID) },
 }
 
 // tableRegistrations is the data-driven list registerAllTables walks: one

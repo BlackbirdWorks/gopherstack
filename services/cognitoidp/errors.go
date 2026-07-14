@@ -70,4 +70,15 @@ var (
 
 	// ErrAuthEventNotFound is returned when an adaptive-authentication event does not exist.
 	ErrAuthEventNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+
+	// ErrUserLambdaValidation is returned when a configured Lambda trigger (PreSignUp,
+	// PostConfirmation, PreTokenGeneration, CustomMessage, ...) fails during invocation --
+	// mirrors AWS Cognito's UserLambdaValidationException, which wraps any error the
+	// trigger function returns.
+	ErrUserLambdaValidation = awserr.New("UserLambdaValidationException", awserr.ErrInvalidParameter)
+
+	// ErrUnexpectedLambda is returned when a configured Lambda trigger responds with a
+	// malformed payload (missing/invalid "response" object) rather than a genuine
+	// business-logic error -- mirrors AWS Cognito's UnexpectedLambdaException.
+	ErrUnexpectedLambda = awserr.New("UnexpectedLambdaException", awserr.ErrInvalidParameter)
 )

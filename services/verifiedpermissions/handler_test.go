@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -2232,4 +2233,325 @@ func TestVPHandler_ServiceSummary(t *testing.T) {
 	h := newTestVPHandler(t)
 	assert.Equal(t, service.PriorityHeaderExact, h.MatchPriority())
 	assert.Equal(t, "verifiedpermissions", h.ChaosServiceName())
+}
+
+// TestVPHandler_CreateIdentitySource_OIDCIdentityTokenClientIDs verifies the
+// identityTokenOnly wire field is "clientIds", not "audiences" (the real SDK
+// uses different field names for identityTokenOnly vs accessTokenOnly, but
+// both round-trip through the same internal representation here).
+func TestVPHandler_CreateIdentitySource_OIDCIdentityTokenClientIDs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "MyCorp::User",
+		"configuration": map[string]any{
+			"openIdConnectConfiguration": map[string]any{
+				"issuer": "https://example.com",
+				"tokenSelection": map[string]any{
+					"identityTokenOnly": map[string]any{
+						"principalIdClaim": "sub",
+						"clientIds":        []string{"client-a", "client-b"},
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	oidc := resp["configuration"].(map[string]any)["openIdConnectConfiguration"].(map[string]any)
+	tokenSelection := oidc["tokenSelection"].(map[string]any)
+	identityTokenOnly, ok := tokenSelection["identityTokenOnly"].(map[string]any)
+	require.True(t, ok, "expected identityTokenOnly in response, got: %v", tokenSelection)
+
+	clientIDs, ok := identityTokenOnly["clientIds"].([]any)
+	require.True(t, ok, "expected identityTokenOnly.clientIds, got: %v", identityTokenOnly)
+	assert.ElementsMatch(t, []any{"client-a", "client-b"}, clientIDs)
+	assert.NotContains(t, identityTokenOnly, "audiences", "identityTokenOnly must not use the audiences key")
+}
+
+// TestVPHandler_CreateIdentitySource_CognitoIssuer verifies the response
+// includes configuration.cognitoUserPoolConfiguration.issuer, a required
+// field in the real SDK that AWS derives from the user pool ARN.
+func TestVPHandler_CreateIdentitySource_CognitoIssuer(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "MyCorp::User",
+		"configuration": map[string]any{
+			"cognitoUserPoolConfiguration": map[string]any{
+				"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test",
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	cognito := resp["configuration"].(map[string]any)["cognitoUserPoolConfiguration"].(map[string]any)
+	assert.Equal(t, "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test", cognito["issuer"])
+}
+
+// TestVPHandler_ListIdentitySources_FilterByPrincipalEntityType verifies the
+// wire "filters" list narrows results by principalEntityType.
+func TestVPHandler_ListIdentitySources_FilterByPrincipalEntityType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	for _, principalType := range []string{"MyCorp::User", "MyCorp::Service"} {
+		rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+			"policyStoreId":       storeID,
+			"principalEntityType": principalType,
+			"configuration": map[string]any{
+				"cognitoUserPoolConfiguration": map[string]any{
+					"userPoolArn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test",
+				},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doVPRequest(t, h, "ListIdentitySources", map[string]any{
+		"policyStoreId": storeID,
+		"filters": []any{
+			map[string]any{"principalEntityType": "MyCorp::User"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	sources := resp["identitySources"].([]any)
+	require.Len(t, sources, 1)
+	assert.Equal(t, "MyCorp::User", sources[0].(map[string]any)["principalEntityType"])
+}
+
+// TestVPHandler_ListPolicies_FilterByPrincipalIdentifier verifies the
+// filter.principal wire shape is the EntityReference union
+// ({"identifier": {...}} or {"unspecified": true}), not a flat
+// entityIdentifier.
+func TestVPHandler_ListPolicies_FilterByPrincipalIdentifier(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	ptRec := doVPRequest(t, h, "CreatePolicyTemplate", map[string]any{
+		"policyStoreId": storeID,
+		"statement":     "permit(principal == ?principal, action, resource);",
+	})
+	require.Equal(t, http.StatusOK, ptRec.Code)
+
+	var ptResp map[string]any
+	require.NoError(t, json.Unmarshal(ptRec.Body.Bytes(), &ptResp))
+	templateID := ptResp["policyTemplateId"].(string)
+
+	linkedRec := doVPRequest(t, h, "CreatePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"definition": map[string]any{
+			"templateLinked": map[string]any{
+				"policyTemplateId": templateID,
+				"principal":        map[string]any{"entityType": "MyCorp::User", "entityId": "alice"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, linkedRec.Code)
+
+	staticRec := doVPRequest(t, h, "CreatePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"definition": map[string]any{
+			"static": map[string]any{"statement": "permit(principal, action, resource);"},
+		},
+	})
+	require.Equal(t, http.StatusOK, staticRec.Code)
+
+	// Filter for policies scoped to a specific principal identifier.
+	filteredRec := doVPRequest(t, h, "ListPolicies", map[string]any{
+		"policyStoreId": storeID,
+		"filter": map[string]any{
+			"principal": map[string]any{
+				"identifier": map[string]any{"entityType": "MyCorp::User", "entityId": "alice"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, filteredRec.Code, "body: %s", filteredRec.Body.String())
+
+	var filteredResp map[string]any
+	require.NoError(t, json.Unmarshal(filteredRec.Body.Bytes(), &filteredResp))
+	policies := filteredResp["policies"].([]any)
+	require.Len(t, policies, 1)
+
+	// Filter for policies with no principal scope at all (unspecified).
+	unspecifiedRec := doVPRequest(t, h, "ListPolicies", map[string]any{
+		"policyStoreId": storeID,
+		"filter": map[string]any{
+			"principal": map[string]any{"unspecified": true},
+		},
+	})
+	require.Equal(t, http.StatusOK, unspecifiedRec.Code, "body: %s", unspecifiedRec.Body.String())
+
+	var unspecifiedResp map[string]any
+	require.NoError(t, json.Unmarshal(unspecifiedRec.Body.Bytes(), &unspecifiedResp))
+	unspecifiedPolicies := unspecifiedResp["policies"].([]any)
+	require.Len(t, unspecifiedPolicies, 1)
+}
+
+// TestVPHandler_DeletePolicyStore_DeletionProtection_ConflictException
+// verifies the wire error type is "ConflictException" (matching the real
+// SDK's exception name), not the previously-hardcoded "ResourceConflictException".
+func TestVPHandler_DeletePolicyStore_DeletionProtection_ConflictException(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+
+	createRec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{
+		"validationSettings": map[string]any{"mode": "OFF"},
+		"deletionProtection": "ENABLED",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	storeID := createResp["policyStoreId"].(string)
+
+	rec := doVPRequest(t, h, "DeletePolicyStore", map[string]any{"policyStoreId": storeID})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ConflictException", resp["__type"])
+}
+
+// TestVPHandler_TagResource_TooManyTags verifies exceeding the 50-tag limit
+// via TagResource surfaces the real SDK's TooManyTagsException wire type.
+func TestVPHandler_TagResource_TooManyTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	getRec := doVPRequest(t, h, "GetPolicyStore", map[string]any{"policyStoreId": storeID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	resourceARN := getResp["arn"].(string)
+
+	tags := make(map[string]any, 51)
+	for i := range 51 {
+		tags["key"+strconv.Itoa(i)] = "value"
+	}
+
+	rec := doVPRequest(t, h, "TagResource", map[string]any{
+		"resourceArn": resourceARN,
+		"tags":        tags,
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "TooManyTagsException", resp["__type"])
+}
+
+// TestVPHandler_IsAuthorized_DeterminingPolicies_ObjectShape verifies
+// determiningPolicies/errors elements are wire-encoded as objects
+// ({"policyId": "..."} / {"errorDescription": "..."}), matching the real
+// SDK's DeterminingPolicyItem/EvaluationErrorItem -- not bare strings.
+func TestVPHandler_IsAuthorized_DeterminingPolicies_ObjectShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	policyRec := doVPRequest(t, h, "CreatePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"definition": map[string]any{
+			"static": map[string]any{"statement": "permit(principal, action, resource);"},
+		},
+	})
+	require.Equal(t, http.StatusOK, policyRec.Code)
+
+	var policyResp map[string]any
+	require.NoError(t, json.Unmarshal(policyRec.Body.Bytes(), &policyResp))
+	policyID := policyResp["policyId"].(string)
+
+	rec := doVPRequest(t, h, "IsAuthorized", map[string]any{
+		"policyStoreId": storeID,
+		"principal":     map[string]any{"entityType": "User", "entityId": "alice"},
+		"action":        map[string]any{"actionType": "Action", "actionId": "view"},
+		"resource":      map[string]any{"entityType": "Resource", "entityId": "res1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ALLOW", resp["decision"])
+
+	determining := resp["determiningPolicies"].([]any)
+	require.Len(t, determining, 1)
+	item, ok := determining[0].(map[string]any)
+	require.True(t, ok, "determiningPolicies elements must be objects, got: %v", determining[0])
+	assert.Equal(t, policyID, item["policyId"])
+
+	assert.Empty(t, resp["errors"])
+}
+
+// TestVPHandler_BatchIsAuthorized_RequestEcho_Shape verifies each result's
+// echoed "request" nests principal/action/resource as objects (matching the
+// real SDK's BatchIsAuthorizedInputItem), not the internal flat
+// principalEntityType/actionType/... representation.
+func TestVPHandler_BatchIsAuthorized_RequestEcho_Shape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	rec := doVPRequest(t, h, "BatchIsAuthorized", map[string]any{
+		"policyStoreId": storeID,
+		"requests": []any{
+			map[string]any{
+				"principal": map[string]any{"entityType": "User", "entityId": "alice"},
+				"action":    map[string]any{"actionType": "Action", "actionId": "view"},
+				"resource":  map[string]any{"entityType": "Resource", "entityId": "res1"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	results := resp["results"].([]any)
+	require.Len(t, results, 1)
+
+	result := results[0].(map[string]any)
+	request, ok := result["request"].(map[string]any)
+	require.True(t, ok)
+
+	principal, ok := request["principal"].(map[string]any)
+	require.True(t, ok, "request.principal must be a nested object, got: %v", request)
+	assert.Equal(t, "User", principal["entityType"])
+	assert.Equal(t, "alice", principal["entityId"])
+
+	action, ok := request["action"].(map[string]any)
+	require.True(t, ok, "request.action must be a nested object, got: %v", request)
+	assert.Equal(t, "Action", action["actionType"])
+	assert.Equal(t, "view", action["actionId"])
+
+	resource, ok := request["resource"].(map[string]any)
+	require.True(t, ok, "request.resource must be a nested object, got: %v", request)
+	assert.Equal(t, "Resource", resource["entityType"])
+	assert.Equal(t, "res1", resource["entityId"])
 }

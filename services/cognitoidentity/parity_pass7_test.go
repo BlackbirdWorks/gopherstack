@@ -60,10 +60,10 @@ func TestParity_CreateIdentityPool_OIDCProviderARNs(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 
 			// Verify ARNs in CreateIdentityPool response.
-			raw, _ := json.Marshal(created["OpenIDConnectProviderARNs"])
+			raw, _ := json.Marshal(created["OpenIdConnectProviderARNs"])
 			var gotARNs []string
 			_ = json.Unmarshal(raw, &gotARNs)
-			assert.Equal(t, tt.wantARNs, gotARNs, "create response OpenIDConnectProviderARNs mismatch")
+			assert.Equal(t, tt.wantARNs, gotARNs, "create response OpenIdConnectProviderARNs mismatch")
 
 			poolID, _ := created["IdentityPoolId"].(string)
 			require.NotEmpty(t, poolID)
@@ -77,10 +77,10 @@ func TestParity_CreateIdentityPool_OIDCProviderARNs(t *testing.T) {
 			var desc map[string]any
 			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
 
-			raw, _ = json.Marshal(desc["OpenIDConnectProviderARNs"])
+			raw, _ = json.Marshal(desc["OpenIdConnectProviderARNs"])
 			var descARNs []string
 			_ = json.Unmarshal(raw, &descARNs)
-			assert.Equal(t, tt.wantARNs, descARNs, "describe response OpenIDConnectProviderARNs mismatch")
+			assert.Equal(t, tt.wantARNs, descARNs, "describe response OpenIdConnectProviderARNs mismatch")
 		})
 	}
 }
@@ -196,7 +196,7 @@ func TestParity_UpdateIdentityPool_OIDCAndSAMLARNs(t *testing.T) {
 			var updated map[string]any
 			require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updated))
 
-			raw, _ := json.Marshal(updated["OpenIDConnectProviderARNs"])
+			raw, _ := json.Marshal(updated["OpenIdConnectProviderARNs"])
 			var gotOIDC []string
 			_ = json.Unmarshal(raw, &gotOIDC)
 			assert.Equal(t, tt.wantOIDC, gotOIDC, "OIDC ARNs after update")

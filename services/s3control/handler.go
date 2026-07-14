@@ -40,20 +40,41 @@ const (
 	pathAccessGrantsLocationPrefix         = "/v20180820/accessgrantsinstance/location/"
 	pathAccessGrantPrefix                  = "/v20180820/accessgrantsinstance/grant/"
 	pathDataAccess                         = "/v20180820/accessgrantsinstance/dataaccess"
-	pathCallerAccessGrants                 = "/v20180820/accessgrantsinstance/caller-grants"
-	pathMRAPPrefix                         = "/v20180820/async-requests/mrap/"
-	pathMRAPDeletePrefix                   = "/v20180820/async-requests/mrap/delete"
-	pathMRAPPutPolicyPrefix                = "/v20180820/async-requests/mrap/put_policy"
-	pathMRAPList                           = "/v20180820/mrap/instances"
-	pathMRAPInstancePrefix                 = "/v20180820/mrap/instances/"
-	pathStorageLensPrefix                  = "/v20180820/storagelens/"
-	pathStorageLensList                    = "/v20180820/storagelens"
-	pathStorageLensGroupPrefix             = "/v20180820/storagelensgroup/"
-	pathTagsPrefix                         = "/v20180820/tags/"
-	pathJobPrefix                          = "/v20180820/jobs/"
-	pathAccessPointsDirectoryBuckets       = "/v20180820/accesspointfordirectories"
-	pathAccessPointsForObjectLambdaList    = "/v20180820/accesspointforobjectlambda"
-	pathRegionalBuckets                    = "/v20180820/bucket"
+	// pathCallerAccessGrants matches the real aws-sdk-go-v2 ListCallerAccessGrants
+	// request URI ("/v20180820/accessgrantsinstance/caller/grants"), NOT a
+	// hyphenated "caller-grants" path.
+	pathCallerAccessGrants = "/v20180820/accessgrantsinstance/caller/grants"
+	// pathAccessGrantsList and pathAccessGrantsLocationsList are the PLURAL
+	// list-operation paths ("/grants", "/locations"); the real SDK uses the
+	// singular path only for Create (POST) and a distinct plural path for
+	// List (GET) -- see pathAccessGrant / pathAccessGrantsLocation below.
+	pathAccessGrantsList          = "/v20180820/accessgrantsinstance/grants"
+	pathAccessGrantsLocationsList = "/v20180820/accessgrantsinstance/locations"
+	pathMRAPPrefix                = "/v20180820/async-requests/mrap/"
+	pathMRAPDeletePrefix          = "/v20180820/async-requests/mrap/delete"
+	// pathMRAPPutPolicyPrefix matches the real SDK's hyphenated
+	// "put-policy" URI segment, not an underscore.
+	pathMRAPPutPolicyPrefix    = "/v20180820/async-requests/mrap/put-policy"
+	pathMRAPList               = "/v20180820/mrap/instances"
+	pathMRAPInstancePrefix     = "/v20180820/mrap/instances/"
+	pathStorageLensPrefix      = "/v20180820/storagelens/"
+	pathStorageLensList        = "/v20180820/storagelens"
+	pathStorageLensGroupPrefix = "/v20180820/storagelensgroup/"
+	pathTagsPrefix             = "/v20180820/tags/"
+	pathJobPrefix              = "/v20180820/jobs/"
+	// pathAccessPointsDirectoryBuckets matches the real SDK's singular
+	// "accesspointfordirectory" URI, not a pluralized "accesspointfordirectories".
+	pathAccessPointsDirectoryBuckets    = "/v20180820/accesspointfordirectory"
+	pathAccessPointsForObjectLambdaList = "/v20180820/accesspointforobjectlambda"
+	pathRegionalBuckets                 = "/v20180820/bucket"
+	// pathBucketLifecycleSuffix is the real SDK's lifecycle sub-resource
+	// suffix; NOT "/lifecycle".
+	pathBucketLifecycleSuffix = "/lifecycleconfiguration"
+	// pathMRAPPolicyStatusSuffix is the real SDK's MRAP policy-status
+	// sub-resource suffix. Unlike the AccessPoint/ObjectLambda equivalents
+	// (which use camelCase "/policyStatus"), the MRAP API uses all-lowercase
+	// "/policystatus" -- see aws-sdk-go-v2/service/s3control serializers.go.
+	pathMRAPPolicyStatusSuffix = "/policystatus"
 
 	// opDeleteMRAP is the operation name for DeleteMultiRegionAccessPoint.
 	// It is used in multiple dispatch cases to avoid a goconst violation.
@@ -282,10 +303,11 @@ func extractAccessGrantsOp(path, method string) string {
 func extractAccessGrantsExactOp(path, method string) string {
 	switch path {
 	case pathAccessGrant:
-		switch method {
-		case http.MethodPost:
+		if method == http.MethodPost {
 			return "CreateAccessGrant"
-		case http.MethodGet:
+		}
+	case pathAccessGrantsList:
+		if method == http.MethodGet {
 			return "ListAccessGrants"
 		}
 	case pathCallerAccessGrants:
@@ -297,10 +319,11 @@ func extractAccessGrantsExactOp(path, method string) string {
 			return "GetDataAccess"
 		}
 	case pathAccessGrantsLocation:
-		switch method {
-		case http.MethodPost:
+		if method == http.MethodPost {
 			return "CreateAccessGrantsLocation"
-		case http.MethodGet:
+		}
+	case pathAccessGrantsLocationsList:
+		if method == http.MethodGet {
 			return "ListAccessGrantsLocations"
 		}
 	}
@@ -471,7 +494,7 @@ func extractBucketCRUDOps(path, method string) string {
 		return ""
 	}
 
-	if isPrefixSuffix(pathBucketPrefix, path, "/lifecycle") {
+	if isPrefixSuffix(pathBucketPrefix, path, pathBucketLifecycleSuffix) {
 		switch method {
 		case http.MethodGet:
 			return "GetBucketLifecycleConfiguration"
@@ -588,11 +611,13 @@ func extractJobSubResourceOp(path, method string) string {
 		return ""
 	}
 
-	if isPrefixSuffix(pathJobPrefix, path, "/priority") && method == http.MethodPut {
+	// UpdateJobPriority and UpdateJobStatus are POST in the real SDK (not PUT):
+	// see aws-sdk-go-v2/service/s3control serializers.go.
+	if isPrefixSuffix(pathJobPrefix, path, "/priority") && method == http.MethodPost {
 		return "UpdateJobPriority"
 	}
 
-	if isPrefixSuffix(pathJobPrefix, path, "/status") && method == http.MethodPut {
+	if isPrefixSuffix(pathJobPrefix, path, "/status") && method == http.MethodPost {
 		return "UpdateJobStatus"
 	}
 
@@ -642,7 +667,7 @@ func extractMRAPInstanceOp(path, method string) string {
 	switch {
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policy") && method == http.MethodGet:
 		return "GetMultiRegionAccessPointPolicy"
-	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policyStatus") && method == http.MethodGet:
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, pathMRAPPolicyStatusSuffix) && method == http.MethodGet:
 		return "GetMultiRegionAccessPointPolicyStatus"
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodGet:
 		return "GetMultiRegionAccessPointRoutes"
@@ -767,7 +792,7 @@ func (h *Handler) dispatchPublicAccessBlock(c *echo.Context, method string) erro
 		return h.handleDeletePublicAccessBlock(c)
 	}
 
-	return c.String(http.StatusNotFound, "not found")
+	return writeXMLErrorCode(c, http.StatusNotFound, "NotFound", "not found")
 }
 
 // dispatchNewOps handles access grants instance and access point operations.
@@ -833,10 +858,11 @@ func (h *Handler) dispatchAccessGrantsOps(c *echo.Context, path, method string) 
 func (h *Handler) dispatchAccessGrantsExactOps(c *echo.Context, path, method string) (bool, error) {
 	switch path {
 	case pathAccessGrant:
-		switch method {
-		case http.MethodPost:
+		if method == http.MethodPost {
 			return true, h.handleCreateAccessGrant(c)
-		case http.MethodGet:
+		}
+	case pathAccessGrantsList:
+		if method == http.MethodGet {
 			return true, h.handleListAccessGrants(c)
 		}
 	case pathCallerAccessGrants:
@@ -848,10 +874,11 @@ func (h *Handler) dispatchAccessGrantsExactOps(c *echo.Context, path, method str
 			return true, h.handleGetDataAccess(c)
 		}
 	case pathAccessGrantsLocation:
-		switch method {
-		case http.MethodPost:
+		if method == http.MethodPost {
 			return true, h.handleCreateAccessGrantsLocation(c)
-		case http.MethodGet:
+		}
+	case pathAccessGrantsLocationsList:
+		if method == http.MethodGet {
 			return true, h.handleListAccessGrantsLocations(c)
 		}
 	}
@@ -1065,7 +1092,7 @@ func (h *Handler) dispatchBucketCRUDStubs(c *echo.Context, path, method string) 
 	switch {
 	case isSimplePath(pathBucketPrefix, path):
 		return h.dispatchBucketBaseMethod(c, method)
-	case isPrefixSuffix(pathBucketPrefix, path, "/lifecycle"):
+	case isPrefixSuffix(pathBucketPrefix, path, pathBucketLifecycleSuffix):
 		return h.dispatchBucketLifecycleMethod(c, method)
 	case isPrefixSuffix(pathBucketPrefix, path, "/policy"):
 		return h.dispatchBucketPolicyMethod(c, method)
@@ -1212,11 +1239,11 @@ func (h *Handler) dispatchJobSubResourceOps(c *echo.Context, path, method string
 		return false, nil
 	}
 
-	if isPrefixSuffix(pathJobPrefix, path, "/priority") && method == http.MethodPut {
+	if isPrefixSuffix(pathJobPrefix, path, "/priority") && method == http.MethodPost {
 		return true, h.handleUpdateJobPriority(c)
 	}
 
-	if isPrefixSuffix(pathJobPrefix, path, "/status") && method == http.MethodPut {
+	if isPrefixSuffix(pathJobPrefix, path, "/status") && method == http.MethodPost {
 		return true, h.handleUpdateJobStatus(c)
 	}
 
@@ -1266,7 +1293,7 @@ func (h *Handler) dispatchMRAPInstanceDispatch(c *echo.Context, path, method str
 	switch {
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policy") && method == http.MethodGet:
 		return true, h.handleGetMultiRegionAccessPointPolicy(c)
-	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/policyStatus") && method == http.MethodGet:
+	case isPrefixSuffix(pathMRAPInstancePrefix, path, pathMRAPPolicyStatusSuffix) && method == http.MethodGet:
 		return true, h.handleGetMultiRegionAccessPointPolicyStatus(c)
 	case isPrefixSuffix(pathMRAPInstancePrefix, path, "/routes") && method == http.MethodGet:
 		return true, h.handleGetMultiRegionAccessPointRoutes(c)
@@ -1364,7 +1391,7 @@ func (h *Handler) dispatchTagDispatch(c *echo.Context, path, method string) erro
 		return h.handleUntagResource(c)
 	}
 
-	return c.String(http.StatusNotFound, "not found")
+	return writeXMLErrorCode(c, http.StatusNotFound, "NotFound", "not found")
 }
 
 func accountIDFromRequest(c *echo.Context) string {
@@ -1376,22 +1403,43 @@ func accountIDFromRequest(c *echo.Context) string {
 	return accountID
 }
 
-// handleBackendError maps backend sentinel errors to appropriate HTTP responses.
+// handleBackendError maps backend sentinel errors to an AWS REST-XML error
+// response. Backend errors are created via awserr.New(code, sentinel) (see
+// e.g. errAccessPointNotFound in backend_batch3.go), so err.Error() IS the
+// AWS error code (e.g. "NoSuchAccessPoint") -- it is used as both Code and
+// Message since these backend sentinels don't carry a separate human message.
 func handleBackendError(c *echo.Context, err error) error {
 	if err == nil {
 		return nil
 	}
 
+	code := err.Error()
+
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.String(http.StatusNotFound, err.Error())
+		return writeXMLErrorCode(c, http.StatusNotFound, code, code)
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.String(http.StatusBadRequest, err.Error())
+		return writeXMLErrorCode(c, http.StatusBadRequest, code, code)
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return c.String(http.StatusConflict, err.Error())
+		return writeXMLErrorCode(c, http.StatusConflict, code, code)
 	default:
-		return c.String(http.StatusInternalServerError, err.Error())
+		return writeXMLErrorCode(c, http.StatusInternalServerError, "InternalError", code)
 	}
+}
+
+// writeXMLErrorCode writes an AWS REST-XML <Error><Code>/<Message> envelope
+// with the given HTTP status. This is the wire shape aws-sdk-go-v2's s3control
+// client deserializer expects for ALL error responses (restxml protocol,
+// s3shared.GetErrorResponseComponents with IsWrappedWithErrorTag: true) -- a
+// plain-text body fails XML parsing and surfaces to real SDK callers as a
+// generic smithy.DeserializationError instead of a typed, code-matchable AWS
+// API error.
+func writeXMLErrorCode(c *echo.Context, status int, code, message string) error {
+	return awserr.Write(c, awserr.ProtocolRestXML, awserr.APIError{
+		Code:       code,
+		Message:    message,
+		HTTPStatus: status,
+	})
 }
 
 // decodeXML decodes the request body into v, treating EOF as an empty-body (not an error).
@@ -1406,7 +1454,7 @@ func decodeXML(c *echo.Context, v any) error {
 func writeXML(c *echo.Context, v any) error {
 	data, err := xml.Marshal(v)
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "marshal error")
+		return writeXMLErrorCode(c, http.StatusInternalServerError, "InternalError", "marshal error")
 	}
 
 	return c.Blob(http.StatusOK, "application/xml", append([]byte(xml.Header), data...))
@@ -1427,11 +1475,7 @@ func (h *Handler) handleGetPublicAccessBlock(c *echo.Context) error {
 
 	cfg, err := h.Backend.GetPublicAccessBlock(accountID)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.String(http.StatusNotFound, "NoSuchPublicAccessBlockConfiguration")
-		}
-
-		return c.String(http.StatusInternalServerError, err.Error())
+		return handleBackendError(c, err)
 	}
 
 	out := publicAccessBlockConfigurationXML{
@@ -1449,7 +1493,7 @@ func (h *Handler) handlePutPublicAccessBlock(c *echo.Context) error {
 
 	var body publicAccessBlockConfigurationXML
 	if err := xml.NewDecoder(c.Request().Body).Decode(&body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	h.Backend.PutPublicAccessBlock(PublicAccessBlock{
@@ -1467,11 +1511,7 @@ func (h *Handler) handleDeletePublicAccessBlock(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 
 	if err := h.Backend.DeletePublicAccessBlock(accountID); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.String(http.StatusNotFound, "NoSuchPublicAccessBlockConfiguration")
-		}
-
-		return c.String(http.StatusInternalServerError, err.Error())
+		return handleBackendError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -1498,7 +1538,7 @@ func (h *Handler) handleCreateAccessGrantsInstance(c *echo.Context) error {
 
 	var body createAccessGrantsInstanceRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	inst := h.Backend.CreateAccessGrantsInstance(accountID, body.IdentityCenterArn)
@@ -1562,7 +1602,7 @@ func (h *Handler) handleAssociateAccessGrantsIdentityCenter(c *echo.Context) err
 
 	var body associateAccessGrantsIdentityCenterRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	h.Backend.AssociateAccessGrantsIdentityCenter(accountID, body.IdentityCenterArn)
@@ -1601,7 +1641,7 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 
 	var body createAccessGrantRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	grant, err := h.Backend.CreateAccessGrant(
@@ -1651,11 +1691,11 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 
 	var body createAccessGrantsLocationRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if body.IAMRoleArn == "" {
-		return c.String(http.StatusBadRequest, "IAMRoleArn is required")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "InvalidRequest", "IAMRoleArn is required")
 	}
 
 	loc := h.Backend.CreateAccessGrantsLocation(accountID, body.LocationScope, body.IAMRoleArn)
@@ -1701,7 +1741,7 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context) error {
 
 	var body createAccessPointRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	ap := h.Backend.CreateAccessPoint(accountID, name, body.Bucket)
@@ -1807,7 +1847,7 @@ func (h *Handler) handleCreateJob(c *echo.Context) error {
 
 	var body createJobRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	job, err := h.Backend.CreateJob(accountID, body.RoleArn, body.Priority)
@@ -1860,7 +1900,7 @@ func (h *Handler) handleCreateMultiRegionAccessPoint(c *echo.Context) error {
 
 	var body createMRAPRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	req := h.Backend.CreateMultiRegionAccessPoint(accountID, body.Details.Name, body.ClientToken)
@@ -2004,7 +2044,7 @@ func (h *Handler) handlePutAccessPointPolicy(c *echo.Context) error {
 
 	var body putAccessPointPolicyRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.PutAccessPointPolicy(accountID, name, body.Policy); err != nil {
@@ -2175,7 +2215,7 @@ func (h *Handler) handleUpdateJobPriority(c *echo.Context) error {
 
 	var body updateJobPriorityRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	job, err := h.Backend.UpdateJobPriority(accountID, jobID, body.Priority)
@@ -2208,7 +2248,7 @@ func (h *Handler) handleUpdateJobStatus(c *echo.Context) error {
 
 	var body updateJobStatusRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	job, err := h.Backend.UpdateJobStatusValidated(accountID, jobID, body.RequestedJobStatus, body.StatusUpdateReason)
@@ -2294,7 +2334,7 @@ func (h *Handler) handleDeleteMultiRegionAccessPointAsync(c *echo.Context) error
 
 	var body deleteMRAPAsyncRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.DeleteMultiRegionAccessPoint(accountID, body.Details.Name); err != nil {
@@ -2358,7 +2398,7 @@ func (h *Handler) handlePutMultiRegionAccessPointPolicy(c *echo.Context) error {
 
 	var body putMRAPPolicyRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.PutMultiRegionAccessPointPolicy(accountID, body.Details.Name, body.Details.Policy); err != nil {
@@ -2387,7 +2427,7 @@ func (h *Handler) handleCreateStorageLensGroup(c *echo.Context) error {
 
 	var body createStorageLensGroupRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	grp := h.Backend.CreateStorageLensGroup(accountID, body.StorageLensGroup.Name)

@@ -55,7 +55,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
 				t.Helper()
 
-				monitors, _ := b.GetAnomalyMonitors([]string{id}, 0, "")
+				monitors, _, err := b.GetAnomalyMonitors([]string{id}, 0, "")
+				require.NoError(t, err)
 				require.Len(t, monitors, 1)
 				assert.Equal(t, "MyMonitor", monitors[0].MonitorName)
 			},
@@ -84,7 +85,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
 				t.Helper()
 
-				subs, _ := b.GetAnomalySubscriptions([]string{id}, "", 0, "")
+				subs, _, err := b.GetAnomalySubscriptions([]string{id}, "", 0, "")
+				require.NoError(t, err)
 				require.Len(t, subs, 1)
 				assert.Equal(t, "MySub", subs[0].SubscriptionName)
 				assert.Equal(t, "DAILY", subs[0].Frequency)
@@ -168,9 +170,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				cats, _ := b.ListCostCategoryDefinitions(0, "")
 				assert.Empty(t, cats)
-				monitors, _ := b.GetAnomalyMonitors(nil, 0, "")
+				monitors, _, err := b.GetAnomalyMonitors(nil, 0, "")
+				require.NoError(t, err)
 				assert.Empty(t, monitors)
-				subs, _ := b.GetAnomalySubscriptions(nil, "", 0, "")
+				subs, _, err := b.GetAnomalySubscriptions(nil, "", 0, "")
+				require.NoError(t, err)
 				assert.Empty(t, subs)
 				anomalies, _ := b.GetAnomalies("", "", "", "", 0, "")
 				assert.Empty(t, anomalies)
@@ -244,11 +248,13 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "FullCat", gotCat.Name)
 
-	monitors, _ := fresh.GetAnomalyMonitors([]string{mon.MonitorARN}, 0, "")
+	monitors, _, err := fresh.GetAnomalyMonitors([]string{mon.MonitorARN}, 0, "")
+	require.NoError(t, err)
 	require.Len(t, monitors, 1)
 	assert.Equal(t, "FullMonitor", monitors[0].MonitorName)
 
-	subs, _ := fresh.GetAnomalySubscriptions([]string{sub.SubscriptionARN}, "", 0, "")
+	subs, _, err := fresh.GetAnomalySubscriptions([]string{sub.SubscriptionARN}, "", 0, "")
+	require.NoError(t, err)
 	require.Len(t, subs, 1)
 	assert.Equal(t, "FullSub", subs[0].SubscriptionName)
 
@@ -292,7 +298,8 @@ func TestInMemoryBackend_Reset(t *testing.T) {
 
 	cats, _ := b.ListCostCategoryDefinitions(0, "")
 	assert.Empty(t, cats)
-	monitors, _ := b.GetAnomalyMonitors(nil, 0, "")
+	monitors, _, err := b.GetAnomalyMonitors(nil, 0, "")
+	require.NoError(t, err)
 	assert.Empty(t, monitors)
 }
 
@@ -312,7 +319,8 @@ func TestCeHandler_Persistence(t *testing.T) {
 	freshH := ce.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(t.Context(), snap))
 
-	monitors, _ := fresh.GetAnomalyMonitors(nil, 0, "")
+	monitors, _, err := fresh.GetAnomalyMonitors(nil, 0, "")
+	require.NoError(t, err)
 	assert.Len(t, monitors, 1)
 	assert.Equal(t, "snap-mon", monitors[0].MonitorName)
 }

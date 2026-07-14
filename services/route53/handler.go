@@ -830,6 +830,20 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// normaliseDelegationSetID adds the "/delegationset/" prefix used as the
+// store key if the caller supplied a bare ID (e.g. "N1PA6795SAMPLE"). Real
+// AWS clients (and this codebase's own delegation-set routes, see
+// handler_completeness.go) commonly pass the bare form even though the Id
+// field on the wire is fully qualified, so both are accepted. Empty input
+// is passed through unchanged (means "no reusable delegation set").
+func normaliseDelegationSetID(id string) string {
+	if id == "" || strings.HasPrefix(id, "/delegationset/") {
+		return id
+	}
+
+	return "/delegationset/" + id
+}
+
 // extractZoneID returns the hosted zone ID from a path like /2013-04-01/hostedzone/{Id}...
 func extractZoneID(path string) string {
 	rest := strings.TrimPrefix(path, route53HZPrefix)
@@ -943,22 +957,21 @@ type xmlCidrRoutingConfig struct {
 	LocationName string `xml:"LocationName,omitempty"`
 }
 
-//nolint:govet // fieldalignment: field order follows AWS XML element ordering
 type xmlResourceRecordSet struct {
-	XMLName              xml.Name                 `xml:"ResourceRecordSet"`
 	AliasTarget          *xmlAliasTarget          `xml:"AliasTarget,omitempty"`
 	GeoLocation          *xmlGeoLocation          `xml:"GeoLocation,omitempty"`
 	GeoProximityLocation *xmlGeoProximityLocation `xml:"GeoProximityLocation,omitempty"`
 	CidrRoutingConfig    *xmlCidrRoutingConfig    `xml:"CidrRoutingConfig,omitempty"`
-	Name                 string                   `xml:"Name"`
+	Weight               *int64                   `xml:"Weight"`
+	XMLName              xml.Name                 `xml:"ResourceRecordSet"`
 	Type                 string                   `xml:"Type"`
 	SetIdentifier        string                   `xml:"SetIdentifier,omitempty"`
 	Failover             string                   `xml:"Failover,omitempty"`
 	Region               string                   `xml:"Region,omitempty"`
 	HealthCheckID        string                   `xml:"HealthCheckId,omitempty"`
+	Name                 string                   `xml:"Name"`
 	ResourceRecords      []xmlResourceRecord      `xml:"ResourceRecords>ResourceRecord,omitempty"`
 	TTL                  int64                    `xml:"TTL,omitempty"`
-	Weight               *int64                   `xml:"Weight"`
 	MultiValueAnswer     bool                     `xml:"MultiValueAnswer,omitempty"`
 }
 
@@ -979,26 +992,25 @@ type xmlCreateHostedZoneRequest struct {
 	XMLName          xml.Name            `xml:"CreateHostedZoneRequest"`
 	Name             string              `xml:"Name"`
 	CallerReference  string              `xml:"CallerReference"`
+	DelegationSetID  string              `xml:"DelegationSetId,omitempty"`
 	HostedZoneConfig xmlHostedZoneConfig `xml:"HostedZoneConfig"`
 }
 
 // xmlResourceRecordSetChange is the ResourceRecordSet element within a change batch entry.
-//
-//nolint:govet // fieldalignment: field order follows AWS XML element ordering
 type xmlResourceRecordSetChange struct {
 	AliasTarget          *xmlAliasTarget          `xml:"AliasTarget"`
 	GeoLocation          *xmlGeoLocation          `xml:"GeoLocation"`
 	GeoProximityLocation *xmlGeoProximityLocation `xml:"GeoProximityLocation"`
 	CidrRoutingConfig    *xmlCidrRoutingConfig    `xml:"CidrRoutingConfig"`
-	Name                 string                   `xml:"Name"`
-	Type                 string                   `xml:"Type"`
+	Weight               *int64                   `xml:"Weight"`
 	SetIdentifier        string                   `xml:"SetIdentifier"`
+	Type                 string                   `xml:"Type"`
 	Failover             string                   `xml:"Failover"`
 	Region               string                   `xml:"Region"`
 	HealthCheckID        string                   `xml:"HealthCheckId"`
+	Name                 string                   `xml:"Name"`
 	ResourceRecords      []xmlResourceRecord      `xml:"ResourceRecords>ResourceRecord"`
 	TTL                  int64                    `xml:"TTL"`
-	Weight               *int64                   `xml:"Weight"`
 	MultiValueAnswer     bool                     `xml:"MultiValueAnswer"`
 }
 
@@ -1041,6 +1053,7 @@ func (h *Handler) createHostedZone(c *echo.Context) error {
 	hz, err := h.Backend.CreateHostedZone(
 		req.Name, req.CallerReference,
 		req.HostedZoneConfig.Comment, req.HostedZoneConfig.PrivateZone,
+		normaliseDelegationSetID(req.DelegationSetID),
 	)
 	if err != nil {
 		return handleBackendError(c, err)
@@ -1056,14 +1069,30 @@ func (h *Handler) createHostedZone(c *echo.Context) error {
 			Status:      statusInsync,
 			SubmittedAt: time.Now(),
 		},
-		DelegationSet: xmlDelegationSet{
-			NameServers: []string{dnsNS1Default, dnsNS2Default},
-		},
+		DelegationSet: toXMLDelegationSet(hz),
 	}
 
 	c.Response().Header().Set("Location", "/2013-04-01/hostedzone/"+hz.ID)
 
 	return writeXML(c, http.StatusCreated, resp)
+}
+
+// toXMLDelegationSet builds the DelegationSet wire element for a hosted
+// zone's CreateHostedZone/GetHostedZone response. When the zone was created
+// with a reusable delegation set, Id is populated; otherwise (the common
+// case — a system-assigned delegation set) it is omitted, matching real AWS.
+func toXMLDelegationSet(hz *HostedZone) xmlDelegationSet {
+	nameServers := hz.NameServers
+	if len(nameServers) == 0 {
+		// Zones created before NameServers was tracked (e.g. restored from
+		// an older snapshot) fall back to the fixed defaults.
+		nameServers = []string{dnsNS1Default, dnsNS2Default}
+	}
+
+	return xmlDelegationSet{
+		ID:          hz.DelegationSetID,
+		NameServers: nameServers,
+	}
 }
 
 func (h *Handler) getHostedZone(c *echo.Context) error {
@@ -1078,11 +1107,9 @@ func (h *Handler) getHostedZone(c *echo.Context) error {
 	logger.Load(ctx).DebugContext(ctx, "Route53 GetHostedZone", "id", hz.ID)
 
 	resp := xmlGetHostedZoneResponse{
-		Xmlns:      route53Namespace,
-		HostedZone: toXMLHostedZone(hz),
-		DelegationSet: xmlDelegationSet{
-			NameServers: []string{dnsNS1Default, dnsNS2Default},
-		},
+		Xmlns:         route53Namespace,
+		HostedZone:    toXMLHostedZone(hz),
+		DelegationSet: toXMLDelegationSet(hz),
 	}
 
 	return writeXML(c, http.StatusOK, resp)
@@ -1579,74 +1606,79 @@ func xmlError(c *echo.Context, statusCode int, code, message string) error {
 	return nil
 }
 
-// handleBackendError maps backend errors to HTTP responses.
+// backendErrorMapping is one entry in backendErrorTable: a sentinel error
+// mapped to the AWS wire error code and HTTP status handleBackendError
+// should emit for it.
+type backendErrorMapping struct {
+	sentinel error
+	code     string
+	status   int
+}
+
+// backendErrorTable is the sentinel-error -> (wire code, HTTP status) lookup
+// handleBackendError walks. Using a table instead of a long switch keeps
+// handleBackendError's cyclomatic complexity flat as new backend errors are
+// added — every entry is an independent, order-irrelevant mapping (the
+// errors are pairwise disjoint, so match order doesn't matter). Comments
+// call out entries whose HTTP status is a real AWS quirk rather than the
+// "obvious" choice.
 //
-//nolint:cyclop,funlen // one branch per error type; this is an exhaustive mapping function
+//nolint:gochecknoglobals // read-only dispatch table built once at package init
+var backendErrorTable = []backendErrorMapping{
+	{ErrHostedZoneNotFound, "NoSuchHostedZone", http.StatusNotFound},
+	{ErrHealthCheckNotFound, "NoSuchHealthCheck", http.StatusNotFound},
+	{ErrKeySigningKeyNotFound, "NoSuchKeySigningKey", http.StatusNotFound},
+	{ErrCidrCollectionNotFound, "NoSuchCidrCollectionException", http.StatusNotFound},
+	{ErrQueryLoggingConfigNotFound, "NoSuchQueryLoggingConfig", http.StatusNotFound},
+	// AWS: NoSuchDelegationSet has httpStatusCode 400, unlike the other
+	// NoSuch* Route53 errors which are 404.
+	{ErrDelegationSetNotFound, "NoSuchDelegationSet", http.StatusBadRequest},
+	{ErrTrafficPolicyNotFound, "NoSuchTrafficPolicy", http.StatusNotFound},
+	{ErrTrafficPolicyInstNotFound, "NoSuchTrafficPolicyInstance", http.StatusNotFound},
+	{ErrInvalidInput, "InvalidInput", http.StatusBadRequest},
+	{ErrInvalidAction, "InvalidChangeBatch", http.StatusBadRequest},
+	{ErrChangeNotFound, "NoSuchChange", http.StatusNotFound},
+	{ErrNoSuchGeoLocation, "NoSuchGeoLocation", http.StatusNotFound},
+	// AWS: QueryLoggingConfigAlreadyExists has httpStatusCode 409.
+	{ErrQueryLoggingConfigAlreadyExists, "QueryLoggingConfigAlreadyExists", http.StatusConflict},
+	{ErrPublicZoneVPCAssociation, "PublicZoneVPCAssociation", http.StatusBadRequest},
+	{ErrVPCAssociationAuthorizationNF, "VPCAssociationAuthorizationNotFound", http.StatusNotFound},
+	{ErrVPCAssociationNotFound, "VPCAssociationNotFound", http.StatusNotFound},
+	{ErrKeySigningKeyWithActiveStatusNF, "KeySigningKeyWithActiveStatusNotFound", http.StatusBadRequest},
+	{ErrTrafficPolicyInUse, "TrafficPolicyInUse", http.StatusBadRequest},
+	{ErrInvalidKeySigningKeyStatus, "InvalidKeySigningKeyStatus", http.StatusBadRequest},
+	// AWS: TrafficPolicyAlreadyExists has httpStatusCode 409.
+	{ErrTrafficPolicyAlreadyExists, "TrafficPolicyAlreadyExists", http.StatusConflict},
+	{ErrHostedZoneNotEmpty, "HostedZoneNotEmpty", http.StatusBadRequest},
+	{ErrLastVPCAssociation, "LastVPCAssociation", http.StatusBadRequest},
+	{ErrHostedZoneAlreadyExists, "HostedZoneAlreadyExists", http.StatusConflict},
+	{ErrHealthCheckAlreadyExists, "HealthCheckAlreadyExists", http.StatusConflict},
+	{ErrKeySigningKeyAlreadyExists, "KeySigningKeyAlreadyExists", http.StatusConflict},
+	{ErrTrafficPolicyInstanceAlreadyExists, "TrafficPolicyInstanceAlreadyExists", http.StatusConflict},
+	// AWS: CidrCollectionAlreadyExistsException has httpStatusCode 400
+	// (unlike most other *AlreadyExists Route53 errors, which are 409).
+	{ErrCidrCollectionAlreadyExists, "CidrCollectionAlreadyExistsException", http.StatusBadRequest},
+	// AWS: HealthCheckVersionMismatch has httpStatusCode 409.
+	{ErrHealthCheckVersionMismatch, "HealthCheckVersionMismatch", http.StatusConflict},
+	// AWS: CidrCollectionVersionMismatchException has httpStatusCode 409.
+	{ErrCidrCollectionVersionMismatch, "CidrCollectionVersionMismatchException", http.StatusConflict},
+	// AWS: CidrCollectionInUseException has httpStatusCode 400.
+	{ErrCidrCollectionInUse, "CidrCollectionInUseException", http.StatusBadRequest},
+	// AWS: DelegationSetInUse has httpStatusCode 400.
+	{ErrDelegationSetInUse, "DelegationSetInUse", http.StatusBadRequest},
+}
+
+// handleBackendError maps a backend sentinel error to its AWS wire error
+// code and HTTP status via backendErrorTable, falling back to a generic
+// InternalError (500) for anything unrecognized.
 func handleBackendError(c *echo.Context, err error) error {
-	switch {
-	case errors.Is(err, ErrHostedZoneNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchHostedZone", err.Error())
-	case errors.Is(err, ErrHealthCheckNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchHealthCheck", err.Error())
-	case errors.Is(err, ErrKeySigningKeyNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchKeySigningKey", err.Error())
-	case errors.Is(err, ErrCidrCollectionNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchCidrCollectionException", err.Error())
-	case errors.Is(err, ErrQueryLoggingConfigNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchQueryLoggingConfig", err.Error())
-	case errors.Is(err, ErrDelegationSetNotFound):
-		// AWS: NoSuchDelegationSet has httpStatusCode 400, unlike the other
-		// NoSuch* Route53 errors which are 404.
-		return xmlError(c, http.StatusBadRequest, "NoSuchDelegationSet", err.Error())
-	case errors.Is(err, ErrTrafficPolicyNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchTrafficPolicy", err.Error())
-	case errors.Is(err, ErrTrafficPolicyInstNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchTrafficPolicyInstance", err.Error())
-	case errors.Is(err, ErrInvalidInput):
-		return xmlError(c, http.StatusBadRequest, "InvalidInput", err.Error())
-	case errors.Is(err, ErrInvalidAction):
-		return xmlError(c, http.StatusBadRequest, "InvalidChangeBatch", err.Error())
-	case errors.Is(err, ErrChangeNotFound):
-		return xmlError(c, http.StatusNotFound, "NoSuchChange", err.Error())
-	case errors.Is(err, ErrNoSuchGeoLocation):
-		return xmlError(c, http.StatusNotFound, "NoSuchGeoLocation", err.Error())
-	case errors.Is(err, ErrQueryLoggingConfigAlreadyExists):
-		// AWS: QueryLoggingConfigAlreadyExists has httpStatusCode 409.
-		return xmlError(c, http.StatusConflict, "QueryLoggingConfigAlreadyExists", err.Error())
-	case errors.Is(err, ErrPublicZoneVPCAssociation):
-		return xmlError(c, http.StatusBadRequest, "PublicZoneVPCAssociation", err.Error())
-	case errors.Is(err, ErrVPCAssociationAuthorizationNF):
-		return xmlError(c, http.StatusNotFound, "VPCAssociationAuthorizationNotFound", err.Error())
-	case errors.Is(err, ErrVPCAssociationNotFound):
-		return xmlError(c, http.StatusNotFound, "VPCAssociationNotFound", err.Error())
-	case errors.Is(err, ErrKeySigningKeyWithActiveStatusNF):
-		return xmlError(c, http.StatusBadRequest, "KeySigningKeyWithActiveStatusNotFound", err.Error())
-	case errors.Is(err, ErrTrafficPolicyInUse):
-		return xmlError(c, http.StatusBadRequest, "TrafficPolicyInUse", err.Error())
-	case errors.Is(err, ErrInvalidKeySigningKeyStatus):
-		return xmlError(c, http.StatusBadRequest, "InvalidKeySigningKeyStatus", err.Error())
-	case errors.Is(err, ErrTrafficPolicyAlreadyExists):
-		// AWS: TrafficPolicyAlreadyExists has httpStatusCode 409.
-		return xmlError(c, http.StatusConflict, "TrafficPolicyAlreadyExists", err.Error())
-	case errors.Is(err, ErrHostedZoneNotEmpty):
-		return xmlError(c, http.StatusBadRequest, "HostedZoneNotEmpty", err.Error())
-	case errors.Is(err, ErrLastVPCAssociation):
-		return xmlError(c, http.StatusBadRequest, "LastVPCAssociation", err.Error())
-	case errors.Is(err, ErrHostedZoneAlreadyExists):
-		return xmlError(c, http.StatusConflict, "HostedZoneAlreadyExists", err.Error())
-	case errors.Is(err, ErrHealthCheckAlreadyExists):
-		return xmlError(c, http.StatusConflict, "HealthCheckAlreadyExists", err.Error())
-	case errors.Is(err, ErrKeySigningKeyAlreadyExists):
-		return xmlError(c, http.StatusConflict, "KeySigningKeyAlreadyExists", err.Error())
-	case errors.Is(err, ErrTrafficPolicyInstanceAlreadyExists):
-		return xmlError(c, http.StatusConflict, "TrafficPolicyInstanceAlreadyExists", err.Error())
-	case errors.Is(err, ErrCidrCollectionAlreadyExists):
-		// AWS: CidrCollectionAlreadyExistsException has httpStatusCode 400
-		// (unlike most other *AlreadyExists Route53 errors, which are 409).
-		return xmlError(c, http.StatusBadRequest, "CidrCollectionAlreadyExistsException", err.Error())
-	default:
-		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
+	for _, m := range backendErrorTable {
+		if errors.Is(err, m.sentinel) {
+			return xmlError(c, m.status, m.code, err.Error())
+		}
 	}
+
+	return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 }
 
 // ---- Health check XML types ----
@@ -1678,10 +1710,11 @@ type xmlHealthCheckConfig struct {
 }
 
 type xmlHealthCheck struct {
-	XMLName         xml.Name             `xml:"HealthCheck"`
-	ID              string               `xml:"Id"`
-	CallerReference string               `xml:"CallerReference"`
-	Config          xmlHealthCheckConfig `xml:"HealthCheckConfig"`
+	XMLName            xml.Name             `xml:"HealthCheck"`
+	ID                 string               `xml:"Id"`
+	CallerReference    string               `xml:"CallerReference"`
+	Config             xmlHealthCheckConfig `xml:"HealthCheckConfig"`
+	HealthCheckVersion int64                `xml:"HealthCheckVersion"`
 }
 
 type xmlCreateHealthCheckRequest struct {
@@ -1693,6 +1726,7 @@ type xmlCreateHealthCheckRequest struct {
 type xmlUpdateHealthCheckRequest struct {
 	AlarmIdentifier              *xmlAlarmIdentifier `xml:"AlarmIdentifier"`
 	Inverted                     *bool               `xml:"Inverted"`
+	HealthCheckVersion           *int64              `xml:"HealthCheckVersion"`
 	XMLName                      xml.Name            `xml:"UpdateHealthCheckRequest"`
 	IPAddress                    string              `xml:"IPAddress,omitempty"`
 	FullyQualifiedDomainName     string              `xml:"FullyQualifiedDomainName,omitempty"`
@@ -1788,9 +1822,10 @@ func toXMLHealthCheck(hc *HealthCheck) xmlHealthCheck {
 	}
 
 	return xmlHealthCheck{
-		ID:              hc.ID,
-		CallerReference: hc.CallerReference,
-		Config:          cfg,
+		ID:                 hc.ID,
+		CallerReference:    hc.CallerReference,
+		Config:             cfg,
+		HealthCheckVersion: hc.Version,
 	}
 }
 
@@ -2031,7 +2066,7 @@ func (h *Handler) updateHealthCheck(c *echo.Context, path string) error {
 		}
 	}
 
-	hc, err := h.Backend.UpdateHealthCheck(id, cfg)
+	hc, err := h.Backend.UpdateHealthCheck(id, cfg, req.HealthCheckVersion)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -2188,8 +2223,9 @@ type xmlCidrChangeEntry struct {
 }
 
 type xmlChangeCidrCollectionRequest struct {
-	XMLName xml.Name             `xml:"ChangeCidrCollectionRequest"`
-	Changes []xmlCidrChangeEntry `xml:"Changes>Change"`
+	CollectionVersion *int64               `xml:"CollectionVersion"`
+	XMLName           xml.Name             `xml:"ChangeCidrCollectionRequest"`
+	Changes           []xmlCidrChangeEntry `xml:"Changes>Change"`
 }
 
 type xmlQueryLoggingConfig struct {
@@ -2825,7 +2861,7 @@ func (h *Handler) changeCidrCollection(c *echo.Context, path string) error {
 		changes = append(changes, CidrCollectionChange(ch))
 	}
 
-	col, err := h.Backend.ChangeCidrCollection(collectionID, changes)
+	col, err := h.Backend.ChangeCidrCollection(collectionID, changes, req.CollectionVersion)
 	if err != nil {
 		return handleBackendError(c, err)
 	}

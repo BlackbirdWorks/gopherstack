@@ -172,13 +172,13 @@ func TestParity_ListAccessGrants_Pagination(t *testing.T) {
 	}{
 		{
 			name:          "no_limit_returns_all",
-			path:          "/v20180820/accessgrantsinstance/grant",
+			path:          "/v20180820/accessgrantsinstance/grants",
 			wantLen:       4,
 			wantNextToken: false,
 		},
 		{
 			name:          "page1_two_items",
-			path:          "/v20180820/accessgrantsinstance/grant?maxResults=2",
+			path:          "/v20180820/accessgrantsinstance/grants?maxResults=2",
 			wantLen:       2,
 			wantNextToken: true,
 		},
@@ -231,13 +231,13 @@ func TestParity_ListAccessGrantsLocations_Pagination(t *testing.T) {
 	}{
 		{
 			name:          "no_limit_returns_all",
-			path:          "/v20180820/accessgrantsinstance/location",
+			path:          "/v20180820/accessgrantsinstance/locations",
 			wantLen:       4,
 			wantNextToken: false,
 		},
 		{
 			name:          "page1_two_items",
-			path:          "/v20180820/accessgrantsinstance/location?maxResults=2",
+			path:          "/v20180820/accessgrantsinstance/locations?maxResults=2",
 			wantLen:       2,
 			wantNextToken: true,
 		},

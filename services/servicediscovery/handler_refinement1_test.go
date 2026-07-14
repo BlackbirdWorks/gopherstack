@@ -539,8 +539,11 @@ func TestRefinement1_UntagResourceNotFound(t *testing.T) {
 	assert.Equal(t, 400, rec.Code)
 }
 
-// TestRefinement1_CascadeDeleteUsesCorrectPrefix verifies that cascade delete
-// does NOT incorrectly delete instances from services with a common ID prefix.
+// TestRefinement1_CascadeDeleteUsesCorrectPrefix verifies two things: (1) real
+// Cloud Map's DeleteService fails while the service still has registered
+// instances (no silent auto-deregister), and (2) once the blocking instance is
+// deregistered and the delete retried, it does NOT incorrectly touch instances
+// belonging to a different service with a common ID prefix.
 func TestRefinement1_CascadeDeleteUsesCorrectPrefix(t *testing.T) {
 	t.Parallel()
 
@@ -563,11 +566,22 @@ func TestRefinement1_CascadeDeleteUsesCorrectPrefix(t *testing.T) {
 
 	assert.Equal(t, 2, servicediscovery.InstanceCount(b))
 
-	// Delete svc-0000001 via HTTP.
+	// DeleteService must fail (ResourceInUse) while svc-0000001 still has a
+	// registered instance -- matching real AWS, which never auto-deregisters.
 	rec := doSDRequest(t, h, "DeleteService", map[string]any{"Id": "svc-0000001"})
+	require.Equal(t, 400, rec.Code)
+	assert.Equal(t, 2, servicediscovery.InstanceCount(b), "a rejected delete must not remove any instance")
+
+	// Deregister the blocking instance, then retry the delete.
+	deregRec := doSDRequest(t, h, "DeregisterInstance", map[string]any{
+		"ServiceId": "svc-0000001", "InstanceId": "i-1",
+	})
+	require.Equal(t, 200, deregRec.Code)
+
+	rec = doSDRequest(t, h, "DeleteService", map[string]any{"Id": "svc-0000001"})
 	require.Equal(t, 200, rec.Code)
 
-	// svc-00000010's instance should survive.
+	// svc-00000010's instance should survive despite the shared ID prefix.
 	assert.Equal(t, 1, servicediscovery.InstanceCount(b), "instance from svc-00000010 must not be deleted")
 }
 

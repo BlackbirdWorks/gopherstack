@@ -89,6 +89,7 @@ type StorageBackend interface {
 	CreatePublishingDestination(
 		detectorID, destType string,
 		props DestinationProperties,
+		tags map[string]string,
 	) (*PublishingDestination, error)
 	DeletePublishingDestination(detectorID, destID string) error
 	DescribePublishingDestination(detectorID, destID string) (*PublishingDestination, error)

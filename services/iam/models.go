@@ -895,6 +895,7 @@ type RoleDetailXML struct {
 	AssumeRolePolicyDocument string                 `xml:"AssumeRolePolicyDocument"`
 	RolePolicyList           []InlinePolicyEntryXML `xml:"RolePolicyList>member"`
 	AttachedManagedPolicies  []AttachedPolicyXML    `xml:"AttachedManagedPolicies>member"`
+	InstanceProfileList      []InstanceProfileXML   `xml:"InstanceProfileList>member"`
 }
 
 // ManagedPolicyDetailXML is the per-policy element in GetAccountAuthorizationDetails.

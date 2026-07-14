@@ -89,14 +89,16 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			err := b.DeleteGroup(context.Background(), tt.groupName)
+			deleted, err := b.DeleteGroup(context.Background(), tt.groupName)
 			if tt.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tt.wantErr)
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, deleted)
 
 				return
 			}
 			require.NoError(t, err)
+			require.NotNil(t, deleted)
+			assert.Equal(t, tt.groupName, deleted.Name, "DeleteGroup must echo back the deleted group")
 			groups, _ := b.ListGroups(context.Background(), nil, "", 0)
 			assert.Empty(t, groups)
 		})

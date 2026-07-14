@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -373,7 +374,7 @@ func (h *Handler) handleListIpRoutes(c *echo.Context) error { //nolint:revive,st
 			keyDirectoryID:     r.DirectoryID,
 			"CidrIp":           r.CidrIP,
 			"Description":      r.Description, //nolint:goconst // existing issue.
-			"AddedDateTime":    r.AddedTime.Format("2006-01-02T15:04:05.000Z"),
+			"AddedDateTime":    awstime.Epoch(r.AddedTime),
 			"IpRouteStatusMsg": r.Status,
 		})
 	}
@@ -461,7 +462,7 @@ func (h *Handler) handleDescribeRegions(c *echo.Context) error {
 			"RegionName":   r.RegionName,
 			"RegionType":   r.RegionType,
 			keyStatus:      r.Status,
-			keyLaunchTime:  r.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+			keyLaunchTime:  awstime.Epoch(r.LaunchTime),
 		})
 	}
 
@@ -580,8 +581,8 @@ func (h *Handler) handleListSchemaExtensions(c *echo.Context) error {
 			"SchemaExtensionId":     e.ExtensionID,
 			"Description":           e.Description,
 			"SchemaExtensionStatus": e.Status,
-			"StartDateTime":         e.StartTime.Format("2006-01-02T15:04:05.000Z"),
-			"EndDateTime":           e.EndTime.Format("2006-01-02T15:04:05.000Z"),
+			"StartDateTime":         awstime.Epoch(e.StartTime),
+			"EndDateTime":           awstime.Epoch(e.EndTime),
 		})
 	}
 
@@ -785,7 +786,7 @@ func (h *Handler) handleListLogSubscriptions(c *echo.Context) error {
 		subList = append(subList, map[string]any{
 			keyDirectoryID:                s.DirectoryID,
 			"LogGroupName":                s.LogGroupName,
-			"SubscriptionCreatedDateTime": s.CreatedTime.Format("2006-01-02T15:04:05.000Z"),
+			"SubscriptionCreatedDateTime": awstime.Epoch(s.CreatedTime),
 		})
 	}
 
@@ -846,7 +847,7 @@ func (h *Handler) handleDescribeEventTopics(c *echo.Context) error {
 			"TopicName":       t.TopicName,
 			"TopicArn":        t.TopicARN,
 			keyStatus:         t.Status,
-			"CreatedDateTime": t.CreatedDateTime.Format("2006-01-02T15:04:05.000Z"), //nolint:goconst // existing issue.
+			"CreatedDateTime": awstime.Epoch(t.CreatedDateTime), //nolint:goconst // existing issue.
 		})
 	}
 
@@ -893,7 +894,7 @@ func (h *Handler) handleDescribeDomainControllers(c *echo.Context) error {
 			keyDirectoryID:       dc.DirectoryID,
 			keyStatus:            dc.Status,
 			"AvailabilityZone":   dc.AvailabilityZone,
-			keyLaunchTime:        dc.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+			keyLaunchTime:        awstime.Epoch(dc.LaunchTime),
 		})
 	}
 
@@ -1037,17 +1038,15 @@ func (h *Handler) handleDescribeTrusts(c *echo.Context) error {
 	trustList := make([]map[string]any, 0, len(trusts))
 	for _, t := range trusts {
 		trustList = append(trustList, map[string]any{
-			keyDirectoryID:     t.DirectoryID,
-			"TrustId":          t.TrustID,
-			"RemoteDomainName": t.RemoteDomainName,
-			"TrustDirection":   t.TrustDirection,
-			"TrustType":        t.TrustType,
-			"TrustState":       t.TrustState,
-			"SelectiveAuth":    t.SelectiveAuth,
-			"CreatedDateTime":  t.CreatedDateTime.Format("2006-01-02T15:04:05.000Z"),
-			"LastUpdatedDateTime": t.LastUpdatedDateTime.Format( //nolint:goconst // existing issue.
-				"2006-01-02T15:04:05.000Z",
-			),
+			keyDirectoryID:        t.DirectoryID,
+			"TrustId":             t.TrustID,
+			"RemoteDomainName":    t.RemoteDomainName,
+			"TrustDirection":      t.TrustDirection,
+			"TrustType":           t.TrustType,
+			"TrustState":          t.TrustState,
+			"SelectiveAuth":       t.SelectiveAuth,
+			"CreatedDateTime":     awstime.Epoch(t.CreatedDateTime),
+			"LastUpdatedDateTime": awstime.Epoch(t.LastUpdatedDateTime), //nolint:goconst // existing issue.
 		})
 	}
 
@@ -1285,8 +1284,8 @@ func (h *Handler) handleDescribeSharedDirectories(c *echo.Context) error {
 			"ShareMethod":         d.ShareMethod,
 			"ShareStatus":         d.ShareStatus,
 			"ShareNotes":          d.ShareNotes,
-			"CreatedDateTime":     d.CreatedDateTime.Format("2006-01-02T15:04:05.000Z"),
-			"LastUpdatedDateTime": d.LastUpdatedDateTime.Format("2006-01-02T15:04:05.000Z"),
+			"CreatedDateTime":     awstime.Epoch(d.CreatedDateTime),
+			"LastUpdatedDateTime": awstime.Epoch(d.LastUpdatedDateTime),
 		})
 	}
 
@@ -1386,7 +1385,7 @@ func (h *Handler) handleListCertificates(c *echo.Context) error {
 			"CommonName":     cert.CommonName,
 			"Type":           cert.CertType, //nolint:goconst // existing issue.
 			"State":          cert.State,
-			"ExpiryDateTime": cert.ExpiryDateTime.Format("2006-01-02T15:04:05.000Z"),
+			"ExpiryDateTime": awstime.Epoch(cert.ExpiryDateTime),
 		})
 	}
 
@@ -1428,8 +1427,8 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 			"CommonName":         cert.CommonName,
 			"Type":               cert.CertType,
 			"State":              cert.State,
-			"RegisteredDateTime": cert.RegisteredDateTime.Format("2006-01-02T15:04:05.000Z"),
-			"ExpiryDateTime":     cert.ExpiryDateTime.Format("2006-01-02T15:04:05.000Z"),
+			"RegisteredDateTime": awstime.Epoch(cert.RegisteredDateTime),
+			"ExpiryDateTime":     awstime.Epoch(cert.ExpiryDateTime),
 		},
 	})
 }
@@ -1538,8 +1537,8 @@ func (h *Handler) handleDescribeLDAPSSettings(c *echo.Context) error {
 			"LDAPSType":                 s.LDAPSType,
 			"CertificateId":             s.CertificateID,
 			"LDAPSStatus":               s.State,
-			"LastUpdatedDateTime":       s.LastUpdatedDateTime.Format("2006-01-02T15:04:05.000Z"),
-			"CertificateExpiryDateTime": s.CertificateExpiryDateTime.Format("2006-01-02T15:04:05.000Z"),
+			"LastUpdatedDateTime":       awstime.Epoch(s.LastUpdatedDateTime),
+			"CertificateExpiryDateTime": awstime.Epoch(s.CertificateExpiryDateTime),
 		})
 	}
 
@@ -1643,7 +1642,7 @@ func (h *Handler) handleDescribeClientAuthenticationSettings(c *echo.Context) er
 		settingList = append(settingList, map[string]any{
 			"Type":                s.AuthType,
 			keyStatus:             s.Status,
-			"LastUpdatedDateTime": s.LastUpdatedDateTime.Format("2006-01-02T15:04:05.000Z"),
+			"LastUpdatedDateTime": awstime.Epoch(s.LastUpdatedDateTime),
 		})
 	}
 
@@ -2014,7 +2013,7 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 			keyStatus:        a.Status,
 			"AssessmentType": a.AssessType,
 			keyRegion:        a.Region,
-			keyStartTime:     a.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			keyStartTime:     awstime.Epoch(a.StartTime),
 		},
 	})
 }
@@ -2055,7 +2054,7 @@ func (h *Handler) handleListADAssessments(c *echo.Context) error {
 			keyStatus:        a.Status,
 			"AssessmentType": a.AssessType,
 			keyRegion:        a.Region,
-			keyStartTime:     a.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			keyStartTime:     awstime.Epoch(a.StartTime),
 		})
 	}
 
@@ -2298,7 +2297,7 @@ func (h *Handler) handleDescribeSettings(c *echo.Context) error {
 			"AppliedValue":        s.AppliedValue,
 			"RequestedValue":      s.RequestedValue,
 			keyStatus:             s.Status,
-			"LastUpdatedDateTime": s.LastUpdatedDateTime.Format("2006-01-02T15:04:05.000Z"),
+			"LastUpdatedDateTime": awstime.Epoch(s.LastUpdatedDateTime),
 		})
 	}
 
@@ -2384,8 +2383,8 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 			"PreviousValue":       e.PreviousValue,
 			"InitiatedBy":         e.InitiatedBy,
 			keyRegion:             e.Region,
-			keyStartTime:          e.StartTime.Format("2006-01-02T15:04:05.000Z"),
-			"LastUpdatedDateTime": e.LastUpdatedDateTime.Format("2006-01-02T15:04:05.000Z"),
+			keyStartTime:          awstime.Epoch(e.StartTime),
+			"LastUpdatedDateTime": awstime.Epoch(e.LastUpdatedDateTime),
 		})
 	}
 

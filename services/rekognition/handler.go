@@ -145,6 +145,21 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			keyTypeField:    "ResourceNotFoundException",
 			keyMessageField: err.Error(),
 		})
+	case errors.Is(err, ErrNameInUse):
+		// Stream processors, projects, and project versions report a
+		// name conflict as ResourceInUseException, not
+		// ResourceAlreadyExistsException -- see ErrNameInUse.
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "ResourceInUseException",
+			keyMessageField: err.Error(),
+		})
+	case errors.Is(err, ErrUserConflict):
+		// CreateUser reports a duplicate UserId as ConflictException, not
+		// ResourceAlreadyExistsException -- see ErrUserConflict.
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "ConflictException",
+			keyMessageField: err.Error(),
+		})
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ResourceAlreadyExistsException",

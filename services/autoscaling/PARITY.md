@@ -1,13 +1,22 @@
 ---
 service: autoscaling
 sdk_module: aws-sdk-go-v2/service/autoscaling@v1.64.2
-last_audit_commit: d0ebe979
-last_audit_date: 2026-07-05
-overall: A            # ~900 LOC of genuine production-code fixes this pass (+~670 LOC new tests)
+last_audit_commit: d125027b
+last_audit_date: 2026-07-12
+overall: A            # re-audit: no local drift since ce30166a (the commit that actually
+                       # authored this ledger; the previously-recorded last_audit_commit
+                       # d0ebe979 was not an ancestor of HEAD) and no aws-sdk-go-v2
+                       # autoscaling version bump (still v1.64.2), so all "ok" rows below
+                       # were trusted unchanged per the re-audit protocol. One real gap
+                       # explicitly called out in the prior pass's "gaps" section (below)
+                       # was fixed this pass: terminating lifecycle hooks now also gate
+                       # the desired-capacity-driven scale-in path, not just
+                       # TerminateInstanceInAutoScalingGroup. ~150 LOC of genuine
+                       # production-code fix (+~130 LOC new tests).
 ops:
   CreateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy, LifecycleHookSpecificationList, TrafficSources were parsed as no-ops (silently dropped) - now parsed, validated, and registered atomically with the group; initial instances are gated by any launch hook just registered"}
   DescribeAutoScalingGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "added MixedInstancesPolicy to the XML projection (was entirely absent from xmlAutoScalingGroup even though the backend model carried it)"}
-  UpdateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request"}
+  UpdateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request. This pass: scale-in path (via applyDesiredCapacityChange) now also gates on a terminating lifecycle hook, closing bd gopherstack-9wo"}
   DeleteAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLaunchConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -23,7 +32,7 @@ ops:
   CompleteLifecycleAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix: previously only stopped a timer that was never created anywhere (dead code) and had zero effect on instance state. Now resolves a real pending lifecycle wait (Pending:Wait/Terminating:Wait -> actual transition), looked up by token OR by (group,hook,instance)"}
   CreateOrUpdateTags: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLifecycleHook: {wire: ok, errors: ok, state: ok, persist: ok}
-  SetDesiredCapacity: {wire: ok, errors: ok, state: ok, persist: ok, note: "scale-out path now gates new instances through an active launch hook"}
+  SetDesiredCapacity: {wire: ok, errors: ok, state: ok, persist: ok, note: "scale-out path gates new instances through an active launch hook. This pass: scale-in path now also gates removed instances through an active terminating hook (was previously immediate regardless of hooks; closes bd gopherstack-9wo) via the new applyScaleIn/terminationCapacityPreset machinery - see Notes"}
   TerminateInstanceInAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix: now defers actual removal to Terminating:Wait + CompleteLifecycleAction/timeout when a terminating hook is registered, instead of always terminating instantly; also fixed the replacement-instance path never adding the new instance to instanceIndex"}
   PutLifecycleHook: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NotificationMetadata was never parsed from the request"}
   DescribeLifecycleHooks: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -56,7 +65,7 @@ ops:
   DisableMetricsCollection: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableMetricsCollection: {wire: ok, errors: ok, state: ok, persist: ok}
   EnterStandby: {wire: ok, errors: ok, state: ok, persist: ok}
-  ExecutePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: StepScaling policies ignored StepAdjustments/MetricValue/BreachThreshold entirely and always used the flat ScalingAdjustment/AdjustmentType path; now selects the matching StepAdjustment interval and validates the required fields. Also routed through applyDesiredCapacityChange so ExecutePolicy scale-out/in now respects SuspendedProcesses, scale-in protection, instanceIndex bookkeeping, and launch-hook gating like SetDesiredCapacity does (previously it duplicated and diverged from that logic)"}
+  ExecutePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: StepScaling policies ignored StepAdjustments/MetricValue/BreachThreshold entirely and always used the flat ScalingAdjustment/AdjustmentType path; now selects the matching StepAdjustment interval and validates the required fields. Also routed through applyDesiredCapacityChange so ExecutePolicy scale-out/in now respects SuspendedProcesses, scale-in protection, instanceIndex bookkeeping, and launch-hook gating like SetDesiredCapacity does (previously it duplicated and diverged from that logic). This pass: inherits terminating-hook gating on scale-in for free via the same applyDesiredCapacityChange routing"}
   ExitStandby: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPredictiveScalingForecast: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: response was missing the required UpdateTime field and returned a wrong-shaped, entirely empty LoadForecast; now returns UpdateTime and a real (though intentionally naive - see Notes) Timestamps/Values series"}
   LaunchInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 3 bugs: (1) handler read the wrong query param (DesiredCapacity instead of the real RequestedCapacity, so every call silently launched only 1 instance regardless of the requested count); (2) response used the DescribeAutoScalingGroups per-instance shape instead of the real LaunchInstancesOutput InstanceCollection (grouped by AZ/InstanceType with InstanceIds) shape; (3) the backend never added launched instances to instanceIndex, so they could never be found by TerminateInstanceInAutoScalingGroup"}
@@ -80,7 +89,6 @@ gaps:
   - ASG->EC2 real instance provisioning is simulated only (Instance is a fake record, not backed by an ec2 resource) (bd: gopherstack-8sk) - NOT fixed this pass per scope
   - ASG/ECS->ELBv2 target registration is simulated only (TargetGroupARNs/LoadBalancerNames are stored but never actually register targets with elbv2) (bd: gopherstack-18k) - NOT fixed this pass per scope
   - Scheduled actions (Put/BatchPut) now correctly persist StartTime/EndTime/Recurrence, but there is no background scheduler goroutine that actually executes them at the scheduled time/cron - Describe reflects what was requested, but nothing fires it. Filed as gopherstack-6ys for follow-up; deliberately not attempted this pass (a correct cron-parsing+ticker engine is a separate, sizable feature, not a quick wire fix, and getting it wrong risks a new leak class)
-  - Terminate-lifecycle-hook gating is wired into TerminateInstanceInAutoScalingGroup only, NOT into the desired-capacity-driven scale-in path (SetDesiredCapacity/UpdateAutoScalingGroup/ExecutePolicy decreasing) - that path still removes instances immediately regardless of a registered terminating hook (bd: gopherstack-9wo)
   - Multiple lifecycle hooks of the *same* transition on one group: this simulation gates on a single (deterministic, lowest-named) hook per transition per group, matching the common case; AWS supports N hooks per transition each independently gating the same instance. Documented simplification, see Notes
   - ABANDON on a launch hook terminates the pending instance but does not attempt an automatic relaunch to restore DesiredCapacity (real AWS does retry); documented simplification, see Notes
   - GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
@@ -95,8 +103,74 @@ leaks: {status: clean, note: "go test -race passes. The pendingHookTokens timer 
 
 Protocol: EC2 Auto Scaling uses the `query` (form-urlencoded request, XML response)
 protocol, `Version=2011-01-01`. Verified against the awsquery serializers/deserializers
-in `aws-sdk-go-v2/service/autoscaling@v1.64.2` (vendored the module zip into
-`/tmp/asg_sdk` for this audit; not committed anywhere).
+in `aws-sdk-go-v2/service/autoscaling@v1.64.2`.
+
+### Re-audit pass (2026-07-12): scale-in lifecycle-hook gating fix
+
+This pass found no local drift under `services/autoscaling/` since ce30166a (the
+commit that actually authored this ledger - the previously-recorded
+`last_audit_commit: d0ebe979` was not an ancestor of HEAD, so ce30166a was used as
+baseline per the re-audit protocol) and no `aws-sdk-go-v2/service/autoscaling`
+dependency bump (still pinned at v1.64.2 in `go.mod`/`go.sum`), even though a sibling
+commit in this repo's history bumped other Go/UI dependencies. All `ok` rows above
+were therefore trusted unchanged and not re-verified wire-shape-by-wire-shape.
+
+One item explicitly called out in the prior pass's `gaps` list (and filed as bd
+`gopherstack-9wo`) was fixed this pass: a registered `EC2_INSTANCE_TERMINATING`
+lifecycle hook gated instance removal in `TerminateInstanceInAutoScalingGroup`, but
+NOT in the desired-capacity-driven scale-in path shared by `SetDesiredCapacity`,
+`UpdateAutoScalingGroup`, and `ExecutePolicy` (all three route through
+`applyDesiredCapacityChange`). That path (`services/autoscaling/backend.go`, the old
+`removeUnprotectedInstances` helper) always removed instances from
+`g.Instances`/`b.instanceIndex` immediately and unconditionally, regardless of any
+configured terminating hook - the exact "disguised stub" class this service's ledger
+has previously flagged (state mutated, but the one config knob that should have
+changed behavior was silently ignored).
+
+Fixed by replacing `removeUnprotectedInstances` with `(*InMemoryBackend).applyScaleIn`,
+which keeps the original protected-instance selection algorithm (remove from the end,
+skip `ProtectedFromScaleIn`, stop short of target if everything eligible is
+protected - now also skipping instances already in `Terminating:Wait` so a second
+scale-in call while one is still pending doesn't double-select it) but branches on
+whether the group has an active terminating hook:
+
+- **No hook**: unchanged behavior - instances are removed from `g.Instances` and
+  `b.instanceIndex` immediately.
+- **Hook present**: selected instances are NOT removed. Each is transitioned to
+  `Terminating:Wait` in place (staying in `g.Instances`, consistent with the
+  `TerminateInstanceInAutoScalingGroup` gating path and the "Traps for the next
+  auditor" note below) and a heartbeat timer is armed via the existing
+  `armLifecycleWait`/`resolveLifecycleWait`/`finishTermination` machinery, exactly
+  like the single-instance path.
+
+The one real complication (the reason the prior pass deferred this): unlike
+`TerminateInstanceInAutoScalingGroup`, where `DesiredCapacity`/`MinSize` are only
+decremented once the wait resolves (`ShouldDecrementDesiredCapacity`), the
+desired-capacity-driven path sets `g.DesiredCapacity = newDesired` **immediately, up
+front**, before any instance is actually removed or gated (`applyDesiredCapacityChange`,
+the assignment precedes the `switch`). Reusing `finishTermination`'s existing
+decrement-or-replace disposition would have double-decremented (or wrongly launched a
+replacement to backfill the already-lowered target) once the wait resolved. Fixed by
+generalizing the previously-boolean `pendingHookAction.ShouldDecrement` into a
+three-way `terminationDisposition` enum (`terminationReplace` / `terminationDecrement`
+/ `terminationCapacityPreset`), and giving scale-in-originated waits
+`terminationCapacityPreset`: `finishTermination` removes the instance and does
+nothing further to capacity bookkeeping for that disposition, since
+`applyDesiredCapacityChange` already applied the target capacity before the wait was
+even armed. `terminationReplace` is the enum's zero value, preserving the exact
+existing fallback behavior for `rearmPendingWaits` (Restore-time re-arming, which
+never persisted the original disposition and defaults to the replace behavior, as
+before this change).
+
+Net effect: `DescribeAutoScalingGroups` immediately reflects the new
+`DesiredCapacity` after a scale-in call (matching real AWS - the target is accepted
+immediately), while the actual instance count/`Terminating:Wait` state lags until the
+hook resolves, exactly mirroring the single-instance-termination gating path that was
+already correct. Covered by new tests: `Test_LifecycleHookGatesDesiredCapacityScaleIn`
+(`parity_b_test.go`, full HTTP round-trip through `SetDesiredCapacity` +
+`CompleteLifecycleAction`) and two new subtests of
+`TestInMemoryBackend_SetDesiredCapacity` (`backend_test.go`) covering the no-hook
+immediate-removal path and scale-in-protection interaction at the unit level.
 
 ### The lifecycle-hook fix in detail (highest-value finding this pass)
 

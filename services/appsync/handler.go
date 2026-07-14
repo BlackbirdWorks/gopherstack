@@ -41,7 +41,14 @@ const (
 	appsyncSourcePrefix     = "/v1/sourceApis"
 	appsyncMergedPrefix     = "/v1/mergedApis"
 	appsyncIntrospectPrefix = "/v1/dataSource-introspections"
-	appsyncEvalPrefix       = "/v1/dataplane-evaluations"
+	// appsyncEvalCodePrefix and appsyncEvalTemplatePrefix match the real AWS SDK
+	// endpoints ("/v1/dataplane-evaluatecode" and "/v1/dataplane-evaluatetemplate" —
+	// two distinct top-level paths, not "/v1/dataplane-evaluations/{code,template}").
+	appsyncEvalCodePrefix     = "/v1/dataplane-evaluatecode"
+	appsyncEvalTemplatePrefix = "/v1/dataplane-evaluatetemplate"
+	// appsyncTagsPrefix matches the real AWS SDK tagging endpoint
+	// "/v1/tags/{resourceArn}" (tagging is NOT nested under /v1/apis/{apiId}/tags).
+	appsyncTagsPrefix = "/v1/tags"
 
 	// Path segment names.
 	pathSegV1          = "v1"
@@ -63,12 +70,24 @@ const (
 	pathSegResolvers         = "resolvers"
 	pathSegAPIKeys           = "apikeys"
 	pathSegAPICaches         = "ApiCaches"
+	pathSegFlushCache        = "FlushCache"
 	pathSegTags              = "tags"
 	pathSegFunctions         = "functions"
 	pathSegChannelNamespaces = "channelNamespaces"
 
 	// opUnknown is the operation name for unrecognized paths.
 	opUnknown = "Unknown"
+)
+
+// Operation names referenced from more than one place (route labeling, dispatch,
+// error logging, GetSupportedOperations) — deduplicated per goconst.
+const (
+	opListSourceAPIAssociations = "ListSourceApiAssociations"
+	opFlushAPICache             = "FlushApiCache"
+	opUpdateAPICache            = "UpdateApiCache"
+	opListTagsForResource       = "ListTagsForResource"
+	opTagResource               = "TagResource"
+	opUntagResource             = "UntagResource"
 )
 
 // Handler is the Echo HTTP handler for AppSync operations.
@@ -125,7 +144,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DisassociateMergedGraphqlApi",
 		"DisassociateSourceGraphqlApi",
 		"GetSourceApiAssociation",
-		"ListSourceApiAssociations",
+		opListSourceAPIAssociations,
 		"CreateApi",
 		"GetApi",
 		"ListApis",
@@ -133,9 +152,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteApi",
 		"CreateApiCache",
 		"DeleteApiCache",
-		"FlushApiCache",
+		opFlushAPICache,
 		"GetApiCache",
-		"UpdateApiCache",
+		opUpdateAPICache,
 		"CreateApiKey",
 		"DeleteApiKey",
 		"ListApiKeys",
@@ -163,9 +182,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateType",
 		"GetGraphqlApiEnvironmentVariables",
 		"PutGraphqlApiEnvironmentVariables",
-		"ListTagsForResource",
-		"TagResource",
-		"UntagResource",
+		opListTagsForResource,
+		opTagResource,
+		opUntagResource,
 		"EvaluateCode",
 		"EvaluateMappingTemplate",
 		"GetDataSourceIntrospection",
@@ -206,7 +225,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, appsyncSourcePrefix) ||
 			strings.HasPrefix(path, appsyncMergedPrefix) ||
 			strings.HasPrefix(path, appsyncIntrospectPrefix) ||
-			strings.HasPrefix(path, appsyncEvalPrefix)
+			strings.HasPrefix(path, appsyncEvalCodePrefix) ||
+			strings.HasPrefix(path, appsyncEvalTemplatePrefix) ||
+			strings.HasPrefix(path, appsyncTagsPrefix)
 	}
 }
 
@@ -258,8 +279,12 @@ func parseOperation(method, path string) string {
 		return parseOperationMergedAPIs(method, segs)
 	case "dataSource-introspections":
 		return parseOperationDataSourceIntrospections(method, segs)
-	case "dataplane-evaluations":
-		return parseOperationDataplaneEvaluations(segs)
+	case "dataplane-evaluatecode":
+		return parseOperationEvaluate(method, len(segs), "EvaluateCode")
+	case "dataplane-evaluatetemplate":
+		return parseOperationEvaluate(method, len(segs), "EvaluateMappingTemplate")
+	case pathSegTags:
+		return parseOperationTags(method, segs)
 	case pathSegAPIs:
 		if version == pathSegV2 {
 			return parseOperationV2APIs(method, segs)
@@ -290,7 +315,7 @@ func parseOperationDomainNames(method string, segs []string) string {
 			return "GetDomainName"
 		case http.MethodDelete:
 			return "DeleteDomainName"
-		case http.MethodPut, http.MethodPatch:
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
 			return "UpdateDomainName"
 		}
 
@@ -346,7 +371,7 @@ func parseOperationMergedAPIs(method string, segs []string) string {
 		case http.MethodPost:
 			return "AssociateSourceGraphqlApi"
 		case http.MethodGet:
-			return "ListSourceApiAssociations"
+			return opListSourceAPIAssociations
 		}
 	case pathSegsNamedResource:
 		switch method {
@@ -354,7 +379,7 @@ func parseOperationMergedAPIs(method string, segs []string) string {
 			return "GetSourceApiAssociation"
 		case http.MethodDelete:
 			return "DisassociateSourceGraphqlApi"
-		case http.MethodPut, http.MethodPatch:
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
 			return "UpdateSourceApiAssociation"
 		}
 	case pathSegsTypeResolvers:
@@ -384,17 +409,33 @@ func parseOperationDataSourceIntrospections(method string, segs []string) string
 	return opUnknown
 }
 
-func parseOperationDataplaneEvaluations(segs []string) string {
-	if len(segs) != pathSegsAPIID {
+// parseOperationEvaluate maps POST requests on the single-segment dataplane-evaluation
+// paths ("/v1/dataplane-evaluatecode", "/v1/dataplane-evaluatetemplate" — each is a
+// standalone top-level path, not a subresource) to their operation name.
+func parseOperationEvaluate(method string, numSegs int, opName string) string {
+	if numSegs != pathSegsAPIs || method != http.MethodPost {
 		return opUnknown
 	}
 
-	// /v1/dataplane-evaluations/template or /v1/dataplane-evaluations/code
-	switch segs[2] {
-	case "template":
-		return "EvaluateMappingTemplate"
-	case keyCode:
-		return "EvaluateCode"
+	return opName
+}
+
+// parseOperationTags maps requests on "/v1/tags/{resourceArn}". resourceArn may itself
+// contain "/" (e.g. "arn:aws:appsync:region:account:apis/{apiId}"), which splitPath
+// breaks into additional path segments, so any length at or beyond the ARN's first
+// segment qualifies.
+func parseOperationTags(method string, segs []string) string {
+	if len(segs) < pathSegsAPIID {
+		return opUnknown
+	}
+
+	switch method {
+	case http.MethodPost:
+		return opTagResource
+	case http.MethodGet:
+		return opListTagsForResource
+	case http.MethodDelete:
+		return opUntagResource
 	}
 
 	return opUnknown
@@ -432,7 +473,7 @@ func parseOpV2APIsItem(method string) string {
 		return "GetApi"
 	case http.MethodDelete:
 		return "DeleteApi"
-	case http.MethodPut, http.MethodPatch:
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
 		return "UpdateApi"
 	}
 
@@ -466,7 +507,7 @@ func parseOpV2APIsNamedResource(method string, segs []string) string {
 		return "GetChannelNamespace"
 	case http.MethodDelete:
 		return "DeleteChannelNamespace"
-	case http.MethodPut, http.MethodPatch:
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
 		return "UpdateChannelNamespace"
 	}
 
@@ -483,11 +524,34 @@ func parseOperationV1APIs(method string, segs []string) string {
 	case pathSegsAPISubresource:
 		return parseOperationSub(method, segs[3])
 	case pathSegsNamedResource:
+		if segs[3] == pathSegAPICaches {
+			return parseOperationAPICachesNamed(method, segs[4])
+		}
+
 		return parseOperationNamed(method, segs[3])
 	case pathSegsTypeResolvers:
 		return parseOperationTypeResolvers(method, segs[3], segs[5])
 	case pathSegsResolver:
 		return parseOperationResolver(method, segs[3], segs[5])
+	}
+
+	return opUnknown
+}
+
+// parseOperationAPICachesNamed maps the two 5-segment ApiCaches subpaths:
+// "/v1/apis/{apiId}/ApiCaches/update" (real AWS SDK endpoint for UpdateApiCache) and
+// "/v1/apis/{apiId}/ApiCaches/entries" (legacy convenience alias for FlushApiCache; the
+// real SDK uses "/v1/apis/{apiId}/FlushCache" instead).
+func parseOperationAPICachesNamed(method, seg4 string) string {
+	switch seg4 {
+	case "update":
+		if method == http.MethodPost {
+			return opUpdateAPICache
+		}
+	case "entries":
+		if method == http.MethodDelete {
+			return opFlushAPICache
+		}
 	}
 
 	return opUnknown
@@ -508,21 +572,28 @@ func parseOperationAPIID(method string) string {
 	switch method {
 	case http.MethodDelete:
 		return "DeleteGraphqlApi"
-	case http.MethodPatch, http.MethodPut:
+	case http.MethodPost, http.MethodPatch, http.MethodPut:
 		return "UpdateGraphqlApi"
 	default:
 		return "GetGraphqlApi"
 	}
 }
 
+// parseOpIfMethod returns matchOp if method == wantMethod, else fallbackOp. Collapses
+// the common single-method-check branch shape so callers with several such cases stay
+// under the cyclomatic complexity budget.
+func parseOpIfMethod(method, wantMethod, matchOp, fallbackOp string) string {
+	if method == wantMethod {
+		return matchOp
+	}
+
+	return fallbackOp
+}
+
 func parseOperationSub(method, seg string) string {
 	switch seg {
 	case "schemacreation":
-		if method == http.MethodPost {
-			return "StartSchemaCreation"
-		}
-
-		return "GetSchemaCreationStatus"
+		return parseOpIfMethod(method, http.MethodPost, "StartSchemaCreation", "GetSchemaCreationStatus")
 	case "schema":
 		return "GetIntrospectionSchema"
 	case pathSegDatasources:
@@ -531,22 +602,26 @@ func parseOperationSub(method, seg string) string {
 		return parseOperationSubAPIKeys(method)
 	case pathSegAPICaches:
 		return parseOperationSubAPICaches(method)
+	case pathSegFlushCache:
+		return parseOpIfMethod(method, http.MethodDelete, opFlushAPICache, opUnknown)
 	case pathSegFunctions:
 		return parseOperationSubFunctions(method)
 	case pathSegTypes:
 		return parseOperationSubTypes(method)
 	case keyEnvironmentVariables:
-		if method == http.MethodPut {
-			return "PutGraphqlApiEnvironmentVariables"
-		}
-
-		return "GetGraphqlApiEnvironmentVariables"
+		return parseOpIfMethod(method, http.MethodPut,
+			"PutGraphqlApiEnvironmentVariables", "GetGraphqlApiEnvironmentVariables")
 	case "graphql":
 		return "ExecuteGraphQL"
 	case "schemaMerge":
 		return "StartSchemaMerge"
 	case pathSegTags:
+		// Legacy convenience alias: the real AWS SDK sends tag ops to
+		// "/v1/tags/{resourceArn}" instead (see parseOperationTags), but this
+		// apiId-scoped alias is kept working for non-SDK/manual callers.
 		return parseOperationSubTags(method)
+	case keySourceAPIAssociations:
+		return parseOpIfMethod(method, http.MethodGet, opListSourceAPIAssociations, opUnknown)
 	}
 
 	return opUnknown
@@ -573,7 +648,7 @@ func parseOperationSubAPICaches(method string) string {
 	case http.MethodPost:
 		return "CreateApiCache"
 	case http.MethodPut:
-		return "UpdateApiCache"
+		return opUpdateAPICache
 	case http.MethodDelete:
 		return "DeleteApiCache"
 	}
@@ -600,23 +675,26 @@ func parseOperationSubTypes(method string) string {
 func parseOperationSubTags(method string) string {
 	switch method {
 	case http.MethodPost:
-		return "TagResource"
+		return opTagResource
 	case http.MethodGet:
-		return "ListTagsForResource"
+		return opListTagsForResource
 	case http.MethodDelete:
-		return "UntagResource"
+		return opUntagResource
 	}
 
 	return opUnknown
 }
 
+// parseOperationNamed maps methods on named (single-item) subresources. The real AWS
+// SDK sends Update* operations as POST to the same path as Get (restjson1 uses POST,
+// not PUT/PATCH, for AppSync updates); PUT/PATCH are accepted too for non-SDK callers.
 func parseOperationNamed(method, seg3 string) string {
 	switch seg3 {
 	case pathSegDatasources:
 		switch method {
 		case http.MethodDelete:
 			return "DeleteDataSource"
-		case http.MethodPut:
+		case http.MethodPost, http.MethodPut:
 			return "UpdateDataSource"
 		}
 
@@ -625,7 +703,7 @@ func parseOperationNamed(method, seg3 string) string {
 		switch method {
 		case http.MethodDelete:
 			return "DeleteApiKey"
-		case http.MethodPut, http.MethodPatch:
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
 			return "UpdateApiKey"
 		}
 
@@ -634,19 +712,16 @@ func parseOperationNamed(method, seg3 string) string {
 		switch method {
 		case http.MethodDelete:
 			return "DeleteFunction"
-		case http.MethodPut:
+		case http.MethodPost, http.MethodPut:
 			return "UpdateFunction"
 		}
 
 		return "GetFunction"
-	case pathSegAPICaches:
-		// /v1/apis/{id}/ApiCaches/entries → FlushApiCache
-		return "FlushApiCache"
 	case pathSegTypes:
 		switch method {
 		case http.MethodDelete:
 			return "DeleteType"
-		case http.MethodPut:
+		case http.MethodPost, http.MethodPut:
 			return "UpdateType"
 		}
 
@@ -664,7 +739,7 @@ func parseOperationResolver(method, seg3, seg5 string) string {
 	switch method {
 	case http.MethodDelete:
 		return "DeleteResolver"
-	case http.MethodPut, http.MethodPatch:
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
 		return "UpdateResolver"
 	}
 
@@ -719,17 +794,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
 		}
 
-		switch segs[1] {
-		case pathSegDomainNames:
-			return h.handleDomainNames(ctx, c, segs)
-		case "sourceApis":
-			return h.handleSourceAPIs(ctx, c, segs)
-		case "mergedApis":
-			return h.handleMergedAPIs(ctx, c, segs)
-		case "dataSource-introspections":
-			return h.handleDataSourceIntrospections(ctx, c, segs)
-		case "dataplane-evaluations":
-			return h.handleDataplaneEvaluations(ctx, c, segs)
+		if handled, err := h.dispatchTopLevel(ctx, c, segs); handled {
+			return err
 		}
 
 		switch {
@@ -743,6 +809,54 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
 		}
 	}
+}
+
+// dispatchTopLevel handles every top-level path family keyed by segs[1] that isn't
+// "/v1/apis" or "/v2/apis" (those fall through to the caller's second switch). Returns
+// handled=false when segs[1] matched none of these families.
+func (h *Handler) dispatchTopLevel(ctx context.Context, c *echo.Context, segs []string) (bool, error) {
+	switch segs[1] {
+	case pathSegDomainNames:
+		return true, h.handleDomainNames(ctx, c, segs)
+	case "sourceApis":
+		return true, h.handleSourceAPIs(ctx, c, segs)
+	case "mergedApis":
+		return true, h.handleMergedAPIs(ctx, c, segs)
+	case "dataSource-introspections":
+		return true, h.handleDataSourceIntrospections(ctx, c, segs)
+	case "dataplane-evaluations":
+		// Legacy convenience alias; the real AWS SDK sends these to the two
+		// standalone paths below instead (see appsyncEvalCodePrefix/
+		// appsyncEvalTemplatePrefix).
+		return true, h.handleDataplaneEvaluations(ctx, c, segs)
+	case "dataplane-evaluatecode":
+		return true, h.dispatchEvaluate(ctx, c, h.evaluateCode)
+	case "dataplane-evaluatetemplate":
+		return true, h.dispatchEvaluate(ctx, c, h.evaluateMappingTemplate)
+	case pathSegTags:
+		return true, h.handleTagsByARN(ctx, c, segs)
+	}
+
+	return false, nil
+}
+
+// dispatchEvaluate is the shared POST-only guard for the two standalone
+// dataplane-evaluate* paths.
+func (h *Handler) dispatchEvaluate(
+	ctx context.Context, c *echo.Context, fn func(context.Context, *echo.Context) error,
+) error {
+	return h.requireMethod(c, http.MethodPost, func() error { return fn(ctx, c) })
+}
+
+// requireMethod runs fn if the request method matches want, else responds 405. Shared
+// by single-method subresource paths (e.g. FlushCache, sourceApiAssociations) to keep
+// their callers' cyclomatic complexity down.
+func (h *Handler) requireMethod(c *echo.Context, want string, fn func() error) error {
+	if c.Request().Method != want {
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+
+	return fn()
 }
 
 // handleAPIs handles /v1/apis.
@@ -784,6 +898,20 @@ func (h *Handler) handleAPIResource(ctx context.Context, c *echo.Context, segs [
 		return h.handleAPIKeys(ctx, c, apiID, segs)
 	case pathSegAPICaches:
 		return h.handleAPICaches(ctx, c, apiID, segs)
+	}
+
+	return h.handleAPIResourceExtra(ctx, c, apiID, segs)
+}
+
+// handleAPIResourceExtra continues handleAPIResource's segs[3] dispatch for the
+// remaining subresources. Split out to stay under the cyclomatic complexity budget.
+func (h *Handler) handleAPIResourceExtra(ctx context.Context, c *echo.Context, apiID string, segs []string) error {
+	switch segs[3] {
+	case pathSegFlushCache:
+		// /v1/apis/{apiId}/FlushCache — the real AWS SDK endpoint for FlushApiCache.
+		return h.requireMethod(c, http.MethodDelete, func() error {
+			return h.flushAPICache(ctx, c, apiID)
+		})
 	case pathSegFunctions:
 		return h.handleFunctions(ctx, c, apiID, segs)
 	case pathSegTags:
@@ -792,19 +920,30 @@ func (h *Handler) handleAPIResource(ctx context.Context, c *echo.Context, segs [
 		return h.handleEnvironmentVariables(ctx, c, apiID)
 	case "schemaMerge":
 		return h.handleSchemaMerge(ctx, c, apiID)
+	case keySourceAPIAssociations:
+		// /v1/apis/{apiId}/sourceApiAssociations — the real AWS SDK endpoint for
+		// ListSourceApiAssociations (distinct from the /v1/mergedApis/{id}/... path
+		// used by Associate/Get/Update/DisassociateSourceGraphqlApi).
+		return h.requireMethod(c, http.MethodGet, func() error {
+			return h.listSourceAPIAssociations(ctx, c, apiID)
+		})
 	default:
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
 	}
 }
 
-// handleAPIByID handles GET/DELETE/PATCH on /v1/apis/{apiId}.
+// handleAPIByID handles GET/DELETE/POST on /v1/apis/{apiId}.
+//
+// The real AWS SDK sends UpdateGraphqlApi as POST to this same path (restjson1 uses
+// POST, not PUT/PATCH, for AppSync updates); PUT/PATCH are accepted too for
+// non-SDK/manual callers.
 func (h *Handler) handleAPIByID(ctx context.Context, c *echo.Context, apiID string) error {
 	switch c.Request().Method {
 	case http.MethodGet:
 		return h.getGraphqlAPI(ctx, c, apiID)
 	case http.MethodDelete:
 		return h.deleteGraphqlAPI(ctx, c, apiID)
-	case http.MethodPatch, http.MethodPut:
+	case http.MethodPost, http.MethodPatch, http.MethodPut:
 		return h.updateGraphqlAPI(ctx, c, apiID)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -1013,7 +1152,7 @@ func (h *Handler) handleDataSources(ctx context.Context, c *echo.Context, apiID 
 		return h.getDataSource(ctx, c, apiID, dsName)
 	case http.MethodDelete:
 		return h.deleteDataSource(ctx, c, apiID, dsName)
-	case http.MethodPut:
+	case http.MethodPost, http.MethodPut:
 		return h.updateDataSource(ctx, c, apiID, dsName)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -1117,7 +1256,7 @@ func (h *Handler) handleNamedType(ctx context.Context, c *echo.Context, apiID, t
 		return h.getType(ctx, c, apiID, typeName)
 	case http.MethodDelete:
 		return h.deleteType(ctx, c, apiID, typeName)
-	case http.MethodPut:
+	case http.MethodPost, http.MethodPut:
 		return h.updateType(ctx, c, apiID, typeName)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -1152,7 +1291,7 @@ func (h *Handler) handleTypeResolvers(
 		return h.getResolver(ctx, c, apiID, typeName, fieldName)
 	case http.MethodDelete:
 		return h.deleteResolver(ctx, c, apiID, typeName, fieldName)
-	case http.MethodPut, http.MethodPatch:
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
 		return h.updateResolver(ctx, c, apiID, typeName, fieldName)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -1296,7 +1435,7 @@ func (h *Handler) handleAPIKeys(ctx context.Context, c *echo.Context, apiID stri
 		switch method {
 		case http.MethodDelete:
 			return h.deleteAPIKey(ctx, c, apiID, keyID)
-		case http.MethodPut, http.MethodPatch:
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
 			return h.updateAPIKey(ctx, c, apiID, keyID)
 		default:
 			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -1340,7 +1479,18 @@ func (h *Handler) createAPIKey(ctx context.Context, c *echo.Context, apiID strin
 
 // handleAPICaches handles /v1/apis/{apiId}/ApiCaches[/entries].
 func (h *Handler) handleAPICaches(ctx context.Context, c *echo.Context, apiID string, segs []string) error {
-	// /v1/apis/{apiId}/ApiCaches/entries → FlushApiCache
+	// /v1/apis/{apiId}/ApiCaches/update — the real AWS SDK endpoint for UpdateApiCache.
+	if len(segs) == pathSegsNamedResource && segs[4] == "update" {
+		if c.Request().Method == http.MethodPost {
+			return h.updateAPICache(ctx, c, apiID)
+		}
+
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+
+	// /v1/apis/{apiId}/ApiCaches/entries — legacy convenience alias for FlushApiCache;
+	// the real AWS SDK sends FlushApiCache to "/v1/apis/{apiId}/FlushCache" instead
+	// (see handleAPIResource's pathSegFlushCache case).
 	if len(segs) == pathSegsNamedResource && segs[4] == "entries" {
 		if c.Request().Method == http.MethodDelete {
 			return h.flushAPICache(ctx, c, apiID)
@@ -1355,6 +1505,8 @@ func (h *Handler) handleAPICaches(ctx context.Context, c *echo.Context, apiID st
 	case http.MethodGet:
 		return h.getAPICache(ctx, c, apiID)
 	case http.MethodPut:
+		// Legacy convenience alias; the real AWS SDK uses POST to
+		// "/v1/apis/{apiId}/ApiCaches/update" instead (handled above).
 		return h.updateAPICache(ctx, c, apiID)
 	case http.MethodDelete:
 		return h.deleteAPICache(ctx, c, apiID)
@@ -1407,7 +1559,7 @@ func (h *Handler) handleFunctions(ctx context.Context, c *echo.Context, apiID st
 			return h.getFunction(ctx, c, apiID, funcID)
 		case http.MethodDelete:
 			return h.deleteFunction(ctx, c, apiID, funcID)
-		case http.MethodPut:
+		case http.MethodPost, http.MethodPut:
 			return h.updateFunction(ctx, c, apiID, funcID)
 		default:
 			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -1517,7 +1669,7 @@ func (h *Handler) handleDomainName(ctx context.Context, c *echo.Context, domainN
 		return h.getDomainName(ctx, c, domainName)
 	case http.MethodDelete:
 		return h.deleteDomainName(ctx, c, domainName)
-	case http.MethodPut, http.MethodPatch:
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
 		return h.updateDomainName(ctx, c, domainName)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -1714,7 +1866,7 @@ func (h *Handler) handleMergedAPIs(ctx context.Context, c *echo.Context, segs []
 			}
 
 			return c.NoContent(http.StatusNoContent)
-		case http.MethodPut, http.MethodPatch:
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
 			return h.updateSourceAPIAssociation(ctx, c, mergedAPIID, assocID)
 		default:
 			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -1785,7 +1937,7 @@ func (h *Handler) handleV2APIsItem(ctx context.Context, c *echo.Context, apiID s
 		return h.getAPI(ctx, c, apiID)
 	case http.MethodDelete:
 		return h.deleteAPI(ctx, c, apiID)
-	case http.MethodPut, http.MethodPatch:
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
 		return h.updateAPI(ctx, c, apiID)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -1809,7 +1961,7 @@ func (h *Handler) handleChannelNamespaceItem(ctx context.Context, c *echo.Contex
 		return h.getChannelNamespace(ctx, c, apiID, nsName)
 	case http.MethodDelete:
 		return h.deleteChannelNamespace(ctx, c, apiID, nsName)
-	case http.MethodPut, http.MethodPatch:
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
 		return h.updateChannelNamespace(ctx, c, apiID, nsName)
 	default:
 		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
@@ -2152,7 +2304,7 @@ func (h *Handler) updateAPICache(ctx context.Context, c *echo.Context, apiID str
 
 	updated, updateErr := h.Backend.UpdateAPICache(apiID, &cache)
 	if updateErr != nil {
-		return h.handleError(ctx, c, "UpdateApiCache", updateErr)
+		return h.handleError(ctx, c, opUpdateAPICache, updateErr)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyAPICache: updated})
@@ -2161,7 +2313,7 @@ func (h *Handler) updateAPICache(ctx context.Context, c *echo.Context, apiID str
 // flushAPICache handles DELETE /v1/apis/{apiId}/ApiCaches/entries.
 func (h *Handler) flushAPICache(ctx context.Context, c *echo.Context, apiID string) error {
 	if err := h.Backend.FlushAPICache(apiID); err != nil {
-		return h.handleError(ctx, c, "FlushApiCache", err)
+		return h.handleError(ctx, c, opFlushAPICache, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2253,6 +2405,61 @@ func (h *Handler) updateType(ctx context.Context, c *echo.Context, apiID, typeNa
 	return c.JSON(http.StatusOK, map[string]any{keyType: updated})
 }
 
+// handleTagsByARN handles /v1/tags/{resourceArn} — the real AWS SDK path for
+// TagResource/UntagResource/ListTagsForResource (tag ops are NOT nested under
+// /v1/apis/{apiId}/tags on the wire). AppSync tags GraphqlApi (v1) and Api (v2)
+// resources, both identified by an "arn:...:appsync:...:apis/{apiId}" ARN.
+func (h *Handler) handleTagsByARN(ctx context.Context, c *echo.Context, segs []string) error {
+	if len(segs) < pathSegsAPIID {
+		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
+	}
+
+	apiID, ok := apiIDFromResourceARN(segs[2:])
+	if !ok {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid resourceArn"))
+	}
+
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.tagResource(ctx, c, apiID)
+	case http.MethodGet:
+		return h.listTagsForResource(ctx, c, apiID)
+	case http.MethodDelete:
+		return h.untagResource(ctx, c, apiID)
+	default:
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+}
+
+// apiIDFromResourceARN extracts the "{apiId}" resource identifier from an AppSync
+// resource ARN's path segments. The AWS SDK percent-encodes "/" as %2F in the
+// resourceArn URI label, but net/http decodes the request path before routing reaches
+// here, so the ARN's internal slashes (e.g. "apis/{apiId}") have already been split
+// into separate segments by splitPath and must be rejoined.
+func apiIDFromResourceARN(arnSegs []string) (string, bool) {
+	full := strings.Join(arnSegs, "/")
+
+	const apisResourcePrefix = "apis/"
+
+	idx := strings.LastIndex(full, apisResourcePrefix)
+	if idx == -1 {
+		return "", false
+	}
+
+	id := full[idx+len(apisResourcePrefix):]
+	if id == "" {
+		return "", false
+	}
+
+	// Defend against a deeper resource path (e.g. "apis/{id}/apikeys/{key}"): only
+	// the api ID itself is ever a valid taggable resource for this backend.
+	if slash := strings.IndexByte(id, '/'); slash != -1 {
+		id = id[:slash]
+	}
+
+	return id, true
+}
+
 // handleTags handles /v1/apis/{apiId}/tags.
 func (h *Handler) handleTags(ctx context.Context, c *echo.Context, apiID string) error {
 	switch c.Request().Method {
@@ -2283,7 +2490,7 @@ func (h *Handler) tagResource(ctx context.Context, c *echo.Context, apiID string
 	}
 
 	if tagErr := h.Backend.TagResource(apiID, input.Tags); tagErr != nil {
-		return h.handleError(ctx, c, "TagResource", tagErr)
+		return h.handleError(ctx, c, opTagResource, tagErr)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2300,7 +2507,7 @@ func (h *Handler) untagResource(ctx context.Context, c *echo.Context, apiID stri
 	}
 
 	if tagErr := h.Backend.UntagResource(apiID, tagKeys); tagErr != nil {
-		return h.handleError(ctx, c, "UntagResource", tagErr)
+		return h.handleError(ctx, c, opUntagResource, tagErr)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -2310,7 +2517,7 @@ func (h *Handler) untagResource(ctx context.Context, c *echo.Context, apiID stri
 func (h *Handler) listTagsForResource(ctx context.Context, c *echo.Context, apiID string) error {
 	tagMap, err := h.Backend.ListTagsForResource(apiID)
 	if err != nil {
-		return h.handleError(ctx, c, "ListTagsForResource", err)
+		return h.handleError(ctx, c, opListTagsForResource, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"tags": tagMap})
@@ -2361,12 +2568,23 @@ func (h *Handler) getAPI(ctx context.Context, c *echo.Context, apiID string) err
 
 // listAPIs handles GET /v2/apis.
 func (h *Handler) listAPIs(ctx context.Context, c *echo.Context) error {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
+
 	apis, err := h.Backend.ListAPIs()
 	if err != nil {
 		return h.handleError(ctx, c, "ListApis", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"items": apis})
+	// The real AWS SDK response wraps the list in "apis", not "items".
+	page, tok := appsyncPaginate(apis, nextToken, maxResults)
+	out := map[string]any{"apis": page}
+	if tok != "" {
+		out["nextToken"] = tok
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // deleteAPI handles DELETE /v2/apis/{apiId}.
@@ -2489,10 +2707,13 @@ func (h *Handler) getSourceAPIAssociation(ctx context.Context, c *echo.Context, 
 func (h *Handler) listSourceAPIAssociations(ctx context.Context, c *echo.Context, mergedAPIID string) error {
 	assocs, err := h.Backend.ListSourceAPIAssociations(mergedAPIID)
 	if err != nil {
-		return h.handleError(ctx, c, "ListSourceApiAssociations", err)
+		return h.handleError(ctx, c, opListSourceAPIAssociations, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keySourceAPIAssociations: assocs})
+	// The real AWS SDK's ListSourceApiAssociationsOutput wraps the list under
+	// "sourceApiAssociationSummaries" — NOT "sourceApiAssociations" (that name is only
+	// the URL path segment). A client would otherwise always see an empty list back.
+	return c.JSON(http.StatusOK, map[string]any{"sourceApiAssociationSummaries": assocs})
 }
 
 // listResolversByFunction handles GET /v1/apis/{apiId}/functions/{functionId}/resolvers.

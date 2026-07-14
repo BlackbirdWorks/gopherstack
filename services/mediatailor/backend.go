@@ -301,16 +301,14 @@ func (b *InMemoryBackend) PutPlaybackConfiguration(
 	name, adDecisionServerURL, videoContentSourceURL string,
 	tags map[string]string,
 ) (*PlaybackConfiguration, error) {
+	// Name is the only required member of PutPlaybackConfigurationInput —
+	// confirmed against aws-sdk-go-v2's validators.go and botocore's
+	// service-2.json ("required": ["Name"]). AdDecisionServerUrl and
+	// VideoContentSourceUrl are both optional on the wire; rejecting a
+	// request that omits them is a false BadRequestException a real SDK
+	// client would never trigger.
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name required", ErrInvalidParameter)
-	}
-
-	if adDecisionServerURL == "" {
-		return nil, fmt.Errorf("%w: AdDecisionServerUrl required", ErrInvalidParameter)
-	}
-
-	if videoContentSourceURL == "" {
-		return nil, fmt.Errorf("%w: VideoContentSourceUrl required", ErrInvalidParameter)
 	}
 
 	cfgARN := b.playbackConfigARN(name)
@@ -1201,9 +1199,9 @@ func (b *InMemoryBackend) DeleteProgram(channelName, programName string) error {
 	return nil
 }
 
-// GetChannelSchedule returns the schedule for a channel.
+// GetChannelSchedule returns a paginated schedule for a channel.
 func (b *InMemoryBackend) GetChannelSchedule(
-	channelName string, _ int, _ string,
+	channelName string, maxResults int, nextToken string,
 ) ([]*ProgramScheduleEntry, string, error) {
 	b.mu.RLock("GetChannelSchedule")
 	defer b.mu.RUnlock()
@@ -1212,8 +1210,14 @@ func (b *InMemoryBackend) GetChannelSchedule(
 		return nil, "", fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
 
-	var out []*ProgramScheduleEntry
-	for _, prog := range b.programsByChannel.Get(channelName) {
+	all := slices.Clone(b.programsByChannel.Get(channelName))
+
+	sort.Slice(all, func(i, j int) bool { return all[i].ProgramName < all[j].ProgramName })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	out := make([]*ProgramScheduleEntry, 0, len(pg.Data))
+	for _, prog := range pg.Data {
 		out = append(out, &ProgramScheduleEntry{
 			ARN:         prog.ARN,
 			ChannelName: prog.ChannelName,
@@ -1221,7 +1225,7 @@ func (b *InMemoryBackend) GetChannelSchedule(
 		})
 	}
 
-	return out, "", nil
+	return out, pg.Next, nil
 }
 
 // --- ChannelPolicy operations ---
@@ -1325,15 +1329,19 @@ func (b *InMemoryBackend) DeleteFunction(functionID string) error {
 	return nil
 }
 
-// ListFunctions returns all functions.
-func (b *InMemoryBackend) ListFunctions(_ int, _ string) ([]*FunctionSummary, string, error) {
+// ListFunctions returns a paginated list of functions.
+func (b *InMemoryBackend) ListFunctions(maxResults int, nextToken string) ([]*FunctionSummary, string, error) {
 	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 
 	all := b.functions.All()
 
-	out := make([]*FunctionSummary, 0, len(all))
-	for _, fn := range all {
+	sort.Slice(all, func(i, j int) bool { return all[i].FunctionID < all[j].FunctionID })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	out := make([]*FunctionSummary, 0, len(pg.Data))
+	for _, fn := range pg.Data {
 		out = append(out, &FunctionSummary{
 			FunctionID:   fn.FunctionID,
 			FunctionType: fn.FunctionType,
@@ -1342,5 +1350,5 @@ func (b *InMemoryBackend) ListFunctions(_ int, _ string) ([]*FunctionSummary, st
 		})
 	}
 
-	return out, "", nil
+	return out, pg.Next, nil
 }

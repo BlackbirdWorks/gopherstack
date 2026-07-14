@@ -697,7 +697,7 @@ func TestAudit2_AccountLimit_MaxLoadBalancers(t *testing.T) {
 		} `xml:"Error"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "ValidationError", errResp.Error.Code)
+	assert.Equal(t, "TooManyLoadBalancers", errResp.Error.Code)
 }
 
 // TestAudit2_AccountLimit_MaxListeners verifies that adding more than 100

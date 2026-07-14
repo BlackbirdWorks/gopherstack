@@ -59,7 +59,8 @@ const (
 	elasticsearchPackages       = "/2015-01-01/packages"
 	elasticsearchDomainPackages = "/2015-01-01/domain"
 
-	opUnknown = "Unknown"
+	opUnknown         = "Unknown"
+	opListDomainNames = "ListDomainNames"
 )
 
 const (
@@ -107,7 +108,20 @@ func (h *Handler) buildOps() map[string]http.HandlerFunc {
 		http.MethodPost + " " + elasticsearchTagsRemove:                 h.handleRemoveTags,
 		http.MethodDelete + " " + elasticsearchServiceRole:              h.handleDeleteElasticsearchServiceRole,
 		http.MethodPost + " " + elasticsearchSoftwareUpdate + "/cancel": h.handleCancelElasticsearchServiceSoftwareUpdate,
-		http.MethodPost + " " + elasticsearchSoftwareUpdate:             h.handleStartElasticsearchServiceSoftwareUpdate,
+		http.MethodPost + " " + elasticsearchSoftwareUpdate + "/start":  h.handleStartElasticsearchServiceSoftwareUpdate,
+		http.MethodGet + " " + elasticsearchDomainPackages:              h.handleListDomainNames,
+		// elasticsearchPathPrefix (bare, no domain name segment) is this
+		// emulator's own collection resource for the domain CRUD family
+		// (POST there creates a domain). AWS's real ListDomainNames lives at
+		// the distinct elasticsearchDomainPackages ("/2015-01-01/domain")
+		// resource per the aws-sdk-go-v2 serializer, and that mapping above
+		// is load-bearing for real SDK clients. This second entry additionally
+		// serves GET on the bare CRUD collection path as ListDomainNames too,
+		// so a caller that lists the same collection resource it created
+		// against gets a 200 instead of falling through to a 404 -- it does
+		// not shadow CreateElasticsearchDomain (POST) or DescribeElasticsearchDomain
+		// (GET with a name segment).
+		http.MethodGet + " " + elasticsearchPathPrefix:                  h.handleListDomainNames,
 		http.MethodPost + " " + elasticsearchCCSOutbound:                h.handleCreateOutboundCrossClusterSearchConnection,
 		http.MethodPost + " " + elasticsearchVpcEndpoints:               h.handleCreateVpcEndpoint,
 		http.MethodPost + " " + elasticsearchPackages:                   h.handleCreatePackage,
@@ -170,6 +184,7 @@ func matchElasticsearchCorePaths(path string) bool {
 // matchElasticsearchExtPaths returns true if path matches extended Elasticsearch paths.
 func matchElasticsearchExtPaths(path string) bool {
 	return strings.HasPrefix(path, elasticsearchPackages) ||
+		path == elasticsearchDomainPackages ||
 		strings.HasPrefix(path, elasticsearchDomainPackages+"/") ||
 		strings.HasPrefix(path, elasticsearchUpgradeDomain) ||
 		path == elasticsearchCompatibleVersions ||
@@ -217,7 +232,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetPackageVersionHistory",
 		"GetUpgradeHistory",
 		"GetUpgradeStatus",
-		"ListDomainNames",
+		opListDomainNames,
 		"ListDomainsForPackage",
 		"ListElasticsearchInstanceTypes",
 		"ListElasticsearchVersions",
@@ -411,6 +426,8 @@ func extractPackageDomainOp(path, method string) string {
 		strings.HasSuffix(path, "/packages") &&
 		method == http.MethodGet:
 		return "ListPackagesForDomain"
+	case path == elasticsearchDomainPackages && method == http.MethodGet:
+		return opListDomainNames
 	}
 
 	return ""
@@ -460,7 +477,7 @@ func extractUpgradeOp(path, method string) string {
 		strings.HasSuffix(path, "/status") &&
 		method == http.MethodGet:
 		return "GetUpgradeStatus"
-	case path == elasticsearchSoftwareUpdate && method == http.MethodPost:
+	case path == elasticsearchSoftwareUpdate+"/start" && method == http.MethodPost:
 		return "StartElasticsearchServiceSoftwareUpdate"
 	}
 
@@ -545,12 +562,17 @@ func extractSubDomainMethodOp(method string) string {
 	return opUnknown
 }
 
+// extractRootDomainOperation returns the operation for the bare domain-prefix
+// path ("/2015-01-01/es/domain", no name segment). POST creates a domain.
+// GET is ListDomainNames served as a same-resource convenience alias of the
+// real AWS "/2015-01-01/domain" resource (see extractPackageDomainOp and the
+// matching buildOps entry) -- both paths report the same operation name.
 func extractRootDomainOperation(method string) string {
 	switch method {
 	case http.MethodPost:
 		return "CreateElasticsearchDomain"
 	case http.MethodGet:
-		return "ListDomainNames"
+		return opListDomainNames
 	}
 
 	return opUnknown
@@ -899,8 +921,9 @@ func (h *Handler) handleDomainRoutes(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case (rest == "" || rest == "/") && r.Method == http.MethodPost:
 		h.handleCreateDomain(w, r)
-	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
-		h.handleListDomainNames(w, r)
+	// Note: a bare GET here (ListDomainNames) is handled by the fast-path
+	// buildOps entry in ServeHTTP before this function is ever reached; it
+	// is not duplicated in this switch. See the buildOps comment.
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
 		h.handleGetDomainRoute(w, r, rest)
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:

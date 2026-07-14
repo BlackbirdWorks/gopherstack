@@ -18,7 +18,7 @@ func TestHandler_Batch1ApplicationVersionState(t *testing.T) {
 	}{
 		{
 			name: "source bundle and processing",
-			create: "&ApplicationName=bundle-app&VersionLabel=v1&Process=true" +
+			create: "&ApplicationName=bundle-app&VersionLabel=v1&Process=true&AutoCreateApplication=true" +
 				"&SourceBundle.S3Bucket=src-bucket&SourceBundle.S3Key=releases%2Fapp.zip",
 			contains: []string{
 				"<Status>Processed</Status>", "<S3Bucket>src-bucket</S3Bucket>",
@@ -39,7 +39,7 @@ func TestHandler_Batch1ApplicationVersionState(t *testing.T) {
 		},
 		{
 			name:     "sample application remains unprocessed by default",
-			create:   "&ApplicationName=sample-app&VersionLabel=v3",
+			create:   "&ApplicationName=sample-app&VersionLabel=v3&AutoCreateApplication=true",
 			contains: []string{"<Status>Unprocessed</Status>"},
 		},
 	}

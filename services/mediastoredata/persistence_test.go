@@ -108,7 +108,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	eastPaths := []string{"/videos/clip1.mp4", "/videos/clip2.mp4", "/root.mp4"}
 	for i, p := range eastPaths {
 		_, err := b.PutObject(
-			ctxEast, p, fmt.Appendf(nil, "east-body-%d", i), "video/mp4", "no-cache", "STANDARD", "STREAMING",
+			ctxEast, p, fmt.Appendf(nil, "east-body-%d", i), "video/mp4", "no-cache", "TEMPORAL", "STREAMING",
 		)
 		require.NoError(t, err)
 	}
@@ -137,7 +137,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		assert.Equal(t, fmt.Appendf(nil, "east-body-%d", i), obj.Body)
 		assert.Equal(t, "video/mp4", obj.ContentType)
 		assert.Equal(t, "no-cache", obj.CacheControl)
-		assert.Equal(t, "STANDARD", obj.StorageClass)
+		assert.Equal(t, "TEMPORAL", obj.StorageClass)
 		assert.Equal(t, "STREAMING", obj.UploadAvailability)
 		assert.NotEmpty(t, obj.ETag)
 		assert.NotEmpty(t, obj.SHA256)

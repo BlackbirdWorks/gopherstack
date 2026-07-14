@@ -70,11 +70,22 @@ type Addon struct {
 	ResolveConflicts      string       `json:"resolveConflicts,omitempty"`
 }
 
-// Capability represents an EKS capability.
+// Capability represents an EKS capability. Capabilities are cluster-scoped:
+// CapabilityName is unique per cluster, not globally (verified against
+// aws-sdk-go-v2/service/eks -- CreateCapabilityInput requires ClusterName,
+// CapabilityName, Type, RoleArn, and DeletePropagationPolicy; the route is
+// /clusters/{clusterName}/capabilities[/{capabilityName}]).
 type Capability struct {
-	Name    string `json:"name"`
-	Version string `json:"version,omitempty"`
-	Status  string `json:"status"`
+	CreatedAt               time.Time  `json:"createdAt"`
+	Tags                    *tags.Tags `json:"tags,omitempty"`
+	ClusterName             string     `json:"clusterName"`
+	CapabilityName          string     `json:"capabilityName"`
+	ARN                     string     `json:"arn"`
+	Type                    string     `json:"type,omitempty"`
+	RoleARN                 string     `json:"roleArn,omitempty"`
+	DeletePropagationPolicy string     `json:"deletePropagationPolicy,omitempty"`
+	Version                 string     `json:"version,omitempty"`
+	Status                  string     `json:"status"`
 }
 
 // AnywhereSubscription represents an EKS Anywhere subscription.
@@ -435,19 +446,42 @@ func (b *InMemoryBackend) CreateAddon(
 	return &cp, nil
 }
 
-// CreateCapability creates a new EKS capability.
-func (b *InMemoryBackend) CreateCapability(name, version string) (*Capability, error) {
+// CreateCapability creates a new EKS capability scoped to a cluster.
+// CapabilityName is unique per cluster, not globally.
+func (b *InMemoryBackend) CreateCapability(
+	clusterName, capabilityName, capType, roleARN, deletePropagationPolicy string,
+	kv map[string]string,
+) (*Capability, error) {
 	b.mu.Lock("CreateCapability")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capabilities.Get(name); ok {
-		return nil, fmt.Errorf("%w: capability %s already exists", ErrAlreadyExists, name)
+	if _, ok := b.clusters.Get(clusterName); !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	key := capabilityKey(clusterName, capabilityName)
+	if _, ok := b.capabilities.Get(key); ok {
+		return nil, fmt.Errorf(
+			"%w: capability %s already exists in cluster %s", ErrAlreadyExists, capabilityName, clusterName,
+		)
+	}
+
+	capaARN := arn.Build("eks", b.region, b.accountID, "capability/"+clusterName+"/"+capabilityName)
+	t := tags.New("eks.capability." + clusterName + "." + capabilityName + ".tags")
+	if len(kv) > 0 {
+		t.Merge(kv)
 	}
 
 	capa := &Capability{
-		Name:    name,
-		Version: version,
-		Status:  statusActive,
+		ClusterName:             clusterName,
+		CapabilityName:          capabilityName,
+		ARN:                     capaARN,
+		Type:                    capType,
+		RoleARN:                 roleARN,
+		DeletePropagationPolicy: deletePropagationPolicy,
+		Status:                  statusActive,
+		CreatedAt:               time.Now().UTC(),
+		Tags:                    t,
 	}
 	b.capabilities.Put(capa)
 	cp := *capa

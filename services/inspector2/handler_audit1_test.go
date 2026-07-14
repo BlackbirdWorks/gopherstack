@@ -175,8 +175,7 @@ func TestAudit1_BatchGetAccountStatus(t *testing.T) {
 
 				acc := accounts[0].(map[string]any)
 				state := acc["state"].(map[string]any)
-				status := state["status"].(map[string]any)
-				assert.Equal(t, "DISABLED", status["status"])
+				assert.Equal(t, "DISABLED", state["status"])
 			},
 		},
 		{
@@ -194,8 +193,7 @@ func TestAudit1_BatchGetAccountStatus(t *testing.T) {
 				accounts := resp["accounts"].([]any)
 				acc := accounts[0].(map[string]any)
 				state := acc["state"].(map[string]any)
-				status := state["status"].(map[string]any)
-				assert.Equal(t, "ENABLED", status["status"])
+				assert.Equal(t, "ENABLED", state["status"])
 			},
 		},
 	}

@@ -482,15 +482,16 @@ func (h *Handler) handleGetFindingV2(path, query string) (any, int, error) {
 	}
 
 	return map[string]any{
-		"id":             f.ID,
-		"analyzerArn":    f.AnalyzerArn, //nolint:goconst // existing issue.
-		"status":         string(f.Status),
-		"resourceType":   f.ResourceType, //nolint:goconst // existing issue.
-		"resourceArn":    f.ResourceArn,  //nolint:goconst // existing issue.
-		"analyzedAt":     f.UpdatedAt.Format(time.RFC3339),
-		"createdAt":      f.CreatedAt.Format(time.RFC3339),
-		"updatedAt":      f.UpdatedAt.Format(time.RFC3339),
-		"findingDetails": []any{},
+		"id":                 f.ID,
+		"analyzerArn":        f.AnalyzerArn, //nolint:goconst // existing issue.
+		"status":             string(f.Status),
+		"resourceType":       f.ResourceType, //nolint:goconst // existing issue.
+		keyResource:          f.ResourceArn,
+		keyResourceOwnerAcct: h.Backend.AccountID(),
+		keyAnalyzedAt:        f.UpdatedAt.Format(time.RFC3339),
+		"createdAt":          f.CreatedAt.Format(time.RFC3339),
+		"updatedAt":          f.UpdatedAt.Format(time.RFC3339),
+		"findingDetails":     []any{},
 	}, http.StatusOK, nil
 }
 
@@ -530,10 +531,11 @@ func (h *Handler) handleListAccessPreviewFindings(path string, body []byte) (any
 		return nil, 0, err
 	}
 
+	accountID := h.Backend.AccountID()
 	list := make([]any, 0, len(findings))
 
 	for _, f := range findings {
-		list = append(list, findingToJSON(f))
+		list = append(list, findingToJSON(f, accountID))
 	}
 
 	resp := map[string]any{"findings": list} //nolint:goconst // existing issue.
@@ -620,17 +622,20 @@ func (h *Handler) handleListFindingsV2(body []byte) (any, int, error) {
 		return nil, 0, err
 	}
 
+	accountID := h.Backend.AccountID()
 	list := make([]any, 0, len(findings))
 
 	for _, f := range findings {
 		list = append(list, map[string]any{
-			"id":           f.ID,
-			"analyzerArn":  f.AnalyzerArn,
-			"status":       string(f.Status),
-			"resourceType": f.ResourceType,
-			"resourceArn":  f.ResourceArn,
-			keyUpdatedAt:   f.UpdatedAt.Format(time.RFC3339),
-			keyCreatedAt:   f.CreatedAt.Format(time.RFC3339),
+			"id":                 f.ID,
+			"analyzerArn":        f.AnalyzerArn,
+			"status":             string(f.Status),
+			"resourceType":       f.ResourceType,
+			keyResource:          f.ResourceArn,
+			keyResourceOwnerAcct: accountID,
+			keyAnalyzedAt:        f.UpdatedAt.Format(time.RFC3339),
+			keyUpdatedAt:         f.UpdatedAt.Format(time.RFC3339),
+			keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
 		})
 	}
 
@@ -746,7 +751,7 @@ func analyzedResourceToJSON(ar *AnalyzedResource) map[string]any {
 		"isPublic":     ar.IsPublic,
 		keyCreatedAt:   ar.CreatedAt.Format(time.RFC3339),
 		keyUpdatedAt:   ar.UpdatedAt.Format(time.RFC3339),
-		"analyzedAt":   ar.AnalyzedAt.Format(time.RFC3339),
+		keyAnalyzedAt:  ar.AnalyzedAt.Format(time.RFC3339),
 	}
 }
 

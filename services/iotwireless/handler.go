@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -309,7 +310,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			}
 		}
 
-		if strings.HasPrefix(path, "/tags/") {
+		// TagResource / UntagResource / ListTagsForResource bind to the bare
+		// "/tags" path; the resourceArn travels as a query parameter, never
+		// as a path segment (confirmed against aws-sdk-go-v2's REST-JSON
+		// serializer: SplitURI("/tags") + SetQuery("resourceArn")).
+		if path == "/tags" {
 			return httputils.ExtractServiceFromRequest(c.Request()) == iotwirelessService
 		}
 
@@ -327,8 +332,15 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return op
 }
 
-// ExtractResource extracts the resource ID from the URL path.
+// ExtractResource extracts the resource ID from the URL path. Tag operations
+// are the one exception: their resource ARN travels as the "resourceArn"
+// query parameter rather than a path segment (see parseIoTWirelessPath's
+// "tags" case), so it's read from the query here for CloudTrail capture.
 func (h *Handler) ExtractResource(c *echo.Context) string {
+	if c.Request().URL.Path == "/tags" {
+		return c.Request().URL.Query().Get("resourceArn")
+	}
+
 	_, resource := parseIoTWirelessPath(c.Request().Method, c.Request().URL.Path)
 
 	return resource
@@ -402,21 +414,18 @@ func parseIoTWirelessPath(method, path string) (string, string) {
 	base := parts[0]
 	hasID := len(parts) >= idSegmentIndex && parts[1] != ""
 
-	// Handle /tags/{ResourceArn}
+	// Handle /tags (never /tags/{ResourceArn} — real AWS binds the resource
+	// ARN as the "resourceArn" query parameter, not a path segment; see
+	// dispatchTagOps, which reads it from the query instead of this
+	// function's resource return value).
 	if base == "tags" {
-		if !hasID {
-			return "", ""
-		}
-
-		arnEncoded := strings.Join(parts[1:], "/")
-
 		switch method {
 		case http.MethodGet:
-			return opListTagsForResource, arnEncoded
+			return opListTagsForResource, ""
 		case http.MethodPost:
-			return opTagResource, arnEncoded
+			return opTagResource, ""
 		case http.MethodDelete:
-			return opUntagResource, arnEncoded
+			return opUntagResource, ""
 		}
 
 		return "", ""
@@ -604,18 +613,23 @@ func parseDestinationPath(method, id string, hasID bool) (string, string) {
 }
 
 // parsePartnerAccountPath handles partner-accounts sub-path routing.
+// AssociateAwsAccountWithPartnerAccount binds to the bare collection path
+// (POST /partner-accounts, partner account ID in the body's Sidewalk.AmazonId
+// — never a path parameter), unlike Get/Update/Disassociate which all bind
+// PartnerAccountId as a path parameter.
 func parsePartnerAccountPath(method, id string, hasID bool) (string, string) {
 	if !hasID {
-		if method == http.MethodGet {
+		switch method {
+		case http.MethodGet:
 			return opListPartnerAccounts, ""
+		case http.MethodPost:
+			return opAssociateAwsAccountWithPartnerAccount, ""
 		}
 
 		return "", ""
 	}
 
 	switch method {
-	case http.MethodPut:
-		return opAssociateAwsAccountWithPartnerAccount, id
 	case http.MethodGet:
 		return opGetPartnerAccount, id
 	case http.MethodDelete:
@@ -1116,15 +1130,19 @@ func (h *Handler) dispatchExtendedOpsGroup(c *echo.Context, op, resource string,
 	return h.dispatchPartnerAndMiscOps(c, op, resource, body)
 }
 
-// dispatchTagOps handles resource tagging operations.
-func (h *Handler) dispatchTagOps(c *echo.Context, op, resource string, body []byte, query url.Values) (bool, error) {
+// dispatchTagOps handles resource tagging operations. The resource ARN
+// travels as the "resourceArn" query parameter (see parseIoTWirelessPath's
+// "tags" case), not as the path-derived resource argument.
+func (h *Handler) dispatchTagOps(c *echo.Context, op, _ string, body []byte, query url.Values) (bool, error) {
+	resourceArn := query.Get("resourceArn")
+
 	switch op {
 	case opListTagsForResource:
-		return true, h.listTagsForResource(c, resource)
+		return true, h.listTagsForResource(c, resourceArn)
 	case opTagResource:
-		return true, h.tagResource(c, resource, body)
+		return true, h.tagResource(c, resourceArn, body)
 	case opUntagResource:
-		return true, h.untagResource(c, resource, query)
+		return true, h.untagResource(c, resourceArn, query)
 	}
 
 	return false, nil
@@ -1484,7 +1502,7 @@ func (h *Handler) dispatchNewCRUDOps(c *echo.Context, op, resource string, body 
 func (h *Handler) dispatchAssociationOps(c *echo.Context, op, resource string, body []byte) (bool, error) {
 	switch op {
 	case opAssociateAwsAccountWithPartnerAccount:
-		return true, h.associateAwsAccountWithPartnerAccount(c, resource, body)
+		return true, h.associateAwsAccountWithPartnerAccount(c, body)
 	case opAssociateMulticastGroupWithFuotaTask:
 		return true, h.associateMulticastGroupWithFuotaTask(c, resource, body)
 	case opAssociateWirelessDeviceWithFuotaTask:
@@ -1507,11 +1525,11 @@ func (h *Handler) dispatchAssociationOps(c *echo.Context, op, resource string, b
 // JSON request/response types.
 
 type createWirelessDeviceRequest struct {
-	Tags            map[string]string `json:"Tags"`
-	Name            string            `json:"Name"`
-	Type            string            `json:"Type"`
-	DestinationName string            `json:"DestinationName"`
-	Description     string            `json:"Description"`
+	Name            string    `json:"Name"`
+	Type            string    `json:"Type"`
+	DestinationName string    `json:"DestinationName"`
+	Description     string    `json:"Description"`
+	Tags            []tags.KV `json:"Tags"`
 }
 
 type createWirelessDeviceResponse struct {
@@ -1526,6 +1544,8 @@ type wirelessDeviceEntry struct {
 	Type            string `json:"Type"`
 	DestinationName string `json:"DestinationName"`
 	Description     string `json:"Description"`
+	ThingArn        string `json:"ThingArn,omitempty"`
+	ThingName       string `json:"ThingName,omitempty"`
 }
 
 type listWirelessDevicesResponse struct {
@@ -1533,9 +1553,9 @@ type listWirelessDevicesResponse struct {
 }
 
 type createWirelessGatewayRequest struct {
-	Tags        map[string]string `json:"Tags"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description"`
+	Name        string    `json:"Name"`
+	Description string    `json:"Description"`
+	Tags        []tags.KV `json:"Tags"`
 }
 
 type createWirelessGatewayResponse struct {
@@ -1548,6 +1568,8 @@ type wirelessGatewayEntry struct {
 	ID          string `json:"Id"`
 	Name        string `json:"Name"`
 	Description string `json:"Description"`
+	ThingArn    string `json:"ThingArn,omitempty"`
+	ThingName   string `json:"ThingName,omitempty"`
 }
 
 type listWirelessGatewaysResponse struct {
@@ -1555,8 +1577,8 @@ type listWirelessGatewaysResponse struct {
 }
 
 type createServiceProfileRequest struct {
-	Tags map[string]string `json:"Tags"`
-	Name string            `json:"Name"`
+	Name string    `json:"Name"`
+	Tags []tags.KV `json:"Tags"`
 }
 
 type createServiceProfileResponse struct {
@@ -1575,12 +1597,12 @@ type listServiceProfilesResponse struct {
 }
 
 type createDestinationRequest struct {
-	Tags           map[string]string `json:"Tags"`
-	Name           string            `json:"Name"`
-	Expression     string            `json:"Expression"`
-	ExpressionType string            `json:"ExpressionType"`
-	RoleArn        string            `json:"RoleArn"`
-	Description    string            `json:"Description"`
+	Name           string    `json:"Name"`
+	Expression     string    `json:"Expression"`
+	ExpressionType string    `json:"ExpressionType"`
+	RoleArn        string    `json:"RoleArn"`
+	Description    string    `json:"Description"`
+	Tags           []tags.KV `json:"Tags"`
 }
 
 type destinationEntry struct {
@@ -1597,22 +1619,23 @@ type listDestinationsResponse struct {
 }
 
 type tagResourceRequest struct {
-	Tags map[string]string `json:"Tags"`
+	Tags []tags.KV `json:"Tags"`
 }
 
 type listTagsResponse struct {
-	Tags map[string]string `json:"Tags"`
+	Tags []tags.KV `json:"Tags"`
 }
 
 type errorResponse struct {
+	Type    string `json:"__type"`
 	Message string `json:"Message"`
 }
 
 // --- Request/response types for new operations ---
 
 type createDeviceProfileRequest struct {
-	Tags map[string]string `json:"Tags"`
-	Name string            `json:"Name"`
+	Name string    `json:"Name"`
+	Tags []tags.KV `json:"Tags"`
 }
 
 type createDeviceProfileResponse struct {
@@ -1621,11 +1644,11 @@ type createDeviceProfileResponse struct {
 }
 
 type createFuotaTaskRequest struct {
-	Tags                map[string]string `json:"Tags"`
-	Name                string            `json:"Name"`
-	Description         string            `json:"Description"`
-	FirmwareUpdateImage string            `json:"FirmwareUpdateImage"`
-	FirmwareUpdateRole  string            `json:"FirmwareUpdateRole"`
+	Name                string    `json:"Name"`
+	Description         string    `json:"Description"`
+	FirmwareUpdateImage string    `json:"FirmwareUpdateImage"`
+	FirmwareUpdateRole  string    `json:"FirmwareUpdateRole"`
+	Tags                []tags.KV `json:"Tags"`
 }
 
 type createFuotaTaskResponse struct {
@@ -1656,12 +1679,27 @@ type listFuotaTasksResponse struct {
 	FuotaTaskList []fuotaTaskEntry `json:"FuotaTaskList"`
 }
 
+// sidewalkAssociateAccountRequest mirrors types.SidewalkAccountInfo, the
+// nested object real AWS requires on AssociateAwsAccountWithPartnerAccount:
+// the partner account ID travels as Sidewalk.AmazonId in the body, never in
+// the URL (the op is POST /partner-accounts with no path parameter).
+type sidewalkAssociateAccountRequest struct {
+	AmazonID string `json:"AmazonId"`
+}
+
 type associatePartnerAccountRequest struct {
-	Tags map[string]string `json:"Tags"`
+	Sidewalk           *sidewalkAssociateAccountRequest `json:"Sidewalk"`
+	ClientRequestToken string                           `json:"ClientRequestToken"`
+	Tags               []tags.KV                        `json:"Tags"`
+}
+
+type sidewalkAssociateAccountResponse struct {
+	AmazonID string `json:"AmazonId"`
 }
 
 type associatePartnerAccountResponse struct {
-	Arn string `json:"Arn"`
+	Sidewalk *sidewalkAssociateAccountResponse `json:"Sidewalk,omitempty"`
+	Arn      string                            `json:"Arn"`
 }
 
 type associateMulticastGroupRequest struct {
@@ -1692,12 +1730,44 @@ type associateWirelessGatewayWithThingRequest struct {
 	ThingArn string `json:"ThingArn"`
 }
 
-// writeError writes a JSON error response.
+// awsErrorType maps an HTTP status code to the modeled IoT Wireless exception
+// name (ResourceNotFoundException, ValidationException, ...) that real AWS
+// returns for that status. writeError sets this as the X-Amzn-Errortype
+// header and the __type body field: the aws-sdk-go-v2 REST-JSON error
+// deserializer (awsRestjson1_deserializeOpError*) reads whichever of those is
+// present to decide which typed *types.XxxException to construct. Without
+// either, every error from this service deserializes into an untyped
+// smithy.GenericAPIError{Code: "UnknownError"}, so `errors.As(err,
+// &types.ResourceNotFoundException{})`-style handling (used by waiters,
+// retries, and most application code) silently never matches.
+func awsErrorType(status int) string {
+	switch status {
+	case http.StatusNotFound:
+		return "ResourceNotFoundException"
+	case http.StatusBadRequest:
+		return "ValidationException"
+	case http.StatusForbidden:
+		return "AccessDeniedException"
+	case http.StatusConflict:
+		return "ConflictException"
+	case http.StatusTooManyRequests:
+		return "ThrottlingException"
+	default:
+		return "InternalServerException"
+	}
+}
+
+// writeError writes a JSON error response, setting the X-Amzn-Errortype
+// header (and __type body field) so aws-sdk-go-v2 clients deserialize it into
+// the correctly typed modeled exception. See awsErrorType.
 func writeError(c *echo.Context, status int, message string) error {
+	errType := awsErrorType(status)
+
 	c.Response().Header().Set("Content-Type", "application/json")
+	c.Response().Header().Set("X-Amzn-Errortype", errType)
 	c.Response().WriteHeader(status)
 
-	_ = json.NewEncoder(c.Response()).Encode(errorResponse{Message: message})
+	_ = json.NewEncoder(c.Response()).Encode(errorResponse{Type: errType, Message: message})
 
 	return nil
 }
@@ -1742,14 +1812,18 @@ func handleError(c *echo.Context, err error) error {
 	return writeError(c, http.StatusInternalServerError, err.Error())
 }
 
-// decodeARN URL-decodes an ARN path segment.
-func decodeARN(encoded string) string {
-	decoded, err := url.PathUnescape(encoded)
-	if err != nil {
-		return encoded
+// thingNameFromArn extracts the Thing name from an IoT Thing ARN
+// (arn:aws:iot:region:account:thing/name), matching how real AWS derives
+// ThingName from the ThingArn supplied to AssociateWirelessDeviceWithThing /
+// AssociateWirelessGatewayWithThing (the request never carries ThingName
+// directly). Returns "" if thingArn is empty or has no "/" separator.
+func thingNameFromArn(thingArn string) string {
+	idx := strings.LastIndex(thingArn, "/")
+	if idx < 0 {
+		return ""
 	}
 
-	return decoded
+	return thingArn[idx+1:]
 }
 
 // --- Wireless Device handlers ---
@@ -1762,7 +1836,7 @@ func (h *Handler) createWirelessDevice(c *echo.Context, body []byte) error {
 
 	d, err := h.Backend.CreateWirelessDevice(
 		h.AccountID, h.DefaultRegion,
-		req.Name, req.Type, req.DestinationName, req.Description, req.Tags,
+		req.Name, req.Type, req.DestinationName, req.Description, tagKVsToMap(req.Tags),
 	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
@@ -1777,6 +1851,8 @@ func (h *Handler) getWirelessDevice(c *echo.Context, id string) error {
 		return handleError(c, err)
 	}
 
+	thingArn := h.Backend.GetWirelessDeviceThingArn(id)
+
 	return writeJSON(c, http.StatusOK, wirelessDeviceEntry{
 		Arn:             d.ARN,
 		ID:              d.ID,
@@ -1784,6 +1860,8 @@ func (h *Handler) getWirelessDevice(c *echo.Context, id string) error {
 		Type:            d.Type,
 		DestinationName: d.DestinationName,
 		Description:     d.Description,
+		ThingArn:        thingArn,
+		ThingName:       thingNameFromArn(thingArn),
 	})
 }
 
@@ -1826,7 +1904,7 @@ func (h *Handler) createWirelessGateway(c *echo.Context, body []byte) error {
 
 	gw, err := h.Backend.CreateWirelessGateway(
 		h.AccountID, h.DefaultRegion,
-		req.Name, req.Description, req.Tags,
+		req.Name, req.Description, tagKVsToMap(req.Tags),
 	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
@@ -1841,11 +1919,15 @@ func (h *Handler) getWirelessGateway(c *echo.Context, id string) error {
 		return handleError(c, err)
 	}
 
+	thingArn := h.Backend.GetWirelessGatewayThingArn(id)
+
 	return writeJSON(c, http.StatusOK, wirelessGatewayEntry{
 		Arn:         gw.ARN,
 		ID:          gw.ID,
 		Name:        gw.Name,
 		Description: gw.Description,
+		ThingArn:    thingArn,
+		ThingName:   thingNameFromArn(thingArn),
 	})
 }
 
@@ -1884,7 +1966,7 @@ func (h *Handler) createServiceProfile(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	sp, err := h.Backend.CreateServiceProfile(h.AccountID, h.DefaultRegion, req.Name, req.Tags)
+	sp, err := h.Backend.CreateServiceProfile(h.AccountID, h.DefaultRegion, req.Name, tagKVsToMap(req.Tags))
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -1941,7 +2023,7 @@ func (h *Handler) createDestination(c *echo.Context, body []byte) error {
 
 	dest, err := h.Backend.CreateDestination(
 		h.AccountID, h.DefaultRegion,
-		req.Name, req.Expression, req.ExpressionType, req.RoleArn, req.Description, req.Tags,
+		req.Name, req.Expression, req.ExpressionType, req.RoleArn, req.Description, tagKVsToMap(req.Tags),
 	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
@@ -2003,27 +2085,38 @@ func (h *Handler) deleteDestination(c *echo.Context, name string) error {
 }
 
 // --- Tag handlers ---
+//
+// TagResource / UntagResource / ListTagsForResource all bind to the fixed
+// path "/tags" (never "/tags/{arn}"): the resourceArn travels as the
+// "resourceArn" query parameter (real AWS's httpQuery binding), and — for
+// TagResource — Tags travels in the JSON body as []Tag{Key,Value}, not a
+// bare map. See parsePartnerAccountPath-adjacent routing in
+// parseIoTWirelessPath's "tags" case.
 
-func (h *Handler) listTagsForResource(c *echo.Context, arnEncoded string) error {
-	arn := decodeARN(arnEncoded)
+func (h *Handler) listTagsForResource(c *echo.Context, resourceArn string) error {
+	if resourceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException: resourceArn is required")
+	}
 
-	tags, err := h.Backend.ListTagsForResource(arn)
+	tagMap, err := h.Backend.ListTagsForResource(resourceArn)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return writeJSON(c, http.StatusOK, listTagsResponse{Tags: tags})
+	return writeJSON(c, http.StatusOK, listTagsResponse{Tags: tagMapToKVs(tagMap)})
 }
 
-func (h *Handler) tagResource(c *echo.Context, arnEncoded string, body []byte) error {
-	arn := decodeARN(arnEncoded)
+func (h *Handler) tagResource(c *echo.Context, resourceArn string, body []byte) error {
+	if resourceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException: resourceArn is required")
+	}
 
 	var req tagResourceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	if err := h.Backend.TagResource(arn, req.Tags); err != nil {
+	if err := h.Backend.TagResource(resourceArn, tagKVsToMap(req.Tags)); err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
 
@@ -2032,11 +2125,14 @@ func (h *Handler) tagResource(c *echo.Context, arnEncoded string, body []byte) e
 	return nil
 }
 
-func (h *Handler) untagResource(c *echo.Context, arnEncoded string, query url.Values) error {
-	arn := decodeARN(arnEncoded)
+func (h *Handler) untagResource(c *echo.Context, resourceArn string, query url.Values) error {
+	if resourceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException: resourceArn is required")
+	}
+
 	tagKeys := query["tagKeys"]
 
-	if err := h.Backend.UntagResource(arn, tagKeys); err != nil {
+	if err := h.Backend.UntagResource(resourceArn, tagKeys); err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
 
@@ -2053,7 +2149,7 @@ func (h *Handler) createDeviceProfile(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	dp, err := h.Backend.CreateDeviceProfile(h.AccountID, h.DefaultRegion, req.Name, req.Tags)
+	dp, err := h.Backend.CreateDeviceProfile(h.AccountID, h.DefaultRegion, req.Name, tagKVsToMap(req.Tags))
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -2072,7 +2168,7 @@ func (h *Handler) createFuotaTask(c *echo.Context, body []byte) error {
 	ft, err := h.Backend.CreateFuotaTask(
 		h.AccountID, h.DefaultRegion,
 		req.Name, req.Description, req.FirmwareUpdateImage, req.FirmwareUpdateRole,
-		req.Tags,
+		tagKVsToMap(req.Tags),
 	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
@@ -2167,23 +2263,35 @@ func (h *Handler) deleteDeviceProfile(c *echo.Context, id string) error {
 
 // --- Association handlers ---
 
-func (h *Handler) associateAwsAccountWithPartnerAccount(c *echo.Context, partnerAccountID string, body []byte) error {
+// associateAwsAccountWithPartnerAccount handles POST /partner-accounts. Real
+// AWS binds this op to the bare collection path with no path parameter — the
+// partner account ID is Sidewalk.AmazonId in the JSON body — unlike
+// Get/Update/DisassociateAwsAccountFromPartnerAccount, which all bind
+// PartnerAccountId as a path parameter.
+func (h *Handler) associateAwsAccountWithPartnerAccount(c *echo.Context, body []byte) error {
 	var req associatePartnerAccountRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
+	if req.Sidewalk == nil || req.Sidewalk.AmazonID == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException: Sidewalk.AmazonId is required")
+	}
+
 	arn, err := h.Backend.AssociateAwsAccountWithPartnerAccount(
 		h.AccountID,
 		h.DefaultRegion,
-		partnerAccountID,
-		req.Tags,
+		req.Sidewalk.AmazonID,
+		tagKVsToMap(req.Tags),
 	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return writeJSON(c, http.StatusOK, associatePartnerAccountResponse{Arn: arn})
+	return writeJSON(c, http.StatusOK, associatePartnerAccountResponse{
+		Arn:      arn,
+		Sidewalk: &sidewalkAssociateAccountResponse{AmazonID: req.Sidewalk.AmazonID},
+	})
 }
 
 func (h *Handler) associateMulticastGroupWithFuotaTask(c *echo.Context, fuotaTaskID string, body []byte) error {

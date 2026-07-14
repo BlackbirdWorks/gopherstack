@@ -479,6 +479,18 @@ func (b *InMemoryBackend) customKeyStoresStore(region string) *store.Table[Custo
 	return t
 }
 
+// cachedResolution is the value stored in keyIDResolutionCache: the resolved
+// canonical key UUID plus the region it lives in. A region of "" means "derive
+// the region from the request context at load time" -- used for alias inputs,
+// whose region is the caller's request region (aliases are region-scoped and the
+// bare "alias/name" cache key carries no region of its own). An ARN input stores
+// its own embedded region, which is part of the ARN cache key and therefore
+// stable across requests regardless of the caller's request region.
+type cachedResolution struct {
+	keyID  string
+	region string
+}
+
 // resolveKeyID resolves an alias name or ARN to a plain key UUID and region.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) resolveKeyID(
@@ -488,12 +500,23 @@ func (b *InMemoryBackend) resolveKeyID(
 	ctxRegion := getRegion(ctx, b.defaultRegion)
 
 	if cached, ok := b.keyIDResolutionCache.Load(keyID); ok {
-		resolved, resolvedOK := cached.(string)
+		resolved, resolvedOK := cached.(cachedResolution)
 		if !resolvedOK {
 			return "", "", fmt.Errorf("%w: invalid key resolution cache entry", ErrValidation)
 		}
 
-		return resolved, ctxRegion, nil
+		// An empty cached region means the resolution is request-region-scoped
+		// (alias inputs); fall back to the caller's region. An ARN input caches
+		// its own embedded region so it stays correct no matter which region the
+		// caller's request targets -- the bug this replaces returned ctxRegion
+		// unconditionally, so a cached cross-region ARN resolved into the wrong
+		// region's stores on every call after the first.
+		region := resolved.region
+		if region == "" {
+			region = ctxRegion
+		}
+
+		return resolved.keyID, region, nil
 	}
 
 	if strings.HasPrefix(keyID, "alias/") {
@@ -502,7 +525,7 @@ func (b *InMemoryBackend) resolveKeyID(
 			return "", "", ErrAliasNotFound
 		}
 
-		b.keyIDResolutionCache.Store(keyID, alias.TargetKeyID)
+		b.keyIDResolutionCache.Store(keyID, cachedResolution{keyID: alias.TargetKeyID, region: ""})
 
 		return alias.TargetKeyID, ctxRegion, nil
 	}
@@ -513,7 +536,7 @@ func (b *InMemoryBackend) resolveKeyID(
 			return "", "", arnErr
 		}
 
-		b.keyIDResolutionCache.Store(keyID, resolved)
+		b.keyIDResolutionCache.Store(keyID, cachedResolution{keyID: resolved, region: arnRegion})
 
 		return resolved, arnRegion, nil
 	}
@@ -728,6 +751,11 @@ func (b *InMemoryBackend) CreateKey(
 		region = input.Region
 	}
 
+	// An inline policy, if supplied, must be a well-formed key policy document.
+	if input.Policy != "" && !validKeyPolicyDoc(input.Policy) {
+		return nil, ErrMalformedPolicyDocument
+	}
+
 	keyID := uuid.New().String()
 	keyUsage := input.KeyUsage
 	keySpec := input.KeySpec
@@ -789,6 +817,13 @@ func (b *InMemoryBackend) CreateKey(
 
 	b.keysStore(region).Put(key)
 
+	// Persist the caller-supplied policy so GetKeyPolicy returns it verbatim
+	// rather than synthesizing the default (Terraform's aws_kms_key polls
+	// GetKeyPolicy after create until the configured policy propagates).
+	if input.Policy != "" {
+		b.policiesStore(region)[keyID] = input.Policy
+	}
+
 	out := &CreateKeyOutput{
 		KeyMetadata: keyToMetadata(key),
 	}
@@ -806,6 +841,14 @@ func (b *InMemoryBackend) DescribeKey(
 
 	key, err := b.lookupKey(ctx, input.KeyID)
 	if err != nil {
+		return nil, err
+	}
+
+	// DescribeKey is a grant operation with no encryption context, so validate
+	// grant-token presence only (existence + TTL) -- consistent with Sign/Verify/
+	// GetPublicKey/DeriveSharedSecret. Empty GrantTokens is a no-op, which is the
+	// only case Terraform ever exercises.
+	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
 		return nil, err
 	}
 
@@ -2098,28 +2141,51 @@ func (b *InMemoryBackend) CancelKeyDeletion(
 	return &CancelKeyDeletionOutput{KeyID: key.KeyID, KeyState: key.KeyState}, nil
 }
 
-// lookupKey finds a key by ID, alias, or ARN. Caller must hold at least a read lock.
-func (b *InMemoryBackend) lookupKey(ctx context.Context, keyID string) (*Key, error) {
+// resolveKeyAndRegion resolves a key ID, alias, or ARN to the live *Key, the
+// canonical key UUID, and the region the key actually lives in. Caller must hold
+// at least a read lock.
+//
+// The returned region is authoritative: for an ARN input it is the ARN's own
+// embedded region, for an alias it is the alias's region, and for a bare UUID
+// that is not present in the request region it is the region discovered by the
+// all-region fallback below. Region-partitioned ops (GetKeyPolicy, PutKeyPolicy,
+// CreateGrant, ListGrants, RevokeGrant, RetireGrant) MUST index their secondary
+// stores (policiesStore/grantsRegion) with THIS region rather than the request
+// region, so that a KeyId ARN carrying a different embedded region than the
+// request resolves consistently — the same region-awareness DescribeKey/Encrypt/
+// Decrypt already get for free by routing through this helper (via lookupKey).
+func (b *InMemoryBackend) resolveKeyAndRegion(
+	ctx context.Context,
+	keyID string,
+) (*Key, string, error) {
 	resolved, region, err := b.resolveKeyID(ctx, keyID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	key, ok := b.keysStore(region).Get(resolved)
-	if !ok {
-		// For plain UUID lookups (not ARN or alias), fall back to searching all regions.
-		// This preserves mock compatibility: multi-region tests create replicas in a target
-		// region and look them up without specifying the target region in ctx.
-		if !strings.HasPrefix(keyID, "arn:") && !strings.HasPrefix(keyID, "alias/") {
-			if key = b.findKeyInAnyRegion(resolved); key != nil {
-				return key, nil
-			}
+	if key, ok := b.keysStore(region).Get(resolved); ok {
+		return key, region, nil
+	}
+
+	// For plain UUID lookups (not ARN or alias), fall back to searching all regions.
+	// This preserves mock compatibility: multi-region tests create replicas in a target
+	// region and look them up without specifying the target region in ctx. The region
+	// reported back is the key's actual ARN region so region-partitioned callers index
+	// the right store.
+	if !strings.HasPrefix(keyID, "arn:") && !strings.HasPrefix(keyID, "alias/") {
+		if key := b.findKeyInAnyRegion(resolved); key != nil {
+			return key, extractRegionFromARN(key.Arn), nil
 		}
-
-		return nil, ErrKeyNotFound
 	}
 
-	return key, nil
+	return nil, "", ErrKeyNotFound
+}
+
+// lookupKey finds a key by ID, alias, or ARN. Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupKey(ctx context.Context, keyID string) (*Key, error) {
+	key, _, err := b.resolveKeyAndRegion(ctx, keyID)
+
+	return key, err
 }
 
 // lookupKeyWrite finds a key by ID, alias, or ARN. Caller must hold a write lock.
@@ -2452,17 +2518,15 @@ func (b *InMemoryBackend) CreateGrant(
 	b.mu.Lock("CreateGrant")
 	defer b.mu.Unlock()
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
+	// Store the grant in the key's own region (ARN-embedded region for an ARN
+	// input), so ListGrants/RevokeGrant/RetireGrant addressing the key the same
+	// way find it.
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	key, ok := b.keysStore(region).Get(keyID)
-	if !ok {
-		return nil, ErrKeyNotFound
-	}
+	keyID := key.KeyID
 
 	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
 		return nil, keyStateError(key)
@@ -2606,16 +2670,14 @@ func (b *InMemoryBackend) ListGrants(
 	b.mu.RLock("ListGrants")
 	defer b.mu.RUnlock()
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
+	// Read grants from the key's own region (ARN-embedded region for an ARN input),
+	// matching where CreateGrant stored them.
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !b.keysStore(region).Has(keyID) {
-		return nil, ErrKeyNotFound
-	}
+	keyID := key.KeyID
 
 	var grants []Grant
 	for _, g := range b.grantsRegion(region).byKey.Get(keyID) {
@@ -2660,19 +2722,15 @@ func (b *InMemoryBackend) RevokeGrant(ctx context.Context, input *RevokeGrantInp
 	b.mu.Lock("RevokeGrant")
 	defer b.mu.Unlock()
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
+	// Resolve against the key's own region (ARN-embedded region for an ARN input)
+	// so the grant is found in the store CreateGrant wrote it to.
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
 
-	if !b.keysStore(region).Has(keyID) {
-		return ErrKeyNotFound
-	}
-
 	grant, ok := b.grantsStore(region).Get(input.GrantID)
-	if !ok || grant.KeyID != keyID {
+	if !ok || grant.KeyID != key.KeyID {
 		return ErrGrantNotFound
 	}
 
@@ -2687,8 +2745,6 @@ func (b *InMemoryBackend) RevokeGrant(ctx context.Context, input *RevokeGrantInp
 func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInput) error {
 	b.mu.Lock("RetireGrant")
 	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.defaultRegion)
 
 	if input.GrantToken != "" {
 		// Search all regions for the grant token.
@@ -2708,26 +2764,35 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 		return ErrGrantNotFound
 	}
 
-	grant, ok := b.grantsStore(region).Get(input.GrantID)
-	if !ok {
-		return ErrGrantNotFound
-	}
-
+	// When a KeyId is supplied, resolve it to the key's own region (ARN-embedded
+	// region for an ARN input) and retire the grant from that region's store, so a
+	// grant created via a cross-region ARN is retired consistently. When no KeyId
+	// is supplied there is no region hint, so search every region for the grant ID.
 	if input.KeyID != "" {
-		keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
+		key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
 		if err != nil {
 			return err
 		}
 
-		if grant.KeyID != keyID {
+		grant, ok := b.grantsStore(region).Get(input.GrantID)
+		if !ok || grant.KeyID != key.KeyID {
 			return ErrGrantNotFound
+		}
+
+		b.grantsStore(region).Delete(input.GrantID)
+
+		return nil
+	}
+
+	for _, gs := range b.grants {
+		if _, ok := gs.table.Get(input.GrantID); ok {
+			gs.table.Delete(input.GrantID)
+
+			return nil
 		}
 	}
 
-	// A single Delete keeps the byToken and byKey indexes consistent automatically.
-	b.grantsStore(region).Delete(input.GrantID)
-
-	return nil
+	return ErrGrantNotFound
 }
 
 // ListRetirableGrants returns all grants for which the given principal is the retiring principal.
@@ -2822,31 +2887,36 @@ func (b *InMemoryBackend) PutKeyPolicy(ctx context.Context, input *PutKeyPolicyI
 	b.mu.Lock("PutKeyPolicy")
 	defer b.mu.Unlock()
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
+	// Store the policy in the key's own region (ARN-embedded region for an ARN
+	// input), so GetKeyPolicy reads it back consistently regardless of the request
+	// region.
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
 	if err != nil {
 		return err
 	}
 
-	if !b.keysStore(region).Has(keyID) {
-		return ErrKeyNotFound
+	if !validKeyPolicyDoc(input.Policy) {
+		return ErrMalformedPolicyDocument
 	}
 
+	b.policiesStore(region)[key.KeyID] = input.Policy
+
+	return nil
+}
+
+// validKeyPolicyDoc reports whether s is a well-formed KMS key policy document
+// (valid JSON with non-empty Version and a Statement). Used by both PutKeyPolicy
+// and CreateKey (which accepts an inline Policy).
+func validKeyPolicyDoc(s string) bool {
 	var policyDoc struct {
 		Statement any    `json:"Statement"`
 		Version   string `json:"Version"`
 	}
-	if uerr := json.Unmarshal([]byte(input.Policy), &policyDoc); uerr != nil {
-		return ErrMalformedPolicyDocument
-	}
-	if policyDoc.Version == "" || policyDoc.Statement == nil {
-		return ErrMalformedPolicyDocument
+	if err := json.Unmarshal([]byte(s), &policyDoc); err != nil {
+		return false
 	}
 
-	b.policiesStore(region)[keyID] = input.Policy
-
-	return nil
+	return policyDoc.Version != "" && policyDoc.Statement != nil
 }
 
 // GetKeyPolicy retrieves the key policy for a KMS key.
@@ -2857,16 +2927,15 @@ func (b *InMemoryBackend) GetKeyPolicy(
 	b.mu.RLock("GetKeyPolicy")
 	defer b.mu.RUnlock()
 
-	region := getRegion(ctx, b.defaultRegion)
-
-	keyID, _, err := b.resolveKeyID(ctx, input.KeyID)
+	// Resolve against the key's own region (ARN-embedded region for an ARN input),
+	// not the request region, so a cross-region ARN reads the policy from the store
+	// the key actually lives in.
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
 	if err != nil {
 		return nil, err
 	}
 
-	if !b.keysStore(region).Has(keyID) {
-		return nil, ErrKeyNotFound
-	}
+	keyID := key.KeyID
 
 	policy, ok := b.policiesStore(region)[keyID]
 	if !ok {
@@ -3246,6 +3315,12 @@ func (b *InMemoryBackend) ReplicateKey(
 		return nil, fmt.Errorf("%w: ReplicaRegion must not be empty", ErrValidation)
 	}
 
+	// An inline policy, if supplied, must be a well-formed key policy document
+	// (same rule CreateKey applies to its own Policy field).
+	if input.Policy != "" && !validKeyPolicyDoc(input.Policy) {
+		return nil, ErrMalformedPolicyDocument
+	}
+
 	b.mu.Lock("ReplicateKey")
 	defer b.mu.Unlock()
 
@@ -3318,6 +3393,17 @@ func (b *InMemoryBackend) ReplicateKey(
 
 	// Store replica key in the target region's store.
 	b.keysStore(input.ReplicaRegion).Put(replica)
+
+	// Persist the caller-supplied policy so GetKeyPolicy on the replica returns
+	// it verbatim rather than synthesizing the default -- the key policy is not
+	// a shared multi-region property, so the replica does not inherit the
+	// source key's policy. Mirrors CreateKey's identical Policy handling; see
+	// the CreateKey comment above for why this matters to Terraform's
+	// aws_kms_replica_key resource (it polls GetKeyPolicy after apply the same
+	// way aws_kms_key does).
+	if input.Policy != "" {
+		b.policiesStore(input.ReplicaRegion)[replica.KeyID] = input.Policy
+	}
 
 	// Record the replica key ID on the source (primary) key so DescribeKey can
 	// return the full MultiRegionConfiguration.

@@ -13,6 +13,7 @@ type StorageBackend interface {
 	CreateWebACL(
 		name, metricName string,
 		defaultAction WafAction,
+		changeToken string,
 		tags map[string]string,
 	) (*WebACL, error)
 	GetWebACL(id string) (*WebACL, error)
