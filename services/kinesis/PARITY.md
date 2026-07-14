@@ -1,12 +1,12 @@
 ---
 service: kinesis
 sdk_module: aws-sdk-go-v2/service/kinesis@v1.43.2
-last_audit_commit: d9cb5d10
-last_audit_date: 2026-07-11
-overall: A            # re-audit: ~70 LOC fix (retention-period equality bug) + 2 missing ops added to ledger + 1 stale gap corrected
+last_audit_commit: 2b2086c9
+last_audit_date: 2026-07-13
+overall: A            # revert: retention-period equality bug fix from 2b2086c9 broke real terraform apply; restored idempotent equal-value no-op, confirmed via live SDK repro
 ops:
-  IncreaseStreamRetentionPeriod: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: equal-to-current RetentionPeriodHours was silently treated as an idempotent no-op (200 OK); real AWS requires the new value to be strictly greater than the current one and rejects equal/lower values with InvalidArgumentException (verified against the aws-sdk-go-v2 input doc comment 'Must be more than the current retention period'). Was previously undocumented in this ledger (not part of the prior sweep's audited ops list) and had a dedicated test (TestRefinement3_RetentionPeriod_IdempotentIncrease) actively asserting the wrong behavior -- classic 'rationalized bug' trap. Bounds (min 24h/max 8760h) unaffected and re-verified correct."}
-  DecreaseStreamRetentionPeriod: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same equality bug as IncreaseStreamRetentionPeriod, mirrored -- equal-to-current now rejected with InvalidArgumentException instead of a silent no-op, matching the aws-sdk-go-v2 doc comment 'Must be less than the current retention period'. Min bound (24h) unaffected."}
+  IncreaseStreamRetentionPeriod: {wire: ok, errors: ok, state: ok, persist: ok, note: "reverted 2b2086c9: that commit made equal-to-current RetentionPeriodHours return InvalidArgumentException (a strict reading of the aws-sdk-go-v2 doc comment 'Must be more than the current retention period'), which broke TestTerraform_Kinesis in CI -- terraform's aws_kinesis_stream resource issues IncreaseStreamRetentionPeriod even when the requested value already equals the stream's current retention (confirmed live: CreateStream -> 24h default -> Increase(48) OK -> a second Increase(48) against the already-48h stream 400'd with InvalidArgumentException before this fix). Real AWS tolerates the equal case rather than erroring on every no-drift re-apply, so restored equal-value == no-op success. Strictly-lower and out-of-[24,8760] values are still rejected."}
+  DecreaseStreamRetentionPeriod: {wire: ok, errors: ok, state: ok, persist: ok, note: "reverted 2b2086c9, mirrored: equal-to-current RetentionPeriodHours is a no-op success again (not InvalidArgumentException), matching real AWS/terraform tolerance. Strictly-greater and below-24h-min values are still rejected."}
   CreateStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ON_DEMAND now defaults to 4 shards (was 1); inline Tags now validated pre-mutation and persisted via TagResource instead of a lost handler-local map"}
   DeleteStream: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Shards list now paginates (Limit/ExclusiveStartShardId/HasMoreShards); previously returned every shard in one page with HasMoreShards hardcoded false"}
@@ -63,27 +63,35 @@ leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Clo
 
 ## Notes
 
-### Retention-period equality bug (the headline fix this re-audit pass)
+### Retention-period equality bug — reverted after breaking real terraform apply (CI: TestTerraform_Kinesis)
 
-`IncreaseStreamRetentionPeriod` and `DecreaseStreamRetentionPeriod` were absent from the previous
-sweep's `ops:` table entirely — they had never actually been audited against the real SDK, only
-implemented. Both handlers treated a `RetentionPeriodHours` equal to the stream's current retention
-period as a **silent no-op returning success (200 OK)**, justified by an in-code comment claiming this
-"matches the idempotent behaviour expected by the AWS Terraform provider." The real
-`aws-sdk-go-v2/service/kinesis` input doc comments are unambiguous: `IncreaseStreamRetentionPeriodInput.
-RetentionPeriodHours` "Must be more than the current retention period" and
-`DecreaseStreamRetentionPeriodInput.RetentionPeriodHours` "Must be less than the current retention
-period" — both strict inequalities. Real AWS returns `InvalidArgumentException` for an equal (or
-wrong-direction) value; this was independently confirmed via web search against AWS documentation.
-Worse, a previous sweep had gone on to write a dedicated regression test
-(`TestRefinement3_RetentionPeriod_IdempotentIncrease`, since renamed
-`TestRefinement3_RetentionPeriod_IncreaseToSameValueRejected`) plus two `backend_test.go` table cases
-(`increase_same_value_is_noop`/`decrease_same_value_is_noop`, since renamed `..._rejected`) that
-actively *asserted* the wrong behavior — the exact "rationalized-bug" trap this ledger's own tag-fix
-note warned about. Fixed both backend methods to reject `RetentionPeriodHours` that is `<=`/`>=` the
-current value (respectively) with `ErrInvalidArgument`, and updated the three tests that had codified
-the old behavior to assert the correct `InvalidArgumentException` instead. Min/max bound checks (24h
-floor / 8760h ceiling) were already correct and untouched.
+A previous pass (`2b2086c9`) changed `IncreaseStreamRetentionPeriod`/`DecreaseStreamRetentionPeriod`
+from treating an equal `RetentionPeriodHours` as an idempotent no-op (200 OK) to rejecting it with
+`InvalidArgumentException`, reasoning from the literal aws-sdk-go-v2 doc comments:
+`IncreaseStreamRetentionPeriodInput.RetentionPeriodHours` "Must be more than the current retention
+period" and `DecreaseStreamRetentionPeriodInput.RetentionPeriodHours` "Must be less than the current
+retention period" — both strict inequalities on their face.
+
+That change broke `TestTerraform_Kinesis` in CI: `aws_kinesis_stream` with `retention_period = 48`
+started failing at `apply` with `IncreaseStreamRetentionPeriod, 400, InvalidArgumentException`.
+Reproduced live against a running gopherstack instance with the real `aws-sdk-go-v2/service/kinesis`
+client: `CreateStream` (shard count 1) → stream ACTIVE at the 24h default → first
+`IncreaseStreamRetentionPeriod(48)` succeeds → **a second `IncreaseStreamRetentionPeriod(48)` issued
+against the now-already-48h stream (mimicking the OpenTofu/Terraform AWS provider's create-then-set /
+idempotent-reapply flow) returns `InvalidArgumentException`** even though the stream is already at the
+requested value. Real AWS tolerates this — the terraform provider relies on the API being idempotent
+for a no-drift re-apply, and a strict reading of the doc comment that rejects the equal case does not
+survive contact with the provider's actual call pattern.
+
+Reverted both backend methods to treat an equal `RetentionPeriodHours` as a no-op success again, while
+keeping strict rejection of the wrong direction (lower value on Increase, higher value on Decrease) and
+the min/max bounds (24h floor / 8760h ceiling, unaffected). Updated the three tests that `2b2086c9` had
+changed to assert the strict-rejection behavior
+(`backend_test.go`'s `increase_same_value_rejected`/`decrease_same_value_rejected` table cases, and
+`handler_refinement3_test.go`'s `TestRefinement3_RetentionPeriod_IncreaseToSameValueRejected`) back to
+asserting the no-op-success behavior, and added
+`TestRefinement3_RetentionPeriod_IncreaseFromDefaultEqualsDefault` to cover the exact default-24h
+create-then-set-24h terraform pattern.
 
 ### Resource-policy persistence gap correction (documentation-only)
 

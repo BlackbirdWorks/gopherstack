@@ -1684,7 +1684,7 @@ func TestRefinement3_PutRecord_ExplicitHashKey_OneAboveMax(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRefinement3_RetentionPeriod_IncreaseToSameValueRejected(t *testing.T) {
+func TestRefinement3_RetentionPeriod_IncreaseToSameValueIsNoOp(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
@@ -1702,19 +1702,45 @@ func TestRefinement3_RetentionPeriod_IncreaseToSameValueRejected(t *testing.T) {
 		}),
 	)
 
-	// AWS requires the new value to be strictly greater than the current
-	// retention period; calling with the same value is InvalidArgumentException,
-	// not a silent no-op (verified against the aws-sdk-go-v2 doc comment "Must
-	// be more than the current retention period").
+	// Real AWS accepts an increase whose target equals the current retention
+	// period as an idempotent no-op returning HTTP 200 (not InvalidArgumentException).
+	// The Terraform AWS provider issues IncreaseStreamRetentionPeriod on stream
+	// create for any retention_period > 0 (guard `v.(int) > 0`), so a stream
+	// whose configured retention already equals its current value must succeed;
+	// rejecting it breaks `aws_kinesis_stream` apply.
 	err := b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 		StreamName:           "idempotent-retention",
 		RetentionPeriodHours: 48,
 	})
-	require.ErrorIs(t, err, kinesis.ErrInvalidArgument)
+	require.NoError(t, err)
 
 	out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "idempotent-retention"})
 	require.NoError(t, err)
 	assert.Equal(t, 48, out.RetentionPeriodHours)
+}
+
+// TestRefinement3_RetentionPeriod_IncreaseFromDefaultEqualsDefault reproduces the
+// exact Terraform apply flow that regressed: a stream created with the default
+// 24h retention receives IncreaseStreamRetentionPeriod(24) (the provider calls it
+// unconditionally for any retention_period > 0). It must return success.
+func TestRefinement3_RetentionPeriod_IncreaseFromDefaultEqualsDefault(t *testing.T) {
+	t.Parallel()
+
+	b := kinesis.NewInMemoryBackend()
+	require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+		StreamName: "default-retention",
+		ShardCount: 1,
+	}))
+
+	err := b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
+		StreamName:           "default-retention",
+		RetentionPeriodHours: 24,
+	})
+	require.NoError(t, err)
+
+	out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "default-retention"})
+	require.NoError(t, err)
+	assert.Equal(t, 24, out.RetentionPeriodHours)
 }
 
 func TestRefinement3_RetentionPeriod_DecreaseStillWorks(t *testing.T) {

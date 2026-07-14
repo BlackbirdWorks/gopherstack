@@ -362,13 +362,16 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "increase_same_value_rejected",
+			name: "increase_same_value_noop",
 			setup: func(bk *kinesis.InMemoryBackend) {
 				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
 			},
-			// AWS requires the new value to be strictly greater than the current
-			// retention period; equal values are InvalidArgumentException, not a no-op.
-			wantErr: true,
+			// Real AWS accepts an increase whose target equals the current
+			// retention period as an idempotent no-op (HTTP 200). The Terraform
+			// provider calls IncreaseStreamRetentionPeriod on create for any
+			// retention_period > 0, so a default-24h stream receives
+			// IncreaseStreamRetentionPeriod(24) and must not be rejected.
+			wantErr: false,
 			action: func(bk *kinesis.InMemoryBackend) error {
 				return bk.IncreaseStreamRetentionPeriod(
 					context.Background(),
@@ -425,16 +428,16 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "decrease_same_value_rejected",
+			name: "decrease_same_value_noop",
 			setup: func(bk *kinesis.InMemoryBackend) {
 				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
 				_ = bk.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 					StreamName: "s", RetentionPeriodHours: 48,
 				})
 			},
-			// AWS requires the new value to be strictly less than the current
-			// retention period; equal values are InvalidArgumentException, not a no-op.
-			wantErr: true,
+			// Mirrors the increase case: a decrease whose target equals the current
+			// retention period is an idempotent no-op (HTTP 200), not a rejection.
+			wantErr: false,
 			action: func(bk *kinesis.InMemoryBackend) error {
 				return bk.DecreaseStreamRetentionPeriod(
 					context.Background(),
