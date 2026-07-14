@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,56 +12,186 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// Registry represents a Glue Schema Registry.
-type Registry struct {
-	Tags        map[string]string `json:"Tags,omitempty"`
-	Name        string            `json:"RegistryName"`
-	ARN         string            `json:"RegistryArn"`
-	Description string            `json:"Description,omitempty"`
-	Status      string            `json:"Status"`
-	CreatedTime float64           `json:"CreatedTime,omitempty"`
-	UpdatedTime float64           `json:"UpdatedTime,omitempty"`
+// PutSchemaVersionMetadata stores a key-value metadata pair for a schema
+// version. schemaVersionID must be a valid version ID registered via
+// RegisterSchemaVersion.
+func (b *InMemoryBackend) PutSchemaVersionMetadata(schemaVersionID, key, value string) error {
+	if schemaVersionID == "" || key == "" {
+		return fmt.Errorf("schemaVersionID and key are required: %w", ErrValidation)
+	}
+
+	b.mu.Lock("PutSchemaVersionMetadata")
+	defer b.mu.Unlock()
+
+	if _, ok := b.schemaVersionMetadata[schemaVersionID]; !ok {
+		b.schemaVersionMetadata[schemaVersionID] = make(map[string]string)
+	}
+
+	b.schemaVersionMetadata[schemaVersionID][key] = value
+
+	return nil
 }
 
-// Schema represents a Glue Schema Registry schema.
-type Schema struct {
-	Tags                map[string]string `json:"Tags,omitempty"`
-	RegistryName        string            `json:"RegistryName"`
-	SchemaName          string            `json:"SchemaName"`
-	SchemaARN           string            `json:"SchemaArn"`
-	RegistryARN         string            `json:"RegistryArn"`
-	DataFormat          string            `json:"DataFormat"`
-	Compatibility       string            `json:"Compatibility"`
-	Description         string            `json:"Description,omitempty"`
-	SchemaStatus        string            `json:"SchemaStatus"`
-	CreatedTime         float64           `json:"CreatedTime,omitempty"`
-	UpdatedTime         float64           `json:"UpdatedTime,omitempty"`
-	LatestSchemaVersion int64             `json:"LatestSchemaVersion"`
-	NextSchemaVersion   int64             `json:"NextSchemaVersion"`
-	CheckpointVersion   int64             `json:"SchemaCheckpoint"`
+// QuerySchemaVersionMetadata returns all metadata key-value pairs for the
+// given schema version ID.  Returns an empty map when none have been stored.
+func (b *InMemoryBackend) QuerySchemaVersionMetadata(schemaVersionID string) map[string]string {
+	b.mu.RLock("QuerySchemaVersionMetadata")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]string)
+
+	if m, ok := b.schemaVersionMetadata[schemaVersionID]; ok {
+		maps.Copy(out, m)
+	}
+
+	return out
 }
 
-// SchemaVersion represents a single version of a schema.
-type SchemaVersion struct {
-	SchemaVersionID  string  `json:"SchemaVersionId"`
-	SchemaARN        string  `json:"SchemaArn"`
-	SchemaDefinition string  `json:"SchemaDefinition,omitempty"`
-	Status           string  `json:"Status"`
-	DataFormat       string  `json:"DataFormat,omitempty"`
-	VersionNumber    int64   `json:"VersionNumber"`
-	CreatedTime      float64 `json:"CreatedTime,omitempty"`
+// RemoveSchemaVersionMetadata deletes a metadata key from a schema version.
+func (b *InMemoryBackend) RemoveSchemaVersionMetadata(schemaVersionID, key string) error {
+	if schemaVersionID == "" || key == "" {
+		return fmt.Errorf("schemaVersionID and key are required: %w", ErrValidation)
+	}
+
+	b.mu.Lock("RemoveSchemaVersionMetadata")
+	defer b.mu.Unlock()
+
+	if m, ok := b.schemaVersionMetadata[schemaVersionID]; ok {
+		delete(m, key)
+	}
+
+	return nil
 }
 
-// CrawlerMetrics holds runtime metrics for a crawler.
-type CrawlerMetrics struct {
-	CrawlerName          string  `json:"CrawlerName"`
-	TimeLeftSeconds      float64 `json:"TimeLeftSeconds"`
-	LastRuntimeSeconds   float64 `json:"LastRuntimeSeconds"`
-	MedianRuntimeSeconds float64 `json:"MedianRuntimeSeconds"`
-	TablesCreated        int     `json:"TablesCreated"`
-	TablesUpdated        int     `json:"TablesUpdated"`
-	TablesDeleted        int     `json:"TablesDeleted"`
-	StillEstimating      bool    `json:"StillEstimating"`
+// GetSchemaByDefinition searches all versions of the named schema for one
+// whose SchemaDefinition exactly matches definition.
+func (b *InMemoryBackend) GetSchemaByDefinition(
+	registryName, schemaName, definition string,
+) (*SchemaVersion, error) {
+	b.mu.RLock("GetSchemaByDefinition")
+	defer b.mu.RUnlock()
+
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
+	if !ok {
+		return nil, fmt.Errorf("schema %q/%q not found: %w", registryName, schemaName, ErrNotFound)
+	}
+
+	for _, sv := range b.schemaVersions[schemaVersionListKey(s.SchemaARN)] {
+		if sv.SchemaDefinition == definition {
+			cp := *sv
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no schema version with matching definition: %w", ErrNotFound)
+}
+
+// GetSchemaVersionsDiff compares the definitions of two schema versions and
+// returns a human-readable diff string (lines added in v2 prefixed with "+",
+// lines removed prefixed with "-"). An empty string means the versions are
+// identical.
+func (b *InMemoryBackend) GetSchemaVersionsDiff(
+	registryName, schemaName string,
+	v1, v2 int64,
+) (string, error) {
+	b.mu.RLock("GetSchemaVersionsDiff")
+	defer b.mu.RUnlock()
+
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
+	if !ok {
+		return "", fmt.Errorf("schema %q/%q not found: %w", registryName, schemaName, ErrNotFound)
+	}
+
+	defs := make(map[int64]string)
+
+	for _, sv := range b.schemaVersions[schemaVersionListKey(s.SchemaARN)] {
+		if sv.VersionNumber == v1 || sv.VersionNumber == v2 {
+			defs[sv.VersionNumber] = sv.SchemaDefinition
+		}
+	}
+
+	def1 := defs[v1]
+	def2 := defs[v2]
+
+	if def1 == def2 {
+		return "", nil
+	}
+
+	return buildLineDiff(def1, def2), nil
+}
+
+// buildLineDiff produces a simple unified-style line diff.
+func buildLineDiff(old, newDef string) string {
+	oldLines := splitLines(old)
+	newLines := splitLines(newDef)
+
+	oldSet := make(map[string]struct{}, len(oldLines))
+	for _, l := range oldLines {
+		oldSet[l] = struct{}{}
+	}
+
+	newSet := make(map[string]struct{}, len(newLines))
+	for _, l := range newLines {
+		newSet[l] = struct{}{}
+	}
+
+	var removed, added []string
+
+	for _, l := range oldLines {
+		if _, ok := newSet[l]; !ok {
+			removed = append(removed, "-"+l)
+		}
+	}
+
+	for _, l := range newLines {
+		if _, ok := oldSet[l]; !ok {
+			added = append(added, "+"+l)
+		}
+	}
+
+	sort.Strings(removed)
+	sort.Strings(added)
+
+	removed = append(removed, added...)
+
+	return strings.Join(removed, "\n")
+}
+
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+
+	return strings.Split(strings.TrimSpace(s), "\n")
+}
+
+// DeleteSchemaVersion removes a single schema version from the store.
+// Returns ErrNotFound if the schema or version does not exist.
+func (b *InMemoryBackend) DeleteSchemaVersion(
+	registryName, schemaName string,
+	versionNumber int64,
+) error {
+	b.mu.Lock("DeleteSchemaVersion")
+	defer b.mu.Unlock()
+
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
+	if !ok {
+		return fmt.Errorf("schema %q/%q not found: %w", registryName, schemaName, ErrNotFound)
+	}
+
+	listKey := schemaVersionListKey(s.SchemaARN)
+	versions := b.schemaVersions[listKey]
+
+	for i, sv := range versions {
+		if sv.VersionNumber == versionNumber {
+			b.schemaVersions[listKey] = append(versions[:i], versions[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("schema version %d not found: %w", versionNumber, ErrNotFound)
 }
 
 func (b *InMemoryBackend) registryARN(name string) string {
@@ -85,8 +216,6 @@ func schemaKey(registryName, schemaName string) string {
 func schemaVersionListKey(schemaARN string) string {
 	return schemaARN
 }
-
-// --- Registry operations ---
 
 // CreateRegistry creates a new Glue Schema Registry.
 func (b *InMemoryBackend) CreateRegistry(
@@ -181,8 +310,6 @@ func (b *InMemoryBackend) DeleteRegistry(name string) error {
 
 	return nil
 }
-
-// --- Schema operations ---
 
 // CreateSchema creates a new schema in the given registry.
 func (b *InMemoryBackend) CreateSchema(
@@ -310,8 +437,6 @@ func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) error {
 	return nil
 }
 
-// --- Schema Version operations ---
-
 // RegisterSchemaVersion registers a new version of a schema.
 func (b *InMemoryBackend) RegisterSchemaVersion(
 	registryName, schemaName, schemaDefinition string,
@@ -385,100 +510,6 @@ func (b *InMemoryBackend) ListSchemaVersions(registryName, schemaName string) []
 	for i, sv := range src {
 		cp := *sv
 		out[i] = &cp
-	}
-
-	return out
-}
-
-// --- Crawler Metrics ---
-
-// --- Table Version retrieval ---
-
-// GetTableVersions returns all stored versions for a table, sorted by versionID.
-func (b *InMemoryBackend) GetTableVersions(dbName, tableName string) []*TableVersion {
-	b.mu.RLock("GetTableVersions")
-	defer b.mu.RUnlock()
-
-	prefix := tableVersionKey(dbName, tableName, "")
-	src := b.tableVersions.Snapshot()
-	out := make([]*TableVersion, 0, len(src))
-
-	for _, tv := range src {
-		if k := tableVersionEntryKeyFn(tv); len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			cp := *tv
-			if tv.Table != nil {
-				t := *tv.Table
-				cp.Table = &t
-			}
-
-			out = append(out, &cp)
-		}
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].VersionID < out[j].VersionID
-	})
-
-	return out
-}
-
-// GetTableVersion returns a specific version of a table.
-func (b *InMemoryBackend) GetTableVersion(
-	dbName, tableName, versionID string,
-) (*TableVersion, error) {
-	b.mu.RLock("GetTableVersion")
-	defer b.mu.RUnlock()
-
-	key := tableVersionKey(dbName, tableName, versionID)
-
-	tv, ok := b.tableVersions.Get(key)
-	if !ok {
-		return nil, ErrNotFound
-	}
-
-	cp := *tv
-	if tv.Table != nil {
-		t := *tv.Table
-		cp.Table = &t
-	}
-
-	return &cp, nil
-}
-
-// crawlerDefaultRuntimeSeconds is the simulated last/median runtime returned for a crawler.
-const crawlerDefaultRuntimeSeconds = 45.0
-
-// GetCrawlerMetrics returns metrics for one or all crawlers.
-// If crawlerNames is empty, metrics for all crawlers are returned.
-func (b *InMemoryBackend) GetCrawlerMetrics(crawlerNames []string) []*CrawlerMetrics {
-	b.mu.RLock("GetCrawlerMetrics")
-	defer b.mu.RUnlock()
-
-	if len(crawlerNames) == 0 {
-		for _, c := range b.crawlers.All() {
-			crawlerNames = append(crawlerNames, c.Name)
-		}
-
-		sort.Strings(crawlerNames)
-	}
-
-	out := make([]*CrawlerMetrics, 0, len(crawlerNames))
-
-	for _, name := range crawlerNames {
-		c, ok := b.crawlers.Get(name)
-		if !ok {
-			continue
-		}
-
-		metrics := &CrawlerMetrics{
-			CrawlerName:          name,
-			TimeLeftSeconds:      0,
-			StillEstimating:      c.State == stateRunning,
-			LastRuntimeSeconds:   crawlerDefaultRuntimeSeconds,
-			MedianRuntimeSeconds: crawlerDefaultRuntimeSeconds,
-		}
-
-		out = append(out, metrics)
 	}
 
 	return out

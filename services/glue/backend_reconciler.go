@@ -5,6 +5,108 @@ import (
 	"time"
 )
 
+// advanceJobRunState applies STARTING→RUNNING and RUNNING→SUCCEEDED transitions for a
+// single run, consulting the readyMap and doneMap timing tables. Must be called with b.mu held.
+func advanceJobRunState(run *JobRun, readyMap, doneMap map[string]time.Time, now time.Time) {
+	if readyMap != nil {
+		if t, ok := readyMap[run.ID]; ok && now.After(t) {
+			if run.JobRunState == stateStarting {
+				run.JobRunState = stateRunning
+			}
+			delete(readyMap, run.ID)
+		}
+	}
+
+	if doneMap != nil {
+		if t, ok := doneMap[run.ID]; ok && now.After(t) {
+			if run.JobRunState == stateRunning {
+				run.JobRunState = stateSucceeded
+				run.CompletedOn = float64(now.Unix())
+				run.ExecutionTime = int(jobSucceededDelay.Seconds())
+			}
+			delete(doneMap, run.ID)
+		}
+	}
+}
+
+// reconcileLocked applies pending lifecycle transitions as of now. Must be called
+// with b.mu held. Taking now as a parameter (rather than reading the clock again)
+// keeps the due-scan and the application consistent and makes advancement
+// deterministically testable.
+func (b *InMemoryBackend) reconcileLocked(now time.Time) {
+	// Job run transitions: STARTING→RUNNING, RUNNING→SUCCEEDED.
+	for jobName, runs := range b.jobRuns {
+		readyMap := b.jobRunReadyAt[jobName]
+		doneMap := b.jobRunDoneAt[jobName]
+
+		for _, run := range runs {
+			advanceJobRunState(run, readyMap, doneMap, now)
+		}
+	}
+
+	// Crawler transitions:
+	//   RUNNING→READY  — crawl completes; create catalog tables from S3 targets.
+	//   STOPPING→READY — StopCrawler was issued; the crawler winds down to READY
+	//                    without creating tables (the crawl was interrupted).
+	for name, readyAt := range b.crawlerReadyAt {
+		if now.After(readyAt) {
+			c, ok := b.crawlers.Get(name)
+			if ok && c.State == stateRunning {
+				c.State = stateReady
+				c.LastUpdated = float64(now.Unix())
+				created := b.createCrawlerTablesLocked(c)
+				b.finishCrawlHistoryLocked(name, "COMPLETED", created, now)
+			} else if ok && c.State == stateStopping {
+				c.State = stateReady
+				c.LastUpdated = float64(now.Unix())
+				b.finishCrawlHistoryLocked(name, "STOPPED", 0, now)
+			}
+
+			delete(b.crawlerReadyAt, name)
+		}
+	}
+
+	b.pruneOrphanJobRunTimersLocked()
+}
+
+// pruneOrphanJobRunTimersLocked removes job-run timing entries whose job or run no
+// longer exists. Without this, a stale due timer would make pendingDueLocked report
+// work forever, so the reconciler would take the global write lock every tick — the
+// exact hot-loop the performance fix is meant to avoid. Must be called with b.mu held.
+func (b *InMemoryBackend) pruneOrphanJobRunTimersLocked() {
+	for jobName, timers := range b.jobRunReadyAt {
+		b.pruneJobTimerMapLocked(jobName, timers, b.jobRunReadyAt)
+	}
+
+	for jobName, timers := range b.jobRunDoneAt {
+		b.pruneJobTimerMapLocked(jobName, timers, b.jobRunDoneAt)
+	}
+}
+
+// pruneJobTimerMapLocked drops entries in a single job's timer sub-map for runs that
+// no longer exist, and drops the whole sub-map when the job or all its timers are
+// gone. Must be called with b.mu held.
+func (b *InMemoryBackend) pruneJobTimerMapLocked(
+	jobName string,
+	timers map[string]time.Time,
+	parent map[string]map[string]time.Time,
+) {
+	live := make(map[string]struct{}, len(b.jobRuns[jobName]))
+	for _, run := range b.jobRuns[jobName] {
+		live[run.ID] = struct{}{}
+	}
+
+	for runID := range timers {
+		if _, ok := live[runID]; !ok {
+			delete(timers, runID)
+		}
+	}
+
+	if len(timers) == 0 {
+		delete(parent, jobName)
+	}
+}
+
 // defaultReconcileInterval is how often the managed reconciler wakes to advance
 // due lifecycle transitions (job-run STARTING→RUNNING→SUCCEEDED and crawler
 // RUNNING/STOPPING→READY). It is derived from the shortest transition delay so
