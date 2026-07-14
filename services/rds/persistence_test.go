@@ -1,13 +1,184 @@
 package rds_test
 
 import (
+	"encoding/json"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/rds"
 )
+
+func TestBatch2_Persistence_JSONContainsBatch1Keys(t *testing.T) {
+	t.Parallel()
+
+	b := newBatch2Backend()
+	_, _ = b.CreateDBShardGroup("sg-x", "cl-x", 16, 2, 0, false)
+	_, _ = b.CreateIntegration("intg-x", "arn:src", "arn:dst", "", "", "")
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(snap, &raw))
+
+	// As of the Phase 3.3 pkgs/store conversion, resource collections backed by
+	// a store.Table are serialized under the nested "tables" blob (produced by
+	// store.Registry.SnapshotAll) rather than as top-level snapshot keys.
+	require.Contains(t, raw, "tables")
+
+	var tables map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw["tables"], &tables))
+
+	for _, key := range []string{
+		"customEngineVersions",
+		"shardGroups",
+		"integrations",
+		"tenantDatabases",
+		"clusterAutomatedBackups",
+	} {
+		assert.Contains(t, tables, key, "snapshot tables JSON missing key: %s", key)
+	}
+
+	// automatedBackups and snapshotTenantDatabases remain plain maps (not
+	// store.Table-backed -- see registerAllTables's exclusion comment in
+	// store_setup.go) and so still serialize as top-level snapshot keys.
+	for _, key := range []string{
+		"automatedBackups",
+		"snapshotTenantDatabases",
+	} {
+		assert.Contains(t, raw, key, "snapshot JSON missing key: %s", key)
+	}
+}
+
+// TestRDSBackend_Persistence_NewOps tests that new data is preserved through snapshot/restore cycles.
+func TestRDSBackend_Persistence_NewOps(t *testing.T) {
+	t.Parallel()
+
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateDBCluster("pg-cluster", "aurora-postgresql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
+	require.NoError(t, err)
+
+	err = b.AddRoleToDBCluster("pg-cluster", "arn:aws:iam::000000000000:role/MyRole")
+	require.NoError(t, err)
+
+	_, err = b.CreateDBInstance("my-db", "postgres", "", "", "", "", 20, rds.DBInstanceOptions{})
+	require.NoError(t, err)
+
+	err = b.AddRoleToDBInstance("my-db", "arn:aws:iam::000000000000:role/InstanceRole")
+	require.NoError(t, err)
+
+	_, err = b.AddSourceIdentifierToSubscription("my-sub", "source-1")
+	require.NoError(t, err)
+
+	_, err = b.AuthorizeDBSecurityGroupIngress("my-sg", "10.0.0.0/8")
+	require.NoError(t, err)
+
+	_, err = b.CreateBlueGreenDeployment("my-bgd", "arn:aws:rds:us-east-1:000000000000:db:my-db")
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := rds.NewInMemoryBackend("", "")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify cluster role persisted.
+	err = b2.AddRoleToDBCluster("pg-cluster", "arn:aws:iam::000000000000:role/MyRole")
+	require.NoError(t, err)
+
+	// Verify instance role persisted.
+	err = b2.AddRoleToDBInstance("my-db", "arn:aws:iam::000000000000:role/InstanceRole")
+	require.NoError(t, err)
+
+	// Verify event subscription persisted.
+	sub, err := b2.AddSourceIdentifierToSubscription("my-sub", "source-1")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"source-1"}, sub.SourceIDs)
+
+	// Verify security group persisted.
+	sg, err := b2.AuthorizeDBSecurityGroupIngress("my-sg", "10.0.0.0/8")
+	require.NoError(t, err)
+	require.Len(t, sg.IPRanges, 1)
+
+	// Verify blue/green deployment persisted.
+	_, err = b2.CreateBlueGreenDeployment("my-bgd", "arn:aws:rds:us-east-1:000000000000:db:my-db")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, rds.ErrBlueGreenDeploymentAlreadyExists)
+}
+
+// TestRDSBackend_PersistenceRoundTrip tests that new fields survive snapshot/restore.
+func TestRDSBackend_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b1 := rds.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Create instances with new fields.
+	_, err := b1.CreateDBInstance("db1", "postgres", "db.t3.micro", "mydb", "admin", "", 20, rds.DBInstanceOptions{
+		MultiAZ:               true,
+		StorageType:           "io1",
+		StorageEncrypted:      true,
+		BackupRetentionPeriod: 7,
+		AvailabilityZone:      "us-east-1b",
+	})
+	require.NoError(t, err)
+
+	// Snapshot and create a new snapshot.
+	_, err = b1.CreateDBSnapshot("snap1", "db1")
+	require.NoError(t, err)
+
+	// Restore from snapshot to new instance.
+	_, err = b1.RestoreDBInstanceFromDBSnapshot("restored-db", "snap1", rds.DBInstanceOptions{})
+	require.NoError(t, err)
+
+	// Create global cluster.
+	_, err = b1.CreateGlobalCluster("gc1", "aurora-postgresql", "14.3", true, false)
+	require.NoError(t, err)
+
+	// Add cluster endpoint.
+	_, err = b1.CreateDBCluster("cluster1", "aurora", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
+	require.NoError(t, err)
+	_, err = b1.CreateDBClusterEndpoint("ep1", "cluster1", "READER")
+	require.NoError(t, err)
+
+	// Start export task.
+	_, err = b1.StartExportTask("task1", "arn:aws:rds:us-east-1:000000000000:snapshot:snap1", "my-bucket")
+	require.NoError(t, err)
+
+	// Take a snapshot of backend state.
+	data := b1.Snapshot(t.Context())
+	require.NotEmpty(t, data)
+
+	// Restore into b2.
+	b2 := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	// Verify instances.
+	instances, err := b2.DescribeDBInstances("db1")
+	require.NoError(t, err)
+	require.Len(t, instances, 1)
+	assert.True(t, instances[0].MultiAZ)
+	assert.Equal(t, "io1", instances[0].StorageType)
+	assert.True(t, instances[0].StorageEncrypted)
+	assert.Equal(t, 7, instances[0].BackupRetentionPeriod)
+
+	// Verify cluster endpoints persisted.
+	endpoints, err := b2.DescribeDBClusterEndpoints("", "ep1")
+	require.NoError(t, err)
+	assert.Len(t, endpoints, 1)
+
+	// Verify export tasks persisted.
+	tasks, err := b2.DescribeExportTasks("task1")
+	require.NoError(t, err)
+	assert.Len(t, tasks, 1)
+
+	// Verify global clusters persisted.
+	gcs, err := b2.DescribeGlobalClusters("")
+	require.NoError(t, err)
+	assert.Len(t, gcs, 1)
+	assert.Equal(t, "gc1", gcs[0].GlobalClusterIdentifier)
+}
 
 func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	t.Parallel()
