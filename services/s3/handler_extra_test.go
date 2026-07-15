@@ -2128,6 +2128,16 @@ func TestS3BucketLoggingCRUD(t *testing.T) {
 			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantPut, rec.Code)
 
+			// Second PutBucketLogging
+			req = httptest.NewRequest(
+				http.MethodPut,
+				"/"+bucket+"?logging",
+				strings.NewReader(tt.configXML),
+			)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantPut, rec.Code)
+
 			// GetBucketLogging
 			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?logging", nil)
 			rec = httptest.NewRecorder()
