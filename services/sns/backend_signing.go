@@ -76,6 +76,7 @@ func newNotificationSigner(region string) *notificationSigner {
 // sign computes the RSA-SHA256 signature of the canonical notification string
 // per AWS SNS SignatureVersion=2 and returns it base64-encoded.
 func (s *notificationSigner) sign(canonical string) string {
+	// codeql[go/insecure-password-hashing] False positive: digital signature, not password hashing.
 	h := sha256.Sum256([]byte(canonical))
 	sig, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA256, h[:])
 	if err != nil {
