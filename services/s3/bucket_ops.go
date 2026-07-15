@@ -1869,6 +1869,15 @@ func (h *S3Handler) getBucketLifecycleConfiguration(
 
 		return
 	}
+	if !strings.Contains(lifecycleXML, `xmlns="`) {
+		lifecycleXML = strings.Replace(
+			lifecycleXML,
+			"<LifecycleConfiguration>",
+			`<LifecycleConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`,
+			1,
+		)
+	}
+
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(lifecycleXML))

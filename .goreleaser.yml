@@ -33,9 +33,12 @@ builds:
       - static_build
     # ldflags for version information and optimization
     ldflags:
-      - -s -w
-      - -X github.com/blackbirdworks/gopherstack/pkgs/version.Build={{.Version}}
-      - -extldflags "-static"
+      - -s
+      - -w
+      - -X
+      - github.com/blackbirdworks/gopherstack/pkgs/version.Build={{.Version}}
+      - -extldflags
+      - "-static"
     # Ignore certain combinations
     ignore:
       - goos: windows
