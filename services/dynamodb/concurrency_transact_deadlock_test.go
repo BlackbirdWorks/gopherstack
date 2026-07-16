@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -59,6 +60,7 @@ func TestTransactWriteItemsConvoyDeadlock(t *testing.T) {
 				},
 			})
 		}
+
 		return nil
 	})
 
@@ -82,14 +84,15 @@ func TestTransactWriteItemsConvoyDeadlock(t *testing.T) {
 				TableName: aws.String(tempName),
 			})
 		}
+
 		return nil
 	})
 
 	err = wg.Wait()
-	if err != nil && err != context.DeadlineExceeded {
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		t.Fatal("test deadlocked! TransactWriteItems and DeleteTable/CreateTable lock inversion detected.")
 	}
 }
