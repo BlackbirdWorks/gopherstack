@@ -1139,3 +1139,139 @@ func TestCBOR_ListMetrics_WithDimensions(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, metrics, 1)
 }
+
+// ---------------------------------------------------------------------------
+// Fix 4: buildCompositeAlarmCBOR missing StateTransitionedTimestamp
+// ---------------------------------------------------------------------------
+
+func TestCBOR_DescribeAlarms_CompositeAlarm_StateTransitionedTimestamp(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		stateValue string
+	}{
+		{name: "ALARM state", stateValue: "ALARM"},
+		{name: "OK state", stateValue: "OK"},
+		{name: "INSUFFICIENT_DATA state", stateValue: "INSUFFICIENT_DATA"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCBORHandler()
+			postCBOR(t, h, "PutCompositeAlarm", cbor.Map{
+				"AlarmName": cbor.String("comp-cbor"),
+				"AlarmRule": cbor.String("FALSE"),
+			})
+			postCBOR(t, h, "SetAlarmState", cbor.Map{
+				"AlarmName":   cbor.String("comp-cbor"),
+				"StateValue":  cbor.String(tc.stateValue),
+				"StateReason": cbor.String("manual"),
+			})
+
+			rec := postCBOR(t, h, "DescribeAlarms", cbor.Map{
+				"AlarmNames": cbor.List{cbor.String("comp-cbor")},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := decodeCBORResponse(t, rec)
+			compList, ok := resp["CompositeAlarms"].(cbor.List)
+			require.True(t, ok, "CompositeAlarms must be a list")
+			require.Len(t, compList, 1)
+
+			alarmMap, ok := compList[0].(cbor.Map)
+			require.True(t, ok)
+
+			_, hasTimestamp := alarmMap["StateTransitionedTimestamp"]
+			assert.True(t, hasTimestamp,
+				"CBOR DescribeAlarms must include StateTransitionedTimestamp for composite alarms")
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix 5: cborPutMetricAlarm drops Dimensions
+// ---------------------------------------------------------------------------
+
+func TestCBOR_PutMetricAlarm_Dimensions_Stored(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		dims cbor.List
+		want []cloudwatch.Dimension
+	}{
+		{
+			name: "single dimension stored",
+			dims: cbor.List{
+				cbor.Map{"Name": cbor.String("Env"), "Value": cbor.String("prod")},
+			},
+			want: []cloudwatch.Dimension{{Name: "Env", Value: "prod"}},
+		},
+		{
+			name: "multiple dimensions stored",
+			dims: cbor.List{
+				cbor.Map{"Name": cbor.String("Env"), "Value": cbor.String("prod")},
+				cbor.Map{"Name": cbor.String("Region"), "Value": cbor.String("us-east-1")},
+			},
+			want: []cloudwatch.Dimension{
+				{Name: "Env", Value: "prod"},
+				{Name: "Region", Value: "us-east-1"},
+			},
+		},
+		{
+			name: "no dimensions",
+			dims: nil,
+			want: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackend()
+			h := cloudwatch.NewHandler(b)
+
+			body := cbor.Map{
+				"AlarmName":          cbor.String("dim-alarm"),
+				"Namespace":          cbor.String("NS"),
+				"MetricName":         cbor.String("M"),
+				"ComparisonOperator": cbor.String("GreaterThanThreshold"),
+				"Threshold":          cbor.Float64(1.0),
+				"EvaluationPeriods":  cbor.Uint(1),
+				"Period":             cbor.Uint(60),
+			}
+			if tc.dims != nil {
+				body["Dimensions"] = tc.dims
+			}
+
+			rec := postCBOR(t, h, "PutMetricAlarm", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			page, _, err := b.DescribeAlarms([]string{"dim-alarm"}, nil, "", "", "", 0)
+			require.NoError(t, err)
+			require.Len(t, page.Data, 1)
+
+			got := page.Data[0].Dimensions
+			if len(tc.want) == 0 {
+				assert.Empty(t, got, "no dimensions should be stored")
+			} else {
+				require.Len(t, got, len(tc.want))
+				for _, wantDim := range tc.want {
+					found := false
+					for _, gotDim := range got {
+						if gotDim.Name == wantDim.Name && gotDim.Value == wantDim.Value {
+							found = true
+
+							break
+						}
+					}
+					assert.True(t, found, "dimension %s=%s must be stored", wantDim.Name, wantDim.Value)
+				}
+			}
+		})
+	}
+}

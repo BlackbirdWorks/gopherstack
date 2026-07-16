@@ -103,7 +103,7 @@ func TestProvider_Init(t *testing.T) {
 	}
 }
 
-func TestCoverage_PutAndDescribeAlarms(t *testing.T) {
+func TestProviderStack_PutAndDescribeAlarms(t *testing.T) {
 	t.Parallel()
 
 	ts := cwServer(t)
@@ -123,7 +123,7 @@ func TestCoverage_PutAndDescribeAlarms(t *testing.T) {
 	resp.Body.Close()
 }
 
-func TestCoverage(t *testing.T) {
+func TestProviderStack_ActionDispatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
