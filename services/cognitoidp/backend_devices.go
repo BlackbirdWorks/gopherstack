@@ -69,7 +69,7 @@ func (b *InMemoryBackend) paginateDevicesLocked(key string, limit int, nextToken
 
 	all = all[startIdx:]
 
-	if limit <= 0 || limit > len(all) {
+	if limit <= 0 || limit >= len(all) {
 		return all, ""
 	}
 

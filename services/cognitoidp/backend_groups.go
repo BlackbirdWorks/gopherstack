@@ -386,7 +386,7 @@ func (b *InMemoryBackend) ListGroupsPage(userPoolID string, limit int, nextToken
 
 	all = all[startIdx:]
 
-	if limit <= 0 || limit > len(all) {
+	if limit <= 0 || limit >= len(all) {
 		return all, "", nil
 	}
 
@@ -443,7 +443,7 @@ func (b *InMemoryBackend) ListUsersInGroupPage(
 
 	all = all[startIdx:]
 
-	if limit <= 0 || limit > len(all) {
+	if limit <= 0 || limit >= len(all) {
 		return all, "", nil
 	}
 
