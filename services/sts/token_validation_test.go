@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
@@ -261,6 +264,61 @@ func TestJWTTimeClaim(t *testing.T) {
 			if ok && got.Unix() != tt.wantEpoch {
 				t.Fatalf("epoch=%d want %d", got.Unix(), tt.wantEpoch)
 			}
+		})
+	}
+}
+
+// TestJWTPayloadParsingSharedHelper verifies that the shared parseJWTPayloadClaims
+// path correctly handles malformed tokens without panicking.
+func TestJWTPayloadParsingSharedHelper(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		token string
+		want  string // expected sub, or placeholder
+	}{
+		{
+			name: "valid JWT with sub",
+			// payload encodes {"sub":"web-identity-user","iss":"...","aud":"test-aud"}
+			token: "eyJhbGciOiJub25lIn0" +
+				".eyJzdWIiOiJ3ZWItaWRlbnRpdHktdXNlciIsImlzcyI6Imh0dHBzOi8vaWRwLmV4YW1wbGUuY29tIiwiYXVkIjoidGVzdC1hdWQifQ" +
+				".",
+			want: "web-identity-user",
+		},
+		{
+			name:  "invalid token returns placeholder",
+			token: "not-a-jwt",
+			want:  "WebIdentitySubject",
+		},
+		{
+			name:  "empty token returns placeholder",
+			token: "",
+			want:  "WebIdentitySubject",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sts.NewInMemoryBackend()
+			resp, err := backend.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
+				RoleArn:          "arn:aws:iam::000000000000:role/WIRole",
+				RoleSessionName:  "wi-session",
+				WebIdentityToken: tt.token,
+			})
+			if tt.token == "" {
+				require.Error(t, err)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				tt.want,
+				resp.AssumeRoleWithWebIdentityResult.SubjectFromWebIdentityToken,
+			)
 		})
 	}
 }

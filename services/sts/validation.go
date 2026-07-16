@@ -4,20 +4,65 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 )
 
-// approvedRootTaskPolicies returns the AWS-approved task policy ARNs for AssumeRoot (Gap #7).
-func approvedRootTaskPolicies() []string {
-	return []string{
-		"arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
-		"arn:aws:iam::aws:policy/root-task/IAMCreateRootUserPassword",
-		"arn:aws:iam::aws:policy/root-task/IAMDeleteRootUserCredentials",
-		"arn:aws:iam::aws:policy/root-task/S3UnlockBucketPolicy",
-		"arn:aws:iam::aws:policy/root-task/SQSUnlockQueuePolicy",
+// roleSessionNameRe is the AWS-allowed character set for RoleSessionName/FederationToken Name.
+// Characters: word chars (a-zA-Z0-9_), and the special set +=,.@- (colon is NOT allowed per AWS).
+var roleSessionNameRe = regexp.MustCompile(`^[\w+=,.@\-]+$`)
+
+// accountIDRe matches a 12-digit AWS account ID.
+var accountIDRe = regexp.MustCompile(`^\d{12}$`)
+
+// validateRoleSessionName checks that the session name meets AWS length and character requirements.
+func validateRoleSessionName(name string) error {
+	if len(name) < MinRoleSessionNameLen || len(name) > MaxRoleSessionNameLen {
+		return fmt.Errorf("%w: got length %d", ErrInvalidSessionName, len(name))
 	}
+
+	if !roleSessionNameRe.MatchString(name) {
+		return fmt.Errorf("%w: session name contains invalid characters", ErrInvalidSessionName)
+	}
+
+	return nil
+}
+
+// validateRoleArn checks that a role ARN is a valid IAM role ARN:
+// - format: arn:<partition>:iam::<12-digit-account>:role/<name>.
+func validateRoleArn(roleArn string) error {
+	parts := strings.SplitN(roleArn, ":", arnComponentCount)
+	if len(parts) < arnComponentCount || parts[0] != "arn" || parts[2] != arnServiceIAM {
+		return fmt.Errorf("%w: %q", ErrInvalidRoleArn, roleArn)
+	}
+
+	account := parts[4]
+	if !accountIDRe.MatchString(account) {
+		return fmt.Errorf("%w: account ID %q must be 12 digits", ErrInvalidRoleArn, account)
+	}
+
+	resource := parts[5]
+	if !strings.HasPrefix(resource, "role/") {
+		return fmt.Errorf("%w: resource %q must start with role/", ErrInvalidRoleArn, resource)
+	}
+
+	return nil
+}
+
+// validateFederationTokenName checks federation token name length and charset.
+func validateFederationTokenName(name string) error {
+	if len(name) < MinFederationTokenNameLen || len(name) > MaxFederationTokenNameLen {
+		return fmt.Errorf("%w: got length %d", ErrInvalidFederationName, len(name))
+	}
+
+	if !roleSessionNameRe.MatchString(name) {
+		return fmt.Errorf(
+			"%w: federation token name contains invalid characters",
+			ErrInvalidFederationName,
+		)
+	}
+
+	return nil
 }
 
 // sourceIdentityRe matches the AWS-allowed character set for SourceIdentity.
@@ -32,10 +77,6 @@ var mfaHardwareSerialRe = regexp.MustCompile(`^GAHT\w{8}$`)
 
 // mfaTokenCodeRe matches exactly 6 decimal digits.
 var mfaTokenCodeRe = regexp.MustCompile(`^\d{6}$`)
-
-// wellFormedAccessKeyRe matches any well-formed AWS access key regardless of type prefix.
-// Format: known 4-char prefix + 16 uppercase alphanumeric characters.
-var wellFormedAccessKeyRe = regexp.MustCompile(`^(AKIA|ASIA|AIDA|AROA|AGPA|ANPA|ANVA|APKA|ASCA)[A-Z0-9]{16}$`)
 
 // tagKeyRe matches the allowed character set for session tag keys per AWS specification.
 // Allowed: Unicode letters, Unicode numbers, spaces, and the special chars _.:/=+-@.
@@ -77,20 +118,6 @@ func validateMFATokenCode(code string) error {
 
 	if !mfaTokenCodeRe.MatchString(code) {
 		return fmt.Errorf("%w: must be exactly 6 digits", ErrInvalidMFATokenCode)
-	}
-
-	return nil
-}
-
-// samlProviderARNRe matches IAM SAML provider ARNs.
-// Format: arn:<partition>:iam::<account>:saml-provider/<name>.
-var samlProviderARNRe = regexp.MustCompile(`^arn:[a-z0-9\-]+:iam::\d{12}:saml-provider/.+$`)
-
-// validateSAMLProviderArn checks that a PrincipalArn is a valid IAM SAML provider ARN.
-func validateSAMLProviderArn(principalArn string) error {
-	if !samlProviderARNRe.MatchString(principalArn) {
-		return fmt.Errorf("%w: %q must be arn:<partition>:iam::<account>:saml-provider/<name>",
-			ErrInvalidPrincipalArn, principalArn)
 	}
 
 	return nil
@@ -202,14 +229,11 @@ func validateTagConstraints(tags []Tag) error {
 	return nil
 }
 
-// validateApprovedRootTaskPolicy checks that TaskPolicyArn is in the AWS-approved set.
-func validateApprovedRootTaskPolicy(taskPolicyArn string) error {
-	if slices.Contains(approvedRootTaskPolicies(), taskPolicyArn) {
-		return nil
-	}
+// maxSessionPolicyBytes is the AWS maximum size for a session policy document.
+const maxSessionPolicyBytes = 2048
 
-	return fmt.Errorf("%w: TaskPolicyArn %q is not in the approved set", ErrValidation, taskPolicyArn)
-}
+// maxPackedPolicySizePercent is the ceiling percentage for PackedPolicySize.
+const maxPackedPolicySizePercent = int32(100)
 
 // calculatePackedPolicySizeWithArns computes PackedPolicySize as the percentage of the 2048-byte
 // session-policy budget consumed by the combined inline policy and managed policy ARNs.
@@ -280,10 +304,4 @@ func validateJWTNotExpired(token string) error {
 	}
 
 	return nil
-}
-
-// isWellFormedAccessKey reports whether the given key matches the well-formed AWS access key format:
-// a known 4-char prefix followed by exactly 16 uppercase alphanumeric characters.
-func isWellFormedAccessKey(key string) bool {
-	return wellFormedAccessKeyRe.MatchString(key)
 }

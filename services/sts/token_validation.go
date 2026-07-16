@@ -20,6 +20,64 @@ const clockSkewLeeway = 60 * time.Second
 // jwtFullPartCount is the number of segments in a complete JWT (header.payload.signature).
 const jwtFullPartCount = 3
 
+// jwtPartCount is the number of dot-separated parts in a JWT (header.payload.signature).
+const jwtPartCount = 3
+
+// jwtMinParts is the minimum number of parts required to attempt payload extraction.
+const jwtMinParts = 2
+
+// JWT registered-claim names used when parsing and issuing web-identity tokens.
+const (
+	jwtClaimSub = "sub"
+	jwtClaimIss = "iss"
+	jwtClaimAud = "aud"
+	jwtClaimExp = "exp"
+	jwtClaimIat = "iat"
+	jwtClaimNbf = "nbf"
+)
+
+// base64Pad2 indicates two '=' padding characters are needed.
+const base64Pad2 = 2
+
+// base64Pad1 indicates one '=' padding character is needed.
+const base64Pad1 = 3
+
+// parseJWTPayloadClaims decodes the payload segment of a JWT (without signature verification)
+// and returns the claims map. Returns nil if the token is not a valid JWT or the payload cannot
+// be decoded.
+func parseJWTPayloadClaims(token string) map[string]any {
+	parts := strings.SplitN(token, ".", jwtPartCount)
+	if len(parts) < jwtMinParts {
+		return nil
+	}
+
+	rawPayload := parts[1]
+	paddedPayload := rawPayload
+
+	switch len(rawPayload) % 4 {
+	case base64Pad2:
+		paddedPayload += "=="
+	case base64Pad1:
+		paddedPayload += "="
+	}
+
+	decoded, err := base64.URLEncoding.DecodeString(paddedPayload)
+	if err != nil {
+		// Try RawURLEncoding as fallback (no padding).
+		decoded, err = base64.RawURLEncoding.DecodeString(rawPayload)
+		if err != nil {
+			return nil
+		}
+	}
+
+	var claims map[string]any
+	if err = json.Unmarshal(decoded, &claims); err != nil {
+		return nil
+	}
+
+	return claims
+}
+
 // validateWebIdentityToken validates the self-consistent temporal and structural
 // claims of an OIDC web-identity JWT without verifying its cryptographic
 // signature (which would require the external IdP's keys). It rejects:

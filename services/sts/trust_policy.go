@@ -3,6 +3,7 @@ package sts
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -92,6 +93,16 @@ type principalSet struct {
 	federated []string
 	service   []string
 	wildcard  bool
+}
+
+// trustPolicy is used to parse the trust policy JSON for ExternalId extraction.
+type trustPolicy struct {
+	Statement []trustStatement `json:"Statement"`
+}
+
+// trustStatement is a single statement in a trust policy.
+type trustStatement struct {
+	Condition map[string]map[string]json.RawMessage `json:"Condition"`
 }
 
 // evaluateAssumeRoleTrust evaluates a role's trust policy against the caller
@@ -519,4 +530,83 @@ func wildcardMatch(pattern, s string) bool {
 	}
 
 	return px == len(pattern)
+}
+
+// validateExternalID parses a trust policy JSON document and validates that the
+// provided externalID satisfies any sts:ExternalId conditions found therein.
+// Trust policy statements use OR semantics: if any statement with an ExternalId
+// condition matches, access is granted. Only if all statements with ExternalId
+// conditions fail is ErrAccessDenied returned.
+// If the trust policy requires an ExternalId but none (or the wrong value) is
+// supplied, ErrAccessDenied is returned.
+func validateExternalID(trustPolicyJSON, externalID string) error {
+	if trustPolicyJSON == "" {
+		return nil
+	}
+
+	var tp trustPolicy
+
+	// Unmarshal errors indicate a malformed policy document. A malformed trust
+	// policy leaves tp with a zero value (empty Statements), so no ExternalId
+	// condition will be found and the call proceeds without validation — the
+	// permissive behaviour is intentional for a mock implementation.
+	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp)
+
+	var hasExternalIDCondition bool
+
+	for _, stmt := range tp.Statement {
+		required := requiredExternalIDs(stmt.Condition)
+		if len(required) == 0 {
+			continue
+		}
+
+		hasExternalIDCondition = true
+
+		if slices.Contains(required, externalID) {
+			return nil
+		}
+	}
+
+	if hasExternalIDCondition {
+		return fmt.Errorf(
+			"%w: ExternalId does not match the trust policy condition",
+			ErrAccessDenied,
+		)
+	}
+
+	return nil
+}
+
+// requiredExternalIDs extracts all sts:ExternalId values from a trust-statement Condition map.
+// Returns nil when no ExternalId condition is present.
+func requiredExternalIDs(condition map[string]map[string]json.RawMessage) []string {
+	for condOp, condMap := range condition {
+		if !strings.EqualFold(condOp, "StringEquals") && !strings.EqualFold(condOp, "StringLike") {
+			continue
+		}
+
+		for condKey, rawVal := range condMap {
+			if strings.EqualFold(condKey, "sts:ExternalId") {
+				return extractStringValues(rawVal)
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractStringValues unmarshals a JSON RawMessage that may be either a string
+// or an array of strings and returns the values as a Go string slice.
+func extractStringValues(raw json.RawMessage) []string {
+	var single string
+	if err := json.Unmarshal(raw, &single); err == nil {
+		return []string{single}
+	}
+
+	var many []string
+	if err := json.Unmarshal(raw, &many); err == nil {
+		return many
+	}
+
+	return nil
 }
