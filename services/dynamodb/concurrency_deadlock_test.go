@@ -43,7 +43,7 @@ func TestDescribeTableConvoyDeadlock(t *testing.T) {
 
 	// Writer: repeatedly takes table.mu.Lock() via PutItem
 	wg.Go(func() {
-		for i := 0; i < iterations; i++ {
+		for i := range iterations {
 			if ctx.Err() != nil {
 				return
 			}
@@ -58,7 +58,7 @@ func TestDescribeTableConvoyDeadlock(t *testing.T) {
 
 	// Convoys: repeatedly calls DescribeTable which takes db.mu.RLock() then table.mu.RLock()
 	wg.Go(func() {
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			if ctx.Err() != nil {
 				return
 			}
@@ -70,7 +70,7 @@ func TestDescribeTableConvoyDeadlock(t *testing.T) {
 
 	// db.mu Writers: repeatedly calls CreateTable and DeleteTable which requires db.mu.Lock()
 	wg.Go(func() {
-		for i := 0; i < iterations/10; i++ {
+		for i := range iterations / 10 {
 			if ctx.Err() != nil {
 				return
 			}
@@ -93,7 +93,7 @@ func TestDescribeTableConvoyDeadlock(t *testing.T) {
 	// GetItem calls: requires db.mu.RLock() (to get the table) and then table.mu.RLock().
 	// This simulates the client timeouts we saw when GetItem was blocked by the convoy.
 	wg.Go(func() {
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			if ctx.Err() != nil {
 				return
 			}
