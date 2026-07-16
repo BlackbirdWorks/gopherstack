@@ -1,0 +1,65 @@
+package organizations
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
+
+// orgARN builds an ARN for the organization.
+func (b *InMemoryBackend) orgARN(orgID string) string {
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("organization/%s", orgID))
+}
+
+// masterAccountARN builds an ARN for the management account.
+func (b *InMemoryBackend) masterAccountARN(orgID, accountID string) string {
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("account/%s/%s", orgID, accountID))
+}
+
+// accountARN builds an ARN for an account.
+func (b *InMemoryBackend) accountARN(orgID, accountID string) string {
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("account/%s/%s", orgID, accountID))
+}
+
+// rootARN builds an ARN for the root.
+func (b *InMemoryBackend) rootARN(orgID, rootID string) string {
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("root/%s/%s", orgID, rootID))
+}
+
+// ouARN builds an ARN for an OU.
+func (b *InMemoryBackend) ouARN(orgID, ouID string) string {
+	return arn.Build("organizations", "", b.accountID, fmt.Sprintf("ou/%s/%s", orgID, ouID))
+}
+
+// policyARN builds an ARN for a policy.
+func (b *InMemoryBackend) policyARN(orgID, policyType, policyID string) string {
+	return fmt.Sprintf(
+		"arn:aws:organizations::%s:policy/%s/%s/%s",
+		b.accountID,
+		orgID,
+		policyType,
+		policyID,
+	)
+}
+
+// resourcePolicyARN builds an ARN for the organization resource policy.
+func (b *InMemoryBackend) resourcePolicyARN(orgID string) string {
+	return fmt.Sprintf(
+		"arn:aws:organizations::%s:resourcepolicy/%s/p-rp-default",
+		b.accountID,
+		orgID,
+	)
+}
+
+// handshakeARN builds an ARN for a handshake.
+// action should be the lowercase action string (e.g. "invite", "enable_all_features").
+func (b *InMemoryBackend) handshakeARN(orgID, action, handshakeID string) string {
+	return fmt.Sprintf(
+		"arn:aws:organizations::%s:handshake/%s/%s/%s",
+		b.accountID,
+		orgID,
+		strings.ToLower(action),
+		handshakeID,
+	)
+}

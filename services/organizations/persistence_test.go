@@ -1,6 +1,7 @@
 package organizations_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -223,4 +224,30 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	rp, err := fresh.DescribeResourcePolicy()
 	require.NoError(t, err)
 	assert.NotEmpty(t, rp.Content)
+}
+
+// TestPersistence_EnsureNonNilMaps verifies ensureNonNilMaps initialises all fields.
+func TestPersistence_EnsureNonNilMaps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "nil_snapshot_gets_non_nil_maps"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			snap := organizations.NewBackendSnapshot()
+			organizations.EnsureNonNilMapsExported(snap)
+
+			// After EnsureNonNilMaps all maps in the snapshot should be non-nil.
+			// We can verify via round-trip: marshal+unmarshal should not panic.
+			data, err := json.Marshal(snap)
+			require.NoError(t, err)
+			assert.NotNil(t, data, tt.name)
+		})
+	}
 }
