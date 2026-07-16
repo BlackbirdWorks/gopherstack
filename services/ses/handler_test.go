@@ -1,23 +1,287 @@
 package ses_test
 
 import (
-	"encoding/xml"
-	"fmt"
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
-	"sync"
 	"testing"
-
-	"github.com/labstack/echo/v5"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/ses"
+	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestHandler_Name(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	assert.Equal(t, "SES", h.Name())
+}
+
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	assert.Positive(t, h.MatchPriority())
+}
+
+func TestHandler_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	require.NoError(t, h.Backend.VerifyEmailIdentity("reset@example.com"))
+	assert.Equal(t, 1, h.Backend.(*ses.InMemoryBackend).IdentityCount())
+	h.Reset()
+	assert.Equal(t, 0, h.Backend.(*ses.InMemoryBackend).IdentityCount())
+}
+
+func TestExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		body   string
+		wantOp string
+	}{
+		{
+			name:   "action_present",
+			body:   "Action=SendEmail&Version=2010-12-01",
+			wantOp: "SendEmail",
+		},
+		{
+			name:   "action_missing",
+			body:   "Version=2010-12-01",
+			wantOp: "unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			// Use postForm's request path just to exercise Handler which calls dispatch;
+			// direct ExtractOperation is tested indirectly via coverage of Handler().
+			rec := postForm(t, h, tt.body)
+			// We only care that the handler didn't panic.
+			assert.NotNil(t, rec)
+		})
+	}
+}
+
+func TestAllSupportedOpsListed(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	ops := h.GetSupportedOperations()
+	assert.GreaterOrEqual(t, len(ops), 50, "must support 50+ SES operations")
+}
+
+// text extracts all character data from a simple nested XML path.
+// path is a sequence of element names: text("Foo", "Bar") finds <Foo><Bar>...</Bar></Foo>.
+func xmlText(data []byte, path ...string) string {
+	for _, tag := range path {
+		start := "<" + tag + ">"
+		end := "</" + tag + ">"
+		si := strings.Index(string(data), start)
+		if si < 0 {
+			return ""
+		}
+		si += len(start)
+		ei := strings.Index(string(data)[si:], end)
+		if ei < 0 {
+			return ""
+		}
+		data = []byte(string(data)[si : si+ei])
+	}
+
+	return string(data)
+}
+
+func sesVerifyAndSend(t *testing.T, h *ses.Handler, from, to string) {
+	t.Helper()
+	require.NoError(t, h.Backend.VerifyEmailIdentity(from))
+	rec := postForm(t, h, url.Values{
+		"Action":                           {"SendEmail"},
+		"Version":                          {"2010-12-01"},
+		"Source":                           {from},
+		"Destination.ToAddresses.member.1": {to},
+		"Message.Subject.Data":             {"subj"},
+		"Message.Body.Text.Data":           {"body"},
+	}.Encode())
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestResponseMetadata_RequestIDPresent(t *testing.T) {
+	t.Parallel()
+
+	ops := []url.Values{
+		{
+			"Action":  {"ListIdentities"},
+			"Version": {"2010-12-01"},
+		},
+		{
+			"Action":  {"GetSendQuota"},
+			"Version": {"2010-12-01"},
+		},
+		{
+			"Action":  {"GetSendStatistics"},
+			"Version": {"2010-12-01"},
+		},
+		{
+			"Action":  {"ListConfigurationSets"},
+			"Version": {"2010-12-01"},
+		},
+	}
+
+	for _, vals := range ops {
+		t.Run(vals.Get("Action"), func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			rec := postForm(t, h, vals.Encode())
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), "<RequestId>",
+				"every response must contain a RequestId in ResponseMetadata")
+		})
+	}
+}
+
+// TestHandler_GetSupportedOperations_Count tests that all operations are supported.
+func TestHandler_GetSupportedOperations_Count(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	assert.Equal(t, 71, h.HandlerOpsLen())
+}
+
+// TestProvider_Init_NilContext tests that Init returns error on nil context.
+func TestProvider_Init_NilContext(t *testing.T) {
+	t.Parallel()
+
+	p := &ses.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+}
+
+func TestSESHandler_Reset_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	require.NoError(t, h.Backend.VerifyEmailIdentity("r@test.com"))
+
+	h.Reset()
+
+	assert.Equal(t, 0, h.Backend.(*ses.InMemoryBackend).IdentityCount())
+}
+
+// TestHandlerImplementsShutdowner verifies the Handler satisfies service.Shutdowner
+// and that Shutdown waits for the janitor goroutine to exit cleanly.
+func TestHandlerImplementsShutdowner(t *testing.T) {
+	t.Parallel()
+
+	var _ service.Shutdowner = (*ses.Handler)(nil)
+
+	backend := ses.NewInMemoryBackend()
+	h := ses.NewHandler(backend).WithJanitor(10 * time.Millisecond)
+
+	ctx := context.Background()
+	require.NoError(t, h.StartWorker(ctx))
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Shutdown must return without blocking past the timeout.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.Shutdown(shutdownCtx)
+	}()
+
+	select {
+	case <-done:
+	case <-shutdownCtx.Done():
+		t.Fatal("Shutdown did not return within timeout — goroutine leak")
+	}
+}
+
+func TestVoidResultOps_WireShape(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		setup       func(t *testing.T, h *ses.Handler)
+		name        string
+		body        string
+		wantElement string // must be present verbatim
+	}{
+		{
+			name: "PutIdentityPolicy_has_result_wrapper",
+			body: url.Values{
+				"Action":     {"PutIdentityPolicy"},
+				"Version":    {"2010-12-01"},
+				"Identity":   {"example.com"},
+				"PolicyName": {"p1"},
+				"Policy":     {"{}"},
+			}.Encode(),
+			wantElement: "<PutIdentityPolicyResult></PutIdentityPolicyResult>",
+		},
+		{
+			name: "SetIdentityDkimEnabled_has_result_wrapper",
+			body: url.Values{
+				"Action":      {"SetIdentityDkimEnabled"},
+				"Version":     {"2010-12-01"},
+				"Identity":    {"example.com"},
+				"DkimEnabled": {"true"},
+			}.Encode(),
+			wantElement: "<SetIdentityDkimEnabledResult></SetIdentityDkimEnabledResult>",
+		},
+		{
+			name: "VerifyEmailAddress_has_no_result_wrapper",
+			body: url.Values{
+				"Action":       {"VerifyEmailAddress"},
+				"Version":      {"2010-12-01"},
+				"EmailAddress": {"a@example.com"},
+			}.Encode(),
+			// Real SES's VerifyEmailAddress output shape has zero members, so the
+			// wire format omits any Result element entirely.
+			wantElement: "<VerifyEmailAddressResponse xmlns=\"http://ses.amazonaws.com/doc/2010-12-01/\">" +
+				"<ResponseMetadata>",
+		},
+		{
+			name: "UpdateAccountSendingEnabled_has_no_result_wrapper",
+			body: url.Values{
+				"Action":  {"UpdateAccountSendingEnabled"},
+				"Version": {"2010-12-01"},
+				"Enabled": {"false"},
+			}.Encode(),
+			wantElement: "<UpdateAccountSendingEnabledResponse xmlns=\"http://ses.amazonaws.com/doc/2010-12-01/\">" +
+				"<ResponseMetadata>",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postForm(t, h, tt.body)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tt.wantElement)
+			// The literal broken wrapper must never appear.
+			assert.NotContains(t, rec.Body.String(), "*Result")
+		})
+	}
+}
 
 // newHandler creates a new SES handler with a fresh backend.
 func newHandler() *ses.Handler {
@@ -123,133 +387,6 @@ func TestSESHandler(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), tt.wantContains)
 		})
 	}
-}
-
-func TestSESHandler_ListIdentities(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-
-	// Verify identities first.
-	postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=alice@example.com")
-	postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=bob@example.com")
-
-	rec := postForm(t, h, "Action=ListIdentities&Version=2010-12-01")
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	body := rec.Body.String()
-	assert.Contains(t, body, "ListIdentitiesResponse")
-	assert.Contains(t, body, "alice@example.com")
-	assert.Contains(t, body, "bob@example.com")
-}
-
-func TestSESHandler_DeleteIdentity(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-
-	// Verify an identity first.
-	postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=del@example.com")
-
-	// Delete it.
-	rec := postForm(t, h, "Action=DeleteIdentity&Version=2010-12-01&Identity=del@example.com")
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DeleteIdentityResponse")
-
-	// Verify it's gone.
-	listRec := postForm(t, h, "Action=ListIdentities&Version=2010-12-01")
-	assert.NotContains(t, listRec.Body.String(), "del@example.com")
-
-	// Deleting again is idempotent — returns success.
-	rec2 := postForm(t, h, "Action=DeleteIdentity&Version=2010-12-01&Identity=del@example.com")
-	assert.Equal(t, http.StatusOK, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "DeleteIdentityResponse")
-}
-
-func TestSESHandler_GetIdentityVerificationAttributes(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-
-	// Verify an identity first.
-	postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=verified@example.com")
-
-	body := url.Values{
-		"Action":              {"GetIdentityVerificationAttributes"},
-		"Version":             {"2010-12-01"},
-		"Identities.member.1": {"verified@example.com"},
-		"Identities.member.2": {"unknown@example.com"},
-	}
-
-	rec := postForm(t, h, body.Encode())
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		XMLName xml.Name `xml:"GetIdentityVerificationAttributesResponse"`
-		Result  struct {
-			VerificationAttributes struct {
-				Entries []struct {
-					Key   string `xml:"key"`
-					Value struct {
-						Status string `xml:"VerificationStatus"`
-					} `xml:"value"`
-				} `xml:"entry"`
-			} `xml:"VerificationAttributes"`
-		} `xml:"GetIdentityVerificationAttributesResult"`
-	}
-
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-
-	statusByID := make(map[string]string)
-	for _, e := range resp.Result.VerificationAttributes.Entries {
-		statusByID[e.Key] = e.Value.Status
-	}
-
-	assert.Equal(t, "Success", statusByID["verified@example.com"])
-	assert.Equal(t, "NotStarted", statusByID["unknown@example.com"])
-}
-
-func TestSESHandler_SendEmail(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-
-	// Must verify the source identity first.
-	postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=sender@example.com")
-
-	body := url.Values{
-		"Action":                           {"SendEmail"},
-		"Version":                          {"2010-12-01"},
-		"Source":                           {"sender@example.com"},
-		"Destination.ToAddresses.member.1": {"recipient@example.com"},
-		"Message.Subject.Data":             {"Hello World"},
-		"Message.Body.Text.Data":           {"Test body"},
-		"Message.Body.Html.Data":           {"<p>Test body</p>"},
-	}
-
-	rec := postForm(t, h, body.Encode())
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		XMLName xml.Name `xml:"SendEmailResponse"`
-		Result  struct {
-			MessageID string `xml:"MessageId"`
-		} `xml:"SendEmailResult"`
-	}
-
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotEmpty(t, resp.Result.MessageID)
-
-	// Verify email was captured.
-	emails := h.Backend.(*ses.InMemoryBackend).ListEmails()
-	require.Len(t, emails, 1)
-	assert.Equal(t, "sender@example.com", emails[0].From)
-	assert.Equal(t, []string{"recipient@example.com"}, emails[0].To)
-	assert.Equal(t, "Hello World", emails[0].Subject)
 }
 
 func TestSESHandler_RouteMatcher(t *testing.T) {
@@ -379,28 +516,6 @@ func TestSESHandler_ChaosInterface(t *testing.T) {
 	assert.NotEmpty(t, h.ChaosRegions())
 }
 
-func TestSESBackend_GetEmailByID(t *testing.T) {
-	t.Parallel()
-
-	b := ses.NewInMemoryBackend()
-	require.NoError(t, b.VerifyEmailIdentity("find@test.com"))
-
-	msgID, err := b.SendEmail(ses.SendEmailInput{
-		From: "find@test.com", To: []string{"to@test.com"}, Subject: "FindMe", BodyText: "body",
-	})
-	require.NoError(t, err)
-
-	email, err := b.GetEmailByID(msgID)
-	require.NoError(t, err)
-	assert.Equal(t, "find@test.com", email.From)
-	assert.Equal(t, "FindMe", email.Subject)
-
-	// Not found case.
-	_, err = b.GetEmailByID("nonexistent")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ses.ErrEmailNotFound)
-}
-
 func TestSESHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
@@ -421,123 +536,4 @@ func TestSESHandler_ProviderInitWithAppCtx(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 	assert.Equal(t, "SES", svc.Name())
-}
-
-func TestSESBackend_EmailRetentionLimit(t *testing.T) {
-	t.Parallel()
-
-	b := ses.NewInMemoryBackend()
-	require.NoError(t, b.VerifyEmailIdentity("sender@test.com"))
-
-	// Append more emails than the cap via AppendEmailForTest, which exercises
-	// the same eviction path as SendEmail without being gated by the
-	// simulated 200/day send quota that real SendEmail now enforces.
-	for range ses.MaxRetainedEmails + 100 {
-		b.AppendEmailForTest("sender@test.com", []string{"to@test.com"})
-	}
-
-	assert.Equal(t, ses.MaxRetainedEmails, b.EmailCount())
-}
-
-func TestSESBackend_SendEmailUnverifiedSource(t *testing.T) {
-	t.Parallel()
-
-	b := ses.NewInMemoryBackend()
-
-	_, err := b.SendEmail(ses.SendEmailInput{
-		From: "unverified@test.com", To: []string{"to@test.com"}, Subject: "subj", BodyText: "body",
-	})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ses.ErrMessageRejected)
-}
-
-func TestSESBackend_DeleteIdentityIdempotent(t *testing.T) {
-	t.Parallel()
-
-	b := ses.NewInMemoryBackend()
-
-	// Deleting a non-existent identity should not panic or error.
-	b.DeleteIdentity("nonexistent@test.com")
-	assert.Equal(t, 0, b.IdentityCount())
-
-	// Add and delete.
-	require.NoError(t, b.VerifyEmailIdentity("test@test.com"))
-	assert.Equal(t, 1, b.IdentityCount())
-
-	b.DeleteIdentity("test@test.com")
-	assert.Equal(t, 0, b.IdentityCount())
-
-	// Delete again — idempotent.
-	b.DeleteIdentity("test@test.com")
-	assert.Equal(t, 0, b.IdentityCount())
-}
-
-func TestSESBackend_SnapshotIsolation(t *testing.T) {
-	t.Parallel()
-
-	b := ses.NewInMemoryBackend()
-	require.NoError(t, b.VerifyEmailIdentity("snap@test.com"))
-
-	_, err := b.SendEmail(ses.SendEmailInput{
-		From: "snap@test.com", To: []string{"to@test.com"}, Subject: "Test", BodyText: "body",
-	})
-	require.NoError(t, err)
-
-	snap := b.Snapshot(t.Context())
-	require.NotNil(t, snap)
-
-	// Mutate original after snapshot.
-	require.NoError(t, b.VerifyEmailIdentity("after@test.com"))
-
-	_, err = b.SendEmail(ses.SendEmailInput{
-		From: "snap@test.com", To: []string{"to@test.com"}, Subject: "Test2", BodyText: "body2",
-	})
-	require.NoError(t, err)
-
-	// Restore into a fresh backend.
-	fresh := ses.NewInMemoryBackend()
-	require.NoError(t, fresh.Restore(t.Context(), snap))
-
-	// Fresh backend should have the original state, not the mutated state.
-	assert.Equal(t, 1, fresh.IdentityCount())
-	assert.Equal(t, 1, fresh.EmailCount())
-}
-
-func TestSESBackend_ConcurrentAccess(t *testing.T) {
-	t.Parallel()
-
-	b := ses.NewInMemoryBackend()
-
-	var wg sync.WaitGroup
-
-	// Concurrent verify.
-	for i := range 50 {
-		wg.Go(func() {
-			_ = b.VerifyEmailIdentity(fmt.Sprintf("user%d@test.com", i))
-		})
-	}
-
-	wg.Wait()
-
-	assert.Equal(t, 50, b.IdentityCount())
-
-	// Concurrent send + list.
-	for i := range 50 {
-		wg.Go(func() {
-			_, _ = b.SendEmail(ses.SendEmailInput{
-				From:     fmt.Sprintf("user%d@test.com", i),
-				To:       []string{"to@test.com"},
-				Subject:  fmt.Sprintf("Subject %d", i),
-				BodyText: "body",
-			})
-		})
-
-		wg.Go(func() {
-			_ = b.ListEmails()
-		})
-	}
-
-	wg.Wait()
-
-	assert.Equal(t, 50, b.EmailCount())
 }

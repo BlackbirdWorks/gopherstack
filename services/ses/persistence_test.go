@@ -2,6 +2,7 @@ package ses_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -236,4 +237,291 @@ func TestInMemoryBackend_RestorePreservesEmails(t *testing.T) {
 	require.Len(t, emails, 1)
 	assert.Equal(t, "persist@test.com", emails[0].From)
 	assert.Equal(t, "Test", emails[0].Subject)
+}
+
+func TestPersistence_EnsureNonNilMaps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "snapshot_restore_roundtrip"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ses.NewInMemoryBackend()
+			require.NoError(t, b.VerifyEmailIdentity("snap@example.com"))
+
+			snap := b.Snapshot(t.Context())
+
+			b2 := ses.NewInMemoryBackend()
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			// After restore all maps should be non-nil and usable.
+			require.NoError(t, b2.VerifyEmailIdentity("post-restore@example.com"))
+			assert.Equal(t, 2, b2.IdentityCount())
+		})
+	}
+}
+
+func TestSnapshot_IncludesPolicies(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("snap@example.com"))
+	require.NoError(t, b.PutIdentityPolicy("snap@example.com", "pol1", `{"v":1}`))
+	require.NoError(t, b.PutIdentityPolicy("snap@example.com", "pol2", `{"v":2}`))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := ses.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	names, err := fresh.ListIdentityPolicies("snap@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"pol1", "pol2"}, names)
+
+	pols, err := fresh.GetIdentityPolicies("snap@example.com", nil)
+	require.NoError(t, err)
+	assert.Equal(t, `{"v":1}`, pols["pol1"])
+	assert.Equal(t, `{"v":2}`, pols["pol2"])
+}
+
+func TestSnapshot_IncludesAccountSending(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	b.UpdateAccountSendingEnabled(false)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := ses.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+	assert.False(t, fresh.GetAccountSendingEnabled())
+}
+
+func TestSnapshot_FullRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("a@example.com"))
+	require.NoError(t, b.VerifyEmailIdentity("b.com"))
+	require.NoError(t, b.PutIdentityPolicy("a@example.com", "p1", `{}`))
+	require.NoError(t, b.CreateTemplate(ses.EmailTemplate{TemplateName: "t", SubjectPart: "s"}))
+	require.NoError(t, b.CreateConfigurationSet("cs1"))
+	require.NoError(t, b.CreateReceiptRuleSet("rs1"))
+	require.NoError(t, b.CreateReceiptFilter(ses.ReceiptFilter{Name: "f1", Policy: "Allow", CIDR: "10.0.0.0/8"}))
+	b.UpdateAccountSendingEnabled(false)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := ses.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	assert.Equal(t, 2, fresh.IdentityCount())
+	assert.Equal(t, 1, fresh.PolicyCount())
+	assert.Equal(t, 1, fresh.TemplateCount())
+	assert.Equal(t, 1, fresh.ConfigSetCount())
+	assert.Equal(t, 1, fresh.ReceiptRuleSetCount())
+	assert.Equal(t, 1, fresh.ReceiptFilterCount())
+	assert.False(t, fresh.GetAccountSendingEnabled())
+}
+
+func TestReset_ClearsPoliciesAndAccountSending(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("a@example.com"))
+	require.NoError(t, b.PutIdentityPolicy("a@example.com", "p1", `{}`))
+	b.UpdateAccountSendingEnabled(false)
+
+	b.Reset()
+
+	assert.Equal(t, 0, b.PolicyCount())
+	assert.True(t, b.GetAccountSendingEnabled())
+	assert.Equal(t, 0, b.IdentityCount())
+}
+
+// TestSESNewOps_SnapshotRestore verifies that new maps are included in Snapshot/Restore.
+func TestSnapshotRestore_NewOps(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+
+	require.NoError(t, b.CreateReceiptRuleSet("rs1"))
+	require.NoError(t, b.CreateReceiptFilter(ses.ReceiptFilter{Name: "f1", Policy: "Block", CIDR: "192.168.0.0/16"}))
+	require.NoError(t, b.CreateConfigurationSet("cs1"))
+	require.NoError(
+		t,
+		b.CreateConfigurationSetEventDestination("cs1", ses.EventDestination{Name: "dest1", Enabled: true}),
+	)
+	require.NoError(t, b.CreateConfigurationSetTrackingOptions("cs1", "track.example.com"))
+	require.NoError(t, b.CreateCustomVerificationEmailTemplate(ses.CustomVerificationEmailTemplate{
+		TemplateName:          "my-tmpl",
+		FromEmailAddress:      "noreply@example.com",
+		TemplateSubject:       "Please verify",
+		TemplateContent:       "<html>Verify</html>",
+		SuccessRedirectionURL: "https://example.com/success",
+		FailureRedirectionURL: "https://example.com/failure",
+	}))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := ses.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, b2.ReceiptRuleSetCount())
+	assert.Equal(t, 1, b2.ReceiptFilterCount())
+	assert.Equal(t, 1, b2.EventDestinationCount())
+	assert.Equal(t, 1, b2.TrackingOptionsCount())
+	assert.Equal(t, 1, b2.CustomVerifTemplateCount())
+}
+
+// TestBackend_Persistence_ActiveRuleSet tests that ActiveRuleSet survives Snapshot/Restore.
+func TestBackend_Persistence_ActiveRuleSet(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	b.AddReceiptRuleSetInternal(ses.ReceiptRuleSet{Name: "rs1", CreatedAt: time.Now()})
+	require.NoError(t, b.SetActiveReceiptRuleSet("rs1"))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := ses.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+	assert.Equal(t, "rs1", b2.ActiveRuleSet())
+}
+
+func TestSESPersistence_TemplatesAndConfigSetsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(b *ses.InMemoryBackend)
+		verify func(t *testing.T, b *ses.InMemoryBackend)
+		name   string
+	}{
+		{
+			name: "templates_persisted",
+			setup: func(b *ses.InMemoryBackend) {
+				require.NoError(t, b.CreateTemplate(ses.EmailTemplate{
+					TemplateName: "t1",
+					SubjectPart:  "Hello",
+				}))
+			},
+			verify: func(t *testing.T, b *ses.InMemoryBackend) {
+				t.Helper()
+
+				tmpl, err := b.GetTemplate("t1")
+				require.NoError(t, err)
+				assert.Equal(t, "Hello", tmpl.SubjectPart)
+			},
+		},
+		{
+			name: "config_sets_persisted",
+			setup: func(b *ses.InMemoryBackend) {
+				require.NoError(t, b.CreateConfigurationSet("cs1"))
+			},
+			verify: func(t *testing.T, b *ses.InMemoryBackend) {
+				t.Helper()
+
+				p := b.ListConfigurationSets("", 0)
+				require.Len(t, p.Data, 1)
+				assert.Equal(t, "cs1", p.Data[0])
+			},
+		},
+		{
+			name: "emails_by_id_rebuilt_on_restore",
+			setup: func(b *ses.InMemoryBackend) {
+				require.NoError(t, b.VerifyEmailIdentity("p@test.com"))
+				_, err := b.SendEmail(ses.SendEmailInput{
+					From: "p@test.com", To: []string{"q@test.com"}, Subject: "s", BodyText: "b",
+				})
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ses.InMemoryBackend) {
+				t.Helper()
+
+				assert.Equal(t, b.EmailCount(), b.EmailsByIDCount())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := ses.NewInMemoryBackend()
+			tt.setup(original)
+
+			snap := original.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := ses.NewInMemoryBackend()
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			tt.verify(t, fresh)
+		})
+	}
+}
+
+func TestSESPersistence_RestorePrunesExpiredEmails(t *testing.T) {
+	t.Parallel()
+
+	original := ses.NewInMemoryBackend()
+	require.NoError(t, original.VerifyEmailIdentity("prune@test.com"))
+
+	_, err := original.SendEmail(ses.SendEmailInput{
+		From: "prune@test.com", To: []string{"to@test.com"}, Subject: "keep", BodyText: "b",
+	})
+	require.NoError(t, err)
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	// Restore into a backend with a very short TTL so the snapshot email is
+	// considered expired at restore time.
+	fresh := ses.NewInMemoryBackend()
+	fresh.SetEmailTTL(time.Nanosecond) // instant expiry
+
+	time.Sleep(time.Millisecond) // ensure TTL has passed
+
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// The expired email must have been pruned.
+	assert.Equal(t, 0, fresh.EmailCount())
+	assert.Equal(t, 0, fresh.EmailsByIDCount())
+}
+
+func TestSESPersistence_RestoreCapsToBound(t *testing.T) {
+	t.Parallel()
+
+	original := ses.NewInMemoryBackend()
+	require.NoError(t, original.VerifyEmailIdentity("cap@test.com"))
+
+	// Append MaxRetainedEmails+10 emails and snapshot, via AppendEmailForTest
+	// so this retention-cap test isn't gated by the simulated 200/day send
+	// quota that real SendEmail now enforces (see TestSESBackend_EmailsByIDSyncAfterEviction).
+	for range ses.MaxRetainedEmails + 10 {
+		original.AppendEmailForTest("cap@test.com", []string{"to@test.com"})
+	}
+
+	// The original should already be capped by SendEmail eviction.
+	assert.Equal(t, ses.MaxRetainedEmails, original.EmailCount())
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := ses.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	assert.Equal(t, ses.MaxRetainedEmails, fresh.EmailCount())
+	assert.Equal(t, fresh.EmailCount(), fresh.EmailsByIDCount())
 }
