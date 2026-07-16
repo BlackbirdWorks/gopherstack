@@ -1,0 +1,154 @@
+package bedrock
+
+import (
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/labstack/echo/v5"
+)
+
+// routeStubInvocationOps handles model invocation job operations. AWS uses the SINGULAR
+// "/model-invocation-job" path for Create/Get/Stop and the PLURAL
+// "/model-invocation-jobs" path only for List — see modelInvocationJobSingularPrefix.
+func (h *Handler) routeStubInvocationOps(c *echo.Context, path, method string) (bool, error) {
+	switch {
+	case path == modelInvocationJobsPrefix && method == http.MethodGet:
+		return true, h.handleListModelInvocationJobs(c)
+	case path == modelInvocationJobSingularPrefix && method == http.MethodPost:
+		return true, h.handleCreateModelInvocationJob(c)
+	case strings.HasPrefix(path, modelInvocationJobSingularPrefix+"/") &&
+		strings.HasSuffix(path, "/stop") && method == http.MethodPost:
+		rest := strings.TrimPrefix(path, modelInvocationJobSingularPrefix+"/")
+		jobARN, _ := url.PathUnescape(strings.TrimSuffix(rest, "/stop"))
+
+		return true, h.handleStopModelInvocationJob(c, jobARN)
+	case strings.HasPrefix(path, modelInvocationJobSingularPrefix+"/") && method == http.MethodGet:
+		jobARN, _ := url.PathUnescape(strings.TrimPrefix(path, modelInvocationJobSingularPrefix+"/"))
+
+		return true, h.handleGetModelInvocationJob(c, jobARN)
+	}
+
+	return false, nil
+}
+
+// extractModelInvocationJobOperation maps the ModelInvocationJob family. AWS uses the
+// SINGULAR "model-invocation-job" path for Create/Get/Stop and the PLURAL
+// "model-invocation-jobs" path only for List.
+func extractModelInvocationJobOperation(path, method string) (string, bool) {
+	switch {
+	case path == modelInvocationJobsPrefix && method == http.MethodGet:
+		return "ListModelInvocationJobs", true
+	case path == modelInvocationJobSingularPrefix && method == http.MethodPost:
+		return "CreateModelInvocationJob", true
+	case strings.HasPrefix(path, modelInvocationJobSingularPrefix+"/") &&
+		strings.HasSuffix(path, "/stop") && method == http.MethodPost:
+		return "StopModelInvocationJob", true
+	case strings.HasPrefix(path, modelInvocationJobSingularPrefix+"/") && method == http.MethodGet:
+		return "GetModelInvocationJob", true
+	default:
+		return "", false
+	}
+}
+
+type createModelInvocationJobInput struct {
+	JobName string `json:"jobName"`
+	Tags    []Tag  `json:"tags,omitempty"`
+}
+
+func (h *Handler) handleCreateModelInvocationJob(c *echo.Context) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
+	}
+
+	in, parseErr := parseBody[createModelInvocationJobInput](body)
+	if parseErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	job, opErr := h.Backend.CreateModelInvocationJob(in.JobName, in.Tags)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusCreated, map[string]any{keyJobArn: job.JobArn})
+}
+
+func (h *Handler) handleGetModelInvocationJob(c *echo.Context, jobARN string) error {
+	job, err := h.Backend.GetModelInvocationJob(jobARN)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyJobArn:           job.JobArn,
+		keyJobName:          job.JobName,
+		keyStatus:           job.Status,
+		keyCreationTime:     job.CreationTime.Format(time.RFC3339),
+		keyLastModifiedTime: job.LastModifiedTime.Format(time.RFC3339),
+	})
+}
+
+// parseListModelInvocationJobsQuery builds the backend filter/sort/pagination input from
+// the real ListModelInvocationJobs query-string bindings (nameContains, statusEquals,
+// sortBy, sortOrder, nextToken, submitTimeAfter, submitTimeBefore). The previous
+// implementation discarded all of these — a disguised no-op, since the backend already
+// implements the filter/sort logic in full.
+func parseListModelInvocationJobsQuery(c *echo.Context) *ListModelInvocationJobsInput {
+	q := c.Request().URL.Query()
+
+	in := &ListModelInvocationJobsInput{
+		StatusEquals: q.Get("statusEquals"),
+		NameContains: q.Get("nameContains"),
+		SortBy:       q.Get("sortBy"),
+		SortOrder:    q.Get("sortOrder"),
+		NextToken:    q.Get("nextToken"),
+	}
+
+	if v := q.Get("submitTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.SubmitTimeAfter = &t
+		}
+	}
+
+	if v := q.Get("submitTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.SubmitTimeBefore = &t
+		}
+	}
+
+	return in
+}
+
+func (h *Handler) handleListModelInvocationJobs(c *echo.Context) error {
+	jobs, outToken := h.Backend.ListModelInvocationJobs(parseListModelInvocationJobsQuery(c))
+	summaries := make([]map[string]any, 0, len(jobs))
+
+	for _, j := range jobs {
+		summaries = append(summaries, map[string]any{
+			keyJobArn:           j.JobArn,
+			keyJobName:          j.JobName,
+			keyStatus:           j.Status,
+			keyCreationTime:     j.CreationTime.Format(time.RFC3339),
+			keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
+		})
+	}
+
+	resp := map[string]any{"invocationJobSummaries": summaries}
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleStopModelInvocationJob(c *echo.Context, jobARN string) error {
+	if err := h.Backend.StopModelInvocationJob(jobARN); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}

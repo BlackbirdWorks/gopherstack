@@ -1,0 +1,147 @@
+package bedrock
+
+import (
+	"fmt"
+	"maps"
+	"sort"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
+
+const (
+	flowStatusNotPrepared = "NOT_PREPARED"
+	flowStatusPrepared    = "PREPARED"
+)
+
+// CreateFlow creates a new Bedrock Flow.
+func (b *InMemoryBackend) CreateFlow(
+	name, description string,
+	tags map[string]string,
+) (*Flow, error) {
+	b.mu.Lock("CreateFlow")
+	defer b.mu.Unlock()
+
+	if _, ok := b.flowsByName[name]; ok {
+		return nil, fmt.Errorf("%w: flow %q already exists", ErrAlreadyExists, name)
+	}
+
+	b.flowCounter++
+	id := fmt.Sprintf("flow-%08d", b.flowCounter)
+	flowArn := arn.Build("bedrock-agent", b.region, b.accountID, "flow/"+id)
+	now := time.Now()
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	f := &Flow{
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		FlowID:      id,
+		FlowArn:     flowArn,
+		Name:        name,
+		Description: description,
+		Status:      flowStatusNotPrepared,
+		Tags:        tagsCopy,
+	}
+	b.flows.Put(f)
+	b.flowsByName[name] = id
+	cp := *f
+
+	return &cp, nil
+}
+
+// GetFlow returns a Flow by ID.
+func (b *InMemoryBackend) GetFlow(flowID string) (*Flow, error) {
+	b.mu.RLock("GetFlow")
+	defer b.mu.RUnlock()
+
+	f, ok := b.flows.Get(flowID)
+	if !ok {
+		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
+	}
+
+	cp := *f
+
+	return &cp, nil
+}
+
+// ListFlows returns all flows with pagination.
+func (b *InMemoryBackend) ListFlows(maxResults int, nextToken string) ([]*Flow, string) {
+	b.mu.RLock("ListFlows")
+	defer b.mu.RUnlock()
+
+	list := make([]*Flow, 0, b.flows.Len())
+	for _, f := range b.flows.All() {
+		cp := *f
+		list = append(list, &cp)
+	}
+
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+
+	return paginate(list, maxResults, nextToken)
+}
+
+// UpdateFlow updates a Flow.
+func (b *InMemoryBackend) UpdateFlow(flowID, name, description string) (*Flow, error) {
+	b.mu.Lock("UpdateFlow")
+	defer b.mu.Unlock()
+
+	f, ok := b.flows.Get(flowID)
+	if !ok {
+		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
+	}
+
+	if name != "" && name != f.Name {
+		delete(b.flowsByName, f.Name)
+		f.Name = name
+		b.flowsByName[name] = flowID
+	}
+
+	if description != "" {
+		f.Description = description
+	}
+
+	f.UpdatedAt = time.Now()
+	cp := *f
+
+	return &cp, nil
+}
+
+// DeleteFlow deletes a Flow.
+func (b *InMemoryBackend) DeleteFlow(flowID string) error {
+	b.mu.Lock("DeleteFlow")
+	defer b.mu.Unlock()
+
+	f, ok := b.flows.Get(flowID)
+	if !ok {
+		return fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
+	}
+
+	delete(b.flowsByName, f.Name)
+	b.flows.Delete(flowID)
+
+	return nil
+}
+
+// PrepareFlow transitions a Flow to PREPARED status.
+func (b *InMemoryBackend) PrepareFlow(flowID string) (*Flow, error) {
+	b.mu.Lock("PrepareFlow")
+	defer b.mu.Unlock()
+
+	f, ok := b.flows.Get(flowID)
+	if !ok {
+		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
+	}
+
+	f.Status = flowStatusPrepared
+	f.UpdatedAt = time.Now()
+	cp := *f
+
+	return &cp, nil
+}
+
+// ValidateFlowDefinition validates a flow definition (stub — always succeeds).
+func (b *InMemoryBackend) ValidateFlowDefinition() ([]any, error) {
+	return []any{}, nil
+}
