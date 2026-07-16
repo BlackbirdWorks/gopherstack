@@ -120,10 +120,13 @@ var (
 // buildOps builds and caches the operation dispatch table.
 func (h *Handler) buildOps() {
 	table := make(map[string]smActionFn)
-	maps.Copy(table, h.smCRUDActions())
-	maps.Copy(table, h.smVersionActions())
+	maps.Copy(table, h.smSecretsActions())
+	maps.Copy(table, h.smSecretVersionsActions())
+	maps.Copy(table, h.smRotationActions())
+	maps.Copy(table, h.smResourcePolicyActions())
+	maps.Copy(table, h.smReplicationActions())
 	maps.Copy(table, h.smTagActions())
-	maps.Copy(table, h.smExtendedActions())
+	maps.Copy(table, h.smRandomPasswordActions())
 	h.ops = table
 }
 
@@ -248,208 +251,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type smActionFn func(ctx context.Context, region string, body []byte) (any, error)
 
-func (h *Handler) smExtendedActions() map[string]smActionFn {
-	return map[string]smActionFn{
-		opGetResourcePolicy: func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input GetResourcePolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
+// decodeAction builds an smActionFn that unmarshals the request body into a
+// fresh *I and forwards it to fn. It centralizes the JSON-decode boilerplate
+// shared by every region-agnostic operation.
+func decodeAction[I any](fn func(ctx context.Context, input *I) (any, error)) smActionFn {
+	return func(ctx context.Context, _ string, body []byte) (any, error) {
+		var input I
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
 
-			return h.Backend.GetResourcePolicy(ctx, &input)
-		},
-		"PutResourcePolicy": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input PutResourcePolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.PutResourcePolicy(ctx, &input)
-		},
-		"DeleteResourcePolicy": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input DeleteResourcePolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DeleteResourcePolicy(ctx, &input)
-		},
-		"BatchGetSecretValue": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input BatchGetSecretValueInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.BatchGetSecretValue(ctx, &input)
-		},
-		"CancelRotateSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input CancelRotateSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CancelRotateSecret(ctx, &input)
-		},
-		"ReplicateSecretToRegions": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input ReplicateSecretToRegionsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ReplicateSecretToRegions(ctx, &input)
-		},
-		"RemoveRegionsFromReplication": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input RemoveRegionsFromReplicationInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.RemoveRegionsFromReplication(ctx, &input)
-		},
-		"StopReplicationToReplica": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input StopReplicationToReplicaInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.StopReplicationToReplica(ctx, &input)
-		},
-		opValidateResourcePolicy: func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input ValidateResourcePolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ValidateResourcePolicy(ctx, &input)
-		},
-	}
-}
-
-func (h *Handler) smCRUDActions() map[string]smActionFn {
-	return map[string]smActionFn{
-		"CreateSecret": func(ctx context.Context, region string, b []byte) (any, error) {
-			var input CreateSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			input.Region = region
-
-			return h.Backend.CreateSecret(ctx, &input)
-		},
-		"GetSecretValue": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input GetSecretValueInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.GetSecretValue(ctx, &input)
-		},
-		"PutSecretValue": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input PutSecretValueInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.PutSecretValue(ctx, &input)
-		},
-		"DeleteSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input DeleteSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DeleteSecret(ctx, &input)
-		},
-		opListSecrets: func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input ListSecretsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListSecrets(ctx, &input)
-		},
-		opDescribeSecret: func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input DescribeSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DescribeSecret(ctx, &input)
-		},
-		"UpdateSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input UpdateSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.UpdateSecret(ctx, &input)
-		},
-		"RestoreSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input RestoreSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.RestoreSecret(ctx, &input)
-		},
-		"RotateSecret": func(ctx context.Context, region string, b []byte) (any, error) {
-			var input RotateSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.rotateSecret(ctx, region, &input)
-		},
-		"GetRandomPassword": func(_ context.Context, _ string, b []byte) (any, error) {
-			var input GetRandomPasswordInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.GetRandomPassword(&input)
-		},
-	}
-}
-
-func (h *Handler) smTagActions() map[string]smActionFn {
-	return map[string]smActionFn{
-		"TagResource": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input TagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.TagResource(ctx, &input)
-		},
-		"UntagResource": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input UntagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return struct{}{}, h.Backend.UntagResource(ctx, &input)
-		},
-	}
-}
-
-func (h *Handler) smVersionActions() map[string]smActionFn {
-	return map[string]smActionFn{
-		"ListSecretVersionIds": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input ListSecretVersionIDsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListSecretVersionIDs(ctx, &input)
-		},
-		"UpdateSecretVersionStage": func(ctx context.Context, _ string, b []byte) (any, error) {
-			var input UpdateSecretVersionStageInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.UpdateSecretVersionStage(ctx, &input)
-		},
+		return fn(ctx, &input)
 	}
 }
 
@@ -522,105 +334,6 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	})
 
 	return c.JSONBlob(statusCode, payload)
-}
-
-// rotationSteps is the ordered sequence of rotation steps sent to a rotation Lambda.
-//
-//nolint:gochecknoglobals // intentional package-level constant slice
-var rotationSteps = []string{"createSecret", "setSecret", "testSecret", "finishSecret"}
-
-// extractFunctionNameFromARN extracts the bare function name from a Lambda ARN.
-// Handles both unqualified ARNs (…:function:my-fn) and qualified ARNs (…:function:my-fn:alias).
-func extractFunctionNameFromARN(arn string) string {
-	const functionSegment = ":function:"
-
-	if _, after, found := strings.Cut(arn, functionSegment); found {
-		// Strip trailing qualifier (alias or version) if present.
-		name, _, _ := strings.Cut(after, ":")
-
-		return name
-	}
-
-	// Fallback: take the last colon-separated segment.
-	if idx := strings.LastIndex(arn, ":"); idx >= 0 {
-		return arn[idx+1:]
-	}
-
-	return arn
-}
-
-// rotateSecret performs RotateSecret, optionally invoking a rotation Lambda for each step.
-// The backend creates a new AWSPENDING version; this function promotes it to AWSCURRENT
-// after all Lambda steps succeed (or immediately if no Lambda ARN is configured).
-func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecretInput) (*RotateSecretOutput, error) {
-	out, err := h.Backend.RotateSecret(ctx, input)
-	if err != nil {
-		return nil, err
-	}
-
-	if input.RotationLambdaARN == "" || h.lambdaInvoker == nil {
-		// No Lambda ARN, or no invoker wired — backend already promoted to AWSCURRENT.
-		return out, nil
-	}
-
-	// Lambda ARN + invoker: backend created AWSPENDING; invoke steps and promote.
-	if err = h.invokeLambdaRotationSteps(ctx, input, out); err != nil {
-		return nil, err
-	}
-
-	// Promote AWSPENDING → AWSCURRENT after all Lambda steps succeed.
-	if b, ok := h.Backend.(*InMemoryBackend); ok {
-		if finishErr := b.FinishRotation(ctx, input.SecretID, out.VersionID); finishErr != nil {
-			return nil, finishErr
-		}
-	}
-
-	return out, nil
-}
-
-// invokeLambdaRotationSteps calls each rotation step in order via the Lambda invoker.
-func (h *Handler) invokeLambdaRotationSteps(
-	ctx context.Context,
-	input *RotateSecretInput,
-	out *RotateSecretOutput,
-) error {
-	token := input.ClientRequestToken
-	if token == "" {
-		token = out.VersionID
-	}
-
-	functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
-
-	for _, step := range rotationSteps {
-		event, marshalErr := json.Marshal(map[string]string{
-			"SecretId":           input.SecretID,
-			"ClientRequestToken": token,
-			"Step":               step,
-		})
-		if marshalErr != nil {
-			return fmt.Errorf("rotation event marshal: %w", marshalErr)
-		}
-
-		result, _, invokeErr := h.lambdaInvoker.InvokeFunction(
-			ctx, functionName, "RequestResponse", event,
-		)
-		if invokeErr != nil {
-			if b, ok := h.Backend.(*InMemoryBackend); ok {
-				_ = b.AbortRotation(ctx, input.SecretID, out.VersionID)
-			}
-
-			return fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
-		}
-		if len(result) > 0 && string(result) != "{}" && string(result) != "null" {
-			// This is a function error or unexpected result
-			logger.Load(ctx).DebugContext(ctx, "Lambda step returned",
-				"step", step,
-				"result", string(result),
-			)
-		}
-	}
-
-	return nil
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
