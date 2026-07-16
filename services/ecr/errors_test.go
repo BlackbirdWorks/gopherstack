@@ -1,6 +1,6 @@
 package ecr_test
 
-// error_shapes_test.go — verifies AWS-accurate error precedence for the
+// errors_test.go — verifies AWS-accurate error precedence for the
 // image-scoped scan/storage ops: a missing repository yields
 // RepositoryNotFoundException, while a missing image in an existing repository
 // yields ImageNotFoundException, and an unscanned image yields
@@ -16,7 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ecr"
 )
 
-func TestErrorShapes_RepoVsImageNotFound(t *testing.T) {
+func TestErrorPrecedence_RepoVsImageNotFound(t *testing.T) {
 	t.Parallel()
 
 	const digest = "sha256:present"

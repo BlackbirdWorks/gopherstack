@@ -1,13 +1,17 @@
 package ecr_test
 
-// lifecycle_expiry_test.go — verifies that lifecycle policies actually expire
-// and DELETE matching images (not just store policy text), that expiry runs on
-// PutLifecyclePolicy and via the janitor, that rule priority / one-rule-per-image
-// semantics hold, and that tagPrefixList vs tagPatternList selection is correct.
+// lifecycle_test.go — verifies that lifecycle policies actually expire and
+// DELETE matching images (not just store policy text), that expiry runs on
+// PutLifecyclePolicy, via StartLifecyclePolicyPreview's selection logic, and
+// via the janitor background sweep; that rule priority / one-rule-per-image
+// semantics hold; and that tagPrefixList/tagPatternList/countType selection
+// criteria are correct. This is lifecycle.go's expiry-evaluation logic, as
+// distinct from lifecycle_policy.go's CRUD surface (see lifecycle_policy_test.go).
 
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -195,4 +199,151 @@ func TestLifecycle_LastEvaluatedAt_IsReal(t *testing.T) {
 
 	stored := b.LifecycleLastEvaluatedForTest("lc")
 	assert.Equal(t, stored, got.LastEvaluatedAt, "Get must echo the stored evaluation time, not time.Now()")
+}
+
+func TestLifecycleEvaluator_MultiTagUntaggedDetection(t *testing.T) {
+	t.Parallel()
+
+	// An image with two tags where the primary tag is cleared but a tag still
+	// exists in digestTagsIndex must NOT be classified as "untagged" by the
+	// lifecycle evaluator.
+	b := newBackend(t)
+	b.CreateRepoInternal("lc-repo")
+
+	digest := "sha256:1234"
+	b.AddImageInternal("lc-repo", makeImage(digest, "v1"))
+	// Simulate a second tag by calling PutImage directly (which updates digestTagsIndex).
+	img2 := makeImage(digest, "stable")
+	_, err := b.PutImage(context.Background(), "lc-repo", img2)
+	require.NoError(t, err)
+
+	// A lifecycle rule targeting "untagged" images must NOT expire this image.
+	policy := expirePolicy(`{"tagStatus":"untagged","countType":"imageCountMoreThan","countNumber":0}`)
+
+	preview, err := b.StartLifecyclePolicyPreview(context.Background(), "lc-repo", policy)
+	require.NoError(t, err)
+
+	for _, id := range preview.PreviewResults {
+		assert.NotEqual(t, digest, id.ImageDigest,
+			"multi-tagged image must not be classified as untagged")
+	}
+}
+
+func TestLifecycleEvaluator_UntaggedOnly(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	b.CreateRepoInternal("lc-repo2")
+
+	digestTagged := "sha256:tagged1"
+	digestUntagged := "sha256:untagged1"
+	b.AddImageInternal("lc-repo2", makeImage(digestTagged, "release"))
+	b.AddImageInternal("lc-repo2", ecr.Image{
+		ImageDigest:   digestUntagged,
+		ImageManifest: `{"schemaVersion":2}`,
+		ImageID:       ecr.ImageIdentifier{ImageDigest: digestUntagged},
+	})
+
+	policy := expirePolicy(`{"tagStatus":"untagged","countType":"imageCountMoreThan","countNumber":0}`)
+
+	preview, err := b.StartLifecyclePolicyPreview(context.Background(), "lc-repo2", policy)
+	require.NoError(t, err)
+
+	expired := make(map[string]bool)
+	for _, id := range preview.PreviewResults {
+		expired[id.ImageDigest] = true
+	}
+
+	assert.True(t, expired[digestUntagged], "untagged image must be expired")
+	assert.False(t, expired[digestTagged], "tagged image must NOT be expired")
+}
+
+func TestLifecycleEvaluator_ImageCountMoreThan(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	b.CreateRepoInternal("lc-count-repo")
+
+	now := time.Now()
+	for i := range 5 {
+		digest := fmt.Sprintf("sha256:img%02d", i)
+		img := ecr.Image{
+			ImageDigest:   digest,
+			ImageManifest: `{"schemaVersion":2}`,
+			ImageID:       ecr.ImageIdentifier{ImageDigest: digest, ImageTag: fmt.Sprintf("v%d", i)},
+			ImagePushedAt: now.Add(time.Duration(i) * time.Hour),
+		}
+		b.AddImageInternal("lc-count-repo", img)
+	}
+
+	policy := expirePolicy(`{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":3}`)
+
+	preview, err := b.StartLifecyclePolicyPreview(context.Background(), "lc-count-repo", policy)
+	require.NoError(t, err)
+
+	assert.Len(t, preview.PreviewResults, 2, "imageCountMoreThan:3 with 5 images must expire 2")
+}
+
+func TestLifecyclePolicyPreview_SinceImagePushed(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	b.CreateRepoInternal("age-repo")
+
+	now := time.Now()
+	old := ecr.Image{
+		ImageDigest:   "sha256:old",
+		ImageManifest: `{"schemaVersion":2}`,
+		ImageID:       ecr.ImageIdentifier{ImageDigest: "sha256:old", ImageTag: "old"},
+		ImagePushedAt: now.AddDate(0, 0, -10),
+	}
+	fresh := ecr.Image{
+		ImageDigest:   "sha256:fresh",
+		ImageManifest: `{"schemaVersion":2}`,
+		ImageID:       ecr.ImageIdentifier{ImageDigest: "sha256:fresh", ImageTag: "fresh"},
+		ImagePushedAt: now.AddDate(0, 0, -1),
+	}
+	b.AddImageInternal("age-repo", old)
+	b.AddImageInternal("age-repo", fresh)
+
+	policy := expirePolicy(`{"tagStatus":"any","countType":"sinceImagePushed","countNumber":5,"countUnit":"days"}`)
+
+	preview, err := b.StartLifecyclePolicyPreview(context.Background(), "age-repo", policy)
+	require.NoError(t, err)
+
+	expired := make(map[string]bool)
+	for _, id := range preview.PreviewResults {
+		expired[id.ImageDigest] = true
+	}
+
+	assert.True(t, expired["sha256:old"], "image older than 5 days must be expired")
+	assert.False(t, expired["sha256:fresh"], "image newer than 5 days must not be expired")
+}
+
+func TestLifecyclePolicy_DeletesViaDescribeImages(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "lc")
+
+	for i, tag := range []string{"a", "b", "c", "d"} {
+		manifest := `{"schemaVersion":2,"i":` + string(rune('0'+i)) + `}`
+		mustPutImage(t, h, "lc", tag, manifest)
+	}
+
+	policy := `{"rules":[{"rulePriority":1,"action":{"type":"expire"},` +
+		`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":2}}]}`
+
+	rec := doAccuracy(t, h, "PutLifecyclePolicy", map[string]any{
+		"repositoryName":      "lc",
+		"lifecyclePolicyText": policy,
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = doAccuracy(t, h, "DescribeImages", map[string]any{"repositoryName": "lc"})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	out := parseAccuracy(t, rec)
+	details, _ := out["imageDetails"].([]any)
+	assert.Len(t, details, 2, "lifecycle policy must expire images down to countNumber via DescribeImages")
 }

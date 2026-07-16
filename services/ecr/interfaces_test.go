@@ -446,17 +446,6 @@ func TestECR_Handler_RestoreNoopForNonSnapshottable(t *testing.T) {
 	require.NoError(t, h.Restore(t.Context(), []byte(`{"repos":{}}`)))
 }
 
-// TestECR_InMemoryBackend_ProxyEndpoint verifies the ProxyEndpoint accessor.
-func TestECR_InMemoryBackend_ProxyEndpoint(t *testing.T) {
-	t.Parallel()
-
-	b := ecr.NewInMemoryBackend("000000000000", "us-east-1", "initial:5000")
-	assert.Equal(t, "initial:5000", b.ProxyEndpoint())
-
-	b.SetEndpoint("updated:9000")
-	assert.Equal(t, "updated:9000", b.ProxyEndpoint())
-}
-
 // TestECR_GetAuthorizationToken_ProxyEndpointFromBackend checks that the
 // proxyEndpoint in the auth token response comes from the Backend interface.
 func TestECR_GetAuthorizationToken_ProxyEndpointFromBackend(t *testing.T) {

@@ -1,12 +1,14 @@
 package ecr_test
 
-// scan_enhanced_test.go — verifies that ENHANCED registry scanning produces a
+// scan_test.go — verifies that ENHANCED registry scanning produces a
 // genuinely different finding shape from BASIC scanning: package-level
 // vulnerability detail, CVSS scores, remediation, and fixAvailable, returned
-// under enhancedFindings rather than findings.
+// under enhancedFindings rather than findings (scan.go's mock finding
+// generation).
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -136,4 +138,48 @@ func scanOnce(t *testing.T, b *ecr.InMemoryBackend) []string {
 	}
 
 	return ids
+}
+
+func TestScan_EnhancedWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "enh")
+	digest := mustPutImage(t, h, "enh", "v1", `{"schemaVersion":2,"enh":"wire"}`)
+
+	rec := doAccuracy(t, h, "PutRegistryScanningConfiguration", map[string]any{"scanType": "ENHANCED"})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = doAccuracy(t, h, "StartImageScan", map[string]any{
+		"repositoryName": "enh",
+		"imageId":        map[string]any{"imageDigest": digest},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = doAccuracy(t, h, "DescribeImageScanFindings", map[string]any{
+		"repositoryName": "enh",
+		"imageId":        map[string]any{"imageDigest": digest},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	out := parseAccuracy(t, rec)
+	findings, _ := out["imageScanFindings"].(map[string]any)
+	require.NotNil(t, findings, "imageScanFindings must be present")
+
+	enhanced, _ := findings["enhancedFindings"].([]any)
+	require.NotEmpty(t, enhanced, "enhancedFindings must be emitted on the wire")
+
+	_, hasBasic := findings["findings"]
+	assert.False(t, hasBasic, "enhanced scan must not also emit basic findings")
+
+	f0, _ := enhanced[0].(map[string]any)
+	require.NotNil(t, f0)
+	assert.Equal(t, "PACKAGE_VULNERABILITY", f0["type"])
+	assert.NotEmpty(t, f0["fixAvailable"])
+
+	pvd, _ := f0["packageVulnerabilityDetails"].(map[string]any)
+	require.NotNil(t, pvd, "packageVulnerabilityDetails must be present")
+	assert.NotEmpty(t, pvd["vulnerabilityId"])
+	cvss, _ := pvd["cvss"].([]any)
+	assert.NotEmpty(t, cvss, "cvss scores must be present")
 }

@@ -213,3 +213,40 @@ func TestStorePersistence_IncompatibleVersionDiscardsCleanly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, gotRepos, "incompatible-version snapshot must reset to empty, not partially decode")
 }
+
+// TestPersistence_TagsRoundTrip verifies that resource tags (a raw map, not a
+// store.Table) survive a snapshot/restore cycle.
+func TestPersistence_TagsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tags map[string]string
+		name string
+		arn  string
+	}{
+		{
+			name: "tags_survive_snapshot_restore",
+			arn:  "arn:aws:ecr:us-east-1:123456789012:repository/persist-repo",
+			tags: map[string]string{"env": "prod", "owner": "team"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b1 := ecr.NewInMemoryBackend("123456789012", "us-east-1", "localhost:5000")
+			require.NoError(t, b1.TagResource(context.Background(), tt.arn, tt.tags))
+
+			snap := b1.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := ecr.NewInMemoryBackend("123456789012", "us-east-1", "localhost:5000")
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			got, err := b2.ListTagsForResource(context.Background(), tt.arn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.tags, got)
+		})
+	}
+}
