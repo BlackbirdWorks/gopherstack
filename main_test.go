@@ -48,7 +48,8 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 					return false
 				}
 				defer resp.Body.Close()
-				return resp.StatusCode >= 200 && resp.StatusCode < 500
+
+				return resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusInternalServerError
 			}, 10*time.Second, 100*time.Millisecond, "failed to reach server on :%d", port)
 
 			t.Logf("Server responding successfully on port :%d", port)
