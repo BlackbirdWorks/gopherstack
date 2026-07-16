@@ -612,9 +612,17 @@ func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
 		// Capture stream record (REMOVE)
 		table.appendStreamRecord(streamEventRemove, deepCopyItem(table.Items[idx]), nil, "", "")
 
-		// Delete by swapping with last and truncating
-		table.Items[idx] = table.Items[len(table.Items)-1]
-		table.Items = table.Items[:len(table.Items)-1]
+		deletedSize := table.itemSizes[idx]
+		lastIdx := len(table.Items) - 1
+
+		if idx != lastIdx {
+			// Delete by swapping with last and truncating
+			table.Items[idx] = table.Items[lastIdx]
+			table.itemSizes[idx] = table.itemSizes[lastIdx]
+		}
+		table.Items = table.Items[:lastIdx]
+		table.itemSizes = table.itemSizes[:lastIdx]
+		table.totalItemSizeBytes -= int64(deletedSize)
 	}
 
 	table.rebuildIndexes()
@@ -692,9 +700,12 @@ func validateBatchWriteRequest(req types.WriteRequest, table *Table) error {
 
 func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) int {
 	oldItem, matchIndex := db.findMatchForPut(table, item)
+	itemSize, _ := CalculateItemSize(item)
 	if matchIndex != -1 {
 		// Capture stream event (MODIFY) before overwriting in place.
 		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(item), "", "")
+		table.totalItemSizeBytes += int64(itemSize) - int64(table.itemSizes[matchIndex])
+		table.itemSizes[matchIndex] = itemSize
 		table.Items[matchIndex] = item
 
 		return matchIndex
@@ -703,6 +714,8 @@ func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any)
 	table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(item), "", "")
 	idx := len(table.Items)
 	table.Items = append(table.Items, item)
+	table.itemSizes = append(table.itemSizes, itemSize)
+	table.totalItemSizeBytes += int64(itemSize)
 
 	return idx
 }

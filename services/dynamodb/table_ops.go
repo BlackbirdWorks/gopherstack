@@ -384,29 +384,23 @@ func (db *InMemoryDB) DeleteTable(
 	region := getRegionFromContext(ctx, db)
 
 	db.mu.Lock("DeleteTable")
-	defer db.mu.Unlock()
-
 	table, tableExists := db.tables.Get(tableKey(region, tableName))
 	if !tableExists {
+		db.mu.Unlock()
+
 		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
 
 	// AWS rejects DeleteTable when DeletionProtectionEnabled is true.
 	// The protection must be disabled (via UpdateTable) before the table can be deleted.
 	if table.DeletionProtectionEnabled {
+		db.mu.Unlock()
+
 		return nil, NewValidationException(
 			"Table cannot be deleted while DeletionProtectionEnabled is set to True. " +
 				"Update the table first to disable deletion protection.",
 		)
 	}
-
-	// Cancel any pending activation timer and any in-flight GSI lifecycle timers.
-	// Stop() is called while db.mu is held, which prevents a concurrent CreateTable from
-	// racing with us. If a timer has already fired and the callback is in progress, Stop()
-	// returns false but the callback only writes table.Status or GSI.IndexStatus (both
-	// guarded by table.mu) on an object that is about to move to deletingTables —
-	// this is benign; the janitor will clean it up regardless.
-	stopTableTimers(table)
 
 	db.tables.Delete(tableKey(region, tableName))
 	db.deletingTables.Put(table)
@@ -422,6 +416,16 @@ func (db *InMemoryDB) DeleteTable(
 	if table.StreamARN != "" {
 		db.streamARNIndex.Delete(table.StreamARN)
 	}
+
+	db.mu.Unlock()
+
+	// Cancel any pending activation timer and any in-flight GSI lifecycle timers.
+	// Stop() is called after db.mu is released to prevent holding the global lock
+	// while waiting for table.mu (which would stall all other table operations).
+	// If a timer fires concurrently, it only writes table.Status or GSI.IndexStatus (both
+	// guarded by table.mu) on an object that has already moved to deletingTables —
+	// this is benign; the janitor will clean it up regardless.
+	stopTableTimers(table)
 
 	// Capture state for return
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
