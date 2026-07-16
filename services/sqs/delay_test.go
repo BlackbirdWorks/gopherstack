@@ -1,6 +1,7 @@
 package sqs_test
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -249,6 +250,118 @@ func TestDelayQueue_ApproximateNumberOfMessagesDelayed(t *testing.T) {
 
 			assert.Equal(t, tt.wantDelayed, attrOut.Attributes["ApproximateNumberOfMessagesDelayed"])
 			assert.Equal(t, tt.wantApproxVisible, attrOut.Attributes["ApproximateNumberOfMessages"])
+		})
+	}
+}
+
+func TestQueueDelay_HidesMessageUntilExpiry(t *testing.T) {
+	t.Parallel()
+	b := b2newBackend(t)
+
+	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName:  "delay-q",
+		Endpoint:   "localhost",
+		Attributes: map[string]string{"DelaySeconds": "900"},
+	})
+	require.NoError(t, err)
+
+	b2send(t, b, qURL.QueueURL, "delayed")
+
+	msgs := b2receive(t, b, qURL.QueueURL, 1)
+	assert.Empty(t, msgs, "delayed message should not be visible immediately")
+
+	attrs := b2getAttrs(t, b, qURL.QueueURL, "ApproximateNumberOfMessagesDelayed")
+	assert.Equal(t, "1", attrs["ApproximateNumberOfMessagesDelayed"])
+}
+
+func TestMessageDelay_OverridesQueueDelay(t *testing.T) {
+	t.Parallel()
+	b := b2newBackend(t)
+
+	qURL, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName:  "msg-delay-override",
+		Endpoint:   "localhost",
+		Attributes: map[string]string{"DelaySeconds": "0"},
+	})
+	require.NoError(t, err)
+
+	_, err = b.SendMessage(&sqs.SendMessageInput{
+		QueueURL:     qURL.QueueURL,
+		MessageBody:  "with-delay",
+		DelaySeconds: 900,
+	})
+	require.NoError(t, err)
+
+	msgs := b2receive(t, b, qURL.QueueURL, 1)
+	assert.Empty(t, msgs)
+}
+
+// TestDelayQueue verifies per-message and queue-level delay.
+func TestDelayQueue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		queueDelay  int
+		perMsgDelay int
+		wantDelayed bool // message not visible immediately
+	}{
+		{
+			name:        "no delay — immediately visible",
+			queueDelay:  0,
+			perMsgDelay: 0,
+			wantDelayed: false,
+		},
+		{
+			name:        "queue-level delay — not visible immediately",
+			queueDelay:  900,
+			perMsgDelay: 0,
+			wantDelayed: true,
+		},
+		{
+			name:        "per-message delay overrides queue delay of zero",
+			queueDelay:  0,
+			perMsgDelay: 900,
+			wantDelayed: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			attrs := map[string]string{}
+			if tc.queueDelay > 0 {
+				attrs["DelaySeconds"] = strconv.Itoa(tc.queueDelay)
+			}
+
+			qOut, err := b.CreateQueue(&sqs.CreateQueueInput{
+				QueueName:  "delay-q",
+				Endpoint:   testEndpoint,
+				Attributes: attrs,
+			})
+			require.NoError(t, err)
+
+			_, err = b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:     qOut.QueueURL,
+				MessageBody:  "delayed",
+				DelaySeconds: tc.perMsgDelay,
+			})
+			require.NoError(t, err)
+
+			out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            qOut.QueueURL,
+				MaxNumberOfMessages: 1,
+				VisibilityTimeout:   0,
+			})
+			require.NoError(t, err)
+
+			if tc.wantDelayed {
+				assert.Empty(t, out.Messages, "message must not be visible during delay period")
+			} else {
+				assert.Len(t, out.Messages, 1, "message must be immediately visible")
+			}
 		})
 	}
 }

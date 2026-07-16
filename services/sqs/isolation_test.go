@@ -81,3 +81,130 @@ func TestSQSRegionIsolation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, westAfter.QueueURLs, 1)
 }
+
+// TestLookupQueueByURL_RegionIsolation verifies that lookupQueueByURL respects
+// region boundaries and never returns a queue from a different region when the
+// caller supplies an explicit region. This locks in the parity fix that replaced
+// the O(n) URL-string scan fallback with an effectiveRegion-scoped key lookup.
+func TestLookupQueueByURL_RegionIsolation(t *testing.T) {
+	t.Parallel()
+
+	const (
+		east  = "us-east-1"
+		west  = "us-west-2"
+		name  = "same-name"
+		ep    = "localhost:4566"
+		accID = "000000000000"
+	)
+
+	tests := []struct {
+		name          string
+		sendRegion    string
+		opRegion      string
+		wantSendErr   bool
+		wantReceiveOK bool
+	}{
+		{
+			name:          "same_region_send_and_receive",
+			sendRegion:    east,
+			opRegion:      east,
+			wantReceiveOK: true,
+		},
+		{
+			name:          "wrong_region_cannot_receive",
+			sendRegion:    east,
+			opRegion:      west,
+			wantReceiveOK: false,
+		},
+		{
+			name:          "empty_region_uses_backend_default",
+			sendRegion:    "",
+			opRegion:      "",
+			wantReceiveOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sqs.NewInMemoryBackendWithConfig(accID, east)
+			t.Cleanup(b.Close)
+
+			out, err := b.CreateQueue(&sqs.CreateQueueInput{
+				QueueName: name,
+				Endpoint:  ep,
+				Region:    tt.sendRegion,
+			})
+			require.NoError(t, err)
+
+			_, err = b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:    out.QueueURL,
+				Region:      tt.sendRegion,
+				MessageBody: "hello",
+			})
+			require.NoError(t, err)
+
+			recv, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            out.QueueURL,
+				Region:              tt.opRegion,
+				MaxNumberOfMessages: 1,
+			})
+
+			if tt.wantReceiveOK {
+				require.NoError(t, err)
+				assert.Len(t, recv.Messages, 1)
+			} else {
+				require.Error(t, err, "expected error when using wrong region")
+			}
+		})
+	}
+}
+
+// TestLookupQueueByURL_CrossRegionURLScanEliminated verifies that the previous
+// URL-scan fallback no longer bleeds across region boundaries: creating a queue
+// in us-east-1 and then accessing it with a us-west-2 request returns not-found
+// rather than silently returning the east queue.
+func TestLookupQueueByURL_CrossRegionURLScanEliminated(t *testing.T) {
+	t.Parallel()
+
+	const (
+		east  = "us-east-1"
+		west  = "us-west-2"
+		name  = "isolation-queue"
+		ep    = "localhost:4566"
+		accID = "000000000000"
+	)
+
+	b := sqs.NewInMemoryBackendWithConfig(accID, east)
+	t.Cleanup(b.Close)
+
+	eastOut, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: name,
+		Endpoint:  ep,
+		Region:    east,
+	})
+	require.NoError(t, err)
+
+	_, sendErr := b.SendMessage(&sqs.SendMessageInput{
+		QueueURL:    eastOut.QueueURL,
+		Region:      east,
+		MessageBody: "eastbound",
+	})
+	require.NoError(t, sendErr)
+
+	// A west-region request using the east queue URL must not find the queue.
+	_, err = b.ReceiveMessage(&sqs.ReceiveMessageInput{
+		QueueURL:            eastOut.QueueURL,
+		Region:              west,
+		MaxNumberOfMessages: 1,
+	})
+	require.Error(t, err, "west-region request should not find east queue")
+
+	err = b.DeleteMessage(&sqs.DeleteMessageInput{
+		QueueURL:      eastOut.QueueURL,
+		Region:        west,
+		ReceiptHandle: "any-handle",
+	})
+	require.Error(t, err, "west-region DeleteMessage should not find east queue")
+}

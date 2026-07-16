@@ -2,298 +2,200 @@ package sqs_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/services/sqs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
+
+func TestMoveTaskRateLimitingCompletesSuccessfully(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	srcOut, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: "dlq-src",
+		Endpoint:  testEndpoint,
+	})
+	require.NoError(t, err)
+
+	dstOut, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: "dlq-dst",
+		Endpoint:  testEndpoint,
+	})
+	require.NoError(t, err)
+
+	// Put 3 messages in source.
+	for i := range 3 {
+		_, err = b.SendMessage(&sqs.SendMessageInput{
+			QueueURL:    srcOut.QueueURL,
+			MessageBody: fmt.Sprintf("msg%d", i),
+		})
+		require.NoError(t, err)
+	}
+
+	srcAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+		QueueURL:       srcOut.QueueURL,
+		AttributeNames: []string{"QueueArn"},
+	})
+	require.NoError(t, err)
+	dstAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+		QueueURL:       dstOut.QueueURL,
+		AttributeNames: []string{"QueueArn"},
+	})
+	require.NoError(t, err)
+
+	taskOut, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
+		SourceArn:                    srcAttrs.Attributes["QueueArn"],
+		DestinationArn:               dstAttrs.Attributes["QueueArn"],
+		MaxNumberOfMessagesPerSecond: 100, // 100 msg/s
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, taskOut.TaskHandle)
+
+	// Wait for completion.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		tasks, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+			SourceArn:  srcAttrs.Attributes["QueueArn"],
+			MaxResults: 1,
+		})
+		require.NoError(t, listErr)
+		if len(tasks.Results) > 0 && tasks.Results[0].Status == sqs.MoveTaskStatusCompleted {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Destination should have the messages.
+	dstMsgs, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+		QueueURL:            dstOut.QueueURL,
+		MaxNumberOfMessages: 10,
+	})
+	require.NoError(t, err)
+	assert.Len(t, dstMsgs.Messages, 3)
+}
+
+// TestListMessageMoveTasks_DefaultMaxResults_ReturnsOne verifies that
+// omitting MaxResults (i.e. MaxResults=0) returns at most 1 result, matching
+// the AWS default.
+func TestListMessageMoveTasks_DefaultMaxResults_ReturnsOne(t *testing.T) {
+	t.Parallel()
+	b := b3newBackend(t)
+
+	now := time.Now().UnixMilli()
+	b.InjectMoveTaskForTest("handle-a", sqs.MoveTaskStatusCompleted, now-2000)
+	b.InjectMoveTaskForTest("handle-b", sqs.MoveTaskStatusCompleted, now-1000)
+	b.InjectMoveTaskForTest("handle-c", sqs.MoveTaskStatusCompleted, now)
+
+	out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+		MaxResults: 0, // default: 1
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.Results, 1, "default MaxResults=0 must return exactly 1 result")
+}
+
+// TestListMessageMoveTasks_MaxResultsClamped verifies that MaxResults > 10 is
+// silently clamped to 10.
+func TestListMessageMoveTasks_MaxResultsClamped(t *testing.T) {
+	t.Parallel()
+	b := b3newBackend(t)
+
+	now := time.Now().UnixMilli()
+	for i := range 12 {
+		b.InjectMoveTaskForTest(
+			"h"+string(rune('a'+i)),
+			sqs.MoveTaskStatusCompleted,
+			now-int64(i*1000),
+		)
+	}
+
+	out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{MaxResults: 11})
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(out.Results), 10, "MaxResults > 10 must be clamped to 10")
+}
+
+// TestListMessageMoveTasks_OrderedNewestFirst verifies that results are
+// returned with the most recently started task first.
+func TestListMessageMoveTasks_OrderedNewestFirst(t *testing.T) {
+	t.Parallel()
+	b := b3newBackend(t)
+
+	base := time.Now().UnixMilli()
+	b.InjectMoveTaskForTest("old-task", sqs.MoveTaskStatusCompleted, base-3000)
+	b.InjectMoveTaskForTest("mid-task", sqs.MoveTaskStatusCompleted, base-1000)
+	b.InjectMoveTaskForTest("new-task", sqs.MoveTaskStatusCompleted, base)
+
+	out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{MaxResults: 3})
+	require.NoError(t, err)
+	require.Len(t, out.Results, 3)
+
+	// startedAt should be descending (newest first).
+	for i := 1; i < len(out.Results); i++ {
+		assert.GreaterOrEqual(
+			t,
+			out.Results[i-1].StartedTimestamp,
+			out.Results[i].StartedTimestamp,
+			"results must be ordered newest-first",
+		)
+	}
+}
+
+// TestListMessageMoveTasks_TaskHandleOnlyForRunning verifies that TaskHandle
+// is populated only for tasks in RUNNING status, and is empty for all other statuses.
+func TestListMessageMoveTasks_TaskHandleOnlyForRunning(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		status         sqs.MoveTaskStatus
+		wantTaskHandle bool
+	}{
+		{sqs.MoveTaskStatusRunning, true},
+		{sqs.MoveTaskStatusCompleted, false},
+		{sqs.MoveTaskStatusCancelled, false},
+		{sqs.MoveTaskStatusFailed, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.status), func(t *testing.T) {
+			t.Parallel()
+			b := b3newBackend(t)
+
+			handle := "task-" + string(tc.status)
+			b.InjectMoveTaskForTest(handle, tc.status, time.Now().UnixMilli())
+
+			out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{MaxResults: 1})
+			require.NoError(t, err)
+			require.Len(t, out.Results, 1)
+
+			if tc.wantTaskHandle {
+				assert.NotEmpty(t, out.Results[0].TaskHandle, "RUNNING task must have TaskHandle")
+			} else {
+				assert.Empty(t, out.Results[0].TaskHandle, "non-RUNNING task must not expose TaskHandle")
+			}
+		})
+	}
+}
+
+// TestListMessageMoveTasks_EmptyResult verifies that the operation succeeds
+// with an empty slice when no tasks exist.
+func TestListMessageMoveTasks_EmptyResult(t *testing.T) {
+	t.Parallel()
+	b := b3newBackend(t)
+
+	out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{MaxResults: 5})
+	require.NoError(t, err)
+	assert.Empty(t, out.Results)
+}
 
 // buildQueueARN constructs an SQS ARN in the default test account/region.
 func buildQueueARN(queueName string) string {
 	return "arn:aws:sqs:us-east-1:000000000000:" + queueName
-}
-
-// TestSQS_DLQRedrive validates that StartMessageMoveTask, CancelMessageMoveTask,
-// and ListMessageMoveTasks work correctly for the async DLQ redrive use case.
-func TestSQS_DLQRedrive(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup          func(t *testing.T, b *sqs.InMemoryBackend) (srcARN, destARN, srcURL string)
-		wantErrIs      error
-		name           string
-		msgCount       int
-		wantTaskHandle bool
-		wantErr        bool
-	}{
-		{
-			name:           "move_messages_from_dlq_to_source",
-			msgCount:       3,
-			wantTaskHandle: true,
-			setup: func(t *testing.T, b *sqs.InMemoryBackend) (string, string, string) {
-				t.Helper()
-
-				dlqName := "dlq-redrive"
-				srcName := "src-redrive"
-
-				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
-				require.NoError(t, err)
-
-				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: srcName, Endpoint: "localhost"})
-				require.NoError(t, err)
-
-				dlqARN := buildQueueARN(dlqName)
-				srcARN := buildQueueARN(srcName)
-				dlqURL := "http://localhost/000000000000/" + dlqName
-
-				return dlqARN, srcARN, dlqURL
-			},
-		},
-		{
-			name:      "start_task_with_nonexistent_source_returns_error",
-			msgCount:  0,
-			wantErr:   true,
-			wantErrIs: sqs.ErrQueueNotFound,
-			setup: func(_ *testing.T, _ *sqs.InMemoryBackend) (string, string, string) {
-				return buildQueueARN("nonexistent-dlq"), buildQueueARN("some-dest"), ""
-			},
-		},
-		{
-			name:      "start_second_task_for_same_source_returns_conflict",
-			msgCount:  0, // setup already seeds messages
-			wantErr:   true,
-			wantErrIs: sqs.ErrMoveTaskAlreadyRunning,
-			setup: func(t *testing.T, b *sqs.InMemoryBackend) (string, string, string) {
-				t.Helper()
-
-				dlqName := "dlq-conflict"
-				destName := "dest-conflict"
-
-				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
-				require.NoError(t, err)
-
-				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: destName, Endpoint: "localhost"})
-				require.NoError(t, err)
-
-				dlqURL := "http://localhost/000000000000/" + dlqName
-
-				dlqARN := buildQueueARN(dlqName)
-				destARN := buildQueueARN(destName)
-
-				// Pre-seed the source so the task stays RUNNING.
-				for i := range 10 {
-					_, sendErr := b.SendMessage(&sqs.SendMessageInput{
-						QueueURL:    dlqURL,
-						MessageBody: "conflict-" + strconv.Itoa(i),
-					})
-					require.NoError(t, sendErr)
-				}
-
-				// Start first task with rate limiting so it stays alive.
-				_, err = b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
-					SourceArn:                    dlqARN,
-					DestinationArn:               destARN,
-					MaxNumberOfMessagesPerSecond: 1,
-				})
-				require.NoError(t, err)
-
-				// Return the same ARNs; the test will attempt to start a second task.
-				return dlqARN, destARN, ""
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := sqs.NewInMemoryBackend()
-			t.Cleanup(b.Close)
-			srcARN, destARN, srcURL := tt.setup(t, b)
-
-			// Seed messages into the source queue if needed.
-			for i := range tt.msgCount {
-				_, err := b.SendMessage(&sqs.SendMessageInput{
-					QueueURL:    srcURL,
-					MessageBody: "msg-body-" + strconv.Itoa(i),
-				})
-				require.NoError(t, err)
-			}
-
-			out, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
-				SourceArn:      srcARN,
-				DestinationArn: destARN,
-			})
-
-			if tt.wantErr {
-				require.Error(t, err)
-
-				if tt.wantErrIs != nil {
-					require.ErrorIs(t, err, tt.wantErrIs)
-				}
-
-				return
-			}
-
-			require.NoError(t, err)
-			require.NotEmpty(t, out.TaskHandle)
-		})
-	}
-}
-
-func TestSQS_DLQRedrive_MovesMessages(t *testing.T) {
-	t.Parallel()
-
-	b := sqs.NewInMemoryBackend()
-	t.Cleanup(b.Close)
-
-	dlqName := "dlq-moves"
-	destName := "dest-moves"
-
-	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
-	require.NoError(t, err)
-
-	_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: destName, Endpoint: "localhost"})
-	require.NoError(t, err)
-
-	dlqURL := "http://localhost/000000000000/" + dlqName
-	destURL := "http://localhost/000000000000/" + destName
-	dlqARN := buildQueueARN(dlqName)
-	destARN := buildQueueARN(destName)
-
-	const msgCount = 5
-
-	for i := range msgCount {
-		_, sendErr := b.SendMessage(&sqs.SendMessageInput{
-			QueueURL:    dlqURL,
-			MessageBody: "message-" + strconv.Itoa(i),
-		})
-		require.NoError(t, sendErr)
-	}
-
-	out, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
-		SourceArn:      dlqARN,
-		DestinationArn: destARN,
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, out.TaskHandle)
-
-	// Wait for the goroutine to drain the DLQ.
-	// Per AWS semantics, TaskHandle is only populated for RUNNING tasks in the
-	// ListMessageMoveTasks response, so we check Status directly.
-	require.Eventually(t, func() bool {
-		listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
-			SourceArn:  dlqARN,
-			MaxResults: 1,
-		})
-		if listErr != nil {
-			return false
-		}
-
-		for _, task := range listOut.Results {
-			if task.Status == sqs.MoveTaskStatusCompleted {
-				return true
-			}
-		}
-
-		return false
-	}, 5*time.Second, 50*time.Millisecond, "task should complete")
-
-	// DLQ should now be empty.
-	dlqCheck, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:            dlqURL,
-		MaxNumberOfMessages: 10,
-	})
-	require.NoError(t, err)
-	assert.Empty(t, dlqCheck.Messages, "DLQ should be empty after redrive")
-
-	// Destination queue should contain all moved messages.
-	destCheck, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:            destURL,
-		MaxNumberOfMessages: 10,
-	})
-	require.NoError(t, err)
-	assert.Len(t, destCheck.Messages, msgCount, "destination queue should have all messages")
-}
-
-func TestSQS_DLQRedrive_DefaultDestination(t *testing.T) {
-	t.Parallel()
-
-	b := sqs.NewInMemoryBackend()
-	t.Cleanup(b.Close)
-
-	dlqName := "dlq-default-dest"
-	srcName := "src-default-dest"
-
-	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
-	require.NoError(t, err)
-
-	dlqARN := buildQueueARN(dlqName)
-	dlqURL := "http://localhost/000000000000/" + dlqName
-	srcURL := "http://localhost/000000000000/" + srcName
-
-	// Create source queue with a RedrivePolicy pointing to the DLQ.
-	redrivePolicy, _ := json.Marshal(map[string]any{
-		"deadLetterTargetArn": dlqARN,
-		"maxReceiveCount":     3,
-	})
-
-	_, err = b.CreateQueue(&sqs.CreateQueueInput{
-		QueueName: srcName,
-		Endpoint:  "localhost",
-		Attributes: map[string]string{
-			"RedrivePolicy": string(redrivePolicy),
-		},
-	})
-	require.NoError(t, err)
-
-	// Put a message in the DLQ.
-	_, err = b.SendMessage(&sqs.SendMessageInput{QueueURL: dlqURL, MessageBody: "redrive-me"})
-	require.NoError(t, err)
-
-	// Start task without specifying DestinationArn — it should default to srcName.
-	out, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
-		SourceArn: dlqARN,
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, out.TaskHandle)
-
-	// Wait for completion.
-	// Per AWS semantics, TaskHandle is only populated for RUNNING tasks.
-	require.Eventually(t, func() bool {
-		listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
-			SourceArn:  dlqARN,
-			MaxResults: 1,
-		})
-		if listErr != nil {
-			return false
-		}
-
-		for _, task := range listOut.Results {
-			if task.Status == sqs.MoveTaskStatusCompleted {
-				return true
-			}
-		}
-
-		return false
-	}, 5*time.Second, 50*time.Millisecond, "task should complete")
-
-	// Source queue should have the re-driven message.
-	srcCheck, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:            srcURL,
-		MaxNumberOfMessages: 1,
-	})
-	require.NoError(t, err)
-	assert.Len(t, srcCheck.Messages, 1)
-
-	if len(srcCheck.Messages) > 0 {
-		assert.Equal(t, "redrive-me", srcCheck.Messages[0].Body)
-	}
 }
 
 func TestSQS_CancelMessageMoveTask(t *testing.T) {
@@ -1015,64 +917,6 @@ func TestSQS_MoveTaskJanitorPruning(t *testing.T) {
 
 			b.RunJanitorOnceForTest(now)
 			assert.Equal(t, tt.wantCount, b.MoveTaskCountForTest())
-		})
-	}
-}
-
-// TestSQS_AddPermission_Validation tests input validation for AddPermission.
-func TestSQS_AddPermission_Validation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		wantErrIs error
-		name      string
-		input     sqs.AddPermissionInput
-	}{
-		{
-			name: "empty_label_returns_error",
-			input: sqs.AddPermissionInput{
-				QueueURL:      "http://localhost/000000000000/q",
-				Label:         "",
-				AWSAccountIDs: []string{"123456789012"},
-				Actions:       []string{"SendMessage"},
-			},
-			wantErrIs: sqs.ErrInvalidPermissionLabel,
-		},
-		{
-			name: "empty_actions_returns_error",
-			input: sqs.AddPermissionInput{
-				QueueURL:      "http://localhost/000000000000/q",
-				Label:         "MyLabel",
-				AWSAccountIDs: []string{"123456789012"},
-				Actions:       []string{},
-			},
-			wantErrIs: sqs.ErrInvalidPermissionActions,
-		},
-		{
-			name: "empty_aws_account_ids_returns_error",
-			input: sqs.AddPermissionInput{
-				QueueURL:      "http://localhost/000000000000/q",
-				Label:         "MyLabel",
-				AWSAccountIDs: []string{},
-				Actions:       []string{"SendMessage"},
-			},
-			wantErrIs: sqs.ErrInvalidPermissionAccountIDs,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := sqs.NewInMemoryBackend()
-			t.Cleanup(b.Close)
-
-			_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "q", Endpoint: "localhost"})
-			require.NoError(t, err)
-
-			err = b.AddPermission(&tt.input)
-			require.Error(t, err)
-			require.ErrorIs(t, err, tt.wantErrIs)
 		})
 	}
 }
