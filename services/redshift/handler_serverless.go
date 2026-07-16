@@ -111,69 +111,116 @@ func (h *ServerlessHandler) RouteMatcher() service.Matcher {
 // MatchPriority returns the routing priority.
 func (h *ServerlessHandler) MatchPriority() int { return service.PriorityPathVersioned }
 
-// ExtractOperation extracts the operation name from the request.
-//
-//nolint:gocognit,cyclop,gocyclo,funlen // large dispatch switch is inherently complex for serverless routing
+// ExtractOperation extracts the operation name from the request. It tries each
+// resource family's matcher in turn (namespace, workgroup, snapshot, usage
+// limit, scheduled action) -- splitting the routing table this way keeps each
+// matcher's cyclomatic complexity small instead of one large combined switch.
 func (h *ServerlessHandler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	method := c.Request().Method
 
-	switch {
-	case strings.HasPrefix(path, slPrefix) && method == http.MethodPost && path == slPrefix:
-		return "CreateNamespace"
-	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodGet &&
-		!strings.Contains(strings.TrimPrefix(path, slPrefix+"/"), "/"):
-		return "GetNamespace"
-	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodDelete:
-		return "DeleteNamespace"
-	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodPatch:
-		return "UpdateNamespace"
-	case path == slPrefix && method == http.MethodGet:
-		return "ListNamespaces"
-	case path == slWorkgroupsPrefix && method == http.MethodPost:
-		return "CreateWorkgroup"
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") &&
-		method == http.MethodGet && strings.HasSuffix(path, "/credentials"):
-		return "GetCredentials"
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodGet:
-		return "GetWorkgroup"
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodDelete:
-		return "DeleteWorkgroup"
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodPatch:
-		return "UpdateWorkgroup"
-	case path == slWorkgroupsPrefix && method == http.MethodGet:
-		return "ListWorkgroups"
-	case path == slSnapshotsPrefix && method == http.MethodPost:
-		return "CreateSnapshot"
-	case path == slSnapshotsPrefix && method == http.MethodGet:
-		return "ListSnapshots"
-	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodGet:
-		return "GetSnapshot"
-	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodDelete:
-		return "DeleteSnapshot"
-	case path == slUsageLimitsPrefix && method == http.MethodPost:
-		return "CreateUsageLimit"
-	case path == slUsageLimitsPrefix && method == http.MethodGet:
-		return "ListUsageLimits"
-	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodGet:
-		return "GetUsageLimit"
-	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodPatch:
-		return "UpdateUsageLimit"
-	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodDelete:
-		return "DeleteUsageLimit"
-	case path == slScheduledActionsPrefix && method == http.MethodPost:
-		return "CreateScheduledAction"
-	case path == slScheduledActionsPrefix && method == http.MethodGet:
-		return "ListScheduledActions"
-	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodGet:
-		return "GetScheduledAction"
-	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodPatch:
-		return "UpdateScheduledAction"
-	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodDelete:
-		return "DeleteScheduledAction"
+	matchers := []func(string, string) (string, bool){
+		extractNamespaceOperation,
+		extractWorkgroupOperation,
+		extractSnapshotOperation,
+		extractUsageLimitOperation,
+		extractScheduledActionOperation,
+	}
+
+	for _, match := range matchers {
+		if op, ok := match(path, method); ok {
+			return op
+		}
 	}
 
 	return opUnknown
+}
+
+func extractNamespaceOperation(path, method string) (string, bool) {
+	switch {
+	case strings.HasPrefix(path, slPrefix) && method == http.MethodPost && path == slPrefix:
+		return "CreateNamespace", true
+	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodGet &&
+		!strings.Contains(strings.TrimPrefix(path, slPrefix+"/"), "/"):
+		return "GetNamespace", true
+	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodDelete:
+		return "DeleteNamespace", true
+	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodPatch:
+		return "UpdateNamespace", true
+	case path == slPrefix && method == http.MethodGet:
+		return "ListNamespaces", true
+	default:
+		return "", false
+	}
+}
+
+func extractWorkgroupOperation(path, method string) (string, bool) {
+	switch {
+	case path == slWorkgroupsPrefix && method == http.MethodPost:
+		return "CreateWorkgroup", true
+	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") &&
+		method == http.MethodGet && strings.HasSuffix(path, "/credentials"):
+		return "GetCredentials", true
+	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodGet:
+		return "GetWorkgroup", true
+	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodDelete:
+		return "DeleteWorkgroup", true
+	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodPatch:
+		return "UpdateWorkgroup", true
+	case path == slWorkgroupsPrefix && method == http.MethodGet:
+		return "ListWorkgroups", true
+	default:
+		return "", false
+	}
+}
+
+func extractSnapshotOperation(path, method string) (string, bool) {
+	switch {
+	case path == slSnapshotsPrefix && method == http.MethodPost:
+		return "CreateSnapshot", true
+	case path == slSnapshotsPrefix && method == http.MethodGet:
+		return "ListSnapshots", true
+	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodGet:
+		return "GetSnapshot", true
+	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodDelete:
+		return "DeleteSnapshot", true
+	default:
+		return "", false
+	}
+}
+
+func extractUsageLimitOperation(path, method string) (string, bool) {
+	switch {
+	case path == slUsageLimitsPrefix && method == http.MethodPost:
+		return "CreateUsageLimit", true
+	case path == slUsageLimitsPrefix && method == http.MethodGet:
+		return "ListUsageLimits", true
+	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodGet:
+		return "GetUsageLimit", true
+	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodPatch:
+		return "UpdateUsageLimit", true
+	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodDelete:
+		return "DeleteUsageLimit", true
+	default:
+		return "", false
+	}
+}
+
+func extractScheduledActionOperation(path, method string) (string, bool) {
+	switch {
+	case path == slScheduledActionsPrefix && method == http.MethodPost:
+		return "CreateScheduledAction", true
+	case path == slScheduledActionsPrefix && method == http.MethodGet:
+		return "ListScheduledActions", true
+	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodGet:
+		return "GetScheduledAction", true
+	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodPatch:
+		return "UpdateScheduledAction", true
+	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodDelete:
+		return "DeleteScheduledAction", true
+	default:
+		return "", false
+	}
 }
 
 // ExtractResource extracts a resource identifier from the request.
@@ -211,112 +258,175 @@ func (h *ServerlessHandler) Handler() echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop,funlen,gocognit,gocyclo // large dispatch table for serverless routing is inherently complex
+// dispatch routes a serverless request to its handler. Like ExtractOperation,
+// it delegates to one per-resource-family dispatcher in turn (each returning
+// ok=false when the request doesn't match that family) instead of one large
+// combined switch, so no single function carries the whole routing table's
+// cyclomatic complexity.
 func (h *ServerlessHandler) dispatch(
 	c *echo.Context,
 	path, method string,
 	body []byte,
-) error { //nolint:cyclop,funlen,gocognit,gocyclo // large dispatch table for serverless routing is inherently complex
-	// Namespace routes
+) error {
+	dispatchers := []func(*echo.Context, string, string, []byte) (bool, error){
+		h.dispatchNamespace,
+		h.dispatchWorkgroup,
+		h.dispatchSnapshot,
+		h.dispatchUsageLimit,
+		h.dispatchScheduledAction,
+	}
+
+	for _, try := range dispatchers {
+		if ok, err := try(c, path, method, body); ok {
+			return err
+		}
+	}
+
+	return c.JSON(
+		http.StatusNotFound,
+		slErrorResponse("UnknownOperationException", "unknown operation: "+path),
+	)
+}
+
+func (h *ServerlessHandler) dispatchNamespace(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
 	switch {
 	case path == slPrefix && method == http.MethodPost:
-		return h.handleCreateNamespace(c, body)
+		return true, h.handleCreateNamespace(c, body)
 	case path == slPrefix && method == http.MethodGet:
-		return h.handleListNamespaces(c)
+		return true, h.handleListNamespaces(c)
 	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodGet:
 		name := strings.TrimPrefix(path, slPrefix+"/")
 
-		return h.handleGetNamespace(c, name)
+		return true, h.handleGetNamespace(c, name)
 	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodDelete:
 		name := strings.TrimPrefix(path, slPrefix+"/")
 
-		return h.handleDeleteNamespace(c, name)
+		return true, h.handleDeleteNamespace(c, name)
 	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodPatch:
 		name := strings.TrimPrefix(path, slPrefix+"/")
 
-		return h.handleUpdateNamespace(c, name, body)
+		return true, h.handleUpdateNamespace(c, name, body)
+	default:
+		return false, nil
+	}
+}
 
-	// Workgroup routes
+func (h *ServerlessHandler) dispatchWorkgroup(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
+	switch {
 	case path == slWorkgroupsPrefix && method == http.MethodPost:
-		return h.handleCreateWorkgroup(c, body)
+		return true, h.handleCreateWorkgroup(c, body)
 	case path == slWorkgroupsPrefix && method == http.MethodGet:
-		return h.handleListWorkgroups(c)
+		return true, h.handleListWorkgroups(c)
 	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") &&
 		strings.HasSuffix(path, "/credentials") && method == http.MethodGet:
 		rest := strings.TrimPrefix(path, slWorkgroupsPrefix+"/")
 		name := strings.TrimSuffix(rest, "/credentials")
 
-		return h.handleGetCredentials(c, name)
+		return true, h.handleGetCredentials(c, name)
 	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodGet:
 		name := strings.TrimPrefix(path, slWorkgroupsPrefix+"/")
 
-		return h.handleGetWorkgroup(c, name)
+		return true, h.handleGetWorkgroup(c, name)
 	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodDelete:
 		name := strings.TrimPrefix(path, slWorkgroupsPrefix+"/")
 
-		return h.handleDeleteWorkgroup(c, name)
+		return true, h.handleDeleteWorkgroup(c, name)
 	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodPatch:
 		name := strings.TrimPrefix(path, slWorkgroupsPrefix+"/")
 
-		return h.handleUpdateWorkgroup(c, name, body)
+		return true, h.handleUpdateWorkgroup(c, name, body)
+	default:
+		return false, nil
+	}
+}
 
-	// Snapshot routes
+func (h *ServerlessHandler) dispatchSnapshot(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
+	switch {
 	case path == slSnapshotsPrefix && method == http.MethodPost:
-		return h.handleCreateSnapshot(c, body)
+		return true, h.handleCreateSnapshot(c, body)
 	case path == slSnapshotsPrefix && method == http.MethodGet:
-		return h.handleListSnapshots(c)
+		return true, h.handleListSnapshots(c)
 	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodGet:
 		name := strings.TrimPrefix(path, slSnapshotsPrefix+"/")
 
-		return h.handleGetSnapshot(c, name)
+		return true, h.handleGetSnapshot(c, name)
 	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodDelete:
 		name := strings.TrimPrefix(path, slSnapshotsPrefix+"/")
 
-		return h.handleDeleteSnapshot(c, name)
-
-	// Usage limit routes
-	case path == slUsageLimitsPrefix && method == http.MethodPost:
-		return h.handleCreateUsageLimit(c, body)
-	case path == slUsageLimitsPrefix && method == http.MethodGet:
-		return h.handleListUsageLimits(c)
-	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodGet:
-		id := strings.TrimPrefix(path, slUsageLimitsPrefix+"/")
-
-		return h.handleGetUsageLimit(c, id)
-	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodPatch:
-		id := strings.TrimPrefix(path, slUsageLimitsPrefix+"/")
-
-		return h.handleUpdateUsageLimit(c, id, body)
-	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodDelete:
-		id := strings.TrimPrefix(path, slUsageLimitsPrefix+"/")
-
-		return h.handleDeleteUsageLimit(c, id)
-
-	// Scheduled action routes
-	case path == slScheduledActionsPrefix && method == http.MethodPost:
-		return h.handleCreateScheduledAction(c, body)
-	case path == slScheduledActionsPrefix && method == http.MethodGet:
-		return h.handleListScheduledActions(c)
-	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodGet:
-		name := strings.TrimPrefix(path, slScheduledActionsPrefix+"/")
-
-		return h.handleGetScheduledAction(c, name)
-	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodPatch:
-		name := strings.TrimPrefix(path, slScheduledActionsPrefix+"/")
-
-		return h.handleUpdateScheduledAction(c, name, body)
-	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodDelete:
-		name := strings.TrimPrefix(path, slScheduledActionsPrefix+"/")
-
-		return h.handleDeleteScheduledAction(c, name)
-
+		return true, h.handleDeleteSnapshot(c, name)
 	default:
-
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("UnknownOperationException", "unknown operation: "+path),
-		)
+		return false, nil
 	}
+}
+
+// crudRoutes holds the four verb handlers for a simple Create/List/Get+Update+Delete
+// resource family whose routes are just "<prefix>" and "<prefix>/<id>". Both
+// UsageLimit and ScheduledAction follow exactly this shape, so dispatchCRUD
+// implements the routing once and both families call it with their own prefix
+// and handlers instead of duplicating the switch.
+type crudRoutes struct {
+	create func(*echo.Context, []byte) error
+	list   func(*echo.Context) error
+	get    func(*echo.Context, string) error
+	update func(*echo.Context, string, []byte) error
+	del    func(*echo.Context, string) error
+}
+
+func dispatchCRUD(c *echo.Context, prefix, path, method string, body []byte, r crudRoutes) (bool, error) {
+	switch {
+	case path == prefix && method == http.MethodPost:
+		return true, r.create(c, body)
+	case path == prefix && method == http.MethodGet:
+		return true, r.list(c)
+	case strings.HasPrefix(path, prefix+"/") && method == http.MethodGet:
+		return true, r.get(c, strings.TrimPrefix(path, prefix+"/"))
+	case strings.HasPrefix(path, prefix+"/") && method == http.MethodPatch:
+		return true, r.update(c, strings.TrimPrefix(path, prefix+"/"), body)
+	case strings.HasPrefix(path, prefix+"/") && method == http.MethodDelete:
+		return true, r.del(c, strings.TrimPrefix(path, prefix+"/"))
+	default:
+		return false, nil
+	}
+}
+
+func (h *ServerlessHandler) dispatchUsageLimit(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
+	return dispatchCRUD(c, slUsageLimitsPrefix, path, method, body, crudRoutes{
+		create: h.handleCreateUsageLimit,
+		list:   h.handleListUsageLimits,
+		get:    h.handleGetUsageLimit,
+		update: h.handleUpdateUsageLimit,
+		del:    h.handleDeleteUsageLimit,
+	})
+}
+
+func (h *ServerlessHandler) dispatchScheduledAction(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
+	return dispatchCRUD(c, slScheduledActionsPrefix, path, method, body, crudRoutes{
+		create: h.handleCreateScheduledAction,
+		list:   h.handleListScheduledActions,
+		get:    h.handleGetScheduledAction,
+		update: h.handleUpdateScheduledAction,
+		del:    h.handleDeleteScheduledAction,
+	})
 }
 
 // ---------------------------------------------------------------------------

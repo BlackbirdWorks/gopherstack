@@ -262,3 +262,126 @@ func TestRedshiftDescribeTags(t *testing.T) {
 	require.True(t, ok)
 	assert.Empty(t, tags)
 }
+
+// ---- Backend.Reset ----
+
+func TestBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	b.AddSnapshotInternal(
+		&redshift.Snapshot{SnapshotIdentifier: "snap-1", ClusterIdentifier: "c1", Status: "available"},
+	)
+	b.AddDataShareInternal(&redshift.DataShare{DataShareArn: "arn:aws:redshift::123:datashare:ds1"})
+
+	assert.Equal(t, 1, redshift.ClusterCount(b))
+	assert.Equal(t, 1, redshift.SnapshotCount(b))
+	assert.Equal(t, 1, redshift.DataShareCount(b))
+
+	b.Reset()
+
+	assert.Equal(t, 0, redshift.ClusterCount(b))
+	assert.Equal(t, 0, redshift.SnapshotCount(b))
+	assert.Equal(t, 0, redshift.DataShareCount(b))
+}
+
+// ---- Export count helpers ----
+
+func TestExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+
+	assert.Equal(t, 0, redshift.ClusterCount(b))
+	assert.Equal(t, 0, redshift.ReservedNodeCount(b))
+	assert.Equal(t, 0, redshift.PartnerCount(b))
+	assert.Equal(t, 0, redshift.DataShareCount(b))
+	assert.Equal(t, 0, redshift.SecurityGroupCount(b))
+	assert.Equal(t, 0, redshift.SnapshotCount(b))
+	assert.Equal(t, 0, redshift.EndpointAuthCount(b))
+	assert.Equal(t, 0, redshift.ActiveResizeCount(b))
+
+	_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+	assert.Equal(t, 1, redshift.ClusterCount(b))
+
+	b.AddReservedNodeInternal(&redshift.ReservedNode{ReservedNodeID: "rn-1"})
+	assert.Equal(t, 1, redshift.ReservedNodeCount(b))
+
+	b.AddDataShareInternal(&redshift.DataShare{DataShareArn: "ds-arn"})
+	assert.Equal(t, 1, redshift.DataShareCount(b))
+
+	b.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{ClusterSecurityGroupName: "sg-1"})
+	assert.Equal(t, 1, redshift.SecurityGroupCount(b))
+
+	b.AddSnapshotInternal(&redshift.Snapshot{SnapshotIdentifier: "snap-1"})
+	assert.Equal(t, 1, redshift.SnapshotCount(b))
+
+	b.AddActiveResizeInternal("c1", &redshift.ResizeProgress{Status: "IN_PROGRESS", AllowCancelResize: true})
+	assert.Equal(t, 1, redshift.ActiveResizeCount(b))
+}
+
+// ---- Backend.Region and AccountID ----
+
+func TestBackend_RegionAndAccountID(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("999888777666", "ap-southeast-1")
+	assert.Equal(t, "999888777666", b.AccountID())
+	assert.Equal(t, "ap-southeast-1", b.Region())
+}
+
+// ---- Backend Reset clears HSM and ScheduledAction state ----
+
+func TestBackend_Reset_ClearsNewState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *redshift.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "reset_clears_hsm_certs",
+			run: func(t *testing.T, b *redshift.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateHsmClientCertificate("cert-1", nil)
+				require.NoError(t, err)
+				b.Reset()
+				assert.Equal(t, 0, redshift.HsmClientCertCount(b))
+			},
+		},
+		{
+			name: "reset_clears_hsm_configs",
+			run: func(t *testing.T, b *redshift.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateHsmConfiguration("cfg-1", "desc", "10.0.0.1", "p1", nil)
+				require.NoError(t, err)
+				b.Reset()
+				assert.Equal(t, 0, redshift.HsmConfigCount(b))
+			},
+		},
+		{
+			name: "reset_clears_scheduled_actions",
+			run: func(t *testing.T, b *redshift.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateScheduledAction("action-1", "cron(0 12 * * ? *)", "", "", "")
+				require.NoError(t, err)
+				b.Reset()
+				assert.Equal(t, 0, redshift.ScheduledActionCount(b))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("123456789012", "us-east-1")
+			tt.run(t, b)
+		})
+	}
+}

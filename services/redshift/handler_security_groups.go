@@ -101,3 +101,65 @@ func (h *Handler) handleRevokeClusterSecurityGroupIngress(vals url.Values) (any,
 		SecurityGroup: securityGroupToXML(sg),
 	}, nil
 }
+
+// ---- AuthorizeClusterSecurityGroupIngress ----
+
+type xmlIPRange struct {
+	CIDRIP string `xml:"CIDRIP"`
+	Status string `xml:"Status"`
+}
+
+type xmlEC2SecurityGroup struct {
+	EC2SecurityGroupName    string `xml:"EC2SecurityGroupName"`
+	EC2SecurityGroupOwnerID string `xml:"EC2SecurityGroupOwnerId"`
+	Status                  string `xml:"Status"`
+}
+
+type xmlClusterSecurityGroup struct {
+	ClusterSecurityGroupName string                `xml:"ClusterSecurityGroupName"`
+	Description              string                `xml:"Description,omitempty"`
+	IPRanges                 []xmlIPRange          `xml:"IPRanges>IPRange,omitempty"`
+	EC2SecurityGroups        []xmlEC2SecurityGroup `xml:"EC2SecurityGroups>EC2SecurityGroup,omitempty"`
+}
+
+type authorizeClusterSecurityGroupIngressResponse struct {
+	XMLName xml.Name                `xml:"AuthorizeClusterSecurityGroupIngressResponse"`
+	Xmlns   string                  `xml:"xmlns,attr"`
+	Result  xmlClusterSecurityGroup `xml:"AuthorizeClusterSecurityGroupIngressResult>ClusterSecurityGroup"`
+}
+
+func securityGroupToXML(sg *ClusterSecurityGroup) xmlClusterSecurityGroup {
+	ipRanges := make([]xmlIPRange, 0, len(sg.IPRanges))
+	for _, r := range sg.IPRanges {
+		ipRanges = append(ipRanges, xmlIPRange(r))
+	}
+
+	ec2Groups := make([]xmlEC2SecurityGroup, 0, len(sg.EC2SecurityGroups))
+	for _, g := range sg.EC2SecurityGroups {
+		ec2Groups = append(ec2Groups, xmlEC2SecurityGroup(g))
+	}
+
+	return xmlClusterSecurityGroup{
+		ClusterSecurityGroupName: sg.ClusterSecurityGroupName,
+		Description:              sg.Description,
+		IPRanges:                 ipRanges,
+		EC2SecurityGroups:        ec2Groups,
+	}
+}
+
+func (h *Handler) handleAuthorizeClusterSecurityGroupIngress(vals url.Values) (any, error) {
+	groupName := vals.Get("ClusterSecurityGroupName")
+	cidrIP := vals.Get("CIDRIP")
+	ec2GroupName := vals.Get("EC2SecurityGroupName")
+	ec2GroupOwnerID := vals.Get("EC2SecurityGroupOwnerId")
+
+	sg, err := h.Backend.AuthorizeClusterSecurityGroupIngress(groupName, cidrIP, ec2GroupName, ec2GroupOwnerID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &authorizeClusterSecurityGroupIngressResponse{
+		Xmlns:  redshiftXMLNS,
+		Result: securityGroupToXML(sg),
+	}, nil
+}

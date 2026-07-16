@@ -11,14 +11,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -332,7 +330,7 @@ type redshiftActionFn func(vals url.Values) (any, error)
 func (h *Handler) buildOps() map[string]redshiftActionFn {
 	ops := h.buildOpsGroup1()
 	maps.Copy(ops, h.buildOpsGroup2())
-	maps.Copy(ops, h.buildOpsCompleteness())
+	maps.Copy(ops, h.buildOpsGroup3())
 
 	return ops
 }
@@ -450,6 +448,51 @@ func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 		"RevokeSnapshotAccess":                        h.handleRevokeSnapshotAccess,
 		"RotateEncryptionKey":                         h.handleRotateEncryptionKey,
 		"UpdatePartnerStatus":                         h.handleUpdatePartnerStatus,
+	}
+}
+
+// buildOpsGroup3 returns dispatch entries for the remaining operation
+// families: custom domains, endpoint access, HSM, integrations, IDC
+// applications, scheduled actions, and cluster/namespace informational ops.
+func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
+	return map[string]redshiftActionFn{
+		"CreateCustomDomainAssociation":    h.handleCreateCustomDomainAssociation,
+		"CreateEndpointAccess":             h.handleCreateEndpointAccess,
+		"CreateHsmClientCertificate":       h.handleCreateHsmClientCertificate,
+		"CreateHsmConfiguration":           h.handleCreateHsmConfiguration,
+		"CreateIntegration":                h.handleCreateIntegration,
+		"CreateIdcApplication":             h.handleCreateIdcApplication,
+		opCreateScheduledAction:            h.handleCreateScheduledAction,
+		"DeleteCustomDomainAssociation":    h.handleDeleteCustomDomainAssociation,
+		"DeleteEndpointAccess":             h.handleDeleteEndpointAccess,
+		"DeleteHsmClientCertificate":       h.handleDeleteHsmClientCertificate,
+		"DeleteHsmConfiguration":           h.handleDeleteHsmConfiguration,
+		"DeleteIntegration":                h.handleDeleteIntegration,
+		"DeleteIdcApplication":             h.handleDeleteIdcApplication,
+		opDeleteScheduledAction:            h.handleDeleteScheduledAction,
+		"DeregisterNamespace":              h.handleDeregisterNamespace,
+		"DescribeClusterDbRevisions":       h.handleDescribeClusterDBRevisions,
+		"DescribeCustomDomainAssociations": h.handleDescribeCustomDomainAssociations,
+		"DescribeEndpointAccess":           h.handleDescribeEndpointAccess,
+		"DescribeHsmClientCertificates":    h.handleDescribeHsmClientCertificates,
+		"DescribeHsmConfigurations":        h.handleDescribeHsmConfigurations,
+		"DescribeInboundIntegrations":      h.handleDescribeInboundIntegrations,
+		"DescribeIntegrations":             h.handleDescribeIntegrations,
+		"DescribeNodeConfigurationOptions": h.handleDescribeNodeConfigurationOptions,
+		"DescribeIdcApplications":          h.handleDescribeIdcApplications,
+		"DescribeScheduledActions":         h.handleDescribeScheduledActions,
+		"GetIdentityCenterAuthToken":       h.handleGetIdentityCenterAuthToken,
+		"ListRecommendations":              h.handleListRecommendations,
+		"ModifyAquaConfiguration":          h.handleModifyAquaConfiguration,
+		"ModifyClusterDbRevision":          h.handleModifyClusterDBRevision,
+		"ModifyCustomDomainAssociation":    h.handleModifyCustomDomainAssociation,
+		"ModifyEndpointAccess":             h.handleModifyEndpointAccess,
+		"ModifyIntegration":                h.handleModifyIntegration,
+		"ModifyLakehouseConfiguration":     h.handleModifyLakehouseConfiguration,
+		"ModifyIdcApplication":             h.handleModifyIdcApplication,
+		"ModifyScheduledAction":            h.handleModifyScheduledAction,
+		"RegisterNamespace":                h.handleRegisterNamespace,
+		"RestoreTableFromClusterSnapshot":  h.handleRestoreTableFromClusterSnapshot,
 	}
 }
 
@@ -891,637 +934,4 @@ func (h *Handler) loggingStatusResponse() any {
 		Xmlns:                       redshiftXMLNS,
 		DescribeLoggingStatusResult: describeLoggingStatusResult{LoggingEnabled: false},
 	}
-}
-
-type redshiftTaggedResource struct {
-	Tag          svcTags.KV `xml:"Tag"`
-	ResourceName string     `xml:"ResourceName"`
-	ResourceType string     `xml:"ResourceType"`
-}
-
-// handleDescribeTags returns tagged resources, optionally filtered by ResourceName,
-// ResourceType, TagKey, and TagValue. Real AWS DescribeTags supports these filters.
-func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
-	resourceName := vals.Get("ResourceName")
-	resourceType := vals.Get("ResourceType")
-	tagKey := vals.Get("TagKey")
-	tagValue := vals.Get("TagValue")
-
-	allTags := h.Backend.DescribeTags()
-
-	type describeTagsResult struct {
-		XMLName         xml.Name                 `xml:"DescribeTagsResult"`
-		Marker          string                   `xml:"Marker,omitempty"`
-		TaggedResources []redshiftTaggedResource `xml:"TaggedResources>TaggedResource,omitempty"`
-	}
-	type response struct {
-		XMLName            xml.Name           `xml:"DescribeTagsResponse"`
-		Xmlns              string             `xml:"xmlns,attr"`
-		DescribeTagsResult describeTagsResult `xml:"DescribeTagsResult"`
-	}
-
-	// ResourceType filter: only "cluster" resources are currently stored.
-	if resourceType != "" && resourceType != keyResourceCluster {
-		return &response{Xmlns: redshiftXMLNS}, nil
-	}
-
-	var resources []redshiftTaggedResource
-
-	for clusterID, tags := range allTags {
-		if resourceName != "" {
-			// Accept exact cluster-ID match or ARN suffix match.
-			if clusterID != resourceName && !strings.HasSuffix(resourceName, ":cluster:"+clusterID) {
-				continue
-			}
-		}
-
-		for k, v := range tags {
-			if tagKey != "" && k != tagKey {
-				continue
-			}
-			if tagValue != "" && v != tagValue {
-				continue
-			}
-
-			resources = append(resources, redshiftTaggedResource{
-				Tag:          svcTags.KV{Key: k, Value: v},
-				ResourceName: clusterID,
-				ResourceType: keyResourceCluster,
-			})
-		}
-	}
-
-	return &response{
-		Xmlns: redshiftXMLNS,
-		DescribeTagsResult: describeTagsResult{
-			TaggedResources: resources,
-		},
-	}, nil
-}
-
-func (h *Handler) handleCreateTags(vals url.Values) (any, error) {
-	clusterID := vals.Get("ResourceName")
-	tags := parseRedshiftTags(vals)
-
-	if err := h.Backend.CreateTags(clusterID, tags); err != nil {
-		return nil, err
-	}
-
-	type response struct {
-		XMLName xml.Name `xml:"CreateTagsResponse"`
-		Xmlns   string   `xml:"xmlns,attr"`
-	}
-
-	return &response{Xmlns: redshiftXMLNS}, nil
-}
-
-func (h *Handler) handleDeleteTags(vals url.Values) (any, error) {
-	clusterID := vals.Get("ResourceName")
-	keys := parseRedshiftTagKeys(vals)
-
-	if err := h.Backend.DeleteTags(clusterID, keys); err != nil {
-		return nil, err
-	}
-
-	type response struct {
-		XMLName xml.Name `xml:"DeleteTagsResponse"`
-		Xmlns   string   `xml:"xmlns,attr"`
-	}
-
-	return &response{Xmlns: redshiftXMLNS}, nil
-}
-
-// parseRedshiftTags extracts Tags.Tag.N.Key/Tags.Tag.N.Value from form values.
-// At most maxListItems tags are returned to prevent resource exhaustion.
-// Returns as soon as an empty key is found (tags are expected to be consecutive).
-func parseRedshiftTags(vals url.Values) map[string]string {
-	tags := make(map[string]string)
-
-	for i := 1; i <= maxListItems; i++ {
-		prefix := fmt.Sprintf("Tags.Tag.%d.", i)
-		key := vals.Get(prefix + "Key")
-
-		if key == "" {
-			// Tags are 1-indexed and consecutive; first missing key ends iteration.
-			return tags
-		}
-
-		tags[key] = vals.Get(prefix + "Value")
-	}
-
-	// maxListItems exhausted without finding a missing key.
-	return tags
-}
-
-// parseRedshiftTagKeys extracts TagKeys.TagKey.N from form values.
-// At most maxListItems keys are returned to prevent resource exhaustion.
-func parseRedshiftTagKeys(vals url.Values) []string {
-	var keys []string
-
-	for i := 1; i <= maxListItems; i++ {
-		key := vals.Get(fmt.Sprintf("TagKeys.TagKey.%d", i))
-		if key == "" {
-			return keys
-		}
-
-		keys = append(keys, key)
-	}
-
-	return keys
-}
-
-const maxListItems = 1000
-
-// parseStringList extracts a numbered list from form values using the given prefix.
-// e.g. prefix="SnapshotIdentifierList.SnapshotIdentifier." yields elements at indices 1, 2, ...
-// At most maxListItems items are returned to prevent resource exhaustion.
-func parseStringList(vals url.Values, prefix string) []string {
-	var result []string
-
-	for i := 1; i <= maxListItems; i++ {
-		v := vals.Get(fmt.Sprintf("%s%d", prefix, i))
-		if v == "" {
-			return result
-		}
-
-		result = append(result, v)
-	}
-
-	return result
-}
-
-// --- New operation handlers ---
-
-// ---- AcceptReservedNodeExchange ----
-
-type xmlReservedNode struct {
-	ReservedNodeID         string  `xml:"ReservedNodeId"`
-	ReservedNodeOfferingID string  `xml:"ReservedNodeOfferingId"`
-	NodeType               string  `xml:"NodeType"`
-	CurrencyCode           string  `xml:"CurrencyCode"`
-	State                  string  `xml:"State"`
-	OfferingType           string  `xml:"OfferingType"`
-	Duration               int     `xml:"Duration"`
-	FixedPrice             float64 `xml:"FixedPrice"`
-	UsagePrice             float64 `xml:"UsagePrice"`
-	NodeCount              int     `xml:"NodeCount"`
-}
-
-type acceptReservedNodeExchangeResponse struct {
-	XMLName       xml.Name        `xml:"AcceptReservedNodeExchangeResponse"`
-	Xmlns         string          `xml:"xmlns,attr"`
-	ExchangedNode xmlReservedNode `xml:"AcceptReservedNodeExchangeResult>ExchangedReservedNode"`
-}
-
-func (h *Handler) handleAcceptReservedNodeExchange(vals url.Values) (any, error) {
-	reservedNodeID := vals.Get("ReservedNodeId")
-	targetOfferingID := vals.Get("TargetReservedNodeOfferingId")
-
-	node, err := h.Backend.AcceptReservedNodeExchange(reservedNodeID, targetOfferingID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &acceptReservedNodeExchangeResponse{
-		Xmlns: redshiftXMLNS,
-		ExchangedNode: xmlReservedNode{
-			ReservedNodeID:         node.ReservedNodeID,
-			ReservedNodeOfferingID: node.ReservedNodeOfferingID,
-			NodeType:               node.NodeType,
-			Duration:               node.Duration,
-			FixedPrice:             node.FixedPrice,
-			UsagePrice:             node.UsagePrice,
-			CurrencyCode:           node.CurrencyCode,
-			NodeCount:              node.NodeCount,
-			State:                  node.State,
-			OfferingType:           node.OfferingType,
-		},
-	}, nil
-}
-
-// ---- AddPartner ----
-
-type addPartnerResponse struct {
-	XMLName           xml.Name `xml:"AddPartnerResponse"`
-	Xmlns             string   `xml:"xmlns,attr"`
-	ClusterIdentifier string   `xml:"AddPartnerResult>ClusterIdentifier"`
-	DatabaseName      string   `xml:"AddPartnerResult>DatabaseName"`
-	PartnerName       string   `xml:"AddPartnerResult>PartnerIntegrationId"`
-}
-
-func (h *Handler) handleAddPartner(vals url.Values) (any, error) {
-	accountID := vals.Get("AccountId")
-	clusterID := vals.Get("ClusterIdentifier")
-	databaseName := vals.Get("DatabaseName")
-	partnerName := vals.Get("PartnerIntegrationId")
-
-	if accountID == "" {
-		accountID = h.Backend.AccountID()
-	}
-
-	partner, err := h.Backend.AddPartner(accountID, clusterID, databaseName, partnerName)
-	if err != nil {
-		return nil, err
-	}
-
-	return &addPartnerResponse{
-		Xmlns:             redshiftXMLNS,
-		ClusterIdentifier: partner.ClusterIdentifier,
-		DatabaseName:      partner.DatabaseName,
-		PartnerName:       partner.PartnerName,
-	}, nil
-}
-
-// ---- AssociateDataShareConsumer ----
-
-type xmlDataShareAssociation struct {
-	ConsumerIdentifier string `xml:"ConsumerIdentifier"`
-	ConsumerRegion     string `xml:"ConsumerRegion,omitempty"`
-	Status             string `xml:"Status"`
-	Type               string `xml:"Type,omitempty"`
-}
-
-type xmlDataShare struct {
-	DataShareArn                     string                    `xml:"DataShareArn"`
-	ProducerArn                      string                    `xml:"ProducerArn,omitempty"`
-	ManagedBy                        string                    `xml:"ManagedBy,omitempty"`
-	DataShareAssociations            []xmlDataShareAssociation `xml:"DataShareAssociations>member,omitempty"`
-	AllowPubliclyAccessibleConsumers bool                      `xml:"AllowPubliclyAccessibleConsumers"`
-}
-
-type associateDataShareConsumerResponse struct {
-	XMLName xml.Name     `xml:"AssociateDataShareConsumerResponse"`
-	Xmlns   string       `xml:"xmlns,attr"`
-	Result  xmlDataShare `xml:"AssociateDataShareConsumerResult"`
-}
-
-func dataShareToXML(ds *DataShare) xmlDataShare {
-	assocs := make([]xmlDataShareAssociation, 0, len(ds.DataShareAssociations))
-	for _, a := range ds.DataShareAssociations {
-		assocs = append(assocs, xmlDataShareAssociation{
-			ConsumerIdentifier: a.ConsumerIdentifier,
-			ConsumerRegion:     a.ConsumerRegion,
-			Status:             a.Status,
-			Type:               a.Type,
-		})
-	}
-
-	return xmlDataShare{
-		DataShareArn:                     ds.DataShareArn,
-		ProducerArn:                      ds.ProducerArn,
-		AllowPubliclyAccessibleConsumers: ds.AllowPubliclyAccessibleConsumers,
-		ManagedBy:                        ds.ManagedBy,
-		DataShareAssociations:            assocs,
-	}
-}
-
-func (h *Handler) handleAssociateDataShareConsumer(vals url.Values) (any, error) {
-	dataShareArn := vals.Get("DataShareArn")
-	consumerArn := vals.Get("ConsumerArn")
-	consumerRegion := vals.Get("ConsumerRegion")
-	associateEntireAccount := vals.Get("AssociateEntireAccount") == paramValueTrue
-
-	ds, err := h.Backend.AssociateDataShareConsumer(dataShareArn, consumerArn, consumerRegion, associateEntireAccount)
-	if err != nil {
-		return nil, err
-	}
-
-	return &associateDataShareConsumerResponse{
-		Xmlns:  redshiftXMLNS,
-		Result: dataShareToXML(ds),
-	}, nil
-}
-
-// ---- AuthorizeClusterSecurityGroupIngress ----
-
-type xmlIPRange struct {
-	CIDRIP string `xml:"CIDRIP"`
-	Status string `xml:"Status"`
-}
-
-type xmlEC2SecurityGroup struct {
-	EC2SecurityGroupName    string `xml:"EC2SecurityGroupName"`
-	EC2SecurityGroupOwnerID string `xml:"EC2SecurityGroupOwnerId"`
-	Status                  string `xml:"Status"`
-}
-
-type xmlClusterSecurityGroup struct {
-	ClusterSecurityGroupName string                `xml:"ClusterSecurityGroupName"`
-	Description              string                `xml:"Description,omitempty"`
-	IPRanges                 []xmlIPRange          `xml:"IPRanges>IPRange,omitempty"`
-	EC2SecurityGroups        []xmlEC2SecurityGroup `xml:"EC2SecurityGroups>EC2SecurityGroup,omitempty"`
-}
-
-type authorizeClusterSecurityGroupIngressResponse struct {
-	XMLName xml.Name                `xml:"AuthorizeClusterSecurityGroupIngressResponse"`
-	Xmlns   string                  `xml:"xmlns,attr"`
-	Result  xmlClusterSecurityGroup `xml:"AuthorizeClusterSecurityGroupIngressResult>ClusterSecurityGroup"`
-}
-
-func securityGroupToXML(sg *ClusterSecurityGroup) xmlClusterSecurityGroup {
-	ipRanges := make([]xmlIPRange, 0, len(sg.IPRanges))
-	for _, r := range sg.IPRanges {
-		ipRanges = append(ipRanges, xmlIPRange(r))
-	}
-
-	ec2Groups := make([]xmlEC2SecurityGroup, 0, len(sg.EC2SecurityGroups))
-	for _, g := range sg.EC2SecurityGroups {
-		ec2Groups = append(ec2Groups, xmlEC2SecurityGroup(g))
-	}
-
-	return xmlClusterSecurityGroup{
-		ClusterSecurityGroupName: sg.ClusterSecurityGroupName,
-		Description:              sg.Description,
-		IPRanges:                 ipRanges,
-		EC2SecurityGroups:        ec2Groups,
-	}
-}
-
-func (h *Handler) handleAuthorizeClusterSecurityGroupIngress(vals url.Values) (any, error) {
-	groupName := vals.Get("ClusterSecurityGroupName")
-	cidrIP := vals.Get("CIDRIP")
-	ec2GroupName := vals.Get("EC2SecurityGroupName")
-	ec2GroupOwnerID := vals.Get("EC2SecurityGroupOwnerId")
-
-	sg, err := h.Backend.AuthorizeClusterSecurityGroupIngress(groupName, cidrIP, ec2GroupName, ec2GroupOwnerID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &authorizeClusterSecurityGroupIngressResponse{
-		Xmlns:  redshiftXMLNS,
-		Result: securityGroupToXML(sg),
-	}, nil
-}
-
-// ---- AuthorizeDataShare ----
-
-type authorizeDataShareResponse struct {
-	XMLName xml.Name     `xml:"AuthorizeDataShareResponse"`
-	Xmlns   string       `xml:"xmlns,attr"`
-	Result  xmlDataShare `xml:"AuthorizeDataShareResult"`
-}
-
-func (h *Handler) handleAuthorizeDataShare(vals url.Values) (any, error) {
-	dataShareArn := vals.Get("DataShareArn")
-	consumerIdentifier := vals.Get("ConsumerIdentifier")
-
-	ds, err := h.Backend.AuthorizeDataShare(dataShareArn, consumerIdentifier)
-	if err != nil {
-		return nil, err
-	}
-
-	return &authorizeDataShareResponse{
-		Xmlns:  redshiftXMLNS,
-		Result: dataShareToXML(ds),
-	}, nil
-}
-
-// ---- AuthorizeEndpointAccess ----
-
-type xmlEndpointAuthorization struct {
-	Grantor           string   `xml:"Grantor"`
-	Grantee           string   `xml:"Grantee"`
-	ClusterIdentifier string   `xml:"ClusterIdentifier"`
-	ClusterStatus     string   `xml:"ClusterStatus,omitempty"`
-	Status            string   `xml:"Status"`
-	AllowedVPCs       []string `xml:"AllowedVPCs>VpcIdentifier,omitempty"`
-	EndpointCount     int      `xml:"EndpointCount"`
-	AllowedAllVPCs    bool     `xml:"AllowedAllVPCs"`
-}
-
-type authorizeEndpointAccessResponse struct {
-	XMLName xml.Name                 `xml:"AuthorizeEndpointAccessResponse"`
-	Xmlns   string                   `xml:"xmlns,attr"`
-	Result  xmlEndpointAuthorization `xml:"AuthorizeEndpointAccessResult"`
-}
-
-func endpointAuthToXML(ea *EndpointAuthorization) xmlEndpointAuthorization {
-	vpcs := make([]string, len(ea.AllowedVPCs))
-	copy(vpcs, ea.AllowedVPCs)
-
-	return xmlEndpointAuthorization{
-		Grantor:           ea.Grantor,
-		Grantee:           ea.Grantee,
-		ClusterIdentifier: ea.ClusterIdentifier,
-		ClusterStatus:     ea.ClusterStatus,
-		Status:            ea.Status,
-		AllowedAllVPCs:    ea.AllowedAllVPCs,
-		AllowedVPCs:       vpcs,
-		EndpointCount:     ea.EndpointCount,
-	}
-}
-
-func (h *Handler) handleAuthorizeEndpointAccess(vals url.Values) (any, error) {
-	clusterID := vals.Get("ClusterIdentifier")
-	account := vals.Get("Account")
-	vpcIDs := parseStringList(vals, "VpcIds.VpcIdentifier.")
-
-	auth, err := h.Backend.AuthorizeEndpointAccess(clusterID, account, vpcIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	return &authorizeEndpointAccessResponse{
-		Xmlns:  redshiftXMLNS,
-		Result: endpointAuthToXML(auth),
-	}, nil
-}
-
-// ---- AuthorizeSnapshotAccess ----
-
-type xmlAccountWithRestoreAccess struct {
-	AccountID    string `xml:"AccountId"`
-	AccountAlias string `xml:"AccountAlias,omitempty"`
-}
-
-type xmlRestoreAccessList struct {
-	Members []xmlAccountWithRestoreAccess `xml:"AccountWithRestoreAccess,omitempty"`
-}
-
-type xmlSnapshot struct {
-	SnapshotIdentifier            string               `xml:"SnapshotIdentifier"`
-	ClusterIdentifier             string               `xml:"ClusterIdentifier"`
-	SnapshotType                  string               `xml:"SnapshotType,omitempty"`
-	SnapshotCreateTime            string               `xml:"SnapshotCreateTime,omitempty"`
-	Status                        string               `xml:"Status"`
-	AccountsWithRestoreAccess     xmlRestoreAccessList `xml:"AccountsWithRestoreAccess"`
-	ManualSnapshotRetentionPeriod int                  `xml:"ManualSnapshotRetentionPeriod"`
-}
-
-type authorizeSnapshotAccessResponse struct {
-	XMLName  xml.Name    `xml:"AuthorizeSnapshotAccessResponse"`
-	Xmlns    string      `xml:"xmlns,attr"`
-	Snapshot xmlSnapshot `xml:"AuthorizeSnapshotAccessResult>Snapshot"`
-}
-
-func snapshotToXML(snap *Snapshot) xmlSnapshot {
-	accounts := make([]xmlAccountWithRestoreAccess, 0, len(snap.AccountsWithRestoreAccess))
-	for _, a := range snap.AccountsWithRestoreAccess {
-		accounts = append(accounts, xmlAccountWithRestoreAccess(a))
-	}
-
-	var createTime string
-	if !snap.SnapshotCreateTime.IsZero() {
-		createTime = snap.SnapshotCreateTime.UTC().Format(time.RFC3339)
-	}
-
-	return xmlSnapshot{
-		SnapshotIdentifier:            snap.SnapshotIdentifier,
-		ClusterIdentifier:             snap.ClusterIdentifier,
-		SnapshotType:                  snap.SnapshotType,
-		SnapshotCreateTime:            createTime,
-		Status:                        snap.Status,
-		ManualSnapshotRetentionPeriod: snap.ManualSnapshotRetentionPeriod,
-		AccountsWithRestoreAccess:     xmlRestoreAccessList{Members: accounts},
-	}
-}
-
-func (h *Handler) handleAuthorizeSnapshotAccess(vals url.Values) (any, error) {
-	snapshotID := vals.Get("SnapshotIdentifier")
-	accountWithRestoreAccess := vals.Get("AccountWithRestoreAccess")
-
-	snap, err := h.Backend.AuthorizeSnapshotAccess(snapshotID, accountWithRestoreAccess)
-	if err != nil {
-		return nil, err
-	}
-
-	return &authorizeSnapshotAccessResponse{
-		Xmlns:    redshiftXMLNS,
-		Snapshot: snapshotToXML(snap),
-	}, nil
-}
-
-// ---- BatchDeleteClusterSnapshots ----
-
-type xmlSnapshotErrorMessage struct {
-	SnapshotIdentifier        string `xml:"SnapshotIdentifier"`
-	SnapshotClusterIdentifier string `xml:"SnapshotClusterIdentifier,omitempty"`
-	FailureCode               string `xml:"FailureCode"`
-	FailureReason             string `xml:"FailureReason"`
-}
-
-type batchDeleteClusterSnapshotsResponse struct {
-	XMLName   xml.Name                  `xml:"BatchDeleteClusterSnapshotsResponse"`
-	Xmlns     string                    `xml:"xmlns,attr"`
-	Errors    []xmlSnapshotErrorMessage `xml:"BatchDeleteClusterSnapshotsResult>Errors>SnapshotErrorMessage,omitempty"`
-	Resources []string                  `xml:"BatchDeleteClusterSnapshotsResult>Resources>String,omitempty"`
-}
-
-func (h *Handler) handleBatchDeleteClusterSnapshots(vals url.Values) (any, error) {
-	identifiers := parseStringList(vals, "Identifiers.DeleteClusterSnapshotMessage.")
-	if len(identifiers) == 0 {
-		identifiers = parseStringList(vals, "Identifiers.SnapshotIdentifier.")
-	}
-
-	batchErrors, deleted := h.Backend.BatchDeleteClusterSnapshots(identifiers)
-
-	xmlErrors := make([]xmlSnapshotErrorMessage, 0, len(batchErrors))
-	for _, e := range batchErrors {
-		xmlErrors = append(xmlErrors, xmlSnapshotErrorMessage(e))
-	}
-
-	resources := make([]string, len(deleted))
-	copy(resources, deleted)
-
-	return &batchDeleteClusterSnapshotsResponse{
-		Xmlns:     redshiftXMLNS,
-		Errors:    xmlErrors,
-		Resources: resources,
-	}, nil
-}
-
-// ---- BatchModifyClusterSnapshots ----
-
-type batchModifyClusterSnapshotsResponse struct {
-	XMLName   xml.Name                  `xml:"BatchModifyClusterSnapshotsResponse"`
-	Xmlns     string                    `xml:"xmlns,attr"`
-	Errors    []xmlSnapshotErrorMessage `xml:"BatchModifyClusterSnapshotsResult>Errors>SnapshotErrorMessage,omitempty"`
-	Resources []string                  `xml:"BatchModifyClusterSnapshotsResult>Resources>String,omitempty"`
-}
-
-func (h *Handler) handleBatchModifyClusterSnapshots(vals url.Values) (any, error) {
-	identifiers := parseStringList(vals, "SnapshotIdentifierList.String.")
-	retentionPeriodStr := vals.Get("ManualSnapshotRetentionPeriod")
-	force := vals.Get("Force") == paramValueTrue
-
-	retentionPeriod := -1
-	if retentionPeriodStr != "" {
-		if _, err := fmt.Sscanf(retentionPeriodStr, "%d", &retentionPeriod); err != nil {
-			return nil, fmt.Errorf("%w: ManualSnapshotRetentionPeriod must be an integer", ErrInvalidParameter)
-		}
-	}
-
-	batchErrors, modified := h.Backend.BatchModifyClusterSnapshots(identifiers, retentionPeriod, force)
-
-	xmlErrors := make([]xmlSnapshotErrorMessage, 0, len(batchErrors))
-	for _, e := range batchErrors {
-		xmlErrors = append(xmlErrors, xmlSnapshotErrorMessage(e))
-	}
-
-	resources := make([]string, len(modified))
-	copy(resources, modified)
-
-	return &batchModifyClusterSnapshotsResponse{
-		Xmlns:     redshiftXMLNS,
-		Errors:    xmlErrors,
-		Resources: resources,
-	}, nil
-}
-
-// ---- CancelResize ----
-
-type xmlResizeProgress struct {
-	TargetNodeType         string   `xml:"TargetNodeType,omitempty"`
-	TargetClusterType      string   `xml:"TargetClusterType,omitempty"`
-	Status                 string   `xml:"Status"`
-	Message                string   `xml:"Message,omitempty"`
-	ResizeType             string   `xml:"ResizeType,omitempty"`
-	ImportTablesCompleted  []string `xml:"ImportTablesCompleted>member,omitempty"`
-	ImportTablesInProgress []string `xml:"ImportTablesInProgress>member,omitempty"`
-	ImportTablesNotStarted []string `xml:"ImportTablesNotStarted>member,omitempty"`
-	TargetNumberOfNodes    int      `xml:"TargetNumberOfNodes,omitempty"`
-	AllowCancelResize      bool     `xml:"AllowCancelResize"`
-}
-
-type cancelResizeResponse struct {
-	XMLName xml.Name          `xml:"CancelResizeResponse"`
-	Xmlns   string            `xml:"xmlns,attr"`
-	Result  xmlResizeProgress `xml:"CancelResizeResult"`
-}
-
-func resizeProgressToXML(rp *ResizeProgress) xmlResizeProgress {
-	completed := make([]string, len(rp.ImportTablesCompleted))
-	copy(completed, rp.ImportTablesCompleted)
-	inProgress := make([]string, len(rp.ImportTablesInProgress))
-	copy(inProgress, rp.ImportTablesInProgress)
-	notStarted := make([]string, len(rp.ImportTablesNotStarted))
-	copy(notStarted, rp.ImportTablesNotStarted)
-
-	return xmlResizeProgress{
-		TargetNodeType:         rp.TargetNodeType,
-		TargetNumberOfNodes:    rp.TargetNumberOfNodes,
-		TargetClusterType:      rp.TargetClusterType,
-		Status:                 rp.Status,
-		ImportTablesCompleted:  completed,
-		ImportTablesInProgress: inProgress,
-		ImportTablesNotStarted: notStarted,
-		Message:                rp.Message,
-		ResizeType:             rp.ResizeType,
-		AllowCancelResize:      rp.AllowCancelResize,
-	}
-}
-
-func (h *Handler) handleCancelResize(vals url.Values) (any, error) {
-	clusterID := vals.Get("ClusterIdentifier")
-
-	rp, err := h.Backend.CancelResize(clusterID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &cancelResizeResponse{
-		Xmlns:  redshiftXMLNS,
-		Result: resizeProgressToXML(rp),
-	}, nil
 }

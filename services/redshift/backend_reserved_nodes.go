@@ -241,3 +241,47 @@ func (b *InMemoryBackend) GetReservedNodeExchangeOfferings(reservedNodeID string
 
 	return result, nil
 }
+
+// AcceptReservedNodeExchange exchanges an existing reserved node for a new offering.
+func (b *InMemoryBackend) AcceptReservedNodeExchange(reservedNodeID, targetOfferingID string) (*ReservedNode, error) {
+	if reservedNodeID == "" {
+		return nil, fmt.Errorf("%w: ReservedNodeId is required", ErrInvalidParameter)
+	}
+	if targetOfferingID == "" {
+		return nil, fmt.Errorf("%w: TargetReservedNodeOfferingId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AcceptReservedNodeExchange")
+	defer b.mu.Unlock()
+
+	existing, exists := b.reservedNodes.Get(reservedNodeID)
+	if !exists {
+		return nil, fmt.Errorf("%w: reserved node %s not found", ErrReservedNodeNotFound, reservedNodeID)
+	}
+
+	exchanged := &ReservedNode{
+		ReservedNodeID:         existing.ReservedNodeID,
+		ReservedNodeOfferingID: targetOfferingID,
+		NodeType:               existing.NodeType,
+		StartTime:              time.Now(),
+		Duration:               existing.Duration,
+		FixedPrice:             existing.FixedPrice,
+		UsagePrice:             existing.UsagePrice,
+		CurrencyCode:           existing.CurrencyCode,
+		NodeCount:              existing.NodeCount,
+		State:                  "active",
+		OfferingType:           existing.OfferingType,
+	}
+	b.reservedNodes.Put(exchanged)
+
+	cp := *exchanged
+
+	return &cp, nil
+}
+
+// AddReservedNodeInternal seeds a reserved node directly into the backend.
+func (b *InMemoryBackend) AddReservedNodeInternal(node *ReservedNode) {
+	b.mu.Lock("AddReservedNodeInternal")
+	defer b.mu.Unlock()
+	b.reservedNodes.Put(node)
+}

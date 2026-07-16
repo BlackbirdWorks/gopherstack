@@ -133,3 +133,10 @@ func cloneSubnetGroup(sg *ClusterSubnetGroup) *ClusterSubnetGroup {
 
 	return &cp
 }
+
+// AddSubnetGroupInternal seeds a subnet group directly into the backend.
+func (b *InMemoryBackend) AddSubnetGroupInternal(sg *ClusterSubnetGroup) {
+	b.mu.Lock("AddSubnetGroupInternal")
+	defer b.mu.Unlock()
+	b.subnetGroups.Put(sg)
+}

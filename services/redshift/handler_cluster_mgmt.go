@@ -242,3 +242,108 @@ func (h *Handler) handleModifyClusterMaintenance(vals url.Values) (any, error) {
 		Cluster: toXMLCluster(cluster),
 	}, nil
 }
+
+// ---- DescribeClusterDBRevisions ----
+
+type clusterDBRevisionXML struct {
+	ClusterIdentifier       string `xml:"ClusterIdentifier"`
+	CurrentDatabaseRevision string `xml:"CurrentDatabaseRevision"`
+}
+
+type describeClusterDBRevisionsResponse struct {
+	XMLName xml.Name `xml:"DescribeClusterDBRevisionsResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		ClusterDBRevisions []clusterDBRevisionXML `xml:"ClusterDBRevisions>ClusterDbRevision"`
+	} `xml:"DescribeClusterDBRevisionsResult"`
+}
+
+func (h *Handler) handleDescribeClusterDBRevisions(vals url.Values) (any, error) {
+	id := vals.Get("ClusterIdentifier")
+	resp := &describeClusterDBRevisionsResponse{Xmlns: redshiftXMLNS}
+
+	if id != "" {
+		resp.Result.ClusterDBRevisions = []clusterDBRevisionXML{
+			{ClusterIdentifier: id, CurrentDatabaseRevision: "1"},
+		}
+	}
+
+	return resp, nil
+}
+
+type modifyClusterDBRevisionResponse struct {
+	XMLName xml.Name   `xml:"ModifyClusterDbRevisionResponse"`
+	Xmlns   string     `xml:"xmlns,attr"`
+	Result  xmlCluster `xml:"ModifyClusterDbRevisionResult"`
+}
+
+func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
+	id := vals.Get("ClusterIdentifier")
+	clusters, _, err := h.Backend.DescribeClusters(id, "", 0)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(clusters) == 0 {
+		return &modifyClusterDBRevisionResponse{Xmlns: redshiftXMLNS}, nil
+	}
+
+	return &modifyClusterDBRevisionResponse{
+		Xmlns:  redshiftXMLNS,
+		Result: toXMLCluster(&clusters[0]),
+	}, nil
+}
+
+// ---- ModifyAquaConfiguration ----
+
+type aquaConfigurationResponse struct {
+	XMLName xml.Name `xml:"ModifyAquaConfigurationResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		AquaConfiguration struct {
+			AquaConfigurationStatus string `xml:"AquaConfigurationStatus"`
+			AquaStatus              string `xml:"AquaStatus"`
+		} `xml:"AquaConfiguration"`
+	} `xml:"ModifyAquaConfigurationResult"`
+}
+
+func (h *Handler) handleModifyAquaConfiguration(_ url.Values) (any, error) {
+	resp := &aquaConfigurationResponse{Xmlns: redshiftXMLNS}
+	resp.Result.AquaConfiguration.AquaConfigurationStatus = "auto"
+	resp.Result.AquaConfiguration.AquaStatus = "disabled"
+
+	return resp, nil
+}
+
+// ---- ModifyLakehouseConfiguration ----
+
+type modifyLakehouseConfigurationResponse struct {
+	XMLName xml.Name `xml:"ModifyLakehouseConfigurationResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+func (h *Handler) handleModifyLakehouseConfiguration(_ url.Values) (any, error) {
+	return &modifyLakehouseConfigurationResponse{Xmlns: redshiftXMLNS}, nil
+}
+
+// ---- FailoverPrimaryCompute ----
+
+type failoverPrimaryComputeResponse struct {
+	XMLName xml.Name   `xml:"FailoverPrimaryComputeResponse"`
+	Xmlns   string     `xml:"xmlns,attr"`
+	Cluster xmlCluster `xml:"FailoverPrimaryComputeResult>Cluster"`
+}
+
+func (h *Handler) handleFailoverPrimaryCompute(vals url.Values) (any, error) {
+	clusterID := vals.Get("ClusterIdentifier")
+
+	cluster, err := h.Backend.FailoverPrimaryCompute(clusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &failoverPrimaryComputeResponse{
+		Xmlns:   redshiftXMLNS,
+		Cluster: toXMLCluster(cluster),
+	}, nil
+}
