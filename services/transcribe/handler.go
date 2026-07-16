@@ -12,7 +12,6 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -283,526 +282,59 @@ func tagsFromMap(tags map[string]string) []transcribeTag {
 	return list
 }
 
-type transcriptionJobNameInput struct {
-	TranscriptionJobName string `json:"TranscriptionJobName"`
-}
-
+// transcriptOutput is the shared Transcript wire shape returned by Get/Start
+// operations across transcription jobs, call analytics jobs, and medical
+// transcription jobs.
 type transcriptOutput struct {
 	RedactedTranscriptFileURI *string `json:"RedactedTranscriptFileUri"`
 	TranscriptFileURI         string  `json:"TranscriptFileUri"`
 }
 
-type transcriptionJobOutput struct {
-	Tags                      []transcribeTag             `json:"Tags,omitempty"`
-	Settings                  *TranscriptionSettings      `json:"Settings,omitempty"`
-	ModelSettings             *ModelSettings              `json:"ModelSettings,omitempty"`
-	JobExecutionSettings      *JobExecutionSettings       `json:"JobExecutionSettings,omitempty"`
-	ContentRedaction          *ContentRedaction           `json:"ContentRedaction,omitempty"`
-	Subtitles                 *SubtitlesOutput            `json:"Subtitles,omitempty"`
-	Media                     *Media                      `json:"Media,omitempty"`
-	Transcript                transcriptOutput            `json:"Transcript"`
-	CreationTime              *float64                    `json:"CreationTime,omitempty"`
-	StartTime                 *float64                    `json:"StartTime,omitempty"`
-	CompletionTime            *float64                    `json:"CompletionTime,omitempty"`
-	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
-	TranscriptionJobStatus    string                      `json:"TranscriptionJobStatus"`
-	LanguageCode              string                      `json:"LanguageCode,omitempty"`
-	MediaFormat               string                      `json:"MediaFormat,omitempty"`
-	OutputBucketName          string                      `json:"OutputBucketName,omitempty"`
-	OutputKey                 string                      `json:"OutputKey,omitempty"`
-	FailureReason             string                      `json:"FailureReason,omitempty"`
-	LanguageOptions           []string                    `json:"LanguageOptions,omitempty"`
-	ToxicityDetection         []ToxicityDetectionSettings `json:"ToxicityDetection,omitempty"`
-	IdentifiedLanguageScore   float32                     `json:"IdentifiedLanguageScore,omitempty"`
-	MediaSampleRateHertz      int32                       `json:"MediaSampleRateHertz,omitempty"`
-	IdentifyLanguage          bool                        `json:"IdentifyLanguage,omitempty"`
-	IdentifyMultipleLanguages bool                        `json:"IdentifyMultipleLanguages,omitempty"`
-}
-
-type startTranscriptionJobOutput struct {
-	TranscriptionJob transcriptionJobOutput `json:"TranscriptionJob"`
-}
-
-type getTranscriptionJobOutput struct {
-	TranscriptionJob transcriptionJobOutput `json:"TranscriptionJob"`
-}
-
-type handleStartTranscriptionJobInput struct {
-	Settings                  *TranscriptionSettings      `json:"Settings"`
-	Tags                      []transcribeTag             `json:"Tags"`
-	Subtitles                 *SubtitlesInput             `json:"Subtitles"`
-	ContentRedaction          *ContentRedaction           `json:"ContentRedaction"`
-	ModelSettings             *ModelSettings              `json:"ModelSettings"`
-	JobExecutionSettings      *JobExecutionSettings       `json:"JobExecutionSettings"`
-	Media                     Media                       `json:"Media"`
-	MediaFormat               string                      `json:"MediaFormat"`
-	OutputEncryptionKMSKeyID  string                      `json:"OutputEncryptionKMSKeyId"`
-	OutputKey                 string                      `json:"OutputKey"`
-	OutputBucketName          string                      `json:"OutputBucketName"`
-	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
-	LanguageCode              string                      `json:"LanguageCode"`
-	LanguageOptions           []string                    `json:"LanguageOptions"`
-	ToxicityDetection         []ToxicityDetectionSettings `json:"ToxicityDetection"`
-	MediaSampleRateHertz      int32                       `json:"MediaSampleRateHertz"`
-	IdentifyMultipleLanguages bool                        `json:"IdentifyMultipleLanguages"`
-	IdentifyLanguage          bool                        `json:"IdentifyLanguage"`
-}
-
-func (h *Handler) handleStartTranscriptionJob(
-	_ context.Context,
-	in *handleStartTranscriptionJobInput,
-) (*startTranscriptionJobOutput, error) {
-	subtitlesOut := (*SubtitlesOutput)(nil)
-	if in.Subtitles != nil {
-		subtitlesOut = &SubtitlesOutput{Formats: in.Subtitles.Formats, OutputStartIndex: in.Subtitles.OutputStartIndex}
+// allSupportedOps returns all 43 supported operations in sorted order.
+func allSupportedOps() []string {
+	return []string{
+		"CreateCallAnalyticsCategory",
+		"CreateLanguageModel",
+		"CreateMedicalVocabulary",
+		"CreateVocabulary",
+		"CreateVocabularyFilter",
+		"DeleteCallAnalyticsCategory",
+		"DeleteCallAnalyticsJob",
+		"DeleteLanguageModel",
+		"DeleteMedicalScribeJob",
+		"DeleteMedicalTranscriptionJob",
+		"DeleteMedicalVocabulary",
+		"DeleteTranscriptionJob",
+		"DeleteVocabulary",
+		"DeleteVocabularyFilter",
+		"DescribeLanguageModel",
+		"GetCallAnalyticsCategory",
+		"GetCallAnalyticsJob",
+		"GetMedicalScribeJob",
+		"GetMedicalTranscriptionJob",
+		"GetMedicalVocabulary",
+		"GetTranscriptionJob",
+		"GetVocabulary",
+		"GetVocabularyFilter",
+		"ListCallAnalyticsCategories",
+		"ListCallAnalyticsJobs",
+		"ListLanguageModels",
+		"ListMedicalScribeJobs",
+		"ListMedicalTranscriptionJobs",
+		"ListMedicalVocabularies",
+		"ListTagsForResource",
+		"ListTranscriptionJobs",
+		"ListVocabularies",
+		"ListVocabularyFilters",
+		"StartCallAnalyticsJob",
+		"StartMedicalScribeJob",
+		"StartMedicalTranscriptionJob",
+		"StartTranscriptionJob",
+		"TagResource",
+		"UntagResource",
+		"UpdateCallAnalyticsCategory",
+		"UpdateMedicalVocabulary",
+		"UpdateVocabulary",
+		"UpdateVocabularyFilter",
 	}
-
-	job, err := h.Backend.StartTranscriptionJob(&TranscriptionJob{
-		JobName:                   in.TranscriptionJobName,
-		LanguageCode:              in.LanguageCode,
-		Media:                     in.Media,
-		MediaFormat:               in.MediaFormat,
-		MediaSampleRateHertz:      in.MediaSampleRateHertz,
-		OutputBucketName:          in.OutputBucketName,
-		OutputKey:                 in.OutputKey,
-		OutputEncryptionKMSKeyID:  in.OutputEncryptionKMSKeyID,
-		Settings:                  in.Settings,
-		ModelSettings:             in.ModelSettings,
-		JobExecutionSettings:      in.JobExecutionSettings,
-		ContentRedaction:          in.ContentRedaction,
-		Subtitles:                 subtitlesOut,
-		IdentifyLanguage:          in.IdentifyLanguage,
-		IdentifyMultipleLanguages: in.IdentifyMultipleLanguages,
-		LanguageOptions:           in.LanguageOptions,
-		ToxicityDetection:         in.ToxicityDetection,
-		Tags:                      tagsToMap(in.Tags),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	transcriptURI := buildTranscriptURI(job)
-
-	return &startTranscriptionJobOutput{
-		TranscriptionJob: buildTranscriptionJobOutput(job, transcriptURI),
-	}, nil
-}
-
-func (h *Handler) handleGetTranscriptionJob(
-	_ context.Context,
-	in *transcriptionJobNameInput,
-) (*getTranscriptionJobOutput, error) {
-	job, err := h.Backend.GetTranscriptionJob(in.TranscriptionJobName)
-	if err != nil {
-		return nil, err
-	}
-
-	transcriptURI := buildTranscriptURI(job)
-
-	return &getTranscriptionJobOutput{
-		TranscriptionJob: buildTranscriptionJobOutput(job, transcriptURI),
-	}, nil
-}
-
-func buildTranscriptURI(job *TranscriptionJob) string {
-	if job.OutputBucketName != "" {
-		key := job.OutputKey
-		if key == "" {
-			key = job.JobName + ".json"
-		}
-
-		return "s3://" + job.OutputBucketName + "/" + key
-	}
-
-	return "s3://synthetic-transcripts/" + job.JobName + ".json"
-}
-
-func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) transcriptionJobOutput {
-	out := transcriptionJobOutput{
-		TranscriptionJobName:      job.JobName,
-		TranscriptionJobStatus:    job.JobStatus,
-		LanguageCode:              job.LanguageCode,
-		MediaFormat:               job.MediaFormat,
-		MediaSampleRateHertz:      job.MediaSampleRateHertz,
-		OutputBucketName:          job.OutputBucketName,
-		OutputKey:                 job.OutputKey,
-		FailureReason:             job.FailureReason,
-		Settings:                  job.Settings,
-		ModelSettings:             job.ModelSettings,
-		JobExecutionSettings:      job.JobExecutionSettings,
-		ContentRedaction:          job.ContentRedaction,
-		Subtitles:                 job.Subtitles,
-		IdentifyLanguage:          job.IdentifyLanguage,
-		IdentifyMultipleLanguages: job.IdentifyMultipleLanguages,
-		LanguageOptions:           job.LanguageOptions,
-		ToxicityDetection:         job.ToxicityDetection,
-		IdentifiedLanguageScore:   job.IdentifiedLanguageScore,
-		Tags:                      tagsFromMap(job.Tags),
-		Transcript: transcriptOutput{
-			TranscriptFileURI: transcriptURI,
-		},
-	}
-
-	if job.Media.MediaFileURI != "" {
-		m := job.Media
-		out.Media = &m
-	}
-
-	if job.ContentRedaction != nil {
-		redacted := "s3://synthetic-transcripts/" + job.JobName + "-redacted.json"
-		out.Transcript.RedactedTranscriptFileURI = &redacted
-	}
-
-	if !job.CreationTime.IsZero() {
-		s := awstime.Epoch(job.CreationTime)
-		out.CreationTime = &s
-	}
-
-	if !job.StartTime.IsZero() {
-		s := awstime.Epoch(job.StartTime)
-		out.StartTime = &s
-	}
-
-	if !job.CompletionTime.IsZero() {
-		s := awstime.Epoch(job.CompletionTime)
-		out.CompletionTime = &s
-	}
-
-	return out
-}
-
-type transcriptionJobSummary struct {
-	CreationTime           *float64 `json:"CreationTime,omitempty"`
-	CompletionTime         *float64 `json:"CompletionTime,omitempty"`
-	TranscriptionJobName   string   `json:"TranscriptionJobName"`
-	TranscriptionJobStatus string   `json:"TranscriptionJobStatus"`
-	LanguageCode           string   `json:"LanguageCode,omitempty"`
-	FailureReason          string   `json:"FailureReason,omitempty"`
-}
-
-type listTranscriptionJobsOutput struct {
-	NextToken                 string                    `json:"NextToken,omitempty"`
-	TranscriptionJobSummaries []transcriptionJobSummary `json:"TranscriptionJobSummaries"`
-}
-
-type handleListTranscriptionJobsInput struct {
-	Status    string `json:"Status"`
-	NextToken string `json:"NextToken"`
-}
-
-func (h *Handler) handleListTranscriptionJobs(
-	_ context.Context,
-	in *handleListTranscriptionJobsInput,
-) (*listTranscriptionJobsOutput, error) {
-	jobs, nextToken := h.Backend.ListTranscriptionJobs(in.Status, in.NextToken)
-
-	summaries := make([]transcriptionJobSummary, 0, len(jobs))
-	for _, j := range jobs {
-		s := transcriptionJobSummary{
-			TranscriptionJobName:   j.JobName,
-			TranscriptionJobStatus: j.JobStatus,
-			LanguageCode:           j.LanguageCode,
-			FailureReason:          j.FailureReason,
-		}
-
-		if !j.CreationTime.IsZero() {
-			ts := awstime.Epoch(j.CreationTime)
-			s.CreationTime = &ts
-		}
-
-		if !j.CompletionTime.IsZero() {
-			ts := awstime.Epoch(j.CompletionTime)
-			s.CompletionTime = &ts
-		}
-
-		summaries = append(summaries, s)
-	}
-
-	return &listTranscriptionJobsOutput{
-		TranscriptionJobSummaries: summaries,
-		NextToken:                 nextToken,
-	}, nil
-}
-
-func (h *Handler) handleDeleteTranscriptionJob(
-	_ context.Context,
-	in *transcriptionJobNameInput,
-) (*struct{}, error) {
-	if err := h.Backend.DeleteTranscriptionJob(in.TranscriptionJobName); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-// --- CreateCallAnalyticsCategory ---
-
-type createCallAnalyticsCategoryInput struct {
-	Tags         []transcribeTag     `json:"Tags"`
-	CategoryName string              `json:"CategoryName"`
-	InputType    string              `json:"InputType"`
-	Rules        []CallAnalyticsRule `json:"Rules"`
-}
-
-type callAnalyticsCategoryProperties struct {
-	CategoryName string `json:"CategoryName"`
-	InputType    string `json:"InputType,omitempty"`
-}
-
-type createCallAnalyticsCategoryOutput struct {
-	CategoryProperties *callAnalyticsCategoryProperties `json:"CategoryProperties"`
-}
-
-func (h *Handler) handleCreateCallAnalyticsCategory(
-	_ context.Context,
-	in *createCallAnalyticsCategoryInput,
-) (*createCallAnalyticsCategoryOutput, error) {
-	cat, err := h.Backend.CreateCallAnalyticsCategory(&CallAnalyticsCategory{
-		CategoryName: in.CategoryName,
-		InputType:    in.InputType,
-		Rules:        in.Rules,
-		Tags:         tagsToMap(in.Tags),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &createCallAnalyticsCategoryOutput{
-		CategoryProperties: &callAnalyticsCategoryProperties{
-			CategoryName: cat.CategoryName,
-			InputType:    cat.InputType,
-		},
-	}, nil
-}
-
-// --- DeleteCallAnalyticsCategory ---
-
-type deleteCallAnalyticsCategoryInput struct {
-	CategoryName string `json:"CategoryName"`
-}
-
-func (h *Handler) handleDeleteCallAnalyticsCategory(
-	_ context.Context,
-	in *deleteCallAnalyticsCategoryInput,
-) (*struct{}, error) {
-	if err := h.Backend.DeleteCallAnalyticsCategory(in.CategoryName); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-// --- CreateLanguageModel ---
-
-type createLanguageModelInput struct {
-	InputDataConfig *InputDataConfig `json:"InputDataConfig"`
-	ModelName       string           `json:"ModelName"`
-	BaseModelName   string           `json:"BaseModelName"`
-	LanguageCode    string           `json:"LanguageCode"`
-	Tags            []transcribeTag  `json:"Tags"`
-}
-
-type createLanguageModelOutput struct {
-	ModelName     string `json:"ModelName"`
-	BaseModelName string `json:"BaseModelName"`
-	LanguageCode  string `json:"LanguageCode"`
-	ModelStatus   string `json:"ModelStatus"`
-}
-
-func (h *Handler) handleCreateLanguageModel(
-	_ context.Context,
-	in *createLanguageModelInput,
-) (*createLanguageModelOutput, error) {
-	m, err := h.Backend.CreateLanguageModel(&LanguageModel{
-		ModelName:       in.ModelName,
-		BaseModelName:   in.BaseModelName,
-		LanguageCode:    in.LanguageCode,
-		InputDataConfig: in.InputDataConfig,
-		Tags:            tagsToMap(in.Tags),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &createLanguageModelOutput{
-		ModelName:     m.ModelName,
-		BaseModelName: m.BaseModelName,
-		LanguageCode:  m.LanguageCode,
-		ModelStatus:   m.ModelStatus,
-	}, nil
-}
-
-// --- DeleteLanguageModel ---
-
-type deleteLanguageModelInput struct {
-	ModelName string `json:"ModelName"`
-}
-
-func (h *Handler) handleDeleteLanguageModel(
-	_ context.Context,
-	in *deleteLanguageModelInput,
-) (*struct{}, error) {
-	if err := h.Backend.DeleteLanguageModel(in.ModelName); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-// --- CreateMedicalVocabulary ---
-
-type createMedicalVocabularyInput struct {
-	VocabularyName    string          `json:"VocabularyName"`
-	LanguageCode      string          `json:"LanguageCode"`
-	VocabularyFileURI string          `json:"VocabularyFileUri"`
-	Tags              []transcribeTag `json:"Tags"`
-}
-
-type createMedicalVocabularyOutput struct {
-	VocabularyName  string `json:"VocabularyName"`
-	LanguageCode    string `json:"LanguageCode"`
-	VocabularyState string `json:"VocabularyState"`
-}
-
-func (h *Handler) handleCreateMedicalVocabulary(
-	_ context.Context,
-	in *createMedicalVocabularyInput,
-) (*createMedicalVocabularyOutput, error) {
-	v, err := h.Backend.CreateMedicalVocabulary(
-		in.VocabularyName, in.LanguageCode, in.VocabularyFileURI, tagsToMap(in.Tags),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &createMedicalVocabularyOutput{
-		VocabularyName:  v.VocabularyName,
-		LanguageCode:    v.LanguageCode,
-		VocabularyState: v.VocabularyState,
-	}, nil
-}
-
-// --- CreateVocabulary ---
-
-type createVocabularyInput struct {
-	Tags              []transcribeTag `json:"Tags"`
-	VocabularyName    string          `json:"VocabularyName"`
-	LanguageCode      string          `json:"LanguageCode"`
-	VocabularyFileURI string          `json:"VocabularyFileUri"`
-	Phrases           []string        `json:"Phrases"`
-}
-
-type createVocabularyOutput struct {
-	VocabularyName  string `json:"VocabularyName"`
-	LanguageCode    string `json:"LanguageCode"`
-	VocabularyState string `json:"VocabularyState"`
-}
-
-func (h *Handler) handleCreateVocabulary(
-	_ context.Context,
-	in *createVocabularyInput,
-) (*createVocabularyOutput, error) {
-	v, err := h.Backend.CreateVocabulary(&Vocabulary{
-		VocabularyName:    in.VocabularyName,
-		LanguageCode:      in.LanguageCode,
-		Phrases:           in.Phrases,
-		VocabularyFileURI: in.VocabularyFileURI,
-		Tags:              tagsToMap(in.Tags),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &createVocabularyOutput{
-		VocabularyName:  v.VocabularyName,
-		LanguageCode:    v.LanguageCode,
-		VocabularyState: v.VocabularyState,
-	}, nil
-}
-
-// --- CreateVocabularyFilter ---
-
-type createVocabularyFilterInput struct {
-	Tags                    []transcribeTag `json:"Tags"`
-	VocabularyFilterName    string          `json:"VocabularyFilterName"`
-	LanguageCode            string          `json:"LanguageCode"`
-	VocabularyFilterFileURI string          `json:"VocabularyFilterFileUri"`
-	Words                   []string        `json:"Words"`
-}
-
-type createVocabularyFilterOutput struct {
-	VocabularyFilterName string `json:"VocabularyFilterName"`
-	LanguageCode         string `json:"LanguageCode"`
-}
-
-func (h *Handler) handleCreateVocabularyFilter(
-	_ context.Context,
-	in *createVocabularyFilterInput,
-) (*createVocabularyFilterOutput, error) {
-	f, err := h.Backend.CreateVocabularyFilter(&VocabularyFilter{
-		VocabularyFilterName:    in.VocabularyFilterName,
-		LanguageCode:            in.LanguageCode,
-		Words:                   in.Words,
-		VocabularyFilterFileURI: in.VocabularyFilterFileURI,
-		Tags:                    tagsToMap(in.Tags),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &createVocabularyFilterOutput{
-		VocabularyFilterName: f.VocabularyFilterName,
-		LanguageCode:         f.LanguageCode,
-	}, nil
-}
-
-// --- DeleteCallAnalyticsJob ---
-
-type deleteCallAnalyticsJobInput struct {
-	CallAnalyticsJobName string `json:"CallAnalyticsJobName"`
-}
-
-func (h *Handler) handleDeleteCallAnalyticsJob(
-	_ context.Context,
-	in *deleteCallAnalyticsJobInput,
-) (*struct{}, error) {
-	if err := h.Backend.DeleteCallAnalyticsJob(in.CallAnalyticsJobName); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-// --- DeleteMedicalScribeJob ---
-
-type deleteMedicalScribeJobInput struct {
-	MedicalScribeJobName string `json:"MedicalScribeJobName"`
-}
-
-func (h *Handler) handleDeleteMedicalScribeJob(
-	_ context.Context,
-	in *deleteMedicalScribeJobInput,
-) (*struct{}, error) {
-	if err := h.Backend.DeleteMedicalScribeJob(in.MedicalScribeJobName); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-// --- DeleteMedicalTranscriptionJob ---
-
-type deleteMedicalTranscriptionJobInput struct {
-	MedicalTranscriptionJobName string `json:"MedicalTranscriptionJobName"`
-}
-
-func (h *Handler) handleDeleteMedicalTranscriptionJob(
-	_ context.Context,
-	in *deleteMedicalTranscriptionJobInput,
-) (*struct{}, error) {
-	if err := h.Backend.DeleteMedicalTranscriptionJob(in.MedicalTranscriptionJobName); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
 }

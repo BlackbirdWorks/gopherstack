@@ -1,6 +1,8 @@
 package transcribe_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,7 +19,7 @@ import (
 // Get/Describe/List outputs for vocabularies, filters, and language models never
 // echo Tags directly, so ListTagsForResource is the only way to observe them.
 
-func TestBackend_CreationTags_SyncToResourceARN(t *testing.T) {
+func TestCreationTags_SyncToResourceARN(t *testing.T) {
 	t.Parallel()
 
 	const region = "us-east-1"
@@ -171,7 +173,7 @@ func TestBackend_CreationTags_SyncToResourceARN(t *testing.T) {
 
 // ── Deleting a resource forgets its tags ─────────────────────────────────────
 
-func TestBackend_Delete_ForgetsResourceTags(t *testing.T) {
+func TestDelete_ForgetsResourceTags(t *testing.T) {
 	t.Parallel()
 
 	const arn = "arn:aws:transcribe:us-east-1:123456789012:transcription-job/deleted-tagged-job"
@@ -199,7 +201,7 @@ func TestBackend_Delete_ForgetsResourceTags(t *testing.T) {
 
 // ── Untagged creation does not fabricate an empty tag entry ─────────────────
 
-func TestBackend_CreationWithoutTags_LeavesResourceTagsEmpty(t *testing.T) {
+func TestCreationWithoutTags_LeavesResourceTagsEmpty(t *testing.T) {
 	t.Parallel()
 
 	const arn = "arn:aws:transcribe:us-east-1:123456789012:transcription-job/untagged-job"
@@ -212,6 +214,145 @@ func TestBackend_CreationWithoutTags_LeavesResourceTagsEmpty(t *testing.T) {
 		Media:        transcribe.Media{MediaFileURI: "s3://b/f"},
 	})
 	require.NoError(t, err)
+
+	tags, err := b.ListTagsForResource(arn)
+	require.NoError(t, err)
+	assert.Empty(t, tags)
+}
+
+// ── Tags operations ───────────────────────────────────────────────────────────
+
+func TestTagResource_StoresAndReturns(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+
+	err := b.TagResource("arn:aws:transcribe:us-east-1:123456789012:transcriptionjob/my-job",
+		map[string]string{"env": "prod", "team": "ml"})
+	require.NoError(t, err)
+
+	tags, err := b.ListTagsForResource("arn:aws:transcribe:us-east-1:123456789012:transcriptionjob/my-job")
+	require.NoError(t, err)
+	assert.Equal(t, "prod", tags["env"])
+	assert.Equal(t, "ml", tags["team"])
+}
+
+func TestUntagResource_RemovesKeys(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	arn := "arn:aws:transcribe:us-east-1:123456789012:transcriptionjob/my-job"
+
+	require.NoError(t, b.TagResource(arn, map[string]string{"env": "prod", "team": "ml", "owner": "alice"}))
+	require.NoError(t, b.UntagResource(arn, []string{"env", "owner"}))
+
+	tags, err := b.ListTagsForResource(arn)
+	require.NoError(t, err)
+	assert.Len(t, tags, 1)
+	assert.Equal(t, "ml", tags["team"])
+}
+
+func TestListTagsForResource_UnknownARN_ReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	tags, err := b.ListTagsForResource("arn:aws:transcribe:us-east-1:123456789012:transcriptionjob/none")
+	require.NoError(t, err)
+	assert.Empty(t, tags)
+}
+
+func TestHTTP_TagResource(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerWithBackend(t)
+	rec := doTranscribeRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": "arn:aws:transcribe:us-east-1:123456789012:transcriptionjob/my-job",
+		"Tags":        []map[string]string{{"Key": "env", "Value": "prod"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHTTP_ListTagsForResource_ReturnsStoredTags(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerWithBackend(t)
+	arn := "arn:aws:transcribe:us-east-1:123456789012:transcriptionjob/my-job"
+
+	doTranscribeRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": arn,
+		"Tags": []map[string]string{
+			{"Key": "env", "Value": "prod"},
+			{"Key": "team", "Value": "ml"},
+		},
+	})
+
+	rec := doTranscribeRequest(t, h, "ListTagsForResource", map[string]any{
+		"ResourceArn": arn,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	tagMap := make(map[string]string, len(resp.Tags))
+	for _, tag := range resp.Tags {
+		tagMap[tag.Key] = tag.Value
+	}
+	assert.Equal(t, "prod", tagMap["env"])
+	assert.Equal(t, "ml", tagMap["team"])
+}
+
+func TestHTTP_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerWithBackend(t)
+	arn := "arn:aws:transcribe:us-east-1:123456789012:transcriptionjob/my-job"
+
+	doTranscribeRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": arn,
+		"Tags": []map[string]string{
+			{"Key": "env", "Value": "prod"},
+			{"Key": "team", "Value": "ml"},
+		},
+	})
+
+	doTranscribeRequest(t, h, "UntagResource", map[string]any{
+		"ResourceArn": arn,
+		"TagKeys":     []string{"env"},
+	})
+
+	rec := doTranscribeRequest(t, h, "ListTagsForResource", map[string]any{
+		"ResourceArn": arn,
+	})
+	var resp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	tagMap := make(map[string]string, len(resp.Tags))
+	for _, tag := range resp.Tags {
+		tagMap[tag.Key] = tag.Value
+	}
+	assert.NotContains(t, tagMap, "env")
+	assert.Equal(t, "ml", tagMap["team"])
+}
+
+// ── Backend Reset clears resourceTags ────────────────────────────────────────
+
+func TestReset_ClearsResourceTags(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	arn := "arn:aws:transcribe:us-east-1:123456789012:transcriptionjob/my-job"
+	require.NoError(t, b.TagResource(arn, map[string]string{"k": "v"}))
+
+	b.Reset()
 
 	tags, err := b.ListTagsForResource(arn)
 	require.NoError(t, err)
