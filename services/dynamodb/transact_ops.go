@@ -84,9 +84,12 @@ func (db *InMemoryDB) executeTransactWrite(
 	if lockErr != nil {
 		return nil, lockErr
 	}
+	tablesLocked := true
 	defer func() {
-		for _, t := range tables {
-			t.mu.Unlock()
+		if tablesLocked {
+			for _, t := range tables {
+				t.mu.Unlock()
+			}
 		}
 	}()
 
@@ -116,6 +119,12 @@ func (db *InMemoryDB) executeTransactWrite(
 	if writeErr := db.applyTransactItems(ctx, tables, input.TransactItems); writeErr != nil {
 		return nil, writeErr
 	}
+
+	// Unlock all tables before taking db.mu to avoid lock inversion (e.g. with DeleteTable)
+	for _, t := range tables {
+		t.mu.Unlock()
+	}
+	tablesLocked = false
 
 	// Record token as committed only after all writes have been applied.
 	if token != "" {
