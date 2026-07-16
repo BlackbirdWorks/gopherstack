@@ -261,27 +261,27 @@ func applyClaimsOverride(claims jwt.MapClaims, addOrOverride map[string]string, 
 // defaultAccessScope is the default scope on access tokens when the client has no configured scopes.
 const defaultAccessScope = "aws.cognito.signin.user.admin"
 
-// Issue generates ID, Access, and Refresh tokens for the given user.
-//
-//nolint:gocognit,cyclop,funlen // complexity matches JWT issuance contract with per-client expiry
-func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
-	now := time.Now()
-	if p.AuthTime == 0 {
-		p.AuthTime = now.Unix()
-	}
-
+// resolveTokenExpiries computes the ID and access token lifetimes, honoring
+// any per-client overrides in TokenParams and falling back to the default
+// token expiry otherwise.
+func resolveTokenExpiries(p TokenParams) (time.Duration, time.Duration) {
 	defaultExpiry := time.Duration(tokenExpirySeconds) * time.Second
+
 	accessExpiry := defaultExpiry
 	if p.AccessTokenExpiry > 0 {
 		accessExpiry = p.AccessTokenExpiry
 	}
+
 	idExpiry := defaultExpiry
 	if p.IDTokenExpiry > 0 {
 		idExpiry = p.IDTokenExpiry
 	}
 
-	exp := now.Add(idExpiry)
+	return idExpiry, accessExpiry
+}
 
+// signIDToken builds and signs the ID token claims for p.
+func (t *tokenIssuer) signIDToken(p TokenParams, now time.Time, idExpiry time.Duration) (string, error) {
 	idClaims := jwt.MapClaims{
 		claimSub:             p.UserSub,
 		claimIss:             t.issuerURL,
@@ -289,7 +289,7 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 		claimTokenUse:        tokenUseID,
 		claimCognitoUsername: p.Username,
 		claimIat:             now.Unix(),
-		claimExp:             exp.Unix(),
+		claimExp:             now.Add(idExpiry).Unix(),
 		claimAuthTime:        p.AuthTime,
 	}
 	if len(p.Groups) > 0 {
@@ -316,33 +316,48 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 
 	idTokenString, err := idToken.SignedString(t.privateKey)
 	if err != nil {
-		return nil, fmt.Errorf("signing ID token: %w", err)
+		return "", fmt.Errorf("signing ID token: %w", err)
 	}
 
-	scope := defaultAccessScope
-	if len(p.Scopes) > 0 {
-		deduped := make([]string, 0, len(p.Scopes))
-		seen := make(map[string]struct{}, len(p.Scopes))
+	return idTokenString, nil
+}
 
-		for _, s := range p.Scopes {
-			if s == "" {
-				continue
-			}
-
-			if _, dup := seen[s]; dup {
-				continue
-			}
-
-			seen[s] = struct{}{}
-			deduped = append(deduped, s)
-		}
-
-		if len(deduped) > 0 {
-			sort.Strings(deduped)
-			scope = strings.Join(deduped, " ")
-		}
+// resolveAccessScope dedupes and sorts the requested scopes, joining them into
+// the space-separated scope string, or defaultAccessScope if none are given.
+func resolveAccessScope(scopes []string) string {
+	if len(scopes) == 0 {
+		return defaultAccessScope
 	}
 
+	deduped := make([]string, 0, len(scopes))
+	seen := make(map[string]struct{}, len(scopes))
+
+	for _, s := range scopes {
+		if s == "" {
+			continue
+		}
+
+		if _, dup := seen[s]; dup {
+			continue
+		}
+
+		seen[s] = struct{}{}
+		deduped = append(deduped, s)
+	}
+
+	if len(deduped) == 0 {
+		return defaultAccessScope
+	}
+
+	sort.Strings(deduped)
+
+	return strings.Join(deduped, " ")
+}
+
+// signAccessToken builds and signs the access token claims for p.
+func (t *tokenIssuer) signAccessToken(
+	p TokenParams, now time.Time, accessExpiry time.Duration, scope string,
+) (string, error) {
 	accessClaims := jwt.MapClaims{
 		claimSub:      p.UserSub,
 		claimIss:      t.issuerURL,
@@ -365,15 +380,47 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 
 	accessTokenString, err := accessToken.SignedString(t.privateKey)
 	if err != nil {
-		return nil, fmt.Errorf("signing access token: %w", err)
+		return "", fmt.Errorf("signing access token: %w", err)
 	}
 
+	return accessTokenString, nil
+}
+
+// generateRefreshToken returns a new random refresh token string.
+func generateRefreshToken() (string, error) {
 	refreshBytes := make([]byte, refreshTokenLen)
-	if _, err = rand.Read(refreshBytes); err != nil {
-		return nil, fmt.Errorf("generating refresh token: %w", err)
+	if _, err := rand.Read(refreshBytes); err != nil {
+		return "", fmt.Errorf("generating refresh token: %w", err)
 	}
 
-	refreshTokenString := base64.RawURLEncoding.EncodeToString(refreshBytes)
+	return base64.RawURLEncoding.EncodeToString(refreshBytes), nil
+}
+
+// Issue generates ID, Access, and Refresh tokens for the given user.
+func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
+	now := time.Now()
+	if p.AuthTime == 0 {
+		p.AuthTime = now.Unix()
+	}
+
+	idExpiry, accessExpiry := resolveTokenExpiries(p)
+
+	idTokenString, err := t.signIDToken(p, now, idExpiry)
+	if err != nil {
+		return nil, err
+	}
+
+	scope := resolveAccessScope(p.Scopes)
+
+	accessTokenString, err := t.signAccessToken(p, now, accessExpiry, scope)
+	if err != nil {
+		return nil, err
+	}
+
+	refreshTokenString, err := generateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
 
 	return &TokenResult{
 		IDToken:      idTokenString,

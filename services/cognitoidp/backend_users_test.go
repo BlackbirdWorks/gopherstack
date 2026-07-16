@@ -1,0 +1,583 @@
+package cognitoidp_test
+
+import (
+	"encoding/json"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestUserSRPAuth_TwoStepFlow(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("srp-pool", cognitoidp.UserPoolOptions{})
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClientWithOpts(pool.ID, "srp-client", cognitoidp.UserPoolClientOptions{
+		ExplicitAuthFlows: []string{"ALLOW_USER_SRP_AUTH"},
+	})
+	require.NoError(t, err)
+
+	user, err := b.SignUp(client.ClientID, "tom", "Pass1234!", nil)
+	require.NoError(t, err)
+	err = b.ConfirmSignUp(client.ClientID, "tom", user.ConfirmCode)
+	require.NoError(t, err)
+
+	// Step 1: returns PASSWORD_VERIFIER challenge.
+	result, err := b.InitiateAuth(client.ClientID, "USER_SRP_AUTH", "tom", "Pass1234!")
+	require.NoError(t, err)
+	assert.Equal(t, "PASSWORD_VERIFIER", result.ChallengeName)
+	assert.NotEmpty(t, result.MFASession)
+
+	// Step 2: complete SRP, receive tokens.
+	tokens, err := b.RespondToSRPChallenge(client.ClientID, result.MFASession)
+	require.NoError(t, err)
+	assert.NotEmpty(t, tokens.IDToken)
+	assert.NotEmpty(t, tokens.AccessToken)
+}
+
+func TestUserSRPAuth_WrongPassword_Rejected(t *testing.T) {
+	t.Parallel()
+
+	b, _, client := setupTestPoolAndClient(t)
+
+	user, err := b.SignUp(client.ClientID, "uma", "Pass1234!", nil)
+	require.NoError(t, err)
+	err = b.ConfirmSignUp(client.ClientID, "uma", user.ConfirmCode)
+	require.NoError(t, err)
+
+	_, err = b.InitiateAuth(client.ClientID, "USER_SRP_AUTH", "uma", "WrongPassword!")
+	require.ErrorIs(t, err, cognitoidp.ErrNotAuthorized)
+}
+
+func TestUserSRPAuth_SessionExpiry(t *testing.T) {
+	t.Parallel()
+
+	b, _, client := setupTestPoolAndClient(t)
+
+	user, err := b.SignUp(client.ClientID, "ursula", "Pass1234!", nil)
+	require.NoError(t, err)
+	err = b.ConfirmSignUp(client.ClientID, "ursula", user.ConfirmCode)
+	require.NoError(t, err)
+
+	result, err := b.InitiateAuth(client.ClientID, "USER_SRP_AUTH", "ursula", "Pass1234!")
+	require.NoError(t, err)
+
+	b.ExpireMFASessionForTest(result.MFASession)
+
+	_, err = b.RespondToSRPChallenge(client.ClientID, result.MFASession)
+	require.Error(t, err, "expired SRP session must be rejected")
+}
+
+func TestAdminCreateUserWithPolicy_Enforced(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("admin-policy-pool", cognitoidp.UserPoolOptions{
+		PasswordPolicy: &cognitoidp.PasswordPolicy{
+			MinimumLength:    8,
+			RequireUppercase: true,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = b.AdminCreateUserWithPolicy(pool.ID, "badpass", "short", nil)
+	require.ErrorIs(t, err, cognitoidp.ErrInvalidPassword)
+
+	_, err = b.AdminCreateUserWithPolicy(pool.ID, "goodpass", "ValidTemp1", nil)
+	require.NoError(t, err)
+}
+
+func TestInMemoryBackend_AdminCreateUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		setup     func(b *cognitoidp.InMemoryBackend) string
+		name      string
+		username  string
+		password  string
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			setup: func(b *cognitoidp.InMemoryBackend) string {
+				pool, _ := b.CreateUserPool("p")
+
+				return pool.ID
+			},
+			username: "iris",
+			password: "Temp123!",
+		},
+		{
+			name: "duplicate_user",
+			setup: func(b *cognitoidp.InMemoryBackend) string {
+				pool, _ := b.CreateUserPool("p")
+				_, _ = b.AdminCreateUser(pool.ID, "iris", "Temp123!", nil)
+
+				return pool.ID
+			},
+			username:  "iris",
+			password:  "Temp123!",
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserAlreadyExists,
+		},
+		{
+			name: "pool_not_found",
+			setup: func(_ *cognitoidp.InMemoryBackend) string {
+				return "us-east-1_nonexistent"
+			},
+			username:  "iris",
+			password:  "Temp123!",
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserPoolNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolID := tt.setup(b)
+
+			user, err := b.AdminCreateUser(
+				poolID,
+				tt.username,
+				tt.password,
+				map[string]string{"email": "test@example.com"},
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.username, user.Username)
+			assert.Equal(t, cognitoidp.UserStatusForceChangePassword, user.Status)
+		})
+	}
+}
+
+func TestInMemoryBackend_AdminSetUserPassword(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		setup     func(b *cognitoidp.InMemoryBackend) (poolID, username string)
+		name      string
+		password  string
+		permanent bool
+		wantErr   bool
+	}{
+		{
+			name: "permanent_password",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				pool, _ := b.CreateUserPool("p")
+				_, _ = b.AdminCreateUser(pool.ID, "jack", "Temp!", nil)
+
+				return pool.ID, "jack"
+			},
+			password:  "NewPass123!",
+			permanent: true,
+		},
+		{
+			name: "temporary_password",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				pool, _ := b.CreateUserPool("p")
+				_, _ = b.AdminCreateUser(pool.ID, "kate", "Temp!", nil)
+
+				return pool.ID, "kate"
+			},
+			password:  "NewTemp123!",
+			permanent: false,
+		},
+		{
+			name: "user_not_found",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				pool, _ := b.CreateUserPool("p")
+
+				return pool.ID, "nobody"
+			},
+			password:  "Pass123!",
+			permanent: true,
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolID, username := tt.setup(b)
+
+			err := b.AdminSetUserPassword(poolID, username, tt.password, tt.permanent)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			if tt.permanent {
+				user, getUserErr := b.AdminGetUser(poolID, username)
+				require.NoError(t, getUserErr)
+				assert.Equal(t, cognitoidp.UserStatusConfirmed, user.Status)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_AdminGetUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		setup     func(b *cognitoidp.InMemoryBackend) (poolID, username string)
+		name      string
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				pool, _ := b.CreateUserPool("p")
+				_, _ = b.AdminCreateUser(pool.ID, "lena", "Temp!", nil)
+
+				return pool.ID, "lena"
+			},
+		},
+		{
+			name: "not_found",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string) {
+				pool, _ := b.CreateUserPool("p")
+
+				return pool.ID, "nobody"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserNotFound,
+		},
+		{
+			name: "pool_not_found",
+			setup: func(_ *cognitoidp.InMemoryBackend) (string, string) {
+				return "us-east-1_nonexistent", "user"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserPoolNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			poolID, username := tt.setup(b)
+
+			user, err := b.AdminGetUser(poolID, username)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errTarget)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, username, user.Username)
+		})
+	}
+}
+
+func TestInMemoryBackend_ListUsersFiltered(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		name      string
+		filter    string
+		wantNames []string
+		wantCount int
+		wantErr   bool
+	}{
+		{
+			name:      "no_filter_returns_all",
+			filter:    "",
+			wantCount: 3,
+		},
+		{
+			name:      "username_prefix_filter",
+			filter:    `username ^= "ali"`,
+			wantCount: 1,
+			wantNames: []string{"alice"},
+		},
+		{
+			name:      "username_wildcard_filter",
+			filter:    `username = "bob*"`,
+			wantCount: 1,
+			wantNames: []string{"bob"},
+		},
+		{
+			name:      "no_match",
+			filter:    `username ^= "zzz"`,
+			wantCount: 0,
+		},
+		{
+			name:      "pool_not_found",
+			wantErr:   true,
+			errTarget: cognitoidp.ErrUserPoolNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			if !tt.wantErr {
+				p, _ := b.CreateUserPool("pool")
+				_, _ = b.AdminCreateUser(p.ID, "alice", "Pass1!", nil)
+				_, _ = b.AdminCreateUser(p.ID, "bob", "Pass1!", nil)
+				_, _ = b.AdminCreateUser(p.ID, "charlie", "Pass1!", nil)
+
+				users, err := b.ListUsersFiltered(p.ID, tt.filter)
+				require.NoError(t, err)
+				assert.Len(t, users, tt.wantCount)
+
+				if len(tt.wantNames) > 0 {
+					names := make([]string, 0, len(users))
+					for _, u := range users {
+						names = append(names, u.Username)
+					}
+					assert.Equal(t, tt.wantNames, names)
+				}
+
+				return
+			}
+
+			_, err := b.ListUsersFiltered("us-east-1_missing", tt.filter)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tt.errTarget)
+		})
+	}
+}
+
+func TestAdminCreateUser_Backend_Full(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPool("admin-create-backend-pool")
+	require.NoError(t, err)
+
+	// Create with SUPPRESS.
+	user, err := b.AdminCreateUserFull(
+		pool.ID, "backend-user", "Temp1234!",
+		map[string]string{"email": "backend@example.com"},
+		"SUPPRESS", nil, false,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "FORCE_CHANGE_PASSWORD", user.Status)
+	// SUPPRESS: custom:temporaryPassword should NOT be set.
+	assert.Empty(t, user.Attributes["custom:temporaryPassword"])
+
+	// Duplicate should fail (not RESEND).
+	_, err = b.AdminCreateUserFull(pool.ID, "backend-user", "New1234!", nil, "", nil, false)
+	require.Error(t, err)
+}
+
+func TestAdminSetUserPasswordFull_PolicyEnforced(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("admin-pwd-policy-pool", cognitoidp.UserPoolOptions{
+		PasswordPolicy: &cognitoidp.PasswordPolicy{
+			MinimumLength:    10,
+			RequireUppercase: true,
+			RequireNumbers:   true,
+			RequireSymbols:   true,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = b.AdminCreateUser(pool.ID, "policy-user", "Temp1234!@#", nil)
+	require.NoError(t, err)
+
+	// Short password — policy violation.
+	err = b.AdminSetUserPasswordFull(pool.ID, "policy-user", "short", true)
+	require.Error(t, err)
+
+	// Valid password.
+	err = b.AdminSetUserPasswordFull(pool.ID, "policy-user", "LongPass1234!", true)
+	require.NoError(t, err)
+}
+
+func TestAdminSetUserPassword_Backend_UserNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPool("admin-pwd-notfound-pool")
+	require.NoError(t, err)
+
+	err = b.AdminSetUserPasswordFull(pool.ID, "nonexistent", "Pass1234!", true)
+	require.Error(t, err)
+}
+
+func TestBackend_ListUsers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{name: "success_empty"},
+		{name: "with_users"},
+		{name: "pool_not_found", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			if tt.name == "pool_not_found" {
+				_, err := b.ListUsers("bad-pool")
+				require.Error(t, err)
+
+				return
+			}
+
+			pool, err := b.CreateUserPool("list-users-pool")
+			require.NoError(t, err)
+
+			client, err := b.CreateUserPoolClient(pool.ID, "lc")
+			require.NoError(t, err)
+
+			if tt.name == "with_users" {
+				for _, name := range []string{"alice", "bob"} {
+					user, err2 := b.SignUp(client.ClientID, name, "Pass1234!", map[string]string{})
+					require.NoError(t, err2)
+					require.NoError(t, b.ConfirmSignUp(client.ClientID, name, user.ConfirmCode))
+				}
+			}
+
+			users, err := b.ListUsers(pool.ID)
+			require.NoError(t, err)
+
+			if tt.name == "with_users" {
+				assert.Len(t, users, 2)
+			} else {
+				assert.Empty(t, users)
+			}
+		})
+	}
+}
+
+// TestBackend_DeleteUser covers the backend DeleteUser function.
+func TestBackend_DeleteUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errTarget error
+		name      string
+		wantErr   bool
+	}{
+		{name: "success"},
+		{name: "bad_token", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			if tt.name == "bad_token" {
+				err := b.DeleteUser("bad-token")
+				require.Error(t, err)
+
+				return
+			}
+
+			pool, err := b.CreateUserPool("del-pool")
+			require.NoError(t, err)
+
+			client, err := b.CreateUserPoolClient(pool.ID, "dc")
+			require.NoError(t, err)
+
+			user, err := b.SignUp(client.ClientID, "del-me", "Pass1234!", map[string]string{})
+			require.NoError(t, err)
+			require.NoError(t, b.ConfirmSignUp(client.ClientID, "del-me", user.ConfirmCode))
+
+			result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "del-me", "Pass1234!")
+			require.NoError(t, err)
+			require.NotNil(t, result.Tokens)
+
+			err = b.DeleteUser(result.Tokens.AccessToken)
+			require.NoError(t, err)
+
+			assert.Equal(t, 0, b.UserCount())
+		})
+	}
+}
+
+func unmarshalBody(t *testing.T, rec *httptest.ResponseRecorder, v any) error {
+	t.Helper()
+
+	return json.Unmarshal(rec.Body.Bytes(), v)
+}
+
+func TestAdminSetUserPassword_PolicyEnforced(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPoolWithOpts("admin-set-pwd-policy", cognitoidp.UserPoolOptions{
+		PasswordPolicy: &cognitoidp.PasswordPolicy{
+			MinimumLength:    10,
+			RequireUppercase: true,
+			RequireNumbers:   true,
+			RequireSymbols:   true,
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = b.AdminCreateUser(pool.ID, "policy-user", "Temp1234!@#", nil)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		password string
+		wantErr  bool
+	}{
+		{name: "too short", password: "short", wantErr: true},
+		{name: "missing uppercase/number/symbol", password: "alllowercase", wantErr: true},
+		{name: "valid", password: "LongPass1234!", wantErr: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			setErr := b.AdminSetUserPassword(pool.ID, "policy-user", tc.password, true)
+			if tc.wantErr {
+				require.Error(t, setErr)
+			} else {
+				require.NoError(t, setErr)
+			}
+		})
+	}
+}
+
+// TestListUsers_Pagination verifies ListUsers honors Limit and PaginationToken.

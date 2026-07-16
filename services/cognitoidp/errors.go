@@ -2,6 +2,8 @@
 package cognitoidp
 
 import (
+	"errors"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -82,3 +84,9 @@ var (
 	// business-logic error -- mirrors AWS Cognito's UnexpectedLambdaException.
 	ErrUnexpectedLambda = awserr.New("UnexpectedLambdaException", awserr.ErrInvalidParameter)
 )
+
+// ErrJWTKeyNotFound is returned when a JWT key ID is not found for a known issuer.
+var ErrJWTKeyNotFound = errors.New("JWT key ID not found for issuer")
+
+// ErrJWTIssuerUnknown is returned when no pool matches the given issuer URL.
+var ErrJWTIssuerUnknown = errors.New("JWT issuer not managed by this emulator")
