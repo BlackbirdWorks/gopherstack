@@ -10,10 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
-// TestBackend_UpdateSettings verifies that the per-setting Update* operations
-// persist their payloads onto the cluster and record a ClusterOperation whose
-// SourceClusterInfo/TargetClusterInfo round-trip via DescribeClusterOperation.
-func TestBackend_UpdateSettings(t *testing.T) {
+func TestUpdateSettings(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -188,7 +185,7 @@ func TestBackend_UpdateSettings(t *testing.T) {
 }
 
 // TestBackend_UpdateSettings_NotFound verifies missing clusters error.
-func TestBackend_UpdateSettings_NotFound(t *testing.T) {
+func TestUpdateSettings_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)

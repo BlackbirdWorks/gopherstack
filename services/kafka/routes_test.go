@@ -1,15 +1,5 @@
 package kafka_test
 
-// route_matcher_fixes_test.go — regression coverage for MSK route-matcher bugs
-// found during the parity audit: real aws-sdk-go-v2/service/kafka clients send
-// several operations to paths gopherstack's RouteMatcher/parser did not
-// recognize, making those ops 100% unreachable despite handlers existing for
-// them. Each test below drives the exact method+path the real SDK serializer
-// emits (verified against aws-sdk-go-v2/service/kafka@v1.49.0/serializers.go)
-// through the full Handler()/RouteMatcher() stack, not by calling the handler
-// method directly, so a regression here would be caught the same way a real
-// client would hit it.
-
 import (
 	"encoding/json"
 	"maps"
@@ -23,34 +13,216 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
-// rmCreateCluster creates a cluster via the real HTTP surface and returns its ARN.
-func rmCreateCluster(t *testing.T, h *kafka.Handler, name string) string {
-	t.Helper()
+func TestParseKafkaPath(t *testing.T) {
+	t.Parallel()
 
-	rec := doKafkaRequest(t, h, http.MethodPost, "/v1/clusters", map[string]any{
-		"clusterName":         name,
-		"kafkaVersion":        "2.8.0",
-		"numberOfBrokerNodes": 3,
-		"brokerNodeGroupInfo": map[string]any{
-			"instanceType":  "kafka.m5.large",
-			"clientSubnets": []string{"subnet-1"},
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		wantOp       string
+		wantResource string
+	}{
+		{
+			name:   "list_clusters_v1",
+			method: http.MethodGet,
+			path:   "/v1/clusters",
+			wantOp: "ListClusters",
 		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code, "create cluster: %s", rec.Body.String())
+		{
+			name:   "create_cluster_v1",
+			method: http.MethodPost,
+			path:   "/v1/clusters",
+			wantOp: "CreateCluster",
+		},
+		{
+			name:         "describe_cluster_v1",
+			method:       http.MethodGet,
+			path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+			wantOp:       "DescribeCluster",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:         "delete_cluster_v1",
+			method:       http.MethodDelete,
+			path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+			wantOp:       "DeleteCluster",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:         "bootstrap_brokers",
+			method:       http.MethodGet,
+			path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1/bootstrap-brokers",
+			wantOp:       "GetBootstrapBrokers",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:   "list_clusters_v2",
+			method: http.MethodGet,
+			path:   "/api/v2/clusters",
+			wantOp: "ListClustersV2",
+		},
+		{
+			name:   "create_cluster_v2",
+			method: http.MethodPost,
+			path:   "/api/v2/clusters",
+			wantOp: "CreateClusterV2",
+		},
+		{
+			name:   "list_configurations",
+			method: http.MethodGet,
+			path:   "/v1/configurations",
+			wantOp: "ListConfigurations",
+		},
+		{
+			name:   "create_configuration",
+			method: http.MethodPost,
+			path:   "/v1/configurations",
+			wantOp: "CreateConfiguration",
+		},
+		{
+			name:         "describe_configuration",
+			method:       http.MethodGet,
+			path:         "/v1/configurations/arn:aws:kafka:us-east-1:000000000000:configuration/my-config/uuid-1",
+			wantOp:       "DescribeConfiguration",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:configuration/my-config/uuid-1",
+		},
+		{
+			name:         "list_tags",
+			method:       http.MethodGet,
+			path:         "/v1/tags/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+			wantOp:       "ListTagsForResource",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:         "tag_resource",
+			method:       http.MethodPost,
+			path:         "/v1/tags/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+			wantOp:       "TagResource",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:         "untag_resource",
+			method:       http.MethodDelete,
+			path:         "/v1/tags/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+			wantOp:       "UntagResource",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:   "unknown_path",
+			method: http.MethodGet,
+			path:   "/unknown/path",
+			wantOp: "",
+		},
+	}
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	arn, _ := resp["clusterArn"].(string)
-	require.NotEmpty(t, arn)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	return arn
+			op, resource := kafka.ParseKafkaPathForTest(tt.method, tt.path)
+			assert.Equal(t, tt.wantOp, op)
+			assert.Equal(t, tt.wantResource, resource)
+		})
+	}
 }
 
-// TestRouteFix_UpdateOps_LiveUnderV1ClustersPath verifies every cluster Update*
-// operation is reachable at its real aws-sdk-go-v2 path (/v1/clusters/{arn}/...),
-// not the /api/v2/clusters/{arn}/... path this handler previously (and
-// incorrectly) required. UpdateSecurity additionally uses PATCH, not PUT.
-func TestRouteFix_UpdateOps_LiveUnderV1ClustersPath(t *testing.T) {
+func TestParseKafkaPathScramReplicatorTopicVpcOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		wantOp       string
+		wantResource string
+	}{
+		{
+			name:         "batch_associate_scram",
+			method:       http.MethodPost,
+			path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1/scram-secrets",
+			wantOp:       "BatchAssociateScramSecret",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:         "batch_disassociate_scram",
+			method:       http.MethodPatch,
+			path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1/scram-secrets",
+			wantOp:       "BatchDisassociateScramSecret",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:         "create_topic",
+			method:       http.MethodPost,
+			path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1/topics",
+			wantOp:       "CreateTopic",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:         "delete_topic",
+			method:       http.MethodDelete,
+			path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1/topics/my-topic",
+			wantOp:       "DeleteTopic",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1|my-topic",
+		},
+		{
+			name:         "delete_cluster_policy",
+			method:       http.MethodDelete,
+			path:         "/v1/clusters/arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1/policy",
+			wantOp:       "DeleteClusterPolicy",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster/test/uuid-1",
+		},
+		{
+			name:         "describe_cluster_operation",
+			method:       http.MethodGet,
+			path:         "/v1/operations/arn:aws:kafka:us-east-1:000000000000:cluster-operation/uuid-1",
+			wantOp:       "DescribeClusterOperation",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:cluster-operation/uuid-1",
+		},
+		{
+			name:   "create_replicator",
+			method: http.MethodPost,
+			path:   "/replication/v1/replicators",
+			wantOp: "CreateReplicator",
+		},
+		{
+			name:         "delete_replicator",
+			method:       http.MethodDelete,
+			path:         "/replication/v1/replicators/arn:aws:kafka:us-east-1:000000000000:replicator/test/uuid-1",
+			wantOp:       "DeleteReplicator",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:replicator/test/uuid-1",
+		},
+		{
+			name:   "create_vpc_connection",
+			method: http.MethodPost,
+			path:   "/v1/vpc-connection",
+			wantOp: "CreateVpcConnection",
+		},
+		{
+			name:         "delete_vpc_connection",
+			method:       http.MethodDelete,
+			path:         "/v1/vpc-connection/arn:aws:kafka:us-east-1:000000000000:vpc-connection/uuid-1",
+			wantOp:       "DeleteVpcConnection",
+			wantResource: "arn:aws:kafka:us-east-1:000000000000:vpc-connection/uuid-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			op, resource := kafka.ParseKafkaPathForTest(tt.method, tt.path)
+			assert.Equal(t, tt.wantOp, op)
+			assert.Equal(t, tt.wantResource, resource)
+		})
+	}
+}
+
+// ----------------------------------------
+// Additional tests to improve coverage
+// ----------------------------------------
+
+func TestUpdateOpsLiveUnderV1ClustersPath(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -79,7 +251,7 @@ func TestRouteFix_UpdateOps_LiveUnderV1ClustersPath(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			clusterArn := rmCreateCluster(t, h, "route-fix-"+tt.name)
+			clusterArn := createTestCluster(t, h, "route-fix-"+tt.name)
 			encoded := url.PathEscape(clusterArn)
 
 			body := map[string]any{"currentVersion": kafka.DefaultClusterVersion}
@@ -106,11 +278,12 @@ func TestRouteFix_UpdateOps_LiveUnderV1ClustersPath(t *testing.T) {
 // is reachable at PUT /v1/clusters/{ClusterArn}/client-vpc-connection (singular,
 // cluster-scoped) with the target vpcConnectionArn carried in the JSON body --
 // not in the path, and not under a "/reject-client-vpc-connection/..." path.
-func TestRouteFix_RejectClientVpcConnection_RealPath(t *testing.T) {
+
+func TestRejectClientVpcConnectionRealPath(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	clusterArn := rmCreateCluster(t, h, "route-fix-reject-vpc")
+	clusterArn := createTestCluster(t, h, "route-fix-reject-vpc")
 
 	createRec := doKafkaRequest(t, h, http.MethodPost, "/v1/vpc-connection", map[string]any{
 		"targetClusterArn": clusterArn,
@@ -138,11 +311,12 @@ func TestRouteFix_RejectClientVpcConnection_RealPath(t *testing.T) {
 // TestRouteFix_ListVpcConnections_PluralPath verifies ListVpcConnections is
 // reachable at GET /v1/vpc-connections (plural) -- a distinct root from the
 // singular /v1/vpc-connection used by Create/Describe/Delete.
-func TestRouteFix_ListVpcConnections_PluralPath(t *testing.T) {
+
+func TestListVpcConnectionsPluralPath(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	clusterArn := rmCreateCluster(t, h, "route-fix-list-vpc")
+	clusterArn := createTestCluster(t, h, "route-fix-list-vpc")
 
 	createRec := doKafkaRequest(t, h, http.MethodPost, "/v1/vpc-connection", map[string]any{
 		"targetClusterArn": clusterArn,
@@ -168,11 +342,12 @@ func TestRouteFix_ListVpcConnections_PluralPath(t *testing.T) {
 // GetCompatibleKafkaVersions is reachable at the top-level GET
 // /v1/compatible-kafka-versions?clusterArn=... path (clusterArn is a query
 // parameter, not a path segment nested under /v1/clusters/{arn}/...).
-func TestRouteFix_GetCompatibleKafkaVersions_TopLevelPath(t *testing.T) {
+
+func TestGetCompatibleKafkaVersionsTopLevelPath(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	clusterArn := rmCreateCluster(t, h, "route-fix-compat-versions")
+	clusterArn := createTestCluster(t, h, "route-fix-compat-versions")
 
 	rec := doKafkaRequest(t, h, http.MethodGet,
 		"/v1/compatible-kafka-versions?clusterArn="+url.QueryEscape(clusterArn), nil)
@@ -192,11 +367,12 @@ func TestRouteFix_GetCompatibleKafkaVersions_TopLevelPath(t *testing.T) {
 // TestRouteFix_DescribeTopicPartitions_RealPath verifies DescribeTopicPartitions
 // is reachable at GET /v1/clusters/{ClusterArn}/topics/{TopicName}/partitions
 // (nested under the topic), not a sibling "/topic-partitions/{TopicName}" path.
-func TestRouteFix_DescribeTopicPartitions_RealPath(t *testing.T) {
+
+func TestDescribeTopicPartitionsRealPath(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	clusterArn := rmCreateCluster(t, h, "route-fix-topic-partitions")
+	clusterArn := createTestCluster(t, h, "route-fix-topic-partitions")
 	encodedCluster := url.PathEscape(clusterArn)
 
 	createRec := doKafkaRequest(t, h, http.MethodPost, "/v1/clusters/"+encodedCluster+"/topics",
@@ -211,7 +387,8 @@ func TestRouteFix_DescribeTopicPartitions_RealPath(t *testing.T) {
 // TestRouteFix_UpdateReplicationInfo_StripsSuffix verifies UpdateReplicationInfo
 // resolves the replicator ARN correctly from .../replicators/{ReplicatorArn}/replication-info
 // (the "/replication-info" suffix must be stripped, not treated as part of the ARN).
-func TestRouteFix_UpdateReplicationInfo_StripsSuffix(t *testing.T) {
+
+func TestUpdateReplicationInfoStripsSuffix(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
