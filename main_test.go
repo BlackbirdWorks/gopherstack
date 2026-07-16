@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,20 +40,18 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 				errChan <- startServerOnPort(t, port, tt.demo, stopChan)
 			}()
 
-			// Give the server time to start.
-			time.Sleep(1 * time.Second)
+			// Give the server time to start by polling the dashboard.
+			require.Eventually(t, func() bool {
+				client := &http.Client{Timeout: 1 * time.Second}
+				resp, err := client.Get(fmt.Sprintf("http://localhost:%d/dashboard", port))
+				if err != nil {
+					return false
+				}
+				defer resp.Body.Close()
+				return resp.StatusCode >= 200 && resp.StatusCode < 500
+			}, 10*time.Second, 100*time.Millisecond, "failed to reach server on :%d", port)
 
-			client := &http.Client{Timeout: 5 * time.Second}
-
-			resp, err := client.Get(fmt.Sprintf("http://localhost:%d/dashboard", port))
-			require.NoError(t, err, "failed to reach server on :%d", port)
-			defer resp.Body.Close()
-
-			assert.True(t,
-				resp.StatusCode >= 200 && resp.StatusCode < 500,
-				"unexpected status code: %d", resp.StatusCode)
-
-			t.Logf("Server responding with status %d on port :%d", resp.StatusCode, port)
+			t.Logf("Server responding successfully on port :%d", port)
 
 			close(stopChan)
 
