@@ -180,24 +180,11 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	ctx context.Context
-	mu  *lockmetrics.RWMutex
-	// registry is the lifecycle registry for every PERSISTED *store.Table
-	// below -- see store_setup.go's package doc for why eventbridge
-	// (region-scoped, with rules/targets nested one level deeper still)
-	// needs the lazy getOrCreateTable/getOrCreateNestedTable/
-	// getOrCreateGlobalTable helpers rather than the flat static
-	// registration ec2/sqs use. persistence.go drives Snapshot/Restore
-	// through this registry only.
-	registry *store.Registry
-	// auxRegistry holds pipes/registries/schemas: also *store.Table-backed,
-	// but deliberately NOT snapshotted (see store_setup.go's package doc) --
-	// they were never part of backendSnapshot before this conversion, and
-	// this preserves that byte-for-byte.
-	auxRegistry *store.Registry
-	// Region-isolated stores. The outer key is the AWS region; the leaf
-	// *store.Table is keyed by the resource's own identity field (bus name,
-	// rule name, resource name, etc), matching the map key it replaces.
+	ctx             context.Context
+	busePolicies    map[string]map[string]*EventBusPolicy
+	mu              *lockmetrics.RWMutex
+	registry        *store.Registry
+	auxRegistry     *store.Registry
 	connections     map[string]*store.Table[Connection]
 	rules           map[string]map[string]*store.Table[Rule]
 	targets         map[string]map[string]*store.Table[Target]
@@ -210,27 +197,16 @@ type InMemoryBackend struct {
 	buses           map[string]*store.Table[EventBus]
 	partnerSources  map[string]*store.Table[PartnerEventSource]
 	archives        map[string]*store.Table[Archive]
+	targetsByARN    map[string]map[string]map[string]struct{}
 	archivedEvents  map[string]map[string][]EventEntry
-	busePolicies    map[string]map[string]*EventBusPolicy
-	// pipes and registries are NOT region-scoped -- a single backend holds
-	// one global Pipe/SchemaRegistry catalogue -- so they are single Tables,
-	// lazily registered by getOrCreateGlobalTable (see store_setup.go).
-	pipes      *store.Table[Pipe]
-	registries *store.Table[SchemaRegistry]
-	// schemas is keyed by registryName (also global, not region-scoped, but
-	// one dynamic dimension deep like a per-region resource).
-	schemas        map[string]*store.Table[Schema]
-	schemaVersions map[string][]*SchemaVersion // "registryName/schemaName" → ordered versions
-	codeBindings   map[string]*CodeBinding     // "registryName/schemaName/language" → binding
-	workerSem      chan struct{}
-	ruleIndex      map[string]map[string]map[ruleIndexKey]map[string]*Rule
-	// targetsByARN indexes (region → ARN → set of "busKey/ruleName" targetKeys)
-	// for O(1) ListRuleNamesByTarget lookups. Kept consistent on PutTargets /
-	// RemoveTargets / DeleteRule / DeleteEventBus / Reset.
-	targetsByARN map[string]map[string]map[string]struct{}
-	patternCache sync.Map
-	// apiDestLimiters holds per-destination-ARN rate limiters (*apiDestLimiter)
-	// used to honour each API destination's InvocationRateLimitPerSecond.
+	pipes           *store.Table[Pipe]
+	registries      *store.Table[SchemaRegistry]
+	schemas         map[string]*store.Table[Schema]
+	schemaVersions  map[string][]*SchemaVersion
+	codeBindings    map[string]*CodeBinding
+	workerSem       chan struct{}
+	ruleIndex       map[string]map[string]map[ruleIndexKey]map[string]*Rule
+	patternCache    sync.Map
 	apiDestLimiters sync.Map
 	region          string
 	accountID       string
@@ -238,6 +214,7 @@ type InMemoryBackend struct {
 	wg              sync.WaitGroup
 	shutdownTimeout time.Duration
 	deliveryTimeout time.Duration
+	tableMu         sync.Mutex
 	closing         atomic.Bool
 }
 
