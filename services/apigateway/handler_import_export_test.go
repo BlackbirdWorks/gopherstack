@@ -261,3 +261,95 @@ func TestAPIGateway_PutRestApi_RESTRoute_NotFound(t *testing.T) {
 	require.NoError(t, h.Handler()(c))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+func TestAPIGateway_ImportApiKeys_RESTRoute(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+
+	// AWS's API key CSV file format requires a header row naming columns
+	// (e.g. "name,key"), followed by one data row per key; it is not a bare
+	// "name,value" pair list.
+	rec := restCall(t, h, http.MethodPost, "/apikeys?mode=import&format=csv", "application/octet-stream",
+		"name,key\nfirst-key,abc123\nsecond-key,def456\n")
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids, _ := resp["ids"].([]any)
+	require.Len(t, ids, 2)
+
+	keys, err := backend.GetAPIKeys()
+	require.NoError(t, err)
+	require.Len(t, keys, 2)
+
+	names := []string{keys[0].Name, keys[1].Name}
+	assert.Contains(t, names, "first-key")
+	assert.Contains(t, names, "second-key")
+
+	// A plain POST /apikeys (no mode=import) must still route to CreateAPIKey.
+	createRec := restCall(t, h, http.MethodPost, "/apikeys", "application/json", `{"name":"direct-key"}`)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+}
+
+func TestAPIGateway_ImportApiKeys_DuplicateWarns(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+
+	_, err := backend.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "dup-key"})
+	require.NoError(t, err)
+
+	// AWS's API key CSV file format requires a header row naming columns
+	// (e.g. "name,key"), followed by one data row per key; it is not a bare
+	// "name,value" pair list.
+	rec := restCall(t, h, http.MethodPost, "/apikeys?mode=import&format=csv", "application/octet-stream",
+		"name,key\ndup-key,abc123\nfresh-key,def456\n")
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids, _ := resp["ids"].([]any)
+	warnings, _ := resp["warnings"].([]any)
+	assert.Len(t, ids, 1, "only the non-duplicate row is imported")
+	assert.Len(t, warnings, 1, "the duplicate row is reported as a warning")
+}
+
+func TestAPIGateway_ImportDocumentationParts_RESTRoute(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+
+	api, err := backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "doc-api"})
+	require.NoError(t, err)
+
+	_, err = backend.CreateDocumentationPart(apigateway.CreateDocumentationPartInput{
+		RestAPIID:  api.ID,
+		Location:   apigateway.DocumentationLocation{Type: "API"},
+		Properties: `{"description":"old"}`,
+	})
+	require.NoError(t, err)
+
+	payload := `{"documentationParts":[` +
+		`{"location":{"type":"API"},"properties":{"description":"new root doc"}},` +
+		`{"location":{"type":"METHOD","method":"GET","path":"/pets"},"properties":{"description":"list pets"}}` +
+		`]}`
+
+	rec := restCall(
+		t, h, http.MethodPut, "/restapis/"+api.ID+"/documentation/parts?mode=overwrite",
+		"application/octet-stream", payload,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids, _ := resp["ids"].([]any)
+	require.Len(t, ids, 2)
+
+	parts, err := backend.GetDocumentationParts(api.ID)
+	require.NoError(t, err)
+	require.Len(t, parts, 2, "overwrite mode replaces the previously-existing part")
+}

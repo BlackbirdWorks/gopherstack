@@ -266,3 +266,96 @@ func TestRenderTemplate(t *testing.T) {
 		})
 	}
 }
+
+// TestVTL_DefaultJSONType covers the default branch in jsonValueToString (objects/arrays).
+func TestVTL_DefaultJSONType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		tmpl         string
+		ctx          apigateway.VTLContext
+		wantContains string
+	}{
+		{
+			name:         "input_path_array_returns_json_encoded",
+			tmpl:         `$input.path('$.items')`,
+			ctx:          apigateway.VTLContext{Body: `{"items":[1,2,3]}`},
+			wantContains: "1",
+		},
+		{
+			name:         "input_path_object_returns_json_encoded",
+			tmpl:         `$input.path('$.obj')`,
+			ctx:          apigateway.VTLContext{Body: `{"obj":{"key":"val"}}`},
+			wantContains: "key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out := apigateway.RenderTemplate(tt.tmpl, tt.ctx)
+			assert.Contains(t, out, tt.wantContains)
+		})
+	}
+}
+
+// TestVTL_AdditionalBranches covers the false-bool, fractional-float, and
+// remaining escapeJavaScript character branches in vtl.go.
+func TestVTL_AdditionalBranches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		tmpl      string
+		ctx       apigateway.VTLContext
+		wantEqual string
+	}{
+		{
+			name:      "input_path_bool_false",
+			tmpl:      `$input.path('$.active')`,
+			ctx:       apigateway.VTLContext{Body: `{"active":false}`},
+			wantEqual: "false",
+		},
+		{
+			name:      "input_path_float_with_fractional",
+			tmpl:      `$input.path('$.ratio')`,
+			ctx:       apigateway.VTLContext{Body: `{"ratio":3.14}`},
+			wantEqual: "3.14",
+		},
+		{
+			name:      "escape_javascript_single_quote",
+			tmpl:      `$util.escapeJavaScript("it's here")`,
+			ctx:       apigateway.VTLContext{},
+			wantEqual: `it\'s here`,
+		},
+		{
+			name:      "escape_javascript_tab",
+			tmpl:      "$util.escapeJavaScript('col1\tcol2')",
+			ctx:       apigateway.VTLContext{},
+			wantEqual: `col1\tcol2`,
+		},
+		{
+			name:      "escape_javascript_carriage_return",
+			tmpl:      "$util.escapeJavaScript('line\r\n')",
+			ctx:       apigateway.VTLContext{},
+			wantEqual: `line\r\n`,
+		},
+		{
+			name:      "escape_javascript_backslash",
+			tmpl:      `$util.escapeJavaScript('path\file')`,
+			ctx:       apigateway.VTLContext{},
+			wantEqual: `path\\file`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out := apigateway.RenderTemplate(tt.tmpl, tt.ctx)
+			assert.Equal(t, tt.wantEqual, out)
+		})
+	}
+}

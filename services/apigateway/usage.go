@@ -1,6 +1,9 @@
 package apigateway
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -178,4 +181,89 @@ func (u *usageTracker) usageForKey(plan *UsagePlan, keyID string) (int, int) {
 	}
 
 	return used, -1
+}
+
+// GetUsage returns real per-key usage data for a usage plan. Each item is keyed
+// by API key ID and contains a [used, remaining] pair reflecting the requests
+// the data plane has actually metered against the plan's quota. If a key's
+// remaining quota was explicitly overridden via UpdateUsage, that override
+// takes precedence over the computed remaining value (mirroring AWS's
+// "temporary extension to the remaining quota" semantics for UpdateUsage).
+func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
+	b.mu.RLock("GetUsage")
+	defer b.mu.RUnlock()
+
+	plan, ok := b.usagePlans.Get(input.UsagePlanID)
+	if !ok {
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
+	}
+
+	items := make(map[string][]any)
+
+	for _, upk := range b.usagePlanKeysByPlan.Get(input.UsagePlanID) {
+		keyID := upk.ID
+		used, remaining := b.usage.usageForKey(plan, keyID)
+		if override, hasOverride := b.usageOverrides[input.UsagePlanID][keyID]; hasOverride {
+			remaining = int(override)
+		}
+		items[keyID] = []any{[]int{used, remaining}}
+	}
+
+	return &UsageData{
+		UsagePlanID: input.UsagePlanID,
+		StartDate:   input.StartDate,
+		EndDate:     input.EndDate,
+		Items:       items,
+	}, nil
+}
+
+// UpdateUsage validates that the usage plan and API key association exist and
+// records a remaining-quota override for that key, so a subsequent GetUsage
+// call reflects the change. Real AWS's only supported UpdateUsage patch path
+// is the single-segment scalar "/remaining" (see patch-operations.html's
+// UpdateUsage table — there is no per-date path segment, unlike the
+// superficially similar per-route paths on UpdateStage/UpdateUsagePlan), so
+// handler.go's applyStructuredPatch flattens the request into a single
+// "remaining" -> value entry via the generic top-level fallback and this
+// method only ever needs the value, not the key; patchedFields is still a map
+// (rather than a single value) purely to reuse that generic flattening path.
+// non-integer values are ignored. Real API Gateway quota-consumption tracking
+// (based on live request traffic) isn't modeled by this emulator — as with
+// GetUsage's Items, which are always empty absent real traffic — but the
+// override recorded here is genuinely read back by GetUsage.
+func (b *InMemoryBackend) UpdateUsage(usagePlanID, keyID string, patchedFields map[string]string) (*UsageData, error) {
+	b.mu.Lock("UpdateUsage")
+
+	if !b.usagePlans.Has(usagePlanID) {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
+	}
+
+	if !b.usagePlanKeys.Has(usagePlanKeyKey(usagePlanID, keyID)) {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
+	}
+
+	for _, v := range patchedFields {
+		remaining, perr := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if perr != nil {
+			continue
+		}
+
+		if b.usageOverrides == nil {
+			b.usageOverrides = make(map[string]map[string]int64)
+		}
+
+		if b.usageOverrides[usagePlanID] == nil {
+			b.usageOverrides[usagePlanID] = make(map[string]int64)
+		}
+
+		b.usageOverrides[usagePlanID][keyID] = remaining
+	}
+
+	b.mu.Unlock()
+
+	return b.GetUsage(GetUsageInput{UsagePlanID: usagePlanID})
 }

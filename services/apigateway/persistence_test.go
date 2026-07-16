@@ -386,3 +386,54 @@ func TestAPIGatewayHandler_RESTPath(t *testing.T) {
 	require.NoError(t, h.Handler()(c2))
 	assert.Contains(t, []int{http.StatusOK, http.StatusCreated}, rec2.Code)
 }
+
+// TestInMemoryBackend_RestoreWithNilMaps ensures that a snapshot whose "dirty"
+// tables (resources/deployments/stages -- see store_setup.go's
+// registerAllTables doc) are explicitly null or entirely absent restores
+// cleanly to empty tables rather than panicking. Pre-Phase-3.3 this exercised
+// hand-rolled nil-map init logic in Restore; that logic is now handled
+// generically by store.Registry.RestoreAll/store.Table.Restore (both treat
+// nil/absent data as "reset to empty" -- see pkgs/store's docs), so this
+// covers the same edge case against the current Tables-based snapshot shape.
+func TestInMemoryBackend_RestoreWithNilMaps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		snapshot string
+	}{
+		{
+			name: "null_resources_deployments_stages",
+			snapshot: `{"version":1,"tables":{` +
+				`"restApis":[{"id":"api1","name":"n","createdDate":0}],` +
+				`"resources":null,"deployments":null,"stages":null}}`,
+		},
+		{
+			name: "missing_inner_tables",
+			snapshot: `{"version":1,"tables":{` +
+				`"restApis":[{"id":"api2","name":"m","createdDate":0}]}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigateway.NewInMemoryBackend()
+			err := b.Restore(t.Context(), []byte(tt.snapshot))
+			require.NoError(t, err)
+
+			// The Restore should have initialised the empty tables – calling
+			// GetResources should succeed (the REST API itself was restored) without
+			// a nil-pointer panic, and report no resources.
+			apiID := "api1"
+			if tt.name == "missing_inner_tables" {
+				apiID = "api2"
+			}
+
+			resources, _, err := b.GetResources(apiID, "", 0)
+			require.NoError(t, err)
+			assert.Empty(t, resources)
+		})
+	}
+}
