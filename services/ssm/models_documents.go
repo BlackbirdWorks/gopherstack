@@ -1,0 +1,290 @@
+package ssm
+
+// UpdateDocumentMetadataOutput is the response for UpdateDocumentMetadata.
+type UpdateDocumentMetadataOutput struct{}
+
+// AttachmentsSource is a reference to attachments for a document.
+type AttachmentsSource struct {
+	Key    string   `json:"Key,omitempty"`
+	Name   string   `json:"Name,omitempty"`
+	Values []string `json:"Values,omitempty"`
+}
+
+// DocumentAttachment describes a document attachment.
+type DocumentAttachment struct {
+	Name string `json:"Name,omitempty"`
+	URL  string `json:"Url,omitempty"`
+	Hash string `json:"Hash,omitempty"`
+	Size int64  `json:"Size,omitempty"`
+}
+
+// DocumentRequires describes a document dependency.
+type DocumentRequires struct {
+	Name    string `json:"Name"`
+	Version string `json:"Version,omitempty"`
+}
+
+// Document represents an SSM document.
+type Document struct {
+	TargetType        string               `json:"TargetType,omitempty"`
+	LatestVersion     string               `json:"LatestVersion"`
+	DocumentType      string               `json:"DocumentType"`
+	DocumentFormat    string               `json:"DocumentFormat"`
+	Status            string               `json:"Status"`
+	StatusInformation string               `json:"StatusInformation,omitempty"`
+	DefaultVersion    string               `json:"DefaultVersion"`
+	Name              string               `json:"Name"`
+	Content           string               `json:"Content"`
+	SchemaVersion     string               `json:"SchemaVersion"`
+	Description       string               `json:"Description,omitempty"`
+	DocumentVersion   string               `json:"DocumentVersion"`
+	PlatformTypes     []string             `json:"PlatformTypes,omitempty"`
+	Attachments       []DocumentAttachment `json:"Attachments,omitempty"`
+	Requires          []DocumentRequires   `json:"Requires,omitempty"`
+	CreatedDate       float64              `json:"CreatedDate"`
+}
+
+// DocumentDescription is the document metadata shape returned by
+// CreateDocument, UpdateDocument, and DescribeDocument. Unlike Document (the
+// internal storage representation), AWS's real DocumentDescription structure
+// deliberately omits Content — only GetDocument returns document content, to
+// avoid every metadata call re-transmitting potentially large document bodies.
+type DocumentDescription struct {
+	TargetType        string               `json:"TargetType,omitempty"`
+	LatestVersion     string               `json:"LatestVersion"`
+	DocumentType      string               `json:"DocumentType"`
+	DocumentFormat    string               `json:"DocumentFormat"`
+	Status            string               `json:"Status"`
+	StatusInformation string               `json:"StatusInformation,omitempty"`
+	DefaultVersion    string               `json:"DefaultVersion"`
+	Name              string               `json:"Name"`
+	SchemaVersion     string               `json:"SchemaVersion"`
+	Description       string               `json:"Description,omitempty"`
+	DocumentVersion   string               `json:"DocumentVersion"`
+	PlatformTypes     []string             `json:"PlatformTypes,omitempty"`
+	Attachments       []DocumentAttachment `json:"Attachments,omitempty"`
+	Requires          []DocumentRequires   `json:"Requires,omitempty"`
+	CreatedDate       float64              `json:"CreatedDate"`
+}
+
+// DocumentVersion represents a specific version of an SSM document.
+type DocumentVersion struct {
+	Name             string  `json:"Name"`
+	DocumentVersion  string  `json:"DocumentVersion"`
+	DocumentFormat   string  `json:"DocumentFormat"`
+	Status           string  `json:"Status"`
+	Content          string  `json:"Content,omitempty"`
+	CreatedDate      float64 `json:"CreatedDate"`
+	IsDefaultVersion bool    `json:"IsDefaultVersion"`
+}
+
+// DocumentPermissionInfo contains the sharing permissions of a document.
+type DocumentPermissionInfo struct {
+	AccountIDs             []string `json:"AccountIds"`
+	AccountSharingInfoList []any    `json:"AccountSharingInfoList"`
+}
+
+// DocumentIdentifier is a lightweight document listing entry.
+type DocumentIdentifier struct {
+	Name            string   `json:"Name"`
+	DocumentType    string   `json:"DocumentType"`
+	DocumentFormat  string   `json:"DocumentFormat"`
+	DocumentVersion string   `json:"DocumentVersion"`
+	SchemaVersion   string   `json:"SchemaVersion"`
+	PlatformTypes   []string `json:"PlatformTypes,omitempty"`
+}
+
+// DocumentFilter is a filter criterion for ListDocuments.
+type DocumentFilter struct {
+	Key    string   `json:"Key"`
+	Values []string `json:"Values"`
+}
+
+// CreateDocumentInput is the request payload for CreateDocument.
+type CreateDocumentInput struct {
+	Name           string              `json:"Name"`
+	Content        string              `json:"Content"`
+	DocumentType   string              `json:"DocumentType,omitempty"`
+	DocumentFormat string              `json:"DocumentFormat,omitempty"`
+	TargetType     string              `json:"TargetType,omitempty"`
+	Description    string              `json:"Description,omitempty"`
+	PlatformTypes  []string            `json:"PlatformTypes,omitempty"`
+	Attachments    []AttachmentsSource `json:"Attachments,omitempty"`
+	Requires       []DocumentRequires  `json:"Requires,omitempty"`
+}
+
+// CreateDocumentOutput is the response payload for CreateDocument.
+type CreateDocumentOutput struct {
+	DocumentDescription DocumentDescription `json:"DocumentDescription"`
+}
+
+// GetDocumentInput is the request payload for GetDocument.
+type GetDocumentInput struct {
+	Name            string `json:"Name"`
+	DocumentVersion string `json:"DocumentVersion,omitempty"`
+	DocumentFormat  string `json:"DocumentFormat,omitempty"`
+}
+
+// GetDocumentOutput is the response payload for GetDocument.
+type GetDocumentOutput struct {
+	Name            string `json:"Name"`
+	Content         string `json:"Content"`
+	DocumentType    string `json:"DocumentType"`
+	DocumentFormat  string `json:"DocumentFormat"`
+	DocumentVersion string `json:"DocumentVersion"`
+	Status          string `json:"Status"`
+}
+
+// DescribeDocumentInput is the request payload for DescribeDocument.
+type DescribeDocumentInput struct {
+	Name            string `json:"Name"`
+	DocumentVersion string `json:"DocumentVersion,omitempty"`
+}
+
+// DescribeDocumentOutput is the response payload for DescribeDocument.
+type DescribeDocumentOutput struct {
+	Document DocumentDescription `json:"Document"`
+}
+
+// ListDocumentsInput is the request payload for ListDocuments.
+type ListDocumentsInput struct {
+	MaxResults      *int64           `json:"MaxResults,omitempty"`
+	NextToken       string           `json:"NextToken,omitempty"`
+	Filters         []DocumentFilter `json:"Filters,omitempty"`
+	DocumentFilters []DocumentFilter `json:"DocumentFilters,omitempty"`
+}
+
+// ListDocumentsOutput is the response payload for ListDocuments.
+type ListDocumentsOutput struct {
+	NextToken           string               `json:"NextToken,omitempty"`
+	DocumentIdentifiers []DocumentIdentifier `json:"DocumentIdentifiers"`
+}
+
+// UpdateDocumentInput is the request payload for UpdateDocument.
+type UpdateDocumentInput struct {
+	Name            string `json:"Name"`
+	Content         string `json:"Content"`
+	DocumentFormat  string `json:"DocumentFormat,omitempty"`
+	DocumentVersion string `json:"DocumentVersion,omitempty"`
+}
+
+// UpdateDocumentOutput is the response payload for UpdateDocument.
+type UpdateDocumentOutput struct {
+	DocumentDescription DocumentDescription `json:"DocumentDescription"`
+}
+
+// DeleteDocumentInput is the request payload for DeleteDocument.
+type DeleteDocumentInput struct {
+	Name string `json:"Name"`
+}
+
+// DeleteDocumentOutput is the response payload for DeleteDocument.
+type DeleteDocumentOutput struct{}
+
+// DescribeDocumentPermissionInput is the request payload for DescribeDocumentPermission.
+type DescribeDocumentPermissionInput struct {
+	Name           string `json:"Name"`
+	PermissionType string `json:"PermissionType"`
+}
+
+// DescribeDocumentPermissionOutput is the response payload for DescribeDocumentPermission.
+type DescribeDocumentPermissionOutput struct {
+	AccountIDs             []string `json:"AccountIds"`
+	AccountSharingInfoList []any    `json:"AccountSharingInfoList"`
+}
+
+// ModifyDocumentPermissionInput is the request payload for ModifyDocumentPermission.
+type ModifyDocumentPermissionInput struct {
+	Name               string   `json:"Name"`
+	PermissionType     string   `json:"PermissionType"`
+	AccountIDsToAdd    []string `json:"AccountIdsToAdd,omitempty"`
+	AccountIDsToRemove []string `json:"AccountIdsToRemove,omitempty"`
+}
+
+// ModifyDocumentPermissionOutput is the response payload for ModifyDocumentPermission.
+type ModifyDocumentPermissionOutput struct{}
+
+// ListDocumentVersionsInput is the request payload for ListDocumentVersions.
+type ListDocumentVersionsInput struct {
+	Name       string `json:"Name"`
+	MaxResults *int64 `json:"MaxResults,omitempty"`
+	NextToken  string `json:"NextToken,omitempty"`
+}
+
+// ListDocumentVersionsOutput is the response payload for ListDocumentVersions.
+type ListDocumentVersionsOutput struct {
+	NextToken        string            `json:"NextToken,omitempty"`
+	DocumentVersions []DocumentVersion `json:"DocumentVersions"`
+}
+
+// UpdateDocumentDefaultVersionInput is the request payload for UpdateDocumentDefaultVersion.
+type UpdateDocumentDefaultVersionInput struct {
+	Name            string `json:"Name"`
+	DocumentVersion string `json:"DocumentVersion"`
+}
+
+// UpdateDocumentDefaultVersionOutput is the response payload for UpdateDocumentDefaultVersion.
+type UpdateDocumentDefaultVersionOutput struct {
+	Description *DocumentDefaultVersionDescription `json:"Description,omitempty"`
+}
+
+// DocumentDefaultVersionDescription describes a document's default version.
+type DocumentDefaultVersionDescription struct {
+	Name               string `json:"Name"`
+	DefaultVersion     string `json:"DefaultVersion"`
+	DefaultVersionName string `json:"DefaultVersionName,omitempty"`
+}
+
+// UpdateDocumentMetadataInput is the request payload for UpdateDocumentMetadata.
+// Fields ordered for alignment.
+type UpdateDocumentMetadataInput struct {
+	DocumentReviews *DocumentReviews `json:"DocumentReviews,omitempty"`
+	Name            string           `json:"Name"`
+	DocumentVersion string           `json:"DocumentVersion,omitempty"`
+}
+
+// DocumentReviews holds review metadata for a document version.
+type DocumentReviews struct {
+	Action  string                        `json:"Action"`
+	Comment []DocumentReviewCommentSource `json:"Comment,omitempty"`
+}
+
+// DocumentReviewCommentSource is a single review comment.
+type DocumentReviewCommentSource struct {
+	Type    string `json:"Type,omitempty"`
+	Content string `json:"Content,omitempty"`
+}
+
+// ListDocumentMetadataHistoryInput is the request payload.
+// Fields ordered for alignment.
+type ListDocumentMetadataHistoryInput struct {
+	MaxResults      *int64 `json:"MaxResults,omitempty"`
+	Name            string `json:"Name"`
+	DocumentVersion string `json:"DocumentVersion,omitempty"`
+	Metadata        string `json:"Metadata,omitempty"`
+	NextToken       string `json:"NextToken,omitempty"`
+}
+
+// ListDocumentMetadataHistoryOutput is the response payload.
+type ListDocumentMetadataHistoryOutput struct {
+	Metadata        *DocumentMetadataResponseInfo `json:"Metadata,omitempty"`
+	Name            string                        `json:"Name,omitempty"`
+	DocumentVersion string                        `json:"DocumentVersion,omitempty"`
+	Author          string                        `json:"Author,omitempty"`
+	NextToken       string                        `json:"NextToken,omitempty"`
+}
+
+// DocumentMetadataResponseInfo holds review history.
+type DocumentMetadataResponseInfo struct {
+	ReviewerResponse []DocumentReviewerResponseSource `json:"ReviewerResponse,omitempty"`
+}
+
+// DocumentReviewerResponseSource is a single reviewer response.
+// Fields ordered for alignment.
+type DocumentReviewerResponseSource struct {
+	ReviewStatus string                        `json:"ReviewStatus,omitempty"`
+	Reviewer     string                        `json:"Reviewer,omitempty"`
+	Comment      []DocumentReviewCommentSource `json:"Comment,omitempty"`
+	CreatedTime  float64                       `json:"CreatedTime,omitempty"`
+	UpdatedTime  float64                       `json:"UpdatedTime,omitempty"`
+}

@@ -3,6 +3,7 @@ package ssm_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -12,28 +13,94 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
-// --- CreateDocument ---
+func makeLevels(n int) []string {
+	levels := make([]string, n)
+	for i := range levels {
+		levels[i] = fmt.Sprintf("L%d", i)
+	}
 
-func TestHandler_CreateDocument(t *testing.T) {
+	return levels
+}
+
+// countParameterHistory paginates through GetParameterHistory (page size 50)
+// and returns the total number of history entries for name.
+func countParameterHistory(ctx context.Context, t *testing.T, b *ssm.InMemoryBackend, name string) int {
+	t.Helper()
+
+	total := 0
+	nextToken := ""
+
+	for {
+		out, err := b.GetParameterHistory(ctx, &ssm.GetParameterHistoryInput{
+			Name:      name,
+			NextToken: nextToken,
+		})
+		require.NoError(t, err)
+
+		total += len(out.Parameters)
+		if out.NextToken == "" {
+			break
+		}
+
+		nextToken = out.NextToken
+	}
+
+	return total
+}
+func TestCreateDocument_WithRequires(t *testing.T) {
+	t.Parallel()
+	h := newAudit1Handler()
+
+	postAudit1(t, h, "CreateDocument", map[string]any{
+		"Name":    "BaseDoc",
+		"Content": `{"schemaVersion":"2.2"}`,
+	})
+
+	code, out := postAudit1(t, h, "CreateDocument", map[string]any{
+		"Name":    "DerivedDoc",
+		"Content": `{"schemaVersion":"2.2"}`,
+		"Requires": []map[string]any{
+			{"Name": "BaseDoc", "Version": "1"},
+		},
+	})
+
+	assert.Equal(t, http.StatusOK, code)
+	doc := out["DocumentDescription"].(map[string]any)
+	requires, ok := doc["Requires"].([]any)
+	require.True(t, ok, "Requires field should be present")
+	assert.Len(t, requires, 1)
+	assert.Equal(t, "BaseDoc", requires[0].(map[string]any)["Name"])
+}
+func TestCreateDocument_WithAttachments(t *testing.T) {
+	t.Parallel()
+	h := newAudit1Handler()
+
+	code, out := postAudit1(t, h, "CreateDocument", map[string]any{
+		"Name":    "DocWithAttach",
+		"Content": `{"schemaVersion":"2.2"}`,
+		"Attachments": []map[string]any{
+			{"Key": "SourceUrl", "Values": []string{"https://example.com/script.ps1"}, "Name": "script"},
+		},
+	})
+
+	assert.Equal(t, http.StatusOK, code)
+	// The document should be created successfully even with Attachments source.
+	require.NotNil(t, out["DocumentDescription"])
+}
+func TestCreateAssociation_DocumentNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
 		body       string
-		wantName   string
 		wantErr    string
 		wantStatus int
 	}{
 		{
-			name:       "success",
-			body:       `{"Name":"MyDoc","Content":"{\"schemaVersion\":\"2.2\"}","DocumentType":"Command"}`,
-			wantStatus: http.StatusOK,
-			wantName:   "MyDoc",
-		},
-		{
-			name:       "invalid_json",
-			body:       `not-json`,
-			wantStatus: http.StatusInternalServerError,
+			name:       "nonexistent_document",
+			body:       `{"Name":"NoSuchDoc","InstanceId":"i-abc"}`,
+			wantStatus: http.StatusBadRequest,
+			wantErr:    "InvalidDocument",
 		},
 	}
 
@@ -42,20 +109,256 @@ func TestHandler_CreateDocument(t *testing.T) {
 			t.Parallel()
 
 			h, _ := newTestHandler(t)
-			rec := doRequest(t, h, "CreateDocument", tt.body)
+			rec := doRequest(t, h, "CreateAssociation", tt.body)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantName != "" {
-				var out ssm.CreateDocumentOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-				assert.Equal(t, tt.wantName, out.DocumentDescription.Name)
-				assert.Equal(t, "1", out.DocumentDescription.DocumentVersion)
-			}
+			assert.Contains(t, rec.Body.String(), tt.wantErr)
 		})
 	}
 }
 
+// TestRefinement2_DispatchTableCached verifies handler caches the dispatch table.
+func TestDispatchTableCached(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "dispatch_table_works_after_creation"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := ssm.NewHandler(ssm.NewInMemoryBackend())
+			// Verify that multiple calls to the handler (which uses the cached ops) work fine
+			rec1 := doRequest(t, h, "ListDocuments", `{}`)
+			assert.Equal(t, http.StatusOK, rec1.Code)
+
+			rec2 := doRequest(t, h, "ListDocuments", `{}`)
+			assert.Equal(t, http.StatusOK, rec2.Code)
+
+			_ = tt.name
+		})
+	}
+}
+func TestFull_Document_DuplicateCreate(t *testing.T) {
+	t.Parallel()
+	h := newFullHandler()
+
+	mustPost(t, h, "CreateDocument", map[string]any{
+		"Name":    "DupDoc",
+		"Content": `{"schemaVersion":"2.2"}`,
+	})
+
+	code, _ := mustPost(t, h, "CreateDocument", map[string]any{
+		"Name":    "DupDoc",
+		"Content": `{"schemaVersion":"2.2"}`,
+	})
+	assert.Equal(t, http.StatusBadRequest, code)
+}
+func TestFull_Command_S3Output(t *testing.T) {
+	t.Parallel()
+	h := newFullHandler()
+
+	mustPost(t, h, "CreateDocument", map[string]any{
+		"Name":    "S3Doc",
+		"Content": `{"schemaVersion":"2.2"}`,
+	})
+
+	code, out := mustPost(t, h, "SendCommand", map[string]any{
+		"DocumentName":       "S3Doc",
+		"InstanceIds":        []string{"i-s3"},
+		"OutputS3BucketName": "results-bucket",
+		"OutputS3KeyPrefix":  "cmd/output/",
+		"TimeoutSeconds":     300,
+	})
+	assert.Equal(t, http.StatusOK, code)
+	cmd := out["Command"].(map[string]any)
+	assert.Equal(t, "results-bucket", cmd["OutputS3BucketName"])
+	assert.Equal(t, "cmd/output/", cmd["OutputS3KeyPrefix"])
+}
+func TestFull_Association_Batch(t *testing.T) {
+	t.Parallel()
+	h := newFullHandler()
+
+	mustPost(t, h, "CreateDocument", map[string]any{
+		"Name":    "BatchDoc",
+		"Content": `{"schemaVersion":"2.2"}`,
+	})
+
+	code, out := mustPost(t, h, "CreateAssociationBatch", map[string]any{
+		"Entries": []map[string]any{
+			{"Name": "BatchDoc", "InstanceId": "i-b1"},
+			{"Name": "BatchDoc", "InstanceId": "i-b2"},
+		},
+	})
+	assert.Equal(t, http.StatusOK, code)
+	successful := out["Successful"].([]any)
+	assert.Len(t, successful, 2)
+}
+
+// TestDocumentMatchesFilters exercises the documentMatchesFilters branches.
+func TestDocumentMatchesFilters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		filters    []ssm.DocumentFilter
+		wantResult int
+	}{
+		{
+			name:       "no_filters_all_returned",
+			filters:    nil,
+			wantResult: 3, // 2 defaults + 1 created
+		},
+		{
+			name: "filter_by_document_type",
+			filters: []ssm.DocumentFilter{
+				{Key: "DocumentType", Values: []string{"Command"}},
+			},
+			wantResult: 3, // default docs are Command type too
+		},
+		{
+			name: "filter_by_name",
+			filters: []ssm.DocumentFilter{
+				{Key: "Name", Values: []string{"TestDoc"}},
+			},
+			wantResult: 1,
+		},
+		{
+			name: "filter_no_match",
+			filters: []ssm.DocumentFilter{
+				{Key: "Name", Values: []string{"NonExistentDoc"}},
+			},
+			wantResult: 0,
+		},
+		{
+			name: "unknown_filter_key_ignored",
+			filters: []ssm.DocumentFilter{
+				{Key: "UnknownKey", Values: []string{"anything"}},
+			},
+			wantResult: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ssm.NewInMemoryBackend()
+			_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+				Name:    "TestDoc",
+				Content: `{"schemaVersion":"2.2"}`,
+			})
+			require.NoError(t, err)
+
+			out, err := b.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{
+				Filters: tt.filters,
+			})
+			require.NoError(t, err)
+			assert.Len(t, out.DocumentIdentifiers, tt.wantResult)
+		})
+	}
+}
+
+// TestProvider_NilContext exercises the nil-context error path.
+func TestProvider_NilContext(t *testing.T) {
+	t.Parallel()
+
+	p := &ssm.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ssm.ErrNilAppContext)
+}
+
+// TestListDocuments_Pagination exercises ListDocuments pagination.
+func TestListDocuments_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxResults *int64
+		nextToken  string
+		wantEmpty  bool
+	}{
+		{
+			name: "paginate_1",
+			maxResults: func() *int64 {
+				v := int64(1)
+
+				return &v
+			}(),
+			wantEmpty: false,
+		},
+		{
+			name:      "beyond_end",
+			nextToken: "999",
+			wantEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ssm.NewInMemoryBackend()
+			// There are already 2 default docs
+			out, err := b.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{
+				MaxResults: tt.maxResults,
+				NextToken:  tt.nextToken,
+			})
+			require.NoError(t, err)
+			if tt.wantEmpty {
+				assert.Empty(t, out.DocumentIdentifiers)
+			} else {
+				assert.NotEmpty(t, out.DocumentIdentifiers)
+				assert.NotEmpty(t, out.NextToken)
+			}
+		})
+	}
+}
+func TestGetCalendarState_WithCalendarDocument(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+
+	// Create a ChangeCalendar document.
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:         "MyCalendar",
+		Content:      `{"type":"DEFAULT_OPEN"}`,
+		DocumentType: "ChangeCalendar",
+	})
+	require.NoError(t, err)
+
+	// GetCalendarState with the calendar name should succeed.
+	body, _ := json.Marshal(map[string]any{
+		"CalendarNames": []string{"MyCalendar"},
+	})
+	rec := doRequest(t, h, "GetCalendarState", string(body))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "OPEN")
+}
+func TestGetCalendarState_NonCalendarDocumentReturnsError(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+
+	// Create a non-calendar document.
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:         "NotACalendar",
+		Content:      `{"schemaVersion":"2.2"}`,
+		DocumentType: "Command",
+	})
+	require.NoError(t, err)
+
+	body, _ := json.Marshal(map[string]any{
+		"CalendarNames": []string{"NotACalendar"},
+	})
+	rec := doRequest(t, h, "GetCalendarState", string(body))
+	assert.NotEqual(t, http.StatusOK, rec.Code, "non-ChangeCalendar doc should return error")
+}
 func TestHandler_CreateDocument_Duplicate(t *testing.T) {
 	t.Parallel()
 
@@ -72,9 +375,6 @@ func TestHandler_CreateDocument_Duplicate(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&errResp))
 	assert.Contains(t, errResp["__type"], "DocumentAlreadyExists")
 }
-
-// --- GetDocument ---
-
 func TestHandler_GetDocument(t *testing.T) {
 	t.Parallel()
 
@@ -132,47 +432,6 @@ func TestHandler_GetDocument(t *testing.T) {
 		})
 	}
 }
-
-// TestHandler_GetDocument_VersionedContent verifies that requesting a specific
-// version returns that version's content rather than the latest.
-func TestHandler_GetDocument_VersionedContent(t *testing.T) {
-	t.Parallel()
-
-	b := ssm.NewInMemoryBackend()
-
-	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{Name: "VerContent", Content: `{"v":1}`})
-	require.NoError(t, err)
-
-	_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{Name: "VerContent", Content: `{"v":2}`})
-	require.NoError(t, err)
-
-	// Request version "1" — should return first content
-	out1, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "1"})
-	require.NoError(t, err)
-	assert.Equal(t, `{"v":1}`, out1.Content)
-	assert.Equal(t, "1", out1.DocumentVersion)
-
-	// Request version "2" — should return second content
-	out2, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "2"})
-	require.NoError(t, err)
-	assert.Equal(t, `{"v":2}`, out2.Content)
-	assert.Equal(t, "2", out2.DocumentVersion)
-
-	// $LATEST — should return the latest (version 2)
-	outLatest, err := b.GetDocument(
-		context.TODO(),
-		&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "$LATEST"},
-	)
-	require.NoError(t, err)
-	assert.Equal(t, `{"v":2}`, outLatest.Content)
-
-	// Non-existent version — should return ErrInvalidDocumentVersion
-	_, err = b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "99"})
-	require.ErrorIs(t, err, ssm.ErrInvalidDocumentVersion)
-}
-
-// --- DescribeDocument ---
-
 func TestHandler_DescribeDocument(t *testing.T) {
 	t.Parallel()
 
@@ -220,9 +479,6 @@ func TestHandler_DescribeDocument(t *testing.T) {
 		})
 	}
 }
-
-// --- ListDocuments ---
-
 func TestHandler_ListDocuments(t *testing.T) {
 	t.Parallel()
 
@@ -269,78 +525,6 @@ func TestHandler_ListDocuments(t *testing.T) {
 		})
 	}
 }
-
-// --- UpdateDocument ---
-
-func TestHandler_UpdateDocument(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*testing.T, *ssm.Handler)
-		name       string
-		body       string
-		wantVer    string
-		wantStatus int
-	}{
-		{
-			name: "success_no_version",
-			setup: func(t *testing.T, h *ssm.Handler) {
-				t.Helper()
-				doRequest(t, h, "CreateDocument", `{"Name":"UpdDoc","Content":"{}","DocumentType":"Command"}`)
-			},
-			body:       `{"Name":"UpdDoc","Content":"{\"updated\":true}"}`,
-			wantStatus: http.StatusOK,
-			wantVer:    "2",
-		},
-		{
-			name: "success_with_latest_version",
-			setup: func(t *testing.T, h *ssm.Handler) {
-				t.Helper()
-				doRequest(t, h, "CreateDocument", `{"Name":"UpdDocVer","Content":"{}","DocumentType":"Command"}`)
-			},
-			body:       `{"Name":"UpdDocVer","Content":"{\"updated\":true}","DocumentVersion":"1"}`,
-			wantStatus: http.StatusOK,
-			wantVer:    "2",
-		},
-		{
-			name: "invalid_version",
-			setup: func(t *testing.T, h *ssm.Handler) {
-				t.Helper()
-				doRequest(t, h, "CreateDocument", `{"Name":"UpdDocInv","Content":"{}","DocumentType":"Command"}`)
-			},
-			body:       `{"Name":"UpdDocInv","Content":"{}","DocumentVersion":"99"}`,
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "not_found",
-			body:       `{"Name":"NoDoc","Content":"{}"}`,
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, _ := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-
-			rec := doRequest(t, h, "UpdateDocument", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantVer != "" {
-				var out ssm.UpdateDocumentOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-				assert.Equal(t, tt.wantVer, out.DocumentDescription.DocumentVersion)
-			}
-		})
-	}
-}
-
-// --- DeleteDocument ---
-
 func TestHandler_DeleteDocument(t *testing.T) {
 	t.Parallel()
 
@@ -380,385 +564,6 @@ func TestHandler_DeleteDocument(t *testing.T) {
 		})
 	}
 }
-
-// --- DescribeDocumentPermission ---
-
-func TestHandler_DescribeDocumentPermission(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setup      func(*testing.T, *ssm.Handler)
-		body       string
-		wantStatus int
-		wantLen    int
-	}{
-		{
-			name: "empty_permissions",
-			setup: func(t *testing.T, h *ssm.Handler) {
-				t.Helper()
-				doRequest(t, h, "CreateDocument", `{"Name":"PermDoc","Content":"{}"}`)
-			},
-			body:       `{"Name":"PermDoc","PermissionType":"Share"}`,
-			wantStatus: http.StatusOK,
-			wantLen:    0,
-		},
-		{
-			name:       "not_found",
-			body:       `{"Name":"NoDoc","PermissionType":"Share"}`,
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, _ := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-
-			rec := doRequest(t, h, "DescribeDocumentPermission", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out ssm.DescribeDocumentPermissionOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-				assert.Len(t, out.AccountIDs, tt.wantLen)
-			}
-		})
-	}
-}
-
-// --- ModifyDocumentPermission ---
-
-func TestHandler_ModifyDocumentPermission(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setup      func(*testing.T, *ssm.Handler)
-		body       string
-		wantStatus int
-	}{
-		{
-			name: "add_accounts",
-			setup: func(t *testing.T, h *ssm.Handler) {
-				t.Helper()
-				doRequest(t, h, "CreateDocument", `{"Name":"ModPermDoc","Content":"{}"}`)
-			},
-			body:       `{"Name":"ModPermDoc","PermissionType":"Share","AccountIDsToAdd":["111111111111"]}`,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			body:       `{"Name":"NoDoc","PermissionType":"Share","AccountIDsToAdd":["111111111111"]}`,
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, _ := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-
-			rec := doRequest(t, h, "ModifyDocumentPermission", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-// --- ListDocumentVersions ---
-
-func TestHandler_ListDocumentVersions(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setup      func(*testing.T, *ssm.Handler)
-		body       string
-		wantStatus int
-		wantCount  int
-	}{
-		{
-			name: "single_version",
-			setup: func(t *testing.T, h *ssm.Handler) {
-				t.Helper()
-				doRequest(t, h, "CreateDocument", `{"Name":"VerDoc","Content":"{}"}`)
-			},
-			body:       `{"Name":"VerDoc"}`,
-			wantStatus: http.StatusOK,
-			wantCount:  1,
-		},
-		{
-			name: "multiple_versions",
-			setup: func(t *testing.T, h *ssm.Handler) {
-				t.Helper()
-				doRequest(t, h, "CreateDocument", `{"Name":"MultiVer","Content":"{}"}`)
-				doRequest(t, h, "UpdateDocument", `{"Name":"MultiVer","Content":"{\"v\":2}"}`)
-				doRequest(t, h, "UpdateDocument", `{"Name":"MultiVer","Content":"{\"v\":3}"}`)
-			},
-			body:       `{"Name":"MultiVer"}`,
-			wantStatus: http.StatusOK,
-			wantCount:  3,
-		},
-		{
-			name:       "not_found",
-			body:       `{"Name":"NoDoc"}`,
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, _ := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-
-			rec := doRequest(t, h, "ListDocumentVersions", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantCount > 0 {
-				var out ssm.ListDocumentVersionsOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-				assert.Len(t, out.DocumentVersions, tt.wantCount)
-			}
-		})
-	}
-}
-
-// --- SendCommand ---
-
-func TestHandler_SendCommand(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-	}{
-		{
-			name: "success",
-			body: `{"DocumentName":"AWS-RunShellScript",` +
-				`"InstanceIDs":["i-1234567890abcdef0"],` +
-				`"Parameters":{"commands":["echo hello"]}}`,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "document_not_found",
-			body:       `{"DocumentName":"NoSuchDocument","InstanceIDs":["i-abc"]}`,
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "invalid_json",
-			body:       `not-json`,
-			wantStatus: http.StatusInternalServerError,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, _ := newTestHandler(t)
-			rec := doRequest(t, h, "SendCommand", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out ssm.SendCommandOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-				assert.NotEmpty(t, out.Command.CommandID)
-				assert.Equal(t, "AWS-RunShellScript", out.Command.DocumentName)
-			}
-		})
-	}
-}
-
-// --- ListCommands ---
-
-func TestHandler_ListCommands(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setup      func(*testing.T, *ssm.Handler)
-		body       string
-		wantStatus int
-		wantCount  int
-	}{
-		{
-			name:       "empty",
-			body:       `{}`,
-			wantStatus: http.StatusOK,
-			wantCount:  0,
-		},
-		{
-			name: "with_commands",
-			setup: func(t *testing.T, h *ssm.Handler) {
-				t.Helper()
-				doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc"]}`)
-				doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-def"]}`)
-			},
-			body:       `{}`,
-			wantStatus: http.StatusOK,
-			wantCount:  2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, _ := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-
-			rec := doRequest(t, h, "ListCommands", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var out ssm.ListCommandsOutput
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Len(t, out.Commands, tt.wantCount)
-		})
-	}
-}
-
-// --- GetCommandInvocation ---
-
-func TestHandler_GetCommandInvocation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup             func(*testing.T, *ssm.Handler) string
-		body              func(cmdID string) string
-		name              string
-		wantCommandStatus string
-		wantStatus        int
-	}{
-		{
-			name: "success",
-			setup: func(t *testing.T, h *ssm.Handler) string {
-				t.Helper()
-				rec := doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc"]}`)
-				var out ssm.SendCommandOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-
-				return out.Command.CommandID
-			},
-			body: func(cmdID string) string {
-				return `{"CommandId":"` + cmdID + `","InstanceId":"i-abc"}`
-			},
-			wantStatus:        http.StatusOK,
-			wantCommandStatus: "Success",
-		},
-		{
-			name: "wrong_instance_id",
-			setup: func(t *testing.T, h *ssm.Handler) string {
-				t.Helper()
-				rec := doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc"]}`)
-				var out ssm.SendCommandOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-
-				return out.Command.CommandID
-			},
-			body: func(cmdID string) string {
-				return `{"CommandId":"` + cmdID + `","InstanceId":"i-wrong"}`
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:  "not_found",
-			setup: nil,
-			body: func(_ string) string {
-				return `{"CommandId":"no-such-id","InstanceId":"i-abc"}`
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, _ := newTestHandler(t)
-			var cmdID string
-			if tt.setup != nil {
-				cmdID = tt.setup(t, h)
-			}
-
-			rec := doRequest(t, h, "GetCommandInvocation", tt.body(cmdID))
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantCommandStatus != "" {
-				var out ssm.GetCommandInvocationOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-				assert.Equal(t, tt.wantCommandStatus, out.Status)
-				assert.Equal(t, tt.wantCommandStatus, out.StatusDetails)
-			}
-		})
-	}
-}
-
-// --- ListCommandInvocations ---
-
-func TestHandler_ListCommandInvocations(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setup      func(*testing.T, *ssm.Handler)
-		body       string
-		wantStatus int
-		wantCount  int
-	}{
-		{
-			name:       "empty",
-			body:       `{}`,
-			wantStatus: http.StatusOK,
-			wantCount:  0,
-		},
-		{
-			name: "with_invocations",
-			setup: func(t *testing.T, h *ssm.Handler) {
-				t.Helper()
-				doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc","i-def"]}`)
-			},
-			body:       `{}`,
-			wantStatus: http.StatusOK,
-			wantCount:  2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, _ := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-
-			rec := doRequest(t, h, "ListCommandInvocations", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var out ssm.ListCommandInvocationsOutput
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Len(t, out.CommandInvocations, tt.wantCount)
-		})
-	}
-}
-
-// --- Backend direct tests ---
-
 func TestInMemoryBackend_DefaultDocuments(t *testing.T) {
 	t.Parallel()
 
@@ -775,219 +580,4 @@ func TestInMemoryBackend_DefaultDocuments(t *testing.T) {
 
 	assert.Contains(t, names, "AWS-RunShellScript")
 	assert.Contains(t, names, "AWS-RunPowerShellScript")
-}
-
-func TestInMemoryBackend_DocumentVersioning(t *testing.T) {
-	t.Parallel()
-
-	backend := ssm.NewInMemoryBackend()
-
-	_, err := backend.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
-		Name:    "MyDoc",
-		Content: `{"v":1}`,
-	})
-	require.NoError(t, err)
-
-	_, err = backend.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
-		Name:    "MyDoc",
-		Content: `{"v":2}`,
-	})
-	require.NoError(t, err)
-
-	verOut, err := backend.ListDocumentVersions(context.TODO(), &ssm.ListDocumentVersionsInput{Name: "MyDoc"})
-	require.NoError(t, err)
-	require.Len(t, verOut.DocumentVersions, 2)
-	assert.Equal(t, "1", verOut.DocumentVersions[0].DocumentVersion)
-	assert.Equal(t, "2", verOut.DocumentVersions[1].DocumentVersion)
-}
-
-func TestInMemoryBackend_DocumentPermissions(t *testing.T) {
-	t.Parallel()
-
-	backend := ssm.NewInMemoryBackend()
-
-	_, err := backend.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
-		Name:    "PermDoc",
-		Content: `{}`,
-	})
-	require.NoError(t, err)
-
-	_, err = backend.ModifyDocumentPermission(context.TODO(), &ssm.ModifyDocumentPermissionInput{
-		Name:            "PermDoc",
-		PermissionType:  "Share",
-		AccountIDsToAdd: []string{"111111111111", "222222222222"},
-	})
-	require.NoError(t, err)
-
-	permOut, err := backend.DescribeDocumentPermission(context.TODO(), &ssm.DescribeDocumentPermissionInput{
-		Name:           "PermDoc",
-		PermissionType: "Share",
-	})
-	require.NoError(t, err)
-	assert.Len(t, permOut.AccountIDs, 2)
-	assert.Contains(t, permOut.AccountIDs, "111111111111")
-
-	_, err = backend.ModifyDocumentPermission(context.TODO(), &ssm.ModifyDocumentPermissionInput{
-		Name:               "PermDoc",
-		PermissionType:     "Share",
-		AccountIDsToRemove: []string{"111111111111"},
-	})
-	require.NoError(t, err)
-
-	permOut2, err := backend.DescribeDocumentPermission(context.TODO(), &ssm.DescribeDocumentPermissionInput{
-		Name:           "PermDoc",
-		PermissionType: "Share",
-	})
-	require.NoError(t, err)
-	assert.Len(t, permOut2.AccountIDs, 1)
-	assert.Contains(t, permOut2.AccountIDs, "222222222222")
-}
-
-func TestInMemoryBackend_DeleteDocumentCleansUp(t *testing.T) {
-	t.Parallel()
-
-	backend := ssm.NewInMemoryBackend()
-
-	_, err := backend.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{Name: "ToDelete", Content: "{}"})
-	require.NoError(t, err)
-
-	_, err = backend.ModifyDocumentPermission(context.TODO(), &ssm.ModifyDocumentPermissionInput{
-		Name:            "ToDelete",
-		PermissionType:  "Share",
-		AccountIDsToAdd: []string{"123456789012"},
-	})
-	require.NoError(t, err)
-
-	_, err = backend.DeleteDocument(context.TODO(), &ssm.DeleteDocumentInput{Name: "ToDelete"})
-	require.NoError(t, err)
-
-	_, err = backend.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "ToDelete"})
-	require.ErrorIs(t, err, ssm.ErrDocumentNotFound)
-}
-
-// --- Persistence round-trip tests ---
-
-func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup         func(*ssm.InMemoryBackend)
-		verify        func(*testing.T, *ssm.InMemoryBackend)
-		name          string
-		skipRoundTrip bool // when true, verify receives a fresh backend and manages its own restore
-	}{
-		{
-			name: "document_survives_round_trip",
-			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
-					Name:         "SnapDoc",
-					Content:      `{"v":1}`,
-					DocumentType: ssm.DocumentTypeCommand,
-				})
-				_, _ = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{Name: "SnapDoc", Content: `{"v":2}`})
-			},
-			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
-				t.Helper()
-
-				out, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "SnapDoc"})
-				require.NoError(t, err)
-				assert.Equal(t, `{"v":2}`, out.Content)
-				assert.Equal(t, "2", out.DocumentVersion)
-
-				// Historic version content is also preserved
-				v1, err := b.GetDocument(context.TODO(), &ssm.GetDocumentInput{Name: "SnapDoc", DocumentVersion: "1"})
-				require.NoError(t, err)
-				assert.Equal(t, `{"v":1}`, v1.Content)
-			},
-		},
-		{
-			name: "command_survives_round_trip",
-			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.SendCommand(context.TODO(), &ssm.SendCommandInput{
-					DocumentName: "AWS-RunShellScript",
-					InstanceIDs:  []string{"i-snap"},
-				})
-			},
-			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
-				t.Helper()
-
-				out, err := b.ListCommands(context.TODO(), &ssm.ListCommandsInput{})
-				require.NoError(t, err)
-				require.Len(t, out.Commands, 1)
-
-				inv, err := b.GetCommandInvocation(context.TODO(), &ssm.GetCommandInvocationInput{
-					CommandID:  out.Commands[0].CommandID,
-					InstanceID: "i-snap",
-				})
-				require.NoError(t, err)
-				assert.Equal(t, "Success", inv.Status)
-			},
-		},
-		{
-			name:          "default_docs_restored_from_old_snapshot",
-			skipRoundTrip: true,
-			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
-				t.Helper()
-
-				// Restore a pre-documents snapshot; defaults should be re-seeded
-				oldSnap := `{"parameters":{},"history":{},"tags":{}}`
-				require.NoError(t, b.Restore(t.Context(), []byte(oldSnap)))
-
-				out, err := b.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{})
-				require.NoError(t, err)
-
-				names := make([]string, 0, len(out.DocumentIdentifiers))
-				for _, d := range out.DocumentIdentifiers {
-					names = append(names, d.Name)
-				}
-
-				assert.Contains(t, names, "AWS-RunShellScript")
-				assert.Contains(t, names, "AWS-RunPowerShellScript")
-			},
-		},
-		{
-			name: "permissions_survive_round_trip",
-			setup: func(b *ssm.InMemoryBackend) {
-				_, _ = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{Name: "PermSnap", Content: "{}"})
-				_, _ = b.ModifyDocumentPermission(context.TODO(), &ssm.ModifyDocumentPermissionInput{
-					Name:            "PermSnap",
-					PermissionType:  "Share",
-					AccountIDsToAdd: []string{"111111111111"},
-				})
-			},
-			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
-				t.Helper()
-
-				perm, err := b.DescribeDocumentPermission(context.TODO(), &ssm.DescribeDocumentPermissionInput{
-					Name:           "PermSnap",
-					PermissionType: "Share",
-				})
-				require.NoError(t, err)
-				assert.Contains(t, perm.AccountIDs, "111111111111")
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if tt.skipRoundTrip {
-				tt.verify(t, ssm.NewInMemoryBackend())
-
-				return
-			}
-
-			orig := ssm.NewInMemoryBackend()
-			tt.setup(orig)
-
-			snap := orig.Snapshot(t.Context())
-			require.NotNil(t, snap)
-
-			restored := ssm.NewInMemoryBackend()
-			require.NoError(t, restored.Restore(t.Context(), snap))
-
-			tt.verify(t, restored)
-		})
-	}
 }

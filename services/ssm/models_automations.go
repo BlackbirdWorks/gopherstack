@@ -1,0 +1,165 @@
+package ssm
+
+// SendAutomationSignalOutput is the response for SendAutomationSignal.
+type SendAutomationSignalOutput struct{}
+
+// StopAutomationExecutionOutput is the response for StopAutomationExecution.
+type StopAutomationExecutionOutput struct{}
+
+// DescribeAutomationExecutionsInput is the request for DescribeAutomationExecutions.
+type DescribeAutomationExecutionsInput struct{}
+
+// DescribeAutomationExecutionsOutput is the response for DescribeAutomationExecutions.
+type DescribeAutomationExecutionsOutput struct{}
+
+// DescribeAutomationStepExecutionsInput is the request for DescribeAutomationStepExecutions.
+type DescribeAutomationStepExecutionsInput struct {
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+}
+
+// DescribeAutomationStepExecutionsOutput is the response for DescribeAutomationStepExecutions.
+type DescribeAutomationStepExecutionsOutput struct{}
+
+// GetAutomationExecutionInput is the request payload.
+type GetAutomationExecutionInput struct {
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+}
+
+// GetAutomationExecutionOutput is the response payload.
+type GetAutomationExecutionOutput struct{}
+
+// GetCalendarStateInput is the request payload.
+type GetCalendarStateInput struct {
+	AtTime        string   `json:"AtTime,omitempty"`
+	CalendarNames []string `json:"CalendarNames,omitempty"`
+}
+
+// GetCalendarStateOutput is the response payload.
+type GetCalendarStateOutput struct{}
+
+// GetExecutionPreviewInput is the request payload.
+type GetExecutionPreviewInput struct {
+	ExecutionPreviewID string `json:"ExecutionPreviewId"`
+}
+
+// GetExecutionPreviewOutput is the response payload.
+type GetExecutionPreviewOutput struct{}
+
+// SendAutomationSignalInput is the request payload.
+type SendAutomationSignalInput struct {
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+	SignalType            string `json:"SignalType,omitempty"`
+}
+
+// StartAutomationExecutionInput is the request payload.
+type StartAutomationExecutionInput struct {
+	Parameters      map[string][]string `json:"Parameters,omitempty"`
+	DocumentName    string              `json:"DocumentName"`
+	DocumentVersion string              `json:"DocumentVersion,omitempty"`
+	Mode            string              `json:"Mode,omitempty"`
+	MaxConcurrency  string              `json:"MaxConcurrency,omitempty"`
+	MaxErrors       string              `json:"MaxErrors,omitempty"`
+}
+
+// StartAutomationExecutionOutput is the response payload.
+type StartAutomationExecutionOutput struct{}
+
+// StartChangeRequestExecutionInput is the request payload.
+type StartChangeRequestExecutionInput struct {
+	DocumentName string `json:"DocumentName"`
+}
+
+// StartChangeRequestExecutionOutput is the response payload.
+type StartChangeRequestExecutionOutput struct{}
+
+// StartExecutionPreviewInput is the request payload.
+type StartExecutionPreviewInput struct {
+	DocumentName string `json:"DocumentName,omitempty"`
+}
+
+// StartExecutionPreviewOutput is the response payload.
+type StartExecutionPreviewOutput struct{}
+
+// StopAutomationExecutionInput is the request payload.
+type StopAutomationExecutionInput struct {
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+}
+
+// AutomationExecution represents a running or completed SSM automation execution.
+type AutomationExecution struct {
+	Parameters            map[string][]string  `json:"Parameters,omitempty"`
+	AutomationExecutionID string               `json:"AutomationExecutionId"`
+	DocumentName          string               `json:"DocumentName"`
+	DocumentVersion       string               `json:"DocumentVersion"`
+	Status                string               `json:"AutomationExecutionStatus"`
+	ExecutionType         string               `json:"ExecutionType"`
+	Mode                  string               `json:"Mode,omitempty"`
+	FailureMessage        string               `json:"FailureMessage,omitempty"`
+	Steps                 []AutomationStepExec `json:"StepExecutions,omitempty"`
+	StartTime             float64              `json:"ExecutionStartTime"`
+	EndTime               float64              `json:"ExecutionEndTime,omitempty"`
+	completeAfter         float64
+}
+
+// AutomationStepExec represents a single step in an automation execution.
+type AutomationStepExec struct {
+	StepName           string  `json:"StepName"`
+	Action             string  `json:"Action"`
+	StepStatus         string  `json:"StepStatus"`
+	StepExecutionID    string  `json:"StepExecutionId,omitempty"`
+	FailureMessage     string  `json:"FailureMessage,omitempty"`
+	ExecutionStartTime float64 `json:"ExecutionStartTime,omitempty"`
+	ExecutionEndTime   float64 `json:"ExecutionEndTime,omitempty"`
+}
+
+// ExecutionPreview represents a preview of an SSM automation execution.
+type ExecutionPreview struct {
+	ExecutionPreviewID string `json:"ExecutionPreviewId"`
+	Status             string `json:"Status"`
+	DocumentName       string `json:"DocumentName"`
+}
+
+// GetAutomationExecutionOutputFull extends the empty stub output.
+type GetAutomationExecutionOutputFull struct {
+	AutomationExecution *AutomationExecution `json:"AutomationExecution,omitempty"`
+}
+
+// DescribeAutomationExecutionsOutputFull extends the empty stub output.
+type DescribeAutomationExecutionsOutputFull struct {
+	NextToken                       string                `json:"NextToken,omitempty"`
+	AutomationExecutionMetadataList []AutomationExecution `json:"AutomationExecutionMetadataList"`
+}
+
+// DescribeAutomationStepExecutionsOutputFull extends the empty stub output.
+type DescribeAutomationStepExecutionsOutputFull struct {
+	NextToken      string               `json:"NextToken,omitempty"`
+	StepExecutions []AutomationStepExec `json:"StepExecutions"`
+}
+
+// GetCalendarStateOutputFull has a State field.
+type GetCalendarStateOutputFull struct {
+	State              string `json:"State"`
+	NextTransitionTime string `json:"NextTransitionTime,omitempty"`
+}
+
+// GetExecutionPreviewOutputFull extends the empty stub.
+type GetExecutionPreviewOutputFull struct {
+	ExecutionPreview   *ExecutionPreview `json:"ExecutionPreview,omitempty"`
+	ExecutionPreviewID string            `json:"ExecutionPreviewId"`
+	Status             string            `json:"Status"`
+}
+
+// StartExecutionPreviewOutputFull extends the empty stub.
+type StartExecutionPreviewOutputFull struct {
+	ExecutionPreviewID string `json:"ExecutionPreviewId"`
+}
+
+// StartAutomationExecutionOutputFull extends the empty stub.
+type StartAutomationExecutionOutputFull struct {
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+}
+
+// StartChangeRequestExecutionOutputFull extends the empty stub.
+type StartChangeRequestExecutionOutputFull struct {
+	AutomationExecutionID string `json:"AutomationExecutionId"`
+}
