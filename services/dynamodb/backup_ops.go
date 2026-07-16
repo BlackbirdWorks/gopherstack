@@ -137,8 +137,7 @@ func (h *DynamoDBHandler) listBackups(ctx context.Context, body []byte) (any, er
 
 	region := h.regionFromHandlerContext(ctx)
 
-	db.mu.RLock("ListBackups")
-	summaries := collectBackupSummaries(
+	summaries := collectBackupSummariesRLocked(
 		db,
 		region,
 		req.TableName,
@@ -146,7 +145,6 @@ func (h *DynamoDBHandler) listBackups(ctx context.Context, body []byte) (any, er
 		req.TimeRangeLowerBound,
 		req.TimeRangeUpperBound,
 	)
-	db.mu.RUnlock()
 
 	// Sort by creation time (then ARN) for deterministic ordering.
 	sort.Slice(summaries, func(i, j int) bool {
@@ -220,6 +218,21 @@ func collectBackupSummaries(
 	return summaries
 }
 
+// collectBackupSummariesRLocked wraps collectBackupSummaries in a
+// defer-protected db.mu.RLock, so a panic while filtering db.backups can never
+// leave db.mu read-locked forever.
+func collectBackupSummariesRLocked(
+	db *InMemoryDB,
+	requestRegion string,
+	tableName, backupType string,
+	timeRangeLower, timeRangeUpper *float64,
+) []models.BackupSummary {
+	db.mu.RLock("ListBackups")
+	defer db.mu.RUnlock()
+
+	return collectBackupSummaries(db, requestRegion, tableName, backupType, timeRangeLower, timeRangeUpper)
+}
+
 // paginateBackupSummaries applies cursor-based pagination to a sorted backup summary list.
 // It returns the page and the last-evaluated ARN (empty if no more pages).
 func paginateBackupSummaries(
@@ -278,10 +291,9 @@ func (db *InMemoryDB) installRestoredTable(
 	p restoredTableParams,
 ) (*Table, string, error) {
 	db.mu.Lock("RestoreTable")
+	defer db.mu.Unlock()
 
 	if _, tExists := db.tables.Get(tableKey(region, tableName)); tExists {
-		db.mu.Unlock()
-
 		return nil, "", NewResourceInUseException("table already exists: " + tableName)
 	}
 
@@ -310,9 +322,17 @@ func (db *InMemoryDB) installRestoredTable(
 	newTable.rebuildIndexes()
 
 	db.tables.Put(newTable)
-	db.mu.Unlock()
 
 	return newTable, newTableID, nil
+}
+
+// getBackupRLocked returns the backup stored under backupArn (and whether it
+// exists) under a defer-protected db.mu.RLock.
+func (db *InMemoryDB) getBackupRLocked(backupArn string) (*Backup, bool) {
+	db.mu.RLock("RestoreTableFromBackup.lookup")
+	defer db.mu.RUnlock()
+
+	return db.backups.Get(backupArn)
 }
 
 func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byte) (any, error) {
@@ -334,10 +354,7 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 		return nil, NewInternalServerError("backup operations require in-memory backend")
 	}
 
-	db.mu.RLock("RestoreTableFromBackup.lookup")
-	backup, exists := db.backups.Get(req.BackupArn)
-	db.mu.RUnlock()
-
+	backup, exists := db.getBackupRLocked(req.BackupArn)
 	if !exists {
 		return nil, NewResourceNotFoundException("backup not found: " + req.BackupArn)
 	}

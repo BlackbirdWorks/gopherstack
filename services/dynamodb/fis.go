@@ -52,13 +52,7 @@ func (db *InMemoryDB) activateReplicationPause(
 		expiry = time.Now().Add(dur)
 	}
 
-	db.mu.Lock("FISPauseReplication")
-
-	for _, tableARN := range tableARNs {
-		db.fisReplicationPaused[tableARN] = expiry
-	}
-
-	db.mu.Unlock()
+	db.setReplicationPauseLocked(tableARNs, expiry)
 
 	if dur > 0 {
 		// Time-limited: clear after duration or on cancellation.
@@ -82,6 +76,17 @@ func (db *InMemoryDB) activateReplicationPause(
 	}
 
 	return nil
+}
+
+// setReplicationPauseLocked marks tableARNs as replication-paused under a
+// defer-protected db.mu.Lock.
+func (db *InMemoryDB) setReplicationPauseLocked(tableARNs []string, expiry time.Time) {
+	db.mu.Lock("FISPauseReplication")
+	defer db.mu.Unlock()
+
+	for _, tableARN := range tableARNs {
+		db.fisReplicationPaused[tableARN] = expiry
+	}
 }
 
 // scheduleReplicationPauseCleanup removes replication-pause entries after the

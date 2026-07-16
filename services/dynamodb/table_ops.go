@@ -157,24 +157,51 @@ func (db *InMemoryDB) CreateTable(
 		newTable.Status = string(types.TableStatusCreating)
 
 		newTable.activateTimer = time.AfterFunc(db.createDelay, func() {
-			newTable.mu.Lock("activate")
-			newTable.Status = string(types.TableStatusActive)
-			newTable.mu.Unlock()
+			activateTableLocked(newTable)
 		})
 	} else {
 		newTable.Status = string(types.TableStatusActive)
 	}
 
 	// Minimal critical section: check for duplicate, then insert into the shared maps.
-	db.mu.Lock("CreateTable")
-
-	if _, exists := db.tables.Get(tableKey(region, tableName)); exists {
-		db.mu.Unlock()
+	if !db.insertNewTableLocked(region, tableName, newTable) {
 		// Release resources we allocated before discovering the duplicate.
 		stopTableTimers(newTable)
 		newTable.mu.Close()
 
 		return nil, NewResourceInUseException("table already exists: " + tableName)
+	}
+
+	// Throttler has its own internal lock; call after releasing db.mu to keep the
+	// critical section above as short as possible.
+	rcu := int64(newTable.ProvisionedThroughput.ReadCapacityUnits)
+	wcu := int64(newTable.ProvisionedThroughput.WriteCapacityUnits)
+	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
+
+	return buildCreateTableOutput(input, newTable), nil
+}
+
+// activateTableLocked flips a newly-created table's status to ACTIVE under a
+// defer-protected table.mu.Lock. Used as the CreateTable activation timer's
+// callback.
+func activateTableLocked(newTable *Table) {
+	newTable.mu.Lock("activate")
+	defer newTable.mu.Unlock()
+
+	newTable.Status = string(types.TableStatusActive)
+}
+
+// insertNewTableLocked inserts newTable into db.tables (and the stream ARN
+// index, if applicable) under a defer-protected db.mu.Lock, unless a table
+// already exists at the same key -- in which case it makes no changes and
+// returns false so the caller can release newTable's own resources outside
+// this lock.
+func (db *InMemoryDB) insertNewTableLocked(region, tableName string, newTable *Table) bool {
+	db.mu.Lock("CreateTable")
+	defer db.mu.Unlock()
+
+	if _, exists := db.tables.Get(tableKey(region, tableName)); exists {
+		return false
 	}
 
 	db.tables.Put(newTable)
@@ -184,15 +211,7 @@ func (db *InMemoryDB) CreateTable(
 		db.streamARNIndex.Put(newTable)
 	}
 
-	db.mu.Unlock()
-
-	// Throttler has its own internal lock; call after releasing db.mu to keep the
-	// critical section above as short as possible.
-	rcu := int64(newTable.ProvisionedThroughput.ReadCapacityUnits)
-	wcu := int64(newTable.ProvisionedThroughput.WriteCapacityUnits)
-	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
-
-	return buildCreateTableOutput(input, newTable), nil
+	return true
 }
 
 // newTableFromCreateInput allocates and initialises a Table from a CreateTable request.
@@ -351,19 +370,8 @@ func buildCreateTableOutput(
 		}
 	}
 
-	t.mu.RLock("buildCreateTableOutput")
-	rcu := int64(t.ProvisionedThroughput.ReadCapacityUnits)
-	wcu := int64(t.ProvisionedThroughput.WriteCapacityUnits)
-
-	tableStatus := types.TableStatus(t.Status)
-	if tableStatus == "" {
-		tableStatus = types.TableStatusActive
-	}
-
-	keySchema := models.ToSDKKeySchema(t.KeySchema)
-	attrDefs := models.ToSDKAttributeDefinitions(t.AttributeDefinitions)
-	sseEnabled, sseType, sseKMSMasterKeyArn := t.SSEEnabled, t.SSEType, t.SSEKMSMasterKeyArn
-	t.mu.RUnlock()
+	rcu, wcu, tableStatus, keySchema, attrDefs, sseEnabled, sseType, sseKMSMasterKeyArn :=
+		snapshotTableForCreateOutputRLocked(t)
 
 	td := &types.TableDescription{
 		TableName:              input.TableName,
@@ -381,6 +389,36 @@ func buildCreateTableOutput(
 	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
 
 	return &dynamodb.CreateTableOutput{TableDescription: td}
+}
+
+// snapshotTableForCreateOutputRLocked copies every field buildCreateTableOutput
+// needs from t under a defer-protected table.mu.RLock, so a panic partway
+// through can never leave table.mu read-locked forever.
+func snapshotTableForCreateOutputRLocked(t *Table) (
+	int64,
+	int64,
+	types.TableStatus,
+	[]types.KeySchemaElement,
+	[]types.AttributeDefinition,
+	bool,
+	string,
+	string,
+) {
+	t.mu.RLock("buildCreateTableOutput")
+	defer t.mu.RUnlock()
+
+	rcu := int64(t.ProvisionedThroughput.ReadCapacityUnits)
+	wcu := int64(t.ProvisionedThroughput.WriteCapacityUnits)
+
+	tableStatus := types.TableStatus(t.Status)
+	if tableStatus == "" {
+		tableStatus = types.TableStatusActive
+	}
+
+	keySchema := models.ToSDKKeySchema(t.KeySchema)
+	attrDefs := models.ToSDKAttributeDefinitions(t.AttributeDefinitions)
+
+	return rcu, wcu, tableStatus, keySchema, attrDefs, t.SSEEnabled, t.SSEType, t.SSEKMSMasterKeyArn
 }
 
 func (db *InMemoryDB) DeleteTable(
@@ -442,15 +480,7 @@ func (db *InMemoryDB) DeleteTable(
 	// still be actively writing to it concurrently. Reading those fields here
 	// without table.mu is a real data race (caught by -race); take a read lock
 	// for the snapshot, consistent with this backend's db.mu -> table.mu order.
-	table.mu.RLock("DeleteTable.snapshot")
-	gsis := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
-	copy(gsis, table.GlobalSecondaryIndexes)
-	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
-	copy(keySchema, table.KeySchema)
-	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
-	copy(attrDefs, table.AttributeDefinitions)
-	itemCountSnapshot := len(table.Items)
-	table.mu.RUnlock()
+	gsis, keySchema, attrDefs, itemCountSnapshot := snapshotTableForDeleteOutputRLocked(table)
 
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsis))
 	for i, gsi := range gsis {
@@ -490,6 +520,30 @@ func (db *InMemoryDB) DeleteTable(
 			ItemCount:              &itemCount,
 		},
 	}, nil
+}
+
+// snapshotTableForDeleteOutputRLocked copies the GSI list, key schema,
+// attribute definitions, and item count needed to build DeleteTable's
+// response, under a defer-protected table.mu.RLock. See the DeleteTable call
+// site comment for why this snapshot must be taken under table.mu even though
+// the table has already been unlinked from db.tables.
+func snapshotTableForDeleteOutputRLocked(table *Table) (
+	[]models.GlobalSecondaryIndex,
+	[]models.KeySchemaElement,
+	[]models.AttributeDefinition,
+	int,
+) {
+	table.mu.RLock("DeleteTable.snapshot")
+	defer table.mu.RUnlock()
+
+	gsis := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
+	copy(gsis, table.GlobalSecondaryIndexes)
+	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
+	copy(keySchema, table.KeySchema)
+	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
+	copy(attrDefs, table.AttributeDefinitions)
+
+	return gsis, keySchema, attrDefs, len(table.Items)
 }
 
 // removeGlobalTableReplicaLocked removes a region from a global table's ReplicationGroup.
@@ -576,11 +630,8 @@ func (db *InMemoryDB) DescribeTable(
 
 	region := getRegionFromContext(ctx, db)
 
-	db.mu.RLock("DescribeTable")
-	table, exists := db.tables.Get(tableKey(region, tableName))
-	db.mu.RUnlock()
-
-	if !exists {
+	table := db.getTableInRegionRLocked(region, tableName, "DescribeTable")
+	if table == nil {
 		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
 
@@ -844,17 +895,24 @@ func (db *InMemoryDB) UpdateTable(
 	// Update the stream ARN reverse index under db.mu (after the table lock has been
 	// released — never hold both table.mu and db.mu simultaneously to prevent deadlocks).
 	if oldStreamARN != newStreamARN {
-		db.mu.Lock("UpdateTable.streamARNIndex")
-		if oldStreamARN != "" {
-			db.streamARNIndex.Delete(oldStreamARN)
-		}
-		if newStreamARN != "" {
-			db.streamARNIndex.Put(table)
-		}
-		db.mu.Unlock()
+		updateStreamARNIndexLocked(db, table, oldStreamARN, newStreamARN)
 	}
 
 	return out, nil
+}
+
+// updateStreamARNIndexLocked removes oldARN (if set) and adds table under
+// newARN (if set) to db.streamARNIndex, under a defer-protected db.mu.Lock.
+func updateStreamARNIndexLocked(db *InMemoryDB, table *Table, oldARN, newARN string) {
+	db.mu.Lock("UpdateTable.streamARNIndex")
+	defer db.mu.Unlock()
+
+	if oldARN != "" {
+		db.streamARNIndex.Delete(oldARN)
+	}
+	if newARN != "" {
+		db.streamARNIndex.Put(table)
+	}
 }
 
 // applyUpdateTableLocked applies all table mutations under table.mu. It is extracted from
@@ -989,19 +1047,33 @@ func (db *InMemoryDB) applyReplicaTableEntries(
 	defer db.mu.Unlock()
 
 	// Ensure the source table is marked as a global table.
-	source.mu.RLock("UpdateTable.replicaEntries.read")
-	existingGTName := source.GlobalTableName
-	source.mu.RUnlock()
+	existingGTName := globalTableNameOfRLocked(source)
 
 	if existingGTName == "" {
-		source.mu.Lock("UpdateTable.replicaEntries.setGT")
-		source.GlobalTableName = tableName
-		source.mu.Unlock()
+		setGlobalTableNameLocked(source, tableName)
 	}
 
 	for _, u := range updates {
 		db.applyOneReplicaTableEntry(tableName, currentRegion, source, u)
 	}
+}
+
+// globalTableNameOfRLocked returns source.GlobalTableName under a
+// defer-protected table.mu.RLock.
+func globalTableNameOfRLocked(source *Table) string {
+	source.mu.RLock("UpdateTable.replicaEntries.read")
+	defer source.mu.RUnlock()
+
+	return source.GlobalTableName
+}
+
+// setGlobalTableNameLocked sets source.GlobalTableName under a
+// defer-protected table.mu.Lock.
+func setGlobalTableNameLocked(source *Table, tableName string) {
+	source.mu.Lock("UpdateTable.replicaEntries.setGT")
+	defer source.mu.Unlock()
+
+	source.GlobalTableName = tableName
 }
 
 // applyOneReplicaTableEntry handles a single Create or Delete ReplicationGroupUpdate.
@@ -1023,15 +1095,7 @@ func (db *InMemoryDB) applyOneReplicaTableEntry(
 			replica := cloneTableSchema(source, tableName, regionName, db.accountID)
 			replica.GlobalTableName = tableName
 
-			source.mu.RLock("cloneItems")
-			replica.Items = make([]map[string]any, len(source.Items))
-			replica.itemSizes = make([]int, len(source.itemSizes))
-			replica.totalItemSizeBytes = source.totalItemSizeBytes
-			for i, item := range source.Items {
-				replica.Items[i] = deepCopyItem(item)
-				replica.itemSizes[i] = source.itemSizes[i]
-			}
-			source.mu.RUnlock()
+			cloneSourceItemsIntoReplicaRLocked(source, replica)
 
 			if len(replica.Items) > 0 {
 				replica.rebuildIndexes()
@@ -1049,6 +1113,22 @@ func (db *InMemoryDB) applyOneReplicaTableEntry(
 		}
 
 		db.tables.Delete(tableKey(regionName, tableName))
+	}
+}
+
+// cloneSourceItemsIntoReplicaRLocked deep-copies source's items and item sizes
+// into replica, under a defer-protected source.mu.RLock. replica is not yet
+// visible to any other goroutine at this point, so it needs no lock of its own.
+func cloneSourceItemsIntoReplicaRLocked(source, replica *Table) {
+	source.mu.RLock("cloneItems")
+	defer source.mu.RUnlock()
+
+	replica.Items = make([]map[string]any, len(source.Items))
+	replica.itemSizes = make([]int, len(source.itemSizes))
+	replica.totalItemSizeBytes = source.totalItemSizeBytes
+	for i, item := range source.Items {
+		replica.Items[i] = deepCopyItem(item)
+		replica.itemSizes[i] = source.itemSizes[i]
 	}
 }
 
@@ -1573,6 +1653,21 @@ func (db *InMemoryDB) DescribeTimeToLive(
 	}, nil
 }
 
+// regionTableNamesRLocked returns the names of every table in region under a
+// defer-protected db.mu.RLock.
+func regionTableNamesRLocked(db *InMemoryDB, region string) []string {
+	db.mu.RLock("ListTables")
+	defer db.mu.RUnlock()
+
+	regionTables := db.tablesByRegion.Get(region)
+	names := make([]string, 0, len(regionTables))
+	for _, t := range regionTables {
+		names = append(names, t.Name)
+	}
+
+	return names
+}
+
 func (db *InMemoryDB) ListTables(
 	ctx context.Context,
 	input *dynamodb.ListTablesInput,
@@ -1584,13 +1679,7 @@ func (db *InMemoryDB) ListTables(
 	region := getRegionFromContext(ctx, db)
 
 	// Snapshot table names under lock, then release immediately
-	db.mu.RLock("ListTables")
-	regionTables := db.tablesByRegion.Get(region)
-	names := make([]string, 0, len(regionTables))
-	for _, t := range regionTables {
-		names = append(names, t.Name)
-	}
-	db.mu.RUnlock()
+	names := regionTableNamesRLocked(db, region)
 
 	// Sort outside the lock to reduce contention
 	sort.Strings(names)

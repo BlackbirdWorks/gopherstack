@@ -110,22 +110,15 @@ func (db *InMemoryDB) CreateBackup(
 	}
 
 	// Check for duplicate backup name scoped to this table; AWS returns BackupInUseException.
-	db.mu.RLock("CreateBackup.checkDuplicate")
-	for _, existing := range db.backups.All() {
-		if existing.TableName == tableName && existing.BackupName == backupName &&
-			existing.BackupStatus != models.BackupStatusDeleted {
-			db.mu.RUnlock()
-
-			return nil, NewBackupInUseException(
-				fmt.Sprintf(
-					"backup with name %q already exists for table %q",
-					backupName,
-					tableName,
-				),
-			)
-		}
+	if db.duplicateBackupNameExistsRLocked(tableName, backupName) {
+		return nil, NewBackupInUseException(
+			fmt.Sprintf(
+				"backup with name %q already exists for table %q",
+				backupName,
+				tableName,
+			),
+		)
 	}
-	db.mu.RUnlock()
 
 	now := time.Now()
 	bkpARN := backupARN(region, db.accountID, tableName, now)
@@ -146,15 +139,7 @@ func (db *InMemoryDB) CreateBackup(
 		SizeBytes: sizeBytes,
 	}
 
-	db.mu.Lock("CreateBackup")
-	db.backups.Put(backup)
-	evictOldestFromTable(
-		db.backups,
-		maxBackupsRetained,
-		backupKeyFn,
-		func(b *Backup) time.Time { return b.CreationDateTime },
-	)
-	db.mu.Unlock()
+	db.insertBackupLocked(backup)
 
 	return &sdkdynamodb.CreateBackupOutput{
 		BackupDetails: &sdktypes.BackupDetails{
@@ -163,6 +148,38 @@ func (db *InMemoryDB) CreateBackup(
 			BackupCreationDateTime: aws.Time(now.UTC()), BackupSizeBytes: aws.Int64(sizeBytes),
 		},
 	}, nil
+}
+
+// duplicateBackupNameExistsRLocked reports whether a non-deleted backup with
+// the given name already exists for tableName, under a defer-protected
+// db.mu.RLock.
+func (db *InMemoryDB) duplicateBackupNameExistsRLocked(tableName, backupName string) bool {
+	db.mu.RLock("CreateBackup.checkDuplicate")
+	defer db.mu.RUnlock()
+
+	for _, existing := range db.backups.All() {
+		if existing.TableName == tableName && existing.BackupName == backupName &&
+			existing.BackupStatus != models.BackupStatusDeleted {
+			return true
+		}
+	}
+
+	return false
+}
+
+// insertBackupLocked stores backup and evicts the oldest entries beyond
+// maxBackupsRetained, under a defer-protected db.mu.Lock.
+func (db *InMemoryDB) insertBackupLocked(backup *Backup) {
+	db.mu.Lock("CreateBackup")
+	defer db.mu.Unlock()
+
+	db.backups.Put(backup)
+	evictOldestFromTable(
+		db.backups,
+		maxBackupsRetained,
+		backupKeyFn,
+		func(b *Backup) time.Time { return b.CreationDateTime },
+	)
 }
 
 // DescribeBackup returns the full description of a backup by ARN.
@@ -185,14 +202,7 @@ func (db *InMemoryDB) DescribeBackup(
 		return nil, NewResourceNotFoundException("backup not found: " + backupArn)
 	}
 
-	db.mu.RLock("DescribeBackup")
-	backup, exists := db.backups.Get(backupArn)
-	var backupCopy Backup
-	if exists {
-		backupCopy = *backup
-	}
-	db.mu.RUnlock()
-
+	backupCopy, exists := db.backupCopyRLocked(backupArn)
 	if !exists {
 		return nil, NewResourceNotFoundException("backup not found: " + backupArn)
 	}
@@ -200,6 +210,20 @@ func (db *InMemoryDB) DescribeBackup(
 	return &sdkdynamodb.DescribeBackupOutput{
 		BackupDescription: buildSDKBackupDescription(&backupCopy),
 	}, nil
+}
+
+// backupCopyRLocked returns a copy of the backup stored under backupArn (and
+// whether it exists) under a defer-protected db.mu.RLock.
+func (db *InMemoryDB) backupCopyRLocked(backupArn string) (Backup, bool) {
+	db.mu.RLock("DescribeBackup")
+	defer db.mu.RUnlock()
+
+	backup, exists := db.backups.Get(backupArn)
+	if !exists {
+		return Backup{}, false
+	}
+
+	return *backup, true
 }
 
 // DeleteBackup removes an existing backup by ARN and returns its description.

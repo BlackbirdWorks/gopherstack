@@ -208,6 +208,60 @@ func buildSDKReplicaDescriptions(regions []string) []types.ReplicaDescription {
 	return out
 }
 
+// getGlobalTableRLocked returns the global table stored under name (and
+// whether it exists) under a defer-protected db.mu.RLock.
+func (db *InMemoryDB) getGlobalTableRLocked(name string) (*StoredGlobalTable, bool) {
+	db.mu.RLock("DescribeGlobalTable")
+	defer db.mu.RUnlock()
+
+	return db.globalTables.Get(name)
+}
+
+// replicaTableCapacityRLocked returns the effective read/write capacity units
+// for the table named name in region, falling back to the account maximums
+// when the table doesn't exist in that region or has no explicit throughput
+// set. Each lock acquisition (db.mu then table.mu) is defer-protected, so a
+// panic reading either can never leave a lock held forever.
+func (db *InMemoryDB) replicaTableCapacityRLocked(region, name string) (int64, int64) {
+	rcu := accountMaxReadCapacityUnits
+	wcu := accountMaxWriteCapacityUnits
+
+	tbl := db.getTableInRegionRLocked(region, name, "DescribeGlobalTableSettings.table")
+	if tbl == nil {
+		return rcu, wcu
+	}
+
+	pt := tbl.provisionedThroughputRLocked("DescribeGlobalTableSettings.throughput")
+	if pt.ReadCapacityUnits > 0 {
+		rcu = int64(pt.ReadCapacityUnits)
+	}
+	if pt.WriteCapacityUnits > 0 {
+		wcu = int64(pt.WriteCapacityUnits)
+	}
+
+	return rcu, wcu
+}
+
+// getTableInRegionRLocked looks up a table by (region, name) under a
+// defer-protected db.mu.RLock, using op as the lock's metrics label.
+func (db *InMemoryDB) getTableInRegionRLocked(region, name, op string) *Table {
+	db.mu.RLock(op)
+	defer db.mu.RUnlock()
+
+	tbl, _ := db.tables.Get(tableKey(region, name))
+
+	return tbl
+}
+
+// provisionedThroughputRLocked returns table.ProvisionedThroughput under a
+// defer-protected table.mu.RLock, using op as the lock's metrics label.
+func (table *Table) provisionedThroughputRLocked(op string) models.ProvisionedThroughputDescription {
+	table.mu.RLock(op)
+	defer table.mu.RUnlock()
+
+	return table.ProvisionedThroughput
+}
+
 // --- DescribeGlobalTable ---
 
 // DescribeGlobalTable returns the description of a global table.
@@ -221,10 +275,7 @@ func (db *InMemoryDB) DescribeGlobalTable(
 
 	name := *input.GlobalTableName
 
-	db.mu.RLock("DescribeGlobalTable")
-	gt, exists := db.globalTables.Get(name)
-	db.mu.RUnlock()
-
+	gt, exists := db.getGlobalTableRLocked(name)
 	if !exists {
 		return nil, &Error{
 			Type:    errGlobalTableNotFoundType,
@@ -264,10 +315,7 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 
 	name := *input.GlobalTableName
 
-	db.mu.RLock("DescribeGlobalTableSettings")
-	gt, exists := db.globalTables.Get(name)
-	db.mu.RUnlock()
-
+	gt, exists := db.getGlobalTableRLocked(name)
 	if !exists {
 		return nil, &Error{
 			Type:    errGlobalTableNotFoundType,
@@ -277,24 +325,7 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 
 	replicaSettings := make([]types.ReplicaSettingsDescription, 0, len(gt.ReplicationGroup))
 	for _, region := range gt.ReplicationGroup {
-		rcu := accountMaxReadCapacityUnits
-		wcu := accountMaxWriteCapacityUnits
-
-		// Look up the actual table in that region to get real provisioned throughput.
-		db.mu.RLock("DescribeGlobalTableSettings.table")
-		tbl, _ := db.tables.Get(tableKey(region, name))
-		db.mu.RUnlock()
-		if tbl != nil {
-			tbl.mu.RLock("DescribeGlobalTableSettings.throughput")
-			pt := tbl.ProvisionedThroughput
-			tbl.mu.RUnlock()
-			if pt.ReadCapacityUnits > 0 {
-				rcu = int64(pt.ReadCapacityUnits)
-			}
-			if pt.WriteCapacityUnits > 0 {
-				wcu = int64(pt.WriteCapacityUnits)
-			}
-		}
+		rcu, wcu := db.replicaTableCapacityRLocked(region, name)
 
 		replicaSettings = append(replicaSettings, types.ReplicaSettingsDescription{
 			RegionName:                           &region,
@@ -326,7 +357,20 @@ func (db *InMemoryDB) DescribeKinesisStreamingDestination(
 		return nil, err
 	}
 
+	tableName, destinations := kinesisDestinationsRLocked(table)
+
+	return &dynamodb.DescribeKinesisStreamingDestinationOutput{
+		TableName:                     &tableName,
+		KinesisDataStreamDestinations: destinations,
+	}, nil
+}
+
+// kinesisDestinationsRLocked copies table.Name and the KinesisDestinations
+// list under a defer-protected table.mu.RLock.
+func kinesisDestinationsRLocked(table *Table) (string, []types.KinesisDataStreamDestination) {
 	table.mu.RLock("DescribeKinesisStreamingDestination")
+	defer table.mu.RUnlock()
+
 	destinations := make([]types.KinesisDataStreamDestination, 0, len(table.KinesisDestinations))
 
 	for _, dest := range table.KinesisDestinations {
@@ -343,13 +387,7 @@ func (db *InMemoryDB) DescribeKinesisStreamingDestination(
 		})
 	}
 
-	tableName := table.Name
-	table.mu.RUnlock()
-
-	return &dynamodb.DescribeKinesisStreamingDestinationOutput{
-		TableName:                     &tableName,
-		KinesisDataStreamDestinations: destinations,
-	}, nil
+	return table.Name, destinations
 }
 
 // --- DisableKinesisStreamingDestination ---
@@ -375,23 +413,7 @@ func (db *InMemoryDB) DisableKinesisStreamingDestination(
 	streamARN := *input.StreamArn
 	tableName := *input.TableName
 
-	table.mu.Lock("DisableKinesisStreamingDestination")
-
-	found := false
-
-	for i, dest := range table.KinesisDestinations {
-		if dest.StreamARN == streamARN {
-			table.KinesisDestinations = append(
-				table.KinesisDestinations[:i],
-				table.KinesisDestinations[i+1:]...)
-			found = true
-
-			break
-		}
-	}
-
-	table.mu.Unlock()
-
+	found := removeKinesisDestinationLocked(table, streamARN)
 	if !found {
 		return nil, &Error{
 			Type:    errResourceNotFoundExceptionType,
@@ -406,6 +428,26 @@ func (db *InMemoryDB) DisableKinesisStreamingDestination(
 		StreamArn:         &streamARN,
 		DestinationStatus: status,
 	}, nil
+}
+
+// removeKinesisDestinationLocked removes the destination with the given
+// streamARN from table.KinesisDestinations under a defer-protected
+// table.mu.Lock, reporting whether an entry was found and removed.
+func removeKinesisDestinationLocked(table *Table, streamARN string) bool {
+	table.mu.Lock("DisableKinesisStreamingDestination")
+	defer table.mu.Unlock()
+
+	for i, dest := range table.KinesisDestinations {
+		if dest.StreamARN == streamARN {
+			table.KinesisDestinations = append(
+				table.KinesisDestinations[:i],
+				table.KinesisDestinations[i+1:]...)
+
+			return true
+		}
+	}
+
+	return false
 }
 
 // --- DescribeLimits ---
@@ -468,9 +510,7 @@ func (db *InMemoryDB) DescribeContributorInsights(
 
 	tableName := *input.TableName
 
-	table.mu.RLock("DescribeContributorInsights")
-	enabled := table.ContributorInsightsEnabled
-	table.mu.RUnlock()
+	enabled := contributorInsightsEnabledRLocked(table)
 
 	status := types.ContributorInsightsStatusDisabled
 	if enabled {
@@ -488,6 +528,15 @@ func (db *InMemoryDB) DescribeContributorInsights(
 	}
 
 	return out, nil
+}
+
+// contributorInsightsEnabledRLocked returns table.ContributorInsightsEnabled
+// under a defer-protected table.mu.RLock.
+func contributorInsightsEnabledRLocked(table *Table) bool {
+	table.mu.RLock("DescribeContributorInsights")
+	defer table.mu.RUnlock()
+
+	return table.ContributorInsightsEnabled
 }
 
 // --- EnableKinesisStreamingDestination ---
@@ -520,7 +569,21 @@ func (db *InMemoryDB) EnableKinesisStreamingDestination(
 		)
 	}
 
+	addOrUpdateKinesisDestinationLocked(table, streamARN, precision)
+
+	return &dynamodb.EnableKinesisStreamingDestinationOutput{
+		TableName:         &tableName,
+		StreamArn:         &streamARN,
+		DestinationStatus: types.DestinationStatusEnabling,
+	}, nil
+}
+
+// addOrUpdateKinesisDestinationLocked adds a new Kinesis destination or
+// updates the precision of an existing one (matched by streamARN), under a
+// defer-protected table.mu.Lock.
+func addOrUpdateKinesisDestinationLocked(table *Table, streamARN, precision string) {
 	table.mu.Lock("EnableKinesisStreamingDestination")
+	defer table.mu.Unlock()
 
 	// Idempotent: if already present update precision config, otherwise append.
 	idx := slices.IndexFunc(table.KinesisDestinations, func(e KinesisDestinationEntry) bool {
@@ -535,14 +598,6 @@ func (db *InMemoryDB) EnableKinesisStreamingDestination(
 			Precision: precision,
 		})
 	}
-
-	table.mu.Unlock()
-
-	return &dynamodb.EnableKinesisStreamingDestinationOutput{
-		TableName:         &tableName,
-		StreamArn:         &streamARN,
-		DestinationStatus: types.DestinationStatusEnabling,
-	}, nil
 }
 
 // --- ListGlobalTables ---
@@ -828,10 +883,7 @@ func (db *InMemoryDB) GetResourcePolicy(
 		return nil, NewResourceNotFoundException("Table not found for ARN: " + *input.ResourceArn)
 	}
 
-	table.mu.RLock("GetResourcePolicy")
-	policy := table.ResourcePolicy
-	table.mu.RUnlock()
-
+	policy := resourcePolicyRLocked(table)
 	if policy == "" {
 		return &dynamodb.GetResourcePolicyOutput{}, nil
 	}
@@ -862,9 +914,7 @@ func (db *InMemoryDB) PutResourcePolicy(
 		return nil, NewResourceNotFoundException("Table not found for ARN: " + *input.ResourceArn)
 	}
 
-	table.mu.Lock("PutResourcePolicy")
-	table.ResourcePolicy = *input.Policy
-	table.mu.Unlock()
+	setResourcePolicyLocked(table, "PutResourcePolicy", *input.Policy)
 
 	return &dynamodb.PutResourcePolicyOutput{
 		RevisionId: aws.String("1"),
@@ -888,13 +938,29 @@ func (db *InMemoryDB) DeleteResourcePolicy(
 		return &dynamodb.DeleteResourcePolicyOutput{RevisionId: aws.String("1")}, nil
 	}
 
-	table.mu.Lock("DeleteResourcePolicy")
-	table.ResourcePolicy = ""
-	table.mu.Unlock()
+	setResourcePolicyLocked(table, "DeleteResourcePolicy", "")
 
 	return &dynamodb.DeleteResourcePolicyOutput{
 		RevisionId: aws.String("1"),
 	}, nil
+}
+
+// resourcePolicyRLocked returns table.ResourcePolicy under a defer-protected
+// table.mu.RLock.
+func resourcePolicyRLocked(table *Table) string {
+	table.mu.RLock("GetResourcePolicy")
+	defer table.mu.RUnlock()
+
+	return table.ResourcePolicy
+}
+
+// setResourcePolicyLocked sets table.ResourcePolicy under a defer-protected
+// table.mu.Lock, using op as the lock's metrics label.
+func setResourcePolicyLocked(table *Table, op, policy string) {
+	table.mu.Lock(op)
+	defer table.mu.Unlock()
+
+	table.ResourcePolicy = policy
 }
 
 // getTableByARN looks up a table by its ARN, restricting the search to the
@@ -961,10 +1027,7 @@ func (db *InMemoryDB) ListContributorInsights(
 	var summaries []types.ContributorInsightsSummary
 
 	for _, t := range db.tablesByRegion.Get(region) {
-		t.mu.RLock("ListContributorInsights")
-		enabled := t.ContributorInsightsEnabled
-		t.mu.RUnlock()
-
+		enabled := contributorInsightsEnabledRLocked(t)
 		if !enabled {
 			continue
 		}
@@ -1000,9 +1063,7 @@ func (db *InMemoryDB) UpdateContributorInsights(
 
 	enable := input.ContributorInsightsAction == types.ContributorInsightsActionEnable
 
-	table.mu.Lock("UpdateContributorInsights")
-	table.ContributorInsightsEnabled = enable
-	table.mu.Unlock()
+	setContributorInsightsLocked(table, enable)
 
 	tableName := *input.TableName
 
@@ -1023,6 +1084,15 @@ func (db *InMemoryDB) UpdateContributorInsights(
 	return out, nil
 }
 
+// setContributorInsightsLocked sets table.ContributorInsightsEnabled under a
+// defer-protected table.mu.Lock.
+func setContributorInsightsLocked(table *Table, enable bool) {
+	table.mu.Lock("UpdateContributorInsights")
+	defer table.mu.Unlock()
+
+	table.ContributorInsightsEnabled = enable
+}
+
 // --- UpdateGlobalTableSettings ---
 
 // UpdateGlobalTableSettings persists global and per-replica billing/throughput settings
@@ -1037,25 +1107,13 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 
 	name := *input.GlobalTableName
 
-	db.mu.Lock("UpdateGlobalTableSettings")
-	gt, exists := db.globalTables.Get(name)
-
+	billingMode, replicationGroup, replicaSettings, exists := db.updateGlobalTableSettingsLocked(name, input)
 	if !exists {
-		db.mu.Unlock()
-
 		return nil, &Error{
 			Type:    errGlobalTableNotFoundType,
 			Message: fmt.Sprintf("Global table with name %s not found", name),
 		}
 	}
-
-	applyGlobalTableSettingsMutation(gt, input)
-
-	billingMode := gt.BillingMode
-	replicationGroup := make([]string, len(gt.ReplicationGroup))
-	copy(replicationGroup, gt.ReplicationGroup)
-	replicaSettings := gt.ReplicaSettings
-	db.mu.Unlock()
 
 	effectiveBilling := types.BillingModePayPerRequest
 	if billingMode != "" {
@@ -1074,6 +1132,30 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 		GlobalTableName: &name,
 		ReplicaSettings: replicas,
 	}, nil
+}
+
+// updateGlobalTableSettingsLocked applies the UpdateGlobalTableSettings
+// mutation and snapshots the resulting billing mode, replication group, and
+// replica settings, all under a single defer-protected db.mu.Lock. Returns
+// exists=false if the named global table does not exist.
+func (db *InMemoryDB) updateGlobalTableSettingsLocked(
+	name string,
+	input *dynamodb.UpdateGlobalTableSettingsInput,
+) (string, []string, map[string]*StoredReplicaSettings, bool) {
+	db.mu.Lock("UpdateGlobalTableSettings")
+	defer db.mu.Unlock()
+
+	gt, exists := db.globalTables.Get(name)
+	if !exists {
+		return "", nil, nil, false
+	}
+
+	applyGlobalTableSettingsMutation(gt, input)
+
+	replicationGroup := make([]string, len(gt.ReplicationGroup))
+	copy(replicationGroup, gt.ReplicationGroup)
+
+	return gt.BillingMode, replicationGroup, gt.ReplicaSettings, true
 }
 
 // applyGlobalTableSettingsMutation mutates gt with billing mode, write capacity, and
@@ -1186,34 +1268,48 @@ func (db *InMemoryDB) UpdateKinesisStreamingDestination(
 	tableName := *input.TableName
 	streamARN := *input.StreamArn
 
-	table.mu.Lock("UpdateKinesisStreamingDestination")
+	var precision *string
+	if input.UpdateKinesisStreamingConfiguration != nil {
+		p := string(input.UpdateKinesisStreamingConfiguration.ApproximateCreationDateTimePrecision)
+		precision = &p
+	}
 
-	idx := slices.IndexFunc(table.KinesisDestinations, func(e KinesisDestinationEntry) bool {
-		return e.StreamARN == streamARN
-	})
-
-	if idx < 0 {
-		table.mu.Unlock()
-
+	found := updateKinesisDestinationPrecisionLocked(table, streamARN, precision)
+	if !found {
 		return nil, &Error{
 			Type:    errResourceNotFoundExceptionType,
 			Message: fmt.Sprintf("Kinesis stream %s not found for table %s", streamARN, tableName),
 		}
 	}
 
-	if input.UpdateKinesisStreamingConfiguration != nil {
-		table.KinesisDestinations[idx].Precision = string(
-			input.UpdateKinesisStreamingConfiguration.ApproximateCreationDateTimePrecision,
-		)
-	}
-
-	table.mu.Unlock()
-
 	return &dynamodb.UpdateKinesisStreamingDestinationOutput{
 		TableName:         &tableName,
 		StreamArn:         &streamARN,
 		DestinationStatus: types.DestinationStatusActive,
 	}, nil
+}
+
+// updateKinesisDestinationPrecisionLocked finds the destination matching
+// streamARN and, if precision is non-nil, updates its Precision field, all
+// under a defer-protected table.mu.Lock. Reports whether a matching
+// destination was found.
+func updateKinesisDestinationPrecisionLocked(table *Table, streamARN string, precision *string) bool {
+	table.mu.Lock("UpdateKinesisStreamingDestination")
+	defer table.mu.Unlock()
+
+	idx := slices.IndexFunc(table.KinesisDestinations, func(e KinesisDestinationEntry) bool {
+		return e.StreamARN == streamARN
+	})
+
+	if idx < 0 {
+		return false
+	}
+
+	if precision != nil {
+		table.KinesisDestinations[idx].Precision = *precision
+	}
+
+	return true
 }
 
 // autoScalingSettingsFromInput converts an UpdateTableReplicaAutoScalingInput
@@ -1269,6 +1365,23 @@ func throughputFromUpdate(u *types.AutoScalingSettingsUpdate) *autoScalingThroug
 	return out
 }
 
+// applyAutoScalingSettingsLocked sets table.AutoScaling from input and
+// snapshots the table's name, status, and replica list, all under a single
+// defer-protected table.mu.Lock.
+func applyAutoScalingSettingsLocked(
+	table *Table,
+	input *dynamodb.UpdateTableReplicaAutoScalingInput,
+) (string, string, []models.ReplicaDescription) {
+	table.mu.Lock("UpdateTableReplicaAutoScaling")
+	defer table.mu.Unlock()
+
+	table.AutoScaling = autoScalingSettingsFromInput(input)
+	replicas := make([]models.ReplicaDescription, len(table.Replicas))
+	copy(replicas, table.Replicas)
+
+	return table.Name, table.Status, replicas
+}
+
 // --- UpdateTableReplicaAutoScaling ---
 
 // UpdateTableReplicaAutoScaling persists the autoscaling settings for a table's replicas
@@ -1286,13 +1399,7 @@ func (db *InMemoryDB) UpdateTableReplicaAutoScaling(
 		return nil, err
 	}
 
-	table.mu.Lock("UpdateTableReplicaAutoScaling")
-	table.AutoScaling = autoScalingSettingsFromInput(input)
-	tableName := table.Name
-	tableStatus := table.Status
-	replicas := make([]models.ReplicaDescription, len(table.Replicas))
-	copy(replicas, table.Replicas)
-	table.mu.Unlock()
+	tableName, tableStatus, replicas := applyAutoScalingSettingsLocked(table, input)
 
 	replicaDescs := make([]types.ReplicaAutoScalingDescription, 0, len(replicas))
 
@@ -1405,14 +1512,7 @@ func (db *InMemoryDB) captureExecTxnSnapshots(
 	region := getRegionFromContext(ctx, db)
 	snapshots := make(map[string]tableStateSnapshot, len(tableNames))
 
-	db.mu.RLock("ExecuteTransaction.snapshot")
-	tables := make(map[string]*Table, len(tableNames))
-	for _, name := range tableNames {
-		if t, ok := db.tables.Get(tableKey(region, name)); ok {
-			tables[name] = t
-		}
-	}
-	db.mu.RUnlock()
+	tables := db.resolveTablesByNameRLocked(region, tableNames, "ExecuteTransaction.snapshot")
 
 	for _, name := range tableNames {
 		t, ok := tables[name]
@@ -1420,27 +1520,56 @@ func (db *InMemoryDB) captureExecTxnSnapshots(
 			continue
 		}
 
-		t.mu.RLock("ExecuteTransaction.snapshot")
-		itemsCopy := make([]map[string]any, len(t.Items))
-		copy(itemsCopy, t.Items)
-		pkIdxCopy := make(map[string]int, len(t.pkIndex))
-		maps.Copy(pkIdxCopy, t.pkIndex)
-		pkskIdxCopy := make(map[string]map[string]int, len(t.pkskIndex))
-		for pk, skMap := range t.pkskIndex {
-			skMapCopy := make(map[string]int, len(skMap))
-			maps.Copy(skMapCopy, skMap)
-			pkskIdxCopy[pk] = skMapCopy
-		}
-		t.mu.RUnlock()
-
-		snapshots[name] = tableStateSnapshot{
-			items:     itemsCopy,
-			pkIndex:   pkIdxCopy,
-			pkskIndex: pkskIdxCopy,
-		}
+		snapshots[name] = snapshotTxnTableStateRLocked(t)
 	}
 
 	return snapshots
+}
+
+// resolveTablesByNameRLocked resolves tableNames to their *Table pointers in
+// region under a defer-protected db.mu.RLock, using op as the lock's metrics
+// label. Names with no matching table are omitted from the result.
+func (db *InMemoryDB) resolveTablesByNameRLocked(
+	region string,
+	tableNames []string,
+	op string,
+) map[string]*Table {
+	db.mu.RLock(op)
+	defer db.mu.RUnlock()
+
+	tables := make(map[string]*Table, len(tableNames))
+	for _, name := range tableNames {
+		if t, ok := db.tables.Get(tableKey(region, name)); ok {
+			tables[name] = t
+		}
+	}
+
+	return tables
+}
+
+// snapshotTxnTableStateRLocked copies the item slice and PK/SK indexes needed
+// to restore a table after a failed transaction, under a defer-protected
+// table.mu.RLock.
+func snapshotTxnTableStateRLocked(t *Table) tableStateSnapshot {
+	t.mu.RLock("ExecuteTransaction.snapshot")
+	defer t.mu.RUnlock()
+
+	itemsCopy := make([]map[string]any, len(t.Items))
+	copy(itemsCopy, t.Items)
+	pkIdxCopy := make(map[string]int, len(t.pkIndex))
+	maps.Copy(pkIdxCopy, t.pkIndex)
+	pkskIdxCopy := make(map[string]map[string]int, len(t.pkskIndex))
+	for pk, skMap := range t.pkskIndex {
+		skMapCopy := make(map[string]int, len(skMap))
+		maps.Copy(skMapCopy, skMap)
+		pkskIdxCopy[pk] = skMapCopy
+	}
+
+	return tableStateSnapshot{
+		items:     itemsCopy,
+		pkIndex:   pkIdxCopy,
+		pkskIndex: pkskIdxCopy,
+	}
 }
 
 // restoreExecTxnSnapshots restores all snapshotted tables to their pre-transaction
@@ -1452,14 +1581,7 @@ func (db *InMemoryDB) restoreExecTxnSnapshots(
 ) {
 	region := getRegionFromContext(ctx, db)
 
-	db.mu.RLock("ExecuteTransaction.restore")
-	tables := make(map[string]*Table, len(tableNames))
-	for _, name := range tableNames {
-		if t, ok := db.tables.Get(tableKey(region, name)); ok {
-			tables[name] = t
-		}
-	}
-	db.mu.RUnlock()
+	tables := db.resolveTablesByNameRLocked(region, tableNames, "ExecuteTransaction.restore")
 
 	for _, name := range tableNames {
 		snap, ok := snapshots[name]
@@ -1472,12 +1594,19 @@ func (db *InMemoryDB) restoreExecTxnSnapshots(
 			continue
 		}
 
-		t.mu.Lock("ExecuteTransaction.restore")
-		t.Items = snap.items
-		t.pkIndex = snap.pkIndex
-		t.pkskIndex = snap.pkskIndex
-		t.mu.Unlock()
+		restoreTxnTableStateLocked(t, snap)
 	}
+}
+
+// restoreTxnTableStateLocked restores a table's items and PK/SK indexes from
+// snap under a defer-protected table.mu.Lock.
+func restoreTxnTableStateLocked(t *Table, snap tableStateSnapshot) {
+	t.mu.Lock("ExecuteTransaction.restore")
+	defer t.mu.Unlock()
+
+	t.Items = snap.items
+	t.pkIndex = snap.pkIndex
+	t.pkskIndex = snap.pkskIndex
 }
 
 // executeTransactionStatement converts one ParameterizedStatement to wire format,
@@ -1859,10 +1988,7 @@ func (db *InMemoryDB) replicateItemMutation(
 	op string,
 ) {
 	// Look up global table metadata under read lock.
-	db.mu.RLock("replicateItemMutation-gt")
-	gt, exists := db.globalTables.Get(globalTableName)
-	db.mu.RUnlock()
-
+	gt, exists := db.getGlobalTableForReplicationRLocked(globalTableName)
 	if !exists {
 		return
 	}
@@ -1876,6 +2002,15 @@ func (db *InMemoryDB) replicateItemMutation(
 	}
 }
 
+// getGlobalTableForReplicationRLocked returns the global table stored under
+// globalTableName (and whether it exists) under a defer-protected db.mu.RLock.
+func (db *InMemoryDB) getGlobalTableForReplicationRLocked(globalTableName string) (*StoredGlobalTable, bool) {
+	db.mu.RLock("replicateItemMutation-gt")
+	defer db.mu.RUnlock()
+
+	return db.globalTables.Get(globalTableName)
+}
+
 // applyMutationToReplica applies a single item mutation (PUT or DELETE) to one
 // regional replica table. Safe to call concurrently; acquires the replica's lock internally.
 func (db *InMemoryDB) applyMutationToReplica(
@@ -1885,15 +2020,19 @@ func (db *InMemoryDB) applyMutationToReplica(
 	op string,
 ) {
 	// Look up the replica table under a short read lock.
-	db.mu.RLock("applyMutationToReplica-lookup")
-	replica, _ := db.tables.Get(tableKey(region, tableName))
-	db.mu.RUnlock()
-
+	replica := db.getTableInRegionRLocked(region, tableName, "applyMutationToReplica-lookup")
 	if replica == nil {
 		return
 	}
 
+	db.applyReplicaMutationLocked(replica, finalItem, op)
+}
+
+// applyReplicaMutationLocked applies the PUT/DELETE mutation to replica under
+// a defer-protected replica.mu.Lock.
+func (db *InMemoryDB) applyReplicaMutationLocked(replica *Table, finalItem map[string]any, op string) {
 	replica.mu.Lock("applyMutationToReplica-mutate")
+	defer replica.mu.Unlock()
 
 	if op == replicationOpDelete {
 		db.deleteReplicaItemByKey(replica, finalItem)
@@ -1901,8 +2040,6 @@ func (db *InMemoryDB) applyMutationToReplica(
 		_, matchIdx := db.findMatchForPut(replica, finalItem)
 		db.doPut(replica, deepCopyItem(finalItem), matchIdx)
 	}
-
-	replica.mu.Unlock()
 }
 
 // deleteReplicaItemByKey locates an item in a replica by its key attributes and deletes it.
