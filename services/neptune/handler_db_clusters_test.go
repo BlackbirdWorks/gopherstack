@@ -6,15 +6,254 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/neptune"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/neptune"
 )
+
+func TestHandler_CreateDescribeDeleteDBCluster(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals         url.Values
+		setup        func(*neptune.Handler)
+		name         string
+		action       string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name:   "create_cluster",
+			action: "CreateDBCluster",
+			vals: url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"test-cluster"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "test-cluster",
+		},
+		{
+			name: "describe_clusters",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "test-cluster")
+			},
+			vals: url.Values{
+				"Action":  {"DescribeDBClusters"},
+				"Version": {"2014-10-31"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "DescribeDBClustersResponse",
+		},
+		{
+			name: "delete_cluster",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "test-cluster")
+			},
+			vals: url.Values{
+				"Action":              {"DeleteDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"test-cluster"},
+				"SkipFinalSnapshot":   {"true"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "DeleteDBClusterResponse",
+		},
+		{
+			name: "modify_cluster_not_found",
+			vals: url.Values{
+				"Action":              {"ModifyDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"mod-cluster"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBClusterNotFoundFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+func TestHandler_StopStartFailoverDBCluster(t *testing.T) {
+	t.Parallel()
+
+	t.Run("stop_cluster", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		createCluster(t, h, "stop-cluster")
+		rr := doRequest(t, h, url.Values{
+			"Action":              {"StopDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {"stop-cluster"},
+		})
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("start_cluster", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		createCluster(t, h, "stop-cluster")
+		// Must stop before starting.
+		doRequest(t, h, url.Values{
+			"Action":              {"StopDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {"stop-cluster"},
+		})
+		rr := doRequest(t, h, url.Values{
+			"Action":              {"StartDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {"stop-cluster"},
+		})
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+
+	t.Run("failover_cluster", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		createCluster(t, h, "failover-stop-cluster")
+		createInstance(t, h, "failover-stop-writer", "failover-stop-cluster")
+		createInstance(t, h, "failover-stop-reader", "failover-stop-cluster")
+		rr := doRequest(t, h, url.Values{
+			"Action":              {"FailoverDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {"failover-stop-cluster"},
+		})
+		assert.Equal(t, http.StatusOK, rr.Code)
+	})
+}
+
+func TestHandler_DescribeDBClusters_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, id := range []string{"cluster-1", "cluster-2", "cluster-3"} {
+		doRequest(t, h, url.Values{
+			"Action":              {"CreateDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {id},
+		})
+	}
+
+	tests := []struct {
+		vals       url.Values
+		name       string
+		wantCode   int
+		wantMarker bool
+	}{
+		{
+			name: "all clusters",
+			vals: url.Values{
+				"Action":  {"DescribeDBClusters"},
+				"Version": {"2014-10-31"},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "paginated with MaxRecords=1",
+			vals: url.Values{
+				"Action":     {"DescribeDBClusters"},
+				"Version":    {"2014-10-31"},
+				"MaxRecords": {"1"},
+			},
+			wantCode:   http.StatusOK,
+			wantMarker: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantCode, rr.Code)
+			assert.Contains(t, rr.Body.String(), "DescribeDBClustersResponse")
+
+			if tt.wantMarker {
+				assert.Contains(t, rr.Body.String(), "<Marker>")
+			}
+		})
+	}
+}
+
+func TestHandler_AddRoleToDBCluster(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*neptune.Handler)
+		vals         url.Values
+		name         string
+		wantContains string
+		wantStatus   int
+	}{
+		{
+			name: "add_role_success",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "role-cluster")
+			},
+			vals: url.Values{
+				"Action":              {"AddRoleToDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"role-cluster"},
+				"RoleArn":             {"arn:aws:iam::000000000000:role/neptune-role"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "AddRoleToDBClusterResponse",
+		},
+		{
+			name: "add_role_cluster_not_found",
+			vals: url.Values{
+				"Action":              {"AddRoleToDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"no-such-cluster"},
+				"RoleArn":             {"arn:aws:iam::000000000000:role/neptune-role"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "DBClusterNotFoundFault",
+		},
+		{
+			name: "add_role_missing_role_arn",
+			setup: func(h *neptune.Handler) {
+				createCluster(t, h, "role-cluster2")
+			},
+			vals: url.Values{
+				"Action":              {"AddRoleToDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"role-cluster2"},
+			},
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
 
 // --- ServerlessV2ScalingConfiguration ---
 
-func TestBatch1_CreateDBCluster_ServerlessV2ScalingConfiguration(t *testing.T) {
+func TestCreateDBCluster_ServerlessV2ScalingConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -33,7 +272,7 @@ func TestBatch1_CreateDBCluster_ServerlessV2ScalingConfiguration(t *testing.T) {
 	assert.Contains(t, body, "128")
 }
 
-func TestBatch1_ModifyDBCluster_ServerlessV2ScalingConfiguration(t *testing.T) {
+func TestModifyDBCluster_ServerlessV2ScalingConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -53,7 +292,7 @@ func TestBatch1_ModifyDBCluster_ServerlessV2ScalingConfiguration(t *testing.T) {
 	assert.Contains(t, body, "64")
 }
 
-func TestBatch1_DescribeDBClusters_ServerlessV2ScalingConfiguration(t *testing.T) {
+func TestDescribeDBClusters_ServerlessV2ScalingConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -77,7 +316,7 @@ func TestBatch1_DescribeDBClusters_ServerlessV2ScalingConfiguration(t *testing.T
 	assert.Contains(t, body, "16")
 }
 
-func TestBatch1_ServerlessV2ScalingConfiguration_InvalidMin(t *testing.T) {
+func TestServerlessV2ScalingConfiguration_InvalidMin(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -92,7 +331,7 @@ func TestBatch1_ServerlessV2ScalingConfiguration_InvalidMin(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "InvalidParameterValue")
 }
 
-func TestBatch1_ServerlessV2ScalingConfiguration_InvalidMax(t *testing.T) {
+func TestServerlessV2ScalingConfiguration_InvalidMax(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -109,7 +348,7 @@ func TestBatch1_ServerlessV2ScalingConfiguration_InvalidMax(t *testing.T) {
 
 // --- EngineMode (Neptune-Serverless) ---
 
-func TestBatch1_CreateDBCluster_EngineMode_Provisioned(t *testing.T) {
+func TestCreateDBCluster_EngineMode_Provisioned(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -125,7 +364,7 @@ func TestBatch1_CreateDBCluster_EngineMode_Provisioned(t *testing.T) {
 	assert.Contains(t, body, "provisioned")
 }
 
-func TestBatch1_CreateDBCluster_EngineMode_Serverless(t *testing.T) {
+func TestCreateDBCluster_EngineMode_Serverless(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -144,7 +383,7 @@ func TestBatch1_CreateDBCluster_EngineMode_Serverless(t *testing.T) {
 	assert.Contains(t, body, "ServerlessV2ScalingConfiguration")
 }
 
-func TestBatch1_CreateDBCluster_EngineMode_DefaultIsProvisioned(t *testing.T) {
+func TestCreateDBCluster_EngineMode_DefaultIsProvisioned(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -160,7 +399,7 @@ func TestBatch1_CreateDBCluster_EngineMode_DefaultIsProvisioned(t *testing.T) {
 
 // --- IAM Authentication ---
 
-func TestBatch1_CreateDBCluster_EnableIAMDatabaseAuthentication(t *testing.T) {
+func TestCreateDBCluster_EnableIAMDatabaseAuthentication(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -177,7 +416,7 @@ func TestBatch1_CreateDBCluster_EnableIAMDatabaseAuthentication(t *testing.T) {
 	assert.Contains(t, body, "true")
 }
 
-func TestBatch1_ModifyDBCluster_EnableIAMDatabaseAuthentication(t *testing.T) {
+func TestModifyDBCluster_EnableIAMDatabaseAuthentication(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -203,7 +442,7 @@ func TestBatch1_ModifyDBCluster_EnableIAMDatabaseAuthentication(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "true")
 }
 
-func TestBatch1_ModifyDBCluster_DisableIAMDatabaseAuthentication(t *testing.T) {
+func TestModifyDBCluster_DisableIAMDatabaseAuthentication(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -228,7 +467,7 @@ func TestBatch1_ModifyDBCluster_DisableIAMDatabaseAuthentication(t *testing.T) {
 
 // --- ManageMasterUserPassword ---
 
-func TestBatch1_CreateDBCluster_ManageMasterUserPassword(t *testing.T) {
+func TestCreateDBCluster_ManageMasterUserPassword(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -246,7 +485,7 @@ func TestBatch1_CreateDBCluster_ManageMasterUserPassword(t *testing.T) {
 	assert.Contains(t, body, "active")
 }
 
-func TestBatch1_ModifyDBCluster_ManageMasterUserPassword(t *testing.T) {
+func TestModifyDBCluster_ManageMasterUserPassword(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -263,7 +502,7 @@ func TestBatch1_ModifyDBCluster_ManageMasterUserPassword(t *testing.T) {
 	assert.Contains(t, body, "MasterUserManagedSecret")
 }
 
-func TestBatch1_DescribeDBClusters_ManageMasterUserPassword(t *testing.T) {
+func TestDescribeDBClusters_ManageMasterUserPassword(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -287,7 +526,7 @@ func TestBatch1_DescribeDBClusters_ManageMasterUserPassword(t *testing.T) {
 
 // --- DeletionProtection ---
 
-func TestBatch1_CreateDBCluster_DeletionProtection(t *testing.T) {
+func TestCreateDBCluster_DeletionProtection(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -304,7 +543,7 @@ func TestBatch1_CreateDBCluster_DeletionProtection(t *testing.T) {
 	assert.Contains(t, body, "true")
 }
 
-func TestBatch1_ModifyDBCluster_DeletionProtection_Enable(t *testing.T) {
+func TestModifyDBCluster_DeletionProtection_Enable(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -320,7 +559,7 @@ func TestBatch1_ModifyDBCluster_DeletionProtection_Enable(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "true")
 }
 
-func TestBatch1_ModifyDBCluster_DeletionProtection_Disable(t *testing.T) {
+func TestModifyDBCluster_DeletionProtection_Disable(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -343,7 +582,7 @@ func TestBatch1_ModifyDBCluster_DeletionProtection_Disable(t *testing.T) {
 
 // --- StorageEncrypted + KmsKeyId ---
 
-func TestBatch1_CreateDBCluster_StorageEncrypted(t *testing.T) {
+func TestCreateDBCluster_StorageEncrypted(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -363,7 +602,7 @@ func TestBatch1_CreateDBCluster_StorageEncrypted(t *testing.T) {
 
 // --- PreferredBackupWindow + PreferredMaintenanceWindow ---
 
-func TestBatch1_CreateDBCluster_PreferredWindows(t *testing.T) {
+func TestCreateDBCluster_PreferredWindows(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -380,7 +619,7 @@ func TestBatch1_CreateDBCluster_PreferredWindows(t *testing.T) {
 	assert.Contains(t, body, "sun:05:00-sun:06:00")
 }
 
-func TestBatch1_ModifyDBCluster_PreferredWindows(t *testing.T) {
+func TestModifyDBCluster_PreferredWindows(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -401,7 +640,7 @@ func TestBatch1_ModifyDBCluster_PreferredWindows(t *testing.T) {
 
 // --- EngineVersion ---
 
-func TestBatch1_CreateDBCluster_EngineVersion(t *testing.T) {
+func TestCreateDBCluster_EngineVersion(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -416,7 +655,7 @@ func TestBatch1_CreateDBCluster_EngineVersion(t *testing.T) {
 	assert.Contains(t, body, "1.2.0.0")
 }
 
-func TestBatch1_ModifyDBCluster_EngineVersion(t *testing.T) {
+func TestModifyDBCluster_EngineVersion(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -435,7 +674,7 @@ func TestBatch1_ModifyDBCluster_EngineVersion(t *testing.T) {
 
 // --- Combined: Neptune-Serverless full config ---
 
-func TestBatch1_NeptuneServerless_FullConfig(t *testing.T) {
+func TestNeptuneServerless_FullConfig(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -479,7 +718,7 @@ func TestBatch1_NeptuneServerless_FullConfig(t *testing.T) {
 
 // --- Backend unit tests ---
 
-func TestBatch1_Backend_CreateDBCluster_ServerlessV2(t *testing.T) {
+func TestBackend_CreateDBCluster_ServerlessV2(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -495,7 +734,7 @@ func TestBatch1_Backend_CreateDBCluster_ServerlessV2(t *testing.T) {
 	assert.Equal(t, "serverless", cluster.EngineMode)
 }
 
-func TestBatch1_Backend_CreateDBCluster_IAMAuth(t *testing.T) {
+func TestBackend_CreateDBCluster_IAMAuth(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -506,7 +745,7 @@ func TestBatch1_Backend_CreateDBCluster_IAMAuth(t *testing.T) {
 	assert.True(t, cluster.EnableIAMDatabaseAuthentication)
 }
 
-func TestBatch1_Backend_CreateDBCluster_ManageMasterUserPassword(t *testing.T) {
+func TestBackend_CreateDBCluster_ManageMasterUserPassword(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -519,7 +758,7 @@ func TestBatch1_Backend_CreateDBCluster_ManageMasterUserPassword(t *testing.T) {
 	assert.Equal(t, "active", cluster.MasterUserManagedSecret.SecretStatus)
 }
 
-func TestBatch1_Backend_ModifyDBCluster_IamAuth_SetAndUnset(t *testing.T) {
+func TestBackend_ModifyDBCluster_IamAuth_SetAndUnset(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -544,7 +783,7 @@ func TestBatch1_Backend_ModifyDBCluster_IamAuth_SetAndUnset(t *testing.T) {
 	assert.False(t, clusters[0].EnableIAMDatabaseAuthentication)
 }
 
-func TestBatch1_Backend_ModifyDBCluster_IamAuth_NotSet_NoChange(t *testing.T) {
+func TestBackend_ModifyDBCluster_IamAuth_NotSet_NoChange(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -564,7 +803,7 @@ func TestBatch1_Backend_ModifyDBCluster_IamAuth_NotSet_NoChange(t *testing.T) {
 	assert.True(t, clusters[0].EnableIAMDatabaseAuthentication)
 }
 
-func TestBatch1_Backend_ModifyDBCluster_ServerlessV2(t *testing.T) {
+func TestBackend_ModifyDBCluster_ServerlessV2(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -581,7 +820,7 @@ func TestBatch1_Backend_ModifyDBCluster_ServerlessV2(t *testing.T) {
 	assert.InEpsilon(t, 32.0, cluster.ServerlessV2ScalingConfig.MaxCapacity, 0.001)
 }
 
-func TestBatch1_Backend_ModifyDBCluster_DeletionProtection(t *testing.T) {
+func TestBackend_ModifyDBCluster_DeletionProtection(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -603,7 +842,7 @@ func TestBatch1_Backend_ModifyDBCluster_DeletionProtection(t *testing.T) {
 	assert.False(t, cluster.DeletionProtection)
 }
 
-func TestBatch1_Backend_ModifyDBCluster_DeletionProtection_NotSet_NoChange(t *testing.T) {
+func TestBackend_ModifyDBCluster_DeletionProtection_NotSet_NoChange(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -621,7 +860,7 @@ func TestBatch1_Backend_ModifyDBCluster_DeletionProtection_NotSet_NoChange(t *te
 	assert.True(t, cluster.DeletionProtection)
 }
 
-func TestBatch1_Backend_CreateDBCluster_DefaultEngineMode(t *testing.T) {
+func TestBackend_CreateDBCluster_DefaultEngineMode(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -630,7 +869,7 @@ func TestBatch1_Backend_CreateDBCluster_DefaultEngineMode(t *testing.T) {
 	assert.Equal(t, "provisioned", cluster.EngineMode)
 }
 
-func TestBatch1_Backend_CloneCluster_ServerlessV2_NilSafe(t *testing.T) {
+func TestBackend_CloneCluster_ServerlessV2_NilSafe(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -640,7 +879,7 @@ func TestBatch1_Backend_CloneCluster_ServerlessV2_NilSafe(t *testing.T) {
 	assert.Nil(t, cluster.MasterUserManagedSecret)
 }
 
-func TestBatch1_Backend_ModifyDBCluster_ManageMasterUserPassword_Idempotent(t *testing.T) {
+func TestBackend_ModifyDBCluster_ManageMasterUserPassword_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -659,7 +898,7 @@ func TestBatch1_Backend_ModifyDBCluster_ManageMasterUserPassword_Idempotent(t *t
 
 // --- Persistence roundtrip with new fields ---
 
-func TestBatch1_Persistence_ServerlessV2(t *testing.T) {
+func TestPersistence_ServerlessV2(t *testing.T) {
 	t.Parallel()
 
 	b := neptune.NewInMemoryBackend("000000000000", "us-east-1")
@@ -693,3 +932,5 @@ func TestBatch1_Persistence_ServerlessV2(t *testing.T) {
 	require.NotNil(t, c.MasterUserManagedSecret)
 	assert.Equal(t, "active", c.MasterUserManagedSecret.SecretStatus)
 }
+
+// --- DeleteDBCluster: DeletionProtection ---
