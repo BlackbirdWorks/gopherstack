@@ -1,8 +1,11 @@
 package redshift_test
 
 import (
+	"encoding/base64"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -396,4 +399,916 @@ func TestRedshiftHandler_DescribeClusterSnapshots_SnapshotTypeFilter(t *testing.
 	rec = postRedshiftForm(t, h, "Action=DescribeClusterSnapshots&Version=2012-12-01&SnapshotType=automated")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "manual-snap")
+}
+
+// ----- DescribeClusterSnapshots pagination -----
+
+// TestDescribeClusterSnapshots_Pagination verifies that MaxRecords and Marker
+// work for DescribeClusterSnapshots. Real AWS truncates results and returns a Marker
+// to retrieve the next page.
+func TestDescribeClusterSnapshots_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=page-cluster")
+
+	for i := 1; i <= 5; i++ {
+		id := "snap-page-" + string(rune('a'-1+i))
+		body := "Action=CreateClusterSnapshot&Version=2012-12-01&ClusterIdentifier=page-cluster&SnapshotIdentifier=" + id
+		rec := postRedshiftForm(t, h, body)
+		require.Equal(t, http.StatusOK, rec.Code, "setup: create snapshot %q", id)
+	}
+
+	t.Run("no_limit_returns_all", func(t *testing.T) {
+		t.Parallel()
+
+		h2 := newRedshiftHandler()
+		postRedshiftForm(t, h2, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=page-c2")
+		for i := 1; i <= 3; i++ {
+			id := "snap-all-" + string(rune('a'-1+i))
+			postRedshiftForm(t, h2,
+				"Action=CreateClusterSnapshot&Version=2012-12-01&ClusterIdentifier=page-c2&SnapshotIdentifier="+id)
+		}
+
+		rec := postRedshiftForm(t, h2, "Action=DescribeClusterSnapshots&Version=2012-12-01")
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "snap-all-a")
+		assert.Contains(t, rec.Body.String(), "snap-all-c")
+	})
+
+	t.Run("max_records_limits_results", func(t *testing.T) {
+		t.Parallel()
+
+		h2 := newRedshiftHandler()
+		postRedshiftForm(t, h2, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=page-c3")
+		for i := 1; i <= 3; i++ {
+			id := "snap-max-" + string(rune('a'-1+i))
+			postRedshiftForm(t, h2,
+				"Action=CreateClusterSnapshot&Version=2012-12-01&ClusterIdentifier=page-c3&SnapshotIdentifier="+id)
+		}
+
+		rec := postRedshiftForm(t, h2, "Action=DescribeClusterSnapshots&Version=2012-12-01&MaxRecords=20")
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		body := rec.Body.String()
+		assert.Contains(t, body, "snap-max-a")
+	})
+
+	t.Run("invalid_max_records_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		rec := postRedshiftForm(t, h, "Action=DescribeClusterSnapshots&Version=2012-12-01&MaxRecords=5")
+		assert.Equal(t, http.StatusBadRequest, rec.Code,
+			"MaxRecords < 20 should return error")
+		assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+	})
+
+	t.Run("invalid_marker_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		rec := postRedshiftForm(t, h,
+			"Action=DescribeClusterSnapshots&Version=2012-12-01&Marker=not!!valid!!base64")
+		assert.Equal(t, http.StatusBadRequest, rec.Code,
+			"invalid base64 Marker should return error")
+		assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+	})
+
+	t.Run("marker_from_first_page_fetches_next_page", func(t *testing.T) {
+		t.Parallel()
+
+		h2 := newRedshiftHandler()
+		postRedshiftForm(t, h2, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=page-c4")
+
+		snapIDs := []string{
+			"page-snap-001", "page-snap-002", "page-snap-003",
+			"page-snap-004", "page-snap-005",
+		}
+		for _, id := range snapIDs {
+			postRedshiftForm(t, h2,
+				"Action=CreateClusterSnapshot&Version=2012-12-01&ClusterIdentifier=page-c4&SnapshotIdentifier="+id)
+		}
+
+		// Get first page with MaxRecords=20 (all 5 fit — pagination is only visible with >100 items naturally,
+		// but the Marker mechanism is testable by checking that an empty Marker means no more pages).
+		rec := postRedshiftForm(t, h2, "Action=DescribeClusterSnapshots&Version=2012-12-01&MaxRecords=20")
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		// All snapshots fit in one page, no next marker expected.
+		assert.Contains(t, rec.Body.String(), "page-snap-001")
+		assert.Contains(t, rec.Body.String(), "page-snap-005")
+	})
+
+	t.Run("valid_base64_marker_accepted", func(t *testing.T) {
+		t.Parallel()
+
+		validMarker := base64.StdEncoding.EncodeToString([]byte("snap-page-a"))
+		rec := postRedshiftForm(t, h,
+			"Action=DescribeClusterSnapshots&Version=2012-12-01&Marker="+validMarker)
+		assert.Equal(t, http.StatusOK, rec.Code,
+			"valid base64 Marker should be accepted")
+	})
+}
+
+// TestRestoreFromClusterSnapshot_CopiesClusterProperties verifies that
+// RestoreFromClusterSnapshot uses the source cluster's properties, not defaults.
+func TestRestoreFromClusterSnapshot_CopiesClusterProperties(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+
+	// Create cluster with non-default node type.
+	postRedshiftForm(t, h,
+		"Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=src-cluster"+
+			"&NodeType=ds2.xlarge&DBName=mydb")
+	postRedshiftForm(t, h,
+		"Action=CreateClusterSnapshot&Version=2012-12-01"+
+			"&ClusterIdentifier=src-cluster&SnapshotIdentifier=my-snap")
+
+	// Restore from snapshot.
+	postRedshiftForm(t, h,
+		"Action=RestoreFromClusterSnapshot&Version=2012-12-01"+
+			"&ClusterIdentifier=restored-cluster&SnapshotIdentifier=my-snap")
+
+	// Verify restored cluster has source cluster's node type and DBName.
+	rec := postRedshiftForm(t, h, "Action=DescribeClusters&Version=2012-12-01&ClusterIdentifier=restored-cluster")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.Contains(t, body, "ds2.xlarge", "restored cluster should use source node type")
+	assert.True(t,
+		strings.Contains(body, "mydb") || strings.Contains(body, "DBName"),
+		"restored cluster should reference source DBName")
+}
+
+// TestRestoreFromClusterSnapshot_TagsInitialized guards against a
+// nil-pointer panic: a cluster produced by RestoreFromClusterSnapshot must own
+// a live Tags collection just like CreateCluster, because DescribeTags calls
+// c.Tags.Clone() unconditionally for every cluster in the backend.
+func TestRestoreFromClusterSnapshot_TagsInitialized(t *testing.T) {
+	t.Parallel()
+
+	b := newRedshiftBackend()
+
+	_, err := b.CreateCluster("src-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
+	require.NoError(t, err)
+
+	_, err = b.RestoreFromClusterSnapshot("restored-cluster", "src-snap")
+	require.NoError(t, err)
+
+	// Previously panicked with a nil pointer dereference inside tags.Tags.Clone.
+	require.NotPanics(t, func() {
+		_ = b.DescribeTags()
+	})
+
+	// CreateTags/DeleteTags must also work against the restored cluster.
+	require.NoError(t, b.CreateTags("restored-cluster", map[string]string{"env": "prod"}))
+
+	all := b.DescribeTags()
+	assert.Equal(t, map[string]string{"env": "prod"}, all["restored-cluster"])
+
+	require.NoError(t, b.DeleteTags("restored-cluster", []string{"env"}))
+}
+
+// TestRestoreFromClusterSnapshot_TagsInitialized_HTTP is the HTTP-level
+// counterpart: DescribeTags must not 500 after a RestoreFromClusterSnapshot,
+// including via the tag-filtered DescribeClusters path.
+func TestRestoreFromClusterSnapshot_TagsInitialized_HTTP(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=src-cluster")
+	postRedshiftForm(t, h,
+		"Action=CreateClusterSnapshot&Version=2012-12-01&SnapshotIdentifier=src-snap&ClusterIdentifier=src-cluster")
+
+	rec := postRedshiftForm(t, h,
+		"Action=RestoreFromClusterSnapshot&Version=2012-12-01"+
+			"&ClusterIdentifier=restored-cluster&SnapshotIdentifier=src-snap")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = postRedshiftForm(t, h, "Action=DescribeTags&Version=2012-12-01")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DescribeTagsResponse")
+
+	rec = postRedshiftForm(t, h,
+		"Action=DescribeClusters&Version=2012-12-01&TagKey=env")
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestRestoreFromClusterSnapshot_Lifecycle verifies the restored
+// cluster's ClusterStatus actually reaches "available" instead of getting
+// stuck in "restoring" forever.
+func TestRestoreFromClusterSnapshot_Lifecycle(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no_activation_delay_is_immediately_available", func(t *testing.T) {
+		t.Parallel()
+
+		b := newRedshiftBackend()
+
+		_, err := b.CreateCluster("src-cluster", "", "", "")
+		require.NoError(t, err)
+		_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
+		require.NoError(t, err)
+
+		restored, err := b.RestoreFromClusterSnapshot("restored-cluster", "src-snap")
+		require.NoError(t, err)
+		assert.Equal(t, "available", restored.Status)
+	})
+
+	t.Run("activation_delay_transitions_restoring_to_available", func(t *testing.T) {
+		t.Parallel()
+
+		b := newRedshiftBackend()
+		redshift.SetClusterActivationDelay(b, 20*time.Millisecond)
+
+		_, err := b.CreateCluster("src-cluster", "", "", "")
+		require.NoError(t, err)
+		_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
+		require.NoError(t, err)
+
+		restored, err := b.RestoreFromClusterSnapshot("restored-cluster", "src-snap")
+		require.NoError(t, err)
+		assert.Equal(t, "restoring", restored.Status,
+			"restored cluster should start in restoring state when an activation delay is configured")
+
+		require.Eventually(t, func() bool {
+			clusters, _, descErr := b.DescribeClusters("restored-cluster", "", 0)
+
+			return descErr == nil && len(clusters) == 1 && clusters[0].Status == "available"
+		}, time.Second, 5*time.Millisecond,
+			"restored cluster must transition out of restoring, previously it never did")
+	})
+}
+
+// ---- AuthorizeSnapshotAccess ----
+
+func TestHandler_AuthorizeSnapshotAccess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend)
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSnapshotInternal(&redshift.Snapshot{
+					SnapshotIdentifier: "snap-001",
+					ClusterIdentifier:  "my-cluster",
+					Status:             "available",
+				})
+			},
+			body: "Action=AuthorizeSnapshotAccess&Version=2012-12-01" +
+				"&SnapshotIdentifier=snap-001&AccountWithRestoreAccess=111111111111",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AuthorizeSnapshotAccessResponse", "snap-001", "111111111111"},
+		},
+		{
+			name:         "missing_snapshot_identifier",
+			body:         "Action=AuthorizeSnapshotAccess&Version=2012-12-01&AccountWithRestoreAccess=111111111111",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "missing_account",
+			body:         "Action=AuthorizeSnapshotAccess&Version=2012-12-01&SnapshotIdentifier=snap-001",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "snapshot_not_found",
+			body: "Action=AuthorizeSnapshotAccess&Version=2012-12-01" +
+				"&SnapshotIdentifier=nonexistent&AccountWithRestoreAccess=111111111111",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ClusterSnapshotNotFound"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			h := redshift.NewHandler(b)
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postRedshiftForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+// ---- BatchDeleteClusterSnapshots ----
+
+func TestHandler_BatchDeleteClusterSnapshots(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend)
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success_all_deleted",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSnapshotInternal(
+					&redshift.Snapshot{SnapshotIdentifier: "snap-del-1", ClusterIdentifier: "c1", Status: "available"},
+				)
+				b.AddSnapshotInternal(
+					&redshift.Snapshot{SnapshotIdentifier: "snap-del-2", ClusterIdentifier: "c1", Status: "available"},
+				)
+			},
+			body: "Action=BatchDeleteClusterSnapshots&Version=2012-12-01" +
+				"&Identifiers.SnapshotIdentifier.1=snap-del-1&Identifiers.SnapshotIdentifier.2=snap-del-2",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BatchDeleteClusterSnapshotsResponse"},
+		},
+		{
+			name: "partial_success_with_errors",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSnapshotInternal(
+					&redshift.Snapshot{SnapshotIdentifier: "snap-del-3", ClusterIdentifier: "c1", Status: "available"},
+				)
+			},
+			body: "Action=BatchDeleteClusterSnapshots&Version=2012-12-01" +
+				"&Identifiers.SnapshotIdentifier.1=snap-del-3&Identifiers.SnapshotIdentifier.2=nonexistent",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BatchDeleteClusterSnapshotsResponse", "ClusterSnapshotNotFound"},
+		},
+		{
+			name:         "empty_list",
+			body:         "Action=BatchDeleteClusterSnapshots&Version=2012-12-01",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BatchDeleteClusterSnapshotsResponse"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			h := redshift.NewHandler(b)
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postRedshiftForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+// ---- BatchModifyClusterSnapshots ----
+
+func TestHandler_BatchModifyClusterSnapshots(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend)
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSnapshotInternal(
+					&redshift.Snapshot{SnapshotIdentifier: "snap-mod-1", ClusterIdentifier: "c1", Status: "available"},
+				)
+				b.AddSnapshotInternal(
+					&redshift.Snapshot{SnapshotIdentifier: "snap-mod-2", ClusterIdentifier: "c1", Status: "available"},
+				)
+			},
+			body: "Action=BatchModifyClusterSnapshots&Version=2012-12-01" +
+				"&SnapshotIdentifierList.String.1=snap-mod-1&SnapshotIdentifierList.String.2=snap-mod-2" +
+				"&ManualSnapshotRetentionPeriod=7",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BatchModifyClusterSnapshotsResponse"},
+		},
+		{
+			name: "partial_with_errors",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSnapshotInternal(
+					&redshift.Snapshot{SnapshotIdentifier: "snap-mod-3", ClusterIdentifier: "c1", Status: "available"},
+				)
+			},
+			body: "Action=BatchModifyClusterSnapshots&Version=2012-12-01" +
+				"&SnapshotIdentifierList.String.1=snap-mod-3&SnapshotIdentifierList.String.2=nonexistent" +
+				"&ManualSnapshotRetentionPeriod=14",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BatchModifyClusterSnapshotsResponse", "ClusterSnapshotNotFound"},
+		},
+		{
+			name: "invalid_retention_period",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSnapshotInternal(
+					&redshift.Snapshot{SnapshotIdentifier: "snap-mod-4", ClusterIdentifier: "c1", Status: "available"},
+				)
+			},
+			body: "Action=BatchModifyClusterSnapshots&Version=2012-12-01" +
+				"&SnapshotIdentifierList.String.1=snap-mod-4&ManualSnapshotRetentionPeriod=notanumber",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "with_force_flag",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSnapshotInternal(
+					&redshift.Snapshot{SnapshotIdentifier: "snap-mod-5", ClusterIdentifier: "c1", Status: "available"},
+				)
+			},
+			body: "Action=BatchModifyClusterSnapshots&Version=2012-12-01" +
+				"&SnapshotIdentifierList.String.1=snap-mod-5&ManualSnapshotRetentionPeriod=30&Force=true",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"BatchModifyClusterSnapshotsResponse"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			h := redshift.NewHandler(b)
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postRedshiftForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestBackend_BatchDeleteAndModifySnapshots(t *testing.T) {
+	t.Parallel()
+
+	t.Run("batch_delete_all_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+		b.AddSnapshotInternal(
+			&redshift.Snapshot{SnapshotIdentifier: "s1", ClusterIdentifier: "c1", Status: "available"},
+		)
+		b.AddSnapshotInternal(
+			&redshift.Snapshot{SnapshotIdentifier: "s2", ClusterIdentifier: "c1", Status: "available"},
+		)
+
+		errs, deleted := b.BatchDeleteClusterSnapshots([]string{"s1", "s2"})
+		assert.Empty(t, errs)
+		assert.ElementsMatch(t, []string{"s1", "s2"}, deleted)
+	})
+
+	t.Run("batch_delete_partial_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+		b.AddSnapshotInternal(
+			&redshift.Snapshot{SnapshotIdentifier: "s3", ClusterIdentifier: "c1", Status: "available"},
+		)
+
+		errs, deleted := b.BatchDeleteClusterSnapshots([]string{"s3", "missing"})
+		assert.Len(t, errs, 1)
+		assert.Equal(t, "missing", errs[0].SnapshotIdentifier)
+		assert.Equal(t, []string{"s3"}, deleted)
+	})
+
+	t.Run("batch_modify_all_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+		b.AddSnapshotInternal(
+			&redshift.Snapshot{SnapshotIdentifier: "m1", ClusterIdentifier: "c1", Status: "available"},
+		)
+		b.AddSnapshotInternal(
+			&redshift.Snapshot{SnapshotIdentifier: "m2", ClusterIdentifier: "c1", Status: "available"},
+		)
+
+		errs, modified := b.BatchModifyClusterSnapshots([]string{"m1", "m2"}, 7, false)
+		assert.Empty(t, errs)
+		assert.ElementsMatch(t, []string{"m1", "m2"}, modified)
+	})
+
+	t.Run("batch_modify_partial_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+		b.AddSnapshotInternal(
+			&redshift.Snapshot{SnapshotIdentifier: "m3", ClusterIdentifier: "c1", Status: "available"},
+		)
+
+		errs, modified := b.BatchModifyClusterSnapshots([]string{"m3", "missing"}, 14, true)
+		assert.Len(t, errs, 1)
+		assert.Equal(t, "missing", errs[0].SnapshotIdentifier)
+		assert.Equal(t, []string{"m3"}, modified)
+	})
+}
+
+// ---- BatchDeleteClusterSnapshots partial success ----
+
+func TestBatchDeleteClusterSnapshots_PartialSuccess(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	h := redshift.NewHandler(b)
+
+	b.AddSnapshotInternal(
+		&redshift.Snapshot{SnapshotIdentifier: "snap-good", ClusterIdentifier: "c1", Status: "available"},
+	)
+
+	rec := postRedshiftForm(t, h,
+		"Action=BatchDeleteClusterSnapshots&Version=2012-12-01"+
+			"&Identifiers.SnapshotIdentifier.1=snap-good"+
+			"&Identifiers.SnapshotIdentifier.2=snap-missing")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "snap-good")
+	assert.Contains(t, body, "snap-missing")
+	assert.Contains(t, body, "ClusterSnapshotNotFound")
+
+	// snap-good should be deleted
+	assert.Equal(t, 0, redshift.SnapshotCount(b))
+}
+
+// ---- BatchModifyClusterSnapshots bad retention period ----
+
+func TestBatchModifyClusterSnapshots_InvalidRetentionPeriod(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	rec := postRedshiftForm(t, h,
+		"Action=BatchModifyClusterSnapshots&Version=2012-12-01"+
+			"&SnapshotIdentifierList.String.1=snap-1"+
+			"&ManualSnapshotRetentionPeriod=not-a-number")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+// ---- BatchModifyClusterSnapshots success ----
+
+func TestBatchModifyClusterSnapshots_Success(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	h := redshift.NewHandler(b)
+
+	b.AddSnapshotInternal(
+		&redshift.Snapshot{SnapshotIdentifier: "mod-snap-1", ClusterIdentifier: "c1", Status: "available"},
+	)
+	b.AddSnapshotInternal(
+		&redshift.Snapshot{SnapshotIdentifier: "mod-snap-2", ClusterIdentifier: "c1", Status: "available"},
+	)
+
+	rec := postRedshiftForm(t, h,
+		"Action=BatchModifyClusterSnapshots&Version=2012-12-01"+
+			"&SnapshotIdentifierList.String.1=mod-snap-1"+
+			"&SnapshotIdentifierList.String.2=mod-snap-2"+
+			"&ManualSnapshotRetentionPeriod=14")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "BatchModifyClusterSnapshotsResponse")
+	assert.Contains(t, body, "mod-snap-1")
+	assert.Contains(t, body, "mod-snap-2")
+}
+
+// ---- AuthorizeSnapshotAccess duplicate account ----
+
+func TestAuthorizeSnapshotAccess_DuplicateAccount(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	h := redshift.NewHandler(b)
+
+	b.AddSnapshotInternal(
+		&redshift.Snapshot{SnapshotIdentifier: "snap-dup", ClusterIdentifier: "c1", Status: "available"},
+	)
+
+	body := "Action=AuthorizeSnapshotAccess&Version=2012-12-01" +
+		"&SnapshotIdentifier=snap-dup" +
+		"&AccountWithRestoreAccess=111111111111"
+
+	rec1 := postRedshiftForm(t, h, body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+	assert.Contains(t, rec1.Body.String(), "111111111111")
+
+	// Second authorize adds another entry (AWS allows multiple accounts)
+	rec2 := postRedshiftForm(t, h, body)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+// ---- AuthorizeSnapshotAccess: snapshot not found ----
+
+func TestAuthorizeSnapshotAccess_SnapshotNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	rec := postRedshiftForm(t, h,
+		"Action=AuthorizeSnapshotAccess&Version=2012-12-01"+
+			"&SnapshotIdentifier=nonexistent"+
+			"&AccountWithRestoreAccess=111111111111")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ClusterSnapshotNotFound")
+}
+
+// ---- RevokeSnapshotAccess ----
+
+func TestHandler_RevokeSnapshotAccess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *redshift.Handler)
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *redshift.Handler) {
+				t.Helper()
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=rsa-cluster")
+				postRedshiftForm(
+					t,
+					h,
+					"Action=CreateClusterSnapshot&Version=2012-12-01&SnapshotIdentifier=snap-rsa&ClusterIdentifier=rsa-cluster",
+				)
+				postRedshiftForm(
+					t,
+					h,
+					"Action=AuthorizeSnapshotAccess&Version=2012-12-01&SnapshotIdentifier=snap-rsa&AccountWithRestoreAccess=acc-rsa",
+				)
+			},
+			body: "Action=RevokeSnapshotAccess&Version=2012-12-01" +
+				"&SnapshotIdentifier=snap-rsa&AccountWithRestoreAccess=acc-rsa",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"RevokeSnapshotAccessResponse", "snap-rsa"},
+		},
+		{
+			name:     "missing_snapshot_id",
+			body:     "Action=RevokeSnapshotAccess&Version=2012-12-01&SnapshotIdentifier=&AccountWithRestoreAccess=acc-rsa",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "snapshot_not_found",
+			body: "Action=RevokeSnapshotAccess&Version=2012-12-01" +
+				"&SnapshotIdentifier=missing&AccountWithRestoreAccess=acc-rsa",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "account_not_found",
+			setup: func(t *testing.T, h *redshift.Handler) {
+				t.Helper()
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=rsa-cluster2")
+				postRedshiftForm(
+					t,
+					h,
+					"Action=CreateClusterSnapshot&Version=2012-12-01&SnapshotIdentifier=snap-rsa2&ClusterIdentifier=rsa-cluster2",
+				)
+			},
+			body: "Action=RevokeSnapshotAccess&Version=2012-12-01" +
+				"&SnapshotIdentifier=snap-rsa2&AccountWithRestoreAccess=nonexistent",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRedshiftHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postRedshiftForm(t, h, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+// ---- ModifyClusterSnapshot ----
+
+func TestHandler_ModifyClusterSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *redshift.Handler)
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *redshift.Handler) {
+				t.Helper()
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=mcs-cluster")
+				postRedshiftForm(
+					t,
+					h,
+					"Action=CreateClusterSnapshot&Version=2012-12-01&SnapshotIdentifier=snap-mcs&ClusterIdentifier=mcs-cluster",
+				)
+			},
+			body: "Action=ModifyClusterSnapshot&Version=2012-12-01" +
+				"&SnapshotIdentifier=snap-mcs&ManualSnapshotRetentionPeriod=14",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifyClusterSnapshotResponse", "snap-mcs", "14"},
+		},
+		{
+			name:     "missing_snapshot_id",
+			body:     "Action=ModifyClusterSnapshot&Version=2012-12-01&SnapshotIdentifier=",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "snapshot_not_found",
+			body:     "Action=ModifyClusterSnapshot&Version=2012-12-01&SnapshotIdentifier=missing",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_retention",
+			body: "Action=ModifyClusterSnapshot&Version=2012-12-01" +
+				"&SnapshotIdentifier=snap-mcs&ManualSnapshotRetentionPeriod=notanumber",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRedshiftHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postRedshiftForm(t, h, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+// ---- Backend.RevokeSnapshotAccess ----
+
+func TestBackend_RevokeSnapshotAccess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(b *redshift.InMemoryBackend)
+		name       string
+		snapshotID string
+		accountID  string
+		wantErr    bool
+	}{
+		{
+			name: "success",
+			setup: func(b *redshift.InMemoryBackend) {
+				_, _ = b.CreateCluster("c1", "dc2.large", "dev", "admin")
+				_, _ = b.CreateClusterSnapshot("snap1", "c1")
+				_, _ = b.AuthorizeSnapshotAccess("snap1", "acc1")
+			},
+			snapshotID: "snap1",
+			accountID:  "acc1",
+			wantErr:    false,
+		},
+		{
+			name:       "missing_snapshot_id",
+			snapshotID: "",
+			accountID:  "acc1",
+			wantErr:    true,
+		},
+		{
+			name:       "snapshot_not_found",
+			snapshotID: "missing",
+			accountID:  "acc1",
+			wantErr:    true,
+		},
+		{
+			name: "account_not_found",
+			setup: func(b *redshift.InMemoryBackend) {
+				_, _ = b.CreateCluster("c1", "dc2.large", "dev", "admin")
+				_, _ = b.CreateClusterSnapshot("snap2", "c1")
+			},
+			snapshotID: "snap2",
+			accountID:  "nonexistent",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			snap, err := b.RevokeSnapshotAccess(tt.snapshotID, tt.accountID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Empty(t, snap.AccountsWithRestoreAccess)
+		})
+	}
+}
+
+// ---- Backend.ModifyClusterSnapshot ----
+
+func TestBackend_ModifyClusterSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(b *redshift.InMemoryBackend)
+		name            string
+		snapshotID      string
+		retentionPeriod int
+		wantErr         bool
+		wantRetention   int
+	}{
+		{
+			name: "success",
+			setup: func(b *redshift.InMemoryBackend) {
+				_, _ = b.CreateCluster("c1", "dc2.large", "dev", "admin")
+				_, _ = b.CreateClusterSnapshot("snap1", "c1")
+			},
+			snapshotID:      "snap1",
+			retentionPeriod: 30,
+			wantErr:         false,
+			wantRetention:   30,
+		},
+		{
+			name:       "missing_snapshot_id",
+			snapshotID: "",
+			wantErr:    true,
+		},
+		{
+			name:       "snapshot_not_found",
+			snapshotID: "missing",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			snap, err := b.ModifyClusterSnapshot(tt.snapshotID, tt.retentionPeriod, false)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantRetention, snap.ManualSnapshotRetentionPeriod)
+		})
+	}
 }

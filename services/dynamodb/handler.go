@@ -1077,16 +1077,7 @@ func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []
 			return nil, err
 		}
 
-		table.mu.RLock(opDescribeContinuousBackups)
-		pitrEnabled = table.PITREnabled
-		// EarliestRestorableDateTime tracks the oldest available snapshot.
-		// LatestRestorableDateTime is "now" while PITR is active — AWS
-		// guarantees you can always recover to the current instant.
-		if pitrEnabled && len(table.pitrSnapshots) > 0 {
-			earliest = table.pitrSnapshots[0].Taken
-			latest = time.Now().UTC()
-		}
-		table.mu.RUnlock()
+		pitrEnabled, earliest, latest = pitrStateRLocked(table)
 	}
 
 	continuousStatus := continuousBackupsStatusEnabled
@@ -1109,6 +1100,27 @@ func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []
 	}, nil
 }
 
+// pitrStateRLocked returns whether PITR is enabled and, when enabled with at
+// least one snapshot taken, the earliest/latest restorable timestamps, under
+// a defer-protected table.mu.RLock.
+func pitrStateRLocked(table *Table) (bool, time.Time, time.Time) {
+	table.mu.RLock(opDescribeContinuousBackups)
+	defer table.mu.RUnlock()
+
+	pitrEnabled := table.PITREnabled
+
+	var earliest, latest time.Time
+	// EarliestRestorableDateTime tracks the oldest available snapshot.
+	// LatestRestorableDateTime is "now" while PITR is active — AWS
+	// guarantees you can always recover to the current instant.
+	if pitrEnabled && len(table.pitrSnapshots) > 0 {
+		earliest = table.pitrSnapshots[0].Taken
+		latest = time.Now().UTC()
+	}
+
+	return pitrEnabled, earliest, latest
+}
+
 // pointInTimeRecoverySpec holds the PITR enable/disable setting.
 type pointInTimeRecoverySpec struct {
 	PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
@@ -1117,6 +1129,20 @@ type pointInTimeRecoverySpec struct {
 type updateContinuousBackupsInput struct {
 	TableName                        string                  `json:"TableName"`
 	PointInTimeRecoverySpecification pointInTimeRecoverySpec `json:"PointInTimeRecoverySpecification"`
+}
+
+// setPITREnabledLocked sets table.PITREnabled and, when disabling, releases
+// the snapshot ring, under a defer-protected table.mu.Lock.
+func setPITREnabledLocked(table *Table, pitrEnabled bool) {
+	table.mu.Lock(opUpdateContinuousBackups)
+	defer table.mu.Unlock()
+
+	table.PITREnabled = pitrEnabled
+	if !pitrEnabled {
+		// Releasing memory the moment the feature is turned off keeps the
+		// per-table footprint tight; re-enabling starts a fresh ring.
+		table.pitrSnapshots = nil
+	}
 }
 
 func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []byte) (any, error) {
@@ -1137,14 +1163,7 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 			return nil, err
 		}
 
-		table.mu.Lock(opUpdateContinuousBackups)
-		table.PITREnabled = pitrEnabled
-		if !pitrEnabled {
-			// Releasing memory the moment the feature is turned off keeps the
-			// per-table footprint tight; re-enabling starts a fresh ring.
-			table.pitrSnapshots = nil
-		}
-		table.mu.Unlock()
+		setPITREnabledLocked(table, pitrEnabled)
 	}
 
 	pitrStatus := continuousBackupsStatusDisabled
@@ -1388,6 +1407,23 @@ type describeTableReplicaAutoScalingOutput struct {
 	TableAutoScalingDescription tableAutoScalingDescription `json:"TableAutoScalingDescription"`
 }
 
+// replicaAutoScalingDescriptionsRLocked copies table.Replicas into the wire
+// shape under a defer-protected table.mu.RLock.
+func replicaAutoScalingDescriptionsRLocked(table *Table) []replicaAutoScalingDescription {
+	table.mu.RLock(opDescribeTableReplicaAutoScaling)
+	defer table.mu.RUnlock()
+
+	replicas := make([]replicaAutoScalingDescription, 0, len(table.Replicas))
+	for _, r := range table.Replicas {
+		replicas = append(replicas, replicaAutoScalingDescription{
+			RegionName:    r.RegionName,
+			ReplicaStatus: r.ReplicaStatus,
+		})
+	}
+
+	return replicas
+}
+
 func (h *DynamoDBHandler) describeTableReplicaAutoScaling(
 	ctx context.Context,
 	body []byte,
@@ -1409,14 +1445,7 @@ func (h *DynamoDBHandler) describeTableReplicaAutoScaling(
 			return nil, err
 		}
 
-		table.mu.RLock(opDescribeTableReplicaAutoScaling)
-		for _, r := range table.Replicas {
-			replicas = append(replicas, replicaAutoScalingDescription{
-				RegionName:    r.RegionName,
-				ReplicaStatus: r.ReplicaStatus,
-			})
-		}
-		table.mu.RUnlock()
+		replicas = replicaAutoScalingDescriptionsRLocked(table)
 	}
 
 	return &describeTableReplicaAutoScalingOutput{

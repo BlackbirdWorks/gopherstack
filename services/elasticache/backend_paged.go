@@ -7,6 +7,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+const elasticacheDefaultMaxRecords = 100
+
 // describePaged handles the common lookup-or-paginate pattern for Describe* operations.
 // If id is non-empty, a single item is returned (or notFoundErr if missing).
 // Otherwise all items are collected, optionally filtered, sorted by key(), and paginated.

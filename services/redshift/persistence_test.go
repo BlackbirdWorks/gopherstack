@@ -355,3 +355,141 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	_, err = fresh.DisableSnapshotCopy("rt-cluster")
 	require.NoError(t, err)
 }
+
+// TestPersistence_FullRoundTrip verifies snapshot+restore preserves all fields.
+func TestPersistence_FullRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=persist-cluster")
+	postRedshiftForm(t, h,
+		"Action=ModifyClusterIamRoles&Version=2012-12-01&ClusterIdentifier=persist-cluster"+
+			"&AddIamRoles.IamRoleArn.1=arn:aws:iam::123456789012:role/Role1")
+	postRedshiftForm(t, h,
+		"Action=CreateSnapshotCopyGrant&Version=2012-12-01&SnapshotCopyGrantName=my-grant")
+	postRedshiftForm(t, h,
+		"Action=CreateUsageLimit&Version=2012-12-01&ClusterIdentifier=persist-cluster"+
+			"&FeatureType=spectrum&LimitType=time&Amount=1000&BreachAction=log")
+
+	ctx := t.Context()
+	data := h.Backend.Snapshot(ctx)
+	require.NotNil(t, data)
+
+	h2 := newRedshiftHandler()
+	err := h2.Backend.Restore(ctx, data)
+	require.NoError(t, err)
+
+	// Verify clusters restored.
+	rec := postRedshiftForm(t, h2, "Action=DescribeClusters&Version=2012-12-01&ClusterIdentifier=persist-cluster")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "persist-cluster")
+	assert.Contains(t, rec.Body.String(), "Role1")
+
+	// Verify snapshot copy grant restored.
+	rec2 := postRedshiftForm(t, h2,
+		"Action=DescribeSnapshotCopyGrants&Version=2012-12-01&SnapshotCopyGrantName=my-grant")
+	require.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "my-grant")
+
+	// Verify usage limits restored.
+	rec3 := postRedshiftForm(t, h2,
+		"Action=DescribeUsageLimits&Version=2012-12-01&ClusterIdentifier=persist-cluster")
+	require.Equal(t, http.StatusOK, rec3.Code)
+	assert.Contains(t, rec3.Body.String(), "spectrum")
+}
+
+// ---- Persistence round-trip for reserved nodes, data shares, security groups, snapshots, resizes ----
+
+func TestBackend_SnapshotRestore_NewMaps(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+
+	b.AddReservedNodeInternal(&redshift.ReservedNode{
+		ReservedNodeID:         "rn-persist",
+		ReservedNodeOfferingID: "offering-persist",
+		NodeType:               "ra3.xlplus",
+		NodeCount:              2,
+		State:                  "active",
+	})
+	b.AddDataShareInternal(&redshift.DataShare{
+		DataShareArn: "arn:aws:redshift:us-east-1:000000000000:datashare:ds-persist",
+		ProducerArn:  "producer-arn",
+	})
+	b.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{
+		ClusterSecurityGroupName: "sg-persist",
+		Description:              "persist test",
+	})
+	b.AddSnapshotInternal(&redshift.Snapshot{
+		SnapshotIdentifier: "snap-persist",
+		ClusterIdentifier:  "c-persist",
+		Status:             "available",
+	})
+
+	_, err := b.CreateCluster("resize-persist-cluster", "", "", "")
+	require.NoError(t, err)
+	b.AddActiveResizeInternal("resize-persist-cluster", &redshift.ResizeProgress{
+		Status:            "IN_PROGRESS",
+		AllowCancelResize: true,
+	})
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// Verify reserved node round-trip
+	_, err = fresh.AcceptReservedNodeExchange("rn-persist", "new-offering")
+	require.NoError(t, err)
+
+	// Verify data share round-trip
+	_, err = fresh.AuthorizeDataShare("arn:aws:redshift:us-east-1:000000000000:datashare:ds-persist", "consumer-id")
+	require.NoError(t, err)
+
+	// Verify security group round-trip
+	_, err = fresh.AuthorizeClusterSecurityGroupIngress("sg-persist", "192.168.1.0/24", "", "")
+	require.NoError(t, err)
+
+	// Verify snapshot round-trip
+	_, err = fresh.AuthorizeSnapshotAccess("snap-persist", "111111111111")
+	require.NoError(t, err)
+
+	// Verify resize round-trip
+	_, err = fresh.CancelResize("resize-persist-cluster")
+	require.NoError(t, err)
+}
+
+// ---- Persistence round-trip (reserved nodes, data shares, security groups, snapshots, resizes) ----
+
+func TestPersistence_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b1 := redshift.NewInMemoryBackend("123456789012", "us-west-2")
+	_, err := b1.CreateCluster("p-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	b1.AddReservedNodeInternal(&redshift.ReservedNode{ReservedNodeID: "rn-p1", NodeType: "dc2.large", State: "active"})
+	b1.AddDataShareInternal(&redshift.DataShare{DataShareArn: "arn:aws:redshift::123:datashare:ds-p1"})
+	b1.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{ClusterSecurityGroupName: "sg-p1"})
+	b1.AddSnapshotInternal(
+		&redshift.Snapshot{SnapshotIdentifier: "snap-p1", ClusterIdentifier: "p-cluster", Status: "available"},
+	)
+	b1.AddActiveResizeInternal("p-cluster", &redshift.ResizeProgress{Status: "IN_PROGRESS", AllowCancelResize: true})
+
+	data := b1.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := redshift.NewInMemoryBackend("", "")
+	err = b2.Restore(t.Context(), data)
+	require.NoError(t, err)
+
+	assert.Equal(t, "123456789012", b2.AccountID())
+	assert.Equal(t, "us-west-2", b2.Region())
+	assert.Equal(t, 1, redshift.ClusterCount(b2))
+	assert.Equal(t, 1, redshift.ReservedNodeCount(b2))
+	assert.Equal(t, 1, redshift.DataShareCount(b2))
+	assert.Equal(t, 1, redshift.SecurityGroupCount(b2))
+	assert.Equal(t, 1, redshift.SnapshotCount(b2))
+	assert.Equal(t, 1, redshift.ActiveResizeCount(b2))
+}

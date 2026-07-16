@@ -255,3 +255,230 @@ func TestHTTP_TrafficMirrorTarget(t *testing.T) { //nolint:paralleltest // share
 		assert.Contains(t, rec.Body.String(), "InvalidTrafficMirrorTargetId.NotFound")
 	})
 }
+
+func TestTrafficMirrorFilter(t *testing.T) { //nolint:paralleltest // existing issue.
+	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	var filterID string
+
+	t.Run("create filter", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		f, err := b.CreateTrafficMirrorFilter("test filter")
+		require.NoError(t, err)
+		assert.NotEmpty(t, f.TrafficMirrorFilterID)
+		assert.Equal(t, "test filter", f.Description)
+		filterID = f.TrafficMirrorFilterID
+	})
+
+	t.Run("describe returns created filter", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		filters := b.DescribeTrafficMirrorFilters([]string{filterID})
+		require.Len(t, filters, 1)
+		assert.Equal(t, "test filter", filters[0].Description)
+	})
+
+	t.Run("describe all", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		filters := b.DescribeTrafficMirrorFilters(nil)
+		assert.NotEmpty(t, filters)
+	})
+
+	t.Run("modify network services add", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.ModifyTrafficMirrorFilterNetworkServices(filterID, []string{"amazon-dns"}, nil))
+		filters := b.DescribeTrafficMirrorFilters([]string{filterID})
+		require.Len(t, filters, 1)
+		assert.Contains(t, filters[0].NetworkServices, "amazon-dns")
+	})
+
+	t.Run("modify network services remove", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.ModifyTrafficMirrorFilterNetworkServices(filterID, nil, []string{"amazon-dns"}))
+		filters := b.DescribeTrafficMirrorFilters([]string{filterID})
+		require.Len(t, filters, 1)
+		assert.Empty(t, filters[0].NetworkServices)
+	})
+
+	t.Run("delete filter", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.DeleteTrafficMirrorFilter(filterID))
+		filters := b.DescribeTrafficMirrorFilters([]string{filterID})
+		assert.Empty(t, filters)
+	})
+
+	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.Error(t, b.DeleteTrafficMirrorFilter("tmf-nonexistent"))
+	})
+
+	t.Run("modify non-existent filter returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.Error(t, b.ModifyTrafficMirrorFilterNetworkServices("tmf-nonexistent", nil, nil))
+	})
+}
+
+// ---- Traffic Mirror Filter Rule ----
+
+func TestTrafficMirrorFilterRule(t *testing.T) { //nolint:paralleltest // existing issue.
+	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	f, ferr := b.CreateTrafficMirrorFilter("filter-for-rules")
+	require.NoError(t, ferr)
+	filterID := f.TrafficMirrorFilterID
+
+	var ruleID string
+
+	t.Run("create ingress rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		rule, err := b.CreateTrafficMirrorFilterRule(
+			filterID, "ingress", "accept",
+			"10.0.0.0/8", "0.0.0.0/0", "ingress rule",
+			100, 6,
+		)
+		require.NoError(t, err)
+		assert.NotEmpty(t, rule.TrafficMirrorFilterRuleID)
+		assert.Equal(t, "ingress", rule.TrafficDirection)
+		assert.Equal(t, "accept", rule.RuleAction)
+		ruleID = rule.TrafficMirrorFilterRuleID
+	})
+
+	t.Run("describe rules returns created rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		rules, err := b.DescribeTrafficMirrorFilterRules(filterID)
+		require.NoError(t, err)
+		require.Len(t, rules, 1)
+		assert.Equal(t, ruleID, rules[0].TrafficMirrorFilterRuleID)
+	})
+
+	t.Run("create egress rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		_, err := b.CreateTrafficMirrorFilterRule(
+			filterID, "egress", "reject",
+			"0.0.0.0/0", "0.0.0.0/0", "egress rule",
+			200, 0,
+		)
+		require.NoError(t, err)
+
+		rules, err := b.DescribeTrafficMirrorFilterRules(filterID)
+		require.NoError(t, err)
+		assert.Len(t, rules, 2)
+	})
+
+	t.Run("modify rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.ModifyTrafficMirrorFilterRule(ruleID, "reject", "modified"))
+	})
+
+	t.Run("delete rule", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.DeleteTrafficMirrorFilterRule(ruleID))
+		rules, err := b.DescribeTrafficMirrorFilterRules(filterID)
+		require.NoError(t, err)
+		assert.Len(t, rules, 1)
+	})
+
+	t.Run( //nolint:paralleltest // existing issue.
+		"create rule on non-existent filter returns error",
+		func(t *testing.T) {
+			_, err := b.CreateTrafficMirrorFilterRule(
+				"tmf-nonexistent", "ingress", "accept",
+				"0.0.0.0/0", "0.0.0.0/0", "", 1, 0,
+			)
+			require.Error(t, err)
+		},
+	)
+
+	t.Run("delete non-existent rule returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.Error(t, b.DeleteTrafficMirrorFilterRule("tmfr-nonexistent"))
+	})
+}
+
+// ---- Traffic Mirror Target ----.
+
+// ---- Traffic Mirror Target ----.
+func TestTrafficMirrorTarget(t *testing.T) { //nolint:paralleltest // existing issue.
+	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	var targetID string
+
+	t.Run("create target with network interface", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		target, err := b.CreateTrafficMirrorTarget("eni-12345678", "", "test target")
+		require.NoError(t, err)
+		assert.NotEmpty(t, target.TrafficMirrorTargetID)
+		assert.Equal(t, "eni-12345678", target.NetworkInterfaceID)
+		targetID = target.TrafficMirrorTargetID
+	})
+
+	t.Run("describe returns created target", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		targets := b.DescribeTrafficMirrorTargets([]string{targetID})
+		require.Len(t, targets, 1)
+		assert.Equal(t, "test target", targets[0].Description)
+	})
+
+	t.Run("create target with nlb arn", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		target, err := b.CreateTrafficMirrorTarget(
+			"",
+			"arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/net/test/abc",
+			"nlb target",
+		)
+		require.NoError(t, err)
+		assert.NotEmpty(t, target.TrafficMirrorTargetID)
+		assert.NotEmpty(t, target.NetworkLoadBalancerArn)
+	})
+
+	t.Run("describe all targets", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		targets := b.DescribeTrafficMirrorTargets(nil)
+		assert.Len(t, targets, 2)
+	})
+
+	t.Run("delete target", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.DeleteTrafficMirrorTarget(targetID))
+		targets := b.DescribeTrafficMirrorTargets(nil)
+		assert.Len(t, targets, 1)
+	})
+
+	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.Error(t, b.DeleteTrafficMirrorTarget("tmt-nonexistent"))
+	})
+}
+
+// ---- Traffic Mirror Session ----.
+
+// ---- Traffic Mirror Session ----.
+func TestTrafficMirrorSession(t *testing.T) { //nolint:paralleltest // existing issue.
+	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	var sessionID string
+
+	t.Run("create session", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		s, err := b.CreateTrafficMirrorSession("eni-12345678", "tmt-abc123", "tmf-abc123", "test session", 1)
+		require.NoError(t, err)
+		assert.NotEmpty(t, s.TrafficMirrorSessionID)
+		assert.Equal(t, 1, s.SessionNumber)
+		assert.Equal(t, "test session", s.Description)
+		sessionID = s.TrafficMirrorSessionID
+	})
+
+	t.Run("describe returns created session", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		sessions := b.DescribeTrafficMirrorSessions([]string{sessionID})
+		require.Len(t, sessions, 1)
+		assert.Equal(t, "eni-12345678", sessions[0].NetworkInterfaceID)
+	})
+
+	t.Run("modify session description", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.ModifyTrafficMirrorSession(sessionID, "", "", "modified"))
+		sessions := b.DescribeTrafficMirrorSessions([]string{sessionID})
+		require.Len(t, sessions, 1)
+		assert.Equal(t, "modified", sessions[0].Description)
+	})
+
+	t.Run("modify session target", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.ModifyTrafficMirrorSession(sessionID, "tmt-new", "", ""))
+		sessions := b.DescribeTrafficMirrorSessions([]string{sessionID})
+		require.Len(t, sessions, 1)
+		assert.Equal(t, "tmt-new", sessions[0].TrafficMirrorTargetID)
+	})
+
+	t.Run("delete session", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.DeleteTrafficMirrorSession(sessionID))
+		sessions := b.DescribeTrafficMirrorSessions([]string{sessionID})
+		assert.Empty(t, sessions)
+	})
+
+	t.Run("delete non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.Error(t, b.DeleteTrafficMirrorSession("tms-nonexistent"))
+	})
+
+	t.Run("modify non-existent returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.Error(t, b.ModifyTrafficMirrorSession("tms-nonexistent", "", "", "x"))
+	})
+}
+
+// ---- EC2 Fleet ----.

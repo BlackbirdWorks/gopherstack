@@ -43,6 +43,32 @@ func registerCapacityFamilyOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateCapacityManagerDataExport"] = h.handleCreateCapacityManagerDataExport
 	ops["DescribeCapacityManagerDataExports"] = h.handleDescribeCapacityManagerDataExports
 	ops["DeleteCapacityManagerDataExport"] = h.handleDeleteCapacityManagerDataExport
+
+	ops["CreateCapacityReservation"] = h.handleCreateCapacityReservation
+	ops["CancelCapacityReservation"] = h.handleCancelCapacityReservation
+	ops["ModifyCapacityReservation"] = h.handleModifyCapacityReservation
+	ops["GetGroupsForCapacityReservation"] = h.handleGetGroupsForCapacityReservation
+	ops["CreateInterruptibleCapacityReservationAllocation"] = h.handleCreateInterruptibleCapacityReservationAllocation
+	ops["UpdateInterruptibleCapacityReservationAllocation"] = h.handleUpdateInterruptibleCapacityReservationAllocation
+	ops["GetCapacityReservationUsage"] = h.handleGetCapacityReservationUsage
+	ops["DescribeCapacityReservationTopology"] = h.handleDescribeCapacityReservationTopology
+}
+
+// capacityFamilySupportedOperations lists the operation names registered by
+// registerCapacityFamilyOps that were previously exposed via
+// batch3SupportedOperations/parityFinalSupportedOperations, for
+// GetSupportedOperations().
+func capacityFamilySupportedOperations() []string {
+	return []string{
+		"CreateCapacityReservation",
+		"CancelCapacityReservation",
+		"ModifyCapacityReservation",
+		"GetGroupsForCapacityReservation",
+		"CreateInterruptibleCapacityReservationAllocation",
+		"UpdateInterruptibleCapacityReservationAllocation",
+		"GetCapacityReservationUsage",
+		"DescribeCapacityReservationTopology",
+	}
 }
 
 // ---- shared XML fragments ----

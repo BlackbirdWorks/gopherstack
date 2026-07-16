@@ -47,8 +47,9 @@ type S3Accessor interface {
 // SetS3Backend wires the S3 backend used for ImportTable / ExportTableToPointInTime.
 func (db *InMemoryDB) SetS3Backend(s3 S3Accessor) {
 	db.mu.Lock("SetS3Backend")
+	defer db.mu.Unlock()
+
 	db.s3 = s3
-	db.mu.Unlock()
 }
 
 // s3Backend returns the wired S3 accessor, or nil when none is configured.
@@ -361,17 +362,24 @@ func (db *InMemoryDB) snapshotItemsByTableARN(tableARN string) []map[string]any 
 			continue
 		}
 
-		t.mu.RLock("snapshotItemsByTableARN")
-		items := make([]map[string]any, 0, len(t.Items))
-		for i := range t.Items {
-			items = append(items, deepCopyItem(t.Items[i]))
-		}
-		t.mu.RUnlock()
-
-		return items
+		return snapshotItemsRLocked(t)
 	}
 
 	return nil
+}
+
+// snapshotItemsRLocked returns deep copies of every item in t under a
+// defer-protected table.mu.RLock.
+func snapshotItemsRLocked(t *Table) []map[string]any {
+	t.mu.RLock("snapshotItemsByTableARN")
+	defer t.mu.RUnlock()
+
+	items := make([]map[string]any, 0, len(t.Items))
+	for i := range t.Items {
+		items = append(items, deepCopyItem(t.Items[i]))
+	}
+
+	return items
 }
 
 // avgExportItemBytes is a rough average item size used to estimate BilledSizeBytes
@@ -387,14 +395,19 @@ func (db *InMemoryDB) countTableItems(_ context.Context, tableARN string) (int, 
 		if t.TableArn != tableARN {
 			continue
 		}
-		t.mu.RLock("countTableItems")
-		n := len(t.Items)
-		t.mu.RUnlock()
 
-		return n, nil
+		return itemCountRLocked(t), nil
 	}
 
 	return 0, nil
+}
+
+// itemCountRLocked returns len(t.Items) under a defer-protected table.mu.RLock.
+func itemCountRLocked(t *Table) int {
+	t.mu.RLock("countTableItems")
+	defer t.mu.RUnlock()
+
+	return len(t.Items)
 }
 
 // putImportedItem writes a single wire item into the target table via PutItem so

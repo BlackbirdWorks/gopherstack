@@ -295,3 +295,29 @@ func TestReconciler_ContextCancelStops(t *testing.T) {
 		t.Fatalf("goroutine survived context cancel: goroutines=%d baseline=%d", got, base)
 	}
 }
+
+// TestClusterLifecycle_CreatingToAvailable verifies the creating→available state machine.
+func TestClusterLifecycle_CreatingToAvailable(t *testing.T) {
+	t.Parallel()
+
+	b := newRedshiftBackend()
+	redshift.SetClusterActivationDelay(b, 50*time.Millisecond)
+
+	_, err := b.CreateCluster("lifecycle-cluster", "dc2.large", "dev", "admin")
+	require.NoError(t, err)
+
+	// Immediately after create, status should be "creating".
+	clusters, _, err := b.DescribeClusters("lifecycle-cluster", "", 0)
+	require.NoError(t, err)
+	require.Len(t, clusters, 1)
+	assert.Equal(t, "creating", clusters[0].Status,
+		"cluster should be in creating state immediately after CreateCluster")
+
+	// After the activation delay, status should be "available".
+	time.Sleep(200 * time.Millisecond)
+
+	clusters2, _, err := b.DescribeClusters("lifecycle-cluster", "", 0)
+	require.NoError(t, err)
+	require.Len(t, clusters2, 1)
+	assert.Equal(t, "available", clusters2[0].Status, "cluster should be available after activation delay")
+}

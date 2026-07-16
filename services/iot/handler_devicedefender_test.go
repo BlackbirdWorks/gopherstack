@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/iot"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newDeviceDefenderTestHandler(t *testing.T) (*iot.Handler, *iot.InMemoryBackend) {
@@ -332,4 +334,37 @@ func TestDeviceDefender_DeleteAccountAuditConfiguration(t *testing.T) {
 
 	// Deleting again (already unconfigured) is idempotent, not an error.
 	iotOK(t, h, http.MethodDelete, "/audit/configuration", nil)
+}
+
+func TestGetBehaviorModelTrainingSummaries(t *testing.T) {
+	t.Parallel()
+
+	t.Run("round_trip", func(t *testing.T) {
+		t.Parallel()
+
+		h, b := newRefHandler()
+
+		_, err := b.CreateSecurityProfile(&iot.CreateSecurityProfileInput{SecurityProfileName: "sp1"})
+		require.NoError(t, err)
+
+		b.AddBehaviorModelTrainingSummaryInternal("sp1", iot.BehaviorModelTrainingSummary{
+			BehaviorName: "excessive-connects",
+			ModelStatus:  "ACTIVE",
+		})
+
+		rec := doRefRequest(t, h, http.MethodGet,
+			"/behavior-model-training/summaries?securityProfileName=sp1", nil, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "excessive-connects")
+	})
+
+	t.Run("unknown_profile_404", func(t *testing.T) {
+		t.Parallel()
+
+		h, _ := newRefHandler()
+
+		rec := doRefRequest(t, h, http.MethodGet,
+			"/behavior-model-training/summaries?securityProfileName=no-such", nil, nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
 }

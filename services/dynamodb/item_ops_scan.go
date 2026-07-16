@@ -81,20 +81,7 @@ func (db *InMemoryDB) ScanWithContext(
 	// Snapshot items and metadata under lock, release immediately.
 	// A shallow slice copy is safe: writes always replace items[i] with a new map;
 	// they never mutate an existing map in place, so our pointers remain valid.
-	table.mu.RLock("Scan")
-	itemsCopy := make([]map[string]any, len(table.Items))
-	copy(itemsCopy, table.Items)
-	ttlAttr := table.TTLAttribute
-	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
-	copy(keySchema, table.KeySchema)
-	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
-	copy(gsiList, table.GlobalSecondaryIndexes)
-	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
-	copy(lsiList, table.LocalSecondaryIndexes)
-	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
-	copy(attrDefs, table.AttributeDefinitions)
-	billingMode := table.BillingMode
-	table.mu.RUnlock()
+	itemsCopy, ttlAttr, keySchema, gsiList, lsiList, attrDefs, billingMode := snapshotTableForScan(table)
 
 	// Get key schema definitions (reconstruct the table temporarily for getScanKeySchema)
 	snapshotTable := &Table{
@@ -130,6 +117,37 @@ func (db *InMemoryDB) ScanWithContext(
 	)
 
 	return db.buildScanOutput(ctx, tableName, billingMode, input, items, lastKey, scannedCount)
+}
+
+// snapshotTableForScan copies the item slice and table metadata needed by a
+// Scan under a single table.mu.RLock/defer, then releases the lock -- the
+// caller does the actual scan work (which can be O(items)) unlocked. Using
+// defer here (rather than a manual RUnlock before returning) means a panic
+// from any of these copies can never leave table.mu read-locked forever.
+func snapshotTableForScan(table *Table) (
+	[]map[string]any,
+	string,
+	[]models.KeySchemaElement,
+	[]models.GlobalSecondaryIndex,
+	[]models.LocalSecondaryIndex,
+	[]models.AttributeDefinition,
+	string,
+) {
+	table.mu.RLock("Scan")
+	defer table.mu.RUnlock()
+
+	itemsCopy := make([]map[string]any, len(table.Items))
+	copy(itemsCopy, table.Items)
+	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
+	copy(keySchema, table.KeySchema)
+	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
+	copy(gsiList, table.GlobalSecondaryIndexes)
+	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
+	copy(lsiList, table.LocalSecondaryIndexes)
+	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
+	copy(attrDefs, table.AttributeDefinitions)
+
+	return itemsCopy, table.TTLAttribute, keySchema, gsiList, lsiList, attrDefs, table.BillingMode
 }
 
 // buildScanOutput enforces read throughput and assembles the ScanOutput.

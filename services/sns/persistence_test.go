@@ -211,3 +211,69 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, origNums, 1)
 	assert.Equal(t, "+15550003333", origNums[0].PhoneNumber)
 }
+
+// TestSNS_PersistenceWithNewFields validates that Snapshot/Restore correctly round-trips
+// SMS sandbox state, opted-out phone numbers, SMS attributes, topic permissions, and
+// platform applications/endpoints.
+func TestSNS_PersistenceWithNewFields(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	// SMS sandbox numbers.
+	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550001", "en-US"))
+	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125550002", "de-DE"))
+
+	// SMS attributes.
+	require.NoError(t, b.SetSMSAttributes(map[string]string{
+		"DefaultSMSType":    "Transactional",
+		"MonthlySpendLimit": "100",
+	}))
+
+	// Topic with permission.
+	tp, err := b.CreateTopic("persist-test", nil)
+	require.NoError(t, err)
+	require.NoError(t, b.AddPermission(tp.TopicArn, "allow-all", []string{"*"}, []string{"Publish"}))
+
+	// Platform application with endpoint.
+	app, err := b.CreatePlatformApplication("my-app", "GCM", map[string]string{"PlatformCredential": "fake-key"})
+	require.NoError(t, err)
+	ep, err := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "device-token-123", nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := sns.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify SMS sandbox numbers are preserved.
+	nums, _, err := b2.ListSMSSandboxPhoneNumbers("", 0)
+	require.NoError(t, err)
+	require.Len(t, nums, 2)
+	assert.Equal(t, "Pending", nums[0].Status)
+	assert.Equal(t, "en-US", nums[0].LanguageCode)
+
+	// Verify SMS attributes are preserved.
+	attrs, err := b2.GetSMSAttributes(nil)
+	require.NoError(t, err)
+	assert.Equal(t, "Transactional", attrs["DefaultSMSType"])
+	assert.Equal(t, "100", attrs["MonthlySpendLimit"])
+
+	// Verify permissions survive the round-trip via GetTopicAttributes.
+	topicAttrs, err := b2.GetTopicAttributes(tp.TopicArn)
+	require.NoError(t, err)
+	assert.NotEmpty(t, topicAttrs)
+
+	// Verify platform applications are preserved.
+	apps, _, err := b2.ListPlatformApplications("")
+	require.NoError(t, err)
+	require.Len(t, apps, 1)
+	assert.Equal(t, app.PlatformApplicationArn, apps[0].PlatformApplicationArn)
+
+	// Verify platform endpoints are preserved.
+	eps, _, err := b2.ListEndpointsByPlatformApplication(app.PlatformApplicationArn, "")
+	require.NoError(t, err)
+	require.Len(t, eps, 1)
+	assert.Equal(t, ep.EndpointArn, eps[0].EndpointArn)
+}

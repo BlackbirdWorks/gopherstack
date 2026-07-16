@@ -292,3 +292,10 @@ func cloneParameterGroup(pg *ClusterParameterGroup) ClusterParameterGroup {
 
 	return cp
 }
+
+// AddParameterGroupInternal seeds a parameter group directly into the backend.
+func (b *InMemoryBackend) AddParameterGroupInternal(pg *ClusterParameterGroup) {
+	b.mu.Lock("AddParameterGroupInternal")
+	defer b.mu.Unlock()
+	b.parameterGroups.Put(pg)
+}

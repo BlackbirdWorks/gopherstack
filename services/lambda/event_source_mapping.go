@@ -1,6 +1,15 @@
 package lambda
 
-import "time"
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/google/uuid"
+)
 
 // EventSourceMappingState represents the lifecycle state of an event source mapping.
 type EventSourceMappingState string
@@ -202,4 +211,292 @@ func toJSONESMResponse(m *EventSourceMapping) jsonESMResponse {
 		ParallelizationFactor:               m.ParallelizationFactor,
 		BisectBatchOnFunctionError:          m.BisectBatchOnFunctionError,
 	}
+}
+
+// esmFunctionName normalizes a function reference (bare name or full function ARN)
+// to the bare function name used for event-source-mapping indexing.
+func esmFunctionName(functionName string) string {
+	if !strings.HasPrefix(functionName, "arn:aws:lambda:") {
+		return functionName
+	}
+
+	// Bug fix (parity-sweep-3): previously took the last colon-separated
+	// segment of the ARN, which for a qualified ARN
+	// (arn:...:function:my-func:PROD) returned just "PROD" — discarding the
+	// actual function name and causing the mapping to be registered (and the
+	// poller to invoke) a nonexistent function named after the qualifier.
+	// Preserve the "name:qualifier" suffix so the mapping keeps routing to
+	// the specific version/alias, matching real Lambda's FunctionArn echo.
+	name, qualifier := functionNameAndQualifierFromARN(functionName)
+	if qualifier != "" {
+		return name + ":" + qualifier
+	}
+
+	return name
+}
+
+// CreateEventSourceMapping creates a new event source mapping.
+func (b *InMemoryBackend) CreateEventSourceMapping(
+	input *CreateEventSourceMappingInput,
+) (*EventSourceMapping, error) {
+	b.mu.Lock("CreateEventSourceMapping")
+	defer b.mu.Unlock()
+
+	if input.EventSourceARN == "" {
+		return nil, fmt.Errorf("%w: EventSourceARN must not be empty", ErrInvalidParameterValue)
+	}
+
+	id := uuid.New().String()
+	state := ESMStateEnabled
+	if !input.Enabled {
+		state = ESMStateDisabled
+	}
+
+	batchSize := input.BatchSize
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	startingPosition := input.StartingPosition
+	if startingPosition == "" {
+		startingPosition = "TRIM_HORIZON"
+	}
+
+	// The function may be supplied as a bare name or a full function ARN. Normalize
+	// to the bare name so the stored index key matches lookups by name.
+	fnARN := arn.Build(
+		"lambda",
+		b.region,
+		b.accountID,
+		"function:"+esmFunctionName(input.FunctionName),
+	)
+
+	m := &EventSourceMapping{
+		UUID:                                id,
+		EventSourceARN:                      input.EventSourceARN,
+		FunctionARN:                         fnARN,
+		State:                               state,
+		BatchSize:                           batchSize,
+		StartingPosition:                    startingPosition,
+		LastProcessingResult:                "No records processed",
+		LastModified:                        time.Now(),
+		FilterCriteria:                      input.FilterCriteria,
+		DestinationConfig:                   input.DestinationConfig,
+		AmazonManagedKafkaEventSourceConfig: input.AmazonManagedKafkaEventSourceConfig,
+		SelfManagedKafkaEventSourceConfig:   input.SelfManagedKafkaEventSourceConfig,
+		SelfManagedEventSource:              input.SelfManagedEventSource,
+		DocumentDBEventSourceConfig:         input.DocumentDBEventSourceConfig,
+		SourceAccessConfigurations:          input.SourceAccessConfigurations,
+		Topics:                              input.Topics,
+		Queues:                              input.Queues,
+		MaximumBatchingWindowInSeconds:      input.MaximumBatchingWindowInSeconds,
+		TumblingWindowInSeconds:             input.TumblingWindowInSeconds,
+		MaximumRecordAgeInSeconds:           input.MaximumRecordAgeInSeconds,
+		MaximumRetryAttempts:                input.MaximumRetryAttempts,
+		ParallelizationFactor:               input.ParallelizationFactor,
+		BisectBatchOnFunctionError:          input.BisectBatchOnFunctionError,
+		FunctionResponseTypes:               input.FunctionResponseTypes,
+	}
+
+	b.eventSourceMappings.Put(m)
+
+	if b.esmByFunctionARN[fnARN] == nil {
+		b.esmByFunctionARN[fnARN] = make(map[string]struct{})
+	}
+	b.esmByFunctionARN[fnARN][id] = struct{}{}
+
+	if input.Enabled && b.kinesisPoller != nil {
+		b.kinesisPoller.Notify()
+	}
+
+	return m, nil
+}
+
+// GetEventSourceMapping retrieves an event source mapping by UUID.
+func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMapping, error) {
+	b.mu.RLock("GetEventSourceMapping")
+	defer b.mu.RUnlock()
+
+	m, ok := b.eventSourceMappings.Get(uuid)
+	if !ok {
+		return nil, ErrESMNotFound
+	}
+
+	return m, nil
+}
+
+// ListEventSourceMappings returns a page of event source mappings, optionally filtered by function name.
+func (b *InMemoryBackend) ListEventSourceMappings(
+	functionName, eventSourceARN, marker string,
+	maxItems int,
+) page.Page[*EventSourceMapping] {
+	b.mu.RLock("ListEventSourceMappings")
+	defer b.mu.RUnlock()
+
+	var result []*EventSourceMapping
+
+	if functionName != "" {
+		fnARN := arn.Build(
+			"lambda",
+			b.region,
+			b.accountID,
+			"function:"+esmFunctionName(functionName),
+		)
+		ids := b.esmByFunctionARN[fnARN]
+		result = make([]*EventSourceMapping, 0, len(ids))
+		for id := range ids {
+			if m, ok := b.eventSourceMappings.Get(id); ok {
+				result = append(result, m)
+			}
+		}
+	} else {
+		result = b.eventSourceMappings.All()
+	}
+
+	// Apply optional EventSourceArn filter.
+	if eventSourceARN != "" {
+		filtered := result[:0]
+		for _, m := range result {
+			if m.EventSourceARN == eventSourceARN {
+				filtered = append(filtered, m)
+			}
+		}
+		result = filtered
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].UUID < result[j].UUID
+	})
+
+	return page.New(result, marker, maxItems, lambdaDefaultMaxItems)
+}
+
+// DeleteEventSourceMapping removes an event source mapping by UUID.
+func (b *InMemoryBackend) DeleteEventSourceMapping(id string) (*EventSourceMapping, error) {
+	b.mu.Lock("DeleteEventSourceMapping")
+	defer b.mu.Unlock()
+
+	m, ok := b.eventSourceMappings.Get(id)
+	if !ok {
+		return nil, ErrESMNotFound
+	}
+
+	b.eventSourceMappings.Delete(id)
+	if ids := b.esmByFunctionARN[m.FunctionARN]; ids != nil {
+		delete(ids, id)
+		if len(ids) == 0 {
+			delete(b.esmByFunctionARN, m.FunctionARN)
+		}
+	}
+	if b.kinesisPoller != nil {
+		b.kinesisPoller.RemoveMapping(id)
+	}
+
+	return m, nil
+}
+
+// applyESMUpdate patches esm fields from input (non-zero / non-nil values only).
+// Returns true if the mapping was enabled by this update.
+func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) bool {
+	var nowEnabled bool
+
+	if input.Enabled != nil {
+		if *input.Enabled {
+			esm.State = ESMStateEnabled
+			nowEnabled = true
+		} else {
+			esm.State = ESMStateDisabled
+		}
+	}
+
+	if input.BatchSize > 0 {
+		esm.BatchSize = input.BatchSize
+	}
+
+	if input.FilterCriteria != nil {
+		esm.FilterCriteria = input.FilterCriteria
+	}
+
+	if input.DestinationConfig != nil {
+		esm.DestinationConfig = input.DestinationConfig
+	}
+
+	if input.BisectBatchOnFunctionError != nil {
+		esm.BisectBatchOnFunctionError = *input.BisectBatchOnFunctionError
+	}
+
+	applyESMWindowFields(esm, input)
+	applyESMSourceFields(esm, input)
+
+	esm.LastModified = time.Now()
+
+	return nowEnabled
+}
+
+// applyESMWindowFields applies the windowing / retry fields from input.
+func applyESMWindowFields(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) {
+	if input.MaximumBatchingWindowInSeconds > 0 {
+		esm.MaximumBatchingWindowInSeconds = input.MaximumBatchingWindowInSeconds
+	}
+
+	if input.TumblingWindowInSeconds > 0 {
+		esm.TumblingWindowInSeconds = input.TumblingWindowInSeconds
+	}
+
+	if input.MaximumRecordAgeInSeconds > 0 {
+		esm.MaximumRecordAgeInSeconds = input.MaximumRecordAgeInSeconds
+	}
+
+	if input.MaximumRetryAttempts > 0 {
+		esm.MaximumRetryAttempts = input.MaximumRetryAttempts
+	}
+
+	if input.ParallelizationFactor > 0 {
+		esm.ParallelizationFactor = input.ParallelizationFactor
+	}
+}
+
+// applyESMSourceFields applies source-access, topics, queues, and response types from input.
+func applyESMSourceFields(esm *EventSourceMapping, input *UpdateEventSourceMappingInput) {
+	if len(input.SourceAccessConfigurations) > 0 {
+		esm.SourceAccessConfigurations = input.SourceAccessConfigurations
+	}
+
+	if len(input.Topics) > 0 {
+		esm.Topics = input.Topics
+	}
+
+	if len(input.Queues) > 0 {
+		esm.Queues = input.Queues
+	}
+
+	if len(input.FunctionResponseTypes) > 0 {
+		esm.FunctionResponseTypes = input.FunctionResponseTypes
+	}
+}
+
+// UpdateEventSourceMapping updates an existing event source mapping.
+func (b *InMemoryBackend) UpdateEventSourceMapping(
+	id string,
+	input *UpdateEventSourceMappingInput,
+) (*EventSourceMapping, error) {
+	b.mu.Lock("UpdateEventSourceMapping")
+
+	esm, ok := b.eventSourceMappings.Get(id)
+	if !ok {
+		b.mu.Unlock()
+
+		return nil, ErrESMNotFound
+	}
+
+	nowEnabled := applyESMUpdate(esm, input)
+
+	poller := b.kinesisPoller
+	b.mu.Unlock()
+
+	if nowEnabled && poller != nil {
+		poller.Notify()
+	}
+
+	return esm, nil
 }

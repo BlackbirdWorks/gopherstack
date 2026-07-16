@@ -1,6 +1,7 @@
 package ecs
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -52,6 +53,20 @@ type SubmitContainerStateChangeInput struct {
 	Status          string           `json:"status,omitempty"`
 	Task            string           `json:"task,omitempty"`
 	NetworkBindings []NetworkBinding `json:"networkBindings,omitempty"`
+}
+
+// DiscoverPollEndpoint returns the ECS agent poll, Service Connect, and telemetry
+// endpoints for the configured region. Real ECS agents use this to discover which
+// regional endpoint to poll for task state updates.
+func (b *InMemoryBackend) DiscoverPollEndpoint() (string, string, string) {
+	b.mu.RLock("DiscoverPollEndpoint")
+	defer b.mu.RUnlock()
+
+	base := fmt.Sprintf("ecs-a-1.%s.amazonaws.com", b.region)
+
+	return fmt.Sprintf("https://%s/", base),
+		fmt.Sprintf("https://ecs-a-1.svc.%s.amazonaws.com/", b.region),
+		fmt.Sprintf("https://ecs-t-1.%s.amazonaws.com/", b.region)
 }
 
 // resolveTaskInClusterLocked finds a task within clusterTasks by full ARN or by

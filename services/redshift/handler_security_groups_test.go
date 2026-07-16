@@ -267,3 +267,140 @@ func TestRedshiftBackend_SecurityGroupCount(t *testing.T) {
 		"&ClusterSecurityGroupName=count-sg")
 	require.Equal(t, 0, redshift.SecurityGroupCount(b))
 }
+
+// ---- AuthorizeClusterSecurityGroupIngress ----
+
+func TestHandler_AuthorizeClusterSecurityGroupIngress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend)
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success_cidr",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{
+					ClusterSecurityGroupName: "my-sg",
+					Description:              "test sg",
+				})
+			},
+			body: "Action=AuthorizeClusterSecurityGroupIngress&Version=2012-12-01" +
+				"&ClusterSecurityGroupName=my-sg&CIDRIP=10.0.0.0%2F8",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AuthorizeClusterSecurityGroupIngressResponse", "10.0.0.0/8"},
+		},
+		{
+			name: "success_ec2_sg",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{
+					ClusterSecurityGroupName: "my-sg2",
+				})
+			},
+			body: "Action=AuthorizeClusterSecurityGroupIngress&Version=2012-12-01" +
+				"&ClusterSecurityGroupName=my-sg2&EC2SecurityGroupName=sg-12345&EC2SecurityGroupOwnerId=111111111111",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AuthorizeClusterSecurityGroupIngressResponse", "sg-12345"},
+		},
+		{
+			name:         "missing_group_name",
+			body:         "Action=AuthorizeClusterSecurityGroupIngress&Version=2012-12-01&CIDRIP=10.0.0.0/8",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "missing_cidr_and_ec2_sg",
+			body:         "Action=AuthorizeClusterSecurityGroupIngress&Version=2012-12-01&ClusterSecurityGroupName=my-sg",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "security_group_not_found",
+			body: "Action=AuthorizeClusterSecurityGroupIngress&Version=2012-12-01" +
+				"&ClusterSecurityGroupName=nonexistent&CIDRIP=10.0.0.1/32",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ClusterSecurityGroupNotFound"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			h := redshift.NewHandler(b)
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postRedshiftForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+// ---- AuthorizeClusterSecurityGroupIngress: missing both CIDRIP and EC2GroupName ----
+
+func TestAuthorizeClusterSecurityGroupIngress_MissingBothParams(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	h := redshift.NewHandler(b)
+
+	b.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{ClusterSecurityGroupName: "sg-test"})
+
+	rec := postRedshiftForm(t, h,
+		"Action=AuthorizeClusterSecurityGroupIngress&Version=2012-12-01"+
+			"&ClusterSecurityGroupName=sg-test")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+// ---- AuthorizeClusterSecurityGroupIngress: security group not found ----
+
+func TestAuthorizeClusterSecurityGroupIngress_SGNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	rec := postRedshiftForm(t, h,
+		"Action=AuthorizeClusterSecurityGroupIngress&Version=2012-12-01"+
+			"&ClusterSecurityGroupName=nonexistent"+
+			"&CIDRIP=10.0.0.0/8")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ClusterSecurityGroupNotFound")
+}
+
+// ---- AuthorizeClusterSecurityGroupIngress: EC2 security group ----
+
+func TestAuthorizeClusterSecurityGroupIngress_EC2Group(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	h := redshift.NewHandler(b)
+
+	b.AddSecurityGroupInternal(&redshift.ClusterSecurityGroup{
+		ClusterSecurityGroupName: "ec2-sg-test",
+		Description:              "Test security group",
+	})
+
+	rec := postRedshiftForm(t, h,
+		"Action=AuthorizeClusterSecurityGroupIngress&Version=2012-12-01"+
+			"&ClusterSecurityGroupName=ec2-sg-test"+
+			"&EC2SecurityGroupName=sg-abc123"+
+			"&EC2SecurityGroupOwnerId=999888777666")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "AuthorizeClusterSecurityGroupIngressResponse")
+	assert.Contains(t, body, "sg-abc123")
+	assert.Contains(t, body, "authorized")
+}

@@ -110,46 +110,90 @@ func (h *Handler) Name() string {
 	return "EC2"
 }
 
-// GetSupportedOperations returns the list of supported EC2 operations.
-//
-//nolint:funlen
-func (h *Handler) GetSupportedOperations() []string {
-	extOps := append(deepDiveSupportedOperations(), refinement2SupportedOperations()...)
-	extOps = append(extOps, refinement3SupportedOperations()...)
-	extOps = append(extOps, networking1SupportedOperations()...)
-	extOps = append(extOps, advancedNetworkingSupportedOperations()...)
-	extOps = append(extOps, ipamDiscoverySupportedOperations()...)
-	extOps = append(extOps, ipamPolicySupportedOperations()...)
-	extOps = append(extOps, ec2CoreSupportedOperations()...)
-	extOps = append(extOps, spotFleetSupportedOperations()...)
-	extOps = append(extOps, batch1SupportedOperations()...)
-	extOps = append(extOps, batch2SupportedOperations()...)
-	extOps = append(extOps, batch3SupportedOperations()...)
-	extOps = append(extOps, batch4SupportedOperations()...)
-	extOps = append(extOps, localGatewaySupportedOperations()...)
-	extOps = append(extOps, tgwMulticastSupportedOperations()...)
-	extOps = append(extOps, tgwPeripheralsSupportedOperations()...)
-	extOps = append(extOps, vpcConfigSupportedOperations()...)
-	extOps = append(extOps, verifiedAccessExtSupportedOperations()...)
-	extOps = append(extOps, fpgaImageSupportedOperations()...)
-	extOps = append(extOps, scheduledInstanceSupportedOperations()...)
-	extOps = append(extOps, ipPoolSupportedOperations()...)
-	extOps = append(extOps, vmImportExportSupportedOperations()...)
-	extOps = append(extOps, trunkEnclaveSupportedOperations()...)
-	extOps = append(extOps, imageOpsSupportedOperations()...)
-	extOps = append(extOps, macHostSupportedOperations()...)
-	extOps = append(extOps, secondaryNetSupportedOperations()...)
-	extOps = append(extOps, instanceAttrSupportedOperations()...)
-	extOps = append(extOps, sqlHaSupportedOperations()...)
-	extOps = append(extOps, vpcEncryptionControlSupportedOperations()...)
-	extOps = append(extOps, vpnConcentratorSupportedOperations()...)
-	extOps = append(extOps, hostReservationSupportedOperations()...)
-	extOps = append(extOps, declarativePoliciesSupportedOperations()...)
-	extOps = append(extOps, networkPerformanceSupportedOperations()...)
-	extOps = append(extOps, stubSupportedOperations()...)
-	extOps = append(extOps, parityFinalSupportedOperations()...)
+// extSupportedOperationsProviders lists every op-family "supported
+// operations" function contributing extra (non-core) operation names to
+// GetSupportedOperations(). Keeping this as a local slice literal (built
+// inside aggregateExtSupportedOperations) rather than one long chain of
+// append calls keeps GetSupportedOperations itself short.
+func aggregateExtSupportedOperations() []string {
+	providers := []func() []string{
+		deepDiveSupportedOperations,
+		networking1SupportedOperations,
+		advancedNetworkingSupportedOperations,
+		ipamDiscoverySupportedOperations,
+		ipamPolicySupportedOperations,
+		ec2CoreSupportedOperations,
+		spotFleetSupportedOperations,
+		volumesSupportedOperations,
+		snapshotsSupportedOperations,
+		vpcsSupportedOperations,
+		subnetsSupportedOperations,
+		securityGroupsSupportedOperations,
+		elasticIpsSupportedOperations,
+		instancesSupportedOperations,
+		networkInterfacesSupportedOperations,
+		accountAttrsSupportedOperations,
+		vpcEndpointsSupportedOperations,
+		natGatewaysSupportedOperations,
+		imagesSupportedOperations,
+		transitGatewaysSupportedOperations,
+		capacityFamilySupportedOperations,
+		routeTablesSupportedOperations,
+		vpnConnectionsSupportedOperations,
+		prefixListsSupportedOperations,
+		clientVpnSupportedOperations,
+		transitGatewayPeeringSupportedOperations,
+		verifiedAccessSupportedOperations,
+		networkAclsSupportedOperations,
+		launchTemplatesSupportedOperations,
+		keyPairsSupportedOperations,
+		networkInsightsSupportedOperations,
+		flowLogsSupportedOperations,
+		localGatewaySupportedOperations,
+		tgwMulticastSupportedOperations,
+		tgwPeripheralsSupportedOperations,
+		vpcConfigSupportedOperations,
+		verifiedAccessExtSupportedOperations,
+		fpgaImageSupportedOperations,
+		scheduledInstanceSupportedOperations,
+		ipPoolSupportedOperations,
+		vmImportExportSupportedOperations,
+		trunkEnclaveSupportedOperations,
+		imageOpsSupportedOperations,
+		macHostSupportedOperations,
+		secondaryNetSupportedOperations,
+		instanceAttrSupportedOperations,
+		sqlHaSupportedOperations,
+		vpcEncryptionControlSupportedOperations,
+		vpnConcentratorSupportedOperations,
+		hostReservationSupportedOperations,
+		declarativePoliciesSupportedOperations,
+		networkPerformanceSupportedOperations,
+		stubSupportedOperations,
+	}
 
-	return append([]string{
+	// avgOpsPerFamily is a rough preallocation estimate (actual per-family
+	// counts vary from 1 to ~30) to avoid repeated slice growth.
+	const avgOpsPerFamily = 10
+
+	extOps := make([]string, 0, len(providers)*avgOpsPerFamily)
+	for _, supportedOps := range providers {
+		extOps = append(extOps, supportedOps()...)
+	}
+
+	return extOps
+}
+
+// GetSupportedOperations returns the list of supported EC2 operations.
+func (h *Handler) GetSupportedOperations() []string {
+	return append(coreSupportedOperations(), aggregateExtSupportedOperations()...)
+}
+
+// coreSupportedOperations returns the static baseline of operation names
+// implemented directly by buildCoreOps, before any op-family extensions are
+// appended by GetSupportedOperations.
+func coreSupportedOperations() []string {
+	return []string{
 		"RunInstances",
 		"DescribeInstances",
 		"TerminateInstances",
@@ -246,7 +290,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeHosts",
 		"DescribeVpcPeeringConnections",
 		"CreateFleet",
-	}, extOps...)
+	}
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -397,54 +441,87 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type ec2ActionFn func(vals url.Values, reqID string) (any, error)
 
+// opRegistrars lists every op-family registration function, in the exact
+// order buildOps must call them: several later entries (registerInstanceAttrOps,
+// registerAdvancedNetworkingOps, registerSpotFleetOps) intentionally override
+// stub entries registered earlier, so this order must be preserved.
+func (h *Handler) opRegistrars() []func(*Handler, map[string]ec2ActionFn) {
+	return []func(*Handler, map[string]ec2ActionFn){
+		registerDeepDiveOps,
+		registerAcceptAndAdvancedOps,
+		registerNetworking1Ops,
+		registerEC2CoreOps,
+		registerVolumesOps,
+		registerSnapshotsOps,
+		registerVpcsOps,
+		registerSubnetsOps,
+		registerSecurityGroupsOps,
+		registerElasticIpsOps,
+		registerInstancesOps,
+		registerNetworkInterfacesOps,
+		registerAccountAttrsOps,
+		registerVpcEndpointsOps,
+		registerNatGatewaysOps,
+		registerImagesOps,
+		registerTransitGatewaysOps,
+		registerRouteTablesOps,
+		registerVpnConnectionsOps,
+		registerPrefixListsOps,
+		registerClientVpnOps,
+		registerTransitGatewayPeeringOps,
+		registerVerifiedAccessOps,
+		registerNetworkAclsOps,
+		registerLaunchTemplatesOps,
+		registerKeyPairsOps,
+		registerNetworkInsightsOps,
+		registerFlowLogsOps,
+		registerByoipOps,
+		registerCarrierGatewaysOps,
+		registerFleetOps,
+		registerReservedInstancesOps,
+		registerTrafficMirrorOps,
+		registerRouteServerOps,
+		registerLocalGatewayOps,
+		registerTGWMulticastOps,
+		registerTGWPeripheralsOps,
+		registerVpcConfigOps,
+		registerCapacityFamilyOps,
+		registerVerifiedAccessExtOps,
+		registerFpgaImageOps,
+		registerScheduledInstanceOps,
+		registerIPPoolOps,
+		registerVMImportExportOps,
+		registerTrunkEnclaveOps,
+		registerImageOpsHandlers,
+		registerMacHostOps,
+		registerSecondaryNetOps,
+		// registerInstanceAttrOps supplies the real implementations for the instance-modify
+		// and event-window-association operations that origin/parity-sweep-2's now-removed
+		// handler_audit.go duplicated (ModifyInstancePlacement, ModifyInstanceCpuOptions,
+		// ModifyInstanceMaintenanceOptions, ModifyInstanceNetworkPerformanceOptions,
+		// AssociateInstanceEventWindow) plus several more; see handler_instance_attrs.go.
+		registerInstanceAttrOps,
+		registerSQLHaOps,
+		registerVpcEncryptionControlOps,
+		registerVpnConcentratorOps,
+		registerHostReservationOps,
+		registerDeclarativePoliciesOps,
+		registerNetworkPerformanceOps,
+		// registerAdvancedNetworkingOps must run last to override stub entries.
+		registerAdvancedNetworkingOps,
+		registerIpamDiscoveryOps,
+		registerIpamPolicyOps,
+		// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
+		registerSpotFleetOps,
+	}
+}
+
 func (h *Handler) buildOps() map[string]ec2ActionFn {
 	ops := h.buildCoreOps()
 
-	registerDeepDiveOps(h, ops)
-	registerAcceptAndAdvancedOps(h, ops)
-	registerRefinement2Ops(h, ops)
-	registerRefinement3Ops(h, ops)
-	registerNetworking1Ops(h, ops)
-	registerEC2CoreOps(h, ops)
-	registerBatch1Ops(h, ops)
-	registerBatch2Ops(h, ops)
-	registerBatch3Ops(h, ops)
-	registerBatch4Ops(h, ops)
-	registerBatch5Ops(h, ops)
-	registerRouteServerOps(h, ops)
-	registerLocalGatewayOps(h, ops)
-	registerTGWMulticastOps(h, ops)
-	registerTGWPeripheralsOps(h, ops)
-	registerVpcConfigOps(h, ops)
-	registerCapacityFamilyOps(h, ops)
-	registerVerifiedAccessExtOps(h, ops)
-	registerFpgaImageOps(h, ops)
-	registerScheduledInstanceOps(h, ops)
-	registerIPPoolOps(h, ops)
-	registerVMImportExportOps(h, ops)
-	registerTrunkEnclaveOps(h, ops)
-	registerImageOpsHandlers(h, ops)
-	registerMacHostOps(h, ops)
-	registerSecondaryNetOps(h, ops)
-	// registerInstanceAttrOps supplies the real implementations for the instance-modify
-	// and event-window-association operations that origin/parity-sweep-2's now-removed
-	// handler_audit.go duplicated (ModifyInstancePlacement, ModifyInstanceCpuOptions,
-	// ModifyInstanceMaintenanceOptions, ModifyInstanceNetworkPerformanceOptions,
-	// AssociateInstanceEventWindow) plus several more; see handler_instance_attrs.go.
-	registerInstanceAttrOps(h, ops)
-	registerSQLHaOps(h, ops)
-	registerVpcEncryptionControlOps(h, ops)
-	registerVpnConcentratorOps(h, ops)
-	registerHostReservationOps(h, ops)
-	registerDeclarativePoliciesOps(h, ops)
-	registerNetworkPerformanceOps(h, ops)
-	registerParityFinalOps(h, ops)
-	// registerAdvancedNetworkingOps must run last to override stub entries.
-	registerAdvancedNetworkingOps(h, ops)
-	registerIpamDiscoveryOps(h, ops)
-	registerIpamPolicyOps(h, ops)
-	// registerSpotFleetOps overrides stub spot fleet handlers with real implementations.
-	registerSpotFleetOps(h, ops)
+	for _, register := range h.opRegistrars() {
+		register(h, ops)
+	}
 
 	return ops
 }

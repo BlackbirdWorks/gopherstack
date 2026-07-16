@@ -1,0 +1,198 @@
+package iot_test
+
+import (
+	"net/http"
+	"testing"
+
+	"github.com/blackbirdworks/gopherstack/services/iot"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestNewOps_RoleAlias tests RoleAlias CRUD.
+func TestRoleAlias(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandlerBatch1(t)
+
+	// CreateRoleAlias
+	out := iotOK(t, h, http.MethodPost, "/role-aliases/my-alias", map[string]any{
+		"roleArn":                   "arn:aws:iam::000000000000:role/MyRole",
+		"credentialDurationSeconds": 3600,
+	})
+	if out["roleAlias"] != "my-alias" {
+		t.Errorf("roleAlias mismatch: %v", out)
+	}
+
+	// DescribeRoleAlias
+	out2 := iotOK(t, h, http.MethodGet, "/role-aliases/my-alias", nil)
+	desc, _ := out2["roleAliasDescription"].(map[string]any)
+	if desc["roleAlias"] != "my-alias" {
+		t.Errorf("describe role alias mismatch: %v", out2)
+	}
+
+	// ListRoleAliases
+	out3 := iotOK(t, h, http.MethodGet, "/role-aliases", nil)
+	aliases, _ := out3["roleAliases"].([]any)
+	if len(aliases) != 1 {
+		t.Errorf("expected 1 alias, got %d", len(aliases))
+	}
+
+	// UpdateRoleAlias
+	iotOK(t, h, http.MethodPut, "/role-aliases/my-alias", map[string]any{
+		"roleArn": "arn:aws:iam::000000000000:role/UpdatedRole",
+	})
+
+	// DeleteRoleAlias
+	iotOK(t, h, http.MethodDelete, "/role-aliases/my-alias", nil)
+
+	iotExpectError(t, h, "/role-aliases/my-alias")
+}
+
+// TestNewOps_DomainConfiguration tests DomainConfiguration CRUD.
+func TestDomainConfiguration(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandlerBatch1(t)
+
+	// CreateDomainConfiguration
+	out := iotOK(t, h, http.MethodPost, "/domainConfigurations/my-config", map[string]any{
+		"serviceType": "DATA",
+	})
+	if out["domainConfigurationName"] != "my-config" {
+		t.Errorf("name mismatch: %v", out)
+	}
+
+	// DescribeDomainConfiguration
+	out2 := iotOK(t, h, http.MethodGet, "/domainConfigurations/my-config", nil)
+	if out2["domainConfigurationName"] != "my-config" {
+		t.Errorf("describe mismatch: %v", out2)
+	}
+
+	// ListDomainConfigurations
+	out3 := iotOK(t, h, http.MethodGet, "/domainConfigurations", nil)
+	configs, _ := out3["domainConfigurations"].([]any)
+	if len(configs) != 1 {
+		t.Errorf("expected 1 config, got %d", len(configs))
+	}
+
+	// UpdateDomainConfiguration
+	iotOK(t, h, http.MethodPut, "/domainConfigurations/my-config", map[string]any{
+		"domainConfigurationStatus": "DISABLED",
+	})
+
+	// DeleteDomainConfiguration
+	iotOK(t, h, http.MethodDelete, "/domainConfigurations/my-config", nil)
+
+	iotExpectError(t, h, "/domainConfigurations/my-config")
+}
+
+// TestNewOps_ProvisioningTemplate tests ProvisioningTemplate CRUD.
+func TestProvisioningTemplate(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandlerBatch1(t)
+
+	// CreateProvisioningTemplate
+	out := iotOK(t, h, http.MethodPost, "/provisioning-templates", map[string]any{
+		"templateName": "my-template",
+		"templateBody": `{"Parameters":{}}`,
+		"enabled":      true,
+	})
+	if out["templateName"] != "my-template" {
+		t.Errorf("templateName mismatch: %v", out)
+	}
+
+	// DescribeProvisioningTemplate
+	out2 := iotOK(t, h, http.MethodGet, "/provisioning-templates/my-template", nil)
+	if out2["templateName"] != "my-template" {
+		t.Errorf("describe mismatch: %v", out2)
+	}
+
+	// ListProvisioningTemplates
+	out3 := iotOK(t, h, http.MethodGet, "/provisioning-templates", nil)
+	templates, _ := out3["templates"].([]any)
+	if len(templates) != 1 {
+		t.Errorf("expected 1 template, got %d", len(templates))
+	}
+
+	// CreateProvisioningTemplateVersion
+	out4 := iotOK(
+		t,
+		h,
+		http.MethodPost,
+		"/provisioning-templates/my-template/versions",
+		map[string]any{
+			"templateBody": `{"Parameters":{"v2":{}}}`,
+		},
+	)
+	if out4["templateName"] != "my-template" {
+		t.Errorf("version templateName mismatch: %v", out4)
+	}
+
+	// ListProvisioningTemplateVersions
+	out5 := iotOK(t, h, http.MethodGet, "/provisioning-templates/my-template/versions", nil)
+	versions, _ := out5["versions"].([]any)
+	if len(versions) != 2 {
+		t.Errorf("expected 2 versions, got %d", len(versions))
+	}
+
+	// UpdateProvisioningTemplate
+	iotOK(t, h, http.MethodPatch, "/provisioning-templates/my-template", map[string]any{
+		"description": "updated",
+	})
+
+	// DeleteProvisioningTemplateVersion
+	iotOK(t, h, http.MethodDelete, "/provisioning-templates/my-template/versions/2", nil)
+
+	// DeleteProvisioningTemplate
+	iotOK(t, h, http.MethodDelete, "/provisioning-templates/my-template", nil)
+
+	iotExpectError(t, h, "/provisioning-templates/my-template")
+}
+
+func TestDescribeProvisioningTemplateVersion(t *testing.T) {
+	t.Parallel()
+
+	t.Run("round_trip", func(t *testing.T) {
+		t.Parallel()
+
+		h, b := newRefHandler()
+
+		_, err := b.CreateProvisioningTemplate(&iot.CreateProvisioningTemplateInput{
+			TemplateName: "tmpl1",
+			TemplateBody: `{"Version":"2020-01-01"}`,
+		})
+		require.NoError(t, err)
+
+		v, err := b.CreateProvisioningTemplateVersion("tmpl1", `{"Version":"2020-01-01","v":2}`)
+		require.NoError(t, err)
+
+		rec := doRefRequest(t, h, http.MethodGet,
+			"/provisioning-templates/tmpl1/versions/"+itoa(v.VersionID), nil, nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), `"versionId":2`)
+		assert.Contains(t, rec.Body.String(), `2020-01-01`)
+	})
+
+	t.Run("unknown_template_404", func(t *testing.T) {
+		t.Parallel()
+
+		h, _ := newRefHandler()
+
+		rec := doRefRequest(t, h, http.MethodGet, "/provisioning-templates/no-such/versions/1", nil, nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+
+	t.Run("unknown_version_404", func(t *testing.T) {
+		t.Parallel()
+
+		h, b := newRefHandler()
+
+		_, err := b.CreateProvisioningTemplate(&iot.CreateProvisioningTemplateInput{
+			TemplateName: "tmpl2",
+			TemplateBody: `{}`,
+		})
+		require.NoError(t, err)
+
+		rec := doRefRequest(t, h, http.MethodGet, "/provisioning-templates/tmpl2/versions/999", nil, nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+}

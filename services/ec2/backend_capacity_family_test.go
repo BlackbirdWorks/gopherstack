@@ -420,3 +420,106 @@ func TestCapacityFamily_SnapshotRestoreRoundTrip(t *testing.T) {
 	assert.Equal(t, "enabled", attrs.Status)
 	assert.True(t, attrs.OrganizationsAccess)
 }
+
+func TestParityFinal_InterruptibleCapacityReservationAllocation(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	require.NoError(t, err)
+
+	alloc, err := b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 4)
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), alloc.TargetInstanceCount)
+	assert.Equal(t, "active", alloc.Status)
+
+	crs := b.DescribeCapacityReservations([]string{cr.CapacityReservationID})
+	require.Len(t, crs, 1)
+	assert.Equal(t, 6, crs[0].AvailableInstanceCount)
+
+	updated, err := b.UpdateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 6)
+	require.NoError(t, err)
+	assert.Equal(t, int32(6), updated.TargetInstanceCount)
+
+	crs = b.DescribeCapacityReservations([]string{cr.CapacityReservationID})
+	require.Len(t, crs, 1)
+	assert.Equal(t, 4, crs[0].AvailableInstanceCount)
+
+	_, err = b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 100)
+	require.ErrorIs(t, err, ec2.ErrCapacityReservationFull)
+
+	_, err = b.UpdateInterruptibleCapacityReservationAllocation("cr-missing", 1)
+	require.ErrorIs(t, err, ec2.ErrCapacityReservationNotFound)
+
+	_, err = b.CreateInterruptibleCapacityReservationAllocation("cr-missing", 1)
+	require.ErrorIs(t, err, ec2.ErrCapacityReservationNotFound)
+}
+
+func TestParityFinal_UpdateInterruptibleAllocationNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	require.NoError(t, err)
+
+	_, err = b.UpdateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 5)
+	require.ErrorIs(t, err, ec2.ErrInterruptibleAllocationNotFound)
+}
+
+func TestParityFinal_GetCapacityReservationUsage(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	require.NoError(t, err)
+
+	instances, err := b.RunInstances("ami-test", "m5.large", "", 2)
+	require.NoError(t, err)
+
+	for _, inst := range instances {
+		_, modErr := b.ModifyInstanceCapacityReservationAttributes(inst.ID, "open", cr.CapacityReservationID, "")
+		require.NoError(t, modErr)
+	}
+
+	usage, err := b.GetCapacityReservationUsage(cr.CapacityReservationID)
+	require.NoError(t, err)
+	assert.Equal(t, cr.CapacityReservationID, usage.CapacityReservationID)
+	require.Len(t, usage.InstanceUsages, 1)
+	assert.Equal(t, int32(2), usage.InstanceUsages[0].UsedInstanceCount)
+	assert.False(t, usage.Interruptible)
+
+	_, err = b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 3)
+	require.NoError(t, err)
+
+	usage, err = b.GetCapacityReservationUsage(cr.CapacityReservationID)
+	require.NoError(t, err)
+	assert.True(t, usage.Interruptible)
+	require.NotNil(t, usage.InterruptibleAllocation)
+	assert.Equal(t, int32(3), usage.InterruptibleAllocation.TargetInstanceCount)
+
+	_, err = b.GetCapacityReservationUsage("cr-missing")
+	require.ErrorIs(t, err, ec2.ErrCapacityReservationNotFound)
+}
+
+func TestParityFinal_DescribeCapacityReservationTopology(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	require.NoError(t, err)
+
+	topo := b.DescribeCapacityReservationTopology([]string{cr.CapacityReservationID})
+	require.Len(t, topo, 1)
+	assert.Equal(t, cr.CapacityReservationID, topo[0].CapacityReservationID)
+	assert.Equal(t, "m5.large", topo[0].InstanceType)
+	assert.Equal(t, "us-east-1a", topo[0].AvailabilityZone)
+
+	all := b.DescribeCapacityReservationTopology(nil)
+	assert.NotEmpty(t, all)
+}
+
+// ---- Address / VPC endpoint / NAT gateway misc ----

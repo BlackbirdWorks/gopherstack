@@ -209,3 +209,50 @@ type getReservedNodeExchangeConfigurationOptionsResponse struct {
 func (h *Handler) handleGetReservedNodeExchangeConfigurationOptions(_ url.Values) (any, error) {
 	return &getReservedNodeExchangeConfigurationOptionsResponse{Xmlns: redshiftXMLNS}, nil
 }
+
+// ---- AcceptReservedNodeExchange ----
+
+type xmlReservedNode struct {
+	ReservedNodeID         string  `xml:"ReservedNodeId"`
+	ReservedNodeOfferingID string  `xml:"ReservedNodeOfferingId"`
+	NodeType               string  `xml:"NodeType"`
+	CurrencyCode           string  `xml:"CurrencyCode"`
+	State                  string  `xml:"State"`
+	OfferingType           string  `xml:"OfferingType"`
+	Duration               int     `xml:"Duration"`
+	FixedPrice             float64 `xml:"FixedPrice"`
+	UsagePrice             float64 `xml:"UsagePrice"`
+	NodeCount              int     `xml:"NodeCount"`
+}
+
+type acceptReservedNodeExchangeResponse struct {
+	XMLName       xml.Name        `xml:"AcceptReservedNodeExchangeResponse"`
+	Xmlns         string          `xml:"xmlns,attr"`
+	ExchangedNode xmlReservedNode `xml:"AcceptReservedNodeExchangeResult>ExchangedReservedNode"`
+}
+
+func (h *Handler) handleAcceptReservedNodeExchange(vals url.Values) (any, error) {
+	reservedNodeID := vals.Get("ReservedNodeId")
+	targetOfferingID := vals.Get("TargetReservedNodeOfferingId")
+
+	node, err := h.Backend.AcceptReservedNodeExchange(reservedNodeID, targetOfferingID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &acceptReservedNodeExchangeResponse{
+		Xmlns: redshiftXMLNS,
+		ExchangedNode: xmlReservedNode{
+			ReservedNodeID:         node.ReservedNodeID,
+			ReservedNodeOfferingID: node.ReservedNodeOfferingID,
+			NodeType:               node.NodeType,
+			Duration:               node.Duration,
+			FixedPrice:             node.FixedPrice,
+			UsagePrice:             node.UsagePrice,
+			CurrencyCode:           node.CurrencyCode,
+			NodeCount:              node.NodeCount,
+			State:                  node.State,
+			OfferingType:           node.OfferingType,
+		},
+	}, nil
+}

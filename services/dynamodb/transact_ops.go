@@ -84,14 +84,27 @@ func (db *InMemoryDB) executeTransactWrite(
 	if lockErr != nil {
 		return nil, lockErr
 	}
-	tablesLocked := true
-	defer func() {
-		if tablesLocked {
-			for _, t := range tables {
-				t.mu.Unlock()
-			}
+
+	// released guards against double-unlocking: the table locks are released
+	// explicitly (see below) as soon as every table.mu-protected read/write is
+	// done, strictly BEFORE db.mu is ever acquired for the token commit — this
+	// backend's lock order is always db.mu -> table.mu, and inverting it here
+	// (table.mu held while acquiring db.mu) is a real ABBA deadlock against
+	// any db.mu-then-table.mu reader such as TaggedTables/ListContributorInsights
+	// (store.go/extra_ops.go hold db.mu.RLock for their whole body while
+	// nested-RLocking each table.mu). The deferred call remains as a safety
+	// net so an early return (or a future panic) still releases the locks.
+	released := false
+	releaseTables := func() {
+		if released {
+			return
 		}
-	}()
+		released = true
+		for _, t := range tables {
+			t.mu.Unlock()
+		}
+	}
+	defer releaseTables()
 
 	// Pre-phase: validate duplicate keys and total size.
 	if dupErr := validateTransactWriteItems(input.TransactItems, tables); dupErr != nil {
@@ -120,20 +133,27 @@ func (db *InMemoryDB) executeTransactWrite(
 		return nil, writeErr
 	}
 
-	// Unlock all tables before taking db.mu to avoid lock inversion (e.g. with DeleteTable)
-	for _, t := range tables {
-		t.mu.Unlock()
-	}
-	tablesLocked = false
+	payloads := db.collectTransactReplicationPayloads(tables, region, input.TransactItems)
 
-	// Record token as committed only after all writes have been applied.
+	// Release the table locks before ever touching db.mu (see releaseTables'
+	// doc above), then record the token as committed now that all writes have
+	// been applied.
+	releaseTables()
+
 	if token != "" {
-		db.mu.Lock("TransactWriteItems.tokenCommit")
-		db.txnTokens[token] = time.Now().Add(txnTokenTTL)
-		db.mu.Unlock()
+		commitTransactTokenLocked(db, token)
 	}
 
-	return db.collectTransactReplicationPayloads(tables, region, input.TransactItems), nil
+	return payloads, nil
+}
+
+// commitTransactTokenLocked records token as committed (with its TTL expiry)
+// under a defer-protected db.mu.Lock.
+func commitTransactTokenLocked(db *InMemoryDB, token string) {
+	db.mu.Lock("TransactWriteItems.tokenCommit")
+	defer db.mu.Unlock()
+
+	db.txnTokens[token] = time.Now().Add(txnTokenTTL)
 }
 
 // transactReplicationPayload holds the data needed to replicate a single committed
@@ -230,15 +250,7 @@ func (db *InMemoryDB) checkTransactToken(
 		return false, nil, noop, nil
 	}
 
-	var committed, inProgress bool
-	db.mu.Lock("TransactWriteItems.tokenCheck")
-	expiry, exists := db.txnTokens[token]
-	committed = exists && time.Now().Before(expiry)
-	_, inProgress = db.txnPending[token]
-	if !committed && !inProgress {
-		db.txnPending[token] = time.Now()
-	}
-	db.mu.Unlock()
+	committed, inProgress := checkAndMarkTransactTokenLocked(db, token)
 
 	switch {
 	case committed:
@@ -250,12 +262,37 @@ func (db *InMemoryDB) checkTransactToken(
 	}
 
 	cleanup := func() {
-		db.mu.Lock("TransactWriteItems.tokenCleanup")
-		delete(db.txnPending, token)
-		db.mu.Unlock()
+		deleteTransactPendingLocked(db, token)
 	}
 
 	return false, nil, cleanup, nil
+}
+
+// checkAndMarkTransactTokenLocked checks whether token is already committed or
+// in-progress and, if neither, marks it in-progress, all under a single
+// defer-protected db.mu.Lock (so the check-then-mark stays atomic).
+func checkAndMarkTransactTokenLocked(db *InMemoryDB, token string) (bool, bool) {
+	db.mu.Lock("TransactWriteItems.tokenCheck")
+	defer db.mu.Unlock()
+
+	expiry, exists := db.txnTokens[token]
+	committed := exists && time.Now().Before(expiry)
+	_, inProgress := db.txnPending[token]
+
+	if !committed && !inProgress {
+		db.txnPending[token] = time.Now()
+	}
+
+	return committed, inProgress
+}
+
+// deleteTransactPendingLocked removes token from db.txnPending under a
+// defer-protected db.mu.Lock.
+func deleteTransactPendingLocked(db *InMemoryDB, token string) {
+	db.mu.Lock("TransactWriteItems.tokenCleanup")
+	defer db.mu.Unlock()
+
+	delete(db.txnPending, token)
 }
 
 // applyTransactItems applies write items atomically, rolling back on any failure.
@@ -459,31 +496,44 @@ func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []stri
 	return names
 }
 
+// resolveTransactTablesRLocked resolves tableNames to their *Table pointers in
+// region under a defer-protected db.mu.RLock, using op as the lock's metrics
+// label. Returns ResourceNotFoundException if the region has no tables or any
+// name doesn't resolve.
+func (db *InMemoryDB) resolveTransactTablesRLocked(
+	region string,
+	tableNames []string,
+	op string,
+) (map[string]*Table, error) {
+	db.mu.RLock(op)
+	defer db.mu.RUnlock()
+
+	if len(db.tablesByRegion.Get(region)) == 0 {
+		return nil, NewResourceNotFoundException("Table not found in region " + region)
+	}
+
+	tables := make(map[string]*Table, len(tableNames))
+	for _, name := range tableNames {
+		t, ok := db.tables.Get(tableKey(region, name))
+		if !ok {
+			return nil, NewResourceNotFoundException("Table not found: " + name)
+		}
+		tables[name] = t
+	}
+
+	return tables, nil
+}
+
 func (db *InMemoryDB) lockTablesWrite(
 	ctx context.Context,
 	tableNames []string,
 ) (map[string]*Table, error) {
 	region := getRegionFromContext(ctx, db)
-	tables := make(map[string]*Table, len(tableNames))
 
-	db.mu.RLock("TransactWriteItems")
-
-	if len(db.tablesByRegion.Get(region)) == 0 {
-		db.mu.RUnlock()
-
-		return nil, NewResourceNotFoundException("Table not found in region " + region)
+	tables, err := db.resolveTransactTablesRLocked(region, tableNames, "TransactWriteItems")
+	if err != nil {
+		return nil, err
 	}
-
-	for _, name := range tableNames {
-		t, ok := db.tables.Get(tableKey(region, name))
-		if !ok {
-			db.mu.RUnlock()
-
-			return nil, NewResourceNotFoundException("Table not found: " + name)
-		}
-		tables[name] = t
-	}
-	db.mu.RUnlock()
 
 	for _, name := range tableNames {
 		tables[name].mu.Lock("TransactWriteItems")
@@ -497,26 +547,11 @@ func (db *InMemoryDB) lockTablesRead(
 	tableNames []string,
 ) (map[string]*Table, error) {
 	region := getRegionFromContext(ctx, db)
-	tables := make(map[string]*Table, len(tableNames))
 
-	db.mu.RLock("TransactGetItems")
-
-	if len(db.tablesByRegion.Get(region)) == 0 {
-		db.mu.RUnlock()
-
-		return nil, NewResourceNotFoundException("Table not found in region " + region)
+	tables, err := db.resolveTransactTablesRLocked(region, tableNames, "TransactGetItems")
+	if err != nil {
+		return nil, err
 	}
-
-	for _, name := range tableNames {
-		t, ok := db.tables.Get(tableKey(region, name))
-		if !ok {
-			db.mu.RUnlock()
-
-			return nil, NewResourceNotFoundException("Table not found: " + name)
-		}
-		tables[name] = t
-	}
-	db.mu.RUnlock()
 
 	for _, name := range tableNames {
 		tables[name].mu.RLock("TransactGetItems")

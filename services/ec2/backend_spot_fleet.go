@@ -2,8 +2,11 @@ package ec2
 
 import (
 	"fmt"
+	"hash/fnv"
 	"maps"
+	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -638,4 +641,215 @@ func (b *InMemoryBackend) appendFleetHistoryLocked(fleetID string, rec SpotFleet
 	}
 
 	b.spotFleetHistory[fleetID] = records
+}
+
+// SpotPriceRecord represents a single spot price history data point.
+type SpotPriceRecord struct {
+	Timestamp          time.Time `json:"timestamp"`
+	InstanceType       string    `json:"instanceType,omitempty"`
+	AvailabilityZone   string    `json:"availabilityZone,omitempty"`
+	ProductDescription string    `json:"productDescription,omitempty"`
+	SpotPrice          string    `json:"spotPrice,omitempty"`
+}
+
+// spotPriceHashModulus is the hash modulus used to produce a 0–0.40 spread in
+// deterministicSpotPrice; combined with spotPriceDivisor it yields a 0.30–0.70 ratio.
+const (
+	spotPriceHashModulus = 1000
+	// spotPriceDivisor maps the 0–999 hash remainder to a 0–0.40 spread.
+	spotPriceDivisor = 2500.0
+	// spotPriceMinRatio is the base ratio (0.30) before the hash spread is added.
+	spotPriceMinRatio = 0.30
+	// spotPriceDecimalScale rounds prices to 4 decimal places (× then /).
+	spotPriceDecimalScale = 10000
+	// spotPriceHistoryBucketHours is the number of hours between synthetic price records.
+	spotPriceHistoryBucketHours = 6
+)
+
+const (
+	spotPlacementScoreFloor = 1
+	spotPlacementScoreCeil  = 10
+	spotPlacementScoreRange = spotPlacementScoreCeil - spotPlacementScoreFloor + 1
+	spotPlacementScoreTopN  = 10
+)
+
+// SpotPlacementScoreEntry is a single deterministic Spot placement score
+// returned by GetSpotPlacementScores.
+type SpotPlacementScoreEntry struct {
+	Region             string
+	AvailabilityZoneID string
+	Score              int32
+}
+
+// CreateSpotDatafeedSubscription creates the account-level spot data feed.
+func (b *InMemoryBackend) CreateSpotDatafeedSubscription(
+	bucket, prefix string,
+) (*SpotDatafeed, error) {
+	if bucket == "" {
+		return nil, fmt.Errorf("%w: Bucket is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateSpotDatafeedSubscription")
+	defer b.mu.Unlock()
+
+	b.spotDatafeed = &SpotDatafeed{Bucket: bucket, Prefix: prefix, State: stateActive}
+
+	return b.spotDatafeed, nil
+}
+
+// DeleteSpotDatafeedSubscription removes the spot data feed.
+func (b *InMemoryBackend) DeleteSpotDatafeedSubscription() {
+	b.mu.Lock("DeleteSpotDatafeedSubscription")
+	defer b.mu.Unlock()
+
+	b.spotDatafeed = nil
+}
+
+// DescribeSpotDatafeedSubscription returns the current spot data feed.
+func (b *InMemoryBackend) DescribeSpotDatafeedSubscription() *SpotDatafeed {
+	b.mu.RLock("DescribeSpotDatafeedSubscription")
+	defer b.mu.RUnlock()
+
+	if b.spotDatafeed == nil {
+		return nil
+	}
+	cp := *b.spotDatafeed
+
+	return &cp
+}
+
+// ---- Image lifecycle ----
+
+// deterministicSpotPrice returns a stable spot price for (instanceType, az, product)
+// that varies predictably without randomness, keeping tests deterministic.
+// Price is ~30–70% of the on-demand base.
+func deterministicSpotPrice(instanceType, az, product string) float64 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(instanceType + "|" + az + "|" + product))
+	ratio := spotPriceMinRatio + float64(h.Sum32()%spotPriceHashModulus)/spotPriceDivisor // 0.30 – 0.70
+	base, ok := spotPriceBaseTable[instanceType]
+
+	if !ok {
+		base = 0.10
+	}
+
+	// Round to 4 decimal places for realism.
+	return math.Round(base*ratio*spotPriceDecimalScale) / spotPriceDecimalScale
+}
+
+// GenerateSpotPriceHistory produces a deterministic slice of spot price records
+// for the given filters. startTime defaults to 24 h ago if zero.
+// Each (instanceType, az, product) combination gets one record per hour in the window.
+func GenerateSpotPriceHistory(
+	instanceTypes, azs, products []string,
+	startTime time.Time,
+	region string,
+) []SpotPriceRecord {
+	if startTime.IsZero() {
+		startTime = time.Now().UTC().Add(-24 * time.Hour)
+	}
+
+	endTime := time.Now().UTC()
+
+	if len(instanceTypes) == 0 {
+		instanceTypes = []string{
+			instanceTypeT3Micro,
+			instanceTypeT3Small,
+			spotFleetDefaultInstanceType,
+			instanceTypeC5XL,
+		}
+	}
+
+	if len(azs) == 0 {
+		azs = []string{region + "a", region + "b", region + "c"}
+	}
+
+	if len(products) == 0 {
+		products = []string{"Linux/UNIX"}
+	}
+
+	var records []SpotPriceRecord
+
+	for _, it := range instanceTypes {
+		for _, az := range azs {
+			for _, prod := range products {
+				price := deterministicSpotPrice(it, az, prod)
+				// One price point per 6-hour bucket in the window.
+				for ts := startTime; ts.Before(endTime); ts = ts.Add(spotPriceHistoryBucketHours * time.Hour) {
+					records = append(records, SpotPriceRecord{
+						InstanceType:       it,
+						AvailabilityZone:   az,
+						ProductDescription: prod,
+						SpotPrice:          fmt.Sprintf("%.4f", price),
+						Timestamp:          ts,
+					})
+				}
+			}
+		}
+	}
+
+	return records
+}
+
+// spotPlacementScoreFor derives a deterministic score (1-10) for a seed
+// string so repeated queries against the same inputs are stable, since this
+// mock has no real capacity telemetry to sample from.
+func spotPlacementScoreFor(seed string) int32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(seed))
+
+	return int32(h.Sum32()%spotPlacementScoreRange) + spotPlacementScoreFloor
+}
+
+// GetSpotPlacementScores returns deterministic Spot placement scores for the
+// requested instance types across the requested (or default) regions/AZs.
+func (b *InMemoryBackend) GetSpotPlacementScores(
+	instanceTypes, regionNames []string, singleAZ bool,
+) ([]*SpotPlacementScoreEntry, error) {
+	if len(instanceTypes) == 0 {
+		return nil, fmt.Errorf("%w: InstanceType is required", ErrInvalidParameter)
+	}
+
+	b.mu.RLock("GetSpotPlacementScores")
+	defer b.mu.RUnlock()
+
+	regions := regionNames
+	if len(regions) == 0 {
+		regions = stubRegions
+	}
+
+	seedSuffix := strings.Join(instanceTypes, ",")
+	out := make([]*SpotPlacementScoreEntry, 0, len(regions))
+
+	for _, region := range regions {
+		if !singleAZ {
+			out = append(out, &SpotPlacementScoreEntry{
+				Region: region,
+				Score:  spotPlacementScoreFor(region + seedSuffix),
+			})
+
+			continue
+		}
+
+		for _, az := range b.DescribeAvailabilityZones(region) {
+			out = append(out, &SpotPlacementScoreEntry{
+				AvailabilityZoneID: az,
+				Score:              spotPlacementScoreFor(az + seedSuffix),
+			})
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Score != out[j].Score {
+			return out[i].Score > out[j].Score
+		}
+
+		return out[i].Region+out[i].AvailabilityZoneID < out[j].Region+out[j].AvailabilityZoneID
+	})
+
+	if len(out) > spotPlacementScoreTopN {
+		out = out[:spotPlacementScoreTopN]
+	}
+
+	return out, nil
 }

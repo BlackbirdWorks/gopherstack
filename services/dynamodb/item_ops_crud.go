@@ -48,15 +48,39 @@ func (db *InMemoryDB) PutItem(
 	// Convert SDK Item to Wire Item once; reused for validation and WCU calculation.
 	wireItem := models.FromSDKItem(input.Item)
 
+	out, globalTableName, region, putErr := db.putItemLocked(ctx, tableName, table, input, wireItem)
+	if putErr != nil {
+		return nil, putErr
+	}
+
+	// Propagate to global table replicas after releasing the primary lock.
+	if globalTableName != "" {
+		db.replicateItemMutation(tableName, globalTableName, region, deepCopyItem(wireItem), "PUT")
+	}
+
+	return out, nil
+}
+
+// putItemLocked performs the table.mu-guarded portion of PutItem. Using a
+// single defer (rather than a manual table.mu.Unlock() call at every early
+// return, as this used to do) means a panic partway through -- e.g. from a
+// caller elsewhere racing an unguarded read against this table -- can never
+// leave table.mu permanently locked, which would otherwise hang every future
+// operation on this table forever.
+func (db *InMemoryDB) putItemLocked(
+	ctx context.Context,
+	tableName string,
+	table *Table,
+	input *dynamodb.PutItemInput,
+	wireItem map[string]any,
+) (*dynamodb.PutItemOutput, string, string, error) {
 	table.mu.Lock("PutItem")
+	defer table.mu.Unlock()
 
 	// Validate item before charging capacity so that validation errors do not
 	// consume tokens (matches real DynamoDB behaviour).
-	err = db.validateItem(wireItem, table)
-	if err != nil {
-		table.mu.Unlock()
-
-		return nil, err
+	if err := db.validateItem(wireItem, table); err != nil {
+		return nil, "", "", err
 	}
 
 	// Enforce throughput after validation, before mutating state.
@@ -66,26 +90,19 @@ func (db *InMemoryDB) PutItem(
 
 	if !isOnDemandTable(table.BillingMode) {
 		if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), wcu); throttleErr != nil {
-			table.mu.Unlock()
-
-			return nil, throttleErr
+			return nil, "", "", throttleErr
 		}
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
-	err = db.checkPutCondition(ctx, input, oldItem)
-	if err != nil {
-		table.mu.Unlock()
-
-		return nil, err
+	if err := db.checkPutCondition(ctx, input, oldItem); err != nil {
+		return nil, "", "", err
 	}
 
 	// Enforce LSI 10 GB per-collection limit before mutating state.
 	lsiCollectionBytes, lsiErr := db.checkLSICollectionSize(table, wireItem, matchIndex)
 	if lsiErr != nil {
-		table.mu.Unlock()
-
-		return nil, lsiErr
+		return nil, "", "", lsiErr
 	}
 
 	db.doPut(table, wireItem, matchIndex)
@@ -100,14 +117,7 @@ func (db *InMemoryDB) PutItem(
 	globalTableName := table.GlobalTableName
 	out := db.populatePutItemOutput(input, table, oldItem, lsiCollectionBytes)
 
-	table.mu.Unlock()
-
-	// Propagate to global table replicas after releasing the primary lock.
-	if globalTableName != "" {
-		db.replicateItemMutation(tableName, globalTableName, region, deepCopyItem(wireItem), "PUT")
-	}
-
-	return out, nil
+	return out, globalTableName, region, nil
 }
 
 func (db *InMemoryDB) findMatchForPut(table *Table, item map[string]any) (map[string]any, int) {
@@ -472,14 +482,42 @@ func (db *InMemoryDB) DeleteItem(
 		return nil, err
 	}
 
-	table.mu.Lock("DeleteItem")
-
 	wireKey := models.FromSDKItem(input.Key)
-	err = validateKeySchema(wireKey, table.KeySchema)
-	if err != nil {
-		table.mu.Unlock()
 
-		return nil, err
+	out, globalTableName, region, oldItem, delErr := db.deleteItemLocked(ctx, tableName, table, input, wireKey)
+	if delErr != nil {
+		return nil, delErr
+	}
+
+	// Propagate deletion to global table replicas after releasing the primary lock.
+	if globalTableName != "" && oldItem != nil {
+		db.replicateItemMutation(
+			tableName,
+			globalTableName,
+			region,
+			deepCopyItem(wireKey),
+			"DELETE",
+		)
+	}
+
+	return out, nil
+}
+
+// deleteItemLocked performs the table.mu-guarded portion of DeleteItem behind
+// a single defer, so a panic partway through can never leave table.mu
+// permanently locked (see putItemLocked's doc for why that matters).
+func (db *InMemoryDB) deleteItemLocked(
+	ctx context.Context,
+	tableName string,
+	table *Table,
+	input *dynamodb.DeleteItemInput,
+	wireKey map[string]any,
+) (*dynamodb.DeleteItemOutput, string, string, map[string]any, error) {
+	table.mu.Lock("DeleteItem")
+	defer table.mu.Unlock()
+
+	if err := validateKeySchema(wireKey, table.KeySchema); err != nil {
+		return nil, "", "", nil, err
 	}
 
 	region := getRegionFromContext(ctx, db)
@@ -501,16 +539,12 @@ func (db *InMemoryDB) DeleteItem(
 		if throttleErr := db.throttler.ConsumeWrite(
 			throttleKey(region, tableName), WriteCapacityUnits(oldItem),
 		); throttleErr != nil {
-			table.mu.Unlock()
-
-			return nil, throttleErr
+			return nil, "", "", nil, throttleErr
 		}
 	}
 
-	if err = db.checkDeleteCondition(ctx, input, oldItem); err != nil {
-		table.mu.Unlock()
-
-		return nil, err
+	if err := db.checkDeleteCondition(ctx, input, oldItem); err != nil {
+		return nil, "", "", nil, err
 	}
 
 	if oldItem != nil && matchIndex != -1 {
@@ -522,20 +556,7 @@ func (db *InMemoryDB) DeleteItem(
 	out := db.buildDeleteItemOutput(input, table, oldItem)
 	globalTableName := table.GlobalTableName
 
-	table.mu.Unlock()
-
-	// Propagate deletion to global table replicas after releasing the primary lock.
-	if globalTableName != "" && oldItem != nil {
-		db.replicateItemMutation(
-			tableName,
-			globalTableName,
-			region,
-			deepCopyItem(wireKey),
-			"DELETE",
-		)
-	}
-
-	return out, nil
+	return out, globalTableName, region, oldItem, nil
 }
 
 func (db *InMemoryDB) checkDeleteCondition(
@@ -644,14 +665,36 @@ func (db *InMemoryDB) UpdateItem(
 		return nil, err
 	}
 
-	table.mu.Lock("UpdateItem")
-
 	wireKey := models.FromSDKItem(input.Key)
-	err = validateKeySchema(wireKey, table.KeySchema)
-	if err != nil {
-		table.mu.Unlock()
 
-		return nil, err
+	out, globalTableName, region, updated, outErr := db.updateItemLocked(ctx, tableName, table, input, wireKey)
+	if outErr != nil {
+		return nil, outErr
+	}
+
+	// Propagate the final item state to all global table replicas.
+	if globalTableName != "" {
+		db.replicateItemMutation(tableName, globalTableName, region, deepCopyItem(updated), "PUT")
+	}
+
+	return out, nil
+}
+
+// updateItemLocked performs the table.mu-guarded portion of UpdateItem behind
+// a single defer, so a panic partway through can never leave table.mu
+// permanently locked (see putItemLocked's doc for why that matters).
+func (db *InMemoryDB) updateItemLocked(
+	ctx context.Context,
+	tableName string,
+	table *Table,
+	input *dynamodb.UpdateItemInput,
+	wireKey map[string]any,
+) (*dynamodb.UpdateItemOutput, string, string, map[string]any, error) {
+	table.mu.Lock("UpdateItem")
+	defer table.mu.Unlock()
+
+	if err := validateKeySchema(wireKey, table.KeySchema); err != nil {
+		return nil, "", "", nil, err
 	}
 
 	region := getRegionFromContext(ctx, db)
@@ -665,24 +708,17 @@ func (db *InMemoryDB) UpdateItem(
 		if throttleErr := db.throttler.ConsumeWrite(
 			throttleKey(region, tableName), WriteCapacityUnits(existing),
 		); throttleErr != nil {
-			table.mu.Unlock()
-
-			return nil, throttleErr
+			return nil, "", "", nil, throttleErr
 		}
 	}
 
-	err = db.checkUpdateCondition(ctx, input, existing)
-	if err != nil {
-		table.mu.Unlock()
-
-		return nil, err
+	if err := db.checkUpdateCondition(ctx, input, existing); err != nil {
+		return nil, "", "", nil, err
 	}
 
 	updated, updatedPaths, err := db.doUpdate(ctx, table, input, existing, matchIndex)
 	if err != nil {
-		table.mu.Unlock()
-
-		return nil, err
+		return nil, "", "", nil, err
 	}
 
 	// Capture stream event for UpdateItem
@@ -695,14 +731,7 @@ func (db *InMemoryDB) UpdateItem(
 	globalTableName := table.GlobalTableName
 	out, outErr := db.populateUpdateOutput(input, table, existing, updated, updatedPaths)
 
-	table.mu.Unlock()
-
-	// Propagate the final item state to all global table replicas.
-	if globalTableName != "" {
-		db.replicateItemMutation(tableName, globalTableName, region, deepCopyItem(updated), "PUT")
-	}
-
-	return out, outErr
+	return out, globalTableName, region, updated, outErr
 }
 
 func (db *InMemoryDB) checkUpdateCondition(

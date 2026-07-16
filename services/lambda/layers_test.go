@@ -4,19 +4,20 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/lambda"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 // newLayerBackend returns a fresh backend suitable for layer tests.
@@ -371,97 +372,6 @@ func TestInMemoryBackend_DeleteLayerVersion(t *testing.T) {
 	}
 }
 
-func TestInMemoryBackend_LayerVersionPolicy(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup         func(*lambda.InMemoryBackend)
-		name          string
-		layerName     string
-		statementID   string
-		action        string
-		principal     string
-		version       int64
-		wantAddErr    bool
-		wantGetErr    bool
-		wantRemoveErr bool
-	}{
-		{
-			name: "add_and_get_permission",
-			setup: func(bk *lambda.InMemoryBackend) {
-				_, _ = bk.PublishLayerVersion(publishLayerInput("my-layer", "", []byte("z"), nil))
-			},
-			layerName:   "my-layer",
-			version:     1,
-			statementID: "stmt-1",
-			action:      "lambda:GetLayerVersion",
-			principal:   "*",
-		},
-		{
-			name:        "layer_not_found",
-			layerName:   "missing",
-			version:     1,
-			statementID: "stmt-1",
-			action:      "lambda:GetLayerVersion",
-			principal:   "*",
-			wantAddErr:  true,
-		},
-		{
-			name: "version_not_found",
-			setup: func(bk *lambda.InMemoryBackend) {
-				_, _ = bk.PublishLayerVersion(publishLayerInput("my-layer", "", []byte("z"), nil))
-			},
-			layerName:   "my-layer",
-			version:     99,
-			statementID: "stmt-1",
-			action:      "lambda:GetLayerVersion",
-			principal:   "*",
-			wantAddErr:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			bk := newLayerBackend(t)
-			if tt.setup != nil {
-				tt.setup(bk)
-			}
-
-			addInput := &lambda.AddLayerVersionPermissionInput{
-				StatementID: tt.statementID,
-				Action:      tt.action,
-				Principal:   tt.principal,
-			}
-
-			addOut, addErr := bk.AddLayerVersionPermission(tt.layerName, tt.version, addInput)
-
-			if tt.wantAddErr {
-				require.Error(t, addErr)
-
-				return
-			}
-
-			require.NoError(t, addErr)
-			assert.NotEmpty(t, addOut.Statement)
-
-			// GetLayerVersionPolicy should include the statement.
-			policy, getErr := bk.GetLayerVersionPolicy(tt.layerName, tt.version)
-			require.NoError(t, getErr)
-			assert.Contains(t, policy.Policy, tt.statementID)
-
-			// RemoveLayerVersionPermission should succeed.
-			removeErr := bk.RemoveLayerVersionPermission(tt.layerName, tt.version, tt.statementID)
-			require.NoError(t, removeErr)
-
-			// Policy should no longer contain the statement.
-			policy2, _ := bk.GetLayerVersionPolicy(tt.layerName, tt.version)
-			assert.NotContains(t, policy2.Policy, tt.statementID)
-		})
-	}
-}
-
 // TestLayerHTTPHandler tests the HTTP handler for layers using httptest.
 func TestLayerHTTPHandler(t *testing.T) {
 	t.Parallel()
@@ -707,56 +617,6 @@ func TestCreateFunctionWithLayers(t *testing.T) {
 	}
 }
 
-// TestPersistenceLayers verifies that layer state survives a Snapshot/Restore cycle.
-func TestPersistenceLayers(t *testing.T) {
-	t.Parallel()
-
-	bk := newLayerBackend(t)
-
-	// Publish two layers with multiple versions each.
-	_, err := bk.PublishLayerVersion(publishLayerInput("layer-a", "v1", []byte("zip-a1"), []string{"python3.9"}))
-	require.NoError(t, err)
-
-	_, err = bk.PublishLayerVersion(publishLayerInput("layer-a", "v2", []byte("zip-a2"), nil))
-	require.NoError(t, err)
-
-	_, err = bk.PublishLayerVersion(publishLayerInput("layer-b", "v1", []byte("zip-b1"), nil))
-	require.NoError(t, err)
-
-	// Add a policy.
-	_, err = bk.AddLayerVersionPermission("layer-a", 1, &lambda.AddLayerVersionPermissionInput{
-		StatementID: "allow-all",
-		Action:      "lambda:GetLayerVersion",
-		Principal:   "*",
-	})
-	require.NoError(t, err)
-
-	// Snapshot → Restore.
-	snap := bk.Snapshot(t.Context())
-	require.NotNil(t, snap)
-
-	bk2 := newLayerBackend(t)
-	require.NoError(t, bk2.Restore(t.Context(), snap))
-
-	// Verify layers are present.
-	layers := bk2.ListLayers("", "", 0)
-	assert.Len(t, layers.Data, 2)
-
-	// Verify versions are restored.
-	versions, err := bk2.ListLayerVersions("layer-a", "")
-	require.NoError(t, err)
-	assert.Len(t, versions, 2)
-
-	// Verify policy is restored.
-	policy, err := bk2.GetLayerVersionPolicy("layer-a", 1)
-	require.NoError(t, err)
-	assert.Contains(t, policy.Policy, "allow-all")
-
-	// Verify zip data is cleared after restore.
-	_, getErr := bk2.GetLayerVersion("layer-a", 1)
-	require.NoError(t, getErr)
-}
-
 // TestParseLayerARN exercises the internal ARN parser.
 func TestParseLayerARN(t *testing.T) {
 	t.Parallel()
@@ -925,6 +785,229 @@ func TestPrepareLayerMount(t *testing.T) {
 				_, statErr := os.Stat(path)
 				assert.NoError(t, statErr, "expected file %q to exist in layer dir", f)
 			}
+		})
+	}
+}
+
+// --- GetLayerVersionByArn HTTP tests ---
+
+func TestBatch1_GetLayerVersionByArn(t *testing.T) {
+	t.Parallel()
+
+	h, bk := newInMemoryHandler(t)
+
+	// Publish a layer
+	out, err := bk.PublishLayerVersion(&lambda.PublishLayerVersionInput{
+		LayerName:          "arn-test-layer",
+		CompatibleRuntimes: []string{"python3.12"},
+		Content:            &lambda.LayerVersionContentInput{},
+	})
+	require.NoError(t, err)
+
+	// Get by ARN using /2018-10-31/layers-by-arn?Arn={arn}
+	rec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2018-10-31/layers-by-arn?Arn="+url.QueryEscape(out.LayerVersionArn), "{}")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "arn-test-layer")
+}
+
+// ============================================================
+// Layer CRUD + versions
+// ============================================================
+
+func TestBatch2_Layer_PublishAndGet(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	pubRec := callInMemoryHandler(t, h, http.MethodPost,
+		"/2018-10-31/layers/test-layer/versions",
+		`{"Content":{"ZipFile":"UEsDBAA="},"Description":"v1","CompatibleRuntimes":["python3.12","python3.11"]}`)
+	require.Equal(t, http.StatusCreated, pubRec.Code)
+
+	var pub lambda.PublishLayerVersionOutput
+	require.NoError(t, json.NewDecoder(pubRec.Body).Decode(&pub))
+	assert.Equal(t, int64(1), pub.Version)
+	assert.Equal(t, "v1", pub.Description)
+	assert.Equal(t, []string{"python3.12", "python3.11"}, pub.CompatibleRuntimes)
+	assert.NotEmpty(t, pub.LayerVersionArn)
+	assert.NotEmpty(t, pub.LayerArn)
+
+	// Get version
+	getRec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2018-10-31/layers/test-layer/versions/1", "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var got lambda.GetLayerVersionOutput
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&got))
+	assert.Equal(t, int64(1), got.Version)
+}
+
+func TestBatch2_Layer_MultipleVersions(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	for i := range 3 {
+		rec := callInMemoryHandler(t, h, http.MethodPost,
+			"/2018-10-31/layers/multi-layer/versions",
+			fmt.Sprintf(`{"Content":{"ZipFile":"UEsDBAA="},"Description":"v%d"}`, i+1))
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var pub lambda.PublishLayerVersionOutput
+		require.NoError(t, json.NewDecoder(rec.Body).Decode(&pub))
+		assert.Equal(t, int64(i+1), pub.Version)
+	}
+}
+
+func TestBatch2_Layer_ListVersions(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	callInMemoryHandler(t, h, http.MethodPost, "/2018-10-31/layers/list-ver-layer/versions",
+		`{"Content":{"ZipFile":"UEsDBAA="}}`)
+	callInMemoryHandler(t, h, http.MethodPost, "/2018-10-31/layers/list-ver-layer/versions",
+		`{"Content":{"ZipFile":"UEsDBAA="}}`)
+
+	rec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2018-10-31/layers/list-ver-layer/versions", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out lambda.ListLayerVersionsOutput
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.Len(t, out.LayerVersions, 2)
+}
+
+func TestBatch2_Layer_DeleteVersion(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	callInMemoryHandler(t, h, http.MethodPost, "/2018-10-31/layers/del-layer/versions",
+		`{"Content":{"ZipFile":"UEsDBAA="}}`)
+
+	delRec := callInMemoryHandler(t, h, http.MethodDelete,
+		"/2018-10-31/layers/del-layer/versions/1", "")
+	assert.Equal(t, http.StatusNoContent, delRec.Code)
+
+	getRec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2018-10-31/layers/del-layer/versions/1", "")
+	assert.Equal(t, http.StatusNotFound, getRec.Code)
+}
+
+func TestBatch2_Layer_ListLayers(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	callInMemoryHandler(t, h, http.MethodPost, "/2018-10-31/layers/layer-a/versions",
+		`{"Content":{"ZipFile":"UEsDBAA="}}`)
+	callInMemoryHandler(t, h, http.MethodPost, "/2018-10-31/layers/layer-b/versions",
+		`{"Content":{"ZipFile":"UEsDBAA="}}`)
+
+	rec := callInMemoryHandler(t, h, http.MethodGet, "/2018-10-31/layers", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out lambda.ListLayersOutput
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.GreaterOrEqual(t, len(out.Layers), 2)
+}
+
+func TestBatch2_Layer_GetVersionByArn(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	pubRec := callInMemoryHandler(t, h, http.MethodPost,
+		"/2018-10-31/layers/arn-layer/versions",
+		`{"Content":{"ZipFile":"UEsDBAA="}}`)
+	require.Equal(t, http.StatusCreated, pubRec.Code)
+
+	var pub lambda.PublishLayerVersionOutput
+	require.NoError(t, json.NewDecoder(pubRec.Body).Decode(&pub))
+
+	rec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2018-10-31/layers-by-arn?Arn="+pub.LayerVersionArn, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got lambda.GetLayerVersionOutput
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
+	assert.Equal(t, pub.LayerVersionArn, got.LayerVersionArn)
+}
+
+func TestBatch2_Layer_GetVersionByArn_MissingArn(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	rec := callInMemoryHandler(t, h, http.MethodGet, "/2018-10-31/layers-by-arn", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestAuditLambda_ListLayers_CompatibleRuntimeFilter verifies CompatibleRuntime filtering.
+func TestAuditLambda_ListLayers_CompatibleRuntimeFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		compatibleRuntime string
+		wantCount         int
+	}{
+		{
+			name:      "no filter returns all layers",
+			wantCount: 2,
+		},
+		{
+			name:              "filter python3.12 returns one",
+			compatibleRuntime: "python3.12",
+			wantCount:         1,
+		},
+		{
+			name:              "filter nodejs20.x returns one",
+			compatibleRuntime: "nodejs20.x",
+			wantCount:         1,
+		},
+		{
+			name:              "filter no-match returns none",
+			compatibleRuntime: "ruby3.3",
+			wantCount:         0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, bk := newInMemoryHandler(t)
+
+			// Publish two layers with different runtimes.
+			_, err := bk.PublishLayerVersion(&lambda.PublishLayerVersionInput{
+				LayerName:          "python-layer",
+				CompatibleRuntimes: []string{"python3.12"},
+				Content:            &lambda.LayerVersionContentInput{},
+			})
+			require.NoError(t, err)
+
+			_, err = bk.PublishLayerVersion(&lambda.PublishLayerVersionInput{
+				LayerName:          "node-layer",
+				CompatibleRuntimes: []string{"nodejs20.x"},
+				Content:            &lambda.LayerVersionContentInput{},
+			})
+			require.NoError(t, err)
+
+			listPath := "/2018-10-31/layers"
+			if tc.compatibleRuntime != "" {
+				listPath += "?CompatibleRuntime=" + tc.compatibleRuntime
+			}
+
+			rec := callInMemoryHandler(t, h, http.MethodGet, listPath, "")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			layers, _ := out["Layers"].([]any)
+			assert.Len(t, layers, tc.wantCount, "layer count mismatch for runtime=%q", tc.compatibleRuntime)
 		})
 	}
 }

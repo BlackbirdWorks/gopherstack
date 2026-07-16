@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // ---- CreateClusterSnapshot ----
@@ -180,5 +181,204 @@ func (h *Handler) handleRestoreFromClusterSnapshot(vals url.Values) (any, error)
 	return &restoreFromClusterSnapshotResponse{
 		Xmlns:   redshiftXMLNS,
 		Cluster: toXMLCluster(cluster),
+	}, nil
+}
+
+// ---- AuthorizeSnapshotAccess ----
+
+type xmlAccountWithRestoreAccess struct {
+	AccountID    string `xml:"AccountId"`
+	AccountAlias string `xml:"AccountAlias,omitempty"`
+}
+
+type xmlRestoreAccessList struct {
+	Members []xmlAccountWithRestoreAccess `xml:"AccountWithRestoreAccess,omitempty"`
+}
+
+type xmlSnapshot struct {
+	SnapshotIdentifier            string               `xml:"SnapshotIdentifier"`
+	ClusterIdentifier             string               `xml:"ClusterIdentifier"`
+	SnapshotType                  string               `xml:"SnapshotType,omitempty"`
+	SnapshotCreateTime            string               `xml:"SnapshotCreateTime,omitempty"`
+	Status                        string               `xml:"Status"`
+	AccountsWithRestoreAccess     xmlRestoreAccessList `xml:"AccountsWithRestoreAccess"`
+	ManualSnapshotRetentionPeriod int                  `xml:"ManualSnapshotRetentionPeriod"`
+}
+
+type authorizeSnapshotAccessResponse struct {
+	XMLName  xml.Name    `xml:"AuthorizeSnapshotAccessResponse"`
+	Xmlns    string      `xml:"xmlns,attr"`
+	Snapshot xmlSnapshot `xml:"AuthorizeSnapshotAccessResult>Snapshot"`
+}
+
+func snapshotToXML(snap *Snapshot) xmlSnapshot {
+	accounts := make([]xmlAccountWithRestoreAccess, 0, len(snap.AccountsWithRestoreAccess))
+	for _, a := range snap.AccountsWithRestoreAccess {
+		accounts = append(accounts, xmlAccountWithRestoreAccess(a))
+	}
+
+	var createTime string
+	if !snap.SnapshotCreateTime.IsZero() {
+		createTime = snap.SnapshotCreateTime.UTC().Format(time.RFC3339)
+	}
+
+	return xmlSnapshot{
+		SnapshotIdentifier:            snap.SnapshotIdentifier,
+		ClusterIdentifier:             snap.ClusterIdentifier,
+		SnapshotType:                  snap.SnapshotType,
+		SnapshotCreateTime:            createTime,
+		Status:                        snap.Status,
+		ManualSnapshotRetentionPeriod: snap.ManualSnapshotRetentionPeriod,
+		AccountsWithRestoreAccess:     xmlRestoreAccessList{Members: accounts},
+	}
+}
+
+func (h *Handler) handleAuthorizeSnapshotAccess(vals url.Values) (any, error) {
+	snapshotID := vals.Get("SnapshotIdentifier")
+	accountWithRestoreAccess := vals.Get("AccountWithRestoreAccess")
+
+	snap, err := h.Backend.AuthorizeSnapshotAccess(snapshotID, accountWithRestoreAccess)
+	if err != nil {
+		return nil, err
+	}
+
+	return &authorizeSnapshotAccessResponse{
+		Xmlns:    redshiftXMLNS,
+		Snapshot: snapshotToXML(snap),
+	}, nil
+}
+
+// ---- BatchDeleteClusterSnapshots ----
+
+type xmlSnapshotErrorMessage struct {
+	SnapshotIdentifier        string `xml:"SnapshotIdentifier"`
+	SnapshotClusterIdentifier string `xml:"SnapshotClusterIdentifier,omitempty"`
+	FailureCode               string `xml:"FailureCode"`
+	FailureReason             string `xml:"FailureReason"`
+}
+
+type batchDeleteClusterSnapshotsResponse struct {
+	XMLName   xml.Name                  `xml:"BatchDeleteClusterSnapshotsResponse"`
+	Xmlns     string                    `xml:"xmlns,attr"`
+	Errors    []xmlSnapshotErrorMessage `xml:"BatchDeleteClusterSnapshotsResult>Errors>SnapshotErrorMessage,omitempty"`
+	Resources []string                  `xml:"BatchDeleteClusterSnapshotsResult>Resources>String,omitempty"`
+}
+
+func (h *Handler) handleBatchDeleteClusterSnapshots(vals url.Values) (any, error) {
+	identifiers := parseStringList(vals, "Identifiers.DeleteClusterSnapshotMessage.")
+	if len(identifiers) == 0 {
+		identifiers = parseStringList(vals, "Identifiers.SnapshotIdentifier.")
+	}
+
+	batchErrors, deleted := h.Backend.BatchDeleteClusterSnapshots(identifiers)
+
+	xmlErrors := make([]xmlSnapshotErrorMessage, 0, len(batchErrors))
+	for _, e := range batchErrors {
+		xmlErrors = append(xmlErrors, xmlSnapshotErrorMessage(e))
+	}
+
+	resources := make([]string, len(deleted))
+	copy(resources, deleted)
+
+	return &batchDeleteClusterSnapshotsResponse{
+		Xmlns:     redshiftXMLNS,
+		Errors:    xmlErrors,
+		Resources: resources,
+	}, nil
+}
+
+// ---- BatchModifyClusterSnapshots ----
+
+type batchModifyClusterSnapshotsResponse struct {
+	XMLName   xml.Name                  `xml:"BatchModifyClusterSnapshotsResponse"`
+	Xmlns     string                    `xml:"xmlns,attr"`
+	Errors    []xmlSnapshotErrorMessage `xml:"BatchModifyClusterSnapshotsResult>Errors>SnapshotErrorMessage,omitempty"`
+	Resources []string                  `xml:"BatchModifyClusterSnapshotsResult>Resources>String,omitempty"`
+}
+
+func (h *Handler) handleBatchModifyClusterSnapshots(vals url.Values) (any, error) {
+	identifiers := parseStringList(vals, "SnapshotIdentifierList.String.")
+	retentionPeriodStr := vals.Get("ManualSnapshotRetentionPeriod")
+	force := vals.Get("Force") == paramValueTrue
+
+	retentionPeriod := -1
+	if retentionPeriodStr != "" {
+		if _, err := fmt.Sscanf(retentionPeriodStr, "%d", &retentionPeriod); err != nil {
+			return nil, fmt.Errorf("%w: ManualSnapshotRetentionPeriod must be an integer", ErrInvalidParameter)
+		}
+	}
+
+	batchErrors, modified := h.Backend.BatchModifyClusterSnapshots(identifiers, retentionPeriod, force)
+
+	xmlErrors := make([]xmlSnapshotErrorMessage, 0, len(batchErrors))
+	for _, e := range batchErrors {
+		xmlErrors = append(xmlErrors, xmlSnapshotErrorMessage(e))
+	}
+
+	resources := make([]string, len(modified))
+	copy(resources, modified)
+
+	return &batchModifyClusterSnapshotsResponse{
+		Xmlns:     redshiftXMLNS,
+		Errors:    xmlErrors,
+		Resources: resources,
+	}, nil
+}
+
+// ---- RevokeSnapshotAccess ----
+
+type revokeSnapshotAccessResponse struct {
+	XMLName  xml.Name    `xml:"RevokeSnapshotAccessResponse"`
+	Xmlns    string      `xml:"xmlns,attr"`
+	Snapshot xmlSnapshot `xml:"RevokeSnapshotAccessResult>Snapshot"`
+}
+
+func (h *Handler) handleRevokeSnapshotAccess(vals url.Values) (any, error) {
+	snapshotID := vals.Get("SnapshotIdentifier")
+	accountWithRestoreAccess := vals.Get("AccountWithRestoreAccess")
+
+	snap, err := h.Backend.RevokeSnapshotAccess(snapshotID, accountWithRestoreAccess)
+	if err != nil {
+		return nil, err
+	}
+
+	return &revokeSnapshotAccessResponse{
+		Xmlns:    redshiftXMLNS,
+		Snapshot: snapshotToXML(snap),
+	}, nil
+}
+
+// ---- ModifyClusterSnapshot ----
+
+type modifyClusterSnapshotResponse struct {
+	XMLName  xml.Name    `xml:"ModifyClusterSnapshotResponse"`
+	Xmlns    string      `xml:"xmlns,attr"`
+	Snapshot xmlSnapshot `xml:"ModifyClusterSnapshotResult>Snapshot"`
+}
+
+func (h *Handler) handleModifyClusterSnapshot(vals url.Values) (any, error) {
+	snapshotID := vals.Get("SnapshotIdentifier")
+	retentionPeriodStr := vals.Get("ManualSnapshotRetentionPeriod")
+	force := vals.Get("Force") == paramValueTrue
+
+	retentionPeriod := -1
+
+	if retentionPeriodStr != "" {
+		n, err := strconv.Atoi(retentionPeriodStr)
+		if err != nil {
+			return nil, ErrInvalidParameter
+		}
+
+		retentionPeriod = n
+	}
+
+	snap, err := h.Backend.ModifyClusterSnapshot(snapshotID, retentionPeriod, force)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyClusterSnapshotResponse{
+		Xmlns:    redshiftXMLNS,
+		Snapshot: snapshotToXML(snap),
 	}, nil
 }

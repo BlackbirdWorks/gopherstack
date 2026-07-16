@@ -647,13 +647,7 @@ func (db *InMemoryDB) TaggedTables() []TaggedTableInfo {
 	result := make([]TaggedTableInfo, 0, len(all))
 
 	for _, table := range all {
-		var tagMap map[string]string
-		if table.Tags != nil {
-			table.mu.RLock("TaggedTables.tag")
-			tagMap = table.Tags.Clone()
-			table.mu.RUnlock()
-		}
-
+		tagMap := cloneTagsRLocked(table)
 		result = append(result, TaggedTableInfo{ARN: table.TableArn, Tags: tagMap})
 	}
 
@@ -665,7 +659,29 @@ func (db *InMemoryDB) TaggedTables() []TaggedTableInfo {
 // mid-CREATING or mid-DELETING transition. Must be called before the table is
 // discarded so that the AfterFunc goroutines are not left running.
 // Idempotent: safe to call even when timers are nil or already stopped.
+//
+// Takes table.mu itself (callers must NOT already hold it -- see call sites in
+// DeleteTable and the janitor's runTableCleaner, neither of which holds
+// table.mu at their call site). This is required, not cosmetic: table.mu is
+// the same lock applyGSICreate/applyGSIUpdate/applyGSIDelete (table_ops.go)
+// and their async GSI-activation/-removal AfterFunc callbacks use to mutate
+// table.GlobalSecondaryIndexes and table.activateTimer. Reading those fields
+// here without table.mu raced the slice-shrinking path in applyGSIDelete: the
+// `for i := range table.GlobalSecondaryIndexes` loop re-reads the (possibly
+// already-shrunk) slice on every iteration, so a concurrent GSI delete could
+// shrink the backing slice out from under this loop mid-iteration, producing
+// "panic: runtime error: index out of range" here -- reachable from a live
+// HTTP request (DeleteTable) or from the background janitor, in both cases
+// with no other lock held, so a caller resolving a stale *Table just before a
+// delete and racing a GSI update on it would crash the request instead of
+// cleanly returning. Acquiring table.mu here restores db.mu -> table.mu
+// ordering in the DeleteTable case (db.mu is already held by the caller) and
+// introduces no new lock in the janitor case (neither db.mu nor table.mu is
+// held there).
 func stopTableTimers(table *Table) {
+	table.mu.Lock("stopTableTimers")
+	defer table.mu.Unlock()
+
 	if table.activateTimer != nil {
 		table.activateTimer.Stop()
 	}
@@ -951,12 +967,12 @@ func exportToSummaryFields(e storedExport) exportDescriptionFields {
 	return d
 }
 
-func (db *InMemoryDB) listExportsWire(
-	tableArn, nextToken string,
-	maxResults int,
-	requestRegion string,
-) *listExportsOutput {
+// collectExportSummariesRLocked filters db.exports by region/tableArn and
+// converts matches to their wire summary shape, under a defer-protected
+// db.mu.RLock.
+func (db *InMemoryDB) collectExportSummariesRLocked(tableArn, requestRegion string) []exportDescriptionFields {
 	db.mu.RLock("listExportsWire")
+	defer db.mu.RUnlock()
 
 	all := db.exports.All()
 	summaries := make([]exportDescriptionFields, 0, len(all))
@@ -972,7 +988,15 @@ func (db *InMemoryDB) listExportsWire(
 		summaries = append(summaries, exportToSummaryFields(*e))
 	}
 
-	db.mu.RUnlock()
+	return summaries
+}
+
+func (db *InMemoryDB) listExportsWire(
+	tableArn, nextToken string,
+	maxResults int,
+	requestRegion string,
+) *listExportsOutput {
+	summaries := db.collectExportSummariesRLocked(tableArn, requestRegion)
 
 	// Sort by ARN for deterministic ordering.
 	sort.Slice(summaries, func(i, j int) bool {
@@ -1044,19 +1068,26 @@ func (db *InMemoryDB) lookupImport(importARN string) (storedImport, bool) {
 
 // listImportsStored returns all stored imports as a slice, sorted by ARN.
 func (db *InMemoryDB) listImportsStored() []storedImport {
+	result := db.allImportsRLocked()
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ImportArn < result[j].ImportArn
+	})
+
+	return result
+}
+
+// allImportsRLocked returns a copy of every stored import under a
+// defer-protected db.mu.RLock.
+func (db *InMemoryDB) allImportsRLocked() []storedImport {
 	db.mu.RLock("listImportsStored")
+	defer db.mu.RUnlock()
 
 	all := db.imports.All()
 	result := make([]storedImport, 0, len(all))
 	for _, imp := range all {
 		result = append(result, *imp)
 	}
-
-	db.mu.RUnlock()
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].ImportArn < result[j].ImportArn
-	})
 
 	return result
 }

@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 
@@ -419,4 +420,451 @@ func TestPersistenceExtended(t *testing.T) {
 			tt.verify(t, fresh)
 		})
 	}
+}
+
+// TestDeleteVpc_SecondaryIndexes verifies that DeleteVpc correctly removes subnet,
+// route table, and security group secondary index entries so they don't linger.
+func TestDeleteVpc_SecondaryIndexes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		addSubnet     bool
+		addRouteTable bool
+	}{
+		{
+			name:          "vpc with subnet and route table",
+			addSubnet:     true,
+			addRouteTable: true,
+		},
+		{
+			name:          "vpc with only subnet",
+			addSubnet:     true,
+			addRouteTable: false,
+		},
+		{
+			name:          "empty vpc",
+			addSubnet:     false,
+			addRouteTable: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+			h := newTestHandlerWithBackend(b)
+
+			// Create a new VPC.
+			resp, err := dispatchHandler(h, url.Values{
+				"Action":    {"CreateVpc"},
+				"Version":   {"2016-11-15"},
+				"CidrBlock": {"10.1.0.0/16"},
+			})
+			require.NoError(t, err)
+			vpcID := accuracyExtractXMLValue(resp, "vpcId")
+			require.NotEmpty(t, vpcID)
+
+			if tc.addSubnet {
+				_, err = dispatchHandler(h, url.Values{
+					"Action":           {"CreateSubnet"},
+					"Version":          {"2016-11-15"},
+					"VpcId":            {vpcID},
+					"CidrBlock":        {"10.1.1.0/24"},
+					"AvailabilityZone": {"us-east-1a"},
+				})
+				require.NoError(t, err)
+			}
+
+			if tc.addRouteTable {
+				_, err = dispatchHandler(h, url.Values{
+					"Action":  {"CreateRouteTable"},
+					"Version": {"2016-11-15"},
+					"VpcId":   {vpcID},
+				})
+				require.NoError(t, err)
+			}
+
+			// Add a SG to the VPC.
+			_, err = dispatchHandler(h, url.Values{
+				"Action":           {"CreateSecurityGroup"},
+				"Version":          {"2016-11-15"},
+				"GroupName":        {"test-sg"},
+				"GroupDescription": {"test sg"},
+				"VpcId":            {vpcID},
+			})
+			require.NoError(t, err)
+
+			// Delete the VPC.
+			_, err = dispatchHandler(h, url.Values{
+				"Action":  {"DeleteVpc"},
+				"Version": {"2016-11-15"},
+				"VpcId":   {vpcID},
+			})
+			require.NoError(t, err)
+
+			// After deletion, DescribeSubnets must not return any subnet for
+			// the deleted VPC — the index must be cleared.
+			subnets := b.DescribeSubnetsByVPC(vpcID)
+			assert.Empty(t, subnets, "no subnets should remain after DeleteVpc")
+
+			// DescribeVpcs must not return the deleted VPC.
+			vpcs := b.DescribeVpcs([]string{vpcID})
+			assert.Empty(t, vpcs, "VPC must not exist after DeleteVpc")
+		})
+	}
+}
+
+// TestReconcileLifecycle_SkipsNonTransitional verifies that reconcileInstanceLifecycle
+// does not alter instances already in stable states (stopped, terminated, running).
+
+// TestPersistence_SecondaryIndexRebuild is the guard test for the Restore
+// secondary-index rebuild. It creates a VPC with instances and ENIs, snapshots,
+// restores into a fresh backend, and asserts that (a) DeleteVpc still cascades
+// (proving instanceIDsByVPC / subnetIDsByVPC / natGatewayIDsByVPC / eniIDsByVPC
+// were rebuilt) and (b) ENI-by-instance termination cleanup still works
+// (proving eniIDsByInstance was rebuilt).
+func TestPersistence_SecondaryIndexRebuild(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		verify func(t *testing.T, fresh *ec2.InMemoryBackend, res vpcResources)
+		name   string
+	}{
+		{
+			name: "delete_vpc_cascade_survives_restore",
+			verify: func(t *testing.T, fresh *ec2.InMemoryBackend, res vpcResources) {
+				t.Helper()
+
+				require.NoError(t, fresh.DeleteVpc(res.vpcID))
+
+				// VPC gone.
+				assert.Empty(t, fresh.DescribeVpcs([]string{res.vpcID}))
+				// Subnet cascaded (index-driven).
+				assert.Empty(t, fresh.DescribeSubnets([]string{res.subnetID}))
+				// NAT gateways cascaded (natGatewayIDsByVPC-driven).
+				assert.Empty(t, fresh.DescribeNatGateways(nil))
+				// Standalone ENI cascaded (eniIDsByVPC-driven).
+				assert.Empty(t, fresh.DescribeNetworkInterfaces([]string{res.eniID}))
+				// Instances terminated (instanceIDsByVPC-driven).
+				insts := fresh.DescribeInstances(res.instanceIDs, "")
+				require.Len(t, insts, len(res.instanceIDs))
+				for _, inst := range insts {
+					assert.Equal(t, ec2.StateTerminated, inst.State)
+				}
+			},
+		},
+		{
+			name: "eni_by_instance_cleanup_survives_restore",
+			verify: func(t *testing.T, fresh *ec2.InMemoryBackend, res vpcResources) {
+				t.Helper()
+
+				// Each instance has exactly one auto-attached ENI; before
+				// termination they must exist.
+				before := fresh.DescribeNetworkInterfaces(nil)
+				require.NotEmpty(t, before)
+
+				// Terminating uses eniIDsByInstance to delete attached ENIs. If
+				// the index was not rebuilt on restore this is a no-op and the
+				// ENIs leak.
+				_, err := fresh.TerminateInstances(res.instanceIDs)
+				require.NoError(t, err)
+
+				remaining := fresh.DescribeNetworkInterfaces(nil)
+				for _, eni := range remaining {
+					for _, instID := range res.instanceIDs {
+						assert.NotEqual(t, instID, eni.InstanceID,
+							"instance %s still has attached ENI %s after termination", instID, eni.ID)
+					}
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+			res := buildVPCWithResources(t, original, "10.20.0.0/16", "us-east-1a", 2)
+
+			snap := original.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			tt.verify(t, fresh, res)
+		})
+	}
+}
+
+// TestDeleteVpc_PerVPCIndexCascade exercises the natGatewayIDsByVPC and
+// eniIDsByVPC index maintenance across DeleteNatGateway, DeleteSubnet, and
+// DeleteVpc so the index never drifts from the underlying maps.
+
+// TestDeleteVpc_PerVPCIndexCascade exercises the natGatewayIDsByVPC and
+// eniIDsByVPC index maintenance across DeleteNatGateway, DeleteSubnet, and
+// DeleteVpc so the index never drifts from the underlying maps.
+func TestDeleteVpc_PerVPCIndexCascade(t *testing.T) {
+	t.Parallel()
+
+	t.Run("explicit_nat_delete_then_delete_vpc", func(t *testing.T) {
+		t.Parallel()
+
+		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+		res := buildVPCWithResources(t, b, "10.30.0.0/16", "us-east-1a", 1)
+
+		nats := b.DescribeNatGateways(nil)
+		require.Len(t, nats, 1)
+
+		// Explicitly delete the NAT — deindex must remove it from the VPC index.
+		require.NoError(t, b.DeleteNatGateway(nats[0].ID))
+		assert.Empty(t, b.DescribeNatGateways(nil))
+
+		// DeleteVpc must not error or attempt to re-delete the missing NAT.
+		require.NoError(t, b.DeleteVpc(res.vpcID))
+		assert.Empty(t, b.DescribeVpcs([]string{res.vpcID}))
+	})
+
+	t.Run("delete_subnet_scopes_nat_and_eni_removal", func(t *testing.T) {
+		t.Parallel()
+
+		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+		vpc, err := b.CreateVpc("10.40.0.0/16")
+		require.NoError(t, err)
+
+		subnetA, err := b.CreateSubnet(vpc.ID, "10.40.1.0/24", "us-east-1a")
+		require.NoError(t, err)
+		subnetB, err := b.CreateSubnet(vpc.ID, "10.40.2.0/24", "us-east-1b")
+		require.NoError(t, err)
+
+		eniA, err := b.CreateNetworkInterface(subnetA.ID, "eni-a")
+		require.NoError(t, err)
+		eniB, err := b.CreateNetworkInterface(subnetB.ID, "eni-b")
+		require.NoError(t, err)
+
+		// Delete subnet A — only eni-a removed; eni-b (same VPC) survives.
+		require.NoError(t, b.DeleteSubnet(subnetA.ID))
+		assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniA.ID}))
+		require.Len(t, b.DescribeNetworkInterfaces([]string{eniB.ID}), 1)
+
+		// DeleteVpc removes the remaining subnet-B ENI via the VPC index.
+		require.NoError(t, b.DeleteVpc(vpc.ID))
+		assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniB.ID}))
+	})
+}
+
+// TestModifyInstanceAttribute_Validation covers the handler-level attribute
+// selection and stopped-state guard rules for ModifyInstanceAttribute.
+
+// TestPagination_ForgedTokenRejected asserts that a forged/tampered NextToken is
+// rejected with InvalidPaginationToken across the three opaque-token describe
+// operations, rather than silently re-paging from offset 0.
+func TestPagination_ForgedTokenRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+	}{
+		{name: "describe_instances", action: "DescribeInstances"},
+		{name: "describe_images", action: "DescribeImages"},
+		{name: "describe_instance_types", action: "DescribeInstanceTypes"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			params := url.Values{
+				"Action":     {tt.action},
+				"Version":    {"2016-11-15"},
+				"MaxResults": {"5"},
+				"NextToken":  {"this-is-a-forged-token"},
+			}
+
+			_, err := dispatchHandler(h, params)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ec2.ErrInvalidPaginationToken)
+		})
+	}
+}
+
+// cloneValues returns a shallow copy of the url.Values so parallel subtests can
+// mutate InstanceId without racing on the shared table entry.
+
+// buildVPCWithResources creates a VPC with a subnet, `numInstances` running
+// instances (each with an auto-attached ENI), one standalone ENI, and one NAT
+// gateway, returning the created resource identifiers for later assertions.
+func buildVPCWithResources(
+	t *testing.T,
+	b *ec2.InMemoryBackend,
+	cidr, az string,
+	numInstances int,
+) vpcResources {
+	t.Helper()
+
+	vpc, err := b.CreateVpc(cidr)
+	require.NoError(t, err)
+
+	subnet, err := b.CreateSubnet(vpc.ID, cidr, az)
+	require.NoError(t, err)
+
+	instances, err := b.RunInstances("ami-123", "t3.micro", subnet.ID, numInstances)
+	require.NoError(t, err)
+
+	ids := make([]string, 0, len(instances))
+	for _, inst := range instances {
+		ids = append(ids, inst.ID)
+	}
+
+	eni, err := b.CreateNetworkInterface(subnet.ID, "standalone-eni")
+	require.NoError(t, err)
+
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	_, err = b.CreateNatGateway(subnet.ID, addr.AllocationID)
+	require.NoError(t, err)
+
+	return vpcResources{
+		vpcID:       vpc.ID,
+		subnetID:    subnet.ID,
+		eniID:       eni.ID,
+		instanceIDs: ids,
+	}
+}
+
+// TestPersistence_SecondaryIndexRebuild is the guard test for the Restore
+// secondary-index rebuild. It creates a VPC with instances and ENIs, snapshots,
+// restores into a fresh backend, and asserts that (a) DeleteVpc still cascades
+// (proving instanceIDsByVPC / subnetIDsByVPC / natGatewayIDsByVPC / eniIDsByVPC
+// were rebuilt) and (b) ENI-by-instance termination cleanup still works
+// (proving eniIDsByInstance was rebuilt).
+
+// TestSeedHelpers verifies all seed helper functions work correctly.
+func TestSeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	b.AddAddressTransferInternal(
+		&ec2.AddressTransfer{PublicIP: "1.2.3.4", AllocationID: "eipalloc-1"},
+	)
+	b.AddCapacityReservationInternal(
+		&ec2.CapacityReservation{CapacityReservationID: "cr-1", InstanceType: "t3.micro"},
+	)
+	b.AddTGWPeeringAttachmentInternal(&ec2.TransitGatewayPeeringAttachment{
+		TransitGatewayAttachmentID: "tgw-attach-1",
+		State:                      "pending-acceptance",
+	})
+	b.AddTGWVpcAttachmentInternal(&ec2.TransitGatewayVpcAttachment{
+		TransitGatewayAttachmentID: "tgw-attach-2",
+		State:                      "pending-acceptance",
+	})
+	b.AddVpcPeeringConnectionInternal(&ec2.VpcPeeringConnection{
+		VpcPeeringConnectionID: "pcx-1",
+		RequesterVpcID:         "vpc-a",
+		AccepterVpcID:          "vpc-b",
+		State:                  "pending-acceptance",
+	})
+	b.AddByoipCidrInternal(&ec2.ByoipCidr{Cidr: "203.0.113.0/24", State: "provisioned"})
+	b.AddVpcEndpointConnectionInternal(&ec2.VpcEndpointConnection{
+		ServiceID:     "vpce-svc-1",
+		VpcEndpointID: "vpce-1",
+		State:         "pending-acceptance",
+	})
+	b.AddTGWMulticastDomainAssociationInternal(&ec2.TransitGatewayMulticastDomainAssociation{
+		TransitGatewayMulticastDomainID: "tgw-mcast-1",
+		SubnetID:                        "subnet-1",
+		State:                           "associated",
+	})
+
+	assert.Equal(t, 1, b.AddressTransferCount())
+	assert.Equal(t, 1, b.CapacityReservationCount())
+	assert.Equal(t, 1, b.TGWPeeringAttachmentCount())
+	assert.Equal(t, 1, b.TGWVpcAttachmentCount())
+	assert.Equal(t, 1, b.VpcPeeringConnectionCount())
+	assert.Equal(t, 1, b.ByoipCidrCount())
+	assert.Equal(t, 1, b.VpcEndpointConnectionCount())
+	assert.Equal(t, 1, b.TGWMulticastDomainAssociationCount())
+}
+
+// TestExportCountHelpers verifies count helpers return 0 on fresh backend.
+
+// TestExportCountHelpers verifies count helpers return 0 on fresh backend.
+func TestExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	assert.Equal(t, 0, b.AddressTransferCount())
+	assert.Equal(t, 0, b.CapacityReservationCount())
+	assert.Equal(t, 0, b.ReservedInstancesExchangeCount())
+	assert.Equal(t, 0, b.TGWMulticastDomainAssociationCount())
+	assert.Equal(t, 0, b.TGWPeeringAttachmentCount())
+	assert.Equal(t, 0, b.TGWVpcAttachmentCount())
+	assert.Equal(t, 0, b.VpcEndpointConnectionCount())
+	assert.Equal(t, 0, b.VpcPeeringConnectionCount())
+	assert.Equal(t, 0, b.ByoipCidrCount())
+	assert.Equal(t, 0, b.DedicatedHostCount())
+}
+
+// TestSeedHelpers_DeepCopy verifies that seed helpers copy the value so
+// mutations to the original struct do not affect the stored entry.
+
+// TestSeedHelpers_DeepCopy verifies that seed helpers copy the value so
+// mutations to the original struct do not affect the stored entry.
+func TestSeedHelpers_DeepCopy(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	original := &ec2.VpcPeeringConnection{
+		VpcPeeringConnectionID: "pcx-1",
+		State:                  "pending-acceptance",
+	}
+	b.AddVpcPeeringConnectionInternal(original)
+
+	// Mutate the original; the stored value should not change.
+	original.State = "mutated"
+
+	conns := b.DescribeVpcPeeringConnections([]string{"pcx-1"})
+	require.Len(t, conns, 1)
+	assert.Equal(t, "pending-acceptance", conns[0].State, "seed helper should deep-copy")
+}
+
+// TestCapacityReservationOwnedBy verifies OwnedBy is populated.
+
+// TestPersistenceRoundTrip verifies new resource maps survive Snapshot/Restore.
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	b.AddAddressTransferInternal(
+		&ec2.AddressTransfer{PublicIP: "1.2.3.4", AllocationID: "eipalloc-1"},
+	)
+	b.AddCapacityReservationInternal(&ec2.CapacityReservation{CapacityReservationID: "cr-1"})
+	b.AddByoipCidrInternal(&ec2.ByoipCidr{Cidr: "10.0.0.0/8", State: "advertised"})
+	b.AddVpcPeeringConnectionInternal(&ec2.VpcPeeringConnection{VpcPeeringConnectionID: "pcx-1"})
+
+	_, err := b.AllocateHosts("us-east-1a", "t3.micro", 1)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, b2.AddressTransferCount())
+	assert.Equal(t, 1, b2.CapacityReservationCount())
+	assert.Equal(t, 1, b2.ByoipCidrCount())
+	assert.Equal(t, 1, b2.VpcPeeringConnectionCount())
+	assert.Equal(t, 1, b2.DedicatedHostCount())
 }

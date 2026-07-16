@@ -1,0 +1,422 @@
+package iot
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/labstack/echo/v5"
+)
+
+func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
+	// Path: /jobs/{jobId}/targets
+	after := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
+	jobID := strings.SplitN(after, "/", maxPathSegments)[0]
+
+	var body struct {
+		Comment     string   `json:"comment"`
+		NamespaceID string   `json:"namespaceId"`
+		Targets     []string `json:"targets"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+	}
+
+	out, err := h.Backend.AssociateTargetsWithJob(&AssociateTargetsWithJobInput{
+		JobID:       jobID,
+		Targets:     body.Targets,
+		Comment:     body.Comment,
+		NamespaceID: body.NamespaceID,
+	})
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) handleListJobExecutionsForJob(c *echo.Context) error {
+	// GET /jobs/{jobId}/things
+	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
+	jobID := strings.TrimSuffix(trimmed, "/things")
+	execs := h.Backend.ListJobExecutionsForJob(jobID)
+	summaries := make([]map[string]any, len(execs))
+	for i, e := range execs {
+		summaries[i] = map[string]any{
+			"jobId":     e.JobID,
+			"thingName": e.ThingName,
+			keyStatus:   e.Status,
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"executionSummaries": summaries})
+}
+
+func (h *Handler) handleListJobExecutionsForThing(c *echo.Context) error {
+	// GET /things/{thingName}/jobs
+	thingName := extractThingName(c.Request().URL.Path)
+	execs := h.Backend.ListJobExecutionsForThing(thingName)
+	summaries := make([]map[string]any, len(execs))
+	for i, e := range execs {
+		summaries[i] = map[string]any{
+			"jobId":   e.JobID,
+			keyStatus: e.Status,
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"executionSummaries": summaries})
+}
+
+func resolveJobOps(path, method string) string {
+	if op := resolveJobExecutionSubPathOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	return resolveJobCrudOps(path, method)
+}
+
+// resolveJobExecutionSubPathOps resolves the /jobs/{jobId}/... sub-routes that must be
+// checked before the generic per-job CRUD routing in resolveJobCrudOps.
+func resolveJobExecutionSubPathOps(path, method string) string {
+	// More-specific thing-scoped ops before job-scoped.
+	if op := resolveJobThingScopedExecutionOps(path, method); op != unknownOperation {
+		return op
+	}
+
+	switch {
+	// GET /jobs/{jobId}/document → GetJobDocument
+	case strings.HasPrefix(path, "/jobs/") && strings.HasSuffix(path, "/document") && method == http.MethodGet:
+		return opGetJobDocument
+	// PUT /jobs/{jobId}/cancel → CancelJob
+	case strings.HasPrefix(path, "/jobs/") && strings.HasSuffix(path, "/cancel") && method == http.MethodPut:
+		return opCancelJob
+	// GET /jobs/{jobId}/things → ListJobExecutionsForJob (no thingName segment)
+	case strings.HasPrefix(path, "/jobs/") && strings.HasSuffix(path, "/things") && method == http.MethodGet:
+		return opListJobExecutionsForJob
+	}
+
+	return unknownOperation
+}
+
+// resolveJobThingScopedExecutionOps resolves the /jobs/{jobId}/things/{thingName}/... routes,
+// which must be checked before the less-specific job-scoped routes in resolveJobExecutionSubPathOps.
+func resolveJobThingScopedExecutionOps(path, method string) string {
+	switch {
+	// PUT /jobs/{jobId}/things/{thingName}/cancel → CancelJobExecution
+	case strings.HasPrefix(path, "/jobs/") &&
+		strings.Contains(path, "/things/") &&
+		strings.HasSuffix(path, "/cancel") &&
+		method == http.MethodPut:
+		return opCancelJobExecution
+	// DELETE /jobs/{jobId}/things/{thingName} → DeleteJobExecution
+	case strings.HasPrefix(path, "/jobs/") && strings.Contains(path, "/things/") && method == http.MethodDelete:
+		return opDeleteJobExecution
+	// GET /jobs/{jobId}/things/{thingName} → DescribeJobExecution
+	case strings.HasPrefix(path, "/jobs/") && strings.Contains(path, "/things/") && method == http.MethodGet:
+		return opDescribeJobExecution
+	}
+
+	return unknownOperation
+}
+
+// resolveJobCrudOps resolves the plain /jobs and /jobs/{jobId} CRUD routes.
+func resolveJobCrudOps(path, method string) string {
+	switch {
+	// GET /jobs → ListJobs
+	case path == "/jobs" && method == http.MethodGet:
+		return opListJobs
+	// POST /jobs/{jobId} → CreateJob
+	case strings.HasPrefix(path, "/jobs/") && method == http.MethodPost:
+		return opCreateJob
+	// GET /jobs/{jobId} → DescribeJob
+	case strings.HasPrefix(path, "/jobs/") && method == http.MethodGet:
+		return opDescribeJob
+	// PATCH /jobs/{jobId} → UpdateJob
+	case strings.HasPrefix(path, "/jobs/") && method == http.MethodPatch:
+		return opUpdateJob
+	// DELETE /jobs/{jobId} → DeleteJob
+	case strings.HasPrefix(path, "/jobs/") && method == http.MethodDelete:
+		return opDeleteJob
+	}
+
+	return unknownOperation
+}
+
+func resolveJobTemplateOps(path, method string) string {
+	switch {
+	case path == "/job-templates" && method == http.MethodGet:
+		return opListJobTemplates
+	case strings.HasPrefix(path, "/job-templates/") && method == http.MethodPost:
+		return opCreateJobTemplate
+	case strings.HasPrefix(path, "/job-templates/") && method == http.MethodGet:
+		return opDescribeJobTemplate
+	case strings.HasPrefix(path, "/job-templates/") && method == http.MethodDelete:
+		return opDeleteJobTemplate
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) handleCreateJob(c *echo.Context) error {
+	// jobId is in the path: POST /jobs/{jobId}
+	jobID := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
+	var input CreateJobInput
+	if err := readBody(c, &input); err != nil {
+		return err
+	}
+	input.JobID = jobID
+	job, err := h.Backend.CreateJob(&input)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyJobID:       job.JobID,
+		keyJobARN:      job.JobARN,
+		keyDescription: job.Description,
+	})
+}
+
+func (h *Handler) handleDescribeJob(c *echo.Context) error {
+	jobID := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
+	job, err := h.Backend.DescribeJob(jobID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"job": job})
+}
+
+func (h *Handler) handleListJobs(c *echo.Context) error {
+	jobs := h.Backend.ListJobs()
+	summaries := make([]map[string]any, len(jobs))
+	for i, j := range jobs {
+		summaries[i] = map[string]any{
+			keyJobID:          j.JobID,
+			keyJobARN:         j.JobARN,
+			"status":          j.Status,
+			"targetSelection": j.TargetSelection,
+			keyCreatedAt:      j.CreatedAt,
+			keyLastUpdatedAt:  j.LastUpdatedAt,
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"jobs": summaries})
+}
+
+func (h *Handler) handleUpdateJob(c *echo.Context) error {
+	jobID := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
+	var req struct {
+		Description string `json:"description"`
+	}
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
+	if err := h.Backend.UpdateJob(jobID, req.Description); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleDeleteJob(c *echo.Context) error {
+	jobID := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
+	if err := h.Backend.DeleteJob(jobID); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleCancelJob(c *echo.Context) error {
+	// PUT /jobs/{jobId}/cancel
+	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
+	jobID := strings.TrimSuffix(trimmed, "/cancel")
+	var req struct {
+		Comment string `json:"comment"`
+	}
+	_ = readBody(c, &req)
+	job, err := h.Backend.CancelJob(jobID, req.Comment)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyJobID:  job.JobID,
+		keyJobARN: job.JobARN,
+	})
+}
+
+func (h *Handler) handleGetJobDocument(c *echo.Context) error {
+	// GET /jobs/{jobId}/document
+	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
+	jobID := strings.TrimSuffix(trimmed, "/document")
+	doc, err := h.Backend.GetJobDocument(jobID)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"document": doc})
+}
+
+func (h *Handler) handleDescribeJobExecution(c *echo.Context) error {
+	// GET /jobs/{jobId}/things/{thingName}
+	jobID, thingName := parseJobThingPath(c.Request().URL.Path)
+	exec, err := h.Backend.DescribeJobExecution(jobID, thingName)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"execution": exec})
+}
+
+func (h *Handler) handleCancelJobExecution(c *echo.Context) error {
+	// PUT /jobs/{jobId}/things/{thingName}/cancel
+	path := c.Request().URL.Path
+	path = strings.TrimSuffix(path, "/cancel")
+	jobID, thingName := parseJobThingPath(path)
+	if err := h.Backend.CancelJobExecution(jobID, thingName); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleDeleteJobExecution(c *echo.Context) error {
+	// DELETE /jobs/{jobId}/things/{thingName}
+	jobID, thingName := parseJobThingPath(c.Request().URL.Path)
+	if err := h.Backend.DeleteJobExecution(jobID, thingName); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+// parseJobThingPath extracts jobId and thingName from /jobs/{jobId}/things/{thingName}[/...].
+func parseJobThingPath(path string) (string, string) {
+	trimmed := strings.TrimPrefix(path, "/jobs/")
+	parts := strings.SplitN(trimmed, "/things/", twoparts)
+	if len(parts) == twoparts {
+		return parts[0], strings.SplitN(parts[1], "/", twoparts)[0]
+	}
+
+	return "", ""
+}
+
+func (h *Handler) handleCreateJobTemplate(c *echo.Context) error {
+	id := strings.TrimPrefix(c.Request().URL.Path, "/job-templates/")
+	var input CreateJobTemplateInput
+	if err := readBody(c, &input); err != nil {
+		return err
+	}
+	input.JobTemplateID = id
+	jt, err := h.Backend.CreateJobTemplate(&input)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"jobTemplateId":  jt.JobTemplateID,
+		"jobTemplateArn": jt.JobTemplateARN,
+	})
+}
+
+func (h *Handler) handleDescribeJobTemplate(c *echo.Context) error {
+	id := strings.TrimPrefix(c.Request().URL.Path, "/job-templates/")
+	jt, err := h.Backend.DescribeJobTemplate(id)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, jt)
+}
+
+func (h *Handler) handleListJobTemplates(c *echo.Context) error {
+	templates := h.Backend.ListJobTemplates()
+	summaries := make([]map[string]any, len(templates))
+	for i, jt := range templates {
+		summaries[i] = map[string]any{
+			"jobTemplateId":  jt.JobTemplateID,
+			"jobTemplateArn": jt.JobTemplateARN,
+			keyDescription:   jt.Description,
+			keyCreatedAt:     jt.CreatedAt,
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"jobTemplates": summaries})
+}
+
+func (h *Handler) handleDeleteJobTemplate(c *echo.Context) error {
+	id := strings.TrimPrefix(c.Request().URL.Path, "/job-templates/")
+	if err := h.Backend.DeleteJobTemplate(id); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) dispatchJobOps(c *echo.Context, op string) (bool, error) {
+	switch op {
+	case opCreateJob:
+		return true, h.handleCreateJob(c)
+	case opDescribeJob:
+		return true, h.handleDescribeJob(c)
+	case opListJobs:
+		return true, h.handleListJobs(c)
+	case opUpdateJob:
+		return true, h.handleUpdateJob(c)
+	case opCancelJob:
+		return true, h.handleCancelJob(c)
+	case opDeleteJob:
+		return true, h.handleDeleteJob(c)
+	case opGetJobDocument:
+		return true, h.handleGetJobDocument(c)
+	case opDescribeJobExecution:
+		return true, h.handleDescribeJobExecution(c)
+	case opCancelJobExecution:
+		return true, h.handleCancelJobExecution(c)
+	case opDeleteJobExecution:
+		return true, h.handleDeleteJobExecution(c)
+	case opListJobExecutionsForJob:
+		return true, h.handleListJobExecutionsForJob(c)
+	case opListJobExecutionsForThing:
+		return true, h.handleListJobExecutionsForThing(c)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) dispatchJobTemplateOps(c *echo.Context, op string) (bool, error) {
+	switch op {
+	case opCreateJobTemplate:
+		return true, h.handleCreateJobTemplate(c)
+	case opDescribeJobTemplate:
+		return true, h.handleDescribeJobTemplate(c)
+	case opListJobTemplates:
+		return true, h.handleListJobTemplates(c)
+	case opDeleteJobTemplate:
+		return true, h.handleDeleteJobTemplate(c)
+	}
+
+	return false, nil
+}
+
+// resolveJobExecutionPathOps resolves the job-execution listing endpoints.
+func resolveJobExecutionPathOps(path, method string) string {
+	switch {
+	case strings.HasPrefix(path, "/jobs/") &&
+		strings.HasSuffix(path, "/things") &&
+		method == http.MethodGet:
+		return opListJobExecutionsForJob
+	case strings.HasPrefix(path, "/things/") &&
+		strings.HasSuffix(path, "/jobs") &&
+		method == http.MethodGet:
+		return opListJobExecutionsForThing
+	}
+
+	return unknownOperation
+}

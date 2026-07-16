@@ -61,7 +61,7 @@ func (s *auditSFNExecutor) LastExecution() sfnExecution {
 	return s.executions[len(s.executions)-1]
 }
 
-func TestAudit_Delivery_StepFunctions_DeliversEvent(t *testing.T) {
+func TestDelivery_StepFunctions_DeliversEvent(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
@@ -94,7 +94,7 @@ func TestAudit_Delivery_StepFunctions_DeliversEvent(t *testing.T) {
 	assert.NotEmpty(t, exec.Input)
 }
 
-func TestAudit_Delivery_StepFunctions_NilHandlerSkipsGracefully(t *testing.T) {
+func TestDelivery_StepFunctions_NilHandlerSkipsGracefully(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
@@ -119,12 +119,12 @@ func TestAudit_Delivery_StepFunctions_NilHandlerSkipsGracefully(t *testing.T) {
 	})
 }
 
-func TestAudit_Delivery_StepFunctions_FailureSendsToDLQ(t *testing.T) {
+func TestDelivery_StepFunctions_FailureSendsToDLQ(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
 
-	dlqSink := newAuditSQSSender()
+	dlqSink := newMockSQSSender()
 	dlqARN := "arn:aws:sqs:us-east-1:123456789012:sfn-dlq"
 	smARN := "arn:aws:states:us-east-1:123456789012:stateMachine:failing-sm"
 
@@ -162,7 +162,7 @@ func TestAudit_Delivery_StepFunctions_FailureSendsToDLQ(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "DLQ should receive failed SFN delivery")
 }
 
-func TestAudit_Delivery_IsStateMachineARN(t *testing.T) {
+func TestDelivery_IsStateMachineARN(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

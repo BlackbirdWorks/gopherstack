@@ -92,7 +92,27 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 
 	now := time.Now().UTC()
 
+	db.enableStreamFieldsLocked(table, tableName, region, viewType, now)
+
+	// Update the reverse index under db.mu (after releasing table lock to preserve lock ordering).
+	db.mu.Lock("EnableStream.streamARNIndex")
+	defer db.mu.Unlock()
+	db.streamARNIndex.Put(table)
+
+	return nil
+}
+
+// enableStreamFieldsLocked applies the EnableStream field mutations under a
+// defer-protected table.mu.Lock, so a panic partway through (e.g. from
+// buildStreamARNInRegion) can never leave table.mu permanently locked.
+func (db *InMemoryDB) enableStreamFieldsLocked(
+	table *Table,
+	tableName, region, viewType string,
+	now time.Time,
+) {
 	table.mu.Lock("EnableStream")
+	defer table.mu.Unlock()
+
 	table.StreamsEnabled = true
 	table.StreamViewType = viewType
 	table.StreamCreatedAt = now
@@ -104,14 +124,6 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 			StartingSequenceNum: table.streamSeq + 1,
 		},
 	}
-	table.mu.Unlock()
-
-	// Update the reverse index under db.mu (after releasing table lock to preserve lock ordering).
-	db.mu.Lock("EnableStream.streamARNIndex")
-	db.streamARNIndex.Put(table)
-	db.mu.Unlock()
-
-	return nil
 }
 
 // DisableStream disables DynamoDB Streams on a table.
@@ -121,7 +133,25 @@ func (db *InMemoryDB) DisableStream(ctx context.Context, tableName string) error
 		return err
 	}
 
+	oldARN := disableStreamFieldsLocked(table)
+
+	// Remove from reverse index under db.mu (after releasing table lock to preserve lock ordering).
+	if oldARN != "" {
+		db.mu.Lock("DisableStream.streamARNIndex")
+		defer db.mu.Unlock()
+		db.streamARNIndex.Delete(oldARN)
+	}
+
+	return nil
+}
+
+// disableStreamFieldsLocked applies the DisableStream field resets under a
+// defer-protected table.mu.Lock and returns the stream ARN that was in effect
+// before the reset (empty if streams were not enabled).
+func disableStreamFieldsLocked(table *Table) string {
 	table.mu.Lock("DisableStream")
+	defer table.mu.Unlock()
+
 	oldARN := table.StreamARN
 	table.StreamsEnabled = false
 	table.StreamARN = ""
@@ -131,16 +161,8 @@ func (db *InMemoryDB) DisableStream(ctx context.Context, tableName string) error
 	table.StreamHead = 0
 	table.streamTrimSeq = 0
 	table.streamShards = nil
-	table.mu.Unlock()
 
-	// Remove from reverse index under db.mu (after releasing table lock to preserve lock ordering).
-	if oldARN != "" {
-		db.mu.Lock("DisableStream.streamARNIndex")
-		db.streamARNIndex.Delete(oldARN)
-		db.mu.Unlock()
-	}
-
-	return nil
+	return oldARN
 }
 
 // DescribeStream returns details about a stream (identified by its ARN).
@@ -155,53 +177,22 @@ func (db *InMemoryDB) DescribeStream(
 
 	streamARN := aws.ToString(input.StreamArn)
 
-	db.mu.RLock("DescribeStream")
-	found := db.findTableByStreamARN(streamARN)
-	db.mu.RUnlock()
-
+	found := db.findTableByStreamARNRLocked(streamARN)
 	if found == nil {
 		return nil, NewResourceNotFoundException(
 			"stream not found: " + streamARN,
 		)
 	}
 
-	found.mu.RLock("DescribeStream")
-	tableName := found.Name
-	viewType := found.StreamViewType
-	keySchema := found.KeySchema
-	streamCreatedAt := found.StreamCreatedAt
-	shardSlice := found.streamShards
-
 	exclusiveStart := aws.ToString(input.ExclusiveStartShardId)
-	if exclusiveStart != "" {
-		foundStart := false
-		for i, s := range shardSlice {
-			if s.ShardID == exclusiveStart {
-				shardSlice = shardSlice[i+1:]
-				foundStart = true
-
-				break
-			}
-		}
-		if !foundStart {
-			shardSlice = nil
-		}
-	}
 
 	limit := maxDescribeShards
 	if input.Limit != nil && *input.Limit > 0 && int(*input.Limit) < limit {
 		limit = int(*input.Limit)
 	}
 
-	var lastEvaluatedShardID *string
-	if len(shardSlice) > limit {
-		lastEvaluatedShardID = aws.String(shardSlice[limit-1].ShardID)
-		shardSlice = shardSlice[:limit]
-	}
-
-	shards := make([]StreamShard, len(shardSlice))
-	copy(shards, shardSlice)
-	found.mu.RUnlock()
+	tableName, viewType, keySchema, streamCreatedAt, shards, lastEvaluatedShardID :=
+		describeStreamSnapshot(found, exclusiveStart, limit)
 
 	sdkKeySchema := make([]streamstypes.KeySchemaElement, 0, len(keySchema))
 	for _, ks := range keySchema {
@@ -321,32 +312,14 @@ func (db *InMemoryDB) GetShardIterator(
 	streamARN := aws.ToString(input.StreamArn)
 	requestedShardID := aws.ToString(input.ShardId)
 
-	db.mu.RLock("GetShardIterator")
-	found := db.findTableByStreamARN(streamARN)
-	db.mu.RUnlock()
-
+	found := db.findTableByStreamARNRLocked(streamARN)
 	if found == nil {
 		return nil, NewResourceNotFoundException(
 			"stream not found: " + streamARN,
 		)
 	}
 
-	found.mu.RLock("GetShardIterator")
-	currentSeq := found.streamSeq
-	trimSeq := found.streamTrimSeq
-	var shardStartSeq, shardEndSeq int64
-	var foundShard bool
-	for _, s := range found.streamShards {
-		if s.ShardID == requestedShardID {
-			shardStartSeq = s.StartingSequenceNum
-			shardEndSeq = s.EndingSequenceNum
-			foundShard = true
-
-			break
-		}
-	}
-	found.mu.RUnlock()
-
+	currentSeq, trimSeq, shardStartSeq, shardEndSeq, foundShard := shardSeqRangeRLocked(found, requestedShardID)
 	if !foundShard {
 		return nil, NewResourceNotFoundException(
 			"Shard " + requestedShardID + " does not exist in stream " + streamARN,
@@ -369,6 +342,34 @@ func (db *InMemoryDB) GetShardIterator(
 	return &dynamodbstreams.GetShardIteratorOutput{
 		ShardIterator: aws.String(token),
 	}, nil
+}
+
+// shardSeqRangeRLocked returns the stream's current/trim sequence numbers and
+// the named shard's start/end sequence range under a defer-protected
+// found.mu.RLock, so a panic while scanning found.streamShards can never leave
+// table.mu read-locked forever.
+func shardSeqRangeRLocked(found *Table, requestedShardID string) (int64, int64, int64, int64, bool) {
+	found.mu.RLock("GetShardIterator")
+	defer found.mu.RUnlock()
+
+	currentSeq := found.streamSeq
+	trimSeq := found.streamTrimSeq
+
+	var shardStartSeq, shardEndSeq int64
+
+	var foundShard bool
+
+	for _, s := range found.streamShards {
+		if s.ShardID == requestedShardID {
+			shardStartSeq = s.StartingSequenceNum
+			shardEndSeq = s.EndingSequenceNum
+			foundShard = true
+
+			break
+		}
+	}
+
+	return currentSeq, trimSeq, shardStartSeq, shardEndSeq, foundShard
 }
 
 // resolveStartSeq resolves the starting sequence number for a new shard iterator
@@ -470,11 +471,7 @@ func (db *InMemoryDB) GetRecords(
 		limit = int64(*input.Limit)
 	}
 
-	table.mu.RLock("GetRecords")
-	trimSeq := table.streamTrimSeq
-	currentSeq := table.streamSeq
-	tail, head := table.streamRecordsInOrder()
-	table.mu.RUnlock()
+	trimSeq, currentSeq, tail, head := streamRecordsSnapshotRLocked(table)
 
 	// If the requested start is before the trim horizon, the data has been evicted.
 	if trimSeq > 0 && startSeq < trimSeq {
@@ -510,6 +507,19 @@ func (db *InMemoryDB) GetRecords(
 		Records:           records,
 		NextShardIterator: aws.String(nextToken),
 	}, nil
+}
+
+// streamRecordsSnapshotRLocked returns the trim/current sequence numbers and
+// the ordered stream-record halves under a defer-protected table.mu.RLock, so
+// a panic while ordering the ring buffer can never leave table.mu read-locked
+// forever.
+func streamRecordsSnapshotRLocked(table *Table) (int64, int64, []models.StreamRecord, []models.StreamRecord) {
+	table.mu.RLock("GetRecords")
+	defer table.mu.RUnlock()
+
+	tail, head := table.streamRecordsInOrder()
+
+	return table.streamTrimSeq, table.streamSeq, tail, head
 }
 
 // resolveIterator resolves a shard iterator token to (tableName, startSeq, endSeq).
@@ -622,13 +632,18 @@ func (db *InMemoryDB) collectEnabledStreams(requestRegion, filterTable string) [
 
 	// Snapshot under db.mu (read lock). This avoids holding db.mu while also
 	// acquiring table.mu, which would invert the lock order.
-	db.mu.RLock("ListStreams")
-	all := db.streamARNIndex.All()
-	entries := make([]arnEntry, 0, len(all))
-	for _, t := range all {
-		entries = append(entries, arnEntry{table: t, arn: t.StreamARN})
-	}
-	db.mu.RUnlock()
+	entries := func() []arnEntry {
+		db.mu.RLock("ListStreams")
+		defer db.mu.RUnlock()
+
+		all := db.streamARNIndex.All()
+		out := make([]arnEntry, 0, len(all))
+		for _, t := range all {
+			out = append(out, arnEntry{table: t, arn: t.StreamARN})
+		}
+
+		return out
+	}()
 
 	var collected []streamListEntry
 	for _, e := range entries {
@@ -636,11 +651,7 @@ func (db *InMemoryDB) collectEnabledStreams(requestRegion, filterTable string) [
 			continue
 		}
 
-		e.table.mu.RLock("ListStreams.table")
-		name := e.table.Name
-		enabled := e.table.StreamsEnabled
-		e.table.mu.RUnlock()
-
+		name, enabled := tableStreamInfoRLocked(e.table)
 		if !enabled || (filterTable != "" && name != filterTable) {
 			continue
 		}
@@ -649,6 +660,15 @@ func (db *InMemoryDB) collectEnabledStreams(requestRegion, filterTable string) [
 	}
 
 	return collected
+}
+
+// tableStreamInfoRLocked returns table.Name and table.StreamsEnabled under a
+// defer-protected table.mu.RLock.
+func tableStreamInfoRLocked(table *Table) (string, bool) {
+	table.mu.RLock("ListStreams.table")
+	defer table.mu.RUnlock()
+
+	return table.Name, table.StreamsEnabled
 }
 
 // buildStreamARNInRegion generates a stream ARN for the given table in a specific region.
@@ -947,6 +967,65 @@ func (db *InMemoryDB) findTableByStreamARN(streamARN string) *Table {
 	}
 
 	return nil
+}
+
+// findTableByStreamARNRLocked wraps findTableByStreamARN in a defer-protected
+// db.mu RLock, so a panic during the lookup can never leave db.mu read-locked
+// forever.
+func (db *InMemoryDB) findTableByStreamARNRLocked(streamARN string) *Table {
+	db.mu.RLock("DescribeStream")
+	defer db.mu.RUnlock()
+
+	return db.findTableByStreamARN(streamARN)
+}
+
+// describeStreamSnapshot copies the shard/table metadata needed by
+// DescribeStream under a single found.mu.RLock/defer, so a panic while
+// trimming/copying the shard slice can never leave table.mu read-locked
+// forever. limit and exclusiveStart are computed by the caller from the
+// request input (no lock needed for that).
+func describeStreamSnapshot(
+	found *Table,
+	exclusiveStart string,
+	limit int,
+) (
+	string,
+	string,
+	[]models.KeySchemaElement,
+	time.Time,
+	[]StreamShard,
+	*string,
+) {
+	found.mu.RLock("DescribeStream")
+	defer found.mu.RUnlock()
+
+	shardSlice := found.streamShards
+
+	if exclusiveStart != "" {
+		foundStart := false
+		for i, s := range shardSlice {
+			if s.ShardID == exclusiveStart {
+				shardSlice = shardSlice[i+1:]
+				foundStart = true
+
+				break
+			}
+		}
+		if !foundStart {
+			shardSlice = nil
+		}
+	}
+
+	var lastEvaluatedShardID *string
+	if len(shardSlice) > limit {
+		lastEvaluatedShardID = aws.String(shardSlice[limit-1].ShardID)
+		shardSlice = shardSlice[:limit]
+	}
+
+	shards := make([]StreamShard, len(shardSlice))
+	copy(shards, shardSlice)
+
+	return found.Name, found.StreamViewType, found.KeySchema, found.StreamCreatedAt, shards, lastEvaluatedShardID
 }
 
 // collectStreamRecords collects up to limit records starting at startSeq

@@ -520,24 +520,27 @@ func (s *ShardIteratorStore) PutWithEnd(tableName string, startSeq, endSeq int64
 
 	now := time.Now()
 
-	s.mu.Lock()
-	// Opportunistically drop expired tokens once the store grows large so it
-	// stays bounded between scheduled Sweep() calls. The threshold keeps the
-	// common small-store case allocation- and scan-free.
-	if len(s.entries) >= shardIteratorSweepThreshold {
-		for tok, entry := range s.entries {
-			if now.After(entry.ExpiresAt) {
-				delete(s.entries, tok)
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// Opportunistically drop expired tokens once the store grows large so it
+		// stays bounded between scheduled Sweep() calls. The threshold keeps the
+		// common small-store case allocation- and scan-free.
+		if len(s.entries) >= shardIteratorSweepThreshold {
+			for tok, entry := range s.entries {
+				if now.After(entry.ExpiresAt) {
+					delete(s.entries, tok)
+				}
 			}
 		}
-	}
-	s.entries[token] = &shardIteratorEntry{
-		TableName: tableName,
-		StartSeq:  startSeq,
-		EndSeq:    endSeq,
-		ExpiresAt: now.Add(shardIteratorTTL),
-	}
-	s.mu.Unlock()
+		s.entries[token] = &shardIteratorEntry{
+			TableName: tableName,
+			StartSeq:  startSeq,
+			EndSeq:    endSeq,
+			ExpiresAt: now.Add(shardIteratorTTL),
+		}
+	}()
 
 	return token, nil
 }
@@ -553,8 +556,9 @@ func (s *ShardIteratorStore) Get(token string) *shardIteratorEntry {
 // Delete removes a token from the store.
 func (s *ShardIteratorStore) Delete(token string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	delete(s.entries, token)
-	s.mu.Unlock()
 }
 
 // Sweep removes expired entries from the store.

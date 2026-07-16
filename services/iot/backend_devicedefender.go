@@ -816,3 +816,63 @@ func (b *InMemoryBackend) restoreDeviceDefender(snap deviceDefenderSnapshot) {
 		b.violationEvents[i] = cloneViolationEvent(e)
 	}
 }
+
+// BehaviorModelTrainingSummary reports ML Detect model-training progress for
+// one behavior of a security profile.
+type BehaviorModelTrainingSummary struct {
+	SecurityProfileName             string  `json:"securityProfileName"`
+	BehaviorName                    string  `json:"behaviorName"`
+	ModelStatus                     string  `json:"modelStatus,omitempty"`
+	DatapointsCollectionPercentage  float64 `json:"datapointsCollectionPercentage,omitempty"`
+	LastModelRefreshDate            float64 `json:"lastModelRefreshDate,omitempty"`
+	TrainingDataCollectionStartDate float64 `json:"trainingDataCollectionStartDate,omitempty"`
+}
+
+// GetBehaviorModelTrainingSummaries returns stored per-behavior training
+// summaries, optionally scoped to one security profile, paginated.
+func (b *InMemoryBackend) GetBehaviorModelTrainingSummaries(
+	securityProfileName string, maxResults int32, nextToken string,
+) ([]*BehaviorModelTrainingSummary, string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var all []*BehaviorModelTrainingSummary
+
+	if securityProfileName != "" {
+		if !b.securityProfiles.Has(securityProfileName) {
+			return nil, "", fmt.Errorf(
+				"security profile %q not found: %w", securityProfileName, ErrResourceNotFound,
+			)
+		}
+
+		for _, s := range b.behaviorTrainingSummaries[securityProfileName] {
+			cp := *s
+			all = append(all, &cp)
+		}
+	} else {
+		for _, name := range sortedKeys(b.behaviorTrainingSummaries) {
+			for _, s := range b.behaviorTrainingSummaries[name] {
+				cp := *s
+				all = append(all, &cp)
+			}
+		}
+	}
+
+	page, next := paginateMaps(all, searchPageSize(maxResults), searchStartOffset(nextToken))
+
+	return page, next, nil
+}
+
+// AddBehaviorModelTrainingSummaryInternal seeds a training summary for a
+// security profile (there is no public API to trigger ML Detect training;
+// AWS populates this asynchronously once enough data is collected).
+func (b *InMemoryBackend) AddBehaviorModelTrainingSummaryInternal(
+	securityProfileName string, s BehaviorModelTrainingSummary,
+) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := s
+	cp.SecurityProfileName = securityProfileName
+	b.behaviorTrainingSummaries[securityProfileName] = append(b.behaviorTrainingSummaries[securityProfileName], &cp)
+}

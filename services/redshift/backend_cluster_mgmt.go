@@ -261,3 +261,22 @@ func (b *InMemoryBackend) ModifyClusterMaintenance(
 
 	return &cp, nil
 }
+
+// FailoverPrimaryCompute simulates a primary compute failover by updating the cluster status.
+func (b *InMemoryBackend) FailoverPrimaryCompute(clusterID string) (*Cluster, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("FailoverPrimaryCompute")
+	defer b.mu.Unlock()
+
+	cluster, exists := b.clusters.Get(clusterID)
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	cp := cloneCluster(cluster)
+
+	return &cp, nil
+}

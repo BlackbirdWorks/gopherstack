@@ -221,3 +221,266 @@ func TestInMemoryBackend_Restore_IncompatibleVersion(t *testing.T) {
 	assert.Empty(t, all,
 		"incompatible-version restore must reset to empty, not keep pre-existing or partially decoded state")
 }
+
+func TestBackend_AddInternalSeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *elasticache.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "AddCacheSecurityGroupInternal",
+			run: func(t *testing.T, b *elasticache.InMemoryBackend) {
+				t.Helper()
+				b.AddCacheSecurityGroupInternal(&elasticache.CacheSecurityGroup{
+					Name:        "seeded-sg",
+					Description: "seeded",
+					ARN:         "arn:aws:elasticache:us-east-1:000000000000:securitygroup:seeded-sg",
+					OwnerID:     "000000000000",
+				})
+				assert.Equal(t, 1, elasticache.CacheSecurityGroupCount(b))
+			},
+		},
+		{
+			name: "AddGlobalReplicationGroupInternal",
+			run: func(t *testing.T, b *elasticache.InMemoryBackend) {
+				t.Helper()
+				b.AddGlobalReplicationGroupInternal(&elasticache.GlobalReplicationGroup{
+					GlobalReplicationGroupID: "ldgnf-seeded",
+					Description:              "seeded",
+					Status:                   "available",
+					ARN:                      "arn:aws:elasticache:us-east-1:000000000000:globalreplicationgroup:ldgnf-seeded",
+					Engine:                   "redis",
+				})
+				assert.Equal(t, 1, elasticache.GlobalReplicationGroupCount(b))
+			},
+		},
+		{
+			name: "AddServerlessCacheInternal",
+			run: func(t *testing.T, b *elasticache.InMemoryBackend) {
+				t.Helper()
+				b.AddServerlessCacheInternal(&elasticache.ServerlessCache{
+					Name:   "seeded-sc",
+					Status: "available",
+					ARN:    "arn:aws:elasticache:us-east-1:000000000000:serverlesscache:seeded-sc",
+					Engine: "redis",
+				})
+				assert.Equal(t, 1, elasticache.ServerlessCacheCount(b))
+			},
+		},
+		{
+			name: "AddServerlessCacheSnapshotInternal",
+			run: func(t *testing.T, b *elasticache.InMemoryBackend) {
+				t.Helper()
+				b.AddServerlessCacheSnapshotInternal(&elasticache.ServerlessCacheSnapshot{
+					Name:                "seeded-snap",
+					Status:              "available",
+					ARN:                 "arn:aws:elasticache:us-east-1:000000000000:serverlesssnapshot:seeded-snap",
+					ServerlessCacheName: "some-cache",
+				})
+				assert.Equal(t, 1, elasticache.ServerlessCacheSnapshotCount(b))
+			},
+		},
+		{
+			name: "AddUserInternal",
+			run: func(t *testing.T, b *elasticache.InMemoryBackend) {
+				t.Helper()
+				b.AddUserInternal(&elasticache.User{
+					UserID:       "seeded-user",
+					UserName:     "seeded",
+					Status:       "active",
+					ARN:          "arn:aws:elasticache:us-east-1:000000000000:user:seeded-user",
+					Engine:       "redis",
+					AccessString: "on ~* +@all",
+				})
+				assert.Equal(t, 1, elasticache.UserCount(b))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+			b.Reset()
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestBackend_ExportCountHelpers_InitiallyZero(t *testing.T) {
+	t.Parallel()
+
+	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	b.Reset()
+
+	assert.Equal(t, 0, elasticache.CacheSecurityGroupCount(b))
+	assert.Equal(t, 0, elasticache.GlobalReplicationGroupCount(b))
+	assert.Equal(t, 0, elasticache.ServerlessCacheCount(b))
+	assert.Equal(t, 0, elasticache.ServerlessCacheSnapshotCount(b))
+	assert.Equal(t, 0, elasticache.UserCount(b))
+}
+
+func TestHandler_Reset_ClearsExtendedResourceMaps(t *testing.T) {
+	t.Parallel()
+
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	backend.Reset()
+
+	backend.AddCacheSecurityGroupInternal(&elasticache.CacheSecurityGroup{Name: "sg1", ARN: "arn:sg1"})
+	backend.AddGlobalReplicationGroupInternal(
+		&elasticache.GlobalReplicationGroup{GlobalReplicationGroupID: "grg1", ARN: "arn:grg1"},
+	)
+	backend.AddServerlessCacheInternal(&elasticache.ServerlessCache{Name: "sc1", ARN: "arn:sc1"})
+	backend.AddServerlessCacheSnapshotInternal(&elasticache.ServerlessCacheSnapshot{Name: "snap1", ARN: "arn:snap1"})
+	backend.AddUserInternal(&elasticache.User{UserID: "u1", ARN: "arn:u1"})
+
+	assert.Equal(t, 1, elasticache.CacheSecurityGroupCount(backend))
+	assert.Equal(t, 1, elasticache.GlobalReplicationGroupCount(backend))
+	assert.Equal(t, 1, elasticache.ServerlessCacheCount(backend))
+	assert.Equal(t, 1, elasticache.ServerlessCacheSnapshotCount(backend))
+	assert.Equal(t, 1, elasticache.UserCount(backend))
+
+	h := elasticache.NewHandler(backend)
+	h.Reset()
+
+	assert.Equal(t, 0, elasticache.CacheSecurityGroupCount(backend))
+	assert.Equal(t, 0, elasticache.GlobalReplicationGroupCount(backend))
+	assert.Equal(t, 0, elasticache.ServerlessCacheCount(backend))
+	assert.Equal(t, 0, elasticache.ServerlessCacheSnapshotCount(backend))
+	assert.Equal(t, 0, elasticache.UserCount(backend))
+}
+
+func TestBackend_Persistence_ExtendedResourcesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+
+	// Seed data.
+	backend.AddCacheSecurityGroupInternal(&elasticache.CacheSecurityGroup{Name: "sg1", ARN: "arn:sg1"})
+	backend.AddGlobalReplicationGroupInternal(&elasticache.GlobalReplicationGroup{
+		GlobalReplicationGroupID: "ldgnf-grg1",
+		ARN:                      "arn:grg1",
+		Status:                   "available",
+	})
+	backend.AddServerlessCacheInternal(&elasticache.ServerlessCache{Name: "sc1", ARN: "arn:sc1"})
+	backend.AddServerlessCacheSnapshotInternal(&elasticache.ServerlessCacheSnapshot{
+		Name:   "snap1",
+		ARN:    "arn:snap1",
+		Status: "available",
+	})
+	backend.AddUserInternal(&elasticache.User{UserID: "u1", ARN: "arn:u1", Status: "active"})
+
+	snap := backend.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	err := b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, elasticache.CacheSecurityGroupCount(b2))
+	assert.Equal(t, 1, elasticache.GlobalReplicationGroupCount(b2))
+	assert.Equal(t, 1, elasticache.ServerlessCacheCount(b2))
+	assert.Equal(t, 1, elasticache.ServerlessCacheSnapshotCount(b2))
+	assert.Equal(t, 1, elasticache.UserCount(b2))
+}
+
+func TestHandler_Persistence_Snapshot_Restore(t *testing.T) {
+	t.Parallel()
+
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	h := elasticache.NewHandler(backend)
+
+	// Seed some data.
+	backend.AddCacheSecurityGroupInternal(&elasticache.CacheSecurityGroup{Name: "sg1", ARN: "arn:sg1"})
+
+	// Snapshot via handler.
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	// New backend + handler, restore.
+	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	h2 := elasticache.NewHandler(b2)
+	err := h2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, elasticache.CacheSecurityGroupCount(b2))
+}
+
+func TestBackend_Persistence_NewFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b1 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+
+	_, err := b1.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
+		ID:                       "persist-rg",
+		Description:              "persistence test",
+		ClusterModeEnabled:       true,
+		AuthTokenEnabled:         true,
+		AuthToken:                "persist-token",
+		KmsKeyID:                 "arn:aws:kms:us-east-1:123:key/abc",
+		AtRestEncryptionEnabled:  true,
+		TransitEncryptionEnabled: true,
+		TransitEncryptionMode:    "preferred",
+		DataTieringEnabled:       false,
+		SnapshotRetentionLimit:   3,
+		NotificationTopicArn:     "arn:aws:sns:us-east-1:123:topic",
+	})
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	err = b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	page, err := b2.DescribeReplicationGroups(context.Background(), "persist-rg", "", 0)
+	require.NoError(t, err)
+	require.Len(t, page.Data, 1)
+
+	rg := page.Data[0]
+	assert.True(t, rg.ClusterModeEnabled)
+	assert.True(t, rg.AuthTokenEnabled)
+	assert.True(t, rg.AtRestEncryptionEnabled)
+	assert.True(t, rg.TransitEncryptionEnabled)
+	assert.Equal(t, "preferred", rg.TransitEncryptionMode)
+	assert.Equal(t, 3, rg.SnapshotRetentionLimit)
+	assert.Equal(t, "arn:aws:sns:us-east-1:123:topic", rg.NotificationTopicArn)
+}
+
+// ----------------------------------------
+// GetSupportedOperations includes new ops
+// ----------------------------------------
+
+func TestBackend_Persistence_UserGroupIds(t *testing.T) {
+	t.Parallel()
+
+	b1 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+
+	_, err := b1.CreateUser(context.Background(), "persist-user", "persist-user", "on ~* +@all", "redis", false)
+	require.NoError(t, err)
+
+	_, err = b1.CreateUserGroup(context.Background(), "persist-ug", "persist group", "redis", []string{"persist-user"})
+	require.NoError(t, err)
+
+	_, err = b1.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
+		ID:           "persist-ug-rg",
+		Description:  "persist user groups",
+		UserGroupIDs: []string{"persist-ug"},
+	})
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	err = b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	page, err := b2.DescribeReplicationGroups(context.Background(), "persist-ug-rg", "", 0)
+	require.NoError(t, err)
+	require.Len(t, page.Data, 1)
+	assert.Contains(t, page.Data[0].UserGroupIDs, "persist-ug")
+}

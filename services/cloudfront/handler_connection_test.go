@@ -3,9 +3,14 @@ package cloudfront_test
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
@@ -599,4 +604,230 @@ func TestNewOps_ListDistributionsByConnectionFunction(t *testing.T) {
 	if !strings.Contains(empty, "<Quantity>0</Quantity>") {
 		t.Errorf("expected empty list for unrelated function, got: %s", empty)
 	}
+}
+
+// TestNewOps_ConnectionGroup tests connection group Get/List/Update/Delete.
+func TestNewOps_ConnectionGroup(t *testing.T) {
+	t.Parallel()
+	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	h := cloudfront.NewHandler(b)
+	const prefix = "/2020-05-31/"
+
+	// Create via existing handler
+	cgBody := `<CreateConnectionGroupRequest><Name>my-cg</Name><Comment>test</Comment></CreateConnectionGroupRequest>`
+	out := cfOK(t, h, http.MethodPost, prefix+"connection-group", cgBody)
+	id := extractXMLID(t, out)
+	if id == "" {
+		t.Fatalf("expected Id: %s", out)
+	}
+
+	// Get
+	out2 := cfOK(t, h, http.MethodGet, prefix+"connection-group/"+id, "")
+	if extractXMLID(t, out2) != id {
+		t.Errorf("get mismatch: %s", out2)
+	}
+
+	// List
+	out3 := cfOK(t, h, http.MethodGet, prefix+"connection-group", "")
+	if !strings.Contains(out3, id) {
+		t.Errorf("list missing id: %s", out3)
+	}
+
+	// Update
+	cfOK(t, h, http.MethodPut, prefix+"connection-group/"+id,
+		`<UpdateConnectionGroupRequest><Comment>updated</Comment></UpdateConnectionGroupRequest>`)
+
+	// Delete
+	cfOK(t, h, http.MethodDelete, prefix+"connection-group/"+id, "")
+}
+
+// TestTestConnectionFunction_TableDriven validates connection function test with real state.
+func TestTestConnectionFunction_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	const prefix = "/2020-05-31/"
+
+	makeConnectionFunction := func(h *cloudfront.Handler, name string) string {
+		body := fmt.Sprintf(
+			`<CreateConnectionFunctionRequest><Name>%s</Name><Comment>test fn</Comment></CreateConnectionFunctionRequest>`,
+			name,
+		)
+		rec := cfRequest(t, h, http.MethodPost, prefix+"connection-function", body)
+		require.Equal(t, http.StatusCreated, rec.Code, "create connection function: %s", rec.Body.String())
+
+		return extractXMLID(t, rec.Body.String())
+	}
+
+	tests := []struct {
+		setup    func(h *cloudfront.Handler) string
+		name     string
+		wantBody []string
+		wantCode int
+	}{
+		{
+			name: "existing_function_returns_test_result",
+			setup: func(h *cloudfront.Handler) string {
+				return makeConnectionFunction(h, "my-test-fn")
+			},
+			wantCode: http.StatusOK,
+			wantBody: []string{"TestResult", "FunctionExecutionLogs", "Test passed"},
+		},
+		{
+			name: "non_existent_function_returns_404",
+			setup: func(_ *cloudfront.Handler) string {
+				return "no-such-fn"
+			},
+			wantCode: http.StatusNotFound,
+			wantBody: []string{"NoSuchConnectionFunction"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := cloudfront.NewHandler(newBatch2Backend())
+			fnID := tt.setup(h)
+			rec := cfRequest(t, h, http.MethodPost, prefix+"connection-function/"+fnID+"/test", "")
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantBody {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+// TestCreateConnectionFunction covers the CreateConnectionFunction operation.
+func TestCreateConnectionFunction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "create_connection_function_success",
+			body: []byte(`<CreateConnectionFunctionRequest>` +
+				`<Name>my-conn-fn</Name>` +
+				`<Comment>my function</Comment>` +
+				`</CreateConnectionFunctionRequest>`),
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<ConnectionFunction")
+				assert.Contains(t, rec.Body.String(), "<Name>my-conn-fn</Name>")
+				assert.NotEmpty(t, rec.Header().Get("Location"))
+			},
+		},
+		{
+			name: "create_connection_function_empty_name",
+			body: []byte(`<CreateConnectionFunctionRequest>` +
+				`<Name></Name>` +
+				`</CreateConnectionFunctionRequest>`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+		{
+			name:       "create_connection_function_malformed_xml",
+			body:       []byte(`<<<not xml`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "MalformedXML")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doXML(t, h, http.MethodPost, "/2020-05-31/connection-function", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestCreateConnectionGroup covers the CreateConnectionGroup operation.
+func TestCreateConnectionGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check      func(*testing.T, *httptest.ResponseRecorder)
+		name       string
+		body       []byte
+		wantStatus int
+	}{
+		{
+			name: "create_connection_group_success",
+			body: []byte(`<CreateConnectionGroupRequest>` +
+				`<Name>my-conn-group</Name>` +
+				`<Comment>my group</Comment>` +
+				`</CreateConnectionGroupRequest>`),
+			wantStatus: http.StatusCreated,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "<ConnectionGroup")
+				assert.Contains(t, rec.Body.String(), "<Name>my-conn-group</Name>")
+				assert.NotEmpty(t, rec.Header().Get("Location"))
+			},
+		},
+		{
+			name: "create_connection_group_empty_name",
+			body: []byte(`<CreateConnectionGroupRequest>` +
+				`<Name></Name>` +
+				`</CreateConnectionGroupRequest>`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			},
+		},
+		{
+			name:       "create_connection_group_malformed_xml",
+			body:       []byte(`<<<not xml`),
+			wantStatus: http.StatusBadRequest,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "MalformedXML")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doXML(t, h, http.MethodPost, "/2020-05-31/connection-group", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			tt.check(t, rec)
+		})
+	}
+}
+
+// TestRefinement1_ConnectionFunctionByID verifies ConnectionFunction stores by ID not by name.
+func TestRefinement1_ConnectionFunctionByID(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+
+	// Create two functions with same name (should succeed - AWS allows this).
+	fn1, err := b.CreateConnectionFunction("shared-name", "first fn")
+	require.NoError(t, err)
+
+	fn2, err := b.CreateConnectionFunction("shared-name", "second fn")
+	require.NoError(t, err)
+
+	// ARNs must be different since they are keyed by ID.
+	assert.NotEqual(t, fn1.ARN, fn2.ARN,
+		"two functions with same name should have different ARNs")
 }

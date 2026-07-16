@@ -155,6 +155,20 @@ type UpdateOpenIDConnectProviderThumbprintResponse struct {
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
+// AddClientIDToOpenIDConnectProviderResponse is the XML response for AddClientIDToOpenIDConnectProvider.
+type AddClientIDToOpenIDConnectProviderResponse struct {
+	XMLName          xml.Name         `xml:"AddClientIDToOpenIDConnectProviderResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// RemoveClientIDFromOpenIDConnectProviderResponse is the XML response for RemoveClientIDFromOpenIDConnectProvider.
+type RemoveClientIDFromOpenIDConnectProviderResponse struct {
+	XMLName          xml.Name         `xml:"RemoveClientIDFromOpenIDConnectProviderResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
 // ---- Login Profile types ----
 
 // LoginProfile represents an IAM user login profile (console access).

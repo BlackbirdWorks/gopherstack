@@ -350,6 +350,15 @@ func validateNoDuplicateBatchWriteKeys(requests []types.WriteRequest, table *Tab
 	return nil
 }
 
+// globalTableNameRLocked returns table.GlobalTableName under a
+// defer-protected RLock.
+func globalTableNameRLocked(table *Table) string {
+	table.mu.RLock("BatchWriteItem.replication")
+	defer table.mu.RUnlock()
+
+	return table.GlobalTableName
+}
+
 func (db *InMemoryDB) replicateBatchWrites(
 	tableNames []string,
 	tables map[string]*Table,
@@ -358,9 +367,7 @@ func (db *InMemoryDB) replicateBatchWrites(
 ) {
 	for _, tableName := range tableNames {
 		table := tables[tableName]
-		table.mu.RLock("BatchWriteItem.replication")
-		gtName := table.GlobalTableName
-		table.mu.RUnlock()
+		gtName := globalTableNameRLocked(table)
 
 		if gtName == "" {
 			continue
@@ -399,10 +406,7 @@ func (db *InMemoryDB) BatchWriteItem(
 	region := getRegionFromContext(ctx, db)
 
 	// Get table references with read lock
-	db.mu.RLock("BatchWriteItem")
-	tables, err := db.getRequestTables(region, input.RequestItems)
-	db.mu.RUnlock()
-
+	tables, err := db.getRequestTablesRLocked(region, input.RequestItems)
 	if err != nil {
 		return nil, err
 	}
@@ -537,6 +541,19 @@ func (db *InMemoryDB) getRequestTables(
 	}
 
 	return tables, nil
+}
+
+// getRequestTablesRLocked wraps getRequestTables in a defer-protected db.mu
+// RLock, so a panic while resolving table references can never leave db.mu
+// read-locked forever.
+func (db *InMemoryDB) getRequestTablesRLocked(
+	region string,
+	requestItems map[string][]types.WriteRequest,
+) (map[string]*Table, error) {
+	db.mu.RLock("BatchWriteItem")
+	defer db.mu.RUnlock()
+
+	return db.getRequestTables(region, requestItems)
 }
 
 func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.WriteRequest) error {

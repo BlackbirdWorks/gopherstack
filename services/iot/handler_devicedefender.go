@@ -417,3 +417,35 @@ func parseIoTEpochQueryParam(c *echo.Context, name string) float64 {
 
 	return f
 }
+
+func (h *Handler) handleCancelAuditMitigationActionsTask(c *echo.Context) error {
+	// Path: /audit/mitigationactions/tasks/{taskId}/cancel
+	after := strings.TrimPrefix(c.Request().URL.Path, "/audit/mitigationactions/tasks/")
+	taskID := strings.SplitN(after, "/", maxPathSegments)[0]
+
+	if err := h.Backend.CancelAuditMitigationActionsTask(&CancelAuditMitigationActionsTaskInput{
+		TaskID: taskID,
+	}); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleGetBehaviorModelTrainingSummaries(c *echo.Context) error {
+	securityProfileName := c.QueryParam(keySecurityProfileName)
+	maxResults := parseInt32QueryParam(c, "maxResults")
+	nextToken := c.QueryParam("nextToken")
+
+	summaries, next, err := h.Backend.GetBehaviorModelTrainingSummaries(securityProfileName, maxResults, nextToken)
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	resp := map[string]any{"summaries": summaries}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}

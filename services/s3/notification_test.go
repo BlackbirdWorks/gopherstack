@@ -689,3 +689,91 @@ func TestReasonFromEventName(t *testing.T) {
 		})
 	}
 }
+
+// TestNotificationDispatcher_LambdaFilterPrefixSuffix verifies that a
+// CloudFunctionConfiguration's S3Key prefix/suffix filter rules gate whether
+// the Lambda target is invoked for a given object key.
+func TestNotificationDispatcher_LambdaFilterPrefixSuffix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		notifXML    string
+		key         string
+		wantInvoked bool
+	}{
+		{
+			name: "prefix_match",
+			notifXML: `<NotificationConfiguration>
+<CloudFunctionConfiguration>
+  <Id>fn1</Id>
+  <CloudFunction>arn:aws:lambda:us-east-1:000000000000:function:my-fn</CloudFunction>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter><S3Key><FilterRule><Name>prefix</Name><Value>images/</Value></FilterRule></S3Key></Filter>
+</CloudFunctionConfiguration>
+</NotificationConfiguration>`,
+			key:         "images/photo.jpg",
+			wantInvoked: true,
+		},
+		{
+			name: "prefix_no_match",
+			notifXML: `<NotificationConfiguration>
+<CloudFunctionConfiguration>
+  <Id>fn1</Id>
+  <CloudFunction>arn:aws:lambda:us-east-1:000000000000:function:my-fn</CloudFunction>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter><S3Key><FilterRule><Name>prefix</Name><Value>images/</Value></FilterRule></S3Key></Filter>
+</CloudFunctionConfiguration>
+</NotificationConfiguration>`,
+			key:         "docs/report.pdf",
+			wantInvoked: false,
+		},
+		{
+			name: "suffix_match",
+			notifXML: `<NotificationConfiguration>
+<CloudFunctionConfiguration>
+  <Id>fn1</Id>
+  <CloudFunction>arn:aws:lambda:us-east-1:000000000000:function:my-fn</CloudFunction>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter><S3Key><FilterRule><Name>suffix</Name><Value>.jpg</Value></FilterRule></S3Key></Filter>
+</CloudFunctionConfiguration>
+</NotificationConfiguration>`,
+			key:         "photo.jpg",
+			wantInvoked: true,
+		},
+		{
+			name: "suffix_no_match",
+			notifXML: `<NotificationConfiguration>
+<CloudFunctionConfiguration>
+  <Id>fn1</Id>
+  <CloudFunction>arn:aws:lambda:us-east-1:000000000000:function:my-fn</CloudFunction>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter><S3Key><FilterRule><Name>suffix</Name><Value>.jpg</Value></FilterRule></S3Key></Filter>
+</CloudFunctionConfiguration>
+</NotificationConfiguration>`,
+			key:         "photo.png",
+			wantInvoked: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fn := &captureLambda{}
+			targets := &s3.NotificationTargets{LambdaInvoker: fn}
+			d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+			d.DispatchObjectCreated(t.Context(), "my-bucket", tt.key, "etag", 42, tt.notifXML)
+
+			fn.mu.Lock()
+			defer fn.mu.Unlock()
+
+			if tt.wantInvoked {
+				assert.Len(t, fn.invocations, 1, "lambda should be invoked for key %q", tt.key)
+			} else {
+				assert.Empty(t, fn.invocations, "lambda should NOT be invoked for key %q", tt.key)
+			}
+		})
+	}
+}

@@ -357,3 +357,145 @@ func TestRedshiftBackend_PurchaseAddsNode(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, 1, redshift.ReservedNodeCount(b))
 }
+
+// ---- AcceptReservedNodeExchange ----
+
+func TestHandler_AcceptReservedNodeExchange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *redshift.Handler, b *redshift.InMemoryBackend)
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			setup: func(_ *testing.T, _ *redshift.Handler, b *redshift.InMemoryBackend) {
+				b.AddReservedNodeInternal(&redshift.ReservedNode{
+					ReservedNodeID:         "rn-001",
+					ReservedNodeOfferingID: "offering-old",
+					NodeType:               "dc2.large",
+					NodeCount:              1,
+					State:                  "active",
+					OfferingType:           "All Upfront",
+					CurrencyCode:           "USD",
+				})
+			},
+			body: "Action=AcceptReservedNodeExchange&Version=2012-12-01" +
+				"&ReservedNodeId=rn-001&TargetReservedNodeOfferingId=offering-new",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AcceptReservedNodeExchangeResponse", "offering-new", "rn-001"},
+		},
+		{
+			name:         "missing_reserved_node_id",
+			body:         "Action=AcceptReservedNodeExchange&Version=2012-12-01&TargetReservedNodeOfferingId=offering-new",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "missing_target_offering_id",
+			body:         "Action=AcceptReservedNodeExchange&Version=2012-12-01&ReservedNodeId=rn-001",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "reserved_node_not_found",
+			body: "Action=AcceptReservedNodeExchange&Version=2012-12-01" +
+				"&ReservedNodeId=nonexistent&TargetReservedNodeOfferingId=offering-new",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ReservedNodeNotFound"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			h := redshift.NewHandler(b)
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postRedshiftForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestBackend_AcceptReservedNodeExchange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr        error
+		setup          func(b *redshift.InMemoryBackend)
+		name           string
+		reservedNodeID string
+		targetOffering string
+		wantOfferingID string
+	}{
+		{
+			name: "success",
+			setup: func(b *redshift.InMemoryBackend) {
+				b.AddReservedNodeInternal(&redshift.ReservedNode{
+					ReservedNodeID:         "rn-test",
+					ReservedNodeOfferingID: "old-offering",
+					NodeType:               "dc2.large",
+					NodeCount:              1,
+					State:                  "active",
+				})
+			},
+			reservedNodeID: "rn-test",
+			targetOffering: "new-offering",
+			wantOfferingID: "new-offering",
+		},
+		{
+			name:           "empty_reserved_node_id",
+			reservedNodeID: "",
+			targetOffering: "new-offering",
+			wantErr:        redshift.ErrInvalidParameter,
+		},
+		{
+			name:           "empty_target_offering",
+			reservedNodeID: "rn-test",
+			targetOffering: "",
+			wantErr:        redshift.ErrInvalidParameter,
+		},
+		{
+			name:           "not_found",
+			reservedNodeID: "nonexistent",
+			targetOffering: "new-offering",
+			wantErr:        redshift.ErrReservedNodeNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			node, err := b.AcceptReservedNodeExchange(tt.reservedNodeID, tt.targetOffering)
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOfferingID, node.ReservedNodeOfferingID)
+			assert.Equal(t, "active", node.State)
+		})
+	}
+}

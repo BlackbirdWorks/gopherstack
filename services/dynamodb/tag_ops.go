@@ -33,10 +33,7 @@ func (db *InMemoryDB) TagResource(
 ) (*dynamodb.TagResourceOutput, error) {
 	tableName := tableNameFromARN(aws.ToString(input.ResourceArn))
 
-	db.mu.RLock("TagResource")
-	table := findTableByName(db.tables, tableName)
-	db.mu.RUnlock()
-
+	table := db.findTableByNameRLocked(tableName)
 	if table == nil {
 		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
@@ -62,10 +59,7 @@ func (db *InMemoryDB) UntagResource(
 ) (*dynamodb.UntagResourceOutput, error) {
 	tableName := tableNameFromARN(aws.ToString(input.ResourceArn))
 
-	db.mu.RLock("UntagResource")
-	table := findTableByName(db.tables, tableName)
-	db.mu.RUnlock()
-
+	table := db.findTableByNameRLocked(tableName)
 	if table == nil {
 		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
@@ -87,22 +81,12 @@ func (db *InMemoryDB) ListTagsOfResource(
 ) (*dynamodb.ListTagsOfResourceOutput, error) {
 	tableName := tableNameFromARN(aws.ToString(input.ResourceArn))
 
-	db.mu.RLock("ListTagsOfResource")
-	table := findTableByName(db.tables, tableName)
-	db.mu.RUnlock()
-
+	table := db.findTableByNameRLocked(tableName)
 	if table == nil {
 		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
 
-	table.mu.RLock("ListTagsOfResource")
-
-	var tagMap map[string]string
-	if table.Tags != nil {
-		tagMap = table.Tags.Clone()
-	}
-
-	table.mu.RUnlock()
+	tagMap := cloneTagsRLocked(table)
 
 	keys := collections.SortedKeys(tagMap)
 
@@ -128,4 +112,27 @@ func findTableByName(tables *store.Table[Table], name string) *Table {
 	}
 
 	return nil
+}
+
+// findTableByNameRLocked wraps findTableByName in a defer-protected db.mu
+// RLock, so a panic scanning db.tables can never leave db.mu read-locked
+// forever.
+func (db *InMemoryDB) findTableByNameRLocked(name string) *Table {
+	db.mu.RLock("findTableByName")
+	defer db.mu.RUnlock()
+
+	return findTableByName(db.tables, name)
+}
+
+// cloneTagsRLocked returns a copy of table.Tags (or nil if untagged) under a
+// defer-protected table.mu RLock.
+func cloneTagsRLocked(table *Table) map[string]string {
+	table.mu.RLock("ListTagsOfResource")
+	defer table.mu.RUnlock()
+
+	if table.Tags == nil {
+		return nil
+	}
+
+	return table.Tags.Clone()
 }

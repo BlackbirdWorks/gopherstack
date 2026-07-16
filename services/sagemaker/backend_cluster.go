@@ -8,6 +8,14 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
+
+var (
+	// ErrClusterNotFound is returned when a cluster does not exist.
+	ErrClusterNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrClusterAlreadyExists is returned when a cluster with the same name already exists.
+	ErrClusterAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
 )
 
 // ---------------------------------------------------------------------------
@@ -457,4 +465,208 @@ func (b *InMemoryBackend) DetachClusterNodeVolume(
 		Status:     "detached",
 		AttachTime: time.Now(),
 	}, nil
+}
+
+// ensureClusterLocked looks up a cluster by name (must be called with lock held).
+func (b *InMemoryBackend) ensureClusterLocked(ctx context.Context, clusterName string) (*Cluster, error) {
+	region := getRegion(ctx, b.region)
+
+	c, ok := b.clustersStore(region).Get(clusterName)
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %q not found", ErrClusterNotFound, clusterName)
+	}
+
+	return c, nil
+}
+
+// AddClusterInternal adds a cluster directly for seeding tests.
+func (b *InMemoryBackend) AddClusterInternal(ctx context.Context, clusterName string) *Cluster {
+	b.mu.Lock("AddClusterInternal")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	clusterARN := arn.Build("sagemaker", region, b.accountID, "cluster/"+clusterName)
+	c := &Cluster{
+		ClusterName:   clusterName,
+		ClusterArn:    clusterARN,
+		ClusterStatus: clusterStatusInService,
+		Nodes:         make(map[string]*ClusterNode),
+		CreationTime:  time.Now(),
+	}
+	b.clustersStore(region).Put(c)
+	b.clusterARNIndexStore(region)[clusterARN] = clusterName
+
+	return cloneCluster(c)
+}
+
+// AttachClusterNodeVolume attaches a volume to a cluster node.
+func (b *InMemoryBackend) AttachClusterNodeVolume(
+	ctx context.Context,
+	clusterName, nodeID string,
+	volume ClusterNodeVolume,
+) (string, string, error) {
+	b.mu.Lock("AttachClusterNodeVolume")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(ctx, clusterName)
+	if err != nil {
+		return "", "", err
+	}
+
+	if nodeID == "" {
+		return "", "", fmt.Errorf("%w: NodeId is required", ErrValidation)
+	}
+
+	node, ok := c.Nodes[nodeID]
+	if !ok {
+		node = &ClusterNode{
+			NodeID:     nodeID,
+			NodeStatus: statusRunning,
+		}
+		c.Nodes[nodeID] = node
+	}
+
+	node.Volumes = append(node.Volumes, volume)
+
+	return c.ClusterArn, nodeID, nil
+}
+
+// BatchAddClusterNodes adds multiple nodes to a cluster.
+// Returns clusterArn and a slice of nodeIDs that failed to add.
+func (b *InMemoryBackend) BatchAddClusterNodes(
+	ctx context.Context,
+	clusterName string,
+	nodeConfigs []ClusterNode,
+) (string, []string, error) {
+	b.mu.Lock("BatchAddClusterNodes")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(ctx, clusterName)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var failures []string
+
+	for i := range nodeConfigs {
+		node := &nodeConfigs[i]
+		if node.NodeID == "" {
+			node.NodeID = fmt.Sprintf("node-%d", len(c.Nodes)+1)
+		}
+
+		if node.NodeStatus == "" {
+			node.NodeStatus = statusRunning
+		}
+
+		if _, exists := c.Nodes[node.NodeID]; exists {
+			failures = append(failures, node.NodeID)
+
+			continue
+		}
+
+		nodeCopy := *node
+		c.Nodes[node.NodeID] = &nodeCopy
+	}
+
+	return c.ClusterArn, failures, nil
+}
+
+// BatchDeleteClusterNodes removes multiple nodes from a cluster.
+// Returns clusterArn, a slice of nodeIDs with errors, and a slice of successfully deleted nodeIDs.
+func (b *InMemoryBackend) BatchDeleteClusterNodes(
+	ctx context.Context,
+	clusterName string,
+	nodeIDs []string,
+) (string, []string, []string, error) {
+	b.mu.Lock("BatchDeleteClusterNodes")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(ctx, clusterName)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	var errored, successful []string
+
+	for _, nodeID := range nodeIDs {
+		if _, ok := c.Nodes[nodeID]; !ok {
+			errored = append(errored, nodeID)
+
+			continue
+		}
+
+		delete(c.Nodes, nodeID)
+		successful = append(successful, nodeID)
+	}
+
+	return c.ClusterArn, errored, successful, nil
+}
+
+// BatchRebootClusterNodes reboots multiple nodes in a cluster.
+// Returns clusterArn, a slice of failed nodeIDs, and successful nodeIDs.
+func (b *InMemoryBackend) BatchRebootClusterNodes(
+	ctx context.Context,
+	clusterName string,
+	nodeIDs []string,
+) (string, []string, []string, error) {
+	b.mu.Lock("BatchRebootClusterNodes")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(ctx, clusterName)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	var failures, successful []string
+
+	for _, nodeID := range nodeIDs {
+		if _, ok := c.Nodes[nodeID]; !ok {
+			failures = append(failures, nodeID)
+
+			continue
+		}
+
+		successful = append(successful, nodeID)
+	}
+
+	return c.ClusterArn, failures, successful, nil
+}
+
+// BatchReplaceClusterNodes replaces multiple nodes in a cluster.
+// Returns clusterArn and a slice of nodeIDs that failed to replace.
+func (b *InMemoryBackend) BatchReplaceClusterNodes(
+	ctx context.Context,
+	clusterName string,
+	nodes []ClusterNode,
+) (string, []string, error) {
+	b.mu.Lock("BatchReplaceClusterNodes")
+	defer b.mu.Unlock()
+
+	c, err := b.ensureClusterLocked(ctx, clusterName)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var failures []string
+
+	for i := range nodes {
+		node := &nodes[i]
+		if node.NodeID == "" {
+			failures = append(failures, "")
+
+			continue
+		}
+
+		if _, ok := c.Nodes[node.NodeID]; !ok {
+			failures = append(failures, node.NodeID)
+
+			continue
+		}
+
+		nodeCopy := *node
+		nodeCopy.NodeStatus = statusRunning
+		c.Nodes[node.NodeID] = &nodeCopy
+	}
+
+	return c.ClusterArn, failures, nil
 }

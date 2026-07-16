@@ -1,8 +1,19 @@
 package sns
 
 import (
+	"context"
+	"crypto/rsa"
+	"encoding/json"
 	"encoding/xml"
+	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // TopicPermission represents a single permission (statement) added to an SNS topic policy.
@@ -541,4 +552,187 @@ type SetSMSAttributesResponse struct {
 type PutDataProtectionPolicyResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ PutDataProtectionPolicyResponse"` //nolint:lll // XML namespace.
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// SMSDelivery records a single SMS message sent via PublishSMS.
+type SMSDelivery struct {
+	PhoneNumber string
+	Message     string
+	MessageID   string
+}
+
+// ApplicationDelivery records a single message delivered to an application-protocol
+// (mobile push platform endpoint) subscription during a topic publish. AWS delivers
+// these to a platform endpoint; gopherstack records the delivery here and exposes it
+// via DrainApplicationDeliveries for inspection/testing.
+type ApplicationDelivery struct {
+	// EndpointARN is the target platform endpoint ARN.
+	EndpointARN string
+	// Message is the (per-protocol resolved) message body.
+	Message string
+	// MessageID is the generated message ID for the delivery.
+	MessageID string
+}
+
+// EmailDelivery records a single message delivered to an email or email-json
+// subscription. AWS sends these to a mailbox; gopherstack has no SMTP sink, so
+// the delivery is recorded here and exposed via DrainEmailDeliveries for
+// inspection/testing — the simulator equivalent of "the email was sent".
+type EmailDelivery struct {
+	// EndpointEmail is the subscriber's email address.
+	EndpointEmail string
+	// Protocol is "email" or "email-json".
+	Protocol string
+	// Subject is the optional message subject.
+	Subject string
+	// Message is the (per-protocol resolved) message body.
+	Message string
+	// MessageID is the publish MessageId.
+	MessageID string
+	// TopicARN is the originating topic.
+	TopicARN string
+}
+
+// ArchivedMessage stores a published message in the per-topic archive.
+// Messages are archived when the topic has an ArchivePolicy attribute set.
+// They are replayed to subscriptions that have a ReplayPolicy set.
+type ArchivedMessage struct {
+	Attributes map[string]MessageAttribute
+	Timestamp  time.Time
+	MessageID  string
+	Message    string
+	Subject    string
+}
+
+// notificationSigner holds the RSA key pair and self-signed certificate used to
+// sign SNS HTTP/HTTPS notification envelopes per AWS SignatureVersion=2 spec.
+// The certificate is served at the URL stored in certURLValue so subscribers can
+// verify signatures without contacting the real AWS endpoint. certURLValue is
+// guarded by mu because SetSigningCertBaseURL may be called concurrently with
+// in-flight deliveries that read the URL (e.g. a late server-address rewire
+// racing a publish already in progress).
+type notificationSigner struct {
+	privateKey   *rsa.PrivateKey
+	certURLValue string
+	certPEM      []byte
+	mu           sync.RWMutex
+}
+
+// InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
+type InMemoryBackend struct {
+	emitter              events.EventEmitter[*events.SNSPublishedEvent]
+	lambdaBackend        LambdaInvoker
+	firehoseBackend      FirehosePutter
+	sqsSender            SQSSender
+	sqsChecker           SQSQueueChecker
+	svcCtx               context.Context
+	httpClient           *http.Client
+	registry             *store.Registry
+	topics               *store.Table[Topic]
+	topicTags            map[string]*svcTags.Tags
+	platformApplications *store.Table[PlatformApplication]
+	smsSandbox           *store.Table[SandboxPhoneNumber]
+	optedOutPhoneNumbers map[string]bool
+	smsAttributes        map[string]string
+	// originationNumbers holds origination phone numbers keyed by region. AWS SNS exposes no
+	// public "create origination number" API (numbers are provisioned via Pinpoint / AWS
+	// End User Messaging), so a fresh account legitimately has none. This map reflects real
+	// state when populated via SeedOriginationNumber (used by tests / internal seeding).
+	originationNumbers map[string][]XMLOriginationPhone
+	mu                 *lockmetrics.RWMutex
+	subscriptions      *store.Table[Subscription]
+	// subscriptionsByTopic is a secondary index over subscriptions keyed by
+	// TopicArn, replacing the old hand-maintained topicSubscriptions nested
+	// map. It is kept consistent automatically by subscriptions.Put/Delete.
+	subscriptionsByTopic  *store.Index[Subscription]
+	platformEndpoints     *store.Table[PlatformEndpoint]
+	topicMessageArchive   map[string][]*ArchivedMessage // populated when ArchivePolicy is set
+	signer                *notificationSigner
+	workerSem             chan struct{}
+	accountID             string
+	region                string
+	smsDeliveries         []SMSDelivery
+	emailDeliveries       []EmailDelivery
+	applicationDeliveries []ApplicationDelivery
+	deliveryWg            sync.WaitGroup
+	closing               atomic.Bool
+	smsSandboxEnabled     bool
+}
+
+// httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.
+type httpDelivery struct {
+	signer               *notificationSigner // nil disables signing
+	sqsSender            SQSSender           // optional; non-nil when subscription has a DLQ
+	endpoint             string
+	body                 string
+	subject              string
+	messageID            string
+	topicARN             string
+	subscriptionARN      string
+	redrivePolicy        string // JSON RedrivePolicy; non-empty when DLQ is configured
+	deliveryPolicy       string
+	topicEffectivePolicy string
+	rawDelivery          bool
+}
+
+// publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.
+type publishTargets struct {
+	subs            []events.SNSSubscriptionSnapshot
+	httpDeliveries  []httpDelivery
+	emailDeliveries []EmailDelivery
+}
+
+type parsedFilterPolicy map[string][]json.RawMessage
+
+// snsHTTPNotification is the SNS notification JSON envelope sent to HTTP/HTTPS subscribers.
+// When RawMessageDelivery is false, this struct is serialised as the POST body.
+// Field names use the exact casing required by AWS SNS.
+type snsHTTPNotification struct {
+	Subject          string `json:"Subject,omitempty"`
+	Type             string `json:"Type"`
+	MessageID        string `json:"MessageId"`
+	TopicArn         string `json:"TopicArn"`
+	Message          string `json:"Message"`
+	Timestamp        string `json:"Timestamp"`
+	SignatureVersion string `json:"SignatureVersion"`
+	Signature        string `json:"Signature"`
+	SigningCertURL   string `json:"SigningCertURL"`
+	UnsubscribeURL   string `json:"UnsubscribeURL"`
+}
+
+// TaggedTopicInfo contains a topic's ARN and tag snapshot.
+// Used by the Resource Groups Tagging API cross-service listing.
+type TaggedTopicInfo struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// batchEntry holds a single parsed PublishBatch entry.
+type batchEntry struct {
+	attrs            map[string]MessageAttribute
+	id               string
+	message          string
+	subject          string
+	messageGroupID   string
+	messageStructure string
+	dedupID          string
+}
+
+// snsListTagsResult is the inner result element for ListTagsForResource.
+type snsListTagsResult struct {
+	XMLName xml.Name     `xml:"ListTagsForResourceResult"`
+	Tags    []svcTags.KV `xml:"Tags>Tag"`
+}
+
+// snsListTagsResponse is the XML response for ListTagsForResource.
+type snsListTagsResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListTagsForResourceResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	Result           snsListTagsResult
+}
+
+// snsEmptyResponse is the XML response for tag mutation operations (TagResource, UntagResource).
+// The XMLName field is set dynamically per action.
+type snsEmptyResponse struct {
+	XMLName xml.Name `xml:""`
 }

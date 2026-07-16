@@ -132,6 +132,7 @@ func (db *InMemoryDB) snapshotTableForQuery(
 	// Items are shallow-copied (pointers only): writes always replace table.Items[i]
 	// with a new map rather than mutating the old one in place.
 	table.mu.RLock("Query")
+	defer table.mu.RUnlock()
 
 	keySchemaOrig := make([]models.KeySchemaElement, len(table.KeySchema))
 	copy(keySchemaOrig, table.KeySchema)
@@ -156,8 +157,6 @@ func (db *InMemoryDB) snapshotTableForQuery(
 		itemsCopy = make([]map[string]any, len(table.Items))
 		copy(itemsCopy, table.Items)
 	}
-
-	table.mu.RUnlock()
 
 	snapshotTable := &Table{
 		Items:                  itemsCopy,

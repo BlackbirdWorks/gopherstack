@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -75,4 +77,68 @@ func TestGlueResourceName(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &glue.Provider{}
+	_, err := p.Init(nil)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, glue.ErrNilAppContext)
+}
+
+func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
+	t.Parallel()
+
+	backend := glue.NewInMemoryBackend("000000000000", "us-east-1")
+	h := glue.NewHandler(backend)
+
+	assert.Positive(t, h.HandlerOpsLen())
+}
+
+func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
+	t.Parallel()
+
+	backend := glue.NewInMemoryBackend("000000000000", "us-east-1")
+	h := glue.NewHandler(backend)
+
+	ops := h.GetSupportedOperations()
+	assert.Len(t, ops, h.HandlerOpsLen(), "supported ops count should match dispatch table size")
+
+	expectedBatch := []string{
+		"BatchCreatePartition",
+		"BatchDeleteConnection",
+		"BatchDeletePartition",
+		"BatchDeleteTable",
+		"BatchDeleteTableVersion",
+		"BatchGetBlueprints",
+		"BatchGetCrawlers",
+		"BatchGetCustomEntityTypes",
+		"BatchGetDataQualityResult",
+		"BatchGetDevEndpoints",
+	}
+
+	for _, op := range expectedBatch {
+		assert.Contains(t, ops, op, "expected batch op %s in supported operations", op)
+	}
+}
+
+func TestRefinement1_ErrValidation(t *testing.T) {
+	t.Parallel()
+
+	require.Error(t, glue.ErrValidation)
+	assert.Error(t, glue.ErrValidation)
+}
+
+func TestRefinement1_ProviderInit_ValidCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &glue.Provider{}
+	ctx := &service.AppContext{}
+	h, err := p.Init(ctx)
+
+	require.NoError(t, err)
+	assert.NotNil(t, h)
 }

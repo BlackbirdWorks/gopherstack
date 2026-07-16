@@ -7,9 +7,26 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
-// ---- ExportBackupPlanTemplate: real plan rules, not a hardcoded empty array ----
+func TestExportBackupPlanTemplate(t *testing.T) {
+	t.Parallel()
+	b := backup.NewInMemoryBackend("000000000000", "us-east-1")
+
+	plan, err := b.CreateBackupPlan(
+		"my-plan",
+		[]backup.Rule{{RuleName: "r1", TargetVaultName: "v"}},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+
+	tmpl, err := b.ExportBackupPlanTemplate(plan.BackupPlanID)
+	require.NoError(t, err)
+	assert.Contains(t, tmpl, "my-plan")
+}
 
 func TestExportBackupPlanTemplate_RealRules(t *testing.T) {
 	t.Parallel()

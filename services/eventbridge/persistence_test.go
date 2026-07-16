@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -421,4 +422,160 @@ func TestHandler_StartWorkerAndChaos(t *testing.T) {
 			assert.Equal(t, tt.want, tt.check(h))
 		})
 	}
+}
+
+// TestReset verifies Reset clears all new maps but preserves the default bus.
+func TestReset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		seedFn  func(b *eventbridge.InMemoryBackend)
+		checkFn func(t *testing.T, b *eventbridge.InMemoryBackend)
+		name    string
+	}{
+		{
+			name: "default_bus_present_after_reset",
+			seedFn: func(b *eventbridge.InMemoryBackend) {
+				b.AddAPIDestinationInternal(
+					&eventbridge.APIDestination{Name: "dst1", HTTPMethod: "GET", InvocationEndpoint: "https://x.com"},
+				)
+				b.AddConnectionInternal(&eventbridge.Connection{Name: "conn1"})
+				b.AddArchiveInternal(&eventbridge.Archive{ArchiveName: "arch1"})
+			},
+			checkFn: func(t *testing.T, b *eventbridge.InMemoryBackend) {
+				t.Helper()
+
+				b.Reset()
+
+				assert.Equal(t, 0, b.APIDestinationCount())
+				assert.Equal(t, 0, b.ConnectionCount())
+				assert.Equal(t, 0, b.ArchiveCount())
+				assert.Equal(t, 0, b.EndpointCount())
+				assert.Equal(t, 0, b.EventSourceCount())
+				assert.Equal(t, 0, b.ReplayCount())
+				assert.Equal(t, 0, b.PartnerSourceCount())
+
+				buses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
+				require.NoError(t, err)
+				assert.Len(t, buses, 1)
+				assert.Equal(t, "default", buses[0].Name)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := eventbridge.NewInMemoryBackend()
+			if tt.seedFn != nil {
+				tt.seedFn(b)
+			}
+			tt.checkFn(t, b)
+		})
+	}
+}
+
+// TestMultipleResetCycle verifies that Reset is idempotent.
+func TestMultipleResetCycle(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackend()
+
+	for range 5 {
+		b.Reset()
+
+		buses, _, err := b.ListEventBuses(context.Background(), "", "", 0)
+		require.NoError(t, err)
+		assert.Len(t, buses, 1)
+	}
+}
+
+// TestHandlerReset verifies Handler.Reset() clears tags.
+func TestHandlerReset(t *testing.T) {
+	t.Parallel()
+
+	backend := eventbridge.NewInMemoryBackend()
+	handler := eventbridge.NewHandler(backend)
+
+	// Tag a resource
+	e := echo.New()
+	rec := makeRequestWithHandler(
+		t,
+		handler,
+		e,
+		"TagResource",
+		`{"ResourceARN":"arn:aws:events:us-east-1:123:event-bus/default","Tags":[{"Key":"env","Value":"test"}]}`,
+	)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Reset
+	handler.Reset()
+
+	// Tags should be gone
+	rec2 := makeRequestWithHandler(
+		t,
+		handler,
+		e,
+		"ListTagsForResource",
+		`{"ResourceARN":"arn:aws:events:us-east-1:123:event-bus/default"}`,
+	)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp struct {
+		Tags []map[string]string `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	assert.Empty(t, resp.Tags)
+}
+
+// TestPersistenceRoundTrip verifies snapshot/restore preserves new resource maps.
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackend()
+
+	// Seed all new resource types
+	_, err := b.CreateAPIDestination(context.Background(), eventbridge.CreateAPIDestinationInput{
+		Name:               "d1",
+		ConnectionArn:      "arn:aws:events:us-east-1:123:connection/c1",
+		InvocationEndpoint: "https://x.com",
+		HTTPMethod:         "POST",
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateArchive(context.Background(), eventbridge.CreateArchiveInput{
+		ArchiveName:    "a1",
+		EventSourceArn: "arn:aws:events:us-east-1:123:event-bus/default",
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateConnection(context.Background(), eventbridge.CreateConnectionInput{
+		Name:              "c1",
+		AuthorizationType: "BASIC",
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateEndpoint(context.Background(), eventbridge.CreateEndpointInput{Name: "e1"})
+	require.NoError(t, err)
+
+	b.AddEventSourceInternal(&eventbridge.EventSource{Name: "es1", State: "PENDING", CreationTime: time.Now()})
+	b.AddReplayInternal(&eventbridge.Replay{ReplayName: "r1", State: "RUNNING"})
+	b.AddPartnerSourceInternal(&eventbridge.PartnerEventSource{Name: "ps1"})
+
+	// Snapshot
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	// Restore into a new backend
+	b2 := eventbridge.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	assert.Equal(t, b.APIDestinationCount(), b2.APIDestinationCount())
+	assert.Equal(t, b.ArchiveCount(), b2.ArchiveCount())
+	assert.Equal(t, b.ConnectionCount(), b2.ConnectionCount())
+	assert.Equal(t, b.EndpointCount(), b2.EndpointCount())
+	assert.Equal(t, b.EventSourceCount(), b2.EventSourceCount())
+	assert.Equal(t, b.ReplayCount(), b2.ReplayCount())
+	assert.Equal(t, b.PartnerSourceCount(), b2.PartnerSourceCount())
 }

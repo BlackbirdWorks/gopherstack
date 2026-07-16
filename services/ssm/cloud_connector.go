@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // AzureSubscription identifies one Azure subscription targeted by a cloud connector.
@@ -570,4 +571,8 @@ func cloudConnectorValidationFindings(cc *CloudConnector) []ValidationFinding {
 	}
 
 	return findings
+}
+
+func (b *InMemoryBackend) cloudConnectorsStore(region string) *store.Table[CloudConnector] {
+	return getOrCreateTable(b, b.cloudConnectors, "cloudConnectors", region, cloudConnectorKeyFn)
 }

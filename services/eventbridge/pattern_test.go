@@ -1,9 +1,12 @@
 package eventbridge_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
@@ -514,6 +517,106 @@ func TestPattern_ArrayEventValue(t *testing.T) {
 			t.Parallel()
 			got := eventbridge.MatchPatternForTest(tt.pattern, tt.event)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPatternMatching_PrefixSuffixAnythingBut(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		pattern       string
+		event         eventbridge.EventEntry
+		wantDelivered bool
+	}{
+		{
+			name:          "prefix_match_delivers",
+			pattern:       `{"source": [{"prefix": "aws."}]}`,
+			event:         eventbridge.EventEntry{Source: "aws.s3", DetailType: "ObjectCreated", Detail: `{}`},
+			wantDelivered: true,
+		},
+		{
+			name:          "prefix_no_match_skips",
+			pattern:       `{"source": [{"prefix": "aws."}]}`,
+			event:         eventbridge.EventEntry{Source: "custom.service", DetailType: "Evt", Detail: `{}`},
+			wantDelivered: false,
+		},
+		{
+			name:          "suffix_match_delivers",
+			pattern:       `{"source": [{"suffix": ".events"}]}`,
+			event:         eventbridge.EventEntry{Source: "aws.events", DetailType: "Scheduled Event", Detail: `{}`},
+			wantDelivered: true,
+		},
+		{
+			name:          "anything_but_match_delivers",
+			pattern:       `{"source": [{"anything-but": ["skip.me"]}]}`,
+			event:         eventbridge.EventEntry{Source: "other.src", DetailType: "Evt", Detail: `{}`},
+			wantDelivered: true,
+		},
+		{
+			name:          "anything_but_excluded_skips",
+			pattern:       `{"source": [{"anything-but": ["skip.me"]}]}`,
+			event:         eventbridge.EventEntry{Source: "skip.me", DetailType: "Evt", Detail: `{}`},
+			wantDelivered: false,
+		},
+		{
+			name:          "exists_true_delivers_when_field_present",
+			pattern:       `{"detail": {"code": [{"exists": true}]}}`,
+			event:         eventbridge.EventEntry{Source: "svc", DetailType: "Evt", Detail: `{"code": "200"}`},
+			wantDelivered: true,
+		},
+		{
+			name:          "exists_true_skips_when_field_absent",
+			pattern:       `{"detail": {"code": [{"exists": true}]}}`,
+			event:         eventbridge.EventEntry{Source: "svc", DetailType: "Evt", Detail: `{}`},
+			wantDelivered: false,
+		},
+		{
+			name:          "numeric_gt_delivers",
+			pattern:       `{"detail": {"count": [{"numeric": [">", 5]}]}}`,
+			event:         eventbridge.EventEntry{Source: "svc", DetailType: "Evt", Detail: `{"count": 10}`},
+			wantDelivered: true,
+		},
+		{
+			name:          "numeric_gt_skips_below",
+			pattern:       `{"detail": {"count": [{"numeric": [">", 5]}]}}`,
+			event:         eventbridge.EventEntry{Source: "svc", DetailType: "Evt", Detail: `{"count": 3}`},
+			wantDelivered: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sqsMock := newMockSQSSender()
+			b := setupDeliveryBackend(t, sqsMock, newMockLambdaInvoker())
+			const (
+				queueARN = "arn:aws:sqs:us-east-1:123456789012:pattern-queue"
+				ruleName = "pattern-rule"
+			)
+
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+				Name:         ruleName,
+				EventPattern: tc.pattern,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			_, err = b.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
+				{ID: "t1", Arn: queueARN},
+			})
+			require.NoError(t, err)
+
+			b.PutEvents(context.Background(), []eventbridge.EventEntry{tc.event})
+
+			// PutEvents delivers asynchronously; give it a moment.
+			require.Eventually(t, func() bool {
+				msgs := sqsMock.MessagesFor(queueARN)
+
+				return tc.wantDelivered == (len(msgs) > 0)
+			}, 2*time.Second, 20*time.Millisecond)
 		})
 	}
 }

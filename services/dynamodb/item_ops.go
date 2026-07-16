@@ -69,15 +69,22 @@ func (db *InMemoryDB) getTable(ctx context.Context, name string) (*Table, error)
 		return nil, NewResourceNotFoundException("Requested resource not found")
 	}
 
-	table.mu.RLock("checkStatus")
-	status := table.Status
-	table.mu.RUnlock()
+	status := tableStatusRLocked(table)
 
 	if status != statusActive && status != "" {
 		return nil, NewResourceNotFoundException("Requested resource not found")
 	}
 
 	return table, nil
+}
+
+// tableStatusRLocked returns table.Status under a defer-protected RLock, so a
+// panic partway through can never leave a read lock held forever.
+func tableStatusRLocked(table *Table) string {
+	table.mu.RLock("checkStatus")
+	defer table.mu.RUnlock()
+
+	return table.Status
 }
 
 // getKeySchemaForPartiQL returns the key schema for the named table.
@@ -103,14 +110,23 @@ func (db *InMemoryDB) getKeySchemaForPartiQL(
 		return nil, err
 	}
 
-	table.mu.RLock("getKeySchemaForPartiQL")
-	ks := make([]models.KeySchemaElement, len(table.KeySchema))
-	copy(ks, table.KeySchema)
-	table.mu.RUnlock()
+	ks := copyKeySchemaRLocked(table)
 
 	db.exprCache.Put(cacheKey, ks)
 
 	return ks, nil
+}
+
+// copyKeySchemaRLocked returns a copy of table.KeySchema under a
+// defer-protected RLock.
+func copyKeySchemaRLocked(table *Table) []models.KeySchemaElement {
+	table.mu.RLock("getKeySchemaForPartiQL")
+	defer table.mu.RUnlock()
+
+	ks := make([]models.KeySchemaElement, len(table.KeySchema))
+	copy(ks, table.KeySchema)
+
+	return ks
 }
 
 func (db *InMemoryDB) getTableRLock(ctx context.Context, name string) (*Table, bool) {

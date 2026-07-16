@@ -284,3 +284,31 @@ func toLoginProfileXML(lp *LoginProfile) LoginProfileXML {
 		PasswordResetRequired: lp.PasswordResetRequired,
 	}
 }
+
+// iamOIDCRefinementDispatch adds RemoveClientIDFromOpenIDConnectProvider.
+func (h *Handler) iamOIDCRefinementDispatch() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"RemoveClientIDFromOpenIDConnectProvider": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.RemoveClientIDFromOpenIDConnectProvider(
+				vals.Get("OpenIDConnectProviderArn"), vals.Get("ClientID"),
+			); err != nil {
+				return nil, err
+			}
+
+			return &RemoveClientIDFromOpenIDConnectProviderResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+// iamOIDCTagDispatch returns the tag dispatch entries for OIDC providers.
+func (h *Handler) iamOIDCTagDispatch() map[string]iamActionFn {
+	return h.resourceTagDispatch("OpenIDConnectProvider", "oidc:", "OpenIDConnectProviderArn")
+}
+
+// iamSAMLTagDispatch returns the tag dispatch entries for SAML providers.
+func (h *Handler) iamSAMLTagDispatch() map[string]iamActionFn {
+	return h.resourceTagDispatch("SAMLProvider", "saml:", "SAMLProviderArn")
+}

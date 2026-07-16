@@ -493,3 +493,237 @@ func (h *Handler) handleDetachClusterNodeVolume(ctx context.Context, body []byte
 		"AttachTime":  epochSeconds(dv.AttachTime),
 	})
 }
+
+// clusterNodeVolumeRequest is the volume config in the handler request.
+type clusterNodeVolumeRequest struct {
+	VolumeName string `json:"VolumeName"`
+	SizeInGB   int32  `json:"SizeInGB,omitempty"`
+}
+
+// attachClusterNodeVolumeRequest is the request body for AttachClusterNodeVolume.
+type attachClusterNodeVolumeRequest struct {
+	ClusterName  string                   `json:"ClusterName"`
+	NodeID       string                   `json:"NodeId"`
+	VolumeConfig clusterNodeVolumeRequest `json:"VolumeConfig"`
+}
+
+func (h *Handler) handleAttachClusterNodeVolume(ctx context.Context, body []byte) ([]byte, error) {
+	var req attachClusterNodeVolumeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	if req.NodeID == "" {
+		return nil, fmt.Errorf("%w: NodeId is required", errInvalidRequest)
+	}
+
+	vol := ClusterNodeVolume{
+		VolumeName: req.VolumeConfig.VolumeName,
+		SizeInGB:   req.VolumeConfig.SizeInGB,
+	}
+
+	clusterArn, nodeID, err := h.Backend.AttachClusterNodeVolume(ctx, req.ClusterName, req.NodeID, vol)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(
+		ctx,
+		"sagemaker: attached cluster node volume",
+		"cluster",
+		clusterArn,
+		"node",
+		nodeID,
+	)
+
+	return json.Marshal(map[string]string{
+		keyClusterArn: clusterArn,
+		"NodeId":      nodeID,
+	})
+}
+
+// clusterNodeRequest represents a node config in batch cluster operations.
+type clusterNodeRequest struct {
+	NodeID       string `json:"NodeId"`
+	InstanceType string `json:"InstanceType,omitempty"`
+}
+
+// batchClusterNodesWithFailures is a shared helper for cluster batch operations that return Failures.
+func (h *Handler) batchClusterNodesWithFailures(
+	ctx context.Context,
+	clusterName, logMsg string,
+	nodes []ClusterNode,
+	fn func(context.Context, string, []ClusterNode) (string, []string, error),
+) ([]byte, error) {
+	clusterArn, failures, err := fn(ctx, clusterName, nodes)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, logMsg, "cluster", clusterArn)
+
+	if failures == nil {
+		failures = []string{}
+	}
+
+	return json.Marshal(map[string]any{
+		keyClusterArn: clusterArn,
+		"Failures":    failures,
+	})
+}
+
+// toClusterNodes converts a slice of clusterNodeRequest to ClusterNode.
+func toClusterNodes(reqs []clusterNodeRequest) []ClusterNode {
+	nodes := make([]ClusterNode, 0, len(reqs))
+
+	for _, r := range reqs {
+		nodes = append(nodes, ClusterNode{
+			NodeID:       r.NodeID,
+			InstanceType: r.InstanceType,
+		})
+	}
+
+	return nodes
+}
+
+// batchAddClusterNodesRequest is the request body for BatchAddClusterNodes.
+type batchAddClusterNodesRequest struct {
+	ClusterName string               `json:"ClusterName"`
+	NodeConfigs []clusterNodeRequest `json:"NodeConfigs"`
+}
+
+func (h *Handler) handleBatchAddClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
+	var req batchAddClusterNodesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	return h.batchClusterNodesWithFailures(
+		ctx,
+		req.ClusterName,
+		"sagemaker: batch added cluster nodes",
+		toClusterNodes(req.NodeConfigs),
+		h.Backend.BatchAddClusterNodes,
+	)
+}
+
+// batchDeleteClusterNodesRequest is the request body for BatchDeleteClusterNodes.
+type batchDeleteClusterNodesRequest struct {
+	ClusterName string   `json:"ClusterName"`
+	NodeIDs     []string `json:"NodeIds"`
+}
+
+func (h *Handler) handleBatchDeleteClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
+	var req batchDeleteClusterNodesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	clusterArn, errored, successful, err := h.Backend.BatchDeleteClusterNodes(
+		ctx,
+		req.ClusterName,
+		req.NodeIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: batch deleted cluster nodes", "cluster", clusterArn)
+
+	if errored == nil {
+		errored = []string{}
+	}
+
+	if successful == nil {
+		successful = []string{}
+	}
+
+	return json.Marshal(map[string]any{
+		keyClusterArn: clusterArn,
+		"Errors":      errored,
+		"Successful":  successful,
+	})
+}
+
+// batchRebootClusterNodesRequest is the request body for BatchRebootClusterNodes.
+type batchRebootClusterNodesRequest struct {
+	ClusterName string   `json:"ClusterName"`
+	NodeIDs     []string `json:"NodeIds"`
+}
+
+func (h *Handler) handleBatchRebootClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
+	var req batchRebootClusterNodesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	clusterArn, failures, successful, err := h.Backend.BatchRebootClusterNodes(
+		ctx,
+		req.ClusterName,
+		req.NodeIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: batch rebooted cluster nodes", "cluster", clusterArn)
+
+	if failures == nil {
+		failures = []string{}
+	}
+
+	if successful == nil {
+		successful = []string{}
+	}
+
+	return json.Marshal(map[string]any{
+		keyClusterArn: clusterArn,
+		"Failures":    failures,
+		"Successful":  successful,
+	})
+}
+
+// batchReplaceClusterNodesRequest is the request body for BatchReplaceClusterNodes.
+type batchReplaceClusterNodesRequest struct {
+	ClusterName string               `json:"ClusterName"`
+	Nodes       []clusterNodeRequest `json:"Nodes"`
+}
+
+func (h *Handler) handleBatchReplaceClusterNodes(ctx context.Context, body []byte) ([]byte, error) {
+	var req batchReplaceClusterNodesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ClusterName == "" {
+		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
+	}
+
+	return h.batchClusterNodesWithFailures(
+		ctx,
+		req.ClusterName,
+		"sagemaker: batch replaced cluster nodes",
+		toClusterNodes(req.Nodes),
+		h.Backend.BatchReplaceClusterNodes,
+	)
+}

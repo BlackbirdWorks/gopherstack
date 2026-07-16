@@ -178,7 +178,9 @@ type token struct {
 	val  string
 }
 
-//nolint:gocognit,cyclop,funlen // tokenize is a straightforward character-class scanner
+// tokenize scans s into a slice of tokens using a straightforward
+// character-class scanner. Each character class is handled by a small helper
+// so the scan loop itself stays simple.
 func tokenize(s string) []token {
 	var tokens []token
 	i := 0
@@ -186,95 +188,94 @@ func tokenize(s string) []token {
 	for i < len(s) {
 		ch := rune(s[i])
 
-		if unicode.IsSpace(ch) {
+		switch {
+		case unicode.IsSpace(ch):
 			i++
-
-			continue
-		}
-
-		if ch == '(' {
+		case ch == '(':
 			tokens = append(tokens, token{tokLParen, "("})
 			i++
-
-			continue
-		}
-
-		if ch == ')' {
+		case ch == ')':
 			tokens = append(tokens, token{tokRParen, ")"})
 			i++
-
-			continue
-		}
-
-		if ch == ',' {
+		case ch == ',':
 			tokens = append(tokens, token{tokComma, ","})
 			i++
+		case ch == '\'':
+			var tok token
 
-			continue
-		}
+			tok, i = tokenizeString(s, i)
+			tokens = append(tokens, tok)
+		case ch == '>' || ch == '<' || ch == '=' || ch == '!':
+			var tok token
 
-		// String literal
-		if ch == '\'' {
-			j := i + 1
+			tok, i = tokenizeOperator(s, i)
+			tokens = append(tokens, tok)
+		case unicode.IsLetter(ch) || ch == '_':
+			var tok token
 
-			var sb strings.Builder
-
-			for j < len(s) {
-				if s[j] == '\'' {
-					if j+1 < len(s) && s[j+1] == '\'' {
-						sb.WriteByte('\'')
-						j += 2
-
-						continue
-					}
-
-					break
-				}
-
-				sb.WriteByte(s[j])
-				j++
-			}
-
-			tokens = append(tokens, token{tokString, sb.String()})
-			i = j + 1
-
-			continue
-		}
-
-		// Operators: >=, <=, <>, !=, >, <, =
-		if ch == '>' || ch == '<' || ch == '=' || ch == '!' {
-			op := string(ch)
-
-			if i+1 < len(s) && (s[i+1] == '=' || s[i+1] == '>') {
-				op += string(s[i+1])
-				i++
-			}
-
-			tokens = append(tokens, token{tokOp, op})
+			tok, i = tokenizeWord(s, i)
+			tokens = append(tokens, tok)
+		default:
+			// skip unknown
 			i++
-
-			continue
 		}
-
-		// Word (identifier or keyword)
-		if unicode.IsLetter(ch) || ch == '_' {
-			j := i
-
-			for j < len(s) && (unicode.IsLetter(rune(s[j])) || unicode.IsDigit(rune(s[j])) || s[j] == '_') {
-				j++
-			}
-
-			tokens = append(tokens, token{tokWord, s[i:j]})
-			i = j
-
-			continue
-		}
-
-		// skip unknown
-		i++
 	}
 
 	return tokens
+}
+
+// tokenizeString scans a single-quoted string literal (with a doubled quote
+// as an escaped quote) starting at i, which must point at the opening quote. It returns
+// the STRING token and the index just past the closing quote.
+func tokenizeString(s string, i int) (token, int) {
+	j := i + 1
+
+	var sb strings.Builder
+
+	for j < len(s) {
+		if s[j] == '\'' {
+			if j+1 < len(s) && s[j+1] == '\'' {
+				sb.WriteByte('\'')
+				j += 2
+
+				continue
+			}
+
+			break
+		}
+
+		sb.WriteByte(s[j])
+		j++
+	}
+
+	return token{tokString, sb.String()}, j + 1
+}
+
+// tokenizeOperator scans one of >=, <=, <>, !=, >, <, = starting at i. It
+// returns the OP token and the index just past the operator.
+func tokenizeOperator(s string, i int) (token, int) {
+	ch := s[i]
+	op := string(ch)
+	next := i + 1
+
+	if i+1 < len(s) && (s[i+1] == '=' || s[i+1] == '>') {
+		op += string(s[i+1])
+		next++
+	}
+
+	return token{tokOp, op}, next
+}
+
+// tokenizeWord scans an identifier or keyword starting at i. It returns the
+// WORD token and the index just past the word.
+func tokenizeWord(s string, i int) (token, int) {
+	j := i
+
+	for j < len(s) && (unicode.IsLetter(rune(s[j])) || unicode.IsDigit(rune(s[j])) || s[j] == '_') {
+		j++
+	}
+
+	return token{tokWord, s[i:j]}, j
 }
 
 type exprParser struct {
@@ -366,35 +367,59 @@ func (p *exprParser) parseUnary() (partitionExpr, error) {
 	return p.parsePrimary()
 }
 
-//nolint:cyclop // parser primary expression handler — complexity matches grammar rules
+// parsePrimary parses a parenthesized expression or a column predicate
+// (comparison, LIKE, IN, or NOT IN).
 func (p *exprParser) parsePrimary() (partitionExpr, error) {
 	if !p.done() && p.peekKind() == tokLParen {
-		p.consume() // (
-
-		inner, err := p.parseOr()
-		if err != nil {
-			return nil, err
-		}
-
-		if p.done() || p.peekKind() != tokRParen {
-			return nil, errExprExpectedCloseParen
-		}
-
-		p.consume() // )
-
-		return inner, nil
+		return p.parseParenExpr()
 	}
 
+	col, err := p.consumeColumn()
+	if err != nil {
+		return nil, err
+	}
+
+	return p.parseColumnPredicate(col)
+}
+
+// parseParenExpr parses a fully parenthesized sub-expression, assuming the
+// next token is the opening paren.
+func (p *exprParser) parseParenExpr() (partitionExpr, error) {
+	p.consume() // (
+
+	inner, err := p.parseOr()
+	if err != nil {
+		return nil, err
+	}
+
+	if p.done() || p.peekKind() != tokRParen {
+		return nil, errExprExpectedCloseParen
+	}
+
+	p.consume() // )
+
+	return inner, nil
+}
+
+// consumeColumn consumes and returns the column-name token that starts a
+// primary expression.
+func (p *exprParser) consumeColumn() (string, error) {
 	if p.done() || p.peekKind() != tokWord {
-		return nil, fmt.Errorf("%w, got %q", errExprExpectedColumn, p.peek())
+		return "", fmt.Errorf("%w, got %q", errExprExpectedColumn, p.peek())
 	}
 
 	col := p.consume().val
 
 	if p.done() {
-		return nil, fmt.Errorf("%w %q", errExprExpectedOperator, col)
+		return "", fmt.Errorf("%w %q", errExprExpectedOperator, col)
 	}
 
+	return col, nil
+}
+
+// parseColumnPredicate parses the predicate that follows a column name:
+// IN (...), NOT IN (...), or a comparison/LIKE operator with a string value.
+func (p *exprParser) parseColumnPredicate(col string) (partitionExpr, error) {
 	// Check for NOT IN or IN
 	if strings.EqualFold(p.peek(), "IN") {
 		return p.parseIn(col, false)

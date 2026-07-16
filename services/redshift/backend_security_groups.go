@@ -114,3 +114,54 @@ func (b *InMemoryBackend) RevokeClusterSecurityGroupIngress(
 
 	return cloneSecurityGroup(sg), nil
 }
+
+// AuthorizeClusterSecurityGroupIngress adds an ingress rule to a cluster security group.
+func (b *InMemoryBackend) AuthorizeClusterSecurityGroupIngress(
+	groupName, cidrIP, ec2GroupName, ec2GroupOwnerID string,
+) (*ClusterSecurityGroup, error) {
+	if groupName == "" {
+		return nil, fmt.Errorf("%w: ClusterSecurityGroupName is required", ErrInvalidParameter)
+	}
+	if cidrIP == "" && ec2GroupName == "" {
+		return nil, fmt.Errorf("%w: CIDRIP or EC2SecurityGroupName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AuthorizeClusterSecurityGroupIngress")
+	defer b.mu.Unlock()
+
+	sg, exists := b.securityGroups.Get(groupName)
+	if !exists {
+		return nil, fmt.Errorf("%w: security group %s not found", ErrSecurityGroupNotFound, groupName)
+	}
+
+	if cidrIP != "" {
+		sg.IPRanges = append(sg.IPRanges, IPRange{CIDRIP: cidrIP, Status: ingressStatusAuthorized})
+	}
+	if ec2GroupName != "" {
+		sg.EC2SecurityGroups = append(sg.EC2SecurityGroups, EC2SecurityGroup{
+			EC2SecurityGroupName:    ec2GroupName,
+			EC2SecurityGroupOwnerID: ec2GroupOwnerID,
+			Status:                  ingressStatusAuthorized,
+		})
+	}
+
+	return cloneSecurityGroup(sg), nil
+}
+
+// AddSecurityGroupInternal seeds a cluster security group directly into the backend.
+func (b *InMemoryBackend) AddSecurityGroupInternal(sg *ClusterSecurityGroup) {
+	b.mu.Lock("AddSecurityGroupInternal")
+	defer b.mu.Unlock()
+	b.securityGroups.Put(sg)
+}
+
+// cloneSecurityGroup returns a deep copy of a ClusterSecurityGroup.
+func cloneSecurityGroup(sg *ClusterSecurityGroup) *ClusterSecurityGroup {
+	cp := *sg
+	cp.IPRanges = make([]IPRange, len(sg.IPRanges))
+	copy(cp.IPRanges, sg.IPRanges)
+	cp.EC2SecurityGroups = make([]EC2SecurityGroup, len(sg.EC2SecurityGroups))
+	copy(cp.EC2SecurityGroups, sg.EC2SecurityGroups)
+
+	return &cp
+}

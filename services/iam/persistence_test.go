@@ -1,9 +1,13 @@
 package iam_test
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -247,4 +251,110 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	gotSSHKey, err := fresh.GetSSHPublicKey("alice", sshKey.SSHPublicKeyID)
 	require.NoError(t, err)
 	assert.Equal(t, sshKey.Fingerprint, gotSSHKey.Fingerprint)
+}
+
+// Test_HandlerPersistence_RoundTrip verifies that a Handler.Snapshot/Restore
+// cycle preserves state that previously lived outside backendSnapshot:
+// Handler-level resource tags (instance profiles, MFA devices, SAML/OIDC
+// providers, server certificates) and comprehensiveBackend state (SSH public
+// keys). Both were silently dropped by every persistence restore before this
+// fix.
+func Test_HandlerPersistence_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	e := echo.New()
+	h1, b1 := newTestHandler(t)
+
+	_, err := b1.CreateInstanceProfile("PersistedProfile", "/")
+	require.NoError(t, err)
+
+	tagReq := iamRequest("TagInstanceProfile", map[string]string{
+		"InstanceProfileName": "PersistedProfile",
+		"Tags.member.1.Key":   "Team",
+		"Tags.member.1.Value": "Platform",
+	})
+	tagRec := httptest.NewRecorder()
+	require.NoError(t, h1.Handler()(e.NewContext(tagReq, tagRec)))
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	_, err = b1.CreateUser("keyholder", "/", "")
+	require.NoError(t, err)
+	_, err = b1.UploadSSHPublicKey("keyholder", "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDPersistedKeyBody")
+	require.NoError(t, err)
+
+	blob := h1.Snapshot(ctx)
+	require.NotEmpty(t, blob)
+
+	// Restore into a brand-new handler/backend pair.
+	h2, _ := newTestHandler(t)
+	require.NoError(t, h2.Restore(ctx, blob))
+
+	// Instance profile tags must have round-tripped.
+	listTagsReq := iamRequest("ListInstanceProfileTags", map[string]string{
+		"InstanceProfileName": "PersistedProfile",
+	})
+	listTagsRec := httptest.NewRecorder()
+	require.NoError(t, h2.Handler()(e.NewContext(listTagsReq, listTagsRec)))
+	assert.Equal(t, http.StatusOK, listTagsRec.Code)
+	assert.Contains(t, listTagsRec.Body.String(), "Platform")
+
+	// SSH public keys (comprehensiveBackend state) must have round-tripped.
+	listKeysReq := iamRequest("ListSSHPublicKeys", map[string]string{"UserName": "keyholder"})
+	listKeysRec := httptest.NewRecorder()
+	require.NoError(t, h2.Handler()(e.NewContext(listKeysReq, listKeysRec)))
+	assert.Equal(t, http.StatusOK, listKeysRec.Code)
+	assert.Contains(t, listKeysRec.Body.String(), "keyholder")
+}
+
+func TestNewOps_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+
+	// Seed data for all new ops.
+	require.NoError(t, b.CreateAccountAlias("test-alias"))
+
+	pol, err := b.CreatePolicy(
+		"VersionedPolicy",
+		"/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
+	require.NoError(t, err)
+	policyArn := pol.Arn
+
+	_, err = b.CreatePolicyVersion(
+		policyArn,
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+		true,
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateUser("svc-user", "/", "")
+	require.NoError(t, err)
+	_, err = b.CreateServiceSpecificCredential("svc-user", "codecommit.amazonaws.com")
+	require.NoError(t, err)
+
+	_, err = b.CreateVirtualMFADevice("MyMFA", "/")
+	require.NoError(t, err)
+
+	req, err := b.CreateDelegationRequest("111122223333")
+	require.NoError(t, err)
+	require.NoError(t, b.AcceptDelegationRequest(req.DelegationID))
+
+	// Snapshot and restore.
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iam.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Creating another version should work as there's already 1 extra version.
+	pv, err := b2.CreatePolicyVersion(
+		policyArn,
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"*","Resource":"*"}]}`,
+		false,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "v3", pv.VersionID)
 }

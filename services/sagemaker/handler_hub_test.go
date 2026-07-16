@@ -588,3 +588,66 @@ func TestHub_SnapshotRestore(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, recDescContent.Code)
 }
+
+func TestHandler_UpdateHubContent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateHub", map[string]any{"HubName": "my-hub2", "HubDescription": "test hub"})
+	doSageMakerRequest(t, h, "ImportHubContent", map[string]any{
+		"HubName": "my-hub2", "HubContentName": "model-a", "HubContentType": "Model",
+		"HubContentVersion": "1.0.0", "DocumentSchemaVersion": "1.0.0", "HubContentDocument": "{}",
+	})
+
+	rec := doSageMakerRequest(t, h, "UpdateHubContent", map[string]any{
+		"HubName": "my-hub2", "HubContentName": "model-a", "HubContentType": "Model",
+		"HubContentVersion": "1.0.0", "HubContentDescription": "new description",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	recDescribe := doSageMakerRequest(t, h, "DescribeHubContent", map[string]any{
+		"HubName": "my-hub2", "HubContentName": "model-a", "HubContentType": "Model",
+	})
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &out))
+	assert.Equal(t, "new description", out["HubContentDescription"])
+}
+
+func TestHandler_UpdateHubContentReference(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateHub", map[string]any{"HubName": "my-hub3", "HubDescription": "test hub"})
+	doSageMakerRequest(t, h, "CreateHubContentReference", map[string]any{
+		"HubName": "my-hub3",
+		"SageMakerPublicHubContentArn": "arn:aws:sagemaker:us-east-1:aws:hub-content/" +
+			"SageMakerPublicHub/Model/public-model/1.0.0",
+	})
+
+	rec := doSageMakerRequest(t, h, "UpdateHubContentReference", map[string]any{
+		"HubName": "my-hub3", "HubContentName": "public-model", "HubContentType": "ModelReference",
+		"MinVersion": "2.0.0",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.NotEmpty(t, out["HubContentArn"])
+}
+
+func TestHandler_UpdateHubContent_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "UpdateHubContent", map[string]any{
+		"HubName": "no-such-hub", "HubContentName": "x", "HubContentType": "Model", "HubContentVersion": "1.0.0",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// CreatePresignedDomainUrl
+// ---------------------------------------------------------------------------

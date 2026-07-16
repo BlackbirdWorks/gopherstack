@@ -1,0 +1,90 @@
+package ec2
+
+import (
+	"encoding/xml"
+	"net/url"
+)
+
+type createCarrierGatewayResponse struct {
+	XMLName        xml.Name           `xml:"CreateCarrierGatewayResponse"`
+	RequestID      string             `xml:"requestId"`
+	CarrierGateway carrierGatewayItem `xml:"carrierGateway"`
+}
+
+type describeCarrierGatewaysResponse struct {
+	XMLName         xml.Name `xml:"DescribeCarrierGatewaysResponse"`
+	RequestID       string   `xml:"requestId"`
+	CarrierGateways struct {
+		Items []carrierGatewayItem `xml:"item"`
+	} `xml:"carrierGatewaySet"`
+}
+
+type reservedInstanceItem struct {
+	ReservedInstancesID string  `xml:"reservedInstancesId"`
+	InstanceType        string  `xml:"instanceType,omitempty"`
+	AvailabilityZone    string  `xml:"availabilityZone,omitempty"`
+	ProductDescription  string  `xml:"productDescription,omitempty"`
+	State               string  `xml:"state,omitempty"`
+	OfferingType        string  `xml:"offeringType,omitempty"`
+	InstanceCount       int     `xml:"instanceCount,omitempty"`
+	Duration            int64   `xml:"duration"`
+	FixedPrice          float64 `xml:"fixedPrice"`
+	UsagePrice          float64 `xml:"usagePrice"`
+}
+
+func toCarrierGatewayItem(gw *CarrierGateway) carrierGatewayItem {
+	return carrierGatewayItem{
+		CarrierGatewayID: gw.CarrierGatewayID,
+		VpcID:            gw.VpcID,
+		State:            gw.State,
+		OwnerID:          gw.OwnerID,
+	}
+}
+
+func (h *Handler) handleCreateCarrierGateway(vals url.Values, reqID string) (any, error) {
+	vpcID := vals.Get("VpcId")
+
+	gw, err := h.Backend.CreateCarrierGateway(vpcID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createCarrierGatewayResponse{
+		RequestID:      reqID,
+		CarrierGateway: toCarrierGatewayItem(gw),
+	}, nil
+}
+
+func (h *Handler) handleDeleteCarrierGateway(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("CarrierGatewayId")
+	if err := h.Backend.DeleteCarrierGateway(id); err != nil {
+		return nil, err
+	}
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteCarrierGatewayResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDescribeCarrierGateways(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "CarrierGatewayId")
+	gateways := h.Backend.DescribeCarrierGateways(ids)
+
+	resp := &describeCarrierGatewaysResponse{RequestID: reqID}
+	for _, gw := range gateways {
+		resp.CarrierGateways.Items = append(resp.CarrierGateways.Items, toCarrierGatewayItem(gw))
+	}
+
+	return resp, nil
+}
+
+// ---- Reserved Instances handlers ----
+
+// registerCarrierGatewaysOps registers the CarrierGateways operation handlers.
+func registerCarrierGatewaysOps(h *Handler, ops map[string]ec2ActionFn) {
+	ops["CreateCarrierGateway"] = h.handleCreateCarrierGateway
+	ops["DeleteCarrierGateway"] = h.handleDeleteCarrierGateway
+	ops["DescribeCarrierGateways"] = h.handleDescribeCarrierGateways
+}

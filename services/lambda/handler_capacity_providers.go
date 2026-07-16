@@ -1,0 +1,185 @@
+package lambda
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/labstack/echo/v5"
+)
+
+// --- Capacity provider handlers ---
+
+// handleCapacityProviderRoute dispatches /2025-11-30/capacity-providers routes.
+func (h *Handler) handleCapacityProviderRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest := strings.TrimPrefix(path, lambdaCapacityPathPrefix)
+	rest = strings.TrimPrefix(rest, "/")
+
+	// /2025-11-30/capacity-providers → Create / List
+	if rest == "" {
+		switch method {
+		case http.MethodPost:
+			return h.handleCreateCapacityProvider(c, lambdaBk)
+		case http.MethodGet:
+			return h.handleListCapacityProviders(c, lambdaBk)
+		default:
+			return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+		}
+	}
+
+	// /2025-11-30/capacity-providers/{name}/function-versions → ListFunctionVersionsByCapacityProvider
+	if strings.HasSuffix(rest, "/function-versions") && method == http.MethodGet {
+		cpName := strings.TrimSuffix(rest, "/function-versions")
+
+		return h.handleListFunctionVersionsByCapacityProvider(c, lambdaBk, cpName)
+	}
+
+	// /2025-11-30/capacity-providers/{name} → Get / Delete / Update
+	name := strings.SplitN(rest, "/", 2)[0] //nolint:mnd // split name from sub-path
+
+	switch method {
+	case http.MethodGet:
+		return h.handleGetCapacityProvider(c, lambdaBk, name)
+	case http.MethodDelete:
+		return h.handleDeleteCapacityProvider(c, lambdaBk, name)
+	case http.MethodPut:
+		return h.handleUpdateCapacityProvider(c, lambdaBk, name)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+	}
+}
+
+// handleCreateCapacityProvider handles POST /2025-11-30/capacity-providers.
+func (h *Handler) handleCreateCapacityProvider(c *echo.Context, bk *InMemoryBackend) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input CreateCapacityProviderInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	if input.Name == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Name is required")
+	}
+
+	cp, createErr := bk.CreateCapacityProvider(&input)
+	if createErr != nil {
+		if errors.Is(createErr, ErrFunctionAlreadyExists) {
+			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
+				"Capacity provider already exists: "+input.Name)
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, &CreateCapacityProviderOutput{CapacityProvider: cp})
+}
+
+// handleGetCapacityProvider handles GET /2025-11-30/capacity-providers/{name}.
+func (h *Handler) handleGetCapacityProvider(c *echo.Context, bk *InMemoryBackend, name string) error {
+	cp, err := bk.GetCapacityProvider(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				"Capacity provider not found: "+name)
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &CreateCapacityProviderOutput{CapacityProvider: cp})
+}
+
+// handleDeleteCapacityProvider handles DELETE /2025-11-30/capacity-providers/{name}.
+func (h *Handler) handleDeleteCapacityProvider(c *echo.Context, bk *InMemoryBackend, name string) error {
+	if err := bk.DeleteCapacityProvider(name); err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				"Capacity provider not found: "+name)
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// handleUpdateCapacityProvider handles PUT /2025-11-30/capacity-providers/{name}.
+//
+//nolint:dupl // similar update-handler structure shared with handleUpdateCodeSigningConfig by design
+func (h *Handler) handleUpdateCapacityProvider(c *echo.Context, bk *InMemoryBackend, name string) error {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input UpdateCapacityProviderInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	cp, updateErr := bk.UpdateCapacityProvider(name, &input)
+	if updateErr != nil {
+		if errors.Is(updateErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				"Capacity provider not found: "+name)
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+	}
+
+	return c.JSON(http.StatusOK, &UpdateCapacityProviderOutput{CapacityProvider: cp})
+}
+
+// handleListCapacityProviders handles GET /2025-11-30/capacity-providers.
+func (h *Handler) handleListCapacityProviders(c *echo.Context, bk *InMemoryBackend) error {
+	cps := bk.ListCapacityProviders()
+
+	return c.JSON(http.StatusOK, &ListCapacityProvidersOutput{CapacityProviders: cps})
+}
+
+// --- ListFunctionVersionsByCapacityProvider ---
+
+type listFunctionVersionsByCapacityProviderOutput struct {
+	NextMarker       string   `json:"NextMarker,omitempty"`
+	FunctionVersions []string `json:"FunctionVersions"`
+}
+
+// handleListFunctionVersionsByCapacityProvider returns the function-version ARNs
+// assigned to the named capacity provider, with Marker/MaxItems pagination. It
+// returns ResourceNotFoundException when the provider does not exist.
+//
+// AWS exposes no public API to assign function versions to a capacity provider in
+// this emulator's surface, so assignments are populated only via the internal
+// SeedCapacityProviderFunctionVersions helper (used by tests). When no versions
+// have been seeded, an empty list is returned for a valid provider.
+func (h *Handler) handleListFunctionVersionsByCapacityProvider(
+	c *echo.Context, bk *InMemoryBackend, name string,
+) error {
+	marker, maxItems := parsePaginationParams(c.Request())
+
+	p, err := bk.ListFunctionVersionsByCapacityProvider(name, marker, maxItems)
+	if err != nil {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			"Capacity provider not found: "+name)
+	}
+
+	return c.JSON(http.StatusOK, &listFunctionVersionsByCapacityProviderOutput{
+		FunctionVersions: p.Data,
+		NextMarker:       p.Next,
+	})
+}

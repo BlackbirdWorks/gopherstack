@@ -221,3 +221,77 @@ func TestHandler_ConnectionTypeLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, delBuiltIn.Code)
 	assert.Contains(t, delBuiltIn.Body.String(), "AccessDeniedException")
 }
+
+// TestDescribeEntity verifies input validation and connection existence check.
+func TestDescribeEntity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "missing ConnectionName returns 400",
+			input:    map[string]any{"EntityName": "Account"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing EntityName returns 400",
+			input:    map[string]any{"ConnectionName": "myconn"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "non-existent connection returns 400",
+			input:    map[string]any{"ConnectionName": "noconn", "EntityName": "Account"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doGlueRequest(t, h, "DescribeEntity", tc.input)
+			assert.Equal(t, tc.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestGetEntityRecords verifies input validation and connection existence check.
+func TestGetEntityRecords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "missing ConnectionName returns 400",
+			input:    map[string]any{"EntityName": "Account"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing EntityName returns 400",
+			input:    map[string]any{"ConnectionName": "myconn"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "non-existent connection returns 400",
+			input:    map[string]any{"ConnectionName": "noconn", "EntityName": "Account"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doGlueRequest(t, h, "GetEntityRecords", tc.input)
+			assert.Equal(t, tc.wantCode, rec.Code)
+		})
+	}
+}

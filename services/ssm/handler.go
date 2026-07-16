@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -67,164 +68,15 @@ func (h *Handler) Name() string {
 	return "SSM"
 }
 
-// GetSupportedOperations returns the list of mocked SSM operations.
-//
-//nolint:funlen // exhaustive list of 152 operations — splitting would reduce readability
+// GetSupportedOperations returns the sorted list of mocked SSM operations.
+// The set is derived from the dispatch table itself (built once per Handler
+// in NewHandler from the family ssm*Ops() maps) so it can never drift from
+// what is actually routable.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{
-		"AddTagsToResource",
-		"AssociateOpsItemRelatedItem",
-		"CancelCommand",
-		"CancelMaintenanceWindowExecution",
-		"CreateActivation",
-		"CreateAssociation",
-		"CreateAssociationBatch",
-		"CreateCloudConnector",
-		"CreateDocument",
-		"CreateMaintenanceWindow",
-		"CreateOpsItem",
-		"CreateOpsMetadata",
-		"CreatePatchBaseline",
-		"CreateResourceDataSync",
-		"DeleteActivation",
-		"DeleteAssociation",
-		"DeleteCloudConnector",
-		"DeleteDocument",
-		"DeleteInventory",
-		"DeleteMaintenanceWindow",
-		"DeleteOpsItem",
-		"DeleteOpsMetadata",
-		"DeleteParameter",
-		"DeleteParameters",
-		"DeletePatchBaseline",
-		"DeleteResourceDataSync",
-		"DeleteResourcePolicy",
-		"DeregisterManagedInstance",
-		"DeregisterPatchBaselineForPatchGroup",
-		"DeregisterTargetFromMaintenanceWindow",
-		"DeregisterTaskFromMaintenanceWindow",
-		"DescribeActivations",
-		"DescribeAssociation",
-		"DescribeAssociationExecutionTargets",
-		"DescribeAssociationExecutions",
-		"DescribeAutomationExecutions",
-		"DescribeAutomationStepExecutions",
-		"DescribeAvailablePatches",
-		"DescribeDocument",
-		"DescribeDocumentPermission",
-		"DescribeEffectiveInstanceAssociations",
-		"DescribeEffectivePatchesForPatchBaseline",
-		"DescribeInstanceAssociationsStatus",
-		"DescribeInstanceInformation",
-		"DescribeInstancePatchStates",
-		"DescribeInstancePatchStatesForPatchGroup",
-		"DescribeInstancePatches",
-		"DescribeInstanceProperties",
-		"DescribeInventoryDeletions",
-		"DescribeMaintenanceWindowExecutionTaskInvocations",
-		"DescribeMaintenanceWindowExecutionTasks",
-		"DescribeMaintenanceWindowExecutions",
-		"DescribeMaintenanceWindowSchedule",
-		"DescribeMaintenanceWindowTargets",
-		"DescribeMaintenanceWindowTasks",
-		"DescribeMaintenanceWindows",
-		"DescribeMaintenanceWindowsForTarget",
-		"DescribeOpsItems",
-		"DescribeParameters",
-		"DescribePatchBaselines",
-		"DescribePatchGroupState",
-		"DescribePatchGroups",
-		"DescribePatchProperties",
-		"DescribeSessions",
-		"DisassociateOpsItemRelatedItem",
-		"GetAccessToken",
-		"GetAutomationExecution",
-		"GetCalendarState",
-		"GetCloudConnector",
-		"GetCommandInvocation",
-		"GetConnectionStatus",
-		"GetDefaultPatchBaseline",
-		"GetDeployablePatchSnapshotForInstance",
-		"GetDocument",
-		"GetExecutionPreview",
-		"GetInventory",
-		"GetInventorySchema",
-		"GetMaintenanceWindow",
-		"GetMaintenanceWindowExecution",
-		"GetMaintenanceWindowExecutionTask",
-		"GetMaintenanceWindowExecutionTaskInvocation",
-		"GetMaintenanceWindowTask",
-		"GetOpsItem",
-		"GetOpsMetadata",
-		"GetOpsSummary",
-		"GetParameter",
-		"GetParameterHistory",
-		"GetParameters",
-		"GetParametersByPath",
-		"GetPatchBaseline",
-		"GetPatchBaselineForPatchGroup",
-		"GetResourcePolicies",
-		"GetServiceSetting",
-		"LabelParameterVersion",
-		"ListAssociationVersions",
-		"ListAssociations",
-		"ListCloudConnectors",
-		"ListCommandInvocations",
-		"ListCommands",
-		"ListComplianceItems",
-		"ListComplianceSummaries",
-		"ListDocumentMetadataHistory",
-		"ListDocumentVersions",
-		"ListDocuments",
-		"ListInventoryEntries",
-		"ListNodes",
-		"ListNodesSummary",
-		"ListOpsItemEvents",
-		"ListOpsItemRelatedItems",
-		"ListOpsMetadata",
-		"ListResourceComplianceSummaries",
-		"ListResourceDataSync",
-		"ListTagsForResource",
-		"ModifyDocumentPermission",
-		"PutComplianceItems",
-		"PutInventory",
-		"PutParameter",
-		"PutResourcePolicy",
-		"RegisterDefaultPatchBaseline",
-		"RegisterPatchBaselineForPatchGroup",
-		"RegisterTargetWithMaintenanceWindow",
-		"RegisterTaskWithMaintenanceWindow",
-		"RemoveTagsFromResource",
-		"ResetServiceSetting",
-		"ResumeSession",
-		"SendAutomationSignal",
-		"SendCommand",
-		"StartAccessRequest",
-		"StartAssociationsOnce",
-		"StartAutomationExecution",
-		"StartChangeRequestExecution",
-		"StartExecutionPreview",
-		"StartSession",
-		"StopAutomationExecution",
-		"TerminateSession",
-		"UnlabelParameterVersion",
-		"UpdateAssociation",
-		"UpdateAssociationStatus",
-		"UpdateCloudConnector",
-		"UpdateDocument",
-		"UpdateDocumentDefaultVersion",
-		"UpdateDocumentMetadata",
-		"UpdateMaintenanceWindow",
-		"UpdateMaintenanceWindowTarget",
-		"UpdateMaintenanceWindowTask",
-		"UpdateManagedInstanceRole",
-		"UpdateOpsItem",
-		"UpdateOpsMetadata",
-		"UpdatePatchBaseline",
-		"UpdateResourceDataSync",
-		"UpdateServiceSetting",
-		"ValidateCloudConnector",
-	}
+	ops := slices.Collect(maps.Keys(h.ops))
+	slices.Sort(ops)
+
+	return ops
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
@@ -304,84 +156,56 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type ssmActionFn func(context.Context, []byte) (any, error)
 
+// jsonOp adapts a backend method with the common
+// func(context.Context, *Input) (*Output, error) shape into an ssmActionFn
+// that JSON-decodes the request body into a fresh Input. Nearly every SSM
+// operation follows this shape, so every ssm*Ops() dispatch table is built
+// from calls to this one helper instead of repeating the decode-and-call
+// boilerplate per operation.
+func jsonOp[I, O any](fn func(context.Context, *I) (O, error)) ssmActionFn {
+	return func(ctx context.Context, b []byte) (any, error) {
+		var input I
+		if err := json.Unmarshal(b, &input); err != nil {
+			return nil, err
+		}
+
+		return fn(ctx, &input)
+	}
+}
+
 func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
 	ops := h.ssmParameterOps()
 	maps.Copy(ops, h.ssmTagOps())
 	maps.Copy(ops, h.ssmDocumentOps())
 	maps.Copy(ops, h.ssmCommandOps())
-	maps.Copy(ops, h.ssmNewOps())
 	maps.Copy(ops, h.ssmCloudConnectorOps())
-	maps.Copy(ops, h.ssmStubOps())
+	maps.Copy(ops, h.ssmAssociationOps())
+	maps.Copy(ops, h.ssmMaintenanceWindowOps())
+	maps.Copy(ops, h.ssmPatchBaselineOps())
+	maps.Copy(ops, h.ssmOpsItemOps())
+	maps.Copy(ops, h.ssmInventoryOps())
+	maps.Copy(ops, h.ssmSessionOps())
+	maps.Copy(ops, h.ssmActivationOps())
+	maps.Copy(ops, h.ssmInstanceOps())
+	maps.Copy(ops, h.ssmAutomationOps())
+	maps.Copy(ops, h.ssmServiceSettingOps())
+	maps.Copy(ops, h.ssmResourcePolicyOps())
 
 	return ops
 }
 
 func (h *Handler) ssmParameterOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"PutParameter": func(ctx context.Context, b []byte) (any, error) {
-			var input PutParameterInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.PutParameter(ctx, &input)
-		},
-		"GetParameter": func(ctx context.Context, b []byte) (any, error) {
-			var input GetParameterInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.GetParameter(ctx, &input)
-		},
-		"GetParameters": func(ctx context.Context, b []byte) (any, error) {
-			var input GetParametersInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.GetParameters(ctx, &input)
-		},
-		"GetParameterHistory": func(ctx context.Context, b []byte) (any, error) {
-			var input GetParameterHistoryInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.GetParameterHistory(ctx, &input)
-		},
-		"DeleteParameter": func(ctx context.Context, b []byte) (any, error) {
-			var input DeleteParameterInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DeleteParameter(ctx, &input)
-		},
-		"DeleteParameters": func(ctx context.Context, b []byte) (any, error) {
-			var input DeleteParametersInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DeleteParameters(ctx, &input)
-		},
-		"GetParametersByPath": func(ctx context.Context, b []byte) (any, error) {
-			var input GetParametersByPathInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.GetParametersByPath(ctx, &input)
-		},
-		"DescribeParameters": func(ctx context.Context, b []byte) (any, error) {
-			var input DescribeParametersInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DescribeParameters(ctx, &input)
-		},
+		"PutParameter":            jsonOp(h.Backend.PutParameter),
+		"GetParameter":            jsonOp(h.Backend.GetParameter),
+		"GetParameters":           jsonOp(h.Backend.GetParameters),
+		"GetParameterHistory":     jsonOp(h.Backend.GetParameterHistory),
+		"DeleteParameter":         jsonOp(h.Backend.DeleteParameter),
+		"DeleteParameters":        jsonOp(h.Backend.DeleteParameters),
+		"GetParametersByPath":     jsonOp(h.Backend.GetParametersByPath),
+		"DescribeParameters":      jsonOp(h.Backend.DescribeParameters),
+		"LabelParameterVersion":   jsonOp(h.Backend.LabelParameterVersion),
+		"UnlabelParameterVersion": jsonOp(h.Backend.UnlabelParameterVersion),
 	}
 }
 
@@ -403,181 +227,45 @@ func (h *Handler) ssmTagOps() map[string]ssmActionFn {
 
 			return struct{}{}, h.Backend.RemoveTagsFromResource(ctx, &input)
 		},
-		"ListTagsForResource": func(ctx context.Context, b []byte) (any, error) {
-			var input ListTagsForResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListTagsForResource(ctx, &input)
-		},
+		"ListTagsForResource": jsonOp(h.Backend.ListTagsForResource),
 	}
 }
 
 func (h *Handler) ssmDocumentOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"CreateDocument": func(ctx context.Context, b []byte) (any, error) {
-			var input CreateDocumentInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CreateDocument(ctx, &input)
-		},
-		"GetDocument": func(ctx context.Context, b []byte) (any, error) {
-			var input GetDocumentInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.GetDocument(ctx, &input)
-		},
-		"DescribeDocument": func(ctx context.Context, b []byte) (any, error) {
-			var input DescribeDocumentInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DescribeDocument(ctx, &input)
-		},
-		"ListDocuments": func(ctx context.Context, b []byte) (any, error) {
-			var input ListDocumentsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListDocuments(ctx, &input)
-		},
-		"UpdateDocument": func(ctx context.Context, b []byte) (any, error) {
-			var input UpdateDocumentInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.UpdateDocument(ctx, &input)
-		},
-		"DeleteDocument": func(ctx context.Context, b []byte) (any, error) {
-			var input DeleteDocumentInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DeleteDocument(ctx, &input)
-		},
-		"DescribeDocumentPermission": func(ctx context.Context, b []byte) (any, error) {
-			var input DescribeDocumentPermissionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DescribeDocumentPermission(ctx, &input)
-		},
-		"ModifyDocumentPermission": func(ctx context.Context, b []byte) (any, error) {
-			var input ModifyDocumentPermissionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ModifyDocumentPermission(ctx, &input)
-		},
-		"ListDocumentVersions": func(ctx context.Context, b []byte) (any, error) {
-			var input ListDocumentVersionsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListDocumentVersions(ctx, &input)
-		},
+		"CreateDocument":               jsonOp(h.Backend.CreateDocument),
+		"GetDocument":                  jsonOp(h.Backend.GetDocument),
+		"DescribeDocument":             jsonOp(h.Backend.DescribeDocument),
+		"ListDocuments":                jsonOp(h.Backend.ListDocuments),
+		"UpdateDocument":               jsonOp(h.Backend.UpdateDocument),
+		"DeleteDocument":               jsonOp(h.Backend.DeleteDocument),
+		"DescribeDocumentPermission":   jsonOp(h.Backend.DescribeDocumentPermission),
+		"ModifyDocumentPermission":     jsonOp(h.Backend.ModifyDocumentPermission),
+		"ListDocumentVersions":         jsonOp(h.Backend.ListDocumentVersions),
+		"ListDocumentMetadataHistory":  jsonOp(h.Backend.ListDocumentMetadataHistory),
+		"UpdateDocumentDefaultVersion": jsonOp(h.Backend.UpdateDocumentDefaultVersion),
+		"UpdateDocumentMetadata":       jsonOp(h.Backend.UpdateDocumentMetadata),
 	}
 }
 
 func (h *Handler) ssmCommandOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"SendCommand": func(ctx context.Context, b []byte) (any, error) {
-			var input SendCommandInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.SendCommand(ctx, &input)
-		},
-		"ListCommands": func(ctx context.Context, b []byte) (any, error) {
-			var input ListCommandsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListCommands(ctx, &input)
-		},
-		"GetCommandInvocation": func(ctx context.Context, b []byte) (any, error) {
-			var input GetCommandInvocationInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.GetCommandInvocation(ctx, &input)
-		},
-		"ListCommandInvocations": func(ctx context.Context, b []byte) (any, error) {
-			var input ListCommandInvocationsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListCommandInvocations(ctx, &input)
-		},
+		"CancelCommand":          jsonOp(h.Backend.CancelCommand),
+		"SendCommand":            jsonOp(h.Backend.SendCommand),
+		"ListCommands":           jsonOp(h.Backend.ListCommands),
+		"GetCommandInvocation":   jsonOp(h.Backend.GetCommandInvocation),
+		"ListCommandInvocations": jsonOp(h.Backend.ListCommandInvocations),
 	}
 }
 
 func (h *Handler) ssmCloudConnectorOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
-		"CreateCloudConnector": func(ctx context.Context, b []byte) (any, error) {
-			var input CreateCloudConnectorInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CreateCloudConnector(ctx, &input)
-		},
-		"DeleteCloudConnector": func(ctx context.Context, b []byte) (any, error) {
-			var input DeleteCloudConnectorInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DeleteCloudConnector(ctx, &input)
-		},
-		"GetCloudConnector": func(ctx context.Context, b []byte) (any, error) {
-			var input GetCloudConnectorInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.GetCloudConnector(ctx, &input)
-		},
-		"ListCloudConnectors": func(ctx context.Context, b []byte) (any, error) {
-			var input ListCloudConnectorsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ListCloudConnectors(ctx, &input)
-		},
-		"UpdateCloudConnector": func(ctx context.Context, b []byte) (any, error) {
-			var input UpdateCloudConnectorInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.UpdateCloudConnector(ctx, &input)
-		},
-		"ValidateCloudConnector": func(ctx context.Context, b []byte) (any, error) {
-			var input ValidateCloudConnectorInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.ValidateCloudConnector(ctx, &input)
-		},
+		"CreateCloudConnector":   jsonOp(h.Backend.CreateCloudConnector),
+		"DeleteCloudConnector":   jsonOp(h.Backend.DeleteCloudConnector),
+		"GetCloudConnector":      jsonOp(h.Backend.GetCloudConnector),
+		"ListCloudConnectors":    jsonOp(h.Backend.ListCloudConnectors),
+		"UpdateCloudConnector":   jsonOp(h.Backend.UpdateCloudConnector),
+		"ValidateCloudConnector": jsonOp(h.Backend.ValidateCloudConnector),
 	}
 }
 
@@ -683,90 +371,5 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
-	}
-}
-
-func (h *Handler) ssmNewOps() map[string]ssmActionFn {
-	return map[string]ssmActionFn{
-		"CancelCommand": func(ctx context.Context, b []byte) (any, error) {
-			var input CancelCommandInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CancelCommand(ctx, &input)
-		},
-		"CancelMaintenanceWindowExecution": func(ctx context.Context, b []byte) (any, error) {
-			var input CancelMaintenanceWindowExecutionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CancelMaintenanceWindowExecution(ctx, &input)
-		},
-		"CreateActivation": func(ctx context.Context, b []byte) (any, error) {
-			var input CreateActivationInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CreateActivation(ctx, &input)
-		},
-		"CreateAssociation": func(ctx context.Context, b []byte) (any, error) {
-			var input CreateAssociationInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CreateAssociation(ctx, &input)
-		},
-		"CreateAssociationBatch": func(ctx context.Context, b []byte) (any, error) {
-			var input CreateAssociationBatchInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CreateAssociationBatch(ctx, &input)
-		},
-		"CreateMaintenanceWindow": func(ctx context.Context, b []byte) (any, error) {
-			var input CreateMaintenanceWindowInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CreateMaintenanceWindow(ctx, &input)
-		},
-		"CreateOpsItem": func(ctx context.Context, b []byte) (any, error) {
-			var input CreateOpsItemInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CreateOpsItem(ctx, &input)
-		},
-		"CreateOpsMetadata": func(ctx context.Context, b []byte) (any, error) {
-			var input CreateOpsMetadataInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CreateOpsMetadata(ctx, &input)
-		},
-		"CreatePatchBaseline": func(ctx context.Context, b []byte) (any, error) {
-			var input CreatePatchBaselineInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.CreatePatchBaseline(ctx, &input)
-		},
-		"AssociateOpsItemRelatedItem": func(ctx context.Context, b []byte) (any, error) {
-			var input AssociateOpsItemRelatedItemInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.AssociateOpsItemRelatedItem(ctx, &input)
-		},
 	}
 }

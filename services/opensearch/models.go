@@ -1,0 +1,512 @@
+package opensearch
+
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
+
+// Domain status constants.
+const (
+	domainStatusActive = "Active"
+)
+
+// Package/connection state constants.
+const (
+	pkgStateActive          = "ACTIVE"
+	connectionStatusActive  = "ACTIVE"
+	softwareUpdateCompleted = "COMPLETED"
+)
+
+// DomainProcessingStatus enum values, matching the AWS OpenSearch SDK
+// DomainProcessingStatusType. These describe the transient lifecycle phase a
+// domain is in while a create/update/upgrade/delete is being applied.
+const (
+	dpsCreating                = "Creating"
+	dpsModifying               = "Modifying"
+	dpsUpgrading               = "UpgradingEngineVersion"
+	dpsUpdatingServiceSoftware = "UpdatingServiceSoftware"
+	dpsDeleting                = "Deleting"
+)
+
+// statusDeleting is the transient DELETING state shared across sub-resources
+// (connections, VPC endpoints, serverless collections) while a delete is in
+// its processing window before the resource is finally removed.
+const statusDeleting = "DELETING"
+
+// Service software update status values, matching the AWS
+// ServiceSoftwareUpdateStatus enum.
+const (
+	sswStatusPendingUpdate = "PENDING_UPDATE"
+	sswStatusEligible      = "ELIGIBLE"
+)
+
+// Repeated string literal constants.
+const (
+	statusDeleted                  = "DELETED"
+	currencyUSD                    = "USD"
+	instanceTypeR6gLarge           = "r6g.large.search"
+	instanceTypeM6gLarge           = "m6g.large.search"
+	instanceTypeR6gXLarge          = "r6g.xlarge.search"
+	instanceTypeOR1Medium          = "or1.medium.search"
+	changeProgressStub             = "no-change"
+	jsonKeySourceVersion           = "SourceVersion"
+	jsonKeyTargetVersions          = "TargetVersions"
+	jsonKeyInstanceType            = "InstanceType"
+	jsonKeyAppLogEnabled           = "AppLogEnabled"
+	jsonKeyCognitoEnabled          = "CognitoEnabled"
+	jsonKeyEncryptEnabled          = "EncryptionEnabled"
+	jsonKeyWarmEnabled             = "WarmEnabled"
+	engineVersionOpenSearch211     = "OpenSearch_2.11"
+	engineVersionOpenSearch29      = "OpenSearch_2.9"
+	engineVersionOpenSearch27      = "OpenSearch_2.7"
+	engineVersionOpenSearch13      = "OpenSearch_1.3"
+	nodeRoleData                   = "Data"
+	jsonKeyAdvancedSecurityEnabled = "AdvancedSecurityEnabled"
+	jsonKeyInstanceRole            = "InstanceRole"
+)
+
+// Reserved instance offering durations (seconds) and prices.
+const (
+	reservedDuration1Year           = 31536000
+	reservedDuration3Year           = 94608000
+	reservedPrice1YearAllUpfront    = 500.0
+	reservedPrice1YearPartialFixed  = 300.0
+	reservedPrice1YearPartialHourly = 0.05
+	reservedPrice3YearNoUpfrontHrly = 0.15
+)
+
+// Default engine version applied when CreateDomain receives an empty EngineVersion.
+const defaultEngineVersion = "OpenSearch_2.11"
+
+const defaultShardsPerNode = 5
+
+// InboundConnection represents an OpenSearch inbound cross-cluster connection.
+type InboundConnection struct {
+	StatusUntil  time.Time `json:"statusUntil,omitzero"`
+	ConnectionID string    `json:"connectionId"`
+	Status       string    `json:"status"`
+}
+
+// DataSource represents a data source attached to an OpenSearch domain.
+type DataSource struct {
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	DataSourceType string `json:"dataSourceType"`
+	// DomainName identifies the owning domain and is used only to key the
+	// pkgs/store composite table (domainName#name); it is never serialized on
+	// the wire, matching how the domain name was already implied by the
+	// outer map key before the pkgs/store conversion.
+	DomainName string `json:"-"`
+}
+
+// DirectQueryDataSource represents a direct-query data source.
+type DirectQueryDataSource struct {
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	DataSourceType string   `json:"dataSourceType"`
+	DataSourceArn  string   `json:"dataSourceArn"`
+	OpenSearchArns []string `json:"openSearchArns"`
+}
+
+// DomainPackageDetails holds details about a package associated with a domain.
+type DomainPackageDetails struct {
+	PackageID  string `json:"packageId"`
+	DomainName string `json:"domainName"`
+	State      string `json:"state"`
+}
+
+// AuthorizedPrincipal represents an authorized principal for VPC endpoint access.
+type AuthorizedPrincipal struct {
+	Principal     string `json:"principal"`
+	PrincipalType string `json:"principalType"`
+}
+
+// ServiceSoftwareOptions represents service software options for a domain.
+type ServiceSoftwareOptions struct {
+	CurrentVersion      string `json:"currentVersion"`
+	NewVersion          string `json:"newVersion"`
+	UpdateStatus        string `json:"updateStatus"`
+	Description         string `json:"description"`
+	AutomatedUpdateDate string `json:"automatedUpdateDate"`
+	UpdateAvailable     bool   `json:"updateAvailable"`
+	Cancellable         bool   `json:"cancellable"`
+	OptionalDeployment  bool   `json:"optionalDeployment"`
+}
+
+// Application represents an OpenSearch UI application.
+type Application struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	ARN         string          `json:"arn"`
+	AppConfigs  []AppConfig     `json:"appConfigs"`
+	DataSources []AppDataSource `json:"dataSources"`
+}
+
+// AppConfig represents an application configuration key-value pair.
+type AppConfig struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// AppDataSource represents a data source linked to an application.
+type AppDataSource struct {
+	DataSourceArn string `json:"dataSourceArn"`
+}
+
+// OutboundConnection represents a cross-cluster outbound connection.
+type OutboundConnection struct {
+	StatusUntil      time.Time      `json:"statusUntil,omitzero"`
+	LocalDomainInfo  map[string]any `json:"LocalDomainInfo"`
+	RemoteDomainInfo map[string]any `json:"RemoteDomainInfo"`
+	ConnectionID     string         `json:"ConnectionId"`
+	ConnectionAlias  string         `json:"ConnectionAlias"`
+	Status           string         `json:"status"`
+}
+
+// VpcEndpoint represents a VPC endpoint for an OpenSearch domain.
+type VpcEndpoint struct {
+	StatusUntil      time.Time      `json:"statusUntil,omitzero"`
+	VpcOptions       map[string]any `json:"VpcOptions"`
+	VpcEndpointID    string         `json:"VpcEndpointId"`
+	VpcEndpointOwner string         `json:"VpcEndpointOwner"`
+	DomainArn        string         `json:"DomainArn"`
+	Status           string         `json:"Status"`
+	Endpoint         string         `json:"Endpoint"`
+}
+
+// Package represents an OpenSearch package.
+type Package struct {
+	PackageSource            *PackageSource            `json:"PackageSource,omitempty"`
+	PackageEncryptionOptions *PackageEncryptionOptions `json:"PackageEncryptionOptions,omitempty"`
+	PackageID                string                    `json:"PackageID"`
+	PackageName              string                    `json:"PackageName"`
+	PackageType              string                    `json:"PackageType"`
+	PackageDescription       string                    `json:"PackageDescription"`
+	PackageStatus            string                    `json:"PackageStatus"`
+	AvailablePackageVersion  string                    `json:"AvailablePackageVersion,omitempty"`
+	VersionHistory           []*PackageVersionHistory  `json:"-"`
+	CreatedAt                float64                   `json:"CreatedAt"`
+}
+
+// PackageVersionHistory records a version of a package.
+type PackageVersionHistory struct {
+	PackageVersion string  `json:"PackageVersion"`
+	CommitMessage  string  `json:"CommitMessage"`
+	CreatedAt      float64 `json:"CreatedAt"`
+}
+
+// ScheduledAction represents a scheduled action for a domain.
+type ScheduledAction struct {
+	ID            string  `json:"Id"`
+	Type          string  `json:"Type"`
+	Severity      string  `json:"Severity"`
+	Description   string  `json:"Description"`
+	ScheduledBy   string  `json:"ScheduledBy"`
+	Status        string  `json:"Status"`
+	ScheduledTime float64 `json:"ScheduledTime"`
+	Mandatory     bool    `json:"Mandatory"`
+	Cancellable   bool    `json:"Cancellable"`
+}
+
+// ReservedInstanceOffering is an available reserved instance offering.
+type ReservedInstanceOffering struct {
+	ReservedInstanceOfferingID string  `json:"ReservedInstanceOfferingId"`
+	InstanceType               string  `json:"InstanceType"`
+	CurrencyCode               string  `json:"CurrencyCode"`
+	PaymentOption              string  `json:"PaymentOption"`
+	Duration                   int     `json:"Duration"`
+	FixedPrice                 float64 `json:"FixedPrice"`
+	UsagePrice                 float64 `json:"UsagePrice"`
+}
+
+// ReservedInstance is a purchased reserved instance.
+type ReservedInstance struct {
+	ReservedInstanceID         string  `json:"ReservedInstanceId"`
+	ReservedInstanceOfferingID string  `json:"ReservedInstanceOfferingId"`
+	InstanceType               string  `json:"InstanceType"`
+	ReservationName            string  `json:"ReservationName"`
+	CurrencyCode               string  `json:"CurrencyCode"`
+	PaymentOption              string  `json:"PaymentOption"`
+	State                      string  `json:"State"`
+	Duration                   int     `json:"Duration"`
+	FixedPrice                 float64 `json:"FixedPrice"`
+	UsagePrice                 float64 `json:"UsagePrice"`
+	InstanceCount              int     `json:"InstanceCount"`
+	StartTime                  float64 `json:"StartTime"`
+}
+
+// DomainMaintenance represents a maintenance action on a domain.
+type DomainMaintenance struct {
+	MaintenanceID string  `json:"MaintenanceId"`
+	DomainName    string  `json:"DomainName"`
+	Action        string  `json:"Action"`
+	NodeID        string  `json:"NodeId,omitempty"`
+	Status        string  `json:"Status"`
+	StatusMessage string  `json:"StatusMessage,omitempty"`
+	CreatedAt     float64 `json:"CreatedAt"`
+	UpdatedAt     float64 `json:"UpdatedAt"`
+}
+
+// DomainIndex represents an OpenSearch index, including its stored documents.
+type DomainIndex struct {
+	Mappings map[string]any `json:"Mappings,omitempty"`
+	Settings map[string]any `json:"Settings,omitempty"`
+	Aliases  map[string]any `json:"Aliases,omitempty"`
+	// Documents holds the real per-index document store keyed by document ID.
+	Documents   map[string]map[string]any `json:"Documents,omitempty"`
+	IndexName   string                    `json:"IndexName"`
+	IndexStatus string                    `json:"IndexStatus"`
+	// DomainName identifies the owning domain and is used only to key the
+	// pkgs/store composite table (domainName#indexName); it is never
+	// serialized on the wire, matching how the domain name was already
+	// implied by the outer map key before the pkgs/store conversion.
+	DomainName string `json:"-"`
+	// DocumentCount is the number of documents currently stored in the index.
+	DocumentCount int `json:"DocumentCount"`
+}
+
+// DNSRegistrar can register and deregister hostnames with an embedded DNS server.
+type DNSRegistrar interface {
+	Register(hostname string)
+	Deregister(hostname string)
+}
+
+// ClusterConfig represents the cluster configuration for an OpenSearch domain.
+type ClusterConfig struct {
+	ZoneAwarenessConfig        *ZoneAwarenessConfig        `json:"zoneAwarenessConfig,omitempty"`
+	BlueGreenDeploymentOptions *BlueGreenDeploymentOptions `json:"blueGreenDeploymentOptions,omitempty"`
+	InstanceType               string                      `json:"instanceType"`
+	DedicatedMasterType        string                      `json:"dedicatedMasterType,omitempty"`
+	WarmType                   string                      `json:"warmType,omitempty"`
+	InstanceCount              int                         `json:"instanceCount"`
+	DedicatedMasterCount       int                         `json:"dedicatedMasterCount,omitempty"`
+	WarmCount                  int                         `json:"warmCount,omitempty"`
+	DedicatedMasterEnabled     bool                        `json:"dedicatedMasterEnabled,omitempty"`
+	ZoneAwarenessEnabled       bool                        `json:"zoneAwarenessEnabled,omitempty"`
+	WarmEnabled                bool                        `json:"warmEnabled,omitempty"`
+	ColdStorageEnabled         bool                        `json:"coldStorageEnabled,omitempty"`
+	MultiAZWithStandbyEnabled  bool                        `json:"multiAZWithStandbyEnabled,omitempty"`
+}
+
+// ZoneAwarenessConfig holds zone awareness settings.
+type ZoneAwarenessConfig struct {
+	AvailabilityZoneCount int `json:"availabilityZoneCount"`
+}
+
+// EBSOptions represents EBS volume settings for an OpenSearch domain.
+type EBSOptions struct {
+	VolumeType string `json:"volumeType,omitempty"`
+	KMSKeyID   string `json:"kmsKeyId,omitempty"`
+	VolumeSize int    `json:"volumeSize,omitempty"`
+	IOPS       int    `json:"iops,omitempty"`
+	Throughput int    `json:"throughput,omitempty"`
+	EBSEnabled bool   `json:"ebsEnabled"`
+}
+
+// SnapshotOptions holds automated snapshot settings.
+type SnapshotOptions struct {
+	AutomatedSnapshotStartHour int `json:"automatedSnapshotStartHour"`
+}
+
+// OffPeakWindowOptions holds off-peak window settings for a domain.
+type OffPeakWindowOptions struct {
+	OffPeakWindow *OffPeakWindow `json:"offPeakWindow,omitempty"`
+	Enabled       bool           `json:"enabled"`
+}
+
+// OffPeakWindow defines a custom start time for off-peak maintenance.
+type OffPeakWindow struct {
+	WindowStartTime *WindowStartTime `json:"windowStartTime,omitempty"`
+}
+
+// WindowStartTime holds hours and minutes for a maintenance window start.
+type WindowStartTime struct {
+	Hours   int `json:"hours"`
+	Minutes int `json:"minutes"`
+}
+
+// IdentityCenterOptions holds IAM Identity Center integration settings. Field
+// names match the current aws-sdk-go-v2 IdentityCenterOptions/-Input shapes
+// (IdentityCenterInstanceARN/RolesKey/SubjectKey), which superseded the older
+// IamIdentityCenterOptions shape (IamIdentityCenterArn/IamRoleFor...) that AWS
+// no longer wires into CreateDomain/UpdateDomainConfig.
+type IdentityCenterOptions struct {
+	IdentityCenterInstanceARN    string `json:"identityCenterInstanceARN,omitempty"`
+	IdentityCenterApplicationARN string `json:"identityCenterApplicationARN,omitempty"`
+	IdentityStoreID              string `json:"identityStoreId,omitempty"`
+	RolesKey                     string `json:"rolesKey,omitempty"`
+	SubjectKey                   string `json:"subjectKey,omitempty"`
+	EnabledAPIAccess             bool   `json:"enabledAPIAccess"`
+}
+
+// EnableSoftwareUpdateOptions holds settings for automatic software updates.
+type EnableSoftwareUpdateOptions struct {
+	AutoSoftwareUpdateEnabled bool `json:"autoSoftwareUpdateEnabled"`
+}
+
+// BlueGreenDeploymentOptions holds blue-green deployment settings.
+type BlueGreenDeploymentOptions struct {
+	Enabled bool `json:"enabled"`
+}
+
+// PackageSource holds the S3 source location for a custom package.
+type PackageSource struct {
+	S3BucketName string `json:"S3BucketName,omitempty"`
+	S3Key        string `json:"S3Key,omitempty"`
+}
+
+// PackageEncryptionOptions holds encryption settings for a package.
+type PackageEncryptionOptions struct {
+	KmsKeyIdentifier  string `json:"KmsKeyIdentifier,omitempty"`
+	EncryptionEnabled bool   `json:"EncryptionEnabled"`
+}
+
+// EncryptionAtRestOptions holds encryption at rest settings.
+type EncryptionAtRestOptions struct {
+	KMSKeyID string `json:"kmsKeyId,omitempty"`
+	Enabled  bool   `json:"enabled"`
+}
+
+// NodeToNodeEncryptionOptions holds node-to-node encryption settings.
+type NodeToNodeEncryptionOptions struct {
+	Enabled bool `json:"enabled"`
+}
+
+// DomainEndpointOptions holds HTTPS and custom endpoint settings.
+type DomainEndpointOptions struct {
+	CustomEndpointCertificateArn string `json:"customEndpointCertificateArn,omitempty"`
+	CustomEndpoint               string `json:"customEndpoint,omitempty"`
+	TLSSecurityPolicy            string `json:"tlsSecurityPolicy,omitempty"`
+	EnforceHTTPS                 bool   `json:"enforceHTTPS,omitempty"`
+	CustomEndpointEnabled        bool   `json:"customEndpointEnabled,omitempty"`
+}
+
+// SAMLOptionsInput holds SAML configuration for AdvancedSecurityOptions.
+type SAMLOptionsInput struct {
+	IDPEntityID           string `json:"idpEntityId,omitempty"`
+	IDPMetadataContent    string `json:"idpMetadataContent,omitempty"`
+	RolesKey              string `json:"rolesKey,omitempty"`
+	SubjectKey            string `json:"subjectKey,omitempty"`
+	SessionTimeoutMinutes int    `json:"sessionTimeoutMinutes,omitempty"`
+	Enabled               bool   `json:"enabled,omitempty"`
+}
+
+// AdvancedSecurityOptions holds fine-grained access control settings.
+type AdvancedSecurityOptions struct {
+	SAMLOptions                 *SAMLOptionsInput `json:"samlOptions,omitempty"`
+	AnonymousAuthEnabled        bool              `json:"anonymousAuthEnabled,omitempty"`
+	Enabled                     bool              `json:"enabled"`
+	InternalUserDatabaseEnabled bool              `json:"internalUserDatabaseEnabled,omitempty"`
+}
+
+// VPCOptions holds VPC configuration for an OpenSearch domain.
+type VPCOptions struct {
+	VPCID            string   `json:"vpcId,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
+	SubnetIDs        []string `json:"subnetIds,omitempty"`
+}
+
+// CognitoOptions holds Cognito configuration for Kibana authentication.
+type CognitoOptions struct {
+	IdentityPoolID string `json:"identityPoolId,omitempty"`
+	RoleARN        string `json:"roleArn,omitempty"`
+	UserPoolID     string `json:"userPoolId,omitempty"`
+	Enabled        bool   `json:"enabled"`
+}
+
+// LogPublishingOption holds a single log type publishing configuration.
+type LogPublishingOption struct {
+	CloudWatchLogsLogGroupARN string `json:"cloudWatchLogsLogGroupArn,omitempty"`
+	Enabled                   bool   `json:"enabled"`
+}
+
+// Domain represents an OpenSearch domain.
+type Domain struct {
+	ProcessingUntil             time.Time                       `json:"processingUntil,omitzero"`
+	Tags                        *tags.Tags                      `json:"tags,omitempty"`
+	SnapshotOptions             *SnapshotOptions                `json:"snapshotOptions,omitempty"`
+	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions    `json:"nodeToNodeEncryptionOptions,omitempty"`
+	DomainEndpointOptions       *DomainEndpointOptions          `json:"domainEndpointOptions,omitempty"`
+	AdvancedSecurityOptions     *AdvancedSecurityOptions        `json:"advancedSecurityOptions,omitempty"`
+	VPCOptions                  *VPCOptions                     `json:"vpcOptions,omitempty"`
+	CognitoOptions              *CognitoOptions                 `json:"cognitoOptions,omitempty"`
+	OffPeakWindowOptions        *OffPeakWindowOptions           `json:"offPeakWindowOptions,omitempty"`
+	IdentityCenterOptions       *IdentityCenterOptions          `json:"identityCenterOptions,omitempty"`
+	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions    `json:"enableSoftwareUpdateOptions,omitempty"`
+	LogPublishingOptions        map[string]*LogPublishingOption `json:"logPublishingOptions,omitempty"`
+	EBSOptions                  *EBSOptions                     `json:"ebsOptions,omitempty"`
+	EncryptionAtRestOptions     *EncryptionAtRestOptions        `json:"encryptionAtRestOptions,omitempty"`
+	ServiceSoftware             *ServiceSoftwareOptions         `json:"serviceSoftware,omitempty"`
+	Name                        string                          `json:"name"`
+	ARN                         string                          `json:"arn"`
+	// DomainID is the AWS-format unique domain identifier ("{accountId}/{name}"),
+	// a required field on DomainStatus (see aws-sdk-go-v2/service/opensearch
+	// types.DomainStatus.DomainId) that real AWS always returns alongside ARN.
+	DomainID         string        `json:"domainID"`
+	EngineVersion    string        `json:"engineVersion"`
+	Endpoint         string        `json:"endpoint"`
+	Status           string        `json:"status"`
+	LastChangeID     string        `json:"lastChangeID,omitempty"`
+	ProcessingStatus string        `json:"processingStatus,omitempty"`
+	AccessPolicies   string        `json:"accessPolicies,omitempty"`
+	ClusterConfig    ClusterConfig `json:"clusterConfig"`
+	Created          bool          `json:"created,omitempty"`
+	Deleted          bool          `json:"deleted,omitempty"`
+}
+
+// CreateDomainInput holds all options for creating a new OpenSearch domain.
+type CreateDomainInput struct {
+	EBSOptions                  *EBSOptions
+	SnapshotOptions             *SnapshotOptions
+	EncryptionAtRestOptions     *EncryptionAtRestOptions
+	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions
+	DomainEndpointOptions       *DomainEndpointOptions
+	AdvancedSecurityOptions     *AdvancedSecurityOptions
+	VPCOptions                  *VPCOptions
+	CognitoOptions              *CognitoOptions
+	OffPeakWindowOptions        *OffPeakWindowOptions
+	IdentityCenterOptions       *IdentityCenterOptions
+	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions
+	LogPublishingOptions        map[string]*LogPublishingOption
+	Tags                        map[string]string
+	Name                        string
+	EngineVersion               string
+	AccessPolicies              string
+	ClusterConfig               ClusterConfig
+}
+
+// UpdateDomainConfigInput holds mutable fields for UpdateDomainConfig.
+type UpdateDomainConfigInput struct {
+	EBSOptions                  *EBSOptions
+	SnapshotOptions             *SnapshotOptions
+	EncryptionAtRestOptions     *EncryptionAtRestOptions
+	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions
+	DomainEndpointOptions       *DomainEndpointOptions
+	AdvancedSecurityOptions     *AdvancedSecurityOptions
+	VPCOptions                  *VPCOptions
+	CognitoOptions              *CognitoOptions
+	OffPeakWindowOptions        *OffPeakWindowOptions
+	IdentityCenterOptions       *IdentityCenterOptions
+	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions
+	LogPublishingOptions        map[string]*LogPublishingOption
+	ClusterConfig               *ClusterConfig
+	AccessPolicies              string
+	EngineVersion               string
+}
+
+// AppSetting is a key-value pair for default application settings.
+type AppSetting struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// DryRunStatus holds dry-run progress state for a domain.
+type DryRunStatus struct {
+	DryRunID           string           `json:"DryRunId"`
+	DryRunStatus       string           `json:"DryRunStatus"`
+	CreationDate       string           `json:"CreationDate"`
+	UpdateDate         string           `json:"UpdateDate"`
+	DomainName         string           `json:"-"`
+	ValidationFailures []map[string]any `json:"ValidationFailures"`
+}

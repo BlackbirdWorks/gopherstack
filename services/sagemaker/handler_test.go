@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -935,5 +936,450 @@ func TestHandler_ListEndpointConfigsPagination(t *testing.T) {
 				assert.Empty(t, resp["NextToken"])
 			}
 		})
+	}
+}
+
+// TestCreateEndpointConfig_RequiresProductionVariants verifies that
+// CreateEndpointConfig rejects requests with an empty ProductionVariants list.
+// Real AWS returns ValidationException for this case; the emulator previously
+// accepted empty variants and created a corrupt endpoint config.
+func TestCreateEndpointConfig_RequiresProductionVariants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "empty_variants_rejected",
+			body: map[string]any{
+				"EndpointConfigName": "bad-config",
+				"ProductionVariants": []map[string]any{},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "null_variants_rejected",
+			body: map[string]any{
+				"EndpointConfigName": "null-config",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "single_variant_accepted",
+			body: map[string]any{
+				"EndpointConfigName": "good-config",
+				"ProductionVariants": []map[string]any{
+					{
+						"VariantName":          "AllTraffic",
+						"ModelName":            "my-model",
+						"InstanceType":         "ml.t2.medium",
+						"InitialInstanceCount": 1,
+					},
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "multiple_variants_accepted",
+			body: map[string]any{
+				"EndpointConfigName": "multi-config",
+				"ProductionVariants": []map[string]any{
+					{
+						"VariantName":          "Variant1",
+						"ModelName":            "model-a",
+						"InstanceType":         "ml.t2.medium",
+						"InitialInstanceCount": 1,
+					},
+					{
+						"VariantName":          "Variant2",
+						"ModelName":            "model-b",
+						"InstanceType":         "ml.t2.large",
+						"InitialInstanceCount": 2,
+					},
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "CreateEndpointConfig", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code, "body=%v", tt.body)
+
+			if tt.wantCode == http.StatusBadRequest {
+				var errResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				msg, _ := errResp["message"].(string)
+				assert.Contains(t, msg, "ProductionVariant",
+					"error message must mention ProductionVariant")
+			}
+		})
+	}
+}
+
+// TestCreateModel_RequiresExecutionRoleArn verifies that CreateModel rejects
+// requests with a missing ExecutionRoleArn. Real AWS requires this field on all
+// CreateModel calls; the emulator previously created models with an empty role ARN.
+func TestCreateModel_RequiresExecutionRoleArn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "absent_role_arn_rejected",
+			body: map[string]any{
+				"ModelName": "my-model",
+				"PrimaryContainer": map[string]any{
+					"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:latest",
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "empty_role_arn_rejected",
+			body: map[string]any{
+				"ModelName":        "my-model",
+				"ExecutionRoleArn": "",
+				"PrimaryContainer": map[string]any{
+					"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:latest",
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "valid_role_arn_accepted",
+			body: map[string]any{
+				"ModelName":        "my-model",
+				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/SageMakerRole",
+				"PrimaryContainer": map[string]any{
+					"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:latest",
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "CreateModel", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code,
+				"CreateModel status for case %q", tt.name)
+		})
+	}
+}
+
+// TestCreateModel_PrimaryContainerAndContainersAreMutuallyExclusive verifies that
+// providing both PrimaryContainer and Containers returns a 400. Real AWS rejects this
+// combination with a ValidationException.
+func TestCreateModel_PrimaryContainerAndContainersAreMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doSageMakerRequest(t, h, "CreateModel", map[string]any{
+		"ModelName":        "dual-container-model",
+		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/SageMakerRole",
+		"PrimaryContainer": map[string]any{
+			"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:v1",
+		},
+		"Containers": []map[string]any{
+			{"Image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:v2"},
+		},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"CreateModel with both PrimaryContainer and Containers must return 400; body: %s",
+		rec.Body.String())
+}
+
+// TestUpdateNotebookInstance_RequiresStoppedState verifies that updating a notebook
+// instance that is not in Stopped status returns 400. Real AWS returns ValidationException
+// for updates on InService, Pending, Stopping, or other non-Stopped notebooks.
+func TestUpdateNotebookInstance_RequiresStoppedState(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a notebook instance.
+	rec := doSageMakerRequest(t, h, "CreateNotebookInstance", map[string]any{
+		"NotebookInstanceName": "update-state-nb",
+		"InstanceType":         "ml.t2.medium",
+		"RoleArn":              "arn:aws:iam::123456789012:role/SageMakerRole",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "CreateNotebookInstance failed: %s", rec.Body.String())
+
+	// While still in Pending/InService state (freshly created), update must be rejected.
+	rec = doSageMakerRequest(t, h, "UpdateNotebookInstance", map[string]any{
+		"NotebookInstanceName": "update-state-nb",
+		"InstanceType":         "ml.t3.medium",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"UpdateNotebookInstance on non-Stopped notebook must return 400; body: %s",
+		rec.Body.String())
+}
+
+func TestDeleteModel_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "delete non-existent model returns 400",
+			body:     map[string]any{"ModelName": "does-not-exist"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "DeleteModel", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestDeleteEndpointConfig_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "delete non-existent config returns 400",
+			body:     map[string]any{"EndpointConfigName": "does-not-exist"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "DeleteEndpointConfig", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestDeleteTags_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "delete tags on non-existent resource returns 400",
+			body: map[string]any{
+				"ResourceArn": "arn:aws:sagemaker:us-east-1:000000000000:model/does-not-exist",
+				"TagKeys":     []string{"env"},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "DeleteTags", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteProcessingJob(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateProcessingJob", map[string]any{
+		"ProcessingJobName": "del-pj",
+		"AppSpecification":  map[string]any{"ImageUri": "img:latest"},
+		"ProcessingResources": map[string]any{
+			"ClusterConfig": map[string]any{"InstanceType": "ml.m5.large", "InstanceCount": 1, "VolumeSizeInGB": 10},
+		},
+	})
+
+	// Cannot delete while still InProgress.
+	recEarly := doSageMakerRequest(t, h, "DeleteProcessingJob", map[string]any{"ProcessingJobName": "del-pj"})
+	assert.Equal(t, http.StatusBadRequest, recEarly.Code)
+
+	// Wait for the simulated job to reach a terminal state.
+	time.Sleep(400 * time.Millisecond)
+
+	recDelete := doSageMakerRequest(t, h, "DeleteProcessingJob", map[string]any{"ProcessingJobName": "del-pj"})
+	require.Equal(t, http.StatusOK, recDelete.Code)
+
+	recDescribe := doSageMakerRequest(t, h, "DescribeProcessingJob", map[string]any{"ProcessingJobName": "del-pj"})
+	assert.Equal(t, http.StatusBadRequest, recDescribe.Code)
+}
+
+func TestHandler_DeleteProcessingJob_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "DeleteProcessingJob", map[string]any{"ProcessingJobName": "no-such-job"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// Persistence: the new state introduced by this round of de-stubbing must
+// survive a Snapshot/Restore roundtrip.
+// ---------------------------------------------------------------------------
+
+func TestHandler_SageMakerReset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create various resources.
+	doSageMakerRequest(t, h, "CreateModel", map[string]any{
+		"ModelName":        "reset-model",
+		"ExecutionRoleArn": "arn:aws:iam::000000000000:role/test",
+	})
+	doSageMakerRequest(t, h, "CreateFeatureGroup", map[string]any{"FeatureGroupName": "reset-fg"})
+	doSageMakerRequest(t, h, "CreatePipeline", map[string]any{"PipelineName": "reset-pipeline"})
+	doSageMakerRequest(t, h, "CreateDomain", map[string]any{"DomainName": "reset-domain"})
+
+	// Verify they exist.
+	recList := doSageMakerRequest(t, h, "ListModels", map[string]any{})
+	require.Equal(t, http.StatusOK, recList.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NotEmpty(t, listOut["Models"])
+
+	// Reset.
+	h.Backend.Reset()
+
+	// Models gone.
+	recList2 := doSageMakerRequest(t, h, "ListModels", map[string]any{})
+	require.Equal(t, http.StatusOK, recList2.Code)
+
+	var listOut2 map[string]any
+	require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listOut2))
+	assert.Empty(t, listOut2["Models"])
+
+	// Feature groups gone.
+	recFG := doSageMakerRequest(t, h, "ListFeatureGroups", map[string]any{})
+	require.Equal(t, http.StatusOK, recFG.Code)
+
+	var fgOut map[string]any
+	require.NoError(t, json.Unmarshal(recFG.Body.Bytes(), &fgOut))
+	assert.Empty(t, fgOut["FeatureGroupSummaries"])
+}
+
+// ---------------------------------------------------------------------------
+// Missing name / input validation
+// ---------------------------------------------------------------------------
+
+func TestHandler_SageMaker_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body map[string]any
+		op   string
+	}{
+		{op: "CreateDomain", body: map[string]any{}},
+		{op: "CreateUserProfile", body: map[string]any{}},
+		{op: "CreateApp", body: map[string]any{}},
+		{op: "CreateFeatureGroup", body: map[string]any{}},
+		{op: "CreatePipeline", body: map[string]any{}},
+		{op: "CreateExperiment", body: map[string]any{}},
+		{op: "CreateTrial", body: map[string]any{}},
+		{op: "CreateTrialComponent", body: map[string]any{}},
+		{op: "CreateTrainingJob", body: map[string]any{}},
+		{op: "CreateNotebookInstance", body: map[string]any{}},
+		{op: "CreateHyperParameterTuningJob", body: map[string]any{}},
+		{op: "CreateEndpoint", body: map[string]any{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.op, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSageMakerRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "op=%s", tt.op)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetSupportedOperations includes stateful ops
+// ---------------------------------------------------------------------------
+
+func TestHandler_GetSupportedOperations_StatefulOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	for _, op := range []string{
+		"CreateDomain", "DescribeDomain", "ListDomains", "DeleteDomain", "UpdateDomain",
+		"CreateUserProfile", "DescribeUserProfile", "ListUserProfiles", "DeleteUserProfile",
+		"CreateApp", "DescribeApp", "ListApps", "DeleteApp",
+		"CreateFeatureGroup", "DescribeFeatureGroup", "ListFeatureGroups", "DeleteFeatureGroup",
+		"CreatePipeline", "DescribePipeline", "ListPipelines", "UpdatePipeline", "DeletePipeline",
+		"StartPipelineExecution", "DescribePipelineExecution", "ListPipelineExecutions",
+		"CreateExperiment", "DescribeExperiment", "ListExperiments", "DeleteExperiment",
+		"CreateTrial", "DescribeTrial", "ListTrials", "DeleteTrial",
+		"CreateTrialComponent", "DescribeTrialComponent", "DeleteTrialComponent",
+		"CreateEndpoint", "DescribeEndpoint", "ListEndpoints", "DeleteEndpoint", "UpdateEndpoint",
+		"CreateTrainingJob", "DescribeTrainingJob", "ListTrainingJobs", "StopTrainingJob", "DeleteTrainingJob",
+		"CreateNotebookInstance", "DescribeNotebookInstance", "ListNotebookInstances",
+		"StartNotebookInstance", "StopNotebookInstance", "DeleteNotebookInstance",
+		"CreateHyperParameterTuningJob", "DescribeHyperParameterTuningJob",
+		"ListHyperParameterTuningJobs", "StopHyperParameterTuningJob", "DeleteHyperParameterTuningJob",
+	} {
+		assert.Contains(t, ops, op)
+	}
+}
+
+func TestHandler_SupportedOps_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	required := []string{
+		"CreateTransformJob",
+		"DescribeTransformJob",
+		"ListTransformJobs",
+		"StopTransformJob",
+		"UpdateFeatureGroup",
+		"UpdateExperiment",
+		"UpdateTrial",
+		"UpdateTrialComponent",
+		"ListPipelineParametersForExecution",
+	}
+
+	for _, op := range required {
+		assert.Contains(t, ops, op, "missing op: %s", op)
 	}
 }

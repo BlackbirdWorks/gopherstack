@@ -7,6 +7,169 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// AuthorizeSnapshotAccess grants another account restore access to a snapshot.
+func (b *InMemoryBackend) AuthorizeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error) {
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: SnapshotIdentifier is required", ErrInvalidParameter)
+	}
+	if accountWithRestoreAccess == "" {
+		return nil, fmt.Errorf("%w: AccountWithRestoreAccess is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("AuthorizeSnapshotAccess")
+	defer b.mu.Unlock()
+
+	snap, exists := b.snapshots.Get(snapshotID)
+	if !exists {
+		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
+	}
+
+	snap.AccountsWithRestoreAccess = append(snap.AccountsWithRestoreAccess, AccountWithRestoreAccess{
+		AccountID: accountWithRestoreAccess,
+	})
+
+	return cloneSnapshot(snap), nil
+}
+
+// RevokeSnapshotAccess removes restore access for the given account from a snapshot.
+func (b *InMemoryBackend) RevokeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error) {
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: SnapshotIdentifier is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("RevokeSnapshotAccess")
+	defer b.mu.Unlock()
+
+	snap, exists := b.snapshots.Get(snapshotID)
+	if !exists {
+		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
+	}
+
+	filtered := make([]AccountWithRestoreAccess, 0, len(snap.AccountsWithRestoreAccess))
+	found := false
+
+	for _, a := range snap.AccountsWithRestoreAccess {
+		if a.AccountID == accountWithRestoreAccess {
+			found = true
+
+			continue
+		}
+
+		filtered = append(filtered, a)
+	}
+
+	if !found {
+		return nil, fmt.Errorf(
+			"%w: account %s does not have restore access",
+			ErrInvalidParameter,
+			accountWithRestoreAccess,
+		)
+	}
+
+	snap.AccountsWithRestoreAccess = filtered
+
+	return cloneSnapshot(snap), nil
+}
+
+// ModifyClusterSnapshot updates the manual retention period of a snapshot.
+func (b *InMemoryBackend) ModifyClusterSnapshot(snapshotID string, retentionPeriod int, _ bool) (*Snapshot, error) {
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: SnapshotIdentifier is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ModifyClusterSnapshot")
+	defer b.mu.Unlock()
+
+	snap, exists := b.snapshots.Get(snapshotID)
+	if !exists {
+		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
+	}
+
+	if retentionPeriod >= -1 {
+		snap.ManualSnapshotRetentionPeriod = retentionPeriod
+	}
+
+	return cloneSnapshot(snap), nil
+}
+
+// BatchDeleteClusterSnapshots deletes multiple cluster snapshots. It returns the list of errors for
+// snapshots that could not be deleted and the list of successfully deleted snapshot identifiers.
+func (b *InMemoryBackend) BatchDeleteClusterSnapshots(identifiers []string) ([]SnapshotBatchError, []string) {
+	b.mu.Lock("BatchDeleteClusterSnapshots")
+	defer b.mu.Unlock()
+
+	var batchErrors []SnapshotBatchError
+
+	var deleted []string
+
+	for _, id := range identifiers {
+		if _, exists := b.snapshots.Get(id); !exists {
+			batchErrors = append(batchErrors, SnapshotBatchError{
+				SnapshotIdentifier: id,
+				FailureCode:        errClusterSnapshotNotFound,
+				FailureReason:      fmt.Sprintf("snapshot %s not found", id),
+			})
+
+			continue
+		}
+
+		b.snapshots.Delete(id)
+		deleted = append(deleted, id)
+	}
+
+	return batchErrors, deleted
+}
+
+// BatchModifyClusterSnapshots modifies the retention period for a list of snapshots.
+// The force parameter is accepted for API compatibility but has no effect in the in-memory backend.
+// Returns errors and the list of successfully modified snapshot identifiers.
+func (b *InMemoryBackend) BatchModifyClusterSnapshots(
+	identifiers []string,
+	retentionPeriod int,
+	_ bool,
+) ([]SnapshotBatchError, []string) {
+	b.mu.Lock("BatchModifyClusterSnapshots")
+	defer b.mu.Unlock()
+
+	var batchErrors []SnapshotBatchError
+
+	var modified []string
+
+	for _, id := range identifiers {
+		snap, exists := b.snapshots.Get(id)
+		if !exists {
+			batchErrors = append(batchErrors, SnapshotBatchError{
+				SnapshotIdentifier: id,
+				FailureCode:        errClusterSnapshotNotFound,
+				FailureReason:      fmt.Sprintf("snapshot %s not found", id),
+			})
+
+			continue
+		}
+
+		snap.ManualSnapshotRetentionPeriod = retentionPeriod
+		modified = append(modified, id)
+	}
+
+	return batchErrors, modified
+}
+
+// AddSnapshotInternal seeds a snapshot directly into the backend.
+func (b *InMemoryBackend) AddSnapshotInternal(snap *Snapshot) {
+	b.mu.Lock("AddSnapshotInternal")
+	defer b.mu.Unlock()
+	b.snapshots.Put(snap)
+}
+
+// cloneSnapshot returns a deep copy of a Snapshot.
+func cloneSnapshot(snap *Snapshot) *Snapshot {
+	cp := *snap
+	cp.AccountsWithRestoreAccess = make([]AccountWithRestoreAccess, len(snap.AccountsWithRestoreAccess))
+	copy(cp.AccountsWithRestoreAccess, snap.AccountsWithRestoreAccess)
+
+	return &cp
+}
+
 // CreateClusterSnapshot creates a manual snapshot of the specified cluster.
 func (b *InMemoryBackend) CreateClusterSnapshot(snapshotID, clusterID string) (*Snapshot, error) {
 	if snapshotID == "" {

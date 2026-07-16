@@ -1,0 +1,605 @@
+package ec2
+
+import (
+	"encoding/xml"
+	"fmt"
+	"maps"
+	"net/url"
+	"strconv"
+)
+
+type copySnapshotResponse struct {
+	XMLName    xml.Name `xml:"CopySnapshotResponse"`
+	RequestID  string   `xml:"requestId"`
+	SnapshotID string   `xml:"snapshotId"`
+}
+
+type snapshotSetItem struct {
+	SnapshotID  string `xml:"snapshotId"`
+	VolumeID    string `xml:"volumeId"`
+	Description string `xml:"description"`
+	State       string `xml:"state"`
+	Progress    string `xml:"progress"`
+	StartTime   string `xml:"startTime"`
+	VolumeSize  int    `xml:"volumeSize"`
+	Encrypted   bool   `xml:"encrypted"`
+}
+
+type createSnapshotsResponse struct {
+	XMLName     xml.Name `xml:"CreateSnapshotsResponse"`
+	RequestID   string   `xml:"requestId"`
+	SnapshotSet struct {
+		Items []snapshotSetItem `xml:"item"`
+	} `xml:"snapshotSet"`
+}
+
+type snapshotBlockAccessStateResponse struct {
+	XMLName   xml.Name `xml:"GetSnapshotBlockPublicAccessStateResponse"`
+	RequestID string   `xml:"requestId"`
+	State     string   `xml:"state"`
+}
+
+type enableSnapshotBlockPublicAccessResponse struct {
+	XMLName   xml.Name `xml:"EnableSnapshotBlockPublicAccessResponse"`
+	RequestID string   `xml:"requestId"`
+	State     string   `xml:"state"`
+}
+
+type disableSnapshotBlockPublicAccessResponse struct {
+	XMLName   xml.Name `xml:"DisableSnapshotBlockPublicAccessResponse"`
+	RequestID string   `xml:"requestId"`
+	State     string   `xml:"state"`
+}
+
+type snapshotTierStatusItem struct {
+	SnapshotID  string `xml:"snapshotId"`
+	VolumeID    string `xml:"volumeId"`
+	StorageTier string `xml:"storageTier"`
+}
+
+type describeSnapshotTierStatusResponse struct {
+	XMLName               xml.Name `xml:"DescribeSnapshotTierStatusResponse"`
+	RequestID             string   `xml:"requestId"`
+	SnapshotTierStatusSet struct {
+		Items []snapshotTierStatusItem `xml:"item"`
+	} `xml:"snapshotTierStatusSet"`
+}
+
+type modifySnapshotTierResponse struct {
+	XMLName          xml.Name `xml:"ModifySnapshotTierResponse"`
+	RequestID        string   `xml:"requestId"`
+	SnapshotID       string   `xml:"snapshotId"`
+	TieringStartTime string   `xml:"tieringStartTime"`
+}
+
+func (h *Handler) handleCopySnapshot(vals url.Values, reqID string) (any, error) {
+	sourceID := vals.Get("SourceSnapshotId")
+	description := vals.Get("Description")
+
+	snap, err := h.Backend.CopySnapshot(sourceID, description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copySnapshotResponse{RequestID: reqID, SnapshotID: snap.SnapshotID}, nil
+}
+
+func (h *Handler) handleCreateSnapshots(vals url.Values, reqID string) (any, error) {
+	// InstanceSpecification.InstanceId is the primary instance; volumes derived from it.
+	// Also accept direct VolumeId.1, VolumeId.2... form.
+	volumeIDs := parseMemberList(vals, "VolumeId")
+	if len(volumeIDs) == 0 {
+		// Fallback: single volume via InstanceSpecification (simplified)
+		if vid := vals.Get("InstanceSpecification.ExcludeBootVolume"); vid != "" {
+			volumeIDs = []string{vid}
+		}
+	}
+	if len(volumeIDs) == 0 {
+		return nil, fmt.Errorf("%w: at least one VolumeId is required", ErrInvalidParameter)
+	}
+	description := vals.Get("Description")
+
+	snaps, err := h.Backend.CreateSnapshots(volumeIDs, description)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &createSnapshotsResponse{RequestID: reqID}
+	for _, snap := range snaps {
+		resp.SnapshotSet.Items = append(resp.SnapshotSet.Items, snapshotSetItem{
+			SnapshotID:  snap.SnapshotID,
+			VolumeID:    snap.VolumeID,
+			Description: snap.Description,
+			State:       snap.State,
+			Progress:    snap.Progress,
+			StartTime:   snap.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			VolumeSize:  snap.VolumeSize,
+			Encrypted:   snap.Encrypted,
+		})
+	}
+
+	return resp, nil
+}
+
+func (h *Handler) handleGetSnapshotBlockPublicAccessState(_ url.Values, reqID string) (any, error) {
+	state := h.Backend.GetSnapshotBlockPublicAccessState()
+
+	return &snapshotBlockAccessStateResponse{
+		XMLName:   xml.Name{Local: "GetSnapshotBlockPublicAccessStateResponse"},
+		RequestID: reqID,
+		State:     state,
+	}, nil
+}
+
+func (h *Handler) handleEnableSnapshotBlockPublicAccess(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	state := vals.Get("State")
+	if state == "" {
+		state = "block-all-sharing"
+	}
+	if err := h.Backend.EnableSnapshotBlockPublicAccess(state); err != nil {
+		return nil, err
+	}
+
+	return &enableSnapshotBlockPublicAccessResponse{RequestID: reqID, State: state}, nil
+}
+
+func (h *Handler) handleDisableSnapshotBlockPublicAccess(_ url.Values, reqID string) (any, error) {
+	h.Backend.DisableSnapshotBlockPublicAccess()
+
+	return &disableSnapshotBlockPublicAccessResponse{RequestID: reqID, State: "unblocked"}, nil
+}
+
+func (h *Handler) handleDescribeSnapshotTierStatus(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "SnapshotId")
+	items := h.Backend.DescribeSnapshotTierStatus(ids)
+
+	resp := &describeSnapshotTierStatusResponse{RequestID: reqID}
+	for _, item := range items {
+		resp.SnapshotTierStatusSet.Items = append(
+			resp.SnapshotTierStatusSet.Items,
+			snapshotTierStatusItem{ //nolint:staticcheck // xml tags differ from backend type field names
+				SnapshotID:  item.SnapshotID,
+				VolumeID:    item.VolumeID,
+				StorageTier: item.StorageTier,
+			},
+		)
+	}
+
+	return resp, nil
+}
+
+func (h *Handler) handleModifySnapshotTier(vals url.Values, reqID string) (any, error) {
+	snapshotID := vals.Get("SnapshotId")
+	storageTier := vals.Get("StorageTier")
+	if storageTier == "" {
+		storageTier = "archive"
+	}
+	if err := h.Backend.ModifySnapshotTier(snapshotID, storageTier); err != nil {
+		return nil, err
+	}
+
+	return &modifySnapshotTierResponse{
+		RequestID:        reqID,
+		SnapshotID:       snapshotID,
+		TieringStartTime: "2006-01-02T15:04:05.000Z",
+	}, nil
+}
+
+func (h *Handler) handleResetSnapshotAttribute(vals url.Values, reqID string) (any, error) {
+	snapshotID := vals.Get("SnapshotId")
+	if err := h.Backend.ResetSnapshotAttribute(snapshotID); err != nil {
+		return nil, err
+	}
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "ResetSnapshotAttributeResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type lockSnapshotResponse struct {
+	XMLName    xml.Name `xml:"LockSnapshotResponse"`
+	RequestID  string   `xml:"requestId"`
+	SnapshotID string   `xml:"snapshotId"`
+	LockState  string   `xml:"lockState"`
+}
+
+type describeLockedSnapshotsResponse struct {
+	XMLName     xml.Name `xml:"DescribeLockedSnapshotsResponse"`
+	RequestID   string   `xml:"requestId"`
+	SnapshotSet struct {
+		Items []snapshotLockItem `xml:"item"`
+	} `xml:"snapshotSet"`
+}
+
+type copyVolumesVolumeItem struct {
+	SourceVolumeID string `xml:"sourceVolumeId"`
+	DestVolumeID   string `xml:"destVolumeId"`
+}
+
+func (h *Handler) handleLockSnapshot(vals url.Values, reqID string) (any, error) {
+	snapshotID := vals.Get("SnapshotId")
+	lockMode := vals.Get("LockMode")
+	if lockMode == "" {
+		lockMode = "compliance"
+	}
+	var durationDays int
+	if d := vals.Get("LockDuration"); d != "" {
+		_, _ = fmt.Sscan(d, &durationDays)
+	}
+
+	lock, err := h.Backend.LockSnapshot(snapshotID, lockMode, durationDays)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lockSnapshotResponse{
+		RequestID:  reqID,
+		SnapshotID: lock.SnapshotID,
+		LockState:  lock.LockState,
+	}, nil
+}
+
+func (h *Handler) handleUnlockSnapshot(vals url.Values, reqID string) (any, error) {
+	snapshotID := vals.Get("SnapshotId")
+	if err := h.Backend.UnlockSnapshot(snapshotID); err != nil {
+		return nil, err
+	}
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "UnlockSnapshotResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDescribeLockedSnapshots(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "SnapshotId")
+	locks := h.Backend.DescribeLockedSnapshots(ids)
+
+	resp := &describeLockedSnapshotsResponse{RequestID: reqID}
+	for _, l := range locks {
+		item := snapshotLockItem{
+			SnapshotID:       l.SnapshotID,
+			LockState:        l.LockState,
+			LockCreatedOn:    l.LockCreatedOn.Format("2006-01-02T15:04:05.000Z"),
+			LockDurationDays: l.LockDurationDays,
+		}
+		if !l.LockExpiresOn.IsZero() {
+			item.LockExpiresOn = l.LockExpiresOn.Format("2006-01-02T15:04:05.000Z")
+		}
+		resp.SnapshotSet.Items = append(resp.SnapshotSet.Items, item)
+	}
+
+	return resp, nil
+}
+
+type listSnapshotsInRecycleBinResponse struct {
+	XMLName     xml.Name `xml:"ListSnapshotsInRecycleBinResponse"`
+	RequestID   string   `xml:"requestId"`
+	SnapshotSet struct {
+		Items []recycleBinSnapshotItem `xml:"item"`
+	} `xml:"snapshotSet"`
+}
+
+type importSnapshotTaskItem struct {
+	ImportTaskID string `xml:"importTaskId"`
+	Description  string `xml:"description"`
+	Status       string `xml:"status"`
+}
+
+type importSnapshotResponse struct {
+	XMLName      xml.Name `xml:"ImportSnapshotResponse"`
+	RequestID    string   `xml:"requestId"`
+	ImportTaskID string   `xml:"importTaskId"`
+}
+
+type describeImportSnapshotTasksResponse struct {
+	XMLName               xml.Name `xml:"DescribeImportSnapshotTasksResponse"`
+	RequestID             string   `xml:"requestId"`
+	ImportSnapshotTaskSet struct {
+		Items []importSnapshotTaskItem `xml:"item"`
+	} `xml:"importSnapshotTaskSet"`
+}
+
+type fastLaunchImageItem struct {
+	ImageID string `xml:"imageId"`
+	State   string `xml:"state"`
+}
+
+type describeFastSnapshotRestoresResponse struct {
+	XMLName                xml.Name `xml:"DescribeFastSnapshotRestoresResponse"`
+	RequestID              string   `xml:"requestId"`
+	FastSnapshotRestoreSet struct {
+		Items []fastSnapshotRestoreItem `xml:"item"`
+	} `xml:"fastSnapshotRestoreSet"`
+}
+
+func (h *Handler) handleListSnapshotsInRecycleBin(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "SnapshotId")
+	snaps := h.Backend.ListSnapshotsInRecycleBin(ids)
+
+	resp := &listSnapshotsInRecycleBinResponse{RequestID: reqID}
+	for _, snap := range snaps {
+		resp.SnapshotSet.Items = append(
+			resp.SnapshotSet.Items,
+			recycleBinSnapshotItem{SnapshotID: snap.SnapshotID},
+		)
+	}
+
+	return resp, nil
+}
+
+func (h *Handler) handleRestoreSnapshotFromRecycleBin(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("SnapshotId")
+	if err := h.Backend.RestoreSnapshotFromRecycleBin(id); err != nil {
+		return nil, err
+	}
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RestoreSnapshotFromRecycleBinResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleRestoreSnapshotTier(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("SnapshotId")
+	if err := h.Backend.RestoreSnapshotTier(id); err != nil {
+		return nil, err
+	}
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "RestoreSnapshotTierResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleImportSnapshot(vals url.Values, reqID string) (any, error) {
+	description := vals.Get("Description")
+
+	task, err := h.Backend.ImportSnapshot(description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &importSnapshotResponse{
+		RequestID:    reqID,
+		ImportTaskID: task.ImportTaskID,
+	}, nil
+}
+
+func (h *Handler) handleDescribeImportSnapshotTasks(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "ImportTaskId")
+	tasks := h.Backend.DescribeImportSnapshotTasks(ids)
+
+	resp := &describeImportSnapshotTasksResponse{RequestID: reqID}
+	for _, t := range tasks {
+		resp.ImportSnapshotTaskSet.Items = append(
+			resp.ImportSnapshotTaskSet.Items,
+			importSnapshotTaskItem{
+				ImportTaskID: t.ImportTaskID,
+				Description:  t.Description,
+				Status:       t.Status,
+			},
+		)
+	}
+
+	return resp, nil
+}
+
+func (h *Handler) handleEnableFastSnapshotRestores(vals url.Values, reqID string) (any, error) {
+	snaps := parseMemberList(vals, "SnapshotId")
+	azs := parseMemberList(vals, "AvailabilityZone")
+	if err := h.Backend.EnableFastSnapshotRestores(snaps, azs); err != nil {
+		return nil, err
+	}
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "EnableFastSnapshotRestoresResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDisableFastSnapshotRestores(vals url.Values, reqID string) (any, error) {
+	snaps := parseMemberList(vals, "SnapshotId")
+	azs := parseMemberList(vals, "AvailabilityZone")
+	if err := h.Backend.DisableFastSnapshotRestores(snaps, azs); err != nil {
+		return nil, err
+	}
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DisableFastSnapshotRestoresResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDescribeFastSnapshotRestores(_ url.Values, reqID string) (any, error) {
+	items := h.Backend.DescribeFastSnapshotRestores()
+
+	resp := &describeFastSnapshotRestoresResponse{RequestID: reqID}
+	for _, item := range items {
+		resp.FastSnapshotRestoreSet.Items = append(
+			resp.FastSnapshotRestoreSet.Items,
+			fastSnapshotRestoreItem(item),
+		)
+	}
+
+	return resp, nil
+}
+
+func (h *Handler) handleCreateSnapshot(vals url.Values, reqID string) (any, error) {
+	snap, err := h.Backend.CreateSnapshot(vals.Get("VolumeId"), vals.Get("Description"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &createSnapshotResponse{
+		Xmlns:       ec2XMLNS,
+		RequestID:   reqID,
+		SnapshotID:  snap.SnapshotID,
+		VolumeID:    snap.VolumeID,
+		State:       snap.State,
+		Progress:    snap.Progress,
+		Description: snap.Description,
+		VolumeSize:  snap.VolumeSize,
+		StartTime:   snap.StartTime.Format("2006-01-02T15:04:05.000Z"),
+	}, nil
+}
+
+func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "SnapshotId")
+	snaps := h.Backend.DescribeSnapshots(ids)
+
+	filters := parseEC2Filters(vals)
+	snaps = applySnapshotFilters(snaps, filters, h.Backend)
+
+	maxResults := 0
+	if v := vals.Get("MaxResults"); v != "" {
+		if _, scanErr := fmt.Sscan(v, &maxResults); scanErr != nil || maxResults < 5 || maxResults > 1000 {
+			return nil, fmt.Errorf("%w: MaxResults must be between 5 and 1000", ErrInvalidParameter)
+		}
+	}
+
+	offset := 0
+	if tok := vals.Get("NextToken"); tok != "" {
+		_, _ = fmt.Sscan(tok, &offset)
+	}
+
+	var nextToken string
+	if maxResults > 0 {
+		if offset > len(snaps) {
+			offset = len(snaps)
+		}
+		snaps = snaps[offset:]
+		if len(snaps) > maxResults {
+			nextToken = strconv.Itoa(offset + maxResults)
+			snaps = snaps[:maxResults]
+		}
+	}
+
+	items := make([]snapshotItem, 0, len(snaps))
+	for _, s := range snaps {
+		items = append(items, snapshotItem{
+			SnapshotID:  s.SnapshotID,
+			VolumeID:    s.VolumeID,
+			State:       s.State,
+			Progress:    s.Progress,
+			Description: s.Description,
+			VolumeSize:  s.VolumeSize,
+			StartTime:   s.StartTime.Format("2006-01-02T15:04:05.000Z"),
+		})
+	}
+
+	return &describeSnapshotsResponse{
+		Xmlns:       ec2XMLNS,
+		RequestID:   reqID,
+		SnapshotSet: snapshotSet{Items: items},
+		NextToken:   nextToken,
+	}, nil
+}
+
+func (h *Handler) handleDeleteSnapshot(vals url.Values, _ string) (any, error) {
+	return nil, h.Backend.DeleteSnapshot(vals.Get("SnapshotId"))
+}
+
+// ---- AMI lifecycle handlers ----
+
+type createSnapshotResponse struct {
+	XMLName     xml.Name `xml:"CreateSnapshotResponse"`
+	Xmlns       string   `xml:"xmlns,attr"`
+	RequestID   string   `xml:"requestId"`
+	SnapshotID  string   `xml:"snapshotId"`
+	VolumeID    string   `xml:"volumeId"`
+	State       string   `xml:"status"`
+	Progress    string   `xml:"progress"`
+	Description string   `xml:"description,omitempty"`
+	StartTime   string   `xml:"startTime"`
+	VolumeSize  int      `xml:"volumeSize"`
+}
+
+type snapshotItem struct {
+	SnapshotID  string `xml:"snapshotId"`
+	VolumeID    string `xml:"volumeId"`
+	State       string `xml:"status"`
+	Progress    string `xml:"progress"`
+	Description string `xml:"description,omitempty"`
+	StartTime   string `xml:"startTime"`
+	VolumeSize  int    `xml:"volumeSize"`
+}
+
+type snapshotSet struct {
+	Items []snapshotItem `xml:"item"`
+}
+
+type describeSnapshotsResponse struct {
+	XMLName     xml.Name    `xml:"DescribeSnapshotsResponse"`
+	Xmlns       string      `xml:"xmlns,attr"`
+	RequestID   string      `xml:"requestId"`
+	NextToken   string      `xml:"nextToken,omitempty"`
+	SnapshotSet snapshotSet `xml:"snapshotSet"`
+}
+
+// registerSnapshotsOps registers the Snapshots operation handlers.
+func registerSnapshotsOps(h *Handler, ops map[string]ec2ActionFn) {
+	maps.Copy(ops, map[string]ec2ActionFn{
+		"CopySnapshot":                      h.handleCopySnapshot,
+		"CreateSnapshots":                   h.handleCreateSnapshots,
+		"GetSnapshotBlockPublicAccessState": h.handleGetSnapshotBlockPublicAccessState,
+		"EnableSnapshotBlockPublicAccess":   h.handleEnableSnapshotBlockPublicAccess,
+		"DisableSnapshotBlockPublicAccess":  h.handleDisableSnapshotBlockPublicAccess,
+		"DescribeSnapshotTierStatus":        h.handleDescribeSnapshotTierStatus,
+		"ModifySnapshotTier":                h.handleModifySnapshotTier,
+		"ResetSnapshotAttribute":            h.handleResetSnapshotAttribute,
+		"LockSnapshot":                      h.handleLockSnapshot,
+		"UnlockSnapshot":                    h.handleUnlockSnapshot,
+		"DescribeLockedSnapshots":           h.handleDescribeLockedSnapshots,
+		"ListSnapshotsInRecycleBin":         h.handleListSnapshotsInRecycleBin,
+		"RestoreSnapshotFromRecycleBin":     h.handleRestoreSnapshotFromRecycleBin,
+		"RestoreSnapshotTier":               h.handleRestoreSnapshotTier,
+		"ImportSnapshot":                    h.handleImportSnapshot,
+		"DescribeImportSnapshotTasks":       h.handleDescribeImportSnapshotTasks,
+		"EnableFastSnapshotRestores":        h.handleEnableFastSnapshotRestores,
+		"DisableFastSnapshotRestores":       h.handleDisableFastSnapshotRestores,
+		"DescribeFastSnapshotRestores":      h.handleDescribeFastSnapshotRestores,
+		"CreateSnapshot":                    h.handleCreateSnapshot,
+		"DescribeSnapshots":                 h.handleDescribeSnapshots,
+		"DeleteSnapshot":                    h.handleDeleteSnapshot,
+	})
+}
+
+// snapshotsSupportedOperations lists the operation names registered by
+// registerSnapshotsOps, for GetSupportedOperations().
+func snapshotsSupportedOperations() []string {
+	return []string{
+		"CopySnapshot",
+		"CreateSnapshots",
+		"GetSnapshotBlockPublicAccessState",
+		"EnableSnapshotBlockPublicAccess",
+		"DisableSnapshotBlockPublicAccess",
+		"DescribeSnapshotTierStatus",
+		"ModifySnapshotTier",
+		"ResetSnapshotAttribute",
+		"LockSnapshot",
+		"UnlockSnapshot",
+		"DescribeLockedSnapshots",
+		"ListSnapshotsInRecycleBin",
+		"RestoreSnapshotFromRecycleBin",
+		"RestoreSnapshotTier",
+		"ImportSnapshot",
+		"DescribeImportSnapshotTasks",
+		"EnableFastSnapshotRestores",
+		"DisableFastSnapshotRestores",
+		"DescribeFastSnapshotRestores",
+		"CreateSnapshot",
+		"DescribeSnapshots",
+		"DeleteSnapshot",
+	}
+}

@@ -2,6 +2,7 @@ package cognitoidp_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -228,4 +229,169 @@ func TestInMemoryBackend_RestoreVersionGuard(t *testing.T) {
 			assert.Empty(t, b.ListUserPools(), "incompatible/malformed-version snapshot must reset to empty")
 		})
 	}
+}
+func TestPersistence_NewFieldsSurviveSnapshot(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateUserPool("persist-pool")
+	require.NoError(t, err)
+
+	// Set password policy (MFA not enabled so auth still issues tokens directly).
+	require.NoError(t, b.UpdateUserPoolWithOpts(pool.ID, "", cognitoidp.UserPoolOptions{
+		PasswordPolicy: &cognitoidp.PasswordPolicy{MinimumLength: 12, RequireUppercase: true},
+	}))
+
+	// Create a resource server.
+	_, err = b.CreateResourceServer(pool.ID, "https://persist.example.com", "Persist API", nil)
+	require.NoError(t, err)
+
+	// Create user + sign out to populate tokenRevokedBefore.
+	client, err := b.CreateUserPoolClient(pool.ID, "pc")
+	require.NoError(t, err)
+
+	// Use SignUp (no policy validation) so any password works.
+	user, err := b.SignUp(client.ClientID, "persist-user", "Pass1234!", map[string]string{})
+	require.NoError(t, err)
+	require.NoError(t, b.ConfirmSignUp(client.ClientID, "persist-user", user.ConfirmCode))
+
+	result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "persist-user", "Pass1234!")
+	require.NoError(t, err)
+	require.NotNilf(t, result.Tokens, "expected tokens but got challenge: %s", result.ChallengeName)
+
+	require.NoError(t, b.GlobalSignOut(result.Tokens.AccessToken))
+
+	// Take snapshot.
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	// Restore into fresh backend.
+	b2 := newTestBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify resource server survived.
+	rs, err := b2.DescribeResourceServer(pool.ID, "https://persist.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "Persist API", rs.Name)
+
+	// Verify password policy survived.
+	restoredPool, err := b2.DescribeUserPool(pool.ID)
+	require.NoError(t, err)
+	require.NotNil(t, restoredPool.PasswordPolicy)
+	assert.Equal(t, 12, restoredPool.PasswordPolicy.MinimumLength)
+	assert.True(t, restoredPool.PasswordPolicy.RequireUppercase)
+}
+
+func TestPersistence_RefreshTokensSurviveSnapshot(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	pool, err := b.CreateUserPool("rt-persist-pool")
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClient(pool.ID, "rpc")
+	require.NoError(t, err)
+
+	user, err := b.SignUp(client.ClientID, "rt-user", "Pass1234!", map[string]string{})
+	require.NoError(t, err)
+	require.NoError(t, b.ConfirmSignUp(client.ClientID, "rt-user", user.ConfirmCode))
+
+	result, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "rt-user", "Pass1234!")
+	require.NoError(t, err)
+	require.NotNil(t, result.Tokens)
+
+	// Snapshot with active refresh token.
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := newTestBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Refresh token count must survive.
+	assert.Equal(t, b.RefreshTokenCount(), b2.RefreshTokenCount())
+	assert.Equal(t, 1, b2.RefreshTokenCount())
+}
+
+func TestCognitoIDP_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", "http://localhost:8000")
+
+	pool, err := b.CreateUserPool("my-pool")
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClient(pool.ID, "my-client")
+	require.NoError(t, err)
+
+	// Use AdminCreateUser to create a confirmed user without going through SignUp.
+	_, err = b.AdminCreateUser(pool.ID, "alice", "Password123!", map[string]string{"email": "alice@example.com"})
+	require.NoError(t, err)
+
+	require.NoError(t, b.AdminSetUserPassword(pool.ID, "alice", "Password123!", true))
+
+	_ = client
+
+	h := cognitoidp.NewHandler(b, "us-east-1")
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", "http://localhost:8000")
+	h2 := cognitoidp.NewHandler(b2, "us-east-1")
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	pools := b2.ListUserPools()
+	require.Len(t, pools, 1)
+	assert.Equal(t, "my-pool", pools[0].Name)
+
+	clients, err := b2.ListUserPoolClients(pool.ID)
+	require.NoError(t, err)
+	require.Len(t, clients, 1)
+	assert.Equal(t, "my-client", clients[0].ClientName)
+}
+
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "persist-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientName": "persist-client",
+	})
+	var clientResp map[string]any
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        poolID,
+		"Username":          "persist-user",
+		"TemporaryPassword": "TempPass123!",
+	})
+	doCognitoRequest(t, h, "AdminDisableUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "persist-user",
+	})
+
+	snap := h.Backend.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, h2.Backend.UserPoolCount())
+	assert.Equal(t, 1, h2.Backend.UserCount())
+	assert.Equal(t, 1, h2.Backend.ClientCount())
+
+	// Disabled state should survive round-trip.
+	getUserRec := doCognitoRequest(t, h2, "AdminGetUser", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "persist-user",
+	})
+	var getUserResp map[string]any
+	require.NoError(t, json.Unmarshal(getUserRec.Body.Bytes(), &getUserResp))
+	assert.False(t, getUserResp["Enabled"].(bool))
 }

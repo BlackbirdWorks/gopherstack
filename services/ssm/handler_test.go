@@ -701,7 +701,7 @@ func TestDescribeParameters_BeyondEnd(t *testing.T) {
 
 // --- Handler HTTP operation tests ---
 
-func TestHandler_NewOps(t *testing.T) {
+func TestHandlerParameterListingOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

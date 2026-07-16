@@ -292,3 +292,53 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
+
+// TestPersistenceLayers verifies that layer state survives a Snapshot/Restore cycle.
+func TestPersistenceLayers(t *testing.T) {
+	t.Parallel()
+
+	bk := newLayerBackend(t)
+
+	// Publish two layers with multiple versions each.
+	_, err := bk.PublishLayerVersion(publishLayerInput("layer-a", "v1", []byte("zip-a1"), []string{"python3.9"}))
+	require.NoError(t, err)
+
+	_, err = bk.PublishLayerVersion(publishLayerInput("layer-a", "v2", []byte("zip-a2"), nil))
+	require.NoError(t, err)
+
+	_, err = bk.PublishLayerVersion(publishLayerInput("layer-b", "v1", []byte("zip-b1"), nil))
+	require.NoError(t, err)
+
+	// Add a policy.
+	_, err = bk.AddLayerVersionPermission("layer-a", 1, &lambda.AddLayerVersionPermissionInput{
+		StatementID: "allow-all",
+		Action:      "lambda:GetLayerVersion",
+		Principal:   "*",
+	})
+	require.NoError(t, err)
+
+	// Snapshot → Restore.
+	snap := bk.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	bk2 := newLayerBackend(t)
+	require.NoError(t, bk2.Restore(t.Context(), snap))
+
+	// Verify layers are present.
+	layers := bk2.ListLayers("", "", 0)
+	assert.Len(t, layers.Data, 2)
+
+	// Verify versions are restored.
+	versions, err := bk2.ListLayerVersions("layer-a", "")
+	require.NoError(t, err)
+	assert.Len(t, versions, 2)
+
+	// Verify policy is restored.
+	policy, err := bk2.GetLayerVersionPolicy("layer-a", 1)
+	require.NoError(t, err)
+	assert.Contains(t, policy.Policy, "allow-all")
+
+	// Verify zip data is cleared after restore.
+	_, getErr := bk2.GetLayerVersion("layer-a", 1)
+	require.NoError(t, getErr)
+}

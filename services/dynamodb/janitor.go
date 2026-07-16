@@ -124,26 +124,39 @@ func (j *Janitor) runOnce(ctx context.Context) {
 func (j *Janitor) snapshotPITRTables(_ context.Context) {
 	db := j.Backend
 
-	db.mu.RLock("DDBJanitor.snapshotPITR")
-	tables := db.tables.All()
-	db.mu.RUnlock()
+	tables := allTablesRLocked(db)
 
 	now := time.Now().UTC()
 
 	for _, t := range tables {
-		t.mu.Lock("snapshotPITR")
-		if !t.PITREnabled {
-			t.mu.Unlock()
+		snapshotTablePITRLocked(t, now)
+	}
+}
 
-			continue
-		}
+// allTablesRLocked returns every table in db.tables under a defer-protected
+// db.mu.RLock.
+func allTablesRLocked(db *InMemoryDB) []*Table {
+	db.mu.RLock("DDBJanitor.snapshotPITR")
+	defer db.mu.RUnlock()
 
-		snap := pitrSnapshot{Taken: now, Items: deepCopyItems(t.Items)}
-		t.pitrSnapshots = append(t.pitrSnapshots, snap)
-		if len(t.pitrSnapshots) > maxPITRSnapshots {
-			t.pitrSnapshots = t.pitrSnapshots[len(t.pitrSnapshots)-maxPITRSnapshots:]
-		}
-		t.mu.Unlock()
+	return db.tables.All()
+}
+
+// snapshotTablePITRLocked appends a PITR snapshot of t's items (capped at
+// maxPITRSnapshots) under a defer-protected table.mu.Lock. No-op if PITR is
+// not enabled on t.
+func snapshotTablePITRLocked(t *Table, now time.Time) {
+	t.mu.Lock("snapshotPITR")
+	defer t.mu.Unlock()
+
+	if !t.PITREnabled {
+		return
+	}
+
+	snap := pitrSnapshot{Taken: now, Items: deepCopyItems(t.Items)}
+	t.pitrSnapshots = append(t.pitrSnapshots, snap)
+	if len(t.pitrSnapshots) > maxPITRSnapshots {
+		t.pitrSnapshots = t.pitrSnapshots[len(t.pitrSnapshots)-maxPITRSnapshots:]
 	}
 }
 
@@ -160,11 +173,7 @@ func (j *Janitor) runTableCleaner(ctx context.Context) {
 	// global lock. The slow work (timer cancellation, mutex close) is done outside the
 	// lock so that concurrent DescribeTable / PutItem / Query calls are not stalled
 	// while thousands of per-table resources are being released.
-	db.mu.Lock("DDBJanitor")
-	tablesToClose := db.deletingTables.All()
-	depth := len(tablesToClose)
-	db.deletingTables.Reset()
-	db.mu.Unlock()
+	tablesToClose, depth := drainDeletingTablesLocked(db)
 
 	// Release per-table resources outside the global lock.
 	for _, table := range tablesToClose {
@@ -182,6 +191,19 @@ func (j *Janitor) runTableCleaner(ctx context.Context) {
 	for _, table := range tablesToClose {
 		logger.Load(ctx).InfoContext(ctx, "DynamoDB janitor: table deleted", "table", table.Name)
 	}
+}
+
+// drainDeletingTablesLocked snapshots every table queued in db.deletingTables
+// and resets the queue, under a defer-protected db.mu.Lock.
+func drainDeletingTablesLocked(db *InMemoryDB) ([]*Table, int) {
+	db.mu.Lock("DDBJanitor")
+	defer db.mu.Unlock()
+
+	tablesToClose := db.deletingTables.All()
+	depth := len(tablesToClose)
+	db.deletingTables.Reset()
+
+	return tablesToClose, depth
 }
 
 // sweepTTL iterates over all tables, finds those with TTL enabled,
@@ -237,11 +259,7 @@ func (j *Janitor) sweepTableTTL(
 	table *Table,
 	now float64,
 ) (int, []ttlReplicationEntry) {
-	table.mu.RLock("TTLSweepCheck")
-	ttlAttr := table.TTLAttribute
-	gtName := table.GlobalTableName
-	tableARN := table.TableArn
-	table.mu.RUnlock()
+	ttlAttr, gtName, tableARN := ttlSweepMetaRLocked(table)
 
 	if ttlAttr == "" {
 		return 0, nil
@@ -259,52 +277,11 @@ func (j *Janitor) sweepTableTTL(
 	i := -1 // sentinel: start from last element on first batch
 
 	for ctx.Err() == nil {
-		table.mu.Lock("TTLSweep")
+		var batchEvicted int
+		var batchPending []ttlReplicationEntry
 
-		// Clamp i in case concurrent deletes shrank table.Items between batches.
-		if n := len(table.Items) - 1; i > n {
-			i = n
-		}
-
-		if i == -1 {
-			i = len(table.Items) - 1
-		}
-
-		batchEnd := i - j.ttlSweepBatchSize
-		if batchEnd < 0 {
-			batchEnd = -1
-		}
-
-		batchEvicted := 0
-
-		for ; i > batchEnd; i-- {
-			item := table.Items[i]
-
-			ttlVal, ok := dynamoattr.ParseNumeric(item[ttlAttr])
-			if !ok || ttlVal >= now {
-				continue
-			}
-
-			// Copy the item once; the stream record and replication entry each
-			// need their own copy so they can be mutated independently.
-			itemCopy := deepCopyItem(item)
-			table.appendStreamRecord(streamEventRemove, itemCopy, nil, "dynamodb.amazonaws.com", "Service")
-			batchEvicted++
-
-			if gtName != "" {
-				pending = append(pending, ttlReplicationEntry{
-					tableName:       table.Name,
-					globalTableName: gtName,
-					region:          region,
-					item:            deepCopyItem(item),
-				})
-			}
-
-			db.deleteItemAtIndex(table, i)
-		}
-
-		table.mu.Unlock()
-
+		i, batchEvicted, batchPending = j.sweepTTLBatchLocked(db, table, ttlAttr, gtName, region, now, i)
+		pending = append(pending, batchPending...)
 		totalEvicted += batchEvicted
 
 		// All items scanned.
@@ -321,6 +298,80 @@ func (j *Janitor) sweepTableTTL(
 	}
 
 	return totalEvicted, pending
+}
+
+// ttlSweepMetaRLocked returns the TTL attribute, global-table name, and table
+// ARN needed by sweepTableTTL, under a defer-protected table.mu.RLock.
+func ttlSweepMetaRLocked(table *Table) (string, string, string) {
+	table.mu.RLock("TTLSweepCheck")
+	defer table.mu.RUnlock()
+
+	return table.TTLAttribute, table.GlobalTableName, table.TableArn
+}
+
+// sweepTTLBatchLocked scans and evicts up to j.ttlSweepBatchSize expired items
+// starting at index i (scanning backwards), under a single defer-protected
+// table.mu.Lock. Extracted from sweepTableTTL so that each batch's lock is
+// released via defer as soon as this call returns -- i.e. the lock is held
+// only for one batch, not for the whole multi-batch sweep loop, exactly as
+// before this refactor, while still guaranteeing that a panic partway through
+// a batch (e.g. from ParseNumeric or deleteItemAtIndex) can never leave
+// table.mu locked forever.
+func (j *Janitor) sweepTTLBatchLocked(
+	db *InMemoryDB,
+	table *Table,
+	ttlAttr, gtName, region string,
+	now float64,
+	i int,
+) (int, int, []ttlReplicationEntry) {
+	table.mu.Lock("TTLSweep")
+	defer table.mu.Unlock()
+
+	batchEvicted := 0
+
+	var pending []ttlReplicationEntry
+
+	// Clamp i in case concurrent deletes shrank table.Items between batches.
+	if n := len(table.Items) - 1; i > n {
+		i = n
+	}
+
+	if i == -1 {
+		i = len(table.Items) - 1
+	}
+
+	batchEnd := i - j.ttlSweepBatchSize
+	if batchEnd < 0 {
+		batchEnd = -1
+	}
+
+	for ; i > batchEnd; i-- {
+		item := table.Items[i]
+
+		ttlVal, ok := dynamoattr.ParseNumeric(item[ttlAttr])
+		if !ok || ttlVal >= now {
+			continue
+		}
+
+		// Copy the item once; the stream record and replication entry each
+		// need their own copy so they can be mutated independently.
+		itemCopy := deepCopyItem(item)
+		table.appendStreamRecord(streamEventRemove, itemCopy, nil, "dynamodb.amazonaws.com", "Service")
+		batchEvicted++
+
+		if gtName != "" {
+			pending = append(pending, ttlReplicationEntry{
+				tableName:       table.Name,
+				globalTableName: gtName,
+				region:          region,
+				item:            deepCopyItem(item),
+			})
+		}
+
+		db.deleteItemAtIndex(table, i)
+	}
+
+	return i, batchEvicted, pending
 }
 
 // sweepTxnTokens removes committed idempotency tokens that have exceeded their TTL.
@@ -340,17 +391,7 @@ func (j *Janitor) sweepTxnTokens(ctx context.Context) {
 	now := time.Now()
 
 	// Phase 1: identify expired keys under read lock.
-	db.mu.RLock("sweepTxnTokens.scan")
-	var expired []string
-
-	for token, expiry := range db.txnTokens {
-		if now.After(expiry) {
-			expired = append(expired, token)
-		}
-	}
-
-	capExceeded := len(db.txnTokens) > txnTokensMaxCap
-	db.mu.RUnlock()
+	expired, capExceeded := scanExpiredTxnTokensRLocked(db, now)
 
 	// Fast path: nothing to do.
 	if len(expired) == 0 && !capExceeded {
@@ -371,6 +412,24 @@ func (j *Janitor) sweepTxnTokens(ctx context.Context) {
 	}
 }
 
+// scanExpiredTxnTokensRLocked identifies committed idempotency tokens past
+// their expiry (and whether the cap is exceeded) under a defer-protected
+// db.mu.RLock.
+func scanExpiredTxnTokensRLocked(db *InMemoryDB, now time.Time) ([]string, bool) {
+	db.mu.RLock("sweepTxnTokens.scan")
+	defer db.mu.RUnlock()
+
+	var expired []string
+
+	for token, expiry := range db.txnTokens {
+		if now.After(expiry) {
+			expired = append(expired, token)
+		}
+	}
+
+	return expired, len(db.txnTokens) > txnTokensMaxCap
+}
+
 // sweepTxnPending removes in-progress idempotency tokens that have exceeded txnPendingTTL.
 // Under normal operation the defer in TransactWriteItems cleans up pending entries.
 // This sweep is a safety net for orphaned entries (e.g. from a crashed goroutine).
@@ -386,17 +445,7 @@ func (j *Janitor) sweepTxnPending(ctx context.Context) {
 	now := time.Now()
 
 	// Phase 1: identify stale keys under read lock.
-	db.mu.RLock("sweepTxnPending.scan")
-	var stale []string
-
-	for token, startTime := range db.txnPending {
-		if now.Sub(startTime) > txnPendingTTL {
-			stale = append(stale, token)
-		}
-	}
-
-	capExceeded := len(db.txnPending) > txnPendingMaxCap
-	db.mu.RUnlock()
+	stale, capExceeded := scanStaleTxnPendingRLocked(db, now)
 
 	// Fast path: nothing to do.
 	if len(stale) == 0 && !capExceeded {
@@ -415,6 +464,24 @@ func (j *Janitor) sweepTxnPending(ctx context.Context) {
 	if len(db.txnPending) > txnPendingMaxCap {
 		evictOldestPending(db.txnPending, len(db.txnPending)/txnCapEvictionFraction)
 	}
+}
+
+// scanStaleTxnPendingRLocked identifies in-progress idempotency tokens older
+// than txnPendingTTL (and whether the cap is exceeded) under a
+// defer-protected db.mu.RLock.
+func scanStaleTxnPendingRLocked(db *InMemoryDB, now time.Time) ([]string, bool) {
+	db.mu.RLock("sweepTxnPending.scan")
+	defer db.mu.RUnlock()
+
+	var stale []string
+
+	for token, startTime := range db.txnPending {
+		if now.Sub(startTime) > txnPendingTTL {
+			stale = append(stale, token)
+		}
+	}
+
+	return stale, len(db.txnPending) > txnPendingMaxCap
 }
 
 // evictOldestTokens removes the n oldest entries from m (oldest = earliest expiry time).
@@ -600,42 +667,7 @@ func (j *Janitor) sweepStreamRecords(ctx context.Context) {
 			return
 		}
 
-		t.mu.Lock("SweepStreamRecords")
-
-		cleared := 0
-		tombstones := 0
-
-		for i := range t.StreamRecords {
-			r := &t.StreamRecords[i]
-			if r.ApproximateCreationDateTime <= 0 {
-				continue
-			}
-
-			age := now - r.ApproximateCreationDateTime
-			if age <= streamExpirySeconds {
-				continue
-			}
-
-			// Nil images to release heap memory.
-			if r.OldImage != nil || r.NewImage != nil {
-				r.OldImage = nil
-				r.NewImage = nil
-				cleared++
-			}
-
-			tombstones++
-		}
-
-		// Compact the ring buffer when more than half the slots are expired tombstones.
-		// Allocate a fresh slice so the GC can reclaim the old backing array immediately
-		// (unlike [:0] which retains the backing array).
-		if len(t.StreamRecords) > 0 && tombstones*2 >= len(t.StreamRecords) {
-			t.streamTrimSeq = t.streamSeq + 1
-			t.StreamRecords = make([]models.StreamRecord, 0, maxStreamRecords)
-			t.StreamHead = 0
-		}
-
-		t.mu.Unlock()
+		cleared := sweepTableStreamRecordsLocked(t, now)
 
 		if cleared > 0 {
 			telemetry.RecordWorkerItems("dynamodb", "StreamSweeper", cleared)
@@ -643,4 +675,48 @@ func (j *Janitor) sweepStreamRecords(ctx context.Context) {
 	}
 
 	telemetry.RecordWorkerTask("dynamodb", "StreamSweeper", "success")
+}
+
+// sweepTableStreamRecordsLocked nils expired stream-record images and, when
+// more than half the ring is expired tombstones, compacts the ring buffer,
+// all under a single defer-protected table.mu.Lock. Returns the number of
+// records whose images were cleared.
+func sweepTableStreamRecordsLocked(t *Table, now int64) int {
+	t.mu.Lock("SweepStreamRecords")
+	defer t.mu.Unlock()
+
+	cleared := 0
+	tombstones := 0
+
+	for i := range t.StreamRecords {
+		r := &t.StreamRecords[i]
+		if r.ApproximateCreationDateTime <= 0 {
+			continue
+		}
+
+		age := now - r.ApproximateCreationDateTime
+		if age <= streamExpirySeconds {
+			continue
+		}
+
+		// Nil images to release heap memory.
+		if r.OldImage != nil || r.NewImage != nil {
+			r.OldImage = nil
+			r.NewImage = nil
+			cleared++
+		}
+
+		tombstones++
+	}
+
+	// Compact the ring buffer when more than half the slots are expired tombstones.
+	// Allocate a fresh slice so the GC can reclaim the old backing array immediately
+	// (unlike [:0] which retains the backing array).
+	if len(t.StreamRecords) > 0 && tombstones*2 >= len(t.StreamRecords) {
+		t.streamTrimSeq = t.streamSeq + 1
+		t.StreamRecords = make([]models.StreamRecord, 0, maxStreamRecords)
+		t.StreamHead = 0
+	}
+
+	return cleared
 }

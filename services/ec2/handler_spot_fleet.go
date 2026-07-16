@@ -18,6 +18,10 @@ func spotFleetSupportedOperations() []string {
 		"ModifySpotFleetRequest",
 		"DescribeSpotFleetInstances",
 		"DescribeSpotFleetRequestHistory",
+		"CreateSpotDatafeedSubscription",
+		"DeleteSpotDatafeedSubscription",
+		"DescribeSpotDatafeedSubscription",
+		"GetSpotPlacementScores",
 	}
 }
 
@@ -29,6 +33,10 @@ func registerSpotFleetOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifySpotFleetRequest"] = h.handleModifySpotFleetRequest
 	ops["DescribeSpotFleetInstances"] = h.handleDescribeSpotFleetInstances
 	ops["DescribeSpotFleetRequestHistory"] = h.handleDescribeSpotFleetRequestHistory
+	ops["CreateSpotDatafeedSubscription"] = h.handleCreateSpotDatafeedSubscription
+	ops["DeleteSpotDatafeedSubscription"] = h.handleDeleteSpotDatafeedSubscription
+	ops["DescribeSpotDatafeedSubscription"] = h.handleDescribeSpotDatafeedSubscription
+	ops["GetSpotPlacementScores"] = h.handleGetSpotPlacementScores
 }
 
 // handleRequestSpotFleet parses and dispatches a RequestSpotFleet call.
@@ -402,4 +410,97 @@ type describeSpotFleetRequestHistoryResponse struct {
 	SpotFleetRequestID string                    `xml:"spotFleetRequestId"`
 	StartTime          string                    `xml:"startTime"`
 	HistoryRecords     spotFleetHistoryRecordSet `xml:"historyRecordSet"`
+}
+
+type createSpotDatafeedResponse struct {
+	XMLName                  xml.Name         `xml:"CreateSpotDatafeedSubscriptionResponse"`
+	RequestID                string           `xml:"requestId"`
+	SpotDatafeedSubscription spotDatafeedItem `xml:"spotDatafeedSubscription"`
+}
+
+type describeSpotDatafeedResponse struct {
+	XMLName                  xml.Name         `xml:"DescribeSpotDatafeedSubscriptionResponse"`
+	RequestID                string           `xml:"requestId"`
+	SpotDatafeedSubscription spotDatafeedItem `xml:"spotDatafeedSubscription"`
+}
+
+type importImageTaskItem struct {
+	ImportTaskID string `xml:"importTaskId"`
+	Description  string `xml:"description"`
+	Architecture string `xml:"architecture,omitempty"`
+	Platform     string `xml:"platform,omitempty"`
+	Status       string `xml:"status"`
+}
+
+func (h *Handler) handleCreateSpotDatafeedSubscription(vals url.Values, reqID string) (any, error) {
+	bucket := vals.Get("Bucket")
+	prefix := vals.Get("Prefix")
+
+	datafeed, err := h.Backend.CreateSpotDatafeedSubscription(bucket, prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createSpotDatafeedResponse{
+		RequestID: reqID,
+		SpotDatafeedSubscription: spotDatafeedItem{
+			Bucket: datafeed.Bucket,
+			Prefix: datafeed.Prefix,
+			State:  datafeed.State,
+		},
+	}, nil
+}
+
+func (h *Handler) handleDeleteSpotDatafeedSubscription(_ url.Values, reqID string) (any, error) {
+	h.Backend.DeleteSpotDatafeedSubscription()
+
+	return &stubResponse{
+		XMLName:   xml.Name{Local: "DeleteSpotDatafeedSubscriptionResponse"},
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDescribeSpotDatafeedSubscription(_ url.Values, reqID string) (any, error) {
+	datafeed := h.Backend.DescribeSpotDatafeedSubscription()
+	resp := &describeSpotDatafeedResponse{RequestID: reqID}
+	if datafeed != nil {
+		resp.SpotDatafeedSubscription = spotDatafeedItem{
+			Bucket: datafeed.Bucket,
+			Prefix: datafeed.Prefix,
+			State:  datafeed.State,
+		}
+	}
+
+	return resp, nil
+}
+
+type getSpotPlacementScoresResponse struct {
+	XMLName               xml.Name `xml:"GetSpotPlacementScoresResponse"`
+	RequestID             string   `xml:"requestId"`
+	SpotPlacementScoreSet struct {
+		Items []spotPlacementScoreItem `xml:"item"`
+	} `xml:"spotPlacementScoreSet"`
+}
+
+func (h *Handler) handleGetSpotPlacementScores(vals url.Values, reqID string) (any, error) {
+	instanceTypes := parseMemberList(vals, "InstanceType")
+	regionNames := parseMemberList(vals, "RegionName")
+	singleAZ := vals.Get("SingleAvailabilityZone") == ec2BooleanTrue
+
+	scores, err := h.Backend.GetSpotPlacementScores(instanceTypes, regionNames, singleAZ)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &getSpotPlacementScoresResponse{RequestID: reqID}
+	for _, s := range scores {
+		resp.SpotPlacementScoreSet.Items = append(resp.SpotPlacementScoreSet.Items, spotPlacementScoreItem{
+			Region:             s.Region,
+			AvailabilityZoneID: s.AvailabilityZoneID,
+			Score:              s.Score,
+		})
+	}
+
+	return resp, nil
 }
