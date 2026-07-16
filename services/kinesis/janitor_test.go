@@ -371,3 +371,51 @@ func TestKinesisJanitor_DefaultInterval(t *testing.T) {
 		})
 	}
 }
+
+func TestRetentionPeriod_JanitorEvictsOldRecords(t *testing.T) {
+	t.Parallel()
+
+	b := newParityBackend(t)
+	ctx := context.Background()
+
+	createParityStream(t, b, "retention-test", 1)
+
+	err := b.SetRetentionPeriodForTest("retention-test", 1)
+	require.NoError(t, err)
+
+	err = b.PushOldRecordForTest("retention-test", 0, 2*time.Hour)
+	require.NoError(t, err)
+
+	_, err = b.PutRecord(ctx, &kinesis.PutRecordInput{
+		StreamName:   "retention-test",
+		PartitionKey: "pk",
+		Data:         []byte("fresh"),
+	})
+	require.NoError(t, err)
+
+	itOut, err := b.GetShardIterator(ctx, &kinesis.GetShardIteratorInput{
+		StreamName:        "retention-test",
+		ShardID:           "shardId-000000000000",
+		ShardIteratorType: "TRIM_HORIZON",
+	})
+	require.NoError(t, err)
+
+	rBefore, err := b.GetRecords(ctx, &kinesis.GetRecordsInput{ShardIterator: itOut.ShardIterator})
+	require.NoError(t, err)
+	assert.Len(t, rBefore.Records, 2)
+
+	j := kinesis.NewJanitorForTest(b, time.Minute)
+	j.SweepOnceForTest(ctx)
+
+	itOut2, err := b.GetShardIterator(ctx, &kinesis.GetShardIteratorInput{
+		StreamName:        "retention-test",
+		ShardID:           "shardId-000000000000",
+		ShardIteratorType: "TRIM_HORIZON",
+	})
+	require.NoError(t, err)
+
+	rAfter, err := b.GetRecords(ctx, &kinesis.GetRecordsInput{ShardIterator: itOut2.ShardIterator})
+	require.NoError(t, err)
+	assert.Len(t, rAfter.Records, 1, "old record must be evicted after janitor sweep")
+	assert.Contains(t, string(rAfter.Records[0].Data), "fresh")
+}
