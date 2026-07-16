@@ -84,11 +84,27 @@ func (db *InMemoryDB) executeTransactWrite(
 	if lockErr != nil {
 		return nil, lockErr
 	}
-	defer func() {
+
+	// released guards against double-unlocking: the table locks are released
+	// explicitly (see below) as soon as every table.mu-protected read/write is
+	// done, strictly BEFORE db.mu is ever acquired for the token commit — this
+	// backend's lock order is always db.mu -> table.mu, and inverting it here
+	// (table.mu held while acquiring db.mu) is a real ABBA deadlock against
+	// any db.mu-then-table.mu reader such as TaggedTables/ListContributorInsights
+	// (store.go/extra_ops.go hold db.mu.RLock for their whole body while
+	// nested-RLocking each table.mu). The deferred call remains as a safety
+	// net so an early return (or a future panic) still releases the locks.
+	released := false
+	releaseTables := func() {
+		if released {
+			return
+		}
+		released = true
 		for _, t := range tables {
 			t.mu.Unlock()
 		}
-	}()
+	}
+	defer releaseTables()
 
 	// Pre-phase: validate duplicate keys and total size.
 	if dupErr := validateTransactWriteItems(input.TransactItems, tables); dupErr != nil {
@@ -117,14 +133,20 @@ func (db *InMemoryDB) executeTransactWrite(
 		return nil, writeErr
 	}
 
-	// Record token as committed only after all writes have been applied.
+	payloads := db.collectTransactReplicationPayloads(tables, region, input.TransactItems)
+
+	// Release the table locks before ever touching db.mu (see releaseTables'
+	// doc above), then record the token as committed now that all writes have
+	// been applied.
+	releaseTables()
+
 	if token != "" {
 		db.mu.Lock("TransactWriteItems.tokenCommit")
 		db.txnTokens[token] = time.Now().Add(txnTokenTTL)
 		db.mu.Unlock()
 	}
 
-	return db.collectTransactReplicationPayloads(tables, region, input.TransactItems), nil
+	return payloads, nil
 }
 
 // transactReplicationPayload holds the data needed to replicate a single committed

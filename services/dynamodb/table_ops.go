@@ -318,7 +318,12 @@ func validateAttributeDefinitions(input *dynamodb.CreateTableInput) error {
 	return nil
 }
 
-// buildCreateTableOutput constructs the wire response for CreateTable.
+// buildCreateTableOutput constructs the wire response for CreateTable. t is
+// already visible in db.tables by the time this runs (CreateTable inserts it
+// before releasing db.mu), and its activateTimer (when createDelay > 0) can
+// fire concurrently on another goroutine and flip t.Status under t.mu at any
+// moment -- so every field read here goes through t.mu, matching the pattern
+// snapshotTable/DescribeTable already use for the same reason.
 func buildCreateTableOutput(
 	input *dynamodb.CreateTableInput,
 	t *Table,
@@ -346,6 +351,7 @@ func buildCreateTableOutput(
 		}
 	}
 
+	t.mu.RLock("buildCreateTableOutput")
 	rcu := int64(t.ProvisionedThroughput.ReadCapacityUnits)
 	wcu := int64(t.ProvisionedThroughput.WriteCapacityUnits)
 
@@ -354,11 +360,16 @@ func buildCreateTableOutput(
 		tableStatus = types.TableStatusActive
 	}
 
+	keySchema := models.ToSDKKeySchema(t.KeySchema)
+	attrDefs := models.ToSDKAttributeDefinitions(t.AttributeDefinitions)
+	sseEnabled, sseType, sseKMSMasterKeyArn := t.SSEEnabled, t.SSEType, t.SSEKMSMasterKeyArn
+	t.mu.RUnlock()
+
 	td := &types.TableDescription{
 		TableName:              input.TableName,
 		TableStatus:            tableStatus,
-		KeySchema:              models.ToSDKKeySchema(t.KeySchema),
-		AttributeDefinitions:   models.ToSDKAttributeDefinitions(t.AttributeDefinitions),
+		KeySchema:              keySchema,
+		AttributeDefinitions:   attrDefs,
 		GlobalSecondaryIndexes: models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs),
 		LocalSecondaryIndexes:  models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs),
 		ItemCount:              aws.Int64(0),
@@ -367,7 +378,7 @@ func buildCreateTableOutput(
 			WriteCapacityUnits: &wcu,
 		},
 	}
-	applySSEDescription(td, t.SSEEnabled, t.SSEType, t.SSEKMSMasterKeyArn)
+	applySSEDescription(td, sseEnabled, sseType, sseKMSMasterKeyArn)
 
 	return &dynamodb.CreateTableOutput{TableDescription: td}
 }
@@ -423,9 +434,26 @@ func (db *InMemoryDB) DeleteTable(
 		db.streamARNIndex.Delete(table.StreamARN)
 	}
 
-	// Capture state for return
-	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
-	for i, gsi := range table.GlobalSecondaryIndexes {
+	// Capture state for return. The table has already been unlinked from
+	// db.tables above, but PutItem/BatchWriteItem/UpdateTable etc. resolve a
+	// *Table once via getTable and then mutate table.Items/
+	// table.GlobalSecondaryIndexes under table.mu WITHOUT re-checking db.tables,
+	// so a caller that grabbed this same *Table just before this delete can
+	// still be actively writing to it concurrently. Reading those fields here
+	// without table.mu is a real data race (caught by -race); take a read lock
+	// for the snapshot, consistent with this backend's db.mu -> table.mu order.
+	table.mu.RLock("DeleteTable.snapshot")
+	gsis := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
+	copy(gsis, table.GlobalSecondaryIndexes)
+	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
+	copy(keySchema, table.KeySchema)
+	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
+	copy(attrDefs, table.AttributeDefinitions)
+	itemCountSnapshot := len(table.Items)
+	table.mu.RUnlock()
+
+	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsis))
+	for i, gsi := range gsis {
 		rc := int64(models.DefaultReadCapacity)
 		wc := int64(models.DefaultWriteCapacity)
 		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
@@ -443,14 +471,14 @@ func (db *InMemoryDB) DeleteTable(
 				WriteCapacityUnits: int(wc),
 			},
 			IndexStatus: "DELETING",
-			ItemCount:   len(table.Items),
+			ItemCount:   itemCountSnapshot,
 		}
 	}
 
 	sdkGSIs := models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
-	sdkKeySchema := models.ToSDKKeySchema(table.KeySchema)
-	sdkAttrDefs := models.ToSDKAttributeDefinitions(table.AttributeDefinitions)
-	itemCount := int64(len(table.Items))
+	sdkKeySchema := models.ToSDKKeySchema(keySchema)
+	sdkAttrDefs := models.ToSDKAttributeDefinitions(attrDefs)
+	itemCount := int64(itemCountSnapshot)
 
 	return &dynamodb.DeleteTableOutput{
 		TableDescription: &types.TableDescription{
