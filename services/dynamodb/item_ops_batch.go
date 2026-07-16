@@ -629,9 +629,16 @@ func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
 		// Capture stream record (REMOVE)
 		table.appendStreamRecord(streamEventRemove, deepCopyItem(table.Items[idx]), nil, "", "")
 
-		// Delete by swapping with last and truncating
-		table.Items[idx] = table.Items[len(table.Items)-1]
-		table.Items = table.Items[:len(table.Items)-1]
+		// Delete by swapping with last and truncating. table.itemSizes must be
+		// kept in lockstep with table.Items (same swap, same truncation) so its
+		// length never drifts from Items and totalItemSizeBytes stays accurate
+		// for DescribeTable's TableSizeBytes.
+		lastIdx := len(table.Items) - 1
+		table.totalItemSizeBytes -= int64(table.itemSizes[idx])
+		table.Items[idx] = table.Items[lastIdx]
+		table.itemSizes[idx] = table.itemSizes[lastIdx]
+		table.Items = table.Items[:lastIdx]
+		table.itemSizes = table.itemSizes[:lastIdx]
 	}
 
 	table.rebuildIndexes()
@@ -709,9 +716,17 @@ func validateBatchWriteRequest(req types.WriteRequest, table *Table) error {
 
 func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) int {
 	oldItem, matchIndex := db.findMatchForPut(table, item)
+	// Reuse the same item-size calculator as PutItem (doPut) so table.itemSizes
+	// and table.totalItemSizeBytes stay in lockstep with table.Items regardless
+	// of which write path (PutItem vs BatchWriteItem) added the item. Without
+	// this, DescribeTable's TableSizeBytes silently excludes anything written
+	// via BatchWriteItem, and itemSizes/Items can drift out of length-sync.
+	itemSize, _ := CalculateItemSize(item)
 	if matchIndex != -1 {
 		// Capture stream event (MODIFY) before overwriting in place.
 		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(item), "", "")
+		table.totalItemSizeBytes += int64(itemSize) - int64(table.itemSizes[matchIndex])
+		table.itemSizes[matchIndex] = itemSize
 		table.Items[matchIndex] = item
 
 		return matchIndex
@@ -720,6 +735,8 @@ func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any)
 	table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(item), "", "")
 	idx := len(table.Items)
 	table.Items = append(table.Items, item)
+	table.itemSizes = append(table.itemSizes, itemSize)
+	table.totalItemSizeBytes += int64(itemSize)
 
 	return idx
 }
