@@ -9,8 +9,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_dynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
 func TestTransactWriteItemsConvoyDeadlock(t *testing.T) {
