@@ -506,3 +506,103 @@ func (b *InMemoryBackend) ListDomainEntriesFiltered(engineType string) []DomainE
 
 	return out
 }
+
+// ListInstanceTypeDetails returns a static list of common OpenSearch instance type details.
+func (b *InMemoryBackend) ListInstanceTypeDetails(_, _ string) []map[string]any {
+	dataRole := []string{nodeRoleData}
+	warmRole := []string{nodeRoleData, "UltraWarm"}
+
+	return []map[string]any{
+		{
+			jsonKeyInstanceType:            instanceTypeT3Small,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          false,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             false,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            dataRole,
+		},
+		{
+			jsonKeyInstanceType:            instanceTypeR6gLarge,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          true,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             true,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            warmRole,
+		},
+		{
+			jsonKeyInstanceType:            instanceTypeM6gLarge,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          true,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             true,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            warmRole,
+		},
+		{
+			jsonKeyInstanceType:            instanceTypeR6gXLarge,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          true,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             true,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            warmRole,
+		},
+		{
+			jsonKeyInstanceType:            instanceTypeOR1Medium,
+			jsonKeyAppLogEnabled:           true,
+			jsonKeyCognitoEnabled:          false,
+			jsonKeyEncryptEnabled:          true,
+			jsonKeyWarmEnabled:             false,
+			jsonKeyAdvancedSecurityEnabled: true,
+			jsonKeyInstanceRole:            dataRole,
+		},
+	}
+}
+
+// GetCompatibleVersions returns static compatible version pairs.
+// If domainName is non-empty, target versions are filtered to those
+// reachable from the domain's current EngineVersion.
+func (b *InMemoryBackend) GetCompatibleVersions(domainName string) []map[string]any {
+	static := []map[string]any{
+		{
+			jsonKeySourceVersion:  engineVersionOpenSearch29,
+			jsonKeyTargetVersions: []string{engineVersionOpenSearch211},
+		},
+		{
+			jsonKeySourceVersion:  engineVersionOpenSearch27,
+			jsonKeyTargetVersions: []string{engineVersionOpenSearch29, engineVersionOpenSearch211},
+		},
+		{
+			jsonKeySourceVersion:  engineVersionOpenSearch13,
+			jsonKeyTargetVersions: []string{engineVersionOpenSearch27},
+		},
+		{
+			jsonKeySourceVersion:  engineVersionOpenSearch211,
+			jsonKeyTargetVersions: []string{},
+		},
+	}
+
+	if domainName == "" {
+		return static
+	}
+
+	b.mu.RLock("GetCompatibleVersions")
+	d, exists := b.domains.Get(domainName)
+	b.mu.RUnlock()
+
+	if !exists {
+		return static
+	}
+
+	for _, entry := range static {
+		if entry["SourceVersion"] == d.EngineVersion {
+			return []map[string]any{entry}
+		}
+	}
+
+	return []map[string]any{
+		{jsonKeySourceVersion: d.EngineVersion, jsonKeyTargetVersions: []string{}},
+	}
+}

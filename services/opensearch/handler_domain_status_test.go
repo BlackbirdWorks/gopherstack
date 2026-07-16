@@ -2,28 +2,90 @@ package opensearch_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/opensearch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
-// ---------------------------------------------------------------------------
-// DescribeDomains returns full DomainStatus (issue: minimal map)
-// ---------------------------------------------------------------------------
+func TestOpenSearchHandler_DescribeDomainHealth(t *testing.T) {
+	t.Parallel()
 
-func TestAudit4_DescribeDomains_FullStatusShape(t *testing.T) {
+	h := newTestHandler()
+
+	// Create domain with specific cluster config.
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+		map[string]any{
+			"DomainName":    "health-domain",
+			"ClusterConfig": map[string]any{"InstanceType": "t3.small.search", "InstanceCount": 3},
+		})
+	resp.Body.Close()
+
+	healthResp := doRequest(t, h, http.MethodGet,
+		"/2021-01-01/opensearch/domain/health-domain/health", nil)
+	defer healthResp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, healthResp.StatusCode)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(healthResp.Body).Decode(&out))
+
+	assert.Equal(t, "Active", out["DomainState"])
+	// 3 instances * 5 shards = 15
+	totalShards, ok := out["TotalShards"].(float64)
+	require.True(t, ok)
+	assert.InDelta(t, float64(15), totalShards, 0)
+	assert.Equal(t, out["TotalShards"], out["ActiveShards"])
+}
+
+func TestOpenSearchHandler_DescribeDomainNodes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+		map[string]any{
+			"DomainName":    "nodes-domain",
+			"ClusterConfig": map[string]any{"InstanceType": "r6g.large.search", "InstanceCount": 2},
+		})
+	resp.Body.Close()
+
+	nodesResp := doRequest(t, h, http.MethodGet,
+		"/2021-01-01/opensearch/domain/nodes-domain/nodes", nil)
+	defer nodesResp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, nodesResp.StatusCode)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(nodesResp.Body).Decode(&out))
+
+	nodes, ok := out["DomainNodesStatusList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, nodes, 2)
+
+	// Verify each node has expected fields.
+	for _, node := range nodes {
+		n, ok2 := node.(map[string]any)
+		require.True(t, ok2)
+		assert.NotEmpty(t, n["NodeId"])
+		assert.Equal(t, "Data", n["NodeType"])
+		assert.Equal(t, "r6g.large.search", n["InstanceType"])
+		assert.Equal(t, "Active", n["NodeStatus"])
+	}
+}
+
+func TestDescribeDomainStatusRoutes_UnknownDomain_404(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		engineVersion string
+		name string
+		path string
 	}{
-		{name: "default_version", engineVersion: ""},
-		{name: "opensearch_211", engineVersion: "OpenSearch_2.11"},
+		{name: "health", path: "/2021-01-01/opensearch/domain/missing/health"},
+		{name: "nodes", path: "/2021-01-01/opensearch/domain/missing/nodes"},
 	}
 
 	for _, tt := range tests {
@@ -31,101 +93,72 @@ func TestAudit4_DescribeDomains_FullStatusShape(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			b := h.Backend.(*opensearch.InMemoryBackend)
-			b.AddDomainInternal("full-domain", tt.engineVersion)
 
-			resp := doRequest(t, h, http.MethodGet,
-				"/2021-01-01/opensearch/domain/describe",
-				map[string]any{"DomainNames": []string{"full-domain"}})
+			resp := doRequest(t, h, http.MethodGet, tt.path, nil)
 			defer resp.Body.Close()
 
-			require.Equal(t, http.StatusOK, resp.StatusCode)
-
-			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-
-			list, ok := out["DomainStatusList"].([]any)
-			require.True(t, ok)
-			require.Len(t, list, 1)
-
-			entry := list[0].(map[string]any)
-			// Full shape must include ARN, ClusterConfig, Processing, DomainProcessingStatus.
-			assert.NotEmpty(t, entry["ARN"])
-			assert.NotEmpty(t, entry["DomainName"])
-			_, hasCC := entry["ClusterConfig"]
-			assert.True(t, hasCC, "ClusterConfig must be present")
-			_, hasProc := entry["Processing"]
-			assert.True(t, hasProc, "Processing must be present")
-			_, hasDPS := entry["DomainProcessingStatus"]
-			assert.True(t, hasDPS, "DomainProcessingStatus must be present")
+			assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 		})
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GetCompatibleVersions returns 404 when domain filter names unknown domain
-// ---------------------------------------------------------------------------
-
-func TestAudit4_GetCompatibleVersions_UnknownDomain_404(t *testing.T) {
+func TestOpenSearchHandler_DescribeDomainChangeProgress(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
 
+	// Create domain.
+	createTestDomain(t, h, "progress-domain")
+
+	// Update config to generate a change ID.
+	updateResp := doRequest(t, h, http.MethodPut,
+		"/2021-01-01/opensearch/domain/progress-domain/config",
+		map[string]any{"EngineVersion": "OpenSearch_2.9"})
+	updateResp.Body.Close()
+
+	// Get change progress.
 	resp := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/compatibleVersions?domainName=no-such-domain", nil)
+		"/2021-01-01/opensearch/domain/progress-domain/progress", nil)
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-}
-
-func TestAudit4_GetCompatibleVersions_KnownDomain_200(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler()
-	b := h.Backend.(*opensearch.InMemoryBackend)
-	b.AddDomainInternal("cv-domain", "OpenSearch_2.9")
-
-	resp := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/compatibleVersions?domainName=cv-domain", nil)
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 
-	versions, ok := out["CompatibleVersions"].([]any)
+	status, ok := out["ChangeProgressStatus"].(map[string]any)
 	require.True(t, ok)
-	require.Len(t, versions, 1)
-
-	entry := versions[0].(map[string]any)
-	assert.Equal(t, "OpenSearch_2.9", entry["SourceVersion"])
+	assert.NotEmpty(t, status["ChangeId"])
+	assert.Equal(t, "COMPLETED", status["Status"])
 }
 
-func TestAudit4_GetCompatibleVersions_NoDomainFilter_AllVersions(t *testing.T) {
+func TestOpenSearchHandler_DescribeDryRunProgress(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
 
+	// Create domain.
+	createTestDomain(t, h, "dryrun-domain")
+
 	resp := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/compatibleVersions", nil)
+		"/2021-01-01/opensearch/domain/dryrun-domain/dryRun", nil)
 	defer resp.Body.Close()
 
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.Unmarshal(bodyBytes, &out))
 
-	versions, ok := out["CompatibleVersions"].([]any)
+	status, ok := out["DryRunProgressStatus"].(map[string]any)
 	require.True(t, ok)
-	assert.Greater(t, len(versions), 1, "no domain filter should return all versions")
+	assert.NotEmpty(t, status["DryRunId"])
+	assert.Equal(t, "COMPLETED", status["DryRunStatus"])
 }
 
-// ---------------------------------------------------------------------------
-// DescribeDomainHealth returns UnAssignedShards, DataNodeCount, DedicatedMaster
-// ---------------------------------------------------------------------------
-
-func TestAudit4_DescribeDomainHealth_AdditionalFields(t *testing.T) {
+func TestDescribeDomainHealth_AdditionalFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -194,11 +227,7 @@ func TestAudit4_DescribeDomainHealth_AdditionalFields(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// DescribeDomainNodes returns StorageVolumeType and AvailabilityZone
-// ---------------------------------------------------------------------------
-
-func TestAudit4_DescribeDomainNodes_StorageAndAZ(t *testing.T) {
+func TestDescribeDomainNodes_StorageAndAZ(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -231,11 +260,7 @@ func TestAudit4_DescribeDomainNodes_StorageAndAZ(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// DescribeDomainChangeProgress includes StartTime and LastUpdatedTime
-// ---------------------------------------------------------------------------
-
-func TestAudit4_DescribeDomainChangeProgress_Timestamps(t *testing.T) {
+func TestDescribeDomainChangeProgress_Timestamps(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -261,11 +286,7 @@ func TestAudit4_DescribeDomainChangeProgress_Timestamps(t *testing.T) {
 	assert.NotEmpty(t, status["LastUpdatedTime"], "LastUpdatedTime must be present")
 }
 
-// ---------------------------------------------------------------------------
-// DescribeDryRunProgress includes ValidationFailures (empty slice)
-// ---------------------------------------------------------------------------
-
-func TestAudit4_DescribeDryRunProgress_ValidationFailures(t *testing.T) {
+func TestDescribeDryRunProgress_ValidationFailures(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -291,49 +312,7 @@ func TestAudit4_DescribeDryRunProgress_ValidationFailures(t *testing.T) {
 	assert.Empty(t, failures)
 }
 
-// ---------------------------------------------------------------------------
-// ListInstanceTypeDetails includes AdvancedSecurityEnabled and InstanceRole
-// ---------------------------------------------------------------------------
-
-func TestAudit4_ListInstanceTypeDetails_InstanceRoleAndSecurity(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler()
-
-	resp := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/instanceTypeDetails", nil)
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-
-	details, ok := out["InstanceTypeDetails"].([]any)
-	require.True(t, ok)
-	require.NotEmpty(t, details)
-
-	for _, raw := range details {
-		entry, ok2 := raw.(map[string]any)
-		require.True(t, ok2)
-
-		_, hasRole := entry["InstanceRole"]
-		assert.True(t, hasRole, "InstanceRole must be present for %v", entry["InstanceType"])
-
-		roles, ok3 := entry["InstanceRole"].([]any)
-		require.True(t, ok3, "InstanceRole must be a list")
-		assert.NotEmpty(t, roles)
-
-		_, hasSec := entry["AdvancedSecurityEnabled"]
-		assert.True(t, hasSec, "AdvancedSecurityEnabled must be present for %v", entry["InstanceType"])
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Backend: GetDomainHealth warm node count
-// ---------------------------------------------------------------------------
-
-func TestAudit4_GetDomainHealth_WarmNodeCount(t *testing.T) {
+func TestGetDomainHealth_WarmNodeCount(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")

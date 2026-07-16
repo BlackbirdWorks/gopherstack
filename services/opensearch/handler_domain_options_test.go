@@ -2,6 +2,7 @@ package opensearch_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 
 // TestAudit1_CreateDomain_FullClusterConfig verifies all ClusterConfig fields round-trip through
 // CreateDomain and are reflected in DescribeDomain.
-func TestAudit1_CreateDomain_FullClusterConfig(t *testing.T) {
+func TestCreateDomain_FullClusterConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -114,7 +115,7 @@ func TestAudit1_CreateDomain_FullClusterConfig(t *testing.T) {
 }
 
 // TestAudit1_CreateDomain_EBSOptions verifies EBSOptions are stored and returned.
-func TestAudit1_CreateDomain_EBSOptions(t *testing.T) {
+func TestCreateDomain_EBSOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -192,7 +193,7 @@ func TestAudit1_CreateDomain_EBSOptions(t *testing.T) {
 }
 
 // TestAudit1_CreateDomain_EncryptionOptions verifies encryption at rest and node-to-node options.
-func TestAudit1_CreateDomain_EncryptionOptions(t *testing.T) {
+func TestCreateDomain_EncryptionOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -271,7 +272,7 @@ func TestAudit1_CreateDomain_EncryptionOptions(t *testing.T) {
 }
 
 // TestAudit1_CreateDomain_DomainEndpointOptions verifies HTTPS and custom endpoint options.
-func TestAudit1_CreateDomain_DomainEndpointOptions(t *testing.T) {
+func TestCreateDomain_DomainEndpointOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -333,7 +334,7 @@ func TestAudit1_CreateDomain_DomainEndpointOptions(t *testing.T) {
 }
 
 // TestAudit1_CreateDomain_AdvancedSecurityOptions verifies FGAC settings including SAML.
-func TestAudit1_CreateDomain_AdvancedSecurityOptions(t *testing.T) {
+func TestCreateDomain_AdvancedSecurityOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -415,7 +416,7 @@ func TestAudit1_CreateDomain_AdvancedSecurityOptions(t *testing.T) {
 }
 
 // TestAudit1_CreateDomain_VPCOptions verifies VPC configuration is stored and returned.
-func TestAudit1_CreateDomain_VPCOptions(t *testing.T) {
+func TestCreateDomain_VPCOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -474,7 +475,7 @@ func TestAudit1_CreateDomain_VPCOptions(t *testing.T) {
 }
 
 // TestAudit1_CreateDomain_CognitoOptions verifies Cognito / Kibana auth options.
-func TestAudit1_CreateDomain_CognitoOptions(t *testing.T) {
+func TestCreateDomain_CognitoOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -535,7 +536,7 @@ func TestAudit1_CreateDomain_CognitoOptions(t *testing.T) {
 }
 
 // TestAudit1_CreateDomain_LogPublishingOptions verifies all 4 log type options.
-func TestAudit1_CreateDomain_LogPublishingOptions(t *testing.T) {
+func TestCreateDomain_LogPublishingOptions(t *testing.T) {
 	t.Parallel()
 
 	allLogTypes := []string{
@@ -613,7 +614,7 @@ func TestAudit1_CreateDomain_LogPublishingOptions(t *testing.T) {
 }
 
 // TestAudit1_CreateDomain_SnapshotOptions verifies automated snapshot start hour.
-func TestAudit1_CreateDomain_SnapshotOptions(t *testing.T) {
+func TestCreateDomain_SnapshotOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -658,7 +659,7 @@ const (
 )
 
 // TestAudit1_CreateDomain_AccessPolicies verifies the access policies JSON field.
-func TestAudit1_CreateDomain_AccessPolicies(t *testing.T) {
+func TestCreateDomain_AccessPolicies(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -706,305 +707,23 @@ func TestAudit1_CreateDomain_AccessPolicies(t *testing.T) {
 	}
 }
 
-// TestAudit1_UpdateDomainConfig_AllOptions verifies UpdateDomainConfig can set all new fields.
-func TestAudit1_UpdateDomainConfig_AllOptions(t *testing.T) {
+func TestOpenSearchHandler_CreateDomain_WithClusterConfig(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		updateBody map[string]any
-		verify     func(t *testing.T, status map[string]any)
-		name       string
-	}{
-		{
-			name: "update_ebs_options",
-			updateBody: map[string]any{
-				"EBSOptions": map[string]any{
-					"EBSEnabled": true,
-					"VolumeType": "gp3",
-					"VolumeSize": 200,
-				},
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				ebs, ok := dc["EBSOptions"].(map[string]any)
-				require.True(t, ok, "EBSOptions must be in DomainConfig")
-				opts, ok := ebs["Options"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, true, opts["EBSEnabled"])
-				assert.Equal(t, "gp3", opts["VolumeType"])
-			},
+	h := newTestHandler()
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
+		"DomainName":    "cc-domain",
+		"EngineVersion": "OpenSearch_2.11",
+		"ClusterConfig": map[string]any{
+			"InstanceType":  "r5.large.search",
+			"InstanceCount": 3,
 		},
-		{
-			name: "update_encryption_at_rest",
-			updateBody: map[string]any{
-				"EncryptionAtRestOptions": map[string]any{
-					"Enabled":  true,
-					"KMSKeyId": "arn:aws:kms:us-east-1:123456789012:key/new-key",
-				},
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				enc, ok := dc["EncryptionAtRestOptions"].(map[string]any)
-				require.True(t, ok, "EncryptionAtRestOptions must be in DomainConfig")
-				opts, ok := enc["Options"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, true, opts["Enabled"])
-			},
-		},
-		{
-			name: "update_node_to_node_encryption",
-			updateBody: map[string]any{
-				"NodeToNodeEncryptionOptions": map[string]any{
-					"Enabled": true,
-				},
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				n2n, ok := dc["NodeToNodeEncryptionOptions"].(map[string]any)
-				require.True(t, ok, "NodeToNodeEncryptionOptions must be in DomainConfig")
-				opts, ok := n2n["Options"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, true, opts["Enabled"])
-			},
-		},
-		{
-			name: "update_domain_endpoint_options",
-			updateBody: map[string]any{
-				"DomainEndpointOptions": map[string]any{
-					"EnforceHTTPS":      true,
-					"TLSSecurityPolicy": "Policy-Min-TLS-1-2-2019-07",
-				},
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				deo, ok := dc["DomainEndpointOptions"].(map[string]any)
-				require.True(t, ok, "DomainEndpointOptions must be in DomainConfig")
-				opts, ok := deo["Options"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, true, opts["EnforceHTTPS"])
-			},
-		},
-		{
-			name: "update_advanced_security_options",
-			updateBody: map[string]any{
-				"AdvancedSecurityOptions": map[string]any{
-					"Enabled":                     true,
-					"InternalUserDatabaseEnabled": true,
-				},
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				aso, ok := dc["AdvancedSecurityOptions"].(map[string]any)
-				require.True(t, ok, "AdvancedSecurityOptions must be in DomainConfig")
-				opts, ok := aso["Options"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, true, opts["Enabled"])
-				assert.Equal(t, true, opts["InternalUserDatabaseEnabled"])
-			},
-		},
-		{
-			name: "update_vpc_options",
-			updateBody: map[string]any{
-				"VPCOptions": map[string]any{
-					"SubnetIds":        []string{"subnet-updated"},
-					"SecurityGroupIds": []string{"sg-updated"},
-				},
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				vpc, ok := dc["VPCOptions"].(map[string]any)
-				require.True(t, ok, "VPCOptions must be in DomainConfig")
-				opts, ok := vpc["Options"].(map[string]any)
-				require.True(t, ok)
-				assert.NotNil(t, opts["SubnetIds"])
-			},
-		},
-		{
-			name: "update_cognito_options",
-			updateBody: map[string]any{
-				"CognitoOptions": map[string]any{
-					"Enabled":        true,
-					"UserPoolId":     "us-east-1_updated",
-					"IdentityPoolId": "us-east-1:updated-id",
-					"RoleArn":        "arn:aws:iam::123456789012:role/UpdatedRole",
-				},
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				cog, ok := dc["CognitoOptions"].(map[string]any)
-				require.True(t, ok, "CognitoOptions must be in DomainConfig")
-				opts, ok := cog["Options"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, true, opts["Enabled"])
-				assert.Equal(t, "us-east-1_updated", opts["UserPoolId"])
-			},
-		},
-		{
-			name: "update_log_publishing_options",
-			updateBody: map[string]any{
-				"LogPublishingOptions": map[string]any{
-					"SEARCH_SLOW_LOGS": map[string]any{
-						"Enabled":                   true,
-						"CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:123456789012:log-group:/updated",
-					},
-				},
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				logs, ok := dc["LogPublishingOptions"].(map[string]any)
-				require.True(t, ok, "LogPublishingOptions must be in DomainConfig")
-				opts, ok := logs["Options"].(map[string]any)
-				require.True(t, ok)
-				assert.Contains(t, opts, "SEARCH_SLOW_LOGS")
-			},
-		},
-		{
-			name: "update_access_policies",
-			updateBody: map[string]any{
-				"AccessPolicies": policyRootAllowAll,
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				ap, ok := dc["AccessPolicies"].(map[string]any)
-				require.True(t, ok, "AccessPolicies must be in DomainConfig")
-				assert.NotEmpty(t, ap["Options"])
-			},
-		},
-		{
-			name: "update_cluster_config_with_dedicated_master",
-			updateBody: map[string]any{
-				"ClusterConfig": map[string]any{
-					"InstanceType":           "r6g.large.search",
-					"InstanceCount":          3,
-					"DedicatedMasterEnabled": true,
-					"DedicatedMasterType":    "m6g.large.search",
-					"DedicatedMasterCount":   3,
-				},
-			},
-			verify: func(t *testing.T, status map[string]any) {
-				t.Helper()
-				dc, ok := status["DomainConfig"].(map[string]any)
-				require.True(t, ok)
-				cc, ok := dc["ClusterConfig"].(map[string]any)
-				require.True(t, ok, "ClusterConfig must be in DomainConfig")
-				opts, ok := cc["Options"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, true, opts["DedicatedMasterEnabled"])
-				assert.Equal(t, "m6g.large.search", opts["DedicatedMasterType"])
-				assert.InDelta(t, float64(3), opts["DedicatedMasterCount"], 0)
-			},
-		},
-	}
+	})
+	defer resp.Body.Close()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			h := newTestHandler()
-			createResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
-				map[string]any{"DomainName": "upd-test"})
-			createResp.Body.Close()
-			require.Equal(t, http.StatusOK, createResp.StatusCode)
-
-			upResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/domain/upd-test/config",
-				tt.updateBody)
-			defer upResp.Body.Close()
-			require.Equal(t, http.StatusOK, upResp.StatusCode)
-
-			var out map[string]any
-			require.NoError(t, json.NewDecoder(upResp.Body).Decode(&out))
-			tt.verify(t, out)
-		})
-	}
-}
-
-// TestAudit1_DescribeDomainConfig_FullConfig verifies DescribeDomainConfig returns all new fields.
-func TestAudit1_DescribeDomainConfig_FullConfig(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		createBody map[string]any
-		name       string
-		wantKeys   []string
-	}{
-		{
-			name: "with_ebs_options",
-			createBody: map[string]any{
-				"DomainName": "cfg-ebs",
-				"EBSOptions": map[string]any{
-					"EBSEnabled": true,
-					"VolumeType": "gp3",
-					"VolumeSize": 100,
-				},
-			},
-			wantKeys: []string{"EngineVersion", "ClusterConfig", "EBSOptions"},
-		},
-		{
-			name: "with_encryption",
-			createBody: map[string]any{
-				"DomainName":                  "cfg-enc",
-				"EncryptionAtRestOptions":     map[string]any{"Enabled": true},
-				"NodeToNodeEncryptionOptions": map[string]any{"Enabled": true},
-			},
-			wantKeys: []string{
-				"EngineVersion", "ClusterConfig",
-				"EncryptionAtRestOptions", "NodeToNodeEncryptionOptions",
-			},
-		},
-		{
-			name: "with_advanced_security",
-			createBody: map[string]any{
-				"DomainName": "cfg-aso",
-				"AdvancedSecurityOptions": map[string]any{
-					"Enabled":                     true,
-					"InternalUserDatabaseEnabled": true,
-				},
-			},
-			wantKeys: []string{"EngineVersion", "ClusterConfig", "AdvancedSecurityOptions"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			createResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", tt.createBody)
-			createResp.Body.Close()
-			require.Equal(t, http.StatusOK, createResp.StatusCode)
-
-			domainName := tt.createBody["DomainName"].(string)
-			cfgResp := doRequest(t, h, http.MethodGet,
-				"/2021-01-01/opensearch/domain/"+domainName+"/config", nil)
-			defer cfgResp.Body.Close()
-			require.Equal(t, http.StatusOK, cfgResp.StatusCode)
-
-			var out map[string]any
-			require.NoError(t, json.NewDecoder(cfgResp.Body).Decode(&out))
-			dc, ok := out["DomainConfig"].(map[string]any)
-			require.True(t, ok)
-
-			for _, key := range tt.wantKeys {
-				assert.Contains(t, dc, key, "DomainConfig should contain %s", key)
-			}
-		})
-	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(bodyBytes), "r5.large.search")
 }

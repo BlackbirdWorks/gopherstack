@@ -5,12 +5,382 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/opensearch"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
+
+func TestARNIndexRebuiltAfterRestore(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+	b.AddDomainInternal("snap-domain", "OpenSearch_2.11")
+
+	// Snapshot and restore into fresh backend.
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// Tag operations should work after restore (they rely on arnIndex).
+	domain, err := fresh.DescribeDomain("snap-domain")
+	require.NoError(t, err)
+
+	err = fresh.AddTags(domain.ARN, map[string]string{"env": "test"})
+	require.NoError(t, err)
+
+	tags, err := fresh.ListTags(domain.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "test", tags["env"])
+}
+
+func TestTagsAfterRestore_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+	b.AddDomainInternal("tagged-domain", "")
+
+	domain, err := b.DescribeDomain("tagged-domain")
+	require.NoError(t, err)
+
+	require.NoError(t, b.AddTags(domain.ARN, map[string]string{"key": "value", "env": "prod"}))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// Tags should survive round-trip
+	tags, err := fresh.ListTags(domain.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "value", tags["key"])
+	assert.Equal(t, "prod", tags["env"])
+}
+
+func TestPersistence_PackagesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	pkg, err := b.CreatePackage("my-pkg", "TXT-DICTIONARY", "test package", nil, nil)
+	require.NoError(t, err)
+	pkgID := pkg.PackageID
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	pkgs, err := fresh.DescribePackages([]string{pkgID})
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1)
+	assert.Equal(t, "my-pkg", pkgs[0].PackageName)
+	assert.Equal(t, "TXT-DICTIONARY", pkgs[0].PackageType)
+}
+
+func TestPersistence_VpcEndpointsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+	b.AddDomainInternal("vpc-persist", "")
+
+	domARN := "arn:aws:es:us-east-1:123456789012:domain/vpc-persist"
+	ep, err := b.CreateVpcEndpoint(domARN, map[string]any{
+		"SubnetIds":        []string{"subnet-abc"},
+		"SecurityGroupIds": []string{"sg-abc"},
+	})
+	require.NoError(t, err)
+	epID := ep.VpcEndpointID
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	endpoints := fresh.ListVpcEndpoints()
+	require.NotEmpty(t, endpoints)
+	found := false
+	for _, e := range endpoints {
+		if e.VpcEndpointID == epID {
+			found = true
+
+			break
+		}
+	}
+	assert.True(t, found, "VPC endpoint should persist through snapshot/restore")
+}
+
+func TestPersistence_UpgradeHistoryRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+	b.AddDomainInternal("uh-persist", "OpenSearch_2.11")
+
+	err := b.UpgradeDomain("uh-persist", "OpenSearch_2.17")
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	history, err := fresh.GetUpgradeHistory("uh-persist")
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, "OpenSearch_2.17", history[0].UpgradeName)
+}
+
+func TestPersistence_AutoTunesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+	b.AddDomainInternal("at-persist", "")
+
+	err := b.SetAutoTune("at-persist", "ENABLED", nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// Domain should still exist.
+	d, err := fresh.DescribeDomain("at-persist")
+	require.NoError(t, err)
+	assert.Equal(t, "at-persist", d.Name)
+
+	// AutoTune entries should be present.
+	tunes, err := fresh.GetAutoTune("at-persist")
+	require.NoError(t, err)
+	assert.NotEmpty(t, tunes)
+}
+
+func TestPersistence_ReservedInstancesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	ri, err := b.PurchaseReservedInstanceOffering("ri-offering-1", "my-reservation", 3)
+	require.NoError(t, err)
+	riID := ri.ReservedInstanceID
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	instances := fresh.DescribeReservedInstances()
+	require.NotEmpty(t, instances)
+	found := false
+	for _, inst := range instances {
+		if inst.ReservedInstanceID == riID {
+			found = true
+			assert.Equal(t, "my-reservation", inst.ReservationName)
+			assert.Equal(t, 3, inst.InstanceCount)
+
+			break
+		}
+	}
+	assert.True(t, found, "reserved instance should persist through snapshot/restore")
+}
+
+func TestPersistence_OutboundConnectionsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	conn, err := b.CreateOutboundConnection(
+		"test-alias",
+		map[string]any{"DomainName": "local-domain"},
+		map[string]any{"DomainName": "remote-domain"},
+	)
+	require.NoError(t, err)
+	connID := conn.ConnectionID
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	conns := fresh.DescribeOutboundConnections()
+	require.NotEmpty(t, conns)
+	found := false
+	for _, c := range conns {
+		if c.ConnectionID == connID {
+			found = true
+			assert.Equal(t, "test-alias", c.ConnectionAlias)
+
+			break
+		}
+	}
+	assert.True(t, found, "outbound connection should persist through snapshot/restore")
+}
+
+func TestPersistence_ScheduledActionsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+	b.AddDomainInternal("sa-persist", "")
+
+	action := &opensearch.ScheduledAction{
+		ID:          "sa-001",
+		Type:        "SERVICE_SOFTWARE_UPDATE",
+		Severity:    "HIGH",
+		ScheduledBy: "CUSTOMER",
+		Status:      "PENDING_UPDATE",
+	}
+	_, err := b.UpdateScheduledAction("sa-persist", action)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	actions := fresh.ListScheduledActions("sa-persist")
+	require.Len(t, actions, 1)
+	assert.Equal(t, "sa-001", actions[0].ID)
+	assert.Equal(t, "HIGH", actions[0].Severity)
+}
+
+func TestPersistence_DomainIndexesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+	b.AddDomainInternal("idx-persist", "")
+
+	idx, err := b.CreateIndex(
+		"idx-persist", "my-index",
+		map[string]any{"properties": map[string]any{"field": "text"}},
+		map[string]any{"number_of_shards": 1},
+		map[string]any{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "my-index", idx.IndexName)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	restoredIdx, err := fresh.GetIndex("idx-persist", "my-index")
+	require.NoError(t, err)
+	assert.Equal(t, "my-index", restoredIdx.IndexName)
+}
+
+func TestPersistence_CountersRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	// Create items to bump counters.
+	b.AddDomainInternal("counter-dom", "")
+	_, err := b.CreateOutboundConnection("alias1", nil, nil)
+	require.NoError(t, err)
+	_, err = b.CreateVpcEndpoint("arn:test", nil)
+	require.NoError(t, err)
+	_, err = b.CreatePackage("pkg-counter", "TXT-DICTIONARY", "", nil, nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// Creating new items after restore should not reuse old IDs.
+	conn2, err := fresh.CreateOutboundConnection("alias2", nil, nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, "co-1", conn2.ConnectionID, "counter should be restored, new ID should not collide")
+
+	ep2, err := fresh.CreateVpcEndpoint("arn:test2", nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, "vpce-1", ep2.VpcEndpointID, "VPC endpoint counter should be restored")
+}
+
+func TestPersistence_DomainMaintenanceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+	b.AddDomainInternal("maint-domain", "")
+
+	m, err := b.StartDomainMaintenance("maint-domain", "REBOOT_NODE", "node-1")
+	require.NoError(t, err)
+	assert.NotEmpty(t, m.MaintenanceID)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-west-2")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	maintenances, err := fresh.ListDomainMaintenances("maint-domain")
+	require.NoError(t, err)
+	require.Len(t, maintenances, 1)
+	assert.Equal(t, "REBOOT_NODE", maintenances[0].Action)
+	assert.Equal(t, "node-1", maintenances[0].NodeID)
+}
+
+func TestOpenSearchHandler_Persistence_NewOps(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	// Set up state with new ops
+	_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "snap-domain", EngineVersion: "OpenSearch_2.11"})
+	require.NoError(t, err)
+
+	opensearch.SeedInboundConnection(b, "conn-abc")
+
+	_, err = b.AddDataSource("snap-domain", "my-ds", "desc", "S3GLUE")
+	require.NoError(t, err)
+
+	_, err = b.AddDirectQueryDataSource("my-dq", "desc", "CloudWatchLogs", []string{})
+	require.NoError(t, err)
+
+	b.AddPackageInternal("pkg-001", "test-pkg", "TXT-DICTIONARY")
+
+	_, err = b.AssociatePackage("pkg-001", "snap-domain")
+	require.NoError(t, err)
+
+	_, err = b.AuthorizeVpcEndpointAccess("snap-domain", "111122223333", "")
+	require.NoError(t, err)
+
+	_, err = b.CreateApplication("my-app", nil, nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// Verify domain persists
+	domain, err := fresh.DescribeDomain("snap-domain")
+	require.NoError(t, err)
+	assert.Equal(t, "snap-domain", domain.Name)
+
+	// Verify inbound connection persists
+	conn, err := fresh.AcceptInboundConnection("conn-abc")
+	require.NoError(t, err)
+	assert.Equal(t, "ACTIVE", conn.Status)
+
+	// Verify application persists
+	app, err := fresh.CreateApplication("another-app", nil, nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, app.ID)
+}
 
 func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	t.Parallel()
