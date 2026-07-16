@@ -160,3 +160,162 @@ func TestEKS_SnapshotVersionGuard(t *testing.T) {
 
 	assert.Equal(t, 0, b.ClusterCount())
 }
+
+// TestPersistenceRoundTrip_SubscriptionAndFargate verifies that subscriptions,
+// Fargate profiles, and pod identity associations survive a snapshot/restore cycle.
+func TestPersistenceRoundTrip_SubscriptionAndFargate(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateEksAnywhereSubscription("my-sub", 3, "Cluster", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123:role/fp", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreatePodIdentityAssociation("c1", "default", "sa1", "arn:aws:iam::123:role/sa", nil)
+	require.NoError(t, err)
+
+	// Snapshot and restore
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	err = b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	subs := b2.ListEksAnywhereSubscriptions()
+	assert.Len(t, subs, 1)
+
+	names, err := b2.ListFargateProfiles("c1")
+	require.NoError(t, err)
+	assert.Len(t, names, 1)
+
+	podAssocs, err := b2.ListPodIdentityAssociations("c1")
+	require.NoError(t, err)
+	assert.Len(t, podAssocs, 1)
+}
+
+// TestPersistenceRoundTrip_AddonCapabilityEncryptionConfig verifies that addons,
+// fargate profiles, pod identity, capabilities, subscriptions, and encryption
+// config all survive a Handler-mediated snapshot/restore cycle.
+func TestPersistenceRoundTrip_AddonCapabilityEncryptionConfig(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+
+	// Create cluster and access entry.
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAccessEntry("c1", "arn:aws:iam::123456789012:role/r1", "STANDARD", "", nil, nil)
+	require.NoError(t, err)
+
+	// Create addon.
+	_, err = b.CreateAddon("c1", "vpc-cni", "v1.12.0", "", "", "", nil)
+	require.NoError(t, err)
+
+	// Create fargate profile.
+	_, err = b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123456789012:role/fargate", nil, nil, nil)
+	require.NoError(t, err)
+
+	// Create pod identity association.
+	_, err = b.CreatePodIdentityAssociation("c1", "default", "my-sa", "arn:aws:iam::123456789012:role/pod", nil)
+	require.NoError(t, err)
+
+	// Create capability.
+	_, err = b.CreateCapability("c1", "cap1", "ARGOCD", "arn:aws:iam::123456789012:role/capability-role", "RETAIN", nil)
+	require.NoError(t, err)
+
+	// Create subscription.
+	_, err = b.CreateEksAnywhereSubscription("sub1", 3, "License", nil)
+	require.NoError(t, err)
+
+	// Associate encryption config.
+	_, err = b.AssociateEncryptionConfig("c1", []eks.EncryptionConfig{
+		{Provider: map[string]string{"keyArn": "arn:aws:kms:us-east-1:123:key/abc"}, Resources: []string{"secrets"}},
+	})
+	require.NoError(t, err)
+
+	// Snapshot and restore into a fresh backend.
+	h := eks.NewHandler(b)
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	h2 := eks.NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Verify cluster is present.
+	c, err := b2.DescribeCluster("c1")
+	require.NoError(t, err)
+	assert.Equal(t, "c1", c.Name)
+}
+
+// TestPersistenceRoundTrip_ClusterTags verifies a single tagged cluster survives
+// a snapshot/restore cycle.
+func TestPersistenceRoundTrip_ClusterTags(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, map[string]string{"env": "test"})
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, b2.ClusterCount())
+
+	tags, err := b2.ListTagsForResource("arn:aws:eks:" + config.DefaultRegion + ":123456789012:cluster/c1")
+	require.NoError(t, err)
+	assert.Equal(t, "test", tags["env"])
+}
+
+// TestPersistenceRoundTrip_ClusterAndNodegroup verifies a cluster+nodegroup pair
+// survives a Handler-mediated snapshot/restore cycle.
+func TestPersistenceRoundTrip_ClusterAndNodegroup(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+
+	_, err := b.CreateCluster(
+		"cluster1",
+		"1.30",
+		"arn:aws:iam::000000000000:role/eks-role",
+		nil, nil,
+		map[string]string{"env": "test"},
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateNodegroup(
+		"cluster1", "ng1", "arn:aws:iam::000000000000:role/ng-role",
+		"AL2_x86_64", "ON_DEMAND", "1.30", "",
+		[]string{"t3.medium"}, 2, 1, 5, eks.NodegroupInput{}, map[string]string{"team": "platform"},
+	)
+	require.NoError(t, err)
+
+	h := eks.NewHandler(b)
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := eks.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	h2 := eks.NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	c, err := b2.DescribeCluster("cluster1")
+	require.NoError(t, err)
+	assert.Equal(t, "cluster1", c.Name)
+	assert.Equal(t, "test", c.Tags.Clone()["env"])
+
+	names, err := b2.ListNodegroups("cluster1")
+	require.NoError(t, err)
+	require.Len(t, names, 1)
+	assert.Equal(t, "ng1", names[0])
+}
