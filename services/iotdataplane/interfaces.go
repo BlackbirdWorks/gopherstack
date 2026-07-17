@@ -1,6 +1,8 @@
 package iotdataplane
 
-import "context"
+import (
+	"context"
+)
 
 // MQTTPublisher publishes a message to an MQTT topic.
 type MQTTPublisher interface {
