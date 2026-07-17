@@ -8,11 +8,88 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/dax"
 )
 
-// TestCreateClusterTagsAsArray verifies that CreateCluster accepts Tags as an array of
+// ---- Tags ----
+
+func TestHandlerTagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *dax.Handler) string
+		tags       []map[string]string
+		wantStatus int
+	}{
+		{
+			name: "tag cluster",
+			setup: func(t *testing.T, h *dax.Handler) string {
+				t.Helper()
+				rec := daxRequest(t, h, "CreateCluster", validClusterBody("tagged-cluster"))
+				var resp map[string]any
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+
+				return resp["Cluster"].(map[string]any)["ClusterArn"].(string)
+			},
+			tags:       []map[string]string{{"Key": "env", "Value": "prod"}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "resource not found",
+			setup: func(_ *testing.T, _ *dax.Handler) string {
+				return "arn:aws:dax:us-east-1:123456789012:cache/no-such"
+			},
+			tags:       []map[string]string{{"Key": "k", "Value": "v"}},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			arn := tt.setup(t, h)
+
+			rec := daxRequest(t, h, "TagResource", map[string]any{
+				"ResourceName": arn,
+				"Tags":         tt.tags,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandlerListTags(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+
+	createRec := daxRequest(t, h, "CreateCluster", validClusterBody("tagged-cluster"))
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	clusterArn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
+
+	tagRec := daxRequest(t, h, "TagResource", map[string]any{
+		"ResourceName": clusterArn,
+		"Tags":         []map[string]string{{"Key": "env", "Value": "prod"}},
+	})
+	assert.Equal(t, http.StatusOK, tagRec.Code)
+
+	listRec := daxRequest(t, h, "ListTags", map[string]any{"ResourceName": clusterArn})
+	assert.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	tags := listResp["Tags"].([]any)
+	assert.NotEmpty(t, tags)
+}
+
+// TestHandlerCreateClusterTagsAsArray verifies that CreateCluster accepts Tags as an array of
 // {Key, Value} objects (the AWS SDK wire format) rather than a JSON map.
-func TestCreateClusterTagsAsArray(t *testing.T) {
+func TestHandlerCreateClusterTagsAsArray(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -101,8 +178,8 @@ func TestCreateClusterTagsAsArray(t *testing.T) {
 	}
 }
 
-// TestTagResourceValidation verifies that TagResource enforces AWS tag constraints.
-func TestTagResourceValidation(t *testing.T) {
+// TestHandlerTagResourceValidation verifies that TagResource enforces AWS tag constraints.
+func TestHandlerTagResourceValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -177,9 +254,9 @@ func TestTagResourceValidation(t *testing.T) {
 	}
 }
 
-// TestTagResourceQuotaExceeded verifies that adding tags beyond the 50-tag limit returns
+// TestHandlerTagResourceQuotaExceeded verifies that adding tags beyond the 50-tag limit returns
 // TagQuotaPerResourceExceeded, matching AWS behavior.
-func TestTagResourceQuotaExceeded(t *testing.T) {
+func TestHandlerTagResourceQuotaExceeded(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 
@@ -191,20 +268,20 @@ func TestTagResourceQuotaExceeded(t *testing.T) {
 	arn := createResp["Cluster"].(map[string]any)["ClusterArn"].(string)
 
 	// Add 50 tags in two batches of 25.
-	batch1 := make([]map[string]string, 25)
-	for i := range batch1 {
-		batch1[i] = map[string]string{"Key": strings.Repeat("a", i+1), "Value": "v"}
+	firstBatch := make([]map[string]string, 25)
+	for i := range firstBatch {
+		firstBatch[i] = map[string]string{"Key": strings.Repeat("a", i+1), "Value": "v"}
 	}
 
-	rec := daxRequest(t, h, "TagResource", map[string]any{"ResourceName": arn, "Tags": batch1})
+	rec := daxRequest(t, h, "TagResource", map[string]any{"ResourceName": arn, "Tags": firstBatch})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	batch2 := make([]map[string]string, 25)
-	for i := range batch2 {
-		batch2[i] = map[string]string{"Key": strings.Repeat("b", i+1), "Value": "v"}
+	secondBatch := make([]map[string]string, 25)
+	for i := range secondBatch {
+		secondBatch[i] = map[string]string{"Key": strings.Repeat("b", i+1), "Value": "v"}
 	}
 
-	rec = daxRequest(t, h, "TagResource", map[string]any{"ResourceName": arn, "Tags": batch2})
+	rec = daxRequest(t, h, "TagResource", map[string]any{"ResourceName": arn, "Tags": secondBatch})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// 51st unique tag must be rejected.
@@ -219,9 +296,9 @@ func TestTagResourceQuotaExceeded(t *testing.T) {
 	assert.Equal(t, "TagQuotaPerResourceExceeded", errResp["__type"])
 }
 
-// TestTagResourceReturnsAllTags verifies that TagResource returns the complete tag set on the
-// resource after the operation, not just the tags that were added.
-func TestTagResourceReturnsAllTags(t *testing.T) {
+// TestHandlerTagResourceReturnsAllTags verifies that TagResource returns the complete tag set on
+// the resource after the operation, not just the tags that were added.
+func TestHandlerTagResourceReturnsAllTags(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 
@@ -262,9 +339,9 @@ func TestTagResourceReturnsAllTags(t *testing.T) {
 	assert.Equal(t, "v2", keys["k2"])
 }
 
-// TestUntagResourceReturnsRemainingTags verifies that UntagResource returns the remaining tags
-// after removal, matching AWS DAX behavior.
-func TestUntagResourceReturnsRemainingTags(t *testing.T) {
+// TestHandlerUntagResourceReturnsRemainingTags verifies that UntagResource returns the remaining
+// tags after removal, matching AWS DAX behavior.
+func TestHandlerUntagResourceReturnsRemainingTags(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 
