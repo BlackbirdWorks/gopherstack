@@ -171,7 +171,7 @@ func buildPersistenceDTORegistry() (
 // RepoTemplateAssoc, PRApprovals, PROverrides, PROverriders, PREvents,
 // CommentReactions, FileHistory, and Triggers are the plain maps left
 // unconverted by Phase 3.3 (see the field comments on InMemoryBackend in
-// backend.go): each holds a value with no identity of its own (a set, a bare
+// store.go): each holds a value with no identity of its own (a set, a bare
 // scalar, or a slice), so there is nothing for store.Table to key on, and
 // each is persisted here directly instead. RepositoriesByARN is NOT included
 // here: it is a pure reverse-lookup cache, fully rebuildable from
