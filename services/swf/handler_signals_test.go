@@ -1,19 +1,17 @@
 package swf_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// TestParity_SignalWorkflowExecutionRequiresSignalName verifies that
+// TestHandler_SignalWorkflowExecution_RequiresSignalName verifies that
 // SignalWorkflowExecution rejects requests with an empty or absent signalName.
 // Real AWS returns ValidationException for this case; the emulator previously
 // accepted empty signalNames, recording a history event with no signal name.
-func TestParity_SignalWorkflowExecutionRequiresSignalName(t *testing.T) {
+func TestHandler_SignalWorkflowExecution_RequiresSignalName(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -58,8 +56,7 @@ func TestParity_SignalWorkflowExecutionRequiresSignalName(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code,
 				"SignalWorkflowExecution status for case %q", tt.name)
 
-			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			errResp := parseSWFResp(t, rec)
 			errType, _ := errResp["__type"].(string)
 
 			if tt.name == "non_empty_signal_name_accepted" {

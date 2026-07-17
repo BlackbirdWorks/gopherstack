@@ -19,14 +19,14 @@ package swf
 // activeActivityTasks and activeDecisionTasks are "dirty" tables: their key
 // (taskToken) has no home on the record type's wire shape, so each record
 // gained a TaskToken field tagged json:"-" purely for store.Table's keyFn
-// (see the type docs in backend.go). Both are deliberately NOT
+// (see the type docs in models.go). Both are deliberately NOT
 // store.Register-ed onto b.registry (so b.registry.SnapshotAll never tries to
 // marshal them directly, which would silently drop the hidden field);
 // persistence.go instead builds an ephemeral DTO registry for them, mirroring
 // services/ses's "dirty" identities/configSets/... tables.
 //
 // history, activityQueues, decisionQueues, and tags are deliberately left as
-// plain maps -- see the InMemoryBackend doc comment in backend.go.
+// plain maps -- see the InMemoryBackend doc comment in store.go.
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -59,7 +59,7 @@ func activeDecisionTaskKeyFn(v *activeDecisionTaskRecord) string { return v.Task
 // (immediately after b.registry is created -- see NewInMemoryBackend), never
 // on every Reset() -- store.Register panics on a duplicate name, so runtime
 // resets go through b.registry.ResetAll() plus the dirty tables' own Reset()
-// calls instead (see InMemoryBackend.Reset in backend.go).
+// calls instead (see InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	b.domains = store.Register(b.registry, "domains", store.New(domainKeyFn))
 
