@@ -12,6 +12,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
+// newAuditBackend/newAuditHandler-equivalent helper used by the runner target
+// tests below: creates a fresh backend/handler pair for the standard test account/region.
+func newRunnerTestBackend(t *testing.T) *scheduler.InMemoryBackend {
+	t.Helper()
+
+	return scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+}
+
 // --- mock target implementations ---
 
 type mockLambdaInvoker struct {
@@ -822,4 +830,388 @@ func TestScheduler_Runner_CronDOWAliases(t *testing.T) {
 			assert.NotEmpty(t, invoker.Called(), "should fire at match time for "+tt.name)
 		})
 	}
+}
+
+// TestRunner_CompositeKey_SameNameDifferentGroups_BothFire verifies that two
+// schedules with the same name in different groups both fire independently
+// (the runner's lastFiredAt map is keyed by the group/name composite, not name alone).
+func TestRunner_CompositeKey_SameNameDifferentGroups_BothFire(t *testing.T) {
+	t.Parallel()
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:fn"
+	backend := newRunnerTestBackend(t)
+
+	_, err := backend.CreateScheduleGroup(context.Background(), "g1", "", nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreateScheduleGroup(context.Background(), "g2", "", nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreateSchedule(
+		context.Background(),
+		"same-name", "g1", "rate(1 second)", "", "",
+		scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::0:role/r"},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	_, err = backend.CreateSchedule(
+		context.Background(),
+		"same-name", "g2", "rate(1 second)", "", "",
+		scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::0:role/r"},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
+
+	// Both schedules should fire (composite key prevents conflict).
+	assert.Len(t, invoker.Called(), 2, "both schedules in different groups should fire")
+}
+
+// TestRunner_ActionAfterCompletion_Delete_RemovesSchedule verifies a one-shot
+// schedule configured with ActionAfterCompletion=DELETE is removed after firing.
+func TestRunner_ActionAfterCompletion_Delete_RemovesSchedule(t *testing.T) {
+	t.Parallel()
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:fn"
+	backend := newRunnerTestBackend(t)
+
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"one-shot", "", "rate(1 second)", "", "",
+		scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::0:role/r"},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+		scheduler.WithActionAfterCompletion("DELETE"),
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
+
+	// Schedule should have fired and been deleted.
+	require.Len(t, invoker.Called(), 1)
+
+	_, err = backend.GetSchedule(context.Background(), "one-shot", "")
+	assert.Error(t, err, "schedule should be deleted after ActionAfterCompletion=DELETE")
+}
+
+// TestRunner_ActionAfterCompletion_None_DoesNotRemove verifies
+// ActionAfterCompletion=NONE leaves the schedule in place after firing.
+func TestRunner_ActionAfterCompletion_None_DoesNotRemove(t *testing.T) {
+	t.Parallel()
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:fn"
+	backend := newRunnerTestBackend(t)
+
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"keep-me", "", "rate(1 second)", "", "",
+		scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::0:role/r"},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+		scheduler.WithActionAfterCompletion("NONE"),
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
+	require.Len(t, invoker.Called(), 1)
+
+	_, err = backend.GetSchedule(context.Background(), "keep-me", "")
+	assert.NoError(t, err, "schedule with ActionAfterCompletion=NONE should remain")
+}
+
+// mockEventBusPutter records calls made to PutSchedulerEvent.
+type mockEventBusPutter struct {
+	calls []struct{ busARN, source, detailType, detail string }
+	mu    sync.Mutex
+}
+
+func (m *mockEventBusPutter) PutSchedulerEvent(_ context.Context, busARN, source, detailType, detail string) error {
+	m.mu.Lock()
+	m.calls = append(m.calls, struct{ busARN, source, detailType, detail string }{busARN, source, detailType, detail})
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *mockEventBusPutter) Calls() []struct{ busARN, source, detailType, detail string } {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cp := make([]struct{ busARN, source, detailType, detail string }, len(m.calls))
+	copy(cp, m.calls)
+
+	return cp
+}
+
+func TestRunner_EventBridgeTarget_Invoked(t *testing.T) {
+	t.Parallel()
+
+	busARN := "arn:aws:events:us-east-1:000000000000:event-bus/my-bus"
+	backend := newRunnerTestBackend(t)
+
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"eb-sched", "", "rate(1 second)", "", "",
+		scheduler.Target{
+			ARN:     busARN,
+			RoleARN: "arn:aws:iam::0:role/r",
+			EventBridgeParameters: &scheduler.EventBridgeParameters{
+				DetailType: "TestType",
+				Source:     "com.test",
+			},
+		},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	putter := &mockEventBusPutter{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetEventBusPutter(putter)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
+
+	calls := putter.Calls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, busARN, calls[0].busARN)
+	assert.Equal(t, "com.test", calls[0].source)
+	assert.Equal(t, "TestType", calls[0].detailType)
+}
+
+// mockKinesisRecordPutter records calls made to PutSchedulerRecord.
+type mockKinesisRecordPutter struct {
+	calls []struct{ streamARN, partitionKey string }
+	mu    sync.Mutex
+}
+
+func (m *mockKinesisRecordPutter) PutSchedulerRecord(
+	_ context.Context,
+	streamARN, partitionKey string,
+	_ []byte,
+) error {
+	m.mu.Lock()
+	m.calls = append(m.calls, struct{ streamARN, partitionKey string }{streamARN, partitionKey})
+	m.mu.Unlock()
+
+	return nil
+}
+
+func TestRunner_KinesisTarget_Invoked(t *testing.T) {
+	t.Parallel()
+
+	streamARN := "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream"
+	backend := newRunnerTestBackend(t)
+
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"kinesis-sched", "", "rate(1 second)", "", "",
+		scheduler.Target{
+			ARN:               streamARN,
+			RoleARN:           "arn:aws:iam::0:role/r",
+			KinesisParameters: &scheduler.KinesisParameters{PartitionKey: "pk-1"},
+		},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	putter := &mockKinesisRecordPutter{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetKinesisRecordPutter(putter)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
+
+	putter.mu.Lock()
+	calls := putter.calls
+	putter.mu.Unlock()
+
+	require.Len(t, calls, 1)
+	assert.Equal(t, streamARN, calls[0].streamARN)
+	assert.Equal(t, "pk-1", calls[0].partitionKey)
+}
+
+// mockSageMakerPipelineStarter records calls made to StartPipelineExecution.
+type mockSageMakerPipelineStarter struct {
+	calls []string
+	mu    sync.Mutex
+}
+
+func (m *mockSageMakerPipelineStarter) StartPipelineExecution(
+	_ context.Context,
+	pipelineARN string,
+	_ map[string]string,
+) error {
+	m.mu.Lock()
+	m.calls = append(m.calls, pipelineARN)
+	m.mu.Unlock()
+
+	return nil
+}
+
+func TestRunner_SageMakerTarget_Invoked(t *testing.T) {
+	t.Parallel()
+
+	pipelineARN := "arn:aws:sagemaker:us-east-1:000000000000:pipeline/my-pipeline"
+	backend := newRunnerTestBackend(t)
+
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"sm-sched", "", "rate(1 second)", "", "",
+		scheduler.Target{
+			ARN:     pipelineARN,
+			RoleARN: "arn:aws:iam::0:role/r",
+			SageMakerPipelineParameters: &scheduler.SageMakerPipelineParameters{
+				PipelineParameterList: []scheduler.SageMakerPipelineParameter{
+					{Name: "p1", Value: "v1"},
+				},
+			},
+		},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	starter := &mockSageMakerPipelineStarter{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetSageMakerPipelineStarter(starter)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
+
+	starter.mu.Lock()
+	calls := starter.calls
+	starter.mu.Unlock()
+
+	require.Len(t, calls, 1)
+	assert.Equal(t, pipelineARN, calls[0])
+}
+
+// mockECSTaskRunner records calls made to RunSchedulerTask.
+type mockECSTaskRunner struct {
+	calls []struct {
+		taskDefARN, launchType string
+		taskCount              int
+	}
+	mu sync.Mutex
+}
+
+func (m *mockECSTaskRunner) RunSchedulerTask(_ context.Context, taskDefARN, launchType string, taskCount int) error {
+	m.mu.Lock()
+	m.calls = append(m.calls, struct {
+		taskDefARN, launchType string
+		taskCount              int
+	}{taskDefARN, launchType, taskCount})
+	m.mu.Unlock()
+
+	return nil
+}
+
+func TestRunner_ECSTarget_Invoked(t *testing.T) {
+	t.Parallel()
+
+	clusterARN := "arn:aws:ecs:us-east-1:000000000000:cluster/my-cluster"
+	taskDefARN := "arn:aws:ecs:us-east-1:000000000000:task-definition/my-td:1"
+	backend := newRunnerTestBackend(t)
+
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"ecs-sched", "", "rate(1 second)", "", "",
+		scheduler.Target{
+			ARN:     clusterARN,
+			RoleARN: "arn:aws:iam::0:role/r",
+			EcsParameters: &scheduler.EcsParameters{
+				TaskDefinitionArn: taskDefARN,
+				LaunchType:        "FARGATE",
+				TaskCount:         3,
+			},
+		},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	ecsRunner := &mockECSTaskRunner{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetECSTaskRunner(ecsRunner)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
+
+	ecsRunner.mu.Lock()
+	calls := ecsRunner.calls
+	ecsRunner.mu.Unlock()
+
+	require.Len(t, calls, 1)
+	assert.Equal(t, taskDefARN, calls[0].taskDefARN)
+	assert.Equal(t, "FARGATE", calls[0].launchType)
+	assert.Equal(t, 3, calls[0].taskCount)
+}
+
+// mockFailingLambda always fails Lambda invocation with the configured error.
+type mockFailingLambda struct {
+	err error
+}
+
+func (m *mockFailingLambda) InvokeFunction(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
+	return nil, 500, m.err
+}
+
+// mockDLQSender records ARNs sent to as a dead-letter queue.
+type mockDLQSender struct {
+	arns []string
+	mu   sync.Mutex
+}
+
+func (m *mockDLQSender) SendMessageToQueue(_ context.Context, queueARN, _ string) error {
+	m.mu.Lock()
+	m.arns = append(m.arns, queueARN)
+	m.mu.Unlock()
+
+	return nil
+}
+
+func TestRunner_DLQ_SentOnExhaustion(t *testing.T) {
+	t.Parallel()
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:failing-fn"
+	dlqARN := "arn:aws:sqs:us-east-1:000000000000:my-dlq"
+	backend := newRunnerTestBackend(t)
+
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"dlq-test", "", "rate(1 second)", "", "",
+		scheduler.Target{
+			ARN:     lambdaARN,
+			RoleARN: "arn:aws:iam::0:role/r",
+			RetryPolicy: &scheduler.RetryPolicy{
+				MaximumRetryAttempts: 0,
+			},
+			DeadLetterConfig: &scheduler.DeadLetterConfig{
+				Arn: dlqARN,
+			},
+		},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	failLambda := &mockFailingLambda{err: assert.AnError}
+	dlq := &mockDLQSender{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(failLambda)
+	runner.SetSQSSender(dlq)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
+
+	dlq.mu.Lock()
+	arns := dlq.arns
+	dlq.mu.Unlock()
+
+	require.Len(t, arns, 1)
+	assert.Equal(t, dlqARN, arns[0])
 }

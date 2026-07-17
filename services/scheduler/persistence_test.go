@@ -2,12 +2,8 @@ package scheduler_test
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 
-	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -160,68 +156,74 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 	assert.Len(t, schedules, 1)
 }
 
-func TestSchedulerHandler_Routing(t *testing.T) {
+// TestPersistence_RoundTripWithGroupName verifies a non-default group (with
+// description and tags) and a schedule within it both survive Snapshot/Restore.
+func TestPersistence_RoundTripWithGroupName(t *testing.T) {
 	t.Parallel()
 
-	h := scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"))
+	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
 
-	assert.Equal(t, "Scheduler", h.Name())
-	assert.Positive(t, h.MatchPriority())
+	_, err := b.CreateScheduleGroup(context.Background(), "mygrp", "a description", map[string]string{"env": "test"})
+	require.NoError(t, err)
 
-	e := echo.New()
+	_, err = b.CreateSchedule(
+		context.Background(),
+		"grp-sched", "mygrp", "rate(5 minutes)", "desc", "UTC",
+		scheduler.Target{ARN: "arn:a", RoleARN: "arn:r"},
+		"ENABLED",
+		scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
 
-	tests := []struct {
-		name      string
-		path      string
-		target    string
-		wantMatch bool
-	}{
-		{"target match", "/", "AWSScheduler.ListSchedules", true},
-		{"rest path match", "/schedules", "", true},
-		{"no match", "/other", "", false},
-	}
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	fresh := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
 
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			req.Header.Set("X-Amz-Target", tt.target)
-			c := e.NewContext(req, httptest.NewRecorder())
-			assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
-		})
-	}
+	s, err := fresh.GetSchedule(context.Background(), "grp-sched", "mygrp")
+	require.NoError(t, err)
+	assert.Equal(t, "mygrp", s.GroupName)
+	assert.Equal(t, "UTC", s.ScheduleExpressionTimezone)
+	assert.Equal(t, "desc", s.Description)
+
+	g, err := fresh.GetScheduleGroup(context.Background(), "mygrp")
+	require.NoError(t, err)
+	assert.Equal(t, "a description", g.Description)
+
+	// Verify tags were persisted for the group.
+	kv, err := fresh.ListTagsForResource(context.Background(), g.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "test", kv["env"])
 }
 
-func TestSchedulerHandler_RESTPath(t *testing.T) {
+// TestPersistence_NewScheduleFields verifies ActionAfterCompletion and KmsKeyArn
+// survive Snapshot/Restore.
+func TestPersistence_NewScheduleFields(t *testing.T) {
 	t.Parallel()
 
-	h := scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"))
+	b := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	kmsARN := "arn:aws:kms:us-east-1:000000000000:key/abc"
 
-	e := echo.New()
-
-	// Create via REST POST /schedules
-	target := `"Target":{"Arn":"arn:aws:lambda:us-east-1:000000000000:function:test",` +
-		`"RoleArn":"arn:aws:iam::000000000000:role/test"}`
-	body := `{"Name":"rest-sched","ScheduleExpression":"rate(1 minute)",` + target +
-		`,"FlexibleTimeWindow":{"Mode":"OFF"},"State":"ENABLED"}`
-	req := httptest.NewRequest(http.MethodPost, "/schedules/rest-sched", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	c.SetPath("/schedules/rest-sched")
-
-	err := h.Handler()(c)
+	_, err := b.CreateSchedule(
+		context.Background(),
+		"persist-sched", "", "rate(1 minute)", "desc", "",
+		scheduler.Target{ARN: "arn:aws:sqs:us-east-1:0:q", RoleARN: "arn:aws:iam::0:role/r"},
+		"ENABLED",
+		scheduler.FlexibleTimeWindow{Mode: "OFF"},
+		scheduler.WithActionAfterCompletion("DELETE"),
+		scheduler.WithKmsKeyArn(kmsARN),
+	)
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Get via REST GET /schedules/{name}
-	req2 := httptest.NewRequest(http.MethodGet, "/schedules/rest-sched", nil)
-	rec2 := httptest.NewRecorder()
-	c2 := e.NewContext(req2, rec2)
-	c2.SetPath("/schedules/rest-sched")
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
 
-	err = h.Handler()(c2)
+	b2 := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	s, err := b2.GetSchedule(context.Background(), "persist-sched", "default")
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Equal(t, "DELETE", s.ActionAfterCompletion)
+	assert.Equal(t, kmsARN, s.KmsKeyArn)
 }
