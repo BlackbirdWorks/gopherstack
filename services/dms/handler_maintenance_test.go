@@ -1,0 +1,73 @@
+package dms_test
+
+import (
+	"net/http"
+	"testing"
+
+	"github.com/blackbirdworks/gopherstack/services/dms"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestHandler_ApplyPendingMaintenanceAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "success",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				create := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceIdentifier": "maint-inst",
+					"ReplicationInstanceClass":      "dms.t3.medium",
+				})
+				require.Equal(t, http.StatusOK, create.Code)
+				arn := parseJSON(t, create)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+				rec := doDMS(t, h, "ApplyPendingMaintenanceAction", map[string]any{
+					"ReplicationInstanceArn": arn,
+					"ApplyAction":            "os-upgrade",
+					"OptInType":              "immediate",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				rp, ok := resp["ResourcePendingMaintenanceActions"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, arn, rp["ResourceIdentifier"])
+			},
+		},
+		{
+			name: "missing_arn",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "ApplyPendingMaintenanceAction", map[string]any{
+					"ApplyAction": "os-upgrade",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "not_found",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "ApplyPendingMaintenanceAction", map[string]any{
+					"ReplicationInstanceArn": "arn:aws:dms:us-east-1:123:rep:nonexistent",
+					"ApplyAction":            "os-upgrade",
+					"OptInType":              "immediate",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
