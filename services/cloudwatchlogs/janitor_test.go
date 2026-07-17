@@ -213,3 +213,148 @@ func TestCloudWatchLogsJanitor_SweepOnce_RespectsContext(t *testing.T) {
 		})
 	}
 }
+
+func TestJanitor_SweepRetention(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup(context.Background(), "g", "", "")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream(context.Background(), "g", "s")
+	require.NoError(t, err)
+
+	// Events from 10 days ago (should be evicted with 7-day retention).
+	old := time.Now().AddDate(0, 0, -10).UnixMilli()
+	// Recent events (should be kept).
+	recent := time.Now().UnixMilli()
+
+	events := []cloudwatchlogs.InputLogEvent{
+		{Message: "old-1", Timestamp: old},
+		{Message: "old-2", Timestamp: old + 1},
+		{Message: "recent-1", Timestamp: recent},
+	}
+	_, err = b.PutLogEvents(context.Background(), "g", "s", "", events)
+	require.NoError(t, err)
+
+	// Set retention to 7 days.
+	require.NoError(t, b.SetRetentionPolicy(context.Background(), "g", ptr32(7)))
+
+	// Run janitor sweep.
+	j := cloudwatchlogs.NewJanitor(b, 0)
+	j.SweepOnce(t.Context())
+
+	// Only recent events should remain.
+	got, _, _, err := b.GetLogEvents(context.Background(), "g", "s", nil, nil, 100, "", true)
+	require.NoError(t, err)
+	assert.Len(t, got, 1)
+	assert.Equal(t, "recent-1", got[0].Message)
+}
+
+func TestJanitor_SweepNoRetention(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup(context.Background(), "g", "", "")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream(context.Background(), "g", "s")
+	require.NoError(t, err)
+
+	old := time.Now().AddDate(0, 0, -10).UnixMilli()
+	_, err = b.PutLogEvents(context.Background(), "g", "s", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "old", Timestamp: old},
+	})
+	require.NoError(t, err)
+
+	// No retention policy set — janitor should leave events untouched.
+	j := cloudwatchlogs.NewJanitor(b, 0)
+	j.SweepOnce(t.Context())
+
+	got, _, _, err := b.GetLogEvents(context.Background(), "g", "s", nil, nil, 100, "", true)
+	require.NoError(t, err)
+	assert.Len(t, got, 1)
+}
+
+func TestJanitor_SweepUpdatesStreamMetadata(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup(context.Background(), "g", "", "")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream(context.Background(), "g", "s")
+	require.NoError(t, err)
+
+	// Old events (before retention cutoff).
+	old := time.Now().AddDate(0, 0, -10).UnixMilli()
+	// Recent event (within retention window).
+	recent := time.Now().UnixMilli()
+
+	_, err = b.PutLogEvents(context.Background(), "g", "s", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "old", Timestamp: old},
+		{Message: "recent", Timestamp: recent},
+	})
+	require.NoError(t, err)
+
+	// Set 7-day retention.
+	require.NoError(t, b.SetRetentionPolicy(context.Background(), "g", ptr32(7)))
+
+	j := cloudwatchlogs.NewJanitor(b, 0)
+	j.SweepOnce(t.Context())
+
+	// Stream metadata should reflect only the remaining (recent) event.
+	streams, _, sErr := b.DescribeLogStreams(context.Background(), "g", "", "", "", false, 10)
+	require.NoError(t, sErr)
+	require.Len(t, streams, 1)
+	require.NotNil(t, streams[0].FirstEventTimestamp)
+	assert.Equal(t, recent, *streams[0].FirstEventTimestamp)
+	require.NotNil(t, streams[0].LastEventTimestamp)
+	assert.Equal(t, recent, *streams[0].LastEventTimestamp)
+}
+
+func TestJanitor_SweepEmptyStreamClearsMetadata(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup(context.Background(), "g", "", "")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream(context.Background(), "g", "s")
+	require.NoError(t, err)
+
+	// Only old events (all should be evicted).
+	old := time.Now().AddDate(0, 0, -10).UnixMilli()
+	_, err = b.PutLogEvents(context.Background(), "g", "s", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "old", Timestamp: old},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.SetRetentionPolicy(context.Background(), "g", ptr32(7)))
+
+	j := cloudwatchlogs.NewJanitor(b, 0)
+	j.SweepOnce(t.Context())
+
+	// All events gone — stream metadata should be cleared.
+	streams, _, sErr := b.DescribeLogStreams(context.Background(), "g", "", "", "", false, 10)
+	require.NoError(t, sErr)
+	require.Len(t, streams, 1)
+	assert.Nil(t, streams[0].FirstEventTimestamp)
+	assert.Nil(t, streams[0].LastEventTimestamp)
+}
+
+func TestHandler_WithJanitor_StartWorker(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(b).WithJanitor(0)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	require.NoError(t, h.StartWorker(ctx))
+}
+
+func TestHandler_StartWorker_NoJanitor(t *testing.T) {
+	t.Parallel()
+
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+	// Should be a no-op.
+	require.NoError(t, h.StartWorker(t.Context()))
+}
