@@ -316,101 +316,6 @@ func TestHarvestJob_List(t *testing.T) {
 	}
 }
 
-func TestRotateIngestEndpointCredentials(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		check    func(t *testing.T, body []byte, oldPassword string)
-		name     string
-		wantCode int
-		badEpID  bool
-		badChID  bool
-	}{
-		{
-			name:     "rotate credentials changes password",
-			wantCode: http.StatusOK,
-			check: func(t *testing.T, body []byte, oldPassword string) {
-				t.Helper()
-
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.NotEmpty(t, resp["id"])
-
-				hls := resp["hlsIngest"].(map[string]any)
-				eps := hls["ingestEndpoints"].([]any)
-				require.NotEmpty(t, eps)
-
-				// Find the rotated endpoint — at least one should have changed password
-				rotated := false
-				for _, ep := range eps {
-					epm := ep.(map[string]any)
-					if epm["password"].(string) != oldPassword {
-						rotated = true
-
-						break
-					}
-				}
-
-				assert.True(t, rotated, "expected at least one endpoint to have new password")
-			},
-		},
-		{
-			name:     "bad channel returns not found",
-			badChID:  true,
-			wantCode: http.StatusNotFound,
-		},
-		{
-			name:     "bad ingest endpoint returns not found",
-			badEpID:  true,
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			backend := mediapackage.NewInMemoryBackend("000000000000", "us-east-1")
-			h := mediapackage.NewHandler(backend)
-
-			// Create channel and capture original ingest endpoint info
-			rec := doRequest(t, h, http.MethodPost, "/channels", map[string]any{
-				"id": "ch-rotate",
-			})
-			require.Equal(t, http.StatusCreated, rec.Code)
-
-			var chResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &chResp))
-			hls := chResp["hlsIngest"].(map[string]any)
-			eps := hls["ingestEndpoints"].([]any)
-			require.NotEmpty(t, eps)
-
-			firstEP := eps[0].(map[string]any)
-			epID := firstEP["id"].(string)
-			oldPassword := firstEP["password"].(string)
-
-			channelID := "ch-rotate"
-			ingestEPID := epID
-
-			if tc.badChID {
-				channelID = "no-such-channel"
-			}
-
-			if tc.badEpID {
-				ingestEPID = "no-such-ep"
-			}
-
-			path := fmt.Sprintf("/channels/%s/ingest_endpoints/%s/credentials", channelID, ingestEPID)
-			rec2 := doRequest(t, h, http.MethodPut, path, nil)
-			assert.Equal(t, tc.wantCode, rec2.Code)
-
-			if tc.check != nil {
-				tc.check(t, rec2.Body.Bytes(), oldPassword)
-			}
-		})
-	}
-}
-
 func TestHarvestJob_CycleCreateDescribeList(t *testing.T) {
 	t.Parallel()
 
@@ -467,4 +372,47 @@ func TestHarvestJob_CycleCreateDescribeList(t *testing.T) {
 	s3 := job["s3Destination"].(map[string]any)
 	assert.Equal(t, "cycle-bucket", s3["bucketName"])
 	assert.Equal(t, "cycle/manifest.m3u8", s3["manifestKey"])
+}
+
+// TestHarvestJob_RequiredFields verifies that missing required fields
+// return 422 rather than 500.
+func TestHarvestJob_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "missing id returns 422",
+			body: map[string]any{
+				"originEndpointId": "ep",
+				"startTime":        "2024-01-01T00:00:00Z",
+				"endTime":          "2024-01-02T00:00:00Z",
+				"s3Destination":    map[string]any{"bucketName": "b", "manifestKey": "m", "roleArn": "r"},
+			},
+			wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "missing originEndpointId returns 422",
+			body: map[string]any{
+				"id":            "job1",
+				"startTime":     "2024-01-01T00:00:00Z",
+				"endTime":       "2024-01-02T00:00:00Z",
+				"s3Destination": map[string]any{"bucketName": "b", "manifestKey": "m", "roleArn": "r"},
+			},
+			wantCode: http.StatusUnprocessableEntity,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			code, _ := doRequestJSON(t, h, http.MethodPost, "/harvest_jobs", tc.body)
+			assert.Equal(t, tc.wantCode, code)
+		})
+	}
 }

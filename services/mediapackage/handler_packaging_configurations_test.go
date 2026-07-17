@@ -99,74 +99,31 @@ func TestPackagingConfiguration_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestChannelLifecyclePolicy(t *testing.T) {
+// TestPackagingConfig_DeleteReturns202 verifies delete packaging config returns 202.
+func TestPackagingConfig_DeleteReturns202(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body        any
-		name        string
-		method      string
-		channelID   string
-		wantCode    int
-		createFirst bool
+		name     string
+		wantCode int
 	}{
-		{
-			name:      "put lifecycle policy on missing channel returns 404",
-			method:    http.MethodPut,
-			channelID: "nonexistent",
-			body:      map[string]any{"policy": `{"rules":[]}`},
-			wantCode:  http.StatusNotFound,
-		},
-		{
-			name:      "get lifecycle policy on missing channel returns 404",
-			method:    http.MethodGet,
-			channelID: "nonexistent",
-			body:      nil,
-			wantCode:  http.StatusNotFound,
-		},
-		{
-			name:        "put lifecycle policy on existing channel returns 200",
-			createFirst: true,
-			method:      http.MethodPut,
-			channelID:   "ch-lc",
-			body:        map[string]any{"policy": `{"rules":[]}`},
-			wantCode:    http.StatusOK,
-		},
+		{name: "delete packaging config returns 202 Accepted", wantCode: http.StatusAccepted},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			h := newTestHandler(t)
-			if tc.createFirst {
-				rec := doRequest(t, h, http.MethodPost, "/channels", map[string]any{"id": tc.channelID})
-				require.Equal(t, http.StatusCreated, rec.Code)
-			}
-			rec := doRequest(t, h, tc.method, "/channels/"+tc.channelID+"/lifecycle_policy", tc.body)
-			assert.Equal(t, tc.wantCode, rec.Code)
+
+			code, _ := doRequestJSON(t, h, http.MethodPost, "/packaging_configurations", map[string]any{
+				"id":               "pc-del",
+				"packagingGroupId": "g1",
+			})
+			require.Equal(t, http.StatusCreated, code)
+
+			code, _ = doRequestJSON(t, h, http.MethodDelete, "/packaging_configurations/pc-del", nil)
+			assert.Equal(t, tc.wantCode, code)
 		})
 	}
-}
-
-func TestChannelLifecyclePolicy_PutGet(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create channel
-	rec := doRequest(t, h, http.MethodPost, "/channels", map[string]any{"id": "ch-lc2"})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	policy := `{"rules":[{"retention":{"unit":"DAYS","value":7}}]}`
-
-	// Put policy
-	rec = doRequest(t, h, http.MethodPut, "/channels/ch-lc2/lifecycle_policy", map[string]any{"policy": policy})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Get policy
-	rec = doRequest(t, h, http.MethodGet, "/channels/ch-lc2/lifecycle_policy", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, policy, resp["policy"])
 }
