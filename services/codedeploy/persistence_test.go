@@ -1,6 +1,7 @@
 package codedeploy_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -183,4 +184,86 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Error(t, err)
 	_, err = fresh.GetApplication("app-1-renamed")
 	require.Error(t, err)
+}
+
+// TestInMemoryBackend_PersistenceRoundTrip_ViaHandler exercises the handler-level
+// Snapshot/Restore delegation (as opposed to calling the backend directly, like
+// TestInMemoryBackend_SnapshotRestore_FullState above).
+func TestInMemoryBackend_PersistenceRoundTrip_ViaHandler(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, _ = h.Backend.CreateApplication("persisted-app", "Server", nil)
+	_, _ = createDG(h.Backend, "persisted-app", "persisted-dg", "", "", nil)
+	d, _ := createDeploy(h.Backend, "persisted-app", "persisted-dg", "", "")
+	_, _ = createCfg(h.Backend, "persisted-cfg", "Lambda")
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, h2.Backend.ApplicationCount())
+	assert.Equal(t, 1, h2.Backend.DeploymentGroupCount("persisted-app"))
+	assert.Equal(t, 1, h2.Backend.DeploymentCount())
+	// 9 CodeDeployDefault.* pre-seeded configs + 1 custom "persisted-cfg".
+	assert.Equal(t, 10, h2.Backend.DeploymentConfigCount())
+
+	// Verify deployment is readable
+	rec := doRequest(t, h2, "GetDeployment", map[string]any{"deploymentId": d.DeploymentID})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestInMemoryBackend_Persistence_TagsRoundTrip verifies that application and
+// deployment group tags survive a Snapshot/Restore round trip.
+func TestInMemoryBackend_Persistence_TagsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := codedeploy.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+
+	_, err := b.CreateApplication("tagged-app", "Server", map[string]string{"env": "prod", "team": "core"})
+	require.NoError(t, err)
+
+	_, err = b.CreateDeploymentGroup("tagged-app", "tagged-dg",
+		codedeploy.DeploymentGroupInput{ServiceRoleArn: "arn:role"},
+		map[string]string{"tier": "blue"})
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := codedeploy.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	appARN := b2.ApplicationARN("tagged-app")
+	appTags, err := b2.ListTagsForResource(appARN)
+	require.NoError(t, err)
+	assert.Equal(t, "prod", appTags["env"])
+	assert.Equal(t, "core", appTags["team"])
+
+	dgARN := b2.DeploymentGroupARN("tagged-app", "tagged-dg")
+	dgTags, err := b2.ListTagsForResource(dgARN)
+	require.NoError(t, err)
+	assert.Equal(t, "blue", dgTags["tier"])
+}
+
+// TestInMemoryBackend_Persistence_GitHubTokensRoundTrip verifies that the
+// plain (unconverted) githubTokens set survives a Snapshot/Restore round trip.
+func TestInMemoryBackend_Persistence_GitHubTokensRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := codedeploy.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	b.AddGitHubAccountTokenInternal("token-alpha")
+	b.AddGitHubAccountTokenInternal("token-beta")
+
+	snap := b.Snapshot(t.Context())
+
+	b2 := codedeploy.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	tokens := b2.ListGitHubAccountTokenNames()
+	assert.Contains(t, tokens, "token-alpha")
+	assert.Contains(t, tokens, "token-beta")
 }
