@@ -25,7 +25,7 @@ package eventbridge
 // getOrCreateNestedTable / getOrCreateGlobalTable on first access --
 // exactly mirroring the lazy map creation the hand-rolled code did before
 // conversion (e.g. the old `if b.buses[region] == nil { ... }` guards, now
-// folded into the accessors in backend.go). The first time a table is
+// folded into the accessors in accessors.go). The first time a table is
 // created it is ALSO registered on b.registry under a name that encodes its
 // region/parent (e.g. "rules/us-east-1/default") so that persistence.go can
 // still drive Snapshot/Restore through one *store.Registry regardless of how
@@ -44,7 +44,7 @@ package eventbridge
 // *store.Registry that exists solely so getOrCreateTable/
 // getOrCreateGlobalTable still have somewhere to register them (and so a
 // construction-time bug that double-registers one still panics) -- see
-// backend.go's pipesTable/registriesTable/schemasTableFor. b.registry, by
+// accessors.go's pipesTable/registriesTable/schemasTableFor. b.registry, by
 // contrast, is the one persistence.go drives via SnapshotAll/RestoreAll.
 //
 // # What is NOT converted here, and why

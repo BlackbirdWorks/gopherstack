@@ -1,430 +1,419 @@
 package eventbridge
 
 import (
-	"encoding/base64"
-	"strconv"
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
+	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-func (b *InMemoryBackend) busARN(region, name string) string {
-	return arn.Build("events", region, b.accountID, "event-bus/"+name)
-}
+const (
+	stateActive         = "ACTIVE"
+	replayStateStarting = "STARTING"
+)
 
-func (b *InMemoryBackend) ruleARN(region, busName, ruleName string) string {
-	return arn.Build("events", region, b.accountID, "rule/"+busName+"/"+ruleName)
-}
+// regionContextKey is the context key for the per-request AWS region.
+type regionContextKey struct{}
 
-func (b *InMemoryBackend) apiDestinationARN(name string) string {
-	return arn.Build("events", b.region, b.accountID, "api-destination/"+name)
-}
-
-func (b *InMemoryBackend) archiveARN(name string) string {
-	return arn.Build("events", b.region, b.accountID, "archive/"+name)
-}
-
-func (b *InMemoryBackend) connectionARN(name string) string {
-	return arn.Build("events", b.region, b.accountID, "connection/"+name)
-}
-
-func (b *InMemoryBackend) endpointARN(name string) string {
-	return arn.Build("events", b.region, b.accountID, "endpoint/"+name)
-}
-
-func (b *InMemoryBackend) partnerSourceARN(name string) string {
-	return arn.Build("events", b.region, b.accountID, "event-source/aws.partner/"+name)
-}
-
-func (b *InMemoryBackend) replayARN(name string) string {
-	return arn.Build("events", b.region, b.accountID, "replay/"+name)
-}
-
-// targetKey returns the region-free inner key used to store a rule's targets
-// within a region-scoped target map.
-func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
-	return ebBusKey(busName) + "/" + ruleName
-}
-
-// busesTable returns the *store.Table[EventBus] for the given region, lazily
-// creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) busesTable(region string) *store.Table[EventBus] {
-	return getOrCreateTable(b.registry, b.buses, "buses", region, eventBusKeyFn)
-}
-
-// rulesStore returns the region's bus->Table[Rule] map, lazily creating the
-// per-region entry (but NOT any per-bus Table -- use ruleTableFor for that).
-// Callers must hold b.mu.
-func (b *InMemoryBackend) rulesStore(region string) map[string]*store.Table[Rule] {
-	if b.rules[region] == nil {
-		b.rules[region] = make(map[string]*store.Table[Rule])
+// getRegionFromContext extracts the region from context, falling back to defaultRegion.
+func getRegionFromContext(ctx context.Context, defaultRegion string) string {
+	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
+		return region
 	}
 
-	return b.rules[region]
+	return defaultRegion
 }
 
-// ruleTableFor returns the *store.Table[Rule] for the given region and bus
-// key, lazily creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) ruleTableFor(region, busKey string) *store.Table[Rule] {
-	return getOrCreateNestedTable(b.registry, b.rules, "rules", region, busKey, ruleKeyFn)
-}
-
-// targetsStore returns the region's parentKey->Table[Target] map, lazily
-// creating the per-region entry (but NOT any per-parent Table -- use
-// targetTableFor for that). Callers must hold b.mu.
-func (b *InMemoryBackend) targetsStore(region string) map[string]*store.Table[Target] {
-	if b.targets[region] == nil {
-		b.targets[region] = make(map[string]*store.Table[Target])
+// ebBusKey returns the region-free inner key used to store a bus, its rules and
+// its rule index within a region-scoped map. The region is the outer map key, so
+// this key only needs to disambiguate buses within a single region.
+func ebBusKey(busName string) string {
+	if busName == "" {
+		busName = defaultEventBusName
 	}
 
-	return b.targets[region]
+	return busName
 }
 
-// targetTableFor returns the *store.Table[Target] for the given region and
-// target parent key (bus/rule, see targetKey), lazily creating and
-// registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) targetTableFor(region, parentKey string) *store.Table[Target] {
-	return getOrCreateNestedTable(b.registry, b.targets, "targets", region, parentKey, targetKeyFnV)
+var (
+	ErrEventBusNotFound       = errors.New("ResourceNotFoundException")
+	ErrEventBusAlreadyExists  = errors.New("ResourceAlreadyExistsException")
+	ErrRuleNotFound           = errors.New("ResourceNotFoundException")
+	ErrCannotDeleteDefaultBus = errors.New("IllegalArgumentException")
+	ErrInvalidParameter       = errors.New("InvalidParameterException")
+	ErrNotFound               = errors.New("ResourceNotFoundException")
+	ErrAlreadyExists          = errors.New("ResourceAlreadyExistsException")
+	ErrInvalidState           = errors.New("InvalidStateException")
+	ErrResourceLimitExceeded  = errors.New("ResourceLimitExceededException")
+	// ErrForbiddenOperation is returned when an operation is forbidden (e.g., modifying built-in registries).
+	ErrForbiddenOperation = errors.New("ForbiddenException")
+)
+
+const (
+	defaultEventBusName    = "default"
+	maxEventLogSize        = 1000
+	ruleStateEnabled       = "ENABLED"
+	ruleStateDisabled      = "DISABLED"
+	defaultDeliveryWorkers = 10
+	// defaultShutdownTimeout is the maximum time Close waits for in-flight delivery
+	// goroutines to finish after cancelling the lifecycle context.
+	defaultShutdownTimeout = 5 * time.Second
+	// defaultDeliveryTimeout is the default maximum time allowed for a single target delivery call.
+	defaultDeliveryTimeout = 30 * time.Second
+	ruleIndexAny           = "\x00"
+
+	// maxEventBusNameLength is the maximum allowed event bus name length (AWS limit).
+	maxEventBusNameLength = 256
+	// maxArchiveNameLength is the maximum allowed archive name length (AWS limit).
+	maxArchiveNameLength = 48
+	// maxTargetsPerRule is the maximum number of targets allowed per rule (AWS default limit).
+	maxTargetsPerRule = 5
+	// maxEventBusesPerAccount is the AWS limit for custom event buses per account.
+	maxEventBusesPerAccount = 200
+	// maxRulesPerBus is the AWS limit for rules per event bus.
+	maxRulesPerBus = 300
+
+	// putTargetsFailedEntryErrorCode is the FailedEntry.ErrorCode PutTargets
+	// uses for every per-target validation failure (bad Id, InputTransformer,
+	// target-type-specific parameters, RetryPolicy bounds).
+	putTargetsFailedEntryErrorCode = "InvalidParameter"
+)
+
+type ruleIndexKey struct {
+	source     string
+	detailType string
 }
 
-// targetsByARNStore returns (lazily creating) the per-region ARN→targetKeys index.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) targetsByARNStore(region string) map[string]map[string]struct{} {
-	if b.targetsByARN[region] == nil {
-		b.targetsByARN[region] = make(map[string]map[string]struct{})
+// StorageBackend is the interface for an EventBridge in-memory store.
+type StorageBackend interface {
+	CreateEventBus(ctx context.Context, name, description string) (*EventBus, error)
+	DeleteEventBus(ctx context.Context, name string) error
+	ListEventBuses(ctx context.Context, namePrefix, nextToken string, limit int) ([]EventBus, string, error)
+	DescribeEventBus(ctx context.Context, name string) (*EventBus, error)
+	PutRule(ctx context.Context, input PutRuleInput) (*Rule, error)
+	DeleteRule(ctx context.Context, name, eventBusName string) error
+	ListRules(ctx context.Context, eventBusName, namePrefix, nextToken string, limit int) ([]Rule, string, error)
+	DescribeRule(ctx context.Context, name, eventBusName string) (*Rule, error)
+	EnableRule(ctx context.Context, name, eventBusName string) error
+	DisableRule(ctx context.Context, name, eventBusName string) error
+	PutTargets(ctx context.Context, ruleName, eventBusName string, targets []Target) ([]FailedEntry, error)
+	RemoveTargets(ctx context.Context, ruleName, eventBusName string, ids []string) ([]FailedEntry, error)
+	ListTargetsByRule(
+		ctx context.Context,
+		ruleName, eventBusName, nextToken string,
+		limit int,
+	) ([]Target, string, error)
+	PutEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
+	GetEventLog(ctx context.Context) []EventLogEntry
+	ActivateEventSource(ctx context.Context, name string) error
+	DeactivateEventSource(ctx context.Context, name string) error
+	CreatePartnerEventSource(ctx context.Context, name, account string) (*PartnerEventSource, error)
+	CancelReplay(ctx context.Context, replayName string) (*Replay, error)
+	CreateAPIDestination(ctx context.Context, input CreateAPIDestinationInput) (*APIDestination, error)
+	CreateArchive(ctx context.Context, input CreateArchiveInput) (*Archive, error)
+	CreateConnection(ctx context.Context, input CreateConnectionInput) (*Connection, error)
+	CreateEndpoint(ctx context.Context, input CreateEndpointInput) (*Endpoint, error)
+	DeauthorizeConnection(ctx context.Context, name string) (*Connection, error)
+	DeleteAPIDestination(ctx context.Context, name string) error
+	DeleteArchive(ctx context.Context, name string) error
+	DescribeArchive(ctx context.Context, name string) (*Archive, error)
+	ListArchives(ctx context.Context, namePrefix, nextToken string) ([]Archive, string, error)
+	UpdateArchive(ctx context.Context, input UpdateArchiveInput) (*Archive, error)
+	DeleteConnection(ctx context.Context, name string) error
+	DescribeConnection(ctx context.Context, name string) (*Connection, error)
+	ListConnections(ctx context.Context, namePrefix, nextToken string) ([]Connection, string, error)
+	UpdateConnection(ctx context.Context, input UpdateConnectionInput) (*Connection, error)
+	DeleteEndpoint(ctx context.Context, name string) error
+	DescribeEndpoint(ctx context.Context, name string) (*Endpoint, error)
+	ListEndpoints(ctx context.Context, namePrefix, nextToken string) ([]Endpoint, string, error)
+	UpdateEndpoint(ctx context.Context, input UpdateEndpointInput) (*Endpoint, error)
+	DescribeAPIDestination(ctx context.Context, name string) (*APIDestination, error)
+	ListAPIDestinations(ctx context.Context, namePrefix, nextToken string) ([]APIDestination, string, error)
+	UpdateAPIDestination(ctx context.Context, input UpdateAPIDestinationInput) (*APIDestination, error)
+	DescribeEventSource(ctx context.Context, name string) (*EventSource, error)
+	ListEventSources(ctx context.Context, namePrefix, nextToken string) ([]EventSource, string, error)
+	DescribePartnerEventSource(ctx context.Context, name string) (*PartnerEventSource, error)
+	DeletePartnerEventSource(ctx context.Context, name string) error
+	ListPartnerEventSources(ctx context.Context, namePrefix, nextToken string) ([]PartnerEventSource, string, error)
+	PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
+	DescribeReplay(ctx context.Context, name string) (*Replay, error)
+	ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error)
+	StartReplay(ctx context.Context, input StartReplayInput) (*Replay, error)
+	ListRuleNamesByTarget(ctx context.Context, targetARN, eventBusName, nextToken string) ([]string, string, error)
+	TestEventPattern(ctx context.Context, pattern, event string) (bool, error)
+	UpdateEventBus(ctx context.Context, input UpdateEventBusInput) (*EventBus, error)
+	PutPermission(ctx context.Context, input PutPermissionInput) error
+	RemovePermission(ctx context.Context, input RemovePermissionInput) error
+	GetEventBusPolicy(ctx context.Context, eventBusName string) (string, error)
+	PutEventBusPolicy(ctx context.Context, input PutEventBusPolicyInput) error
+	CreatePipe(ctx context.Context, input CreatePipeInput) (*Pipe, error)
+	DeletePipe(ctx context.Context, name string) error
+	DescribePipe(ctx context.Context, name string) (*Pipe, error)
+	ListPipes(ctx context.Context, namePrefix, nextToken string) ([]Pipe, string, error)
+	UpdatePipe(ctx context.Context, input UpdatePipeInput) (*Pipe, error)
+	// Schema Registry operations.
+	CreateRegistry(ctx context.Context, input CreateRegistryInput) (*SchemaRegistry, error)
+	DeleteRegistry(ctx context.Context, registryName string) error
+	DescribeRegistry(ctx context.Context, registryName string) (*SchemaRegistry, error)
+	ListRegistries(ctx context.Context, namePrefix, nextToken string) ([]SchemaRegistry, string, error)
+	UpdateRegistry(ctx context.Context, input UpdateRegistryInput) (*SchemaRegistry, error)
+	CreateSchema(ctx context.Context, input CreateSchemaInput) (*Schema, error)
+	DeleteSchema(ctx context.Context, registryName, schemaName string) error
+	DescribeSchema(ctx context.Context, registryName, schemaName, schemaVersion string) (*Schema, error)
+	ListSchemas(ctx context.Context, registryName, namePrefix, nextToken string) ([]Schema, string, error)
+	SearchSchemas(ctx context.Context, registryName, keywords, nextToken string) ([]Schema, string, error)
+	UpdateSchema(ctx context.Context, input UpdateSchemaInput) (*Schema, error)
+	ListSchemaVersions(ctx context.Context, registryName, schemaName, nextToken string) ([]SchemaVersion, string, error)
+	DescribeSchemaVersion(ctx context.Context, registryName, schemaName, schemaVersion string) (*SchemaVersion, error)
+	DeleteSchemaVersion(ctx context.Context, registryName, schemaName, schemaVersion string) error
+	GetDiscoveredSchema(ctx context.Context, input GetDiscoveredSchemaInput) (string, error)
+	PutCodeBinding(ctx context.Context, input PutCodeBindingInput) (*CodeBinding, error)
+	DescribeCodeBinding(ctx context.Context, input DescribeCodeBindingInput) (*CodeBinding, error)
+	ListCodeBindings(ctx context.Context, input ListCodeBindingsInput) ([]CodeBinding, string, error)
+	GetCodeBindingSource(ctx context.Context, registryName, schemaName, language, schemaVersion string) (string, error)
+}
+
+// InMemoryBackend implements StorageBackend using in-memory maps.
+type InMemoryBackend struct {
+	ctx context.Context
+	mu  *lockmetrics.RWMutex
+	// registry is the lifecycle registry for every PERSISTED *store.Table
+	// below -- see store_setup.go's package doc for why eventbridge
+	// (region-scoped, with rules/targets nested one level deeper still)
+	// needs the lazy getOrCreateTable/getOrCreateNestedTable/
+	// getOrCreateGlobalTable helpers rather than the flat static
+	// registration ec2/sqs use. persistence.go drives Snapshot/Restore
+	// through this registry only.
+	registry *store.Registry
+	// auxRegistry holds pipes/registries/schemas: also *store.Table-backed,
+	// but deliberately NOT snapshotted (see store_setup.go's package doc) --
+	// they were never part of backendSnapshot before this conversion, and
+	// this preserves that byte-for-byte.
+	auxRegistry *store.Registry
+	// Region-isolated stores. The outer key is the AWS region; the leaf
+	// *store.Table is keyed by the resource's own identity field (bus name,
+	// rule name, resource name, etc), matching the map key it replaces.
+	connections     map[string]*store.Table[Connection]
+	rules           map[string]map[string]*store.Table[Rule]
+	targets         map[string]map[string]*store.Table[Target]
+	eventSources    map[string]*store.Table[EventSource]
+	replays         map[string]*store.Table[Replay]
+	apiDestinations map[string]*store.Table[APIDestination]
+	cancel          context.CancelFunc
+	deliveryTargets *DeliveryTargets
+	endpoints       map[string]*store.Table[Endpoint]
+	buses           map[string]*store.Table[EventBus]
+	partnerSources  map[string]*store.Table[PartnerEventSource]
+	archives        map[string]*store.Table[Archive]
+	archivedEvents  map[string]map[string][]EventEntry
+	busePolicies    map[string]map[string]*EventBusPolicy
+	// pipes and registries are NOT region-scoped -- a single backend holds
+	// one global Pipe/SchemaRegistry catalogue -- so they are single Tables,
+	// lazily registered by getOrCreateGlobalTable (see store_setup.go).
+	pipes      *store.Table[Pipe]
+	registries *store.Table[SchemaRegistry]
+	// schemas is keyed by registryName (also global, not region-scoped, but
+	// one dynamic dimension deep like a per-region resource).
+	schemas        map[string]*store.Table[Schema]
+	schemaVersions map[string][]*SchemaVersion // "registryName/schemaName" → ordered versions
+	codeBindings   map[string]*CodeBinding     // "registryName/schemaName/language" → binding
+	workerSem      chan struct{}
+	ruleIndex      map[string]map[string]map[ruleIndexKey]map[string]*Rule
+	// targetsByARN indexes (region → ARN → set of "busKey/ruleName" targetKeys)
+	// for O(1) ListRuleNamesByTarget lookups. Kept consistent on PutTargets /
+	// RemoveTargets / DeleteRule / DeleteEventBus / Reset.
+	targetsByARN map[string]map[string]map[string]struct{}
+	patternCache sync.Map
+	// apiDestLimiters holds per-destination-ARN rate limiters (*apiDestLimiter)
+	// used to honour each API destination's InvocationRateLimitPerSecond.
+	apiDestLimiters sync.Map
+	region          string
+	accountID       string
+	eventLog        []EventLogEntry
+	wg              sync.WaitGroup
+	shutdownTimeout time.Duration
+	deliveryTimeout time.Duration
+	closing         atomic.Bool
+}
+
+// NewInMemoryBackend creates a new InMemoryBackend with default configuration.
+func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
+}
+
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
+// The backend's lifecycle context is derived from [context.Background]; use
+// NewInMemoryBackendWithContext to bind it to a parent service context instead.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose lifecycle context
+// is derived from the provided parent. When the parent is cancelled (e.g. on server
+// shutdown), all in-flight delivery workers are also cancelled.
+// If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(
+	svcCtx context.Context,
+	accountID, region string,
+) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
 	}
 
-	return b.targetsByARN[region]
-}
-
-// arnIndexAdd adds targetKey to the ARN index for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) arnIndexAdd(region, arn, targetKey string) {
-	idx := b.targetsByARNStore(region)
-	if idx[arn] == nil {
-		idx[arn] = make(map[string]struct{})
+	ctx, cancel := context.WithCancel(svcCtx)
+	b := &InMemoryBackend{
+		accountID:       accountID,
+		region:          region,
+		registry:        store.NewRegistry(),
+		auxRegistry:     store.NewRegistry(),
+		buses:           make(map[string]*store.Table[EventBus]),
+		rules:           make(map[string]map[string]*store.Table[Rule]),
+		targets:         make(map[string]map[string]*store.Table[Target]),
+		eventSources:    make(map[string]*store.Table[EventSource]),
+		replays:         make(map[string]*store.Table[Replay]),
+		apiDestinations: make(map[string]*store.Table[APIDestination]),
+		archives:        make(map[string]*store.Table[Archive]),
+		archivedEvents:  make(map[string]map[string][]EventEntry),
+		connections:     make(map[string]*store.Table[Connection]),
+		endpoints:       make(map[string]*store.Table[Endpoint]),
+		partnerSources:  make(map[string]*store.Table[PartnerEventSource]),
+		busePolicies:    make(map[string]map[string]*EventBusPolicy),
+		schemas:         make(map[string]*store.Table[Schema]),
+		schemaVersions:  make(map[string][]*SchemaVersion),
+		codeBindings:    make(map[string]*CodeBinding),
+		deliveryTargets: &DeliveryTargets{},
+		mu:              lockmetrics.New("eventbridge"),
+		ctx:             ctx,
+		cancel:          cancel,
+		workerSem:       make(chan struct{}, defaultDeliveryWorkers),
+		shutdownTimeout: defaultShutdownTimeout,
+		deliveryTimeout: defaultDeliveryTimeout,
+		ruleIndex:       make(map[string]map[string]map[ruleIndexKey]map[string]*Rule),
+		targetsByARN:    make(map[string]map[string]map[string]struct{}),
 	}
+	// Create the default event bus in the backend's own region.
+	b.busesTable(b.region).Put(&EventBus{
+		Name:        defaultEventBusName,
+		Arn:         b.busARN(b.region, defaultEventBusName),
+		CreatedTime: time.Now(),
+	})
 
-	idx[arn][targetKey] = struct{}{}
+	return b
 }
 
-// arnIndexRemoveTarget removes targetKey from the ARN index entry for the given arn.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) arnIndexRemoveTarget(region, arn, targetKey string) {
-	idx := b.targetsByARN[region]
-	if idx == nil {
-		return
-	}
+// Close marks the backend as closing, cancels the lifecycle context, and waits
+// for all in-flight delivery goroutines to finish. It returns after at most
+// shutdownTimeout to prevent a hung target service from blocking service
+// shutdown indefinitely. Once Close is called, PutEvents will no longer spawn
+// new delivery goroutines. The internal wg.Wait goroutine completes on its own
+// once all delivery goroutines exit — either because the lifecycle context was
+// cancelled (propagated to each delivery) or because the per-delivery deadline
+// fired.
+func (b *InMemoryBackend) Close() {
+	// Mark as closing before cancelling so PutEvents stops scheduling new work.
+	b.closing.Store(true)
 
-	delete(idx[arn], targetKey)
+	// Read shutdownTimeout under the same lock used by SetShutdownTimeout so
+	// there is no data race between a concurrent setter and Close.
+	b.mu.RLock("Close")
+	timeout := b.shutdownTimeout
+	b.mu.RUnlock()
 
-	if len(idx[arn]) == 0 {
-		delete(idx, arn)
-	}
-}
+	b.cancel()
 
-// arnIndexRemoveRule removes all ARN entries for the given targetKey (i.e. a rule was deleted).
-// Callers must hold b.mu.
-func (b *InMemoryBackend) arnIndexRemoveRule(region, targetKey string, tTable *store.Table[Target]) {
-	if tTable == nil {
-		return
-	}
+	done := make(chan struct{})
+	go func() {
+		b.wg.Wait()
+		close(done)
+	}()
 
-	idx := b.targetsByARN[region]
-	if idx == nil {
-		return
-	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 
-	for _, t := range tTable.All() {
-		delete(idx[t.Arn], targetKey)
-		if len(idx[t.Arn]) == 0 {
-			delete(idx, t.Arn)
-		}
-	}
-}
-
-// ruleIndexStore returns the rule index map for the given region, lazily creating it.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) ruleIndexStore(region string) map[string]map[ruleIndexKey]map[string]*Rule {
-	if b.ruleIndex[region] == nil {
-		b.ruleIndex[region] = make(map[string]map[ruleIndexKey]map[string]*Rule)
-	}
-
-	return b.ruleIndex[region]
-}
-
-// eventSourcesTable returns the *store.Table[EventSource] for the given
-// region, lazily creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) eventSourcesTable(region string) *store.Table[EventSource] {
-	return getOrCreateTable(b.registry, b.eventSources, "eventSources", region, eventSourceKeyFn)
-}
-
-// replaysTable returns the *store.Table[Replay] for the given region, lazily
-// creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) replaysTable(region string) *store.Table[Replay] {
-	return getOrCreateTable(b.registry, b.replays, "replays", region, replayKeyFn)
-}
-
-// apiDestinationsTable returns the *store.Table[APIDestination] for the given
-// region, lazily creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) apiDestinationsTable(region string) *store.Table[APIDestination] {
-	return getOrCreateTable(b.registry, b.apiDestinations, "apiDestinations", region, apiDestinationKeyFn)
-}
-
-// archivesTable returns the *store.Table[Archive] for the given region,
-// lazily creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) archivesTable(region string) *store.Table[Archive] {
-	return getOrCreateTable(b.registry, b.archives, "archives", region, archiveKeyFn)
-}
-
-// archivedEventsStore returns the archived-events map for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]EventEntry {
-	if b.archivedEvents[region] == nil {
-		b.archivedEvents[region] = make(map[string][]EventEntry)
-	}
-
-	return b.archivedEvents[region]
-}
-
-// connectionsTable returns the *store.Table[Connection] for the given region,
-// lazily creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) connectionsTable(region string) *store.Table[Connection] {
-	return getOrCreateTable(b.registry, b.connections, "connections", region, connectionKeyFn)
-}
-
-// endpointsTable returns the *store.Table[Endpoint] for the given region,
-// lazily creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) endpointsTable(region string) *store.Table[Endpoint] {
-	return getOrCreateTable(b.registry, b.endpoints, "endpoints", region, endpointKeyFn)
-}
-
-// partnerSourcesTable returns the *store.Table[PartnerEventSource] for the
-// given region, lazily creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) partnerSourcesTable(region string) *store.Table[PartnerEventSource] {
-	return getOrCreateTable(b.registry, b.partnerSources, "partnerSources", region, partnerEventSourceKeyFn)
-}
-
-// pipesTable returns the backend's single, global *store.Table[Pipe], lazily
-// creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) pipesTable() *store.Table[Pipe] {
-	return getOrCreateGlobalTable(b.auxRegistry, &b.pipes, "pipes", pipeKeyFn)
-}
-
-// registriesTable returns the backend's single, global
-// *store.Table[SchemaRegistry], lazily creating and registering it. Callers
-// must hold b.mu.
-func (b *InMemoryBackend) registriesTable() *store.Table[SchemaRegistry] {
-	return getOrCreateGlobalTable(b.auxRegistry, &b.registries, "registries", schemaRegistryKeyFn)
-}
-
-// schemasTableFor returns the *store.Table[Schema] for the given registry,
-// lazily creating and registering it. Callers must hold b.mu.
-func (b *InMemoryBackend) schemasTableFor(registryName string) *store.Table[Schema] {
-	return getOrCreateTable(b.auxRegistry, b.schemas, "schemas", registryName, schemaKeyFn)
-}
-
-// getSchema is a nil-safe read of a registry's schema table: it returns
-// (nil, false) rather than panicking when the registry has no schemas table
-// yet (a plain nil-map read would have been safe pre-conversion; a nil
-// *store.Table[Schema] method call is not). Callers must hold b.mu (for
-// reading or writing).
-func (b *InMemoryBackend) getSchema(registryName, schemaName string) (*Schema, bool) {
-	t := b.schemas[registryName]
-	if t == nil {
-		return nil, false
-	}
-
-	return t.Get(schemaName)
-}
-
-// busePoliciesStore returns the event bus policy map for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) busePoliciesStore(region string) map[string]*EventBusPolicy {
-	if b.busePolicies[region] == nil {
-		b.busePolicies[region] = make(map[string]*EventBusPolicy)
-	}
-
-	return b.busePolicies[region]
-}
-
-func (b *InMemoryBackend) getOrCompilePattern(patternJSON string) (*compiledPattern, error) {
-	if cached, ok := b.patternCache.Load(patternJSON); ok {
-		compiled, castOK := cached.(*compiledPattern)
-		if castOK {
-			return compiled, nil
-		}
-	}
-
-	compiled, err := compilePattern(patternJSON)
-	if err != nil {
-		return nil, err
-	}
-
-	actual, _ := b.patternCache.LoadOrStore(patternJSON, compiled)
-	cachedCompiled, castOK := actual.(*compiledPattern)
-	if castOK {
-		return cachedCompiled, nil
-	}
-
-	return compiled, nil
-}
-
-func (b *InMemoryBackend) addRuleToIndex(region, busKey string, rule *Rule) {
-	if rule.compiledPattern == nil && rule.EventPattern == "" {
-		return
-	}
-	regionIndex := b.ruleIndexStore(region)
-	indexes := regionIndex[busKey]
-	if indexes == nil {
-		indexes = make(map[ruleIndexKey]map[string]*Rule)
-		regionIndex[busKey] = indexes
-	}
-
-	keys := indexKeysFromRule(rule)
-	for _, key := range keys {
-		bucket := indexes[key]
-		if bucket == nil {
-			bucket = make(map[string]*Rule)
-			indexes[key] = bucket
-		}
-		bucket[rule.Name] = rule
-	}
-	rule.indexKeys = keys
-}
-
-func (b *InMemoryBackend) removeRuleFromIndex(region, busKey string, rule *Rule) {
-	regionIndex := b.ruleIndex[region]
-	if regionIndex == nil {
-		return
-	}
-	indexes := regionIndex[busKey]
-	if indexes == nil {
-		return
-	}
-
-	for _, key := range rule.indexKeys {
-		bucket := indexes[key]
-		if bucket == nil {
-			continue
-		}
-		delete(bucket, rule.Name)
-		if len(bucket) == 0 {
-			delete(indexes, key)
-		}
-	}
-
-	if len(indexes) == 0 {
-		delete(regionIndex, busKey)
+	select {
+	case <-done:
+	case <-timer.C:
 	}
 }
 
-func indexKeysFromRule(rule *Rule) []ruleIndexKey {
-	sources := []string{ruleIndexAny}
-	detailTypes := []string{ruleIndexAny}
-
-	if rule.compiledPattern != nil && len(rule.compiledPattern.sourceExactValues) > 0 {
-		sources = rule.compiledPattern.sourceExactValues
-	}
-	if rule.compiledPattern != nil && len(rule.compiledPattern.detailTypeExactValues) > 0 {
-		detailTypes = rule.compiledPattern.detailTypeExactValues
-	}
-
-	const maxSize = 10000
-	size := 0
-	if len(sources) <= maxSize && len(detailTypes) <= maxSize {
-		size = len(sources) * len(detailTypes)
-		if size > maxSize {
-			size = 0
-		}
-	}
-
-	keys := make([]ruleIndexKey, 0, size)
-	for _, source := range sources {
-		for _, detailType := range detailTypes {
-			keys = append(keys, ruleIndexKey{
-				source:     source,
-				detailType: detailType,
-			})
-		}
-	}
-
-	return keys
+// SetShutdownTimeout overrides the maximum time Close waits for in-flight goroutines.
+// Primarily intended for tests.
+func (b *InMemoryBackend) SetShutdownTimeout(d time.Duration) {
+	b.mu.Lock("SetShutdownTimeout")
+	defer b.mu.Unlock()
+	b.shutdownTimeout = d
 }
 
-// encodeNextToken encodes a pagination offset as an opaque base64 token.
-// Real AWS EventBridge tokens are opaque; encoding prevents callers from
-// treating the token as a stable integer offset.
-func encodeNextToken(offset int) string {
-	return base64.StdEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
+// SetDeliveryTimeout overrides the per-target delivery timeout.
+// Primarily intended for tests.
+func (b *InMemoryBackend) SetDeliveryTimeout(d time.Duration) {
+	b.mu.Lock("SetDeliveryTimeout")
+	defer b.mu.Unlock()
+	b.deliveryTimeout = d
 }
 
-func parseNextToken(token string) int {
-	if token == "" {
-		return 0
+// SetDeliveryTargets configures the service references used for fan-out delivery.
+// The backend registers itself as the API-destination resolver (unless the
+// caller supplied one) so outbound HTTP delivery can look up destination and
+// connection state without a separate wiring step.
+func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
+	b.mu.Lock("SetDeliveryTargets")
+	defer b.mu.Unlock()
+	if dt != nil && dt.APIDestinations == nil {
+		dt.APIDestinations = b
 	}
-	// Try base64-encoded offset first (current format).
-	if decoded, decErr := base64.StdEncoding.DecodeString(token); decErr == nil {
-		if idx, atoiErr := strconv.Atoi(string(decoded)); atoiErr == nil && idx >= 0 {
-			return idx
-		}
-	}
-	// Fallback: accept plain decimal strings from tokens produced before this change.
-	idx, err := strconv.Atoi(token)
-	if err != nil || idx < 0 {
-		return 0
-	}
-
-	return idx
+	b.deliveryTargets = dt
 }
 
-// paginate applies offset-based pagination to a pre-sorted slice with the default
-// page size. It returns the page slice and an opaque next-page token (or "").
-func paginate[T any](all []T, nextToken string) ([]T, string) {
-	return paginateN(all, nextToken, 0)
-}
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
 
-// paginateN is like paginate but respects a caller-supplied page size.
-// A limit of 0 uses the default page size (100).
-func paginateN[T any](all []T, nextToken string, limit int) ([]T, string) {
-	const defaultLimit = 100
-	if limit <= 0 {
-		limit = defaultLimit
-	}
+	// b.registry is recreated from scratch rather than reused: every
+	// currently-registered *store.Table[V] is about to be orphaned anyway
+	// because every map field below is also reallocated to a brand-new
+	// map[string]*store.Table[V] -- the old *store.Table[V] instances become
+	// garbage, but that's fine, each will be recreated (and re-registered) the
+	// next time its region/parent is touched (store.Register panics on a
+	// duplicate name, so reusing the old registry here would panic on that
+	// re-registration). Mirrors the services/ssm conversion.
+	b.registry = store.NewRegistry()
+	b.auxRegistry = store.NewRegistry()
 
-	startIdx := parseNextToken(nextToken)
-	if startIdx >= len(all) {
-		return []T{}, ""
-	}
+	b.buses = make(map[string]*store.Table[EventBus])
+	b.rules = make(map[string]map[string]*store.Table[Rule])
+	b.targets = make(map[string]map[string]*store.Table[Target])
+	b.eventLog = nil
+	b.eventSources = make(map[string]*store.Table[EventSource])
+	b.replays = make(map[string]*store.Table[Replay])
+	b.apiDestinations = make(map[string]*store.Table[APIDestination])
+	b.archives = make(map[string]*store.Table[Archive])
+	b.archivedEvents = make(map[string]map[string][]EventEntry)
+	b.connections = make(map[string]*store.Table[Connection])
+	b.endpoints = make(map[string]*store.Table[Endpoint])
+	b.partnerSources = make(map[string]*store.Table[PartnerEventSource])
+	b.busePolicies = make(map[string]map[string]*EventBusPolicy)
+	b.pipes = nil
+	b.registries = nil
+	b.schemas = make(map[string]*store.Table[Schema])
+	b.schemaVersions = make(map[string][]*SchemaVersion)
+	b.codeBindings = make(map[string]*CodeBinding)
+	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
+	b.targetsByARN = make(map[string]map[string]map[string]struct{})
+	b.patternCache = sync.Map{}
+	b.apiDestLimiters = sync.Map{}
 
-	end := startIdx + limit
-	var outToken string
-	if end < len(all) {
-		outToken = encodeNextToken(end)
-	} else {
-		end = len(all)
-	}
-
-	return all[startIdx:end], outToken
-}
-
-// pipeARN builds an ARN for an EventBridge Pipe.
-func (b *InMemoryBackend) pipeARN(name string) string {
-	return arn.Build("events", b.region, b.accountID, "pipe/"+name)
-}
-
-func (b *InMemoryBackend) registryARN(name string) string {
-	return arn.Build("schemas", b.region, b.accountID, "registry/"+name)
-}
-
-func (b *InMemoryBackend) schemaARN(registryName, schemaName string) string {
-	return arn.Build("schemas", b.region, b.accountID, "schema/"+registryName+"/"+schemaName)
-}
-
-func (b *InMemoryBackend) schemaVersionKey(registryName, schemaName string) string {
-	return registryName + "/" + schemaName
-}
-
-func (b *InMemoryBackend) codeBindingKey(registryName, schemaName, language string) string {
-	return registryName + "/" + schemaName + "/" + language
+	// Re-create the default event bus so it is always available after reset.
+	b.busesTable(b.region).Put(&EventBus{
+		Name:        defaultEventBusName,
+		Arn:         b.busARN(b.region, defaultEventBusName),
+		CreatedTime: time.Now(),
+	})
 }
