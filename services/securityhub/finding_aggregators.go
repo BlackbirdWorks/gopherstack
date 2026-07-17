@@ -6,14 +6,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// FindingAggregator represents a Security Hub finding aggregator for cross-region aggregation.
-type FindingAggregator struct {
-	FindingAggregatorArn     string   `json:"FindingAggregatorArn"`
-	FindingAggregationRegion string   `json:"FindingAggregationRegion"`
-	RegionLinkingMode        string   `json:"RegionLinkingMode"`
-	Regions                  []string `json:"Regions"`
-}
-
 func (b *InMemoryBackend) findingAggregatorARN(seq int) string {
 	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("finding-aggregator/default-%d", seq))
 }

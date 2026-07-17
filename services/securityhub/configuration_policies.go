@@ -7,29 +7,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// ConfigurationPolicy represents a Security Hub central configuration policy.
-type ConfigurationPolicy struct {
-	ConfigurationPolicy map[string]any    `json:"ConfigurationPolicy"`
-	Tags                map[string]string `json:"Tags"`
-	Arn                 string            `json:"Arn"`
-	Id                  string            `json:"Id"` //nolint:revive,staticcheck // existing issue.
-	Name                string            `json:"Name"`
-	Description         string            `json:"Description"`
-	CreatedAt           string            `json:"CreatedAt"`
-	UpdatedAt           string            `json:"UpdatedAt"`
-}
-
-// ConfigurationPolicyAssociation represents an association between a policy and a target.
-type ConfigurationPolicyAssociation struct {
-	ConfigurationPolicyId    string `json:"ConfigurationPolicyId"` //nolint:revive,staticcheck // existing issue.
-	TargetId                 string `json:"TargetId"`              //nolint:revive,staticcheck // existing issue.
-	TargetType               string `json:"TargetType"`
-	AssociationType          string `json:"AssociationType"`
-	UpdatedAt                string `json:"UpdatedAt"`
-	AssociationStatus        string `json:"AssociationStatus"`
-	AssociationStatusMessage string `json:"AssociationStatusMessage"`
-}
-
 func (b *InMemoryBackend) configPolicyARN(id string) string {
 	return arn.Build("securityhub", b.region, b.accountID, fmt.Sprintf("configuration-policy/%s", id))
 }
@@ -276,7 +253,7 @@ func (b *InMemoryBackend) BatchGetConfigurationPolicyAssociations(
 		} else {
 			unprocessed = append(unprocessed, map[string]any{
 				"ConfigurationPolicyAssociationIdentifiers": req,
-				"ErrorCode":   "ResourceNotFoundException", //nolint:goconst // existing issue.
+				"ErrorCode":   errCodeResourceNotFound,
 				"ErrorReason": "Association not found",
 			})
 		}

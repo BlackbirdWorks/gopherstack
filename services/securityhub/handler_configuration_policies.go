@@ -9,29 +9,45 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// --- Classify functions ---
+// configPolicyIdentifierFromPath returns the trailing identifier of a
+// /configurationPolicy/{id} path, excluding the create/get/list sub-paths
+// which are handled as their own exact-match routes.
+func configPolicyIdentifierFromPath(path string) (string, bool) {
+	const prefix = "/configurationPolicy/"
 
-func classifyConfigPolicyPath(method, path string) (string, string) { //nolint:cyclop // existing issue.
+	if !strings.HasPrefix(path, prefix) ||
+		strings.HasPrefix(path, prefix+"create") ||
+		strings.HasPrefix(path, prefix+"get") ||
+		strings.HasPrefix(path, prefix+"list") {
+		return "", false
+	}
+
+	return strings.TrimPrefix(path, prefix), true
+}
+
+func classifyConfigPolicyPath(method, path string) (string, string) {
 	switch {
 	case method == http.MethodPost && path == "/configurationPolicy/create":
 		return opCreateConfigurationPolicy, ""
 	case method == http.MethodGet && strings.HasPrefix(path, "/configurationPolicy/get/"):
 		return opGetConfigurationPolicy, strings.TrimPrefix(path, "/configurationPolicy/get/")
-	case method == http.MethodPatch && strings.HasPrefix(path, "/configurationPolicy/") &&
-		!strings.HasPrefix(path, "/configurationPolicy/create") &&
-		!strings.HasPrefix(path, "/configurationPolicy/get") &&
-		!strings.HasPrefix(path, "/configurationPolicy/list"):
-		return opUpdateConfigurationPolicy, strings.TrimPrefix(path, "/configurationPolicy/")
-	case method == http.MethodDelete && strings.HasPrefix(path, "/configurationPolicy/") &&
-		!strings.HasPrefix(path, "/configurationPolicy/create") &&
-		!strings.HasPrefix(path, "/configurationPolicy/get") &&
-		!strings.HasPrefix(path, "/configurationPolicy/list"):
-		return opDeleteConfigurationPolicy, strings.TrimPrefix(path, "/configurationPolicy/")
 	case method == http.MethodGet && path == "/configurationPolicy/list":
 		return opListConfigurationPolicies, ""
 	}
 
-	return opUnknown, ""
+	id, ok := configPolicyIdentifierFromPath(path)
+	if !ok {
+		return opUnknown, ""
+	}
+
+	switch method {
+	case http.MethodPatch:
+		return opUpdateConfigurationPolicy, id
+	case http.MethodDelete:
+		return opDeleteConfigurationPolicy, id
+	default:
+		return opUnknown, ""
+	}
 }
 
 func classifyConfigPolicyAssocPath(method, path string) (string, string) {
@@ -50,8 +66,6 @@ func classifyConfigPolicyAssocPath(method, path string) (string, string) {
 
 	return opUnknown, ""
 }
-
-// --- Handler functions ---
 
 func (h *Handler) handleCreateConfigurationPolicy( //nolint:dupl // existing issue.
 	c *echo.Context,
@@ -330,8 +344,6 @@ func (h *Handler) handleBatchGetConfigurationPolicyAssociations(c *echo.Context,
 	return c.JSON(http.StatusOK, resp)
 }
 
-// --- Helpers ---
-
 func configPolicyToResponse(p *ConfigurationPolicy) map[string]any {
 	return map[string]any{
 		"Arn":                 p.Arn,
@@ -356,5 +368,33 @@ func configPolicyAssocToResponse(a *ConfigurationPolicyAssociation) map[string]a
 	}
 }
 
-// configPolicyPath uses strings to avoid import warning.
-var _ = strings.HasPrefix
+// configPolicyOpHandlers returns the Configuration Policy operation dispatch
+// table for handleREST.
+func (h *Handler) configPolicyOpHandlers(
+	c *echo.Context,
+	resource string,
+	body map[string]any,
+) map[string]func() error {
+	return map[string]func() error{
+		opCreateConfigurationPolicy:         func() error { return h.handleCreateConfigurationPolicy(c, body) },
+		opGetConfigurationPolicy:            func() error { return h.handleGetConfigurationPolicy(c, resource) },
+		opDeleteConfigurationPolicy:         func() error { return h.handleDeleteConfigurationPolicy(c, resource) },
+		opListConfigurationPolicies:         func() error { return h.handleListConfigurationPolicies(c) },
+		opGetConfigurationPolicyAssociation: func() error { return h.handleGetConfigurationPolicyAssociation(c, body) },
+		opUpdateConfigurationPolicy: func() error {
+			return h.handleUpdateConfigurationPolicy(c, resource, body)
+		},
+		opListConfigurationPolicyAssociations: func() error {
+			return h.handleListConfigurationPolicyAssociations(c, body)
+		},
+		opStartConfigurationPolicyAssociation: func() error {
+			return h.handleStartConfigurationPolicyAssociation(c, body)
+		},
+		opStartConfigurationPolicyDisassociation: func() error {
+			return h.handleStartConfigurationPolicyDisassociation(c, body)
+		},
+		opBatchGetConfigurationPolicyAssociations: func() error {
+			return h.handleBatchGetConfigurationPolicyAssociations(c, body)
+		},
+	}
+}
