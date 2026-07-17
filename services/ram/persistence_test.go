@@ -2,6 +2,7 @@ package ram_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -9,7 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
-func TestRAM_PersistenceSnapshotRestore(t *testing.T) {
+func TestPersistenceSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -182,13 +183,13 @@ func TestRAM_PersistenceSnapshotRestore(t *testing.T) {
 	}
 }
 
-// TestRAM_PersistenceFullStateRoundTrip exercises a Snapshot->Restore round
+// TestPersistenceFullStateRoundTrip exercises a Snapshot->Restore round
 // trip across every resource family the Phase 3.3 pkgs/store conversion
 // touched (resourceShares, permissions, invitations), plus every raw field
 // left un-converted (sharePermissions, associations, accountID, region), all
 // populated at once so cross-table consistency (e.g. a permission version
 // referenced by a sharePermissions entry) survives the round trip together.
-func TestRAM_PersistenceFullStateRoundTrip(t *testing.T) {
+func TestPersistenceFullStateRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	original := ram.NewInMemoryBackend("111122223333", "eu-west-1")
@@ -254,13 +255,13 @@ func TestRAM_PersistenceFullStateRoundTrip(t *testing.T) {
 	assert.Equal(t, ram.SharePermissionCount(original), ram.SharePermissionCount(fresh))
 }
 
-// TestRAM_RestoreVersionMismatch verifies that a snapshot whose version
+// TestRestoreVersionMismatch verifies that a snapshot whose version
 // doesn't match the current backend (including the pre-Phase-3.3 format,
 // which decodes with Version == 0 since it never had a version field) is
 // discarded cleanly rather than partially decoded: the backend resets to its
 // freshly-constructed state (built-in permissions re-seeded, everything else
 // empty) and Restore returns no error.
-func TestRAM_RestoreVersionMismatch(t *testing.T) {
+func TestRestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := ram.NewInMemoryBackend("123456789012", "us-east-1")
@@ -281,9 +282,9 @@ func TestRAM_RestoreVersionMismatch(t *testing.T) {
 	assert.Equal(t, 0, ram.SharePermissionCount(b))
 }
 
-// TestRAM_RestoreMalformedJSON verifies that malformed JSON surfaces as an
+// TestRestoreMalformedJSON verifies that malformed JSON surfaces as an
 // error from Restore rather than silently discarding state.
-func TestRAM_RestoreMalformedJSON(t *testing.T) {
+func TestRestoreMalformedJSON(t *testing.T) {
 	t.Parallel()
 
 	b := ram.NewInMemoryBackend("123456789012", "us-east-1")
@@ -292,9 +293,9 @@ func TestRAM_RestoreMalformedJSON(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestRAM_HandlerSnapshotRestoreDelegate verifies Handler.Snapshot/Restore
+// TestHandlerSnapshotRestoreDelegate verifies Handler.Snapshot/Restore
 // delegate to the backend correctly.
-func TestRAM_HandlerSnapshotRestoreDelegate(t *testing.T) {
+func TestHandlerSnapshotRestoreDelegate(t *testing.T) {
 	t.Parallel()
 
 	h := ram.NewHandler(ram.NewInMemoryBackend("123456789012", "us-east-1"))
@@ -311,4 +312,153 @@ func TestRAM_HandlerSnapshotRestoreDelegate(t *testing.T) {
 	shares := h2.Backend.ListResourceShares("SELF", "")
 	require.Len(t, shares, 1)
 	assert.Equal(t, "delegate-share", shares[0].Name)
+}
+
+func TestSnapshot_PreservesBuiltInFields(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Check a built-in permission is still accessible and has correct fields.
+	permARN := "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet"
+	p, pv, err := b2.GetPermission(permARN, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "AWS_MANAGED", p.PermissionType)
+	assert.Equal(t, "REGIONAL", p.ResourceRegionScope)
+	assert.True(t, p.IsResourceTypeDefault)
+	assert.NotEmpty(t, pv.PolicyTemplate)
+}
+
+func TestPersistence_PermissionsAndInvitations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(*testing.T, *ram.InMemoryBackend)
+		verify func(*testing.T, *ram.InMemoryBackend)
+		name   string
+	}{
+		{
+			name: "permissions_preserved",
+			setup: func(t *testing.T, b *ram.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreatePermission("perm-snap", "ec2:Subnet", `{"v":"1"}`, map[string]string{"env": "test"})
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *ram.InMemoryBackend) {
+				t.Helper()
+				permARN := "arn:aws:ram:us-east-1:123456789012:permission/perm-snap"
+				p, pv, err := b.GetPermission(permARN, nil)
+				require.NoError(t, err)
+				assert.Equal(t, "perm-snap", p.Name)
+				assert.JSONEq(t, `{"v":"1"}`, pv.PolicyTemplate)
+				assert.Equal(t, "test", p.Tags["env"])
+			},
+		},
+		{
+			name: "invitations_preserved",
+			setup: func(t *testing.T, b *ram.InMemoryBackend) {
+				t.Helper()
+				inv := &ram.ResourceShareInvitation{
+					InvitationARN:     "arn:aws:ram:us-east-1:123456789012:resource-share-invitation/test-inv",
+					ResourceShareARN:  "arn:aws:ram:us-east-1:123456789012:resource-share/test-share",
+					ResourceShareName: "test-share",
+					SenderAccountID:   "111111111111",
+					ReceiverAccountID: "222222222222",
+					Status:            "PENDING",
+					CreationTime:      time.Now(),
+					LastUpdatedTime:   time.Now(),
+				}
+				b.AddInvitationInternal(inv)
+			},
+			verify: func(t *testing.T, b *ram.InMemoryBackend) {
+				t.Helper()
+				invs := b.GetResourceShareInvitations(
+					[]string{"arn:aws:ram:us-east-1:123456789012:resource-share-invitation/test-inv"},
+					nil,
+				)
+				require.Len(t, invs, 1)
+				assert.Equal(t, "PENDING", invs[0].Status)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ram.NewInMemoryBackend("123456789012", "us-east-1")
+			tt.setup(t, b)
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := ram.NewInMemoryBackend("123456789012", "us-east-1")
+			err := b2.Restore(t.Context(), snap)
+			require.NoError(t, err)
+
+			tt.verify(t, b2)
+		})
+	}
+}
+
+// TestPersistenceRoundTrip verifies Snapshot/Restore preserves
+// all new maps (permissions, sharePermissions, invitations).
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateResourceShare("prs-share", false, nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreatePermission("prs-perm", "ec2:Subnet", `{}`, nil)
+	require.NoError(t, err)
+
+	ram.AddInvitationInternal(b, ram.NewTestInvitation(
+		"arn:aws:ram:us-east-1:000000000000:resource-share-invitation/inv-rt",
+		"arn:aws:ram:us-east-1:000000000000:resource-share/s-rt",
+		"rt-share",
+	))
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	assert.Equal(t, 1, ram.ResourceShareCount(b2))
+	// Snapshot includes built-ins + 1 customer-managed permission.
+	assert.Equal(t, ram.BuiltInPermissionCount+1, ram.PermissionCount(b2))
+	assert.Equal(t, 1, ram.InvitationCount(b2))
+}
+
+// TestSnapshot_DeepCopy verifies that the snapshot does not share pointers with the backend.
+func TestSnapshot_DeepCopy(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+
+	rs, err := b.CreateResourceShare("snap-share", false, map[string]string{"env": "test"}, nil, nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	// Mutate the live share; the snapshot should be unaffected.
+	err = b.TagResource(rs.ARN, map[string]string{"env": "prod"})
+	require.NoError(t, err)
+
+	b2 := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	tags, err := b2.ListTagsForResource(rs.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "test", tags["env"], "snapshot should have pre-mutation tag value")
 }
