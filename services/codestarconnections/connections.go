@@ -1,0 +1,125 @@
+package codestarconnections
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/google/uuid"
+)
+
+// CreateConnection creates a new CodeStar connection.
+func (b *InMemoryBackend) CreateConnection(
+	ctx context.Context,
+	name, providerType, hostArn string,
+	tags map[string]string,
+) (*Connection, error) {
+	if err := validateConnectionName(name); err != nil {
+		return nil, err
+	}
+
+	if providerType != "" && !validProviderTypes()[providerType] {
+		return nil, fmt.Errorf("%w: invalid ProviderType %q", ErrValidation, providerType)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock("CreateConnection")
+	defer b.mu.Unlock()
+
+	if len(b.connectionsByName.Get(regionKey(region, name))) > 0 {
+		return nil, fmt.Errorf("%w: connection %q already exists", ErrAlreadyExists, name)
+	}
+
+	id := uuid.NewString()
+	connArn := arn.Build("codestar-connections", region, b.accountID, "connection/"+id)
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	conn := &Connection{
+		ConnectionName:   name,
+		ConnectionArn:    connArn,
+		ConnectionStatus: ConnectionStatusAvailable,
+		OwnerAccountID:   b.accountID,
+		ProviderType:     providerType,
+		HostArn:          hostArn,
+		Tags:             tagsCopy,
+	}
+	b.connections.Put(conn)
+
+	cp := *conn
+	cp.Tags = make(map[string]string, len(conn.Tags))
+	maps.Copy(cp.Tags, conn.Tags)
+
+	return &cp, nil
+}
+
+// GetConnection returns a connection by ARN.
+func (b *InMemoryBackend) GetConnection(_ context.Context, connectionArn string) (*Connection, error) {
+	b.mu.RLock("GetConnection")
+	defer b.mu.RUnlock()
+
+	conn, ok := b.connections.Get(connectionArn)
+	if !ok {
+		return nil, fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
+	}
+
+	cp := *conn
+	cp.Tags = make(map[string]string, len(conn.Tags))
+	maps.Copy(cp.Tags, conn.Tags)
+
+	return &cp, nil
+}
+
+// ListConnections returns all connections sorted by name, optionally filtered by provider type or host ARN.
+func (b *InMemoryBackend) ListConnections(ctx context.Context, providerTypeFilter, hostArnFilter string) []*Connection {
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.RLock("ListConnections")
+	defer b.mu.RUnlock()
+
+	conns := b.connectionsByRegion.Get(region)
+	result := make([]*Connection, 0, len(conns))
+
+	for _, conn := range conns {
+		if providerTypeFilter != "" && conn.ProviderType != providerTypeFilter {
+			continue
+		}
+
+		if hostArnFilter != "" && conn.HostArn != hostArnFilter {
+			continue
+		}
+
+		cp := *conn
+		cp.Tags = make(map[string]string, len(conn.Tags))
+		maps.Copy(cp.Tags, conn.Tags)
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ConnectionName < result[j].ConnectionName
+	})
+
+	return result
+}
+
+// DeleteConnection removes a connection by ARN.
+func (b *InMemoryBackend) DeleteConnection(_ context.Context, connectionArn string) error {
+	b.mu.Lock("DeleteConnection")
+	defer b.mu.Unlock()
+
+	if !b.connections.Has(connectionArn) {
+		return fmt.Errorf("%w: connection not found: %s", ErrNotFound, connectionArn)
+	}
+
+	b.connections.Delete(connectionArn)
+
+	return nil
+}

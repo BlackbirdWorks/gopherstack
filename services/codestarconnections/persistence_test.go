@@ -1,6 +1,7 @@
 package codestarconnections_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -260,4 +261,46 @@ func TestHandler_SnapshotRestore(t *testing.T) {
 	require.NoError(t, restoredHandler.Restore(t.Context(), data))
 
 	assert.Equal(t, 1, restoredBackend.ConnectionCount())
+}
+
+// TestInMemoryBackend_SnapshotRestore_TagsAndCounts verifies Snapshot/Restore preserves all state.
+func TestInMemoryBackend_SnapshotRestore_TagsAndCounts(t *testing.T) {
+	t.Parallel()
+
+	b := codestarconnections.NewInMemoryBackend("111111111111", "eu-west-1")
+
+	_, err := b.CreateConnection(context.Background(), "persist-conn", "GitHub", "", map[string]string{"env": "test"})
+	require.NoError(t, err)
+	_, err = b.CreateHost(context.Background(), "persist-host", "GitHub", "https://example.com", nil, nil)
+	require.NoError(t, err)
+	link, err := b.CreateRepositoryLink(context.Background(), "conn-arn", "owner", "persist-repo", "")
+	require.NoError(t, err)
+	_, err = b.CreateSyncConfiguration(
+		context.Background(),
+		"main",
+		"f",
+		link.RepositoryLinkID,
+		"res",
+		"arn:r",
+		"CFN_STACK_SYNC",
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, b2.ConnectionCount())
+	assert.Equal(t, 1, b2.HostCount())
+	assert.Equal(t, 1, b2.RepositoryLinkCount())
+	assert.Equal(t, 1, b2.SyncConfigurationCount())
+	assert.Equal(t, "111111111111", b2.AccountID())
+	assert.Equal(t, "eu-west-1", b2.Region())
+
+	// Tag data must survive round trip.
+	conns := b2.ListConnections(context.Background(), "", "")
+	require.Len(t, conns, 1)
+	assert.Equal(t, "test", conns[0].Tags["env"])
 }
