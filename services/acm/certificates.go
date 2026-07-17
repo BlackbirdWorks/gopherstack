@@ -1,0 +1,713 @@
+package acm
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// RequestCertificate creates a new certificate for the given domain.
+// When validationMethod is "DNS" or "EMAIL" the certificate starts in
+// PENDING_VALIDATION and automatically transitions to ISSUED after a short delay.
+// idempotencyToken, if non-empty, deduplicates the request — repeated calls with
+// the same token return the previously created certificate ARN.
+func (b *InMemoryBackend) RequestCertificate(
+	ctx context.Context,
+	domainName, certType, validationMethod, idempotencyToken, keyAlgorithm, caArn, optionsPref string,
+	sans []string,
+) (*Certificate, error) {
+	if err := validateRequestCertInput(domainName, sans); err != nil {
+		return nil, err
+	}
+
+	certBody, privateKey, certMeta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans, keyAlgorithm)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate certificate: %w", err)
+	}
+
+	if keyAlgorithm == "" {
+		keyAlgorithm = keyAlgorithmEC
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("RequestCertificate")
+	defer b.mu.Unlock()
+
+	// Idempotency: return existing cert if same token was already used.
+	existing, found, checkErr := b.checkIdempotency(
+		region, idempotencyToken, domainName, validationMethod, keyAlgorithm, sans,
+	)
+	if checkErr != nil {
+		return nil, checkErr
+	} else if found {
+		return existing, nil
+	}
+
+	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	certARN := arn.Build("acm", region, b.accountID, "certificate/"+id)
+
+	if certType == "" {
+		certType = "AMAZON_ISSUED"
+	}
+
+	renewalEligibility := renewalEligibilityEligible
+	if certType == certTypeImported {
+		renewalEligibility = renewalEligibilityIneligible
+	}
+
+	status, dvoList, err := buildInitialDVOList(domainName, sans, validationMethod)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	var issuedAt *time.Time
+
+	if status == statusIssued {
+		issuedAt = &now
+	}
+	if optionsPref == "" {
+		optionsPref = transparencyLoggingEnabled
+	}
+
+	// Real AWS ACM always includes the primary domain as the first SAN entry.
+	allSANs := buildSANList(domainName, sans)
+
+	cert := &Certificate{
+		ARN:                                certARN,
+		DomainName:                         domainName,
+		Serial:                             certMeta.serial,
+		Subject:                            certMeta.subject,
+		Issuer:                             certMeta.issuer,
+		KeyAlgorithm:                       keyAlgorithm,
+		SignatureAlgorithm:                 certMeta.signatureAlgorithm,
+		Status:                             status,
+		Type:                               certType,
+		RenewalEligibility:                 renewalEligibility,
+		ValidationMethod:                   validationMethod,
+		IdempotencyToken:                   idempotencyToken,
+		SubjectAlternativeNames:            allSANs,
+		DomainValidationOptions:            dvoList,
+		CertificateBody:                    certBody,
+		PrivateKey:                         privateKey,
+		CreatedAt:                          now,
+		IssuedAt:                           issuedAt,
+		NotBefore:                          notBefore,
+		NotAfter:                           notAfter,
+		KeyUsage:                           []string{keyUsageDigitalSignature},
+		ExtendedKeyUsage:                   []string{extKeyUsageServerAuth},
+		CertificateTransparencyLoggingPref: optionsPref,
+		CertificateAuthorityArn:            caArn,
+	}
+	cert.region = region
+	b.certs.Put(cert)
+	b.recordNewCert(region, certARN, idempotencyToken, status, now)
+
+	cp := copyCert(cert)
+
+	return &cp, nil
+}
+
+// recordNewCert records the idempotency-token mapping for a newly created certificate and
+// schedules its auto-validation timer when the certificate is pending validation.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) recordNewCert(region, certARN, idempotencyToken, status string, now time.Time) {
+	if idempotencyToken != "" {
+		b.idempotencyStore(region)[idempotencyToken] = certIdempotencyEntry{
+			ARN:       certARN,
+			CreatedAt: now,
+		}
+	}
+
+	if status == statusPendingValidation {
+		t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(region, certARN) })
+		b.timersStore(region)[certARN] = t
+	}
+}
+
+func (b *InMemoryBackend) checkIdempotency(
+	region, idempotencyToken, domainName, validationMethod, keyAlgorithm string,
+	sans []string,
+) (*Certificate, bool, error) {
+	if idempotencyToken == "" {
+		return nil, false, nil
+	}
+
+	entry, ok := b.idempotencyStore(region)[idempotencyToken]
+	if !ok {
+		return nil, false, nil
+	}
+
+	c, exists := b.certs.Get(regionKey(region, entry.ARN))
+	if !exists {
+		return nil, false, nil
+	}
+
+	if c.DomainName != domainName || c.ValidationMethod != validationMethod ||
+		c.KeyAlgorithm != keyAlgorithm ||
+		!slices.Equal(c.SubjectAlternativeNames, buildSANList(domainName, sans)) {
+		return nil, false, fmt.Errorf(
+			"%w: idempotency token already used with different parameters",
+			ErrInvalidParameter,
+		)
+	}
+
+	cp := copyCert(c)
+
+	return &cp, true, nil
+}
+
+// validateRequestCertInput validates the DomainName and all SANs for a RequestCertificate call.
+func validateRequestCertInput(domainName string, sans []string) error {
+	if domainName == "" {
+		return fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+	}
+
+	const maxDomainsPerCertificate = 10
+	if len(sans)+1 > maxDomainsPerCertificate {
+		return fmt.Errorf(
+			"%w: maximum of 10 domain names (1 primary + 9 SANs) allowed per certificate",
+			ErrInvalidParameter,
+		)
+	}
+
+	if err := validateDomainName(domainName); err != nil {
+		return err
+	}
+
+	for _, san := range sans {
+		if err := validateDomainName(san); err != nil {
+			return fmt.Errorf("%w: invalid SAN %q: %w", ErrInvalidParameter, san, err)
+		}
+	}
+
+	return nil
+}
+
+// buildInitialDVOList constructs the initial DomainValidationOptions list and determines
+// the certificate's initial status based on the validation method.
+func buildInitialDVOList(
+	domainName string,
+	sans []string,
+	validationMethod string,
+) (string, []DomainValidationOption, error) {
+	allDomains := append([]string{domainName}, sans...)
+	status := statusIssued
+
+	var (
+		dvoList []DomainValidationOption
+		err     error
+	)
+
+	switch validationMethod {
+	case validationMethodDNS, validationMethodEMAIL:
+		status = statusPendingValidation
+		dvoList, err = buildDomainValidationOptions(allDomains, validationMethod)
+	default:
+		dvoList, err = buildDomainValidationOptions(allDomains, validationMethodDNS)
+	}
+
+	if err != nil {
+		return "", nil, err
+	}
+
+	if status == statusIssued {
+		for i := range dvoList {
+			dvoList[i].ValidationStatus = validationStatusSuccess
+		}
+	}
+
+	return status, dvoList, nil
+}
+
+// ImportCertificate stores a PEM-encoded certificate, private key, and optional
+// certificate chain, returning the ARN of the newly created or updated entry.
+// When certARNToUpdate is non-empty, the existing certificate is updated in-place
+// (re-import), matching AWS behavior where CertificateArn may be passed to replace
+// an existing imported certificate.
+func (b *InMemoryBackend) ImportCertificate(
+	ctx context.Context,
+	certBody, privateKey, certChain, certARNToUpdate string,
+) (*Certificate, error) {
+	if certBody == "" {
+		return nil, fmt.Errorf("%w: Certificate is required", ErrInvalidParameter)
+	}
+
+	if privateKey == "" {
+		return nil, fmt.Errorf("%w: PrivateKey is required", ErrInvalidParameter)
+	}
+
+	domainName, meta, notBefore, notAfter, err := extractCertMetadataFull(certBody)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid certificate body: %w", ErrInvalidParameter, err)
+	}
+
+	now := time.Now().UTC()
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("ImportCertificate")
+	defer b.mu.Unlock()
+
+	// Re-import: update existing certificate in-place.
+	if certARNToUpdate != "" {
+		existing, ok := b.certs.Get(regionKey(region, certARNToUpdate))
+		if !ok {
+			return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARNToUpdate)
+		}
+
+		existing.CertificateBody = certBody
+		existing.CertificateChain = certChain
+		existing.PrivateKey = privateKey
+		existing.DomainName = domainName
+		existing.NotBefore = notBefore
+		existing.NotAfter = notAfter
+		existing.Serial = meta.serial
+		existing.Subject = meta.subject
+		existing.Issuer = meta.issuer
+		existing.SignatureAlgorithm = meta.signatureAlgorithm
+		existing.ImportedAt = &now
+		existing.Status = statusIssued
+		existing.KeyUsage = meta.keyUsage
+		existing.ExtendedKeyUsage = meta.extKeyUsage
+
+		cp := copyCert(existing)
+
+		return &cp, nil
+	}
+
+	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	certARN := arn.Build("acm", region, b.accountID, "certificate/"+id)
+
+	cert := &Certificate{
+		ARN:                                certARN,
+		DomainName:                         domainName,
+		Serial:                             meta.serial,
+		Subject:                            meta.subject,
+		Issuer:                             meta.issuer,
+		KeyAlgorithm:                       keyAlgorithmEC,
+		SignatureAlgorithm:                 meta.signatureAlgorithm,
+		Status:                             statusIssued,
+		Type:                               certTypeImported,
+		RenewalEligibility:                 renewalEligibilityIneligible,
+		CertificateBody:                    certBody,
+		CertificateChain:                   certChain,
+		PrivateKey:                         privateKey,
+		CreatedAt:                          now,
+		ImportedAt:                         &now,
+		NotBefore:                          notBefore,
+		NotAfter:                           notAfter,
+		KeyUsage:                           meta.keyUsage,
+		ExtendedKeyUsage:                   meta.extKeyUsage,
+		CertificateTransparencyLoggingPref: transparencyLoggingEnabled,
+		region:                             region,
+	}
+	b.certs.Put(cert)
+
+	cp := copyCert(cert)
+
+	return &cp, nil
+}
+
+// RenewCertificate regenerates the certificate material for an AMAZON_ISSUED certificate,
+// extending its validity by one year. Returns ErrNotEligible for IMPORTED certificates,
+// as AWS ACM does not support renewing imported certificates.
+func (b *InMemoryBackend) RenewCertificate(ctx context.Context, certARN string) error {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("RenewCertificate")
+	defer b.mu.Unlock()
+
+	c, exists := b.certs.Get(regionKey(region, certARN))
+	if !exists {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if c.Type == certTypeImported {
+		return fmt.Errorf("%w: only AMAZON_ISSUED certificates can be renewed", ErrNotEligible)
+	}
+
+	if c.CertificateAuthorityArn != "" {
+		return fmt.Errorf("%w: PRIVATE certificates cannot be renewed through this API", ErrNotEligible)
+	}
+
+	domainName := c.DomainName
+	sans := c.SubjectAlternativeNames
+	validationMethod := c.ValidationMethod
+
+	certBody, privateKey, meta, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans, c.KeyAlgorithm)
+	if err != nil {
+		return fmt.Errorf("failed to generate self-signed certificate: %w", err)
+	}
+
+	status, dvoList, err := buildInitialDVOList(domainName, sans, validationMethod)
+	if err != nil {
+		return fmt.Errorf("failed to build domain validation options: %w", err)
+	}
+
+	c.CertificateBody = certBody
+	c.PrivateKey = privateKey
+	c.Serial = meta.serial
+	c.Subject = meta.subject
+	c.Issuer = meta.issuer
+	c.SignatureAlgorithm = meta.signatureAlgorithm
+	c.NotBefore = notBefore
+	c.NotAfter = notAfter
+
+	// Mark the certificate as eligible for renewal and set the renewal summary.
+	c.RenewalEligibility = renewalEligibilityEligible
+	c.RenewalSummary = &RenewalSummary{
+		RenewalStatus:           status,
+		DomainValidationOptions: dvoList,
+	}
+
+	if status == statusPendingValidation {
+		t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidateRenewal(region, certARN) })
+		// We can share the timer map, because normal validation is done
+		// if a renewal is happening (a cert must be issued to be renewed).
+		// Wait, if there's an existing timer, stop it first.
+		timers := b.timersStore(region)
+		if oldT, ok := timers[certARN]; ok {
+			oldT.Stop()
+		}
+		timers[certARN] = t
+	}
+
+	return nil
+}
+
+// fakeCertChain is a fake PEM certificate chain (intermediate + root) returned by
+// ExportCertificate when the stored certificate has no associated chain.
+// This simulates the AWS ACM behavior of always returning a chain for exported certs.
+const fakeCertChain = "-----BEGIN CERTIFICATE-----\n" +
+	"MIIBpDCCAUqgAwIBAgIUFakeIntermediateCA0001AgAgAAgICAgICAgICIwCgYIKoZIzj0E\n" +
+	"AwIwETEPMA0GA1UEAxMGZmFrZUNBMB4XDTIwMDEwMTAwMDAwMFoXDTMwMDEwMTAw\n" +
+	"MDAwMFowETEPMA0GA1UEAxMGZmFrZUNBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcD\n" +
+	"QgAEfakeIntermediatePublicKeyDataHereForTestingPurposesOnlyNotRealCA\n" +
+	"o0IwQDAdBgNVHQ4EFgQUFakeIntermediateCAKeyId001234MA8GA1UdEwEB/wQFMAMB\n" +
+	"Af8wDgYDVR0PAQH/BAQDAgGGMAoGCCqGSM49BAMCA0gAMEUCIFakeIntermediateSig\n" +
+	"nature001ForTestPurposesAgICAgICAgICAgICAgAgICAgICAgICAgICAgIA\n" +
+	"-----END CERTIFICATE-----\n" +
+	"-----BEGIN CERTIFICATE-----\n" +
+	"MIIBmDCCAT6gAwIBAgIUFakeRootCA0001AgAgAAgICAgICAgICIwCgYIKoZIzj0E\n" +
+	"AwIwDzENMAsGA1UEAxMEcm9vdDAeFw0yMDAxMDEwMDAwMDBaFw0zMDAxMDEwMDAw\n" +
+	"MDBaMA8xDTALBgNVBAMTBHJvb3QwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARf\n" +
+	"akeRootPublicKeyDataHereForTestingPurposesOnlyNotARealRootCertificate\n" +
+	"o0IwQDAdBgNVHQ4EFgQUFakeRootCAKeyId00123456789012345678901234567890\n" +
+	"MA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgGGMAoGCCqGSM49BAMCA0AA\n" +
+	"MEYCIQCFakeRootSignature001ForTestingPurposesNotARealSignatureAtAllXX\n" +
+	"AiEAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA\n" +
+	"-----END CERTIFICATE-----\n"
+
+// ExportCertificate returns the PEM certificate body, chain, and private key for
+// an IMPORTED or PRIVATE certificate. Returns ErrNotEligible for AMAZON_ISSUED certificates.
+// When the stored certificate has no associated chain, a fake chain (intermediate + root)
+// is returned in PEM format to simulate AWS ACM behaviour.
+// If passphrase is non-nil and non-empty, the private key is returned encrypted using AES-256.
+func (b *InMemoryBackend) ExportCertificate(
+	ctx context.Context, certARN string, passphrase []byte,
+) (*Certificate, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ExportCertificate")
+	defer b.mu.RUnlock()
+
+	cert, ok := b.certs.Get(regionKey(region, certARN))
+	if !ok {
+		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Type != certTypeImported && cert.Type != "PRIVATE" {
+		return nil, fmt.Errorf("%w: only IMPORTED or PRIVATE certificates can be exported", ErrNotEligible)
+	}
+
+	cp := copyCert(cert)
+
+	// Always return a certificate chain; use a fake chain when none was supplied.
+	if cp.CertificateChain == "" {
+		cp.CertificateChain = fakeCertChain
+	}
+
+	if len(passphrase) > 0 {
+		encKey, encErr := encryptPrivateKeyPEM(cp.PrivateKey, passphrase)
+		if encErr != nil {
+			return nil, fmt.Errorf("export: %w", encErr)
+		}
+
+		cp.PrivateKey = encKey
+	}
+
+	return &cp, nil
+}
+
+// GetCertificate returns the PEM certificate body and chain for any certificate.
+func (b *InMemoryBackend) GetCertificate(ctx context.Context, certARN string) (string, string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("GetCertificate")
+	defer b.mu.RUnlock()
+
+	cert, ok := b.certs.Get(regionKey(region, certARN))
+	if !ok {
+		return "", "", fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Status == statusPendingValidation || cert.Status == statusValidationTimedOut ||
+		cert.Status == statusFailed {
+		return "", "", fmt.Errorf("%w: certificate %s is in state %s", ErrRequestInProgress, certARN, cert.Status)
+	}
+
+	return cert.CertificateBody, cert.CertificateChain, nil
+}
+
+// DescribeCertificate returns the certificate with the given ARN.
+func (b *InMemoryBackend) DescribeCertificate(ctx context.Context, arn string) (*Certificate, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("DescribeCertificate")
+	defer b.mu.RUnlock()
+
+	cert, exists := b.certs.Get(regionKey(region, arn))
+	if !exists {
+		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, arn)
+	}
+
+	cp := copyCert(cert)
+
+	return &cp, nil
+}
+
+// ListCertificatesParams holds all filter and sorting options for ListCertificates.
+type ListCertificatesParams struct {
+	NextToken        string
+	SortBy           string
+	SortOrder        string
+	StatusFilter     []string
+	KeyTypes         []string
+	KeyUsage         []string
+	ExtendedKeyUsage []string
+	MaxItems         int
+}
+
+// listCertFilters holds compiled filter sets for ListCertificates.
+type listCertFilters struct {
+	statusSet      map[string]struct{}
+	keyTypeSet     map[string]struct{}
+	keyUsageSet    map[string]struct{}
+	extKeyUsageSet map[string]struct{}
+}
+
+// buildListCertFilters compiles the filter sets from ListCertificatesParams.
+func buildListCertFilters(p ListCertificatesParams) listCertFilters {
+	f := listCertFilters{
+		statusSet:      make(map[string]struct{}, len(p.StatusFilter)),
+		keyTypeSet:     make(map[string]struct{}, len(p.KeyTypes)),
+		keyUsageSet:    make(map[string]struct{}, len(p.KeyUsage)),
+		extKeyUsageSet: make(map[string]struct{}, len(p.ExtendedKeyUsage)),
+	}
+
+	for _, s := range p.StatusFilter {
+		f.statusSet[s] = struct{}{}
+	}
+
+	for _, k := range p.KeyTypes {
+		f.keyTypeSet[k] = struct{}{}
+	}
+
+	for _, ku := range p.KeyUsage {
+		f.keyUsageSet[ku] = struct{}{}
+	}
+
+	for _, eku := range p.ExtendedKeyUsage {
+		f.extKeyUsageSet[eku] = struct{}{}
+	}
+
+	return f
+}
+
+// matches returns true if the certificate satisfies all filters.
+func (f listCertFilters) matches(c *Certificate) bool {
+	if len(f.statusSet) > 0 {
+		if _, ok := f.statusSet[c.Status]; !ok {
+			return false
+		}
+	}
+
+	if len(f.keyTypeSet) > 0 {
+		if _, ok := f.keyTypeSet[c.KeyAlgorithm]; !ok {
+			return false
+		}
+	}
+
+	if len(f.keyUsageSet) > 0 && !matchesAny(c.KeyUsage, f.keyUsageSet) {
+		return false
+	}
+
+	if len(f.extKeyUsageSet) > 0 && !matchesAny(c.ExtendedKeyUsage, f.extKeyUsageSet) {
+		return false
+	}
+
+	return true
+}
+
+// ListCertificates returns a paginated list of certificates, with optional
+// filtering and sorting.
+func (b *InMemoryBackend) ListCertificates(
+	ctx context.Context, p ListCertificatesParams,
+) (page.Page[Certificate], error) {
+	if err := page.ValidateToken(p.NextToken); err != nil {
+		return page.Page[Certificate]{}, fmt.Errorf("%w: invalid NextToken", ErrInvalidParameter)
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListCertificates")
+	defer b.mu.RUnlock()
+
+	filters := buildListCertFilters(p)
+	regionCerts := b.certsByRegion.Get(region)
+	certs := make([]Certificate, 0, len(regionCerts))
+
+	for _, c := range regionCerts {
+		if filters.matches(c) {
+			certs = append(certs, copyCert(c))
+		}
+	}
+
+	descending := strings.EqualFold(p.SortOrder, "DESCENDING")
+
+	switch strings.ToUpper(p.SortBy) {
+	case listCertSortByCreatedAt:
+		sort.Slice(certs, func(i, j int) bool {
+			if descending {
+				return certs[i].CreatedAt.After(certs[j].CreatedAt)
+			}
+
+			return certs[i].CreatedAt.Before(certs[j].CreatedAt)
+		})
+	default:
+		// Default: sort by ARN for stable, deterministic ordering.
+		sort.Slice(certs, func(i, j int) bool {
+			if descending {
+				return certs[i].ARN > certs[j].ARN
+			}
+
+			return certs[i].ARN < certs[j].ARN
+		})
+	}
+
+	return page.New(certs, p.NextToken, p.MaxItems, acmDefaultMaxItems), nil
+}
+
+const acmDefaultMaxItems = 100
+
+// matchesAny returns true if any element of values is in the set.
+func matchesAny(values []string, set map[string]struct{}) bool {
+	for _, v := range values {
+		if _, ok := set[v]; ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// CertExists reports whether a certificate with the given ARN exists in the backend.
+// This is used by the handler to validate tag operations.
+func (b *InMemoryBackend) CertExists(ctx context.Context, certARN string) bool {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("CertExists")
+	defer b.mu.RUnlock()
+
+	return b.certs.Has(regionKey(region, certARN))
+}
+
+// AddInUseBy records that a resource ARN is using the certificate. It is a no-op
+// if the certificate does not exist or the ARN is already present.
+func (b *InMemoryBackend) AddInUseBy(ctx context.Context, certARN, resourceARN string) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("AddInUseBy")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs.Get(regionKey(region, certARN))
+	if !ok {
+		return
+	}
+
+	if slices.Contains(cert.InUseBy, resourceARN) {
+		return
+	}
+
+	cert.InUseBy = append(cert.InUseBy, resourceARN)
+}
+
+// RemoveInUseBy removes a resource ARN from the certificate's InUseBy list. It is a no-op
+// if the certificate does not exist or the ARN is not present.
+func (b *InMemoryBackend) RemoveInUseBy(ctx context.Context, certARN, resourceARN string) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("RemoveInUseBy")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs.Get(regionKey(region, certARN))
+	if !ok {
+		return
+	}
+
+	filtered := cert.InUseBy[:0]
+
+	for _, existing := range cert.InUseBy {
+		if existing != resourceARN {
+			filtered = append(filtered, existing)
+		}
+	}
+
+	cert.InUseBy = filtered
+}
+
+// DeleteCertificate removes the certificate with the given ARN.
+func (b *InMemoryBackend) DeleteCertificate(ctx context.Context, certARN string) error {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("DeleteCertificate")
+	defer b.mu.Unlock()
+
+	key := regionKey(region, certARN)
+
+	cert, exists := b.certs.Get(key)
+	if !exists {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if len(cert.InUseBy) > 0 {
+		return fmt.Errorf("%w: certificate %s is in use", ErrResourceInUse, certARN)
+	}
+
+	timers := b.timersStore(region)
+	if t, ok := timers[certARN]; ok {
+		t.Stop()
+		delete(timers, certARN)
+	}
+
+	b.certs.Delete(key)
+
+	// Drop any idempotency-token entries that pointed at this cert so the
+	// map cannot grow unbounded for long-running backends.
+	idempotency := b.idempotencyStore(region)
+	for tok, entry := range idempotency {
+		if entry.ARN == certARN {
+			delete(idempotency, tok)
+		}
+	}
+
+	return nil
+}

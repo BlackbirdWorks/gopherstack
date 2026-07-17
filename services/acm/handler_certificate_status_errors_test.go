@@ -7,19 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/services/acm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
-// ── Batch-2 Issue #1: ErrNotEligible mapped to "RequestError" instead of "RequestInProgressException" ───
-//
-// ExportCertificate on an AMAZON_ISSUED cert and RenewCertificate on IMPORTED/PRIVATE certs
-// previously returned __type="RequestError", which is not a valid ACM error code.
-// AWS returns RequestInProgressException for these cases.
-
-func TestBatch2_ExportCertificate_AmazonIssued_Returns_RequestInProgressException(t *testing.T) {
+func TestACMHandler_ExportCertificate_AmazonIssued_Returns_RequestInProgressException(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -58,7 +51,7 @@ func TestBatch2_ExportCertificate_AmazonIssued_Returns_RequestInProgressExceptio
 	}
 }
 
-func TestBatch2_RenewCertificate_Imported_Returns_RequestInProgressException(t *testing.T) {
+func TestACMHandler_RenewCertificate_Imported_Returns_RequestInProgressException(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -104,13 +97,7 @@ func TestBatch2_RenewCertificate_Imported_Returns_RequestInProgressException(t *
 	}
 }
 
-// ── Batch-2 Issue #2: GetCertificate on PENDING/FAILED/TIMED_OUT returns InvalidStateException ───
-//
-// AWS GetCertificate returns RequestInProgressException when the certificate is not yet issued
-// (PENDING_VALIDATION) or is in a terminal non-ready state (VALIDATION_TIMED_OUT, FAILED).
-// Previously GetCertificate returned InvalidStateException for these states.
-
-func TestBatch2_GetCertificate_NonIssuedStates_Returns_RequestInProgressException(t *testing.T) {
+func TestACMHandler_GetCertificate_NonIssuedStates_Returns_RequestInProgressException(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -209,12 +196,7 @@ func TestBatch2_GetCertificate_NonIssuedStates_Returns_RequestInProgressExceptio
 	}
 }
 
-// ── Batch-2 Issue #3: RevokeCertificate on PENDING_VALIDATION returns ValidationException ───
-//
-// AWS RevokeCertificate returns InvalidStateException when the certificate is not in
-// a revocable state. Previously PENDING_VALIDATION certs returned ValidationException.
-
-func TestBatch2_RevokeCertificate_PendingValidation_Returns_InvalidStateException(t *testing.T) {
+func TestACMHandler_RevokeCertificate_PendingValidation_Returns_InvalidStateException(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -284,12 +266,7 @@ func TestBatch2_RevokeCertificate_PendingValidation_Returns_InvalidStateExceptio
 	}
 }
 
-// ── Batch-2 Issue #4: UpdateCertificateOptions on non-ISSUED cert returns ValidationException ───
-//
-// AWS UpdateCertificateOptions returns InvalidStateException when the certificate is not in
-// ISSUED state. Previously all non-ISSUED states returned ValidationException.
-
-func TestBatch2_UpdateCertificateOptions_NonIssued_Returns_InvalidStateException(t *testing.T) {
+func TestACMHandler_UpdateCertificateOptions_NonIssued_Returns_InvalidStateException(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -376,8 +353,8 @@ func TestBatch2_UpdateCertificateOptions_NonIssued_Returns_InvalidStateException
 	}
 }
 
-// TestBatch2_GetCertificate_Issued_Succeeds verifies the success path still works after fixes.
-func TestBatch2_GetCertificate_Issued_Succeeds(t *testing.T) {
+// TestACMHandler_GetCertificate_Issued_Succeeds verifies the success path still works after fixes.
+func TestACMHandler_GetCertificate_Issued_Succeeds(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
