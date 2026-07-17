@@ -1,6 +1,30 @@
 package firehose
 
-import "context"
+import (
+	"context"
+
+	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+)
+
+// S3Storer is the subset of S3 operations that Firehose needs to deliver objects.
+type S3Storer interface {
+	PutObject(ctx context.Context, input *sdk_s3.PutObjectInput) (*sdk_s3.PutObjectOutput, error)
+}
+
+// LambdaInvoker is the subset of Lambda operations that Firehose needs for transformation.
+type LambdaInvoker interface {
+	InvokeFunction(ctx context.Context, name string, invocationType string, payload []byte) ([]byte, int, error)
+}
+
+// KinesisReader is the subset of Kinesis operations that Firehose needs to poll source streams.
+type KinesisReader interface {
+	// ListShards returns all open shard IDs for the named stream.
+	ListShards(streamName string) ([]string, error)
+	// GetShardIterator returns a TRIM_HORIZON iterator token for the given stream/shard.
+	GetShardIterator(streamName, shardID string) (string, error)
+	// GetRecords reads up to limit records. Returns raw data slices, next iterator token, and error.
+	GetRecords(shardIterator string, limit int) (records [][]byte, nextIterator string, err error)
+}
 
 // StorageBackend defines the interface for Firehose backend implementations.
 // All mutating methods must be safe for concurrent use.
