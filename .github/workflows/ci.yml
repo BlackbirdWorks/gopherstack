@@ -153,6 +153,17 @@ jobs:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -217,6 +228,17 @@ jobs:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -275,6 +297,17 @@ jobs:
         with:
           token: ${{ env.GH_CI_TOKEN }}
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: false
 
       - name: Set up Go
         uses: actions/setup-go@v6

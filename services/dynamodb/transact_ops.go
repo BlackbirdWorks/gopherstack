@@ -21,9 +21,11 @@ import (
 var errConditionalCheckFailed = errors.New("conditional check failed")
 
 type tableStateSnapshot struct {
-	pkIndex   map[string]int
-	pkskIndex map[string]map[string]int
-	items     []map[string]any
+	pkIndex            map[string]int
+	pkskIndex          map[string]map[string]int
+	items              []map[string]any
+	itemSizes          []int
+	totalItemSizeBytes int64
 }
 
 const txCancelPrefix = "Transaction cancelled, please refer cancellation reasons for specific reasons"
@@ -787,6 +789,11 @@ func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableS
 		itemsCopy := make([]map[string]any, len(t.Items))
 		copy(itemsCopy, t.Items)
 
+		// Snapshot itemSizes alongside Items so rollback restores the
+		// len(itemSizes) == len(Items) invariant (and accurate size accounting).
+		itemSizesCopy := make([]int, len(t.itemSizes))
+		copy(itemSizesCopy, t.itemSizes)
+
 		// Deep copy of indexes to ensure rollback restores correct mapping.
 		pkIdxCopy := make(map[string]int, len(t.pkIndex))
 		maps.Copy(pkIdxCopy, t.pkIndex)
@@ -799,9 +806,11 @@ func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableS
 		}
 
 		snapshots[name] = tableStateSnapshot{
-			items:     itemsCopy,
-			pkIndex:   pkIdxCopy,
-			pkskIndex: pkskIdxCopy,
+			items:              itemsCopy,
+			itemSizes:          itemSizesCopy,
+			totalItemSizeBytes: t.totalItemSizeBytes,
+			pkIndex:            pkIdxCopy,
+			pkskIndex:          pkskIdxCopy,
 		}
 	}
 
@@ -815,6 +824,8 @@ func (db *InMemoryDB) rollbackTables(
 	for name, t := range tables {
 		if s, ok := snapshots[name]; ok {
 			t.Items = s.items
+			t.itemSizes = s.itemSizes
+			t.totalItemSizeBytes = s.totalItemSizeBytes
 			t.pkIndex = s.pkIndex
 			t.pkskIndex = s.pkskIndex
 		}

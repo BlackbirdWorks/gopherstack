@@ -67,6 +67,7 @@ package eventbridge
 //     reproduces the existing key from the value alone.
 import (
 	"strings"
+	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -94,10 +95,13 @@ func schemaKeyFn(v *Schema) string                         { return v.SchemaName
 // reg=b.auxRegistry).
 func getOrCreateTable[V any](
 	reg *store.Registry,
+	mu *sync.Mutex,
 	m map[string]*store.Table[V],
 	name, key string,
 	keyFn func(*V) string,
 ) *store.Table[V] {
+	mu.Lock()
+	defer mu.Unlock()
 	t, ok := m[key]
 	if !ok {
 		t = store.Register(reg, name+"/"+key, store.New(keyFn))
@@ -112,10 +116,13 @@ func getOrCreateTable[V any](
 // (region -> bus -> Table[Rule]) and targets (region -> bus/rule -> Table[Target]).
 func getOrCreateNestedTable[V any](
 	reg *store.Registry,
+	mu *sync.Mutex,
 	m map[string]map[string]*store.Table[V],
 	name, outerKey, innerKey string,
 	keyFn func(*V) string,
 ) *store.Table[V] {
+	mu.Lock()
+	defer mu.Unlock()
 	inner := m[outerKey]
 	if inner == nil {
 		inner = make(map[string]*store.Table[V])
@@ -136,10 +143,13 @@ func getOrCreateNestedTable[V any](
 // *store.Table[V] field on the backend, registered lazily on first access.
 func getOrCreateGlobalTable[V any](
 	reg *store.Registry,
+	mu *sync.Mutex,
 	cur **store.Table[V],
 	name string,
 	keyFn func(*V) string,
 ) *store.Table[V] {
+	mu.Lock()
+	defer mu.Unlock()
 	if *cur == nil {
 		*cur = store.Register(reg, name, store.New(keyFn))
 	}

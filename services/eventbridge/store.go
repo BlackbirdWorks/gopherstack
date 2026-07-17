@@ -49,13 +49,15 @@ func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
 // busesTable returns the *store.Table[EventBus] for the given region, lazily
 // creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) busesTable(region string) *store.Table[EventBus] {
-	return getOrCreateTable(b.registry, b.buses, "buses", region, eventBusKeyFn)
+	return getOrCreateTable(b.registry, &b.tableMu, b.buses, "buses", region, eventBusKeyFn)
 }
 
 // rulesStore returns the region's bus->Table[Rule] map, lazily creating the
 // per-region entry (but NOT any per-bus Table -- use ruleTableFor for that).
 // Callers must hold b.mu.
 func (b *InMemoryBackend) rulesStore(region string) map[string]*store.Table[Rule] {
+	b.tableMu.Lock()
+	defer b.tableMu.Unlock()
 	if b.rules[region] == nil {
 		b.rules[region] = make(map[string]*store.Table[Rule])
 	}
@@ -66,13 +68,15 @@ func (b *InMemoryBackend) rulesStore(region string) map[string]*store.Table[Rule
 // ruleTableFor returns the *store.Table[Rule] for the given region and bus
 // key, lazily creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) ruleTableFor(region, busKey string) *store.Table[Rule] {
-	return getOrCreateNestedTable(b.registry, b.rules, "rules", region, busKey, ruleKeyFn)
+	return getOrCreateNestedTable(b.registry, &b.tableMu, b.rules, "rules", region, busKey, ruleKeyFn)
 }
 
 // targetsStore returns the region's parentKey->Table[Target] map, lazily
 // creating the per-region entry (but NOT any per-parent Table -- use
 // targetTableFor for that). Callers must hold b.mu.
 func (b *InMemoryBackend) targetsStore(region string) map[string]*store.Table[Target] {
+	b.tableMu.Lock()
+	defer b.tableMu.Unlock()
 	if b.targets[region] == nil {
 		b.targets[region] = make(map[string]*store.Table[Target])
 	}
@@ -84,12 +88,14 @@ func (b *InMemoryBackend) targetsStore(region string) map[string]*store.Table[Ta
 // target parent key (bus/rule, see targetKey), lazily creating and
 // registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) targetTableFor(region, parentKey string) *store.Table[Target] {
-	return getOrCreateNestedTable(b.registry, b.targets, "targets", region, parentKey, targetKeyFnV)
+	return getOrCreateNestedTable(b.registry, &b.tableMu, b.targets, "targets", region, parentKey, targetKeyFnV)
 }
 
 // targetsByARNStore returns (lazily creating) the per-region ARN→targetKeys index.
 // Callers must hold b.mu.
 func (b *InMemoryBackend) targetsByARNStore(region string) map[string]map[string]struct{} {
+	b.tableMu.Lock()
+	defer b.tableMu.Unlock()
 	if b.targetsByARN[region] == nil {
 		b.targetsByARN[region] = make(map[string]map[string]struct{})
 	}
@@ -156,25 +162,25 @@ func (b *InMemoryBackend) ruleIndexStore(region string) map[string]map[ruleIndex
 // eventSourcesTable returns the *store.Table[EventSource] for the given
 // region, lazily creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) eventSourcesTable(region string) *store.Table[EventSource] {
-	return getOrCreateTable(b.registry, b.eventSources, "eventSources", region, eventSourceKeyFn)
+	return getOrCreateTable(b.registry, &b.tableMu, b.eventSources, "eventSources", region, eventSourceKeyFn)
 }
 
 // replaysTable returns the *store.Table[Replay] for the given region, lazily
 // creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) replaysTable(region string) *store.Table[Replay] {
-	return getOrCreateTable(b.registry, b.replays, "replays", region, replayKeyFn)
+	return getOrCreateTable(b.registry, &b.tableMu, b.replays, "replays", region, replayKeyFn)
 }
 
 // apiDestinationsTable returns the *store.Table[APIDestination] for the given
 // region, lazily creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) apiDestinationsTable(region string) *store.Table[APIDestination] {
-	return getOrCreateTable(b.registry, b.apiDestinations, "apiDestinations", region, apiDestinationKeyFn)
+	return getOrCreateTable(b.registry, &b.tableMu, b.apiDestinations, "apiDestinations", region, apiDestinationKeyFn)
 }
 
 // archivesTable returns the *store.Table[Archive] for the given region,
 // lazily creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) archivesTable(region string) *store.Table[Archive] {
-	return getOrCreateTable(b.registry, b.archives, "archives", region, archiveKeyFn)
+	return getOrCreateTable(b.registry, &b.tableMu, b.archives, "archives", region, archiveKeyFn)
 }
 
 // archivedEventsStore returns the archived-events map for the given region.
@@ -190,38 +196,38 @@ func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]EventE
 // connectionsTable returns the *store.Table[Connection] for the given region,
 // lazily creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) connectionsTable(region string) *store.Table[Connection] {
-	return getOrCreateTable(b.registry, b.connections, "connections", region, connectionKeyFn)
+	return getOrCreateTable(b.registry, &b.tableMu, b.connections, "connections", region, connectionKeyFn)
 }
 
 // endpointsTable returns the *store.Table[Endpoint] for the given region,
 // lazily creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) endpointsTable(region string) *store.Table[Endpoint] {
-	return getOrCreateTable(b.registry, b.endpoints, "endpoints", region, endpointKeyFn)
+	return getOrCreateTable(b.registry, &b.tableMu, b.endpoints, "endpoints", region, endpointKeyFn)
 }
 
 // partnerSourcesTable returns the *store.Table[PartnerEventSource] for the
 // given region, lazily creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) partnerSourcesTable(region string) *store.Table[PartnerEventSource] {
-	return getOrCreateTable(b.registry, b.partnerSources, "partnerSources", region, partnerEventSourceKeyFn)
+	return getOrCreateTable(b.registry, &b.tableMu, b.partnerSources, "partnerSources", region, partnerEventSourceKeyFn)
 }
 
 // pipesTable returns the backend's single, global *store.Table[Pipe], lazily
 // creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) pipesTable() *store.Table[Pipe] {
-	return getOrCreateGlobalTable(b.auxRegistry, &b.pipes, "pipes", pipeKeyFn)
+	return getOrCreateGlobalTable(b.auxRegistry, &b.tableMu, &b.pipes, "pipes", pipeKeyFn)
 }
 
 // registriesTable returns the backend's single, global
 // *store.Table[SchemaRegistry], lazily creating and registering it. Callers
 // must hold b.mu.
 func (b *InMemoryBackend) registriesTable() *store.Table[SchemaRegistry] {
-	return getOrCreateGlobalTable(b.auxRegistry, &b.registries, "registries", schemaRegistryKeyFn)
+	return getOrCreateGlobalTable(b.auxRegistry, &b.tableMu, &b.registries, "registries", schemaRegistryKeyFn)
 }
 
 // schemasTableFor returns the *store.Table[Schema] for the given registry,
 // lazily creating and registering it. Callers must hold b.mu.
 func (b *InMemoryBackend) schemasTableFor(registryName string) *store.Table[Schema] {
-	return getOrCreateTable(b.auxRegistry, b.schemas, "schemas", registryName, schemaKeyFn)
+	return getOrCreateTable(b.auxRegistry, &b.tableMu, b.schemas, "schemas", registryName, schemaKeyFn)
 }
 
 // getSchema is a nil-safe read of a registry's schema table: it returns
