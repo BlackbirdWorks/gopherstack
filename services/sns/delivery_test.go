@@ -202,7 +202,7 @@ func (m *mockSQSSender) Last() sqsMessage {
 	return m.messages[len(m.messages)-1]
 }
 
-// TestParityB_SNS_DLQ_OnHTTPDeliveryFailure verifies that when an HTTP
+// TestHTTPDeliveryFailureSendsToDLQ verifies that when an HTTP
 // subscription endpoint returns a non-2xx status, the message body is forwarded
 // to the configured DLQ via SQSSender.
 func TestHTTPDeliveryFailureSendsToDLQ(t *testing.T) {
@@ -282,7 +282,7 @@ func TestHTTPDeliveryFailureSendsToDLQ(t *testing.T) {
 	}
 }
 
-// TestParityB_SNS_DLQ_NoSQSSender_NoError verifies that when no SQSSender is
+// TestHTTPDeliveryFailureNoSQSSenderNoError verifies that when no SQSSender is
 // configured, delivery failures do not panic or return errors.
 func TestHTTPDeliveryFailureNoSQSSenderNoError(t *testing.T) {
 	t.Parallel()

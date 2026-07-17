@@ -372,18 +372,18 @@ func batchSuccessSequenceNumbers(t *testing.T, body string) []string {
 	return nums
 }
 
-// TestBatch2_FIFOPublishReturnsSequenceNumber verifies that publishing to a
+// TestFIFOPublishReturnsSequenceNumber verifies that publishing to a
 // FIFO topic returns a non-empty 20-digit SequenceNumber.
 func TestFIFOPublishReturnsSequenceNumber(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("seq-fifo.fifo", map[string]string{
 		"ContentBasedDeduplication": "true",
 	})
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":         {"Publish"},
 		"TopicArn":       {tp.TopicArn},
 		"Message":        {"seq-test"},
@@ -398,12 +398,12 @@ func TestFIFOPublishReturnsSequenceNumber(t *testing.T) {
 	assert.Equal(t, "00000000000000000001", seqNum)
 }
 
-// TestBatch2_FIFOSequenceNumberMonotonicallyIncreases verifies that each
+// TestFIFOSequenceNumberMonotonicallyIncreases verifies that each
 // successive publish to the same FIFO topic gets a higher SequenceNumber.
 func TestFIFOSequenceNumberMonotonicallyIncreases(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("seq-mono.fifo", map[string]string{
 		"ContentBasedDeduplication": "true",
 	})
@@ -412,7 +412,7 @@ func TestFIFOSequenceNumberMonotonicallyIncreases(t *testing.T) {
 	nums := make([]string, 0, 5)
 
 	for i := range 5 {
-		rec := doB2Request(t, h, url.Values{
+		rec := doTestRequest(t, h, url.Values{
 			"Action":         {"Publish"},
 			"TopicArn":       {tp.TopicArn},
 			"Message":        {fmt.Sprintf("msg-%d", i)},
@@ -429,18 +429,18 @@ func TestFIFOSequenceNumberMonotonicallyIncreases(t *testing.T) {
 	}
 }
 
-// TestBatch2_FIFOBatchReturnsSequenceNumbers verifies that PublishBatch to a
+// TestFIFOBatchReturnsSequenceNumbers verifies that PublishBatch to a
 // FIFO topic returns SequenceNumbers in the successful entries.
 func TestFIFOBatchReturnsSequenceNumbers(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("batch-seq.fifo", map[string]string{
 		"ContentBasedDeduplication": "true",
 	})
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":                                 {"PublishBatch"},
 		"TopicArn":                               {tp.TopicArn},
 		"PublishBatchRequestEntries.member.1.Id": {"e1"},
@@ -464,16 +464,16 @@ func TestFIFOBatchReturnsSequenceNumbers(t *testing.T) {
 	assert.NotEqual(t, seqNums[0], seqNums[1])
 }
 
-// TestBatch2_NonFIFOPublishNoSequenceNumber verifies that a standard (non-FIFO)
+// TestNonFIFOPublishNoSequenceNumber verifies that a standard (non-FIFO)
 // Publish response does NOT include a SequenceNumber.
 func TestNonFIFOPublishNoSequenceNumber(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("non-fifo-seq", nil)
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":   {"Publish"},
 		"TopicArn": {tp.TopicArn},
 		"Message":  {"plain"},
@@ -485,19 +485,19 @@ func TestNonFIFOPublishNoSequenceNumber(t *testing.T) {
 	assert.Empty(t, seqNum, "non-FIFO topic must not return SequenceNumber")
 }
 
-// TestBatch2_FIFOSeqNumResetsOnHandlerReset verifies that after h.Reset(),
+// TestFIFOSeqNumResetsOnHandlerReset verifies that after h.Reset(),
 // FIFO SequenceNumbers start from 1 again.
 func TestFIFOSeqNumResetsOnHandlerReset(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("seq-reset.fifo", map[string]string{
 		"ContentBasedDeduplication": "true",
 	})
 	require.NoError(t, err)
 
 	doPublish := func(msg string) string {
-		rec := doB2Request(t, h, url.Values{
+		rec := doTestRequest(t, h, url.Values{
 			"Action":         {"Publish"},
 			"TopicArn":       {tp.TopicArn},
 			"Message":        {msg},
@@ -523,7 +523,7 @@ func TestFIFOSeqNumResetsOnHandlerReset(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":         {"Publish"},
 		"TopicArn":       {tp2.TopicArn},
 		"Message":        {"after-reset"},
@@ -536,17 +536,17 @@ func TestFIFOSeqNumResetsOnHandlerReset(t *testing.T) {
 	assert.Equal(t, "00000000000000000001", seqAfter, "SequenceNumber must restart after Reset()")
 }
 
-// TestBatch2_DeduplicatedFIFOAlsoReturnsSequenceNumber verifies that a
+// TestDeduplicatedFIFOAlsoReturnsSequenceNumber verifies that a
 // deduplicated FIFO publish still returns a SequenceNumber (AWS spec).
 func TestDeduplicatedFIFOAlsoReturnsSequenceNumber(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("dedup-seq.fifo", nil)
 	require.NoError(t, err)
 
 	// First publish.
-	rec1 := doB2Request(t, h, url.Values{
+	rec1 := doTestRequest(t, h, url.Values{
 		"Action":                 {"Publish"},
 		"TopicArn":               {tp.TopicArn},
 		"Message":                {"msg"},
@@ -559,7 +559,7 @@ func TestDeduplicatedFIFOAlsoReturnsSequenceNumber(t *testing.T) {
 	assert.NotEmpty(t, seq1)
 
 	// Duplicate publish — same dedup ID.
-	rec2 := doB2Request(t, h, url.Values{
+	rec2 := doTestRequest(t, h, url.Values{
 		"Action":                 {"Publish"},
 		"TopicArn":               {tp.TopicArn},
 		"Message":                {"msg"},

@@ -220,7 +220,7 @@ func TestFilterPolicyEqualsIgnoreCase(t *testing.T) {
 	}
 }
 
-// TestBatch2_FilterPolicyMessageBodyMatch verifies that a message body JSON
+// TestFilterPolicyMessageBodyMatch verifies that a message body JSON
 // field matching the filter policy is delivered.
 func TestFilterPolicyMessageBodyMatch(t *testing.T) {
 	t.Parallel()
@@ -233,7 +233,7 @@ func TestFilterPolicyMessageBodyMatch(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("body-filter-topic", nil)
 	require.NoError(t, err)
 
@@ -255,7 +255,7 @@ func TestFilterPolicyMessageBodyMatch(t *testing.T) {
 	}
 }
 
-// TestBatch2_FilterPolicyMessageBodyNoMatch verifies that a message body not
+// TestFilterPolicyMessageBodyNoMatch verifies that a message body not
 // matching the filter policy is NOT delivered.
 func TestFilterPolicyMessageBodyNoMatch(t *testing.T) {
 	t.Parallel()
@@ -268,7 +268,7 @@ func TestFilterPolicyMessageBodyNoMatch(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("body-filter-no-match-topic", nil)
 	require.NoError(t, err)
 
@@ -288,7 +288,7 @@ func TestFilterPolicyMessageBodyNoMatch(t *testing.T) {
 	}
 }
 
-// TestBatch2_FilterPolicyMessageBodyNonJSONBlocked verifies that a non-JSON
+// TestFilterPolicyMessageBodyNonJSONBlocked verifies that a non-JSON
 // message body is not delivered to a MessageBody-scoped subscription.
 func TestFilterPolicyMessageBodyNonJSONBlocked(t *testing.T) {
 	t.Parallel()
@@ -301,7 +301,7 @@ func TestFilterPolicyMessageBodyNonJSONBlocked(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("body-filter-nonjson-topic", nil)
 	require.NoError(t, err)
 
@@ -321,7 +321,7 @@ func TestFilterPolicyMessageBodyNonJSONBlocked(t *testing.T) {
 	}
 }
 
-// TestBatch2_FilterPolicyMessageBodyNoFilter verifies that an empty filter
+// TestFilterPolicyMessageBodyNoFilter verifies that an empty filter
 // policy delivers regardless of scope.
 func TestFilterPolicyMessageBodyNoFilter(t *testing.T) {
 	t.Parallel()
@@ -334,7 +334,7 @@ func TestFilterPolicyMessageBodyNoFilter(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("body-nopolicy-topic", nil)
 	require.NoError(t, err)
 
@@ -354,7 +354,7 @@ func TestFilterPolicyMessageBodyNoFilter(t *testing.T) {
 	}
 }
 
-// TestBatch2_FilterPolicyScopeMessageBodyVsAttributesSameSubscriber verifies
+// TestFilterPolicyScopeMessageBodyVsAttributesSameSubscriber verifies
 // that two subscribers on the same topic — one with MessageAttributes scope
 // and one with MessageBody scope — each receive independently filtered messages.
 func TestFilterPolicyScopeMessageBodyVsAttributesSameSubscriber(t *testing.T) {
@@ -377,7 +377,7 @@ func TestFilterPolicyScopeMessageBodyVsAttributesSameSubscriber(t *testing.T) {
 	}))
 	defer tsBody.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("scope-dual-topic", nil)
 	require.NoError(t, err)
 
@@ -409,7 +409,7 @@ func TestFilterPolicyScopeMessageBodyVsAttributesSameSubscriber(t *testing.T) {
 	}
 }
 
-// TestBatch2_FilterPolicyMessageBodyMatcherUnit tests the exported evaluator directly.
+// TestFilterPolicyMessageBodyMatcherUnit tests the exported evaluator directly.
 func TestFilterPolicyMessageBodyMatcherUnit(t *testing.T) {
 	t.Parallel()
 
@@ -498,19 +498,19 @@ func TestFilterPolicyMessageBodyMatcherUnit(t *testing.T) {
 	}
 }
 
-// TestBatch2_FilterPolicyScopeRoundTripViaHandler verifies FilterPolicyScope
+// TestFilterPolicyScopeRoundTripViaHandler verifies FilterPolicyScope
 // can be set and retrieved via the HTTP handler.
 func TestFilterPolicyScopeRoundTripViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("scope-rt-topic", nil)
 	require.NoError(t, err)
 
 	sub, err := b.Subscribe(tp.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:scope-q", "")
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":          {"SetSubscriptionAttributes"},
 		"SubscriptionArn": {sub.SubscriptionArn},
 		"AttributeName":   {"FilterPolicyScope"},
@@ -519,7 +519,7 @@ func TestFilterPolicyScopeRoundTripViaHandler(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec2 := doB2Request(t, h, url.Values{
+	rec2 := doTestRequest(t, h, url.Values{
 		"Action":          {"GetSubscriptionAttributes"},
 		"SubscriptionArn": {sub.SubscriptionArn},
 		"Version":         {"2010-03-31"},

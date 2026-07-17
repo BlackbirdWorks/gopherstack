@@ -316,12 +316,12 @@ var (
 	_ sns.FirehosePutter = (*mockFirehosePutter)(nil)
 )
 
-// TestBatch2_FirehoseSubscriptionAutoConfirmed verifies that a Firehose
+// TestFirehoseSubscriptionAutoConfirmed verifies that a Firehose
 // subscription is auto-confirmed (not pending) and appears in attributes.
 func TestFirehoseSubscriptionAutoConfirmed(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("firehose-topic", nil)
 	require.NoError(t, err)
 
@@ -340,12 +340,12 @@ func TestFirehoseSubscriptionAutoConfirmed(t *testing.T) {
 	assert.Equal(t, "false", attrs["PendingConfirmation"])
 }
 
-// TestBatch2_FirehoseSubscriptionReceivesPublish verifies that a Firehose
+// TestFirehoseSubscriptionReceivesPublish verifies that a Firehose
 // subscription's endpoint appears in the subscription list after a publish.
 func TestFirehoseSubscriptionReceivesPublish(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("firehose-pub-topic", nil)
 	require.NoError(t, err)
 
@@ -359,12 +359,12 @@ func TestFirehoseSubscriptionReceivesPublish(t *testing.T) {
 	assert.NotEmpty(t, msgID)
 }
 
-// TestBatch2_FirehoseSubscriptionWithFilterPolicy verifies Firehose subscriptions
+// TestFirehoseSubscriptionWithFilterPolicy verifies Firehose subscriptions
 // honour the filter policy.
 func TestFirehoseSubscriptionWithFilterPolicy(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("firehose-fp-topic", nil)
 	require.NoError(t, err)
 
@@ -384,16 +384,16 @@ func TestFirehoseSubscriptionWithFilterPolicy(t *testing.T) {
 	assert.NotEmpty(t, msgID)
 }
 
-// TestBatch2_SubscribeFirehoseMissingRoleArnRejected verifies that subscribing
+// TestSubscribeFirehoseMissingRoleArnRejected verifies that subscribing
 // with the firehose protocol without SubscriptionRoleArn returns 400.
 func TestSubscribeFirehoseMissingRoleArnRejected(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("firehose-role-topic", nil)
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":   {"Subscribe"},
 		"TopicArn": {tp.TopicArn},
 		"Protocol": {"firehose"},
@@ -405,16 +405,16 @@ func TestSubscribeFirehoseMissingRoleArnRejected(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "SubscriptionRoleArn")
 }
 
-// TestBatch2_SubscribeFirehoseWithRoleArnSucceeds verifies that subscribing
+// TestSubscribeFirehoseWithRoleArnSucceeds verifies that subscribing
 // with the firehose protocol and SubscriptionRoleArn succeeds.
 func TestSubscribeFirehoseWithRoleArnSucceeds(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("firehose-role-ok-topic", nil)
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":                   {"Subscribe"},
 		"TopicArn":                 {tp.TopicArn},
 		"Protocol":                 {"firehose"},
@@ -629,7 +629,7 @@ func TestLambdaDeliveryFailureSendsToDLQ(t *testing.T) {
 	}
 }
 
-// TestParityB_SNS_Lambda_DLQ_NoSender verifies no panic when no SQSSender configured.
+// TestLambdaDeliveryFailureNoSenderNoError verifies no panic when no SQSSender configured.
 func TestLambdaDeliveryFailureNoSenderNoError(t *testing.T) {
 	t.Parallel()
 
