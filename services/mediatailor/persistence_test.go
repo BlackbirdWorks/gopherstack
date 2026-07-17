@@ -244,3 +244,46 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ids.playbackConfigName, cfg.Name)
 }
+
+// TestSnapshotRestore_LiveSourcesPrefetchSchedulesPrograms verifies
+// Snapshot/Restore persists live sources, prefetch schedules, and programs.
+func TestSnapshotRestore_LiveSourcesPrefetchSchedulesPrograms(t *testing.T) {
+	t.Parallel()
+
+	b1 := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b1.CreateSourceLocation("sl1", "https://example.com", nil)
+	require.NoError(t, err)
+
+	_, err = b1.CreateLiveSource("sl1", "ls1", nil, nil)
+	require.NoError(t, err)
+
+	_, err = b1.PutPlaybackConfiguration("pc1", "https://ads.com", "https://video.com", nil)
+	require.NoError(t, err)
+
+	_, err = b1.CreatePrefetchSchedule("pc1", "sched1", nil, nil)
+	require.NoError(t, err)
+
+	_, err = b1.CreateChannel("ch1", "LOOP", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b1.CreateProgram("ch1", "prog1", "sl1", "", "ls1", nil)
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(t.Context())
+
+	b2 := mediatailor.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	ls, err := b2.DescribeLiveSource("sl1", "ls1")
+	require.NoError(t, err)
+	assert.Equal(t, "ls1", ls.LiveSourceName)
+
+	sched, err := b2.GetPrefetchSchedule("pc1", "sched1")
+	require.NoError(t, err)
+	assert.Equal(t, "sched1", sched.Name)
+
+	prog, err := b2.DescribeProgram("ch1", "prog1")
+	require.NoError(t, err)
+	assert.Equal(t, "prog1", prog.ProgramName)
+}
