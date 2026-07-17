@@ -1,12 +1,7 @@
 package waf_test
 
-// parity_b_test.go — WAF Classic parity fixes (go-sfasn).
-//
-// Covers:
-//   - GetChangeTokenStatus state machine (PROVISIONED → INSYNC after mutation)
-//   - Unknown token returns INSYNC
-//   - changeTokens cap: tokens over 10 000 INSYNC entries are evicted
-//   - Pagination: NextMarker + Limit for all List* operations
+// pagination_test.go covers NextMarker + Limit pagination behavior shared by
+// every List* operation.
 
 import (
 	"encoding/json"
@@ -18,125 +13,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
-
-// --- §1 Change token state machine ---
-
-func TestParity_ChangeTokenStatus_Lifecycle(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		mutate     func(t *testing.T, h *waf.Handler, token string)
-		wantBefore string
-		wantAfter  string
-	}{
-		{
-			name:       "fresh_token_is_PROVISIONED",
-			mutate:     nil,
-			wantBefore: "PROVISIONED",
-			wantAfter:  "PROVISIONED",
-		},
-		{
-			name: "CreateWebACL_transitions_to_INSYNC",
-			mutate: func(t *testing.T, h *waf.Handler, token string) {
-				t.Helper()
-				rec := wafDo(t, h, "CreateWebACL", map[string]any{
-					"ChangeToken":   token,
-					"Name":          "acl-lifecycle",
-					"MetricName":    "aclLifecycle",
-					"DefaultAction": map[string]any{"Type": "ALLOW"},
-				})
-				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			},
-			wantBefore: "PROVISIONED",
-			wantAfter:  "INSYNC",
-		},
-		{
-			name: "CreateRule_transitions_to_INSYNC",
-			mutate: func(t *testing.T, h *waf.Handler, token string) {
-				t.Helper()
-				rec := wafDo(t, h, "CreateRule", map[string]any{
-					"ChangeToken": token,
-					"Name":        "rule-lifecycle",
-					"MetricName":  "ruleLifecycle",
-				})
-				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			},
-			wantBefore: "PROVISIONED",
-			wantAfter:  "INSYNC",
-		},
-		{
-			name: "CreateIPSet_transitions_to_INSYNC",
-			mutate: func(t *testing.T, h *waf.Handler, token string) {
-				t.Helper()
-				rec := wafDo(t, h, "CreateIPSet", map[string]any{
-					"ChangeToken": token,
-					"Name":        "ip-lifecycle",
-				})
-				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			},
-			wantBefore: "PROVISIONED",
-			wantAfter:  "INSYNC",
-		},
-		{
-			name: "DeleteWebACL_transitions_to_INSYNC",
-			mutate: func(t *testing.T, h *waf.Handler, token string) {
-				t.Helper()
-				aclID := wafCreateWebACL(t, h, "delete-me")
-				rec := wafDo(t, h, "DeleteWebACL", map[string]any{
-					"ChangeToken": token,
-					"WebACLId":    aclID,
-				})
-				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			},
-			wantBefore: "PROVISIONED",
-			wantAfter:  "INSYNC",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newWAFHandler(t)
-			token := wafGetToken(t, h)
-
-			// Check status before mutation
-			rec := wafDo(t, h, "GetChangeTokenStatus", map[string]any{"ChangeToken": token})
-			require.Equal(t, http.StatusOK, rec.Code)
-			var before map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before))
-			assert.Equal(t, tt.wantBefore, before["ChangeTokenStatus"], "status before mutation")
-
-			if tt.mutate != nil {
-				tt.mutate(t, h, token)
-			}
-
-			// Check status after mutation
-			rec = wafDo(t, h, "GetChangeTokenStatus", map[string]any{"ChangeToken": token})
-			require.Equal(t, http.StatusOK, rec.Code)
-			var after map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
-			assert.Equal(t, tt.wantAfter, after["ChangeTokenStatus"], "status after mutation")
-		})
-	}
-}
-
-func TestParity_ChangeTokenStatus_UnknownReturnsINSYNC(t *testing.T) {
-	t.Parallel()
-
-	h := newWAFHandler(t)
-	rec := wafDo(t, h, "GetChangeTokenStatus", map[string]any{
-		"ChangeToken": "00000000-0000-0000-0000-000000000000",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "INSYNC", resp["ChangeTokenStatus"], "unknown token should return INSYNC per AWS behavior")
-}
-
-// --- §2 Pagination ---
 
 // wafListPage calls a List* operation with optional NextMarker and Limit.
 // Returns the raw response map.
@@ -150,7 +26,7 @@ func wafListPage(t *testing.T, h *waf.Handler, op string, body map[string]any) m
 	return resp
 }
 
-func TestParity_Pagination_ListWebACLs(t *testing.T) {
+func TestPagination_ListWebACLs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -199,7 +75,7 @@ func TestParity_Pagination_ListWebACLs(t *testing.T) {
 	}
 }
 
-func TestParity_Pagination_ListRules(t *testing.T) {
+func TestPagination_ListRules(t *testing.T) {
 	t.Parallel()
 
 	h := newWAFHandler(t)
@@ -220,7 +96,7 @@ func TestParity_Pagination_ListRules(t *testing.T) {
 	assert.False(t, hasNext, "no more pages after second page")
 }
 
-func TestParity_Pagination_ListIPSets(t *testing.T) {
+func TestPagination_ListIPSets(t *testing.T) {
 	t.Parallel()
 
 	h := newWAFHandler(t)
@@ -234,7 +110,7 @@ func TestParity_Pagination_ListIPSets(t *testing.T) {
 	assert.Contains(t, resp, "NextMarker")
 }
 
-func TestParity_Pagination_AllListOps_NoMarkerNoLimit(t *testing.T) {
+func TestPagination_AllListOps_NoMarkerNoLimit(t *testing.T) {
 	t.Parallel()
 
 	// All List ops with no marker and no limit should return all items without a NextMarker.
@@ -264,7 +140,7 @@ func TestParity_Pagination_AllListOps_NoMarkerNoLimit(t *testing.T) {
 	}
 }
 
-func TestParity_Pagination_ListRateBasedRules(t *testing.T) {
+func TestPagination_ListRateBasedRules(t *testing.T) {
 	t.Parallel()
 
 	h := newWAFHandler(t)
@@ -278,7 +154,7 @@ func TestParity_Pagination_ListRateBasedRules(t *testing.T) {
 	assert.Contains(t, resp, "NextMarker")
 }
 
-func TestParity_Pagination_ListRegexPatternSets(t *testing.T) {
+func TestPagination_ListRegexPatternSets(t *testing.T) {
 	t.Parallel()
 
 	h := newWAFHandler(t)
@@ -292,7 +168,7 @@ func TestParity_Pagination_ListRegexPatternSets(t *testing.T) {
 	assert.Contains(t, resp, "NextMarker")
 }
 
-func TestParity_Pagination_FullCycle(t *testing.T) {
+func TestPagination_FullCycle(t *testing.T) {
 	t.Parallel()
 
 	// Create N items and walk all pages with Limit=2; verify all items are returned.

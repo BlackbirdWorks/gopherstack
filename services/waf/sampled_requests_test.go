@@ -9,7 +9,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestParity_GetSampledRequestsReturnsTimeWindow verifies that the
+func TestWAF_GetSampledRequests_EmptyStub(t *testing.T) {
+	t.Parallel()
+
+	h := newWAFHandler(t)
+	aclID := wafCreateWebACL(t, h, "sample-acl")
+	ruleID := wafCreateRule(t, h, "sample-rule")
+
+	rec := wafDo(t, h, "GetSampledRequests", map[string]any{
+		"WebAclId": aclID,
+		"RuleId":   ruleID,
+		"MaxItems": 100,
+		"TimeWindow": map[string]any{
+			// unixTimestamp shape: JSON number of seconds since the epoch,
+			// not an ISO8601 string -- see aws-sdk-go-v2/service/waf's
+			// serializeDocumentTimeWindow.
+			"StartTime": 1_704_067_200, // 2024-01-01T00:00:00Z
+			"EndTime":   1_704_070_800, // 2024-01-01T01:00:00Z
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	samples := resp["SampledRequests"].([]any)
+	assert.Empty(t, samples)
+	assert.EqualValues(t, 0, resp["PopulationSize"])
+}
+
+// TestGetSampledRequests_ReturnsTimeWindow verifies that the
 // GetSampledRequests response echoes back the TimeWindow from the request.
 // Real AWS always includes TimeWindow in the response; the SDK's
 // GetSampledRequestsOutput has it as a required field — callers that access
@@ -19,7 +47,7 @@ import (
 // awsjson1.1 protocol (aws-sdk-go-v2/service/waf's
 // serializeDocumentTimeWindow) always sends/expects a JSON number of seconds
 // since the epoch, never an ISO8601 string.
-func TestParity_GetSampledRequestsReturnsTimeWindow(t *testing.T) {
+func TestGetSampledRequests_ReturnsTimeWindow(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

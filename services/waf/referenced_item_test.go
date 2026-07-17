@@ -1,24 +1,11 @@
 package waf_test
 
-// backend_test.go covers InMemoryBackend behavior that handler_audit*_test.go
-// and parity_*_test.go don't exercise:
-//
-//   - ChangeToken enforcement: Create/Update/Delete must reject a token that
-//     was never returned by GetChangeToken, or that has already been
-//     consumed by an earlier mutation (WAFStaleDataException).
-//   - ReferencedItem enforcement: Delete must reject removing a Rule,
-//     RateBasedRule, RuleGroup, or match set that is still referenced by a
-//     WebACL, RuleGroup, or Rule/RateBasedRule predicate
-//     (WAFReferencedItemException), and must succeed once the reference is
-//     removed.
-//
-// Both were previously modeled as no-ops: every backend Create/Update/Delete
-// method accepted a changeToken parameter it silently discarded, and the
-// unused ErrReferencedItem sentinel was wired into Handler.handleError but
-// never returned by any backend method.
+// referenced_item_test.go covers WAFReferencedItemException enforcement:
+// Delete must reject removing a Rule, RateBasedRule, RuleGroup, or match set
+// that is still referenced by a WebACL, RuleGroup, or Rule/RateBasedRule
+// predicate, and must succeed once the reference is removed.
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -27,128 +14,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
-
-func errType(t *testing.T, body []byte) string {
-	t.Helper()
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(body, &resp))
-
-	typ, _ := resp["__type"].(string)
-
-	return typ
-}
-
-// --- §1 ChangeToken enforcement ---
-
-func TestChangeToken_NeverIssuedTokenRejected(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body   map[string]any
-		name   string
-		action string
-	}{
-		{
-			name:   "CreateWebACL",
-			action: "CreateWebACL",
-			body: map[string]any{
-				"ChangeToken":   "never-issued",
-				"Name":          "acl",
-				"MetricName":    "aclMetric",
-				"DefaultAction": map[string]any{"Type": "ALLOW"},
-			},
-		},
-		{
-			name:   "CreateRule",
-			action: "CreateRule",
-			body: map[string]any{
-				"ChangeToken": "never-issued",
-				"Name":        "rule",
-				"MetricName":  "ruleMetric",
-			},
-		},
-		{
-			name:   "CreateIPSet",
-			action: "CreateIPSet",
-			body:   map[string]any{"ChangeToken": "never-issued", "Name": "ipset"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newWAFHandler(t)
-			rec := wafDo(t, h, tc.action, tc.body)
-			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-			assert.Equal(t, "WAFStaleDataException", errType(t, rec.Body.Bytes()))
-		})
-	}
-}
-
-func TestChangeToken_AlreadyConsumedTokenRejected(t *testing.T) {
-	t.Parallel()
-
-	h := newWAFHandler(t)
-	token := wafGetToken(t, h)
-
-	// Consume the token with a first, valid mutation.
-	rec := wafDo(t, h, "CreateRule", map[string]any{
-		"ChangeToken": token,
-		"Name":        "first-rule",
-		"MetricName":  "firstRuleMetric",
-	})
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-
-	statusRec := wafDo(t, h, "GetChangeTokenStatus", map[string]any{"ChangeToken": token})
-	require.Equal(t, http.StatusOK, statusRec.Code)
-
-	var statusResp map[string]any
-	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp))
-	require.Equal(t, "INSYNC", statusResp["ChangeTokenStatus"], "token must be consumed before reuse attempt")
-
-	// Reusing the same, now-INSYNC token for a second mutation must fail.
-	rec = wafDo(t, h, "CreateRule", map[string]any{
-		"ChangeToken": token,
-		"Name":        "second-rule",
-		"MetricName":  "secondRuleMetric",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-	assert.Equal(t, "WAFStaleDataException", errType(t, rec.Body.Bytes()))
-
-	rec = wafDo(t, h, "ListRules", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp["Rules"], 1, "the rejected second CreateRule must not have mutated state")
-}
-
-func TestChangeToken_FreshTokenAcceptedAfterRejection(t *testing.T) {
-	t.Parallel()
-
-	// A stale-token rejection must not consume any other token: the caller
-	// can immediately retry with a freshly-issued one.
-	h := newWAFHandler(t)
-
-	rec := wafDo(t, h, "CreateRule", map[string]any{
-		"ChangeToken": "bogus",
-		"Name":        "rule",
-		"MetricName":  "ruleMetric",
-	})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-
-	token := wafGetToken(t, h)
-	rec = wafDo(t, h, "CreateRule", map[string]any{
-		"ChangeToken": token,
-		"Name":        "rule",
-		"MetricName":  "ruleMetric",
-	})
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-}
-
-// --- §2 ReferencedItem enforcement ---
 
 func TestReferencedItem_RuleBlockedByWebACL(t *testing.T) {
 	t.Parallel()
