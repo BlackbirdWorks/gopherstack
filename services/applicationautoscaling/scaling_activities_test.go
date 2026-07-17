@@ -1,6 +1,8 @@
 package applicationautoscaling_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -114,4 +116,140 @@ func TestDescribeScalingActivities_ResetClears(t *testing.T) {
 		applicationautoscaling.DescribeScalingActivitiesFilter{ServiceNamespace: "ecs"},
 	)
 	assert.Empty(t, after)
+}
+
+func TestHandler_DescribeScalingActivities(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "DescribeScalingActivities", map[string]any{"ServiceNamespace": "ecs"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	activities, ok := resp["ScalingActivities"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, activities)
+}
+
+func TestHandler_DescribeScalingActivities_AfterRegister(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	regRec := doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(5),
+	})
+	require.Equal(t, http.StatusOK, regRec.Code)
+
+	rec := doRequest(t, h, "DescribeScalingActivities", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	activities, ok := resp["ScalingActivities"].([]any)
+	require.True(t, ok)
+	require.Len(t, activities, 1)
+
+	act, ok := activities[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "ecs", act["ServiceNamespace"])
+	assert.Equal(t, "service/default/my-svc", act["ResourceId"])
+	assert.Equal(t, "Successful", act["StatusCode"])
+}
+
+func TestHandler_DescribeScalingActivities_MissingNamespace(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "DescribeScalingActivities", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DescribeScalingActivities_WithInput(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "DescribeScalingActivities", map[string]any{
+		"ServiceNamespace":           "ecs",
+		"ResourceId":                 "service/default/my-svc",
+		"ScalableDimension":          "ecs:service:DesiredCount",
+		"MaxResults":                 int32(10),
+		"IncludeNotScaledActivities": true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	acts, ok := resp["ScalingActivities"].([]any)
+	require.True(t, ok, "ScalingActivities should be an array")
+	assert.Empty(t, acts, "expected empty array not null")
+}
+
+func TestHandler_DescribeScalingActivities_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	const (
+		ns  = "ecs"
+		dim = "ecs:service:DesiredCount"
+	)
+
+	for i := range 5 {
+		seedTarget(t, h, "service/default/svc"+string(rune('a'+i)), 1, 10)
+	}
+
+	rec1 := doRequest(t, h, "DescribeScalingActivities", map[string]any{
+		"ServiceNamespace": ns,
+		"MaxResults":       2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+	var out1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	page1 := out1["ScalingActivities"].([]any)
+	assert.Len(t, page1, 2)
+	nextToken, ok := out1["NextToken"].(string)
+	assert.True(t, ok && nextToken != "", "NextToken must be present after partial page")
+
+	rec2 := doRequest(t, h, "DescribeScalingActivities", map[string]any{
+		"ServiceNamespace": ns,
+		"MaxResults":       2,
+		"NextToken":        nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	page2 := out2["ScalingActivities"].([]any)
+	assert.Len(t, page2, 2)
+}
+
+func TestHandler_DescribeScalingActivities_TypedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	seedTarget(t, h, "service/default/typed", 1, 5)
+
+	rec := doRequest(t, h, "DescribeScalingActivities", map[string]any{
+		"ServiceNamespace": "ecs",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	activities := out["ScalingActivities"].([]any)
+	require.Len(t, activities, 1)
+
+	a := activities[0].(map[string]any)
+	assert.NotEmpty(t, a["ActivityId"], "ActivityId must be present")
+	assert.NotEmpty(t, a["ResourceId"], "ResourceId must be present")
+	assert.NotEmpty(t, a["StatusCode"], "StatusCode must be present")
+	assert.NotNil(t, a["StartTime"], "StartTime must be present as epoch seconds")
 }
