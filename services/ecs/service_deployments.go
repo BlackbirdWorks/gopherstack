@@ -17,7 +17,7 @@ var ErrServiceDeploymentNotFound = awserr.New(
 // serviceDeploymentArnFor derives the ARN of the service deployment record for
 // a Deployment, following the
 // arn:aws:ecs:region:account:service-deployment/cluster/service/deployment-id
-// scheme (mirroring serviceRevisionArnFor in backend_services.go). deploymentID
+// scheme (mirroring serviceRevisionArnFor in services.go). deploymentID
 // already carries its "ecs-svc/" prefix (see newPrimaryDeployment/
 // newActiveDeployment), matching the shape of real ECS deployment IDs.
 func serviceDeploymentArnFor(svc *Service, deploymentID string) string {

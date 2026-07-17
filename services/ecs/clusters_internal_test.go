@@ -65,7 +65,7 @@ func TestDeleteCluster_CascadesServiceDeployments(t *testing.T) {
 
 	// CreateService itself records a real ServiceDeployment for the initial
 	// PRIMARY deployment (see syncServiceDeploymentsLocked in
-	// backend_service_deployments.go), keyed by ServiceDeploymentArn — not by
+	// service_deployments.go), keyed by ServiceDeploymentArn — not by
 	// ServiceArn. Confirm it exists before asserting the cascade delete.
 	deploymentArns, err := b.ListServiceDeployments("test-cluster", "my-svc")
 	if err != nil {

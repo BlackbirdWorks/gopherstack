@@ -4,7 +4,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -27,27 +26,6 @@ const (
 	// task definition family. Older INACTIVE revisions beyond this cap are
 	// removed to prevent unbounded memory growth.
 	maxTaskDefinitionRevisions = 100
-)
-
-var (
-	// ErrClusterNotFound is returned when a cluster does not exist.
-	ErrClusterNotFound = awserr.New("ClusterNotFoundException", awserr.ErrNotFound)
-	// ErrClusterAlreadyExists is returned when a cluster already exists.
-	ErrClusterAlreadyExists = awserr.New("ClusterAlreadyExistsException", awserr.ErrAlreadyExists)
-	// ErrTaskDefinitionNotFound is returned when a task definition does not exist.
-	ErrTaskDefinitionNotFound = awserr.New("TaskDefinitionNotFoundException", awserr.ErrNotFound)
-	// ErrServiceNotFound is returned when a service does not exist.
-	ErrServiceNotFound = awserr.New("ServiceNotFoundException", awserr.ErrNotFound)
-	// ErrServiceAlreadyExists is returned when a service already exists.
-	ErrServiceAlreadyExists = awserr.New("ServiceAlreadyExistsException", awserr.ErrAlreadyExists)
-	// ErrTaskNotFound is returned when a task does not exist.
-	ErrTaskNotFound = awserr.New("TaskNotFoundException", awserr.ErrNotFound)
-	// ErrInvalidParameter is returned when a required parameter is missing or invalid.
-	ErrInvalidParameter = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
-	// ErrClient is returned when a request is structurally invalid in a way that
-	// AWS ECS reports as a ClientException (for example, malformed container
-	// definitions or an unsupported network mode / launch-type combination).
-	ErrClient = awserr.New("ClientException", awserr.ErrInvalidParameter)
 )
 
 // compile-time assertion.
@@ -108,7 +86,7 @@ type InMemoryBackend struct {
 	// definitions are registered independently by family, like ordinary task
 	// definitions — not owned by a single daemon — matching the real
 	// RegisterDaemonTaskDefinition/DescribeDaemonTaskDefinition API (see
-	// daemonTaskDefinitions/daemonTaskDefByArn and backend_daemon.go), so this
+	// daemonTaskDefinitions/daemonTaskDefByArn and daemon.go), so this
 	// map is intentionally never populated.
 	daemonTaskDefs map[string][]*DaemonTaskDefinition
 	// lifecycle tracks tasks transitioning through observable intermediate states
@@ -120,7 +98,7 @@ type InMemoryBackend struct {
 	// compatibility with purge.go's per-service cleanup. This backend derives
 	// ServiceRevision snapshots on demand from each Service's Deployments (see
 	// DescribeServiceRevisions below and buildServiceRevision in
-	// backend_services.go) instead of persisting them separately, so these maps
+	// services.go) instead of persisting them separately, so these maps
 	// are intentionally never populated.
 	serviceRevisions      map[string][]*ServiceRevision
 	serviceRevisionsByArn map[string]*ServiceRevision

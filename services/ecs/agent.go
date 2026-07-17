@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// backend_agent_ops.go implements the ECS-agent-facing state-submission
+// agent.go implements the ECS-agent-facing state-submission
 // operations (SubmitTaskStateChange, SubmitContainerStateChange,
 // SubmitAttachmentStateChanges). These operations are used exclusively by the
 // real Amazon ECS agent to report task/container/attachment lifecycle events

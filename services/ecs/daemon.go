@@ -768,11 +768,11 @@ func (b *InMemoryBackend) ListDaemonDeployments(input ListDaemonDeploymentsInput
 }
 
 // addServiceRevisionLocked is a compatibility hook for callers (CreateService/
-// UpdateService in backend.go, and the deployment circuit-breaker rollback in
+// UpdateService in services.go, and the deployment circuit-breaker rollback in
 // deployment.go) that record a ServiceRevision snapshot whenever a service's
 // Deployments change. This backend derives ServiceRevision snapshots on demand
 // from each deployment's ServiceRevisionArn instead (see DescribeServiceRevisions
-// in backend.go and buildServiceRevision in backend_parity2.go), so no
+// in services.go and buildServiceRevision in services.go), so no
 // additional bookkeeping is required here; svc's new deployment already carries
 // its ServiceRevisionArn by the time this is called. Must be called with the
 // write lock held.

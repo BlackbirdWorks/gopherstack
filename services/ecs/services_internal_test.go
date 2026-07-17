@@ -9,8 +9,8 @@ import (
 
 // newTestBackend builds a fresh in-memory ECS backend with a no-op task
 // runner, for tests that only exercise backend state transitions and don't
-// need real (or fake) Docker interaction. Shared across the backend_*
-// internal test files in this package.
+// need real (or fake) Docker interaction. Shared across the internal test
+// files in this package.
 func newTestBackend() *InMemoryBackend {
 	return NewInMemoryBackend("123456789012", "us-east-1", NewNoopRunner())
 }
