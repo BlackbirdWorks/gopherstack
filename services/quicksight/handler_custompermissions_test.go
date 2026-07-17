@@ -183,3 +183,180 @@ func TestQuickSight_UserCustomPermission_Errors(t *testing.T) {
 	deleteMissingRec := doRequest(t, h, http.MethodDelete, nsPath("/users/u1/custom-permission"), nil)
 	assert.Equal(t, http.StatusNotFound, deleteMissingRec.Code)
 }
+
+// ---- Custom Permissions tests ---- //nolint:godot // existing issue.
+func TestQuickSight_CustomPermissions(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create custom permissions",
+			method:     http.MethodPost,
+			path:       accountPath("/custom-permissions"),
+			body:       map[string]any{"CustomPermissionsName": "cp1"},
+			wantStatus: http.StatusOK,
+			wantKey:    "Arn",
+		},
+		{
+			name:       "describe custom permissions",
+			method:     http.MethodGet,
+			path:       accountPath("/custom-permissions/cp1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "CustomPermissions",
+		},
+		{
+			name:       "update custom permissions",
+			method:     http.MethodPut,
+			path:       accountPath("/custom-permissions/cp1"),
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantKey:    "Arn",
+		},
+		{
+			name:       "list custom permissions",
+			method:     http.MethodGet,
+			path:       accountPath("/custom-permissions"),
+			wantStatus: http.StatusOK,
+			wantKey:    "CustomPermissionsList",
+		},
+		{
+			name:       "delete custom permissions",
+			method:     http.MethodDelete,
+			path:       accountPath("/custom-permissions/cp1"),
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}
+
+// ---- Role Membership tests ---- //nolint:godot // existing issue.
+func TestQuickSight_RoleMemberships(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	// A custom permissions profile must exist before it can be assigned to a role.
+	setupRec := doRequest(t, h, http.MethodPost, accountPath("/custom-permissions"), map[string]any{
+		"CustomPermissionsName": "cp1",
+	})
+	require.Equal(t, http.StatusOK, setupRec.Code)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create role membership",
+			method:     http.MethodPost,
+			path:       nsPath("/roles/ADMIN/members/user1"),
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "list role memberships",
+			method:     http.MethodGet,
+			path:       nsPath("/roles/ADMIN/members"),
+			wantStatus: http.StatusOK,
+			wantKey:    "MembersList",
+		},
+		{
+			name:       "update role custom permission",
+			method:     http.MethodPut,
+			path:       nsPath("/roles/ADMIN/custom-permission"),
+			body:       map[string]any{"CustomPermissionsName": "cp1"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "describe role custom permission",
+			method:     http.MethodGet,
+			path:       nsPath("/roles/ADMIN/custom-permission"),
+			wantStatus: http.StatusOK,
+			wantKey:    "CustomPermissionsName",
+		},
+		{
+			name:       "delete role custom permission",
+			method:     http.MethodDelete,
+			path:       nsPath("/roles/ADMIN/custom-permission"),
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "delete role membership",
+			method:     http.MethodDelete,
+			path:       nsPath("/roles/ADMIN/members/user1"),
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}
+
+// ---- User custom permission tests ---- //nolint:godot // existing issue.
+func TestQuickSight_UserCustomPermission(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	setupRec := doRequest(t, h, http.MethodPost, nsPath("/users"), map[string]any{
+		"UserName": "user1", "Email": "user1@example.com", "IdentityType": "QUICKSIGHT", "UserRole": "READER",
+	})
+	require.Equal(t, http.StatusOK, setupRec.Code)
+
+	setupRec = doRequest(t, h, http.MethodPost, accountPath("/custom-permissions"), map[string]any{
+		"CustomPermissionsName": "cp1",
+	})
+	require.Equal(t, http.StatusOK, setupRec.Code)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "update user custom permission",
+			method:     http.MethodPut,
+			path:       nsPath("/users/user1/custom-permission"),
+			body:       map[string]any{"CustomPermissionsName": "cp1"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "delete user custom permission",
+			method:     http.MethodDelete,
+			path:       nsPath("/users/user1/custom-permission"),
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+		})
+	}
+}

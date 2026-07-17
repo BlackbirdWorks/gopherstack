@@ -220,3 +220,66 @@ func TestQuickSight_ListIAMPolicyAssignmentsForUser(t *testing.T) {
 	m := items[0].(map[string]any)
 	assert.Equal(t, "for-alice", m["AssignmentName"])
 }
+
+// ---- IAM Policy Assignment tests ---- //nolint:godot // existing issue.
+func TestQuickSight_IAMPolicyAssignments(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create iam policy assignment",
+			method:     http.MethodPost,
+			path:       nsPath("/iam-policy-assignments/"),
+			body:       map[string]any{"AssignmentName": "assign1", "AssignmentStatus": "ENABLED"},
+			wantStatus: http.StatusOK,
+			wantKey:    "AssignmentName",
+		},
+		{
+			name:       "describe iam policy assignment",
+			method:     http.MethodGet,
+			path:       nsPath("/iam-policy-assignments/assign1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "IAMPolicyAssignment",
+		},
+		{
+			name:       "update iam policy assignment",
+			method:     http.MethodPut,
+			path:       nsPath("/iam-policy-assignments/assign1"),
+			body:       map[string]any{"AssignmentStatus": "DISABLED"},
+			wantStatus: http.StatusOK,
+			wantKey:    "AssignmentName",
+		},
+		{
+			name:       "list iam policy assignments",
+			method:     http.MethodGet,
+			path:       nsPath("/iam-policy-assignments"),
+			wantStatus: http.StatusOK,
+			wantKey:    "IAMPolicyAssignments",
+		},
+		{
+			name:       "list iam policy assignments for user",
+			method:     http.MethodGet,
+			path:       nsPath("/v2/iam-policy-assignments"),
+			wantStatus: http.StatusOK,
+			wantKey:    "IAMPolicyAssignments",
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}

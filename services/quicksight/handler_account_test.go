@@ -587,3 +587,220 @@ func TestQuickSight_AccountPaths_Sanity(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, fmt.Sprintf("/accounts/%s/settings", testAccountID), accountPath("/settings"))
 }
+
+// ---- Account-level settings tests ---- //nolint:godot // existing issue.
+func TestQuickSight_AccountSettings(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create account customization",
+			method:     http.MethodPost,
+			path:       accountPath("/customizations"),
+			body:       map[string]any{"AccountCustomization": map[string]any{}},
+			wantStatus: http.StatusOK,
+			wantKey:    "AccountCustomization",
+		},
+		{
+			name:       "describe account customization",
+			method:     http.MethodGet,
+			path:       accountPath("/customizations"),
+			wantStatus: http.StatusOK,
+			wantKey:    "AccountCustomization",
+		},
+		{
+			name:       "update account customization",
+			method:     http.MethodPut,
+			path:       accountPath("/customizations"),
+			body:       map[string]any{"DefaultTheme": "arn:aws:quicksight::aws:theme/MIDNIGHT"},
+			wantStatus: http.StatusOK,
+			wantKey:    "AccountCustomization",
+		},
+		{
+			name:       "describe account settings",
+			method:     http.MethodGet,
+			path:       accountPath("/settings"),
+			wantStatus: http.StatusOK,
+			wantKey:    "AccountSettings",
+		},
+		{
+			name:       "update account settings",
+			method:     http.MethodPut,
+			path:       accountPath("/settings"),
+			body:       map[string]any{"NotificationEmail": "test@example.com"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "describe ip restriction",
+			method:     http.MethodGet,
+			path:       accountPath("/ip-restriction"),
+			wantStatus: http.StatusOK,
+			wantKey:    "IpRestrictionRuleMap",
+		},
+		{
+			name:       "update ip restriction",
+			method:     http.MethodPost,
+			path:       accountPath("/ip-restriction"),
+			body:       map[string]any{"Enabled": true},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "describe key registration",
+			method:     http.MethodGet,
+			path:       accountPath("/key-registration"),
+			wantStatus: http.StatusOK,
+			wantKey:    "RegisteredCustomerManagedKeys",
+		},
+		{
+			name:       "update key registration",
+			method:     http.MethodPost,
+			path:       accountPath("/key-registration"),
+			body:       map[string]any{"KeyRegistration": []any{}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update public sharing settings",
+			method:     http.MethodPut,
+			path:       accountPath("/public-sharing-settings"),
+			body:       map[string]any{"PublicSharingEnabled": true},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "describe q personalization",
+			method:     http.MethodGet,
+			path:       accountPath("/q-personalization-configuration"),
+			wantStatus: http.StatusOK,
+			wantKey:    "PersonalizationMode",
+		},
+		{
+			name:       "update q personalization",
+			method:     http.MethodPut,
+			path:       accountPath("/q-personalization-configuration"),
+			body:       map[string]any{"PersonalizationMode": "DISABLED"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "describe q search config",
+			method:     http.MethodGet,
+			path:       accountPath("/quicksight-q-search-configuration"),
+			wantStatus: http.StatusOK,
+			wantKey:    "QSearchStatus",
+		},
+		{
+			name:       "update q search config",
+			method:     http.MethodPut,
+			path:       accountPath("/quicksight-q-search-configuration"),
+			body:       map[string]any{"QSearchStatus": "DISABLED"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update spice capacity",
+			method:     http.MethodPost,
+			path:       accountPath("/spice-capacity-configuration"),
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "describe default qbusiness",
+			method:     http.MethodGet,
+			path:       accountPath("/default-qbusiness-application"),
+			wantStatus: http.StatusOK,
+			wantKey:    "DefaultQBusinessApplication",
+		},
+		{
+			name:       "update default qbusiness",
+			method:     http.MethodPut,
+			path:       accountPath("/default-qbusiness-application"),
+			body:       map[string]any{"ApplicationId": "qbiz1"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update app token grant",
+			method:     http.MethodPut,
+			path:       accountPath("/application-with-token-exchange-grant"),
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "get identity context",
+			method: http.MethodPost,
+			path:   accountPath("/identity-context"),
+			body: map[string]any{
+				"UserIdentifier": map[string]any{
+					"UserArn": "arn:aws:quicksight:us-east-1:000000000000:user/default/u1",
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantKey:    "Context",
+		},
+		{
+			name:       "delete account customization",
+			method:     http.MethodDelete,
+			path:       accountPath("/customizations"),
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status for "+tc.name)
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}
+
+func accountSingularPath(sub string) string {
+	return fmt.Sprintf("/account/%s%s", testAccountID, sub)
+}
+
+// ---- Account Subscription tests ---- //nolint:godot // existing issue.
+func TestQuickSight_AccountSubscription(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create account subscription",
+			method:     http.MethodPost,
+			path:       accountSingularPath(""),
+			body:       map[string]any{"Edition": "ENTERPRISE"},
+			wantStatus: http.StatusOK,
+			wantKey:    "SignupResponse",
+		},
+		{
+			name:       "describe account subscription",
+			method:     http.MethodGet,
+			path:       accountSingularPath(""),
+			wantStatus: http.StatusOK,
+			wantKey:    "AccountInfo",
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}

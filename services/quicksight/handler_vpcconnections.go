@@ -200,3 +200,29 @@ func vpcConnectionToMap(v *VPCConnection) map[string]any {
 		keyLastUpdatedTime:    v.LastUpdatedTime.Unix(),
 	}
 }
+
+// classifyVPCConnectionPaths routes /accounts/{id}/vpc-connections/... paths.
+func classifyVPCConnectionPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		switch method {
+		case http.MethodPost:
+			return opCreateVPCConnection, accountID
+		case http.MethodGet:
+			return opListVPCConnections, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodGet:
+			return opDescribeVPCConnection, id
+		case http.MethodPut:
+			return opUpdateVPCConnection, id
+		case http.MethodDelete:
+			return opDeleteVPCConnection, id
+		}
+	}
+
+	return opUnknown, ""
+}

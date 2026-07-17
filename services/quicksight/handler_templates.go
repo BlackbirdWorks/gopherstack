@@ -532,3 +532,72 @@ func versionNumberParam(c *echo.Context) int64 {
 
 	return n
 }
+
+// classifyTemplatePaths routes /accounts/{id}/templates/... paths.
+func classifyTemplatePaths( //nolint:gocognit,cyclop // existing issue.
+	method string,
+	segs []string,
+	n int,
+) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		if method == http.MethodGet {
+			return opListTemplates, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodPost:
+			return opCreateTemplate, id
+		case http.MethodGet:
+			return opDescribeTemplate, id
+		case http.MethodPut:
+			return opUpdateTemplate, id
+		case http.MethodDelete:
+			return opDeleteTemplate, id
+		}
+	case nSegsSubRes:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		switch sub {
+		case pathSegDefinition:
+			if method == http.MethodGet {
+				return opDescribeTemplateDefinition, id
+			}
+		case pathSegPermissions:
+			switch method {
+			case http.MethodGet:
+				return opDescribeTemplatePerms, id
+			case http.MethodPut:
+				return opUpdateTemplatePerms, id
+			}
+		case pathSegAliases:
+			if method == http.MethodGet {
+				return opListTemplateAliases, id
+			}
+		case pathSegVersions:
+			if method == http.MethodGet {
+				return opListTemplateVersions, id
+			}
+		}
+	case nSegsSubResID:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		alias := seg(segs, segSubResID)
+		if sub == pathSegAliases {
+			switch method {
+			case http.MethodPost:
+				return opCreateTemplateAlias, alias
+			case http.MethodGet:
+				return opDescribeTemplateAlias, alias
+			case http.MethodPut:
+				return opUpdateTemplateAlias, alias
+			case http.MethodDelete:
+				return opDeleteTemplateAlias, id
+			}
+		}
+	}
+
+	return opUnknown, ""
+}

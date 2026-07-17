@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/quicksight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -296,4 +297,180 @@ func TestQuickSight_DeleteTheme_SpecificVersion(t *testing.T) {
 
 	describeV1Rec := doRequest(t, h, http.MethodGet, accountPath("/themes/dvthm?version-number=1"), nil)
 	assert.Equal(t, http.StatusNotFound, describeV1Rec.Code)
+}
+
+// ---- Theme tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Themes(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create theme",
+			method:     http.MethodPost,
+			path:       accountPath("/themes/th1"),
+			body:       map[string]any{"Name": "Theme1"},
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeId",
+		},
+		{
+			name:       "describe theme",
+			method:     http.MethodGet,
+			path:       accountPath("/themes/th1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "Theme",
+		},
+		{
+			name:       "update theme",
+			method:     http.MethodPut,
+			path:       accountPath("/themes/th1"),
+			body:       map[string]any{"Name": "ThemeRenamed"},
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeId",
+		},
+		{
+			name:       "list themes",
+			method:     http.MethodGet,
+			path:       accountPath("/themes"),
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeSummaryList",
+		},
+		{
+			name:       "describe theme permissions",
+			method:     http.MethodGet,
+			path:       accountPath("/themes/th1/permissions"),
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeId",
+		},
+		{
+			name:       "update theme permissions",
+			method:     http.MethodPut,
+			path:       accountPath("/themes/th1/permissions"),
+			body:       map[string]any{"GrantPermissions": []any{}, "RevokePermissions": []any{}},
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeId",
+		},
+		{
+			name:       "create theme alias",
+			method:     http.MethodPost,
+			path:       accountPath("/themes/th1/aliases/CURRENT"),
+			body:       map[string]any{"ThemeVersionNumber": float64(1)},
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeAlias",
+		},
+		{
+			name:       "describe theme alias",
+			method:     http.MethodGet,
+			path:       accountPath("/themes/th1/aliases/CURRENT"),
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeAlias",
+		},
+		{
+			name:       "list theme aliases",
+			method:     http.MethodGet,
+			path:       accountPath("/themes/th1/aliases"),
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeAliasList",
+		},
+		{
+			name:       "list theme versions",
+			method:     http.MethodGet,
+			path:       accountPath("/themes/th1/versions"),
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeVersionSummaryList",
+		},
+		{
+			name:       "update theme alias",
+			method:     http.MethodPut,
+			path:       accountPath("/themes/th1/aliases/CURRENT"),
+			body:       map[string]any{"ThemeVersionNumber": float64(1)},
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeAlias",
+		},
+		{
+			name:       "delete theme alias",
+			method:     http.MethodDelete,
+			path:       accountPath("/themes/th1/aliases/CURRENT"),
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeId",
+		},
+		{
+			name:       "delete theme",
+			method:     http.MethodDelete,
+			path:       accountPath("/themes/th1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "ThemeId",
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}
+
+func TestQuickSight_ThemeRoundTrip(t *testing.T) { //nolint:paralleltest // shared handler state.
+	b := newTestBackend(t)
+	h := quicksight.NewHandler(b)
+
+	steps := []roundTripStep{
+		{
+			name:         "describe missing theme returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/themes/rtth1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+		{
+			name:         "create theme",
+			method:       http.MethodPost,
+			path:         accountPath("/themes/rtth1"),
+			body:         map[string]any{"Name": "RT Theme"},
+			wantStatus:   http.StatusOK,
+			wantContains: "ThemeId",
+		},
+		{
+			name:         "describe reflects created theme",
+			method:       http.MethodGet,
+			path:         accountPath("/themes/rtth1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "Theme",
+		},
+		{
+			name:         "list themes includes theme",
+			method:       http.MethodGet,
+			path:         accountPath("/themes"),
+			wantStatus:   http.StatusOK,
+			wantContains: "ThemeSummaryList",
+		},
+		{
+			name:         "delete theme",
+			method:       http.MethodDelete,
+			path:         accountPath("/themes/rtth1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "ThemeId",
+		},
+		{
+			name:         "describe after delete returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/themes/rtth1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+	}
+
+	runRoundTrip(t, h, steps)
+	assert.Equal(t, 0, quicksight.ThemeCount(b), "theme removed after delete")
 }

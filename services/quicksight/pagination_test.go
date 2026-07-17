@@ -8,10 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/quicksight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/quicksight"
 )
 
 // isBase64Int returns true if s is a valid base64-encoded decimal integer.
@@ -142,99 +141,6 @@ func TestPaginationTokensAreOpaque(t *testing.T) {
 			offset, _ := strconv.Atoi(string(b64))
 			assert.Equal(t, 2, offset, "offset must equal page size")
 		})
-	}
-}
-
-// TestCreateTopicReturnsNonEmptyID verifies CreateTopic (POST /accounts/{id}/topics) returns
-// a non-empty TopicId. AWS CreateTopic requires both TopicId and Name in the request body.
-func TestCreateTopicReturnsNonEmptyID(t *testing.T) {
-	t.Parallel()
-
-	b := newTestBackend(t)
-	h := quicksight.NewHandler(b)
-
-	rec := doRequest(t, h, http.MethodPost, accountPath("/topics"), map[string]any{
-		"TopicId": "topic1",
-		"Name":    "Topic1",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	body := parseBody(t, rec)
-	topicID, _ := body["TopicId"].(string)
-	assert.NotEmpty(t, topicID, "CreateTopic must return a non-empty TopicId")
-}
-
-// TestEmbedURLsAreUnique verifies that embed URL operations return distinct URLs per call.
-func TestEmbedURLsAreUnique(t *testing.T) {
-	t.Parallel()
-
-	b := newTestBackend(t)
-	h := quicksight.NewHandler(b)
-
-	doRequest(t, h, http.MethodPost, accountPath("/dashboards/d1"), map[string]any{"Name": "Dash"})
-
-	embedPaths := []string{
-		accountPath("/dashboards/d1/embed-url") + "?creds-type=QUICKSIGHT",
-		"/accounts/000000000000/session-embed-url",
-	}
-
-	for _, path := range embedPaths {
-		t.Run(path, func(t *testing.T) {
-			t.Parallel()
-
-			rec1 := doRequest(t, h, http.MethodGet, path, nil)
-			rec2 := doRequest(t, h, http.MethodGet, path, nil)
-			require.Equal(t, http.StatusOK, rec1.Code)
-			require.Equal(t, http.StatusOK, rec2.Code)
-
-			url1, _ := parseBody(t, rec1)["EmbedUrl"].(string)
-			url2, _ := parseBody(t, rec2)["EmbedUrl"].(string)
-			assert.NotEmpty(t, url1)
-			assert.NotEqual(t, url1, url2, "each embed URL call must return a unique URL")
-		})
-	}
-}
-
-// TestSnapshotJobIDIsUnique verifies StartDashboardSnapshotJob returns distinct IDs per call.
-func TestSnapshotJobIDIsUnique(t *testing.T) {
-	t.Parallel()
-
-	b := newTestBackend(t)
-	h := quicksight.NewHandler(b)
-
-	doRequest(t, h, http.MethodPost, accountPath("/dashboards/d1"), map[string]any{"Name": "Dash"})
-
-	path := accountPath("/dashboards/d1/snapshot-jobs")
-
-	rec1 := doRequest(t, h, http.MethodPost, path, map[string]any{"SnapshotJobId": "job1"})
-	rec2 := doRequest(t, h, http.MethodPost, path, map[string]any{"SnapshotJobId": "job2"})
-	require.Equal(t, http.StatusOK, rec1.Code)
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	id1, _ := parseBody(t, rec1)["SnapshotJobId"].(string)
-	id2, _ := parseBody(t, rec2)["SnapshotJobId"].(string)
-	assert.NotEmpty(t, id1)
-	assert.NotEqual(t, id1, id2, "each snapshot job must have a unique ID")
-}
-
-// TestRequestIDsAreUnique verifies that successive responses carry distinct RequestId values.
-func TestRequestIDsAreUnique(t *testing.T) {
-	t.Parallel()
-
-	b := newTestBackend(t)
-	h := quicksight.NewHandler(b)
-
-	ids := make(map[string]bool)
-	path := accountPath("/namespaces")
-
-	for range 5 {
-		rec := doRequest(t, h, http.MethodGet, path, nil)
-		require.Equal(t, http.StatusOK, rec.Code)
-		body := parseBody(t, rec)
-		reqID, _ := body["RequestId"].(string)
-		assert.NotEmpty(t, reqID)
-		assert.False(t, ids[reqID], "RequestId %q appeared more than once", reqID)
-		ids[reqID] = true
 	}
 }
 

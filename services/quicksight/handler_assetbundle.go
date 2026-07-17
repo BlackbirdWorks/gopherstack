@@ -345,3 +345,45 @@ func (h *Handler) handleDescribeDashboardSnapshotJobResult(c *echo.Context) erro
 
 	return writeJSON(c, http.StatusOK, resp)
 }
+
+// classifyAssetBundleExportPaths routes /accounts/{id}/asset-bundle-export-jobs/... paths.
+func classifyAssetBundleExportPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		switch method {
+		case http.MethodPost:
+			return opStartAssetBundleExportJob, accountID
+		case http.MethodGet:
+			return opListAssetBundleExportJobs, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		if method == http.MethodGet {
+			return opDescribeAssetBundleExportJob, id
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyAssetBundleImportPaths routes /accounts/{id}/asset-bundle-import-jobs/... paths.
+func classifyAssetBundleImportPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		switch method {
+		case http.MethodPost:
+			return opStartAssetBundleImportJob, accountID
+		case http.MethodGet:
+			return opListAssetBundleImportJobs, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		if method == http.MethodGet {
+			return opDescribeAssetBundleImportJob, id
+		}
+	}
+
+	return opUnknown, ""
+}

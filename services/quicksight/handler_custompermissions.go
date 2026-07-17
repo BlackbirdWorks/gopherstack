@@ -358,3 +358,29 @@ func (h *Handler) handleDeleteUserCustomPermission(c *echo.Context) error {
 		keyStatus:    http.StatusOK,
 	})
 }
+
+// classifyCustomPermissionsPaths routes /accounts/{id}/custom-permissions/... paths.
+func classifyCustomPermissionsPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		switch method {
+		case http.MethodPost:
+			return opCreateCustomPermissions, accountID
+		case http.MethodGet:
+			return opListCustomPermissions, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodGet:
+			return opDescribeCustomPermissions, id
+		case http.MethodPut:
+			return opUpdateCustomPermissions, id
+		case http.MethodDelete:
+			return opDeleteCustomPermissions, id
+		}
+	}
+
+	return opUnknown, ""
+}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/quicksight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -151,4 +152,129 @@ func TestQuickSight_ListVPCConnections_Pagination(t *testing.T) {
 		m := it.(map[string]any)
 		assert.False(t, seen[m["VPCConnectionId"].(string)], "page 2 must not repeat page 1 items")
 	}
+}
+
+// ---- VPC Connection tests ---- //nolint:godot // existing issue.
+func TestQuickSight_VPCConnections(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create vpc connection",
+			method:     http.MethodPost,
+			path:       accountPath("/vpc-connections"),
+			body:       map[string]any{"VPCConnectionId": "vpc1", "Name": "VPC1"},
+			wantStatus: http.StatusOK,
+			wantKey:    "VPCConnectionId",
+		},
+		{
+			name:       "describe vpc connection",
+			method:     http.MethodGet,
+			path:       accountPath("/vpc-connections/vpc1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "VPCConnection",
+		},
+		{
+			name:       "update vpc connection",
+			method:     http.MethodPut,
+			path:       accountPath("/vpc-connections/vpc1"),
+			body:       map[string]any{"Name": "VPC1Updated"},
+			wantStatus: http.StatusOK,
+			wantKey:    "VPCConnectionId",
+		},
+		{
+			name:       "list vpc connections",
+			method:     http.MethodGet,
+			path:       accountPath("/vpc-connections"),
+			wantStatus: http.StatusOK,
+			wantKey:    "VPCConnectionSummaries",
+		},
+		{
+			name:       "delete vpc connection",
+			method:     http.MethodDelete,
+			path:       accountPath("/vpc-connections/vpc1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "VPCConnectionId",
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}
+
+func TestQuickSight_VPCConnectionRoundTrip(t *testing.T) { //nolint:paralleltest // shared handler state.
+	b := newTestBackend(t)
+	h := quicksight.NewHandler(b)
+
+	steps := []roundTripStep{
+		{
+			name:         "describe missing vpc returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/vpc-connections/rtv1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+		{
+			name:         "create vpc connection",
+			method:       http.MethodPost,
+			path:         accountPath("/vpc-connections"),
+			body:         map[string]any{"VPCConnectionId": "rtv1", "Name": "RT VPC"},
+			wantStatus:   http.StatusOK,
+			wantContains: "VPCConnectionId",
+		},
+		{
+			name:         "describe reflects created vpc connection",
+			method:       http.MethodGet,
+			path:         accountPath("/vpc-connections/rtv1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "VPCConnection",
+		},
+		{
+			name:         "list vpc connections includes connection",
+			method:       http.MethodGet,
+			path:         accountPath("/vpc-connections"),
+			wantStatus:   http.StatusOK,
+			wantContains: "VPCConnectionSummaries",
+		},
+		{
+			name:         "update vpc connection",
+			method:       http.MethodPut,
+			path:         accountPath("/vpc-connections/rtv1"),
+			body:         map[string]any{"Name": "RT VPC Renamed"},
+			wantStatus:   http.StatusOK,
+			wantContains: "VPCConnectionId",
+		},
+		{
+			name:         "delete vpc connection",
+			method:       http.MethodDelete,
+			path:         accountPath("/vpc-connections/rtv1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "VPCConnectionId",
+		},
+		{
+			name:         "describe after delete returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/vpc-connections/rtv1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+	}
+
+	runRoundTrip(t, h, steps)
+	assert.Equal(t, 0, quicksight.VPCConnectionCount(b), "vpc connection removed after delete")
 }
