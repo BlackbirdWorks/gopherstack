@@ -1,6 +1,7 @@
 package kinesisanalyticsv2 //nolint:testpackage // needs ctxRegion's unexported region context key
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -277,4 +278,105 @@ func Test_Handler_SnapshotRestoreDelegate(t *testing.T) {
 	app, err := h2.Backend.DescribeApplication(t.Context(), ids.appName)
 	require.NoError(t, err)
 	assert.Equal(t, ids.appName, app.ApplicationName)
+}
+
+// TestPersistence_RoundTrip is a smaller, black-box companion to
+// Test_InMemoryBackend_SnapshotRestore_FullState: it round-trips a backend
+// with one application, one snapshot, and tags through Handler.Snapshot/Restore.
+func TestPersistence_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateApplication(
+		ctx,
+		"persist-app",
+		"FLINK-1_18",
+		"role-arn",
+		"desc",
+		"STREAMING",
+		[]Tag{{Key: "env", Value: "test"}},
+	)
+	require.NoError(t, err)
+
+	_, err = b.StartApplication(ctx, "persist-app")
+	require.NoError(t, err)
+
+	_, err = b.CreateApplicationSnapshot(ctx, "persist-app", "snap-1")
+	require.NoError(t, err)
+
+	h := NewHandler(b)
+	data := h.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), data))
+
+	assert.Equal(t, 1, ApplicationCount(b2))
+	assert.Equal(t, 1, SnapshotCount(b2))
+
+	app, err := b2.DescribeApplication(ctx, "persist-app")
+	require.NoError(t, err)
+	assert.Equal(t, "persist-app", app.ApplicationName)
+	assert.Equal(t, "FLINK-1_18", app.RuntimeEnvironment)
+}
+
+// TestPersistence_Empty verifies an empty backend round-trips to another
+// empty backend without error.
+func TestPersistence_Empty(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+	h := NewHandler(b)
+
+	data := h.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), data))
+
+	assert.Zero(t, ApplicationCount(b2))
+	assert.Zero(t, SnapshotCount(b2))
+}
+
+// TestPersistence_NextIDPreserved verifies the resource-ID counter survives
+// a Snapshot/Restore round trip, so IDs minted after Restore never collide
+// with IDs minted before it.
+func TestPersistence_NextIDPreserved(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateApplication(ctx, "id-app", "SQL-1_0", "", "", "", nil)
+	require.NoError(t, err)
+
+	err = b.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
+		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s", "")
+	require.NoError(t, err)
+
+	h := NewHandler(b)
+	data := h.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), data))
+
+	// Adding another CWL option on b2 should generate a new distinct ID
+	err = b2.AddApplicationCloudWatchLoggingOption(ctx, "id-app", 0,
+		"arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s2", "")
+	require.NoError(t, err)
+
+	app, err := b2.DescribeApplication(ctx, "id-app")
+	require.NoError(t, err)
+	assert.Len(t, app.CloudWatchLoggingOptionDescs, 2)
+	assert.NotEqual(
+		t,
+		app.CloudWatchLoggingOptionDescs[0].CloudWatchLoggingOptionID,
+		app.CloudWatchLoggingOptionDescs[1].CloudWatchLoggingOptionID,
+	)
 }
