@@ -27,7 +27,7 @@ package lakeformation
 // transaction ID before this refactor (the ID lived only as the map key), so
 // it gained an ID field tagged json:"-" purely so store.Table's keyFn can
 // derive a key from the value -- see transactionInfo's doc comment in
-// backend.go. It is NOT registered on b.registry: persistence.go instead
+// transactions.go. It is NOT registered on b.registry: persistence.go instead
 // round-trips it through a dedicated transactionSnapshot DTO that carries
 // the ID as a real JSON field, mirroring services/ses's identities table.
 //
@@ -36,7 +36,7 @@ package lakeformation
 // source of truth for GrantPermissions/RevokePermissions ordering and for
 // persistence), keyed by the pre-existing permissionKey helper (already a
 // pure function of PermissionEntry.Principal/.Resource, defined in
-// backend.go). It is rebuilt from b.permissionsList after every
+// permissions.go). It is rebuilt from b.permissionsList after every
 // Restore/Reset rather than snapshotted independently -- see persistence.go.
 //
 // Left as plain maps (not store.Table-backed), each audited against the
@@ -99,7 +99,7 @@ func transactionKeyFn(v *transactionInfo) string { return v.ID }
 // deliberately NOT registered -- see the file doc comment above. It must be
 // called during construction only, never on every Reset(): store.Register
 // panics on a duplicate name, so runtime resets go through
-// resetTablesLocked (backend.go) instead.
+// resetTablesLocked (store.go) instead.
 func registerAllTables(b *InMemoryBackend) {
 	b.resources = store.Register(b.registry, "resources", store.New(resourceInfoKeyFn))
 	b.identityCenterConfigs = store.Register(

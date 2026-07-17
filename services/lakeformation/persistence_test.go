@@ -1,6 +1,8 @@
 package lakeformation_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -264,4 +266,94 @@ func Test_Handler_SnapshotRestore(t *testing.T) {
 	tag, err := restoredBackend.GetLFTag("123456789012", "handler-tag")
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"a", "b"}, tag.TagValues)
+}
+
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	b.AddLFTagInternal("cat", "env", []string{"dev", "prod"})
+	b.AddResourceInternal("arn:aws:s3:::bucket", "role")
+	b.AddDataCellsFilterInternal(&lakeformation.DataCellsFilter{
+		TableCatalogID: "cat", DatabaseName: "db", TableName: "tbl", Name: "f1",
+	})
+	b.AddLFTagExpressionInternal(&lakeformation.LFTagExpression{Name: "e1", CatalogID: "cat"})
+	err := b.CreateLakeFormationOptIn(
+		&lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/alice"},
+		&lakeformation.Resource{Database: &lakeformation.DatabaseResource{Name: "db1"}},
+	)
+	require.NoError(t, err)
+	_, err = b.CommitTransaction("tx-persist")
+	require.NoError(t, err)
+
+	data, err := b.Snapshot()
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+
+	b2 := lakeformation.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	assert.Equal(t, b.TagCount(), b2.TagCount())
+	assert.Equal(t, b.ResourceCount(), b2.ResourceCount())
+	assert.Equal(t, b.DataCellsFilterCount(), b2.DataCellsFilterCount())
+	assert.Equal(t, b.LFTagExpressionCount(), b2.LFTagExpressionCount())
+	assert.Equal(t, b.OptInCount(), b2.OptInCount())
+	assert.Equal(t, b.TransactionCount(), b2.TransactionCount())
+}
+
+func TestPersistenceEmpty(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	data, err := b.Snapshot()
+	require.NoError(t, err)
+
+	b2 := lakeformation.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), data))
+	assert.Equal(t, 0, b2.TagCount())
+	assert.Equal(t, 0, b2.ResourceCount())
+}
+
+func TestPersistence_IncludesQueriesAndOptimizers(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	// Seed a query
+	rec := postJSON(t, h, "/StartQueryPlanning", map[string]any{
+		"QueryString":          "SELECT * FROM db.t",
+		"QueryPlanningContext": map[string]any{"DatabaseName": "db"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Seed a storage optimizer
+	postJSON(t, h, "/UpdateTableStorageOptimizer", map[string]any{
+		"DatabaseName": "db",
+		"TableName":    "t",
+		"StorageOptimizerConfig": map[string]any{
+			"compaction": map[string]any{"enabled": "true"},
+		},
+	})
+
+	// Snapshot
+	snap, err := b.Snapshot()
+	require.NoError(t, err)
+
+	// Restore to fresh backend
+	b2 := lakeformation.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify queries survived restore (GetQueryState should work)
+	var qOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &qOut))
+	queryID := qOut["QueryId"].(string)
+
+	state, err := b2.GetQueryState(queryID)
+	require.NoError(t, err)
+	assert.Equal(t, "WORKUNITS_AVAILABLE", state)
+
+	// Verify optimizer survived restore
+	opts := b2.ListTableStorageOptimizers("", "db", "t", "")
+	assert.Len(t, opts, 1)
 }

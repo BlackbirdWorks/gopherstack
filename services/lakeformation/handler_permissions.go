@@ -1,0 +1,138 @@
+package lakeformation
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+
+	"github.com/labstack/echo/v5"
+)
+
+func (h *Handler) handleGrantPermissions(_ context.Context, c *echo.Context, body []byte) error {
+	var in grantPermissionsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	// Validate PermissionsWithGrantOption is a subset of Permissions.
+	if len(in.PermissionsWithGrantOption) > 0 {
+		permSet := make(map[string]bool, len(in.Permissions))
+		for _, p := range in.Permissions {
+			permSet[p] = true
+		}
+		for _, g := range in.PermissionsWithGrantOption {
+			if !permSet[g] {
+				return h.writeError(c, http.StatusBadRequest, "InvalidInputException",
+					"PermissionsWithGrantOption must be a subset of Permissions")
+			}
+		}
+	}
+
+	entry := &PermissionEntry{
+		Principal:                  in.Principal,
+		Resource:                   in.Resource,
+		Permissions:                in.Permissions,
+		PermissionsWithGrantOption: in.PermissionsWithGrantOption,
+	}
+
+	if err := h.Backend.GrantPermissions(entry); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, grantPermissionsOutput{})
+}
+
+func (h *Handler) handleRevokePermissions(_ context.Context, c *echo.Context, body []byte) error {
+	var in revokePermissionsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	entry := &PermissionEntry{
+		Principal:                  in.Principal,
+		Resource:                   in.Resource,
+		Permissions:                in.Permissions,
+		PermissionsWithGrantOption: in.PermissionsWithGrantOption,
+	}
+
+	if err := h.Backend.RevokePermissions(entry); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, revokePermissionsOutput{})
+}
+
+func (h *Handler) handleListPermissions(_ context.Context, c *echo.Context, body []byte) error {
+	var in listPermissionsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+
+	entries, nextToken := h.Backend.ListPermissions(
+		in.ResourceArn,
+		in.MaxResults,
+		in.NextToken,
+		in.Principal,
+		in.ResourceType,
+	)
+
+	return c.JSON(http.StatusOK, listPermissionsOutput{
+		PrincipalResourcePermissions: entries,
+		NextToken:                    nextToken,
+	})
+}
+
+func (h *Handler) handleBatchGrantPermissions(_ context.Context, c *echo.Context, body []byte) error {
+	var in batchGrantPermissionsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	failures := h.Backend.BatchGrantPermissions(in.Entries)
+
+	result := batchGrantPermissionsOutput{Failures: make([]BatchFailureEntry, 0, len(failures))}
+
+	for _, f := range failures {
+		if f != nil {
+			result.Failures = append(result.Failures, *f)
+		}
+	}
+
+	return c.JSON(http.StatusOK, result)
+}
+
+func (h *Handler) handleBatchRevokePermissions(_ context.Context, c *echo.Context, body []byte) error {
+	var in batchRevokePermissionsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+	}
+
+	failures := h.Backend.BatchRevokePermissions(in.Entries)
+
+	result := batchRevokePermissionsOutput{Failures: make([]BatchFailureEntry, 0, len(failures))}
+
+	for _, f := range failures {
+		if f != nil {
+			result.Failures = append(result.Failures, *f)
+		}
+	}
+
+	return c.JSON(http.StatusOK, result)
+}
+
+func (h *Handler) handleGetEffectivePermissionsForPath(_ context.Context, c *echo.Context, body []byte) error {
+	var in getEffectivePermissionsForPathInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
+		}
+	}
+	entries, nextToken := h.Backend.GetEffectivePermissionsForPath(in.ResourceArn, in.MaxResults, in.NextToken)
+
+	return c.JSON(http.StatusOK, getEffectivePermissionsForPathOutput{
+		PrincipalResourcePermissions: entries,
+		NextToken:                    nextToken,
+	})
+}
