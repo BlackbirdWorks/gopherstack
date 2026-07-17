@@ -347,6 +347,131 @@ func TestPipesRunner_ConfigurableBatchSize(t *testing.T) {
 	assert.Equal(t, 3, sqsReader.getLastMaxMessages(), "runner should request batch size from source parameters")
 }
 
+// --- fake mocks + backend factory shared with other runner-family test files ---
+
+// fakeSQSReader is a simple in-process SQS reader for testing.
+type fakeSQSReader struct {
+	messages []*pipes.SQSMessage
+	deleted  []string
+}
+
+func (f *fakeSQSReader) ReceivePipeMessages(_ string, maxMsgs int) ([]*pipes.SQSMessage, error) {
+	n := min(len(f.messages), maxMsgs)
+
+	out := f.messages[:n]
+	f.messages = f.messages[n:]
+
+	return out, nil
+}
+
+func (f *fakeSQSReader) DeletePipeMessages(_ string, handles []string) error {
+	f.deleted = append(f.deleted, handles...)
+
+	return nil
+}
+
+// fakeLambda records invocations.
+type fakeLambda struct {
+	calls int
+}
+
+func (f *fakeLambda) InvokeFunction(
+	_ context.Context,
+	_, _ string,
+	_ []byte,
+) ([]byte, int, error) {
+	f.calls++
+
+	return []byte(`{}`), 200, nil
+}
+
+func newPipeBackend() *pipes.InMemoryBackend {
+	return pipes.NewInMemoryBackend("000000000000", "us-east-1")
+}
+
+// TestPipeSourceFiltering verifies that messages not matching the filter are dropped.
+func TestPipeSourceFiltering(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		filterPattern string
+		messages      []string
+		wantDelivered int
+	}{
+		{
+			name:          "all_messages_pass_no_filter",
+			messages:      []string{`{"event":"a"}`, `{"event":"b"}`},
+			filterPattern: "",
+			wantDelivered: 2,
+		},
+		{
+			name:          "filter_drops_non_matching",
+			messages:      []string{`{"type":"order"}`, `{"type":"payment"}`, `{"type":"order"}`},
+			filterPattern: "order",
+			wantDelivered: 2,
+		},
+		{
+			name:          "all_filtered_out",
+			messages:      []string{`{"type":"payment"}`},
+			filterPattern: "order",
+			wantDelivered: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newPipeBackend()
+			r := pipes.NewRunner(b)
+
+			sqsReader := &fakeSQSReader{}
+			lambda := &fakeLambda{}
+
+			for i, body := range tt.messages {
+				id := string(rune('a' + i))
+				sqsReader.messages = append(sqsReader.messages, &pipes.SQSMessage{
+					MessageID:     id,
+					ReceiptHandle: "rh-" + id,
+					Body:          body,
+				})
+			}
+
+			r.SetSQSReader(sqsReader)
+			r.SetLambdaInvoker(lambda)
+
+			sourceParams := &pipes.SourceParameters{}
+			if tt.filterPattern != "" {
+				sourceParams.FilterCriteria = &pipes.FilterCriteria{
+					Filters: []pipes.Filter{{Pattern: tt.filterPattern}},
+				}
+			}
+
+			pipeName := "filter-pipe-" + tt.name
+			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				Name:             pipeName,
+				Source:           "arn:aws:sqs:us-east-1:000000000000:queue",
+				Target:           "arn:aws:lambda:us-east-1:000000000000:function:fn",
+				DesiredState:     "RUNNING",
+				SourceParameters: sourceParams,
+			})
+			require.NoError(t, err)
+			pipes.WaitPipeRunning(t, b, pipeName)
+
+			pipes.PollAllPipesOnce(context.Background(), r)
+
+			if tt.wantDelivered > 0 {
+				assert.Positive(t, lambda.calls, "expected Lambda to be invoked")
+				assert.Len(t, sqsReader.deleted, tt.wantDelivered, "expected deleted messages count")
+			} else {
+				assert.Equal(t, 0, lambda.calls, "expected Lambda not to be invoked when all filtered out")
+				assert.Empty(t, sqsReader.deleted)
+			}
+		})
+	}
+}
+
 // TestPipesRunner_InputTemplate tests that TargetParameters.InputTemplate overrides default payload.
 func TestPipesRunner_InputTemplate(t *testing.T) {
 	t.Parallel()
