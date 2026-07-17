@@ -1,50 +1,308 @@
 package appsync_test
 
 import (
-	"context"
-	"encoding/base64"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
-// ---- Provider tests ----
-
-func TestProvider_Name(t *testing.T) {
+func TestInMemoryBackend_ExecuteGraphQL_LambdaResolver(t *testing.T) {
 	t.Parallel()
 
-	p := &appsync.Provider{}
-	assert.Equal(t, "AppSync", p.Name())
+	tests := []struct {
+		wantValue     any
+		name          string
+		schema        string
+		query         string
+		wantField     string
+		lambdaPayload []byte
+		wantCalls     int
+	}{
+		{
+			name:          "executes_query_via_lambda_resolver",
+			schema:        `type Query { hello: String }`,
+			query:         `query { hello }`,
+			lambdaPayload: []byte(`"world"`),
+			wantField:     "hello",
+			wantValue:     "world",
+			wantCalls:     1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			mock := &mockLambdaInvoker{payload: tt.lambdaPayload}
+			b.SetLambdaInvoker(mock)
+
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+			_, _ = b.StartSchemaCreation(api.APIID, tt.schema)
+			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
+				Name: "LambdaDS",
+				Type: appsync.DataSourceTypeLambda,
+				LambdaConfig: &appsync.LambdaDataSourceConfig{
+					LambdaFunctionARN: "arn:aws:lambda:us-east-1:000000000000:function:hello-fn",
+				},
+			})
+			_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+				FieldName:      "hello",
+				DataSourceName: "LambdaDS",
+			})
+
+			result, err := b.ExecuteGraphQL(t.Context(), api.APIID, tt.query, "", nil)
+			require.NoError(t, err)
+			assert.Len(t, mock.calls, tt.wantCalls)
+			assert.Equal(t, tt.wantValue, result[tt.wantField])
+		})
+	}
 }
 
-func TestProvider_Init_NilCtx(t *testing.T) {
+func TestInMemoryBackend_ExecuteGraphQL_NoneResolver(t *testing.T) {
 	t.Parallel()
 
-	p := &appsync.Provider{}
-	svc, err := p.Init(nil)
+	tests := []struct {
+		name      string
+		schema    string
+		query     string
+		variables map[string]any
+		wantField string
+		wantErr   bool
+	}{
+		{
+			name:      "none_resolver_returns_args",
+			schema:    `type Query { echo(message: String): String }`,
+			query:     `query { echo(message: "hi") }`,
+			wantField: "echo",
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+			_, _ = b.StartSchemaCreation(api.APIID, tt.schema)
+			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
+				Name: "NoneDS",
+				Type: appsync.DataSourceTypeNone,
+			})
+			_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+				FieldName:      "echo",
+				DataSourceName: "NoneDS",
+			})
+
+			result, err := b.ExecuteGraphQL(t.Context(), api.APIID, tt.query, "", tt.variables)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Contains(t, result, tt.wantField)
+		})
+	}
+}
+
+func TestInMemoryBackend_ExecuteGraphQL_NoSchema(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	_, err := b.ExecuteGraphQL(t.Context(), api.APIID, `query { hello }`, "", nil)
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_ExecuteGraphQL_InvalidQuery(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
+
+	_, err := b.ExecuteGraphQL(t.Context(), api.APIID, `{ not valid gql`, "", nil)
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_ExecuteGraphQL_MissingAPI(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.ExecuteGraphQL(t.Context(), "nonexistent", `query { hello }`, "", nil)
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_ExecuteGraphQL_LambdaResolver_WithTemplates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		schema        string
+		query         string
+		reqTemplate   string
+		respTemplate  string
+		wantField     string
+		lambdaPayload []byte
+		wantCalls     int
+	}{
+		{
+			name:          "uses_request_template",
+			schema:        `type Query { greet(name: String): String }`,
+			query:         `query { greet(name: "Alice") }`,
+			reqTemplate:   `{"name": "$ctx.args.name"}`,
+			respTemplate:  `$util.toJson($context.result)`,
+			lambdaPayload: []byte(`"Hello, Alice"`),
+			wantField:     "greet",
+			wantCalls:     1,
+		},
+		{
+			name:          "no_template_passes_args",
+			schema:        `type Query { greet(name: String): String }`,
+			query:         `query { greet(name: "Bob") }`,
+			reqTemplate:   "",
+			respTemplate:  "",
+			lambdaPayload: []byte(`"Hi Bob"`),
+			wantField:     "greet",
+			wantCalls:     1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			mock := &mockLambdaInvoker{payload: tt.lambdaPayload}
+			b.SetLambdaInvoker(mock)
+
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+			_, _ = b.StartSchemaCreation(api.APIID, tt.schema)
+			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
+				Name: "LambdaDS",
+				Type: appsync.DataSourceTypeLambda,
+				LambdaConfig: &appsync.LambdaDataSourceConfig{
+					LambdaFunctionARN: "arn:aws:lambda:us-east-1:000:function:fn",
+				},
+			})
+			_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+				FieldName:               "greet",
+				DataSourceName:          "LambdaDS",
+				RequestMappingTemplate:  tt.reqTemplate,
+				ResponseMappingTemplate: tt.respTemplate,
+			})
+
+			result, err := b.ExecuteGraphQL(t.Context(), api.APIID, tt.query, "", nil)
+			require.NoError(t, err)
+			assert.Len(t, mock.calls, tt.wantCalls)
+			assert.NotNil(t, result[tt.wantField])
+		})
+	}
+}
+
+func TestInMemoryBackend_ExecuteGraphQL_NoneResolver_WithTemplates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		schema       string
+		query        string
+		reqTemplate  string
+		respTemplate string
+		wantField    string
+	}{
+		{
+			name:         "none_resolver_with_response_template",
+			schema:       `type Query { echo(msg: String): String }`,
+			query:        `query { echo(msg: "hello") }`,
+			reqTemplate:  `{"msg": "$ctx.args.msg"}`,
+			respTemplate: `$util.toJson($context.result)`,
+			wantField:    "echo",
+		},
+		{
+			name:         "none_resolver_bare_args",
+			schema:       `type Query { echo(msg: String): String }`,
+			query:        `query { echo(msg: "hi") }`,
+			reqTemplate:  "",
+			respTemplate: "",
+			wantField:    "echo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+			_, _ = b.StartSchemaCreation(api.APIID, tt.schema)
+			_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
+				Name: "NoneDS",
+				Type: appsync.DataSourceTypeNone,
+			})
+			_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+				FieldName:               "echo",
+				DataSourceName:          "NoneDS",
+				RequestMappingTemplate:  tt.reqTemplate,
+				ResponseMappingTemplate: tt.respTemplate,
+			})
+
+			result, err := b.ExecuteGraphQL(t.Context(), api.APIID, tt.query, "", nil)
+			require.NoError(t, err)
+			assert.Contains(t, result, tt.wantField)
+		})
+	}
+}
+
+func TestInMemoryBackend_ExecuteGraphQL_Mutation(t *testing.T) {
+	t.Parallel()
+
+	schema := `type Query { dummy: String }
+type Mutation { createItem(name: String): String }`
+	query := `mutation { createItem(name: "test") }`
+
+	b := newTestBackend()
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	_, _ = b.StartSchemaCreation(api.APIID, schema)
+	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "NoneDS",
+		Type: appsync.DataSourceTypeNone,
+	})
+	_, _ = b.CreateResolver(api.APIID, "Mutation", &appsync.Resolver{
+		FieldName:      "createItem",
+		DataSourceName: "NoneDS",
+	})
+
+	result, err := b.ExecuteGraphQL(t.Context(), api.APIID, query, "", nil)
 	require.NoError(t, err)
-	require.NotNil(t, svc)
+	assert.Contains(t, result, "createItem")
 }
 
-func TestProvider_Init_WithCtx(t *testing.T) {
+func TestInMemoryBackend_ExecuteGraphQL_UnsupportedDataSource(t *testing.T) {
 	t.Parallel()
 
-	p := &appsync.Provider{}
-	ctx := &service.AppContext{}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-}
+	b := newTestBackend()
+	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
+	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
+	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
+		Name: "HTTPDS",
+		Type: appsync.DataSourceTypeHTTP,
+	})
+	_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
+		FieldName:      "hello",
+		DataSourceName: "HTTPDS",
+	})
 
-// ---- GraphQL resolveValue / findOperation coverage ----
+	_, err := b.ExecuteGraphQL(t.Context(), api.APIID, `query { hello }`, "", nil)
+	require.Error(t, err)
+}
 
 func TestInMemoryBackend_ExecuteGraphQL_NamedOperation(t *testing.T) {
 	t.Parallel()
@@ -101,32 +359,6 @@ func TestInMemoryBackend_ExecuteGraphQL_Subscription(t *testing.T) {
 		`subscription { onEvent }`, "", nil)
 	require.NoError(t, err)
 	assert.Contains(t, result, "onEvent")
-}
-
-// ---- DynamoDB resolver tests ----
-
-// mockDynamoDB is a test double for DynamoDB operations.
-type mockDynamoDB struct {
-	items map[string]map[string]any
-}
-
-func (m *mockDynamoDB) GetItemRaw(_ context.Context, tableName string, key map[string]any) (map[string]any, error) {
-	tableKey := fmt.Sprintf("%s::%v", tableName, key)
-	if item, ok := m.items[tableKey]; ok {
-		return item, nil
-	}
-
-	return map[string]any{}, nil
-}
-
-func (m *mockDynamoDB) PutItemRaw(_ context.Context, tableName string, item map[string]any) error {
-	if m.items == nil {
-		m.items = make(map[string]map[string]any)
-	}
-
-	m.items[fmt.Sprintf("%s::%v", tableName, item)] = item
-
-	return nil
 }
 
 func TestInMemoryBackend_ExecuteGraphQL_DynamoDBResolver_GetItem(t *testing.T) {
@@ -328,169 +560,4 @@ func TestInMemoryBackend_ExecuteGraphQL_MissingDataSource(t *testing.T) {
 
 	_, err := b.ExecuteGraphQL(t.Context(), api.APIID, `query { hello }`, "", nil)
 	require.Error(t, err)
-}
-
-// ---- Handler base64 schema test ----
-
-func TestHandler_StartSchemaCreation_Base64Encoded(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
-
-	sdl := `type Query { hello: String }`
-	encoded := base64.StdEncoding.EncodeToString([]byte(sdl))
-
-	body := map[string]any{"definition": encoded}
-	rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/schemacreation", body)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-// ---- Handler error paths ----
-
-func TestHandler_HandleError_InternalError(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
-
-	// Schema with unsupported data source causes InternalFailure.
-	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
-	_, _ = b.CreateDataSource(api.APIID, &appsync.DataSource{
-		Name: "HTTPDS",
-		Type: appsync.DataSourceTypeHTTP,
-	})
-	_, _ = b.CreateResolver(api.APIID, "Query", &appsync.Resolver{
-		FieldName:      "hello",
-		DataSourceName: "HTTPDS",
-	})
-
-	body := map[string]any{"query": `query { hello }`}
-	rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/graphql", body)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestHandler_GraphQL_NoSchema(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
-	// No schema uploaded.
-
-	body := map[string]any{"query": `query { hello }`}
-	rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/graphql", body)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestHandler_Types_MethodNotAllowed(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
-
-	// PUT on resolver should return method not allowed.
-	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/types/Query/resolvers", nil)
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestHandler_Types_ResolverMethodNotAllowed(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
-
-	// CONNECT on individual resolver should return method not allowed (PUT is now UpdateResolver).
-	rec := doRequest(t, h, http.MethodConnect, "/v1/apis/"+api.APIID+"/types/Query/resolvers/getItem", nil)
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestHandler_DataSource_MethodNotAllowed(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, false, "", "", nil, nil, nil)
-
-	// PATCH on named datasource should return method not allowed (PUT is UpdateDataSource).
-	rec := doRequest(t, h, http.MethodPatch, "/v1/apis/"+api.APIID+"/datasources/myds", nil)
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestHandler_Unknown_Short_Segs(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestHandler()
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/v1/unknown", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	err := h.Handler()(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// ---- VTL resolveExpr coverage ----
-
-func TestRenderVTL_ResolveExpr_AllBranches(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		tmpl   string
-		args   map[string]any
-		result any
-		want   string
-	}{
-		{
-			name:   "resolve_context_arguments_key",
-			tmpl:   "$util.toJson($context.arguments.id)",
-			args:   map[string]any{"id": "test"},
-			result: nil,
-			want:   `"test"`,
-		},
-		{
-			name:   "resolve_context_arguments_bare",
-			tmpl:   "$util.toJson($context.arguments)",
-			args:   map[string]any{"x": "y"},
-			result: nil,
-			want:   `{"x":"y"}`,
-		},
-		{
-			name:   "resolve_ctx_args_key",
-			tmpl:   "$util.toJson($ctx.args.name)",
-			args:   map[string]any{"name": "alice"},
-			result: nil,
-			want:   `"alice"`,
-		},
-		{
-			name:   "resolve_ctx_args_bare",
-			tmpl:   "$util.toJson($ctx.args)",
-			args:   map[string]any{"a": "b"},
-			result: nil,
-			want:   `{"a":"b"}`,
-		},
-		{
-			name:   "resolve_context_result_bare",
-			tmpl:   "$util.toJson($context.result)",
-			args:   nil,
-			result: map[string]any{"id": "1"},
-			want:   `{"id":"1"}`,
-		},
-		{
-			name:   "unknown_expr_passthrough",
-			tmpl:   "$util.toJson(something_unknown)",
-			args:   nil,
-			result: nil,
-			want:   `"something_unknown"`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := appsync.RenderVTL(tt.tmpl, tt.args, tt.result)
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
-		})
-	}
 }
