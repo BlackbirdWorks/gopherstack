@@ -14,6 +14,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/amplify"
 )
 
+// ---- Core test helpers, shared by every handler_<family>_test.go file ----
+
 func newTestHandler() (*amplify.Handler, *amplify.InMemoryBackend) {
 	b := newTestBackend()
 	h := amplify.NewHandler(b)
@@ -75,6 +77,44 @@ func doRawRequest(
 	return rec
 }
 
+// encodeARN URL-encodes the colons and slashes in an ARN for use as a path segment.
+func encodeARN(arn string) string {
+	var buf bytes.Buffer
+
+	for _, c := range arn {
+		switch c {
+		case ':':
+			buf.WriteString("%3A")
+		case '/':
+			buf.WriteString("%2F")
+		default:
+			buf.WriteByte(byte(c))
+		}
+	}
+
+	return buf.String()
+}
+
+// seedApp creates an app and fails the test if it errors.
+func seedApp(t *testing.T, b *amplify.InMemoryBackend, name string) *amplify.App {
+	t.Helper()
+
+	app, err := b.CreateApp(name, "", "", "WEB", nil)
+	require.NoError(t, err)
+
+	return app
+}
+
+// seedMainBranch creates a "main" branch and fails the test if it errors.
+func seedMainBranch(t *testing.T, b *amplify.InMemoryBackend, appID string) *amplify.Branch {
+	t.Helper()
+
+	br, err := b.CreateBranch(appID, "main", "", "", false, nil)
+	require.NoError(t, err)
+
+	return br
+}
+
 // ---- Service metadata tests ----
 
 func TestHandler_Name(t *testing.T) {
@@ -116,6 +156,23 @@ func TestHandler_ChaosServiceName(t *testing.T) {
 	assert.Equal(t, "amplify", h.ChaosServiceName())
 }
 
+func TestHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	ops := h.ChaosOperations()
+	assert.NotEmpty(t, ops)
+	assert.Contains(t, ops, "CreateApp")
+}
+
+func TestHandler_ChaosRegions(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	regions := h.ChaosRegions()
+	assert.NotEmpty(t, regions)
+}
+
 func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
@@ -146,6 +203,9 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	}
 }
 
+// TestHandler_ExtractOperation covers operation-name extraction for every
+// route family: apps, branches, tags, webhooks, backend environments,
+// domain associations, jobs, deployments, access logs, and artifacts.
 func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
@@ -162,13 +222,57 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{method: http.MethodGet, path: "/apps", wantOp: "ListApps", name: "list_apps"},
 		{method: http.MethodGet, path: "/apps/abc123", wantOp: "GetApp", name: "get_app"},
 		{method: http.MethodDelete, path: "/apps/abc123", wantOp: "DeleteApp", name: "delete_app"},
+		{method: http.MethodPost, path: "/apps/abc", wantOp: "UpdateApp", name: "update_app"},
 		{method: http.MethodPost, path: "/apps/abc123/branches", wantOp: "CreateBranch", name: "create_branch"},
 		{method: http.MethodGet, path: "/apps/abc123/branches", wantOp: "ListBranches", name: "list_branches"},
 		{method: http.MethodGet, path: "/apps/abc123/branches/main", wantOp: "GetBranch", name: "get_branch"},
 		{method: http.MethodDelete, path: "/apps/abc123/branches/main", wantOp: "DeleteBranch", name: "delete_branch"},
+		{method: http.MethodPost, path: "/apps/abc/branches/main", wantOp: "UpdateBranch", name: "update_branch"},
 		{method: http.MethodGet, path: "/tags/somearn", wantOp: "ListTagsForResource", name: "list_tags"},
 		{method: http.MethodPost, path: "/tags/somearn", wantOp: "TagResource", name: "tag_resource"},
 		{method: http.MethodDelete, path: "/tags/somearn", wantOp: "UntagResource", name: "untag_resource"},
+		{name: "create_webhook", method: http.MethodPost, path: "/apps/abc/webhooks", wantOp: "CreateWebhook"},
+		{name: "list_webhooks", method: http.MethodGet, path: "/apps/abc/webhooks", wantOp: "ListWebhooks"},
+		{name: "get_webhook", method: http.MethodGet, path: "/webhooks/wh1", wantOp: "GetWebhook"},
+		{name: "update_webhook", method: http.MethodPost, path: "/webhooks/wh1", wantOp: "UpdateWebhook"},
+		{name: "delete_webhook", method: http.MethodDelete, path: "/webhooks/wh1", wantOp: "DeleteWebhook"},
+		{name: "create_be", method: http.MethodPost,
+			path: "/apps/abc/backendenvironments", wantOp: "CreateBackendEnvironment"},
+		{name: "list_be", method: http.MethodGet,
+			path: "/apps/abc/backendenvironments", wantOp: "ListBackendEnvironments"},
+		{name: "get_be", method: http.MethodGet,
+			path: "/apps/abc/backendenvironments/prod", wantOp: "GetBackendEnvironment"},
+		{name: "delete_be", method: http.MethodDelete,
+			path: "/apps/abc/backendenvironments/prod", wantOp: "DeleteBackendEnvironment"},
+		{name: "create_domain", method: http.MethodPost,
+			path: "/apps/abc/domains", wantOp: "CreateDomainAssociation"},
+		{name: "list_domains", method: http.MethodGet,
+			path: "/apps/abc/domains", wantOp: "ListDomainAssociations"},
+		{name: "get_domain", method: http.MethodGet,
+			path: "/apps/abc/domains/example.com", wantOp: "GetDomainAssociation"},
+		{name: "delete_domain", method: http.MethodDelete,
+			path: "/apps/abc/domains/example.com", wantOp: "DeleteDomainAssociation"},
+		{name: "update_domain", method: http.MethodPost,
+			path: "/apps/abc/domains/example.com", wantOp: "UpdateDomainAssociation"},
+		{name: "start_job", method: http.MethodPost,
+			path: "/apps/abc/branches/main/jobs", wantOp: "StartJob"},
+		{name: "list_jobs", method: http.MethodGet,
+			path: "/apps/abc/branches/main/jobs", wantOp: "ListJobs"},
+		{name: "get_job", method: http.MethodGet,
+			path: "/apps/abc/branches/main/jobs/j1", wantOp: "GetJob"},
+		{name: "delete_job", method: http.MethodDelete,
+			path: "/apps/abc/branches/main/jobs/j1", wantOp: "DeleteJob"},
+		{name: "stop_job", method: http.MethodDelete,
+			path: "/apps/abc/branches/main/jobs/j1/stop", wantOp: "StopJob"},
+		{name: "create_deployment", method: http.MethodPost,
+			path: "/apps/abc/branches/main/deployments", wantOp: "CreateDeployment"},
+		{name: "start_deployment", method: http.MethodPost,
+			path: "/apps/abc/branches/main/deployments/start", wantOp: "StartDeployment"},
+		{name: "generate_access_logs", method: http.MethodPost,
+			path: "/apps/abc/accesslogs", wantOp: "GenerateAccessLogs"},
+		{name: "get_artifact_url", method: http.MethodGet, path: "/artifacts/art1", wantOp: "GetArtifactUrl"},
+		{name: "list_artifacts", method: http.MethodGet,
+			path: "/apps/abc/branches/main/jobs/j1/artifacts", wantOp: "ListArtifacts"},
 	}
 
 	for _, tt := range tests {
@@ -206,663 +310,6 @@ func TestHandler_ExtractResource(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			c := e.NewContext(req, httptest.NewRecorder())
 			assert.Equal(t, tt.wantRes, h.ExtractResource(c))
-		})
-	}
-}
-
-// ---- App handler tests ----
-
-func TestHandler_CreateApp(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantName   string
-		wantStatus int
-	}{
-		{
-			name:       "creates_app",
-			body:       map[string]any{"name": "MyApp", "platform": "WEB"},
-			wantStatus: http.StatusCreated,
-			wantName:   "MyApp",
-		},
-		{
-			name:       "missing_name_returns_400",
-			body:       map[string]any{"platform": "WEB"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			// body is a JSON string (not an object) — wrong type/shape, not syntax error
-			name:       "wrong_type_body_returns_400",
-			body:       "not-an-object",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, _ := newTestHandler()
-			rec := doRequest(t, h, http.MethodPost, "/apps", tt.body)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantName != "" {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				app := resp["app"].(map[string]any)
-				assert.Equal(t, tt.wantName, app["name"])
-			}
-		})
-	}
-}
-
-func TestHandler_CreateApp_MalformedJSON(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestHandler()
-	rec := doRawRequest(t, h, http.MethodPost, "/apps", []byte(malformedJSON))
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_GetApp(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*amplify.InMemoryBackend) string
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "returns_existing_app",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-
-				return app.AppID
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "returns_404_for_missing_app",
-			setup: func(_ *amplify.InMemoryBackend) string {
-				return "nonexistent"
-			},
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			appID := tt.setup(b)
-			rec := doRequest(t, h, http.MethodGet, "/apps/"+appID, nil)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListApps(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*amplify.InMemoryBackend)
-		name       string
-		wantStatus int
-		wantCount  int
-	}{
-		{
-			name:       "returns_empty_list",
-			setup:      func(_ *amplify.InMemoryBackend) {},
-			wantStatus: http.StatusOK,
-			wantCount:  0,
-		},
-		{
-			name: "returns_all_apps",
-			setup: func(b *amplify.InMemoryBackend) {
-				_, _ = b.CreateApp("App1", "", "", "", nil)
-				_, _ = b.CreateApp("App2", "", "", "", nil)
-			},
-			wantStatus: http.StatusOK,
-			wantCount:  2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			tt.setup(b)
-			rec := doRequest(t, h, http.MethodGet, "/apps", nil)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			apps := resp["apps"].([]any)
-			assert.Len(t, apps, tt.wantCount)
-		})
-	}
-}
-
-func TestHandler_DeleteApp(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*amplify.InMemoryBackend) string
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "deletes_existing_app",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-
-				return app.AppID
-			},
-			wantStatus: http.StatusNoContent,
-		},
-		{
-			name: "returns_404_for_missing_app",
-			setup: func(_ *amplify.InMemoryBackend) string {
-				return "nonexistent"
-			},
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			appID := tt.setup(b)
-			rec := doRequest(t, h, http.MethodDelete, "/apps/"+appID, nil)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-// ---- Branch handler tests ----
-
-func TestHandler_CreateBranch(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		setup      func(*amplify.InMemoryBackend) string
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "creates_branch",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-
-				return app.AppID
-			},
-			body:       map[string]any{"branchName": "main", "stage": "PRODUCTION", "enableAutoBuild": true},
-			wantStatus: http.StatusCreated,
-		},
-		{
-			name: "missing_branch_name_returns_400",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-
-				return app.AppID
-			},
-			body:       map[string]any{"stage": "PRODUCTION"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "duplicate_branch_returns_400",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-				_, _ = b.CreateBranch(app.AppID, "main", "", "", false, nil)
-
-				return app.AppID
-			},
-			body:       map[string]any{"branchName": "main"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			// body is a JSON string (not an object) — wrong type/shape, not syntax error
-			name: "wrong_type_body_returns_400",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-
-				return app.AppID
-			},
-			body:       "not-an-object",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			appID := tt.setup(b)
-			rec := doRequest(t, h, http.MethodPost, "/apps/"+appID+"/branches", tt.body)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CreateBranch_MalformedJSON(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-	app, _ := b.CreateApp("TestApp", "", "", "", nil)
-	rec := doRawRequest(t, h, http.MethodPost, "/apps/"+app.AppID+"/branches", []byte(malformedJSON))
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_GetBranch(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*amplify.InMemoryBackend) (string, string)
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "returns_existing_branch",
-			setup: func(b *amplify.InMemoryBackend) (string, string) {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-				_, _ = b.CreateBranch(app.AppID, "main", "", "", false, nil)
-
-				return app.AppID, "main"
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "returns_404_for_missing_branch",
-			setup: func(b *amplify.InMemoryBackend) (string, string) {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-
-				return app.AppID, "nonexistent"
-			},
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			appID, branchName := tt.setup(b)
-			rec := doRequest(t, h, http.MethodGet, "/apps/"+appID+"/branches/"+branchName, nil)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListBranches(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*amplify.InMemoryBackend) string
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "returns_branches",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-				_, _ = b.CreateBranch(app.AppID, "main", "", "", false, nil)
-
-				return app.AppID
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "returns_404_for_missing_app",
-			setup: func(_ *amplify.InMemoryBackend) string {
-				return "nonexistent"
-			},
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			appID := tt.setup(b)
-			rec := doRequest(t, h, http.MethodGet, "/apps/"+appID+"/branches", nil)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_DeleteBranch(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*amplify.InMemoryBackend) (string, string)
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "deletes_existing_branch",
-			setup: func(b *amplify.InMemoryBackend) (string, string) {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-				_, _ = b.CreateBranch(app.AppID, "main", "", "", false, nil)
-
-				return app.AppID, "main"
-			},
-			wantStatus: http.StatusNoContent,
-		},
-		{
-			name: "returns_404_for_missing_branch",
-			setup: func(b *amplify.InMemoryBackend) (string, string) {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-
-				return app.AppID, "nonexistent"
-			},
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			appID, branchName := tt.setup(b)
-			rec := doRequest(t, h, http.MethodDelete, "/apps/"+appID+"/branches/"+branchName, nil)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-// ---- Tagging handler tests ----
-
-func TestHandler_ListAppsPagination(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		queryString   string
-		wantCount     int
-		wantNextToken bool
-	}{
-		{
-			name:        "no_pagination_returns_all",
-			queryString: "",
-			wantCount:   4,
-		},
-		{
-			name:          "first_page",
-			queryString:   "?maxResults=2",
-			wantCount:     2,
-			wantNextToken: true,
-		},
-		{
-			name:        "second_page",
-			queryString: "?maxResults=2&nextToken=2",
-			wantCount:   2,
-		},
-		{
-			name:        "token_beyond_end",
-			queryString: "?maxResults=2&nextToken=100",
-			wantCount:   0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-
-			for _, name := range []string{"App1", "App2", "App3", "App4"} {
-				_, err := b.CreateApp(name, "", "", "", nil)
-				require.NoError(t, err)
-			}
-
-			rec := doRequest(t, h, http.MethodGet, "/apps"+tt.queryString, nil)
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			apps := resp["apps"].([]any)
-			assert.Len(t, apps, tt.wantCount)
-
-			if tt.wantNextToken {
-				assert.NotEmpty(t, resp["nextToken"])
-			} else {
-				assert.Empty(t, resp["nextToken"])
-			}
-		})
-	}
-}
-
-func TestHandler_ListBranchesPagination(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		queryString   string
-		wantCount     int
-		wantNextToken bool
-	}{
-		{
-			name:        "no_pagination_returns_all",
-			queryString: "",
-			wantCount:   4,
-		},
-		{
-			name:          "first_page",
-			queryString:   "?maxResults=2",
-			wantCount:     2,
-			wantNextToken: true,
-		},
-		{
-			name:        "second_page",
-			queryString: "?maxResults=2&nextToken=2",
-			wantCount:   2,
-		},
-		{
-			name:        "token_beyond_end",
-			queryString: "?maxResults=2&nextToken=100",
-			wantCount:   0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			app, err := b.CreateApp("PaginationApp", "", "", "", nil)
-			require.NoError(t, err)
-
-			for _, name := range []string{"br1", "br2", "br3", "br4"} {
-				_, err = b.CreateBranch(app.AppID, name, "", "", false, nil)
-				require.NoError(t, err)
-			}
-
-			rec := doRequest(t, h, http.MethodGet, "/apps/"+app.AppID+"/branches"+tt.queryString, nil)
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			branches := resp["branches"].([]any)
-			assert.Len(t, branches, tt.wantCount)
-
-			if tt.wantNextToken {
-				assert.NotEmpty(t, resp["nextToken"])
-			} else {
-				assert.Empty(t, resp["nextToken"])
-			}
-		})
-	}
-}
-
-// ---- Tagging handler tests ----
-
-func TestHandler_TagResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		setup      func(*amplify.InMemoryBackend) string
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "tags_existing_app",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-
-				return app.ARN
-			},
-			body:       map[string]any{"tags": map[string]string{"env": "test"}},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "returns_404_for_missing_resource",
-			setup: func(_ *amplify.InMemoryBackend) string {
-				return "arn:aws:amplify:us-east-1:000000000000:apps/nonexistent"
-			},
-			body:       map[string]any{"tags": map[string]string{"env": "test"}},
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			// body is a JSON string (not an object) — wrong type/shape, not syntax error
-			name: "wrong_type_body_returns_400",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", nil)
-
-				return app.ARN
-			},
-			body:       "not-an-object",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			resourceARN := tt.setup(b)
-			encodedARN := encodeARN(resourceARN)
-			rec := doRequest(t, h, http.MethodPost, "/tags/"+encodedARN, tt.body)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_TagResource_MalformedJSON(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-	app, _ := b.CreateApp("TestApp", "", "", "", nil)
-	encodedARN := encodeARN(app.ARN)
-	rec := doRawRequest(t, h, http.MethodPost, "/tags/"+encodedARN, []byte(malformedJSON))
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_ListTagsForResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*amplify.InMemoryBackend) string
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "returns_tags_for_app",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", map[string]string{"env": "test"})
-
-				return app.ARN
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "returns_404_for_missing_resource",
-			setup: func(_ *amplify.InMemoryBackend) string {
-				return "arn:aws:amplify:us-east-1:000000000000:apps/nonexistent"
-			},
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			resourceARN := tt.setup(b)
-			encodedARN := encodeARN(resourceARN)
-			rec := doRequest(t, h, http.MethodGet, "/tags/"+encodedARN, nil)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_UntagResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setup      func(*amplify.InMemoryBackend) string
-		tagKeys    string
-		wantStatus int
-	}{
-		{
-			name: "removes_tags",
-			setup: func(b *amplify.InMemoryBackend) string {
-				app, _ := b.CreateApp("TestApp", "", "", "", map[string]string{"env": "test"})
-
-				return app.ARN
-			},
-			tagKeys:    "env",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "returns_404_for_missing_resource",
-			setup: func(_ *amplify.InMemoryBackend) string {
-				return "arn:aws:amplify:us-east-1:000000000000:apps/nonexistent"
-			},
-			tagKeys:    "env",
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, b := newTestHandler()
-			resourceARN := tt.setup(b)
-			encodedARN := encodeARN(resourceARN)
-			path := "/tags/" + encodedARN + "?tagKeys=" + tt.tagKeys
-			rec := doRequest(t, h, http.MethodDelete, path, nil)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }
@@ -917,24 +364,6 @@ func TestHandler_InvalidBranchSubPath(t *testing.T) {
 	h, _ := newTestHandler()
 	rec := doRequest(t, h, http.MethodGet, "/apps/abc123/invalid/main", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// encodeARN URL-encodes the colons and slashes in an ARN for use as a path segment.
-func encodeARN(arn string) string {
-	var buf bytes.Buffer
-
-	for _, c := range arn {
-		switch c {
-		case ':':
-			buf.WriteString("%3A")
-		case '/':
-			buf.WriteString("%2F")
-		default:
-			buf.WriteByte(byte(c))
-		}
-	}
-
-	return buf.String()
 }
 
 // TestHandler_ErrorResponseShape verifies that error responses carry both the
@@ -998,58 +427,4 @@ func TestHandler_ErrorResponseShape(t *testing.T) {
 			assert.NotEmpty(t, payload["message"])
 		})
 	}
-}
-
-// TestHandler_StartJob_ResponseShape verifies StartJob's response wraps the
-// job summary under "jobSummary" and includes "jobArn" -- a required field
-// on types.JobSummary in the real SDK (see JobSummary in
-// aws-sdk-go-v2/service/amplify/types) that a caller may dereference
-// unconditionally.
-func TestHandler_StartJob_ResponseShape(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-
-	app, err := b.CreateApp("TestApp", "", "", "", nil)
-	require.NoError(t, err)
-
-	_, err = b.CreateBranch(app.AppID, "main", "", "", false, nil)
-	require.NoError(t, err)
-
-	body := map[string]any{"jobType": "RELEASE"}
-	rec := doRequest(t, h, http.MethodPost, "/apps/"+app.AppID+"/branches/main/jobs", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var payload struct {
-		JobSummary struct {
-			JobID  string `json:"jobId"`
-			JobARN string `json:"jobArn"`
-			Status string `json:"status"`
-		} `json:"jobSummary"`
-	}
-
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
-	assert.NotEmpty(t, payload.JobSummary.JobID)
-	assert.NotEmpty(t, payload.JobSummary.JobARN)
-	assert.Contains(t, payload.JobSummary.JobARN, "arn:aws:amplify:")
-	assert.Equal(t, "RUNNING", payload.JobSummary.Status)
-}
-
-// TestHandler_CreateDomainAssociation_AppNotFound verifies that a duplicate
-// domain association create yields a BadRequestException-shaped error.
-func TestHandler_CreateDomainAssociation_DuplicateIsBadRequest(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandler()
-
-	app, err := b.CreateApp("TestApp", "", "", "", nil)
-	require.NoError(t, err)
-
-	body := map[string]any{"domainName": "example.com"}
-	rec := doRequest(t, h, http.MethodPost, "/apps/"+app.AppID+"/domains", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	rec = doRequest(t, h, http.MethodPost, "/apps/"+app.AppID+"/domains", body)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-Errortype"))
 }
