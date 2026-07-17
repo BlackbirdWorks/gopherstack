@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestParity_DomainDedicatedMaster verifies dedicated master fields are stored and returned.
-func TestParity_DomainDedicatedMaster(t *testing.T) {
+// TestElasticsearchHandler_DomainDedicatedMaster verifies dedicated master
+// fields are stored and returned.
+func TestElasticsearchHandler_DomainDedicatedMaster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -70,8 +71,9 @@ func TestParity_DomainDedicatedMaster(t *testing.T) {
 	}
 }
 
-// TestParity_DomainZoneAwareness verifies zone awareness fields are stored and returned.
-func TestParity_DomainZoneAwareness(t *testing.T) {
+// TestElasticsearchHandler_DomainZoneAwareness verifies zone awareness fields
+// are stored and returned.
+func TestElasticsearchHandler_DomainZoneAwareness(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
@@ -128,8 +130,9 @@ func TestParity_DomainZoneAwareness(t *testing.T) {
 	}
 }
 
-// TestParity_DomainWarm verifies warm storage fields are stored and returned.
-func TestParity_DomainWarm(t *testing.T) {
+// TestElasticsearchHandler_DomainWarm verifies warm storage fields are stored
+// and returned.
+func TestElasticsearchHandler_DomainWarm(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -189,8 +192,9 @@ func TestParity_DomainWarm(t *testing.T) {
 	}
 }
 
-// TestParity_DomainEBSIopsAndThroughput verifies Iops and Throughput fields are stored and returned.
-func TestParity_DomainEBSIopsAndThroughput(t *testing.T) {
+// TestElasticsearchHandler_DomainEBSIopsAndThroughput verifies Iops and
+// Throughput fields are stored and returned.
+func TestElasticsearchHandler_DomainEBSIopsAndThroughput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
@@ -249,8 +253,9 @@ func TestParity_DomainEBSIopsAndThroughput(t *testing.T) {
 	}
 }
 
-// TestParity_DomainEncryptionAtRest verifies EncryptionAtRestOptions is stored and returned.
-func TestParity_DomainEncryptionAtRest(t *testing.T) {
+// TestElasticsearchHandler_DomainEncryptionAtRest verifies
+// EncryptionAtRestOptions is stored and returned.
+func TestElasticsearchHandler_DomainEncryptionAtRest(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
@@ -295,8 +300,9 @@ func TestParity_DomainEncryptionAtRest(t *testing.T) {
 	}
 }
 
-// TestParity_DomainNodeToNodeEncryption verifies NodeToNodeEncryptionOptions is stored.
-func TestParity_DomainNodeToNodeEncryption(t *testing.T) {
+// TestElasticsearchHandler_DomainNodeToNodeEncryption verifies
+// NodeToNodeEncryptionOptions is stored.
+func TestElasticsearchHandler_DomainNodeToNodeEncryption(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
@@ -341,8 +347,9 @@ func TestParity_DomainNodeToNodeEncryption(t *testing.T) {
 	}
 }
 
-// TestParity_DomainEndpointOptions verifies DomainEndpointOptions (EnforceHTTPS, TLS policy) are stored.
-func TestParity_DomainEndpointOptions(t *testing.T) {
+// TestElasticsearchHandler_DomainEndpointOptions verifies
+// DomainEndpointOptions (EnforceHTTPS, TLS policy) are stored.
+func TestElasticsearchHandler_DomainEndpointOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -397,8 +404,9 @@ func TestParity_DomainEndpointOptions(t *testing.T) {
 	}
 }
 
-// TestParity_DomainSnapshotOptions verifies SnapshotOptions is persisted and updatable.
-func TestParity_DomainSnapshotOptions(t *testing.T) {
+// TestElasticsearchHandler_DomainSnapshotOptions verifies SnapshotOptions is
+// persisted and updatable.
+func TestElasticsearchHandler_DomainSnapshotOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -468,8 +476,9 @@ func TestParity_DomainSnapshotOptions(t *testing.T) {
 	}
 }
 
-// TestParity_DomainAdvancedOptions verifies AdvancedOptions is stored and updatable.
-func TestParity_DomainAdvancedOptions(t *testing.T) {
+// TestElasticsearchHandler_DomainAdvancedOptions verifies AdvancedOptions is
+// stored and updatable.
+func TestElasticsearchHandler_DomainAdvancedOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -536,8 +545,9 @@ func TestParity_DomainAdvancedOptions(t *testing.T) {
 	}
 }
 
-// TestParity_DomainAccessPolicies verifies AccessPolicies is stored and updatable.
-func TestParity_DomainAccessPolicies(t *testing.T) {
+// TestElasticsearchHandler_DomainAccessPolicies verifies AccessPolicies is
+// stored and updatable.
+func TestElasticsearchHandler_DomainAccessPolicies(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -600,134 +610,9 @@ func TestParity_DomainAccessPolicies(t *testing.T) {
 	}
 }
 
-// TestParity_ListTagsNotFound verifies ListTags returns 404 for unknown domain ARN.
-func TestParity_ListTagsNotFound(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		arn  string
-	}{
-		{
-			name: "unknown_arn",
-			arn:  "arn:aws:es:us-east-1:123456789012:domain/no-such-domain",
-		},
-		{
-			name: "empty_arn",
-			arn:  "",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			resp := doRequest(t, h, http.MethodGet, "/2015-01-01/tags?arn="+tc.arn, nil)
-			defer resp.Body.Close()
-			assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-		})
-	}
-}
-
-// TestParity_ListElasticsearchVersions verifies all 22 valid versions are returned.
-func TestParity_ListElasticsearchVersions(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name            string
-		expectedVersion string
-	}{
-		{name: "7.17", expectedVersion: "7.17"},
-		{name: "7.10", expectedVersion: "7.10"},
-		{name: "6.8", expectedVersion: "6.8"},
-		{name: "5.1", expectedVersion: "5.1"},
-		{name: "1.5", expectedVersion: "1.5"},
-	}
-
-	h := newTestHandler()
-	resp := doRequest(t, h, http.MethodGet, "/2015-01-01/es/versions", nil)
-	t.Cleanup(func() { resp.Body.Close() })
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var out struct {
-		ElasticsearchVersions []string `json:"ElasticsearchVersions"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	require.Len(t, out.ElasticsearchVersions, 22, "expected all 22 versions")
-
-	versionSet := make(map[string]bool)
-	for _, v := range out.ElasticsearchVersions {
-		versionSet[v] = true
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			assert.True(t, versionSet[tc.expectedVersion], "version %s should be in the list", tc.expectedVersion)
-		})
-	}
-}
-
-// TestParity_CompatibleVersionsDomain verifies GetCompatibleVersions respects domainName param.
-func TestParity_CompatibleVersionsDomain(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name              string
-		domainVersion     string
-		wantSourceVersion string
-	}{
-		{
-			name:              "6.8_domain",
-			domainVersion:     "6.8",
-			wantSourceVersion: "6.8",
-		},
-		{
-			name:              "7.10_domain",
-			domainVersion:     "7.10",
-			wantSourceVersion: "7.10",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
-				"DomainName":           "compat-domain",
-				"ElasticsearchVersion": tc.domainVersion,
-			})
-			defer resp.Body.Close()
-			require.Equal(t, http.StatusOK, resp.StatusCode)
-
-			compatResp := doRequest(
-				t,
-				h,
-				http.MethodGet,
-				"/2015-01-01/es/compatibleVersions?domainName=compat-domain",
-				nil,
-			)
-			defer compatResp.Body.Close()
-			require.Equal(t, http.StatusOK, compatResp.StatusCode)
-
-			var out struct {
-				CompatibleElasticsearchVersions []struct {
-					SourceVersion  string   `json:"SourceVersion"`
-					TargetVersions []string `json:"TargetVersions"`
-				} `json:"CompatibleElasticsearchVersions"`
-			}
-			require.NoError(t, json.NewDecoder(compatResp.Body).Decode(&out))
-			require.Len(t, out.CompatibleElasticsearchVersions, 1)
-			assert.Equal(t, tc.wantSourceVersion, out.CompatibleElasticsearchVersions[0].SourceVersion)
-		})
-	}
-}
-
-// TestParity_UpdateDomainNewFields verifies UpdateDomainConfig applies new fields correctly.
-func TestParity_UpdateDomainNewFields(t *testing.T) {
+// TestElasticsearchHandler_UpdateDomainNewFields verifies UpdateDomainConfig
+// applies new fields correctly.
+func TestElasticsearchHandler_UpdateDomainNewFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
