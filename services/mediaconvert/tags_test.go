@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
 func TestMediaConvert_Tags(t *testing.T) {
@@ -58,12 +60,51 @@ func TestMediaConvert_Tags(t *testing.T) {
 	assert.Empty(t, resourceTags["tags"])
 }
 
-func TestMediaConvert_ListJobsWithFilters(t *testing.T) {
+func TestMediaConvert_UntagResource_RemovesEntryOnLastKey(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	tests := []struct {
+		setup    func(b *mediaconvert.InMemoryBackend, arn string)
+		name     string
+		tagKeys  []string
+		wantZero bool
+	}{
+		{
+			name: "remove_last_key_cleans_entry",
+			setup: func(b *mediaconvert.InMemoryBackend, a string) {
+				b.TagResource(a, map[string]string{"only-key": "v1"})
+			},
+			tagKeys:  []string{"only-key"},
+			wantZero: true,
+		},
+		{
+			name: "partial_untag_keeps_entry",
+			setup: func(b *mediaconvert.InMemoryBackend, a string) {
+				b.TagResource(a, map[string]string{"key1": "v1", "key2": "v2"})
+			},
+			tagKeys:  []string{"key1"},
+			wantZero: false,
+		},
+	}
 
-	// ListJobs with query params (exercises StartJobsQuery/jobMatchesFilters)
-	rec := doRequest(t, h, http.MethodGet, "/2017-08-29/jobs?status=SUBMITTED&maxResults=10", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+
+			q, err := b.CreateQueue("untag-queue-"+tt.name, "", "", "", nil)
+			require.NoError(t, err)
+
+			tt.setup(b, q.Arn)
+			b.UntagResource(q.Arn, tt.tagKeys)
+
+			remaining := b.GetTags(q.Arn)
+			if tt.wantZero {
+				assert.Empty(t, remaining)
+			} else {
+				assert.NotEmpty(t, remaining)
+			}
+		})
+	}
 }

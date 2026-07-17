@@ -14,9 +14,23 @@ import (
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
-	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
-	err := b.Restore(t.Context(), []byte("not-valid-json"))
-	require.Error(t, err)
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "not_valid_json", data: "not-valid-json"},
+		{name: "not_json", data: "not-json"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+			err := b.Restore(t.Context(), []byte(tt.data))
+			require.Error(t, err)
+		})
+	}
 }
 
 // TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose
@@ -191,4 +205,120 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	assert.Equal(t, 1, mediaconvert.QueueCount(h2.Backend.(*mediaconvert.InMemoryBackend)))
+}
+
+// TestPersistenceRoundTrip verifies Snapshot/Restore round-trip across every
+// resource family via the top-level backend constructors.
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b1 := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+	_, err := b1.CreateQueue("q1", "desc", "", "", map[string]string{"env": "test"})
+	require.NoError(t, err)
+	_, err = b1.CreatePreset("p1", "preset1", "", nil, nil)
+	require.NoError(t, err)
+	_, err = b1.CreateJob("arn:aws:iam::123:role/r", "", "", nil, nil, nil, "")
+	require.NoError(t, err)
+	_, err = b1.CreateJobTemplate("jt1", "tmpl", "", "", 0, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, b1.AssociateCertificate("arn:aws:acm:us-east-1:123:cert/abc"))
+	b1.PutPolicy("ALLOWED", "ALLOWED", "DISALLOWED")
+
+	snap := b1.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := mediaconvert.NewInMemoryBackend("", "")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, testAccountID, b2.AccountID())
+	assert.Equal(t, testRegion, b2.Region())
+	assert.Equal(t, 1, mediaconvert.QueueCount(b2))
+	assert.Equal(t, 1, mediaconvert.PresetCount(b2))
+	assert.Equal(t, 1, mediaconvert.JobCount(b2))
+	assert.Equal(t, 1, mediaconvert.JobTemplateCount(b2))
+	assert.Equal(t, 1, mediaconvert.CertificateCount(b2))
+
+	p, err := b2.GetPolicy()
+	require.NoError(t, err)
+	assert.Equal(t, "ALLOWED", p.HTTPInputs)
+	assert.Equal(t, "DISALLOWED", p.S3Inputs)
+}
+
+// TestRestoreEmptySnapshot verifies an empty snapshot is handled gracefully.
+func TestRestoreEmptySnapshot(t *testing.T) {
+	t.Parallel()
+
+	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+	err := b.Restore(t.Context(), []byte(`{}`))
+	require.NoError(t, err)
+	assert.Equal(t, 0, mediaconvert.QueueCount(b))
+}
+
+// TestSnapshotThenDeleteThenRestore_DataPreserved verifies that mutating the
+// backend after taking a snapshot does not corrupt the previously-taken
+// snapshot: restoring it elsewhere still reflects the pre-mutation state.
+func TestSnapshotThenDeleteThenRestore_DataPreserved(t *testing.T) {
+	t.Parallel()
+
+	b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+	_, err := b.CreateQueue("snap-q", "", "", "", map[string]string{"k": "v"})
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	err = b.DeleteQueue("snap-q")
+	require.NoError(t, err)
+
+	b2 := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+	err = b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	q, err := b2.GetQueue("snap-q")
+	require.NoError(t, err)
+	assert.Equal(t, "snap-q", q.Name)
+}
+
+// TestPersistence_NewFieldsRoundTrip verifies newer Job/Queue fields survive
+// a snapshot/restore round trip.
+func TestPersistence_NewFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b1 := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+
+	// Create queue with new fields.
+	rp := &mediaconvert.ReservationPlan{ReservedSlots: 2, Status: "ACTIVE"}
+	q, err := b1.CreateQueueFull("snap-q2", "", "", "", nil, 4, rp, map[string]any{"x": true})
+	require.NoError(t, err)
+
+	// Create job with new fields.
+	j, err := b1.CreateJobFull("arn:aws:iam::123:role/r", "snap-q2", "", nil, nil, nil,
+		"", "snap-token", "ENABLED", "2017-08-29", 5,
+		[]mediaconvert.HopDestination{{Queue: "fallback", WaitMinutes: 3}})
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify queue.
+	got, err := b2.GetQueue(q.Name)
+	require.NoError(t, err)
+	assert.Equal(t, 4, got.ConcurrentJobs)
+	require.NotNil(t, got.ReservationPlan)
+	assert.Equal(t, 2, got.ReservationPlan.ReservedSlots)
+
+	// Verify job.
+	gotJ, err := b2.GetJob(j.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "2017-08-29", gotJ.JobEngineVersionUsed)
+	assert.Equal(t, "snap-token", gotJ.ClientRequestToken)
+	assert.Equal(t, "PREFERRED", gotJ.AccelerationStatus)
+	assert.Equal(t, 5, gotJ.Priority)
+	require.Len(t, gotJ.HopDestinations, 1)
+	assert.Equal(t, "fallback", gotJ.HopDestinations[0].Queue)
+	assert.NotNil(t, gotJ.Messages)
+	assert.Equal(t, "NOT_SHARED", gotJ.ShareStatus)
 }
