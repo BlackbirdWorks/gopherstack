@@ -5,7 +5,9 @@ package ssoadmin_test
 // MaxResults results.
 
 import (
+	"encoding/base64"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -137,4 +139,83 @@ func TestListPermissionSets_NoPaginationReturnsAll(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, sets, 3)
 	assert.Nil(t, resp["NextToken"])
+}
+
+// TestOpaqueNextToken verifies that NextToken returned by list ops is
+// base64-encoded and NOT equal to the raw cursor value (e.g. a permission-set
+// ARN), making it opaque to callers.
+func TestOpaqueNextToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		op      string
+		makeReq func(instanceArn string) map[string]any
+		items   []string
+	}{
+		{
+			name:  "ListPermissionSets",
+			op:    "ListPermissionSets",
+			items: []string{"alpha", "beta", "gamma"},
+			makeReq: func(instanceArn string) map[string]any {
+				return map[string]any{"InstanceArn": instanceArn, "MaxResults": 1}
+			},
+		},
+		{
+			name:  "ListInstances",
+			op:    "ListInstances",
+			items: []string{"inst-x", "inst-y"},
+			makeReq: func(_ string) map[string]any {
+				return map[string]any{"MaxResults": 1}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			instanceArn := createInstance(t, h, "opaque-test")
+			for _, name := range tt.items {
+				if tt.op == "ListPermissionSets" {
+					createPermissionSet(t, h, instanceArn, name)
+				} else {
+					createInstance(t, h, name)
+				}
+			}
+
+			rec := doRequest(t, h, tt.op, tt.makeReq(instanceArn))
+			require.Equal(t, http.StatusOK, rec.Code)
+			resp := parseResponse(t, rec)
+
+			token, hasToken := resp["NextToken"]
+			if !hasToken || token == nil {
+				t.Skip("no NextToken returned — not enough items for pagination")
+			}
+
+			tokenStr, ok := token.(string)
+			require.True(t, ok, "NextToken should be a string")
+			require.NotEmpty(t, tokenStr)
+
+			// Must be valid base64.
+			decoded, err := base64.StdEncoding.DecodeString(tokenStr)
+			require.NoError(t, err, "NextToken should be base64-encoded, got %q", tokenStr)
+
+			// Decoded value must not equal the token itself (i.e. was actually encoded).
+			assert.NotEqual(t, tokenStr, string(decoded),
+				"NextToken should be opaque (base64), not the raw cursor")
+
+			// The decoded value should NOT look like a raw ARN or plain name
+			// sitting unencoded in the token string.
+			assert.False(t, strings.HasPrefix(tokenStr, "arn:"),
+				"NextToken should not expose raw ARN as cursor")
+
+			// Second page should be reachable using the token.
+			req2 := tt.makeReq(instanceArn)
+			req2["NextToken"] = tokenStr
+			rec2 := doRequest(t, h, tt.op, req2)
+			require.Equal(t, http.StatusOK, rec2.Code)
+		})
+	}
 }

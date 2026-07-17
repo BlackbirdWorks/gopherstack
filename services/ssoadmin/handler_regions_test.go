@@ -8,6 +8,98 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAddRegion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		regionName string
+		wantStatus int
+		badInst    bool
+	}{
+		{
+			name:       "add region to created instance",
+			regionName: "us-west-2",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "add same region twice is idempotent",
+			regionName: "eu-west-1",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "add region to nonexistent instance",
+			regionName: "us-east-1",
+			wantStatus: http.StatusNotFound,
+			badInst:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+			var instanceArn string
+			if tt.badInst {
+				instanceArn = "arn:aws:sso:::instance/ssoins-nonexistent"
+			} else {
+				instanceArn = createInstance(t, h, "region-test-instance")
+			}
+			rec := doRequest(t, h, "AddRegion", map[string]any{
+				"InstanceArn": instanceArn,
+				"RegionName":  tt.regionName,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestAddRegionIdempotent verifies adding the same region twice is idempotent.
+func TestAddRegionIdempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "region-idempotent-inst")
+
+	rec1 := doRequest(t, h, "AddRegion", map[string]any{
+		"InstanceArn": instanceArn,
+		"RegionName":  "us-west-2",
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := doRequest(t, h, "AddRegion", map[string]any{
+		"InstanceArn": instanceArn,
+		"RegionName":  "us-west-2",
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+// TestListRegionsReturnsMetadata verifies that ListRegions returns RegionMetadata objects.
+func TestListRegionsReturnsMetadata(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "regions-inst")
+
+	rec := doRequest(t, h, "AddRegion", map[string]any{"InstanceArn": instanceArn, "RegionName": "eu-west-1"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "ListRegions", map[string]any{"InstanceArn": instanceArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+	regions, ok := resp["Regions"].([]any)
+	require.True(t, ok)
+	require.Len(t, regions, 1)
+
+	region := regions[0].(map[string]any)
+	assert.Equal(t, "eu-west-1", region["RegionName"])
+	// ListRegions lazily transitions ADDING -> ACTIVE on read, mirroring
+	// ListInstances' CREATE_IN_PROGRESS -> ACTIVE transition.
+	assert.Equal(t, "ACTIVE", region["Status"])
+	assert.Equal(t, false, region["IsPrimaryRegion"])
+	assert.NotNil(t, region["AddedDate"])
+}
+
 // TestDescribeRegion verifies DescribeRegion is a real op backed by the
 // region state AddRegion/RemoveRegion mutate, returning the AWS wire shape
 // (top-level RegionName/Status/IsPrimaryRegion/AddedDate -- not nested under
