@@ -3,8 +3,6 @@ package mediastore_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/mediastore"
 )
 
@@ -62,491 +59,29 @@ func doRequest(t *testing.T, h *mediastore.Handler, op string, body any) *httpte
 	return rec
 }
 
-func TestHandler_CreateContainer(t *testing.T) {
-	t.Parallel()
+// unmarshalBody decodes rec's JSON body into a generic map, for tests that
+// only need to peek at a handful of response fields.
+func unmarshalBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
 
-	tests := []struct {
-		body       map[string]any
-		name       string
-		wantField  string
-		wantStatus int
-	}{
-		{
-			name:       "creates container",
-			body:       map[string]any{"ContainerName": "my-container"},
-			wantStatus: http.StatusOK,
-			wantField:  "Container",
-		},
-		{
-			name:       "missing container name",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "duplicate returns conflict",
-			body:       map[string]any{"ContainerName": "dup-container"},
-			wantStatus: http.StatusConflict,
-		},
-	}
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.wantStatus == http.StatusConflict {
-				rec := doRequest(t, h, "CreateContainer", tt.body)
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doRequest(t, h, "CreateContainer", tt.body)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantField != "" {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp, tt.wantField)
-			}
-		})
-	}
+	return m
 }
 
-func TestHandler_DeleteContainer(t *testing.T) {
-	t.Parallel()
+// createTestContainer issues a CreateContainer request and returns the
+// resulting container's ARN, failing the test on any non-200 response.
+func createTestContainer(t *testing.T, h *mediastore.Handler, name string) string {
+	t.Helper()
 
-	tests := []struct {
-		name       string
-		container  string
-		wantStatus int
-	}{
-		{
-			name:       "deletes existing container",
-			container:  "to-delete",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing container returns not found",
-			container:  "missing",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "missing container name returns bad request",
-			container:  "",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
+	rec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": name})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	m := unmarshalBody(t, rec)
+	ct := m["Container"].(map[string]any)
 
-			h := newTestHandler(t)
-
-			if tt.wantStatus == http.StatusOK {
-				rec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": tt.container})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doRequest(t, h, "DeleteContainer", map[string]any{"ContainerName": tt.container})
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_DescribeContainer(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		container  string
-		wantStatus int
-	}{
-		{
-			name:       "describes existing container",
-			container:  "describe-me",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "not found",
-			container:  "missing",
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.wantStatus == http.StatusOK {
-				rec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": tt.container})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doRequest(t, h, "DescribeContainer", map[string]any{"ContainerName": tt.container})
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp, "Container")
-			}
-		})
-	}
-}
-
-func TestHandler_ListContainers(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		createN   int
-		wantCount int
-	}{
-		{
-			name:      "empty list",
-			createN:   0,
-			wantCount: 0,
-		},
-		{
-			name:      "lists created containers",
-			createN:   2,
-			wantCount: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			for i := range tt.createN {
-				rec := doRequest(t, h, "CreateContainer",
-					map[string]any{"ContainerName": fmt.Sprintf("container-%d", i)})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doRequest(t, h, "ListContainers", map[string]any{})
-
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			containers, _ := resp["Containers"].([]any)
-			assert.Len(t, containers, tt.wantCount)
-		})
-	}
-}
-
-func TestHandler_ContainerPolicy(t *testing.T) {
-	t.Parallel()
-
-	const policy = `{"Version":"2012-10-17","Statement":[]}`
-
-	tests := []struct {
-		name       string
-		op         string
-		wantStatus int
-		withPolicy bool
-		deleted    bool
-	}{
-		{
-			name:       "put container policy",
-			op:         "PutContainerPolicy",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "get container policy",
-			op:         "GetContainerPolicy",
-			withPolicy: true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "delete container policy",
-			op:         "DeleteContainerPolicy",
-			withPolicy: true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "get policy after delete returns not found",
-			op:         "GetContainerPolicy",
-			withPolicy: true,
-			deleted:    true,
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			setupRec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": "policy-test"})
-			require.Equal(t, http.StatusOK, setupRec.Code)
-
-			if tt.withPolicy {
-				putRec := doRequest(t, h, "PutContainerPolicy",
-					map[string]any{"ContainerName": "policy-test", "Policy": policy})
-				require.Equal(t, http.StatusOK, putRec.Code)
-			}
-
-			if tt.deleted {
-				delRec := doRequest(t, h, "DeleteContainerPolicy",
-					map[string]any{"ContainerName": "policy-test"})
-				require.Equal(t, http.StatusOK, delRec.Code)
-			}
-
-			body := map[string]any{"ContainerName": "policy-test"}
-			if tt.op == "PutContainerPolicy" {
-				body["Policy"] = policy
-			}
-
-			result := doRequest(t, h, tt.op, body)
-			assert.Equal(t, tt.wantStatus, result.Code)
-		})
-	}
-}
-
-func TestHandler_CorsPolicy(t *testing.T) {
-	t.Parallel()
-
-	corsBody := map[string]any{
-		"ContainerName": "cors-test",
-		"CorsPolicy": []any{
-			map[string]any{
-				"AllowedOrigins": []any{"https://example.com"},
-				"AllowedHeaders": []any{"*"},
-			},
-		},
-	}
-
-	tests := []struct {
-		name       string
-		op         string
-		wantStatus int
-		withPolicy bool
-		deleted    bool
-	}{
-		{
-			name:       "put cors policy",
-			op:         "PutCorsPolicy",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "get cors policy",
-			op:         "GetCorsPolicy",
-			withPolicy: true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "delete cors policy",
-			op:         "DeleteCorsPolicy",
-			withPolicy: true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "get cors policy after delete returns not found",
-			op:         "GetCorsPolicy",
-			withPolicy: true,
-			deleted:    true,
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			setupRec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": "cors-test"})
-			require.Equal(t, http.StatusOK, setupRec.Code)
-
-			if tt.withPolicy {
-				putRec := doRequest(t, h, "PutCorsPolicy", corsBody)
-				require.Equal(t, http.StatusOK, putRec.Code)
-			}
-
-			if tt.deleted {
-				delRec := doRequest(t, h, "DeleteCorsPolicy", map[string]any{"ContainerName": "cors-test"})
-				require.Equal(t, http.StatusOK, delRec.Code)
-			}
-
-			var body map[string]any
-			if tt.op == "PutCorsPolicy" {
-				body = corsBody
-			} else {
-				body = map[string]any{"ContainerName": "cors-test"}
-			}
-
-			result := doRequest(t, h, tt.op, body)
-			assert.Equal(t, tt.wantStatus, result.Code)
-		})
-	}
-}
-
-func TestHandler_LifecyclePolicy(t *testing.T) {
-	t.Parallel()
-
-	const lcPolicy = `{"rules":[]}`
-
-	tests := []struct {
-		name       string
-		op         string
-		wantStatus int
-		withPolicy bool
-	}{
-		{
-			name:       "put lifecycle policy",
-			op:         "PutLifecyclePolicy",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "get lifecycle policy",
-			op:         "GetLifecyclePolicy",
-			withPolicy: true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "delete lifecycle policy",
-			op:         "DeleteLifecyclePolicy",
-			withPolicy: true,
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			setupRec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": "lifecycle-test"})
-			require.Equal(t, http.StatusOK, setupRec.Code)
-
-			if tt.withPolicy {
-				putRec := doRequest(t, h, "PutLifecyclePolicy",
-					map[string]any{"ContainerName": "lifecycle-test", "LifecyclePolicy": lcPolicy})
-				require.Equal(t, http.StatusOK, putRec.Code)
-			}
-
-			body := map[string]any{"ContainerName": "lifecycle-test"}
-			if tt.op == "PutLifecyclePolicy" {
-				body["LifecyclePolicy"] = lcPolicy
-			}
-
-			result := doRequest(t, h, tt.op, body)
-			assert.Equal(t, tt.wantStatus, result.Code)
-		})
-	}
-}
-
-func TestHandler_AccessLogging(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		op         string
-		wantStatus int
-	}{
-		{
-			name:       "start access logging",
-			op:         "StartAccessLogging",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "stop access logging",
-			op:         "StopAccessLogging",
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			setupRec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": "logging-test"})
-			require.Equal(t, http.StatusOK, setupRec.Code)
-
-			result := doRequest(t, h, tt.op, map[string]any{"ContainerName": "logging-test"})
-			assert.Equal(t, tt.wantStatus, result.Code)
-		})
-	}
-}
-
-func TestHandler_Tags(t *testing.T) {
-	t.Parallel()
-
-	type tagOp struct {
-		name       string
-		op         string
-		wantStatus int
-		withTag    bool
-	}
-
-	tests := []tagOp{
-		{
-			name:       "tag resource",
-			op:         "TagResource",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "list tags for resource",
-			op:         "ListTagsForResource",
-			withTag:    true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "untag resource",
-			op:         "UntagResource",
-			withTag:    true,
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			setupRec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": "tags-test"})
-			require.Equal(t, http.StatusOK, setupRec.Code)
-
-			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(setupRec.Body.Bytes(), &createResp))
-			containerMap, _ := createResp["Container"].(map[string]any)
-			containerARN, _ := containerMap["ARN"].(string)
-
-			if tt.withTag {
-				tagRec := doRequest(t, h, "TagResource", map[string]any{
-					"Resource": containerARN,
-					"Tags":     []any{map[string]any{"Key": "env", "Value": "test"}},
-				})
-				require.Equal(t, http.StatusOK, tagRec.Code)
-			}
-
-			var body map[string]any
-			switch tt.op {
-			case "TagResource":
-				body = map[string]any{
-					"Resource": containerARN,
-					"Tags":     []any{map[string]any{"Key": "env", "Value": "test"}},
-				}
-			case "UntagResource":
-				body = map[string]any{"Resource": containerARN, "TagKeys": []any{"env"}}
-			default:
-				body = map[string]any{"Resource": containerARN}
-			}
-
-			result := doRequest(t, h, tt.op, body)
-			assert.Equal(t, tt.wantStatus, result.Code)
-		})
-	}
+	return ct["ARN"].(string)
 }
 
 func TestHandler_MissingTarget(t *testing.T) {
@@ -578,63 +113,6 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	err := h.Handler()(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_MetricPolicy(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		op         string
-		wantStatus int
-		withPolicy bool
-	}{
-		{
-			name:       "put metric policy",
-			op:         "PutMetricPolicy",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "get metric policy",
-			op:         "GetMetricPolicy",
-			withPolicy: true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "delete metric policy",
-			op:         "DeleteMetricPolicy",
-			withPolicy: true,
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			setupRec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": "metric-test"})
-			require.Equal(t, http.StatusOK, setupRec.Code)
-
-			metricPolicy := map[string]any{
-				"ContainerLevelMetrics": "ENABLED",
-			}
-
-			if tt.withPolicy {
-				putRec := doRequest(t, h, "PutMetricPolicy",
-					map[string]any{"ContainerName": "metric-test", "MetricPolicy": metricPolicy})
-				require.Equal(t, http.StatusOK, putRec.Code)
-			}
-
-			body := map[string]any{"ContainerName": "metric-test"}
-			if tt.op == "PutMetricPolicy" {
-				body["MetricPolicy"] = metricPolicy
-			}
-
-			result := doRequest(t, h, tt.op, body)
-			assert.Equal(t, tt.wantStatus, result.Code)
-		})
-	}
 }
 
 func TestHandler_Name(t *testing.T) {
@@ -1010,27 +488,120 @@ func TestHandler_ValidationErrors(t *testing.T) {
 	}
 }
 
-func TestProvider(t *testing.T) {
+// TestHandler_ContainerNotFound verifies all ops return ContainerNotFoundException (404)
+// when the referenced container does not exist. Moved (and de-prefixed) from the former
+// parity_audit1_test.go's TestParity_ContainerNotFound.
+func TestHandler_ContainerNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body map[string]any
 		name string
-		want string
+		op   string
 	}{
-		{name: "provider name", want: "MediaStore"},
+		{
+			name: "DescribeContainer",
+			op:   "DescribeContainer",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "DeleteContainer",
+			op:   "DeleteContainer",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "PutContainerPolicy",
+			op:   "PutContainerPolicy",
+			body: map[string]any{"ContainerName": "missing", "Policy": "{}"},
+		},
+		{
+			name: "GetContainerPolicy",
+			op:   "GetContainerPolicy",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "DeleteContainerPolicy",
+			op:   "DeleteContainerPolicy",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "PutCorsPolicy",
+			op:   "PutCorsPolicy",
+			body: map[string]any{
+				"ContainerName": "missing",
+				"CorsPolicy": []any{
+					map[string]any{
+						"AllowedOrigins": []any{"https://x.com"},
+						"AllowedHeaders": []any{"*"},
+					},
+				},
+			},
+		},
+		{
+			name: "GetCorsPolicy",
+			op:   "GetCorsPolicy",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "DeleteCorsPolicy",
+			op:   "DeleteCorsPolicy",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "PutLifecyclePolicy",
+			op:   "PutLifecyclePolicy",
+			body: map[string]any{"ContainerName": "missing", "LifecyclePolicy": "{}"},
+		},
+		{
+			name: "GetLifecyclePolicy",
+			op:   "GetLifecyclePolicy",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "DeleteLifecyclePolicy",
+			op:   "DeleteLifecyclePolicy",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "PutMetricPolicy",
+			op:   "PutMetricPolicy",
+			body: map[string]any{
+				"ContainerName": "missing",
+				"MetricPolicy":  map[string]any{"ContainerLevelMetrics": "ENABLED"},
+			},
+		},
+		{
+			name: "GetMetricPolicy",
+			op:   "GetMetricPolicy",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "DeleteMetricPolicy",
+			op:   "DeleteMetricPolicy",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "StartAccessLogging",
+			op:   "StartAccessLogging",
+			body: map[string]any{"ContainerName": "missing"},
+		},
+		{
+			name: "StopAccessLogging",
+			op:   "StopAccessLogging",
+			body: map[string]any{"ContainerName": "missing"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			p := &mediastore.Provider{}
-			assert.Equal(t, tt.want, p.Name())
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.op, tt.body)
 
-			ctx := &service.AppContext{Logger: slog.Default()}
-			svc, err := p.Init(ctx)
-			require.NoError(t, err)
-			assert.NotNil(t, svc)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+			m := unmarshalBody(t, rec)
+			assert.Equal(t, "ContainerNotFoundException", m["__type"])
 		})
 	}
 }
