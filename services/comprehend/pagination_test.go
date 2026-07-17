@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestParity_ListJobs_Pagination verifies NextToken/MaxResults on async job list operations.
-func TestParity_ListJobs_Pagination(t *testing.T) {
+// TestListJobsPagination verifies NextToken/MaxResults on async job list operations.
+func TestListJobsPagination(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -59,8 +59,8 @@ func TestParity_ListJobs_Pagination(t *testing.T) {
 	}
 }
 
-// TestParity_ListJobs_FullPagination walks all pages collecting all jobs.
-func TestParity_ListJobs_FullPagination(t *testing.T) {
+// TestListJobsFullPagination walks all pages collecting all jobs.
+func TestListJobsFullPagination(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -111,8 +111,8 @@ func TestParity_ListJobs_FullPagination(t *testing.T) {
 	assert.GreaterOrEqual(t, pages, 3)
 }
 
-// TestParity_ListResources_Pagination verifies NextToken/MaxResults on resource list operations.
-func TestParity_ListResources_Pagination(t *testing.T) {
+// TestListResourcesPagination verifies NextToken/MaxResults on resource list operations.
+func TestListResourcesPagination(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -161,8 +161,8 @@ func TestParity_ListResources_Pagination(t *testing.T) {
 	}
 }
 
-// TestParity_ListEntityRecognizers_Pagination verifies pagination on ListEntityRecognizers.
-func TestParity_ListEntityRecognizers_Pagination(t *testing.T) {
+// TestListEntityRecognizersPagination verifies pagination on ListEntityRecognizers.
+func TestListEntityRecognizersPagination(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -213,8 +213,8 @@ func TestParity_ListEntityRecognizers_Pagination(t *testing.T) {
 	}
 }
 
-// TestParity_ListDocumentClassifierSummaries_Pagination verifies pagination on summaries.
-func TestParity_ListDocumentClassifierSummaries_Pagination(t *testing.T) {
+// TestListDocumentClassifierSummariesPagination verifies pagination on summaries.
+func TestListDocumentClassifierSummariesPagination(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -263,8 +263,8 @@ func TestParity_ListDocumentClassifierSummaries_Pagination(t *testing.T) {
 	}
 }
 
-// TestParity_ListEntityRecognizerSummaries_Pagination verifies pagination on recognizer summaries.
-func TestParity_ListEntityRecognizerSummaries_Pagination(t *testing.T) {
+// TestListEntityRecognizerSummariesPagination verifies pagination on recognizer summaries.
+func TestListEntityRecognizerSummariesPagination(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -315,8 +315,8 @@ func TestParity_ListEntityRecognizerSummaries_Pagination(t *testing.T) {
 	}
 }
 
-// TestParity_ListFlywheelIterations_Pagination verifies pagination on ListFlywheelIterationHistory.
-func TestParity_ListFlywheelIterations_Pagination(t *testing.T) {
+// TestListFlywheelIterationsPagination verifies pagination on ListFlywheelIterationHistory.
+func TestListFlywheelIterationsPagination(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
