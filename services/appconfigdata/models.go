@@ -3,10 +3,7 @@
 // configuration data for applications at runtime.
 package appconfigdata
 
-import (
-	"errors"
-	"time"
-)
+import "time"
 
 const (
 	// maxHistoryEntries is the maximum number of historical versions retained per profile.
@@ -39,72 +36,31 @@ const (
 	familyIDSize = 8
 )
 
-// AWS exception type names as returned in error response bodies and X-Amzn-ErrorType header.
-// These are the complete set of exceptions modeled for AppConfigData -- verified against the
-// real service-2.json: BadRequestException, InternalServerException, ResourceNotFoundException,
-// and ThrottlingException. There is no PayloadTooLargeException in the real API for this
-// service (SetConfiguration is an internal seeding helper reached only via the dashboard, not
-// a routed AWS operation, so its size-limit error never needs an AWS exception-type mapping).
-const (
-	exceptionBadRequest       = "BadRequestException"
-	exceptionResourceNotFound = "ResourceNotFoundException"
-	exceptionInternalServer   = "InternalServerException"
-	exceptionThrottling       = "ThrottlingException"
-)
-
-// AWS BadRequestReason values.
-const (
-	badRequestReasonInvalidParameters = "InvalidParameters"
-)
-
-// AWS InvalidParameterProblem values — identify why a specific parameter was rejected.
-const (
-	invalidParamProblemCorrupted                = "Corrupted"
-	invalidParamProblemExpired                  = "Expired"
-	invalidParamProblemPollIntervalNotSatisfied = "PollIntervalNotSatisfied"
-)
-
-// AWS ResourceType values for ResourceNotFoundException.
-const (
-	resourceTypeApplication          = "Application"
-	resourceTypeEnvironment          = "Environment"
-	resourceTypeConfigurationProfile = "ConfigurationProfile"
-	resourceTypeDeployment           = "Deployment"
-	resourceTypeConfiguration        = "Configuration"
-)
-
-var (
-	// ErrSessionNotFound is returned when the requested session token does not exist in the map.
-	ErrSessionNotFound = errors.New("bad request: invalid configuration token")
-	// ErrTokenCorrupted is returned when the token format or HMAC is invalid.
-	ErrTokenCorrupted = errors.New("bad request: configuration token is corrupted")
-	// ErrTokenExpired is returned when the session token has passed its expiry time.
-	// AWS returns BadRequestException (400) for expired tokens, not 401.
-	ErrTokenExpired = errors.New("bad request: configuration token has expired")
-	// ErrProfileNotFound is returned when no configuration has been stored for a profile.
-	ErrProfileNotFound = errors.New("resource not found: configuration profile not found")
-	// ErrResourceRemoved is returned when a session's app/env/profile was deleted after the session started.
-	ErrResourceRemoved = errors.New("resource not found: application, environment, or profile no longer exists")
-	// ErrContentTooLarge is returned when configuration content exceeds the size limit.
-	ErrContentTooLarge = errors.New("bad request: content exceeds maximum size of 1 MiB")
-	// ErrInvalidPollInterval is returned when RequiredMinimumPollIntervalInSeconds is out of range.
-	ErrInvalidPollInterval = errors.New(
-		"bad request: RequiredMinimumPollIntervalInSeconds must be 0 or between 15 and 86400",
-	)
-	// ErrPollTooFrequent is returned when a client polls faster than its declared minimum interval.
-	ErrPollTooFrequent = errors.New(
-		"bad request: polling too frequently — wait for the interval in Next-Poll-Interval-In-Seconds",
-	)
-	// ErrContentTypeMismatch is returned when content is declared as JSON but is not valid JSON.
-	ErrContentTypeMismatch = errors.New("bad request: content is not valid for the declared content type")
-	// ErrNoActiveDeployment is returned when StartConfigurationSession is called for a profile
-	// that has no active deployment (no configuration has been published yet).
-	ErrNoActiveDeployment = errors.New(
-		"resource not found: no active deployment found for the given application, environment, and configuration profile",
-	)
-	// ErrIdentifierTooLong is returned when an identifier exceeds the maximum allowed length.
-	ErrIdentifierTooLong = errors.New("bad request: identifier exceeds maximum length of 128 characters")
-)
+// graceEntry holds the response cached for a rotated token during the grace period.
+// A client that retries with an old token receives the same response it would have
+// gotten on the first successful poll, preventing duplicate-delivery confusion.
+//
+// Token holds the rotated (old) token this entry is cached under -- the identity
+// field the graceTokens table is keyed by (see graceEntryTableKeyFn in
+// store_setup.go). Unlike the hidden-identity DTOs in services/ses and
+// services/codecommit (which tag their identity field json:"-" because the
+// *live* type is also serialized straight to an AWS API response, where that
+// field must not leak), graceEntry has no AWS wire representation at all --
+// it is never marshaled to anything but a persistence snapshot -- so Token
+// carries no json tag and simply round-trips through store.Table's plain
+// JSON marshaling like every other field. Every field was promoted from
+// unexported to exported so encoding/json (used by store.Table's
+// snapshot/restore) can see them at all -- graceEntry itself stays
+// unexported and package-private.
+type graceEntry struct {
+	ExpiresAt    time.Time
+	NextToken    string
+	ContentType  string
+	ContentHash  string
+	VersionLabel string
+	Token        string
+	Content      []byte
+}
 
 // ConfigVersion records a historical snapshot of configuration content.
 type ConfigVersion struct {
