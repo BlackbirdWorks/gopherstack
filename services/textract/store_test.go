@@ -136,3 +136,34 @@ func TestInMemoryBackend_ShutdownIdempotent(t *testing.T) {
 	b.Shutdown(ctx)
 	assert.NoError(t, ctx.Err())
 }
+
+// TestInMemoryBackend_AccountIDAndRegion ensures the backend stores
+// account-ID and region supplied at construction.
+func TestInMemoryBackend_AccountIDAndRegion(t *testing.T) {
+	t.Parallel()
+
+	b := textract.NewInMemoryBackend("000111222333", "eu-west-1")
+	assert.Equal(t, "000111222333", b.AccountID())
+	assert.Equal(t, "eu-west-1", b.Region())
+}
+
+// TestInMemoryBackend_Reset ensures Reset clears all stored state.
+func TestInMemoryBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := textract.NewInMemoryBackendSync("123456789012", "us-east-1")
+
+	_, err := b.StartDocumentAnalysis(context.Background(), "s3://bucket/doc.pdf")
+	require.NoError(t, err)
+
+	_, err = b.CreateAdapter(context.Background(), "myAdapter", "desc", "DISABLED", []string{"FORMS"}, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, textract.JobCount(b))
+	require.Equal(t, 1, textract.AdapterCount(b))
+
+	b.Reset()
+
+	assert.Equal(t, 0, textract.JobCount(b))
+	assert.Equal(t, 0, textract.AdapterCount(b))
+}
