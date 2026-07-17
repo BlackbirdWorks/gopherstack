@@ -9,7 +9,7 @@ package redshift
 //
 // The following resource fields are deliberately NOT registered here and
 // remain plain maps (see persistence.go for how they are still persisted,
-// and backend.go for their declarations):
+// and store.go for their declarations):
 //   - activeResizes: value type ResizeProgress carries no ClusterIdentifier
 //     field of its own -- it is keyed externally by clusterID (see
 //     AddActiveResizeInternal, which takes clusterID as a separate
@@ -91,7 +91,7 @@ func slScheduledActionsKeyFn(v *ServerlessScheduledAction) string { return v.Sch
 // exactly once. It must be called during construction only (immediately
 // after b.registry is created), never on every Reset() -- store.Register
 // panics on a duplicate name, so runtime resets go through
-// registry.ResetAll() instead (see InMemoryBackend.Reset in backend.go).
+// registry.ResetAll() instead (see InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)
