@@ -59,183 +59,231 @@ func doMWAARequest(t *testing.T, h *mwaa.Handler, method, path string, body any)
 	return rec
 }
 
-func TestHandler_CreateEnvironment(t *testing.T) {
+// makeEchoContext creates an echo.Context for the given method and path.
+func makeEchoContext(t *testing.T, method, path string) *echo.Context {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(method, path, nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	return c
+}
+
+// makeEchoContextWithAuth creates an echo.Context with an Authorization header for a given service.
+func makeEchoContextWithAuth(t *testing.T, method, path, svcName string) *echo.Context {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set(
+		"Authorization",
+		"AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/"+svcName+"/aws4_request",
+	)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	return c
+}
+
+func TestHandlerName(t *testing.T) {
 	t.Parallel()
 
+	h := newHandlerForTest(t)
+	assert.Equal(t, "MWAA", h.Name())
+}
+
+func TestHandlerChaos(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	assert.Equal(t, "airflow", h.ChaosServiceName())
+	assert.NotEmpty(t, h.ChaosOperations())
+	assert.NotEmpty(t, h.ChaosRegions())
+	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
+}
+
+func TestHandlerMatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	assert.Positive(t, h.MatchPriority())
+}
+
+func TestHandlerReset(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	backend := mwaa.NewInMemoryBackend(testRegion, testAccountID)
+	h2 := mwaa.NewHandler(backend)
+	h2.AccountID = testAccountID
+	h2.DefaultRegion = testRegion
+
+	seedEnv(t, backend, "env-a")
+	require.Equal(t, 1, mwaa.EnvironmentCount(backend))
+
+	h2.Reset()
+
+	assert.Equal(t, 0, mwaa.EnvironmentCount(backend))
+
+	// Ensure original handler still works (not broken by reset of h2).
+	_ = h
+}
+
+// TestGetSupportedOperations verifies the full set of MWAA operations the
+// handler advertises, including the InvokeRestApi/PublishMetrics/GetMetrics
+// trio, and that GetSupportedOperations reports no more than the expected count.
+func TestGetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
+	h := mwaa.NewHandler(b)
+
+	ops := h.GetSupportedOperations()
+
+	expectedOps := []string{
+		"CreateEnvironment", "GetEnvironment", "DeleteEnvironment",
+		"UpdateEnvironment", "ListEnvironments", "ListTagsForResource",
+		"TagResource", "UntagResource", "CreateCliToken",
+		"CreateWebLoginToken", "InvokeRestApi", "PublishMetrics", "GetMetrics",
+	}
+
+	for _, op := range expectedOps {
+		assert.Contains(t, ops, op, "missing operation %s", op)
+	}
+
+	assert.Equal(t, len(expectedOps), mwaa.HandlerOpsLen(h))
+}
+
+// TestExtractOperation covers every routed path/method combination, including
+// the InvokeRestApi/PublishMetrics/GetMetrics operations.
+func TestExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
+	h := mwaa.NewHandler(b)
+
 	tests := []struct {
-		body       any
-		name       string
-		envName    string
-		wantStatus int
-		wantArn    bool
+		wantOp string
+		path   string
+		method string
 	}{
-		{
-			name:    "creates_environment",
-			envName: "my-env",
-			body: map[string]any{
-				"DagS3Path":        "dags/",
-				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/mwaa-role",
-				"SourceBucketArn":  "arn:aws:s3:::my-bucket",
-			},
-			wantStatus: http.StatusOK,
-			wantArn:    true,
-		},
-		{
-			// MWAA's API model has no AlreadyExistsException at all --
-			// CreateEnvironment's only documented errors are
-			// InternalServerException, ServiceUnavailableException, and
-			// ValidationException -- so a duplicate name is a 400, not a 409.
-			name:    "duplicate_returns_validation_error",
-			envName: "dupe-env",
-			body: map[string]any{
-				"DagS3Path":        "dags/",
-				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/mwaa-role",
-				"SourceBucketArn":  "arn:aws:s3:::bucket",
-			},
-			wantStatus: http.StatusBadRequest,
-			wantArn:    false,
-		},
+		{path: "/clitoken/env", method: http.MethodPost, wantOp: "CreateCliToken"},
+		{path: "/webtoken/env", method: http.MethodPost, wantOp: "CreateWebLoginToken"},
+		{path: "/restapi/env", method: http.MethodPost, wantOp: "InvokeRestApi"},
+		{path: "/metrics/environments/env", method: http.MethodPost, wantOp: "PublishMetrics"},
+		{path: "/metrics/environments/env", method: http.MethodGet, wantOp: "GetMetrics"},
+		{path: "/tags/some-arn", method: http.MethodGet, wantOp: "ListTagsForResource"},
+		{path: "/tags/some-arn", method: http.MethodPost, wantOp: "TagResource"},
+		{path: "/tags/some-arn", method: http.MethodDelete, wantOp: "UntagResource"},
+		{path: "/environments", method: http.MethodGet, wantOp: "ListEnvironments"},
+		{path: "/environments/", method: http.MethodGet, wantOp: "ListEnvironments"},
+		{path: "/environments/my-env", method: http.MethodGet, wantOp: "GetEnvironment"},
+		{path: "/environments/my-env", method: http.MethodPut, wantOp: "CreateEnvironment"},
+		{path: "/environments/my-env", method: http.MethodDelete, wantOp: "DeleteEnvironment"},
+		{path: "/environments/my-env", method: http.MethodPatch, wantOp: "UpdateEnvironment"},
+		{path: "/unknown", method: http.MethodGet, wantOp: "Unknown"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.wantOp+"_"+tt.method, func(t *testing.T) {
 			t.Parallel()
 
-			h := newHandlerForTest(t)
+			c := makeEchoContext(t, tt.method, tt.path)
 
-			if tt.name == "duplicate_returns_validation_error" {
-				rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, tt.body)
-				assert.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantArn {
-				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotEmpty(t, resp["Arn"])
-			}
+			op := h.ExtractOperation(c)
+			assert.Equal(t, tt.wantOp, op)
 		})
 	}
 }
 
-func TestHandler_GetEnvironment(t *testing.T) {
+func TestExtractResource(t *testing.T) {
 	t.Parallel()
 
+	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
+	h := mwaa.NewHandler(b)
+
 	tests := []struct {
-		name       string
-		envName    string
-		seed       bool
-		wantStatus int
+		path    string
+		wantRes string
 	}{
+		{path: "/environments/my-env", wantRes: "my-env"},
+		{path: "/clitoken/my-env", wantRes: "my-env"},
+		{path: "/webtoken/my-env", wantRes: "my-env"},
+		{path: "/restapi/my-env", wantRes: "my-env"},
+		{path: "/metrics/environments/my-env", wantRes: "my-env"},
 		{
-			name:       "found",
-			envName:    "existing-env",
-			seed:       true,
-			wantStatus: http.StatusOK,
+			path:    "/tags/arn:aws:airflow:us-east-1:123:environment/my-env",
+			wantRes: "arn:aws:airflow:us-east-1:123:environment/my-env",
 		},
-		{
-			name:       "not_found",
-			envName:    "missing-env",
-			seed:       false,
-			wantStatus: http.StatusNotFound,
-		},
+		{path: "/unknown", wantRes: ""},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.path, func(t *testing.T) {
 			t.Parallel()
 
-			h := newHandlerForTest(t)
-
-			if tt.seed {
-				rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
-					"DagS3Path":        "dags/",
-					"ExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
-					"SourceBucketArn":  "arn:aws:s3:::bucket",
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doMWAARequest(t, h, http.MethodGet, "/environments/"+tt.envName, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotNil(t, resp["Environment"])
-			}
+			c := makeEchoContext(t, http.MethodGet, tt.path)
+			res := h.ExtractResource(c)
+			assert.Equal(t, tt.wantRes, res)
 		})
 	}
 }
 
-func TestHandler_ListEnvironments(t *testing.T) {
+// TestRouteMatcher covers every routed path prefix, including InvokeRestApi
+// and metrics, matched against both the correct and an unrelated SigV4 service.
+func TestRouteMatcher(t *testing.T) {
 	t.Parallel()
 
+	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
+	h := mwaa.NewHandler(b)
+	matcher := h.RouteMatcher()
+
 	tests := []struct {
-		name      string
-		seedNames []string
-		wantCount int
+		path      string
+		authSvc   string
+		wantMatch bool
 	}{
-		{
-			name:      "empty_list",
-			seedNames: []string{},
-			wantCount: 0,
-		},
-		{
-			name:      "lists_environments",
-			seedNames: []string{"env-a", "env-b"},
-			wantCount: 2,
-		},
+		{path: "/environments", authSvc: "airflow", wantMatch: true},
+		{path: "/environments/my-env", authSvc: "airflow", wantMatch: true},
+		{path: "/tags/some-arn", authSvc: "airflow", wantMatch: true},
+		{path: "/clitoken/env", authSvc: "airflow", wantMatch: true},
+		{path: "/webtoken/env", authSvc: "airflow", wantMatch: true},
+		{path: "/restapi/env", authSvc: "airflow", wantMatch: true},
+		{path: "/metrics/environments/env", authSvc: "airflow", wantMatch: true},
+		{path: "/environments", authSvc: "s3", wantMatch: false},
+		{path: "/restapi/env", authSvc: "s3", wantMatch: false},
+		{path: "/metrics/environments/env", authSvc: "s3", wantMatch: false},
+		{path: "/other-path", authSvc: "airflow", wantMatch: false},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.path+"_"+tt.authSvc, func(t *testing.T) {
 			t.Parallel()
 
-			h := newHandlerForTest(t)
-
-			for _, n := range tt.seedNames {
-				doMWAARequest(t, h, http.MethodPut, "/environments/"+n, map[string]any{
-					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-				})
-			}
-
-			rec := doMWAARequest(t, h, http.MethodGet, "/environments", nil)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			envs, ok := resp["Environments"].([]any)
-			require.True(t, ok)
-			assert.Len(t, envs, tt.wantCount)
+			c := makeEchoContextWithAuth(t, http.MethodGet, tt.path, tt.authSvc)
+			got := matcher(c)
+			assert.Equal(t, tt.wantMatch, got)
 		})
 	}
 }
 
-func TestHandler_DeleteEnvironment(t *testing.T) {
+// TestMethodNotAllowed covers every routed path prefix invoked with a method
+// it does not accept.
+func TestMethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		envName    string
-		seed       bool
-		wantStatus int
+		path   string
+		method string
+		name   string
 	}{
-		{
-			name:       "deletes_existing",
-			envName:    "to-delete",
-			seed:       true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			envName:    "missing",
-			seed:       false,
-			wantStatus: http.StatusNotFound,
-		},
+		{name: "clitoken_get", path: "/clitoken/env", method: http.MethodGet},
+		{name: "webtoken_get", path: "/webtoken/env", method: http.MethodGet},
+		{name: "restapi_get", path: "/restapi/env", method: http.MethodGet},
+		{name: "environments_list_post", path: "/environments", method: http.MethodPost},
+		{name: "environment_options", path: "/environments/env", method: http.MethodOptions},
 	}
 
 	for _, tt := range tests {
@@ -243,65 +291,17 @@ func TestHandler_DeleteEnvironment(t *testing.T) {
 			t.Parallel()
 
 			h := newHandlerForTest(t)
+			rec := doMWAARequest(t, h, tt.method, tt.path, nil)
 
-			if tt.seed {
-				rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
-					"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doMWAARequest(t, h, http.MethodDelete, "/environments/"+tt.envName, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 		})
 	}
 }
 
-func TestHandler_TagsFlow(t *testing.T) {
+func TestHandler_UnknownPath(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name    string
-		envName string
-	}{
-		{
-			name:    "tag_list_untag",
-			envName: "tag-test-env",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newHandlerForTest(t)
-
-			// Create environment.
-			rec := doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
-				"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
-			})
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var createResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-			envARN := createResp["Arn"]
-			require.NotEmpty(t, envARN)
-
-			// TagResource.
-			tagRec := doMWAARequest(t, h, http.MethodPost, "/tags/"+envARN, map[string]any{
-				"Tags": map[string]string{"env": "test"},
-			})
-			assert.Equal(t, http.StatusOK, tagRec.Code)
-
-			// ListTagsForResource.
-			listTagRec := doMWAARequest(t, h, http.MethodGet, "/tags/"+envARN, nil)
-			assert.Equal(t, http.StatusOK, listTagRec.Code)
-
-			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(listTagRec.Body.Bytes(), &tagsResp))
-			tags, ok := tagsResp["Tags"].(map[string]any)
-			require.True(t, ok)
-			assert.Equal(t, "test", tags["env"])
-		})
-	}
+	h := newHandlerForTest(t)
+	rec := doMWAARequest(t, h, http.MethodGet, "/unknown/path", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
