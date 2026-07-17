@@ -229,3 +229,141 @@ func TestInMemoryBackend_DeleteApplication_CascadesVersionsTemplatesChangeSets(t
 	require.NoError(t, err)
 	assert.Empty(t, versions)
 }
+
+func TestServerlessRepoPersistence_WithTemplateAndPolicy(t *testing.T) {
+	t.Parallel()
+
+	b := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateApplication("app1", "desc1", "author1", "", "1.0.0", nil, "", "", "")
+	require.NoError(t, err)
+
+	_, err = b.CreateApplicationVersion("app1", "1.0.0", "https://github.com/example", "")
+	require.NoError(t, err)
+
+	_, err = b.CreateCloudFormationTemplate("app1", "1.0.0")
+	require.NoError(t, err)
+
+	_, err = b.PutApplicationPolicy("app1", []*serverlessrepo.ApplicationPolicyStatement{
+		{Actions: []string{"deploy"}, Principals: []string{"*"}},
+	})
+	require.NoError(t, err)
+
+	// Snapshot
+	h := serverlessrepo.NewHandler(b)
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	// Restore into a fresh backend
+	b2 := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := serverlessrepo.NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, serverlessrepo.ApplicationCount(b2))
+	assert.Equal(t, 1, serverlessrepo.VersionCount(b2, "app1"))
+	assert.Equal(t, 1, serverlessrepo.TemplateCount(b2, "app1"))
+	assert.Equal(t, 1, serverlessrepo.PolicyStatementCount(b2, "app1"))
+}
+
+func TestServerlessRepoPersistence(t *testing.T) {
+	t.Parallel()
+
+	b := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateApplication("app1", "desc1", "author1", "", "1.0.0", nil, "", "", "")
+	require.NoError(t, err)
+
+	_, err = b.CreateApplication("app2", "desc2", "author2", "", "2.0.0", nil, "", "", "")
+	require.NoError(t, err)
+
+	// Snapshot
+	h := serverlessrepo.NewHandler(b)
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	// Restore into a fresh backend
+	b2 := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := serverlessrepo.NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	apps := b2.ListApplications()
+	require.Len(t, apps, 2)
+	assert.Equal(t, "app1", apps[0].Name)
+	assert.Equal(t, "app2", apps[1].Name)
+}
+
+// TestSnapshot_RestoreAllResourceTypes exercises a full Snapshot->Restore
+// round trip via the HTTP-facing Handler, covering every resource family:
+// applications, versions, CloudFormation templates and change sets, and
+// nested application dependencies.
+func TestSnapshot_RestoreAllResourceTypes(t *testing.T) {
+	t.Parallel()
+
+	b := serverlessrepo.NewInMemoryBackend(testAccountID, "us-east-1")
+	_, err := b.CreateApplication("snap-app", "desc", "author", "", "", nil, "", "", "")
+	require.NoError(t, err)
+
+	_, err = b.CreateApplicationVersion("snap-app", "1.0.0", "https://example.com", "")
+	require.NoError(t, err)
+
+	_, err = b.CreateCloudFormationTemplate("snap-app", "1.0.0")
+	require.NoError(t, err)
+
+	_, err = b.CreateCloudFormationChangeSet("snap-app", "stack", "cs", "1.0.0")
+	require.NoError(t, err)
+
+	require.NoError(t, b.AddApplicationDependencyInternal("snap-app", "1.0.0", serverlessrepo.ApplicationDependency{
+		ApplicationID:   "arn:aws:serverlessrepo:us-east-1:000000000000:applications/child",
+		SemanticVersion: "2.0.0",
+	}))
+
+	snap := b.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := serverlessrepo.NewInMemoryBackend(testAccountID, "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, serverlessrepo.ApplicationCount(b2))
+	assert.Equal(t, 1, serverlessrepo.VersionCount(b2, "snap-app"))
+	assert.Equal(t, 1, serverlessrepo.TemplateCount(b2, "snap-app"))
+	assert.Equal(t, 1, serverlessrepo.ChangeSetCount(b2, "snap-app"))
+
+	deps, depErr := b2.ListApplicationDependencies("snap-app", "1.0.0")
+	require.NoError(t, depErr)
+	assert.Len(t, deps, 1)
+	assert.Equal(t, "2.0.0", deps[0].SemanticVersion)
+}
+
+// TestSnapshot_DeepCopiesPolicies verifies that Snapshot deep-copies policy
+// statements: mutating the live backend's policy after taking a snapshot must
+// not affect what a subsequent Restore of that snapshot observes.
+func TestSnapshot_DeepCopiesPolicies(t *testing.T) {
+	t.Parallel()
+
+	b := serverlessrepo.NewInMemoryBackend(testAccountID, "us-east-1")
+	_, err := b.CreateApplication("my-app", "desc", "author", "", "", nil, "", "", "")
+	require.NoError(t, err)
+
+	_, err = b.PutApplicationPolicy("my-app", []*serverlessrepo.ApplicationPolicyStatement{
+		{Actions: []string{"deploy"}, Principals: []string{"*"}},
+	})
+	require.NoError(t, err)
+
+	// Snapshot, then mutate original, restore should have original
+	snap := b.Snapshot(t.Context())
+
+	// Overwrite policy
+	_, err = b.PutApplicationPolicy("my-app", []*serverlessrepo.ApplicationPolicyStatement{
+		{Actions: []string{"Deploy"}, Principals: []string{"111"}},
+	})
+	require.NoError(t, err)
+
+	// Restore into a new backend
+	b2 := serverlessrepo.NewInMemoryBackend(testAccountID, "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	stmts, err := b2.GetApplicationPolicy("my-app")
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	assert.Equal(t, "deploy", stmts[0].Actions[0])
+}
