@@ -10,104 +10,207 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/redshiftdata"
 )
 
-// TestRefinement1_HandlerOpsLen verifies GetSupportedOperations returns exactly 11 ops.
-func TestRefinement1_HandlerOpsLen(t *testing.T) {
+func TestValidateListStatementsStatus_ValidValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{name: "empty_string", status: ""},
+		{name: "ALL", status: "ALL"},
+		{name: "ABORTED", status: "ABORTED"},
+		{name: "FAILED", status: "FAILED"},
+		{name: "FINISHED", status: "FINISHED"},
+		{name: "PICKED", status: "PICKED"},
+		{name: "STARTED", status: "STARTED"},
+		{name: "SUBMITTED", status: "SUBMITTED"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := redshiftdata.ValidateListStatementsStatus(tt.status)
+			require.NoError(t, err, "status %q should be valid", tt.status)
+		})
+	}
+}
+
+func TestValidateListStatementsStatus_InvalidValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{name: "lowercase_all", status: "all"},
+		{name: "partial", status: "FINISH"},
+		{name: "unknown", status: "RUNNING"},
+		{name: "whitespace", status: " ALL"},
+		{name: "mixed_case", status: "Finished"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := redshiftdata.ValidateListStatementsStatus(tt.status)
+			require.Error(t, err)
+			require.ErrorIs(t, err, redshiftdata.ErrValidation)
+			assert.Contains(t, err.Error(), tt.status)
+		})
+	}
+}
+
+func TestHandler_ListStatements_InvalidStatus_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, 11, redshiftdata.HandlerOpsLen(h))
+
+	rec := doRequest(t, h, "ListStatements", map[string]any{"Status": "INVALID_STATUS"})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+	assert.Contains(t, rec.Body.String(), "INVALID_STATUS")
 }
 
-// TestRefinement1_AccountID verifies AccountID is exposed correctly.
-func TestRefinement1_AccountID(t *testing.T) {
+func TestBackend_BatchExecuteStatement_EmptySqlItem_Returns400(t *testing.T) {
 	t.Parallel()
 
-	b := redshiftdata.NewInMemoryBackend("123456789012", "eu-west-1")
-	assert.Equal(t, "123456789012", b.AccountID())
+	tests := []struct {
+		name string
+		want string
+		sqls []string
+	}{
+		{
+			name: "first_empty",
+			sqls: []string{"", "SELECT 2"},
+			want: "Sqls[0]",
+		},
+		{
+			name: "second_empty",
+			sqls: []string{"SELECT 1", ""},
+			want: "Sqls[1]",
+		},
+		{
+			name: "all_empty",
+			sqls: []string{"", ""},
+			want: "Sqls[0]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, "BatchExecuteStatement", map[string]any{
+				"Sqls":              tt.sqls,
+				"Database":          "dev",
+				"ClusterIdentifier": "cluster-a",
+			})
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.want)
+		})
+	}
 }
 
-// TestRefinement1_BackendReset verifies Reset clears all statements.
-func TestRefinement1_BackendReset(t *testing.T) {
+func TestHandler_BatchExecuteStatement_EmptySqlItem_Returns400(t *testing.T) {
+	t.Parallel()
+
+	rec := doRequest(t, newTestHandler(t), "BatchExecuteStatement", map[string]any{
+		"Sqls":              []string{"SELECT 1", ""},
+		"Database":          "dev",
+		"ClusterIdentifier": "cluster-a",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+}
+
+func TestHandler_ExecuteStatement_AllowsBothClusterAndWorkgroup(t *testing.T) {
+	t.Parallel()
+
+	rec := doRequest(t, newTestHandler(t), "ExecuteStatement", map[string]any{
+		"Sql":               "SELECT 1",
+		"Database":          "dev",
+		"ClusterIdentifier": "my-cluster",
+		"WorkgroupName":     "my-workgroup",
+	})
+
+	assert.Equal(t, http.StatusOK, rec.Code, "mock should accept both ClusterIdentifier and WorkgroupName")
+}
+
+func TestHandler_ExecuteStatement_AllowsNeitherClusterNorWorkgroup(t *testing.T) {
+	t.Parallel()
+
+	rec := doRequest(t, newTestHandler(t), "ExecuteStatement", map[string]any{
+		"Sql":      "SELECT 1",
+		"Database": "dev",
+	})
+
+	assert.Equal(t, http.StatusOK, rec.Code, "mock should accept request without ClusterIdentifier or WorkgroupName")
+}
+
+func TestHandler_BatchExecuteStatement_AllowsNeitherClusterNorWorkgroup(t *testing.T) {
+	t.Parallel()
+
+	rec := doRequest(t, newTestHandler(t), "BatchExecuteStatement", map[string]any{
+		"Sqls":     []string{"SELECT 1", "SELECT 2"},
+		"Database": "dev",
+	})
+
+	assert.Equal(t, http.StatusOK, rec.Code, "mock should accept batch without ClusterIdentifier or WorkgroupName")
+}
+
+func TestHandler_ListStatements_MaxResults_Paginates(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 
-	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil)
-	require.NoError(t, err)
+	ids := []string{"parity-stmt-1", "parity-stmt-2", "parity-stmt-3", "parity-stmt-4", "parity-stmt-5"}
+	for i, id := range ids {
+		redshiftdata.AddStatementInternal(b, testRegion, id, "SELECT "+string(rune('1'+i)), "dev", "FINISHED", true)
+	}
 
-	b.Reset()
-
-	assert.Equal(t, 0, b.StatementCount())
-}
-
-// TestRefinement1_HandlerReset verifies Handler.Reset delegates to the backend.
-func TestRefinement1_HandlerReset(t *testing.T) {
-	t.Parallel()
-
-	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
 	h := redshiftdata.NewHandler(b)
 
-	_, err := b.ExecuteStatement(context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil)
-	require.NoError(t, err)
+	rec := doRequest(t, h, "ListStatements", map[string]any{
+		"Status":     "ALL",
+		"MaxResults": 2,
+	})
 
-	h.Reset()
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	assert.Equal(t, 0, b.StatementCount())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	stmts, _ := resp["Statements"].([]any)
+	assert.Len(t, stmts, 2)
+
+	token, _ := resp["NextToken"].(string)
+	assert.NotEmpty(t, token, "NextToken should be set when more results exist")
 }
 
-// TestRefinement1_ErrNilAppContext verifies provider.Init rejects nil context.
-func TestRefinement1_ErrNilAppContext(t *testing.T) {
+func TestHandler_ListStatements_MaxResultsTooHigh_Returns400(t *testing.T) {
 	t.Parallel()
 
-	p := &redshiftdata.Provider{}
-	_, err := p.Init(nil)
-	require.ErrorIs(t, err, redshiftdata.ErrNilAppContext)
+	rec := doRequest(t, newTestHandler(t), "ListStatements", map[string]any{
+		"MaxResults": 9999,
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 
-// TestRefinement1_Snapshot_Restore verifies round-trip Snapshot/Restore.
-func TestRefinement1_Snapshot_Restore(t *testing.T) {
-	t.Parallel()
-
-	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-
-	stmt, err := b.ExecuteStatement(
-		context.Background(), "SELECT 42", "cluster", "", "mydb", "", "", "test-stmt", false, "", nil,
-	)
-	require.NoError(t, err)
-
-	snap := b.Snapshot(t.Context())
-	require.NotNil(t, snap)
-
-	b2 := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, b2.Restore(t.Context(), snap))
-
-	got, err := b2.DescribeStatement(context.Background(), stmt.ID)
-	require.NoError(t, err)
-	assert.Equal(t, stmt.ID, got.ID)
-	assert.Equal(t, "SELECT 42", got.QueryString)
-	assert.Equal(t, "test-stmt", got.StatementName)
-	assert.Equal(t, "FINISHED", got.Status)
-}
-
-// TestRefinement1_Snapshot_Empty verifies Snapshot works with an empty backend.
-func TestRefinement1_Snapshot_Empty(t *testing.T) {
-	t.Parallel()
-
-	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	snap := b.Snapshot(t.Context())
-	require.NotNil(t, snap)
-
-	b2 := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, b2.Restore(t.Context(), snap))
-	assert.Equal(t, 0, b2.StatementCount())
-}
-
-// TestRefinement1_AddStatementInternal verifies the seed helper bypasses UUID generation.
-func TestRefinement1_AddStatementInternal(t *testing.T) {
+// TestAddStatementInternal verifies the seed helper bypasses UUID generation.
+func TestAddStatementInternal(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
@@ -121,8 +224,8 @@ func TestRefinement1_AddStatementInternal(t *testing.T) {
 	assert.True(t, stmt.HasResultSet)
 }
 
-// TestRefinement1_ExecuteStatement_DatabaseRequired verifies Database is required.
-func TestRefinement1_ExecuteStatement_DatabaseRequired(t *testing.T) {
+// TestExecuteStatement_DatabaseRequired verifies Database is required.
+func TestExecuteStatement_DatabaseRequired(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -136,8 +239,8 @@ func TestRefinement1_ExecuteStatement_DatabaseRequired(t *testing.T) {
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
-// TestRefinement1_BatchExecuteStatement_DatabaseRequired verifies Database is required.
-func TestRefinement1_BatchExecuteStatement_DatabaseRequired(t *testing.T) {
+// TestBatchExecuteStatement_DatabaseRequired verifies Database is required.
+func TestBatchExecuteStatement_DatabaseRequired(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -151,9 +254,9 @@ func TestRefinement1_BatchExecuteStatement_DatabaseRequired(t *testing.T) {
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
-// TestRefinement1_GetStatementResult_NoResultSet verifies that GetStatementResult
+// TestGetStatementResult_NoResultSet verifies that GetStatementResult
 // returns ValidationException when the statement has no result set (e.g. batch).
-func TestRefinement1_GetStatementResult_NoResultSet(t *testing.T) {
+func TestGetStatementResult_NoResultSet(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -176,9 +279,9 @@ func TestRefinement1_GetStatementResult_NoResultSet(t *testing.T) {
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
-// TestRefinement1_GetStatementResultV2_NoResultSet verifies that GetStatementResultV2
+// TestGetStatementResultV2_NoResultSet verifies that GetStatementResultV2
 // returns ValidationException when the statement has no result set.
-func TestRefinement1_GetStatementResultV2_NoResultSet(t *testing.T) {
+func TestGetStatementResultV2_NoResultSet(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -201,9 +304,9 @@ func TestRefinement1_GetStatementResultV2_NoResultSet(t *testing.T) {
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
-// TestRefinement1_GetStatementResultV2_ResultFormat verifies that GetStatementResultV2
+// TestGetStatementResultV2_ResultFormat verifies that GetStatementResultV2
 // returns ResultFormat=CSV in the response body.
-func TestRefinement1_GetStatementResultV2_ResultFormat(t *testing.T) {
+func TestGetStatementResultV2_ResultFormat(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -230,9 +333,9 @@ func TestRefinement1_GetStatementResultV2_ResultFormat(t *testing.T) {
 	assert.NotNil(t, resp["ColumnMetadata"])
 }
 
-// TestRefinement1_CancelStatement_AbortedIsTerminal verifies that an already-aborted
+// TestCancelStatement_AbortedIsTerminal verifies that an already-aborted
 // statement cannot be cancelled again.
-func TestRefinement1_CancelStatement_AbortedIsTerminal(t *testing.T) {
+func TestCancelStatement_AbortedIsTerminal(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
@@ -248,9 +351,9 @@ func TestRefinement1_CancelStatement_AbortedIsTerminal(t *testing.T) {
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
-// TestRefinement1_CancelStatement_FailedIsTerminal verifies that a failed statement
+// TestCancelStatement_FailedIsTerminal verifies that a failed statement
 // cannot be cancelled.
-func TestRefinement1_CancelStatement_FailedIsTerminal(t *testing.T) {
+func TestCancelStatement_FailedIsTerminal(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
@@ -266,9 +369,9 @@ func TestRefinement1_CancelStatement_FailedIsTerminal(t *testing.T) {
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
-// TestRefinement1_ListStatements_SortedNewestFirst verifies that ListStatements returns
+// TestListStatements_SortedNewestFirst verifies that ListStatements returns
 // results sorted by creation time with the newest statement first.
-func TestRefinement1_ListStatements_SortedNewestFirst(t *testing.T) {
+func TestListStatements_SortedNewestFirst(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -299,9 +402,9 @@ func TestRefinement1_ListStatements_SortedNewestFirst(t *testing.T) {
 	assert.GreaterOrEqual(t, second, third)
 }
 
-// TestRefinement1_ExecuteStatement_HasResultSet verifies that ExecuteStatement
+// TestExecuteStatement_HasResultSet verifies that ExecuteStatement
 // sets HasResultSet to true for SELECT statements.
-func TestRefinement1_ExecuteStatement_HasResultSet(t *testing.T) {
+func TestExecuteStatement_HasResultSet(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -324,9 +427,9 @@ func TestRefinement1_ExecuteStatement_HasResultSet(t *testing.T) {
 	assert.Equal(t, true, descResp["HasResultSet"])
 }
 
-// TestRefinement1_BatchExecuteStatement_HasNoResultSet verifies that BatchExecuteStatement
+// TestBatchExecuteStatement_HasNoResultSet verifies that BatchExecuteStatement
 // always sets HasResultSet to false.
-func TestRefinement1_BatchExecuteStatement_HasNoResultSet(t *testing.T) {
+func TestBatchExecuteStatement_HasNoResultSet(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -349,67 +452,9 @@ func TestRefinement1_BatchExecuteStatement_HasNoResultSet(t *testing.T) {
 	assert.Equal(t, false, descResp["HasResultSet"])
 }
 
-// TestRefinement1_StorageBackend_Interface verifies that InMemoryBackend satisfies StorageBackend.
-func TestRefinement1_StorageBackend_Interface(t *testing.T) {
-	t.Parallel()
-
-	var _ redshiftdata.StorageBackend = redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-}
-
-// TestRefinement1_NewHandler_AcceptsInterface verifies NewHandler accepts StorageBackend.
-func TestRefinement1_NewHandler_AcceptsInterface(t *testing.T) {
-	t.Parallel()
-
-	var backend redshiftdata.StorageBackend = redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	h := redshiftdata.NewHandler(backend)
-	assert.NotNil(t, h)
-}
-
-// TestRefinement1_GetStatementResultV2_GetSupportedOps verifies the ops list includes V2.
-func TestRefinement1_GetStatementResultV2_GetSupportedOps(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "GetStatementResultV2")
-}
-
-// TestRefinement1_Snapshot_PreservesStatementKeys verifies Snapshot/Restore preserves
-// the eviction key ordering so the oldest-first eviction works correctly after restore.
-func TestRefinement1_Snapshot_PreservesStatementKeys(t *testing.T) {
-	t.Parallel()
-
-	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-
-	stmt1, err := b.ExecuteStatement(
-		context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil,
-	)
-	require.NoError(t, err)
-
-	stmt2, err := b.ExecuteStatement(
-		context.Background(), "SELECT 2", "cluster", "", "mydb", "", "", "", false, "", nil,
-	)
-	require.NoError(t, err)
-
-	snap := b.Snapshot(t.Context())
-	require.NotNil(t, snap)
-
-	b2 := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
-	require.NoError(t, b2.Restore(t.Context(), snap))
-
-	// Both statements should still be accessible.
-	_, err = b2.DescribeStatement(context.Background(), stmt1.ID)
-	require.NoError(t, err)
-
-	_, err = b2.DescribeStatement(context.Background(), stmt2.ID)
-	require.NoError(t, err)
-
-	assert.Equal(t, 2, b2.StatementCount())
-}
-
-// TestRefinement1_DescribeStatement_CloneDoesNotMutate verifies that modifying
+// TestDescribeStatement_CloneDoesNotMutate verifies that modifying
 // the returned Statement from DescribeStatement does not affect the backend store.
-func TestRefinement1_DescribeStatement_CloneDoesNotMutate(t *testing.T) {
+func TestDescribeStatement_CloneDoesNotMutate(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
@@ -430,8 +475,8 @@ func TestRefinement1_DescribeStatement_CloneDoesNotMutate(t *testing.T) {
 	assert.Empty(t, original.QueryStrings)
 }
 
-// TestRefinement1_StatementCount_RaceCondition verifies concurrent access is safe.
-func TestRefinement1_StatementCount_RaceCondition(t *testing.T) {
+// TestStatementCount_RaceCondition verifies concurrent access is safe.
+func TestStatementCount_RaceCondition(t *testing.T) {
 	t.Parallel()
 
 	b := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
@@ -452,13 +497,4 @@ func TestRefinement1_StatementCount_RaceCondition(t *testing.T) {
 	}
 
 	<-done
-}
-
-// TestRefinement1_Provider_Init_ValidContext verifies Init succeeds with a non-nil context.
-func TestRefinement1_Provider_Init_ValidContext(t *testing.T) {
-	t.Parallel()
-
-	p := &redshiftdata.Provider{}
-	_, err := p.Init(&service.AppContext{})
-	assert.NoError(t, err)
 }

@@ -211,3 +211,74 @@ func Test_Persistence_HandlerDelegates(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), snap))
 	assert.Equal(t, b.StatementCount(), b2.StatementCount())
 }
+
+// TestSnapshot_Restore verifies round-trip Snapshot/Restore.
+func TestSnapshot_Restore(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend(persistenceTestAccountID, "us-east-1")
+
+	stmt, err := b.ExecuteStatement(
+		context.Background(), "SELECT 42", "cluster", "", "mydb", "", "", "test-stmt", false, "", nil,
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := NewInMemoryBackend(persistenceTestAccountID, "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	got, err := b2.DescribeStatement(context.Background(), stmt.ID)
+	require.NoError(t, err)
+	assert.Equal(t, stmt.ID, got.ID)
+	assert.Equal(t, "SELECT 42", got.QueryString)
+	assert.Equal(t, "test-stmt", got.StatementName)
+	assert.Equal(t, "FINISHED", got.Status)
+}
+
+// TestSnapshot_Empty verifies Snapshot works with an empty backend.
+func TestSnapshot_Empty(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend(persistenceTestAccountID, "us-east-1")
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := NewInMemoryBackend(persistenceTestAccountID, "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+	assert.Equal(t, 0, b2.StatementCount())
+}
+
+// TestSnapshot_PreservesStatementKeys verifies Snapshot/Restore preserves
+// the eviction key ordering so the oldest-first eviction works correctly after restore.
+func TestSnapshot_PreservesStatementKeys(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend(persistenceTestAccountID, "us-east-1")
+
+	stmt1, err := b.ExecuteStatement(
+		context.Background(), "SELECT 1", "cluster", "", "mydb", "", "", "", false, "", nil,
+	)
+	require.NoError(t, err)
+
+	stmt2, err := b.ExecuteStatement(
+		context.Background(), "SELECT 2", "cluster", "", "mydb", "", "", "", false, "", nil,
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := NewInMemoryBackend(persistenceTestAccountID, "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Both statements should still be accessible.
+	_, err = b2.DescribeStatement(context.Background(), stmt1.ID)
+	require.NoError(t, err)
+
+	_, err = b2.DescribeStatement(context.Background(), stmt2.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, b2.StatementCount())
+}
