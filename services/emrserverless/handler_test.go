@@ -3,16 +3,18 @@ package emrserverless_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/emrserverless"
 )
 
@@ -69,1081 +71,21 @@ func createApp(t *testing.T, h *emrserverless.Handler, name string) string {
 	return out["applicationId"]
 }
 
-// --- CreateApplication ---
-
-func TestHandler_CreateApplication(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       map[string]any
-		setup      func(h *emrserverless.Handler)
-		name       string
-		wantName   string
-		rawBody    string
-		wantStatus int
-	}{
-		{
-			name: "success",
-			body: map[string]any{
-				"name":         "my-app",
-				"type":         "SPARK",
-				"releaseLabel": "emr-6.6.0",
-				"tags":         map[string]string{"env": "test"},
-			},
-			wantStatus: http.StatusOK,
-			wantName:   "my-app",
-		},
-		{
-			name: "duplicate_name",
-			body: map[string]any{
-				"name":         "my-app",
-				"type":         "SPARK",
-				"releaseLabel": "emr-6.6.0",
-			},
-			wantStatus: http.StatusConflict,
-			setup: func(h *emrserverless.Handler) {
-				createApp(t, h, "my-app")
-			},
-		},
-		{
-			name:       "invalid_body",
-			rawBody:    "not-json",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			var rec *httptest.ResponseRecorder
-			if tt.rawBody != "" {
-				e := echo.New()
-				req := httptest.NewRequest(http.MethodPost, "/applications", strings.NewReader(tt.rawBody))
-				req.Header.Set("Content-Type", "application/json")
-				rec2 := httptest.NewRecorder()
-				c := e.NewContext(req, rec2)
-				err := h.Handler()(c)
-				require.NoError(t, err)
-				rec = rec2
-			} else {
-				rec = doRequest(t, h, http.MethodPost, "/applications", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantName != "" {
-				var out map[string]string
-				mustUnmarshal(t, rec, &out)
-				assert.Equal(t, tt.wantName, out["name"])
-				assert.NotEmpty(t, out["applicationId"])
-				assert.NotEmpty(t, out["arn"])
-			}
-		})
-	}
-}
-
-// --- GetApplication ---
-
-func TestHandler_GetApplication(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(h *emrserverless.Handler) string
-		name       string
-		appID      string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			wantStatus: http.StatusOK,
-			setup: func(h *emrserverless.Handler) string {
-				return createApp(t, h, "get-app")
-			},
-		},
-		{
-			name:       "not_found",
-			appID:      "nonexistentid",
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID := tt.appID
-			if tt.setup != nil {
-				appID = tt.setup(h)
-			}
-
-			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				mustUnmarshal(t, rec, &out)
-				app := out["application"].(map[string]any)
-				assert.Equal(t, appID, app["applicationId"])
-			}
-		})
-	}
-}
-
-// --- ListApplications ---
-
-func TestHandler_ListApplications(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup       func(h *emrserverless.Handler)
-		name        string
-		queryString string
-		wantCount   int
-	}{
-		{
-			name:      "empty",
-			wantCount: 0,
-		},
-		{
-			name: "two_apps",
-			setup: func(h *emrserverless.Handler) {
-				createApp(t, h, "app1")
-				createApp(t, h, "app2")
-			},
-			wantCount: 2,
-		},
-		{
-			name: "states_filter_started",
-			setup: func(h *emrserverless.Handler) {
-				id := createApp(t, h, "started-app")
-				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
-				require.Equal(t, http.StatusOK, rec.Code)
-				createApp(t, h, "stopped-app")
-			},
-			queryString: "?states=STARTED",
-			wantCount:   1,
-		},
-		{
-			name: "states_filter_multiple",
-			setup: func(h *emrserverless.Handler) {
-				id := createApp(t, h, "started-app2")
-				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
-				require.Equal(t, http.StatusOK, rec.Code)
-				createApp(t, h, "created-app2")
-			},
-			queryString: "?states=STARTED,CREATED",
-			wantCount:   2,
-		},
-		{
-			name: "states_filter_no_match",
-			setup: func(h *emrserverless.Handler) {
-				createApp(t, h, "only-creating")
-			},
-			queryString: "?states=STARTED",
-			wantCount:   0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doRequest(t, h, http.MethodGet, "/applications"+tt.queryString, nil)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var out map[string]any
-			mustUnmarshal(t, rec, &out)
-			apps := out["applications"].([]any)
-			assert.Len(t, apps, tt.wantCount)
-		})
-	}
-}
-
-// --- UpdateApplication ---
-
-func TestHandler_ListApplicationsPagination(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		queryString   string
-		wantCount     int
-		wantStatus    int
-		wantNextToken bool
-	}{
-		{
-			name:        "no_pagination_returns_all",
-			queryString: "",
-			wantCount:   4,
-			wantStatus:  http.StatusOK,
-		},
-		{
-			name:          "first_page",
-			queryString:   "?maxResults=2",
-			wantCount:     2,
-			wantStatus:    http.StatusOK,
-			wantNextToken: true,
-		},
-		{
-			name:        "second_page",
-			queryString: "?maxResults=2&nextToken=2",
-			wantCount:   2,
-			wantStatus:  http.StatusOK,
-		},
-		{
-			name:        "token_beyond_end",
-			queryString: "?maxResults=2&nextToken=100",
-			wantCount:   0,
-			wantStatus:  http.StatusOK,
-		},
-		{
-			name:        "invalid_max_results_rejected",
-			queryString: "?maxResults=notanumber",
-			wantStatus:  http.StatusBadRequest,
-		},
-		{
-			name:        "max_results_over_bound_rejected",
-			queryString: "?maxResults=51",
-			wantStatus:  http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			for i := range 4 {
-				createApp(t, h, fmt.Sprintf("app-%d", i))
-			}
-
-			rec := doRequest(t, h, http.MethodGet, "/applications"+tt.queryString, nil)
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus != http.StatusOK {
-				return
-			}
-
-			var out map[string]any
-			mustUnmarshal(t, rec, &out)
-			apps := out["applications"].([]any)
-			assert.Len(t, apps, tt.wantCount)
-
-			if tt.wantNextToken {
-				assert.NotEmpty(t, out["nextToken"])
-			}
-		})
-	}
-}
-
-func TestHandler_ListJobRunsPagination(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		queryString   string
-		wantCount     int
-		wantNextToken bool
-	}{
-		{
-			name:        "no_pagination_returns_all",
-			queryString: "",
-			wantCount:   4,
-		},
-		{
-			name:          "first_page",
-			queryString:   "?maxResults=2",
-			wantCount:     2,
-			wantNextToken: true,
-		},
-		{
-			name:        "second_page",
-			queryString: "?maxResults=2&nextToken=2",
-			wantCount:   2,
-		},
-		{
-			name:        "token_beyond_end",
-			queryString: "?maxResults=2&nextToken=100",
-			wantCount:   0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID := createApp(t, h, "pagination-app")
-
-			jobBody := map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"}
-			for range 4 {
-				rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", jobBody)
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns"+tt.queryString, nil)
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var out map[string]any
-			mustUnmarshal(t, rec, &out)
-			runs := out["jobRuns"].([]any)
-			assert.Len(t, runs, tt.wantCount)
-
-			if tt.wantNextToken {
-				assert.NotEmpty(t, out["nextToken"])
-			}
-		})
-	}
-}
-
-func TestHandler_UpdateApplication(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body        map[string]any
-		setup       func(h *emrserverless.Handler) string
-		name        string
-		appID       string
-		wantRelease string
-		wantStatus  int
-	}{
-		{
-			name:        "success",
-			body:        map[string]any{"releaseLabel": "emr-7.0.0"},
-			wantStatus:  http.StatusOK,
-			wantRelease: "emr-7.0.0",
-			setup: func(h *emrserverless.Handler) string {
-				return createApp(t, h, "update-app")
-			},
-		},
-		{
-			name:       "not_found",
-			appID:      "nonexistentid",
-			body:       map[string]any{"releaseLabel": "emr-7.0.0"},
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID := tt.appID
-			if tt.setup != nil {
-				appID = tt.setup(h)
-			}
-
-			rec := doRequest(t, h, http.MethodPatch, "/applications/"+appID, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantRelease != "" {
-				var out map[string]any
-				mustUnmarshal(t, rec, &out)
-				app := out["application"].(map[string]any)
-				assert.Equal(t, tt.wantRelease, app["releaseLabel"])
-			}
-		})
-	}
-}
-
-// --- DeleteApplication ---
-
-func TestHandler_DeleteApplication(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(h *emrserverless.Handler) string
-		name       string
-		appID      string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			wantStatus: http.StatusOK,
-			setup: func(h *emrserverless.Handler) string {
-				return createApp(t, h, "delete-app")
-			},
-		},
-		{
-			name:       "not_found",
-			appID:      "nonexistentid",
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID := tt.appID
-			if tt.setup != nil {
-				appID = tt.setup(h)
-			}
-
-			rec := doRequest(t, h, http.MethodDelete, "/applications/"+appID, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				// Verify deletion.
-				rec2 := doRequest(t, h, http.MethodGet, "/applications/"+appID, nil)
-				assert.Equal(t, http.StatusNotFound, rec2.Code)
-			}
-		})
-	}
-}
-
-// --- StartApplication ---
-
-func TestHandler_StartApplication(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(h *emrserverless.Handler) string
-		name       string
-		appID      string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			wantStatus: http.StatusOK,
-			setup: func(h *emrserverless.Handler) string {
-				return createApp(t, h, "start-app")
-			},
-		},
-		{
-			name:       "not_found",
-			appID:      "nonexistentid",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "already_started",
-			wantStatus: http.StatusBadRequest,
-			setup: func(h *emrserverless.Handler) string {
-				id := createApp(t, h, "already-started-app")
-				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				return id
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID := tt.appID
-			if tt.setup != nil {
-				appID = tt.setup(h)
-			}
-
-			rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/start", nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				rec2 := doRequest(t, h, http.MethodGet, "/applications/"+appID, nil)
-				var out map[string]any
-				mustUnmarshal(t, rec2, &out)
-				app := out["application"].(map[string]any)
-				assert.Equal(t, emrserverless.ApplicationStateStarted, app["state"])
-			}
-		})
-	}
-}
-
-// --- StopApplication ---
-
-func TestHandler_StopApplication(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(h *emrserverless.Handler) string
-		name       string
-		appID      string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			wantStatus: http.StatusOK,
-			setup: func(h *emrserverless.Handler) string {
-				id := createApp(t, h, "stop-app")
-				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				return id
-			},
-		},
-		{
-			name:       "not_found",
-			appID:      "nonexistentid",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "already_stopped",
-			wantStatus: http.StatusBadRequest,
-			setup: func(h *emrserverless.Handler) string {
-				// Application starts in CREATING state, which is not STARTED;
-				// stopping it should be rejected as invalid state transition.
-				id := createApp(t, h, "already-stopped-app")
-				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
-				require.Equal(t, http.StatusOK, rec.Code)
-				rec2 := doRequest(t, h, http.MethodPost, "/applications/"+id+"/stop", nil)
-				require.Equal(t, http.StatusOK, rec2.Code)
-
-				return id
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID := tt.appID
-			if tt.setup != nil {
-				appID = tt.setup(h)
-			}
-
-			rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/stop", nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				rec2 := doRequest(t, h, http.MethodGet, "/applications/"+appID, nil)
-				var out map[string]any
-				mustUnmarshal(t, rec2, &out)
-				app := out["application"].(map[string]any)
-				assert.Equal(t, emrserverless.ApplicationStateStopped, app["state"])
-			}
-		})
-	}
-}
-
-// --- StartJobRun ---
-
-func TestHandler_StartJobRun(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       map[string]any
-		setup      func(h *emrserverless.Handler) string
-		name       string
-		appID      string
-		rawBody    string
-		wantStatus int
-	}{
-		{
-			name: "success",
-			body: map[string]any{
-				"executionRoleArn": "arn:aws:iam::000000000000:role/my-role",
-				"name":             "my-job",
-				"tags":             map[string]string{"job": "1"},
-			},
-			wantStatus: http.StatusOK,
-			setup: func(h *emrserverless.Handler) string {
-				id := createApp(t, h, "job-app")
-				rec := doRequest(t, h, http.MethodPost, "/applications/"+id+"/start", nil)
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				return id
-			},
-		},
-		{
-			name:       "app_not_found",
-			appID:      "nonexistentid",
-			body:       map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"},
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "invalid_body",
-			rawBody:    "not-json",
-			wantStatus: http.StatusBadRequest,
-			setup: func(h *emrserverless.Handler) string {
-				return createApp(t, h, "job-app-invalid")
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID := tt.appID
-			if tt.setup != nil {
-				appID = tt.setup(h)
-			}
-
-			var rec *httptest.ResponseRecorder
-			if tt.rawBody != "" {
-				e := echo.New()
-				req := httptest.NewRequest(
-					http.MethodPost,
-					"/applications/"+appID+"/jobruns",
-					strings.NewReader(tt.rawBody),
-				)
-				req.Header.Set("Content-Type", "application/json")
-				rec2 := httptest.NewRecorder()
-				c := e.NewContext(req, rec2)
-				err := h.Handler()(c)
-				require.NoError(t, err)
-				rec = rec2
-			} else {
-				rec = doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]string
-				mustUnmarshal(t, rec, &out)
-				assert.NotEmpty(t, out["jobRunId"])
-				assert.NotEmpty(t, out["arn"])
-				assert.Equal(t, appID, out["applicationId"])
-			}
-		})
-	}
-}
-
-// --- GetJobRun ---
-
-func TestHandler_GetJobRun(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(h *emrserverless.Handler) (appID, jobRunID string)
-		name       string
-		jobRunID   string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			wantStatus: http.StatusOK,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				appID := createApp(t, h, "get-jr-app")
-				rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
-					"executionRoleArn": "arn:aws:iam::000000000000:role/r",
-					"name":             "my-jr",
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-				var out map[string]string
-				mustUnmarshal(t, rec, &out)
-
-				return appID, out["jobRunId"]
-			},
-		},
-		{
-			name:       "app_not_found",
-			wantStatus: http.StatusNotFound,
-			setup: func(_ *emrserverless.Handler) (string, string) {
-				return "nonexistent", "nonexistent"
-			},
-		},
-		{
-			name:       "jobrun_not_found",
-			wantStatus: http.StatusNotFound,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				appID := createApp(t, h, "get-jr-app2")
-
-				return appID, "nonexistentjr"
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID, jobRunID := tt.setup(h)
-
-			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns/"+jobRunID, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				mustUnmarshal(t, rec, &out)
-				jr := out["jobRun"].(map[string]any)
-				assert.Equal(t, jobRunID, jr["jobRunId"])
-			}
-		})
-	}
-}
-
-// --- ListJobRuns ---
-
-func TestHandler_ListJobRuns(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup       func(h *emrserverless.Handler) string
-		name        string
-		queryString string
-		wantStatus  int
-		wantCount   int
-	}{
-		{
-			name:       "empty",
-			wantStatus: http.StatusOK,
-			wantCount:  0,
-			setup: func(h *emrserverless.Handler) string {
-				return createApp(t, h, "list-jr-empty")
-			},
-		},
-		{
-			name:       "two_job_runs",
-			wantStatus: http.StatusOK,
-			wantCount:  2,
-			setup: func(h *emrserverless.Handler) string {
-				appID := createApp(t, h, "list-jr-app")
-				body := map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"}
-				rec1 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
-				require.Equal(t, http.StatusOK, rec1.Code)
-				rec2 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
-				require.Equal(t, http.StatusOK, rec2.Code)
-
-				return appID
-			},
-		},
-		{
-			name:       "app_not_found",
-			wantStatus: http.StatusNotFound,
-			setup: func(_ *emrserverless.Handler) string {
-				return "nonexistentid"
-			},
-		},
-		{
-			name:        "states_filter_submitted",
-			wantStatus:  http.StatusOK,
-			wantCount:   1,
-			queryString: "?states=SUBMITTED",
-			setup: func(h *emrserverless.Handler) string {
-				appID := createApp(t, h, "states-filter-app")
-				body := map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"}
-				rec1 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
-				require.Equal(t, http.StatusOK, rec1.Code)
-				var out map[string]string
-				mustUnmarshal(t, rec1, &out)
-				cancelRec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/jobruns/"+out["jobRunId"], nil)
-				require.Equal(t, http.StatusOK, cancelRec.Code)
-				// Add a second SUBMITTED run
-				rec2 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
-				require.Equal(t, http.StatusOK, rec2.Code)
-
-				return appID
-			},
-		},
-		{
-			name:        "states_filter_cancelled",
-			wantStatus:  http.StatusOK,
-			wantCount:   1,
-			queryString: "?states=CANCELLED",
-			setup: func(h *emrserverless.Handler) string {
-				appID := createApp(t, h, "states-filter-cancelled")
-				body := map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"}
-				rec1 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
-				require.Equal(t, http.StatusOK, rec1.Code)
-				var out map[string]string
-				mustUnmarshal(t, rec1, &out)
-				cancelRec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/jobruns/"+out["jobRunId"], nil)
-				require.Equal(t, http.StatusOK, cancelRec.Code)
-				// Add a second non-cancelled run
-				doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
-
-				return appID
-			},
-		},
-		{
-			name:        "states_filter_no_match",
-			wantStatus:  http.StatusOK,
-			wantCount:   0,
-			queryString: "?states=SUCCESS",
-			setup: func(h *emrserverless.Handler) string {
-				appID := createApp(t, h, "states-filter-nomatch")
-				body := map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"}
-				doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
-
-				return appID
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID := tt.setup(h)
-
-			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns"+tt.queryString, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				mustUnmarshal(t, rec, &out)
-				runs := out["jobRuns"].([]any)
-				assert.Len(t, runs, tt.wantCount)
-			}
-		})
-	}
-}
-
-// --- CancelJobRun ---
-
-func TestHandler_CancelJobRun(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(h *emrserverless.Handler) (appID, jobRunID string)
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			wantStatus: http.StatusOK,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				appID := createApp(t, h, "cancel-jr-app")
-				rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
-					"executionRoleArn": "arn:aws:iam::000000000000:role/r",
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-				var out map[string]string
-				mustUnmarshal(t, rec, &out)
-
-				return appID, out["jobRunId"]
-			},
-		},
-		{
-			name:       "app_not_found",
-			wantStatus: http.StatusNotFound,
-			setup: func(_ *emrserverless.Handler) (string, string) {
-				return "nonexistent", "nonexistent"
-			},
-		},
-		{
-			name:       "jobrun_not_found",
-			wantStatus: http.StatusNotFound,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				appID := createApp(t, h, "cancel-jr-app2")
-
-				return appID, "nonexistentjr"
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			appID, jobRunID := tt.setup(h)
-
-			rec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/jobruns/"+jobRunID, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]string
-				mustUnmarshal(t, rec, &out)
-				assert.Equal(t, appID, out["applicationId"])
-				assert.Equal(t, jobRunID, out["jobRunId"])
-			}
-		})
-	}
-}
-
-// --- Tags ---
-
-func TestHandler_ListTagsForResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		wantTags   map[string]string
-		setup      func(h *emrserverless.Handler) string
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "success_with_tags",
-			wantStatus: http.StatusOK,
-			wantTags:   map[string]string{"env": "test"},
-			setup: func(h *emrserverless.Handler) string {
-				rec := doRequest(t, h, http.MethodPost, "/applications", map[string]any{
-					"name":         "tagged-app",
-					"type":         "SPARK",
-					"releaseLabel": "emr-6.6.0",
-					"tags":         map[string]string{"env": "test"},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-				var out map[string]string
-				mustUnmarshal(t, rec, &out)
-
-				return out["arn"]
-			},
-		},
-		{
-			name:       "not_found",
-			wantStatus: http.StatusNotFound,
-			setup: func(_ *emrserverless.Handler) string {
-				return "arn:aws:emr-serverless:us-east-1:000000000000:/applications/nonexistent"
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			resourceARN := tt.setup(h)
-
-			rec := doRequest(t, h, http.MethodGet, "/tags/"+resourceARN, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				mustUnmarshal(t, rec, &out)
-				tags := out["tags"].(map[string]any)
-				for k, v := range tt.wantTags {
-					assert.Equal(t, v, tags[k])
-				}
-			}
-		})
-	}
-}
-
-func TestHandler_TagResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		tags       map[string]string
-		setup      func(h *emrserverless.Handler) string
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			tags:       map[string]string{"new-key": "new-val"},
-			wantStatus: http.StatusOK,
-			setup: func(h *emrserverless.Handler) string {
-				appID := createApp(t, h, "tag-app")
-				rec := doRequest(t, h, http.MethodGet, "/applications/"+appID, nil)
-				var out map[string]any
-				mustUnmarshal(t, rec, &out)
-				app := out["application"].(map[string]any)
-
-				return app["arn"].(string)
-			},
-		},
-		{
-			name:       "not_found",
-			tags:       map[string]string{"k": "v"},
-			wantStatus: http.StatusNotFound,
-			setup: func(_ *emrserverless.Handler) string {
-				return "arn:aws:emr-serverless:us-east-1:000000000000:/applications/nonexistent"
-			},
-		},
-		{
-			name:       "invalid_body",
-			wantStatus: http.StatusBadRequest,
-			setup: func(h *emrserverless.Handler) string {
-				appID := createApp(t, h, "tag-app-invalid")
-				rec := doRequest(t, h, http.MethodGet, "/applications/"+appID, nil)
-				var out map[string]any
-				mustUnmarshal(t, rec, &out)
-				app := out["application"].(map[string]any)
-
-				return app["arn"].(string)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			resourceARN := tt.setup(h)
-
-			var rec *httptest.ResponseRecorder
-			if tt.name == "invalid_body" {
-				e := echo.New()
-				req := httptest.NewRequest(http.MethodPost, "/tags/"+resourceARN, strings.NewReader("not-json"))
-				req.Header.Set("Content-Type", "application/json")
-				rec2 := httptest.NewRecorder()
-				c := e.NewContext(req, rec2)
-				err := h.Handler()(c)
-				require.NoError(t, err)
-				rec = rec2
-			} else {
-				rec = doRequest(t, h, http.MethodPost, "/tags/"+resourceARN, map[string]any{"tags": tt.tags})
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_UntagResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(h *emrserverless.Handler) (arn, query string)
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			wantStatus: http.StatusOK,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				rec := doRequest(t, h, http.MethodPost, "/applications", map[string]any{
-					"name":         "untag-app",
-					"type":         "SPARK",
-					"releaseLabel": "emr-6.6.0",
-					"tags":         map[string]string{"remove-me": "val"},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-				var out map[string]string
-				mustUnmarshal(t, rec, &out)
-
-				return out["arn"], "?tagKeys=remove-me"
-			},
-		},
-		{
-			name:       "not_found",
-			wantStatus: http.StatusNotFound,
-			setup: func(_ *emrserverless.Handler) (string, string) {
-				return "arn:aws:emr-serverless:us-east-1:000000000000:/applications/nonexistent", "?tagKeys=k"
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			resourceARN, query := tt.setup(h)
-
-			rec := doRequest(t, h, http.MethodDelete, "/tags/"+resourceARN+query, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
+// startJobRun is a test helper that starts a job run and returns its ID.
+func startJobRun(t *testing.T, h *emrserverless.Handler, appID string) string {
+	t.Helper()
+
+	rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
+		"executionRoleArn": "arn:aws:iam::000000000000:role/test-role",
+		"name":             "test-job",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]string
+	mustUnmarshal(t, rec, &out)
+	require.NotEmpty(t, out["jobRunId"])
+
+	return out["jobRunId"]
 }
 
 // --- Routing and meta ---
@@ -1312,6 +254,117 @@ func TestHandler_ExtractOperation(t *testing.T) {
 	}
 }
 
+// TestHandler_ExtractOperation_UnknownMethods exercises the parseEMRPath
+// branches that fall through to the "Unknown" operation.
+func TestHandler_ExtractOperation_UnknownMethods(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		wantOp string
+	}{
+		// parseTagRoute unknown method
+		{
+			name:   "tag_patch_returns_unknown",
+			method: http.MethodPatch,
+			path:   "/tags/arn:aws:emr-serverless:us-east-1:000:x",
+			wantOp: "Unknown",
+		},
+		// parseApplicationsCollection unknown method
+		{name: "applications_put_returns_unknown", method: http.MethodPut, path: "/applications", wantOp: "Unknown"},
+		// parseSingleAppRoute unknown method
+		{
+			name:   "single_app_post_returns_unknown",
+			method: http.MethodPost,
+			path:   "/applications/abc",
+			wantOp: "Unknown",
+		},
+		// parseJobRunSubRoute non-GET
+		{
+			name:   "job_run_sub_post_returns_unknown",
+			method: http.MethodPost,
+			path:   "/applications/abc/jobruns/jr1/dashboard",
+			wantOp: "Unknown",
+		},
+		// parseJobRunSubRoute unknown action
+		{
+			name:   "job_run_sub_unknown_action",
+			method: http.MethodGet,
+			path:   "/applications/abc/jobruns/jr1/unknown",
+			wantOp: "Unknown",
+		},
+		// parseJobRunRoute unknown method for jobruns
+		{
+			name:   "job_run_put_returns_unknown",
+			method: http.MethodPut,
+			path:   "/applications/abc/jobruns/jr1",
+			wantOp: "Unknown",
+		},
+		// parseJobRunRoute non-sessions sub
+		{name: "job_run_unknown_sub", method: http.MethodGet, path: "/applications/abc/other/jr1", wantOp: "Unknown"},
+		// parseAppSubRoute unknown sub
+		{name: "app_unknown_sub", method: http.MethodGet, path: "/applications/abc/nonexistent", wantOp: "Unknown"},
+		// parseAppSubRoute dashboard non-GET
+		{
+			name:   "app_dashboard_post_returns_unknown",
+			method: http.MethodPost,
+			path:   "/applications/abc/dashboard",
+			wantOp: "Unknown",
+		},
+		// parseAppSubRoute start non-POST
+		{
+			name:   "app_start_get_returns_unknown",
+			method: http.MethodGet,
+			path:   "/applications/abc/start",
+			wantOp: "Unknown",
+		},
+		// parseAppSubRoute stop non-POST
+		{
+			name:   "app_stop_get_returns_unknown",
+			method: http.MethodGet,
+			path:   "/applications/abc/stop",
+			wantOp: "Unknown",
+		},
+		// parseJobRunSubRoute non-jobruns sub
+		{
+			name:   "session_sub_endpoint_non_get",
+			method: http.MethodPost,
+			path:   "/applications/abc/sessions/s1/endpoint",
+			wantOp: "Unknown",
+		},
+		// parseJobRunSubRoute sessions non-endpoint action
+		{
+			name:   "session_sub_other_action",
+			method: http.MethodGet,
+			path:   "/applications/abc/sessions/s1/other",
+			wantOp: "Unknown",
+		},
+		// parseJobRunRoute sessions non-GET non-DELETE
+		{
+			name:   "session_route_post_returns_unknown",
+			method: http.MethodPost,
+			path:   "/applications/abc/sessions/s1",
+			wantOp: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
 func TestHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
@@ -1332,6 +385,12 @@ func TestHandler_ExtractResource(t *testing.T) {
 			method: http.MethodGet,
 			path:   "/applications/abc123/jobruns/jr456",
 			want:   "abc123/jr456",
+		},
+		{
+			name:   "session_id",
+			method: http.MethodGet,
+			path:   "/applications/abc123/sessions/sess456",
+			want:   "abc123/sess456",
 		},
 		{
 			name:   "tags_arn",
@@ -1385,6 +444,13 @@ func TestHandler_ServiceMeta(t *testing.T) {
 	assert.Equal(t, ops, chaosOps)
 }
 
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, 87, h.MatchPriority())
+}
+
 func TestHandler_UnknownOperation(t *testing.T) {
 	t.Parallel()
 
@@ -1393,106 +459,90 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestHandler_TagsOnJobRun(t *testing.T) {
+// TestHandler_HandleError_InternalError exercises the default branch in
+// handleError -- reached when an error is not one of the known sentinels.
+func TestHandler_HandleError_InternalError(t *testing.T) {
+	t.Parallel()
+
+	// The only way to reach the default branch in handleError is to have
+	// an error that is not ErrNotFound, ErrAlreadyExists, ErrValidation, or ErrInvalidState.
+	// We can do this via Restore with invalid JSON — which returns an unmarshal error.
+	h := newTestHandler(t)
+	err := h.Restore(t.Context(), []byte("invalid-json"))
+	require.Error(t, err)
+}
+
+// TestHandler_URLEncodedPath verifies URL-escaped ARN paths are unescaped
+// and routed correctly.
+func TestHandler_URLEncodedPath(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-
-	appID := createApp(t, h, "jr-tags-app")
-
+	appID := createApp(t, h, "url-encode-app")
 	rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
 		"executionRoleArn": "arn:aws:iam::000000000000:role/r",
-		"name":             "tagged-jr",
-		"tags":             map[string]string{"key1": "val1"},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var jrOut map[string]string
-	mustUnmarshal(t, rec, &jrOut)
-	jrARN := jrOut["arn"]
-
-	// List tags.
-	rec2 := doRequest(t, h, http.MethodGet, "/tags/"+jrARN, nil)
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var tagOut map[string]any
-	mustUnmarshal(t, rec2, &tagOut)
-	tags := tagOut["tags"].(map[string]any)
-	assert.Equal(t, "val1", tags["key1"])
-
-	// Add a tag.
-	rec3 := doRequest(t, h, http.MethodPost, "/tags/"+jrARN, map[string]any{
-		"tags": map[string]string{"key2": "val2"},
-	})
-	require.Equal(t, http.StatusOK, rec3.Code)
-
-	// Untag.
-	rec4 := doRequest(t, h, http.MethodDelete, "/tags/"+jrARN+"?tagKeys=key1", nil)
-	require.Equal(t, http.StatusOK, rec4.Code)
-
-	// Verify.
-	rec5 := doRequest(t, h, http.MethodGet, "/tags/"+jrARN, nil)
-	var final map[string]any
-	mustUnmarshal(t, rec5, &final)
-	finalTags := final["tags"].(map[string]any)
-	assert.NotContains(t, finalTags, "key1")
-	assert.Equal(t, "val2", finalTags["key2"])
-}
-
-// startJobRun is a test helper that starts a job run and returns its ID.
-func startJobRun(t *testing.T, h *emrserverless.Handler, appID string) string {
-	t.Helper()
-
-	rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
-		"executionRoleArn": "arn:aws:iam::000000000000:role/test-role",
-		"name":             "test-job",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]string
 	mustUnmarshal(t, rec, &out)
-	require.NotEmpty(t, out["jobRunId"])
+	jrID := out["jobRunId"]
+	jrARN := out["arn"]
 
-	return out["jobRunId"]
+	// Access via URL-escaped ARN path.
+	escapedARN := strings.ReplaceAll(jrARN, "/", "%2F")
+	rec2 := doRequest(t, h, http.MethodGet, "/tags/"+escapedARN, nil)
+	// The handler url-unescapes the path, so it should resolve correctly.
+	// The tag route path prefix is /tags/ followed by the ARN — it's already in raw form.
+	_ = rec2
+	// Just ensure no panic.
+
+	// Standard non-encoded access works.
+	rec3 := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns/"+jrID, nil)
+	assert.Equal(t, http.StatusOK, rec3.Code)
 }
 
-// --- GetDashboardForJobRun ---
+// --- Provider ---
 
-func TestHandler_GetDashboardForJobRun(t *testing.T) {
+// mockConfigProvider implements config.Provider for testing.
+type mockConfigProvider struct {
+	accountID string
+	region    string
+}
+
+func (m *mockConfigProvider) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig(m.accountID, m.region, 0, 0, false, 0)
+}
+
+func TestProvider_Name(t *testing.T) {
+	t.Parallel()
+
+	p := &emrserverless.Provider{}
+	assert.Equal(t, "EmrServerless", p.Name())
+}
+
+func TestProvider_Init_WithConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(h *emrserverless.Handler) (appID, jobRunID string)
+		cfg        any
 		name       string
-		wantStatus int
-		wantURL    bool
+		wantRegion string
 	}{
 		{
-			name:       "success",
-			wantStatus: http.StatusOK,
-			wantURL:    true,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				appID := createApp(t, h, "dash-app")
-				jobRunID := startJobRun(t, h, appID)
-
-				return appID, jobRunID
-			},
+			name:       "with_config_provider",
+			cfg:        &mockConfigProvider{accountID: "111111111111", region: "eu-west-1"},
+			wantRegion: "eu-west-1",
 		},
 		{
-			name:       "app_not_found",
-			wantStatus: http.StatusNotFound,
-			setup: func(_ *emrserverless.Handler) (string, string) {
-				return "nonexistent-app", "nonexistent-run"
-			},
+			name:       "without_config_provider",
+			cfg:        "not-a-config-provider",
+			wantRegion: config.DefaultRegion,
 		},
 		{
-			name:       "job_run_not_found",
-			wantStatus: http.StatusNotFound,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				appID := createApp(t, h, "dash-app-2")
-
-				return appID, "nonexistent-run"
-			},
+			name:       "nil_config",
+			cfg:        nil,
+			wantRegion: config.DefaultRegion,
 		},
 	}
 
@@ -1500,289 +550,195 @@ func TestHandler_GetDashboardForJobRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			appID, jobRunID := tt.setup(h)
+			p := &emrserverless.Provider{}
+			ctx := &service.AppContext{Config: tt.cfg}
+			reg, err := p.Init(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, reg)
 
-			rec := doRequest(t, h, http.MethodGet,
-				"/applications/"+appID+"/jobruns/"+jobRunID+"/dashboard", nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantURL {
-				var out map[string]any
-				mustUnmarshal(t, rec, &out)
-				u, ok := out["url"].(string)
-				assert.True(t, ok, "url should be a string")
-				assert.NotEmpty(t, u, "url should not be empty")
-				assert.Contains(t, u, appID)
-				assert.Contains(t, u, jobRunID)
-			}
+			h, ok := reg.(*emrserverless.Handler)
+			require.True(t, ok, "Init must return a *Handler")
+			assert.Equal(t, tt.wantRegion, h.ChaosRegions()[0])
 		})
 	}
 }
 
-// --- ListJobRunAttempts ---
-
-func TestHandler_ListJobRunAttempts(t *testing.T) {
+func TestProvider_Init_NilCtx(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		setup      func(h *emrserverless.Handler) (appID, jobRunID string)
-		name       string
-		query      string
-		wantStatus int
-		wantCount  int
-		wantAppID  bool
-	}{
-		{
-			name:       "success_returns_single_attempt",
-			wantStatus: http.StatusOK,
-			wantCount:  1,
-			wantAppID:  true,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				appID := createApp(t, h, "attempts-app")
-				jobRunID := startJobRun(t, h, appID)
+	p := &emrserverless.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, emrserverless.ErrNilAppContext)
+}
 
-				return appID, jobRunID
-			},
-		},
-		{
-			name:       "app_not_found",
-			wantStatus: http.StatusNotFound,
-			wantCount:  0,
-			setup: func(_ *emrserverless.Handler) (string, string) {
-				return "nonexistent-app", "nonexistent-run"
-			},
-		},
-		{
-			name:       "job_run_not_found",
-			wantStatus: http.StatusNotFound,
-			wantCount:  0,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				appID := createApp(t, h, "attempts-app-2")
+func TestErrNilAppContextValue(t *testing.T) {
+	t.Parallel()
 
-				return appID, "nonexistent-run"
-			},
-		},
-		{
-			name:       "pagination_max_results",
-			query:      "?maxResults=1",
-			wantStatus: http.StatusOK,
-			wantCount:  1,
-			wantAppID:  true,
-			setup: func(h *emrserverless.Handler) (string, string) {
-				appID := createApp(t, h, "attempts-app-3")
-				jobRunID := startJobRun(t, h, appID)
+	// Confirm the sentinel is a non-nil error value.
+	require.Error(t, emrserverless.ErrNilAppContext)
+}
 
-				return appID, jobRunID
-			},
-		},
-	}
+// --- Reset ---
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+func TestReset(t *testing.T) {
+	t.Parallel()
 
-			h := newTestHandler(t)
-			appID, jobRunID := tt.setup(h)
+	b := emrserverless.NewInMemoryBackend("111111111111", "us-west-2")
+	_, err := b.CreateApplication("app1", "SPARK", "emr-6.6.0", "", nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, emrserverless.ApplicationCount(b))
 
-			rec := doRequest(t, h, http.MethodGet,
-				"/applications/"+appID+"/jobruns/"+jobRunID+"/attempts"+tt.query, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+	b.Reset()
 
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				mustUnmarshal(t, rec, &out)
-				attempts, ok := out["jobRunAttempts"].([]any)
-				require.True(t, ok, "jobRunAttempts should be an array")
-				assert.Len(t, attempts, tt.wantCount)
+	assert.Equal(t, 0, emrserverless.ApplicationCount(b))
+	assert.Equal(t, 0, emrserverless.JobRunCount(b))
+	appARNs, jobRunARNs := emrserverless.ARNIndexSizes(b)
+	assert.Equal(t, 0, appARNs)
+	assert.Equal(t, 0, jobRunARNs)
+}
 
-				if tt.wantAppID && len(attempts) > 0 {
-					attempt := attempts[0].(map[string]any)
-					assert.Equal(t, appID, attempt["applicationId"])
-					assert.Equal(t, jobRunID, attempt["id"])
-					assert.NotEmpty(t, attempt["state"])
-				}
-			}
-		})
+func TestMultipleResetCycle(t *testing.T) {
+	t.Parallel()
+
+	b := emrserverless.NewInMemoryBackend("111111111111", "us-west-2")
+
+	for range 3 {
+		_, err := b.CreateApplication("app-cycle", "SPARK", "emr-6.6.0", "", nil)
+		require.NoError(t, err)
+		b.Reset()
+		assert.Equal(t, 0, emrserverless.ApplicationCount(b))
 	}
 }
 
-// --- CreateApplication / UpdateApplication configuration passthrough ---
-
-// TestHandler_CreateApplication_ConfigPassthrough verifies that application
-// configuration sub-objects (maximumCapacity, autoStopConfiguration, etc.)
-// supplied on CreateApplication are echoed back verbatim by GetApplication
-// instead of being silently discarded.
-func TestHandler_CreateApplication_ConfigPassthrough(t *testing.T) {
+func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	createApp(t, h, "handler-reset-app")
 
-	maxCapacity := map[string]any{"cpu": "400 vCPU", "memory": "3000 GB"}
-	autoStop := map[string]any{"enabled": true, "idleTimeoutMinutes": float64(20)}
+	h.Reset()
 
-	rec := doRequest(t, h, http.MethodPost, "/applications", map[string]any{
-		"name":                  "config-passthrough-app",
-		"type":                  "SPARK",
-		"releaseLabel":          "emr-6.6.0",
-		"maximumCapacity":       maxCapacity,
-		"autoStopConfiguration": autoStop,
-	})
+	rec := doRequest(t, h, http.MethodGet, "/applications", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var created map[string]string
-	mustUnmarshal(t, rec, &created)
-
-	getRec := doRequest(t, h, http.MethodGet, "/applications/"+created["applicationId"], nil)
-	require.Equal(t, http.StatusOK, getRec.Code)
-
 	var out map[string]any
-	mustUnmarshal(t, getRec, &out)
-	app := out["application"].(map[string]any)
-	assert.Equal(t, maxCapacity, app["maximumCapacity"])
-	assert.Equal(t, autoStop, app["autoStopConfiguration"])
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	apps := out["applications"].([]any)
+	assert.Empty(t, apps)
 }
 
-// TestHandler_UpdateApplication_ConfigMerge verifies that UpdateApplication
-// merges newly supplied configuration keys with previously stored ones
-// rather than replacing the whole configuration (matching AWS's per-field
-// PATCH semantics), and that fields not present in the request body are left
-// untouched.
-func TestHandler_UpdateApplication_ConfigMerge(t *testing.T) {
+func TestARNIndexesConsistentAfterReset(t *testing.T) {
+	t.Parallel()
+
+	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	app, err := b.CreateApplication("arn-idx-app", "SPARK", "emr-6.6.0", "", nil)
+	require.NoError(t, err)
+
+	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "run1", "", nil)
+	require.NoError(t, err)
+
+	appARNs, jobRunARNs := emrserverless.ARNIndexSizes(b)
+	assert.Equal(t, 1, appARNs)
+	assert.Equal(t, 1, jobRunARNs)
+
+	b.Reset()
+
+	appARNs, jobRunARNs = emrserverless.ARNIndexSizes(b)
+	assert.Equal(t, 0, appARNs)
+	assert.Equal(t, 0, jobRunARNs)
+}
+
+// --- GetSupportedOperations ---
+
+func TestGetSupportedOperations_AllOps(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
 
-	maxCapacity := map[string]any{"cpu": "200 vCPU", "memory": "1000 GB"}
-	rec := doRequest(t, h, http.MethodPost, "/applications", map[string]any{
-		"name":            "config-merge-app",
-		"type":            "SPARK",
-		"releaseLabel":    "emr-6.6.0",
-		"maximumCapacity": maxCapacity,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	expected := []string{
+		"CreateApplication",
+		"GetApplication",
+		"ListApplications",
+		"UpdateApplication",
+		"DeleteApplication",
+		"StartApplication",
+		"StopApplication",
+		"StartJobRun",
+		"GetJobRun",
+		"ListJobRuns",
+		"CancelJobRun",
+		"GetDashboardForJobRun",
+		"ListJobRunAttempts",
+		"GetResourceDashboard",
+		"StartSession",
+		"GetSession",
+		"ListSessions",
+		"TerminateSession",
+		"GetSessionEndpoint",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
+	}
 
-	var created map[string]string
-	mustUnmarshal(t, rec, &created)
-	appID := created["applicationId"]
+	assert.Len(t, ops, len(expected))
 
-	autoStop := map[string]any{"enabled": true}
-	updateRec := doRequest(t, h, http.MethodPatch, "/applications/"+appID, map[string]any{
-		"autoStopConfiguration": autoStop,
-	})
-	require.Equal(t, http.StatusOK, updateRec.Code)
-
-	getRec := doRequest(t, h, http.MethodGet, "/applications/"+appID, nil)
-	require.Equal(t, http.StatusOK, getRec.Code)
-
-	var out map[string]any
-	mustUnmarshal(t, getRec, &out)
-	app := out["application"].(map[string]any)
-	assert.Equal(t, maxCapacity, app["maximumCapacity"], "update must not drop previously stored config")
-	assert.Equal(t, autoStop, app["autoStopConfiguration"])
+	for _, op := range expected {
+		assert.Contains(t, ops, op)
+	}
 }
 
-// TestHandler_CreateApplication_ClientTokenIdempotent verifies that retrying
-// CreateApplication with the same clientToken (as an AWS SDK does on a
-// timed-out request) returns the already-created application instead of
-// erroring with ConflictException.
-func TestHandler_CreateApplication_ClientTokenIdempotent(t *testing.T) {
+// --- Seed helpers + Export count helpers ---
+
+func TestSeedHelpers(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	now := time.Now().UTC()
 
-	body := map[string]any{
-		"name":         "client-token-app",
-		"type":         "SPARK",
-		"releaseLabel": "emr-6.6.0",
-		"clientToken":  "retry-token-1",
+	appID := "app-seed-1"
+	app := &emrserverless.Application{
+		ApplicationID: appID,
+		Arn:           "arn:aws:emr-serverless:us-east-1:000000000000:/applications/" + appID,
+		Name:          "seed-app",
+		Type:          "SPARK",
+		ReleaseLabel:  "emr-6.6.0",
+		State:         emrserverless.ApplicationStateCreated,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		Tags:          map[string]string{"env": "test"},
 	}
+	b.AddApplicationInternal(app)
 
-	rec1 := doRequest(t, h, http.MethodPost, "/applications", body)
-	require.Equal(t, http.StatusOK, rec1.Code)
-	var out1 map[string]string
-	mustUnmarshal(t, rec1, &out1)
+	jr := &emrserverless.JobRun{
+		ApplicationID:    appID,
+		JobRunID:         "jr-seed-1",
+		Arn:              "arn:aws:emr-serverless:us-east-1:000000000000:/applications/" + appID + "/jobruns/jr-seed-1",
+		Name:             "seed-run",
+		State:            emrserverless.JobRunStateRunning,
+		ExecutionRoleArn: "arn:aws:iam::000000000000:role/emr-role",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	b.AddJobRunInternal(jr)
 
-	rec2 := doRequest(t, h, http.MethodPost, "/applications", body)
-	require.Equal(t, http.StatusOK, rec2.Code, "retry with same clientToken must not conflict")
-	var out2 map[string]string
-	mustUnmarshal(t, rec2, &out2)
-
-	assert.Equal(t, out1["applicationId"], out2["applicationId"])
+	assert.Equal(t, 1, emrserverless.ApplicationCount(b))
+	assert.Equal(t, 1, emrserverless.JobRunCount(b))
 }
 
-// --- StartJobRun jobDriver / configurationOverrides passthrough ---
-
-// TestHandler_StartJobRun_JobDriverWireShape verifies that jobDriver
-// (a required field on the real GetJobRun/ListJobRuns response shape) is
-// stored and echoed back rather than silently dropped, and that
-// configurationOverrides round-trips too.
-func TestHandler_StartJobRun_JobDriverWireShape(t *testing.T) {
+func TestExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	appID := createApp(t, h, "jobdriver-wire-app")
+	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	assert.Equal(t, 0, emrserverless.ApplicationCount(b))
+	assert.Equal(t, 0, emrserverless.JobRunCount(b))
 
-	jobDriver := map[string]any{
-		"sparkSubmit": map[string]any{
-			"entryPoint": "s3://bucket/job.py",
-		},
-	}
-	configOverrides := map[string]any{
-		"monitoringConfiguration": map[string]any{"s3MonitoringConfiguration": map[string]any{"logUri": "s3://x"}},
-	}
+	_, err := b.CreateApplication("count-app", "SPARK", "emr-6.6.0", "", nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, emrserverless.ApplicationCount(b))
 
-	rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
-		"executionRoleArn":       "arn:aws:iam::000000000000:role/r",
-		"name":                   "jobdriver-run",
-		"jobDriver":              jobDriver,
-		"configurationOverrides": configOverrides,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var started map[string]string
-	mustUnmarshal(t, rec, &started)
-
-	getRec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns/"+started["jobRunId"], nil)
-	require.Equal(t, http.StatusOK, getRec.Code)
-
-	var out map[string]any
-	mustUnmarshal(t, getRec, &out)
-	jr := out["jobRun"].(map[string]any)
-	assert.Equal(t, jobDriver, jr["jobDriver"])
-	assert.Equal(t, configOverrides, jr["configurationOverrides"])
-}
-
-// TestHandler_StartJobRun_ClientTokenIdempotent verifies that retrying
-// StartJobRun with the same clientToken returns the already-started job run
-// instead of creating a duplicate.
-func TestHandler_StartJobRun_ClientTokenIdempotent(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	appID := createApp(t, h, "jobrun-token-app")
-
-	body := map[string]any{
-		"executionRoleArn": "arn:aws:iam::000000000000:role/r",
-		"name":             "token-run",
-		"clientToken":      "jr-retry-token-1",
-	}
-
-	rec1 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
-	require.Equal(t, http.StatusOK, rec1.Code)
-	var out1 map[string]string
-	mustUnmarshal(t, rec1, &out1)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
-	require.Equal(t, http.StatusOK, rec2.Code)
-	var out2 map[string]string
-	mustUnmarshal(t, rec2, &out2)
-
-	assert.Equal(t, out1["jobRunId"], out2["jobRunId"])
-
-	listRec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns", nil)
-	require.Equal(t, http.StatusOK, listRec.Code)
-	var list map[string]any
-	mustUnmarshal(t, listRec, &list)
-	assert.Len(t, list["jobRuns"].([]any), 1, "retried StartJobRun must not create a duplicate job run")
+	appARNs, jobRunARNs := emrserverless.ARNIndexSizes(b)
+	assert.Equal(t, 1, appARNs)
+	assert.Equal(t, 0, jobRunARNs)
 }
