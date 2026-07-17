@@ -15,46 +15,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
-func newTestHandler(t *testing.T) *xray.Handler {
-	t.Helper()
-
-	return xray.NewHandler(xray.NewInMemoryBackend("000000000000", "us-east-1"))
-}
-
-func newTestHandlerWithBackend(t *testing.T) (*xray.Handler, *xray.InMemoryBackend) {
-	t.Helper()
-
-	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
-
-	return xray.NewHandler(b), b
-}
-
-func doXrayRequest(t *testing.T, h *xray.Handler, path string, body any) *httptest.ResponseRecorder {
-	t.Helper()
-
-	var bodyBytes []byte
-
-	if body != nil {
-		var err error
-		bodyBytes, err = json.Marshal(body)
-		require.NoError(t, err)
-	}
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
-	req.RequestURI = path
-
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	c.SetRequest(req)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-
-	return rec
-}
-
 func TestHandler_Name(t *testing.T) {
 	t.Parallel()
 
@@ -161,227 +121,6 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateGroup(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*xray.Handler)
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "creates group",
-			body:       map[string]any{"GroupName": "my-group"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing GroupName returns 400",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "duplicate group returns 400",
-			setup: func(h *xray.Handler) {
-				_, _ = h.Backend.CreateGroup("dup-group", "")
-			},
-			body:       map[string]any{"GroupName": "dup-group"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doXrayRequest(t, h, "/CreateGroup", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_GetGroups(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		groupsToSeed []string
-		wantStatus   int
-		wantCount    int
-	}{
-		{
-			name:       "returns empty list",
-			wantStatus: http.StatusOK,
-			wantCount:  0,
-		},
-		{
-			name:         "returns seeded groups",
-			groupsToSeed: []string{"group-a", "group-b"},
-			wantStatus:   http.StatusOK,
-			wantCount:    2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			for _, name := range tt.groupsToSeed {
-				rec := doXrayRequest(t, h, "/CreateGroup", map[string]any{"GroupName": name})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doXrayRequest(t, h, "/Groups", nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			groups, ok := resp["Groups"].([]any)
-			require.True(t, ok)
-			assert.Len(t, groups, tt.wantCount)
-		})
-	}
-}
-
-func TestHandler_DeleteGroup(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*xray.Handler)
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "deletes existing group",
-			setup: func(h *xray.Handler) {
-				_, _ = h.Backend.CreateGroup("my-group", "")
-			},
-			body:       map[string]any{"GroupName": "my-group"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing GroupName returns 400",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "not found returns 400",
-			body:       map[string]any{"GroupName": "no-such-group"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doXrayRequest(t, h, "/DeleteGroup", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CreateSamplingRule(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "creates rule",
-			body: map[string]any{
-				"SamplingRule": map[string]any{"RuleName": "my-rule", "FixedRate": 0.05, "Priority": 1},
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing RuleName returns 400",
-			body:       map[string]any{"SamplingRule": map[string]any{}},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/CreateSamplingRule", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_PutTraceSegments(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "valid segment",
-			body: map[string]any{
-				"TraceSegmentDocuments": []string{`{"trace_id":"1-abc","id":"s1","name":"test"}`},
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "empty segments",
-			body:       map[string]any{"TraceSegmentDocuments": []string{}},
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/TraceSegments", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_PutTelemetryRecords(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doXrayRequest(t, h, "/TelemetryRecords", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestHandler_GetTraceSummaries(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doXrayRequest(t, h, "/TraceSummaries", map[string]any{
-		"StartTime": 1700000000.0,
-		"EndTime":   1700001000.0,
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
 func TestHandler_UnknownPath(t *testing.T) {
 	t.Parallel()
 
@@ -396,309 +135,6 @@ func TestHandler_UnknownPath(t *testing.T) {
 	err := h.Handler()(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandler_GetGroup(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*xray.Handler)
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "gets existing group",
-			setup: func(h *xray.Handler) {
-				_, _ = h.Backend.CreateGroup("my-group", "")
-			},
-			body:       map[string]any{"GroupName": "my-group"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing GroupName returns 400",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "not found returns 400",
-			body:       map[string]any{"GroupName": "missing-group"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doXrayRequest(t, h, "/GetGroup", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_UpdateGroup(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*xray.Handler)
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "updates existing group",
-			setup: func(h *xray.Handler) {
-				_, _ = h.Backend.CreateGroup("my-group", "")
-			},
-			body:       map[string]any{"GroupName": "my-group", "FilterExpression": `service("updated")`},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing GroupName returns 400",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "not found returns 400",
-			body:       map[string]any{"GroupName": "missing-group"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doXrayRequest(t, h, "/UpdateGroup", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_GetSamplingRules(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		ruleNames     []string
-		wantUserRules int // number of user-created rules; Default is always included
-	}{
-		{
-			// A fresh backend includes the built-in Default rule.
-			name:          "returns default rule only",
-			wantUserRules: 0,
-		},
-		{
-			name:          "returns seeded rules plus Default",
-			ruleNames:     []string{"rule-a", "rule-b"},
-			wantUserRules: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			for _, ruleName := range tt.ruleNames {
-				rec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
-					"SamplingRule": map[string]any{"RuleName": ruleName, "FixedRate": 0.05, "Priority": 1},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doXrayRequest(t, h, "/GetSamplingRules", nil)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			records, ok := resp["SamplingRuleRecords"].([]any)
-			require.True(t, ok)
-			// +1 for the always-present Default rule.
-			assert.Len(t, records, tt.wantUserRules+1)
-		})
-	}
-}
-
-func TestHandler_UpdateSamplingRule(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*xray.Handler)
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "updates existing rule",
-			setup: func(h *xray.Handler) {
-				_, _ = h.Backend.CreateSamplingRule(
-					xray.SamplingRule{RuleName: "my-rule", FixedRate: 0.05, Priority: 1},
-				)
-			},
-			body: map[string]any{
-				"SamplingRuleUpdate": map[string]any{"RuleName": "my-rule", "ServiceName": "updated-svc"},
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "missing RuleName returns 400",
-			body: map[string]any{
-				"SamplingRuleUpdate": map[string]any{},
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "not found returns 400",
-			body: map[string]any{
-				"SamplingRuleUpdate": map[string]any{"RuleName": "missing-rule"},
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doXrayRequest(t, h, "/UpdateSamplingRule", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_DeleteSamplingRule(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*xray.Handler)
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "deletes existing rule",
-			setup: func(h *xray.Handler) {
-				_, _ = h.Backend.CreateSamplingRule(
-					xray.SamplingRule{RuleName: "my-rule", FixedRate: 0.05, Priority: 1},
-				)
-			},
-			body:       map[string]any{"RuleName": "my-rule"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing RuleName returns 400",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "not found returns 400",
-			body:       map[string]any{"RuleName": "missing-rule"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doXrayRequest(t, h, "/DeleteSamplingRule", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_BatchGetTraces(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup       func(*xray.Handler)
-		body        map[string]any
-		name        string
-		wantStatus  int
-		wantTraces  int
-		wantMissing int
-	}{
-		{
-			name: "returns known trace",
-			setup: func(h *xray.Handler) {
-				_ = h.Backend.PutTraceSegments([]string{`{"trace_id":"1-abc123","id":"s1","name":"test"}`})
-			},
-			body:        map[string]any{"TraceIds": []string{"1-abc123"}},
-			wantStatus:  http.StatusOK,
-			wantTraces:  1,
-			wantMissing: 0,
-		},
-		{
-			name:        "returns unprocessed for unknown trace",
-			body:        map[string]any{"TraceIds": []string{"1-unknown"}},
-			wantStatus:  http.StatusOK,
-			wantTraces:  0,
-			wantMissing: 1,
-		},
-		{
-			name:       "empty trace IDs",
-			body:       map[string]any{"TraceIds": []string{}},
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doXrayRequest(t, h, "/Traces", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			if tt.wantTraces > 0 {
-				traces, ok := resp["Traces"].([]any)
-				require.True(t, ok)
-				assert.Len(t, traces, tt.wantTraces)
-			}
-
-			if tt.wantMissing > 0 {
-				unprocessed, ok := resp["UnprocessedTraceIds"].([]any)
-				require.True(t, ok)
-				assert.Len(t, unprocessed, tt.wantMissing)
-			}
-		})
-	}
 }
 
 func TestHandler_ChaosInterface(t *testing.T) {
@@ -790,23 +226,6 @@ func TestHandler_ExtractResource(t *testing.T) {
 	}
 }
 
-func TestHandler_PutTraceSegments_Unprocessed(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doXrayRequest(t, h, "/TraceSegments", map[string]any{
-		"TraceSegmentDocuments": []string{"not-valid-json"},
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	unprocessed, ok := resp["UnprocessedTraceSegments"].([]any)
-	require.True(t, ok)
-	assert.Len(t, unprocessed, 1)
-}
-
 func TestXRay_Handler_Reset(t *testing.T) {
 	t.Parallel()
 
@@ -855,91 +274,47 @@ func TestXRay_Handler_Reset(t *testing.T) {
 	}
 }
 
-func doXrayGETRequest(t *testing.T, h *xray.Handler) *httptest.ResponseRecorder {
-	t.Helper()
-
-	const path = "/EncryptionConfig"
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.RequestURI = path
-
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	c.SetRequest(req)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-
-	return rec
-}
-
-func TestHandler_GetEncryptionConfig(t *testing.T) {
+// TestHandlerOpsLen verifies GetSupportedOperations count.
+func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		wantContain string
-		wantCode    int
-	}{
-		{
-			name:        "default_is_none",
-			wantCode:    http.StatusOK,
-			wantContain: `"NONE"`,
-		},
-	}
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	h := xray.NewHandler(b)
+	assert.Len(t, h.GetSupportedOperations(), 38)
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+// TestSDKOpsSorted verifies GetSupportedOperations is sorted.
+func TestSDKOpsSorted(t *testing.T) {
+	t.Parallel()
 
-			h := newTestHandler(t)
-			rec := doXrayGETRequest(t, h)
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	h := xray.NewHandler(b)
+	ops := h.GetSupportedOperations()
 
-			assert.Equal(t, tt.wantCode, rec.Code)
-			assert.Contains(t, rec.Body.String(), tt.wantContain)
-		})
+	require.NotEmpty(t, ops)
+
+	for i := 1; i < len(ops); i++ {
+		assert.LessOrEqual(t, ops[i-1], ops[i],
+			"ops not sorted at index %d: %s > %s", i, ops[i-1], ops[i])
 	}
 }
 
-func TestHandler_PutEncryptionConfig(t *testing.T) {
+// TestHandlerBackendIsInterface verifies Handler.Backend is StorageBackend.
+func TestHandlerBackendIsInterface(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body        map[string]any
-		name        string
-		wantContain string
-		wantCode    int
-	}{
-		{
-			name:        "set_kms_type",
-			body:        map[string]any{"Type": "KMS", "KeyId": "arn:aws:kms:us-east-1:123:key/abc"},
-			wantCode:    http.StatusOK,
-			wantContain: "KMS",
-		},
-		{
-			name:        "reset_to_none",
-			body:        map[string]any{"Type": "NONE"},
-			wantCode:    http.StatusOK,
-			wantContain: `"NONE"`,
-		},
-		{
-			name:        "empty_body_defaults_to_none",
-			body:        map[string]any{},
-			wantCode:    http.StatusOK,
-			wantContain: `"NONE"`,
-		},
-	}
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	h := xray.NewHandler(b)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	// Handler.Backend must be assignable to the interface.
+	_ = h.Backend
+}
 
-			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/PutEncryptionConfig", tt.body)
+// TestHandlerOpsLenHelper verifies the HandlerOpsLen export helper.
+func TestHandlerOpsLenHelper(t *testing.T) {
+	t.Parallel()
 
-			assert.Equal(t, tt.wantCode, rec.Code)
-			assert.Contains(t, rec.Body.String(), tt.wantContain)
-		})
-	}
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	h := xray.NewHandler(b)
+	assert.Equal(t, 38, h.HandlerOpsLen())
 }

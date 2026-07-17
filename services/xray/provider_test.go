@@ -53,3 +53,24 @@ func TestXRayProvider_Init_WithConfigProvider(t *testing.T) {
 		})
 	}
 }
+
+// TestErrNilAppContext verifies the provider nil guard.
+func TestErrNilAppContext(t *testing.T) {
+	t.Parallel()
+
+	p := &xray.Provider{}
+	_, err := p.Init(nil)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, xray.ErrNilAppContext)
+}
+
+// TestProviderInit verifies normal provider init.
+func TestProviderInit(t *testing.T) {
+	t.Parallel()
+
+	p := &xray.Provider{}
+	reg, err := p.Init(&service.AppContext{JanitorCtx: t.Context()})
+	require.NoError(t, err)
+	assert.NotNil(t, reg)
+}
