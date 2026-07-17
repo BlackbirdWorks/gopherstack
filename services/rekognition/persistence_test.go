@@ -1,6 +1,8 @@
 package rekognition_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -290,4 +292,99 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	mediaJob, err := h2.Backend.GetMediaAnalysisJob(ids.mediaJobID)
 	require.NoError(t, err)
 	assert.Equal(t, "job1", mediaJob.JobName)
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot/Restore round-trip
+// ---------------------------------------------------------------------------
+
+func TestSnapshotRestore_PreservesAllState(t *testing.T) {
+	t.Parallel()
+
+	backend := rekognition.NewInMemoryBackend("000000000000", "us-east-1")
+	h := rekognition.NewHandler(backend)
+
+	// Create a collection with tags and index a face.
+	rec := doRequest(t, h, "CreateCollection", map[string]any{
+		"CollectionId": "snap-coll",
+		"Tags":         map[string]string{"env": "test"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	doRequest(t, h, "IndexFaces", map[string]any{"CollectionId": "snap-coll"})
+
+	// Create a stream processor.
+	rec = doRequest(t, h, "CreateStreamProcessor", map[string]any{
+		"Name":    "snap-proc",
+		"RoleArn": "arn:aws:iam::000000000000:role/r",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Snapshot.
+	snap := backend.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	// Restore into a fresh backend.
+	backend2 := rekognition.NewInMemoryBackend("", "")
+	require.NoError(t, backend2.Restore(t.Context(), snap))
+	h2 := rekognition.NewHandler(backend2)
+
+	// Verify collection exists.
+	rec = doRequest(t, h2, "DescribeCollection", map[string]any{"CollectionId": "snap-coll"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.InDelta(t, float64(1), descResp["FaceCount"], 0)
+
+	// Verify face survives.
+	rec = doRequest(t, h2, "ListFaces", map[string]any{"CollectionId": "snap-coll"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var facesResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &facesResp))
+	faces, _ := facesResp["Faces"].([]any)
+	assert.Len(t, faces, 1)
+
+	// Verify stream processor survives.
+	rec = doRequest(t, h2, "DescribeStreamProcessor", map[string]any{"Name": "snap-proc"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify tags survive on collection.
+	rec = doRequest(t, h2, "DescribeCollection", map[string]any{"CollectionId": "snap-coll"})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSnapshotRestore_TagsSurvive(t *testing.T) {
+	t.Parallel()
+
+	backend := rekognition.NewInMemoryBackend("000000000000", "us-east-1")
+	h := rekognition.NewHandler(backend)
+
+	rec := doRequest(t, h, "CreateCollection", map[string]any{"CollectionId": "tag-snap-coll"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	arn := createResp["CollectionArn"].(string)
+
+	doRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": arn,
+		"Tags":        map[string]string{"key1": "val1", "key2": "val2"},
+	})
+
+	snap := backend.Snapshot(t.Context())
+
+	backend2 := rekognition.NewInMemoryBackend("", "")
+	require.NoError(t, backend2.Restore(t.Context(), snap))
+	h2 := rekognition.NewHandler(backend2)
+
+	rec = doRequest(t, h2, "ListTagsForResource", map[string]any{"ResourceArn": arn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var tagResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagResp))
+	tags, _ := tagResp["Tags"].(map[string]any)
+	assert.Equal(t, "val1", tags["key1"])
+	assert.Equal(t, "val2", tags["key2"])
 }

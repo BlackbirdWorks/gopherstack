@@ -30,10 +30,10 @@ func extractLabels(t *testing.T, body []byte) []any {
 }
 
 // =============================================================================
-// ListDatasetLabels parity
+// ListDatasetLabels
 // =============================================================================
 
-func TestParity_ListDatasetLabels_SingleLabel(t *testing.T) { //nolint:paralleltest // stateful sequential
+func TestListDatasetLabels_SingleLabel(t *testing.T) { //nolint:paralleltest // stateful sequential
 	h := newTestHandler(t)
 
 	// Create project + dataset
@@ -81,7 +81,7 @@ func TestParity_ListDatasetLabels_SingleLabel(t *testing.T) { //nolint:parallelt
 	assert.InDelta(t, float64(1), label1["EntryCount"], 0)
 }
 
-func TestParity_ListDatasetLabels_MultiLabel(t *testing.T) { //nolint:paralleltest // stateful sequential
+func TestListDatasetLabels_MultiLabel(t *testing.T) { //nolint:paralleltest // stateful sequential
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "ml-proj"})
@@ -119,7 +119,7 @@ func TestParity_ListDatasetLabels_MultiLabel(t *testing.T) { //nolint:parallelte
 	assert.ElementsMatch(t, []string{"hat", "sunglasses"}, names)
 }
 
-func TestParity_ListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:paralleltest // stateful sequential
+func TestListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:paralleltest // stateful sequential
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "page-proj"})
@@ -190,7 +190,7 @@ func TestParity_ListDatasetLabels_OpaqueToken(t *testing.T) { //nolint:parallelt
 	assert.False(t, hasMore, "should not have next token on last page")
 }
 
-func TestParity_ListDatasetLabels_InvalidToken(t *testing.T) { //nolint:paralleltest // stateful sequential
+func TestListDatasetLabels_InvalidToken(t *testing.T) { //nolint:paralleltest // stateful sequential
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "inv-proj"})
@@ -215,10 +215,10 @@ func TestParity_ListDatasetLabels_InvalidToken(t *testing.T) { //nolint:parallel
 }
 
 // =============================================================================
-// DistributeDatasetEntries parity
+// DistributeDatasetEntries
 // =============================================================================
 
-func TestParity_DistributeDatasetEntries_SetsInProgress(t *testing.T) { //nolint:paralleltest // stateful
+func TestDistributeDatasetEntries_SetsInProgress(t *testing.T) { //nolint:paralleltest // stateful
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "dist-proj"})
@@ -253,7 +253,7 @@ func TestParity_DistributeDatasetEntries_SetsInProgress(t *testing.T) { //nolint
 	assert.Equal(t, "UPDATE_IN_PROGRESS", desc["Status"])
 }
 
-func TestParity_DistributeDatasetEntries_UnknownDataset(t *testing.T) {
+func TestDistributeDatasetEntries_UnknownDataset(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -266,119 +266,173 @@ func TestParity_DistributeDatasetEntries_UnknownDataset(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// =============================================================================
-// CreateFaceLivenessSession confidence parity
-// =============================================================================
-
-func TestParity_FaceLiveness_ConfidenceRange(t *testing.T) {
-	t.Parallel()
-
+func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
-	// Create multiple sessions and verify confidence stays in [75, 100)
-	for i := range 10 {
-		_ = i
-		rec := doRequest(t, h, "CreateFaceLivenessSession", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
+	// Create project first
+	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "ds-proj"})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-		sessionID := createResp["SessionId"].(string)
+	var projResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	projectARN := projResp["ProjectArn"].(string)
 
-		rec = doRequest(t, h, "GetFaceLivenessSessionResults", map[string]any{"SessionId": sessionID})
-		require.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte) string
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:   "CreateDataset returns ARN",
+			action: "CreateDataset",
+			body: map[string]any{
+				"ProjectArn":  projectARN,
+				"DatasetType": "TRAIN",
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) string {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				arn := resp["DatasetArn"].(string)
+				assert.Contains(t, arn, "arn:aws:rekognition:")
 
-		var resultResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resultResp))
-		confidence := resultResp["Confidence"].(float64)
-		assert.GreaterOrEqual(t, confidence, float64(75), "confidence must be >= 75")
-		assert.Less(t, confidence, float64(100), "confidence must be < 100")
+				return arn
+			},
+		},
 	}
-}
 
-func TestParity_FaceLiveness_TwoSessionsDifferentConfidence(t *testing.T) { //nolint:paralleltest // stateful
-	h := newTestHandler(t)
+	var datasetARN string
 
-	getConfidence := func(sessionID string) float64 {
-		t.Helper()
-		rec := doRequest(t, h, "GetFaceLivenessSessionResults", map[string]any{"SessionId": sessionID})
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body) //nolint:govet // existing issue.
+			assert.Equal(t, tc.wantCode, rec.Code, tc.name)
+
+			if tc.check != nil {
+				datasetARN = tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+
+	// DescribeDataset
+	t.Run("DescribeDataset returns details", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		rec := doRequest( //nolint:govet // existing issue.
+			t,
+			h,
+			"DescribeDataset",
+			map[string]any{"DatasetArn": datasetARN},
+		)
 		require.Equal(t, http.StatusOK, rec.Code)
+
 		var resp map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-		return resp["Confidence"].(float64)
-	}
-
-	// Create many sessions; at least some should differ in confidence.
-	confidences := make(map[float64]bool)
-	for range 20 {
-		rec := doRequest(t, h, "CreateFaceLivenessSession", map[string]any{})
-		require.Equal(t, http.StatusOK, rec.Code)
-		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		c := getConfidence(resp["SessionId"].(string))
-		confidences[c] = true
-	}
-
-	assert.Greater(t, len(confidences), 1, "expected varied confidence values across sessions")
-}
-
-// =============================================================================
-// MediaAnalysisJob parity
-// =============================================================================
-
-func TestParity_MediaAnalysisJob_Lifecycle(t *testing.T) { //nolint:paralleltest // stateful sequential
-	h := newTestHandler(t)
-
-	// Start job
-	rec := doRequest(t, h, "StartMediaAnalysisJob", map[string]any{
-		"JobName":          "test-job",
-		"OperationsConfig": map[string]any{},
-		"Input":            map[string]any{},
-		"OutputConfig":     map[string]any{},
+		desc := resp["DatasetDescription"].(map[string]any)
+		assert.Equal(t, "CREATE_COMPLETE", desc["Status"])
+		assert.Equal(t, "TRAIN", desc["DatasetType"])
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
 
-	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
-	jobID, ok := startResp["JobId"].(string)
-	require.True(t, ok)
-	assert.NotEmpty(t, jobID)
+	// UpdateDatasetEntries
+	t.Run("UpdateDatasetEntries succeeds", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		rec := doRequest(t, h, "UpdateDatasetEntries", map[string]any{ //nolint:govet // existing issue.
+			"DatasetArn": datasetARN,
+			"Changes":    []byte(`{"source-ref": "s3://bucket/img.jpg"}`),
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
 
-	// Get job
-	rec = doRequest(t, h, "GetMediaAnalysisJob", map[string]any{"JobId": jobID})
-	require.Equal(t, http.StatusOK, rec.Code)
+	// ListDatasetEntries
+	t.Run("ListDatasetEntries returns entries", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		rec := doRequest( //nolint:govet // existing issue.
+			t,
+			h,
+			"ListDatasetEntries",
+			map[string]any{"DatasetArn": datasetARN},
+		)
+		require.Equal(t, http.StatusOK, rec.Code)
 
-	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-	assert.Equal(t, jobID, getResp["JobId"])
-	assert.NotEmpty(t, getResp["Status"])
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.NotNil(t, resp["DatasetEntries"])
+	})
 
-	// List jobs
-	rec = doRequest(t, h, "ListMediaAnalysisJobs", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
+	// ListDatasetLabels
+	t.Run("ListDatasetLabels returns empty list", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		rec := doRequest( //nolint:govet // existing issue.
+			t,
+			h,
+			"ListDatasetLabels",
+			map[string]any{"DatasetArn": datasetARN},
+		)
+		require.Equal(t, http.StatusOK, rec.Code)
 
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	jobs, ok := listResp["MediaAnalysisJobs"].([]any)
-	require.True(t, ok)
-	assert.GreaterOrEqual(t, len(jobs), 1)
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.NotNil(t, resp["DatasetLabelStats"])
+	})
+
+	// DistributeDatasetEntries
+	t.Run("DistributeDatasetEntries succeeds", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		rec := doRequest(t, h, "DistributeDatasetEntries", map[string]any{ //nolint:govet // existing issue.
+			"Datasets": []any{
+				map[string]any{"DatasetArn": datasetARN},
+			},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	// DeleteDataset
+	t.Run("DeleteDataset removes dataset", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		rec := doRequest( //nolint:govet // existing issue.
+			t,
+			h,
+			"DeleteDataset",
+			map[string]any{"DatasetArn": datasetARN},
+		)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// DescribeDataset should now return not found
+		rec = doRequest(t, h, "DescribeDataset", map[string]any{"DatasetArn": datasetARN})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
 }
 
-func TestParity_MediaAnalysisJob_MissingID_ReturnsError(t *testing.T) {
-	t.Parallel()
-
+func TestDataset_MissingProjectArn(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 
-	rec := doRequest(t, h, "GetMediaAnalysisJob", map[string]any{})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
+	tests := []struct {
+		body   any
+		name   string
+		action string
+	}{
+		{
+			name:   "CreateDataset missing ProjectArn",
+			action: "CreateDataset",
+			body:   map[string]any{"DatasetType": "TRAIN"},
+		},
+		{
+			name:   "CreateDataset missing DatasetType",
+			action: "CreateDataset",
+			body:   map[string]any{"ProjectArn": "arn:xxx"},
+		},
+		{
+			name:   "DescribeDataset missing DatasetArn",
+			action: "DescribeDataset",
+			body:   map[string]any{},
+		},
+		{
+			name:   "DeleteDataset missing DatasetArn",
+			action: "DeleteDataset",
+			body:   map[string]any{},
+		},
+	}
 
-func TestParity_MediaAnalysisJob_UnknownID_ReturnsError(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, "GetMediaAnalysisJob", map[string]any{"JobId": "nonexistent-job-id"})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, tc.name)
+		})
+	}
 }

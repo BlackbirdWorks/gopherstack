@@ -24,6 +24,11 @@ const (
 
 	keyTypeField    = "__type"
 	keyMessageField = "message"
+
+	// orientationRotate0 is the default (unrotated) OrientationCorrection
+	// reported by every stateless image-analysis mock response (faces,
+	// labels, celebrities).
+	orientationRotate0 = "ROTATE_0"
 )
 
 // Handler handles Rekognition HTTP requests using X-Amz-Target routing.
@@ -96,30 +101,26 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// buildOps assembles the full operation table from each op-family's
+// contribution (see handler_<family>.go).
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
-	ops := map[string]service.JSONOpFunc{
-		"CreateCollection":        service.WrapOp(h.handleCreateCollection),
-		"DeleteCollection":        service.WrapOp(h.handleDeleteCollection),
-		"DescribeCollection":      service.WrapOp(h.handleDescribeCollection),
-		"ListCollections":         service.WrapOp(h.handleListCollections),
-		"IndexFaces":              service.WrapOp(h.handleIndexFaces),
-		"DeleteFaces":             service.WrapOp(h.handleDeleteFaces),
-		"ListFaces":               service.WrapOp(h.handleListFaces),
-		"SearchFaces":             service.WrapOp(h.handleSearchFaces),
-		"SearchFacesByImage":      service.WrapOp(h.handleSearchFacesByImage),
-		"CreateStreamProcessor":   service.WrapOp(h.handleCreateStreamProcessor),
-		"DeleteStreamProcessor":   service.WrapOp(h.handleDeleteStreamProcessor),
-		"DescribeStreamProcessor": service.WrapOp(h.handleDescribeStreamProcessor),
-		"ListStreamProcessors":    service.WrapOp(h.handleListStreamProcessors),
-		"StartStreamProcessor":    service.WrapOp(h.handleStartStreamProcessor),
-		"StopStreamProcessor":     service.WrapOp(h.handleStopStreamProcessor),
-		"UpdateStreamProcessor":   service.WrapOp(h.handleUpdateStreamProcessor),
-		"TagResource":             service.WrapOp(h.handleTagResource),
-		"UntagResource":           service.WrapOp(h.handleUntagResource),
-		"ListTagsForResource":     service.WrapOp(h.handleListTagsForResource),
-	}
+	ops := make(map[string]service.JSONOpFunc)
 
-	maps.Copy(ops, h.appendixAOps())
+	maps.Copy(ops, h.collectionOps())
+	maps.Copy(ops, h.faceOps())
+	maps.Copy(ops, h.streamProcessorOps())
+	maps.Copy(ops, h.tagOps())
+	maps.Copy(ops, h.projectOps())
+	maps.Copy(ops, h.projectVersionOps())
+	maps.Copy(ops, h.datasetOps())
+	maps.Copy(ops, h.userOps())
+	maps.Copy(ops, h.faceLivenessOps())
+	maps.Copy(ops, h.labelOps())
+	maps.Copy(ops, h.textDetectionOps())
+	maps.Copy(ops, h.moderationOps())
+	maps.Copy(ops, h.celebrityOps())
+	maps.Copy(ops, h.customLabelOps())
+	maps.Copy(ops, h.mediaAnalysisOps())
 
 	return ops
 }
@@ -178,341 +179,21 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 }
 
-// --- Collection requests ---
-
-type createCollectionReq struct {
-	Tags         map[string]string `json:"Tags"`
-	CollectionID string            `json:"CollectionId"`
+// epochSeconds renders a timestamp as AWS JSON epoch seconds (with fractional
+// nanoseconds), matching what the Rekognition SDK deserializer expects.
+func epochSeconds(t time.Time) float64 {
+	return float64(t.Unix()) + float64(t.Nanosecond())/1e9
 }
 
-type createCollectionResp struct {
-	CollectionArn    string `json:"CollectionArn"`
-	FaceModelVersion string `json:"FaceModelVersion"`
-	StatusCode       int    `json:"StatusCode"`
-}
-
-func (h *Handler) handleCreateCollection(_ context.Context, req *createCollectionReq) (*createCollectionResp, error) {
-	if req.CollectionID == "" {
-		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
-	}
-
-	coll, err := h.Backend.CreateCollection(req.CollectionID, req.Tags)
-	if err != nil {
-		return nil, err
-	}
-
-	return &createCollectionResp{
-		CollectionArn:    coll.CollectionARN,
-		FaceModelVersion: coll.FaceModelVersion,
-		StatusCode:       http.StatusOK,
-	}, nil
-}
-
-type deleteCollectionReq struct {
-	CollectionID string `json:"CollectionId"`
-}
-
-type deleteCollectionResp struct {
-	StatusCode int `json:"StatusCode"`
-}
-
-func (h *Handler) handleDeleteCollection(_ context.Context, req *deleteCollectionReq) (*deleteCollectionResp, error) {
-	if req.CollectionID == "" {
-		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
-	}
-
-	if err := h.Backend.DeleteCollection(req.CollectionID); err != nil {
-		return nil, err
-	}
-
-	return &deleteCollectionResp{StatusCode: http.StatusOK}, nil
-}
-
-type describeCollectionReq struct {
-	CollectionID string `json:"CollectionId"`
-}
-
-type describeCollectionResp struct {
-	CollectionARN     string  `json:"CollectionARN"`
-	FaceModelVersion  string  `json:"FaceModelVersion"`
-	CreationTimestamp float64 `json:"CreationTimestamp"`
-	FaceCount         int64   `json:"FaceCount"`
-}
-
-func (h *Handler) handleDescribeCollection(
-	_ context.Context,
-	req *describeCollectionReq,
-) (*describeCollectionResp, error) {
-	if req.CollectionID == "" {
-		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
-	}
-
-	coll, err := h.Backend.DescribeCollection(req.CollectionID)
-	if err != nil {
-		return nil, err
-	}
-
-	faces, _, err := h.Backend.ListFaces(req.CollectionID, 0, "")
-	if err != nil {
-		return nil, err
-	}
-
-	return &describeCollectionResp{
-		CollectionARN:     coll.CollectionARN,
-		CreationTimestamp: epochSeconds(coll.CreationTimestamp),
-		FaceCount:         int64(len(faces)),
-		FaceModelVersion:  coll.FaceModelVersion,
-	}, nil
-}
-
-type listCollectionsReq struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
-}
-
-type listCollectionsResp struct {
-	NextToken         string   `json:"NextToken,omitempty"`
-	CollectionIDs     []string `json:"CollectionIds"`
-	FaceModelVersions []string `json:"FaceModelVersions"`
-}
-
-func (h *Handler) handleListCollections(_ context.Context, req *listCollectionsReq) (*listCollectionsResp, error) {
-	colls, nextToken, err := h.Backend.ListCollections(req.MaxResults, req.NextToken)
-	if err != nil {
-		return nil, err
-	}
-
-	ids := make([]string, 0, len(colls))
-	versions := make([]string, 0, len(colls))
-
-	for _, c := range colls {
-		ids = append(ids, c.CollectionID)
-		versions = append(versions, c.FaceModelVersion)
-	}
-
-	return &listCollectionsResp{
-		CollectionIDs:     ids,
-		FaceModelVersions: versions,
-		NextToken:         nextToken,
-	}, nil
-}
-
-// --- Face requests ---
-
-type indexFacesReq struct {
-	CollectionID    string `json:"CollectionId"`
-	ExternalImageID string `json:"ExternalImageId"`
-}
-
-type faceRecord struct {
-	Face struct {
-		FaceID          string  `json:"FaceId"`
-		ImageID         string  `json:"ImageId"`
-		ExternalImageID string  `json:"ExternalImageId"`
-		Confidence      float64 `json:"Confidence"`
-	} `json:"Face"`
-}
-
-type indexFacesResp struct {
-	FaceModelVersion string       `json:"FaceModelVersion"`
-	FaceRecords      []faceRecord `json:"FaceRecords"`
-}
-
-func (h *Handler) handleIndexFaces(_ context.Context, req *indexFacesReq) (*indexFacesResp, error) {
-	if req.CollectionID == "" {
-		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
-	}
-
-	faces, err := h.Backend.IndexFaces(req.CollectionID, req.ExternalImageID)
-	if err != nil {
-		return nil, err
-	}
-
-	records := make([]faceRecord, 0, len(faces))
-
-	for _, f := range faces {
-		var rec faceRecord
-		rec.Face.FaceID = f.FaceID
-		rec.Face.ImageID = f.ImageID
-		rec.Face.ExternalImageID = f.ExternalImageID
-		rec.Face.Confidence = f.Confidence
-		records = append(records, rec)
-	}
-
-	return &indexFacesResp{
-		FaceModelVersion: faceModelVersion,
-		FaceRecords:      records,
-	}, nil
-}
-
-type deleteFacesReq struct {
-	CollectionID string   `json:"CollectionId"`
-	FaceIDs      []string `json:"FaceIds"`
-}
-
-type deleteFacesResp struct {
-	DeletedFaces []string `json:"DeletedFaces"`
-}
-
-func (h *Handler) handleDeleteFaces(_ context.Context, req *deleteFacesReq) (*deleteFacesResp, error) {
-	if req.CollectionID == "" {
-		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
-	}
-
-	deleted, err := h.Backend.DeleteFaces(req.CollectionID, req.FaceIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	if deleted == nil {
-		deleted = []string{}
-	}
-
-	return &deleteFacesResp{DeletedFaces: deleted}, nil
-}
-
-type listFacesReq struct {
-	CollectionID string `json:"CollectionId"`
-	NextToken    string `json:"NextToken"`
-	MaxResults   int32  `json:"MaxResults"`
-}
-
-type faceEntry struct {
-	FaceID          string  `json:"FaceId"`
-	ImageID         string  `json:"ImageId"`
-	ExternalImageID string  `json:"ExternalImageId"`
-	Confidence      float64 `json:"Confidence"`
-}
-
-type listFacesResp struct {
-	FaceModelVersion string      `json:"FaceModelVersion"`
-	NextToken        string      `json:"NextToken,omitempty"`
-	Faces            []faceEntry `json:"Faces"`
-}
-
-func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFacesResp, error) {
-	if req.CollectionID == "" {
-		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
-	}
-
-	faces, nextToken, err := h.Backend.ListFaces(req.CollectionID, req.MaxResults, req.NextToken)
-	if err != nil {
-		return nil, err
-	}
-
-	entries := make([]faceEntry, 0, len(faces))
-
-	for _, f := range faces {
-		entries = append(entries, faceEntry{
-			FaceID:          f.FaceID,
-			ImageID:         f.ImageID,
-			ExternalImageID: f.ExternalImageID,
-			Confidence:      f.Confidence,
-		})
-	}
-
-	return &listFacesResp{
-		FaceModelVersion: faceModelVersion,
-		Faces:            entries,
-		NextToken:        nextToken,
-	}, nil
-}
-
-type searchFacesReq struct {
-	CollectionID string `json:"CollectionId"`
-	FaceID       string `json:"FaceId"`
-	MaxFaces     int32  `json:"MaxFaces"`
-}
-
-type faceMatchEntry struct {
-	Face       faceEntry `json:"Face"`
-	Similarity float64   `json:"Similarity"`
-}
-
-type searchFacesResp struct {
-	FaceModelVersion string           `json:"FaceModelVersion"`
-	SearchedFaceID   string           `json:"SearchedFaceId"`
-	FaceMatches      []faceMatchEntry `json:"FaceMatches"`
-}
-
-func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*searchFacesResp, error) {
-	if req.CollectionID == "" {
-		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
-	}
-
-	if req.FaceID == "" {
-		return nil, fmt.Errorf("%w: FaceId is required", ErrValidation)
-	}
-
-	matches, err := h.Backend.SearchFaces(req.CollectionID, req.FaceID, req.MaxFaces)
-	if err != nil {
-		return nil, err
-	}
-
-	entries := make([]faceMatchEntry, 0, len(matches))
-
-	for _, m := range matches {
-		entries = append(entries, faceMatchEntry{
-			Similarity: m.Similarity,
-			Face: faceEntry{
-				FaceID:          m.Face.FaceID,
-				ImageID:         m.Face.ImageID,
-				ExternalImageID: m.Face.ExternalImageID,
-				Confidence:      m.Face.Confidence,
-			},
-		})
-	}
-
-	return &searchFacesResp{
-		FaceMatches:      entries,
-		FaceModelVersion: faceModelVersion,
-		SearchedFaceID:   req.FaceID,
-	}, nil
-}
-
-type searchFacesByImageReq struct {
-	CollectionID string   `json:"CollectionId"`
-	Image        imageRef `json:"Image"`
-	MaxFaces     int32    `json:"MaxFaces"`
-}
-
-type searchFacesByImageResp struct {
-	FaceModelVersion string           `json:"FaceModelVersion"`
-	FaceMatches      []faceMatchEntry `json:"FaceMatches"`
-}
-
-func (h *Handler) handleSearchFacesByImage(
-	_ context.Context,
-	req *searchFacesByImageReq,
-) (*searchFacesByImageResp, error) {
-	if req.CollectionID == "" {
-		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
-	}
-
-	imageKey := imageRefKey(req.Image)
-	matches, err := h.Backend.SearchFacesByImage(req.CollectionID, req.MaxFaces, imageKey)
-	if err != nil {
-		return nil, err
-	}
-
-	entries := make([]faceMatchEntry, 0, len(matches))
-
-	for _, m := range matches {
-		entries = append(entries, faceMatchEntry{
-			Similarity: m.Similarity,
-			Face: faceEntry{
-				FaceID:          m.Face.FaceID,
-				ImageID:         m.Face.ImageID,
-				ExternalImageID: m.Face.ExternalImageID,
-				Confidence:      m.Face.Confidence,
-			},
-		})
-	}
-
-	return &searchFacesByImageResp{
-		FaceMatches:      entries,
-		FaceModelVersion: faceModelVersion,
-	}, nil
+// imageRef is the common AWS "Image" wire shape (either an S3 reference or
+// inline bytes), shared by every image-analysis and face operation.
+type imageRef struct {
+	S3Object *struct {
+		Bucket  string `json:"Bucket"`
+		Name    string `json:"Name"`
+		Version string `json:"Version"`
+	} `json:"S3Object"`
+	Bytes []byte `json:"Bytes"`
 }
 
 // imageRefKey returns a stable string derived from the image reference for similarity hashing.
@@ -524,233 +205,60 @@ func imageRefKey(img imageRef) string {
 	return fmt.Sprintf("bytes:%d", len(img.Bytes))
 }
 
-// --- Stream processor requests ---
-
-type createStreamProcessorReq struct {
-	Tags    map[string]string `json:"Tags"`
-	Name    string            `json:"Name"`
-	RoleArn string            `json:"RoleArn"`
+// videoRef is the common AWS "Video" wire shape for async video-job Start* requests.
+type videoRef struct {
+	S3Object *struct {
+		Bucket  string `json:"Bucket"`
+		Name    string `json:"Name"`
+		Version string `json:"Version"`
+	} `json:"S3Object"`
 }
 
-type createStreamProcessorResp struct {
-	StreamProcessorArn string `json:"StreamProcessorArn"`
+type startJobResp struct {
+	JobId string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
 }
 
-func (h *Handler) handleCreateStreamProcessor(
-	_ context.Context,
-	req *createStreamProcessorReq,
-) (*createStreamProcessorResp, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
-	}
-
-	proc, err := h.Backend.CreateStreamProcessor(req.Name, req.RoleArn, req.Tags)
-	if err != nil {
-		return nil, err
-	}
-
-	return &createStreamProcessorResp{StreamProcessorArn: proc.StreamProcessorARN}, nil
-}
-
-type deleteStreamProcessorReq struct {
-	Name string `json:"Name"`
-}
-
-func (h *Handler) handleDeleteStreamProcessor(_ context.Context, req *deleteStreamProcessorReq) (*struct{}, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
-	}
-
-	if err := h.Backend.DeleteStreamProcessor(req.Name); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-type describeStreamProcessorReq struct {
-	Name string `json:"Name"`
-}
-
-type describeStreamProcessorResp struct {
-	Name               string  `json:"Name"`
-	RoleArn            string  `json:"RoleArn"`
-	Status             string  `json:"Status"`
-	StreamProcessorArn string  `json:"StreamProcessorArn"`
-	CreationTimestamp  float64 `json:"CreationTimestamp"`
-}
-
-func (h *Handler) handleDescribeStreamProcessor(
-	_ context.Context,
-	req *describeStreamProcessorReq,
-) (*describeStreamProcessorResp, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
-	}
-
-	proc, err := h.Backend.DescribeStreamProcessor(req.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	return &describeStreamProcessorResp{
-		CreationTimestamp:  float64(proc.CreationTimestamp.Unix()),
-		Name:               proc.Name,
-		RoleArn:            proc.RoleARN,
-		Status:             proc.Status,
-		StreamProcessorArn: proc.StreamProcessorARN,
-	}, nil
-}
-
-type listStreamProcessorsReq struct {
-	NextToken  string `json:"NextToken"`
+type getJobReq struct { //nolint:govet // existing issue.
+	JobId      string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
 	MaxResults int32  `json:"MaxResults"`
+	NextToken  string `json:"NextToken"`
 }
 
-type streamProcessorEntry struct {
-	Name   string `json:"Name"`
-	Status string `json:"Status"`
+type videoMetadata struct { //nolint:govet // existing issue.
+	Codec          string  `json:"Codec"`
+	DurationMillis int64   `json:"DurationMillis"`
+	Format         string  `json:"Format"`
+	FrameRate      float32 `json:"FrameRate"`
 }
 
-type listStreamProcessorsResp struct {
-	NextToken        string                 `json:"NextToken,omitempty"`
-	StreamProcessors []streamProcessorEntry `json:"StreamProcessors"`
+type getJobBaseResp struct { //nolint:govet // existing issue.
+	JobId         string         `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+	JobStatus     string         `json:"JobStatus"`
+	NextToken     string         `json:"NextToken,omitempty"`
+	StatusMessage string         `json:"StatusMessage,omitempty"`
+	VideoMetadata *videoMetadata `json:"VideoMetadata"`
 }
 
-func (h *Handler) handleListStreamProcessors(
-	_ context.Context,
-	req *listStreamProcessorsReq,
-) (*listStreamProcessorsResp, error) {
-	procs, nextToken, err := h.Backend.ListStreamProcessors(req.MaxResults, req.NextToken)
+// getJobBase fetches the common async-video-job fields shared by every
+// Get<Family>Detection/Recognition/Search/Tracking/Moderation response.
+func (h *Handler) getJobBase(jobID string) (*getJobBaseResp, error) {
+	if jobID == "" {
+		return nil, fmt.Errorf("%w: JobId is required", ErrValidation)
+	}
+
+	job, err := h.Backend.GetAsyncJob(jobID)
 	if err != nil {
 		return nil, err
 	}
 
-	entries := make([]streamProcessorEntry, 0, len(procs))
-
-	for _, p := range procs {
-		entries = append(entries, streamProcessorEntry{
-			Name:   p.Name,
-			Status: p.Status,
-		})
-	}
-
-	return &listStreamProcessorsResp{
-		NextToken:        nextToken,
-		StreamProcessors: entries,
+	return &getJobBaseResp{
+		JobId:     job.JobID,
+		JobStatus: job.JobStatus,
+		VideoMetadata: &videoMetadata{
+			Codec:          "H264",
+			DurationMillis: 0,
+			Format:         "QuickTime / MOV",
+			FrameRate:      30, //nolint:mnd // existing issue.
+		},
 	}, nil
-}
-
-type streamProcessorNameReq struct {
-	Name string `json:"Name"`
-}
-
-func (h *Handler) handleStartStreamProcessor(_ context.Context, req *streamProcessorNameReq) (*struct{}, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
-	}
-
-	if err := h.Backend.StartStreamProcessor(req.Name); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-func (h *Handler) handleStopStreamProcessor(_ context.Context, req *streamProcessorNameReq) (*struct{}, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
-	}
-
-	if err := h.Backend.StopStreamProcessor(req.Name); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-type updateStreamProcessorReq struct {
-	Name string `json:"Name"`
-}
-
-func (h *Handler) handleUpdateStreamProcessor(_ context.Context, req *updateStreamProcessorReq) (*struct{}, error) {
-	if req.Name == "" {
-		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
-	}
-
-	if err := h.Backend.UpdateStreamProcessor(req.Name); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-// --- Tag requests ---
-
-type tagResourceReq struct {
-	Tags        map[string]string `json:"Tags"`
-	ResourceArn string            `json:"ResourceArn"`
-}
-
-func (h *Handler) handleTagResource(_ context.Context, req *tagResourceReq) (*struct{}, error) {
-	if req.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
-	}
-
-	if err := h.Backend.TagResource(req.ResourceArn, req.Tags); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-type untagResourceReq struct {
-	ResourceArn string   `json:"ResourceArn"`
-	TagKeys     []string `json:"TagKeys"`
-}
-
-func (h *Handler) handleUntagResource(_ context.Context, req *untagResourceReq) (*struct{}, error) {
-	if req.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
-	}
-
-	if err := h.Backend.UntagResource(req.ResourceArn, req.TagKeys); err != nil {
-		return nil, err
-	}
-
-	return &struct{}{}, nil
-}
-
-type listTagsForResourceReq struct {
-	ResourceArn string `json:"ResourceArn"`
-}
-
-type listTagsForResourceResp struct {
-	Tags map[string]string `json:"Tags"`
-}
-
-func (h *Handler) handleListTagsForResource(
-	_ context.Context,
-	req *listTagsForResourceReq,
-) (*listTagsForResourceResp, error) {
-	if req.ResourceArn == "" {
-		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
-	}
-
-	tags, err := h.Backend.ListTagsForResource(req.ResourceArn)
-	if err != nil {
-		return nil, err
-	}
-
-	if tags == nil {
-		tags = map[string]string{}
-	}
-
-	return &listTagsForResourceResp{Tags: tags}, nil
-}
-
-// epochSeconds renders a timestamp as AWS JSON epoch seconds (with fractional
-// nanoseconds), matching what the Rekognition SDK deserializer expects.
-func epochSeconds(t time.Time) float64 {
-	return float64(t.Unix()) + float64(t.Nanosecond())/1e9
 }
