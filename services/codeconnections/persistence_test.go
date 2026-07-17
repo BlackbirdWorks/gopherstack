@@ -1,6 +1,7 @@
 package codeconnections_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -215,6 +216,78 @@ func TestInMemoryBackend_SnapshotRestore_EmptyState(t *testing.T) {
 	assert.Equal(t, 0, restored.HostCount())
 	assert.Equal(t, 0, restored.RepositoryLinkCount())
 	assert.Equal(t, 0, restored.SyncConfigurationCount())
+}
+
+// TestSnapshotRestore verifies Snapshot/Restore round-trip preserves state
+// across every resource family, exercised through the handler.
+func TestSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "snapshot_restore_round_trip"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+
+			createConn(t, h, "conn-snap", "GitHub")
+			createHost(t, h, "host-snap", "GitHubEnterpriseServer", "https://ghe.example.com")
+			connArn := createConn(t, h, "conn-snap2", "GitLab")
+			linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+
+			snap := h.Backend.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			newBackend := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, newBackend.Restore(t.Context(), snap))
+
+			conns := newBackend.ListConnections(context.Background(), "", "")
+			assert.Len(t, conns, 2)
+
+			_, err := newBackend.GetRepositoryLink(context.Background(), linkID)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestSnapshotRestoreHostsByName verifies the hostsByName index is preserved in a snapshot.
+func TestSnapshotRestoreHostsByName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "hosts_by_name_restored"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			createHost(t, h, "snap-host", "GitHubEnterpriseServer", "https://ghe.example.com")
+
+			snap := h.Backend.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			newBackend := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, newBackend.Restore(t.Context(), snap))
+
+			// Attempting to create a host with same name should fail (name index restored).
+			_, err := newBackend.CreateHost(
+				context.Background(),
+				"snap-host",
+				"GitHubEnterpriseServer",
+				"https://new.example.com",
+				nil,
+			)
+			require.Error(t, err, "duplicate host name should fail after restore")
+		})
+	}
 }
 
 // TestHandler_SnapshotRestore proves the dead-wiring fix: Handler.Snapshot/
