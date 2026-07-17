@@ -176,8 +176,8 @@ func TestVpcOriginCRUD(t *testing.T) {
 	}
 }
 
-// TestBackendVpcOriginDirectly tests VPC Origin backend operations directly.
-func TestBackendVpcOriginDirectly(t *testing.T) {
+// TestInMemoryBackend_VpcOrigin tests VPC Origin backend operations directly.
+func TestInMemoryBackend_VpcOrigin(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

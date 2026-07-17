@@ -206,8 +206,8 @@ func TestRealtimeLogConfigCRUD(t *testing.T) {
 	}
 }
 
-// TestBackendRealtimeLogConfigDirectly tests Realtime Log Config backend operations directly.
-func TestBackendRealtimeLogConfigDirectly(t *testing.T) {
+// TestInMemoryBackend_RealtimeLogConfig tests Realtime Log Config backend operations directly.
+func TestInMemoryBackend_RealtimeLogConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

@@ -13,10 +13,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestParityBatch3_PublicKeyReferentialIntegrity verifies that a public key
+// TestPublicKeyReferentialIntegrity verifies that a public key
 // referenced by a key group or an FLE profile cannot be deleted, and that the
 // reference must be removed first.
-func TestParityBatch3_PublicKeyReferentialIntegrity(t *testing.T) {
+func TestPublicKeyReferentialIntegrity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -87,9 +87,9 @@ func TestParityBatch3_PublicKeyReferentialIntegrity(t *testing.T) {
 	}
 }
 
-// TestParityBatch3_PublicKeyInUseHTTP verifies the HTTP surface returns 409
+// TestPublicKeyInUseHTTP verifies the HTTP surface returns 409
 // PublicKeyInUse when deleting a referenced public key.
-func TestParityBatch3_PublicKeyInUseHTTP(t *testing.T) {
+func TestPublicKeyInUseHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newCFHandler(t)
@@ -115,7 +115,7 @@ func TestParityBatch3_PublicKeyInUseHTTP(t *testing.T) {
 	assert.Contains(t, delRec.Body.String(), "PublicKeyInUse")
 }
 
-func TestParity_DeletePublicKeyRequiresIfMatch(t *testing.T) {
+func TestDeletePublicKeyRequiresIfMatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -164,7 +164,7 @@ func TestParity_DeletePublicKeyRequiresIfMatch(t *testing.T) {
 	}
 }
 
-func TestParity_DeleteKeyGroupRequiresIfMatch(t *testing.T) {
+func TestDeleteKeyGroupRequiresIfMatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -651,8 +651,8 @@ func TestKeyGroupCRUD(t *testing.T) {
 	}
 }
 
-// TestBackendPublicKeyDirectly tests Public Key backend operations directly.
-func TestBackendPublicKeyDirectly(t *testing.T) {
+// TestInMemoryBackend_PublicKey tests Public Key backend operations directly.
+func TestInMemoryBackend_PublicKey(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -719,8 +719,8 @@ func TestBackendPublicKeyDirectly(t *testing.T) {
 	}
 }
 
-// TestBackendKeyGroupDirectly tests Key Group backend operations directly.
-func TestBackendKeyGroupDirectly(t *testing.T) {
+// TestInMemoryBackend_KeyGroup tests Key Group backend operations directly.
+func TestInMemoryBackend_KeyGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

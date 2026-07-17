@@ -10,8 +10,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestBackendOperations exercises the in-memory backend directly.
-func TestBackendOperations(t *testing.T) {
+// TestInMemoryBackend_Operations exercises the in-memory backend directly.
+func TestInMemoryBackend_Operations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -180,8 +180,8 @@ func TestBackendOperations(t *testing.T) {
 	}
 }
 
-// TestNewOperations_BackendDirectly exercises all new backend methods directly.
-func TestNewOperations_BackendDirectly(t *testing.T) {
+// TestInMemoryBackend_NewOperations exercises all new backend methods directly.
+func TestInMemoryBackend_NewOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -387,8 +387,8 @@ func TestNewOperations_BackendDirectly(t *testing.T) {
 	}
 }
 
-// TestRefinement1_BackendReset verifies backend Reset() directly.
-func TestRefinement1_BackendReset(t *testing.T) {
+// TestInMemoryBackend_Reset verifies backend Reset() directly.
+func TestInMemoryBackend_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
@@ -402,8 +402,8 @@ func TestRefinement1_BackendReset(t *testing.T) {
 	assert.Empty(t, b.ListOAIs())
 }
 
-// TestNewBackendCRUD tests backend methods for new resource types.
-func TestNewBackendCRUD(t *testing.T) {
+// TestInMemoryBackend_NewResourceTypesCRUD tests backend methods for new resource types.
+func TestInMemoryBackend_NewResourceTypesCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

@@ -26,7 +26,7 @@ const cloudfrontSnapshotVersion = 1
 // invalidationSnapshot is the DTO used ONLY for Snapshot/Restore of both
 // invalidations and tenantInvalidations. It mirrors Invalidation field for field,
 // except ParentID is given a real JSON tag here instead of Invalidation's
-// `json:"-"` distID/tenantID (see backend.go) -- marshaling Invalidation directly
+// `json:"-"` distID/tenantID (see store.go) -- marshaling Invalidation directly
 // would silently drop whichever of those was set, and unmarshaling into it would
 // leave both permanently empty, corrupting the flat table's composite key on
 // restore. This is the same DTO-registry technique services/apigateway uses for

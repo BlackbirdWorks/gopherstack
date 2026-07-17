@@ -12,9 +12,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestParityBatch3_FLEReferentialIntegrity verifies referential integrity
+// TestFLEReferentialIntegrity verifies referential integrity
 // between FLE configs, FLE profiles, and public keys.
-func TestParityBatch3_FLEReferentialIntegrity(t *testing.T) {
+func TestFLEReferentialIntegrity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -102,7 +102,7 @@ func TestParityBatch3_FLEReferentialIntegrity(t *testing.T) {
 	}
 }
 
-func TestParity_DeleteFLERequiresIfMatch(t *testing.T) {
+func TestDeleteFLERequiresIfMatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -510,8 +510,8 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 	}
 }
 
-// TestBackendFLEDirectly tests FLE backend operations directly.
-func TestBackendFLEDirectly(t *testing.T) {
+// TestInMemoryBackend_FieldLevelEncryption tests FLE backend operations directly.
+func TestInMemoryBackend_FieldLevelEncryption(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
