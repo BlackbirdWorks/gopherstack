@@ -32,7 +32,7 @@ type regionFixture struct {
 // newPersistenceFixture populates b with one identity pool, one identity, one IAM role
 // mapping, and one principal-tag mapping in region, then renames the pool -- exercising
 // the byName index rebuild UpdateIdentityPool performs (see renamePoolIfNeeded in
-// backend.go). Returns the fixture describing what was created, for later assertion.
+// identity_pools.go). Returns the fixture describing what was created, for later assertion.
 func newPersistenceFixture(t *testing.T, b *InMemoryBackend, region string) regionFixture {
 	t.Helper()
 
