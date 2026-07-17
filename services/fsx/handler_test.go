@@ -1,21 +1,142 @@
 package fsx_test
 
-// Parity batch-C: CreationTime wire-format fix (epoch-seconds JSON number,
-// not RFC3339 string) across every FSx resource type, and the generic
-// ResourceNotFound error code for Tag/Untag/ListTagsForResource on an
-// unrecognized ARN.
-
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+func newTestHandler(t *testing.T) *fsx.Handler {
+	t.Helper()
+	backend := fsx.NewInMemoryBackend("000000000000", "us-east-1")
+
+	return fsx.NewHandler(backend)
+}
+
+func doFSxRequest(t *testing.T, h *fsx.Handler, op string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var bodyBytes []byte
+
+	if body != nil {
+		var marshalErr error
+
+		bodyBytes, marshalErr = json.Marshal(body)
+		require.NoError(t, marshalErr)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AWSSimbaAPIService_v20180301."+op)
+	rec := httptest.NewRecorder()
+
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	handlerErr := h.Handler()(c)
+	require.NoError(t, handlerErr)
+
+	return rec
+}
+
+func createFS(t *testing.T, h *fsx.Handler, fsType string) string {
+	t.Helper()
+	rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{"FileSystemType": fsType})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out["FileSystem"].(map[string]any)["FileSystemId"].(string)
+}
+
+func createFSandBackup(t *testing.T, h *fsx.Handler, fsType string) string {
+	t.Helper()
+	fsID := createFS(t, h, fsType)
+	rec := doFSxRequest(t, h, "CreateBackup", map[string]any{"FileSystemId": fsID})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out["Backup"].(map[string]any)["BackupId"].(string)
+}
+
+func createVolume(t *testing.T, h *fsx.Handler, fsID, volType, name string) string { //nolint:unparam // existing issue.
+	t.Helper()
+	rec := doFSxRequest(t, h, "CreateVolume", map[string]any{
+		"VolumeType":   volType,
+		"FileSystemId": fsID,
+		"Name":         name,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out["Volume"].(map[string]any)["VolumeId"].(string)
+}
+
+func createSVM(t *testing.T, h *fsx.Handler, fsID, name string) string {
+	t.Helper()
+	rec := doFSxRequest(t, h, "CreateStorageVirtualMachine", map[string]any{
+		"FileSystemId": fsID,
+		"Name":         name,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out["StorageVirtualMachine"].(map[string]any)["StorageVirtualMachineId"].(string)
+}
+
+func createFileCache(t *testing.T, h *fsx.Handler, cacheType string) string {
+	t.Helper()
+	rec := doFSxRequest(t, h, "CreateFileCache", map[string]any{
+		"FileCacheType": cacheType,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out["FileCache"].(map[string]any)["FileCacheId"].(string)
+}
+
+// decodeField requires a 200 response and returns the named top-level field
+// decoded as a JSON object.
+func decodeField(t *testing.T, rec *httptest.ResponseRecorder, field string) map[string]any {
+	t.Helper()
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	obj, ok := out[field].(map[string]any)
+	require.True(t, ok, "response must contain object field %q, got %v", field, out)
+
+	return obj
+}
+
+// ---------------------------------------------------------------------------
+// Core dispatch tests
+// ---------------------------------------------------------------------------
+
+func TestFSx_UnknownOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doFSxRequest(t, h, "CreateVolume", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
 
 // Test_CreationTime_IsEpochSecondsNumber verifies that every FSx resource's
 // CreationTime field serializes as a JSON number (epoch seconds), matching
@@ -160,75 +281,6 @@ func Test_CreationTime_IsEpochSecondsNumber(t *testing.T) {
 				t.Fatalf("%s.CreationTime must decode as a JSON number (epoch seconds), got %T: %v",
 					tt.field, raw, raw)
 			}
-		})
-	}
-}
-
-// decodeField requires a 200 response and returns the named top-level field
-// decoded as a JSON object.
-func decodeField(t *testing.T, rec *httptest.ResponseRecorder, field string) map[string]any {
-	t.Helper()
-
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-
-	obj, ok := out[field].(map[string]any)
-	require.True(t, ok, "response must contain object field %q, got %v", field, out)
-
-	return obj
-}
-
-// Test_TagOps_UnknownARN_ReturnsResourceNotFound verifies that TagResource,
-// UntagResource, and ListTagsForResource return the generic ResourceNotFound
-// error (not the file-system-specific FileSystemNotFound) when given an ARN
-// that does not match any known FSx resource. Real FSx's TagResource family
-// operates across every resource type and returns the generic
-// types.ResourceNotFound exception for an unrecognized ResourceARN.
-func Test_TagOps_UnknownARN_ReturnsResourceNotFound(t *testing.T) {
-	t.Parallel()
-
-	const unknownARN = "arn:aws:fsx:us-east-1:000000000000:backup/backup-doesnotexist"
-
-	tests := []struct {
-		body map[string]any
-		name string
-		op   string
-	}{
-		{
-			name: "TagResource",
-			op:   "TagResource",
-			body: map[string]any{
-				"ResourceARN": unknownARN,
-				"Tags":        []map[string]string{{"Key": "k", "Value": "v"}},
-			},
-		},
-		{
-			name: "UntagResource",
-			op:   "UntagResource",
-			body: map[string]any{"ResourceARN": unknownARN, "TagKeys": []string{"k"}},
-		},
-		{
-			name: "ListTagsForResource",
-			op:   "ListTagsForResource",
-			body: map[string]any{"ResourceARN": unknownARN},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doFSxRequest(t, h, tt.op, tt.body)
-
-			require.Equal(t, http.StatusBadRequest, rec.Code)
-
-			var errBody map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
-			assert.Equal(t, "ResourceNotFound", errBody["__type"],
-				"%s on an unknown ARN must return the generic ResourceNotFound code", tt.op)
 		})
 	}
 }

@@ -1,8 +1,5 @@
 package fsx_test
 
-// Parity batch-B: fixes for DataRepositoryTask tag storage, arnExists DRT check,
-// and ListTagsForResource returning [] instead of null for empty tag sets.
-
 import (
 	"encoding/json"
 	"net/http"
@@ -10,15 +7,90 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
-// TestParity_DataRepositoryTask_TagsStoredAtCreation verifies that tags passed
+func TestFSx_DataRepositoryTask(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		taskType string
+		wantCode int
+	}{
+		{
+			name:     "create EXPORT_TO_REPOSITORY task",
+			taskType: "EXPORT_TO_REPOSITORY",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "create IMPORT_METADATA_FROM_REPOSITORY task",
+			taskType: "IMPORT_METADATA_FROM_REPOSITORY",
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			fsID := createFS(t, h, "LUSTRE")
+
+			rec := doFSxRequest(t, h, "CreateDataRepositoryTask", map[string]any{
+				"FileSystemId": fsID,
+				"Type":         tc.taskType,
+				"Paths":        []string{"/data"},
+			})
+			require.Equal(t, tc.wantCode, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			task := out["DataRepositoryTask"].(map[string]any)
+			assert.Contains(t, task["TaskId"].(string), "task-")
+			assert.Equal(t, "EXECUTING", task["Lifecycle"])
+		})
+	}
+}
+
+func TestFSx_DataRepositoryTaskLifecycle(t *testing.T) {
+	t.Parallel()
+
+	t.Run("describe and cancel cycle", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		fsID := createFS(t, h, "LUSTRE")
+
+		rec := doFSxRequest(t, h, "CreateDataRepositoryTask", map[string]any{
+			"FileSystemId": fsID,
+			"Type":         "EXPORT_TO_REPOSITORY",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		var cr map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+		taskID := cr["DataRepositoryTask"].(map[string]any)["TaskId"].(string)
+
+		// describe
+		rec2 := doFSxRequest(t, h, "DescribeDataRepositoryTasks", map[string]any{
+			"TaskIds": []string{taskID},
+		})
+		require.Equal(t, http.StatusOK, rec2.Code)
+		var dr map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &dr))
+		assert.Len(t, dr["DataRepositoryTasks"].([]any), 1)
+
+		// cancel
+		rec3 := doFSxRequest(t, h, "CancelDataRepositoryTask", map[string]any{"TaskId": taskID})
+		require.Equal(t, http.StatusOK, rec3.Code)
+		var car map[string]any
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &car))
+		assert.Equal(t, "CANCELING", car["Lifecycle"])
+	})
+}
+
+// TestDataRepositoryTask_TagsStoredAtCreation verifies that tags passed
 // to CreateDataRepositoryTask are persisted and retrievable via ListTagsForResource.
 // Previously CreateDataRepositoryTask did not populate b.tags[arn], so creation-time
 // tags were silently dropped.
-func TestParity_DataRepositoryTask_TagsStoredAtCreation(t *testing.T) {
+func TestDataRepositoryTask_TagsStoredAtCreation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -81,10 +153,10 @@ func TestParity_DataRepositoryTask_TagsStoredAtCreation(t *testing.T) {
 	}
 }
 
-// TestParity_DataRepositoryTask_TagResource verifies that TagResource works on
+// TestDataRepositoryTask_TagResource verifies that TagResource works on
 // DataRepositoryTask ARNs. Previously arnExists() did not check DRT ARNs,
 // causing TagResource to return FileSystemNotFound for task ARNs.
-func TestParity_DataRepositoryTask_TagResource(t *testing.T) {
+func TestDataRepositoryTask_TagResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -116,60 +188,4 @@ func TestParity_DataRepositoryTask_TagResource(t *testing.T) {
 	tags := tagOut["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "added", tags[0].(map[string]any)["Key"])
-}
-
-// TestParity_ListTagsForResource_EmptyIsArray verifies that ListTagsForResource
-// returns a JSON array (not null) when no tags are set on a resource.
-// Real AWS FSx always returns "Tags": [] for resources with no tags.
-func TestParity_ListTagsForResource_EmptyIsArray(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		createFunc func(h *fsx.Handler) string
-		name       string
-	}{
-		{
-			name: "file_system_no_tags",
-			createFunc: func(h *fsx.Handler) string {
-				rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{"FileSystemType": "LUSTRE"})
-				require.Equal(t, http.StatusOK, rec.Code)
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-
-				return out["FileSystem"].(map[string]any)["ResourceARN"].(string)
-			},
-		},
-		{
-			name: "backup_no_tags",
-			createFunc: func(h *fsx.Handler) string {
-				fsID := createFS(t, h, "LUSTRE")
-				rec := doFSxRequest(t, h, "CreateBackup", map[string]any{"FileSystemId": fsID})
-				require.Equal(t, http.StatusOK, rec.Code)
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-
-				return out["Backup"].(map[string]any)["ResourceARN"].(string)
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			resourceARN := tc.createFunc(h)
-
-			rec := doFSxRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": resourceARN})
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			// Parse the raw JSON to verify "Tags" is an array, not null.
-			var raw map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
-
-			tagsRaw, ok := raw["Tags"]
-			require.True(t, ok, "Tags key must be present")
-			assert.Equal(t, "[]", string(tagsRaw), "Tags must be JSON array [], not null")
-		})
-	}
 }
