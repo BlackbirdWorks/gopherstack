@@ -215,7 +215,7 @@ func TestAssociateOpsItemRelatedItem(t *testing.T) {
 	}
 }
 
-// TestRefinement2_AccountID_Region verifies AccountID and Region methods.
+// TestAccountID_Region verifies AccountID and Region methods.
 func TestAccountID_Region(t *testing.T) {
 	t.Parallel()
 
@@ -418,10 +418,10 @@ func TestBackendOps_ListOpsItemEvents(t *testing.T) {
 }
 func TestFull_OpsItem_FullLifecycle(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	// Create
-	code, out := mustPost(t, h, "CreateOpsItem", map[string]any{
+	code, out := postJSON(t, h, "CreateOpsItem", map[string]any{
 		"Title":       "High CPU Usage",
 		"Source":      "CloudWatch",
 		"Severity":    "2",
@@ -433,20 +433,20 @@ func TestFull_OpsItem_FullLifecycle(t *testing.T) {
 	assert.NotEmpty(t, opsItemID)
 
 	// Get
-	code, out = mustPost(t, h, "GetOpsItem", map[string]any{"OpsItemId": opsItemID})
+	code, out = postJSON(t, h, "GetOpsItem", map[string]any{"OpsItemId": opsItemID})
 	assert.Equal(t, http.StatusOK, code)
 	item := out["OpsItem"].(map[string]any)
 	assert.Equal(t, "High CPU Usage", item["Title"])
 	assert.Equal(t, "Open", item["Status"])
 
 	// Describe
-	code, out = mustPost(t, h, "DescribeOpsItems", map[string]any{})
+	code, out = postJSON(t, h, "DescribeOpsItems", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	items := out["OpsItemSummaries"].([]any)
 	assert.NotEmpty(t, items)
 
 	// Update
-	code, _ = mustPost(t, h, "UpdateOpsItem", map[string]any{
+	code, _ = postJSON(t, h, "UpdateOpsItem", map[string]any{
 		"OpsItemId": opsItemID,
 		"Status":    "InProgress",
 		"Title":     "High CPU - Under Investigation",
@@ -454,14 +454,14 @@ func TestFull_OpsItem_FullLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 
 	// Verify update
-	code, out = mustPost(t, h, "GetOpsItem", map[string]any{"OpsItemId": opsItemID})
+	code, out = postJSON(t, h, "GetOpsItem", map[string]any{"OpsItemId": opsItemID})
 	assert.Equal(t, http.StatusOK, code)
 	item = out["OpsItem"].(map[string]any)
 	assert.Equal(t, "InProgress", item["Status"])
 	assert.Equal(t, "High CPU - Under Investigation", item["Title"])
 
 	// AssociateRelatedItem
-	code, out = mustPost(t, h, "AssociateOpsItemRelatedItem", map[string]any{
+	code, out = postJSON(t, h, "AssociateOpsItemRelatedItem", map[string]any{
 		"OpsItemId":       opsItemID,
 		"AssociationType": "IsParentOf",
 		"ResourceType":    "AWS::EC2::Instance",
@@ -472,48 +472,48 @@ func TestFull_OpsItem_FullLifecycle(t *testing.T) {
 	assert.NotEmpty(t, assocID)
 
 	// ListRelatedItems
-	code, out = mustPost(t, h, "ListOpsItemRelatedItems", map[string]any{"OpsItemId": opsItemID})
+	code, out = postJSON(t, h, "ListOpsItemRelatedItems", map[string]any{"OpsItemId": opsItemID})
 	assert.Equal(t, http.StatusOK, code)
 	relatedItems := out["Summaries"].([]any)
 	assert.Len(t, relatedItems, 1)
 
 	// DisassociateRelatedItem
-	code, _ = mustPost(t, h, "DisassociateOpsItemRelatedItem", map[string]any{
+	code, _ = postJSON(t, h, "DisassociateOpsItemRelatedItem", map[string]any{
 		"OpsItemId":     opsItemID,
 		"AssociationId": assocID,
 	})
 	assert.Equal(t, http.StatusOK, code)
 
 	// Delete
-	code, _ = mustPost(t, h, "DeleteOpsItem", map[string]any{"OpsItemId": opsItemID})
+	code, _ = postJSON(t, h, "DeleteOpsItem", map[string]any{"OpsItemId": opsItemID})
 	assert.Equal(t, http.StatusOK, code)
 
 	// Gone
-	code, _ = mustPost(t, h, "GetOpsItem", map[string]any{"OpsItemId": opsItemID})
+	code, _ = postJSON(t, h, "GetOpsItem", map[string]any{"OpsItemId": opsItemID})
 	assert.Equal(t, http.StatusBadRequest, code)
 }
 func TestFull_OpsItem_FilterByStatus(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	_, out1 := mustPost(t, h, "CreateOpsItem", map[string]any{
+	_, out1 := postJSON(t, h, "CreateOpsItem", map[string]any{
 		"Title":  "Item A",
 		"Source": "manual",
 	})
 	id1 := out1["OpsItemId"].(string)
 
-	mustPost(t, h, "CreateOpsItem", map[string]any{
+	postJSON(t, h, "CreateOpsItem", map[string]any{
 		"Title":  "Item B",
 		"Source": "manual",
 	})
 
 	// Close item A
-	mustPost(t, h, "UpdateOpsItem", map[string]any{
+	postJSON(t, h, "UpdateOpsItem", map[string]any{
 		"OpsItemId": id1,
 		"Status":    "Resolved",
 	})
 
-	code, out := mustPost(t, h, "DescribeOpsItems", map[string]any{
+	code, out := postJSON(t, h, "DescribeOpsItems", map[string]any{
 		"OpsItemFilters": []map[string]any{
 			{"Key": "Status", "Values": []string{"Open"}, "Operator": "Equal"},
 		},

@@ -12,7 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
-// TestRefinement2_TagsForNonParameterResources verifies miscResourceTags.
+// TestTagsForNonParameterResources verifies miscResourceTags.
 func TestTagsForNonParameterResources(t *testing.T) {
 	t.Parallel()
 
@@ -69,7 +69,7 @@ func TestTagsForNonParameterResources(t *testing.T) {
 	}
 }
 
-// TestRefinement2_RemoveTagsForNonParameter verifies RemoveTagsFromResource for non-parameter resources.
+// TestRemoveTagsForNonParameter verifies RemoveTagsFromResource for non-parameter resources.
 func TestRemoveTagsForNonParameter(t *testing.T) {
 	t.Parallel()
 
@@ -134,18 +134,18 @@ func TestRemoveTagsForNonParameter(t *testing.T) {
 }
 func TestFull_ParameterStore_Tags(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "PutParameter", map[string]any{"Name": "/tag/p", "Type": "String", "Value": "v"})
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/tag/p", "Type": "String", "Value": "v"})
 
-	code, _ := mustPost(t, h, "AddTagsToResource", map[string]any{
+	code, _ := postJSON(t, h, "AddTagsToResource", map[string]any{
 		"ResourceType": "Parameter",
 		"ResourceId":   "/tag/p",
 		"Tags":         []map[string]any{{"Key": "env", "Value": "prod"}},
 	})
 	assert.Equal(t, http.StatusOK, code)
 
-	code, out := mustPost(t, h, "ListTagsForResource", map[string]any{
+	code, out := postJSON(t, h, "ListTagsForResource", map[string]any{
 		"ResourceType": "Parameter",
 		"ResourceId":   "/tag/p",
 	})
@@ -154,14 +154,14 @@ func TestFull_ParameterStore_Tags(t *testing.T) {
 	assert.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].(map[string]any)["Key"])
 
-	code, _ = mustPost(t, h, "RemoveTagsFromResource", map[string]any{
+	code, _ = postJSON(t, h, "RemoveTagsFromResource", map[string]any{
 		"ResourceType": "Parameter",
 		"ResourceId":   "/tag/p",
 		"TagKeys":      []string{"env"},
 	})
 	assert.Equal(t, http.StatusOK, code)
 
-	code, out = mustPost(t, h, "ListTagsForResource", map[string]any{
+	code, out = postJSON(t, h, "ListTagsForResource", map[string]any{
 		"ResourceType": "Parameter",
 		"ResourceId":   "/tag/p",
 	})

@@ -153,12 +153,12 @@ func TestCollectPathParams_LinearScan(t *testing.T) {
 }
 func TestDescribeParameters_TierFilter(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	postAudit1(t, h, "PutParameter", map[string]any{"Name": "/p/a", "Type": "String", "Value": "v", "Tier": "Standard"})
-	postAudit1(t, h, "PutParameter", map[string]any{"Name": "/p/b", "Type": "String", "Value": "v", "Tier": "Advanced"})
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/p/a", "Type": "String", "Value": "v", "Tier": "Standard"})
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/p/b", "Type": "String", "Value": "v", "Tier": "Advanced"})
 
-	code, out := postAudit1(t, h, "DescribeParameters", map[string]any{
+	code, out := postJSON(t, h, "DescribeParameters", map[string]any{
 		"ParameterFilters": []map[string]any{
 			{"Key": "Tier", "Values": []string{"Advanced"}},
 		},
@@ -171,17 +171,17 @@ func TestDescribeParameters_TierFilter(t *testing.T) {
 }
 func TestDescribeParameters_DataTypeFilter(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	postAudit1(t, h, "PutParameter", map[string]any{"Name": "/q/a", "Type": "String", "Value": "v", "DataType": "text"})
-	postAudit1(
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/q/a", "Type": "String", "Value": "v", "DataType": "text"})
+	postJSON(
 		t,
 		h,
 		"PutParameter",
 		map[string]any{"Name": "/q/b", "Type": "String", "Value": "ami-xyz", "DataType": "aws:ec2:image"},
 	)
 
-	code, out := postAudit1(t, h, "DescribeParameters", map[string]any{
+	code, out := postJSON(t, h, "DescribeParameters", map[string]any{
 		"ParameterFilters": []map[string]any{
 			{"Key": "DataType", "Values": []string{"aws:ec2:image"}},
 		},
@@ -194,9 +194,9 @@ func TestDescribeParameters_DataTypeFilter(t *testing.T) {
 }
 func TestDescribeParameters_MetadataHasTierAndDataType(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	postAudit1(t, h, "PutParameter", map[string]any{
+	postJSON(t, h, "PutParameter", map[string]any{
 		"Name":     "/m/x",
 		"Type":     "String",
 		"Value":    "v",
@@ -204,7 +204,7 @@ func TestDescribeParameters_MetadataHasTierAndDataType(t *testing.T) {
 		"DataType": "text",
 	})
 
-	code, out := postAudit1(t, h, "DescribeParameters", map[string]any{})
+	code, out := postJSON(t, h, "DescribeParameters", map[string]any{})
 
 	assert.Equal(t, http.StatusOK, code)
 	params := out["Parameters"].([]any)
@@ -215,9 +215,9 @@ func TestDescribeParameters_MetadataHasTierAndDataType(t *testing.T) {
 }
 func TestGetParameterHistory_HasNewFields(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	postAudit1(t, h, "PutParameter", map[string]any{
+	postJSON(t, h, "PutParameter", map[string]any{
 		"Name":           "/hist/p",
 		"Type":           "String",
 		"Value":          "v1",
@@ -226,7 +226,7 @@ func TestGetParameterHistory_HasNewFields(t *testing.T) {
 		"AllowedPattern": ".*",
 	})
 
-	code, out := postAudit1(t, h, "GetParameterHistory", map[string]any{"Name": "/hist/p"})
+	code, out := postJSON(t, h, "GetParameterHistory", map[string]any{"Name": "/hist/p"})
 
 	assert.Equal(t, http.StatusOK, code)
 	params := out["Parameters"].([]any)
@@ -238,14 +238,14 @@ func TestGetParameterHistory_HasNewFields(t *testing.T) {
 }
 func TestGetParametersByPath_NoPrefixCollision(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
 	// /app and /application share a prefix — /app/ must not match /application/key
 	for _, name := range []string{"/app/x", "/application/key"} {
-		postAudit1(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
+		postJSON(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
 	}
 
-	code, out := postAudit1(t, h, "GetParametersByPath", map[string]any{
+	code, out := postJSON(t, h, "GetParametersByPath", map[string]any{
 		"Path": "/app",
 	})
 
@@ -256,13 +256,13 @@ func TestGetParametersByPath_NoPrefixCollision(t *testing.T) {
 }
 func TestGetParametersByPath_RecursiveFindsAll(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
 	for _, name := range []string{"/svc/a", "/svc/b/c", "/svc/b/d"} {
-		postAudit1(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
+		postJSON(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
 	}
 
-	code, out := postAudit1(t, h, "GetParametersByPath", map[string]any{
+	code, out := postJSON(t, h, "GetParametersByPath", map[string]any{
 		"Path":      "/svc",
 		"Recursive": true,
 	})
@@ -273,13 +273,13 @@ func TestGetParametersByPath_RecursiveFindsAll(t *testing.T) {
 }
 func TestGetParametersByPath_NonRecursiveDirectOnly(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
 	for _, name := range []string{"/svc2/a", "/svc2/b/c"} {
-		postAudit1(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
+		postJSON(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
 	}
 
-	code, out := postAudit1(t, h, "GetParametersByPath", map[string]any{
+	code, out := postJSON(t, h, "GetParametersByPath", map[string]any{
 		"Path":      "/svc2",
 		"Recursive": false,
 	})
@@ -291,12 +291,12 @@ func TestGetParametersByPath_NonRecursiveDirectOnly(t *testing.T) {
 }
 func TestGetParametersByPath_TrailingSlashEquivalent(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	postAudit1(t, h, "PutParameter", map[string]any{"Name": "/env/key", "Type": "String", "Value": "v"})
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/env/key", "Type": "String", "Value": "v"})
 
-	code1, out1 := postAudit1(t, h, "GetParametersByPath", map[string]any{"Path": "/env"})
-	code2, out2 := postAudit1(t, h, "GetParametersByPath", map[string]any{"Path": "/env/"})
+	code1, out1 := postJSON(t, h, "GetParametersByPath", map[string]any{"Path": "/env"})
+	code2, out2 := postJSON(t, h, "GetParametersByPath", map[string]any{"Path": "/env/"})
 
 	assert.Equal(t, http.StatusOK, code1)
 	assert.Equal(t, http.StatusOK, code2)
@@ -668,10 +668,10 @@ func TestSSMPagination_DescribeParameters(t *testing.T) {
 }
 func TestFull_ParameterStore_History_Versions(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	for i := range 3 {
-		mustPost(t, h, "PutParameter", map[string]any{
+		postJSON(t, h, "PutParameter", map[string]any{
 			"Name":      "/hist/v",
 			"Type":      "String",
 			"Value":     "version",
@@ -679,17 +679,17 @@ func TestFull_ParameterStore_History_Versions(t *testing.T) {
 		})
 	}
 
-	code, out := mustPost(t, h, "GetParameterHistory", map[string]any{"Name": "/hist/v"})
+	code, out := postJSON(t, h, "GetParameterHistory", map[string]any{"Name": "/hist/v"})
 	assert.Equal(t, http.StatusOK, code)
 	params := out["Parameters"].([]any)
 	assert.Len(t, params, 3)
 }
 func TestFull_ParameterStore_History_Pagination(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	for i := range 5 {
-		mustPost(t, h, "PutParameter", map[string]any{
+		postJSON(t, h, "PutParameter", map[string]any{
 			"Name":      "/paginated/p",
 			"Type":      "String",
 			"Value":     "v",
@@ -698,7 +698,7 @@ func TestFull_ParameterStore_History_Pagination(t *testing.T) {
 	}
 
 	maxR := int64(2)
-	code, out := mustPost(t, h, "GetParameterHistory", map[string]any{
+	code, out := postJSON(t, h, "GetParameterHistory", map[string]any{
 		"Name":       "/paginated/p",
 		"MaxResults": maxR,
 	})
@@ -709,22 +709,22 @@ func TestFull_ParameterStore_History_Pagination(t *testing.T) {
 }
 func TestFull_ParameterStore_DescribeParameters_Pagination(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	for i := range 5 {
 		name := "/pg/" + string(rune('a'+i))
-		mustPost(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
+		postJSON(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
 	}
 
 	maxR := int64(2)
-	code, out := mustPost(t, h, "DescribeParameters", map[string]any{"MaxResults": &maxR})
+	code, out := postJSON(t, h, "DescribeParameters", map[string]any{"MaxResults": &maxR})
 	assert.Equal(t, http.StatusOK, code)
 	assert.Len(t, out["Parameters"].([]any), 2)
 	nextToken := out["NextToken"].(string)
 	assert.NotEmpty(t, nextToken)
 
 	// Next page
-	code, out = mustPost(t, h, "DescribeParameters", map[string]any{
+	code, out = postJSON(t, h, "DescribeParameters", map[string]any{
 		"MaxResults": &maxR,
 		"NextToken":  nextToken,
 	})
@@ -733,13 +733,13 @@ func TestFull_ParameterStore_DescribeParameters_Pagination(t *testing.T) {
 }
 func TestFull_DescribeParameters_NameFilter_BeginsWith(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	for _, name := range []string{"/prod/a", "/prod/b", "/dev/c"} {
-		mustPost(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
+		postJSON(t, h, "PutParameter", map[string]any{"Name": name, "Type": "String", "Value": "v"})
 	}
 
-	code, out := mustPost(t, h, "DescribeParameters", map[string]any{
+	code, out := postJSON(t, h, "DescribeParameters", map[string]any{
 		"ParameterFilters": []map[string]any{
 			{"Key": "Name", "Option": "BeginsWith", "Values": []string{"/prod/"}},
 		},
@@ -750,12 +750,12 @@ func TestFull_DescribeParameters_NameFilter_BeginsWith(t *testing.T) {
 }
 func TestFull_DescribeParameters_TypeFilter(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "PutParameter", map[string]any{"Name": "/t/str", "Type": "String", "Value": "v"})
-	mustPost(t, h, "PutParameter", map[string]any{"Name": "/t/sl", "Type": "StringList", "Value": "a,b,c"})
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/t/str", "Type": "String", "Value": "v"})
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/t/sl", "Type": "StringList", "Value": "a,b,c"})
 
-	code, out := mustPost(t, h, "DescribeParameters", map[string]any{
+	code, out := postJSON(t, h, "DescribeParameters", map[string]any{
 		"ParameterFilters": []map[string]any{
 			{"Key": "Type", "Values": []string{"StringList"}},
 		},

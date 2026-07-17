@@ -81,9 +81,9 @@ func TestJanitor_SweepTerminatedSessions(t *testing.T) {
 }
 func TestStartSession_LoggingFields(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	code, out := postAudit1(t, h, "StartSession", map[string]any{
+	code, out := postJSON(t, h, "StartSession", map[string]any{
 		"Target":                  "i-123",
 		"DocumentName":            "AWS-StartSSHSession",
 		"Reason":                  "debugging",
@@ -99,18 +99,18 @@ func TestStartSession_LoggingFields(t *testing.T) {
 }
 func TestTerminateSession_SetsEndDate(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	_, startOut := postAudit1(t, h, "StartSession", map[string]any{"Target": "i-term"})
+	_, startOut := postJSON(t, h, "StartSession", map[string]any{"Target": "i-term"})
 	sid := startOut["SessionId"].(string)
 
-	code, out := postAudit1(t, h, "TerminateSession", map[string]any{"SessionId": sid})
+	code, out := postJSON(t, h, "TerminateSession", map[string]any{"SessionId": sid})
 
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, sid, out["SessionId"])
 
 	// Verify EndDate set (filter by empty state = all sessions).
-	_, dsOut := postAudit1(t, h, "DescribeSessions", map[string]any{"State": ""})
+	_, dsOut := postJSON(t, h, "DescribeSessions", map[string]any{"State": ""})
 	sessions, ok := dsOut["Sessions"].([]any)
 	require.True(t, ok)
 	require.Len(t, sessions, 1)
@@ -119,10 +119,10 @@ func TestTerminateSession_SetsEndDate(t *testing.T) {
 }
 func TestFull_Session_StartTerminateDescribe(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	// Start
-	code, out := mustPost(t, h, "StartSession", map[string]any{
+	code, out := postJSON(t, h, "StartSession", map[string]any{
 		"Target":       "i-session-target",
 		"DocumentName": "AWS-StartSSHSession",
 		"Reason":       "deploy fix",
@@ -134,7 +134,7 @@ func TestFull_Session_StartTerminateDescribe(t *testing.T) {
 	assert.NotEmpty(t, out["TokenValue"])
 
 	// DescribeSessions - all
-	code, out = mustPost(t, h, "DescribeSessions", map[string]any{"State": ""})
+	code, out = postJSON(t, h, "DescribeSessions", map[string]any{"State": ""})
 	assert.Equal(t, http.StatusOK, code)
 	sessions := out["Sessions"].([]any)
 	assert.Len(t, sessions, 1)
@@ -143,17 +143,17 @@ func TestFull_Session_StartTerminateDescribe(t *testing.T) {
 	assert.Equal(t, "deploy fix", sess["Reason"])
 
 	// ResumeSession
-	code, out = mustPost(t, h, "ResumeSession", map[string]any{"SessionId": sid})
+	code, out = postJSON(t, h, "ResumeSession", map[string]any{"SessionId": sid})
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotEmpty(t, out["SessionId"])
 
 	// Terminate
-	code, out = mustPost(t, h, "TerminateSession", map[string]any{"SessionId": sid})
+	code, out = postJSON(t, h, "TerminateSession", map[string]any{"SessionId": sid})
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, sid, out["SessionId"])
 
 	// DescribeSessions after terminate — session should be Terminated with EndDate
-	code, out = mustPost(t, h, "DescribeSessions", map[string]any{"State": ""})
+	code, out = postJSON(t, h, "DescribeSessions", map[string]any{"State": ""})
 	assert.Equal(t, http.StatusOK, code)
 	allSessions := out["Sessions"].([]any)
 	require.Len(t, allSessions, 1)

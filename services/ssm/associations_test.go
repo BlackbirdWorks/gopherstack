@@ -367,7 +367,7 @@ func TestCreateAssociationBatch(t *testing.T) {
 	}
 }
 
-// TestRefinement2_CreateAssociation_NameValidation verifies Name is required.
+// TestCreateAssociation_NameValidation verifies Name is required.
 func TestCreateAssociation_NameValidation(t *testing.T) {
 	t.Parallel()
 
@@ -405,16 +405,16 @@ func TestCreateAssociation_NameValidation(t *testing.T) {
 }
 func TestFull_Association_CreateDescribeUpdate(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	// Need a document
-	mustPost(t, h, "CreateDocument", map[string]any{
+	postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "AssocDoc",
 		"Content": `{"schemaVersion":"2.2"}`,
 	})
 
 	// Create association
-	code, out := mustPost(t, h, "CreateAssociation", map[string]any{
+	code, out := postJSON(t, h, "CreateAssociation", map[string]any{
 		"Name":       "AssocDoc",
 		"InstanceId": "i-assoc001",
 		"Parameters": map[string]any{"cmd": []string{"echo test"}},
@@ -424,12 +424,12 @@ func TestFull_Association_CreateDescribeUpdate(t *testing.T) {
 	assert.NotEmpty(t, assocID)
 
 	// Describe
-	code, out = mustPost(t, h, "DescribeAssociation", map[string]any{"AssociationId": assocID})
+	code, out = postJSON(t, h, "DescribeAssociation", map[string]any{"AssociationId": assocID})
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotNil(t, out["AssociationDescription"])
 
 	// Update
-	code, _ = mustPost(t, h, "UpdateAssociation", map[string]any{
+	code, _ = postJSON(t, h, "UpdateAssociation", map[string]any{
 		"AssociationId":   assocID,
 		"AssociationName": "UpdatedAssoc",
 	})

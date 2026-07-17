@@ -328,14 +328,14 @@ func TestSendCommand_InProgressCompletesAfterDelay(t *testing.T) {
 }
 func TestGetCommandInvocation_OutputFields(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	postAudit1(t, h, "CreateDocument", map[string]any{
+	postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "MyDoc",
 		"Content": `{"schemaVersion":"2.2"}`,
 	})
 
-	_, sendOut := postAudit1(t, h, "SendCommand", map[string]any{
+	_, sendOut := postJSON(t, h, "SendCommand", map[string]any{
 		"DocumentName":       "MyDoc",
 		"InstanceIds":        []string{"i-abc"},
 		"Comment":            "run now",
@@ -349,7 +349,7 @@ func TestGetCommandInvocation_OutputFields(t *testing.T) {
 	assert.Equal(t, "my-bucket", cmd["OutputS3BucketName"])
 	assert.InEpsilon(t, float64(600), cmd["TimeoutSeconds"], 0.01)
 
-	code, invOut := postAudit1(t, h, "GetCommandInvocation", map[string]any{
+	code, invOut := postJSON(t, h, "GetCommandInvocation", map[string]any{
 		"CommandId":  cmdID,
 		"InstanceId": "i-abc",
 	})
@@ -424,7 +424,7 @@ func TestCancelCommand_NotFound(t *testing.T) {
 	}
 }
 
-// TestRefinement2_CancelCommand_CancelsInvocations verifies invocations are also cancelled.
+// TestCancelCommand_CancelsInvocations verifies invocations are also cancelled.
 func TestCancelCommand_CancelsInvocations(t *testing.T) {
 	t.Parallel()
 
@@ -479,16 +479,16 @@ func TestCancelCommand_CancelsInvocations(t *testing.T) {
 }
 func TestFull_Command_SendListGetCancel(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	// Need a document
-	mustPost(t, h, "CreateDocument", map[string]any{
+	postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "RunMe",
 		"Content": `{"schemaVersion":"2.2"}`,
 	})
 
 	// SendCommand
-	code, out := mustPost(t, h, "SendCommand", map[string]any{
+	code, out := postJSON(t, h, "SendCommand", map[string]any{
 		"DocumentName": "RunMe",
 		"InstanceIds":  []string{"i-001", "i-002"},
 		"Comment":      "integration test",
@@ -502,19 +502,19 @@ func TestFull_Command_SendListGetCancel(t *testing.T) {
 	assert.Equal(t, "integration test", cmd["Comment"])
 
 	// ListCommands
-	code, out = mustPost(t, h, "ListCommands", map[string]any{})
+	code, out = postJSON(t, h, "ListCommands", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	commands := out["Commands"].([]any)
 	assert.NotEmpty(t, commands)
 
 	// ListCommands filter by CommandId
-	code, out = mustPost(t, h, "ListCommands", map[string]any{"CommandId": cmdID})
+	code, out = postJSON(t, h, "ListCommands", map[string]any{"CommandId": cmdID})
 	assert.Equal(t, http.StatusOK, code)
 	commands = out["Commands"].([]any)
 	assert.Len(t, commands, 1)
 
 	// GetCommandInvocation
-	code, out = mustPost(t, h, "GetCommandInvocation", map[string]any{
+	code, out = postJSON(t, h, "GetCommandInvocation", map[string]any{
 		"CommandId":  cmdID,
 		"InstanceId": "i-001",
 	})
@@ -523,26 +523,26 @@ func TestFull_Command_SendListGetCancel(t *testing.T) {
 	assert.Equal(t, "integration test", out["Comment"])
 
 	// ListCommandInvocations
-	code, out = mustPost(t, h, "ListCommandInvocations", map[string]any{"CommandId": cmdID})
+	code, out = postJSON(t, h, "ListCommandInvocations", map[string]any{"CommandId": cmdID})
 	assert.Equal(t, http.StatusOK, code)
 	invocations := out["CommandInvocations"].([]any)
 	assert.Len(t, invocations, 2)
 
 	// CancelCommand
-	code, _ = mustPost(t, h, "CancelCommand", map[string]any{"CommandId": cmdID})
+	code, _ = postJSON(t, h, "CancelCommand", map[string]any{"CommandId": cmdID})
 	assert.Equal(t, http.StatusOK, code)
 
 	// After cancel - command status should be Cancelled
-	code, out = mustPost(t, h, "ListCommands", map[string]any{"CommandId": cmdID})
+	code, out = postJSON(t, h, "ListCommands", map[string]any{"CommandId": cmdID})
 	assert.Equal(t, http.StatusOK, code)
 	cancelledCmd := out["Commands"].([]any)[0].(map[string]any)
 	assert.Equal(t, "Cancelled", cancelledCmd["Status"])
 }
 func TestFull_Command_MissingDocument(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	code, _ := mustPost(t, h, "SendCommand", map[string]any{
+	code, _ := postJSON(t, h, "SendCommand", map[string]any{
 		"DocumentName": "NonExistentDoc",
 		"InstanceIds":  []string{"i-001"},
 	})
@@ -550,20 +550,20 @@ func TestFull_Command_MissingDocument(t *testing.T) {
 }
 func TestFull_Command_ListByInstanceId(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "CreateDocument", map[string]any{
+	postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "DocForList",
 		"Content": `{"schemaVersion":"2.2"}`,
 	})
 
-	_, out1 := mustPost(t, h, "SendCommand", map[string]any{
+	_, out1 := postJSON(t, h, "SendCommand", map[string]any{
 		"DocumentName": "DocForList",
 		"InstanceIds":  []string{"i-target", "i-other"},
 	})
 	cmdID := out1["Command"].(map[string]any)["CommandId"].(string)
 
-	code, out := mustPost(t, h, "ListCommandInvocations", map[string]any{
+	code, out := postJSON(t, h, "ListCommandInvocations", map[string]any{
 		"CommandId":  cmdID,
 		"InstanceId": "i-target",
 	})

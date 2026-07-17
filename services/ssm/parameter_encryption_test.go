@@ -348,9 +348,9 @@ func TestPerInstanceMockKMSKey_SelfRoundTrip(t *testing.T) {
 }
 func TestPutParameter_KeyId_Stored(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	code, out := postAudit1(t, h, "PutParameter", map[string]any{
+	code, out := postJSON(t, h, "PutParameter", map[string]any{
 		"Name":  "/app/secure",
 		"Type":  "SecureString",
 		"Value": "secret",
@@ -359,7 +359,7 @@ func TestPutParameter_KeyId_Stored(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	require.NotNil(t, out)
 
-	code2, out2 := postAudit1(t, h, "GetParameter", map[string]any{
+	code2, out2 := postJSON(t, h, "GetParameter", map[string]any{
 		"Name":           "/app/secure",
 		"WithDecryption": true,
 	})
@@ -381,7 +381,7 @@ func TestGetParameter_DecryptError_Propagated(t *testing.T) {
 
 	h := ssm.NewHandler(b)
 
-	code, out := postAudit1(t, h, "GetParameter", map[string]any{
+	code, out := postJSON(t, h, "GetParameter", map[string]any{
 		"Name":           "/sec/corrupt",
 		"WithDecryption": true,
 	})
@@ -590,9 +590,9 @@ func TestSSMBackend_EncryptDecryptRoundTrip(t *testing.T) {
 }
 func TestFull_ParameterStore_SecureString_EncryptDecrypt(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	_, err := mustPost(t, h, "PutParameter", map[string]any{
+	_, err := postJSON(t, h, "PutParameter", map[string]any{
 		"Name":  "/sec/p",
 		"Type":  "SecureString",
 		"Value": "mysecret",
@@ -601,7 +601,7 @@ func TestFull_ParameterStore_SecureString_EncryptDecrypt(t *testing.T) {
 	require.NotNil(t, err)
 
 	// Get without decrypt → encrypted value
-	code, out := mustPost(t, h, "GetParameter", map[string]any{
+	code, out := postJSON(t, h, "GetParameter", map[string]any{
 		"Name":           "/sec/p",
 		"WithDecryption": false,
 	})
@@ -611,7 +611,7 @@ func TestFull_ParameterStore_SecureString_EncryptDecrypt(t *testing.T) {
 	assert.Equal(t, "alias/test", param["KeyId"])
 
 	// Get with decrypt → plaintext
-	code, out = mustPost(t, h, "GetParameter", map[string]any{
+	code, out = postJSON(t, h, "GetParameter", map[string]any{
 		"Name":           "/sec/p",
 		"WithDecryption": true,
 	})
@@ -621,15 +621,15 @@ func TestFull_ParameterStore_SecureString_EncryptDecrypt(t *testing.T) {
 }
 func TestFull_ParameterStore_GetParametersByPath_WithDecryption(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "PutParameter", map[string]any{
+	postJSON(t, h, "PutParameter", map[string]any{
 		"Name":  "/enc/key",
 		"Type":  "SecureString",
 		"Value": "secretval",
 	})
 
-	code, out := mustPost(t, h, "GetParametersByPath", map[string]any{
+	code, out := postJSON(t, h, "GetParametersByPath", map[string]any{
 		"Path":           "/enc",
 		"WithDecryption": true,
 	})
@@ -640,12 +640,12 @@ func TestFull_ParameterStore_GetParametersByPath_WithDecryption(t *testing.T) {
 }
 func TestFull_GetParametersByPath_WithFilters(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "PutParameter", map[string]any{"Name": "/svc/str", "Type": "String", "Value": "v"})
-	mustPost(t, h, "PutParameter", map[string]any{"Name": "/svc/sec", "Type": "SecureString", "Value": "s"})
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/svc/str", "Type": "String", "Value": "v"})
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/svc/sec", "Type": "SecureString", "Value": "s"})
 
-	code, out := mustPost(t, h, "GetParametersByPath", map[string]any{
+	code, out := postJSON(t, h, "GetParametersByPath", map[string]any{
 		"Path": "/svc",
 		"ParameterFilters": []map[string]any{
 			{"Key": "Type", "Values": []string{"String"}},

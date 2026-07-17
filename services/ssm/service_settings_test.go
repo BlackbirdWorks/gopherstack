@@ -50,21 +50,21 @@ func TestServiceSetting_GetPutReset(t *testing.T) {
 }
 func TestFull_ServiceSetting_GetUpdateReset(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	settingID := "/ssm/parameter-store/high-throughput-enabled"
 
-	code, out := mustPost(t, h, "GetServiceSetting", map[string]any{"SettingId": settingID})
+	code, out := postJSON(t, h, "GetServiceSetting", map[string]any{"SettingId": settingID})
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotNil(t, out["ServiceSetting"])
 
-	code, _ = mustPost(t, h, "UpdateServiceSetting", map[string]any{
+	code, _ = postJSON(t, h, "UpdateServiceSetting", map[string]any{
 		"SettingId":    settingID,
 		"SettingValue": "true",
 	})
 	assert.Equal(t, http.StatusOK, code)
 
-	code, _ = mustPost(t, h, "ResetServiceSetting", map[string]any{"SettingId": settingID})
+	code, _ = postJSON(t, h, "ResetServiceSetting", map[string]any{"SettingId": settingID})
 	assert.Equal(t, http.StatusOK, code)
 }
 func TestServiceSettings_LifecycleRoundTrip(t *testing.T) {
