@@ -1,0 +1,383 @@
+package elasticbeanstalk_test
+
+import (
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
+)
+
+func TestHandler_CreateConfigurationTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		body            string
+		wantXML         string
+		wantStatus      int
+		createDuplicate bool
+	}{
+		{
+			name: "success",
+			body: "Version=2010-12-01&Action=CreateConfigurationTemplate" +
+				"&ApplicationName=my-app&TemplateName=my-tmpl&SolutionStackName=64bit+Amazon+Linux",
+			wantStatus: http.StatusOK,
+			wantXML:    "CreateConfigurationTemplateResponse",
+		},
+		{
+			name:       "missing application name",
+			body:       "Version=2010-12-01&Action=CreateConfigurationTemplate&TemplateName=my-tmpl",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing template name",
+			body:       "Version=2010-12-01&Action=CreateConfigurationTemplate&ApplicationName=my-app",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:            "duplicate template",
+			createDuplicate: true,
+			body: "Version=2010-12-01&Action=CreateConfigurationTemplate" +
+				"&ApplicationName=my-app&TemplateName=dup-tmpl",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.createDuplicate {
+				postEBForm(
+					t,
+					h,
+					"Version=2010-12-01&Action=CreateConfigurationTemplate&ApplicationName=my-app&TemplateName=dup-tmpl",
+				)
+			}
+
+			rec := postEBForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantXML != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantXML)
+			}
+		})
+	}
+}
+
+// TestHandler_ConfigurationTemplate_KeyDoesNotCollideAcrossAppNames verifies that a
+// colon in an application name doesn't collide the internal composite key with
+// another application's template of the same name.
+func TestHandler_ConfigurationTemplate_KeyDoesNotCollideAcrossAppNames(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	// Create two apps where one name is a prefix of the combined key of the other.
+	// "app:x" + templateName "y" must not collide with "app" + templateName "x:y".
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=myapp")
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=myapp2")
+
+	const solutionStack = "64bit+Amazon+Linux+2023+v4.0.0+running+Python+3.11"
+	rec1 := postEBForm(t, h,
+		"Version=2010-12-01&Action=CreateConfigurationTemplate"+
+			"&ApplicationName=myapp&TemplateName=tpl1&SolutionStackName="+solutionStack)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := postEBForm(t, h,
+		"Version=2010-12-01&Action=CreateConfigurationTemplate"+
+			"&ApplicationName=myapp2&TemplateName=tpl1&SolutionStackName="+solutionStack)
+	require.Equal(t, http.StatusOK, rec2.Code, "second template for different app should succeed")
+
+	// Describe both — each should see only their own template.
+	descRec1 := postEBForm(t, h,
+		"Version=2010-12-01&Action=DescribeConfigurationSettings&ApplicationName=myapp&TemplateName=tpl1")
+	require.Equal(t, http.StatusOK, descRec1.Code)
+	assert.Contains(t, descRec1.Body.String(), "<ApplicationName>myapp</ApplicationName>")
+
+	descRec2 := postEBForm(t, h,
+		"Version=2010-12-01&Action=DescribeConfigurationSettings&ApplicationName=myapp2&TemplateName=tpl1")
+	require.Equal(t, http.StatusOK, descRec2.Code)
+	assert.Contains(t, descRec2.Body.String(), "<ApplicationName>myapp2</ApplicationName>")
+}
+
+func TestHandler_DeleteConfigurationTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		setup      bool
+	}{
+		{
+			name:       "success",
+			setup:      true,
+			body:       "Version=2010-12-01&Action=DeleteConfigurationTemplate&ApplicationName=my-app&TemplateName=my-tmpl",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing application name",
+			body:       "Version=2010-12-01&Action=DeleteConfigurationTemplate&TemplateName=my-tmpl",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing template name",
+			body:       "Version=2010-12-01&Action=DeleteConfigurationTemplate&ApplicationName=my-app",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "not found",
+			body:       "Version=2010-12-01&Action=DeleteConfigurationTemplate&ApplicationName=my-app&TemplateName=nonexistent",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.setup {
+				postEBForm(
+					t,
+					h,
+					"Version=2010-12-01&Action=CreateConfigurationTemplate&ApplicationName=my-app&TemplateName=my-tmpl",
+				)
+			}
+
+			rec := postEBForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestHandler_DeleteConfigurationTemplate_RoundTrip verifies a create/delete/verify cycle,
+// including that deleting an already-deleted template returns not-found.
+func TestHandler_DeleteConfigurationTemplate_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := postEBForm(t, h,
+		"Version=2010-12-01&Action=CreateConfigurationTemplate"+
+			"&ApplicationName=app&TemplateName=tmpl1")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 1, h.Backend.ConfigTemplateCount())
+
+	rec = postEBForm(t, h,
+		"Version=2010-12-01&Action=DeleteConfigurationTemplate"+
+			"&ApplicationName=app&TemplateName=tmpl1")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 0, h.Backend.ConfigTemplateCount())
+
+	// Deleting again should return not-found.
+	rec = postEBForm(t, h,
+		"Version=2010-12-01&Action=DeleteConfigurationTemplate"+
+			"&ApplicationName=app&TemplateName=tmpl1")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DeleteEnvironmentConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantXML    string
+		wantStatus int
+	}{
+		{
+			name:       "success no-op",
+			body:       "Version=2010-12-01&Action=DeleteEnvironmentConfiguration&ApplicationName=my-app&EnvironmentName=my-env",
+			wantStatus: http.StatusOK,
+			wantXML:    "DeleteEnvironmentConfigurationResponse",
+		},
+		{
+			name:       "missing application name",
+			body:       "Version=2010-12-01&Action=DeleteEnvironmentConfiguration&EnvironmentName=my-env",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing environment name",
+			body:       "Version=2010-12-01&Action=DeleteEnvironmentConfiguration&ApplicationName=my-app",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := postEBForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantXML != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantXML)
+			}
+		})
+	}
+}
+
+func TestHandler_DescribeConfigurationSettings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*elasticbeanstalk.Handler)
+		name       string
+		body       string
+		wantXML    string
+		wantStatus int
+	}{
+		{
+			name: "existing environment",
+			setup: func(h *elasticbeanstalk.Handler) {
+				createEnvBody := "Version=2010-12-01&Action=CreateEnvironment" +
+					"&ApplicationName=my-app&EnvironmentName=my-env&SolutionStackName=64bit+Amazon+Linux"
+				postEBForm(t, h, createEnvBody)
+			},
+			body: "Version=2010-12-01&Action=DescribeConfigurationSettings" +
+				"&ApplicationName=my-app&EnvironmentName=my-env",
+			wantStatus: http.StatusOK,
+			wantXML:    "DescribeConfigurationSettingsResponse",
+		},
+		{
+			name: "nonexistent environment returns empty",
+			body: "Version=2010-12-01&Action=DescribeConfigurationSettings" +
+				"&ApplicationName=my-app&EnvironmentName=nonexistent",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := postEBForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantXML != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantXML)
+			}
+		})
+	}
+}
+
+// TestHandler_DescribeConfigurationSettings_ByTemplateName verifies TemplateName-based lookup.
+func TestHandler_DescribeConfigurationSettings_ByTemplateName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		action   string
+		contains []string
+		absent   []string
+	}{
+		{
+			name:     "existing template returns settings",
+			action:   "Version=2010-12-01&Action=DescribeConfigurationSettings&ApplicationName=app&TemplateName=tmpl1",
+			contains: []string{"<TemplateName>tmpl1</TemplateName>", "<ApplicationName>app</ApplicationName>"},
+			absent:   []string{"<EnvironmentName>"},
+		},
+		{
+			name:   "missing template returns empty list",
+			action: "Version=2010-12-01&Action=DescribeConfigurationSettings&ApplicationName=app&TemplateName=missing",
+			absent: []string{"<member>"},
+		},
+		{
+			name: "template with SolutionStack returns stack name",
+			action: "Version=2010-12-01&Action=DescribeConfigurationSettings" +
+				"&ApplicationName=app&TemplateName=stack-tmpl",
+			contains: []string{"<SolutionStackName>64bit Amazon Linux 2023 v4.3.0 running Go 1</SolutionStackName>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			postEBForm(t, h, "Version=2010-12-01&Action=CreateConfigurationTemplate"+
+				"&ApplicationName=app&TemplateName=tmpl1")
+			postEBForm(t, h, "Version=2010-12-01&Action=CreateConfigurationTemplate"+
+				"&ApplicationName=app&TemplateName=stack-tmpl"+
+				"&SolutionStackName=64bit+Amazon+Linux+2023+v4.3.0+running+Go+1")
+
+			rec := postEBForm(t, h, tt.action)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			for _, s := range tt.contains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+
+			for _, s := range tt.absent {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+// TestHandler_DescribeConfigurationSettings_EmptyWhenNoFilters verifies an empty list is
+// returned when neither ApplicationName nor EnvironmentName narrows the request.
+func TestHandler_DescribeConfigurationSettings_EmptyWhenNoFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	// With no ApplicationName and no EnvironmentName, should return empty list.
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=DescribeConfigurationSettings")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DescribeConfigurationSettingsResponse")
+	// Empty ConfigurationSettings list.
+	assert.NotContains(t, rec.Body.String(), "<member>")
+}
+
+// TestHandler_PersistenceRoundTrip_ConfigTemplateAndPlatformVersion verifies that a
+// configuration template and platform version both survive a handler-level
+// snapshot/restore cycle.
+func TestHandler_PersistenceRoundTrip_ConfigTemplateAndPlatformVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	// Create a config template and platform version.
+	createTmplBody := "Version=2010-12-01&Action=CreateConfigurationTemplate" +
+		"&ApplicationName=my-app&TemplateName=my-tmpl&SolutionStackName=64bit+Amazon+Linux"
+	rec1 := postEBForm(t, h, createTmplBody)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := postEBForm(
+		t,
+		h,
+		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0.0",
+	)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	// Snapshot and restore.
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler()
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Verify the config template can still be deleted (meaning it was restored).
+	rec3 := postEBForm(
+		t,
+		h2,
+		"Version=2010-12-01&Action=DeleteConfigurationTemplate&ApplicationName=my-app&TemplateName=my-tmpl",
+	)
+	assert.Equal(t, http.StatusOK, rec3.Code)
+}
