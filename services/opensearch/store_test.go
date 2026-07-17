@@ -47,7 +47,7 @@ func TestHandlerReset(t *testing.T) {
 	assert.Equal(t, 0, opensearch.DomainCount(b))
 }
 
-func TestBackendRegionAccountID(t *testing.T) {
+func TestRegionAccountID(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
