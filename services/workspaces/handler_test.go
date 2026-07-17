@@ -2,6 +2,7 @@ package workspaces_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,14 +12,36 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/workspaces"
 )
+
+// ---------------------------------------------------------------------------
+// Shared test helpers
+// ---------------------------------------------------------------------------
 
 func newTestHandler(t *testing.T) *workspaces.Handler {
 	t.Helper()
 	backend := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
 
 	return workspaces.NewHandler(backend)
+}
+
+// newTestHandlerWithBackend creates a handler and returns both handler and backend.
+func newTestHandlerWithBackend(
+	t *testing.T,
+) (*workspaces.Handler, *workspaces.InMemoryBackend) { //nolint:unparam // existing issue.
+	t.Helper()
+
+	b := workspaces.NewInMemoryBackend("111122223333", "us-east-1")
+	h := workspaces.NewHandler(b)
+
+	return h, b
+}
+
+// ctxWithRegion returns a context carrying the given region via awsmeta.
+func ctxWithRegion(region string) context.Context {
+	return awsmeta.Set(context.Background(), &awsmeta.Metadata{Region: region})
 }
 
 func doTargetRequest(
@@ -47,6 +70,32 @@ func doTargetRequest(
 	c := e.NewContext(req, rec)
 	handlerErr := h.Handler()(c)
 	require.NoError(t, handlerErr)
+
+	return rec
+}
+
+func decodeJSON(t *testing.T, body []byte, dst any) {
+	t.Helper()
+
+	if err := json.Unmarshal(body, dst); err != nil {
+		t.Fatalf("unmarshal response: %v (body=%s)", err, body)
+	}
+}
+
+// dispatchCheck dispatches a JSON request and checks the status code.
+func dispatchCheck( //nolint:unused // existing issue.
+	t *testing.T,
+	h *workspaces.Handler,
+	target string,
+	body any,
+	wantCode int,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	rec := doTargetRequest(t, h, target, body)
+	if rec.Code != wantCode {
+		t.Fatalf("%s: expected %d, got %d: %s", target, wantCode, rec.Code, rec.Body)
+	}
 
 	return rec
 }
@@ -85,6 +134,10 @@ func createWorkspace(t *testing.T, h *workspaces.Handler) string {
 
 	return id
 }
+
+// ---------------------------------------------------------------------------
+// Core dispatch/lifecycle tests
+// ---------------------------------------------------------------------------
 
 func TestWorkSpaces_Operations(t *testing.T) {
 	t.Parallel()
