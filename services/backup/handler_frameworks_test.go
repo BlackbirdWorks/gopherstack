@@ -56,9 +56,9 @@ func TestFrameworkControls(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			resp := doBatch1Request(t, h, http.MethodPost, "/audit/frameworks", tt.body)
+			resp := doRequest(t, h, http.MethodPost, "/audit/frameworks", tt.body)
 			require.Equal(t, tt.wantStatus, resp.Code)
 
 			var createData map[string]any
@@ -66,7 +66,7 @@ func TestFrameworkControls(t *testing.T) {
 			fwName := createData["FrameworkName"].(string)
 
 			// Describe and verify controls.
-			getResp := doBatch1Request(t, h, http.MethodGet, "/audit/frameworks/"+fwName, "")
+			getResp := doRequest(t, h, http.MethodGet, "/audit/frameworks/"+fwName, "")
 			require.Equal(t, http.StatusOK, getResp.Code)
 
 			var fwData map[string]any

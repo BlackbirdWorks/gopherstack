@@ -102,10 +102,10 @@ func TestBackupSelectionResourceFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
 			// Create plan first.
-			planResp := doBatch1Request(t, h, http.MethodPut, "/backup/plans",
+			planResp := doRequest(t, h, http.MethodPut, "/backup/plans",
 				`{"BackupPlan":{"BackupPlanName":"p","Rules":[{"RuleName":"r","TargetBackupVaultName":"v"}]}}`)
 			require.Equal(t, http.StatusOK, planResp.Code)
 			var planData map[string]any
@@ -115,7 +115,7 @@ func TestBackupSelectionResourceFields(t *testing.T) {
 			// Create selection.
 			body, err := json.Marshal(map[string]any{"BackupSelection": tt.selection})
 			require.NoError(t, err)
-			selResp := doBatch1Request(t, h, http.MethodPut,
+			selResp := doRequest(t, h, http.MethodPut,
 				"/backup/plans/"+planID+"/selections", string(body))
 			require.Equal(t, http.StatusOK, selResp.Code)
 
@@ -124,7 +124,7 @@ func TestBackupSelectionResourceFields(t *testing.T) {
 			selID := selData["SelectionId"].(string)
 
 			// Get selection and verify fields.
-			getResp := doBatch1Request(t, h, http.MethodGet,
+			getResp := doRequest(t, h, http.MethodGet,
 				"/backup/plans/"+planID+"/selections/"+selID, "")
 			require.Equal(t, http.StatusOK, getResp.Code)
 
@@ -210,9 +210,9 @@ func TestBackupSelectionValidation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
-// TestParity_ListBackupSelections_IamRoleArn verifies that ListBackupSelections
+// TestListBackupSelections_IamRoleArn verifies that ListBackupSelections
 // includes IamRoleArn in each selection item, matching real AWS behavior.
-func TestParity_ListBackupSelections_IamRoleArn(t *testing.T) {
+func TestListBackupSelections_IamRoleArn(t *testing.T) {
 	t.Parallel()
 
 	h := newTestBackupHandler()

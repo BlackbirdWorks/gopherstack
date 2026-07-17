@@ -39,10 +39,10 @@ func TestDescribeBackupJobProgressFields(t *testing.T) {
 		{name: "has_creation_date", wantField: "CreationDate"},
 	}
 
-	h, _ := newBatch1Handler(t)
-	doBatch1Request(t, h, http.MethodPut, "/backup-vaults/job-vault", `{}`)
+	h, _ := newHandler(t)
+	doRequest(t, h, http.MethodPut, "/backup-vaults/job-vault", `{}`)
 
-	startResp := doBatch1Request(t, h, http.MethodPut, "/backup-jobs", `{
+	startResp := doRequest(t, h, http.MethodPut, "/backup-jobs", `{
 		"BackupVaultName": "job-vault",
 		"ResourceArn": "arn:aws:ec2:us-east-1:000000000000:instance/i-abc",
 		"IamRoleArn": "arn:aws:iam::000000000000:role/backup-role"
@@ -53,7 +53,7 @@ func TestDescribeBackupJobProgressFields(t *testing.T) {
 	require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &startData))
 	jobID := startData["BackupJobId"].(string)
 
-	descResp := doBatch1Request(t, h, http.MethodGet, "/backup-jobs/"+jobID, "")
+	descResp := doRequest(t, h, http.MethodGet, "/backup-jobs/"+jobID, "")
 	require.Equal(t, http.StatusOK, descResp.Code)
 
 	var descData map[string]any

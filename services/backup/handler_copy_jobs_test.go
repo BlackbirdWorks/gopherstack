@@ -23,11 +23,11 @@ func TestStartCopyJobCreationDateEpoch(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			doBatch1Request(t, h, http.MethodPut, "/backup-vaults/src-vault", `{}`)
+			doRequest(t, h, http.MethodPut, "/backup-vaults/src-vault", `{}`)
 
-			resp := doBatch1Request(t, h, http.MethodPut, "/backup-jobs", `{
+			resp := doRequest(t, h, http.MethodPut, "/backup-jobs", `{
 				"BackupVaultName": "src-vault",
 				"ResourceArn": "arn:aws:ec2:us-east-1:000000000000:instance/i-abc",
 				"IamRoleArn": "arn:aws:iam::000000000000:role/backup-role"
@@ -38,7 +38,7 @@ func TestStartCopyJobCreationDateEpoch(t *testing.T) {
 			jobID := startData["BackupJobId"].(string)
 
 			rpArn := "arn:aws:backup:us-east-1:000000000000:recovery-point:rp-copy-1"
-			copyResp := doBatch1Request(t, h, http.MethodPut, "/copy-jobs", `{
+			copyResp := doRequest(t, h, http.MethodPut, "/copy-jobs", `{
 				"RecoveryPointArn": "`+rpArn+`",
 				"SourceBackupVaultName": "src-vault",
 				"DestinationBackupVaultArn": "arn:aws:backup:us-east-1:000000000000:backup-vault:dst-vault",

@@ -156,4 +156,22 @@ func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
+// dispatchBackupJobSummaryOps handles backup-job summary and stop operations.
+func (h *Handler) dispatchBackupJobSummaryOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
+	case opListBackupJobSummaries:
+		summaries := h.Backend.ListBackupJobSummaries()
+
+		return true, c.JSON(http.StatusOK, map[string]any{"BackupJobSummaries": summaries})
+	case opStopBackupJob:
+		if err := h.Backend.StopBackupJob(route.resource); err != nil {
+			return true, c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+		}
+
+		return true, c.NoContent(http.StatusNoContent)
+	}
+
+	return false, nil
+}
+
 // --- Tag handlers ---

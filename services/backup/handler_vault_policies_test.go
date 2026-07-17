@@ -43,17 +43,17 @@ func TestDescribeBackupVaultLockedField(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			doBatch1Request(t, h, http.MethodPut, "/backup-vaults/locked-vault", `{}`)
+			doRequest(t, h, http.MethodPut, "/backup-vaults/locked-vault", `{}`)
 
 			if tc.applyLock {
-				lockResp := doBatch1Request(t, h, http.MethodPut,
+				lockResp := doRequest(t, h, http.MethodPut,
 					"/backup-vaults/locked-vault/vault-lock", tc.lockBody)
 				require.Equal(t, http.StatusOK, lockResp.Code)
 			}
 
-			resp := doBatch1Request(t, h, http.MethodGet, "/backup-vaults/locked-vault", "")
+			resp := doRequest(t, h, http.MethodGet, "/backup-vaults/locked-vault", "")
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
@@ -110,13 +110,13 @@ func TestVaultLockLockDate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, b := newBatch1Handler(t)
+			h, b := newHandler(t)
 
 			// Create vault.
-			doBatch1Request(t, h, http.MethodPut, "/backup-vaults/lock-vault", `{}`)
+			doRequest(t, h, http.MethodPut, "/backup-vaults/lock-vault", `{}`)
 
 			// Apply lock config.
-			resp := doBatch1Request(t, h, http.MethodPut, "/backup-vaults/lock-vault/vault-lock", tt.lockBody)
+			resp := doRequest(t, h, http.MethodPut, "/backup-vaults/lock-vault/vault-lock", tt.lockBody)
 			assert.Equal(t, tt.wantStatus, resp.Code)
 
 			if tt.wantStatus == http.StatusOK && tt.wantLockResponse {
@@ -191,11 +191,11 @@ func TestVaultNotificationsEventValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			doBatch1Request(t, h, http.MethodPut, "/backup-vaults/notif-vault", `{}`)
+			doRequest(t, h, http.MethodPut, "/backup-vaults/notif-vault", `{}`)
 
-			resp := doBatch1Request(t, h, http.MethodPut,
+			resp := doRequest(t, h, http.MethodPut,
 				"/backup-vaults/notif-vault/notification-configuration", tt.body)
 			assert.Equal(t, tt.wantStatus, resp.Code, "body: %s", tt.name)
 		})
@@ -241,11 +241,11 @@ func TestVaultAccessPolicyJSONValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			doBatch1Request(t, h, http.MethodPut, "/backup-vaults/policy-vault", `{}`)
+			doRequest(t, h, http.MethodPut, "/backup-vaults/policy-vault", `{}`)
 
-			resp := doBatch1Request(t, h, http.MethodPut,
+			resp := doRequest(t, h, http.MethodPut,
 				"/backup-vaults/policy-vault/access-policy", tt.body)
 			assert.Equal(t, tt.wantStatus, resp.Code, "test: %s", tt.name)
 		})
@@ -266,8 +266,8 @@ func TestVaultLockConfigDeletion(t *testing.T) {
 			name: "delete_existing_lock",
 			setup: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
-				doBatch1Request(t, h, http.MethodPut, "/backup-vaults/lock-v2", `{}`)
-				doBatch1Request(t, h, http.MethodPut, "/backup-vaults/lock-v2/vault-lock",
+				doRequest(t, h, http.MethodPut, "/backup-vaults/lock-v2", `{}`)
+				doRequest(t, h, http.MethodPut, "/backup-vaults/lock-v2/vault-lock",
 					`{"MinRetentionDays":7,"MaxRetentionDays":30}`)
 			},
 			deleteShouldOK: true,
@@ -276,7 +276,7 @@ func TestVaultLockConfigDeletion(t *testing.T) {
 			name: "delete_nonexistent_lock_still_ok",
 			setup: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
-				doBatch1Request(t, h, http.MethodPut, "/backup-vaults/lock-v2", `{}`)
+				doRequest(t, h, http.MethodPut, "/backup-vaults/lock-v2", `{}`)
 			},
 			deleteShouldOK: true,
 		},
@@ -285,9 +285,9 @@ func TestVaultLockConfigDeletion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 			tt.setup(t, h)
-			resp := doBatch1Request(t, h, http.MethodDelete, "/backup-vaults/lock-v2/vault-lock", "")
+			resp := doRequest(t, h, http.MethodDelete, "/backup-vaults/lock-v2/vault-lock", "")
 			if tt.deleteShouldOK {
 				assert.Equal(t, http.StatusOK, resp.Code)
 			}

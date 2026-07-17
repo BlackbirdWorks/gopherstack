@@ -65,7 +65,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		supportedOpsRestoreTesting(),
 		supportedOpsFrameworks(),
 		supportedOpsReportPlans(),
-		supportedOpsStub(),
+		supportedOpsExtended(),
 	}
 
 	total := 0
@@ -255,11 +255,70 @@ func (h *Handler) dispatchNewOps(c *echo.Context, route backupRoute, body []byte
 		return true, result
 	}
 
-	if ok, result := h.dispatchStubOps(c, route, body); ok {
+	if ok, result := h.dispatchExtendedOps(c, route, body); ok {
 		return true, result
 	}
 
 	return false, nil
+}
+
+// dispatchExtendedOps dispatches the remaining domain-specific operation
+// families (settings, protected resources, restore/report/scan jobs, plan
+// templates, tiering, restore-access vaults). Split out of dispatchNewOps to
+// keep its cyclomatic complexity in check.
+func (h *Handler) dispatchExtendedOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+	if ok, result := h.dispatchSettingsOps(c, route, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchProtectedResourceOps(c, route); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchRestoreJobOps(c, route, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchReportJobOps(c, route, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchLegalHoldOps(c, route); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchRecoveryPointQueryOps(c, route); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchRecoveryPointIndexOps(c, route, body); ok {
+		return true, result
+	}
+
+	return h.dispatchExtendedOpsContinued(c, route, body)
+}
+
+// dispatchExtendedOpsContinued continues dispatchExtendedOps: plan templates,
+// tiering, restore-access vaults, and job summaries. Split purely to keep
+// dispatchExtendedOps's cyclomatic complexity in check.
+func (h *Handler) dispatchExtendedOpsContinued(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+	if ok, result := h.dispatchPlanTemplateCatalogOps(c, route, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchBackupJobSummaryOps(c, route); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchCopyJobExtraOps(c, route, body); ok {
+		return true, result
+	}
+
+	if ok, result := h.dispatchRestoreAccessVaultOps(c, route); ok {
+		return true, result
+	}
+
+	return h.dispatchTieringOps(c, route, body)
 }
 
 func (h *Handler) dispatchCreateOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
@@ -416,6 +475,9 @@ func (h *Handler) dispatchRestoreTestingOps(
 	case opDeleteRestoreTestingSelection:
 
 		return true, h.handleDeleteRestoreTestingSelection(c, route.resource)
+	case opGetRestoreTestingInferredMetadata:
+
+		return true, c.JSON(http.StatusOK, map[string]any{"InferredMetadata": map[string]string{}})
 	}
 
 	return false, nil

@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -81,6 +82,37 @@ func (h *Handler) handleDescribeCopyJob(c *echo.Context, copyJobID string) error
 	return c.JSON(http.StatusOK, map[string]any{
 		"CopyJob": resp,
 	})
+}
+
+// dispatchCopyJobExtraOps handles copy-job summary and start operations.
+func (h *Handler) dispatchCopyJobExtraOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case opListCopyJobSummaries:
+		summaries := h.Backend.ListCopyJobSummaries()
+
+		return true, c.JSON(http.StatusOK, map[string]any{"CopyJobSummaries": summaries})
+	case opStartCopyJob:
+		var copyJobReq struct {
+			RecoveryPointArn          string `json:"RecoveryPointArn"`
+			SourceBackupVaultName     string `json:"SourceBackupVaultName"`
+			DestinationBackupVaultArn string `json:"DestinationBackupVaultArn"`
+			IamRoleArn                string `json:"IamRoleArn"`
+		}
+		_ = json.Unmarshal(body, &copyJobReq)
+		job := h.Backend.StartCopyJob(
+			copyJobReq.RecoveryPointArn,
+			copyJobReq.SourceBackupVaultName,
+			copyJobReq.DestinationBackupVaultArn,
+			copyJobReq.IamRoleArn,
+		)
+
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyCopyJobID:    job.CopyJobID,
+			keyCreationDate: epochSeconds(job.CreationDate),
+		})
+	}
+
+	return false, nil
 }
 
 // --- Restore testing read/update/delete handlers ---

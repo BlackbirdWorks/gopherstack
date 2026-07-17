@@ -59,3 +59,39 @@ func (h *Handler) handleCreateLegalHold(c *echo.Context, body []byte) error {
 		keyCreationDate: epochSeconds(lh.CreationDate),
 	})
 }
+
+// dispatchLegalHoldOps handles legal-hold describe/list operations.
+func (h *Handler) dispatchLegalHoldOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
+	case opGetLegalHold:
+		lh, err := h.Backend.GetLegalHold(route.resource)
+		if err != nil {
+			return true, c.JSON(
+				http.StatusNotFound,
+				errResp("ResourceNotFoundException", err.Error()),
+			)
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyLegalHoldID: lh.LegalHoldID, keyTitle: lh.Title,
+			keyStatus: lh.Status, "LegalHoldArn": lh.LegalHoldArn,
+		})
+	case opListLegalHolds:
+		lhs := h.Backend.ListLegalHolds()
+		items := make([]map[string]any, 0, len(lhs))
+		for _, lh := range lhs {
+			items = append(
+				items,
+				map[string]any{
+					keyLegalHoldID: lh.LegalHoldID,
+					keyTitle:       lh.Title,
+					keyStatus:      lh.Status,
+				},
+			)
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"LegalHolds": items})
+	}
+
+	return false, nil
+}
