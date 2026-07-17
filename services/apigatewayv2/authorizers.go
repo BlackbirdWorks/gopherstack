@@ -2,7 +2,9 @@ package apigatewayv2
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -521,4 +523,192 @@ func (h *Handler) enforceIAMAuth(c *echo.Context) error {
 	logger.Load(req.Context()).Info("apigatewayv2: AWS_IAM route rejected unsigned request")
 
 	return writeErr(c, http.StatusForbidden, msgMissingAuthToken)
+}
+
+// CreateAuthorizer creates a new authorizer for an API.
+func (b *InMemoryBackend) CreateAuthorizer(apiID string, input CreateAuthorizerInput) (*Authorizer, error) {
+	b.mu.Lock("CreateAuthorizer")
+	defer b.mu.Unlock()
+
+	if !b.apis.Has(apiID) {
+		return nil, ErrAPINotFound
+	}
+
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrBadRequest)
+	}
+
+	validTypes := map[string]bool{authorizerTypeJWT: true, "REQUEST": true, "CUSTOM": true}
+	if !validTypes[input.AuthorizerType] {
+		return nil, fmt.Errorf("%w: authorizerType must be JWT, REQUEST, or CUSTOM", ErrBadRequest)
+	}
+
+	// Validate JWT authorizer requires JwtConfiguration.
+	if input.AuthorizerType == authorizerTypeJWT && input.JwtConfiguration == nil {
+		return nil, fmt.Errorf("%w: jwtConfiguration is required for JWT authorizers", ErrBadRequest)
+	}
+
+	// Apply AWS-realistic defaults for IdentitySource.
+	identitySource := input.IdentitySource
+	if len(identitySource) == 0 && input.AuthorizerType == authorizerTypeJWT {
+		identitySource = []string{"$request.header.Authorization"}
+	}
+
+	id := randomID()
+	authorizer := &Authorizer{
+		AuthorizerID:                   id,
+		APIID:                          apiID,
+		Name:                           input.Name,
+		AuthorizerType:                 input.AuthorizerType,
+		AuthorizerURI:                  input.AuthorizerURI,
+		IdentitySource:                 identitySource,
+		AuthorizerCredentialsArn:       input.AuthorizerCredentialsArn,
+		AuthorizerResultTTLInSeconds:   input.AuthorizerResultTTLInSeconds,
+		AuthorizerPayloadFormatVersion: input.AuthorizerPayloadFormatVersion,
+		EnableSimpleResponses:          input.EnableSimpleResponses,
+	}
+
+	if input.JwtConfiguration != nil {
+		clone := *input.JwtConfiguration
+		authorizer.JwtConfiguration = &clone
+	}
+
+	b.authorizers.Put(authorizer)
+
+	cp := *authorizer
+
+	return &cp, nil
+}
+
+// GetAuthorizer retrieves an authorizer by ID.
+func (b *InMemoryBackend) GetAuthorizer(apiID, authorizerID string) (*Authorizer, error) {
+	b.mu.RLock("GetAuthorizer")
+	defer b.mu.RUnlock()
+
+	if !b.apis.Has(apiID) {
+		return nil, ErrAPINotFound
+	}
+
+	a, ok := b.authorizers.Get(authorizerKey(apiID, authorizerID))
+	if !ok {
+		return nil, ErrAuthorizerNotFound
+	}
+
+	cp := *a
+
+	return &cp, nil
+}
+
+// GetAuthorizers retrieves all authorizers for an API.
+func (b *InMemoryBackend) GetAuthorizers(apiID string) ([]Authorizer, error) {
+	b.mu.RLock("GetAuthorizers")
+	defer b.mu.RUnlock()
+
+	if !b.apis.Has(apiID) {
+		return nil, ErrAPINotFound
+	}
+
+	authorizers := b.authorizersByAPI.Get(apiID)
+	result := make([]Authorizer, 0, len(authorizers))
+
+	for _, a := range authorizers {
+		result = append(result, *a)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].AuthorizerID < result[j].AuthorizerID
+	})
+
+	return result, nil
+}
+
+// DeleteAuthorizer removes an authorizer from an API.
+func (b *InMemoryBackend) DeleteAuthorizer(apiID, authorizerID string) error {
+	b.mu.Lock("DeleteAuthorizer")
+	defer b.mu.Unlock()
+
+	if !b.apis.Has(apiID) {
+		return ErrAPINotFound
+	}
+
+	if !b.authorizers.Delete(authorizerKey(apiID, authorizerID)) {
+		return ErrAuthorizerNotFound
+	}
+
+	return nil
+}
+
+// UpdateAuthorizer updates fields on an existing authorizer.
+func (b *InMemoryBackend) UpdateAuthorizer(
+	apiID, authorizerID string,
+	input UpdateAuthorizerInput,
+) (*Authorizer, error) {
+	b.mu.Lock("UpdateAuthorizer")
+	defer b.mu.Unlock()
+
+	if !b.apis.Has(apiID) {
+		return nil, ErrAPINotFound
+	}
+
+	a, ok := b.authorizers.Get(authorizerKey(apiID, authorizerID))
+	if !ok {
+		return nil, ErrAuthorizerNotFound
+	}
+
+	if input.Name != "" {
+		a.Name = input.Name
+	}
+
+	if input.AuthorizerType != "" {
+		a.AuthorizerType = input.AuthorizerType
+	}
+
+	if input.AuthorizerURI != "" {
+		a.AuthorizerURI = input.AuthorizerURI
+	}
+
+	if len(input.IdentitySource) > 0 {
+		a.IdentitySource = input.IdentitySource
+	}
+
+	if input.AuthorizerCredentialsArn != "" {
+		a.AuthorizerCredentialsArn = input.AuthorizerCredentialsArn
+	}
+
+	if input.AuthorizerResultTTLInSeconds != 0 {
+		a.AuthorizerResultTTLInSeconds = input.AuthorizerResultTTLInSeconds
+	}
+
+	if input.AuthorizerPayloadFormatVersion != "" {
+		a.AuthorizerPayloadFormatVersion = input.AuthorizerPayloadFormatVersion
+	}
+
+	if input.EnableSimpleResponses {
+		a.EnableSimpleResponses = input.EnableSimpleResponses
+	}
+
+	if input.JwtConfiguration != nil {
+		clone := *input.JwtConfiguration
+		a.JwtConfiguration = &clone
+	}
+
+	cp := *a
+
+	return &cp, nil
+}
+
+// ResetAuthorizersCache is a no-op for the in-memory backend (caching is not simulated).
+func (b *InMemoryBackend) ResetAuthorizersCache(apiID, stageName string) error {
+	b.mu.RLock("ResetAuthorizersCache")
+	defer b.mu.RUnlock()
+
+	if !b.apis.Has(apiID) {
+		return ErrAPINotFound
+	}
+
+	if !b.stages.Has(stageKey(apiID, stageName)) {
+		return ErrStageNotFound
+	}
+
+	return nil
 }

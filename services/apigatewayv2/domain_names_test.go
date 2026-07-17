@@ -1,0 +1,179 @@
+package apigatewayv2_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestInMemoryBackend_DomainNames(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	// CreateDomainName.
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "api.example.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{CertificateArn: "arn:aws:acm:us-east-1:123:certificate/abc", EndpointType: "REGIONAL"},
+		},
+		Tags: map[string]string{"env": "prod"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "api.example.com", dn.DomainNameValue)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+	assert.Equal(t, "REGIONAL", dn.DomainNameConfigurations[0].EndpointType)
+
+	// GetDomainName.
+	got, err := b.GetDomainName("api.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, "api.example.com", got.DomainNameValue)
+
+	// GetDomainNames.
+	all, err := b.GetDomainNames()
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+
+	// UpdateDomainName.
+	upd, err := b.UpdateDomainName("api.example.com", apigatewayv2.UpdateDomainNameInput{
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{CertificateArn: "arn:aws:acm:us-east-1:123:certificate/xyz", EndpointType: "EDGE"},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "EDGE", upd.DomainNameConfigurations[0].EndpointType)
+
+	// DeleteDomainName.
+	err = b.DeleteDomainName("api.example.com")
+	require.NoError(t, err)
+
+	_, err = b.GetDomainName("api.example.com")
+	require.ErrorIs(t, err, apigatewayv2.ErrDomainNameNotFound)
+}
+
+func TestDomainNameConfiguration_SecurityPolicy_Defaults(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "tls.example.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{
+				CertificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/abc",
+				EndpointType:   "REGIONAL",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+
+	cfg := dn.DomainNameConfigurations[0]
+	assert.Equal(t, "TLS_1_2", cfg.SecurityPolicy)
+	assert.Equal(t, "AVAILABLE", cfg.DomainNameStatus)
+	assert.NotEmpty(t, cfg.APIGatewayDomainName)
+	assert.NotEmpty(t, cfg.HostedZoneID)
+}
+
+func TestDomainNameConfiguration_CustomSecurityPolicy(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "custom-tls.example.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{
+				CertificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/xyz",
+				EndpointType:   "REGIONAL",
+				SecurityPolicy: "TLS_1_0",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+	assert.Equal(t, "TLS_1_0", dn.DomainNameConfigurations[0].SecurityPolicy)
+}
+
+func TestDomainNameConfiguration_ApiGatewayDomainName_Contains_DomainName(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "api.mycompany.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{CertificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/abc", EndpointType: "REGIONAL"},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+	assert.Contains(t, dn.DomainNameConfigurations[0].APIGatewayDomainName, "api.mycompany.com")
+}
+
+func TestDomainNameConfiguration_CustomApiGatewayDomainName_Preserved(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	customDomain := "d-abc123.execute-api.us-east-1.amazonaws.com"
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "custom.example.com",
+		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
+			{
+				CertificateArn:       "arn:aws:acm:us-east-1:123456789012:certificate/abc",
+				EndpointType:         "REGIONAL",
+				APIGatewayDomainName: customDomain,
+				HostedZoneID:         "Z1HUB23UULQXV",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, dn.DomainNameConfigurations, 1)
+	assert.Equal(t, customDomain, dn.DomainNameConfigurations[0].APIGatewayDomainName)
+	assert.Equal(t, "Z1HUB23UULQXV", dn.DomainNameConfigurations[0].HostedZoneID)
+}
+
+// Test_DomainName_ArnAndMutualTLS proves CreateDomainName populates a
+// well-formed domainNameArn and round-trips mutualTlsAuthentication, and that
+// UpdateDomainName can replace the mTLS configuration. Before this fix
+// DomainName had neither field, so both were silently dropped.
+func Test_DomainName_ArnAndMutualTLS(t *testing.T) {
+	t.Parallel()
+
+	ctx := awsmeta.Set(context.Background(), &awsmeta.Metadata{
+		Account:   "555566667777",
+		Region:    "eu-west-1",
+		Partition: "aws",
+	})
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	dn, err := b.CreateDomainName(ctx, apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "api.example.com",
+		MutualTLSAuthentication: &apigatewayv2.MutualTLSAuthentication{
+			TruststoreURI:     "s3://bucket/truststore.pem",
+			TruststoreVersion: "v1",
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "arn:aws:apigateway:eu-west-1::/domainnames/api.example.com", dn.DomainNameArn)
+	require.NotNil(t, dn.MutualTLSAuthentication)
+	assert.Equal(t, "s3://bucket/truststore.pem", dn.MutualTLSAuthentication.TruststoreURI)
+	assert.Equal(t, "v1", dn.MutualTLSAuthentication.TruststoreVersion)
+	assert.Empty(t, dn.MutualTLSAuthentication.TruststoreWarnings)
+
+	updated, err := b.UpdateDomainName("api.example.com", apigatewayv2.UpdateDomainNameInput{
+		MutualTLSAuthentication: &apigatewayv2.MutualTLSAuthentication{
+			TruststoreURI:     "s3://bucket/truststore-v2.pem",
+			TruststoreVersion: "v2",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.MutualTLSAuthentication)
+	assert.Equal(t, "s3://bucket/truststore-v2.pem", updated.MutualTLSAuthentication.TruststoreURI)
+
+	// DomainNameArn is stable across updates.
+	assert.Equal(t, dn.DomainNameArn, updated.DomainNameArn)
+}

@@ -1,8 +1,10 @@
 package apigatewayv2
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/labstack/echo/v5"
 )
 
@@ -69,3 +71,44 @@ func writeErrType(c *echo.Context, status int, errType, message string) error {
 
 	return c.JSON(status, notFoundResponse{Message: message})
 }
+
+var (
+	// ErrAPINotFound is returned when a requested API does not exist.
+	ErrAPINotFound = errors.New("NotFoundException")
+	// ErrStageNotFound is returned when a requested stage does not exist.
+	ErrStageNotFound = errors.New("NotFoundException")
+	// ErrRouteNotFound is returned when a requested route does not exist.
+	ErrRouteNotFound = errors.New("NotFoundException")
+	// ErrIntegrationNotFound is returned when a requested integration does not exist.
+	ErrIntegrationNotFound = errors.New("NotFoundException")
+	// ErrDeploymentNotFound is returned when a requested deployment does not exist.
+	ErrDeploymentNotFound = errors.New("NotFoundException")
+	// ErrAuthorizerNotFound is returned when a requested authorizer does not exist.
+	ErrAuthorizerNotFound = errors.New("NotFoundException")
+	// ErrDomainNameNotFound is returned when a requested domain name does not exist.
+	ErrDomainNameNotFound = errors.New("NotFoundException")
+	// ErrAPIMappingNotFound is returned when a requested API mapping does not exist.
+	ErrAPIMappingNotFound = errors.New("NotFoundException")
+	// ErrIntegrationResponseNotFound is returned when a requested integration response does not exist.
+	ErrIntegrationResponseNotFound = errors.New("NotFoundException")
+	// ErrModelNotFound is returned when a requested model does not exist.
+	ErrModelNotFound = errors.New("NotFoundException")
+	// ErrRouteResponseNotFound is returned when a requested route response does not exist.
+	ErrRouteResponseNotFound = errors.New("NotFoundException")
+	// ErrPortalNotFound is returned when a requested portal does not exist.
+	ErrPortalNotFound = errors.New("NotFoundException")
+	// ErrPortalProductNotFound is returned when a requested portal product does not exist.
+	ErrPortalProductNotFound = errors.New("NotFoundException")
+	// ErrBadRequest is returned when required fields are missing or invalid.
+	ErrBadRequest = errors.New("BadRequestException")
+	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
+	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	// ErrProductPageNotFound is returned when a requested product page does not exist.
+	ErrProductPageNotFound = errors.New("NotFoundException")
+	// ErrProductREPageNotFound is returned when a requested product REST endpoint page does not exist.
+	ErrProductREPageNotFound = errors.New("NotFoundException")
+	// ErrVpcLinkNotFound is returned when a requested VPC link does not exist.
+	ErrVpcLinkNotFound = errors.New("NotFoundException")
+	// ErrRoutingRuleNotFound is returned when a requested routing rule does not exist.
+	ErrRoutingRuleNotFound = errors.New("NotFoundException")
+)
