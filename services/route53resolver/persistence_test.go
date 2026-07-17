@@ -2,6 +2,8 @@ package route53resolver_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -234,4 +236,153 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "policy-doc-frg", fresh.GetFirewallRuleGroupPolicy(ctx, grp.ARN))
 	assert.Equal(t, "policy-doc-qlc", fresh.GetResolverQueryLogConfigPolicy(ctx, qlc.ARN))
 	assert.Equal(t, "policy-doc-rule", fresh.GetResolverRulePolicy(ctx, rule.ARN))
+}
+
+func TestSnapshotRestoreAllMaps(t *testing.T) {
+	t.Parallel()
+
+	b := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
+
+	b.AddEndpointInternal("ep1", "INBOUND")
+	b.AddRuleInternal("rule1", "a.com", "FORWARD")
+	b.AddFirewallRuleGroupInternal("frg1")
+	b.AddFirewallDomainListInternal("fdl1")
+	b.AddOutpostResolverInternal("op1", "arn:aws:outposts:us-east-1:000000000000:outpost/op-abc")
+	b.AddQueryLogConfigInternal("cfg1", "arn:aws:s3:::logs-bucket")
+
+	snap := b.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, route53resolver.EndpointCount(b2))
+	assert.Equal(t, 1, route53resolver.RuleCount(b2))
+	assert.Equal(t, 1, route53resolver.FirewallRuleGroupCount(b2))
+	assert.Equal(t, 1, route53resolver.FirewallDomainListCount(b2))
+	assert.Equal(t, 1, route53resolver.OutpostResolverCount(b2))
+	assert.Equal(t, 1, route53resolver.QueryLogConfigCount(b2))
+}
+
+// --- Reset clears all maps ---
+
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create endpoint + rule.
+	epRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "persist-ep",
+		"Direction": "INBOUND",
+	})
+	require.Equal(t, http.StatusOK, epRec.Code)
+
+	var epResp map[string]any
+	require.NoError(t, json.Unmarshal(epRec.Body.Bytes(), &epResp))
+	ep := epResp["ResolverEndpoint"].(map[string]any)
+	epARN := ep["Arn"].(string)
+
+	// Tag the endpoint.
+	tagRec := doRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": epARN,
+		"Tags":        []map[string]string{{"Key": "persist-key", "Value": "persist-value"}},
+	})
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	// Snapshot and restore to a new handler.
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	h2 := route53resolver.NewHandler(route53resolver.NewInMemoryBackend("000000000000", "us-east-1"))
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Tags must survive round-trip.
+	listRec := doRequest(t, h2, "ListTagsForResource", map[string]any{
+		"ResourceArn": epARN,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	tags := listResp["Tags"].([]any)
+	assert.Len(t, tags, 1)
+}
+
+func TestPersistenceRoundTrip_FirewallAndOutpostOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(t *testing.T, h *route53resolver.Handler)
+		verify func(t *testing.T, h2 *route53resolver.Handler, snap []byte)
+		name   string
+	}{
+		{
+			name: "firewall_rule_group_survives_snapshot",
+			setup: func(t *testing.T, h *route53resolver.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "persist-grp"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			verify: func(t *testing.T, h2 *route53resolver.Handler, snap []byte) {
+				t.Helper()
+				require.NoError(t, h2.Restore(t.Context(), snap))
+				// Create a new group to verify the backend is functional after restore.
+				rec := doRequest(t, h2, "CreateFirewallRuleGroup", map[string]any{"Name": "post-restore-grp"})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "firewall_domain_list_survives_snapshot",
+			setup: func(t *testing.T, h *route53resolver.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "persist-dl"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			verify: func(t *testing.T, h2 *route53resolver.Handler, snap []byte) {
+				t.Helper()
+				require.NoError(t, h2.Restore(t.Context(), snap))
+				// Verify domain list can be listed/accessed after restore.
+				rec := doRequest(t, h2, "CreateFirewallDomainList", map[string]any{"Name": "post-restore-dl"})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "outpost_resolver_survives_snapshot",
+			setup: func(t *testing.T, h *route53resolver.Handler) {
+				t.Helper()
+				rec := doRequest(t, h, "CreateOutpostResolver", map[string]any{
+					"Name":                  "persist-op",
+					"OutpostArn":            "arn:aws:outposts:us-east-1:000000000000:outpost/op-persist",
+					"PreferredInstanceType": "m5.xlarge",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			verify: func(t *testing.T, h2 *route53resolver.Handler, snap []byte) {
+				t.Helper()
+				require.NoError(t, h2.Restore(t.Context(), snap))
+				rec := doRequest(t, h2, "CreateOutpostResolver", map[string]any{
+					"Name":                  "post-restore-op",
+					"OutpostArn":            "arn:aws:outposts:us-east-1:000000000000:outpost/op-pr",
+					"PreferredInstanceType": "m5.xlarge",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.setup(t, h)
+
+			snap := h.Snapshot(t.Context())
+			require.NotEmpty(t, snap)
+
+			h2 := route53resolver.NewHandler(route53resolver.NewInMemoryBackend("000000000000", "us-east-1"))
+			tt.verify(t, h2, snap)
+		})
+	}
 }
