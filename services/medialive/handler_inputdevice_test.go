@@ -455,3 +455,32 @@ func TestBackendInputDeviceCount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, medialive.InputDeviceCount(backend))
 }
+
+func TestInputDeviceLifecycleExtras(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/prod/claimDevice",
+		map[string]any{"Id": "hd-device-1"},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	for _, action := range []string{"start", "stop", "startInputDeviceMaintenanceWindow"} {
+		rec = doRequest(t, h, http.MethodPost, "/prod/inputDevices/hd-device-1/"+action, nil)
+		assert.Equal(t, http.StatusOK, rec.Code, action)
+	}
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/inputDevices/hd-device-1/thumbnailData", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodPost, "/prod/inputDevices/missing/start", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/inputDevices/missing/thumbnailData", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
