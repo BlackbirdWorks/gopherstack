@@ -1,0 +1,402 @@
+package batch
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
+
+const (
+	jobStatusSubmitted = "SUBMITTED"
+	jobStatusPending   = "PENDING"
+	jobStatusRunnable  = "RUNNABLE"
+	jobStatusStarting  = "STARTING"
+	jobStatusRunning   = "RUNNING"
+	jobStatusSucceeded = "SUCCEEDED"
+	jobStatusFailed    = "FAILED"
+
+	maxJobNameLength = 128
+)
+
+// newConsumableResourceProperties wraps a non-empty requirement list in the
+// AWS-shaped ConsumableResourceProperties envelope, returning nil for an
+// empty list so the field is omitted from the wire response.
+func newConsumableResourceProperties(list []ConsumableResourceProperty) *ConsumableResourceProperties {
+	if len(list) == 0 {
+		return nil
+	}
+
+	listCopy := make([]ConsumableResourceProperty, len(list))
+	copy(listCopy, list)
+
+	return &ConsumableResourceProperties{ConsumableResourceList: listCopy}
+}
+
+// lookupJobByIDOrARN returns a job by ID or ARN within region using the jobsByARN
+// index for O(1) ARN lookup. Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupJobByIDOrARN(region, idOrARN string) (*Job, bool) {
+	if j, ok := b.jobs.Get(regionKey(region, idOrARN)); ok {
+		return j, true
+	}
+
+	if matches := b.jobsByARN.Get(regionKey(region, idOrARN)); len(matches) > 0 {
+		return matches[0], true
+	}
+
+	return nil, false
+}
+
+// parseJobDefRevision splits a short job definition reference into its name
+// and (if present) numeric revision, e.g. "my-jd:3" -> ("my-jd", 3, true) and
+// "my-jd" -> ("my-jd", 0, false). A non-numeric suffix after the colon is
+// treated as part of the name (hasRevision is false) since job definition
+// names never contain a colon themselves.
+func parseJobDefRevision(ref string) (string, int32, bool) {
+	base, revStr, found := strings.Cut(ref, ":")
+	if !found {
+		return ref, 0, false
+	}
+
+	rev, err := strconv.ParseInt(revStr, 10, 32)
+	if err != nil {
+		return ref, 0, false
+	}
+
+	return base, int32(rev), true
+}
+
+// lookupJobDefinitionForSubmit resolves the jobDefinition parameter accepted
+// by SubmitJob: a full ARN, "name:revision", or a bare name. A bare name
+// resolves to the newest ACTIVE revision, matching AWS Batch's documented
+// behavior ("If the revision is not specified, then the latest active
+// revision is used."). An explicit revision must match exactly and must be
+// ACTIVE. Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupJobDefinitionForSubmit(region, ref string) (*JobDefinition, bool) {
+	if jd, ok := b.jobDefinitions.Get(regionKey(region, ref)); ok {
+		return jd, true
+	}
+
+	name, revision, hasRevision := parseJobDefRevision(ref)
+
+	var latest *JobDefinition
+
+	for _, jd := range b.jobDefinitionsByRegion.Get(region) {
+		if jd.JobDefinitionName != name || jd.Status != jobDefStatusActive {
+			continue
+		}
+
+		if hasRevision {
+			if jd.Revision == revision {
+				return jd, true
+			}
+
+			continue
+		}
+
+		if latest == nil || jd.Revision > latest.Revision {
+			latest = jd
+		}
+	}
+
+	if hasRevision {
+		return nil, false
+	}
+
+	return latest, latest != nil
+}
+
+// submitJobCopies holds deep copies of the optional, pointer/slice-typed
+// SubmitJob inputs so the backend never retains caller-owned memory.
+type submitJobCopies struct {
+	retryStrategy      *RetryStrategy
+	timeout            *JobTimeout
+	arrayProperties    *ArrayProperties
+	containerOverrides *ContainerOverrides
+	dependsOn          []JobDependency
+}
+
+// cloneSubmitJobInputs deep-copies the optional SubmitJob parameters that are
+// stored by reference (dependsOn, retryStrategy, timeout, arrayProperties,
+// containerOverrides).
+func cloneSubmitJobInputs(
+	dependsOn []JobDependency,
+	retryStrategy *RetryStrategy,
+	timeout *JobTimeout,
+	arrayProperties *ArrayProperties,
+	containerOverrides *ContainerOverrides,
+) submitJobCopies {
+	var out submitJobCopies
+
+	if len(dependsOn) > 0 {
+		out.dependsOn = make([]JobDependency, len(dependsOn))
+		copy(out.dependsOn, dependsOn)
+	}
+
+	if retryStrategy != nil {
+		rs := *retryStrategy
+		if len(rs.EvaluateOnExit) > 0 {
+			exitRules := make([]EvaluateOnExit, len(rs.EvaluateOnExit))
+			copy(exitRules, rs.EvaluateOnExit)
+			rs.EvaluateOnExit = exitRules
+		}
+
+		out.retryStrategy = &rs
+	}
+
+	if timeout != nil {
+		tc := *timeout
+		out.timeout = &tc
+	}
+
+	if arrayProperties != nil {
+		ap := *arrayProperties
+		out.arrayProperties = &ap
+	}
+
+	if containerOverrides != nil {
+		co := *containerOverrides
+		out.containerOverrides = &co
+	}
+
+	return out
+}
+
+// SubmitJob submits a new Batch job for execution.
+func (b *InMemoryBackend) SubmitJob(
+	ctx context.Context,
+	name, queue, jobDefinition string,
+	tags map[string]string,
+	parameters map[string]string,
+	dependsOn []JobDependency,
+	retryStrategy *RetryStrategy,
+	timeout *JobTimeout,
+	arrayProperties *ArrayProperties,
+	containerOverrides *ContainerOverrides,
+	consumableResourceProperties []ConsumableResourceProperty,
+	shareIdentifier string,
+	schedulingPriorityOverride int32,
+	propagateTags bool,
+) (*Job, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("SubmitJob")
+	defer b.mu.Unlock()
+
+	if len(name) == 0 || len(name) > maxJobNameLength {
+		return nil, fmt.Errorf("%w: jobName must be between 1 and %d characters", ErrValidation, maxJobNameLength)
+	}
+
+	jq, ok := b.lookupJQByNameOrARN(region, queue)
+	if !ok {
+		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
+	}
+
+	if jq.State == stateDisabled {
+		return nil, fmt.Errorf("%w: job queue %s is %s", ErrValidation, queue, stateDisabled)
+	}
+
+	jd, ok := b.lookupJobDefinitionForSubmit(region, jobDefinition)
+	if !ok {
+		return nil, fmt.Errorf("%w: job definition %s not found", ErrNotFound, jobDefinition)
+	}
+
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	paramsCopy := maps.Clone(parameters)
+	copies := cloneSubmitJobInputs(dependsOn, retryStrategy, timeout, arrayProperties, containerOverrides)
+
+	now := time.Now().UnixMilli()
+	jobID := uuid.NewString()
+	jobARN := arn.Build("batch", region, b.accountID, "job/"+jobID)
+
+	j := &Job{
+		region:   region,
+		JobID:    jobID,
+		JobARN:   jobARN,
+		JobName:  name,
+		JobQueue: jq.JobQueueName,
+		// AWS resolves the jobDefinition parameter (name, name:revision, or
+		// ARN with/without revision) to the definition's ARN; DescribeJobs
+		// always returns the ARN here, never the caller's short reference.
+		JobDefinition:                jd.JobDefinitionArn,
+		Status:                       jobStatusSubmitted,
+		CreatedAt:                    now,
+		Tags:                         tagsCopy,
+		Parameters:                   paramsCopy,
+		DependsOn:                    copies.dependsOn,
+		RetryStrategy:                copies.retryStrategy,
+		Timeout:                      copies.timeout,
+		ArrayProperties:              copies.arrayProperties,
+		ContainerOverrides:           copies.containerOverrides,
+		ConsumableResourceProperties: newConsumableResourceProperties(consumableResourceProperties),
+		ShareIdentifier:              shareIdentifier,
+		SchedulingPriorityOverride:   schedulingPriorityOverride,
+		PropagateTags:                propagateTags,
+	}
+	b.jobs.Put(j)
+
+	cp := *j
+	cp.Tags = tagsCloneOrEmpty(j.Tags)
+
+	return &cp, nil
+}
+
+// listJobIDsForQueue returns job IDs for region, either all jobs sorted by ID
+// (queue == "") or jobs scoped to queue sorted by CreatedAt -- matching the
+// pre-refactor jobsIdx / jobsByQueue-derived ordering exactly. Caller must
+// hold at least a read lock.
+func (b *InMemoryBackend) listJobIDsForQueue(region, queue string) ([]string, error) {
+	if queue == "" {
+		return sortedNames(b.jobsByRegion.Get(region), func(j *Job) string { return j.JobID }), nil
+	}
+
+	jq, ok := b.lookupJQByNameOrARN(region, queue)
+	if !ok {
+		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
+	}
+
+	group := b.jobsByQueueIdx.Get(regionKey(region, jq.JobQueueName))
+	ids := make([]string, len(group))
+	for i, j := range group {
+		ids[i] = j.JobID
+	}
+
+	sort.Slice(ids, func(i, k int) bool {
+		ji, _ := b.jobs.Get(regionKey(region, ids[i]))
+		jk, _ := b.jobs.Get(regionKey(region, ids[k]))
+
+		return ji.CreatedAt < jk.CreatedAt
+	})
+
+	return ids, nil
+}
+
+// ListJobs returns job summaries for a queue, optionally filtered by status.
+// Pagination is controlled via maxResults and nextToken (token encodes an integer offset).
+func (b *InMemoryBackend) ListJobs(
+	ctx context.Context,
+	queue, status, nextToken string,
+	maxResults int32,
+) ([]*Job, string, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListJobs")
+	defer b.mu.RUnlock()
+
+	allKeys, err := b.listJobIDsForQueue(region, queue)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if status != "" {
+		filtered := make([]string, 0, len(allKeys))
+
+		for _, k := range allKeys {
+			j, _ := b.jobs.Get(regionKey(region, k))
+			if j.Status == status {
+				filtered = append(filtered, k)
+			}
+		}
+
+		allKeys = filtered
+	}
+
+	pageKeys, next := paginateMapKeys(allKeys, nextToken, maxResults)
+
+	out := make([]*Job, 0, len(pageKeys))
+	for _, k := range pageKeys {
+		j, _ := b.jobs.Get(regionKey(region, k))
+		cp := *j
+		cp.Tags = tagsCloneOrEmpty(cp.Tags)
+		out = append(out, &cp)
+	}
+
+	return out, next, nil
+}
+
+// DescribeJobs returns full job details for the given job IDs or ARNs.
+func (b *InMemoryBackend) DescribeJobs(ctx context.Context, jobIDs []string) []*Job {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("DescribeJobs")
+	defer b.mu.RUnlock()
+
+	out := make([]*Job, 0, len(jobIDs))
+
+	for _, id := range jobIDs {
+		j, ok := b.lookupJobByIDOrARN(region, id)
+		if !ok {
+			continue
+		}
+
+		cp := *j
+		cp.Tags = tagsCloneOrEmpty(j.Tags)
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// TerminateJob marks a job as FAILED with the given reason.
+// Valid for any non-terminal state. Accepts job ID or ARN.
+func (b *InMemoryBackend) TerminateJob(ctx context.Context, idOrARN, reason string) error {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("TerminateJob")
+	defer b.mu.Unlock()
+
+	j, ok := b.lookupJobByIDOrARN(region, idOrARN)
+	if !ok {
+		return fmt.Errorf("%w: job %s not found", ErrNotFound, idOrARN)
+	}
+
+	if j.Status == jobStatusSucceeded || j.Status == jobStatusFailed {
+		return fmt.Errorf("%w: job %s is already in terminal state %s", ErrValidation, idOrARN, j.Status)
+	}
+
+	now := time.Now().UnixMilli()
+	j.Status = jobStatusFailed
+	j.StatusReason = reason
+	j.StoppedAt = &now
+
+	return nil
+}
+
+// CancelJob cancels a job in SUBMITTED, PENDING, or RUNNABLE state.
+// Accepts job ID or ARN.
+func (b *InMemoryBackend) CancelJob(ctx context.Context, idOrARN, reason string) error {
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("CancelJob")
+	defer b.mu.Unlock()
+
+	j, ok := b.lookupJobByIDOrARN(region, idOrARN)
+	if !ok {
+		return fmt.Errorf("%w: job %s not found", ErrNotFound, idOrARN)
+	}
+
+	switch j.Status {
+	case jobStatusSubmitted, jobStatusPending, jobStatusRunnable:
+		now := time.Now().UnixMilli()
+		j.Status = jobStatusFailed
+		j.StatusReason = reason
+		j.StoppedAt = &now
+
+		return nil
+	default:
+		return fmt.Errorf("%w: cannot cancel job %s in %s state", ErrValidation, idOrARN, j.Status)
+	}
+}
