@@ -1,35 +1,106 @@
 package macie2_test
 
-// Parity §I: DescribeBuckets and GetBucketStatistics real stateful implementation.
-//
-// These tests verify that DescribeBuckets:
-//   - Returns empty slice when no buckets seeded
-//   - Returns seeded buckets correctly (round-trip)
-//   - Filters by bucket name substring
-//   - Filters by region
-//   - Returns correct bucket fields (bucketArn, bucketName, region, objectCount, etc.)
-//   - Handles empty criteria object
-//
-// And GetBucketStatistics:
-//   - Returns zeros when no buckets present
-//   - Aggregates real counts from seeded buckets
-//   - Counts by effective permission
-//   - Counts by encryption type
-//   - Tracks classifiable bucket count
-
 import (
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/macie2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
-// --- helpers ---
+func TestBucketsAndBatchCustomDataIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		fn   func(t *testing.T, h *macie2.Handler)
+		name string
+	}{
+		{
+			name: "describe_buckets_returns_empty",
+			fn: func(t *testing.T, h *macie2.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, http.MethodPost, "/datasources/s3", map[string]any{
+					"criteria": map[string]any{},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				buckets, _ := resp["buckets"].([]any)
+				assert.Empty(t, buckets)
+			},
+		},
+		{
+			name: "get_bucket_statistics_returns_zeros",
+			fn: func(t *testing.T, h *macie2.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, http.MethodPost, "/datasources/s3/statistics", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				count, _ := resp["bucketCount"].(float64)
+				assert.InDelta(t, 0, count, 0.0001)
+			},
+		},
+		{
+			name: "batch_get_custom_data_identifiers",
+			fn: func(t *testing.T, h *macie2.Handler) {
+				t.Helper()
+
+				// Create a CDI first
+				createRec := doRequest(t, h, http.MethodPost, "/custom-data-identifiers", map[string]any{
+					"name":  "test-cdi",
+					"regex": `\d{4}-\d{4}`,
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var createResp map[string]string
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				cdiID := createResp["customDataIdentifierId"]
+
+				// BatchGetCustomDataIdentifiers
+				rec := doRequest(t, h, http.MethodPost, "/custom-data-identifiers/get", map[string]any{
+					"ids": []string{cdiID},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var batchResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchResp))
+				items, _ := batchResp["customDataIdentifiers"].([]any)
+				assert.Len(t, items, 1)
+			},
+		},
+		{
+			name: "search_resources_returns_empty",
+			fn: func(t *testing.T, h *macie2.Handler) {
+				t.Helper()
+
+				rec := doRequest(t, h, http.MethodPost, "/datasources/search-resources", map[string]any{
+					"bucketCriteria": map[string]any{},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				results, _ := resp["matchingResources"].([]any)
+				assert.Empty(t, results)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.fn(t, newTestHandler(t))
+		})
+	}
+}
 
 func newBucketBackend() *macie2.InMemoryBackend {
 	return macie2.NewInMemoryBackend("000000000000", "us-east-1")
@@ -108,7 +179,7 @@ func getBucketStatistics(t *testing.T, h *macie2.Handler) map[string]any {
 
 // --- DescribeBuckets: empty state ---
 
-func TestParityBuckets_DescribeBuckets_Empty(t *testing.T) {
+func TestBuckets_DescribeBuckets_Empty(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -135,7 +206,7 @@ func TestParityBuckets_DescribeBuckets_Empty(t *testing.T) {
 
 // --- DescribeBuckets: single bucket round-trip ---
 
-func TestParityBuckets_DescribeBuckets_SingleRoundTrip(t *testing.T) {
+func TestBuckets_DescribeBuckets_SingleRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -216,7 +287,7 @@ func TestParityBuckets_DescribeBuckets_SingleRoundTrip(t *testing.T) {
 
 // --- DescribeBuckets: multiple buckets ---
 
-func TestParityBuckets_DescribeBuckets_Multiple(t *testing.T) {
+func TestBuckets_DescribeBuckets_Multiple(t *testing.T) {
 	t.Parallel()
 
 	h, b := newBucketHandlerAndBackend(t)
@@ -241,7 +312,7 @@ func TestParityBuckets_DescribeBuckets_Multiple(t *testing.T) {
 
 // --- DescribeBuckets: sort order ---
 
-func TestParityBuckets_DescribeBuckets_SortOrder(t *testing.T) {
+func TestBuckets_DescribeBuckets_SortOrder(t *testing.T) {
 	t.Parallel()
 
 	h, b := newBucketHandlerAndBackend(t)
@@ -266,7 +337,7 @@ func TestParityBuckets_DescribeBuckets_SortOrder(t *testing.T) {
 
 // --- DescribeBuckets: filter by name ---
 
-func TestParityBuckets_DescribeBuckets_FilterByName(t *testing.T) {
+func TestBuckets_DescribeBuckets_FilterByName(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -336,7 +407,7 @@ func TestParityBuckets_DescribeBuckets_FilterByName(t *testing.T) {
 
 // --- DescribeBuckets: filter by region ---
 
-func TestParityBuckets_DescribeBuckets_FilterByRegion(t *testing.T) {
+func TestBuckets_DescribeBuckets_FilterByRegion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -377,7 +448,7 @@ func TestParityBuckets_DescribeBuckets_FilterByRegion(t *testing.T) {
 
 // --- DescribeBuckets: count ---
 
-func TestParityBuckets_Count(t *testing.T) {
+func TestBuckets_Count(t *testing.T) {
 	t.Parallel()
 
 	_, b := newBucketHandlerAndBackend(t)
@@ -393,7 +464,7 @@ func TestParityBuckets_Count(t *testing.T) {
 
 // --- GetBucketStatistics: empty state ---
 
-func TestParityBuckets_GetBucketStatistics_Empty(t *testing.T) {
+func TestBuckets_GetBucketStatistics_Empty(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newBucketHandlerAndBackend(t)
@@ -406,7 +477,7 @@ func TestParityBuckets_GetBucketStatistics_Empty(t *testing.T) {
 
 // --- GetBucketStatistics: aggregation ---
 
-func TestParityBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
+func TestBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -469,7 +540,7 @@ func TestParityBuckets_GetBucketStatistics_Aggregation(t *testing.T) {
 
 // --- GetBucketStatistics: counts by permission ---
 
-func TestParityBuckets_GetBucketStatistics_PermissionCounts(t *testing.T) {
+func TestBuckets_GetBucketStatistics_PermissionCounts(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -522,7 +593,7 @@ func TestParityBuckets_GetBucketStatistics_PermissionCounts(t *testing.T) {
 
 // --- GetBucketStatistics: counts by encryption ---
 
-func TestParityBuckets_GetBucketStatistics_EncryptionCounts(t *testing.T) {
+func TestBuckets_GetBucketStatistics_EncryptionCounts(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -575,7 +646,7 @@ func TestParityBuckets_GetBucketStatistics_EncryptionCounts(t *testing.T) {
 
 // --- GetBucketStatistics: mixed permissions and encryption ---
 
-func TestParityBuckets_GetBucketStatistics_Mixed(t *testing.T) {
+func TestBuckets_GetBucketStatistics_Mixed(t *testing.T) {
 	t.Parallel()
 
 	h, b := newBucketHandlerAndBackend(t)
@@ -602,7 +673,7 @@ func TestParityBuckets_GetBucketStatistics_Mixed(t *testing.T) {
 
 // --- Snapshot/Restore preserves buckets ---
 
-func TestParityBuckets_SnapshotRestore(t *testing.T) {
+func TestBuckets_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	b := newBucketBackend()
@@ -630,7 +701,7 @@ func TestParityBuckets_SnapshotRestore(t *testing.T) {
 
 // --- Reset clears buckets ---
 
-func TestParityBuckets_Reset(t *testing.T) {
+func TestBuckets_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := newBucketBackend()
@@ -651,7 +722,7 @@ func TestParityBuckets_Reset(t *testing.T) {
 
 // --- DescribeBuckets response structure ---
 
-func TestParityBuckets_ResponseStructure(t *testing.T) {
+func TestBuckets_ResponseStructure(t *testing.T) {
 	t.Parallel()
 
 	h, b := newBucketHandlerAndBackend(t)
@@ -676,7 +747,7 @@ func TestParityBuckets_ResponseStructure(t *testing.T) {
 
 // --- GetBucketStatistics response structure ---
 
-func TestParityBuckets_StatisticsResponseStructure(t *testing.T) {
+func TestBuckets_StatisticsResponseStructure(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newBucketHandlerAndBackend(t)
@@ -695,7 +766,7 @@ func TestParityBuckets_StatisticsResponseStructure(t *testing.T) {
 
 // --- stable sort order for buckets ---
 
-func TestParityBuckets_StableSortOrder(t *testing.T) {
+func TestBuckets_StableSortOrder(t *testing.T) {
 	t.Parallel()
 
 	h, b := newBucketHandlerAndBackend(t)
@@ -718,7 +789,7 @@ func TestParityBuckets_StableSortOrder(t *testing.T) {
 
 // --- ARN format ---
 
-func TestParityBuckets_ARNFormat(t *testing.T) {
+func TestBuckets_ARNFormat(t *testing.T) {
 	t.Parallel()
 
 	h, b := newBucketHandlerAndBackend(t)
