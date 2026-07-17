@@ -2,6 +2,7 @@ package autoscaling_test
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -184,4 +185,166 @@ func Test_Restore_IncompatibleVersion(t *testing.T) {
 	groups, err := b.DescribeAutoScalingGroups(nil)
 	require.NoError(t, err)
 	assert.Empty(t, groups)
+}
+
+func TestInMemoryBackend_Persistence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *autoscaling.InMemoryBackend)
+		check func(t *testing.T, b *autoscaling.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "snapshot_restore_preserves_scaling_policies",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "persist-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				_, _ = b.PutScalingPolicy(autoscaling.ScalingPolicyInput{
+					PolicyName:           "my-policy",
+					AutoScalingGroupName: "persist-asg",
+					PolicyType:           "SimpleScaling",
+					AdjustmentType:       "ChangeInCapacity",
+					ScalingAdjustment:    2,
+				})
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				policies, err := b.DescribePolicies("persist-asg", nil)
+				require.NoError(t, err)
+				require.Len(t, policies, 1)
+				assert.Equal(t, "my-policy", policies[0].PolicyName)
+				assert.Equal(t, int32(2), policies[0].ScalingAdjustment)
+			},
+		},
+		{
+			name: "snapshot_restore_preserves_notification_configs",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "notif-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				_ = b.PutNotificationConfiguration(
+					"notif-asg",
+					"arn:aws:sns:us-east-1:000000000000:my-topic",
+					[]string{"autoscaling:EC2_INSTANCE_LAUNCH"},
+				)
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				notifs, err := b.DescribeNotificationConfigurations([]string{"notif-asg"})
+				require.NoError(t, err)
+				require.Len(t, notifs, 1)
+				assert.Equal(t, "autoscaling:EC2_INSTANCE_LAUNCH", notifs[0].NotificationType)
+			},
+		},
+		{
+			name: "snapshot_restore_preserves_warm_pools",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "warm-persist-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				_ = b.PutWarmPool(autoscaling.WarmPoolInput{
+					AutoScalingGroupName:     "warm-persist-asg",
+					MinSize:                  2,
+					MaxGroupPreparedCapacity: 5,
+				})
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				wp, err := b.DescribeWarmPool("warm-persist-asg")
+				require.NoError(t, err)
+				assert.Equal(t, int32(2), wp.MinSize)
+				assert.Equal(t, int32(5), wp.MaxGroupPreparedCapacity)
+			},
+		},
+		{
+			name: "snapshot_restore_rebuilds_instance_index",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "idx-asg",
+					MinSize:              1,
+					MaxSize:              3,
+					DesiredCapacity:      1,
+				})
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				groups, _ := b.DescribeAutoScalingGroups([]string{"idx-asg"})
+				require.Len(t, groups[0].Instances, 1)
+
+				instID := groups[0].Instances[0].InstanceID
+				// TerminateInstanceInAutoScalingGroup uses instanceIndex — it should work post-restore.
+				_, err := b.TerminateInstanceInAutoScalingGroup(instID, true)
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b1 := autoscaling.NewInMemoryBackend()
+			tt.setup(b1)
+
+			snap := b1.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := autoscaling.NewInMemoryBackend()
+			err := b2.Restore(t.Context(), snap)
+			require.NoError(t, err)
+
+			tt.check(t, b2)
+		})
+	}
+}
+
+func TestAutoscalingHandler_Persistence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *autoscaling.Handler)
+		name string
+	}{
+		{
+			name: "snapshot_and_restore",
+			run: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+
+				postAutoscalingForm(t, h, "Action=CreateAutoScalingGroup&Version=2011-01-01"+
+					"&AutoScalingGroupName=snap-asg&MinSize=1&MaxSize=3")
+
+				data := h.Snapshot(t.Context())
+				require.NotNil(t, data)
+
+				h2 := newAutoscalingHandler()
+				err := h2.Restore(t.Context(), data)
+				require.NoError(t, err)
+
+				rec := postAutoscalingForm(t, h2, "Action=DescribeAutoScalingGroups&Version=2011-01-01")
+				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "snap-asg")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			tt.run(t, h)
+		})
+	}
 }

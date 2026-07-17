@@ -159,7 +159,7 @@ const (
 
 // pendingHookAction tracks an in-flight lifecycle action with its timer.
 // Transition is one of the transitionLaunching/transitionTerminating constants
-// (backend.go) and determines what resolving the action does to the instance.
+// (store.go) and determines what resolving the action does to the instance.
 // Disposition is only meaningful for terminating actions: it records what
 // finishTermination should do to the group's capacity once the wait completes.
 type pendingHookAction struct {
@@ -435,4 +435,85 @@ type InstanceDetails struct {
 	LaunchConfigurationName string `json:"LaunchConfigurationName,omitempty"`
 	InstanceType            string `json:"InstanceType,omitempty"`
 	ProtectedFromScaleIn    bool   `json:"ProtectedFromScaleIn"`
+}
+
+// CreateAutoScalingGroupInput holds the input for CreateAutoScalingGroup.
+type CreateAutoScalingGroupInput struct {
+	MixedInstancesPolicy             *MixedInstancesPolicy
+	LaunchTemplate                   *LaunchTemplateSpecification
+	AutoScalingGroupName             string
+	LaunchConfigurationName          string
+	HealthCheckType                  string
+	VPCZoneIdentifier                string
+	PlacementGroup                   string
+	Context                          string
+	DesiredCapacityType              string
+	LoadBalancerNames                []string
+	TargetGroupARNs                  []string
+	TerminationPolicies              []string
+	Tags                             []Tag
+	AvailabilityZones                []string
+	TrafficSources                   []TrafficSource
+	LifecycleHookSpecificationList   []LifecycleHook
+	MinSize                          int32
+	DefaultCooldown                  int32
+	HealthCheckGracePeriod           int32
+	MaxInstanceLifetime              int32
+	DefaultInstanceWarmup            int32
+	MaxSize                          int32
+	DesiredCapacity                  int32
+	NewInstancesProtectedFromScaleIn bool
+	CapacityRebalance                bool
+}
+
+// UpdateAutoScalingGroupInput holds the input for UpdateAutoScalingGroup.
+type UpdateAutoScalingGroupInput struct {
+	LaunchTemplate                   *LaunchTemplateSpecification
+	MaxSize                          *int32
+	DesiredCapacity                  *int32
+	DefaultCooldown                  *int32
+	HealthCheckGracePeriod           *int32
+	MaxInstanceLifetime              *int32
+	DefaultInstanceWarmup            *int32
+	NewInstancesProtectedFromScaleIn *bool
+	CapacityRebalance                *bool
+	MixedInstancesPolicy             *MixedInstancesPolicy
+	MinSize                          *int32
+	LaunchConfigurationName          string
+	VPCZoneIdentifier                string
+	PlacementGroup                   string
+	Context                          string
+	DesiredCapacityType              string
+	HealthCheckType                  string
+	AutoScalingGroupName             string
+	AvailabilityZones                []string
+	TerminationPolicies              []string
+}
+
+// CreateLaunchConfigurationInput holds the input for CreateLaunchConfiguration.
+type CreateLaunchConfigurationInput struct {
+	LaunchConfigurationName      string
+	ImageID                      string
+	InstanceType                 string
+	KeyName                      string
+	IAMInstanceProfile           string
+	UserData                     string
+	KernelID                     string
+	RamdiskID                    string
+	SpotPrice                    string
+	PlacementTenancy             string
+	ClassicLinkVPCID             string
+	SecurityGroups               []string
+	ClassicLinkVPCSecurityGroups []string
+	BlockDeviceMappings          []BlockDeviceMapping
+	AssociatePublicIPAddress     bool
+	EbsOptimized                 bool
+	InstanceMonitoring           bool
+}
+
+// StartInstanceRefreshInput holds the input for StartInstanceRefresh.
+type StartInstanceRefreshInput struct {
+	AutoScalingGroupName string
+	Strategy             string
+	Preferences          InstanceRefreshPreferences
 }

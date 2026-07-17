@@ -1,0 +1,431 @@
+package autoscaling
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// CompleteLifecycleAction completes a lifecycle action for the given group and hook.
+func (b *InMemoryBackend) CompleteLifecycleAction(input CompleteLifecycleActionInput) error {
+	b.mu.Lock("CompleteLifecycleAction")
+	defer b.mu.Unlock()
+
+	if !b.groups.Has(input.AutoScalingGroupName) {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	if input.LifecycleHookName == "" {
+		return fmt.Errorf("%w: LifecycleHookName is required", ErrInvalidParameter)
+	}
+
+	if input.LifecycleActionResult == "" {
+		return fmt.Errorf("%w: LifecycleActionResult is required", ErrInvalidParameter)
+	}
+
+	// Validate LifecycleActionResult is CONTINUE or ABANDON (case-insensitive)
+	upper := strings.ToUpper(input.LifecycleActionResult)
+	if upper != lifecycleActionContinue && upper != lifecycleActionAbandon {
+		return fmt.Errorf("%w: LifecycleActionResult must be CONTINUE or ABANDON, got %q",
+			ErrInvalidParameter, input.LifecycleActionResult)
+	}
+
+	action := b.findPendingHookAction(
+		input.LifecycleActionToken, input.AutoScalingGroupName, input.LifecycleHookName, input.InstanceID,
+	)
+	if action != nil {
+		action.timer.Stop()
+		b.pendingHookTokens.Delete(action.Token)
+		b.applyLifecycleResult(action, upper)
+	}
+
+	return nil
+}
+
+// DeleteLifecycleHook removes a lifecycle hook from the specified Auto Scaling group.
+func (b *InMemoryBackend) DeleteLifecycleHook(groupName, hookName string) error {
+	b.mu.Lock("DeleteLifecycleHook")
+	defer b.mu.Unlock()
+
+	if !b.groups.Has(groupName) {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	key := scopedKey(groupName, hookName)
+	if !b.lifecycleHooks.Has(key) {
+		return fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, hookName)
+	}
+
+	b.cleanupHookTimers(groupName, hookName)
+	b.lifecycleHooks.Delete(key)
+
+	return nil
+}
+
+// AddLifecycleHook stores a lifecycle hook for the given group.
+// This is the backend helper used by PutLifecycleHook and by tests.
+func (b *InMemoryBackend) AddLifecycleHook(hook LifecycleHook) error {
+	b.mu.Lock("AddLifecycleHook")
+	defer b.mu.Unlock()
+
+	if !b.groups.Has(hook.AutoScalingGroupName) {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, hook.AutoScalingGroupName)
+	}
+
+	cp := hook
+	b.lifecycleHooks.Put(&cp)
+
+	return nil
+}
+
+// defaultHeartbeatTimeout is the default HeartbeatTimeout for lifecycle hooks (1 hour), matching AWS.
+const defaultHeartbeatTimeout = int32(3600)
+
+// PutLifecycleHook creates or updates a lifecycle hook on an Auto Scaling group.
+func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
+	b.mu.Lock("PutLifecycleHook")
+	defer b.mu.Unlock()
+
+	if hook.LifecycleHookName == "" {
+		return fmt.Errorf("%w: LifecycleHookName is required", ErrInvalidParameter)
+	}
+
+	if !b.groups.Has(hook.AutoScalingGroupName) {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, hook.AutoScalingGroupName)
+	}
+
+	if err := normalizeLifecycleHook(&hook); err != nil {
+		return err
+	}
+
+	cp := hook
+	b.lifecycleHooks.Put(&cp)
+
+	return nil
+}
+
+// normalizeLifecycleHook validates a LifecycleHook's fields and fills in AWS
+// defaults (HeartbeatTimeout=3600, DefaultResult=ABANDON, GlobalTimeout=HeartbeatTimeout).
+// Shared by PutLifecycleHook and CreateAutoScalingGroup's LifecycleHookSpecificationList.
+func normalizeLifecycleHook(hook *LifecycleHook) error {
+	// Validate LifecycleTransition if provided
+	if hook.LifecycleTransition != "" &&
+		hook.LifecycleTransition != transitionLaunching &&
+		hook.LifecycleTransition != transitionTerminating {
+		return fmt.Errorf(
+			"%w: LifecycleTransition must be %s or %s",
+			ErrInvalidParameter, transitionLaunching, transitionTerminating,
+		)
+	}
+
+	// Default HeartbeatTimeout to 3600 if not provided (matching AWS behavior).
+	if hook.HeartbeatTimeout == 0 {
+		hook.HeartbeatTimeout = defaultHeartbeatTimeout
+	}
+
+	// AWS: HeartbeatTimeout must be 30..172800 (48 h).
+	const minHeartbeat = int32(30)
+	const maxHeartbeat = int32(172800)
+
+	if hook.HeartbeatTimeout < minHeartbeat || hook.HeartbeatTimeout > maxHeartbeat {
+		return fmt.Errorf(
+			"%w: HeartbeatTimeout must be between %d and %d seconds, got %d",
+			ErrInvalidParameter, minHeartbeat, maxHeartbeat, hook.HeartbeatTimeout,
+		)
+	}
+
+	// DefaultResult must be CONTINUE or ABANDON.
+	if hook.DefaultResult != "" && hook.DefaultResult != lifecycleActionContinue &&
+		hook.DefaultResult != lifecycleActionAbandon {
+		return fmt.Errorf(
+			"%w: DefaultResult must be CONTINUE or ABANDON, got %q",
+			ErrInvalidParameter, hook.DefaultResult,
+		)
+	}
+
+	// Default DefaultResult to ABANDON if not provided.
+	if hook.DefaultResult == "" {
+		hook.DefaultResult = lifecycleActionAbandon
+	}
+
+	// GlobalTimeout = HeartbeatTimeout * numberOfRetries; AWS uses numberOfRetries=1 by default.
+	hook.GlobalTimeout = hook.HeartbeatTimeout
+
+	return nil
+}
+
+// DescribeLifecycleHooks returns lifecycle hooks for the given group, optionally filtered by name.
+func (b *InMemoryBackend) DescribeLifecycleHooks(groupName string, hookNames []string) ([]LifecycleHook, error) {
+	b.mu.RLock("DescribeLifecycleHooks")
+	defer b.mu.RUnlock()
+
+	if !b.groups.Has(groupName) {
+		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
+	}
+
+	hooks := b.lifecycleHooksByGroup.Get(groupName)
+
+	if len(hookNames) > 0 {
+		result := make([]LifecycleHook, 0, len(hookNames))
+
+		for _, name := range hookNames {
+			h, ok := b.lifecycleHooks.Get(scopedKey(groupName, name))
+			if !ok {
+				return nil, fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, name)
+			}
+
+			result = append(result, *h)
+		}
+
+		return result, nil
+	}
+
+	result := make([]LifecycleHook, 0, len(hooks))
+
+	for _, h := range hooks {
+		result = append(result, *h)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].LifecycleHookName < result[j].LifecycleHookName
+	})
+
+	return result, nil
+}
+
+// cleanupHookTimers cancels and removes pending hook actions for a group/hook.
+// If hookName is empty, all pending actions for the group are cancelled.
+// Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) cleanupHookTimers(groupName, hookName string) {
+	var toRemove []string
+
+	b.pendingHookTokens.Range(func(action *pendingHookAction) bool {
+		if action.GroupName == groupName && (hookName == "" || action.HookName == hookName) {
+			action.timer.Stop()
+			toRemove = append(toRemove, action.Token)
+		}
+
+		return true
+	})
+
+	for _, token := range toRemove {
+		b.pendingHookTokens.Delete(token)
+	}
+}
+
+// findHookForTransition returns the first lifecycle hook registered for the given
+// group whose LifecycleTransition matches transition, or nil if none is registered.
+// AWS allows multiple hooks per transition (each must complete independently); this
+// simulation supports one active hook per transition per group, which covers the
+// overwhelming majority of real configurations. Must be called with b.mu held.
+func findHookForTransition(hooks []*LifecycleHook, transition string) *LifecycleHook {
+	var found *LifecycleHook
+
+	for _, h := range hooks {
+		if h.LifecycleTransition == transition {
+			if found == nil || h.LifecycleHookName < found.LifecycleHookName {
+				found = h
+			}
+		}
+	}
+
+	return found
+}
+
+// armLifecycleWait puts inst into the appropriate "Wait" lifecycle state and starts a
+// heartbeat timer that resolves the action with the hook's DefaultResult if
+// CompleteLifecycleAction/RecordLifecycleActionHeartbeat don't intervene first. Must
+// be called with b.mu held (write lock).
+func (b *InMemoryBackend) armLifecycleWait(
+	g *AutoScalingGroup, hook *LifecycleHook, inst *Instance, transition string, disposition terminationDisposition,
+) {
+	if transition == transitionLaunching {
+		inst.LifecycleState = lifecycleStatePendingWait
+	} else {
+		inst.LifecycleState = lifecycleStateTerminatingWait
+	}
+
+	token := uuid.NewString()
+	timeout := time.Duration(hook.HeartbeatTimeout) * time.Second
+
+	action := &pendingHookAction{
+		Token:         token,
+		GroupName:     g.AutoScalingGroupName,
+		HookName:      hook.LifecycleHookName,
+		InstanceID:    inst.InstanceID,
+		Transition:    transition,
+		DefaultResult: hook.DefaultResult,
+		timeout:       timeout,
+		Disposition:   disposition,
+	}
+	action.timer = time.AfterFunc(timeout, func() {
+		b.resolveLifecycleWait(token, action.DefaultResult)
+	})
+	b.pendingHookTokens.Put(action)
+}
+
+// resolveLifecycleWait applies result (CONTINUE/ABANDON) to the pending action
+// identified by token, if it is still pending. Called both from expired timers (its
+// own goroutine, hence it takes the lock itself) and, indirectly, from explicit
+// CompleteLifecycleAction calls.
+func (b *InMemoryBackend) resolveLifecycleWait(token, result string) {
+	b.mu.Lock("resolveLifecycleWait")
+	defer b.mu.Unlock()
+
+	action, ok := b.pendingHookTokens.Get(token)
+	if !ok {
+		return // already resolved (race between timer and an explicit Complete call)
+	}
+
+	b.pendingHookTokens.Delete(token)
+	b.applyLifecycleResult(action, result)
+}
+
+// applyLifecycleResult performs the actual state transition once a lifecycle wait
+// resolves (either explicitly via CompleteLifecycleAction or via heartbeat timeout).
+// Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) applyLifecycleResult(action *pendingHookAction, result string) {
+	g, ok := b.groups.Get(action.GroupName)
+	if !ok {
+		return // group was deleted while the action was pending
+	}
+
+	switch action.Transition {
+	case transitionLaunching:
+		if strings.EqualFold(result, lifecycleActionContinue) {
+			for i := range g.Instances {
+				if g.Instances[i].InstanceID == action.InstanceID {
+					g.Instances[i].LifecycleState = lifecycleStateInService
+
+					break
+				}
+			}
+		} else {
+			// ABANDON: AWS terminates the instance that failed to launch.
+			b.removeInstanceByID(g, action.InstanceID)
+		}
+	case transitionTerminating:
+		// Both CONTINUE and ABANDON allow termination to proceed for a terminating
+		// hook (the result only affects any downstream hook chaining, which this
+		// simulation does not model).
+		b.finishTermination(g, action)
+	}
+}
+
+// rearmPendingWaits re-arms heartbeat timers for any instances left in a lifecycle
+// "Wait" state by a restored snapshot. In-flight timers are never persisted (see
+// pendingHookTokens/backendSnapshot), so without this an instance restored mid-wait
+// would be stuck in Pending:Wait/Terminating:Wait forever. Must be called with b.mu
+// held (write lock); intended to run once, right after Restore repopulates b.groups.
+func (b *InMemoryBackend) rearmPendingWaits() {
+	for _, g := range b.groups.All() {
+		for i := range g.Instances {
+			inst := &g.Instances[i]
+
+			var transition string
+
+			switch inst.LifecycleState {
+			case lifecycleStatePendingWait:
+				transition = transitionLaunching
+			case lifecycleStateTerminatingWait:
+				transition = transitionTerminating
+			default:
+				continue
+			}
+
+			hook := findHookForTransition(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), transition)
+
+			heartbeat := defaultHeartbeatTimeout
+			defaultResult := lifecycleActionAbandon
+			hookName := ""
+
+			if hook != nil {
+				heartbeat = hook.HeartbeatTimeout
+				defaultResult = hook.DefaultResult
+				hookName = hook.LifecycleHookName
+			}
+
+			token := uuid.NewString()
+			action := &pendingHookAction{
+				Token:         token,
+				GroupName:     g.AutoScalingGroupName,
+				HookName:      hookName,
+				InstanceID:    inst.InstanceID,
+				Transition:    transition,
+				DefaultResult: defaultResult,
+				timeout:       time.Duration(heartbeat) * time.Second,
+			}
+			action.timer = time.AfterFunc(action.timeout, func() {
+				b.resolveLifecycleWait(token, action.DefaultResult)
+			})
+			b.pendingHookTokens.Put(action)
+		}
+	}
+}
+
+// findPendingHookAction looks up a pending lifecycle action, first by explicit token
+// (as AWS does) and, when the token is empty, by (groupName, hookName, instanceID) —
+// AWS's CompleteLifecycleAction and RecordLifecycleActionHeartbeat both accept either
+// a token or an instance ID. Must be called with b.mu held.
+func (b *InMemoryBackend) findPendingHookAction(token, groupName, hookName, instanceID string) *pendingHookAction {
+	if token != "" {
+		action, _ := b.pendingHookTokens.Get(token)
+
+		return action
+	}
+
+	var found *pendingHookAction
+
+	b.pendingHookTokens.Range(func(action *pendingHookAction) bool {
+		if action.GroupName == groupName && action.HookName == hookName && action.InstanceID == instanceID {
+			found = action
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
+}
+
+// DescribeLifecycleHookTypes returns the supported lifecycle hook transition types.
+func (b *InMemoryBackend) DescribeLifecycleHookTypes() ([]string, error) {
+	return []string{
+		"autoscaling:EC2_INSTANCE_LAUNCHING",
+		"autoscaling:EC2_INSTANCE_TERMINATING",
+	}, nil
+}
+
+// RecordLifecycleActionHeartbeat resets or validates a lifecycle action heartbeat.
+func (b *InMemoryBackend) RecordLifecycleActionHeartbeat(input RecordLifecycleActionHeartbeatInput) error {
+	b.mu.Lock("RecordLifecycleActionHeartbeat")
+	defer b.mu.Unlock()
+
+	if !b.groups.Has(input.AutoScalingGroupName) {
+		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
+	}
+
+	if action := b.findPendingHookAction(
+		input.LifecycleActionToken, input.AutoScalingGroupName, input.LifecycleHookName, input.InstanceID,
+	); action != nil {
+		action.timer.Stop()
+		token := action.Token
+		defaultResult := action.DefaultResult
+		action.timer = time.AfterFunc(action.timeout, func() {
+			b.resolveLifecycleWait(token, defaultResult)
+		})
+
+		return nil
+	}
+
+	// Validate hook exists
+	if !b.lifecycleHooks.Has(scopedKey(input.AutoScalingGroupName, input.LifecycleHookName)) {
+		return fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, input.LifecycleHookName)
+	}
+
+	return nil
+}

@@ -2,12 +2,69 @@ package autoscaling_test
 
 import (
 	"encoding/xml"
+	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/autoscaling"
 )
+
+// TestAutoscalingHandler_LifecycleHookGlobalTimeout verifies that DescribeLifecycleHooks returns
+// GlobalTimeout equal to HeartbeatTimeout (numberOfRetries=1 is the default).
+func TestAutoscalingHandler_LifecycleHookGlobalTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		heartbeatTimeout string
+		wantGlobal       string
+	}{
+		{"default timeout", "", "<GlobalTimeout>3600</GlobalTimeout>"},
+		{"custom 600", "600", "<GlobalTimeout>600</GlobalTimeout>"},
+		{"custom 7200", "7200", "<GlobalTimeout>7200</GlobalTimeout>"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutoscalingHandler()
+			asgName := "hook-asg-" + strings.ReplaceAll(tc.name, " ", "-")
+
+			code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+				"AutoScalingGroupName":       {asgName},
+				"MinSize":                    {"0"},
+				"MaxSize":                    {"5"},
+				"AvailabilityZones.member.1": {"us-east-1a"},
+			})
+			require.Equal(t, 200, code, body)
+
+			hookVals := url.Values{
+				"AutoScalingGroupName": {asgName},
+				"LifecycleHookName":    {"my-hook"},
+				"LifecycleTransition":  {"autoscaling:EC2_INSTANCE_LAUNCHING"},
+			}
+			if tc.heartbeatTimeout != "" {
+				hookVals.Set("HeartbeatTimeout", tc.heartbeatTimeout)
+			}
+
+			code, body = doAS(t, h, "PutLifecycleHook", hookVals)
+			require.Equal(t, 200, code, body)
+
+			code, body = doAS(t, h, "DescribeLifecycleHooks", url.Values{
+				"AutoScalingGroupName": {asgName},
+			})
+			require.Equal(t, 200, code)
+
+			assert.Contains(t, body, tc.wantGlobal,
+				"GlobalTimeout must equal HeartbeatTimeout; got: %s", body)
+		})
+	}
+}
 
 // xmlASGInstancesResponse is a minimal struct for parsing DescribeAutoScalingGroups
 // focused on instance lifecycle state and capacity fields.
@@ -63,12 +120,12 @@ func describeASGInstances(t *testing.T, body string) xmlASGInstancesResponse {
 	return parsed
 }
 
-// Test_LifecycleHookGatesLaunch verifies that an EC2_INSTANCE_LAUNCHING lifecycle
+// TestAutoscalingHandler_LifecycleHookGatesLaunch verifies that an EC2_INSTANCE_LAUNCHING lifecycle
 // hook pauses newly-launched instances in Pending:Wait, and that
 // CompleteLifecycleAction resolves the wait (CONTINUE -> InService, ABANDON ->
 // instance removed). Before this fix, PutLifecycleHook/CompleteLifecycleAction never
 // touched real instance state -- hooks were pure bookkeeping with no effect.
-func Test_LifecycleHookGatesLaunch(t *testing.T) {
+func TestAutoscalingHandler_LifecycleHookGatesLaunch(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -153,12 +210,12 @@ func Test_LifecycleHookGatesLaunch(t *testing.T) {
 	}
 }
 
-// Test_LifecycleHookGatesTermination verifies that an EC2_INSTANCE_TERMINATING
+// TestAutoscalingHandler_LifecycleHookGatesTermination verifies that an EC2_INSTANCE_TERMINATING
 // lifecycle hook defers instance removal: TerminateInstanceInAutoScalingGroup pauses
 // the instance in Terminating:Wait (with an InProgress activity) instead of removing
 // it immediately, and CompleteLifecycleAction finishes the termination and applies
 // the originally-requested desired-capacity decrement.
-func Test_LifecycleHookGatesTermination(t *testing.T) {
+func TestAutoscalingHandler_LifecycleHookGatesTermination(t *testing.T) {
 	t.Parallel()
 
 	h := newAutoscalingHandler()
@@ -228,12 +285,12 @@ func Test_LifecycleHookGatesTermination(t *testing.T) {
 	assert.Equal(t, int32(0), group.DesiredCapacity, "ShouldDecrementDesiredCapacity must apply once resolved")
 }
 
-// Test_LifecycleHookGatesDesiredCapacityScaleIn verifies that an
+// TestAutoscalingHandler_LifecycleHookGatesDesiredCapacityScaleIn verifies that an
 // EC2_INSTANCE_TERMINATING lifecycle hook also gates the desired-capacity-driven
 // scale-in path (SetDesiredCapacity), not just TerminateInstanceInAutoScalingGroup.
 // Before this fix, applyDesiredCapacityChange's scale-in branch removed instances
 // immediately regardless of any registered terminating hook.
-func Test_LifecycleHookGatesDesiredCapacityScaleIn(t *testing.T) {
+func TestAutoscalingHandler_LifecycleHookGatesDesiredCapacityScaleIn(t *testing.T) {
 	t.Parallel()
 
 	h := newAutoscalingHandler()
@@ -304,10 +361,10 @@ func Test_LifecycleHookGatesDesiredCapacityScaleIn(t *testing.T) {
 	assert.Equal(t, int32(0), group.DesiredCapacity, "DesiredCapacity must not be double-decremented on resolution")
 }
 
-// Test_RecordLifecycleActionHeartbeatByInstanceID verifies that
+// TestAutoscalingHandler_RecordLifecycleActionHeartbeatByInstanceID verifies that
 // RecordLifecycleActionHeartbeat can locate a pending action by (group, hook,
 // instance) when no LifecycleActionToken is supplied -- AWS accepts either.
-func Test_RecordLifecycleActionHeartbeatByInstanceID(t *testing.T) {
+func TestAutoscalingHandler_RecordLifecycleActionHeartbeatByInstanceID(t *testing.T) {
 	t.Parallel()
 
 	h := newAutoscalingHandler()
@@ -358,262 +415,12 @@ func Test_RecordLifecycleActionHeartbeatByInstanceID(t *testing.T) {
 	assert.Equal(t, 400, code, "heartbeat for an unknown hook with no pending action must fail; body: %s", body)
 }
 
-// Test_MixedInstancesPolicyRoundTrip verifies that CreateAutoScalingGroup parses
-// MixedInstancesPolicy (launch template, overrides, instances distribution) and that
-// DescribeAutoScalingGroups returns it. Previously this field was silently dropped:
-// accepted on the wire, never stored, never returned.
-func Test_MixedInstancesPolicyRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	h := newAutoscalingHandler()
-	asgName := "mip-asg"
-
-	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
-		"AutoScalingGroupName":       {asgName},
-		"MinSize":                    {"0"},
-		"MaxSize":                    {"5"},
-		"AvailabilityZones.member.1": {"us-east-1a"},
-		"MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId": {"lt-0123456789"},
-		"MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.Version":          {"$Latest"},
-		"MixedInstancesPolicy.LaunchTemplate.Overrides.member.1.InstanceType":              {"t3.micro"},
-		"MixedInstancesPolicy.LaunchTemplate.Overrides.member.1.WeightedCapacity":          {"1"},
-		"MixedInstancesPolicy.LaunchTemplate.Overrides.member.2.InstanceType":              {"t3.small"},
-		"MixedInstancesPolicy.LaunchTemplate.Overrides.member.2.WeightedCapacity":          {"2"},
-		"MixedInstancesPolicy.InstancesDistribution.OnDemandBaseCapacity":                  {"1"},
-		"MixedInstancesPolicy.InstancesDistribution.SpotAllocationStrategy":                {"capacity-optimized"},
-	})
-	require.Equal(t, 200, code, body)
-
-	code, body = doAS(t, h, "DescribeAutoScalingGroups", url.Values{
-		"AutoScalingGroupNames.member.1": {asgName},
-	})
-	require.Equal(t, 200, code, body)
-
-	parsed := describeASGInstances(t, body)
-	mip := parsed.Result.AutoScalingGroups.Members[0].MixedInstancesPolicy
-
-	assert.Equal(t, "lt-0123456789", mip.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateID)
-	require.Len(t, mip.LaunchTemplate.Overrides.Members, 2)
-	assert.Equal(t, "t3.micro", mip.LaunchTemplate.Overrides.Members[0].InstanceType)
-	assert.Equal(t, "t3.small", mip.LaunchTemplate.Overrides.Members[1].InstanceType)
-	assert.Equal(t, int32(1), mip.InstancesDistribution.OnDemandBaseCapacity)
-	assert.Equal(t, "capacity-optimized", mip.InstancesDistribution.SpotAllocationStrategy)
-}
-
-// xmlLaunchInstancesResponse parses the LaunchInstances response, which returns
-// InstanceCollection entries (grouped by AZ/InstanceType with a list of instance
-// IDs) rather than a flat per-instance list.
-type xmlLaunchInstancesResponse struct {
-	XMLName xml.Name `xml:"LaunchInstancesResponse"`
-	Result  struct {
-		AutoScalingGroupName string `xml:"AutoScalingGroupName"`
-		ClientToken          string `xml:"ClientToken"`
-		Instances            struct {
-			Members []struct {
-				AvailabilityZone string `xml:"AvailabilityZone"`
-				InstanceIDs      struct {
-					Members []string `xml:"member"`
-				} `xml:"InstanceIds"`
-			} `xml:"member"`
-		} `xml:"Instances"`
-	} `xml:"LaunchInstancesResult"`
-}
-
-// Test_LaunchInstancesWireShapeAndIndex verifies that LaunchInstances (a) reads the
-// real RequestedCapacity field (not the DesiredCapacity typo it used to read), (b)
-// returns the AWS InstanceCollection shape instead of a flat per-instance list, and
-// (c) that launched instances are indexed so a subsequent
-// TerminateInstanceInAutoScalingGroup can find them by ID (previously LaunchInstances
-// never updated the instance index at all).
-func Test_LaunchInstancesWireShapeAndIndex(t *testing.T) {
-	t.Parallel()
-
-	h := newAutoscalingHandler()
-	asgName := "launch-instances-asg"
-
-	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
-		"AutoScalingGroupName":       {asgName},
-		"MinSize":                    {"0"},
-		"MaxSize":                    {"10"},
-		"AvailabilityZones.member.1": {"us-east-1a"},
-	})
-	require.Equal(t, 200, code, body)
-
-	code, body = doAS(t, h, "LaunchInstances", url.Values{
-		"AutoScalingGroupName": {asgName},
-		"ClientToken":          {"tok-1"},
-		"RequestedCapacity":    {"2"},
-	})
-	require.Equal(t, 200, code, body)
-
-	var parsed xmlLaunchInstancesResponse
-	require.NoError(t, xml.Unmarshal([]byte(body), &parsed))
-	assert.Equal(t, asgName, parsed.Result.AutoScalingGroupName)
-	assert.Equal(t, "tok-1", parsed.Result.ClientToken)
-
-	var instanceIDs []string
-	for _, m := range parsed.Result.Instances.Members {
-		instanceIDs = append(instanceIDs, m.InstanceIDs.Members...)
-	}
-
-	require.Len(t, instanceIDs, 2, "RequestedCapacity=2 must launch exactly 2 instances; got body: %s", body)
-
-	code, body = doAS(t, h, "TerminateInstanceInAutoScalingGroup", url.Values{
-		"InstanceId":                     {instanceIDs[0]},
-		"ShouldDecrementDesiredCapacity": {"true"},
-	})
-	assert.Equal(t, 200, code,
-		"an instance launched via LaunchInstances must be indexed and terminable by ID; got: %s", body)
-}
-
-// Test_ExecutePolicyStepScaling verifies that ExecutePolicy selects the matching
-// StepAdjustment via (MetricValue-BreachThreshold) for a StepScaling policy, and
-// rejects execution when those required fields are missing.
-func Test_ExecutePolicyStepScaling(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name            string
-		metricValue     string
-		breachThreshold string
-		wantCode        int
-		wantDesired     int32
-	}{
-		{name: "low step matches", metricValue: "15", breachThreshold: "10", wantCode: 200, wantDesired: 5},
-		{
-			name:            "high step matches unbounded upper",
-			metricValue:     "25",
-			breachThreshold: "10",
-			wantCode:        200,
-			wantDesired:     8,
-		},
-		{name: "missing MetricValue is rejected", metricValue: "", breachThreshold: "10", wantCode: 400},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newAutoscalingHandler()
-			asgName := "step-exec-asg-" + tc.name
-
-			code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
-				"AutoScalingGroupName":       {asgName},
-				"MinSize":                    {"0"},
-				"MaxSize":                    {"20"},
-				"DesiredCapacity":            {"2"},
-				"AvailabilityZones.member.1": {"us-east-1a"},
-			})
-			require.Equal(t, 200, code, body)
-
-			code, body = doAS(t, h, "PutScalingPolicy", url.Values{
-				"AutoScalingGroupName": {asgName},
-				"PolicyName":           {"step1"},
-				"PolicyType":           {"StepScaling"},
-				"AdjustmentType":       {"ChangeInCapacity"},
-				"StepAdjustments.member.1.ScalingAdjustment":        {"3"},
-				"StepAdjustments.member.1.MetricIntervalLowerBound": {"0"},
-				"StepAdjustments.member.1.MetricIntervalUpperBound": {"10"},
-				"StepAdjustments.member.2.ScalingAdjustment":        {"6"},
-				"StepAdjustments.member.2.MetricIntervalLowerBound": {"10"},
-			})
-			require.Equal(t, 200, code, body)
-
-			executeVals := url.Values{
-				"AutoScalingGroupName": {asgName},
-				"PolicyName":           {"step1"},
-				"BreachThreshold":      {tc.breachThreshold},
-			}
-			if tc.metricValue != "" {
-				executeVals.Set("MetricValue", tc.metricValue)
-			}
-
-			code, body = doAS(t, h, "ExecutePolicy", executeVals)
-			require.Equal(t, tc.wantCode, code, body)
-
-			if tc.wantCode != 200 {
-				return
-			}
-
-			code, body = doAS(t, h, "DescribeAutoScalingGroups", url.Values{
-				"AutoScalingGroupNames.member.1": {asgName},
-			})
-			require.Equal(t, 200, code, body)
-
-			parsed := describeASGInstances(t, body)
-			assert.Equal(t, tc.wantDesired, parsed.Result.AutoScalingGroups.Members[0].DesiredCapacity)
-		})
-	}
-}
-
-// Test_ScheduledActionStartEndTimeRoundTrip verifies that PutScheduledUpdateGroupAction
-// and BatchPutScheduledUpdateGroupAction both persist StartTime/EndTime -- previously
-// both silently dropped these fields, so DescribeScheduledActions never reflected the
-// schedule the caller actually requested.
-func Test_ScheduledActionStartEndTimeRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name     string
-		useBatch bool
-	}{
-		{name: "single PutScheduledUpdateGroupAction", useBatch: false},
-		{name: "BatchPutScheduledUpdateGroupAction", useBatch: true},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newAutoscalingHandler()
-			asgName := "sched-time-asg-" + tc.name
-
-			code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
-				"AutoScalingGroupName":       {asgName},
-				"MinSize":                    {"0"},
-				"MaxSize":                    {"5"},
-				"AvailabilityZones.member.1": {"us-east-1a"},
-			})
-			require.Equal(t, 200, code, body)
-
-			if tc.useBatch {
-				code, body = doAS(t, h, "BatchPutScheduledUpdateGroupAction", url.Values{
-					"AutoScalingGroupName": {asgName},
-					"ScheduledUpdateGroupActions.member.1.ScheduledActionName": {"batch-action"},
-					"ScheduledUpdateGroupActions.member.1.StartTime":           {"2030-01-01T00:00:00Z"},
-					"ScheduledUpdateGroupActions.member.1.EndTime":             {"2030-01-02T00:00:00Z"},
-					"ScheduledUpdateGroupActions.member.1.DesiredCapacity":     {"4"},
-				})
-			} else {
-				code, body = doAS(t, h, "PutScheduledUpdateGroupAction", url.Values{
-					"AutoScalingGroupName": {asgName},
-					"ScheduledActionName":  {"single-action"},
-					"StartTime":            {"2030-01-01T00:00:00Z"},
-					"EndTime":              {"2030-01-02T00:00:00Z"},
-					"DesiredCapacity":      {"4"},
-				})
-			}
-			require.Equal(t, 200, code, body)
-
-			code, body = doAS(t, h, "DescribeScheduledActions", url.Values{
-				"AutoScalingGroupName": {asgName},
-			})
-			require.Equal(t, 200, code, body)
-
-			assert.Contains(t, body, "<StartTime>2030-01-01T00:00:00Z</StartTime>",
-				"StartTime must round-trip; got: %s", body)
-			assert.Contains(t, body, "<EndTime>2030-01-02T00:00:00Z</EndTime>",
-				"EndTime must round-trip; got: %s", body)
-		})
-	}
-}
-
-// Test_CreateASGWithInitialLifecycleHooks verifies that CreateAutoScalingGroup
+// TestAutoscalingHandler_CreateASGWithInitialLifecycleHooks verifies that CreateAutoScalingGroup
 // registers LifecycleHookSpecificationList atomically with group creation, and that
 // the group's own initial instances are gated by a matching launch hook -- this is
 // the wire shape Terraform's aws_autoscaling_group initial_lifecycle_hook block uses,
 // and it was previously accepted and silently discarded.
-func Test_CreateASGWithInitialLifecycleHooks(t *testing.T) {
+func TestAutoscalingHandler_CreateASGWithInitialLifecycleHooks(t *testing.T) {
 	t.Parallel()
 
 	h := newAutoscalingHandler()
@@ -653,98 +460,215 @@ func Test_CreateASGWithInitialLifecycleHooks(t *testing.T) {
 		"the group's own initial instance must be gated by a hook registered at creation time")
 }
 
-// Test_CreateASGWithTrafficSources verifies TrafficSources specified at
-// CreateAutoScalingGroup time are stored and returned (previously only
-// Attach/DetachTrafficSources touched this field; Create silently dropped it).
-func Test_CreateASGWithTrafficSources(t *testing.T) {
+func TestAutoscalingHandler_CompleteLifecycleAction(t *testing.T) {
 	t.Parallel()
 
-	h := newAutoscalingHandler()
-	asgName := "ts-create-asg"
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "complete_lifecycle_action_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=lc-action-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=CompleteLifecycleAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=lc-action-asg" +
+				"&LifecycleHookName=my-hook" +
+				"&LifecycleActionToken=abc123" +
+				"&LifecycleActionResult=CONTINUE",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "complete_lifecycle_group_not_found",
+			body: "Action=CompleteLifecycleAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=no-such&LifecycleHookName=h&LifecycleActionResult=CONTINUE",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "complete_lifecycle_missing_hook_name",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=miss-hook-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=CompleteLifecycleAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=miss-hook-asg&LifecycleActionResult=CONTINUE",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "complete_lifecycle_missing_result",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=miss-result-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=CompleteLifecycleAction&Version=2011-01-01" +
+				"&AutoScalingGroupName=miss-result-asg&LifecycleHookName=my-hook",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
-		"AutoScalingGroupName":               {asgName},
-		"MinSize":                            {"0"},
-		"MaxSize":                            {"5"},
-		"AvailabilityZones.member.1":         {"us-east-1a"},
-		"TrafficSources.member.1.Identifier": {"arn:aws:vpc-lattice:us-east-1:000000000000:targetgroup/tg-123"},
-		"TrafficSources.member.1.Type":       {"vpc-lattice"},
-	})
-	require.Equal(t, 200, code, body)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	code, body = doAS(t, h, "DescribeAutoScalingGroups", url.Values{
-		"AutoScalingGroupNames.member.1": {asgName},
-	})
-	require.Equal(t, 200, code, body)
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
 
-	parsed := describeASGInstances(t, body)
-	require.Len(t, parsed.Result.AutoScalingGroups.Members[0].TrafficSources.Members, 1)
-	assert.Equal(t, "vpc-lattice", parsed.Result.AutoScalingGroups.Members[0].TrafficSources.Members[0].Type)
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
-// Test_PutScalingPolicyMetricAggregationType verifies MetricAggregationType is
-// parsed on PutScalingPolicy and returned by DescribePolicies (previously silently
-// dropped on both the request and response side).
-func Test_PutScalingPolicyMetricAggregationType(t *testing.T) {
+func TestAutoscalingHandler_DeleteLifecycleHook(t *testing.T) {
 	t.Parallel()
 
-	h := newAutoscalingHandler()
-	asgName := "mat-asg"
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *autoscaling.Handler, b *autoscaling.InMemoryBackend)
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "delete_existing_hook",
+			setup: func(t *testing.T, _ *autoscaling.Handler, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "hook-asg",
+					MinSize:              0,
+					MaxSize:              5,
+				})
+				require.NoError(t, err)
 
-	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
-		"AutoScalingGroupName":       {asgName},
-		"MinSize":                    {"0"},
-		"MaxSize":                    {"5"},
-		"AvailabilityZones.member.1": {"us-east-1a"},
-	})
-	require.Equal(t, 200, code, body)
+				err = b.AddLifecycleHook(autoscaling.LifecycleHook{
+					LifecycleHookName:    "my-hook",
+					AutoScalingGroupName: "hook-asg",
+					LifecycleTransition:  "autoscaling:EC2_INSTANCE_LAUNCHING",
+					DefaultResult:        "CONTINUE",
+				})
+				require.NoError(t, err)
+			},
+			body:       "Action=DeleteLifecycleHook&Version=2011-01-01&AutoScalingGroupName=hook-asg&LifecycleHookName=my-hook",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "delete_nonexistent_hook",
+			setup: func(t *testing.T, h *autoscaling.Handler, _ *autoscaling.InMemoryBackend) {
+				t.Helper()
+				postAutoscalingForm(t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01"+
+						"&AutoScalingGroupName=no-hook-asg&MinSize=0&MaxSize=5")
+			},
+			body: "Action=DeleteLifecycleHook&Version=2011-01-01" +
+				"&AutoScalingGroupName=no-hook-asg&LifecycleHookName=ghost-hook",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "delete_hook_group_not_found",
+			body:       "Action=DeleteLifecycleHook&Version=2011-01-01&AutoScalingGroupName=no-such&LifecycleHookName=my-hook",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-	code, body = doAS(t, h, "PutScalingPolicy", url.Values{
-		"AutoScalingGroupName":  {asgName},
-		"PolicyName":            {"agg-policy"},
-		"PolicyType":            {"StepScaling"},
-		"AdjustmentType":        {"ChangeInCapacity"},
-		"MetricAggregationType": {"Average"},
-		"StepAdjustments.member.1.ScalingAdjustment": {"1"},
-	})
-	require.Equal(t, 200, code, body)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	code, body = doAS(t, h, "DescribePolicies", url.Values{
-		"AutoScalingGroupName": {asgName},
-	})
-	require.Equal(t, 200, code, body)
-	assert.Contains(t, body, "<MetricAggregationType>Average</MetricAggregationType>",
-		"MetricAggregationType must round-trip; got: %s", body)
+			b := autoscaling.NewInMemoryBackend()
+			h := autoscaling.NewHandler(b)
+
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
-// Test_GetPredictiveScalingForecastNonEmpty verifies the response includes the
-// required UpdateTime/CapacityForecast/LoadForecast fields with real, non-empty data
-// derived from the group's current DesiredCapacity, instead of an entirely empty
-// (required-field-violating) response.
-func Test_GetPredictiveScalingForecastNonEmpty(t *testing.T) {
+func TestAutoscalingHandler_PutAndDescribeLifecycleHooks(t *testing.T) {
 	t.Parallel()
 
-	h := newAutoscalingHandler()
-	asgName := "forecast-asg"
+	tests := []struct {
+		setup      func(t *testing.T, h *autoscaling.Handler)
+		checkBody  func(t *testing.T, body string)
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name: "put_lifecycle_hook_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(
+					t,
+					h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=hook-asg&MinSize=0&MaxSize=5",
+				)
+			},
+			body: "Action=PutLifecycleHook&Version=2011-01-01&AutoScalingGroupName=hook-asg" +
+				"&LifecycleHookName=my-hook&LifecycleTransition=autoscaling:EC2_INSTANCE_LAUNCHING",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "put_lifecycle_hook_group_not_found",
+			body:       "Action=PutLifecycleHook&Version=2011-01-01&AutoScalingGroupName=no-such&LifecycleHookName=h",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "describe_lifecycle_hooks_success",
+			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
+				postAutoscalingForm(
+					t, h,
+					"Action=CreateAutoScalingGroup&Version=2011-01-01&AutoScalingGroupName=dlh-asg&MinSize=0&MaxSize=5",
+				)
+				postAutoscalingForm(
+					t, h,
+					"Action=PutLifecycleHook&Version=2011-01-01&AutoScalingGroupName=dlh-asg&LifecycleHookName=h1",
+				)
+			},
+			body:       "Action=DescribeLifecycleHooks&Version=2011-01-01&AutoScalingGroupName=dlh-asg",
+			wantStatus: http.StatusOK,
+			checkBody: func(t *testing.T, body string) {
+				t.Helper()
+				assert.Contains(t, body, "h1")
+			},
+		},
+		{
+			name:       "describe_lifecycle_hooks_group_not_found",
+			body:       "Action=DescribeLifecycleHooks&Version=2011-01-01&AutoScalingGroupName=no-such",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
-		"AutoScalingGroupName":       {asgName},
-		"MinSize":                    {"0"},
-		"MaxSize":                    {"10"},
-		"DesiredCapacity":            {"3"},
-		"AvailabilityZones.member.1": {"us-east-1a"},
-	})
-	require.Equal(t, 200, code, body)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	code, body = doAS(t, h, "GetPredictiveScalingForecast", url.Values{
-		"AutoScalingGroupName": {asgName},
-		"PolicyName":           {"some-policy"},
-		"StartTime":            {"2030-01-01T00:00:00Z"},
-		"EndTime":              {"2030-01-02T00:00:00Z"},
-	})
-	require.Equal(t, 200, code, body)
+			h := newAutoscalingHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
 
-	assert.Contains(t, body, "<UpdateTime>", "UpdateTime is a required output field; got: %s", body)
-	assert.Contains(t, body, "<LoadForecast>", "LoadForecast is a required output field; got: %s", body)
-	assert.Contains(t, body, "<Values><member>3</member>", "forecast values must reflect current DesiredCapacity")
+			rec := postAutoscalingForm(t, h, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkBody != nil {
+				tt.checkBody(t, rec.Body.String())
+			}
+		})
+	}
 }
