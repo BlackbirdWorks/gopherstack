@@ -1,6 +1,7 @@
 package cloudtrail_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -332,4 +333,177 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	trails := h2.Backend.ListTrails()
 	require.Len(t, trails, 1)
 	assert.Equal(t, "trail1", trails[0].Name)
+}
+
+// TestCloudTrailPersistence verifies Snapshot and Restore round-trip.
+func TestPersistenceTrailRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+
+	doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+		"Name":         "trail-persist",
+		"S3BucketName": "bucket-persist",
+	})
+
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	h2 := newTestCloudTrailHandler()
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	rec := doCloudTrailOp(t, h2, "GetTrail", map[string]any{
+		"Name": "trail-persist",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	resp := parseCloudTrailResp(t, rec)
+	trail, ok := resp["Trail"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "trail-persist", trail["Name"])
+}
+
+// TestPersistenceRoundTripAllResourceTypes verifies Snapshot/Restore persists all resource types.
+func TestPersistenceRoundTripAllResourceTypes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+
+	// Create one of each resource type
+	doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+		"Name": "persist-trail", "S3BucketName": "bucket",
+	})
+	doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+		"Name": "persist-chan", "Source": "src",
+	})
+	doCloudTrailOp(t, h, "CreateDashboard", map[string]any{
+		"Name": "persist-dash",
+	})
+	doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+		"Name": "persist-eds",
+	})
+	q, err := h.Backend.StartQuery("SELECT eventName FROM events LIMIT 1", "", "")
+	require.NoError(t, err)
+
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	h2 := newTestCloudTrailHandler()
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Verify trail restored
+	rec := doCloudTrailOp(t, h2, "GetTrail", map[string]any{"Name": "persist-trail"})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify channel name uniqueness restored (creating dup should fail)
+	dupChanRec := doCloudTrailOp(t, h2, "CreateChannel", map[string]any{
+		"Name": "persist-chan", "Source": "src",
+	})
+	assert.Equal(t, http.StatusConflict, dupChanRec.Code)
+
+	// Verify dashboard name uniqueness restored
+	dupDashRec := doCloudTrailOp(t, h2, "CreateDashboard", map[string]any{
+		"Name": "persist-dash",
+	})
+	assert.Equal(t, http.StatusConflict, dupDashRec.Code)
+
+	// Verify EDS name uniqueness restored
+	dupEDSRec := doCloudTrailOp(t, h2, "CreateEventDataStore", map[string]any{
+		"Name": "persist-eds",
+	})
+	assert.Equal(t, http.StatusConflict, dupEDSRec.Code)
+
+	// Verify query restored
+	descRec := doCloudTrailOp(t, h2, "DescribeQuery", map[string]any{
+		"QueryId": q.QueryID,
+	})
+	assert.Equal(t, http.StatusOK, descRec.Code)
+}
+
+// TestPersistenceWithNewFields verifies that Snapshot/Restore correctly persists
+// all new fields introduced in the AWS-accuracy audit.
+func TestPersistenceWithNewFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+
+	// Create a trail with advanced event selectors and insight selectors.
+	doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+		"Name":         "persist-adv-trail",
+		"S3BucketName": "bucket",
+	})
+	doCloudTrailOp(t, h, "StartLogging", map[string]any{"Name": "persist-adv-trail"})
+	doCloudTrailOp(t, h, "PutEventSelectors", map[string]any{
+		"TrailName": "persist-adv-trail",
+		"AdvancedEventSelectors": []map[string]any{
+			{
+				"Name": "Log all",
+				"FieldSelectors": []map[string]any{
+					{"Field": "eventCategory", "Equals": []string{"Management"}},
+				},
+			},
+		},
+	})
+	doCloudTrailOp(t, h, "PutInsightSelectors", map[string]any{
+		"TrailName": "persist-adv-trail",
+		"InsightSelectors": []map[string]any{
+			{"InsightType": "ApiCallRateInsight"},
+		},
+	})
+
+	// Create an EDS with federation enabled.
+	createRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{
+		"Name":        "persist-fed-eds",
+		"BillingMode": "FIXED_RETENTION_PRICING",
+	})
+	createResp := parseCloudTrailResp(t, createRec)
+	edsARN := createResp["EventDataStoreArn"].(string)
+
+	doCloudTrailOp(t, h, "EnableFederation", map[string]any{
+		"EventDataStore":    edsARN,
+		"FederationRoleArn": "arn:aws:iam::123456789012:role/FedRole",
+	})
+
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	h2 := newTestCloudTrailHandler()
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Verify trail with advanced event selectors is restored.
+	getRec := doCloudTrailOp(t, h2, "GetEventSelectors", map[string]any{
+		"TrailName": "persist-adv-trail",
+	})
+	assert.Equal(t, http.StatusOK, getRec.Code)
+	getResp := parseCloudTrailResp(t, getRec)
+	advSels, ok := getResp["AdvancedEventSelectors"].([]any)
+	require.True(t, ok)
+	assert.Len(t, advSels, 1)
+
+	// Verify insight selectors are restored.
+	insightRec := doCloudTrailOp(t, h2, "GetInsightSelectors", map[string]any{
+		"TrailName": "persist-adv-trail",
+	})
+	assert.Equal(t, http.StatusOK, insightRec.Code)
+	insightResp := parseCloudTrailResp(t, insightRec)
+	sels, ok := insightResp["InsightSelectors"].([]any)
+	require.True(t, ok)
+	assert.Len(t, sels, 1)
+
+	// Verify EDS federation status is restored.
+	getEDSRec := doCloudTrailOp(t, h2, "GetEventDataStore", map[string]any{
+		"EventDataStore": edsARN,
+	})
+	assert.Equal(t, http.StatusOK, getEDSRec.Code)
+	getEDSResp := parseCloudTrailResp(t, getEDSRec)
+	assert.Equal(t, "ENABLED", getEDSResp["FederationStatus"])
+	assert.Equal(t, "FIXED_RETENTION_PRICING", getEDSResp["BillingMode"])
+
+	// Verify trail status (StartLoggingTime) is also restored.
+	statusRec := doCloudTrailOp(t, h2, "GetTrailStatus", map[string]any{
+		"Name": "persist-adv-trail",
+	})
+	assert.Equal(t, http.StatusOK, statusRec.Code)
+	statusResp := parseCloudTrailResp(t, statusRec)
+	assert.Equal(t, true, statusResp["IsLogging"])
+	assert.NotNil(t, statusResp["StartLoggingTime"])
 }
