@@ -12,53 +12,58 @@ import (
 // All active function URL server listeners are shut down before state is cleared
 // so ports are released and stale handlers are removed.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock("Reset")
-
 	// Snapshot URL servers and runtimes for shutdown outside the lock.
-	urlServers := make([]*functionURLServer, 0, len(b.functionURLServers))
-	for _, srv := range b.functionURLServers {
-		urlServers = append(urlServers, srv)
-	}
+	var urlServers []*functionURLServer
 
-	rts := make([]*functionRuntime, 0, len(b.runtimes))
-	for _, rt := range b.runtimes {
-		rts = append(rts, rt)
-	}
+	var rts []*functionRuntime
 
-	// Table/Index-backed resources collapse to two registry sweeps instead of
-	// one make() per map -- see store_setup.go for what each registry holds.
-	// b.permissions is deliberately NOT on either registry (see store_setup.go
-	// and persistence.go's DTO handling) so it is reset explicitly.
-	b.registry.ResetAll()
-	b.ephemeralRegistry.ResetAll()
-	b.permissions.Reset()
+	func() {
+		b.mu.Lock("Reset")
+		defer b.mu.Unlock()
 
-	b.versionCounters = make(map[string]int)
-	b.versions = make(map[string][]*FunctionVersion)
-	b.layers = make(map[string][]*LayerVersion)
-	b.layerVersionCounters = make(map[string]int64)
-	b.layerPolicies = make(map[string]map[int64]map[string]*LayerVersionStatement)
-	b.esmByFunctionARN = make(map[string]map[string]struct{})
-	b.versionIndex = make(map[string]map[string]*FunctionVersion)
-	b.eventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
-	b.functionConcurrencies = make(map[string]int)
-	b.activeConcurrencies = make(map[string]int)
-	b.fisFaults = make(map[string]*FISInvocationFault)
-	b.runtimes = make(map[string]*functionRuntime)
-	b.functionURLServers = make(map[string]*functionURLServer)
-	b.fnCodeSigningConfigs = make(map[string]string)
-	b.runtimeManagementConfigs = make(map[string]*RuntimeManagementConfig)
-	b.functionRecursionConfigs = make(map[string]*FunctionRecursionConfig)
-	b.functionScalingConfigs = make(map[string]*FunctionScalingConfig)
-	b.durableExecs.reset()
+		urlServers = make([]*functionURLServer, 0, len(b.functionURLServers))
+		for _, srv := range b.functionURLServers {
+			urlServers = append(urlServers, srv)
+		}
 
-	// Replace semaphore channels so that goroutines launched after Reset() use fresh
-	// channels. Goroutines launched before Reset() captured the old channel references
-	// (via the RLock capture pattern) and release correctly to those old channels.
-	b.cleanupSem = make(chan struct{}, maxCleanupConcurrency)
-	b.logSem = make(chan struct{}, maxConcurrentInvocationLogs)
+		rts = make([]*functionRuntime, 0, len(b.runtimes))
+		for _, rt := range b.runtimes {
+			rts = append(rts, rt)
+		}
 
-	b.mu.Unlock()
+		// Table/Index-backed resources collapse to two registry sweeps instead of
+		// one make() per map -- see store_setup.go for what each registry holds.
+		// b.permissions is deliberately NOT on either registry (see store_setup.go
+		// and persistence.go's DTO handling) so it is reset explicitly.
+		b.registry.ResetAll()
+		b.ephemeralRegistry.ResetAll()
+		b.permissions.Reset()
+
+		b.versionCounters = make(map[string]int)
+		b.versions = make(map[string][]*FunctionVersion)
+		b.layers = make(map[string][]*LayerVersion)
+		b.layerVersionCounters = make(map[string]int64)
+		b.layerPolicies = make(map[string]map[int64]map[string]*LayerVersionStatement)
+		b.esmByFunctionARN = make(map[string]map[string]struct{})
+		b.versionIndex = make(map[string]map[string]*FunctionVersion)
+		b.eventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
+		b.functionConcurrencies = make(map[string]int)
+		b.activeConcurrencies = make(map[string]int)
+		b.fisFaults = make(map[string]*FISInvocationFault)
+		b.runtimes = make(map[string]*functionRuntime)
+		b.functionURLServers = make(map[string]*functionURLServer)
+		b.fnCodeSigningConfigs = make(map[string]string)
+		b.runtimeManagementConfigs = make(map[string]*RuntimeManagementConfig)
+		b.functionRecursionConfigs = make(map[string]*FunctionRecursionConfig)
+		b.functionScalingConfigs = make(map[string]*FunctionScalingConfig)
+		b.durableExecs.reset()
+
+		// Replace semaphore channels so that goroutines launched after Reset() use fresh
+		// channels. Goroutines launched before Reset() captured the old channel references
+		// (via the RLock capture pattern) and release correctly to those old channels.
+		b.cleanupSem = make(chan struct{}, maxCleanupConcurrency)
+		b.logSem = make(chan struct{}, maxConcurrentInvocationLogs)
+	}()
 
 	// Shut down URL servers and release ports outside the lock.
 	ctx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)

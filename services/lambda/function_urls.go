@@ -43,21 +43,23 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 	cors *FunctionURLCors,
 	invokeMode string,
 ) (*FunctionURLConfig, error) {
-	b.mu.Lock("CreateFunctionURLConfig.check")
+	checkErr := func() error {
+		b.mu.Lock("CreateFunctionURLConfig.check")
+		defer b.mu.Unlock()
 
-	if _, ok := b.functions.Get(functionName); !ok {
-		b.mu.Unlock()
+		if _, ok := b.functions.Get(functionName); !ok {
+			return ErrFunctionNotFound
+		}
 
-		return nil, ErrFunctionNotFound
+		if _, exists := b.functionURLConfigs.Get(functionName); exists {
+			return ErrFunctionAlreadyExists
+		}
+
+		return nil
+	}()
+	if checkErr != nil {
+		return nil, checkErr
 	}
-
-	if _, exists := b.functionURLConfigs.Get(functionName); exists {
-		b.mu.Unlock()
-
-		return nil, ErrFunctionAlreadyExists
-	}
-
-	b.mu.Unlock()
 
 	// Allocate port and start listener outside the lock (IO).
 	urlStr, startErr := b.allocateAndStartURLServerUnlocked(ctx, functionName)
@@ -127,8 +129,9 @@ func (b *InMemoryBackend) allocateAndStartURLServerUnlocked(
 
 	if srv != nil {
 		b.mu.Lock("allocateAndStartURLServerUnlocked.commit")
+		defer b.mu.Unlock()
+
 		b.functionURLServers[functionName] = srv
-		b.mu.Unlock()
 	}
 
 	return urlStr, nil
@@ -187,21 +190,34 @@ func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionUR
 
 // DeleteFunctionURLConfig removes the function URL config, stops the listener, and deregisters DNS.
 func (b *InMemoryBackend) DeleteFunctionURLConfig(functionName string) error {
-	b.mu.Lock("DeleteFunctionURLConfig")
+	var (
+		found    bool
+		srv      *functionURLServer
+		dns      DNSRegistrar
+		hostname string
+	)
 
-	if _, ok := b.functionURLConfigs.Get(functionName); !ok {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("DeleteFunctionURLConfig")
+		defer b.mu.Unlock()
 
+		if _, ok := b.functionURLConfigs.Get(functionName); !ok {
+			return
+		}
+
+		found = true
+
+		b.functionURLConfigs.Delete(functionName)
+
+		srv = b.functionURLServers[functionName]
+		delete(b.functionURLServers, functionName)
+		dns = b.dnsRegistrar
+		hostname = b.functionURLHostname(functionName)
+	}()
+
+	if !found {
 		return ErrFunctionURLNotFound
 	}
-
-	b.functionURLConfigs.Delete(functionName)
-
-	srv := b.functionURLServers[functionName]
-	delete(b.functionURLServers, functionName)
-	dns := b.dnsRegistrar
-	hostname := b.functionURLHostname(functionName)
-	b.mu.Unlock()
 
 	if srv != nil {
 		shutdownCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
@@ -389,9 +405,14 @@ func (b *InMemoryBackend) enforceFunctionURLAuth(cfg *FunctionURLConfig, r *http
 		return nil
 	}
 
-	b.mu.RLock("functionURLSecret")
-	secret := b.sigV4Secret
-	b.mu.RUnlock()
+	var secret string
+
+	func() {
+		b.mu.RLock("functionURLSecret")
+		defer b.mu.RUnlock()
+
+		secret = b.sigV4Secret
+	}()
 
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256") {
 		return ErrFunctionURLForbidden

@@ -92,13 +92,24 @@ func (b *InMemoryBackend) cleanupRuntime(ctx context.Context, rt *functionRuntim
 
 	// Snapshot all resource handles under rt.mu so we don't race with getOrCreateRuntime
 	// which writes containerID, srv, port, zipDir, and layerDirs under rt.mu.
-	rt.mu.Lock("cleanupRuntime")
-	containerID := rt.containerID
-	srv := rt.srv
-	port := rt.port
-	zipDir := rt.zipDir
-	layerDirs := rt.layerDirs
-	rt.mu.Unlock()
+	var (
+		containerID string
+		srv         *runtimeServer
+		port        int
+		zipDir      string
+		layerDirs   []string
+	)
+
+	func() {
+		rt.mu.Lock("cleanupRuntime")
+		defer rt.mu.Unlock()
+
+		containerID = rt.containerID
+		srv = rt.srv
+		port = rt.port
+		zipDir = rt.zipDir
+		layerDirs = rt.layerDirs
+	}()
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, containerShutdownTimeout)
 	defer cancel()
@@ -135,18 +146,28 @@ func (b *InMemoryBackend) cleanupRuntime(ctx context.Context, rt *functionRuntim
 // asynchronously stops its container and releases its resources. It is called when
 // an invocation times out so that the next invocation creates a fresh container.
 func (b *InMemoryBackend) cleanupTimedOutRuntime(functionName string) {
-	b.mu.Lock("cleanupTimedOutRuntime")
-	rt := b.runtimes[functionName]
-	delete(b.runtimes, functionName)
-	b.mu.Unlock()
+	var rt *functionRuntime
+
+	func() {
+		b.mu.Lock("cleanupTimedOutRuntime")
+		defer b.mu.Unlock()
+
+		rt = b.runtimes[functionName]
+		delete(b.runtimes, functionName)
+	}()
 
 	if rt == nil {
 		return
 	}
 
-	b.mu.RLock("cleanupSem.timedOut")
-	sem := b.cleanupSem
-	b.mu.RUnlock()
+	var sem chan struct{}
+
+	func() {
+		b.mu.RLock("cleanupSem.timedOut")
+		defer b.mu.RUnlock()
+
+		sem = b.cleanupSem
+	}()
 
 	select {
 	case sem <- struct{}{}:
@@ -168,71 +189,34 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	ctx context.Context,
 	fn *FunctionConfiguration,
 ) (*runtimeServer, error) {
-	b.mu.Lock("getOrCreateRuntime")
-	rt, ok := b.runtimes[fn.FunctionName]
-
-	if ok {
-		// Touch lastUsed under the lock so concurrent callers see a consistent value.
-		rt.lastUsed = time.Now()
-		b.mu.Unlock()
-	} else {
-		// Only check for required infrastructure when actually creating a new runtime.
-		if b.portAlloc == nil {
-			b.mu.Unlock()
-
-			return nil, fmt.Errorf("%w: no port range configured", ErrLambdaUnavailable)
-		}
-
-		if b.docker == nil {
-			b.mu.Unlock()
-
-			return nil, fmt.Errorf("%w: container runtime unavailable", ErrLambdaUnavailable)
-		}
-
-		rt = &functionRuntime{mu: lockmetrics.New("lambda.runtime"), lastUsed: time.Now()}
-		b.runtimes[fn.FunctionName] = rt
-		evicted := b.evictLRURuntimeLocked(fn.FunctionName)
-		b.mu.Unlock()
-
-		// Clean up the evicted runtime asynchronously outside b.mu.
-		if evicted != nil {
-			// Capture sem under RLock so that a concurrent Reset() cannot replace
-			// b.cleanupSem between the send and the goroutine's deferred release.
-			b.mu.RLock("cleanupSem.evict")
-			sem := b.cleanupSem
-			b.mu.RUnlock()
-
-			select {
-			case sem <- struct{}{}:
-				go func(rt *functionRuntime) { // #nosec G118 -- intentional detached cleanup goroutine
-					defer func() { <-sem }()
-					cleanupCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
-					defer cancel()
-					b.cleanupRuntime(cleanupCtx, rt)
-				}(evicted)
-			default:
-				// cleanupSem is full; run inline to avoid leaking the evicted runtime's resources.
-				cleanupCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
-				defer cancel()
-				b.cleanupRuntime(cleanupCtx, evicted)
-			}
-		}
+	rt, initErr := b.lookupOrRegisterRuntime(fn)
+	if initErr != nil {
+		return nil, initErr
 	}
 
+	// rt.mu guards the whole startup sequence below (not just field access) so
+	// concurrent callers for the same function serialize on it. lockHeld
+	// tracks whether rt.mu is still our responsibility to release: it is
+	// cleared just before handing off to handleContainerStartFailure, which
+	// takes over unlocking rt.mu itself.
 	rt.mu.Lock("getOrCreateRuntime")
 
-	if rt.started {
-		srv, startErr := rt.srv, rt.startErr
-		rt.mu.Unlock()
+	lockHeld := true
 
-		return srv, startErr
+	defer func() {
+		if lockHeld {
+			rt.mu.Unlock()
+		}
+	}()
+
+	if rt.started {
+		return rt.srv, rt.startErr
 	}
 
 	port, portErr := b.portAlloc.Acquire("lambda:" + fn.FunctionName)
 	if portErr != nil {
 		rt.startErr = fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, portErr)
 		rt.started = true
-		rt.mu.Unlock()
 
 		return nil, rt.startErr
 	}
@@ -247,7 +231,6 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 			startErr,
 		)
 		rt.started = true
-		rt.mu.Unlock()
 
 		return nil, rt.startErr
 	}
@@ -258,6 +241,9 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 
 	zipDir, layerDirs, containerID, containerErr := b.startContainer(ctx, fn, port)
 	if containerErr != nil {
+		// handleContainerStartFailure receives rt.mu already locked and releases
+		// it itself once its cleanup completes, before doing further b.mu work.
+		lockHeld = false
 		startErr := b.handleContainerStartFailure(
 			ctx, fn.FunctionName, rt, srv, port, zipDir, layerDirs, containerID, containerErr,
 		)
@@ -268,9 +254,87 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.zipDir = zipDir
 	rt.layerDirs = layerDirs
 	rt.containerID = containerID
-	rt.mu.Unlock()
 
 	return srv, nil
+}
+
+// lookupOrRegisterRuntime returns the existing runtime entry for fn, or
+// registers a fresh one when none exists yet. On the creation path it also
+// evicts the LRU runtime (if the backend is over its configured limit) and
+// cleans up the evicted entry asynchronously outside b.mu.
+func (b *InMemoryBackend) lookupOrRegisterRuntime(fn *FunctionConfiguration) (*functionRuntime, error) {
+	var (
+		rt      *functionRuntime
+		initErr error
+		evicted *functionRuntime
+	)
+
+	func() {
+		b.mu.Lock("getOrCreateRuntime")
+		defer b.mu.Unlock()
+
+		var ok bool
+		rt, ok = b.runtimes[fn.FunctionName]
+
+		if ok {
+			// Touch lastUsed under the lock so concurrent callers see a consistent value.
+			rt.lastUsed = time.Now()
+
+			return
+		}
+
+		// Only check for required infrastructure when actually creating a new runtime.
+		if b.portAlloc == nil {
+			initErr = fmt.Errorf("%w: no port range configured", ErrLambdaUnavailable)
+
+			return
+		}
+
+		if b.docker == nil {
+			initErr = fmt.Errorf("%w: container runtime unavailable", ErrLambdaUnavailable)
+
+			return
+		}
+
+		rt = &functionRuntime{mu: lockmetrics.New("lambda.runtime"), lastUsed: time.Now()}
+		b.runtimes[fn.FunctionName] = rt
+		evicted = b.evictLRURuntimeLocked(fn.FunctionName)
+	}()
+
+	if initErr != nil {
+		return nil, initErr
+	}
+
+	// Clean up the evicted runtime asynchronously outside b.mu.
+	if evicted != nil {
+		// Capture sem under RLock so that a concurrent Reset() cannot replace
+		// b.cleanupSem between the send and the goroutine's deferred release.
+		var sem chan struct{}
+
+		func() {
+			b.mu.RLock("cleanupSem.evict")
+			defer b.mu.RUnlock()
+
+			sem = b.cleanupSem
+		}()
+
+		select {
+		case sem <- struct{}{}:
+			go func(rt *functionRuntime) { // #nosec G118 -- intentional detached cleanup goroutine
+				defer func() { <-sem }()
+				cleanupCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
+				defer cancel()
+				b.cleanupRuntime(cleanupCtx, rt)
+			}(evicted)
+		default:
+			// cleanupSem is full; run inline to avoid leaking the evicted runtime's resources.
+			cleanupCtx, cancel := context.WithTimeout(b.ctx, containerShutdownTimeout)
+			defer cancel()
+			b.cleanupRuntime(cleanupCtx, evicted)
+		}
+	}
+
+	return rt, nil
 }
 
 // handleContainerStartFailure cleans up all resources after startContainer returns an error.
@@ -278,6 +342,9 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 // sets rt.startErr, unlocks rt.mu, and then removes the stale map entry under b.mu so that
 // the next invocation can retry. This helper exists to keep getOrCreateRuntime within the
 // statement-count limit.
+//
+// The caller must hold rt.mu when calling this function; it releases rt.mu itself
+// (before acquiring b.mu, to keep lock ordering safe) partway through.
 func (b *InMemoryBackend) handleContainerStartFailure(
 	ctx context.Context,
 	functionName string,
@@ -289,41 +356,51 @@ func (b *InMemoryBackend) handleContainerStartFailure(
 	containerID string,
 	containerErr error,
 ) error {
-	// Container startup failure is fatal: stop the runtime server, release the
-	// port, and surface the error so the caller gets an immediate failure instead
-	// of silently timing out on every subsequent invoke.
-	shutdownCtx, cancel := context.WithTimeout(ctx, containerShutdownTimeout)
-	defer cancel()
-	srv.stop(shutdownCtx)
-	_ = b.portAlloc.Release(port)
+	var startErr error
 
-	// Stop any container that was created before the error occurred.
-	if containerID != "" && b.docker != nil {
-		if !b.settings.KeepContainers {
-			_ = b.docker.StopAndRemove(ctx, containerID)
+	func() {
+		// rt.mu was locked by the caller; this closure takes over responsibility
+		// for releasing it once the cleanup below completes.
+		defer rt.mu.Unlock()
+
+		// Container startup failure is fatal: stop the runtime server, release the
+		// port, and surface the error so the caller gets an immediate failure instead
+		// of silently timing out on every subsequent invoke.
+		shutdownCtx, cancel := context.WithTimeout(ctx, containerShutdownTimeout)
+		defer cancel()
+		srv.stop(shutdownCtx)
+		_ = b.portAlloc.Release(port)
+
+		// Stop any container that was created before the error occurred.
+		if containerID != "" && b.docker != nil {
+			if !b.settings.KeepContainers {
+				_ = b.docker.StopAndRemove(ctx, containerID)
+			}
 		}
-	}
 
-	for _, d := range layerDirs {
-		_ = os.RemoveAll(d) // #nosec G703
-	}
+		for _, d := range layerDirs {
+			_ = os.RemoveAll(d) // #nosec G703
+		}
 
-	if zipDir != "" {
-		_ = os.RemoveAll(zipDir) // #nosec G703
-	}
+		if zipDir != "" {
+			_ = os.RemoveAll(zipDir) // #nosec G703
+		}
 
-	startErr := fmt.Errorf("%w: container startup failed: %w", ErrLambdaUnavailable, containerErr)
-	rt.startErr = startErr
-	rt.mu.Unlock()
+		startErr = fmt.Errorf("%w: container startup failed: %w", ErrLambdaUnavailable, containerErr)
+		rt.startErr = startErr
+	}()
 
 	// Remove the stale entry so the next invocation gets a fresh attempt rather
-	// than perpetually returning this error. Lock ordering is safe: rt.mu is
+	// than perpetually returning this error. Lock ordering is safe: rt.mu was
 	// released above before acquiring b.mu.
-	b.mu.Lock("getOrCreateRuntime-evict-failed")
-	if b.runtimes[functionName] == rt {
-		delete(b.runtimes, functionName)
-	}
-	b.mu.Unlock()
+	func() {
+		b.mu.Lock("getOrCreateRuntime-evict-failed")
+		defer b.mu.Unlock()
+
+		if b.runtimes[functionName] == rt {
+			delete(b.runtimes, functionName)
+		}
+	}()
 
 	return startErr
 }
@@ -654,35 +731,36 @@ func (b *InMemoryBackend) prepareLayerMount(fn *FunctionConfiguration) (string, 
 
 	var entries []layerEntry
 
-	b.mu.RLock("prepareLayerMount")
+	func() {
+		b.mu.RLock("prepareLayerMount")
+		defer b.mu.RUnlock()
 
-	for _, fl := range fn.Layers {
-		if fl == nil || fl.Arn == "" {
-			continue
-		}
+		for _, fl := range fn.Layers {
+			if fl == nil || fl.Arn == "" {
+				continue
+			}
 
-		layerName, layerVersion := parseLayerARN(fl.Arn)
-		if layerName == "" {
-			continue
-		}
+			layerName, layerVersion := parseLayerARN(fl.Arn)
+			if layerName == "" {
+				continue
+			}
 
-		versions := b.layers[layerName]
+			versions := b.layers[layerName]
 
-		for _, lv := range versions {
-			if lv.Version == layerVersion && len(lv.ZipData) > 0 {
-				data := make([]byte, len(lv.ZipData))
-				copy(data, lv.ZipData)
-				entries = append(
-					entries,
-					layerEntry{name: layerName, version: layerVersion, zipData: data},
-				)
+			for _, lv := range versions {
+				if lv.Version == layerVersion && len(lv.ZipData) > 0 {
+					data := make([]byte, len(lv.ZipData))
+					copy(data, lv.ZipData)
+					entries = append(
+						entries,
+						layerEntry{name: layerName, version: layerVersion, zipData: data},
+					)
 
-				break
+					break
+				}
 			}
 		}
-	}
-
-	b.mu.RUnlock()
+	}()
 
 	if len(entries) == 0 {
 		return "", nil, nil

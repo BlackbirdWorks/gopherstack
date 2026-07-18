@@ -480,19 +480,32 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 	id string,
 	input *UpdateEventSourceMappingInput,
 ) (*EventSourceMapping, error) {
-	b.mu.Lock("UpdateEventSourceMapping")
+	var (
+		esm        *EventSourceMapping
+		found      bool
+		nowEnabled bool
+		poller     *EventSourcePoller
+	)
 
-	esm, ok := b.eventSourceMappings.Get(id)
-	if !ok {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("UpdateEventSourceMapping")
+		defer b.mu.Unlock()
 
+		var ok bool
+
+		esm, ok = b.eventSourceMappings.Get(id)
+		if !ok {
+			return
+		}
+
+		found = true
+		nowEnabled = applyESMUpdate(esm, input)
+		poller = b.kinesisPoller
+	}()
+
+	if !found {
 		return nil, ErrESMNotFound
 	}
-
-	nowEnabled := applyESMUpdate(esm, input)
-
-	poller := b.kinesisPoller
-	b.mu.Unlock()
 
 	if nowEnabled && poller != nil {
 		poller.Notify()

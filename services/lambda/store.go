@@ -249,22 +249,29 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 		close(b.shutdown)
 	})
 
-	b.mu.Lock("Close")
+	var (
+		urlServers []*functionURLServer
+		rts        []*functionRuntime
+		cancel     context.CancelFunc
+	)
 
-	urlServers := make([]*functionURLServer, 0, len(b.functionURLServers))
-	for _, srv := range b.functionURLServers {
-		urlServers = append(urlServers, srv)
-	}
+	func() {
+		b.mu.Lock("Close")
+		defer b.mu.Unlock()
 
-	rts := make([]*functionRuntime, 0, len(b.runtimes))
-	for _, rt := range b.runtimes {
-		rts = append(rts, rt)
-	}
+		urlServers = make([]*functionURLServer, 0, len(b.functionURLServers))
+		for _, srv := range b.functionURLServers {
+			urlServers = append(urlServers, srv)
+		}
 
-	cancel := b.pollerCancel
-	b.pollerCancel = nil
+		rts = make([]*functionRuntime, 0, len(b.runtimes))
+		for _, rt := range b.runtimes {
+			rts = append(rts, rt)
+		}
 
-	b.mu.Unlock()
+		cancel = b.pollerCancel
+		b.pollerCancel = nil
+	}()
 
 	// Stop the event-source poller goroutine if it was started.
 	if cancel != nil {
@@ -327,9 +334,14 @@ func (b *InMemoryBackend) SetKinesisPoller(p *EventSourcePoller) {
 // StartKinesisPoller starts the Kinesis event source poller if one has been set.
 // It stores a cancel function so Close() can stop the poller gracefully.
 func (b *InMemoryBackend) StartKinesisPoller(ctx context.Context) {
-	b.mu.Lock("StartKinesisPoller")
-	p := b.kinesisPoller
-	b.mu.Unlock()
+	var p *EventSourcePoller
+
+	func() {
+		b.mu.Lock("StartKinesisPoller")
+		defer b.mu.Unlock()
+
+		p = b.kinesisPoller
+	}()
 
 	if p == nil {
 		return
@@ -337,9 +349,12 @@ func (b *InMemoryBackend) StartKinesisPoller(ctx context.Context) {
 
 	pollerCtx, cancel := context.WithCancel(ctx)
 
-	b.mu.Lock("StartKinesisPoller.storeCancel")
-	b.pollerCancel = cancel
-	b.mu.Unlock()
+	func() {
+		b.mu.Lock("StartKinesisPoller.storeCancel")
+		defer b.mu.Unlock()
+
+		b.pollerCancel = cancel
+	}()
 
 	p.Start(pollerCtx)
 }
@@ -347,9 +362,14 @@ func (b *InMemoryBackend) StartKinesisPoller(ctx context.Context) {
 // SetSQSReader sets the SQS reader on the event source poller so that SQS
 // queues can trigger Lambda functions via event source mappings.
 func (b *InMemoryBackend) SetSQSReader(r SQSReader) {
-	b.mu.RLock("SetSQSReader")
-	p := b.kinesisPoller
-	b.mu.RUnlock()
+	var p *EventSourcePoller
+
+	func() {
+		b.mu.RLock("SetSQSReader")
+		defer b.mu.RUnlock()
+
+		p = b.kinesisPoller
+	}()
 
 	if p != nil {
 		p.SetSQSReader(r)
@@ -359,9 +379,14 @@ func (b *InMemoryBackend) SetSQSReader(r SQSReader) {
 // SetDynamoDBStreamsReader sets the DynamoDB Streams reader on the event source poller so
 // that DynamoDB stream records can trigger Lambda functions via event source mappings.
 func (b *InMemoryBackend) SetDynamoDBStreamsReader(r DynamoDBStreamsReader) {
-	b.mu.RLock("SetDynamoDBStreamsReader")
-	p := b.kinesisPoller
-	b.mu.RUnlock()
+	var p *EventSourcePoller
+
+	func() {
+		b.mu.RLock("SetDynamoDBStreamsReader")
+		defer b.mu.RUnlock()
+
+		p = b.kinesisPoller
+	}()
 
 	if p != nil {
 		p.SetDynamoDBStreamsReader(r)

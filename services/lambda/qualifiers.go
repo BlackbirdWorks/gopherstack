@@ -89,23 +89,27 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 	// Check if qualifier is an alias; if so, resolve to the target version string.
 	// Hold a single RLock for both the alias lookup and the version search to avoid
 	// TOCTOU races with concurrent alias/version updates.
-	b.mu.RLock("resolveQualifier")
+	var fn *FunctionConfiguration
 
-	if alias, ok := b.aliases.Get(aliasKey(name, qualifier)); ok {
-		qualifier = selectAliasVersion(alias)
-	}
+	func() {
+		b.mu.RLock("resolveQualifier")
+		defer b.mu.RUnlock()
 
-	// Now qualifier is a version number. Find the version snapshot.
-	if vMap := b.versionIndex[name]; vMap != nil {
-		if v, ok := vMap[qualifier]; ok {
-			fn := versionToFn(v)
-			b.mu.RUnlock()
-
-			return fn, nil
+		if alias, ok := b.aliases.Get(aliasKey(name, qualifier)); ok {
+			qualifier = selectAliasVersion(alias)
 		}
-	}
 
-	b.mu.RUnlock()
+		// Now qualifier is a version number. Find the version snapshot.
+		if vMap := b.versionIndex[name]; vMap != nil {
+			if v, ok := vMap[qualifier]; ok {
+				fn = versionToFn(v)
+			}
+		}
+	}()
+
+	if fn != nil {
+		return fn, nil
+	}
 
 	// If it's "$LATEST" after alias resolution, fall through to live config.
 	if qualifier == versionLatest {

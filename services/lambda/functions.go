@@ -293,31 +293,41 @@ func (b *InMemoryBackend) ListFunctionsAll(
 
 // DeleteFunction removes a Lambda function and cleans up its runtime server.
 func (b *InMemoryBackend) DeleteFunction(name string) error {
-	b.mu.Lock("DeleteFunction")
+	var (
+		found          bool
+		rt             *functionRuntime
+		esmIDsToRemove []string
+	)
 
-	if _, ok := b.functions.Get(name); !ok {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("DeleteFunction")
+		defer b.mu.Unlock()
 
+		if _, ok := b.functions.Get(name); !ok {
+			return
+		}
+
+		found = true
+
+		b.functions.Delete(name)
+
+		rt = b.runtimes[name]
+		delete(b.runtimes, name)
+
+		// Cascade-delete event source mappings for this function.
+		fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+name)
+		if ids, ok := b.esmByFunctionARN[fnARN]; ok {
+			for id := range ids {
+				b.eventSourceMappings.Delete(id)
+				esmIDsToRemove = append(esmIDsToRemove, id)
+			}
+			delete(b.esmByFunctionARN, fnARN)
+		}
+	}()
+
+	if !found {
 		return ErrFunctionNotFound
 	}
-
-	b.functions.Delete(name)
-
-	rt := b.runtimes[name]
-	delete(b.runtimes, name)
-
-	// Cascade-delete event source mappings for this function.
-	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+name)
-	var esmIDsToRemove []string
-	if ids, ok := b.esmByFunctionARN[fnARN]; ok {
-		for id := range ids {
-			b.eventSourceMappings.Delete(id)
-			esmIDsToRemove = append(esmIDsToRemove, id)
-		}
-		delete(b.esmByFunctionARN, fnARN)
-	}
-
-	b.mu.Unlock()
 
 	for _, id := range esmIDsToRemove {
 		if b.kinesisPoller != nil {
@@ -338,33 +348,48 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 // UpdateFunction replaces a Lambda function's configuration.
 // Any running container is evicted so the next invocation picks up the new code/config.
 func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
-	b.mu.Lock("UpdateFunction")
+	var (
+		found bool
+		rt    *functionRuntime
+	)
 
-	if _, ok := b.functions.Get(fn.FunctionName); !ok {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("UpdateFunction")
+		defer b.mu.Unlock()
 
+		if _, ok := b.functions.Get(fn.FunctionName); !ok {
+			return
+		}
+
+		found = true
+
+		b.functions.Put(fn)
+
+		// Evict the running runtime so the next invocation gets a fresh container with the
+		// updated code or configuration (mirrors AWS/LocalStack behaviour).
+		rt = b.runtimes[fn.FunctionName]
+		if rt != nil {
+			delete(b.runtimes, fn.FunctionName)
+		}
+	}()
+
+	if !found {
 		return ErrFunctionNotFound
 	}
-
-	b.functions.Put(fn)
-
-	// Evict the running runtime so the next invocation gets a fresh container with the
-	// updated code or configuration (mirrors AWS/LocalStack behaviour).
-	rt := b.runtimes[fn.FunctionName]
-	if rt != nil {
-		delete(b.runtimes, fn.FunctionName)
-	}
-
-	b.mu.Unlock()
 
 	// Clean up the old container asynchronously — we must not hold b.mu while stopping.
 	// rt is passed as a parameter to make the capture explicit and safe against future refactoring.
 	if rt != nil {
 		// Capture sem under RLock so that a concurrent Reset() cannot replace b.cleanupSem
 		// between the send and the goroutine's deferred release.
-		b.mu.RLock("cleanupSem.updateFn")
-		sem := b.cleanupSem
-		b.mu.RUnlock()
+		var sem chan struct{}
+
+		func() {
+			b.mu.RLock("cleanupSem.updateFn")
+			defer b.mu.RUnlock()
+
+			sem = b.cleanupSem
+		}()
 
 		select {
 		case sem <- struct{}{}:

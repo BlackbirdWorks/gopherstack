@@ -73,9 +73,14 @@ func (b *InMemoryBackend) checkRecursiveLoop(ctx context.Context, functionName s
 		return nil
 	}
 
-	b.mu.RLock("checkRecursiveLoop")
-	rc := b.functionRecursionConfigs[functionName]
-	b.mu.RUnlock()
+	var rc *FunctionRecursionConfig
+
+	func() {
+		b.mu.RLock("checkRecursiveLoop")
+		defer b.mu.RUnlock()
+
+		rc = b.functionRecursionConfigs[functionName]
+	}()
 
 	mode := "Terminate"
 	if rc != nil {
@@ -607,9 +612,14 @@ func (b *InMemoryBackend) dispatchInvocationLog(
 ) {
 	// Capture the semaphore channel under the read lock so that a concurrent Reset()
 	// cannot replace b.logSem between the send and the goroutine's deferred release.
-	b.mu.RLock("dispatchInvocationLog.sem")
-	sem := b.logSem
-	b.mu.RUnlock()
+	var sem chan struct{}
+
+	func() {
+		b.mu.RLock("dispatchInvocationLog.sem")
+		defer b.mu.RUnlock()
+
+		sem = b.logSem
+	}()
 
 	select {
 	case sem <- struct{}{}:
@@ -633,9 +643,14 @@ func (b *InMemoryBackend) pushInvocationLog(
 	_ []byte,
 	result []byte,
 ) {
-	b.mu.RLock("pushInvocationLog")
-	cwl := b.cwLogs
-	b.mu.RUnlock()
+	var cwl CWLogsBackend
+
+	func() {
+		b.mu.RLock("pushInvocationLog")
+		defer b.mu.RUnlock()
+
+		cwl = b.cwLogs
+	}()
 
 	if cwl == nil {
 		return
