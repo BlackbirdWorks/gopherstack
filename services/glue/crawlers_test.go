@@ -51,7 +51,7 @@ func TestStopCrawler_TransitionsOutOfStopping(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "crawler stuck in STOPPING")
 }
 
-func TestRefinement1_BatchGetCrawlers_FoundAndMissing(t *testing.T) {
+func TestBatchGetCrawlers_FoundAndMissing(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -68,7 +68,7 @@ func TestRefinement1_BatchGetCrawlers_FoundAndMissing(t *testing.T) {
 	assert.Contains(t, missing, "c2")
 }
 
-func TestRefinement1_SortedGetCrawlers(t *testing.T) {
+func TestSortedGetCrawlers(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")

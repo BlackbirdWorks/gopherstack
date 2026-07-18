@@ -8,8 +8,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-// TestRefinement2_SeedHelpers tests backend seed helper functions.
-func TestRefinement2_SeedHelpers(t *testing.T) {
+// TestJobsSeedHelpers tests backend seed helper functions.
+func TestJobsSeedHelpers(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

@@ -9,7 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestRefinement1_BatchDeleteConnection_MixedResults(t *testing.T) {
+func TestBatchDeleteConnection_MixedResults(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -26,8 +26,8 @@ func TestRefinement1_BatchDeleteConnection_MixedResults(t *testing.T) {
 	assert.Equal(t, 0, glue.ConnectionCount(b))
 }
 
-// TestRefinement2_ConnectionPersistence tests snapshot/restore for connections.
-func TestRefinement2_ConnectionPersistence(t *testing.T) {
+// TestConnectionPersistence tests snapshot/restore for connections.
+func TestConnectionPersistence(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

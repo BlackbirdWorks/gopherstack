@@ -8,7 +8,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestRefinement1_BatchGetCustomEntityTypes_FoundAndMissing(t *testing.T) {
+func TestBatchGetCustomEntityTypes_FoundAndMissing(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")

@@ -9,7 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestRefinement1_BatchGetBlueprints_FoundAndMissing(t *testing.T) {
+func TestBatchGetBlueprints_FoundAndMissing(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -23,7 +23,7 @@ func TestRefinement1_BatchGetBlueprints_FoundAndMissing(t *testing.T) {
 	assert.Contains(t, missing, "bp2")
 }
 
-func TestRefinement1_BatchGetBlueprints_NonNilSlices(t *testing.T) {
+func TestBatchGetBlueprints_NonNilSlices(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -34,7 +34,7 @@ func TestRefinement1_BatchGetBlueprints_NonNilSlices(t *testing.T) {
 	assert.NotNil(t, missing)
 }
 
-func TestRefinement1_PersistenceEmpty(t *testing.T) {
+func TestPersistenceEmpty(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")

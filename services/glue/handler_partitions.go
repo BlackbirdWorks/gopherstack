@@ -97,7 +97,7 @@ type batchGetPartitionOutput struct {
 // Previously this always returned an empty Partitions list regardless of what
 // partitions actually existed in the backend — a disguised stub masked by a
 // stale comment claiming "the mock backend has no partition storage" (it does;
-// see InMemoryBackend.GetPartition/GetPartitions in backend_accuracy.go).
+// see InMemoryBackend.GetPartition/GetPartitions in partitions.go).
 func (h *Handler) handleBatchGetPartition(
 	_ context.Context,
 	in *batchGetPartitionInput,

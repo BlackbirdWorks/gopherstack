@@ -32,7 +32,7 @@ func createPartitionedTable(t *testing.T, h *glue.Handler, dbName, tableName str
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch4_PartitionIndexes(t *testing.T) {
+func TestPartitionIndexes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -90,7 +90,7 @@ func TestBatch4_PartitionIndexes(t *testing.T) {
 	}
 }
 
-func TestBatch4_PartitionIndexLifecycle(t *testing.T) {
+func TestPartitionIndexLifecycle(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

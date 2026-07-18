@@ -228,7 +228,7 @@ func TestAuditGlue_GetTables_Expression(t *testing.T) {
 	}
 }
 
-func TestRefinement1_HTTPBatchDeleteTable(t *testing.T) {
+func TestHTTPBatchDeleteTable(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -259,8 +259,8 @@ func TestRefinement1_HTTPBatchDeleteTable(t *testing.T) {
 	assert.Empty(t, errs)
 }
 
-// TestRefinement2_CloneTableWithColumns tests deep copy of tables with columns.
-func TestRefinement2_CloneTableWithColumns(t *testing.T) {
+// TestCloneTableWithColumns tests deep copy of tables with columns.
+func TestCloneTableWithColumns(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -312,8 +312,8 @@ func TestRefinement2_CloneTableWithColumns(t *testing.T) {
 	}
 }
 
-// TestNewOps_DeleteTableVersion tests DeleteTableVersion.
-func TestNewOps_DeleteTableVersion(t *testing.T) {
+// TestDeleteTableVersion tests DeleteTableVersion.
+func TestDeleteTableVersion(t *testing.T) {
 	t.Parallel()
 	b := glue.NewInMemoryBackend("123456789012", "us-east-1")
 	h := glue.NewHandler(b)
@@ -336,7 +336,7 @@ func TestNewOps_DeleteTableVersion(t *testing.T) {
 	})
 }
 
-func TestAccuracy_SearchTables_EmptyFilter(t *testing.T) {
+func TestSearchTables_EmptyFilter(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -360,7 +360,7 @@ func TestAccuracy_SearchTables_EmptyFilter(t *testing.T) {
 	assert.Len(t, out.TableList, 2)
 }
 
-func TestAccuracy_SearchTables_WithFilter(t *testing.T) {
+func TestSearchTables_WithFilter(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

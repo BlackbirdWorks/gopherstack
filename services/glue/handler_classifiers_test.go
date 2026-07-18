@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch3_Classifier_CRUD(t *testing.T) {
+func TestClassifier_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -134,7 +134,7 @@ func TestBatch3_Classifier_CRUD(t *testing.T) {
 	}
 }
 
-func TestBatch3_Classifier_GetClassifiers(t *testing.T) {
+func TestClassifier_GetClassifiers(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -153,7 +153,7 @@ func TestBatch3_Classifier_GetClassifiers(t *testing.T) {
 	assert.Len(t, classifiers, 2)
 }
 
-func TestBatch3_Classifier_Errors(t *testing.T) {
+func TestClassifier_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

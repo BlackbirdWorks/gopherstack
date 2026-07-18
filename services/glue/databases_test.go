@@ -9,7 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestRefinement1_Reset(t *testing.T) {
+func TestReset(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("111111111111", "us-west-2")
@@ -28,7 +28,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	assert.Equal(t, 0, glue.BlueprintCount(b))
 }
 
-func TestRefinement1_MultipleResetCycle(t *testing.T) {
+func TestMultipleResetCycle(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("111111111111", "us-west-2")
@@ -44,7 +44,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	}
 }
 
-func TestRefinement1_HandlerReset(t *testing.T) {
+func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 
 	backend := glue.NewInMemoryBackend("111111111111", "us-east-1")
@@ -58,7 +58,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	assert.Equal(t, 0, glue.DatabaseCount(backend))
 }
 
-func TestRefinement1_ExportCountHelpers(t *testing.T) {
+func TestExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -81,7 +81,7 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 1, glue.DatabaseCount(b))
 }
 
-func TestRefinement1_SortedGetDatabases(t *testing.T) {
+func TestSortedGetDatabases(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -99,7 +99,7 @@ func TestRefinement1_SortedGetDatabases(t *testing.T) {
 	assert.Equal(t, "gamma", dbs[2].Name)
 }
 
-func TestRefinement1_HandlerSnapshotRestore(t *testing.T) {
+func TestHandlerSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	backend := glue.NewInMemoryBackend("000000000000", "us-east-1")

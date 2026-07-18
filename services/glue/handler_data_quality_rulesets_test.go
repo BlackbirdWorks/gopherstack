@@ -12,10 +12,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-// TestBatch2Audit_CancelDQRecommendationRun_NotFound verifies that
+// TestCancelDQRecommendationRun_NotFound verifies that
 // CancelDataQualityRuleRecommendationRun raises EntityNotFoundException for
 // an unknown run ID instead of silently succeeding.
-func TestBatch2Audit_CancelDQRecommendationRun_NotFound(t *testing.T) {
+func TestCancelDQRecommendationRun_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -72,7 +72,7 @@ func TestBatch2Audit_CancelDQRecommendationRun_NotFound(t *testing.T) {
 	}
 }
 
-func TestBatch3_DataQuality_Ruleset_CRUD(t *testing.T) {
+func TestDataQuality_Ruleset_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -163,7 +163,7 @@ func TestBatch3_DataQuality_Ruleset_CRUD(t *testing.T) {
 	}
 }
 
-func TestBatch3_DataQuality_RuleRecommendationRun(t *testing.T) {
+func TestDataQuality_RuleRecommendationRun(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -194,8 +194,8 @@ func TestBatch3_DataQuality_RuleRecommendationRun(t *testing.T) {
 	assert.Equal(t, http.StatusOK, cancelRecommendRec.Code)
 }
 
-// TestRefinement2_DataQualityRulesets tests data quality ruleset operations.
-func TestRefinement2_DataQualityRulesets(t *testing.T) {
+// TestDataQualityRulesets tests data quality ruleset operations.
+func TestDataQualityRulesets(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -250,8 +250,8 @@ func TestRefinement2_DataQualityRulesets(t *testing.T) {
 	}
 }
 
-// TestRefinement2_DataQualityRulesetTagging tests tagging DataQualityRulesets via ARN.
-func TestRefinement2_DataQualityRulesetTagging(t *testing.T) {
+// TestDataQualityRulesetTagging tests tagging DataQualityRulesets via ARN.
+func TestDataQualityRulesetTagging(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

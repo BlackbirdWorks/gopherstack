@@ -79,7 +79,7 @@ func TestGlueResourceName(t *testing.T) {
 	}
 }
 
-func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
+func TestProviderInit_NilCtx(t *testing.T) {
 	t.Parallel()
 
 	p := &glue.Provider{}
@@ -89,7 +89,7 @@ func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
 	assert.ErrorIs(t, err, glue.ErrNilAppContext)
 }
 
-func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
+func TestHandlerOpsPreBuilt(t *testing.T) {
 	t.Parallel()
 
 	backend := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -98,7 +98,7 @@ func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
 	assert.Positive(t, h.HandlerOpsLen())
 }
 
-func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
+func TestGetSupportedOperations_AllOps(t *testing.T) {
 	t.Parallel()
 
 	backend := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -125,14 +125,14 @@ func TestRefinement1_GetSupportedOperations_AllOps(t *testing.T) {
 	}
 }
 
-func TestRefinement1_ErrValidation(t *testing.T) {
+func TestErrValidation(t *testing.T) {
 	t.Parallel()
 
 	require.Error(t, glue.ErrValidation)
 	assert.Error(t, glue.ErrValidation)
 }
 
-func TestRefinement1_ProviderInit_ValidCtx(t *testing.T) {
+func TestProviderInit_ValidCtx(t *testing.T) {
 	t.Parallel()
 
 	p := &glue.Provider{}

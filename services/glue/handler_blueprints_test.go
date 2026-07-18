@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_Blueprint_CRUD(t *testing.T) {
+func TestBlueprint_CRUD(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -36,7 +36,7 @@ func TestBatch2_Blueprint_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch2_BlueprintRun(t *testing.T) {
+func TestBlueprintRun(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -55,9 +55,9 @@ func TestBatch2_BlueprintRun(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "Runs")
 }
 
-// TestBatch2Accuracy_Blueprint_GetNotFound verifies GetBlueprint returns
+// TestBlueprint_GetNotFound verifies GetBlueprint returns
 // EntityNotFoundException for a missing blueprint.
-func TestBatch2Accuracy_Blueprint_GetNotFound(t *testing.T) {
+func TestBlueprint_GetNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -101,9 +101,9 @@ func TestBatch2Accuracy_Blueprint_GetNotFound(t *testing.T) {
 	}
 }
 
-// TestBatch2Accuracy_Blueprint_UpdateNotFound verifies UpdateBlueprint returns
+// TestBlueprint_UpdateNotFound verifies UpdateBlueprint returns
 // EntityNotFoundException for a missing blueprint (not upsert).
-func TestBatch2Accuracy_Blueprint_UpdateNotFound(t *testing.T) {
+func TestBlueprint_UpdateNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -144,9 +144,9 @@ func TestBatch2Accuracy_Blueprint_UpdateNotFound(t *testing.T) {
 	}
 }
 
-// TestBatch2Accuracy_Blueprint_DeleteNotFound verifies DeleteBlueprint returns
+// TestBlueprint_DeleteNotFound verifies DeleteBlueprint returns
 // EntityNotFoundException for a missing blueprint.
-func TestBatch2Accuracy_Blueprint_DeleteNotFound(t *testing.T) {
+func TestBlueprint_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -187,9 +187,9 @@ func TestBatch2Accuracy_Blueprint_DeleteNotFound(t *testing.T) {
 	}
 }
 
-// TestBatch2Accuracy_StartBlueprintRun_NotFound verifies StartBlueprintRun returns
+// TestStartBlueprintRun_NotFound verifies StartBlueprintRun returns
 // EntityNotFoundException when the blueprint does not exist.
-func TestBatch2Accuracy_StartBlueprintRun_NotFound(t *testing.T) {
+func TestStartBlueprintRun_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -230,9 +230,9 @@ func TestBatch2Accuracy_StartBlueprintRun_NotFound(t *testing.T) {
 	}
 }
 
-// TestBatch2Accuracy_CreateBlueprint_NameRequired verifies CreateBlueprint
+// TestCreateBlueprint_NameRequired verifies CreateBlueprint
 // rejects an empty Name with InvalidInputException.
-func TestBatch2Accuracy_CreateBlueprint_NameRequired(t *testing.T) {
+func TestCreateBlueprint_NameRequired(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -268,7 +268,7 @@ func TestBatch2Accuracy_CreateBlueprint_NameRequired(t *testing.T) {
 	}
 }
 
-func TestBatch3_Blueprint_CRUD_Full(t *testing.T) {
+func TestBlueprint_CRUD_Full(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -332,7 +332,7 @@ func TestBatch3_Blueprint_CRUD_Full(t *testing.T) {
 	}
 }
 
-func TestBatch3_Blueprint_Run_Lifecycle(t *testing.T) {
+func TestBlueprint_Run_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

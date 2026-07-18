@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_GlueIdentityCenter(t *testing.T) {
+func TestGlueIdentityCenter(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

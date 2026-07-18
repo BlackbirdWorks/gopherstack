@@ -11,7 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestBatch2_DataQualityRecommendationRun(t *testing.T) {
+func TestDataQualityRecommendationRun(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -42,7 +42,7 @@ func TestBatch2_DataQualityRecommendationRun(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch3_DataQuality_EvaluationRun(t *testing.T) {
+func TestDataQuality_EvaluationRun(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -91,7 +91,7 @@ func TestBatch3_DataQuality_EvaluationRun(t *testing.T) {
 	}
 }
 
-func TestBatch3_DataQuality_EvaluationRun_GetAndCancel(t *testing.T) {
+func TestDataQuality_EvaluationRun_GetAndCancel(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -407,7 +407,7 @@ func TestGetDataQualityModelResult_Validation(t *testing.T) {
 	}
 }
 
-func TestAccuracy_GetDataQualityResult_NotFound(t *testing.T) {
+func TestGetDataQualityResult_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -418,7 +418,7 @@ func TestAccuracy_GetDataQualityResult_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestAccuracy_GetDataQualityResult_Found(t *testing.T) {
+func TestGetDataQualityResult_Found(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend(testAccountID, testRegion)

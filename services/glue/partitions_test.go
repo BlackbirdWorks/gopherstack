@@ -9,7 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestRefinement1_BatchCreatePartition_RoundTrip(t *testing.T) {
+func TestBatchCreatePartition_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -35,7 +35,7 @@ func TestRefinement1_BatchCreatePartition_RoundTrip(t *testing.T) {
 	assert.Len(t, errs2, 2)
 }
 
-func TestRefinement1_BatchDeletePartition_RemovesPartition(t *testing.T) {
+func TestBatchDeletePartition_RemovesPartition(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -58,7 +58,7 @@ func TestRefinement1_BatchDeletePartition_RemovesPartition(t *testing.T) {
 	assert.Equal(t, "EntityNotFoundException", errs2[0].ErrorDetail.ErrorCode)
 }
 
-func TestRefinement1_BatchDeleteTable_CascadesPartitions(t *testing.T) {
+func TestBatchDeleteTable_CascadesPartitions(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")

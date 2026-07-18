@@ -8,7 +8,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestRefinement1_SeedHelpers(t *testing.T) {
+func TestDataQualityStatsSeedHelpers(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -99,7 +99,7 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 	}
 }
 
-func TestRefinement1_BatchGetDataQualityResult_FoundAndMissing(t *testing.T) {
+func TestBatchGetDataQualityResult_FoundAndMissing(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -113,7 +113,7 @@ func TestRefinement1_BatchGetDataQualityResult_FoundAndMissing(t *testing.T) {
 	assert.Equal(t, "EntityNotFoundException", errs[0].ErrorCode)
 }
 
-func TestRefinement1_NonNilSlices_BatchOutputs(t *testing.T) {
+func TestNonNilSlices_BatchOutputs(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")

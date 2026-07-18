@@ -9,7 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestBatch4_ExtendedStateSnapshotRestore(t *testing.T) {
+func TestExtendedStateSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -216,7 +216,7 @@ func TestBatch4_ExtendedStateSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestRefinement1_BatchDeleteTable_NotFound(t *testing.T) {
+func TestBatchDeleteTable_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -229,7 +229,7 @@ func TestRefinement1_BatchDeleteTable_NotFound(t *testing.T) {
 	assert.Equal(t, "EntityNotFoundException", errs[0].ErrorDetail.ErrorCode)
 }
 
-func TestRefinement1_BatchDeleteTableVersion_NotFound(t *testing.T) {
+func TestBatchDeleteTableVersion_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -241,7 +241,7 @@ func TestRefinement1_BatchDeleteTableVersion_NotFound(t *testing.T) {
 	assert.Equal(t, "v1", errs[0].VersionID)
 }
 
-func TestRefinement1_BatchDeleteTableVersion_RoundTrip(t *testing.T) {
+func TestBatchDeleteTableVersion_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")

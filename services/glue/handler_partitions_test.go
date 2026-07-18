@@ -319,8 +319,8 @@ func TestAuditGlue_GetPartitions_Expression(t *testing.T) {
 	}
 }
 
-// TestAudit2_BatchCreatePartition_Limit tests the 100-partition-per-call limit.
-func TestAudit2_BatchCreatePartition_Limit(t *testing.T) {
+// TestBatchCreatePartition_Limit tests the 100-partition-per-call limit.
+func TestBatchCreatePartition_Limit(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -364,7 +364,7 @@ func TestAudit2_BatchCreatePartition_Limit(t *testing.T) {
 	}
 }
 
-func TestRefinement1_HTTPBatchCreatePartition(t *testing.T) {
+func TestHTTPBatchCreatePartition(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -448,7 +448,7 @@ func createTestPartition(t *testing.T, h *glue.Handler, dbName, tableName string
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestAccuracy_GetPartition_Found(t *testing.T) {
+func TestGetPartition_Found(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -471,7 +471,7 @@ func TestAccuracy_GetPartition_Found(t *testing.T) {
 	assert.Equal(t, []string{"2024", "01"}, out.Partition.Values)
 }
 
-func TestAccuracy_GetPartition_NotFound(t *testing.T) {
+func TestGetPartition_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -484,7 +484,7 @@ func TestAccuracy_GetPartition_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestAccuracy_GetPartitions_List(t *testing.T) {
+func TestGetPartitions_List(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -507,7 +507,7 @@ func TestAccuracy_GetPartitions_List(t *testing.T) {
 	assert.Len(t, out.Partitions, 2)
 }
 
-func TestAccuracy_GetPartitions_TableNotFound(t *testing.T) {
+func TestGetPartitions_TableNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -519,7 +519,7 @@ func TestAccuracy_GetPartitions_TableNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestAccuracy_UpdatePartition_Updates(t *testing.T) {
+func TestUpdatePartition_Updates(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -557,7 +557,7 @@ func TestAccuracy_UpdatePartition_Updates(t *testing.T) {
 	assert.Equal(t, "s3://updated-bucket/tbl3", out.Partition.StorageDescriptor.Location)
 }
 
-func TestAccuracy_UpdatePartition_NotFound(t *testing.T) {
+func TestUpdatePartition_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -571,7 +571,7 @@ func TestAccuracy_UpdatePartition_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestAccuracy_BatchUpdatePartition_Updates(t *testing.T) {
+func TestBatchUpdatePartition_Updates(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

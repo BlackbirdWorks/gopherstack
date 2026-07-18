@@ -9,7 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestRefinement1_BatchGetDevEndpoints_FoundAndMissing(t *testing.T) {
+func TestBatchGetDevEndpoints_FoundAndMissing(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")
@@ -22,7 +22,7 @@ func TestRefinement1_BatchGetDevEndpoints_FoundAndMissing(t *testing.T) {
 	assert.Len(t, missing, 1)
 }
 
-func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
+func TestPersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend("000000000000", "us-east-1")

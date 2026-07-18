@@ -164,8 +164,8 @@ func Test_Job_MaxCapacity(t *testing.T) {
 	}
 }
 
-// TestAudit2_CreateJob_CommandNameRequired tests that CreateJob requires Command.Name.
-func TestAudit2_CreateJob_CommandNameRequired(t *testing.T) {
+// TestCreateJob_CommandNameRequired tests that CreateJob requires Command.Name.
+func TestCreateJob_CommandNameRequired(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -206,8 +206,8 @@ func TestAudit2_CreateJob_CommandNameRequired(t *testing.T) {
 	}
 }
 
-// TestAudit2_CreateJob_MaxRetries tests MaxRetries bounds validation.
-func TestAudit2_CreateJob_MaxRetries(t *testing.T) {
+// TestCreateJob_MaxRetries tests MaxRetries bounds validation.
+func TestCreateJob_MaxRetries(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -253,8 +253,8 @@ func TestAudit2_CreateJob_MaxRetries(t *testing.T) {
 	}
 }
 
-// TestAudit2_UpdateJob_MaxRetries tests MaxRetries bounds on UpdateJob.
-func TestAudit2_UpdateJob_MaxRetries(t *testing.T) {
+// TestUpdateJob_MaxRetries tests MaxRetries bounds on UpdateJob.
+func TestUpdateJob_MaxRetries(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -297,8 +297,8 @@ func TestAudit2_UpdateJob_MaxRetries(t *testing.T) {
 	}
 }
 
-// TestAudit2_CreateJob_TagValidation tests tag validation on CreateJob.
-func TestAudit2_CreateJob_TagValidation(t *testing.T) {
+// TestCreateJob_TagValidation tests tag validation on CreateJob.
+func TestCreateJob_TagValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -339,8 +339,8 @@ func TestAudit2_CreateJob_TagValidation(t *testing.T) {
 	}
 }
 
-// TestRefinement2_JobLifecycle tests job lifecycle operations.
-func TestRefinement2_JobLifecycle(t *testing.T) {
+// TestJobLifecycle tests job lifecycle operations.
+func TestJobLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -455,8 +455,8 @@ func TestRefinement2_JobLifecycle(t *testing.T) {
 	}
 }
 
-// TestRefinement2_MaxConcurrentRuns tests job run concurrency enforcement.
-func TestRefinement2_MaxConcurrentRuns(t *testing.T) {
+// TestMaxConcurrentRuns tests job run concurrency enforcement.
+func TestMaxConcurrentRuns(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -506,8 +506,8 @@ func TestRefinement2_MaxConcurrentRuns(t *testing.T) {
 	}
 }
 
-// TestRefinement2_BatchStopJobRun tests batch stop for non-stoppable runs.
-func TestRefinement2_BatchStopJobRun(t *testing.T) {
+// TestBatchStopJobRun tests batch stop for non-stoppable runs.
+func TestBatchStopJobRun(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

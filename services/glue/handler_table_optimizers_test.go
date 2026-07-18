@@ -55,8 +55,8 @@ func TestListTableOptimizerRuns_ReturnsRealHistory(t *testing.T) {
 	assert.Equal(t, "completed", out.TableOptimizerRuns[0]["eventType"])
 }
 
-// TestNewOps_TableOptimizer tests TableOptimizer CRUD.
-func TestNewOps_TableOptimizer(t *testing.T) {
+// TestTableOptimizer tests TableOptimizer CRUD.
+func TestTableOptimizer(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 
