@@ -259,3 +259,55 @@ func (rc *ResourceCreator) deleteCloudFrontResponseHeadersPolicy(id string) erro
 
 	return rc.backends.CloudFront.Backend.DeleteResponseHeadersPolicy(id)
 }
+
+// ---- CloudFront Distribution ----
+
+func (rc *ResourceCreator) createCloudFrontDistribution(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.CloudFront == nil {
+		return logicalID + "-stub", nil
+	}
+
+	comment := logicalID
+	enabled := true
+
+	if cfg, ok := props["DistributionConfig"].(map[string]any); ok {
+		if c := resolve(cfg["Comment"], params, physicalIDs); c != "" {
+			comment = c
+		}
+
+		if e, ok2 := cfg["Enabled"].(bool); ok2 {
+			enabled = e
+		}
+	}
+
+	dist, err := rc.backends.CloudFront.Backend.CreateDistribution(logicalID, comment, enabled, nil)
+	if err != nil {
+		return "", fmt.Errorf("create CloudFront distribution: %w", err)
+	}
+
+	return dist.ARN, nil
+}
+
+func (rc *ResourceCreator) deleteCloudFrontDistribution(arn string) error {
+	if rc.backends.CloudFront == nil {
+		return nil
+	}
+
+	id := resourceNameFromARN(arn)
+
+	// CloudFront requires a distribution to be disabled before deletion
+	// (matching real AWS). Disable it first, preserving its existing config.
+	if dist, err := rc.backends.CloudFront.Backend.GetDistribution(id); err == nil {
+		if _, uerr := rc.backends.CloudFront.Backend.UpdateDistribution(
+			id, dist.Comment, false, dist.RawConfig,
+		); uerr != nil {
+			return uerr
+		}
+	}
+
+	return rc.backends.CloudFront.Backend.DeleteDistribution(id)
+}

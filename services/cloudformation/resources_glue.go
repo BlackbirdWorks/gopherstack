@@ -262,3 +262,91 @@ func (rc *ResourceCreator) deleteGlueSupplementalResource(resourceType, physical
 
 	return false, nil
 }
+
+// ---- Glue ----
+
+func (rc *ResourceCreator) createGlueDatabase(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.Glue == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := logicalID
+	var description string
+
+	if di, ok := props["DatabaseInput"].(map[string]any); ok {
+		if n := resolve(di["Name"], params, physicalIDs); n != "" {
+			name = n
+		}
+
+		description = resolve(di["Description"], params, physicalIDs)
+	}
+
+	db, err := rc.backends.Glue.Backend.CreateDatabase(gluebackend.DatabaseInput{
+		Name:        name,
+		Description: description,
+	}, nil)
+	if err != nil {
+		return "", fmt.Errorf("create Glue database %s: %w", name, err)
+	}
+
+	return db.ARN, nil
+}
+
+func (rc *ResourceCreator) deleteGlueDatabase(arn string) error {
+	if rc.backends.Glue == nil {
+		return nil
+	}
+
+	name := resourceNameFromARN(arn)
+
+	return rc.backends.Glue.Backend.DeleteDatabase(name)
+}
+
+func (rc *ResourceCreator) createGlueJob(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.Glue == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	role := strProp(props, "Role", params, physicalIDs)
+
+	var cmd gluebackend.JobCommand
+	if c, ok := props["Command"].(map[string]any); ok {
+		cmd.Name = resolve(c["Name"], params, physicalIDs)
+		cmd.ScriptLocation = resolve(c["ScriptLocation"], params, physicalIDs)
+		cmd.PythonVersion = resolve(c["PythonVersion"], params, physicalIDs)
+	}
+
+	job, err := rc.backends.Glue.Backend.CreateJob(gluebackend.Job{
+		Name:    name,
+		Role:    role,
+		Command: cmd,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create Glue job %s: %w", name, err)
+	}
+
+	return job.ARN, nil
+}
+
+func (rc *ResourceCreator) deleteGlueJob(arn string) error {
+	if rc.backends.Glue == nil {
+		return nil
+	}
+
+	name := resourceNameFromARN(arn)
+
+	return rc.backends.Glue.Backend.DeleteJob(name)
+}

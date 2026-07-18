@@ -649,7 +649,7 @@ func (rc *ResourceCreator) createNewServiceResource(
 		return physID, err
 	}
 
-	if physID, handled, err := rc.createPhase6Resource(
+	if physID, handled, err := rc.createSupplementalResource(
 		ctx, logicalID, resourceType, props, params, physicalIDs,
 	); handled {
 		return physID, err
@@ -1045,7 +1045,7 @@ func (rc *ResourceCreator) createPhase4Resource(
 			return "", err
 		}
 		if !handled {
-			id, handled, err = rc.createPhase6Resource(
+			id, handled, err = rc.createSupplementalResource(
 				ctx,
 				logicalID,
 				resourceType,
@@ -1399,7 +1399,7 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 			return err
 		}
 
-		if handled, err := rc.deletePhase6Resource(ctx, resourceType, physicalID); handled {
+		if handled, err := rc.deleteSupplementalResource(ctx, resourceType, physicalID); handled {
 			return err
 		}
 
@@ -1414,7 +1414,7 @@ func (rc *ResourceCreator) deleteNewServiceResource(ctx context.Context, physica
 		return err
 	}
 
-	if handled, err := rc.deletePhase3ComputeResource(ctx, physicalID, resourceType); handled {
+	if handled, err := rc.deleteComputePlatformResource(ctx, physicalID, resourceType); handled {
 		return err
 	}
 
@@ -1505,7 +1505,233 @@ func (rc *ResourceCreator) deleteAppNetworkResource(ctx context.Context, physica
 		return rc.deleteEC2EIP(physicalID)
 	default:
 
-		return rc.deletePhase3DataResource(ctx, physicalID, resourceType)
+		return rc.deleteManagedDataResource(ctx, physicalID, resourceType)
+	}
+}
+
+// createSupplementalResource handles APIGW v1 supplemental, APIGW v2 supplemental,
+// Events ApiDestination/EventBusPolicy, KMS ReplicaKey, Cognito
+// IdentityPool/Group/Domain, EC2 VPCPeering/NetworkAcl/KeyPair/SGRule/FlowLog,
+// ELBv2 ListenerRule, and Lambda EventInvokeConfig/Url resource creation.
+// Returns handled=false when resourceType is none of the above.
+func (rc *ResourceCreator) createSupplementalResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if id, ok, err := rc.createAPIGatewayV1SupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createAPIGatewayV2SupplementalResource(
+		ctx,
+		logicalID,
+		resourceType,
+		props,
+		params,
+		physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEventsSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createKMSSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createCognitoSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEC2SupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createELBv2SupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createLambdaSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+
+	return "", false, nil
+}
+
+// deleteSupplementalResource handles deletion for the supplemental resource types
+// described in createSupplementalResource.
+func (rc *ResourceCreator) deleteSupplementalResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
+	if handled, err := rc.deleteAPIGatewayV1SupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteAPIGatewayV2SupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEventsSupplementalResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteKMSSupplementalResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteCognitoSupplementalResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEC2SupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteELBv2SupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteLambdaSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return false, nil
+}
+
+// deleteComputePlatformResource handles EKS, EFS, Batch, CloudFront, AutoScaling,
+// ApiGatewayV2, CodeBuild, and Glue resource deletions.
+func (rc *ResourceCreator) deleteComputePlatformResource(
+	ctx context.Context,
+	physicalID, resourceType string,
+) (bool, error) {
+	if handled, err := rc.deleteContainerPlatformResource(ctx, physicalID, resourceType); handled {
+		return true, err
+	}
+
+	return rc.deleteAppPlatformResource(ctx, physicalID, resourceType)
+}
+
+// deleteContainerPlatformResource handles EKS, EFS, and Batch deletions.
+func (rc *ResourceCreator) deleteContainerPlatformResource(
+	ctx context.Context,
+	physicalID, resourceType string,
+) (bool, error) {
+	switch resourceType {
+	case "AWS::EKS::Cluster":
+		return true, rc.deleteEKSCluster(physicalID)
+	case "AWS::EKS::Nodegroup":
+		return true, rc.deleteEKSNodegroup(physicalID)
+	case "AWS::EFS::FileSystem":
+		return true, rc.deleteEFSFileSystem(ctx, physicalID)
+	case "AWS::EFS::MountTarget":
+		return true, rc.deleteEFSMountTarget(ctx, physicalID)
+	case "AWS::Batch::ComputeEnvironment":
+		return true, rc.deleteBatchComputeEnvironment(ctx, physicalID)
+	case "AWS::Batch::JobQueue":
+		return true, rc.deleteBatchJobQueue(ctx, physicalID)
+	case "AWS::Batch::JobDefinition":
+		return true, rc.deleteBatchJobDefinition(ctx, physicalID)
+	}
+
+	return false, nil
+}
+
+// deleteAppPlatformResource handles CloudFront, AutoScaling, ApiGatewayV2, CodeBuild, and Glue deletions.
+func (rc *ResourceCreator) deleteAppPlatformResource(_ context.Context, physicalID, resourceType string) (bool, error) {
+	switch resourceType {
+	case "AWS::CloudFront::Distribution":
+		return true, rc.deleteCloudFrontDistribution(physicalID)
+	case "AWS::AutoScaling::AutoScalingGroup":
+		return true, rc.deleteAutoScalingGroup(physicalID)
+	case "AWS::AutoScaling::LaunchConfiguration":
+		return true, rc.deleteLaunchConfiguration(physicalID)
+	case "AWS::ApiGatewayV2::Api":
+		return true, rc.deleteAPIGatewayV2API(physicalID)
+	case "AWS::ApiGatewayV2::Stage":
+		return true, rc.deleteAPIGatewayV2Stage(physicalID)
+	case resTypeAPIGatewayV2Integ:
+		return true, rc.deleteAPIGatewayV2Integration(physicalID)
+	case resTypeAPIGatewayV2Route:
+		return true, rc.deleteAPIGatewayV2Route(physicalID)
+	case "AWS::CodeBuild::Project":
+		return true, rc.deleteCodeBuildProject(physicalID)
+	case "AWS::Glue::Database":
+		return true, rc.deleteGlueDatabase(physicalID)
+	case "AWS::Glue::Job":
+		return true, rc.deleteGlueJob(physicalID)
+	}
+
+	return false, nil
+}
+
+// deleteManagedDataResource handles DocDB, Neptune, MSK, Transfer, CloudTrail,
+// CodePipeline, IoT, Pipes, EMR, and CloudWatch Dashboard deletions, falling through
+// to deleteNetworkSecurityResource for ELBv2/WAFv2/Backup/RDS-cluster types.
+func (rc *ResourceCreator) deleteManagedDataResource(ctx context.Context, physicalID, resourceType string) error {
+	switch resourceType {
+	case "AWS::DocDB::DBCluster":
+		return rc.deleteDocDBCluster(ctx, physicalID)
+	case "AWS::DocDB::DBInstance":
+		return rc.deleteDocDBInstance(ctx, physicalID)
+	case "AWS::Neptune::DBCluster":
+		return rc.deleteNeptuneCluster(ctx, physicalID)
+	case "AWS::Neptune::DBInstance":
+		return rc.deleteNeptuneInstance(ctx, physicalID)
+	case "AWS::MSK::Cluster":
+		return rc.deleteMSKCluster(ctx, physicalID)
+	case "AWS::Transfer::Server":
+		return rc.deleteTransferServer(physicalID)
+	case "AWS::CloudTrail::Trail":
+		return rc.deleteCloudTrailTrail(physicalID)
+	case "AWS::CodePipeline::Pipeline":
+		return rc.deleteCodePipelinePipeline(ctx, physicalID)
+	case "AWS::IoT::Thing":
+		return rc.deleteIoTThing(physicalID)
+	case "AWS::IoT::TopicRule":
+		return rc.deleteIoTTopicRule(physicalID)
+	case "AWS::Pipes::Pipe":
+		return rc.deletePipesPipe(ctx, physicalID)
+	case "AWS::EMR::Cluster":
+		return rc.deleteEMRCluster(ctx, physicalID)
+	case "AWS::CloudWatch::Dashboard":
+		return rc.deleteCloudWatchDashboard(physicalID)
+	default:
+		return rc.deleteNetworkSecurityResource(ctx, physicalID, resourceType)
+	}
+}
+
+// deleteNetworkSecurityResource handles ELBv2, WAFv2, Backup, and RDS cluster resource deletions.
+func (rc *ResourceCreator) deleteNetworkSecurityResource(ctx context.Context, physicalID, resourceType string) error {
+	switch resourceType {
+	case resTypeELBv2LB:
+		return rc.deleteELBv2LoadBalancer(physicalID)
+	case resTypeELBv2TargetGroup:
+		return rc.deleteELBv2TargetGroup(physicalID)
+	case "AWS::ElasticLoadBalancingV2::Listener":
+		return rc.deleteELBv2Listener(physicalID)
+	case "AWS::WAFv2::WebACL":
+		return rc.deleteWAFv2WebACL(ctx, physicalID)
+	case "AWS::WAFv2::IPSet":
+		return rc.deleteWAFv2IPSet(ctx, physicalID)
+	case "AWS::WAFv2::RuleGroup":
+		return rc.deleteWAFv2RuleGroup(physicalID)
+	case "AWS::Backup::BackupVault":
+		return rc.deleteBackupVault(physicalID)
+	case "AWS::Backup::BackupPlan":
+		return rc.deleteBackupPlan(physicalID)
+	case "AWS::RDS::DBCluster":
+		return rc.deleteRDSDBCluster(physicalID)
+	case "AWS::RDS::DBClusterParameterGroup":
+		return rc.deleteRDSDBClusterParameterGroup(physicalID)
+	default:
+		_, err := rc.deleteExtraResource(ctx, resourceType, physicalID)
+
+		return err
 	}
 }
 

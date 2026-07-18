@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
@@ -202,4 +203,128 @@ func (rc *ResourceCreator) deleteStepFunctionsActivity(activityArn string) error
 	}
 
 	return rc.backends.StepFunctions.Backend.DeleteActivity(activityArn)
+}
+
+// ---- Events supplemental ----
+
+// createEventsSupplementalResource handles Events ApiDestination and EventBusPolicy
+// resource creation.
+func (rc *ResourceCreator) createEventsSupplementalResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::Events::ApiDestination":
+		id, err := rc.createEventsAPIDestination(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::Events::EventBusPolicy":
+		id, err := rc.createEventsEventBusPolicy(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// deleteEventsSupplementalResource handles Events ApiDestination and EventBusPolicy
+// resource deletion.
+func (rc *ResourceCreator) deleteEventsSupplementalResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
+	switch resourceType {
+	case "AWS::Events::ApiDestination":
+		return true, rc.deleteEventsAPIDestination(ctx, physicalID)
+	case "AWS::Events::EventBusPolicy":
+		return true, nil // EventBusPolicy is additive; deletion is a no-op
+	default:
+		return false, nil
+	}
+}
+
+func (rc *ResourceCreator) createEventsAPIDestination(
+	ctx context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.EventBridge == nil {
+		return logicalID + "-stub", nil
+	}
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+	httpMethod := strProp(props, "HttpMethod", params, physicalIDs)
+	if httpMethod == "" {
+		httpMethod = "POST"
+	}
+	dest, err := rc.backends.EventBridge.Backend.CreateAPIDestination(
+		ctx,
+		ebbackend.CreateAPIDestinationInput{
+			Name:               name,
+			ConnectionArn:      strProp(props, "ConnectionArn", params, physicalIDs),
+			HTTPMethod:         httpMethod,
+			InvocationEndpoint: strProp(props, "InvocationEndpoint", params, physicalIDs),
+			Description:        strProp(props, "Description", params, physicalIDs),
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("create Events API destination %s: %w", name, err)
+	}
+
+	return dest.APIDestinationArn, nil
+}
+
+func (rc *ResourceCreator) deleteEventsAPIDestination(
+	ctx context.Context,
+	physicalID string,
+) error {
+	if rc.backends.EventBridge == nil {
+		return nil
+	}
+	// physicalID is the ARN; extract the name from the trailing segment.
+	name := physicalID
+	if idx := strings.LastIndex(physicalID, "/"); idx >= 0 {
+		name = physicalID[idx+1:]
+	}
+
+	return rc.backends.EventBridge.Backend.DeleteAPIDestination(ctx, name)
+}
+
+func (rc *ResourceCreator) createEventsEventBusPolicy(
+	ctx context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.EventBridge == nil {
+		return logicalID + "-stub", nil
+	}
+	eventBusName := strProp(props, "EventBusName", params, physicalIDs)
+	if eventBusName == "" {
+		eventBusName = "default"
+	}
+	statementID := strProp(props, "StatementId", params, physicalIDs)
+	statement := strProp(props, "Statement", params, physicalIDs)
+	policy := statement
+	if policy == "" && statementID != "" {
+		policy = fmt.Sprintf(
+			`{"Version":"2012-10-17","Statement":[{"Sid":%q,`+
+				`"Effect":"Allow","Principal":{"AWS":"*"},`+
+				`"Action":"events:PutEvents","Resource":"*"}]}`,
+			statementID,
+		)
+	}
+	if err := rc.backends.EventBridge.Backend.PutEventBusPolicy(ctx, ebbackend.PutEventBusPolicyInput{
+		EventBusName: eventBusName,
+		Policy:       policy,
+	}); err != nil {
+		return "", fmt.Errorf("create Events event bus policy on %s: %w", eventBusName, err)
+	}
+
+	return eventBusName + ":" + statementID, nil
 }

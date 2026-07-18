@@ -7,6 +7,53 @@ import (
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
+// ---- AppSync ----
+
+func (rc *ResourceCreator) createAppSyncGraphQLAPI(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.AppSync == nil {
+		return logicalID + "-stub", nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	authType := appsyncbackend.AuthenticationType(strProp(props, "AuthenticationType", params, physicalIDs))
+	if authType == "" {
+		authType = appsyncbackend.AuthTypeAPIKey
+	}
+
+	api, err := imb.CreateGraphqlAPI(name, authType, false, "", "", nil, nil, nil)
+	if err != nil {
+		return "", fmt.Errorf("create AppSync GraphQL API %s: %w", name, err)
+	}
+
+	return api.APIID, nil
+}
+
+func (rc *ResourceCreator) deleteAppSyncGraphQLAPI(apiID string) error {
+	if rc.backends.AppSync == nil {
+		return nil
+	}
+
+	imb, ok := rc.backends.AppSync.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
+	return imb.DeleteGraphqlAPI(apiID)
+}
+
 func (rc *ResourceCreator) createAppSyncSupplementalResource(
 	logicalID, resourceType string,
 	props map[string]any,

@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestResourceCreator_ExtraTypes_NilBackends ensures every phase-5 resource type returns
-// a stub physical ID (no panic, no error) when the backing service is nil.
-func TestResourceCreator_ExtraTypes_NilBackends(t *testing.T) {
+// TestResourceCreator_SupplementalTypes_NilBackends ensures every supplemental resource type
+// returns a stub physical ID (no panic, no error) when the backing service is nil.
+func TestResourceCreator_SupplementalTypes_NilBackends(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -222,8 +222,8 @@ func TestResourceCreator_ExtraTypes_NilBackends(t *testing.T) {
 	}
 }
 
-// TestResourceCreator_ExtraTypes_RealBackends validates create and delete with real in-memory backends.
-func TestResourceCreator_ExtraTypes_RealBackends(t *testing.T) {
+// TestResourceCreator_SupplementalTypes_RealBackends validates create and delete with real in-memory backends.
+func TestResourceCreator_SupplementalTypes_RealBackends(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

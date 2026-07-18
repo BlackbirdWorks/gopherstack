@@ -45,3 +45,69 @@ func (rc *ResourceCreator) deleteKMSAlias(ctx context.Context, aliasName string)
 
 	return rc.backends.KMS.Backend.DeleteAlias(ctx, &kmsbackend.DeleteAliasInput{AliasName: aliasName})
 }
+
+// ---- KMS ReplicaKey ----
+
+// createKMSSupplementalResource handles KMS ReplicaKey resource creation.
+func (rc *ResourceCreator) createKMSSupplementalResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if resourceType != "AWS::KMS::ReplicaKey" {
+		return "", false, nil
+	}
+	id, err := rc.createKMSReplicaKey(ctx, logicalID, props, params, physicalIDs)
+
+	return id, true, err
+}
+
+// deleteKMSSupplementalResource handles KMS ReplicaKey resource deletion.
+func (rc *ResourceCreator) deleteKMSSupplementalResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
+	if resourceType != "AWS::KMS::ReplicaKey" {
+		return false, nil
+	}
+
+	return true, rc.deleteKMSReplicaKey(ctx, physicalID)
+}
+
+func (rc *ResourceCreator) createKMSReplicaKey(
+	ctx context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.KMS == nil {
+		return logicalID + "-stub", nil
+	}
+	replicaRegion := strProp(props, "ReplicaRegion", params, physicalIDs)
+	if replicaRegion == "" {
+		replicaRegion = rc.backends.Region
+	}
+	out, err := rc.backends.KMS.Backend.ReplicateKey(ctx, &kmsbackend.ReplicateKeyInput{
+		KeyID:         strProp(props, "PrimaryKeyArn", params, physicalIDs),
+		ReplicaRegion: replicaRegion,
+		Description:   strProp(props, "Description", params, physicalIDs),
+	})
+	if err != nil {
+		return "", fmt.Errorf("create KMS replica key: %w", err)
+	}
+
+	return out.ReplicaKeyMetadata.KeyID, nil
+}
+
+func (rc *ResourceCreator) deleteKMSReplicaKey(ctx context.Context, physicalID string) error {
+	if rc.backends.KMS == nil {
+		return nil
+	}
+	_, err := rc.backends.KMS.Backend.ScheduleKeyDeletion(ctx, &kmsbackend.ScheduleKeyDeletionInput{
+		KeyID:               physicalID,
+		PendingWindowInDays: kmsMinDeletionWindowDays,
+	})
+
+	return err
+}
