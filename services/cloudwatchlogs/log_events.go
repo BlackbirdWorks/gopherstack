@@ -153,54 +153,68 @@ func (b *InMemoryBackend) PutLogEvents(
 
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("PutLogEvents")
+	var lockErr error
+	var nextToken string
+	var rejectedInfo *RejectedLogEventsInfo
+	var eventsForDelivery []InputLogEvent
+	var filtersForDelivery []*SubscriptionFilter
+	var metricMatches []metricFilterMatch
+	var emitter MetricEmitter
 
-	group, groupExists := b.groupGet(region, groupName)
-	if !groupExists {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("PutLogEvents")
+		defer b.mu.Unlock()
 
-		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+		group, groupExists := b.groupGet(region, groupName)
+		if !groupExists {
+			lockErr = fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+
+			return
+		}
+
+		stream, streamExists := b.streamGet(region, groupName, streamName)
+		if !streamExists {
+			lockErr = fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
+
+			return
+		}
+
+		now := time.Now().UnixMilli()
+
+		// Determine the retention cutoff for timestamp validation.
+		var retentionCutoffMs int64
+		if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
+			retentionCutoffMs = now - int64(*group.RetentionInDays)*msPerDay
+		} else {
+			retentionCutoffMs = now - putLogEventsMaxEventAgeMs
+		}
+
+		hardCutoff := now - putLogEventsMaxEventAgeMs
+		futureLimit := now + putLogEventsFutureWindowMs
+
+		var acceptedEvents []InputLogEvent
+		acceptedEvents, rejectedInfo = classifyLogEvents(
+			events,
+			retentionCutoffMs,
+			hardCutoff,
+			futureLimit,
+		)
+
+		b.appendEvents(group, stream, now, acceptedEvents)
+
+		stream.LastIngestionTime = &now
+		nextToken = strconv.FormatInt(int64(len(stream.events)), 10)
+
+		// Collect matching subscription filters and metric filter matches while holding the lock.
+		filters := b.matchingFilters(region, groupName, acceptedEvents)
+		eventsForDelivery = append([]InputLogEvent(nil), acceptedEvents...)
+		filtersForDelivery = cloneSubscriptionFilters(filters)
+		metricMatches = b.matchingMetricFilters(region, groupName, acceptedEvents)
+		emitter = b.metricEmitter
+	}()
+	if lockErr != nil {
+		return nil, lockErr
 	}
-
-	stream, streamExists := b.streamGet(region, groupName, streamName)
-	if !streamExists {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
-	}
-
-	now := time.Now().UnixMilli()
-
-	// Determine the retention cutoff for timestamp validation.
-	var retentionCutoffMs int64
-	if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
-		retentionCutoffMs = now - int64(*group.RetentionInDays)*msPerDay
-	} else {
-		retentionCutoffMs = now - putLogEventsMaxEventAgeMs
-	}
-
-	hardCutoff := now - putLogEventsMaxEventAgeMs
-	futureLimit := now + putLogEventsFutureWindowMs
-	acceptedEvents, rejectedInfo := classifyLogEvents(
-		events,
-		retentionCutoffMs,
-		hardCutoff,
-		futureLimit,
-	)
-
-	b.appendEvents(group, stream, now, acceptedEvents)
-
-	stream.LastIngestionTime = &now
-	nextToken := strconv.FormatInt(int64(len(stream.events)), 10)
-
-	// Collect matching subscription filters and metric filter matches while holding the lock.
-	filters := b.matchingFilters(region, groupName, acceptedEvents)
-	eventsForDelivery := append([]InputLogEvent(nil), acceptedEvents...)
-	filtersForDelivery := cloneSubscriptionFilters(filters)
-	metricMatches := b.matchingMetricFilters(region, groupName, acceptedEvents)
-	emitter := b.metricEmitter
-
-	b.mu.Unlock()
 
 	// Emit CloudWatch metrics for matched metric filters (no lock held).
 	if len(metricMatches) > 0 && emitter != nil {

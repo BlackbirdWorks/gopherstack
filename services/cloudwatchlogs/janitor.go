@@ -76,9 +76,11 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 		}
 
 		// Phase 2: apply the plan under write lock (minimal critical section).
-		j.Backend.mu.Lock("JanitorSweepRetention")
-		evicted += j.applyEvictionPlan(target.region, target.groupName, plan)
-		j.Backend.mu.Unlock()
+		func() {
+			j.Backend.mu.Lock("JanitorSweepRetention")
+			defer j.Backend.mu.Unlock()
+			evicted += j.applyEvictionPlan(target.region, target.groupName, plan)
+		}()
 	}
 
 	telemetry.RecordWorkerTask(cwlWorkerService, retentionSweeperName, "success")

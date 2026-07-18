@@ -68,17 +68,20 @@ func (b *InMemoryBackend) StartExperiment(
 	// Clone the template BEFORE passing to the goroutine so template updates don't race.
 	tplForRun := cloneTemplate(tpl)
 
-	b.mu.Lock("StartExperiment")
-	b.experiments.Put(exp)
+	var snapshot *Experiment
+	func() {
+		b.mu.Lock("StartExperiment")
+		defer b.mu.Unlock()
+		b.experiments.Put(exp)
 
-	if input.ClientToken != "" {
-		b.expClientTokens[input.ClientToken] = id
-	}
+		if input.ClientToken != "" {
+			b.expClientTokens[input.ClientToken] = id
+		}
 
-	// Take the snapshot while holding the lock, before launching the goroutine,
-	// so the background goroutine cannot mutate exp while we're reading it.
-	snapshot := cloneExperiment(exp)
-	b.mu.Unlock()
+		// Take the snapshot while holding the lock, before launching the goroutine,
+		// so the background goroutine cannot mutate exp while we're reading it.
+		snapshot = cloneExperiment(exp)
+	}()
 
 	// Run the experiment lifecycle in the background.
 	go b.runExperiment(expCtx, id, tplForRun)
@@ -190,32 +193,40 @@ func (b *InMemoryBackend) GetExperiment(id string) (*Experiment, error) {
 
 // StopExperiment stops a running experiment.
 func (b *InMemoryBackend) StopExperiment(id string) (*Experiment, error) {
-	b.mu.Lock("StopExperiment")
+	var lockErr error
+	var snap *Experiment
 
-	exp, ok := b.experiments.Get(id)
-	if !ok {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("StopExperiment")
+		defer b.mu.Unlock()
 
-		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, id)
+		exp, ok := b.experiments.Get(id)
+		if !ok {
+			lockErr = fmt.Errorf("%w: %s", ErrExperimentNotFound, id)
+
+			return
+		}
+
+		s := exp.Status.Status
+		if s != statusPending && s != statusInitiating && s != statusRunning && s != statusCompleting {
+			lockErr = fmt.Errorf("%w: %s", ErrExperimentNotRunning, id)
+
+			return
+		}
+
+		// Signal the background goroutine to stop.
+		if exp.cancel != nil {
+			exp.cancel()
+		}
+
+		// Immediately reflect the transition to stopping in the response.
+		exp.Status = ExperimentStatus{Status: statusStopping}
+
+		snap = cloneExperiment(exp)
+	}()
+	if lockErr != nil {
+		return nil, lockErr
 	}
-
-	s := exp.Status.Status
-	if s != statusPending && s != statusInitiating && s != statusRunning && s != statusCompleting {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: %s", ErrExperimentNotRunning, id)
-	}
-
-	// Signal the background goroutine to stop.
-	if exp.cancel != nil {
-		exp.cancel()
-	}
-
-	// Immediately reflect the transition to stopping in the response.
-	exp.Status = ExperimentStatus{Status: statusStopping}
-
-	snap := cloneExperiment(exp)
-	b.mu.Unlock()
 
 	return snap, nil
 }
@@ -644,6 +655,7 @@ func (b *InMemoryBackend) cleanupActions(faultRules []chaos.FaultRule, expID, ex
 
 	now := time.Now()
 	b.mu.Lock("cleanupActions")
+	defer b.mu.Unlock()
 
 	if exp, ok := b.experiments.Get(expID); ok {
 		exp.Status = ExperimentStatus{Status: expStatus}
@@ -661,8 +673,6 @@ func (b *InMemoryBackend) cleanupActions(faultRules []chaos.FaultRule, expID, ex
 			exp.cancel()
 		}
 	}
-
-	b.mu.Unlock()
 }
 
 // setExperimentStatus atomically updates an experiment's status.

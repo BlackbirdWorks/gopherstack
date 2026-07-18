@@ -108,16 +108,23 @@ func (b *InMemoryBackend) CreateExportTask(
 		CompletionTime:      0,
 	}
 
-	b.mu.Lock("CreateExportTask")
-	if b.exportTasks.Len() >= maxExportTasks {
-		b.mu.Unlock()
+	var limitErr error
+	var sink ExportSink
+	func() {
+		b.mu.Lock("CreateExportTask")
+		defer b.mu.Unlock()
+		if b.exportTasks.Len() >= maxExportTasks {
+			limitErr = fmt.Errorf("%w: export task limit exceeded", ErrValidation)
 
-		return "", fmt.Errorf("%w: export task limit exceeded", ErrValidation)
+			return
+		}
+
+		b.exportTasks.Put(task)
+		sink = b.exportSink
+	}()
+	if limitErr != nil {
+		return "", limitErr
 	}
-
-	b.exportTasks.Put(task)
-	sink := b.exportSink
-	b.mu.Unlock()
 
 	if sink != nil {
 		b.finishExport(task)

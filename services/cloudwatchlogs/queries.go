@@ -189,14 +189,18 @@ func (b *InMemoryBackend) StartQuery(
 	// query. This prevents regex matching and sorting from holding the lock while
 	// still delivering a consistent snapshot. collectQueryEvents already returns a
 	// freshly allocated slice of pointers, so no additional copy is needed.
-	b.mu.RLock("StartQuery")
-	allEvents, recordsScanned, bytesScanned := b.collectQueryEvents(
-		region,
-		logGroupNames,
-		startTime,
-		endTime,
-	)
-	b.mu.RUnlock()
+	var allEvents []*OutputLogEvent
+	var recordsScanned, bytesScanned float64
+	func() {
+		b.mu.RLock("StartQuery")
+		defer b.mu.RUnlock()
+		allEvents, recordsScanned, bytesScanned = b.collectQueryEvents(
+			region,
+			logGroupNames,
+			startTime,
+			endTime,
+		)
+	}()
 
 	// Execute the query outside the lock — regex matching and sorting can be non-trivial.
 	results := executeQuery(q, allEvents)
