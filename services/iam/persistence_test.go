@@ -307,7 +307,7 @@ func Test_HandlerPersistence_RoundTrip(t *testing.T) {
 	assert.Contains(t, listKeysRec.Body.String(), "keyholder")
 }
 
-func TestNewOps_PersistenceRoundTrip(t *testing.T) {
+func TestPolicyVersionPersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := iam.NewInMemoryBackend()
