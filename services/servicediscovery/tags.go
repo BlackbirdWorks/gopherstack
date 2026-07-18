@@ -1,0 +1,78 @@
+package servicediscovery
+
+import (
+	"fmt"
+	"maps"
+)
+
+// ListTagsForResource returns tags for a resource ARN (namespace or service).
+func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	if nsMatches := b.namespacesByARN.Get(arn); len(nsMatches) > 0 {
+		return copyTags(nsMatches[0].Tags), nil
+	}
+
+	if svcMatches := b.servicesByARN.Get(arn); len(svcMatches) > 0 {
+		return copyTags(svcMatches[0].Tags), nil
+	}
+
+	return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
+}
+
+// TagResource adds tags to a resource (namespace or service).
+func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	if nsMatches := b.namespacesByARN.Get(arn); len(nsMatches) > 0 {
+		ns := nsMatches[0]
+		if ns.Tags == nil {
+			ns.Tags = make(map[string]string)
+		}
+
+		maps.Copy(ns.Tags, tags)
+
+		return nil
+	}
+
+	if svcMatches := b.servicesByARN.Get(arn); len(svcMatches) > 0 {
+		svc := svcMatches[0]
+		if svc.Tags == nil {
+			svc.Tags = make(map[string]string)
+		}
+
+		maps.Copy(svc.Tags, tags)
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
+}
+
+// UntagResource removes tags from a resource (namespace or service).
+func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	if nsMatches := b.namespacesByARN.Get(arn); len(nsMatches) > 0 {
+		ns := nsMatches[0]
+		for _, k := range tagKeys {
+			delete(ns.Tags, k)
+		}
+
+		return nil
+	}
+
+	if svcMatches := b.servicesByARN.Get(arn); len(svcMatches) > 0 {
+		svc := svcMatches[0]
+		for _, k := range tagKeys {
+			delete(svc.Tags, k)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
+}
