@@ -179,3 +179,34 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	require.Len(t, channels, 1)
 	assert.Equal(t, "ch1", channels[0].Name)
 }
+
+// TestInMemoryBackend_PersistenceRoundTrip is a lighter-weight companion to
+// TestInMemoryBackend_SnapshotRestore_FullState: it seeds one of each resource family via the
+// AddXInternal test helpers (rather than driving every field through Create*) and checks only
+// the per-family counts plus one representative field round-trip.
+func TestInMemoryBackend_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := iotanalytics.NewInMemoryBackend()
+	b.AddChannelInternal("saved_ch")
+	b.AddDatastoreInternal("saved_ds")
+	b.AddDatasetInternal("saved_set")
+	b.AddPipelineInternal("saved_pipe")
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+	require.NotEmpty(t, snap)
+
+	b2 := iotanalytics.NewInMemoryBackend()
+	err := b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, iotanalytics.ChannelCount(b2))
+	assert.Equal(t, 1, iotanalytics.DatastoreCount(b2))
+	assert.Equal(t, 1, iotanalytics.DatasetCount(b2))
+	assert.Equal(t, 1, iotanalytics.PipelineCount(b2))
+
+	ch, err := b2.DescribeChannel("saved_ch")
+	require.NoError(t, err)
+	assert.Equal(t, "saved_ch", ch.Name)
+}
