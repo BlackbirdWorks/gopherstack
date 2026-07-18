@@ -16,7 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
-func makeParityRequest(
+func makeHandlerJSONRequest(
 	t *testing.T,
 	h *dynamodb.DynamoDBHandler,
 	target string,
@@ -37,7 +37,7 @@ func makeParityRequest(
 	return w
 }
 
-func TestParity_Query_ConsistentRead_GSI_Rejected(t *testing.T) {
+func TestQuery_ConsistentRead_GSI_Rejected(t *testing.T) {
 	t.Parallel()
 
 	type queryBody struct {
@@ -136,17 +136,17 @@ func TestParity_Query_ConsistentRead_GSI_Rejected(t *testing.T) {
 			h := dynamodb.NewHandler(db)
 
 			// Create table with GSI.
-			w := makeParityRequest(t, h, "DynamoDB_20120810.CreateTable", createTableBody)
+			w := makeHandlerJSONRequest(t, h, "DynamoDB_20120810.CreateTable", createTableBody)
 			require.Equal(t, http.StatusOK, w.Code, "CreateTable failed: %s", w.Body.String())
 
 			// Put an item.
-			w = makeParityRequest(t, h, "DynamoDB_20120810.PutItem", putItemBody)
+			w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.PutItem", putItemBody)
 			require.Equal(t, http.StatusOK, w.Code, "PutItem failed: %s", w.Body.String())
 
 			// Execute query.
 			queryRaw, marshalErr := json.Marshal(tc.query)
 			require.NoError(t, marshalErr)
-			w = makeParityRequest(t, h, "DynamoDB_20120810.Query", queryRaw)
+			w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.Query", queryRaw)
 
 			assert.Equal(t, tc.wantStatus, w.Code)
 			for _, want := range tc.wantBodyContains {
@@ -156,8 +156,8 @@ func TestParity_Query_ConsistentRead_GSI_Rejected(t *testing.T) {
 	}
 }
 
-// parityMarshal marshals v to JSON bytes for use with makeParityRequest.
-func parityMarshal(t *testing.T, v any) []byte {
+// marshalJSONBody marshals v to JSON bytes for use with makeHandlerJSONRequest.
+func marshalJSONBody(t *testing.T, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
@@ -169,7 +169,7 @@ func parityMarshal(t *testing.T, v any) []byte {
 func lsiTableBody(t *testing.T, tableName string) []byte {
 	t.Helper()
 
-	return parityMarshal(t, map[string]any{
+	return marshalJSONBody(t, map[string]any{
 		"TableName": tableName,
 		"KeySchema": []map[string]any{
 			{"AttributeName": "pk", "KeyType": "HASH"},
@@ -194,18 +194,18 @@ func lsiTableBody(t *testing.T, tableName string) []byte {
 	})
 }
 
-// TestParity_PutItem_ItemCollectionMetrics_PKOnly verifies that
+// TestPutItem_ItemCollectionMetrics_PKOnly verifies that
 // ItemCollectionMetrics.ItemCollectionKey contains only the partition key
 // attribute, not the full item or the sort key.
-func TestParity_PutItem_ItemCollectionMetrics_PKOnly(t *testing.T) {
+func TestPutItem_ItemCollectionMetrics_PKOnly(t *testing.T) {
 	t.Parallel()
 
 	h := dynamodb.NewHandler(dynamodb.NewInMemoryDB())
 
-	w := makeParityRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "coll-tbl"))
+	w := makeHandlerJSONRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "coll-tbl"))
 	require.Equal(t, http.StatusOK, w.Code)
 
-	w = makeParityRequest(t, h, "DynamoDB_20120810.PutItem", parityMarshal(t, map[string]any{
+	w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.PutItem", marshalJSONBody(t, map[string]any{
 		"TableName": "coll-tbl",
 		"Item": map[string]any{
 			"pk":     map[string]any{"S": "user1"},
@@ -239,16 +239,16 @@ func TestParity_PutItem_ItemCollectionMetrics_PKOnly(t *testing.T) {
 	assert.GreaterOrEqual(t, out.ItemCollectionMetrics.SizeEstimateRangeGB[0], 0.0)
 }
 
-// TestParity_PutItem_LSI_NormalItemSucceeds verifies that normal-sized PutItem
+// TestPutItem_LSI_NormalItemSucceeds verifies that normal-sized PutItem
 // on an LSI table does not falsely trigger the collection size limit.
-func TestParity_PutItem_LSI_NormalItemSucceeds(t *testing.T) {
+func TestPutItem_LSI_NormalItemSucceeds(t *testing.T) {
 	t.Parallel()
 
 	h := dynamodb.NewHandler(dynamodb.NewInMemoryDB())
-	w := makeParityRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "lsi-ok-tbl"))
+	w := makeHandlerJSONRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "lsi-ok-tbl"))
 	require.Equal(t, http.StatusOK, w.Code)
 
-	w = makeParityRequest(t, h, "DynamoDB_20120810.PutItem", parityMarshal(t, map[string]any{
+	w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.PutItem", marshalJSONBody(t, map[string]any{
 		"TableName": "lsi-ok-tbl",
 		"Item": map[string]any{
 			"pk":     map[string]any{"S": "user1"},
@@ -261,7 +261,7 @@ func TestParity_PutItem_LSI_NormalItemSucceeds(t *testing.T) {
 		"normal-sized item in LSI table must succeed without triggering size limit")
 }
 
-// icmResult is the decoded ItemCollectionMetrics shape used by the parity tests.
+// icmResult is the decoded ItemCollectionMetrics shape used by these tests.
 type icmResult struct {
 	ItemCollectionMetrics *struct {
 		ItemCollectionKey   map[string]any `json:"ItemCollectionKey"`
@@ -269,16 +269,16 @@ type icmResult struct {
 	} `json:"ItemCollectionMetrics"`
 }
 
-// TestParity_DeleteUpdate_ItemCollectionMetrics verifies that DeleteItem and
+// TestDeleteUpdate_ItemCollectionMetrics verifies that DeleteItem and
 // UpdateItem on an LSI table return ItemCollectionMetrics with a partition-key-only
 // ItemCollectionKey and a non-negative size estimate (and that non-LSI tables omit
 // the metrics entirely).
-func TestParity_DeleteUpdate_ItemCollectionMetrics(t *testing.T) {
+func TestDeleteUpdate_ItemCollectionMetrics(t *testing.T) {
 	t.Parallel()
 
 	h := dynamodb.NewHandler(dynamodb.NewInMemoryDB())
 
-	w := makeParityRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "icm-tbl"))
+	w := makeHandlerJSONRequest(t, h, "DynamoDB_20120810.CreateTable", lsiTableBody(t, "icm-tbl"))
 	require.Equal(t, http.StatusOK, w.Code)
 
 	item := map[string]any{
@@ -287,7 +287,7 @@ func TestParity_DeleteUpdate_ItemCollectionMetrics(t *testing.T) {
 		"lsi_sk": map[string]any{"S": "lsi1"},
 		"data":   map[string]any{"S": "extra"},
 	}
-	w = makeParityRequest(t, h, "DynamoDB_20120810.PutItem", parityMarshal(t, map[string]any{
+	w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.PutItem", marshalJSONBody(t, map[string]any{
 		"TableName": "icm-tbl", "Item": item,
 	}))
 	require.Equal(t, http.StatusOK, w.Code)
@@ -298,7 +298,7 @@ func TestParity_DeleteUpdate_ItemCollectionMetrics(t *testing.T) {
 	}
 
 	// UpdateItem returns metrics keyed by the partition key only.
-	w = makeParityRequest(t, h, "DynamoDB_20120810.UpdateItem", parityMarshal(t, map[string]any{
+	w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.UpdateItem", marshalJSONBody(t, map[string]any{
 		"TableName":                   "icm-tbl",
 		"Key":                         key,
 		"UpdateExpression":            "SET #d = :v",
@@ -317,7 +317,7 @@ func TestParity_DeleteUpdate_ItemCollectionMetrics(t *testing.T) {
 	assert.GreaterOrEqual(t, upd.ItemCollectionMetrics.SizeEstimateRangeGB[0], 0.0)
 
 	// DeleteItem likewise returns partition-key-only metrics.
-	w = makeParityRequest(t, h, "DynamoDB_20120810.DeleteItem", parityMarshal(t, map[string]any{
+	w = makeHandlerJSONRequest(t, h, "DynamoDB_20120810.DeleteItem", marshalJSONBody(t, map[string]any{
 		"TableName":                   "icm-tbl",
 		"Key":                         key,
 		"ReturnItemCollectionMetrics": "SIZE",

@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
@@ -573,4 +574,76 @@ func TestScan_SelectConstraints_Rejected(t *testing.T) {
 			assert.Contains(t, err.Error(), "ValidationException")
 		})
 	}
+}
+
+func TestScan_SegmentValidation_InvalidTotalSegments(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "SegTable")
+
+	_, err := db.Scan(ctx, &dynamodb_sdk.ScanInput{
+		TableName:     aws.String("SegTable"),
+		TotalSegments: aws.Int32(0), // invalid: must be ≥ 1
+		Segment:       aws.Int32(0),
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestScan_SegmentValidation_SegmentOutOfRange(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "SegTable2")
+
+	_, err := db.Scan(ctx, &dynamodb_sdk.ScanInput{
+		TableName:     aws.String("SegTable2"),
+		TotalSegments: aws.Int32(3),
+		Segment:       aws.Int32(3), // invalid: must be < TotalSegments
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestScan_SegmentValidation_Valid(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "SegTable3")
+
+	_, err := db.Scan(ctx, &dynamodb_sdk.ScanInput{
+		TableName:     aws.String("SegTable3"),
+		TotalSegments: aws.Int32(4),
+		Segment:       aws.Int32(2),
+	})
+	if err != nil {
+		t.Fatalf("expected valid segment scan to succeed, got: %v", err)
+	}
+}
+
+func TestScan_SegmentValidation_TooHighTotalSegments(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "SegTable4")
+
+	_, err := db.Scan(ctx, &dynamodb_sdk.ScanInput{
+		TableName:     aws.String("SegTable4"),
+		TotalSegments: aws.Int32(1_000_001),
+		Segment:       aws.Int32(0),
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestValidateScanSegment_MaxSegments(t *testing.T) {
+	t.Parallel()
+	err := dynamodb.ValidateScanSegment(0, 1_000_000)
+	if err != nil {
+		t.Fatalf("max allowed TotalSegments should be valid: %v", err)
+	}
+}
+
+func TestValidateScanSegment_NegativeSegment(t *testing.T) {
+	t.Parallel()
+	err := dynamodb.ValidateScanSegment(-1, 5)
+	assertErrorCode(t, err, "ValidationException")
 }

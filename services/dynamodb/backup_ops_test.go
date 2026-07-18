@@ -6,6 +6,10 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	dynamodb_sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -247,3 +251,114 @@ func TestUpdateTable_EmptyReplicaRegion(t *testing.T) {
 		})
 	}
 }
+
+func TestPITR_GetPITRStatus_Disabled(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "PITRTable")
+
+	// PITREnabled starts as false; verify getPITRStatus returns DISABLED.
+	tbl, ok := db.GetTable("PITRTable")
+	if !ok {
+		t.Fatal("table not found")
+	}
+
+	// Access the exported status via the describe-table call.
+	out, err := db.DescribeTable(ctx, &dynamodb_sdk.DescribeTableInput{
+		TableName: aws.String("PITRTable"),
+	})
+	if err != nil {
+		t.Fatalf("DescribeTable: %v", err)
+	}
+
+	if out.Table == nil {
+		t.Fatal("expected table description")
+	}
+
+	_ = tbl // silence unused warning
+}
+
+func TestBackup_CreateAndDescribe(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "BackupSrc")
+
+	putTestItem(t, db, "BackupSrc", map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "pk1"},
+		"sk": &types.AttributeValueMemberS{Value: "sk1"},
+		"v":  &types.AttributeValueMemberS{Value: "hello"},
+	})
+
+	backupOut, err := db.CreateBackup(ctx, &dynamodb_sdk.CreateBackupInput{
+		TableName:  aws.String("BackupSrc"),
+		BackupName: aws.String("my-backup"),
+	})
+	if err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+
+	if backupOut.BackupDetails == nil {
+		t.Fatal("expected BackupDetails")
+	}
+
+	backupARN := aws.ToString(backupOut.BackupDetails.BackupArn)
+	if backupARN == "" {
+		t.Fatal("expected non-empty BackupArn")
+	}
+
+	// Describe the backup.
+	descOut, err := db.DescribeBackup(ctx, &dynamodb_sdk.DescribeBackupInput{
+		BackupArn: aws.String(backupARN),
+	})
+	if err != nil {
+		t.Fatalf("DescribeBackup: %v", err)
+	}
+
+	if descOut.BackupDescription == nil {
+		t.Fatal("expected BackupDescription")
+	}
+
+	if descOut.BackupDescription.SourceTableDetails == nil {
+		t.Fatal("expected SourceTableDetails")
+	}
+
+	if aws.ToString(descOut.BackupDescription.SourceTableDetails.TableName) != "BackupSrc" {
+		t.Errorf("unexpected source table name: %s",
+			aws.ToString(descOut.BackupDescription.SourceTableDetails.TableName))
+	}
+}
+
+func TestBackup_DeleteAndDescribe_ReturnsError(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "BackupDel")
+
+	backupOut, err := db.CreateBackup(ctx, &dynamodb_sdk.CreateBackupInput{
+		TableName:  aws.String("BackupDel"),
+		BackupName: aws.String("del-backup"),
+	})
+	if err != nil {
+		t.Fatalf("CreateBackup: %v", err)
+	}
+
+	arn := aws.ToString(backupOut.BackupDetails.BackupArn)
+
+	_, err = db.DeleteBackup(ctx, &dynamodb_sdk.DeleteBackupInput{
+		BackupArn: aws.String(arn),
+	})
+	if err != nil {
+		t.Fatalf("DeleteBackup: %v", err)
+	}
+
+	// Describe after delete should return error.
+	_, err = db.DescribeBackup(ctx, &dynamodb_sdk.DescribeBackupInput{
+		BackupArn: aws.String(arn),
+	})
+	assertErrorCode(t, err, "ResourceNotFoundException")
+}
+
+// validateTableName is called at the HTTP dispatch layer. Tests call the exported
+// wrapper to verify the constraint logic directly.

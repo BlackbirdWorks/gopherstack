@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDynamoDB_ExtraTypes(t *testing.T) {
+func TestAllAttributeTypes_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -50,7 +50,7 @@ func TestDynamoDB_ExtraTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			db := dynamodb.NewInMemoryDB()
-			tableName := "ExtraTypesTable"
+			tableName := "AllAttrTypesTable"
 			createTableHelper(t, db, tableName, "pk")
 
 			sdkInputItem, err := models.ToSDKItem(tt.item)
@@ -82,7 +82,7 @@ func TestDynamoDB_ExtraTypes(t *testing.T) {
 	}
 }
 
-func TestDynamoDB_TTL_Operations(t *testing.T) {
+func TestTTLOperations_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -133,7 +133,7 @@ func TestDynamoDB_TTL_Operations(t *testing.T) {
 	}
 }
 
-func TestDynamoDB_Transaction_Operations(t *testing.T) {
+func TestTransactionOperations_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

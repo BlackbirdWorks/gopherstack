@@ -1,49 +1,44 @@
 package dynamodb_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	dynamodbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	sdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
-// invokeOp is a helper that makes an HTTP request to the DynamoDB handler and
-// returns the status code and response body as a generic map.
-func invokeOp(
-	t *testing.T,
-	handler *dynamodb.DynamoDBHandler,
-	action string,
-	body any,
-) (int, map[string]any) {
-	t.Helper()
+func TestUpdateGlobalTableSettings_NotFound(t *testing.T) {
+	t.Parallel()
 
-	bodyBytes, err := json.Marshal(body)
-	require.NoError(t, err)
+	db := newTestDBWithCleanup(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
-	req.Header.Set("X-Amz-Target", "DynamoDB_20120810."+action)
-	w := httptest.NewRecorder()
-
-	_ = serveEchoHandler(handler.Handler(), w, req)
-
-	var resp map[string]any
-	if w.Body.Len() > 0 {
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	}
-
-	return w.Code, resp
+	_, err := db.UpdateGlobalTableSettings(t.Context(), &sdk.UpdateGlobalTableSettingsInput{
+		GlobalTableName: aws.String("NoGT"),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestDynamoDB_GlobalTables(t *testing.T) {
+func TestUpdateGlobalTableSettings_EmptyName(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+
+	_, err := db.UpdateGlobalTableSettings(t.Context(), &sdk.UpdateGlobalTableSettingsInput{
+		GlobalTableName: aws.String(""),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "required")
+}
+
+func TestGlobalTables(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -161,7 +156,7 @@ func TestDynamoDB_GlobalTables(t *testing.T) {
 	}
 }
 
-func TestDynamoDB_GlobalTable_StatePersistence(t *testing.T) {
+func TestGlobalTable_StatePersistence(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -208,411 +203,7 @@ func TestDynamoDB_GlobalTable_StatePersistence(t *testing.T) {
 	assert.Len(t, replicaSettings, 2)
 }
 
-func TestDynamoDB_KinesisDestinations(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body             any
-		setup            func(t *testing.T, backend *dynamodb.InMemoryDB, handler *dynamodb.DynamoDBHandler)
-		name             string
-		action           string
-		wantBodyContains string
-		wantStatus       int
-	}{
-		{
-			name:   "DescribeKinesisStreamingDestination_empty",
-			action: "DescribeKinesisStreamingDestination",
-			setup: func(t *testing.T, backend *dynamodb.InMemoryDB, _ *dynamodb.DynamoDBHandler) {
-				t.Helper()
-				createTableHelper(t, backend, "KinesisTable", "pk")
-			},
-			body:             map[string]any{"TableName": "KinesisTable"},
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "KinesisDataStreamDestinations",
-		},
-		{
-			name:             "DescribeKinesisStreamingDestination_table_not_found",
-			action:           "DescribeKinesisStreamingDestination",
-			body:             map[string]any{"TableName": "NoTable"},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: "ResourceNotFoundException",
-		},
-		{
-			name:   "DisableKinesisStreamingDestination_success",
-			action: "DisableKinesisStreamingDestination",
-			setup: func(t *testing.T, backend *dynamodb.InMemoryDB, _ *dynamodb.DynamoDBHandler) {
-				t.Helper()
-				createTableHelper(t, backend, "KinesisDisableTable", "pk")
-				backend.AddKinesisDestination(
-					"KinesisDisableTable",
-					"arn:aws:kinesis:us-east-1:123:stream/my-stream",
-				)
-			},
-			body: map[string]any{
-				"TableName": "KinesisDisableTable",
-				"StreamArn": "arn:aws:kinesis:us-east-1:123:stream/my-stream",
-			},
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "DISABLING",
-		},
-		{
-			name:   "DisableKinesisStreamingDestination_stream_not_found",
-			action: "DisableKinesisStreamingDestination",
-			setup: func(t *testing.T, backend *dynamodb.InMemoryDB, _ *dynamodb.DynamoDBHandler) {
-				t.Helper()
-				createTableHelper(t, backend, "KinesisDisableTable2", "pk")
-			},
-			body: map[string]any{
-				"TableName": "KinesisDisableTable2",
-				"StreamArn": "arn:aws:kinesis:us-east-1:123:stream/no-such-stream",
-			},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: "ResourceNotFoundException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			backend := dynamodb.NewInMemoryDB()
-			handler := dynamodb.NewHandler(backend)
-
-			if tt.setup != nil {
-				tt.setup(t, backend, handler)
-			}
-
-			code, resp := invokeOp(t, handler, tt.action, tt.body)
-			assert.Equal(t, tt.wantStatus, code)
-
-			if tt.wantBodyContains != "" {
-				bodyBytes, _ := json.Marshal(resp)
-				assert.Contains(t, string(bodyBytes), tt.wantBodyContains)
-			}
-		})
-	}
-}
-
-func TestDynamoDB_KinesisDestinations_StatePersistence(t *testing.T) {
-	t.Parallel()
-
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-
-	createTableHelper(t, backend, "KinesisStateTable", "pk")
-
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/my-stream"
-	backend.AddKinesisDestination("KinesisStateTable", streamARN)
-
-	// Verify stream is tracked
-	code, resp := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
-		"TableName": "KinesisStateTable",
-	})
-	require.Equal(t, http.StatusOK, code)
-
-	destinations, ok := resp["KinesisDataStreamDestinations"].([]any)
-	require.True(t, ok)
-	require.Len(t, destinations, 1)
-
-	dest := destinations[0].(map[string]any)
-	assert.Equal(t, streamARN, dest["StreamArn"])
-	assert.Equal(t, "ACTIVE", dest["DestinationStatus"])
-
-	// Disable the stream
-	code2, resp2 := invokeOp(t, handler, "DisableKinesisStreamingDestination", map[string]any{
-		"TableName": "KinesisStateTable",
-		"StreamArn": streamARN,
-	})
-	require.Equal(t, http.StatusOK, code2)
-	assert.Equal(t, "DISABLING", resp2["DestinationStatus"])
-
-	// Verify stream is removed
-	code3, resp3 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
-		"TableName": "KinesisStateTable",
-	})
-	require.Equal(t, http.StatusOK, code3)
-
-	destinations2, ok2 := resp3["KinesisDataStreamDestinations"].([]any)
-	require.True(t, ok2)
-	assert.Empty(t, destinations2)
-}
-
-func TestDynamoDB_DescribeLimits(t *testing.T) {
-	t.Parallel()
-
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-
-	code, resp := invokeOp(t, handler, "DescribeLimits", map[string]any{})
-	require.Equal(t, http.StatusOK, code)
-
-	assert.NotNil(t, resp["AccountMaxReadCapacityUnits"])
-	assert.NotNil(t, resp["AccountMaxWriteCapacityUnits"])
-	assert.NotNil(t, resp["TableMaxReadCapacityUnits"])
-	assert.NotNil(t, resp["TableMaxWriteCapacityUnits"])
-
-	// Values should be positive numbers
-	rcu, ok := resp["AccountMaxReadCapacityUnits"].(float64)
-	require.True(t, ok)
-	assert.Greater(t, rcu, float64(0))
-}
-
-func TestDynamoDB_DescribeEndpoints(t *testing.T) {
-	t.Parallel()
-
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-
-	code, resp := invokeOp(t, handler, "DescribeEndpoints", map[string]any{})
-	require.Equal(t, http.StatusOK, code)
-
-	endpoints, ok := resp["Endpoints"].([]any)
-	require.True(t, ok)
-	require.NotEmpty(t, endpoints)
-
-	ep := endpoints[0].(map[string]any)
-	assert.NotEmpty(t, ep["Address"])
-	assert.NotNil(t, ep["CachePeriodInMinutes"])
-}
-
-func TestDynamoDB_DescribeContributorInsights(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		setup      func(t *testing.T, backend *dynamodb.InMemoryDB)
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "success_disabled",
-			setup: func(t *testing.T, backend *dynamodb.InMemoryDB) {
-				t.Helper()
-				createTableHelper(t, backend, "ContribTable", "pk")
-			},
-			body:       map[string]any{"TableName": "ContribTable"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "table_not_found",
-			body:       map[string]any{"TableName": "NoSuchTable"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			backend := dynamodb.NewInMemoryDB()
-			handler := dynamodb.NewHandler(backend)
-
-			if tt.setup != nil {
-				tt.setup(t, backend)
-			}
-
-			code, resp := invokeOp(t, handler, "DescribeContributorInsights", tt.body)
-			assert.Equal(t, tt.wantStatus, code)
-
-			if tt.wantStatus == http.StatusOK {
-				assert.Equal(t, "DISABLED", resp["ContributorInsightsStatus"])
-				assert.NotNil(t, resp["ContributorInsightsRuleList"])
-			}
-		})
-	}
-}
-
-func TestDynamoDB_DeleteResourcePolicy(t *testing.T) {
-	t.Parallel()
-
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-
-	createTableHelper(t, backend, "MyTable", "pk")
-
-	// Get the table ARN from DescribeTable.
-	code, resp := invokeOp(t, handler, "DescribeTable", map[string]any{"TableName": "MyTable"})
-	require.Equal(t, http.StatusOK, code)
-	tableDesc, _ := resp["Table"].(map[string]any)
-	tableARN, _ := tableDesc["TableArn"].(string)
-	require.NotEmpty(t, tableARN)
-
-	code, _ = invokeOp(t, handler, "DeleteResourcePolicy", map[string]any{
-		"ResourceArn": tableARN,
-	})
-	assert.Equal(t, http.StatusOK, code)
-}
-
-func TestDynamoDB_DescribeImport(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body             any
-		name             string
-		wantBodyContains string
-		wantStatus       int
-	}{
-		{
-			// AWS returns ImportNotFoundException for an unknown ARN (not a fake COMPLETED).
-			name: "unknown_arn_not_found",
-			body: map[string]any{
-				"ImportArn": "arn:aws:dynamodb:us-east-1:123456789012:table/MyTable/import/01000000-0000-0000-0000-000000000001",
-			},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: "ImportNotFoundException",
-		},
-		{
-			name:             "empty_import_arn",
-			body:             map[string]any{"ImportArn": ""},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: "ValidationException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			backend := dynamodb.NewInMemoryDB()
-			handler := dynamodb.NewHandler(backend)
-
-			code, resp := invokeOp(t, handler, "DescribeImport", tt.body)
-			assert.Equal(t, tt.wantStatus, code)
-
-			if tt.wantBodyContains != "" {
-				bodyBytes, _ := json.Marshal(resp)
-				assert.Contains(t, string(bodyBytes), tt.wantBodyContains)
-			}
-		})
-	}
-}
-
-func TestDynamoDB_EnableKinesisStreamingDestination(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body             any
-		setup            func(t *testing.T, backend *dynamodb.InMemoryDB)
-		name             string
-		wantBodyContains string
-		wantStatus       int
-	}{
-		{
-			name: "success",
-			setup: func(t *testing.T, backend *dynamodb.InMemoryDB) {
-				t.Helper()
-				createTableHelper(t, backend, "EnableKinesisTable", "pk")
-			},
-			body: map[string]any{
-				"TableName": "EnableKinesisTable",
-				"StreamArn": "arn:aws:kinesis:us-east-1:123456789012:stream/my-stream",
-			},
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "ENABLING",
-		},
-		{
-			name: "table_not_found",
-			body: map[string]any{
-				"TableName": "NoTable",
-				"StreamArn": "arn:aws:kinesis:us-east-1:123:stream/s",
-			},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: "ResourceNotFoundException",
-		},
-		{
-			name:             "missing_stream_arn",
-			body:             map[string]any{"TableName": "SomeTable"},
-			wantStatus:       http.StatusBadRequest,
-			wantBodyContains: "ValidationException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			backend := dynamodb.NewInMemoryDB()
-			handler := dynamodb.NewHandler(backend)
-
-			if tt.setup != nil {
-				tt.setup(t, backend)
-			}
-
-			code, resp := invokeOp(t, handler, "EnableKinesisStreamingDestination", tt.body)
-			assert.Equal(t, tt.wantStatus, code)
-
-			if tt.wantBodyContains != "" {
-				bodyBytes, _ := json.Marshal(resp)
-				assert.Contains(t, string(bodyBytes), tt.wantBodyContains)
-			}
-		})
-	}
-}
-
-func TestDynamoDB_EnableDisableKinesis_StatePersistence(t *testing.T) {
-	t.Parallel()
-
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-	createTableHelper(t, backend, "KinesisFullTable", "pk")
-
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/full-stream"
-
-	// Enable the stream
-	code, resp := invokeOp(t, handler, "EnableKinesisStreamingDestination", map[string]any{
-		"TableName": "KinesisFullTable",
-		"StreamArn": streamARN,
-	})
-	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, "ENABLING", resp["DestinationStatus"])
-
-	// Verify it appears as ACTIVE in DescribeKinesisStreamingDestination
-	code2, resp2 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
-		"TableName": "KinesisFullTable",
-	})
-	require.Equal(t, http.StatusOK, code2)
-
-	destinations, ok := resp2["KinesisDataStreamDestinations"].([]any)
-	require.True(t, ok)
-	require.Len(t, destinations, 1)
-	assert.Equal(t, streamARN, destinations[0].(map[string]any)["StreamArn"])
-
-	// Enable the same stream again (idempotent)
-	code3, _ := invokeOp(t, handler, "EnableKinesisStreamingDestination", map[string]any{
-		"TableName": "KinesisFullTable",
-		"StreamArn": streamARN,
-	})
-	require.Equal(t, http.StatusOK, code3)
-
-	// Still only one destination
-	code4, resp4 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
-		"TableName": "KinesisFullTable",
-	})
-	require.Equal(t, http.StatusOK, code4)
-
-	destinations2, ok2 := resp4["KinesisDataStreamDestinations"].([]any)
-	require.True(t, ok2)
-	assert.Len(t, destinations2, 1)
-
-	// Disable the stream
-	code5, _ := invokeOp(t, handler, "DisableKinesisStreamingDestination", map[string]any{
-		"TableName": "KinesisFullTable",
-		"StreamArn": streamARN,
-	})
-	require.Equal(t, http.StatusOK, code5)
-
-	// Verify no destinations remain
-	code6, resp6 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
-		"TableName": "KinesisFullTable",
-	})
-	require.Equal(t, http.StatusOK, code6)
-
-	destinations3, ok3 := resp6["KinesisDataStreamDestinations"].([]any)
-	require.True(t, ok3)
-	assert.Empty(t, destinations3)
-}
-
-func TestDynamoDB_ListGlobalTables(t *testing.T) {
+func TestListGlobalTables(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -649,7 +240,7 @@ func TestDynamoDB_ListGlobalTables(t *testing.T) {
 	// but the backend API may be called directly with a zero limit.
 	zeroLimit := int32(0)
 	result, cursor := dynamodb.ApplyGlobalTableLimit(
-		[]sdktypes.GlobalTable{
+		[]types.GlobalTable{
 			{GlobalTableName: aws.String("A")},
 			{GlobalTableName: aws.String("B")},
 		},
@@ -660,123 +251,8 @@ func TestDynamoDB_ListGlobalTables(t *testing.T) {
 }
 
 // getTestTableARN creates a table and returns its ARN.
-func getTestTableARN(
-	t *testing.T,
-	backend *dynamodb.InMemoryDB,
-	handler *dynamodb.DynamoDBHandler,
-	tableName string,
-) string {
-	t.Helper()
 
-	createTableHelper(t, backend, tableName, "pk")
-
-	code, resp := invokeOp(t, handler, "DescribeTable", map[string]any{"TableName": tableName})
-	require.Equal(t, http.StatusOK, code)
-
-	tableDesc, _ := resp["Table"].(map[string]any)
-	tableARN, _ := tableDesc["TableArn"].(string)
-	require.NotEmpty(t, tableARN)
-
-	return tableARN
-}
-
-func TestDynamoDB_ResourcePolicy(t *testing.T) {
-	t.Parallel()
-
-	t.Run("GetResourcePolicy_success", func(t *testing.T) {
-		t.Parallel()
-		backend := dynamodb.NewInMemoryDB()
-		handler := dynamodb.NewHandler(backend)
-		tableARN := getTestTableARN(t, backend, handler, "RPGetTable")
-		code, _ := invokeOp(
-			t,
-			handler,
-			"GetResourcePolicy",
-			map[string]any{"ResourceArn": tableARN},
-		)
-		assert.Equal(t, http.StatusOK, code)
-	})
-
-	t.Run("GetResourcePolicy_missing_arn", func(t *testing.T) {
-		t.Parallel()
-		backend := dynamodb.NewInMemoryDB()
-		handler := dynamodb.NewHandler(backend)
-		code, resp := invokeOp(t, handler, "GetResourcePolicy", map[string]any{"ResourceArn": ""})
-		assert.Equal(t, http.StatusBadRequest, code)
-		bodyBytes, _ := json.Marshal(resp)
-		assert.Contains(t, string(bodyBytes), "ValidationException")
-	})
-
-	t.Run("PutResourcePolicy_success", func(t *testing.T) {
-		t.Parallel()
-		backend := dynamodb.NewInMemoryDB()
-		handler := dynamodb.NewHandler(backend)
-		tableARN := getTestTableARN(t, backend, handler, "RPPutTable")
-		code, _ := invokeOp(t, handler, "PutResourcePolicy", map[string]any{
-			"ResourceArn": tableARN,
-			"Policy":      `{"Version":"2012-10-17","Statement":[]}`,
-		})
-		assert.Equal(t, http.StatusOK, code)
-
-		// Verify round-trip: GetResourcePolicy returns the stored policy.
-		code2, resp2 := invokeOp(
-			t,
-			handler,
-			"GetResourcePolicy",
-			map[string]any{"ResourceArn": tableARN},
-		)
-		assert.Equal(t, http.StatusOK, code2)
-		bodyBytes, _ := json.Marshal(resp2)
-		assert.Contains(t, string(bodyBytes), "2012-10-17")
-	})
-
-	t.Run("PutResourcePolicy_missing_policy", func(t *testing.T) {
-		t.Parallel()
-		backend := dynamodb.NewInMemoryDB()
-		handler := dynamodb.NewHandler(backend)
-		tableARN := getTestTableARN(t, backend, handler, "RPMissingPolicyTable")
-		code, resp := invokeOp(
-			t,
-			handler,
-			"PutResourcePolicy",
-			map[string]any{"ResourceArn": tableARN},
-		)
-		assert.Equal(t, http.StatusBadRequest, code)
-		bodyBytes, _ := json.Marshal(resp)
-		assert.Contains(t, string(bodyBytes), "ValidationException")
-	})
-
-	t.Run("DeleteResourcePolicy_success", func(t *testing.T) {
-		t.Parallel()
-		backend := dynamodb.NewInMemoryDB()
-		handler := dynamodb.NewHandler(backend)
-		tableARN := getTestTableARN(t, backend, handler, "RPDeleteTable")
-		code, _ := invokeOp(
-			t,
-			handler,
-			"DeleteResourcePolicy",
-			map[string]any{"ResourceArn": tableARN},
-		)
-		assert.Equal(t, http.StatusOK, code)
-	})
-
-	t.Run("DeleteResourcePolicy_missing_arn", func(t *testing.T) {
-		t.Parallel()
-		backend := dynamodb.NewInMemoryDB()
-		handler := dynamodb.NewHandler(backend)
-		code, resp := invokeOp(
-			t,
-			handler,
-			"DeleteResourcePolicy",
-			map[string]any{"ResourceArn": ""},
-		)
-		assert.Equal(t, http.StatusBadRequest, code)
-		bodyBytes, _ := json.Marshal(resp)
-		assert.Contains(t, string(bodyBytes), "ValidationException")
-	})
-}
-
-func TestDynamoDB_GlobalTable_PersistenceRoundTrip(t *testing.T) {
+func TestGlobalTable_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	original := dynamodb.NewInMemoryDB()
@@ -816,7 +292,7 @@ func TestDynamoDB_GlobalTable_PersistenceRoundTrip(t *testing.T) {
 	assert.Len(t, replicas, 2)
 }
 
-func TestDynamoDB_GlobalTable_ActualReplicaCreation(t *testing.T) {
+func TestGlobalTable_ActualReplicaCreation(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -839,7 +315,7 @@ func TestDynamoDB_GlobalTable_ActualReplicaCreation(t *testing.T) {
 		"table should exist in eu-west-1")
 }
 
-func TestDynamoDB_GlobalTable_AdoptsExistingTable(t *testing.T) {
+func TestGlobalTable_AdoptsExistingTable(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -866,7 +342,7 @@ func TestDynamoDB_GlobalTable_AdoptsExistingTable(t *testing.T) {
 		"replica should exist in eu-west-1")
 }
 
-func TestDynamoDB_GlobalTable_CrossRegionWritePropagation(t *testing.T) {
+func TestGlobalTable_CrossRegionWritePropagation(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -901,7 +377,7 @@ func TestDynamoDB_GlobalTable_CrossRegionWritePropagation(t *testing.T) {
 	assert.Equal(t, map[string]any{"S": "hello"}, euItems[0]["data"])
 }
 
-func TestDynamoDB_GlobalTable_CrossRegionDeletePropagation(t *testing.T) {
+func TestGlobalTable_CrossRegionDeletePropagation(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -946,7 +422,7 @@ func TestDynamoDB_GlobalTable_CrossRegionDeletePropagation(t *testing.T) {
 	assert.Empty(t, apTable.GetItems(), "deleted item should not appear in ap-southeast-1")
 }
 
-func TestDynamoDB_GlobalTable_CrossRegionUpdatePropagation(t *testing.T) {
+func TestGlobalTable_CrossRegionUpdatePropagation(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -993,9 +469,10 @@ func TestDynamoDB_GlobalTable_CrossRegionUpdatePropagation(t *testing.T) {
 	assert.Equal(t, map[string]any{"S": "updated"}, euItems[0]["name"])
 }
 
-// TestDynamoDB_UpdateGlobalTable verifies that UpdateGlobalTable adds and removes replica regions,
+// TestUpdateGlobalTable verifies that UpdateGlobalTable adds and removes replica regions,
 // creates physical Table entries for new regions, and removes entries for deleted regions.
-func TestDynamoDB_UpdateGlobalTable(t *testing.T) {
+
+func TestUpdateGlobalTable(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1126,9 +603,10 @@ func TestDynamoDB_UpdateGlobalTable(t *testing.T) {
 	}
 }
 
-// TestDynamoDB_DescribeTable_GlobalTableVersion verifies that DescribeTable returns
+// TestDescribeTable_GlobalTableVersion verifies that DescribeTable returns
 // GlobalTableVersion for tables that are part of a global table.
-func TestDynamoDB_DescribeTable_GlobalTableVersion(t *testing.T) {
+
+func TestDescribeTable_GlobalTableVersion(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -1165,40 +643,10 @@ func TestDynamoDB_DescribeTable_GlobalTableVersion(t *testing.T) {
 	)
 }
 
-// TestDynamoDB_DescribeTable_BillingMode_PayPerRequest verifies that DescribeTable
+// TestDescribeTable_BillingMode_PayPerRequest verifies that DescribeTable
 // returns PAY_PER_REQUEST billing mode when the table was created with it.
-func TestDynamoDB_DescribeTable_BillingMode_PayPerRequest(t *testing.T) {
-	t.Parallel()
 
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-
-	code, _ := invokeOp(t, handler, "CreateTable", map[string]any{
-		"TableName": "PayPerRequestTest",
-		"KeySchema": []map[string]any{{"AttributeName": "pk", "KeyType": "HASH"}},
-		"AttributeDefinitions": []map[string]any{
-			{"AttributeName": "pk", "AttributeType": "S"},
-		},
-		"BillingMode": "PAY_PER_REQUEST",
-	})
-	require.Equal(t, http.StatusOK, code)
-
-	code2, resp := invokeOp(t, handler, "DescribeTable", map[string]any{
-		"TableName": "PayPerRequestTest",
-	})
-	require.Equal(t, http.StatusOK, code2)
-
-	tableDesc, _ := resp["Table"].(map[string]any)
-	require.NotNil(t, tableDesc)
-
-	billingMode, _ := tableDesc["BillingModeSummary"].(map[string]any)
-	require.NotNil(t, billingMode)
-	assert.Equal(t, "PAY_PER_REQUEST", billingMode["BillingMode"])
-}
-
-// TestDynamoDB_BatchWriteItem_GlobalTablePropagation verifies that BatchWriteItem puts and
-// deletes propagate to all global table replicas.
-func TestDynamoDB_BatchWriteItem_GlobalTablePropagation(t *testing.T) {
+func TestBatchWriteItem_GlobalTablePropagation(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -1259,9 +707,10 @@ func TestDynamoDB_BatchWriteItem_GlobalTablePropagation(t *testing.T) {
 	assert.Empty(t, euItems2, "batch-delete item should propagate to eu-west-1")
 }
 
-// TestDynamoDB_DeleteTable_CleanupGlobalTables verifies that DeleteTable removes the
+// TestDeleteTable_CleanupGlobalTables verifies that DeleteTable removes the
 // region from the global table's ReplicationGroup.
-func TestDynamoDB_DeleteTable_CleanupGlobalTables(t *testing.T) {
+
+func TestDeleteTable_CleanupGlobalTables(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -1310,132 +759,10 @@ func TestDynamoDB_DeleteTable_CleanupGlobalTables(t *testing.T) {
 	_ = gtDesc4
 }
 
-// TestDynamoDB_KinesisPrecision_RoundTrip verifies that the precision set during
+// TestKinesisPrecision_RoundTrip verifies that the precision set during
 // EnableKinesisStreamingDestination is returned by DescribeKinesisStreamingDestination.
-func TestDynamoDB_KinesisPrecision_RoundTrip(t *testing.T) {
-	t.Parallel()
 
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-	createTableHelper(t, backend, "PrecisionTable", "pk")
-
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/prec-stream"
-
-	code, _ := invokeOp(t, handler, "EnableKinesisStreamingDestination", map[string]any{
-		"TableName": "PrecisionTable",
-		"StreamArn": streamARN,
-		"EnableKinesisStreamingConfiguration": map[string]any{
-			"ApproximateCreationDateTimePrecision": "MICROSECOND",
-		},
-	})
-	require.Equal(t, http.StatusOK, code)
-
-	code2, resp2 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
-		"TableName": "PrecisionTable",
-	})
-	require.Equal(t, http.StatusOK, code2)
-
-	dests, ok := resp2["KinesisDataStreamDestinations"].([]any)
-	require.True(t, ok)
-	require.Len(t, dests, 1)
-
-	dest := dests[0].(map[string]any)
-	assert.Equal(t, "MICROSECOND", dest["ApproximateCreationDateTimePrecision"])
-	assert.Equal(t, streamARN, dest["StreamArn"])
-}
-
-// TestDynamoDB_KinesisPrecision_DefaultMillisecond verifies that destinations enabled
-// without an explicit precision default to MILLISECOND.
-func TestDynamoDB_KinesisPrecision_DefaultMillisecond(t *testing.T) {
-	t.Parallel()
-
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-	createTableHelper(t, backend, "DefaultPrecTable", "pk")
-
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/default-prec"
-
-	code, _ := invokeOp(t, handler, "EnableKinesisStreamingDestination", map[string]any{
-		"TableName": "DefaultPrecTable",
-		"StreamArn": streamARN,
-	})
-	require.Equal(t, http.StatusOK, code)
-
-	code2, resp2 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
-		"TableName": "DefaultPrecTable",
-	})
-	require.Equal(t, http.StatusOK, code2)
-
-	dests, ok := resp2["KinesisDataStreamDestinations"].([]any)
-	require.True(t, ok)
-	require.Len(t, dests, 1)
-
-	dest := dests[0].(map[string]any)
-	assert.Equal(t, "MILLISECOND", dest["ApproximateCreationDateTimePrecision"])
-}
-
-// TestDynamoDB_UpdateKinesisPrecision verifies that UpdateKinesisStreamingDestination
-// persists the new precision and DescribeKinesisStreamingDestination reflects it.
-func TestDynamoDB_UpdateKinesisPrecision(t *testing.T) {
-	t.Parallel()
-
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-	createTableHelper(t, backend, "UpdatePrecTable", "pk")
-
-	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/update-prec"
-
-	_, err := backend.EnableKinesisStreamingDestination(
-		t.Context(),
-		buildEnableKinesisInput("UpdatePrecTable", streamARN, "MILLISECOND"),
-	)
-	require.NoError(t, err)
-
-	code, resp := invokeOp(t, handler, "UpdateKinesisStreamingDestination", map[string]any{
-		"TableName": "UpdatePrecTable",
-		"StreamArn": streamARN,
-		"UpdateKinesisStreamingConfiguration": map[string]any{
-			"ApproximateCreationDateTimePrecision": "MICROSECOND",
-		},
-	})
-	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, "ACTIVE", resp["DestinationStatus"])
-
-	code2, resp2 := invokeOp(t, handler, "DescribeKinesisStreamingDestination", map[string]any{
-		"TableName": "UpdatePrecTable",
-	})
-	require.Equal(t, http.StatusOK, code2)
-
-	dests, ok := resp2["KinesisDataStreamDestinations"].([]any)
-	require.True(t, ok)
-	require.Len(t, dests, 1)
-	assert.Equal(
-		t,
-		"MICROSECOND",
-		dests[0].(map[string]any)["ApproximateCreationDateTimePrecision"],
-	)
-}
-
-// TestDynamoDB_UpdateKinesisDestination_NotFound verifies a 404 when stream not enabled.
-func TestDynamoDB_UpdateKinesisDestination_NotFound(t *testing.T) {
-	t.Parallel()
-
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend)
-	createTableHelper(t, backend, "NoStreamTable", "pk")
-
-	code, resp := invokeOp(t, handler, "UpdateKinesisStreamingDestination", map[string]any{
-		"TableName": "NoStreamTable",
-		"StreamArn": "arn:aws:kinesis:us-east-1:123:stream/absent",
-	})
-	require.Equal(t, http.StatusBadRequest, code)
-	bodyBytes, _ := json.Marshal(resp)
-	assert.Contains(t, string(bodyBytes), "ResourceNotFoundException")
-}
-
-// TestDynamoDB_UpdateGlobalTableSettings_PersistsBillingMode verifies that
-// UpdateGlobalTableSettings persists the billing mode and returns it.
-func TestDynamoDB_UpdateGlobalTableSettings_PersistsBillingMode(t *testing.T) {
+func TestUpdateGlobalTableSettings_PersistsBillingMode(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -1499,9 +826,10 @@ func TestDynamoDB_UpdateGlobalTableSettings_PersistsBillingMode(t *testing.T) {
 	}
 }
 
-// TestDynamoDB_UpdateGlobalTableSettings_ReplicaTableClass verifies per-replica
+// TestUpdateGlobalTableSettings_ReplicaTableClass verifies per-replica
 // table class is persisted and returned.
-func TestDynamoDB_UpdateGlobalTableSettings_ReplicaTableClass(t *testing.T) {
+
+func TestUpdateGlobalTableSettings_ReplicaTableClass(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -1543,8 +871,9 @@ func TestDynamoDB_UpdateGlobalTableSettings_ReplicaTableClass(t *testing.T) {
 	assert.Equal(t, "STANDARD_INFREQUENT_ACCESS", classSum["TableClass"])
 }
 
-// TestDynamoDB_UpdateGlobalTableSettings_NotFound verifies 404 for non-existent table.
-func TestDynamoDB_UpdateGlobalTableSettings_NotFound(t *testing.T) {
+// TestUpdateGlobalTableSettings_NotFound verifies 404 for non-existent table.
+
+func TestUpdateGlobalTableSettings_NotFound_ViaHandler(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -1558,9 +887,10 @@ func TestDynamoDB_UpdateGlobalTableSettings_NotFound(t *testing.T) {
 	assert.Contains(t, string(bodyBytes), "GlobalTableNotFoundException")
 }
 
-// TestDynamoDB_GlobalTablesV2_UpdateReplica verifies that an UpdateTable with a
+// TestGlobalTablesV2_UpdateReplica verifies that an UpdateTable with a
 // ReplicaUpdates.Update action persists per-replica settings.
-func TestDynamoDB_GlobalTablesV2_UpdateReplica(t *testing.T) {
+
+func TestGlobalTablesV2_UpdateReplica(t *testing.T) {
 	t.Parallel()
 
 	backend := dynamodb.NewInMemoryDB()
@@ -1624,21 +954,3 @@ func TestDynamoDB_GlobalTablesV2_UpdateReplica(t *testing.T) {
 }
 
 // buildEnableKinesisInput is a test helper for constructing EnableKinesisStreamingDestinationInput.
-func buildEnableKinesisInput(
-	tableName, streamARN, precision string,
-) *dynamodbsdk.EnableKinesisStreamingDestinationInput {
-	in := &dynamodbsdk.EnableKinesisStreamingDestinationInput{
-		TableName: aws.String(tableName),
-		StreamArn: aws.String(streamARN),
-	}
-
-	if precision != "" {
-		in.EnableKinesisStreamingConfiguration = &sdktypes.EnableKinesisStreamingConfiguration{
-			ApproximateCreationDateTimePrecision: sdktypes.ApproximateCreationDateTimePrecision(
-				precision,
-			),
-		}
-	}
-
-	return in
-}

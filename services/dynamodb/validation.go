@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -9,6 +10,21 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
+
+const (
+	// maxAttributeNameLength is the maximum allowed length for a DynamoDB attribute name.
+	maxAttributeNameLength = 255
+	// minLeadingZeroCheckLen is the minimum number string length that can have a leading zero.
+	minLeadingZeroCheckLen = 2
+	// minListTablesLimit is the minimum allowed ListTables Limit value.
+	minListTablesLimit = 1
+	// maxListTablesLimit is the maximum allowed ListTables Limit value.
+	maxListTablesLimit = 100
+)
+
+// tableNameRegex matches the AWS DynamoDB table name rules:
+// 3–255 characters, only letters, digits, underscores, hyphens, and dots.
+var tableNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_.\-]{3,255}$`)
 
 // validateSelectConstraints enforces constraints on the Select parameter: its
 // interaction with index projections, with ProjectionExpression/AttributesToGet,
@@ -666,4 +682,156 @@ func containsToken(expr, token string) bool {
 
 func isIdentChar(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+}
+
+// validateAttributeNames checks that no attribute name in the item exceeds 255
+// characters or is empty. Called for PutItem, UpdateItem, and TransactWrite.
+func validateAttributeNames(item map[string]any) error {
+	for name := range item {
+		if name == "" {
+			return NewValidationException("Attribute name must not be empty")
+		}
+
+		if len(name) > maxAttributeNameLength {
+			return NewValidationException(
+				fmt.Sprintf(
+					"Attribute name is too long; maximum is %d characters, got %d",
+					maxAttributeNameLength, len(name),
+				),
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateTableName returns a ValidationException when name does not satisfy the
+// DynamoDB table-name constraints (3–255 chars, alphanumeric/_/./−).
+func validateTableName(name string) error {
+	if !tableNameRegex.MatchString(name) {
+		return NewValidationException(
+			fmt.Sprintf(
+				"Value '%s' at 'tableName' failed to satisfy constraint: "+
+					"Member must satisfy regular expression pattern: [a-zA-Z0-9_.-]{3,255}",
+				name,
+			),
+		)
+	}
+
+	return nil
+}
+
+// validatePutDeleteReturnValues enforces that PutItem and DeleteItem only accept
+// NONE or ALL_OLD. AWS rejects ALL_NEW, UPDATED_OLD, and UPDATED_NEW for these ops.
+func validatePutDeleteReturnValues(rv types.ReturnValue) error {
+	switch rv {
+	case "", types.ReturnValueNone, types.ReturnValueAllOld:
+		return nil
+	case types.ReturnValueUpdatedOld, types.ReturnValueAllNew, types.ReturnValueUpdatedNew:
+		// These are invalid for PutItem/DeleteItem — fall through to error.
+	}
+
+	return NewValidationException(
+		"ReturnValues can only be ALL_OLD or NONE",
+	)
+}
+
+// validateListTablesLimit returns a ValidationException when Limit is outside
+// the allowed range [1, 100]. A nil Limit is valid (defaults to 100).
+func validateListTablesLimit(limit *int32) error {
+	if limit == nil {
+		return nil
+	}
+
+	v := *limit
+	if v < minListTablesLimit || v > maxListTablesLimit {
+		return NewValidationException(
+			fmt.Sprintf(
+				"Value '%d' at 'limit' failed to satisfy constraint: "+
+					"Member must have value greater than or equal to %d",
+				v, minListTablesLimit,
+			),
+		)
+	}
+
+	return nil
+}
+
+// validatePositiveLimit returns a ValidationException when Limit is explicitly
+// set to 0 or a negative number. AWS DynamoDB requires Limit ≥ 1 when provided.
+func validatePositiveLimit(limit *int32) error {
+	if limit == nil {
+		return nil
+	}
+
+	if *limit <= 0 {
+		return NewValidationException(
+			fmt.Sprintf(
+				"Value '%d' at 'limit' failed to satisfy constraint: "+
+					"Member must have value greater than or equal to 1",
+				*limit,
+			),
+		)
+	}
+
+	return nil
+}
+
+// validateSetNoDuplicates returns a ValidationException when a set attribute (SS,
+// NS, or BS) contains duplicate values. AWS DynamoDB enforces set uniqueness.
+func validateSetNoDuplicates(k string, items []any) error {
+	seen := make(map[string]struct{}, len(items))
+
+	for _, item := range items {
+		var key string
+
+		switch v := item.(type) {
+		case string:
+			key = v
+		default:
+			continue
+		}
+
+		if _, exists := seen[key]; exists {
+			return NewValidationException(
+				fmt.Sprintf(
+					"Input collection %s contains duplicates",
+					k,
+				),
+			)
+		}
+
+		seen[key] = struct{}{}
+	}
+
+	return nil
+}
+
+// validateNumberNoLeadingZeros returns a ValidationException when a number string
+// has a meaningless leading zero (like "007", "01.5"). AWS normalizes numbers but
+// rejects canonical representations with leading zeros.
+func validateNumberNoLeadingZeros(k, n string) error {
+	if len(n) < minLeadingZeroCheckLen {
+		return nil
+	}
+
+	// Negative numbers: check after the minus sign.
+	s := n
+	if s[0] == '-' {
+		s = s[1:]
+	}
+
+	// "0" alone is fine; "0.5" is fine (decimal); "01", "007" are not.
+	if len(s) >= minLeadingZeroCheckLen && s[0] == '0' && s[1] != '.' && s[1] != 'e' &&
+		s[1] != 'E' {
+		return NewValidationException(
+			fmt.Sprintf(
+				"The parameter cannot be converted to a numeric value: %s. "+
+					"Key: %s",
+				n, k,
+			),
+		)
+	}
+
+	return nil
 }

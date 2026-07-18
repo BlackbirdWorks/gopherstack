@@ -22,14 +22,14 @@ import (
 
 func TestUpdateItem_AfterBatchWriteInsert_NoPanic(t *testing.T) {
 	t.Parallel()
-	d := b2NewDB(t)
-	b2CreateTable(t, d)
+	d := newBatchTestDB(t)
+	createBatchTestTable(t, d)
 
 	// Insert a brand-new item via BatchWriteItem. This grows table.Items; the
 	// bug left table.itemSizes empty.
 	if _, err := d.BatchWriteItem(context.Background(), &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]types.WriteRequest{
-			b2TableName: {
+			batchTestTableName: {
 				{
 					PutRequest: &types.PutRequest{
 						Item: map[string]types.AttributeValue{
@@ -47,7 +47,7 @@ func TestUpdateItem_AfterBatchWriteInsert_NoPanic(t *testing.T) {
 	// Before the fix this panicked at item_ops_crud.go:817 with
 	// "index out of range [0] with length 0".
 	_, err := d.UpdateItem(context.Background(), &dynamodb.UpdateItemInput{
-		TableName:        aws.String(b2TableName),
+		TableName:        aws.String(batchTestTableName),
 		Key:              map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "k1"}},
 		UpdateExpression: aws.String("SET val = :v"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
@@ -61,12 +61,12 @@ func TestUpdateItem_AfterBatchWriteInsert_NoPanic(t *testing.T) {
 
 func TestPutItem_AfterBatchWriteInsert_NoPanic(t *testing.T) {
 	t.Parallel()
-	d := b2NewDB(t)
-	b2CreateTable(t, d)
+	d := newBatchTestDB(t)
+	createBatchTestTable(t, d)
 
 	if _, err := d.BatchWriteItem(context.Background(), &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]types.WriteRequest{
-			b2TableName: {
+			batchTestTableName: {
 				{
 					PutRequest: &types.PutRequest{
 						Item: map[string]types.AttributeValue{
@@ -82,7 +82,7 @@ func TestPutItem_AfterBatchWriteInsert_NoPanic(t *testing.T) {
 
 	// Overwriting the same key exercises the matchIndex != -1 branch of doPut,
 	// which indexes table.itemSizes[matchIndex].
-	b2PutItem(t, d, map[string]types.AttributeValue{
+	putBatchTestItem(t, d, map[string]types.AttributeValue{
 		"pk":  &types.AttributeValueMemberS{Value: "k1"},
 		"val": &types.AttributeValueMemberS{Value: "overwritten"},
 	})
@@ -90,17 +90,17 @@ func TestPutItem_AfterBatchWriteInsert_NoPanic(t *testing.T) {
 
 func TestUpdateItem_AfterBatchDelete_NoPanic(t *testing.T) {
 	t.Parallel()
-	d := b2NewDB(t)
-	b2CreateTable(t, d)
+	d := newBatchTestDB(t)
+	createBatchTestTable(t, d)
 
 	// Seed two items, then batch-delete one. applyBatchDeletes swap-truncates
 	// Items and must keep itemSizes aligned so the surviving item can be updated.
-	b2PutItem(t, d, map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "a"}})
-	b2PutItem(t, d, map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "b"}})
+	putBatchTestItem(t, d, map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "a"}})
+	putBatchTestItem(t, d, map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "b"}})
 
 	if _, err := d.BatchWriteItem(context.Background(), &dynamodb.BatchWriteItemInput{
 		RequestItems: map[string][]types.WriteRequest{
-			b2TableName: {
+			batchTestTableName: {
 				{
 					DeleteRequest: &types.DeleteRequest{
 						Key: map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "a"}},
@@ -113,7 +113,7 @@ func TestUpdateItem_AfterBatchDelete_NoPanic(t *testing.T) {
 	}
 
 	_, err := d.UpdateItem(context.Background(), &dynamodb.UpdateItemInput{
-		TableName:        aws.String(b2TableName),
+		TableName:        aws.String(batchTestTableName),
 		Key:              map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "b"}},
 		UpdateExpression: aws.String("SET n = :v"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
