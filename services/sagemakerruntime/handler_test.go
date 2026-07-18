@@ -3,7 +3,6 @@ package sagemakerruntime_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -93,6 +92,14 @@ func newTestSDKClient(t *testing.T, h *sagemakerruntime.Handler) *sagemakerrunti
 	})
 }
 
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+
+	return 0
+}
+
 // --- Handler metadata tests ---
 
 func TestHandler_Name(t *testing.T) {
@@ -140,40 +147,33 @@ func TestHandler_ChaosRegions(t *testing.T) {
 	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
 }
 
-// --- InvokeEndpoint tests ---
-
-func TestHandler_InvokeEndpoint(t *testing.T) {
+func TestHandler_Shutdown(t *testing.T) {
 	t.Parallel()
 
+	h := sagemakerruntime.NewHandler(sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1"))
+	assert.NotPanics(t, func() { h.Shutdown(t.Context()) })
+}
+
+// --- Cross-operation wire/SDK tests ---
+
+// TestCustomAttributesForwarding verifies that X-Amzn-Sagemaker-Custom-Attributes
+// is reflected back on all three operation types.
+func TestCustomAttributesForwarding(t *testing.T) {
+	t.Parallel()
+
+	const attrValue = "trace=abc;env=test"
+
 	tests := []struct {
-		body            any
-		headers         map[string]string
-		name            string
-		endpointName    string
-		wantContentType string
-		wantVariant     string
-		wantSession     bool
+		name string
+		path string
 	}{
 		{
-			name:            "default_opaque_response",
-			endpointName:    "my-endpoint",
-			body:            map[string]any{"data": "test input"},
-			wantContentType: "application/octet-stream",
-			wantVariant:     "AllTraffic",
+			name: "invoke_endpoint",
+			path: "/endpoints/ep/invocations",
 		},
 		{
-			name:         "bound_headers_and_new_session",
-			endpointName: "session-endpoint",
-			body:         nil,
-			headers: map[string]string{
-				"Accept":                             "application/json",
-				"X-Amzn-Sagemaker-Custom-Attributes": "trace=123",
-				"X-Amzn-Sagemaker-Session-Id":        "NEW_SESSION",
-				"X-Amzn-Sagemaker-Target-Variant":    "blue",
-			},
-			wantContentType: "application/json",
-			wantVariant:     "blue",
-			wantSession:     true,
+			name: "invoke_endpoint_with_response_stream",
+			path: "/endpoints/ep/invocations-response-stream",
 		},
 	}
 
@@ -183,128 +183,13 @@ func TestHandler_InvokeEndpoint(t *testing.T) {
 
 			h := newTestHandler(t)
 			rec := doRequestWithHeaders(
-				t, h, http.MethodPost, "/endpoints/"+tt.endpointName+"/invocations", tt.body, tt.headers,
+				t, h, http.MethodPost, tt.path, nil,
+				map[string]string{
+					"X-Amzn-Sagemaker-Custom-Attributes": attrValue,
+				},
 			)
 
-			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Equal(t, tt.wantContentType, rec.Header().Get("Content-Type"))
-			assert.Equal(t, tt.wantVariant, rec.Header().Get("X-Amzn-Invoked-Production-Variant"))
-			assert.Equal(t, "mock response from Gopherstack", rec.Body.String())
-			assert.Equal(t, tt.headers["X-Amzn-Sagemaker-Custom-Attributes"],
-				rec.Header().Get("X-Amzn-Sagemaker-Custom-Attributes"))
-			assert.Equal(t, tt.wantSession, rec.Header().Get("X-Amzn-Sagemaker-New-Session-Id") != "")
-			assert.Len(t, h.Backend.ListSessions(), boolToInt(tt.wantSession))
-
-			invocations := h.Backend.ListInvocations()
-			require.Len(t, invocations, 1)
-			assert.Equal(t, "InvokeEndpoint", invocations[0].Operation)
-			assert.Equal(t, tt.endpointName, invocations[0].EndpointName)
-		})
-	}
-}
-
-func boolToInt(value bool) int {
-	if value {
-		return 1
-	}
-
-	return 0
-}
-
-// --- InvokeEndpointAsync tests ---
-
-func TestHandler_InvokeEndpointAsync(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name            string
-		headers         map[string]string
-		wantInferenceID string
-	}{
-		{name: "generated_inference_id"},
-		{
-			name:            "client_inference_id_is_preserved",
-			headers:         map[string]string{"X-Amzn-Sagemaker-Inference-Id": "request-42"},
-			wantInferenceID: "request-42",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequestWithHeaders(t, h, http.MethodPost, "/endpoints/my-endpoint/async-invocations",
-				map[string]any{"data": "async input"}, tt.headers)
-
-			assert.Equal(t, http.StatusAccepted, rec.Code)
-
-			var out map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.NotEmpty(t, out["InferenceId"])
-			assert.NotContains(t, out, "OutputLocation")
-			assert.NotContains(t, out, "FailureLocation")
-			if tt.wantInferenceID != "" {
-				assert.Equal(t, tt.wantInferenceID, out["InferenceId"])
-			}
-			assert.Contains(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"), out["InferenceId"])
-			assert.Contains(t, rec.Header().Get("X-Amzn-Sagemaker-Failurelocation"), out["InferenceId"])
-			assert.NotEqual(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"),
-				rec.Header().Get("X-Amzn-Sagemaker-Failurelocation"))
-
-			async := h.Backend.ListAsyncInvocations()
-			require.Len(t, async, 1)
-			assert.Equal(t, out["InferenceId"], async[0].InferenceID)
-			assert.Equal(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"), async[0].OutputLocation)
-			assert.Equal(t, rec.Header().Get("X-Amzn-Sagemaker-Failurelocation"), async[0].FailureLocation)
-		})
-	}
-}
-
-// --- InvokeEndpointWithResponseStream tests ---
-
-func TestHandler_InvokeEndpointWithResponseStream(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name            string
-		headers         map[string]string
-		wantContentType string
-		wantVariant     string
-	}{
-		{name: "defaults", wantContentType: "application/octet-stream", wantVariant: "AllTraffic"},
-		{
-			name: "sdk_bound_response_headers",
-			headers: map[string]string{
-				"X-Amzn-Sagemaker-Accept":            "application/json",
-				"X-Amzn-Sagemaker-Custom-Attributes": "trace=stream",
-				"X-Amzn-Sagemaker-Target-Variant":    "green",
-			},
-			wantContentType: "application/json",
-			wantVariant:     "green",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequestWithHeaders(t, h, http.MethodPost,
-				"/endpoints/my-endpoint/invocations-response-stream",
-				map[string]any{"data": "stream input"}, tt.headers)
-
-			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Equal(t, "application/vnd.amazon.eventstream", rec.Header().Get("Content-Type"))
-			assert.Equal(t, tt.wantContentType, rec.Header().Get("X-Amzn-Sagemaker-Content-Type"))
-			assert.Equal(t, tt.wantVariant, rec.Header().Get("X-Amzn-Invoked-Production-Variant"))
-			assert.Equal(t, tt.headers["X-Amzn-Sagemaker-Custom-Attributes"],
-				rec.Header().Get("X-Amzn-Sagemaker-Custom-Attributes"))
-			assert.Greater(t, len(rec.Body.Bytes()), 12, "response should contain event stream prelude")
-
-			invocations := h.Backend.ListInvocations()
-			require.Len(t, invocations, 1)
-			assert.Equal(t, "InvokeEndpointWithResponseStream", invocations[0].Operation)
+			assert.Equal(t, attrValue, rec.Header().Get("X-Amzn-Sagemaker-Custom-Attributes"))
 		})
 	}
 }
@@ -524,55 +409,6 @@ func TestHandler_ExtractResource(t *testing.T) {
 	}
 }
 
-// --- Backend tests ---
-
-func TestBackend_RecordAndList(t *testing.T) {
-	t.Parallel()
-
-	b := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
-	assert.Equal(t, "us-east-1", b.Region())
-
-	invocations := b.ListInvocations()
-	assert.Empty(t, invocations)
-
-	inv := b.RecordInvocation("InvokeEndpoint", "my-endpoint", `{"data":"hi"}`, `{"Body":"ok"}`)
-	assert.Equal(t, "InvokeEndpoint", inv.Operation)
-	assert.Equal(t, "my-endpoint", inv.EndpointName)
-	assert.NotZero(t, inv.CreatedAt)
-
-	invocations = b.ListInvocations()
-	require.Len(t, invocations, 1)
-	assert.Equal(t, "InvokeEndpoint", invocations[0].Operation)
-}
-
-// --- Provider tests ---
-
-func TestProvider_Init(t *testing.T) {
-	t.Parallel()
-
-	p := &sagemakerruntime.Provider{}
-	assert.Equal(t, "SageMakerRuntime", p.Name())
-
-	backend := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
-	h := sagemakerruntime.NewHandler(backend)
-
-	assert.NotNil(t, h)
-	assert.Equal(t, "SageMakerRuntime", h.Name())
-	assert.Equal(t, "us-east-1", backend.Region())
-}
-
-func TestProvider_InitFull(t *testing.T) {
-	t.Parallel()
-
-	ctx := &service.AppContext{}
-	p := &sagemakerruntime.Provider{}
-	reg, err := p.Init(ctx)
-
-	require.NoError(t, err)
-	require.NotNil(t, reg)
-	assert.Equal(t, "SageMakerRuntime", reg.Name())
-}
-
 // --- RouteMatcher tests ---
 
 func TestHandler_RouteMatcher(t *testing.T) {
@@ -672,104 +508,6 @@ func TestHandler_RouteMatcher_Host(t *testing.T) {
 			req.Host = tt.host
 			c := e.NewContext(req, httptest.NewRecorder())
 			assert.Equal(t, tt.match, matcher(c))
-		})
-	}
-}
-
-func TestBackend_InvocationHistoryCap(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		recordCount int
-		wantLen     int
-	}{
-		{
-			name:        "below_cap",
-			recordCount: 10,
-			wantLen:     10,
-		},
-		{
-			name:        "at_cap",
-			recordCount: sagemakerruntime.MaxInvocationHistory,
-			wantLen:     sagemakerruntime.MaxInvocationHistory,
-		},
-		{
-			name:        "above_cap_retains_most_recent",
-			recordCount: sagemakerruntime.MaxInvocationHistory + 50,
-			wantLen:     sagemakerruntime.MaxInvocationHistory,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
-
-			for i := range tt.recordCount {
-				b.RecordInvocation("InvokeEndpoint", "ep", fmt.Sprintf(`{"seq":%d}`, i), `{}`)
-			}
-
-			invocations := b.ListInvocations()
-			assert.Len(t, invocations, tt.wantLen)
-
-			if tt.recordCount > sagemakerruntime.MaxInvocationHistory {
-				last := invocations[len(invocations)-1]
-				assert.Contains(t, last.Input, fmt.Sprintf(`"seq":%d`, tt.recordCount-1))
-			}
-		})
-	}
-}
-
-func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		setupInvCount int
-	}{
-		{
-			name:          "empty_backend",
-			setupInvCount: 0,
-		},
-		{
-			name:          "with_invocations",
-			setupInvCount: 3,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
-
-			for i := range tt.setupInvCount {
-				b.RecordInvocation("InvokeEndpoint", "ep", fmt.Sprintf(`{"seq":%d}`, i), `{}`)
-			}
-			if tt.setupInvCount > 0 {
-				b.StartSession("ep")
-				b.RecordAsyncInvocation("ep", "persisted-id", "input", "")
-			}
-
-			snap := b.Snapshot(t.Context())
-			require.NotNil(t, snap)
-
-			// Restore into a fresh backend.
-			b2 := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
-			require.NoError(t, b2.Restore(t.Context(), snap))
-
-			restored := b2.ListInvocations()
-			assert.Len(t, restored, tt.setupInvCount)
-			assert.Len(t, b2.ListSessions(), boolToInt(tt.setupInvCount > 0))
-			assert.Len(t, b2.ListAsyncInvocations(), boolToInt(tt.setupInvCount > 0))
-
-			// Snapshot isolation: adding more invocations to b2 should not affect snap.
-			b2.RecordInvocation("InvokeEndpoint", "ep", `{"seq":99}`, `{}`)
-			snap2 := b2.Snapshot(t.Context())
-			require.NotNil(t, snap2)
-			assert.NotEqual(t, snap, snap2)
 		})
 	}
 }

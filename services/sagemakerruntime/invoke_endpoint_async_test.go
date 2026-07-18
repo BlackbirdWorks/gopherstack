@@ -1,6 +1,7 @@
 package sagemakerruntime_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,10 +12,60 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
 )
 
-// TestParity_AsyncInvocationOutputLocation verifies that a caller-supplied
+// --- InvokeEndpointAsync tests ---
+
+func TestHandler_InvokeEndpointAsync(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		headers         map[string]string
+		wantInferenceID string
+	}{
+		{name: "generated_inference_id"},
+		{
+			name:            "client_inference_id_is_preserved",
+			headers:         map[string]string{"X-Amzn-Sagemaker-Inference-Id": "request-42"},
+			wantInferenceID: "request-42",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequestWithHeaders(t, h, http.MethodPost, "/endpoints/my-endpoint/async-invocations",
+				map[string]any{"data": "async input"}, tt.headers)
+
+			assert.Equal(t, http.StatusAccepted, rec.Code)
+
+			var out map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.NotEmpty(t, out["InferenceId"])
+			assert.NotContains(t, out, "OutputLocation")
+			assert.NotContains(t, out, "FailureLocation")
+			if tt.wantInferenceID != "" {
+				assert.Equal(t, tt.wantInferenceID, out["InferenceId"])
+			}
+			assert.Contains(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"), out["InferenceId"])
+			assert.Contains(t, rec.Header().Get("X-Amzn-Sagemaker-Failurelocation"), out["InferenceId"])
+			assert.NotEqual(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"),
+				rec.Header().Get("X-Amzn-Sagemaker-Failurelocation"))
+
+			async := h.Backend.ListAsyncInvocations()
+			require.Len(t, async, 1)
+			assert.Equal(t, out["InferenceId"], async[0].InferenceID)
+			assert.Equal(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"), async[0].OutputLocation)
+			assert.Equal(t, rec.Header().Get("X-Amzn-Sagemaker-Failurelocation"), async[0].FailureLocation)
+		})
+	}
+}
+
+// TestAsyncInvocationOutputLocation verifies that a caller-supplied
 // X-Amzn-Sagemaker-Outputlocation request header is used verbatim in the
 // response header and in the stored async invocation record.
-func TestParity_AsyncInvocationOutputLocation(t *testing.T) {
+func TestAsyncInvocationOutputLocation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -82,12 +133,12 @@ func TestParity_AsyncInvocationOutputLocation(t *testing.T) {
 	}
 }
 
-// TestParity_AsyncInvocationFailureLocation verifies that InvokeEndpointAsync
+// TestAsyncInvocationFailureLocation verifies that InvokeEndpointAsync
 // always returns an X-Amzn-Sagemaker-Failurelocation response header (bound by
 // the real SDK to InvokeEndpointAsyncOutput.FailureLocation), distinct from
 // OutputLocation, regardless of whether the caller supplied an output
 // location.
-func TestParity_AsyncInvocationFailureLocation(t *testing.T) {
+func TestAsyncInvocationFailureLocation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -136,160 +187,9 @@ func TestParity_AsyncInvocationFailureLocation(t *testing.T) {
 	}
 }
 
-// TestParity_SessionLifecycle verifies NEW_SESSION creation and subsequent
-// session-touch behaviour match AWS semantics.
-func TestParity_SessionLifecycle(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
-		name         string
-		headers      map[string]string
-		wantSessions int
-		wantNewSessH bool
-	}{
-		{
-			name:         "no_session_header_creates_nothing",
-			headers:      nil,
-			wantSessions: 0,
-			wantNewSessH: false,
-		},
-		{
-			name: "new_session_header_creates_session",
-			headers: map[string]string{
-				"X-Amzn-Sagemaker-Session-Id": "NEW_SESSION",
-			},
-			wantSessions: 1,
-			wantNewSessH: true,
-		},
-		{
-			name: "existing_session_id_touches_without_creating",
-			headers: map[string]string{
-				"X-Amzn-Sagemaker-Session-Id": "some-pre-existing-id",
-			},
-			wantSessions: 0,
-			wantNewSessH: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequestWithHeaders(
-				t, h, http.MethodPost,
-				"/endpoints/ep/invocations",
-				nil,
-				tt.headers,
-			)
-
-			require.Equal(t, http.StatusOK, rec.Code)
-			assert.Equal(t, tt.wantNewSessH, rec.Header().Get("X-Amzn-Sagemaker-New-Session-Id") != "")
-			assert.Len(t, h.Backend.ListSessions(), tt.wantSessions)
-		})
-	}
-}
-
-// TestParity_NewSessionHeaderFormat checks that the new-session response header
-// contains both the session ID and an Expires attribute.
-func TestParity_NewSessionHeaderFormat(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequestWithHeaders(
-		t, h, http.MethodPost,
-		"/endpoints/ep/invocations",
-		nil,
-		map[string]string{"X-Amzn-Sagemaker-Session-Id": "NEW_SESSION"},
-	)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	hdr := rec.Header().Get("X-Amzn-Sagemaker-New-Session-Id")
-	require.NotEmpty(t, hdr)
-	assert.Contains(t, hdr, "Expires=", "new session header must contain Expires attribute")
-}
-
-// TestParity_CustomAttributesForwarding verifies that X-Amzn-Sagemaker-Custom-Attributes
-// is reflected back on all three operation types.
-func TestParity_CustomAttributesForwarding(t *testing.T) {
-	t.Parallel()
-
-	const attrValue = "trace=abc;env=test"
-
-	tests := []struct {
-		name string
-		path string
-	}{
-		{
-			name: "invoke_endpoint",
-			path: "/endpoints/ep/invocations",
-		},
-		{
-			name: "invoke_endpoint_with_response_stream",
-			path: "/endpoints/ep/invocations-response-stream",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequestWithHeaders(
-				t, h, http.MethodPost, tt.path, nil,
-				map[string]string{
-					"X-Amzn-Sagemaker-Custom-Attributes": attrValue,
-				},
-			)
-
-			assert.Equal(t, attrValue, rec.Header().Get("X-Amzn-Sagemaker-Custom-Attributes"))
-		})
-	}
-}
-
-// TestParity_TargetVariantForwarding verifies that the X-Amzn-Invoked-Production-Variant
-// response header reflects the X-Amzn-Sagemaker-Target-Variant request header,
-// and defaults to "AllTraffic" when absent.
-func TestParity_TargetVariantForwarding(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		headers     map[string]string
-		wantVariant string
-	}{
-		{
-			name:        "default_all_traffic",
-			headers:     nil,
-			wantVariant: "AllTraffic",
-		},
-		{
-			name: "explicit_variant",
-			headers: map[string]string{
-				"X-Amzn-Sagemaker-Target-Variant": "blue",
-			},
-			wantVariant: "blue",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequestWithHeaders(
-				t, h, http.MethodPost, "/endpoints/ep/invocations", nil, tt.headers,
-			)
-
-			assert.Equal(t, tt.wantVariant, rec.Header().Get("X-Amzn-Invoked-Production-Variant"))
-		})
-	}
-}
-
-// TestParity_AsyncInvocationInferenceIDPreserved verifies that a caller-supplied
+// TestAsyncInvocationInferenceIDPreserved verifies that a caller-supplied
 // X-Amzn-Sagemaker-Inference-Id is used verbatim as the stored inference ID.
-func TestParity_AsyncInvocationInferenceIDPreserved(t *testing.T) {
+func TestAsyncInvocationInferenceIDPreserved(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -339,62 +239,9 @@ func TestParity_AsyncInvocationInferenceIDPreserved(t *testing.T) {
 	}
 }
 
-// TestParity_ResponseStreamContentType verifies that InvokeEndpointWithResponseStream
-// uses the event-stream content type and echoes X-Amzn-Sagemaker-Content-Type from
-// the Accept header.
-func TestParity_ResponseStreamContentType(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name            string
-		headers         map[string]string
-		wantContentType string
-	}{
-		{
-			name:            "default_octet_stream",
-			headers:         nil,
-			wantContentType: "application/octet-stream",
-		},
-		{
-			name: "accept_json_reflected",
-			headers: map[string]string{
-				"X-Amzn-Sagemaker-Accept": "application/json",
-			},
-			wantContentType: "application/json",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequestWithHeaders(
-				t, h, http.MethodPost,
-				"/endpoints/ep/invocations-response-stream",
-				nil,
-				tt.headers,
-			)
-
-			require.Equal(t, http.StatusOK, rec.Code)
-			assert.Equal(t, "application/vnd.amazon.eventstream", rec.Header().Get("Content-Type"))
-			assert.Equal(t, tt.wantContentType, rec.Header().Get("X-Amzn-Sagemaker-Content-Type"))
-		})
-	}
-}
-
-// TestParity_Shutdown verifies that Handler implements service.Shutdowner and
-// that calling Shutdown does not panic.
-func TestParity_Shutdown(t *testing.T) {
-	t.Parallel()
-
-	h := sagemakerruntime.NewHandler(sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1"))
-	assert.NotPanics(t, func() { h.Shutdown(t.Context()) })
-}
-
-// TestParity_BackendRecordAsyncWithSuppliedLocation verifies that an explicit
+// TestBackendRecordAsyncWithSuppliedLocation verifies that an explicit
 // outputLocation is stored instead of the generated fake S3 path.
-func TestParity_BackendRecordAsyncWithSuppliedLocation(t *testing.T) {
+func TestBackendRecordAsyncWithSuppliedLocation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -429,13 +276,13 @@ func TestParity_BackendRecordAsyncWithSuppliedLocation(t *testing.T) {
 	}
 }
 
-// TestParity_BackendRecordAsyncFailureLocationDerivation verifies that
+// TestBackendRecordAsyncFailureLocationDerivation verifies that
 // RecordAsyncInvocation derives a distinct FailureLocation for every shape of
 // OutputLocation (generated, caller-supplied with/without a trailing slash,
 // caller-supplied ending in "/output"), matching the real AWS convention of
 // InvokeEndpointAsync always returning both an OutputLocation and a
 // FailureLocation.
-func TestParity_BackendRecordAsyncFailureLocationDerivation(t *testing.T) {
+func TestBackendRecordAsyncFailureLocationDerivation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

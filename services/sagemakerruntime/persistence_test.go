@@ -1,6 +1,7 @@
 package sagemakerruntime_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -143,4 +144,56 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	assert.Len(t, restoredBackend.ListSessions(), 1)
 	assert.Len(t, restoredBackend.ListAsyncInvocations(), 1)
 	assert.Len(t, restoredBackend.ListInvocations(), 1)
+}
+
+func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		setupInvCount int
+	}{
+		{
+			name:          "empty_backend",
+			setupInvCount: 0,
+		},
+		{
+			name:          "with_invocations",
+			setupInvCount: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
+
+			for i := range tt.setupInvCount {
+				b.RecordInvocation("InvokeEndpoint", "ep", fmt.Sprintf(`{"seq":%d}`, i), `{}`)
+			}
+			if tt.setupInvCount > 0 {
+				b.StartSession("ep")
+				b.RecordAsyncInvocation("ep", "persisted-id", "input", "")
+			}
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			// Restore into a fresh backend.
+			b2 := sagemakerruntime.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			restored := b2.ListInvocations()
+			assert.Len(t, restored, tt.setupInvCount)
+			assert.Len(t, b2.ListSessions(), boolToInt(tt.setupInvCount > 0))
+			assert.Len(t, b2.ListAsyncInvocations(), boolToInt(tt.setupInvCount > 0))
+
+			// Snapshot isolation: adding more invocations to b2 should not affect snap.
+			b2.RecordInvocation("InvokeEndpoint", "ep", `{"seq":99}`, `{}`)
+			snap2 := b2.Snapshot(t.Context())
+			require.NotNil(t, snap2)
+			assert.NotEqual(t, snap, snap2)
+		})
+	}
 }
