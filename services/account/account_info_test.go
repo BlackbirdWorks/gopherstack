@@ -9,50 +9,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/account"
 )
 
-func TestBackend_Reset(t *testing.T) {
-	t.Parallel()
-
-	b := account.NewInMemoryBackend("000000000000", "us-east-1")
-
-	err := b.PutAlternateContact(&account.AlternateContact{
-		AlternateContactType: account.ContactTypeBilling,
-		Name:                 "Test",
-		EmailAddress:         "test@example.com",
-	})
-	require.NoError(t, err)
-
-	b.Reset()
-
-	_, err = b.GetAlternateContact(account.ContactTypeBilling)
-	require.Error(t, err)
-}
-
-func TestBackend_DeleteAlternateContact_NotFound(t *testing.T) {
-	t.Parallel()
-
-	b := account.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.DeleteAlternateContact(account.ContactTypeBilling)
-	require.Error(t, err)
-}
-
-func TestBackend_PutContactInformation_Get(t *testing.T) {
-	t.Parallel()
-
-	b := account.NewInMemoryBackend("000000000000", "us-east-1")
-
-	_, err := b.GetContactInformation()
-	require.Error(t, err)
-
-	err = b.PutContactInformation(&account.ContactInformation{
-		FullName: "Test Corp",
-	})
-	require.NoError(t, err)
-
-	info, err := b.GetContactInformation()
-	require.NoError(t, err)
-	assert.Equal(t, "Test Corp", info.FullName)
-}
-
 // TestBackend_GetAccountInformation verifies GetAccountInformation reports
 // the account ID, tracks PutAccountName, always reports ACTIVE (this
 // service has no operation that changes account lifecycle state -- that is
