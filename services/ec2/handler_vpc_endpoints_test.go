@@ -465,7 +465,7 @@ func TestModifyVpcEndpoint_NotFound(t *testing.T) {
 
 // extractXMLTag returns the text content of the first occurrence of the given XML element name.
 
-func TestParityFinalHTTP_RejectVpcEndpointConnections(t *testing.T) {
+func TestRejectVpcEndpointConnectionsHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

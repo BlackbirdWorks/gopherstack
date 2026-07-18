@@ -868,3 +868,52 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, b2.VpcPeeringConnectionCount())
 	assert.Equal(t, 1, b2.DedicatedHostCount())
 }
+
+func TestPersistenceWithExtendedResources(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	// Populate various resources
+	_, err := b.CreateKeyPair("persist-key")
+	require.NoError(t, err)
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	require.NoError(t, err)
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+	_, err = b.CreateInternetGateway()
+	require.NoError(t, err)
+	rt, err := b.CreateRouteTable("vpc-default")
+	require.NoError(t, err)
+	_, err = b.CreateNatGateway("subnet-default", addr.AllocationID)
+	require.NoError(t, err)
+	_, err = b.RunInstances("ami-123", "t2.micro", "", 1)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := newTestBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	kps := b2.DescribeKeyPairs([]string{"persist-key"})
+	assert.Len(t, kps, 1)
+
+	vols := b2.DescribeVolumes([]string{vol.ID})
+	assert.Len(t, vols, 1)
+
+	addrs := b2.DescribeAddresses(nil)
+	assert.NotEmpty(t, addrs)
+
+	igws := b2.DescribeInternetGateways(nil)
+	assert.NotEmpty(t, igws)
+
+	rts := b2.DescribeRouteTables([]string{rt.ID})
+	assert.Len(t, rts, 1)
+
+	ngws := b2.DescribeNatGateways(nil)
+	assert.NotEmpty(t, ngws)
+
+	enis := b2.DescribeNetworkInterfaces(nil)
+	assert.NotEmpty(t, enis)
+}

@@ -603,3 +603,61 @@ func snapshotsSupportedOperations() []string {
 		"DeleteSnapshot",
 	}
 }
+
+type describeSnapshotAttributeResponse struct {
+	XMLName    xml.Name `xml:"DescribeSnapshotAttributeResponse"`
+	Xmlns      string   `xml:"xmlns,attr"`
+	RequestID  string   `xml:"requestId"`
+	SnapshotID string   `xml:"snapshotId"`
+	// createVolumePermission is the only attribute modelled; others return empty.
+	CreateVolumePermission launchPermissionList `xml:"createVolumePermission"`
+}
+
+type modifySnapshotAttributeResponse struct {
+	XMLName   xml.Name `xml:"ModifySnapshotAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+// handleDescribeVolumeAttribute returns a stub value for the requested volume attribute.
+// autoEnableIO is the only attribute modelled; others return false.
+
+func (h *Handler) handleDescribeSnapshotAttribute(vals url.Values, reqID string) (any, error) {
+	snapshotID := vals.Get("SnapshotId")
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: SnapshotId is required", ErrInvalidParameter)
+	}
+
+	attr := vals.Get("Attribute")
+	if attr == "" {
+		return nil, fmt.Errorf("%w: Attribute is required", ErrInvalidParameter)
+	}
+
+	resp := &describeSnapshotAttributeResponse{
+		Xmlns:      ec2XMLNS,
+		RequestID:  reqID,
+		SnapshotID: snapshotID,
+	}
+
+	if attr == "createVolumePermission" {
+		resp.CreateVolumePermission = launchPermissionList{
+			Items: []launchPermissionItem{{Group: "all"}},
+		}
+	}
+
+	return resp, nil
+}
+
+// handleModifySnapshotAttribute is a stub that accepts any attribute modification and returns success.
+func (h *Handler) handleModifySnapshotAttribute(vals url.Values, reqID string) (any, error) {
+	if vals.Get("SnapshotId") == "" {
+		return nil, fmt.Errorf("%w: SnapshotId is required", ErrInvalidParameter)
+	}
+
+	return &modifySnapshotAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}

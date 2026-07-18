@@ -94,7 +94,7 @@ func TestNatGateway_DisassociateAddress(t *testing.T) {
 // TestRouteTable_CreateReturnsRTBID verifies CreateRouteTable returns
 // an rtb- prefixed ID.
 
-func TestParityFinalHTTP_UnassignPrivateNatGatewayAddress(t *testing.T) {
+func TestUnassignPrivateNatGatewayAddressHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

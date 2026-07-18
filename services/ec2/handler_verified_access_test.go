@@ -214,7 +214,7 @@ func TestVerifiedAccess_EndpointCRUD(t *testing.T) {
 
 // extractBatch4XMLValue extracts the first text content of an XML element by tag name.
 
-func TestParityFinalHTTP_ModifyVerifiedAccessGroup(t *testing.T) {
+func TestModifyVerifiedAccessGroupHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -235,7 +235,7 @@ func TestParityFinalHTTP_ModifyVerifiedAccessGroup(t *testing.T) {
 	assert.Contains(t, resp, "<verifiedAccessGroupId>"+grp.VerifiedAccessGroupID+"</verifiedAccessGroupId>")
 }
 
-func TestParityFinalHTTP_ModifyVerifiedAccessInstance(t *testing.T) {
+func TestModifyVerifiedAccessInstanceHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -253,7 +253,7 @@ func TestParityFinalHTTP_ModifyVerifiedAccessInstance(t *testing.T) {
 	assert.Contains(t, resp, "<description>updated</description>")
 }
 
-func TestParityFinalHTTP_ModifyVerifiedAccessTrustProvider(t *testing.T) {
+func TestModifyVerifiedAccessTrustProviderHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

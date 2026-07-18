@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -232,4 +233,106 @@ func subnetsSupportedOperations() []string {
 		"GetSubnetCidrReservations",
 		"ModifySubnetAttribute",
 	}
+}
+
+func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "SubnetId")
+	subnets := h.Backend.DescribeSubnets(ids)
+
+	filters := parseEC2Filters(vals)
+	subnets = applySubnetFilters(subnets, filters, h.Backend)
+
+	items := make([]subnetItem, 0, len(subnets))
+	for _, s := range subnets {
+		items = append(items, toSubnetItem(s))
+	}
+
+	return &describeSubnetsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		SubnetSet: subnetItemSet{Items: items},
+	}, nil
+}
+
+func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error) {
+	vpcID := vals.Get("VpcId")
+	cidr := vals.Get("CidrBlock")
+	az := vals.Get("AvailabilityZone")
+
+	s, err := h.Backend.CreateSubnet(vpcID, cidr, az)
+	if err != nil {
+		return nil, err
+	}
+
+	if tags := parseTagSpecification(vals, "subnet"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{s.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
+	return &createSubnetResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Subnet:    toSubnetItem(s),
+	}, nil
+}
+
+func (h *Handler) handleDeleteSubnet(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("SubnetId")
+	if id == "" {
+		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteSubnet(id); err != nil {
+		return nil, err
+	}
+
+	return &deleteSubnetResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func toSubnetItem(s *Subnet) subnetItem {
+	return subnetItem{
+		SubnetID:         s.ID,
+		VPCID:            s.VPCID,
+		CIDRBlock:        s.CIDRBlock,
+		AvailabilityZone: s.AvailabilityZone,
+		State:            stateAvailable,
+	}
+}
+
+type subnetItem struct {
+	SubnetID         string `xml:"subnetId"`
+	VPCID            string `xml:"vpcId"`
+	CIDRBlock        string `xml:"cidrBlock"`
+	AvailabilityZone string `xml:"availabilityZone"`
+	State            string `xml:"state"`
+}
+
+type subnetItemSet struct {
+	Items []subnetItem `xml:"item"`
+}
+
+type describeSubnetsResponse struct {
+	XMLName   xml.Name      `xml:"DescribeSubnetsResponse"`
+	Xmlns     string        `xml:"xmlns,attr"`
+	RequestID string        `xml:"requestId"`
+	SubnetSet subnetItemSet `xml:"subnetSet"`
+}
+
+type createSubnetResponse struct {
+	XMLName   xml.Name   `xml:"CreateSubnetResponse"`
+	Xmlns     string     `xml:"xmlns,attr"`
+	RequestID string     `xml:"requestId"`
+	Subnet    subnetItem `xml:"subnet"`
+}
+
+type deleteSubnetResponse struct {
+	XMLName   xml.Name `xml:"DeleteSubnetResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
 }

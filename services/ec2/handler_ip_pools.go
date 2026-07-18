@@ -7,7 +7,7 @@ import (
 )
 
 // handler_ip_pools.go implements the HTTP handlers for the COIP pool and public IPv4/IPv6
-// address pool families, backed by backend_ip_pools.go.
+// address pool families, backed by ip_pools.go.
 
 // ---- Registration ----
 

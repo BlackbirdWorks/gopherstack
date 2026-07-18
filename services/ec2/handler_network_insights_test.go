@@ -171,7 +171,7 @@ func TestNetworkInsightsAccessScope(t *testing.T) { //nolint:paralleltest // exi
 
 // ---- BYOIP ----.
 
-func TestParityFinalHTTP_EnableReachabilityAnalyzerOrganizationSharing(t *testing.T) {
+func TestEnableReachabilityAnalyzerOrganizationSharingHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

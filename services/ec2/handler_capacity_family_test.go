@@ -402,7 +402,7 @@ func TestHTTP_CreateCapacityReservation(t *testing.T) { //nolint:paralleltest //
 	require.NoError(t, err)
 }
 
-func TestParityFinalHTTP_InterruptibleCapacityReservationAllocation(t *testing.T) {
+func TestInterruptibleCapacityReservationAllocationHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -430,7 +430,7 @@ func TestParityFinalHTTP_InterruptibleCapacityReservationAllocation(t *testing.T
 	assert.Contains(t, resp, "<targetInstanceCount>5</targetInstanceCount>")
 }
 
-func TestParityFinalHTTP_GetCapacityReservationUsage(t *testing.T) {
+func TestGetCapacityReservationUsageHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -448,7 +448,7 @@ func TestParityFinalHTTP_GetCapacityReservationUsage(t *testing.T) {
 	assert.Contains(t, resp, "<totalInstanceCount>10</totalInstanceCount>")
 }
 
-func TestParityFinalHTTP_DescribeCapacityReservationTopology(t *testing.T) {
+func TestDescribeCapacityReservationTopologyHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -462,11 +462,11 @@ func TestParityFinalHTTP_DescribeCapacityReservationTopology(t *testing.T) {
 	assert.Contains(t, resp, "<capacityReservationId>"+cr.CapacityReservationID+"</capacityReservationId>")
 }
 
-// TestParityFinalHTTP_AllOpsReturn200 is a broad smoke test verifying every
+// TestAllOpsReturn200HTTP is a broad smoke test verifying every
 // de-stubbed op returns 200 OK through the full HTTP handler for a minimal
 // (frequently zero-value/empty) request, mirroring the coverage the retired
 // registerStubOps registration used to get for free.
-func TestParityFinalHTTP_AllOpsReturn200(t *testing.T) {
+func TestAllOpsReturn200HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

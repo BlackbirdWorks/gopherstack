@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -212,4 +213,172 @@ func vpcsSupportedOperations() []string {
 		"CreateVpcPeeringConnection",
 		"DeleteVpcPeeringConnection",
 	}
+}
+
+func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "VpcId")
+	vpcs := h.Backend.DescribeVpcs(ids)
+
+	filters := parseEC2Filters(vals)
+	vpcs = applyVPCFilters(vpcs, filters, h.Backend)
+
+	items := make([]vpcItem, 0, len(vpcs))
+	for _, v := range vpcs {
+		items = append(items, toVPCItem(v))
+	}
+
+	return &describeVpcsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		VpcSet:    vpcItemSet{Items: items},
+	}, nil
+}
+
+type describeVpcAttributeResponse struct {
+	XMLName   xml.Name `xml:"DescribeVpcAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	VpcID     string   `xml:"vpcId"`
+	// Attribute has no XML tag; encoding/xml uses the namedBoolAttr.XMLName field (set at runtime)
+	// to produce a dynamic element name such as <enableDnsHostnames> or <enableDnsSupport>.
+	Attribute namedBoolAttr
+}
+
+// namedBoolAttr is a boolean attribute element whose XML element name is set dynamically.
+type namedBoolAttr struct {
+	XMLName xml.Name `json:"xmlName"`
+	Value   string   `json:"value,omitempty" xml:"value"`
+}
+
+func (h *Handler) handleDescribeVpcAttribute(vals url.Values, reqID string) (any, error) {
+	vpcID := vals.Get("VpcId")
+	attr := vals.Get("Attribute")
+
+	attrValue := vpcAttributeValue(h.Backend.DescribeVpcs([]string{vpcID}), attr)
+
+	return &describeVpcAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		VpcID:     vpcID,
+		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: attrValue},
+	}, nil
+}
+
+// vpcAttributeValue reads the persisted boolean value for a VPC attribute.
+// enableDnsSupport defaults to true (AWS default); all others default to false.
+func vpcAttributeValue(vpcs []*VPC, attr string) string {
+	if len(vpcs) == 0 {
+		if attr == attrEnableDNSSupport {
+			return ec2BooleanTrue
+		}
+
+		return ec2BooleanFalse
+	}
+
+	vpc := vpcs[0]
+	if v, ok := vpc.Attributes[attr]; ok {
+		if v {
+			return ec2BooleanTrue
+		}
+
+		return ec2BooleanFalse
+	}
+
+	if attr == attrEnableDNSSupport {
+		return ec2BooleanTrue
+	}
+
+	return ec2BooleanFalse
+}
+
+func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
+	cidr := vals.Get("CidrBlock")
+
+	v, err := h.Backend.CreateVpc(cidr)
+	if err != nil {
+		return nil, err
+	}
+
+	if tags := parseTagSpecification(vals, resourceTypeVPC); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{v.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
+	return &createVpcResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Vpc:       toVPCItem(v),
+	}, nil
+}
+
+func (h *Handler) handleDeleteVpc(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("VpcId")
+	if id == "" {
+		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteVpc(id); err != nil {
+		return nil, err
+	}
+
+	return &deleteVpcResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func toVPCItem(v *VPC) vpcItem {
+	isDefault := ec2BooleanFalse
+	if v.IsDefault {
+		isDefault = ec2BooleanTrue
+	}
+
+	return vpcItem{
+		VpcID:     v.ID,
+		CIDRBlock: v.CIDRBlock,
+		IsDefault: isDefault,
+		State:     stateAvailable,
+	}
+}
+
+type vpcItem struct {
+	VpcID     string `xml:"vpcId"`
+	CIDRBlock string `xml:"cidrBlock"`
+	IsDefault string `xml:"isDefault"`
+	State     string `xml:"state"`
+}
+
+type vpcItemSet struct {
+	Items []vpcItem `xml:"item"`
+}
+
+type describeVpcsResponse struct {
+	XMLName   xml.Name   `xml:"DescribeVpcsResponse"`
+	Xmlns     string     `xml:"xmlns,attr"`
+	RequestID string     `xml:"requestId"`
+	VpcSet    vpcItemSet `xml:"vpcSet"`
+}
+
+type createVpcResponse struct {
+	XMLName   xml.Name `xml:"CreateVpcResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Vpc       vpcItem  `xml:"vpc"`
+}
+
+type deleteVpcResponse struct {
+	XMLName   xml.Name `xml:"DeleteVpcResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleRejectVpcPeeringConnection(vals url.Values, reqID string) (any, error) {
+	if err := h.Backend.RejectVpcPeeringConnection(vals.Get("VpcPeeringConnectionId")); err != nil {
+		return nil, err
+	}
+
+	return &rejectVpcPeeringConnectionResponse{RequestID: reqID, Return: true}, nil
 }

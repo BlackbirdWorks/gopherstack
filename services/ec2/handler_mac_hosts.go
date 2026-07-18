@@ -8,7 +8,7 @@ import (
 
 // handler_mac_hosts.go implements the HTTP handlers for the EC2 Mac
 // Dedicated Host and Mac modification task family, backed by
-// backend_mac_hosts.go.
+// mac_hosts.go.
 
 func registerMacHostOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DescribeMacHosts"] = h.handleDescribeMacHosts

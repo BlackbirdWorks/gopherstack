@@ -221,3 +221,123 @@ func TestHandlerModifySecurityGroupRules(t *testing.T) {
 }
 
 // TestHandlerReplaceNetworkACLAssociation covers handleReplaceNetworkACLAssociation.
+
+func TestDescribeSecurityGroups_FilterByVpcId(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	vpc1, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+
+	vpc2, err := b.CreateVpc("10.1.0.0/16")
+	require.NoError(t, err)
+
+	sg1, err := b.CreateSecurityGroup("sg-vpc1", "SG in vpc1", vpc1.ID)
+	require.NoError(t, err)
+
+	sg2, err := b.CreateSecurityGroup("sg-vpc2", "SG in vpc2", vpc2.ID)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":           {"DescribeSecurityGroups"},
+		"Version":          {"2016-11-15"},
+		"Filter.1.Name":    {"vpc-id"},
+		"Filter.1.Value.1": {vpc1.ID},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, sg1.ID)
+	assert.NotContains(t, resp, sg2.ID)
+}
+
+func TestDescribeSecurityGroups_FilterByGroupName(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	vpc, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+
+	sg1, err := b.CreateSecurityGroup("web-sg", "Web SG", vpc.ID)
+	require.NoError(t, err)
+
+	sg2, err := b.CreateSecurityGroup("db-sg", "DB SG", vpc.ID)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":           {"DescribeSecurityGroups"},
+		"Version":          {"2016-11-15"},
+		"Filter.1.Name":    {"group-name"},
+		"Filter.1.Value.1": {"web-sg"},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, sg1.ID)
+	assert.NotContains(t, resp, sg2.ID)
+}
+
+// ---- Gap J: DescribeInstances returns empty result for no-match filter ----
+
+func TestDescribeSecurityGroups_ByID_NoFilters(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := newTestHandlerWithBackend(b)
+
+	vpc, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+
+	sg, err := b.CreateSecurityGroup("test-sg", "Test", vpc.ID)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":    {"DescribeSecurityGroups"},
+		"Version":   {"2016-11-15"},
+		"GroupId.1": {sg.ID},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, sg.ID)
+}
+
+// ---- Verify filter names work case-sensitively ----
+
+func TestDescribeSecurityGroups_FilterByGroupId(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := newTestHandlerWithBackend(b)
+
+	vpc, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+
+	sg1, err := b.CreateSecurityGroup("sg1", "SG1", vpc.ID)
+	require.NoError(t, err)
+
+	sg2, err := b.CreateSecurityGroup("sg2", "SG2", vpc.ID)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":           {"DescribeSecurityGroups"},
+		"Version":          {"2016-11-15"},
+		"Filter.1.Name":    {"group-id"},
+		"Filter.1.Value.1": {sg1.ID},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, sg1.ID)
+	assert.NotContains(t, resp, sg2.ID)
+}
+
+// ---- DescribeInstances response XML structure ----

@@ -302,3 +302,274 @@ func securityGroupsSupportedOperations() []string {
 		"ModifySecurityGroupRules",
 	}
 }
+
+type authorizeSecurityGroupIngressResponse struct {
+	XMLName   xml.Name `xml:"AuthorizeSecurityGroupIngressResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+type authorizeSecurityGroupEgressResponse struct {
+	XMLName   xml.Name `xml:"AuthorizeSecurityGroupEgressResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+type revokeSecurityGroupIngressResponse struct {
+	XMLName   xml.Name `xml:"RevokeSecurityGroupIngressResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func parseIPPermissions(vals url.Values) []SecurityGroupRule {
+	var rules []SecurityGroupRule
+
+	for i := 1; ; i++ {
+		proto := vals.Get(fmt.Sprintf("IpPermissions.%d.IpProtocol", i))
+		if proto == "" {
+			break
+		}
+
+		fromPort := 0
+		toPort := 0
+
+		fromKey := fmt.Sprintf("IpPermissions.%d.FromPort", i)
+		toKey := fmt.Sprintf("IpPermissions.%d.ToPort", i)
+		// Ports default to 0 if not provided or unparseable, which is correct for protocols
+		// like -1 (all traffic) where port ranges are not meaningful.
+		_, _ = fmt.Sscan(vals.Get(fromKey), &fromPort)
+		_, _ = fmt.Sscan(vals.Get(toKey), &toPort)
+
+		for j := 1; ; j++ {
+			cidr := vals.Get(fmt.Sprintf("IpPermissions.%d.IpRanges.%d.CidrIp", i, j))
+			if cidr == "" {
+				break
+			}
+
+			description := vals.Get(fmt.Sprintf("IpPermissions.%d.IpRanges.%d.Description", i, j))
+
+			rules = append(rules, SecurityGroupRule{
+				Protocol:    proto,
+				FromPort:    fromPort,
+				ToPort:      toPort,
+				IPRange:     cidr,
+				Description: description,
+			})
+		}
+
+		// Security-group source references (gap 6).
+		for j := 1; ; j++ {
+			srcGroupID := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.GroupId", i, j))
+			if srcGroupID == "" {
+				break
+			}
+
+			ownerID := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.UserId", i, j))
+			description := vals.Get(fmt.Sprintf("IpPermissions.%d.Groups.%d.Description", i, j))
+
+			rules = append(rules, SecurityGroupRule{
+				Protocol:           proto,
+				FromPort:           fromPort,
+				ToPort:             toPort,
+				SourceGroupID:      srcGroupID,
+				SourceGroupOwnerID: ownerID,
+				Description:        description,
+			})
+		}
+	}
+
+	return rules
+}
+
+func (h *Handler) handleAuthorizeSecurityGroupIngress(vals url.Values, reqID string) (any, error) {
+	groupID := vals.Get("GroupId")
+	if groupID == "" {
+		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	}
+
+	rules := parseIPPermissions(vals)
+
+	if err := h.Backend.AuthorizeSecurityGroupIngress(groupID, rules); err != nil {
+		return nil, err
+	}
+
+	return &authorizeSecurityGroupIngressResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleAuthorizeSecurityGroupEgress(vals url.Values, reqID string) (any, error) {
+	groupID := vals.Get("GroupId")
+	if groupID == "" {
+		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	}
+
+	rules := parseIPPermissions(vals)
+
+	if err := h.Backend.AuthorizeSecurityGroupEgress(groupID, rules); err != nil {
+		return nil, err
+	}
+
+	return &authorizeSecurityGroupEgressResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleRevokeSecurityGroupIngress(vals url.Values, reqID string) (any, error) {
+	groupID := vals.Get("GroupId")
+	if groupID == "" {
+		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	}
+
+	rules := parseIPPermissions(vals)
+
+	if err := h.Backend.RevokeSecurityGroupIngress(groupID, rules); err != nil {
+		return nil, err
+	}
+
+	return &revokeSecurityGroupIngressResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+// handleImportKeyPair is a stub for ImportKeyPair (accepts public key material, stores fingerprint).
+
+func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "GroupId")
+	groups := h.Backend.DescribeSecurityGroups(ids)
+
+	// Apply named filters: vpc-id, group-name, group-id.
+	filters := parseEC2Filters(vals)
+	groups = applySecurityGroupFilters(groups, filters)
+
+	items := make([]sgItem, 0, len(groups))
+	for _, sg := range groups {
+		items = append(items, toSGItem(sg))
+	}
+
+	return &describeSecurityGroupsResponse{
+		Xmlns:             ec2XMLNS,
+		RequestID:         reqID,
+		SecurityGroupInfo: sgItemSet{Items: items},
+	}, nil
+}
+
+func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("GroupName")
+	desc := vals.Get("GroupDescription")
+	vpcID := vals.Get("VpcId")
+
+	sg, err := h.Backend.CreateSecurityGroup(name, desc, vpcID)
+	if err != nil {
+		return nil, err
+	}
+
+	if tags := parseTagSpecification(vals, "security-group"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{sg.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
+	return &createSecurityGroupResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		GroupID:   sg.ID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDeleteSecurityGroup(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("GroupId")
+	if id == "" {
+		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteSecurityGroup(id); err != nil {
+		return nil, err
+	}
+
+	return &deleteSecurityGroupResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+// handleRevokeSecurityGroupEgress removes matching egress rules from a security group.
+// Terraform calls this to revoke the default egress rule when creating a security group.
+func (h *Handler) handleRevokeSecurityGroupEgress(vals url.Values, reqID string) (any, error) {
+	groupID := vals.Get("GroupId")
+	if groupID == "" {
+		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	}
+
+	rules := parseIPPermissions(vals)
+
+	if err := h.Backend.RevokeSecurityGroupEgress(groupID, rules); err != nil {
+		return nil, err
+	}
+
+	return &revokeSecurityGroupEgressResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    ec2BooleanTrue,
+	}, nil
+}
+
+func toSGItem(sg *SecurityGroup) sgItem {
+	return sgItem{
+		GroupID:          sg.ID,
+		GroupName:        sg.Name,
+		GroupDescription: sg.Description,
+		VPCID:            sg.VPCID,
+	}
+}
+
+type sgItem struct {
+	GroupID          string `xml:"groupId"`
+	GroupName        string `xml:"groupName"`
+	GroupDescription string `xml:"groupDescription"`
+	VPCID            string `xml:"vpcId,omitempty"`
+}
+
+type sgItemSet struct {
+	Items []sgItem `xml:"item"`
+}
+
+type describeSecurityGroupsResponse struct {
+	XMLName           xml.Name  `xml:"DescribeSecurityGroupsResponse"`
+	Xmlns             string    `xml:"xmlns,attr"`
+	RequestID         string    `xml:"requestId"`
+	SecurityGroupInfo sgItemSet `xml:"securityGroupInfo"`
+}
+
+type createSecurityGroupResponse struct {
+	XMLName   xml.Name `xml:"CreateSecurityGroupResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	GroupID   string   `xml:"groupId"`
+	Return    bool     `xml:"return"`
+}
+
+type deleteSecurityGroupResponse struct {
+	XMLName   xml.Name `xml:"DeleteSecurityGroupResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+type revokeSecurityGroupEgressResponse struct {
+	XMLName   xml.Name `xml:"RevokeSecurityGroupEgressResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    string   `xml:"return"`
+}

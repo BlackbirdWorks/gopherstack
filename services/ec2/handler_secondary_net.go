@@ -8,7 +8,7 @@ import (
 // handler_secondary_net.go implements the HTTP handlers for the Secondary
 // Network / Secondary Subnet / Secondary Interface family plus the read-only
 // Outpost LAG / Service Link Virtual Interface family, backed by
-// backend_secondary_net.go.
+// secondary_net.go.
 
 func registerSecondaryNetOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateSecondaryNetwork"] = h.handleCreateSecondaryNetwork

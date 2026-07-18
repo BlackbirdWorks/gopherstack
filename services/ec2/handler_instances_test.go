@@ -385,7 +385,7 @@ func TestGetDefaultCreditSpecification_EchoesInstanceFamily(t *testing.T) {
 	}
 }
 
-func TestParityFinalHTTP_SendDiagnosticInterrupt(t *testing.T) {
+func TestSendDiagnosticInterruptHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -405,7 +405,7 @@ func TestParityFinalHTTP_SendDiagnosticInterrupt(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "InvalidInstanceID.NotFound")
 }
 
-func TestParityFinalHTTP_DescribeElasticGpus(t *testing.T) {
+func TestDescribeElasticGpusHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -416,7 +416,7 @@ func TestParityFinalHTTP_DescribeElasticGpus(t *testing.T) {
 	assert.Contains(t, resp, "<elasticGpuSet>")
 }
 
-// TestParityFinalHTTP_AllOpsReturn200 is a broad smoke test verifying every
+// TestAllOpsReturn200HTTP is a broad smoke test verifying every
 // de-stubbed op returns 200 OK through the full HTTP handler for a minimal
 // (frequently zero-value/empty) request, mirroring the coverage the retired
 // registerStubOps registration used to get for free.
@@ -433,3 +433,299 @@ func TestHandlerDescribeInstanceTypeOfferings(t *testing.T) {
 
 // TestHandlerVpcPeeringConnectionHandlers covers handleCreateVpcPeeringConnection,
 // handleDeleteVpcPeeringConnection, and handleRejectVpcPeeringConnection.
+
+func TestRunInstances_SecurityGroupIds_Stored(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	vpc, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+
+	sg, err := b.CreateSecurityGroup("my-sg", "My SG", vpc.ID)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":            {"RunInstances"},
+		"Version":           {"2016-11-15"},
+		"ImageId":           {"ami-123"},
+		"InstanceType":      {"t3.micro"},
+		"MinCount":          {"1"},
+		"MaxCount":          {"1"},
+		"SecurityGroupId.1": {sg.ID},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, sg.ID, "security group ID should appear in response")
+}
+
+func TestRunInstances_SecurityGroupIds_InDescribeInstances(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	vpc, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+
+	sg, err := b.CreateSecurityGroup("web-sg", "Web SG", vpc.ID)
+	require.NoError(t, err)
+
+	runVals := url.Values{
+		"Action":            {"RunInstances"},
+		"Version":           {"2016-11-15"},
+		"ImageId":           {"ami-123"},
+		"InstanceType":      {"t3.micro"},
+		"MinCount":          {"1"},
+		"MaxCount":          {"1"},
+		"SecurityGroupId.1": {sg.ID},
+	}
+
+	runResp, err := ec2.ExportDispatch(h, runVals)
+	require.NoError(t, err)
+	instanceID := accuracyExtractXMLValue(runResp, "instanceId")
+	require.NotEmpty(t, instanceID)
+
+	descVals := url.Values{
+		"Action":       {"DescribeInstances"},
+		"Version":      {"2016-11-15"},
+		"InstanceId.1": {instanceID},
+	}
+
+	descResp, err := ec2.ExportDispatch(h, descVals)
+	require.NoError(t, err)
+	assert.Contains(t, descResp, sg.ID, "security group ID should be in DescribeInstances groupSet")
+}
+
+func TestRunInstances_SecurityGroupIds_MultipleGroups(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	vpc, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+
+	sg1, err := b.CreateSecurityGroup("web", "Web", vpc.ID)
+	require.NoError(t, err)
+
+	sg2, err := b.CreateSecurityGroup("db", "DB", vpc.ID)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":            {"RunInstances"},
+		"Version":           {"2016-11-15"},
+		"ImageId":           {"ami-123"},
+		"InstanceType":      {"t3.micro"},
+		"MinCount":          {"1"},
+		"MaxCount":          {"1"},
+		"SecurityGroupId.1": {sg1.ID},
+		"SecurityGroupId.2": {sg2.ID},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, sg1.ID)
+	assert.Contains(t, resp, sg2.ID)
+}
+
+func TestRunInstances_InvalidSecurityGroupId_Rejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	vals := url.Values{
+		"Action":            {"RunInstances"},
+		"Version":           {"2016-11-15"},
+		"ImageId":           {"ami-123"},
+		"InstanceType":      {"t3.micro"},
+		"MinCount":          {"1"},
+		"MaxCount":          {"1"},
+		"SecurityGroupId.1": {"sg-doesnotexist"},
+	}
+
+	_, err := ec2.ExportDispatch(h, vals)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NotFound")
+}
+
+// ---- Gap D: RunInstances MinCount/MaxCount validation ----
+
+// TestRunInstances_MinMaxCountValidation covers RunInstances' MinCount/MaxCount
+// validation rules: both must be positive, and MaxCount must be >= MinCount.
+
+func TestRunInstances_MinMaxCountValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		minCount      string
+		maxCount      string
+		wantErrSubstr string
+		wantErr       bool
+	}{
+		{
+			name: "MaxCountLessThanMinCount_Rejected", minCount: "3", maxCount: "1",
+			wantErr: true, wantErrSubstr: "MaxCount",
+		},
+		{name: "MaxCountZero_Rejected", minCount: "1", maxCount: "0", wantErr: true},
+		{name: "MinCountZero_Rejected", minCount: "0", maxCount: "1", wantErr: true},
+		{name: "NegativeMinCount_Rejected", minCount: "-1", maxCount: "1", wantErr: true},
+		{name: "NegativeMaxCount_Rejected", minCount: "1", maxCount: "-5", wantErr: true},
+		{name: "EqualMinMaxCount_OK", minCount: "2", maxCount: "2", wantErr: false},
+		{name: "MaxCountGreaterThanMinCount_OK", minCount: "1", maxCount: "5", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			vals := url.Values{
+				"Action":       {"RunInstances"},
+				"Version":      {"2016-11-15"},
+				"ImageId":      {"ami-123"},
+				"InstanceType": {"t3.micro"},
+				"MinCount":     {tt.minCount},
+				"MaxCount":     {tt.maxCount},
+			}
+
+			resp, err := ec2.ExportDispatch(h, vals)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantErrSubstr != "" {
+					assert.Contains(t, err.Error(), tt.wantErrSubstr)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Contains(t, resp, "RunInstancesResponse")
+		})
+	}
+}
+
+// ---- Gap E: AssociateAddress NetworkInterfaceId support ----
+
+func TestRunInstances_NoSecurityGroups_GroupSetEmpty(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	vals := url.Values{
+		"Action":       {"RunInstances"},
+		"Version":      {"2016-11-15"},
+		"ImageId":      {"ami-123"},
+		"InstanceType": {"t3.micro"},
+		"MinCount":     {"1"},
+		"MaxCount":     {"1"},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	// No SGs specified — groupSet should have no groupId items.
+	assert.NotContains(t, resp, "<groupId>")
+}
+
+// ---- Gap G: DescribeInstances filter combined with instance IDs ----
+
+func TestRunInstances_NoMaxCount_DefaultsToMinCount(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	vals := url.Values{
+		"Action":       {"RunInstances"},
+		"Version":      {"2016-11-15"},
+		"ImageId":      {"ami-123"},
+		"InstanceType": {"t3.micro"},
+		"MinCount":     {"2"},
+		// MaxCount omitted — should default to MinCount.
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "RunInstancesResponse")
+}
+
+func TestRunInstances_NoMinCount_DefaultsToOne(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	vals := url.Values{
+		"Action":       {"RunInstances"},
+		"Version":      {"2016-11-15"},
+		"ImageId":      {"ami-123"},
+		"InstanceType": {"t3.micro"},
+		// MinCount omitted — should default to 1.
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "RunInstancesResponse")
+}
+
+// ---- Gap I: DescribeSecurityGroups filter support ----
+
+func TestRunInstances_WithDefaultVPC_HasDefaultSG(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	sgs := b.DescribeSecurityGroups(nil)
+
+	// Default VPC comes with a default security group.
+	found := false
+
+	for _, sg := range sgs {
+		if sg.Name == "default" {
+			found = true
+
+			break
+		}
+	}
+
+	assert.True(t, found, "default VPC should have a default security group")
+}
+
+// ---- Gap K: DescribeInstances with no filters returns all instances ----
+
+func TestRunInstances_GroupSetPresentInResponse(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := newTestHandlerWithBackend(b)
+
+	vpc, err := b.CreateVpc("10.0.0.0/16")
+	require.NoError(t, err)
+
+	sg, err := b.CreateSecurityGroup("test-sg", "Test SG", vpc.ID)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":            {"RunInstances"},
+		"Version":           {"2016-11-15"},
+		"ImageId":           {"ami-123"},
+		"InstanceType":      {"t3.micro"},
+		"MinCount":          {"1"},
+		"MaxCount":          {"1"},
+		"SecurityGroupId.1": {sg.ID},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "<groupSet>")
+	assert.Contains(t, resp, "<groupId>"+sg.ID+"</groupId>")
+}
+
+// ---- parseEC2Filters helper verification ----
