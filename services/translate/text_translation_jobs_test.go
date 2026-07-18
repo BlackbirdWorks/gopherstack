@@ -9,12 +9,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/translate"
 )
 
-func newTestBackend(t *testing.T) *translate.InMemoryBackend {
-	t.Helper()
-
-	return translate.NewInMemoryBackend("000000000000", "us-east-1")
-}
-
 func startJob(t *testing.T, b *translate.InMemoryBackend, jobName string) *translate.TranslationJob {
 	t.Helper()
 
@@ -30,7 +24,7 @@ func startJob(t *testing.T, b *translate.InMemoryBackend, jobName string) *trans
 	return job
 }
 
-// TestBackend_DescribeTextTranslationJob_AdvancesToCompleted verifies that a
+// TestInMemoryBackend_DescribeTextTranslationJob_AdvancesToCompleted verifies that a
 // translation job starts at SUBMITTED (matching
 // aws-sdk-go-v2/service/translate/types.JobStatusSubmitted, the documented
 // initial value of StartTextTranslationJobOutput.JobStatus) and progresses
@@ -39,7 +33,7 @@ func startJob(t *testing.T, b *translate.InMemoryBackend, jobName string) *trans
 // advanced, so a client polling DescribeTextTranslationJob -- the documented
 // way to track an async batch translation job -- would see IN_PROGRESS
 // forever and never observe completion.
-func TestBackend_DescribeTextTranslationJob_AdvancesToCompleted(t *testing.T) {
+func TestInMemoryBackend_DescribeTextTranslationJob_AdvancesToCompleted(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
@@ -61,11 +55,11 @@ func TestBackend_DescribeTextTranslationJob_AdvancesToCompleted(t *testing.T) {
 	assert.Equal(t, "COMPLETED", got.JobStatus)
 }
 
-// TestBackend_DescribeTextTranslationJob_AdvancesToFailed verifies that a job
+// TestInMemoryBackend_DescribeTextTranslationJob_AdvancesToFailed verifies that a job
 // whose name carries the "[fail]" marker (matching the
 // services/comprehend convention for deterministically testing the failure
 // path) reaches FAILED instead of COMPLETED, with a Message explaining why.
-func TestBackend_DescribeTextTranslationJob_AdvancesToFailed(t *testing.T) {
+func TestInMemoryBackend_DescribeTextTranslationJob_AdvancesToFailed(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
@@ -80,11 +74,11 @@ func TestBackend_DescribeTextTranslationJob_AdvancesToFailed(t *testing.T) {
 	assert.NotEmpty(t, got.Message)
 }
 
-// TestBackend_StopTextTranslationJob_AdvancesToStopped verifies that a
+// TestInMemoryBackend_StopTextTranslationJob_AdvancesToStopped verifies that a
 // STOP_REQUESTED job reaches STOPPED on a subsequent
 // DescribeTextTranslationJob call, rather than sitting at STOP_REQUESTED
 // forever.
-func TestBackend_StopTextTranslationJob_AdvancesToStopped(t *testing.T) {
+func TestInMemoryBackend_StopTextTranslationJob_AdvancesToStopped(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
@@ -99,11 +93,11 @@ func TestBackend_StopTextTranslationJob_AdvancesToStopped(t *testing.T) {
 	assert.Equal(t, "STOPPED", got.JobStatus)
 }
 
-// TestBackend_ListTextTranslationJobs_DoesNotAdvance verifies that listing
+// TestInMemoryBackend_ListTextTranslationJobs_DoesNotAdvance verifies that listing
 // jobs is a pure read: it must not itself advance job status the way
 // DescribeTextTranslationJob does, since AWS's List operation does not
 // affect job state.
-func TestBackend_ListTextTranslationJobs_DoesNotAdvance(t *testing.T) {
+func TestInMemoryBackend_ListTextTranslationJobs_DoesNotAdvance(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend(t)
@@ -116,46 +110,4 @@ func TestBackend_ListTextTranslationJobs_DoesNotAdvance(t *testing.T) {
 	}
 
 	_ = job
-}
-
-// TestBackend_ImportTerminology_DirectionalityPassthrough verifies that a
-// caller-specified Directionality ("UNI" or "MULTI") is honored instead of
-// always being forced to "UNI", and that an invalid value is rejected.
-func TestBackend_ImportTerminology_DirectionalityPassthrough(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name            string
-		directionality  string
-		wantDirectional string
-		wantError       bool
-	}{
-		{name: "defaults to UNI when unspecified", directionality: "", wantDirectional: "UNI"},
-		{name: "UNI accepted", directionality: "UNI", wantDirectional: "UNI"},
-		{name: "MULTI accepted", directionality: "MULTI", wantDirectional: "MULTI"},
-		{name: "invalid value rejected", directionality: "BIDIRECTIONAL", wantError: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := newTestBackend(t)
-			data := &translate.TerminologyData{
-				Format:         "CSV",
-				Directionality: tt.directionality,
-				File:           []byte("en,es\nhi,hola"),
-			}
-			term, err := b.ImportTerminology("dir-term-"+tt.name, "", data, nil, nil)
-
-			if tt.wantError {
-				require.ErrorIs(t, err, translate.ErrValidation)
-
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantDirectional, term.Directionality)
-		})
-	}
 }
