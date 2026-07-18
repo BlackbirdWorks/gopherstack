@@ -124,16 +124,26 @@ func (b *InMemoryBackend) BatchIsAuthorized(
 		)
 	}
 
-	b.mu.Lock("BatchIsAuthorized")
+	var ps *cedar.PolicySet
 
-	if !b.policyStores.Has(policyStoreID) {
-		b.mu.Unlock()
+	var lockErr error
 
-		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	func() {
+		b.mu.Lock("BatchIsAuthorized")
+		defer b.mu.Unlock()
+
+		if !b.policyStores.Has(policyStoreID) {
+			lockErr = fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+
+			return
+		}
+
+		ps = b.buildCedarPolicySet(policyStoreID)
+	}()
+
+	if lockErr != nil {
+		return nil, lockErr
 	}
-
-	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.Unlock()
 
 	decisions := make([]AuthDecision, 0, len(requests))
 
@@ -158,16 +168,26 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 		)
 	}
 
-	b.mu.Lock("BatchIsAuthorizedWithToken")
+	var ps *cedar.PolicySet
 
-	if !b.policyStores.Has(policyStoreID) {
-		b.mu.Unlock()
+	var lockErr error
 
-		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	func() {
+		b.mu.Lock("BatchIsAuthorizedWithToken")
+		defer b.mu.Unlock()
+
+		if !b.policyStores.Has(policyStoreID) {
+			lockErr = fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+
+			return
+		}
+
+		ps = b.buildCedarPolicySet(policyStoreID)
+	}()
+
+	if lockErr != nil {
+		return nil, lockErr
 	}
-
-	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.Unlock()
 
 	decisions := make([]AuthDecision, 0, len(requests))
 
@@ -180,16 +200,26 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 
 // IsAuthorized evaluates a single authorization request against stored Cedar policies.
 func (b *InMemoryBackend) IsAuthorized(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error) {
-	b.mu.Lock("IsAuthorized")
+	var ps *cedar.PolicySet
 
-	if !b.policyStores.Has(policyStoreID) {
-		b.mu.Unlock()
+	var lockErr error
 
-		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	func() {
+		b.mu.Lock("IsAuthorized")
+		defer b.mu.Unlock()
+
+		if !b.policyStores.Has(policyStoreID) {
+			lockErr = fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+
+			return
+		}
+
+		ps = b.buildCedarPolicySet(policyStoreID)
+	}()
+
+	if lockErr != nil {
+		return nil, lockErr
 	}
-
-	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.Unlock()
 
 	result := evaluateCedar(ps, req)
 
@@ -201,16 +231,26 @@ func (b *InMemoryBackend) IsAuthorizedWithToken(
 	policyStoreID string,
 	req AuthorizationRequest,
 ) (*AuthDecision, error) {
-	b.mu.Lock("IsAuthorizedWithToken")
+	var ps *cedar.PolicySet
 
-	if !b.policyStores.Has(policyStoreID) {
-		b.mu.Unlock()
+	var lockErr error
 
-		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	func() {
+		b.mu.Lock("IsAuthorizedWithToken")
+		defer b.mu.Unlock()
+
+		if !b.policyStores.Has(policyStoreID) {
+			lockErr = fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+
+			return
+		}
+
+		ps = b.buildCedarPolicySet(policyStoreID)
+	}()
+
+	if lockErr != nil {
+		return nil, lockErr
 	}
-
-	ps := b.buildCedarPolicySet(policyStoreID)
-	b.mu.Unlock()
 
 	result := evaluateCedar(ps, req)
 
