@@ -1,0 +1,267 @@
+package personalize
+
+import (
+	"fmt"
+	"hash/fnv"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// --- Solution ---
+
+// CreateSolution creates a new solution. performAutoTraining defaults to true
+// in the real API when the caller omits it, so it is passed as an already
+// caller-resolved bool rather than re-defaulted here.
+func (b *InMemoryBackend) CreateSolution(
+	name, datasetGroupArn, recipeArn string,
+	performAutoML, performHPO, performAutoTraining, performIncrementalUpdate bool,
+	tags map[string]string,
+) (*Solution, error) {
+	b.mu.Lock("CreateSolution")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+	if b.solutions.Has(name) {
+		return nil, fmt.Errorf("%w: solution %q already exists", ErrAlreadyExists, name)
+	}
+
+	now := time.Now().UTC()
+	sol := &Solution{
+		SolutionArn:              b.personalizeARN("solution", name),
+		Name:                     name,
+		DatasetGroupArn:          datasetGroupArn,
+		RecipeArn:                recipeArn,
+		PerformAutoML:            performAutoML,
+		PerformHPO:               performHPO,
+		PerformAutoTraining:      performAutoTraining,
+		PerformIncrementalUpdate: performIncrementalUpdate,
+		Status:                   statusActive,
+		CreationDateTime:         now,
+		LastUpdatedDateTime:      now,
+	}
+	b.solutions.Put(sol)
+	if len(tags) > 0 {
+		b.tags[sol.SolutionArn] = copyStringMap(tags)
+	}
+
+	return sol, nil
+}
+
+// DescribeSolution returns a solution by name or ARN.
+func (b *InMemoryBackend) DescribeSolution(nameOrArn string) (*Solution, error) {
+	b.mu.RLock("DescribeSolution")
+	defer b.mu.RUnlock()
+
+	if sol := b.findSolution(nameOrArn); sol != nil {
+		return sol, nil
+	}
+
+	return nil, fmt.Errorf("%w: solution %q not found", ErrNotFound, nameOrArn)
+}
+
+// UpdateSolution updates a solution's automatic-training configuration. The
+// real UpdateSolution API only mutates performAutoTraining and
+// performIncrementalUpdate (performAutoML/performHPO are immutable,
+// creation-only fields) -- nil means "not specified in the request", leaving
+// the current value untouched, matching the optional *bool request members.
+func (b *InMemoryBackend) UpdateSolution(
+	nameOrArn string,
+	performAutoTraining, performIncrementalUpdate *bool,
+) (*Solution, error) {
+	b.mu.Lock("UpdateSolution")
+	defer b.mu.Unlock()
+
+	sol := b.findSolution(nameOrArn)
+	if sol == nil {
+		return nil, fmt.Errorf("%w: solution %q not found", ErrNotFound, nameOrArn)
+	}
+	if performAutoTraining != nil {
+		sol.PerformAutoTraining = *performAutoTraining
+	}
+	if performIncrementalUpdate != nil {
+		sol.PerformIncrementalUpdate = *performIncrementalUpdate
+	}
+	sol.LastUpdatedDateTime = time.Now().UTC()
+
+	return sol, nil
+}
+
+// DeleteSolution removes a solution.
+func (b *InMemoryBackend) DeleteSolution(nameOrArn string) error {
+	b.mu.Lock("DeleteSolution")
+	defer b.mu.Unlock()
+
+	sol := b.findSolution(nameOrArn)
+	if sol == nil {
+		return fmt.Errorf("%w: solution %q not found", ErrNotFound, nameOrArn)
+	}
+	b.solutions.Delete(sol.Name)
+	delete(b.tags, sol.SolutionArn)
+
+	return nil
+}
+
+// ListSolutions returns solutions, optionally filtered by dataset group ARN.
+func (b *InMemoryBackend) ListSolutions(
+	datasetGroupArn string,
+	maxResults int,
+	nextToken string,
+) ([]*Solution, string) {
+	b.mu.RLock("ListSolutions")
+	defer b.mu.RUnlock()
+
+	all := b.solutions.Snapshot()
+	filtered := make([]*Solution, 0, len(all))
+	for _, sol := range all {
+		if datasetGroupArn == "" || sol.DatasetGroupArn == datasetGroupArn {
+			filtered = append(filtered, sol)
+		}
+	}
+
+	return paginateItems(filtered, solutionKeyFn, maxResults, nextToken)
+}
+
+func (b *InMemoryBackend) findSolution(nameOrArn string) *Solution {
+	if sol, ok := b.solutions.Get(nameOrArn); ok {
+		return sol
+	}
+	for _, sol := range b.solutions.All() {
+		if sol.SolutionArn == nameOrArn {
+			return sol
+		}
+	}
+
+	return nil
+}
+
+// --- SolutionVersion ---
+
+// CreateSolutionVersion creates a new solution version.
+func (b *InMemoryBackend) CreateSolutionVersion(
+	solutionArn, trainingMode string,
+	tags map[string]string,
+) (*SolutionVersion, error) {
+	b.mu.Lock("CreateSolutionVersion")
+	defer b.mu.Unlock()
+
+	if solutionArn == "" {
+		return nil, fmt.Errorf("%w: solutionArn is required", ErrValidation)
+	}
+
+	versionID := uuid.New().String()
+	now := time.Now().UTC()
+	sv := &SolutionVersion{
+		SolutionVersionArn:  solutionArn + "/" + versionID,
+		SolutionArn:         solutionArn,
+		Status:              statusActive,
+		TrainingMode:        trainingMode,
+		TrainingHours:       mockMetricValue,
+		CreationDateTime:    now,
+		LastUpdatedDateTime: now,
+	}
+	b.solutionVersions.Put(sv)
+	if len(tags) > 0 {
+		b.tags[sv.SolutionVersionArn] = copyStringMap(tags)
+	}
+
+	return sv, nil
+}
+
+// DescribeSolutionVersion returns a solution version by ARN.
+func (b *InMemoryBackend) DescribeSolutionVersion(svArn string) (*SolutionVersion, error) {
+	b.mu.RLock("DescribeSolutionVersion")
+	defer b.mu.RUnlock()
+
+	sv, ok := b.solutionVersions.Get(svArn)
+	if !ok {
+		return nil, fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
+	}
+
+	return sv, nil
+}
+
+// DeleteSolutionVersion removes a solution version.
+func (b *InMemoryBackend) DeleteSolutionVersion(svArn string) error {
+	b.mu.Lock("DeleteSolutionVersion")
+	defer b.mu.Unlock()
+
+	if !b.solutionVersions.Has(svArn) {
+		return fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
+	}
+	b.solutionVersions.Delete(svArn)
+	delete(b.tags, svArn)
+
+	return nil
+}
+
+// ListSolutionVersions returns solution versions for a given solution ARN.
+func (b *InMemoryBackend) ListSolutionVersions(
+	solutionArn string,
+	maxResults int,
+	nextToken string,
+) ([]*SolutionVersion, string) {
+	b.mu.RLock("ListSolutionVersions")
+	defer b.mu.RUnlock()
+
+	all := b.solutionVersions.Snapshot()
+	filtered := make([]*SolutionVersion, 0, len(all))
+	for _, sv := range all {
+		if solutionArn == "" || sv.SolutionArn == solutionArn {
+			filtered = append(filtered, sv)
+		}
+	}
+
+	return paginateItems(filtered, solutionVersionKeyFn, maxResults, nextToken)
+}
+
+// StopSolutionVersionCreation transitions a solution version to CREATE STOPPED.
+func (b *InMemoryBackend) StopSolutionVersionCreation(svArn string) error {
+	b.mu.Lock("StopSolutionVersionCreation")
+	defer b.mu.Unlock()
+
+	sv, ok := b.solutionVersions.Get(svArn)
+	if !ok {
+		return fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
+	}
+	sv.Status = statusSolutionVersionStopped
+	sv.LastUpdatedDateTime = time.Now().UTC()
+
+	return nil
+}
+
+// GetSolutionMetrics returns deterministic accuracy metrics for a solution version.
+// Values are derived from the ARN hash so each solution version gets distinct (but stable) metrics.
+func (b *InMemoryBackend) GetSolutionMetrics(svArn string) (map[string]any, error) {
+	b.mu.RLock("GetSolutionMetrics")
+	defer b.mu.RUnlock()
+
+	if !b.solutionVersions.Has(svArn) {
+		return nil, fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
+	}
+
+	return map[string]any{
+		keySolutionVersionArn: svArn,
+		"metrics": map[string]any{
+			"coverage":                   svMetric(svArn, "coverage"),
+			"mean_reciprocal_rank_at_25": svMetric(svArn, "mrr@25"),
+			"normalized_discounted_cumulative_gain_at_5":  svMetric(svArn, "ndcg@5"),
+			"normalized_discounted_cumulative_gain_at_10": svMetric(svArn, "ndcg@10"),
+			"normalized_discounted_cumulative_gain_at_25": svMetric(svArn, "ndcg@25"),
+			"precision_at_5":  svMetric(svArn, "p@5"),
+			"precision_at_10": svMetric(svArn, "p@10"),
+			"precision_at_25": svMetric(svArn, "p@25"),
+		},
+	}, nil
+}
+
+// svMetric returns a stable [0.01, 0.99] metric value derived from the solution version ARN and metric name.
+func svMetric(svArn, metricName string) float64 {
+	const buckets = 98 // maps hash into [0.01, 0.99]
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(svArn + "|" + metricName))
+
+	return float64(h.Sum32()%buckets+1) / 100.0 //nolint:mnd // 100.0 converts integer percent to float ratio
+}
