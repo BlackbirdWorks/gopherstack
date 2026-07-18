@@ -36,7 +36,114 @@ package iotwireless
 // bools, times, map[string]any, or []QueuedMessage), so none fits
 // store.Table's keyed-by-identity-*T shape. eventConfigDefault and
 // metricConfigStatus aren't maps at all.
-import "github.com/blackbirdworks/gopherstack/pkgs/store"
+import (
+	"maps"
+	"sync"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+)
+
+// InMemoryBackend is the in-memory backend for IoT Wireless.
+type InMemoryBackend struct {
+	wirelessGatewayCerts       map[string]string
+	wirelessGatewayThings      map[string]string
+	serviceProfiles            *store.Table[ServiceProfile]
+	destinations               *store.Table[Destination]
+	deviceProfiles             *store.Table[DeviceProfile]
+	fuotaTasks                 *store.Table[FuotaTask]
+	multicastGroups            *store.Table[MulticastGroup]
+	networkAnalyzerConfigs     *store.Table[NetworkAnalyzerConfig]
+	devices                    *store.Table[WirelessDevice]
+	partnerAccounts            map[string]string
+	fuotaTaskMulticast         map[string]string
+	fuotaTaskDevices           map[string]string
+	multicastGroupDevices      map[string]string
+	multicastGroupSessions     map[string]bool
+	gateways                   *store.Table[WirelessGateway]
+	multicastGroupSessionStart map[string]time.Time
+	resourceTags               map[string]map[string]string
+	wirelessDeviceThings       map[string]string
+	logLevels                  map[string]string
+	resourceLogLevels          map[string]string
+	gatewayTasks               *store.Table[GatewayTask]
+	gatewayTaskDefs            *store.Table[GatewayTaskDefinition]
+	positions                  map[string]map[string]any
+	queuedMessages             map[string][]QueuedMessage
+	importTasks                *store.Table[WirelessDeviceImportTask]
+	singleImportTasks          *store.Table[SingleWirelessDeviceImportTask]
+	positionConfigs            *store.Table[PositionConfigEntry]
+	resourceEventConfigs       *store.Table[ResourceEventConfigEntry]
+	eventConfigDefault         *EventConfigDoc
+	registry                   *store.Registry
+	metricConfigStatus         string
+	mu                         sync.RWMutex
+}
+
+// NewInMemoryBackend creates a new in-memory IoT Wireless backend.
+func NewInMemoryBackend() *InMemoryBackend {
+	b := &InMemoryBackend{
+		resourceTags:               make(map[string]map[string]string),
+		partnerAccounts:            make(map[string]string),
+		fuotaTaskMulticast:         make(map[string]string),
+		fuotaTaskDevices:           make(map[string]string),
+		multicastGroupDevices:      make(map[string]string),
+		multicastGroupSessions:     make(map[string]bool),
+		multicastGroupSessionStart: make(map[string]time.Time),
+		wirelessDeviceThings:       make(map[string]string),
+		wirelessGatewayCerts:       make(map[string]string),
+		wirelessGatewayThings:      make(map[string]string),
+		logLevels:                  make(map[string]string),
+		resourceLogLevels:          make(map[string]string),
+		positions:                  make(map[string]map[string]any),
+		queuedMessages:             make(map[string][]QueuedMessage),
+		registry:                   store.NewRegistry(),
+	}
+
+	registerAllTables(b)
+
+	return b
+}
+
+// Reset clears all in-memory state, returning the backend to a pristine condition.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.resetTablesLocked()
+
+	b.resourceTags = make(map[string]map[string]string)
+	b.partnerAccounts = make(map[string]string)
+	b.fuotaTaskMulticast = make(map[string]string)
+	b.fuotaTaskDevices = make(map[string]string)
+	b.multicastGroupDevices = make(map[string]string)
+	b.multicastGroupSessions = make(map[string]bool)
+	b.multicastGroupSessionStart = make(map[string]time.Time)
+	b.wirelessDeviceThings = make(map[string]string)
+	b.wirelessGatewayCerts = make(map[string]string)
+	b.wirelessGatewayThings = make(map[string]string)
+	b.logLevels = make(map[string]string)
+	b.resourceLogLevels = make(map[string]string)
+	b.positions = make(map[string]map[string]any)
+	b.queuedMessages = make(map[string][]QueuedMessage)
+	b.eventConfigDefault = nil
+	b.metricConfigStatus = ""
+}
+
+// newTagsCopy returns a copy of the provided tag map.
+// An empty non-nil map is returned for nil input.
+func newTagsCopy(tags map[string]string) map[string]string {
+	cp := make(map[string]string, len(tags))
+	maps.Copy(cp, tags)
+
+	return cp
+}
+
+// storeResourceTagsLocked initialises the resource tag entry for the given ARN.
+// Must be called with b.mu held for writing.
+func (b *InMemoryBackend) storeResourceTagsLocked(arn string, tags map[string]string) {
+	b.resourceTags[arn] = newTagsCopy(tags)
+}
 
 // compositeKeySep separates the AccountID/Region/ID (or /Name) components of
 // a dirty table's composite key. \x00 cannot appear in any AWS
@@ -94,7 +201,7 @@ func resourceEventConfigKeyFn(v *ResourceEventConfigEntry) string { return v.Ide
 // NOT registered -- see the file doc comment above. It must be called during
 // construction only, never on every Reset(): store.Register panics on a
 // duplicate name, so runtime resets go through resetTablesLocked
-// (backend.go) instead.
+// (below) instead.
 func registerAllTables(b *InMemoryBackend) {
 	b.gatewayTasks = store.Register(b.registry, "gatewayTasks", store.New(gatewayTaskKeyFn))
 	b.gatewayTaskDefs = store.Register(b.registry, "gatewayTaskDefs", store.New(gatewayTaskDefKeyFn))
