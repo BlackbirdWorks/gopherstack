@@ -1,0 +1,123 @@
+package databrew_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/databrew"
+)
+
+// newTestBackend returns a fresh InMemoryBackend. Shared across the
+// databrew_test package's family test files.
+func newTestBackend() *databrew.InMemoryBackend {
+	return databrew.NewInMemoryBackend("123456789012", "us-east-1")
+}
+
+// s3Input builds a DatasetInput with an S3 source. Shared across the
+// databrew_test package's family test files.
+func s3Input(bucket, key string) databrew.DatasetInput {
+	return databrew.DatasetInput{
+		S3InputDefinition: &databrew.S3Location{Bucket: bucket, Key: key},
+	}
+}
+
+// newTestHandler returns a fresh Handler backed by a fresh InMemoryBackend.
+// Shared across the databrew_test package's family test files.
+func newTestHandler() *databrew.Handler {
+	return databrew.NewHandler(databrew.NewInMemoryBackend("123456789012", "us-east-1"))
+}
+
+// databrewReq performs a request against the databrew handler via echo.
+// Shared across the databrew_test package's family test files.
+func databrewReq(t *testing.T, h *databrew.Handler, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var buf bytes.Buffer
+	if body != nil {
+		require.NoError(t, json.NewEncoder(&buf).Encode(body))
+	}
+
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	e := echo.New()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+// extractOp is a helper that calls ExtractOperation via a fake echo context.
+// Shared across the databrew_test package's family test files.
+func extractOp(t *testing.T, h *databrew.Handler, method, path string) string {
+	t.Helper()
+
+	req := httptest.NewRequest(method, path, nil)
+	e := echo.New()
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	return h.ExtractOperation(c)
+}
+
+func TestReset(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = b.CreateRecipe(context.Background(), "r", "", nil, nil)
+	require.NoError(t, err)
+	_, err = b.CreateProject(context.Background(), "p", "ds", "r", "", databrew.Sample{}, nil)
+	require.NoError(t, err)
+	_, err = b.CreateJob(context.Background(), "j", "PROFILE", "ds", "", "", "", nil, nil)
+	require.NoError(t, err)
+
+	b.Reset()
+
+	dsList, _ := b.ListDatasets(context.Background(), 100, "")
+	assert.Empty(t, dsList)
+	rList, _ := b.ListRecipes(context.Background(), 100, "")
+	assert.Empty(t, rList)
+	pList, _ := b.ListProjects(context.Background(), 100, "")
+	assert.Empty(t, pList)
+	jList, _ := b.ListJobs(context.Background(), 100, "", "", "")
+	assert.Empty(t, jList)
+}
+
+func TestProvider_Name(t *testing.T) {
+	t.Parallel()
+	p := &databrew.Provider{}
+	assert.Equal(t, "DataBrew", p.Name())
+}
+
+func TestProvider_Init_NilContext(t *testing.T) {
+	t.Parallel()
+	p := &databrew.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+}
+
+func TestProvider_Init_Success(t *testing.T) {
+	t.Parallel()
+	p := &databrew.Provider{}
+	svc, err := p.Init(&service.AppContext{})
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
+}
