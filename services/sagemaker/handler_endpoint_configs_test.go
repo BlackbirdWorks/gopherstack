@@ -1,0 +1,430 @@
+package sagemaker_test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sagemaker"
+)
+
+func TestHandler_CreateEndpointConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+		wantARN  bool
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"EndpointConfigName": "my-config",
+				"ProductionVariants": []map[string]any{
+					{
+						"VariantName":          "AllTraffic",
+						"ModelName":            "my-model",
+						"InstanceType":         "ml.t2.medium",
+						"InitialInstanceCount": 1,
+					},
+				},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name:     "missing config name",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "CreateEndpointConfig", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantARN {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["EndpointConfigArn"], "arn:aws:sagemaker")
+			}
+		})
+	}
+}
+
+func TestHandler_DescribeEndpointConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *sagemaker.Handler)
+		body     map[string]any
+		name     string
+		wantName string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+
+				_, err := h.Backend.CreateEndpointConfig(context.Background(), "my-config", nil, nil)
+				require.NoError(t, err)
+			},
+			body:     map[string]any{"EndpointConfigName": "my-config"},
+			wantCode: http.StatusOK,
+			wantName: "my-config",
+		},
+		{
+			name:     "not found",
+			body:     map[string]any{"EndpointConfigName": "nonexistent"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doSageMakerRequest(t, h, "DescribeEndpointConfig", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantName != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantName, resp["EndpointConfigName"])
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteEndpointConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *sagemaker.Handler)
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+
+				_, err := h.Backend.CreateEndpointConfig(context.Background(), "to-delete", nil, nil)
+				require.NoError(t, err)
+			},
+			body:     map[string]any{"EndpointConfigName": "to-delete"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not found",
+			body:     map[string]any{"EndpointConfigName": "nonexistent"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doSageMakerRequest(t, h, "DeleteEndpointConfig", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ListEndpointConfigs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *sagemaker.Handler)
+		name       string
+		wantCode   int
+		wantLength int
+	}{
+		{
+			name:       "empty list",
+			wantCode:   http.StatusOK,
+			wantLength: 0,
+		},
+		{
+			name: "returns all configs",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+
+				_, err := h.Backend.CreateEndpointConfig(context.Background(), "config-a", nil, nil)
+				require.NoError(t, err)
+
+				_, err = h.Backend.CreateEndpointConfig(context.Background(), "config-b", nil, nil)
+				require.NoError(t, err)
+			},
+			wantCode:   http.StatusOK,
+			wantLength: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doSageMakerRequest(t, h, "ListEndpointConfigs", map[string]any{})
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			configs, ok := resp["EndpointConfigs"].([]any)
+			require.True(t, ok)
+			assert.Len(t, configs, tt.wantLength)
+		})
+	}
+}
+
+func TestHandler_Tags_EndpointConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	ec, err := h.Backend.CreateEndpointConfig(context.Background(), "tagged-config", nil, nil)
+	require.NoError(t, err)
+
+	// Add tags to endpoint config.
+	rec := doSageMakerRequest(t, h, "AddTags", map[string]any{
+		"ResourceArn": ec.EndpointConfigARN,
+		"Tags":        []map[string]string{{"Key": "Env", "Value": "test"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// List tags for endpoint config.
+	rec = doSageMakerRequest(t, h, "ListTags", map[string]any{
+		"ResourceArn": ec.EndpointConfigARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	tags, ok := resp["Tags"].([]any)
+	require.True(t, ok)
+	require.Len(t, tags, 1)
+
+	// Delete tags from endpoint config.
+	rec = doSageMakerRequest(t, h, "DeleteTags", map[string]any{
+		"ResourceArn": ec.EndpointConfigARN,
+		"TagKeys":     []string{"Env"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_ListEndpointConfigsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		count         int
+		wantNextToken bool
+	}{
+		{
+			name:          "single_page",
+			count:         3,
+			wantNextToken: false,
+		},
+		{
+			name:          "multi_page",
+			count:         105, // exceeds sagemakerDefaultPageSize=100
+			wantNextToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range tt.count {
+				_, err := h.Backend.CreateEndpointConfig(context.Background(),
+					fmt.Sprintf("cfg-%04d", i),
+					nil,
+					nil,
+				)
+				require.NoError(t, err)
+			}
+
+			rec := doSageMakerRequest(t, h, "ListEndpointConfigs", map[string]any{})
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			configs, configsOK := resp["EndpointConfigs"].([]any)
+			require.True(t, configsOK)
+
+			if tt.wantNextToken {
+				assert.Len(t, configs, 100)
+				nextToken, tokenOK := resp["NextToken"].(string)
+				require.True(t, tokenOK, "NextToken should be present")
+				assert.NotEmpty(t, nextToken)
+
+				// Second page.
+				rec2 := doSageMakerRequest(
+					t,
+					h,
+					"ListEndpointConfigs",
+					map[string]any{"NextToken": nextToken},
+				)
+				assert.Equal(t, http.StatusOK, rec2.Code)
+
+				var resp2 map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+
+				configs2, configs2OK := resp2["EndpointConfigs"].([]any)
+				require.True(t, configs2OK)
+				assert.Len(t, configs2, tt.count-100)
+				assert.Empty(t, resp2["NextToken"])
+			} else {
+				assert.Len(t, configs, tt.count)
+				assert.Empty(t, resp["NextToken"])
+			}
+		})
+	}
+}
+
+// TestCreateEndpointConfig_RequiresProductionVariants verifies that
+// CreateEndpointConfig rejects requests with an empty ProductionVariants list.
+// Real AWS returns ValidationException for this case; the emulator previously
+// accepted empty variants and created a corrupt endpoint config.
+func TestCreateEndpointConfig_RequiresProductionVariants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "empty_variants_rejected",
+			body: map[string]any{
+				"EndpointConfigName": "bad-config",
+				"ProductionVariants": []map[string]any{},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "null_variants_rejected",
+			body: map[string]any{
+				"EndpointConfigName": "null-config",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "single_variant_accepted",
+			body: map[string]any{
+				"EndpointConfigName": "good-config",
+				"ProductionVariants": []map[string]any{
+					{
+						"VariantName":          "AllTraffic",
+						"ModelName":            "my-model",
+						"InstanceType":         "ml.t2.medium",
+						"InitialInstanceCount": 1,
+					},
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "multiple_variants_accepted",
+			body: map[string]any{
+				"EndpointConfigName": "multi-config",
+				"ProductionVariants": []map[string]any{
+					{
+						"VariantName":          "Variant1",
+						"ModelName":            "model-a",
+						"InstanceType":         "ml.t2.medium",
+						"InitialInstanceCount": 1,
+					},
+					{
+						"VariantName":          "Variant2",
+						"ModelName":            "model-b",
+						"InstanceType":         "ml.t2.large",
+						"InitialInstanceCount": 2,
+					},
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "CreateEndpointConfig", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code, "body=%v", tt.body)
+
+			if tt.wantCode == http.StatusBadRequest {
+				var errResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				msg, _ := errResp["message"].(string)
+				assert.Contains(t, msg, "ProductionVariant",
+					"error message must mention ProductionVariant")
+			}
+		})
+	}
+}
+
+func TestDeleteEndpointConfig_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "delete non-existent config returns 400",
+			body:     map[string]any{"EndpointConfigName": "does-not-exist"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "DeleteEndpointConfig", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}

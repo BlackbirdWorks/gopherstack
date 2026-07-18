@@ -73,7 +73,7 @@ func TestSnapshotRestore(t *testing.T) {
 	}
 }
 
-func TestPersistenceRoundtrip_MiscDestubState(t *testing.T) {
+func TestPersistenceRoundtrip_PolicyCatalogAndPipelineVersions(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
