@@ -24,11 +24,11 @@ func TestDescribeBackupVaultVaultState(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			doBatch1Request(t, h, http.MethodPut, "/backup-vaults/state-vault", `{}`)
+			doRequest(t, h, http.MethodPut, "/backup-vaults/state-vault", `{}`)
 
-			resp := doBatch1Request(t, h, http.MethodGet, "/backup-vaults/state-vault", "")
+			resp := doRequest(t, h, http.MethodGet, "/backup-vaults/state-vault", "")
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
@@ -58,11 +58,11 @@ func TestListBackupVaultsVaultState(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			doBatch1Request(t, h, http.MethodPut, "/backup-vaults/"+tc.vaultName, `{}`)
+			doRequest(t, h, http.MethodPut, "/backup-vaults/"+tc.vaultName, `{}`)
 
-			resp := doBatch1Request(t, h, http.MethodGet, "/backup-vaults", "")
+			resp := doRequest(t, h, http.MethodGet, "/backup-vaults", "")
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
@@ -115,8 +115,8 @@ func TestVaultNameUnderscoreAllowed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
-			resp := doBatch1Request(t, h, http.MethodPut, "/backup-vaults/"+tt.vaultName, `{}`)
+			h, _ := newHandler(t)
+			resp := doRequest(t, h, http.MethodPut, "/backup-vaults/"+tt.vaultName, `{}`)
 			assert.Equal(t, tt.wantStatus, resp.Code, "vault name %q", tt.vaultName)
 		})
 	}
@@ -178,15 +178,15 @@ func TestCreateVaultCreatorRequestIdIdempotency(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			r1 := doBatch1Request(t, h, http.MethodPut, "/backup-vaults/idem-vault", tt.firstRequest)
+			r1 := doRequest(t, h, http.MethodPut, "/backup-vaults/idem-vault", tt.firstRequest)
 			require.Equal(t, http.StatusOK, r1.Code)
 			var d1 map[string]any
 			require.NoError(t, json.Unmarshal(r1.Body.Bytes(), &d1))
 			arn1 := d1["BackupVaultArn"].(string)
 
-			r2 := doBatch1Request(t, h, http.MethodPut, "/backup-vaults/idem-vault", tt.secondRequest)
+			r2 := doRequest(t, h, http.MethodPut, "/backup-vaults/idem-vault", tt.secondRequest)
 			assert.Equal(t, tt.wantSecondCode, r2.Code)
 			if tt.wantSameArn {
 				var d2 map[string]any
@@ -628,12 +628,10 @@ func TestAirGappedVaultValidation(t *testing.T) {
 	}
 }
 
-// TestParity_DescribeBackupVault_VaultType verifies DescribeBackupVault returns
-// VaultType as "BACKUP_VAULT" for regular vaults, matching real AWS behavior.
-// TestVaultTypeParity verifies that vault responses include VaultType with the
+// TestVaultType verifies that vault responses include VaultType with the
 // correct value for regular and logically air-gapped vaults, matching real AWS
 // behavior.
-func TestVaultTypeParity(t *testing.T) {
+func TestVaultType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

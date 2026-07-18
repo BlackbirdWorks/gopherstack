@@ -34,7 +34,7 @@ const awsconfigSnapshotVersion = 1
 // ruleEvaluations, resourceHistory, resourceTags, remediationExceptions,
 // customRulePolicies, and orgCustomRulePolicies are deliberately NOT included:
 // each is a scalar- or slice-valued map with no store.Table identity (see the
-// field comments on InMemoryBackend in backend.go), and none of the six was
+// field comments on InMemoryBackend in store.go), and none of the six was
 // persisted before Phase 3.3 either -- this preserves that pre-existing gap
 // rather than closing it, per the mechanical-conversion (not parity-fix)
 // scope of this rollout.

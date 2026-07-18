@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -272,4 +274,356 @@ func TestHandler_SessionRoutes(t *testing.T) {
 			assert.Equal(t, tt.want, h.ExtractOperation(c))
 		})
 	}
+}
+
+// --- parseSessionListQuery uncovered branches ---
+
+func TestHandler_ListSessions_InvalidMaxResults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		queryString string
+		wantStatus  int
+	}{
+		{
+			name:        "negative_max_results",
+			queryString: "?maxResults=-1",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "zero_max_results",
+			queryString: "?maxResults=0",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "non_numeric_max_results",
+			queryString: "?maxResults=abc",
+			wantStatus:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			appID := createStartedApp(t, h)
+			startSession(t, h, appID, "token-"+tt.name)
+
+			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/sessions"+tt.queryString, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- parseQueryTime uncovered branches ---
+
+func TestHandler_ListSessions_TimeFilters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		queryString string
+		wantStatus  int
+		wantCount   int
+	}{
+		{
+			name:        "valid_created_at_after",
+			queryString: "?createdAtAfter=" + time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+			wantStatus:  http.StatusOK,
+			wantCount:   1, // session created now is after 1 hour ago
+		},
+		{
+			name:        "valid_created_at_before",
+			queryString: "?createdAtBefore=" + time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			wantStatus:  http.StatusOK,
+			wantCount:   1, // session created now is before 1 hour from now
+		},
+		{
+			name:        "invalid_created_at_after",
+			queryString: "?createdAtAfter=not-a-date",
+			wantStatus:  http.StatusBadRequest,
+			wantCount:   0,
+		},
+		{
+			name:        "invalid_created_at_before",
+			queryString: "?createdAtBefore=not-a-date",
+			wantStatus:  http.StatusBadRequest,
+			wantCount:   0,
+		},
+		{
+			name:        "created_at_after_filters_out_old_session",
+			queryString: "?createdAtAfter=" + time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			wantStatus:  http.StatusOK,
+			wantCount:   0,
+		},
+		{
+			name:        "created_at_before_filters_out_new_session",
+			queryString: "?createdAtBefore=" + time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+			wantStatus:  http.StatusOK,
+			wantCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			appID := createStartedApp(t, h)
+			startSession(t, h, appID, "time-token-"+tt.name)
+
+			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/sessions"+tt.queryString, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				sessions := out["sessions"].([]any)
+				assert.Len(t, sessions, tt.wantCount)
+			}
+		})
+	}
+}
+
+// --- ListSessions with pagination nextToken ---
+
+func TestHandler_ListSessions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	appID := createStartedApp(t, h)
+
+	for i := range 3 {
+		startSession(t, h, appID, "page-token-"+string(rune('a'+i)))
+	}
+
+	rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/sessions?maxResults=2", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "nextToken")
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	nextToken, ok := out["nextToken"].(string)
+	require.True(t, ok)
+
+	rec2 := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/sessions?nextToken="+nextToken, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out2 map[string]any
+	mustUnmarshal(t, rec2, &out2)
+	sessions := out2["sessions"].([]any)
+	assert.NotEmpty(t, sessions)
+}
+
+// --- handleStartSession with invalid body ---
+
+func TestHandler_StartSession_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	appID := createStartedApp(t, h)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/applications/"+appID+"/sessions", strings.NewReader("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// --- TerminateSession error branches ---
+
+func TestHandler_TerminateSession_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *emrserverless.Handler) (appID, sessionID string)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "app_not_found",
+			setup: func(_ *emrserverless.Handler) (string, string) {
+				return "nonexistent-app", "nonexistent-session"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "session_not_found",
+			setup: func(h *emrserverless.Handler) (string, string) {
+				appID := createStartedApp(t, h)
+
+				return appID, "nonexistent-session"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "already_terminated",
+			setup: func(h *emrserverless.Handler) (string, string) {
+				appID := createStartedApp(t, h)
+				sessionID, _ := startSession(t, h, appID, "term-token")
+				rec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/sessions/"+sessionID, nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				return appID, sessionID
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			appID, sessionID := tt.setup(h)
+			rec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/sessions/"+sessionID, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- GetSession errors ---
+
+func TestHandler_GetSession_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *emrserverless.Handler) (appID, sessionID string)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "app_not_found",
+			setup: func(_ *emrserverless.Handler) (string, string) {
+				return "nonexistent-app", "nonexistent-session"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "session_not_found",
+			setup: func(h *emrserverless.Handler) (string, string) {
+				appID := createStartedApp(t, h)
+
+				return appID, "nonexistent-session"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			appID, sessionID := tt.setup(h)
+			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/sessions/"+sessionID, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- ListSessions errors ---
+
+func TestHandler_ListSessions_AppNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodGet, "/applications/nonexistent/sessions", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// --- GetSessionEndpoint errors ---
+
+func TestHandler_GetSessionEndpoint_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *emrserverless.Handler) (appID, sessionID string)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "app_not_found",
+			setup: func(_ *emrserverless.Handler) (string, string) {
+				return "nonexistent-app", "nonexistent-session"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "session_not_found",
+			setup: func(h *emrserverless.Handler) (string, string) {
+				appID := createStartedApp(t, h)
+
+				return appID, "nonexistent-session"
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			appID, sessionID := tt.setup(h)
+			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/sessions/"+sessionID+"/endpoint", nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- GetResourceDashboard errors ---
+
+func TestHandler_GetResourceDashboard_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "missing_resource_type",
+			path:       "/applications/some-app/dashboard?resourceId=s1&resourceType=JOBRUN",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "app_not_found",
+			path:       "/applications/nonexistent/dashboard?resourceId=s1&resourceType=SESSION",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodGet, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// --- sessionToMap with EndedAt set and optional fields ---
+
+func TestSessionToMap_WithTerminatedSession(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	appID := createStartedApp(t, h)
+	sessionID, _ := startSession(t, h, appID, "map-term-token")
+
+	// Terminate session so EndedAt is set.
+	rec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/sessions/"+sessionID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Retrieve the terminated session — endedAt should be present.
+	rec = doRequest(t, h, http.MethodGet, "/applications/"+appID+"/sessions/"+sessionID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "endedAt")
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-func TestParity_CreateInvalidationRequiresCallerReference(t *testing.T) {
+func TestCreateInvalidationRequiresCallerReference(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -44,7 +44,7 @@ func TestParity_CreateInvalidationRequiresCallerReference(t *testing.T) {
 	}
 }
 
-func TestParity_CountInProgressInvalidations(t *testing.T) {
+func TestCountInProgressInvalidations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -75,7 +75,7 @@ func TestParity_CountInProgressInvalidations(t *testing.T) {
 	}
 }
 
-func TestParity_CreateInvalidationHandlerReturnsInvalidationBatch(t *testing.T) {
+func TestCreateInvalidationHandlerReturnsInvalidationBatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -167,8 +167,8 @@ func TestInvalidationPathValidation(t *testing.T) {
 	}
 }
 
-// TestInvalidationStubs verifies that invalidation stub endpoints return expected responses.
-func TestInvalidationStubs(t *testing.T) {
+// TestInvalidationEndpointResponses verifies that invalidation stub endpoints return expected responses.
+func TestInvalidationEndpointResponses(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -310,8 +310,8 @@ func TestHandler_CreateInvalidation_ListInvalidations(t *testing.T) {
 	}
 }
 
-// TestRefinement1_GetInvalidation tests the GET invalidation by ID handler.
-func TestRefinement1_GetInvalidation(t *testing.T) {
+// TestGetInvalidation tests the GET invalidation by ID handler.
+func TestGetInvalidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -404,8 +404,8 @@ func TestRefinement1_GetInvalidation(t *testing.T) {
 	}
 }
 
-// TestRefinement1_SortedInvalidations verifies invalidations are returned sorted by ID.
-func TestRefinement1_SortedInvalidations(t *testing.T) {
+// TestSortedInvalidations verifies invalidations are returned sorted by ID.
+func TestSortedInvalidations(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
@@ -428,8 +428,8 @@ func TestRefinement1_SortedInvalidations(t *testing.T) {
 	}
 }
 
-// TestRefinement1_HandleGetInvalidationPathFallback tests path-based invID parsing.
-func TestRefinement1_HandleGetInvalidationPathFallback(t *testing.T) {
+// TestHandleGetInvalidationPathFallback tests path-based invID parsing.
+func TestHandleGetInvalidationPathFallback(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)

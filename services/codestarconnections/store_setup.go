@@ -39,6 +39,26 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// regionKey returns the composite store.Table primary key ("region|id") used
+// by every region-nested resource collection below. RepositoryLink/
+// SyncConfiguration/RepositorySyncStatus/ResourceSyncStatus have no ARN of
+// their own to derive a region from (unlike Connection/Host), so each
+// carries an unexported region field set at creation time and combined with
+// its own identity via this helper.
+func regionKey(region, id string) string {
+	return region + "|" + id
+}
+
+// syncConfigKey returns the composite lookup key for a sync configuration.
+func syncConfigKey(resourceName, syncType string) string {
+	return resourceName + "/" + syncType
+}
+
+// repositorySyncStatusKey is the composite lookup key for per-branch/syncType sync status.
+func repositorySyncStatusKey(repositoryLinkID, branch, syncType string) string {
+	return repositoryLinkID + "/" + branch + "/" + syncType
+}
+
 func connectionKeyFn(v *Connection) string { return v.ConnectionArn }
 
 func connectionRegionIndexKeyFn(v *Connection) string { return regionFromARN(v.ConnectionArn, "") }

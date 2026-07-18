@@ -63,32 +63,39 @@ func (j *Janitor) sweepStoppedTasks(ctx context.Context) {
 	cutoff := now.Add(-j.taskTTL)
 
 	b := j.Backend
-	b.mu.Lock("JanitorSweepStoppedTasks")
 
 	evicted := 0
+	cancelled := false
 
-	for _, task := range b.tasks.All() {
-		select {
-		case <-ctx.Done():
-			b.mu.Unlock()
+	func() {
+		b.mu.Lock("JanitorSweepStoppedTasks")
+		defer b.mu.Unlock()
 
-			return
-		default:
+		for _, task := range b.tasks.All() {
+			select {
+			case <-ctx.Done():
+				cancelled = true
+
+				return
+			default:
+			}
+
+			if task.LastStatus != statusStopped {
+				continue
+			}
+
+			if task.StoppedAt == nil || task.StoppedAt.IsZero() || task.StoppedAt.After(cutoff) {
+				continue
+			}
+
+			b.tasks.Delete(task.TaskArn)
+			evicted++
 		}
+	}()
 
-		if task.LastStatus != statusStopped {
-			continue
-		}
-
-		if task.StoppedAt == nil || task.StoppedAt.IsZero() || task.StoppedAt.After(cutoff) {
-			continue
-		}
-
-		b.tasks.Delete(task.TaskArn)
-		evicted++
+	if cancelled {
+		return
 	}
-
-	b.mu.Unlock()
 
 	telemetry.RecordWorkerItems(ecsWorkerService, stoppedTaskSweeperName, evicted)
 	telemetry.RecordWorkerTask(ecsWorkerService, stoppedTaskSweeperName, "success")

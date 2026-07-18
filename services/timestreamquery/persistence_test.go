@@ -191,3 +191,105 @@ func TestInMemoryBackend_SnapshotRestore_QueryCompute(t *testing.T) {
 	require.NotNil(t, settings.QueryCompute.ProvisionedCapacity.ActiveQueryTCU)
 	assert.Equal(t, int32(16), *settings.QueryCompute.ProvisionedCapacity.ActiveQueryTCU)
 }
+
+// TestPersistence_HandlerSnapshotDelegates verifies that Handler.Snapshot
+// delegates to the underlying InMemoryBackend and that the resulting snapshot
+// round-trips a scheduled query (including its tags) via a fresh backend's
+// Restore.
+func TestPersistence_HandlerSnapshotDelegates(t *testing.T) {
+	t.Parallel()
+
+	backend := NewInMemoryBackend("123456789012", "us-east-1")
+	h := NewHandler(backend)
+
+	_, err := backend.CreateScheduledQuery(
+		t.Context(), "persist-test", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123:role/r",
+		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", map[string]string{"k": "v"},
+	)
+	require.NoError(t, err)
+
+	_, err = backend.UpdateAccountSettings(t.Context(), pricingModelComputeUnits, nil, nil)
+	require.NoError(t, err)
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	backend2 := NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, backend2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, ScheduledQueryCount(backend2))
+
+	settings := backend2.DescribeAccountSettings(t.Context())
+	assert.Equal(t, pricingModelComputeUnits, settings.QueryPricingModel)
+
+	queries := backend2.ListScheduledQueriesFull(t.Context())
+	require.Len(t, queries, 1)
+	assert.Equal(t, "v", queries[0].Tags["k"])
+}
+
+// TestPersistence_HandlerRestoreDelegates verifies that Handler.Restore
+// delegates to a (possibly different) InMemoryBackend instance.
+func TestPersistence_HandlerRestoreDelegates(t *testing.T) {
+	t.Parallel()
+
+	backend := NewInMemoryBackend("123456789012", "us-east-1")
+	h := NewHandler(backend)
+
+	_, err := backend.CreateScheduledQuery(
+		t.Context(), "handler-snap-test", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123:role/r",
+		"arn:aws:sns:us-east-1:123:topic", "my-errors-bucket", "", "", "", nil,
+	)
+	require.NoError(t, err)
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	backend2 := NewInMemoryBackend("123456789012", "us-east-1")
+	h2 := NewHandler(backend2)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, ScheduledQueryCount(backend2))
+}
+
+// TestPersistence_HandlerSnapshotWithInMemoryBackend verifies that
+// Handler.Snapshot always produces a valid (non-nil) snapshot for a fresh
+// InMemoryBackend.
+func TestPersistence_HandlerSnapshotWithInMemoryBackend(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(NewInMemoryBackend("123", "us-east-1"))
+
+	snap := h.Snapshot(t.Context())
+	assert.NotNil(t, snap, "InMemoryBackend always produces a valid snapshot")
+}
+
+// TestPersistence_RestoreInvalidJSON verifies Restore returns an error on
+// malformed JSON but succeeds (starting empty) on a syntactically valid but
+// version-less snapshot.
+func TestPersistence_RestoreInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr bool
+	}{
+		{name: "invalid json fails", data: []byte(`not-json`), wantErr: true},
+		{name: "empty object succeeds", data: []byte(`{}`), wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := NewInMemoryBackend("000000000000", "us-east-1")
+			err := b.Restore(t.Context(), tt.data)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

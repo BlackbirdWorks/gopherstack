@@ -11,7 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestBatch3_DevEndpoint_CRUD(t *testing.T) {
+func TestDevEndpoint_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -113,7 +113,7 @@ func TestBatch3_DevEndpoint_CRUD(t *testing.T) {
 	}
 }
 
-func TestBatch3_DevEndpoint_UpdateAndGet(t *testing.T) {
+func TestDevEndpoint_UpdateAndGet(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -134,8 +134,8 @@ func TestBatch3_DevEndpoint_UpdateAndGet(t *testing.T) {
 	assert.Equal(t, "spark.executor.memory=4g", args["--conf"])
 }
 
-// TestNewOps_UpdateDevEndpoint tests UpdateDevEndpoint.
-func TestNewOps_UpdateDevEndpoint(t *testing.T) {
+// TestUpdateDevEndpoint tests UpdateDevEndpoint.
+func TestUpdateDevEndpoint(t *testing.T) {
 	t.Parallel()
 	b := glue.NewInMemoryBackend("123456789012", "us-east-1")
 	h := glue.NewHandler(b)

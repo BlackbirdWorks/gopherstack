@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -642,13 +643,13 @@ func (rc *ResourceCreator) createNewServiceResource(
 		return physID, err
 	}
 
-	if physID, handled, err := rc.createPhase5Resource(
+	if physID, handled, err := rc.createExtraResource(
 		ctx, logicalID, resourceType, props, params, physicalIDs,
 	); handled {
 		return physID, err
 	}
 
-	if physID, handled, err := rc.createPhase6Resource(
+	if physID, handled, err := rc.createSupplementalResource(
 		ctx, logicalID, resourceType, props, params, physicalIDs,
 	); handled {
 		return physID, err
@@ -1032,7 +1033,7 @@ func (rc *ResourceCreator) createPhase4Resource(
 		return rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
 	default:
 
-		id, handled, err := rc.createPhase5Resource(
+		id, handled, err := rc.createExtraResource(
 			ctx,
 			logicalID,
 			resourceType,
@@ -1044,7 +1045,7 @@ func (rc *ResourceCreator) createPhase4Resource(
 			return "", err
 		}
 		if !handled {
-			id, handled, err = rc.createPhase6Resource(
+			id, handled, err = rc.createSupplementalResource(
 				ctx,
 				logicalID,
 				resourceType,
@@ -1394,11 +1395,11 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 
 		return rc.deleteSchedulerSchedule(ctx, physicalID)
 	default:
-		if handled, err := rc.deletePhase5Resource(ctx, resourceType, physicalID); handled {
+		if handled, err := rc.deleteExtraResource(ctx, resourceType, physicalID); handled {
 			return err
 		}
 
-		if handled, err := rc.deletePhase6Resource(ctx, resourceType, physicalID); handled {
+		if handled, err := rc.deleteSupplementalResource(ctx, resourceType, physicalID); handled {
 			return err
 		}
 
@@ -1413,7 +1414,7 @@ func (rc *ResourceCreator) deleteNewServiceResource(ctx context.Context, physica
 		return err
 	}
 
-	if handled, err := rc.deletePhase3ComputeResource(ctx, physicalID, resourceType); handled {
+	if handled, err := rc.deleteComputePlatformResource(ctx, physicalID, resourceType); handled {
 		return err
 	}
 
@@ -1504,7 +1505,233 @@ func (rc *ResourceCreator) deleteAppNetworkResource(ctx context.Context, physica
 		return rc.deleteEC2EIP(physicalID)
 	default:
 
-		return rc.deletePhase3DataResource(ctx, physicalID, resourceType)
+		return rc.deleteManagedDataResource(ctx, physicalID, resourceType)
+	}
+}
+
+// createSupplementalResource handles APIGW v1 supplemental, APIGW v2 supplemental,
+// Events ApiDestination/EventBusPolicy, KMS ReplicaKey, Cognito
+// IdentityPool/Group/Domain, EC2 VPCPeering/NetworkAcl/KeyPair/SGRule/FlowLog,
+// ELBv2 ListenerRule, and Lambda EventInvokeConfig/Url resource creation.
+// Returns handled=false when resourceType is none of the above.
+func (rc *ResourceCreator) createSupplementalResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if id, ok, err := rc.createAPIGatewayV1SupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createAPIGatewayV2SupplementalResource(
+		ctx,
+		logicalID,
+		resourceType,
+		props,
+		params,
+		physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEventsSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createKMSSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createCognitoSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createEC2SupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createELBv2SupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+	if id, ok, err := rc.createLambdaSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+
+	return "", false, nil
+}
+
+// deleteSupplementalResource handles deletion for the supplemental resource types
+// described in createSupplementalResource.
+func (rc *ResourceCreator) deleteSupplementalResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
+	if handled, err := rc.deleteAPIGatewayV1SupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteAPIGatewayV2SupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEventsSupplementalResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteKMSSupplementalResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteCognitoSupplementalResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteEC2SupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteELBv2SupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+	if handled, err := rc.deleteLambdaSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return false, nil
+}
+
+// deleteComputePlatformResource handles EKS, EFS, Batch, CloudFront, AutoScaling,
+// ApiGatewayV2, CodeBuild, and Glue resource deletions.
+func (rc *ResourceCreator) deleteComputePlatformResource(
+	ctx context.Context,
+	physicalID, resourceType string,
+) (bool, error) {
+	if handled, err := rc.deleteContainerPlatformResource(ctx, physicalID, resourceType); handled {
+		return true, err
+	}
+
+	return rc.deleteAppPlatformResource(ctx, physicalID, resourceType)
+}
+
+// deleteContainerPlatformResource handles EKS, EFS, and Batch deletions.
+func (rc *ResourceCreator) deleteContainerPlatformResource(
+	ctx context.Context,
+	physicalID, resourceType string,
+) (bool, error) {
+	switch resourceType {
+	case "AWS::EKS::Cluster":
+		return true, rc.deleteEKSCluster(physicalID)
+	case "AWS::EKS::Nodegroup":
+		return true, rc.deleteEKSNodegroup(physicalID)
+	case "AWS::EFS::FileSystem":
+		return true, rc.deleteEFSFileSystem(ctx, physicalID)
+	case "AWS::EFS::MountTarget":
+		return true, rc.deleteEFSMountTarget(ctx, physicalID)
+	case "AWS::Batch::ComputeEnvironment":
+		return true, rc.deleteBatchComputeEnvironment(ctx, physicalID)
+	case "AWS::Batch::JobQueue":
+		return true, rc.deleteBatchJobQueue(ctx, physicalID)
+	case "AWS::Batch::JobDefinition":
+		return true, rc.deleteBatchJobDefinition(ctx, physicalID)
+	}
+
+	return false, nil
+}
+
+// deleteAppPlatformResource handles CloudFront, AutoScaling, ApiGatewayV2, CodeBuild, and Glue deletions.
+func (rc *ResourceCreator) deleteAppPlatformResource(_ context.Context, physicalID, resourceType string) (bool, error) {
+	switch resourceType {
+	case "AWS::CloudFront::Distribution":
+		return true, rc.deleteCloudFrontDistribution(physicalID)
+	case "AWS::AutoScaling::AutoScalingGroup":
+		return true, rc.deleteAutoScalingGroup(physicalID)
+	case "AWS::AutoScaling::LaunchConfiguration":
+		return true, rc.deleteLaunchConfiguration(physicalID)
+	case "AWS::ApiGatewayV2::Api":
+		return true, rc.deleteAPIGatewayV2API(physicalID)
+	case "AWS::ApiGatewayV2::Stage":
+		return true, rc.deleteAPIGatewayV2Stage(physicalID)
+	case resTypeAPIGatewayV2Integ:
+		return true, rc.deleteAPIGatewayV2Integration(physicalID)
+	case resTypeAPIGatewayV2Route:
+		return true, rc.deleteAPIGatewayV2Route(physicalID)
+	case "AWS::CodeBuild::Project":
+		return true, rc.deleteCodeBuildProject(physicalID)
+	case "AWS::Glue::Database":
+		return true, rc.deleteGlueDatabase(physicalID)
+	case "AWS::Glue::Job":
+		return true, rc.deleteGlueJob(physicalID)
+	}
+
+	return false, nil
+}
+
+// deleteManagedDataResource handles DocDB, Neptune, MSK, Transfer, CloudTrail,
+// CodePipeline, IoT, Pipes, EMR, and CloudWatch Dashboard deletions, falling through
+// to deleteNetworkSecurityResource for ELBv2/WAFv2/Backup/RDS-cluster types.
+func (rc *ResourceCreator) deleteManagedDataResource(ctx context.Context, physicalID, resourceType string) error {
+	switch resourceType {
+	case "AWS::DocDB::DBCluster":
+		return rc.deleteDocDBCluster(ctx, physicalID)
+	case "AWS::DocDB::DBInstance":
+		return rc.deleteDocDBInstance(ctx, physicalID)
+	case "AWS::Neptune::DBCluster":
+		return rc.deleteNeptuneCluster(ctx, physicalID)
+	case "AWS::Neptune::DBInstance":
+		return rc.deleteNeptuneInstance(ctx, physicalID)
+	case "AWS::MSK::Cluster":
+		return rc.deleteMSKCluster(ctx, physicalID)
+	case "AWS::Transfer::Server":
+		return rc.deleteTransferServer(physicalID)
+	case "AWS::CloudTrail::Trail":
+		return rc.deleteCloudTrailTrail(physicalID)
+	case "AWS::CodePipeline::Pipeline":
+		return rc.deleteCodePipelinePipeline(ctx, physicalID)
+	case "AWS::IoT::Thing":
+		return rc.deleteIoTThing(physicalID)
+	case "AWS::IoT::TopicRule":
+		return rc.deleteIoTTopicRule(physicalID)
+	case "AWS::Pipes::Pipe":
+		return rc.deletePipesPipe(ctx, physicalID)
+	case "AWS::EMR::Cluster":
+		return rc.deleteEMRCluster(ctx, physicalID)
+	case "AWS::CloudWatch::Dashboard":
+		return rc.deleteCloudWatchDashboard(physicalID)
+	default:
+		return rc.deleteNetworkSecurityResource(ctx, physicalID, resourceType)
+	}
+}
+
+// deleteNetworkSecurityResource handles ELBv2, WAFv2, Backup, and RDS cluster resource deletions.
+func (rc *ResourceCreator) deleteNetworkSecurityResource(ctx context.Context, physicalID, resourceType string) error {
+	switch resourceType {
+	case resTypeELBv2LB:
+		return rc.deleteELBv2LoadBalancer(physicalID)
+	case resTypeELBv2TargetGroup:
+		return rc.deleteELBv2TargetGroup(physicalID)
+	case "AWS::ElasticLoadBalancingV2::Listener":
+		return rc.deleteELBv2Listener(physicalID)
+	case "AWS::WAFv2::WebACL":
+		return rc.deleteWAFv2WebACL(ctx, physicalID)
+	case "AWS::WAFv2::IPSet":
+		return rc.deleteWAFv2IPSet(ctx, physicalID)
+	case "AWS::WAFv2::RuleGroup":
+		return rc.deleteWAFv2RuleGroup(physicalID)
+	case "AWS::Backup::BackupVault":
+		return rc.deleteBackupVault(physicalID)
+	case "AWS::Backup::BackupPlan":
+		return rc.deleteBackupPlan(physicalID)
+	case "AWS::RDS::DBCluster":
+		return rc.deleteRDSDBCluster(physicalID)
+	case "AWS::RDS::DBClusterParameterGroup":
+		return rc.deleteRDSDBClusterParameterGroup(physicalID)
+	default:
+		_, err := rc.deleteExtraResource(ctx, resourceType, physicalID)
+
+		return err
 	}
 }
 
@@ -2178,4 +2405,201 @@ func isCFNExtensibilityType(resourceType string) bool {
 	}
 
 	return strings.HasPrefix(resourceType, "Custom::")
+}
+
+// createExtraResource handles phase-5 resource types added for §K CloudFormation
+// resource-type coverage. It returns handled=false when resourceType is not a phase-5 type
+// so the caller can fall through to the remaining dispatch chain.
+func (rc *ResourceCreator) createExtraResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if physID, handled, err := rc.createExtraLogsResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, true, err
+	}
+
+	if physID, handled, err := rc.createExtraNetworkResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, true, err
+	}
+
+	if id, ok, err := rc.createAppAutoScalingResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	if id, ok := rc.createSecretsManagerSupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, nil
+	}
+
+	if id, ok, err := rc.createSSMSupplementalResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	if id, ok, err := rc.createDynamoDBSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+
+	if id, ok, err := rc.createGlueSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	if id, ok, err := rc.createAppSyncSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	return rc.createExtraPlatformResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// deleteExtraResource handles deletion for phase-5 resource types.
+func (rc *ResourceCreator) deleteExtraResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
+	if handled, err := rc.deleteExtraLogsResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteExtraNetworkResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteAppAutoScalingResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if rc.deleteSecretsManagerSupplementalResource(resourceType, physicalID) {
+		return true, nil
+	}
+
+	if handled, err := rc.deleteSSMSupplementalResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if rc.deleteDynamoDBSupplementalResource(resourceType, physicalID) {
+		return true, nil
+	}
+
+	if handled, err := rc.deleteGlueSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteAppSyncSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return rc.deleteExtraPlatformResource(ctx, resourceType, physicalID)
+}
+
+func (rc *ResourceCreator) createExtraPlatformResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if physID, handled, err := rc.createExtraAPIGatewayV2Resource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, true, err
+	}
+
+	if physID, handled, err := rc.createExtraMessagingResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, true, err
+	}
+
+	switch resourceType {
+	case resTypeKMSAlias:
+		id, err := rc.createKMSAlias(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeSSMDocument:
+		id, err := rc.createSSMDocument(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::SecretsManager::ResourcePolicy":
+		id, err := rc.createSecretsManagerResourcePolicy(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	}
+
+	return rc.createCloudFrontResource(logicalID, resourceType, props, params, physicalIDs)
+}
+
+func (rc *ResourceCreator) deleteExtraPlatformResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
+	if handled, err := rc.deleteExtraAPIGatewayV2Resource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteExtraMessagingResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
+	switch resourceType {
+	case resTypeKMSAlias:
+
+		return true, rc.deleteKMSAlias(ctx, physicalID)
+	case resTypeSSMDocument:
+
+		return true, rc.deleteSSMDocument(ctx, physicalID)
+	case "AWS::SecretsManager::ResourcePolicy":
+
+		return true, rc.deleteSecretsManagerResourcePolicy(ctx, physicalID)
+	}
+
+	return rc.deleteCloudFrontResource(resourceType, physicalID)
+}
+
+// intProp reads an integer-valued property, accepting JSON numbers (float64) and ints.
+func intProp(props map[string]any, key string) int {
+	return int(int64Val(props[key]))
+}
+
+// int64Val converts a JSON-decoded numeric value to int64. CloudFormation templates may carry
+// numbers as float64 (JSON), int, or string. Returns 0 when the value is absent or unparseable.
+func int64Val(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	case json.Number:
+		i, err := n.Int64()
+		if err == nil {
+			return i
+		}
+	}
+
+	return 0
+}
+
+// strSliceProp resolves a property that is expected to be a list of strings (or refs).
+func strSliceProp(v any, params, physicalIDs map[string]string) []string {
+	list, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		if s := resolve(item, params, physicalIDs); s != "" {
+			out = append(out, s)
+		}
+	}
+
+	return out
 }

@@ -381,7 +381,7 @@ func TestCreateDBShardGroup_Fields(t *testing.T) {
 	assert.True(t, sg.PubliclyAccessible)
 }
 
-func TestBatch2_Persistence_ShardGroupsAndIntegrations(t *testing.T) {
+func TestPersistence_ShardGroupsAndIntegrations(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -466,7 +466,7 @@ func TestDBShardGroup_DescribeIncludesAllFields(t *testing.T) {
 	assert.NotEmpty(t, sg.Endpoint)
 }
 
-func TestBatch3_Persistence_ShardGroupEndpoint(t *testing.T) {
+func TestPersistence_ShardGroupEndpoint(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch3Backend()

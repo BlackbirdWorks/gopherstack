@@ -166,3 +166,55 @@ func TestXRayJanitor_DefaultInterval(t *testing.T) {
 		})
 	}
 }
+
+// TestRetrievalCleanup_JanitorSweepsOldTokens verifies that the janitor removes
+// retrieval tokens that have exceeded the trace TTL.
+func TestRetrievalCleanup_JanitorSweepsOldTokens(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Add a trace and start a retrieval.
+	traceID := b.PutTraceForTest(time.Now().Add(-2 * time.Hour))
+	token := b.StartTraceRetrieval([]string{traceID})
+
+	// Back-date the retrieval token creation time so it appears old.
+	b.SetRetrievalTimeForTest(token, time.Now().Add(-2*time.Hour))
+
+	// Verify retrieval exists before sweep.
+	status, traces := b.ListRetrievedTraces(token)
+	assert.Equal(t, "COMPLETE", status)
+	assert.NotNil(t, traces)
+
+	// Run janitor with a 30-minute TTL — token is 2h old so it gets swept.
+	j := xray.NewJanitor(b, time.Minute, 30*time.Minute)
+	j.SweepOnce(context.Background())
+
+	// After sweep, token should be gone (returns COMPLETE with nil).
+	status2, traces2 := b.ListRetrievedTraces(token)
+	assert.Equal(t, "COMPLETE", status2)
+	assert.Nil(t, traces2, "retrieval state should have been cleaned up by janitor")
+}
+
+// TestJanitor_CleansUpSegmentIndexes verifies janitor removes parsedSegments and traceSegments.
+func TestJanitor_CleansUpSegmentIndexes(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Seed a trace with a parsed segment.
+	now := float64(time.Now().Unix())
+	seg := segJSON("1-janitor-001", "s1", "", "svc", now-1, now, false, false, false)
+	_ = b.PutTraceSegments([]string{seg})
+
+	require.Equal(t, 1, b.TraceCount())
+	require.NotEmpty(t, b.GetParsedSegments("1-janitor-001"))
+
+	// Run janitor with a TTL of 0 to evict immediately.
+	j := xray.NewJanitor(b, time.Millisecond, time.Millisecond)
+	j.SweepOnce(t.Context())
+
+	// Trace and segment indexes should all be gone.
+	assert.Equal(t, 0, b.TraceCount())
+	assert.Empty(t, b.GetParsedSegments("1-janitor-001"), "parsedSegments should be cleaned up by janitor")
+}

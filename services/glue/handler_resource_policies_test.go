@@ -152,8 +152,8 @@ func TestGetResourcePolicies_ReturnsStoredPolicies(t *testing.T) {
 	}
 }
 
-// TestNewOps_ResourcePolicy tests resource policy CRUD.
-func TestNewOps_ResourcePolicy(t *testing.T) {
+// TestResourcePolicy tests resource policy CRUD.
+func TestResourcePolicy(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 

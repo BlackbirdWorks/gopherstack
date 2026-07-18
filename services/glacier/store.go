@@ -1,0 +1,121 @@
+package glacier
+
+import (
+	"crypto/rand"
+	"fmt"
+	"io"
+	"sync"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+)
+
+// idChars are the characters used for generating random IDs.
+const idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// InMemoryBackend is the in-memory backend for Glacier.
+//
+// vaults, jobs, multipartUploads, and vaultLocks are *store.Table[T],
+// registered once on registry -- see store_setup.go for the Phase 3.3
+// pkgs/store conversion this follows. Archives stay nested inline on Vault
+// rather than their own table (see the Vault doc comment in models.go).
+// multipartParts, provisionedCapacity, dataRetrievalPolicies, and
+// archiveData remain plain maps because their values are slice/string-typed
+// (not *T) with no identity field of their own to key a Table by.
+type InMemoryBackend struct {
+	registry                *store.Registry
+	vaults                  *store.Table[Vault]
+	vaultsByAccountRegion   *store.Index[Vault]
+	jobs                    *store.Table[Job]
+	jobsByVault             *store.Index[Job]
+	multipartUploads        *store.Table[MultipartUpload]
+	multipartUploadsByVault *store.Index[MultipartUpload]
+	vaultLocks              *store.Table[VaultLock]
+	multipartParts          map[uploadKey][]MultipartPart
+	provisionedCapacity     map[string][]*ProvisionedCapacity
+	dataRetrievalPolicies   map[string]string
+	archiveData             map[string][]byte
+	// retrievalDelay is the simulated asynchronous retrieval window applied to newly
+	// initiated jobs. Jobs stay InProgress until CreationDate+retrievalDelay, matching
+	// AWS, which does not make archive/inventory output available immediately.
+	retrievalDelay time.Duration
+	mu             sync.RWMutex
+}
+
+// NewInMemoryBackend creates a new in-memory Glacier backend.
+func NewInMemoryBackend() *InMemoryBackend {
+	b := &InMemoryBackend{
+		registry:              store.NewRegistry(),
+		multipartParts:        make(map[uploadKey][]MultipartPart),
+		provisionedCapacity:   make(map[string][]*ProvisionedCapacity),
+		dataRetrievalPolicies: make(map[string]string),
+		archiveData:           make(map[string][]byte),
+		retrievalDelay:        defaultRetrievalDelay,
+	}
+
+	registerAllTables(b)
+
+	return b
+}
+
+// defaultRetrievalDelay is the simulated asynchronous retrieval window applied to
+// newly initiated jobs. Kept short so callers and tests are not forced to wait a
+// realistic multi-hour window, while still exercising the InProgress -> Succeeded
+// lifecycle (real AWS Standard retrievals take 3-5 hours).
+const defaultRetrievalDelay = 100 * time.Millisecond
+
+// generateID creates a random ID of the given length using a single batch read
+// from crypto/rand rather than one syscall per character.
+func generateID(length int) string {
+	const nChars = len(idChars)
+	const byteRange = 256 // number of distinct byte values
+	// Bytes in [0, nChars*(byteRange/nChars)) have no modulo bias.
+	const maxByte = byte(nChars * (byteRange / nChars))
+	const bufHeadroom = 8 // extra headroom for rejected bytes
+
+	result := make([]byte, 0, length)
+	buf := make([]byte, length+length/2+bufHeadroom) // extra headroom for rejections
+
+	for len(result) < length {
+		if _, err := io.ReadFull(rand.Reader, buf); err != nil {
+			// Unreachable in practice; degrade to index 0 for remaining chars.
+			for len(result) < length {
+				result = append(result, idChars[0])
+			}
+
+			break
+		}
+
+		for _, b := range buf {
+			if b < maxByte {
+				result = append(result, idChars[int(b)%nChars])
+				if len(result) == length {
+					break
+				}
+			}
+		}
+	}
+
+	return string(result)
+}
+
+// vaultARN returns the ARN for a Glacier vault.
+func vaultARN(accountID, region, vaultName string) string {
+	return arn.Build("glacier", region, accountID, fmt.Sprintf("vaults/%s", vaultName))
+}
+
+// Reset clears all backend state, resetting to an empty store.
+//
+// archiveData is deliberately NOT cleared here, matching the pre-conversion
+// behaviour: raw archive bytes have always leaked across Reset() calls (they
+// were never part of any of the maps this method used to reinitialise).
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.registry.ResetAll()
+	b.multipartParts = make(map[uploadKey][]MultipartPart)
+	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
+	b.dataRetrievalPolicies = make(map[string]string)
+}

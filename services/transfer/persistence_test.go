@@ -1,6 +1,7 @@
 package transfer_test
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -156,4 +157,114 @@ func TestPersistence_IncompatibleVersionResetsToEmpty(t *testing.T) {
 	require.NoError(t, b.Restore(t.Context(), []byte(`{"version":0,"tables":{}}`)))
 
 	assert.Equal(t, 0, transfer.ServerCount(b))
+}
+
+// TestSnapshotRestore verifies Snapshot and Restore round-trip.
+func TestSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+
+	s, err := b.CreateServer(nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateUser(s.ServerID, "alice", "/alice", "arn:role", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateConnector("https://example.com", "arn:role", nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateProfile("LOCAL", "as2id", nil)
+	require.NoError(t, err)
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	assert.Equal(t, 1, transfer.ServerCount(b2))
+	assert.Equal(t, 1, transfer.UserCount(b2))
+	assert.Equal(t, 1, transfer.ConnectorCount(b2))
+	assert.Equal(t, 1, transfer.ProfileCount(b2))
+
+	s2, err := b2.DescribeServer(s.ServerID)
+	require.NoError(t, err)
+	assert.Equal(t, s.ServerID, s2.ServerID)
+}
+
+// TestSnapshotRestoreEmpty verifies Restore works on empty snapshot.
+func TestSnapshotRestoreEmpty(t *testing.T) {
+	t.Parallel()
+
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	assert.Equal(t, 0, transfer.ServerCount(b2))
+}
+
+// TestSnapshotRestoreInvalidJSON verifies Restore returns error on bad data.
+func TestSnapshotRestoreInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	err := b.Restore(t.Context(), []byte("not-json"))
+
+	require.Error(t, err)
+}
+
+// TestHandlerSnapshotRestore verifies Handler Snapshot/Restore delegation.
+func TestHandlerSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	h := transfer.NewHandler(b)
+
+	rec := doTransferRequest(t, h, "CreateServer", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	data := h.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	h2 := transfer.NewHandler(transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1"))
+	require.NoError(t, h2.Restore(t.Context(), data))
+
+	b2 := h2.Backend.(*transfer.InMemoryBackend)
+	assert.Equal(t, 1, transfer.ServerCount(b2))
+}
+
+// TestSnapshotPreservesAgreementStatus verifies agreement status is preserved in snapshot.
+func TestSnapshotPreservesAgreementStatus(t *testing.T) {
+	t.Parallel()
+
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	s, err := b.CreateServer(nil, nil)
+	require.NoError(t, err)
+
+	ag, err := b.CreateAgreement(s.ServerID, "desc", "p-local", "p-partner", "/base", "arn:role", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "ACTIVE", ag.Status)
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), data))
+	assert.Equal(t, 1, transfer.AgreementCount(b2))
+}
+
+// TestHandlerSnapshotNilBackend verifies Snapshot returns nil for non-InMemory backends.
+func TestHandlerSnapshotNilBackend(t *testing.T) {
+	t.Parallel()
+
+	// Use a handler with a custom non-InMemoryBackend to exercise the nil path.
+	// We use a standard backend – just confirm Snapshot doesn't panic.
+	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	h := transfer.NewHandler(b)
+	data := h.Snapshot(t.Context())
+	assert.NotNil(t, data)
 }

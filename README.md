@@ -430,6 +430,35 @@ new MyStack(app, "MyStack", { env });
 The `AWS_ENDPOINT_URL` environment variable is picked up automatically by the
 AWS SDK v2 used by the CDK CLI.
 
+## Profile-Guided Optimization (PGO)
+
+The repo root ships `default.pgo`, a CPU profile that Go's [Profile-Guided
+Optimization](https://go.dev/doc/pgo) automatically consumes from the main
+package directory on every `go build` — no extra flags needed. It's captured
+from a representative workload (heavy DynamoDB GSI/LSI and S3 traffic) so the
+compiler can better optimize the real hot paths.
+
+To regenerate it:
+
+```bash
+make pgo
+```
+
+This runs `scripts/pgo.sh`, which builds the server and the `cmd/pgoload`
+load generator, runs the server with pprof enabled, captures a CPU profile
+while driving load against it (plus a best-effort integration-test pass for
+breadth), and writes the result to `default.pgo` at the repo root. It
+validates the profile with `go tool pprof` and `go build -pgo=auto` before
+finishing. Knobs (capture duration, load duration/concurrency, etc.) are
+overridable via environment variables — see the header of `scripts/pgo.sh`.
+
+**Per-PR:** if your change measurably shifts the server's hot paths, run
+`make pgo` and commit the updated `default.pgo` alongside your change.
+
+**CI:** a weekly workflow (`.github/workflows/pgo.yml`) also runs `make pgo`
+and opens a pull request with the refreshed profile, so `default.pgo` stays
+reasonably current even without manual regeneration.
+
 ## License
 
 Gopherstack is released under the [MIT License](LICENSE).

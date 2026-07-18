@@ -53,7 +53,7 @@ func customMetricsKeyFn(v *CustomMetric) string                     { return v.M
 // exactly once. It must be called during construction only (immediately
 // after b.registry is created), never on every Reset() -- store.Register
 // panics on a duplicate name, so runtime resets go through
-// registry.ResetAll() instead (see InMemoryBackend.Reset in backend.go).
+// registry.ResetAll() instead (see InMemoryBackend.Reset in store.go).
 //
 // The following resource fields are deliberately left as plain maps (not
 // registered here) because they don't fit store.Table's "key is a pure

@@ -17,6 +17,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	nhpprof "net/http/pprof"
 	"net/url"
 	"os"
 	"os/signal"
@@ -1712,6 +1713,9 @@ func Run() {
 	case "health":
 		err = root.Health.Run()
 	default:
+		// Opt-in pprof server for local profiling / PGO data collection.
+		// No-op unless GOPHERSTACK_PPROF_ADDR is set; see startPprofServer.
+		startPprofServer(buildLogger(root.Serve.LogLevel))
 		err = run(rootCtx, root.Serve)
 	}
 
@@ -5382,6 +5386,45 @@ func wireTaggingSM(bk resourcegroupstaggingapibackend.StorageBackend, smReg serv
 		smBk.TagSecretByARN,
 		smBk.UntagSecretByARN,
 	)
+}
+
+// startPprofServer starts an opt-in pprof HTTP server for local profiling and
+// Profile-Guided Optimization (PGO) data collection. It is OFF by default and
+// only starts when GOPHERSTACK_PPROF_ADDR is set to a non-empty address
+// (e.g. "localhost:6060"). The pprof handlers are served on a dedicated
+// *http.Server bound to a private *http.ServeMux, deliberately separate from
+// the main application echo server on cli.Port: pprof endpoints expose
+// process internals (stack traces, heap dumps, CPU profiles) that must never
+// be reachable on the primary port, and must never be registered on
+// http.DefaultServeMux (which could leak them into any other package that
+// mounts it). This is intended for local development / profiling only and
+// should not be enabled in shared or production-like environments.
+func startPprofServer(log *slog.Logger) {
+	addr := os.Getenv("GOPHERSTACK_PPROF_ADDR")
+	if addr == "" {
+		return
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", nhpprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", nhpprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", nhpprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", nhpprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", nhpprof.Trace)
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
+	}
+
+	log.Info("pprof profiling enabled", "addr", addr)
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Warn("pprof server stopped", "error", err)
+		}
+	}()
 }
 
 func startServer(ctx context.Context, port string, e *echo.Echo, tlsCfg tlsSettings) error {

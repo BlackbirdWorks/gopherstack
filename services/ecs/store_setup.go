@@ -67,7 +67,7 @@ func daemonTaskDefByArnKeyFn(v *DaemonTaskDefinition) string { return v.DaemonTa
 // created), never on every Reset() -- store.Register panics on a duplicate
 // name, so runtime resets go through registry.ResetAll() (plus the two
 // unregistered caches' own .Reset()) instead; see InMemoryBackend.Reset in
-// backend.go.
+// store.go.
 //
 // The following resource fields are deliberately left as plain maps (not
 // registered here):
@@ -95,7 +95,7 @@ func daemonTaskDefByArnKeyFn(v *DaemonTaskDefinition) string { return v.DaemonTa
 //     exclusions ("value type carries no identity field of its own").
 //   - serviceRevisions, serviceRevisionsByArn: both are intentionally never
 //     populated (see the comment on InMemoryBackend.serviceRevisions in
-//     backend.go -- this backend derives ServiceRevision snapshots on demand
+//     store.go -- this backend derives ServiceRevision snapshots on demand
 //     instead), and serviceRevisions is additionally slice-valued.
 func registerAllTables(b *InMemoryBackend) {
 	b.clusters = store.Register(b.registry, "clusters", store.New(clustersKeyFn))
@@ -127,7 +127,7 @@ func registerAllTables(b *InMemoryBackend) {
 	b.daemonsByCluster = b.daemons.AddIndex("daemonsByCluster", daemonsClusterIndexKeyFn)
 
 	// Unregistered derived-cache tables: reset/rebuilt manually, never part of
-	// the persisted "tables" blob (see Reset/Restore in backend.go/persistence.go).
+	// the persisted "tables" blob (see Reset/Restore in store.go/persistence.go).
 	b.taskDefByArn = store.New(taskDefByArnKeyFn)
 	b.daemonTaskDefByArn = store.New(daemonTaskDefByArnKeyFn)
 }

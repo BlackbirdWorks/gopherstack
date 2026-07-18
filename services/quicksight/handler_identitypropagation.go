@@ -100,3 +100,24 @@ func (h *Handler) handleListIdentityPropagationConfigs(c *echo.Context) error {
 		keyStatus:    http.StatusOK,
 	})
 }
+
+// classifyIdentityPropagationPaths routes /accounts/{id}/identity-propagation-config/... paths.
+func classifyIdentityPropagationPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		if method == http.MethodGet {
+			return opListIdentityPropagationConfigs, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodPut:
+			return opUpdateIdentityPropagationConfig, id
+		case http.MethodDelete:
+			return opDeleteIdentityPropagationConfig, id
+		}
+	}
+
+	return opUnknown, ""
+}

@@ -755,3 +755,46 @@ func TestRespondDecisionTaskCompleted_TaskTimerMarkerAttrsPropagate(t *testing.T
 		})
 	}
 }
+
+// TestRespondDecisionTaskCompleted_NewDecisionTypes verifies 7 additional
+// decision types are processed without error.
+func TestRespondDecisionTaskCompleted_NewDecisionTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		decisionType string
+	}{
+		{name: "RequestCancelActivityTask", decisionType: "RequestCancelActivityTask"},
+		{name: "StartTimer", decisionType: "StartTimer"},
+		{name: "CancelTimer", decisionType: "CancelTimer"},
+		{name: "RecordMarker", decisionType: "RecordMarker"},
+		{name: "StartChildWorkflowExecution", decisionType: "StartChildWorkflowExecution"},
+		{name: "SignalExternalWorkflowExecution", decisionType: "SignalExternalWorkflowExecution"},
+		{name: "RequestCancelExternalWorkflowExecution", decisionType: "RequestCancelExternalWorkflowExecution"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := swf.NewInMemoryBackend()
+			require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+			_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+				Domain: "dom", WorkflowID: "wf-1", TaskList: "tasks",
+			})
+			require.NoError(t, err)
+
+			b.EnqueueDecisionTaskInternal("dom", "tasks", "wf-1", "run-1")
+			token := pollDecisionTask(t, b, "dom", "tasks")
+
+			err = b.RespondDecisionTaskCompleted(token, "", []swf.Decision{
+				{DecisionType: tt.decisionType},
+			})
+			require.NoError(t, err)
+
+			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+			assert.NotEmpty(t, events)
+		})
+	}
+}

@@ -13,6 +13,12 @@ const (
 	janitorInterval = 500 * time.Millisecond
 )
 
+const (
+	simOutputDurationMs = 60000
+	simVideoWidthPx     = 1920
+	simVideoHeightPx    = 1080
+)
+
 // StartJanitor launches the background goroutine that advances job phases and
 // sweeps expired tokens. It runs until ctx is cancelled.
 func StartJanitor(ctx context.Context, b *InMemoryBackend) {
@@ -30,5 +36,180 @@ func janitorTick(ctx context.Context, b *InMemoryBackend) {
 
 	if advanced {
 		logger.Load(ctx).DebugContext(ctx, "mediaconvert: janitor advanced job phase(s)")
+	}
+}
+
+// SweepExpiredTokens removes token entries that have exceeded the TTL.
+// Called by the janitor; safe to call externally for testing.
+func (b *InMemoryBackend) SweepExpiredTokens() {
+	b.mu.RLock("SweepExpiredTokens")
+
+	var expired []string
+	for _, entry := range b.tokenIndex.All() {
+		if time.Since(entry.createdAt) >= tokenTTL {
+			expired = append(expired, entry.token)
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if len(expired) == 0 {
+		return
+	}
+
+	b.mu.Lock("SweepExpiredTokens.delete")
+	defer b.mu.Unlock()
+
+	for _, token := range expired {
+		b.tokenIndex.Delete(token)
+	}
+}
+
+// AdvanceJobPhase advances job phase/status for the janitor.
+// Returns true if any job was advanced.
+func (b *InMemoryBackend) AdvanceJobPhase() bool {
+	b.mu.RLock("AdvanceJobPhase")
+
+	var eligible []string
+	for _, j := range b.jobs.All() {
+		switch j.Status {
+		case jobStatusSubmitted, jobStatusProgressing:
+			eligible = append(eligible, j.ID)
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if len(eligible) == 0 {
+		return false
+	}
+
+	b.mu.Lock("AdvanceJobPhase.advance")
+	defer b.mu.Unlock()
+
+	advanced := false
+	now := epochSeconds(time.Now())
+
+	for _, id := range eligible {
+		j, ok := b.jobs.Get(id)
+		if !ok {
+			continue
+		}
+		if b.advanceOneJobLocked(j, now) {
+			advanced = true
+		}
+	}
+
+	return advanced
+}
+
+// advanceOneJobLocked advances the state machine for a single job.
+// Caller must hold the write lock. Returns true if the job changed.
+func (b *InMemoryBackend) advanceOneJobLocked(j *Job, now float64) bool {
+	switch j.Status {
+	case jobStatusSubmitted:
+		return b.advanceSubmittedLocked(j, now)
+	case jobStatusProgressing:
+		return b.advanceProgressingLocked(j, now)
+	case jobStatusError, jobStatusComplete, jobStatusCanceled:
+		return false
+	}
+
+	return false
+}
+
+// advanceSubmittedLocked transitions a SUBMITTED job to PROGRESSING/PROBING.
+func (b *InMemoryBackend) advanceSubmittedLocked(j *Job, now float64) bool {
+	// Decrement SUBMITTED counter, increment PROGRESSING counter.
+	b.adjustQueueCounterLocked(j.QueueArn, jobStatusSubmitted, -1)
+	b.adjustQueueCounterLocked(j.QueueArn, jobStatusProgressing, +1)
+
+	j.Status = jobStatusProgressing
+	j.CurrentPhase = jobPhaseProbing
+
+	if j.Timing == nil {
+		j.Timing = &JobTiming{}
+	}
+
+	j.Timing.StartTime = now
+
+	return true
+}
+
+// advanceProgressingLocked advances phase within PROGRESSING, eventually to COMPLETE.
+func (b *InMemoryBackend) advanceProgressingLocked(j *Job, now float64) bool {
+	switch j.CurrentPhase {
+	case jobPhaseProbing:
+		j.CurrentPhase = jobPhaseTranscoding
+
+		return true
+	case jobPhaseTranscoding:
+		j.CurrentPhase = jobPhaseUploading
+
+		return true
+	case jobPhaseUploading:
+		return b.completeJobLocked(j, now)
+	}
+
+	return false
+}
+
+// completeJobLocked transitions a job to COMPLETE and fills output details.
+func (b *InMemoryBackend) completeJobLocked(j *Job, now float64) bool {
+	b.adjustQueueCounterLocked(j.QueueArn, jobStatusProgressing, -1)
+
+	j.Status = jobStatusComplete
+	j.CurrentPhase = ""
+	j.JobPercentComplete = 100
+
+	if j.Timing == nil {
+		j.Timing = &JobTiming{}
+	}
+
+	j.Timing.FinishTime = now
+
+	j.OutputGroupDetails = []OutputGroupDetail{
+		{
+			OutputDetails: []OutputDetail{
+				{
+					DurationInMs: simOutputDurationMs,
+					VideoDetails: &VideoDetail{WidthInPx: simVideoWidthPx, HeightInPx: simVideoHeightPx},
+				},
+			},
+		},
+	}
+
+	return true
+}
+
+// rebuildCountersLocked rebuilds queueCounters from the current jobs table.
+// Used when restoring a snapshot that predates per-queue counters. Mirrors
+// the pre-Phase-3.3 maps.Copy merge semantics: only queue ARNs with at least
+// one SUBMITTED/PROGRESSING job are (re)written; any other pre-existing
+// queueCounters entry is left untouched. Caller must hold the write lock.
+func (b *InMemoryBackend) rebuildCountersLocked() {
+	counters := make(map[string]*queueJobCounter)
+
+	for _, j := range b.jobs.All() {
+		if j.QueueArn == "" {
+			continue
+		}
+
+		c := counters[j.QueueArn]
+		if c == nil {
+			c = &queueJobCounter{queueArn: j.QueueArn}
+			counters[j.QueueArn] = c
+		}
+
+		switch j.Status {
+		case jobStatusProgressing:
+			c.progressing++
+		case jobStatusSubmitted:
+			c.submitted++
+		}
+	}
+
+	for _, c := range counters {
+		b.queueCounters.Put(c)
 	}
 }

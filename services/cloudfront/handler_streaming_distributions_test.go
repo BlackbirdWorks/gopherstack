@@ -167,10 +167,10 @@ func TestCreateStreamingDistributionWithTags_HTTP(t *testing.T) {
 	assert.Contains(t, tagsRec.Body.String(), "<Value>prod</Value>")
 }
 
-// TestStreamingDistributionBackend exercises the in-memory backend directly, covering the
+// TestInMemoryBackend_StreamingDistribution exercises the in-memory backend directly, covering the
 // create->get->update->list->delete round trip, idempotent create, not-found errors, and the
 // disabled-before-delete guard.
-func TestStreamingDistributionBackend(t *testing.T) {
+func TestInMemoryBackend_StreamingDistribution(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -375,8 +375,8 @@ func TestStreamingDistributionSnapshotRestore(t *testing.T) {
 	assert.Contains(t, err.Error(), "StreamingDistributionNotDisabled")
 }
 
-// TestNewOps_StreamingDistribution tests streaming distribution CRUD.
-func TestNewOps_StreamingDistribution(t *testing.T) {
+// TestStreamingDistribution_CRUD tests streaming distribution CRUD.
+func TestStreamingDistribution_CRUD(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"

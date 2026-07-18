@@ -1,6 +1,7 @@
 package iotwireless_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -324,4 +325,348 @@ func verifyRestoredCleanTables(
 	posCfgs := fresh.ListPositionConfigurations("WirelessDevice")
 	require.Len(t, posCfgs, 1)
 	assert.Equal(t, dest.Name, posCfgs[0].Destination)
+}
+
+func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	bk := iotwireless.NewInMemoryBackend()
+
+	// Create one of each resource type.
+	dev, err := bk.CreateWirelessDevice(
+		testAccountID,
+		testRegion,
+		"dev-snap",
+		"LoRaWAN",
+		"dest-snap",
+		"desc",
+		map[string]string{"env": "test"},
+	)
+	require.NoError(t, err)
+
+	gw, err := bk.CreateWirelessGateway(
+		testAccountID,
+		testRegion,
+		"gw-snap",
+		"gateway",
+		map[string]string{"tier": "free"},
+	)
+	require.NoError(t, err)
+
+	sp, err := bk.CreateServiceProfile(
+		testAccountID,
+		testRegion,
+		"sp-snap",
+		map[string]string{"role": "iot"},
+	)
+	require.NoError(t, err)
+
+	dest, err := bk.CreateDestination(
+		testAccountID,
+		testRegion,
+		"dest-snap",
+		"rule",
+		"RuleName",
+		"arn:role",
+		"desc",
+		nil,
+	)
+	require.NoError(t, err)
+
+	// Snapshot.
+	snap := bk.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	// Restore into a fresh backend.
+	bk2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, bk2.Restore(t.Context(), snap))
+
+	// Verify all resources are present with correct fields.
+	gotDev, err := bk2.GetWirelessDevice(testAccountID, testRegion, dev.ID)
+	require.NoError(t, err)
+	assert.Equal(t, dev.Name, gotDev.Name)
+	assert.Equal(t, "test", gotDev.Tags["env"])
+
+	gotGW, err := bk2.GetWirelessGateway(testAccountID, testRegion, gw.ID)
+	require.NoError(t, err)
+	assert.Equal(t, gw.Name, gotGW.Name)
+
+	gotSP, err := bk2.GetServiceProfile(testAccountID, testRegion, sp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, sp.Name, gotSP.Name)
+
+	gotDest, err := bk2.GetDestination(testAccountID, testRegion, dest.Name)
+	require.NoError(t, err)
+	assert.Equal(t, dest.Expression, gotDest.Expression)
+
+	// Resource tags are preserved.
+	tags, err := bk2.ListTagsForResource(dev.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "test", tags["env"])
+}
+
+// TestInMemoryBackend_PersistenceSnapshotRestore_OperationalState verifies
+// that gateway tasks/definitions, positions, queued messages, position
+// configurations, and event configurations all survive a snapshot/restore
+// round trip. These were previously declared in backendSnapshot but never
+// actually populated or restored.
+func TestInMemoryBackend_PersistenceSnapshotRestore_OperationalState(t *testing.T) {
+	t.Parallel()
+
+	bk := iotwireless.NewInMemoryBackend()
+
+	def, err := bk.CreateWirelessGatewayTaskDefinition("123456789012", "us-east-1", "taskdef-snap", true)
+	require.NoError(t, err)
+
+	task, err := bk.CreateWirelessGatewayTask("gw-snap", def.ID)
+	require.NoError(t, err)
+
+	require.NoError(
+		t,
+		bk.UpdatePosition("resource-snap", map[string]any{"Position": []any{1.0, 2.0}}),
+	)
+
+	bk.EnqueueMessage(
+		"dev-snap",
+		iotwireless.QueuedMessage{MessageID: "msg-1", PayloadBase64: "aGk="},
+	)
+
+	require.NoError(t, bk.PutPositionConfiguration(
+		"resource-snap",
+		"WirelessDevice",
+		"dest-snap",
+		map[string]any{"SemtechGnss": map[string]any{"Status": "Enabled"}},
+	))
+
+	bk.UpdateResourceEventConfiguration(
+		"resource-snap",
+		"WirelessDeviceId",
+		"",
+		&iotwireless.EventConfigDoc{
+			Join: map[string]any{"LoRaWAN": map[string]any{"DevEuiEventTopic": "Enabled"}},
+		},
+	)
+
+	bk.UpdateEventConfigurationByResourceTypes(&iotwireless.EventConfigDoc{
+		Proximity: map[string]any{"WirelessDeviceEventTopic": "Enabled"},
+	})
+
+	require.NoError(t, bk.UpdateMetricConfigurationStatus("Disabled"))
+
+	snap := bk.Snapshot(context.Background())
+	require.NotNil(t, snap)
+
+	bk2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, bk2.Restore(context.Background(), snap))
+
+	gotTask, err := bk2.GetWirelessGatewayTask(task.WirelessGatewayID)
+	require.NoError(t, err)
+	assert.Equal(t, def.ID, gotTask.TaskDefID)
+
+	gotDef, err := bk2.GetWirelessGatewayTaskDefinition(def.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "taskdef-snap", gotDef.Name)
+
+	pos := bk2.GetPosition("resource-snap")
+	require.Equal(t, []any{1.0, 2.0}, pos["Position"])
+
+	msgs := bk2.ListQueuedMessages("dev-snap")
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "msg-1", msgs[0].MessageID)
+
+	cfg, ok := bk2.GetPositionConfiguration("resource-snap")
+	require.True(t, ok)
+	assert.Equal(t, "dest-snap", cfg.Destination)
+
+	evtCfg, ok := bk2.GetResourceEventConfiguration("resource-snap")
+	require.True(t, ok)
+	assert.Equal(t, "WirelessDeviceId", evtCfg.IdentifierType)
+
+	defaultCfg := bk2.GetEventConfigurationByResourceTypes()
+	assert.NotNil(t, defaultCfg.Proximity)
+
+	assert.Equal(t, "Disabled", bk2.GetMetricConfigurationStatus())
+}
+
+func TestInMemoryBackend_Snapshot_IncludesMulticastGroups(t *testing.T) {
+	t.Parallel()
+
+	b := iotwireless.NewInMemoryBackend()
+
+	mg1, err := b.CreateMulticastGroup(
+		testAccountID,
+		testRegion,
+		"mg-snap-1",
+		"desc1",
+		map[string]string{"env": "test"},
+	)
+	require.NoError(t, err)
+
+	mg2, err := b.CreateMulticastGroup(testAccountID, testRegion, "mg-snap-2", "desc2", nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	got1, err := b2.GetMulticastGroup(testAccountID, testRegion, mg1.ID)
+	require.NoError(t, err)
+	assert.Equal(t, mg1.Name, got1.Name)
+	assert.Equal(t, "desc1", got1.Description)
+	assert.Equal(t, "test", got1.Tags["env"])
+
+	got2, err := b2.GetMulticastGroup(testAccountID, testRegion, mg2.ID)
+	require.NoError(t, err)
+	assert.Equal(t, mg2.Name, got2.Name)
+}
+
+func TestInMemoryBackend_Snapshot_IncludesNetworkAnalyzerConfigs(t *testing.T) {
+	t.Parallel()
+
+	b := iotwireless.NewInMemoryBackend()
+
+	nc, err := b.CreateNetworkAnalyzerConfig(
+		testAccountID, testRegion,
+		"nc-snap-1", "my network analyzer",
+		[]string{"dev-1", "dev-2"},
+		[]string{"gw-1"},
+		map[string]string{"env": "prod"},
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	got, err := b2.GetNetworkAnalyzerConfig(testAccountID, testRegion, nc.Name)
+	require.NoError(t, err)
+	assert.Equal(t, nc.Name, got.Name)
+	assert.Equal(t, "my network analyzer", got.Description)
+	assert.Equal(t, []string{"dev-1", "dev-2"}, got.WirelessDevices)
+	assert.Equal(t, []string{"gw-1"}, got.WirelessGateways)
+	assert.Equal(t, "prod", got.Tags["env"])
+}
+
+func TestInMemoryBackend_Snapshot_IncludesImportTasks(t *testing.T) {
+	t.Parallel()
+
+	b := iotwireless.NewInMemoryBackend()
+
+	task, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, "snap-dest")
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	got, err := b2.GetWirelessDeviceImportTask(task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, task.ID, got.ID)
+	assert.Equal(t, "snap-dest", got.DestinationName)
+	assert.Equal(t, "Initialized", got.Status)
+}
+
+func TestInMemoryBackend_Snapshot_IncludesLogLevels(t *testing.T) {
+	t.Parallel()
+
+	b := iotwireless.NewInMemoryBackend()
+
+	require.NoError(t, b.UpdateLogLevelsByResourceTypes("ERROR"))
+	require.NoError(t, b.PutResourceLogLevel("res-001", "DEBUG"))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, "ERROR", b2.GetLogLevelsByResourceTypes())
+	assert.Equal(t, "DEBUG", b2.GetResourceLogLevel("res-001"))
+}
+
+func TestInMemoryBackend_SnapshotRestore_FullRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := iotwireless.NewInMemoryBackend()
+
+	// Populate a variety of resource types.
+	dev, err := b.CreateWirelessDevice(
+		testAccountID, testRegion, "snap-dev", "LoRaWAN", "dest", "desc", map[string]string{"k": "v"},
+	)
+	require.NoError(t, err)
+
+	gw, err := b.CreateWirelessGateway(testAccountID, testRegion, "snap-gw", "a gateway", nil)
+	require.NoError(t, err)
+
+	mg, err := b.CreateMulticastGroup(testAccountID, testRegion, "snap-mg", "", nil)
+	require.NoError(t, err)
+
+	nc, err := b.CreateNetworkAnalyzerConfig(testAccountID, testRegion, "snap-nc", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	it, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, "snap-dest")
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify all resources survived.
+	gotDev, err := b2.GetWirelessDevice(testAccountID, testRegion, dev.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "snap-dev", gotDev.Name)
+	assert.Equal(t, "v", gotDev.Tags["k"])
+
+	gotGW, err := b2.GetWirelessGateway(testAccountID, testRegion, gw.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "snap-gw", gotGW.Name)
+
+	gotMG, err := b2.GetMulticastGroup(testAccountID, testRegion, mg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "snap-mg", gotMG.Name)
+
+	gotNC, err := b2.GetNetworkAnalyzerConfig(testAccountID, testRegion, nc.Name)
+	require.NoError(t, err)
+	assert.Equal(t, "snap-nc", gotNC.Name)
+
+	gotIT, err := b2.GetWirelessDeviceImportTask(it.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "snap-dest", gotIT.DestinationName)
+}
+
+// TestInMemoryBackend_PersistenceRoundTrip verifies Snapshot/Restore for all resource types.
+func TestInMemoryBackend_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := iotwireless.NewInMemoryBackend()
+
+	dp, err := b.CreateDeviceProfile(testAccountID, testRegion, "dp-persist", map[string]string{"env": "test"})
+	require.NoError(t, err)
+
+	ft, err := b.CreateFuotaTask(testAccountID, testRegion, "ft-persist", "desc", "s3://bucket/fw.bin", "arn:role", nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	gotDP, err := b2.GetDeviceProfile(testAccountID, testRegion, dp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, dp.Name, gotDP.Name)
+	assert.Equal(t, "test", gotDP.Tags["env"])
+
+	gotFT, err := b2.GetFuotaTask(testAccountID, testRegion, ft.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ft.Name, gotFT.Name)
+	assert.Equal(t, "desc", gotFT.Description)
 }

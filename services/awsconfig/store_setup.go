@@ -34,7 +34,7 @@ package awsconfig
 // resourceTags, remediationExceptions, customRulePolicies, orgCustomRulePolicies)
 // hold a scalar or slice value with no identity of its own for store.Table to
 // key on, so they are deliberately left as plain maps -- see the field
-// comments on InMemoryBackend in backend.go and persistence.go's doc comment
+// comments on InMemoryBackend in store.go and persistence.go's doc comment
 // for the persistence audit of each.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
@@ -42,7 +42,7 @@ func recorderKeyFn(v *ConfigurationRecorder) string { return v.Name }
 
 func channelKeyFn(v *DeliveryChannel) string { return v.Name }
 
-// aggregationAuthKeyFn reuses aggregationAuthKey (backend.go), the same
+// aggregationAuthKeyFn reuses aggregationAuthKey (aggregators.go), the same
 // composite-key function PutAggregationAuthorization/DeleteAggregationAuthorization
 // use, so Put/Get/Delete/Has all agree on the same key.
 func aggregationAuthKeyFn(v *AggregationAuthorization) string {
@@ -102,7 +102,7 @@ func storedEvaluationResourceIndexKeyFn(v *StoredEvaluation) string {
 // b.registry exactly once. It must be called during construction only
 // (immediately after b.registry is created), never on every Reset() --
 // store.Register panics on a duplicate name, so runtime resets go through
-// b.registry.ResetAll() instead (see InMemoryBackend.Reset in backend.go).
+// b.registry.ResetAll() instead (see InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)

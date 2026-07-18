@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 )
 
@@ -235,4 +236,164 @@ func elasticIpsSupportedOperations() []string {
 type movingAddressStatusItem struct {
 	PublicIP   string `xml:"publicIp"`
 	MoveStatus string `xml:"moveStatus,omitempty"`
+}
+
+type addressItem struct {
+	AllocationID  string `xml:"allocationId"`
+	AssociationID string `xml:"associationId,omitempty"`
+	PublicIP      string `xml:"publicIp"`
+	InstanceID    string `xml:"instanceId,omitempty"`
+	Domain        string `xml:"domain"`
+}
+
+type addressItemSet struct {
+	Items []addressItem `xml:"item"`
+}
+
+type describeAddressesResponse struct {
+	XMLName      xml.Name       `xml:"DescribeAddressesResponse"`
+	Xmlns        string         `xml:"xmlns,attr"`
+	RequestID    string         `xml:"requestId"`
+	AddressesSet addressItemSet `xml:"addressesSet"`
+}
+
+type allocateAddressResponse struct {
+	XMLName      xml.Name `xml:"AllocateAddressResponse"`
+	Xmlns        string   `xml:"xmlns,attr"`
+	RequestID    string   `xml:"requestId"`
+	PublicIP     string   `xml:"publicIp"`
+	AllocationID string   `xml:"allocationId"`
+	Domain       string   `xml:"domain"`
+}
+
+type associateAddressResponse struct {
+	XMLName       xml.Name `xml:"AssociateAddressResponse"`
+	Xmlns         string   `xml:"xmlns,attr"`
+	RequestID     string   `xml:"requestId"`
+	AssociationID string   `xml:"associationId"`
+	Return        bool     `xml:"return"`
+}
+
+type disassociateAddressResponse struct {
+	XMLName   xml.Name `xml:"DisassociateAddressResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+type releaseAddressResponse struct {
+	XMLName   xml.Name `xml:"ReleaseAddressResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleAllocateAddress(_ url.Values, reqID string) (any, error) {
+	addr, err := h.Backend.AllocateAddress()
+	if err != nil {
+		return nil, err
+	}
+
+	return &allocateAddressResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		PublicIP:     addr.PublicIP,
+		AllocationID: addr.AllocationID,
+		Domain:       resourceTypeVPC,
+	}, nil
+}
+
+func (h *Handler) handleAssociateAddress(vals url.Values, reqID string) (any, error) {
+	allocationID := vals.Get("AllocationId")
+	instanceID := vals.Get("InstanceId")
+	networkInterfaceID := vals.Get("NetworkInterfaceId")
+
+	if allocationID == "" {
+		return nil, fmt.Errorf("%w: AllocationId is required", ErrInvalidParameter)
+	}
+
+	// Accept either InstanceId or NetworkInterfaceId as the association target.
+	// Real AWS also allows association via NetworkInterfaceId (e.g. for non-instance ENIs).
+	targetID := instanceID
+	if targetID == "" {
+		targetID = networkInterfaceID
+	}
+
+	if targetID == "" {
+		return nil, fmt.Errorf(
+			"%w: InstanceId or NetworkInterfaceId is required",
+			ErrInvalidParameter,
+		)
+	}
+
+	assocID, err := h.Backend.AssociateAddress(allocationID, targetID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &associateAddressResponse{
+		Xmlns:         ec2XMLNS,
+		RequestID:     reqID,
+		Return:        true,
+		AssociationID: assocID,
+	}, nil
+}
+
+func (h *Handler) handleDisassociateAddress(vals url.Values, reqID string) (any, error) {
+	assocID := vals.Get("AssociationId")
+	if assocID == "" {
+		return nil, fmt.Errorf("%w: AssociationId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DisassociateAddress(assocID); err != nil {
+		return nil, err
+	}
+
+	return &disassociateAddressResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleReleaseAddress(vals url.Values, reqID string) (any, error) {
+	allocationID := vals.Get("AllocationId")
+	if allocationID == "" {
+		return nil, fmt.Errorf("%w: AllocationId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.ReleaseAddress(allocationID); err != nil {
+		return nil, err
+	}
+
+	return &releaseAddressResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "AllocationId")
+	addrs := h.Backend.DescribeAddresses(ids)
+
+	filters := parseEC2Filters(vals)
+	addrs = applyAddressFilters(addrs, filters, h.Backend)
+
+	items := make([]addressItem, 0, len(addrs))
+	for _, addr := range addrs {
+		items = append(items, addressItem{
+			AllocationID:  addr.AllocationID,
+			AssociationID: addr.AssociationID,
+			PublicIP:      addr.PublicIP,
+			InstanceID:    addr.InstanceID,
+			Domain:        resourceTypeVPC,
+		})
+	}
+
+	return &describeAddressesResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		AddressesSet: addressItemSet{Items: items},
+	}, nil
 }

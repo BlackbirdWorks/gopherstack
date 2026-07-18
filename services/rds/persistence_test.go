@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_Persistence_JSONContainsBatch1Keys(t *testing.T) {
+func TestPersistence_SnapshotJSON_ContainsExtendedKeys(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -51,8 +51,8 @@ func TestBatch2_Persistence_JSONContainsBatch1Keys(t *testing.T) {
 	}
 }
 
-// TestRDSBackend_Persistence_NewOps tests that new data is preserved through snapshot/restore cycles.
-func TestRDSBackend_Persistence_NewOps(t *testing.T) {
+// TestPersistence_SnapshotRestore_ExtendedFields tests that new data is preserved through snapshot/restore cycles.
+func TestPersistence_SnapshotRestore_ExtendedFields(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -14,6 +15,9 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 )
+
+// iso8601Re matches ISO 8601 UTC timestamps like 2026-06-26T09:12:26Z.
+var iso8601Re = regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`)
 
 func newTestHandler() *elasticbeanstalk.Handler {
 	return elasticbeanstalk.NewHandler(elasticbeanstalk.NewInMemoryBackend("123456789012", "us-east-1"))
@@ -36,6 +40,11 @@ func postEBForm(t *testing.T, h *elasticbeanstalk.Handler, body string) *httptes
 	return rec
 }
 
+// indexOfFirst returns the position of the first occurrence of substr in s, or -1.
+func indexOfFirst(s, substr string) int {
+	return strings.Index(s, substr)
+}
+
 func TestHandler_Name(t *testing.T) {
 	t.Parallel()
 
@@ -48,19 +57,24 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 
 	h := newTestHandler()
 	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "CreateApplication")
-	assert.Contains(t, ops, "DescribeApplications")
-	assert.Contains(t, ops, "UpdateApplication")
-	assert.Contains(t, ops, "DeleteApplication")
-	assert.Contains(t, ops, "CreateEnvironment")
-	assert.Contains(t, ops, "DescribeEnvironments")
-	assert.Contains(t, ops, "UpdateEnvironment")
-	assert.Contains(t, ops, "TerminateEnvironment")
-	assert.Contains(t, ops, "CreateApplicationVersion")
-	assert.Contains(t, ops, "DescribeApplicationVersions")
-	assert.Contains(t, ops, "DeleteApplicationVersion")
-	assert.Contains(t, ops, "ListTagsForResource")
-	assert.Contains(t, ops, "UpdateTagsForResource")
+
+	wantOps := []string{
+		"CreateApplication", "DescribeApplications", "UpdateApplication", "DeleteApplication",
+		"CreateEnvironment", "DescribeEnvironments", "UpdateEnvironment", "TerminateEnvironment",
+		"CreateApplicationVersion", "DescribeApplicationVersions", "DeleteApplicationVersion",
+		"ListTagsForResource", "UpdateTagsForResource",
+		"AbortEnvironmentUpdate", "ApplyEnvironmentManagedAction", "AssociateEnvironmentOperationsRole",
+		"CheckDNSAvailability", "ComposeEnvironments", "CreateConfigurationTemplate",
+		"CreatePlatformVersion", "CreateStorageLocation", "DeleteConfigurationTemplate",
+		"DeleteEnvironmentConfiguration",
+	}
+
+	for _, op := range wantOps {
+		t.Run(op, func(t *testing.T) {
+			t.Parallel()
+			assert.Contains(t, ops, op)
+		})
+	}
 }
 
 func TestHandler_RouteMatcher(t *testing.T) {
@@ -134,385 +148,6 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateApplication(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       "Version=2010-12-01&Action=CreateApplication&ApplicationName=my-app&Description=My+App",
-			wantStatus: http.StatusOK,
-			wantXML:    "CreateApplicationResponse",
-		},
-		{
-			name:       "missing application name",
-			body:       "Version=2010-12-01&Action=CreateApplication",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_DescribeApplications(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler()
-	// Create two applications.
-	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=app-a")
-	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=app-b")
-
-	tests := []struct {
-		name       string
-		body       string
-		wantApp    string
-		wantStatus int
-	}{
-		{
-			name:       "list all",
-			body:       "Version=2010-12-01&Action=DescribeApplications",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "filter by name",
-			body:       "Version=2010-12-01&Action=DescribeApplications&ApplicationNames.member.1=app-a",
-			wantStatus: http.StatusOK,
-			wantApp:    "app-a",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantApp != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantApp)
-			}
-		})
-	}
-}
-
-func TestHandler_DeleteApplication(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setupName  string
-		deleteName string
-		wantStatus int
-	}{
-		{
-			name:       "delete existing",
-			setupName:  "del-app",
-			deleteName: "del-app",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "delete nonexistent",
-			deleteName: "nonexistent",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setupName != "" {
-				postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName="+tt.setupName)
-			}
-
-			rec := postEBForm(t, h, "Version=2010-12-01&Action=DeleteApplication&ApplicationName="+tt.deleteName)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CreateEnvironment(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=my-app&EnvironmentName=my-env",
-			wantStatus: http.StatusOK,
-			wantXML:    "CreateEnvironmentResponse",
-		},
-		{
-			name:       "missing environment name",
-			body:       "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=my-app",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing application name",
-			body:       "Version=2010-12-01&Action=CreateEnvironment&EnvironmentName=my-env",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_DescribeEnvironments(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler()
-	rec1 := postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app-a&EnvironmentName=env-1")
-	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app-a&EnvironmentName=env-2")
-
-	// Extract env-1's EnvironmentId from the create response using XML parsing.
-	var createResult struct {
-		CreateEnvironmentResult struct {
-			EnvironmentID string `xml:"EnvironmentId"`
-		} `xml:"CreateEnvironmentResult"`
-	}
-
-	require.NoError(t, xml.Unmarshal(rec1.Body.Bytes(), &createResult))
-	env1ID := createResult.CreateEnvironmentResult.EnvironmentID
-	require.NotEmpty(t, env1ID, "env-1 EnvironmentId should not be empty")
-
-	tests := []struct {
-		name        string
-		body        string
-		wantEnv     string
-		wantContain string
-		wantStatus  int
-	}{
-		{
-			name:       "list all",
-			body:       "Version=2010-12-01&Action=DescribeEnvironments",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "filter by app",
-			body:       "Version=2010-12-01&Action=DescribeEnvironments&ApplicationName=app-a",
-			wantStatus: http.StatusOK,
-			wantEnv:    "env-1",
-		},
-		{
-			name:       "filter by env name",
-			body:       "Version=2010-12-01&Action=DescribeEnvironments&EnvironmentNames.member.1=env-1",
-			wantStatus: http.StatusOK,
-			wantEnv:    "env-1",
-		},
-		{
-			name:        "filter by env id",
-			body:        "Version=2010-12-01&Action=DescribeEnvironments&EnvironmentIds.member.1=" + env1ID,
-			wantStatus:  http.StatusOK,
-			wantEnv:     "env-1",
-			wantContain: "<Tier>",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantEnv != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantEnv)
-			}
-
-			if tt.wantContain != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantContain)
-			}
-		})
-	}
-}
-
-func TestHandler_TerminateEnvironment(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setupApp   string
-		setupEnv   string
-		termEnv    string
-		wantStatus int
-	}{
-		{
-			name:       "terminate existing",
-			setupApp:   "my-app",
-			setupEnv:   "my-env",
-			termEnv:    "my-env",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "terminate nonexistent",
-			termEnv:    "nonexistent",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setupApp != "" {
-				postEBForm(t, h,
-					"Version=2010-12-01&Action=CreateEnvironment&ApplicationName="+tt.setupApp+
-						"&EnvironmentName="+tt.setupEnv)
-			}
-
-			rec := postEBForm(t, h,
-				"Version=2010-12-01&Action=TerminateEnvironment&EnvironmentName="+tt.termEnv)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ApplicationVersion(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name: "create success",
-			body: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=my-app" +
-				"&VersionLabel=v1&AutoCreateApplication=true",
-			wantStatus: http.StatusOK,
-			wantXML:    "CreateApplicationVersionResponse",
-		},
-		{
-			name:       "create missing app name",
-			body:       "Version=2010-12-01&Action=CreateApplicationVersion&VersionLabel=v1",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "create missing version label",
-			body:       "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=my-app",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_ListTagsForResource(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler()
-	rec := postEBForm(
-		t,
-		h,
-		"Version=2010-12-01&Action=CreateApplication&ApplicationName=tag-app&Tags.member.1.Key=env&Tags.member.1.Value=prod",
-	)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Parse application ARN from create response.
-	var resp struct {
-		CreateApplicationResult struct {
-			Application struct {
-				ApplicationArn string `xml:"ApplicationArn"`
-			} `xml:"Application"`
-		} `xml:"CreateApplicationResult"`
-	}
-
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	appARN := resp.CreateApplicationResult.Application.ApplicationArn
-
-	tests := []struct {
-		name        string
-		resourceARN string
-		wantTag     string
-		wantStatus  int
-	}{
-		{
-			name:        "list tags for existing",
-			resourceARN: appARN,
-			wantStatus:  http.StatusOK,
-			wantTag:     "env",
-		},
-		{
-			name:        "list tags for nonexistent",
-			resourceARN: "arn:aws:elasticbeanstalk:us-east-1:123:nonexistent",
-			wantStatus:  http.StatusBadRequest,
-		},
-		{
-			name:       "missing resource arn",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			body := "Version=2010-12-01&Action=ListTagsForResource"
-			if tt.resourceARN != "" {
-				body += "&ResourceArn=" + tt.resourceARN
-			}
-
-			rec2 := postEBForm(t, h, body)
-			assert.Equal(t, tt.wantStatus, rec2.Code)
-
-			if tt.wantTag != "" {
-				assert.Contains(t, rec2.Body.String(), tt.wantTag)
-			}
-		})
-	}
-}
-
 func TestHandler_UnknownAction(t *testing.T) {
 	t.Parallel()
 
@@ -540,7 +175,7 @@ func TestHandler_XMLResponseFormat(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DescribeApplicationsResponse")
 }
 
-func TestElasticBeanstalk_Handler_Reset(t *testing.T) {
+func TestHandler_Reset(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -595,583 +230,119 @@ func TestElasticBeanstalk_Handler_Reset(t *testing.T) {
 	}
 }
 
-func TestHandler_AbortEnvironmentUpdate(t *testing.T) {
+// TestHandler_Reset_DelegatesToBackend verifies that Handler.Reset delegates to Backend.Reset.
+func TestHandler_Reset_DelegatesToBackend(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "success no-op",
-			body:       "Version=2010-12-01&Action=AbortEnvironmentUpdate&EnvironmentName=my-env",
-			wantStatus: http.StatusOK,
-			wantXML:    "AbortEnvironmentUpdateResponse",
-		},
-		{
-			name:       "no env name still ok",
-			body:       "Version=2010-12-01&Action=AbortEnvironmentUpdate",
-			wantStatus: http.StatusOK,
-			wantXML:    "AbortEnvironmentUpdateResponse",
-		},
-	}
+	h := newTestHandler()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=app1")
+	assert.Equal(t, 1, h.Backend.ApplicationCount())
 
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+	h.Reset()
 
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
+	assert.Equal(t, 0, h.Backend.ApplicationCount())
 }
 
-func TestHandler_ApplyEnvironmentManagedAction(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       "Version=2010-12-01&Action=ApplyEnvironmentManagedAction&EnvironmentName=my-env&ActionId=action-1",
-			wantStatus: http.StatusOK,
-			wantXML:    "ApplyEnvironmentManagedActionResponse",
-		},
-		{
-			name:       "missing action id",
-			body:       "Version=2010-12-01&Action=ApplyEnvironmentManagedAction&EnvironmentName=my-env",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_AssociateEnvironmentOperationsRole(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-		setupEnv   bool
-	}{
-		{
-			name:     "success",
-			setupEnv: true,
-			body: "Version=2010-12-01&Action=AssociateEnvironmentOperationsRole" +
-				"&EnvironmentName=my-env&OperationsRole=arn:aws:iam::123:role/ops",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "missing environment name",
-			body: "Version=2010-12-01&Action=AssociateEnvironmentOperationsRole" +
-				"&OperationsRole=arn:aws:iam::123:role/ops",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing operations role",
-			body:       "Version=2010-12-01&Action=AssociateEnvironmentOperationsRole&EnvironmentName=my-env",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "environment not found",
-			body: "Version=2010-12-01&Action=AssociateEnvironmentOperationsRole" +
-				"&EnvironmentName=nonexistent&OperationsRole=arn:aws:iam::123:role/ops",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setupEnv {
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=my-app&EnvironmentName=my-env",
-				)
-			}
-
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CheckDNSAvailability(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		cnamePrefix string
-		wantStatus  int
-		setupEnv    bool
-		wantAvail   bool
-	}{
-		{
-			name:        "available prefix",
-			cnamePrefix: "free-prefix",
-			wantStatus:  http.StatusOK,
-			wantAvail:   true,
-		},
-		{
-			name:        "taken prefix matches env name",
-			cnamePrefix: "my-env",
-			setupEnv:    true,
-			wantStatus:  http.StatusOK,
-			wantAvail:   false,
-		},
-		{
-			name:       "missing cname prefix",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setupEnv {
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=my-app&EnvironmentName=my-env",
-				)
-			}
-
-			body := "Version=2010-12-01&Action=CheckDNSAvailability"
-			if tt.cnamePrefix != "" {
-				body += "&CNAMEPrefix=" + tt.cnamePrefix
-			}
-
-			rec := postEBForm(t, h, body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out struct {
-					CheckDNSAvailabilityResult struct {
-						FullyQualifiedCNAME string `xml:"FullyQualifiedCNAME"`
-						Available           bool   `xml:"Available"`
-					} `xml:"CheckDNSAvailabilityResult"`
-				}
-
-				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
-				assert.Equal(t, tt.wantAvail, out.CheckDNSAvailabilityResult.Available)
-				assert.Contains(t, out.CheckDNSAvailabilityResult.FullyQualifiedCNAME, tt.cnamePrefix)
-			}
-		})
-	}
-}
-
-func TestHandler_ComposeEnvironments(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		appName      string
-		wantXML      string
-		wantStatus   int
-		wantMinCount int
-		setupEnvs    bool
-	}{
-		{
-			name:       "success with no envs",
-			appName:    "my-app",
-			wantStatus: http.StatusOK,
-			wantXML:    "ComposeEnvironmentsResponse",
-		},
-		{
-			name:         "success returns existing envs",
-			appName:      "my-app",
-			setupEnvs:    true,
-			wantStatus:   http.StatusOK,
-			wantMinCount: 1,
-		},
-		{
-			name:       "missing application name",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setupEnvs {
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=my-app&EnvironmentName=composed-env",
-				)
-			}
-
-			body := "Version=2010-12-01&Action=ComposeEnvironments"
-			if tt.appName != "" {
-				body += "&ApplicationName=" + tt.appName
-			}
-
-			rec := postEBForm(t, h, body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_CreateConfigurationTemplate(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup           func(*elasticbeanstalk.Handler)
-		name            string
-		body            string
-		wantXML         string
-		wantStatus      int
-		createDuplicate bool
-	}{
-		{
-			name: "success",
-			body: "Version=2010-12-01&Action=CreateConfigurationTemplate" +
-				"&ApplicationName=my-app&TemplateName=my-tmpl&SolutionStackName=64bit+Amazon+Linux",
-			wantStatus: http.StatusOK,
-			wantXML:    "CreateConfigurationTemplateResponse",
-		},
-		{
-			name:       "missing application name",
-			body:       "Version=2010-12-01&Action=CreateConfigurationTemplate&TemplateName=my-tmpl",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing template name",
-			body:       "Version=2010-12-01&Action=CreateConfigurationTemplate&ApplicationName=my-app",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:            "duplicate template",
-			createDuplicate: true,
-			body: "Version=2010-12-01&Action=CreateConfigurationTemplate" +
-				"&ApplicationName=my-app&TemplateName=dup-tmpl",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.createDuplicate {
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateConfigurationTemplate&ApplicationName=my-app&TemplateName=dup-tmpl",
-				)
-			}
-
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_CreatePlatformVersion(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       "Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0.0",
-			wantStatus: http.StatusOK,
-			wantXML:    "CreatePlatformVersionResponse",
-		},
-		{
-			name:       "missing platform name",
-			body:       "Version=2010-12-01&Action=CreatePlatformVersion&PlatformVersion=1.0.0",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing platform version",
-			body:       "Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_CreateStorageLocation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "success returns bucket name",
-			wantStatus: http.StatusOK,
-			wantXML:    "CreateStorageLocationResponse",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, "Version=2010-12-01&Action=CreateStorageLocation")
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-
-				var out struct {
-					CreateStorageLocationResult struct {
-						S3Bucket string `xml:"S3Bucket"`
-					} `xml:"CreateStorageLocationResult"`
-				}
-
-				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
-				assert.NotEmpty(t, out.CreateStorageLocationResult.S3Bucket)
-				assert.Contains(t, out.CreateStorageLocationResult.S3Bucket, "elasticbeanstalk")
-			}
-		})
-	}
-}
-
-func TestHandler_DeleteConfigurationTemplate(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-		setup      bool
-	}{
-		{
-			name:       "success",
-			setup:      true,
-			body:       "Version=2010-12-01&Action=DeleteConfigurationTemplate&ApplicationName=my-app&TemplateName=my-tmpl",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing application name",
-			body:       "Version=2010-12-01&Action=DeleteConfigurationTemplate&TemplateName=my-tmpl",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing template name",
-			body:       "Version=2010-12-01&Action=DeleteConfigurationTemplate&ApplicationName=my-app",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "not found",
-			body:       "Version=2010-12-01&Action=DeleteConfigurationTemplate&ApplicationName=my-app&TemplateName=nonexistent",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setup {
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateConfigurationTemplate&ApplicationName=my-app&TemplateName=my-tmpl",
-				)
-			}
-
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_DeleteEnvironmentConfiguration(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "success no-op",
-			body:       "Version=2010-12-01&Action=DeleteEnvironmentConfiguration&ApplicationName=my-app&EnvironmentName=my-env",
-			wantStatus: http.StatusOK,
-			wantXML:    "DeleteEnvironmentConfigurationResponse",
-		},
-		{
-			name:       "missing application name",
-			body:       "Version=2010-12-01&Action=DeleteEnvironmentConfiguration&EnvironmentName=my-env",
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing environment name",
-			body:       "Version=2010-12-01&Action=DeleteEnvironmentConfiguration&ApplicationName=my-app",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_NewOps_GetSupportedOperations(t *testing.T) {
+// TestHandler_OpsTable_PreBuilt verifies that the handler dispatch table is pre-built.
+func TestHandler_OpsTable_PreBuilt(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
 	ops := h.GetSupportedOperations()
 
-	newOps := []string{
-		"AbortEnvironmentUpdate",
-		"ApplyEnvironmentManagedAction",
-		"AssociateEnvironmentOperationsRole",
-		"CheckDNSAvailability",
-		"ComposeEnvironments",
-		"CreateConfigurationTemplate",
-		"CreatePlatformVersion",
-		"CreateStorageLocation",
-		"DeleteConfigurationTemplate",
-		"DeleteEnvironmentConfiguration",
-	}
-
-	for _, op := range newOps {
-		assert.Contains(t, ops, op, "expected %s in GetSupportedOperations", op)
-	}
+	assert.Equal(t, len(ops), h.HandlerOpsLen(), "ops table should match supported operations count")
 }
 
-func TestHandler_NewOps_PersistenceRoundTrip(t *testing.T) {
+// TestHandler_CountHelpers_TrackResourceCreation verifies export count helpers via HTTP,
+// across every resource collection.
+func TestHandler_CountHelpers_TrackResourceCreation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
 
-	// Create a config template and platform version.
-	createTmplBody := "Version=2010-12-01&Action=CreateConfigurationTemplate" +
-		"&ApplicationName=my-app&TemplateName=my-tmpl&SolutionStackName=64bit+Amazon+Linux"
-	rec1 := postEBForm(t, h, createTmplBody)
-	require.Equal(t, http.StatusOK, rec1.Code)
+	assert.Equal(t, 0, h.Backend.ApplicationCount())
 
-	rec2 := postEBForm(
-		t,
-		h,
-		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0.0",
-	)
-	require.Equal(t, http.StatusOK, rec2.Code)
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=a1")
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=a2")
 
-	// Snapshot and restore.
-	snap := h.Snapshot(t.Context())
+	assert.Equal(t, 2, h.Backend.ApplicationCount())
+
+	postEBForm(t, h,
+		"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=a1&EnvironmentName=env1")
+	assert.Equal(t, 1, h.Backend.EnvironmentCount())
+
+	postEBForm(t, h,
+		"Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=a1&VersionLabel=v1")
+	assert.Equal(t, 1, h.Backend.AppVersionCount())
+
+	postEBForm(t, h,
+		"Version=2010-12-01&Action=CreateConfigurationTemplate&ApplicationName=a1&TemplateName=tmpl1")
+	assert.Equal(t, 1, h.Backend.ConfigTemplateCount())
+
+	postEBForm(t, h,
+		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0")
+	assert.Equal(t, 1, h.Backend.PlatformVersionCount())
+}
+
+// TestHandler_PersistenceRoundTrip verifies snapshot/restore preserves all state
+// across every resource collection.
+func TestHandler_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=persisted-app")
+	postEBForm(t, h,
+		"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=persisted-app&EnvironmentName=persisted-env")
+	postEBForm(t, h,
+		"Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=persisted-app&VersionLabel=v1")
+	postEBForm(t, h,
+		"Version=2010-12-01&Action=CreateConfigurationTemplate"+
+			"&ApplicationName=persisted-app&TemplateName=tmpl1")
+	postEBForm(t, h,
+		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0")
+
+	snap := h.Backend.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	h2 := newTestHandler()
-	require.NoError(t, h2.Restore(t.Context(), snap))
+	h2 := elasticbeanstalk.NewHandler(elasticbeanstalk.NewInMemoryBackend("123456789012", "us-east-1"))
+	require.NoError(t, h2.Backend.Restore(t.Context(), snap))
 
-	// Verify the config template can still be deleted (meaning it was restored).
-	rec3 := postEBForm(
-		t,
-		h2,
-		"Version=2010-12-01&Action=DeleteConfigurationTemplate&ApplicationName=my-app&TemplateName=my-tmpl",
-	)
-	assert.Equal(t, http.StatusOK, rec3.Code)
+	assert.Equal(t, 1, h2.Backend.ApplicationCount())
+	assert.Equal(t, 1, h2.Backend.EnvironmentCount())
+	assert.Equal(t, 1, h2.Backend.AppVersionCount())
+	assert.Equal(t, 1, h2.Backend.ConfigTemplateCount())
+	assert.Equal(t, 1, h2.Backend.PlatformVersionCount())
+
+	// Verify ARN indexes are rebuilt for tag lookup.
+	rec := postEBForm(t, h2,
+		"Version=2010-12-01&Action=DescribeApplications")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "persisted-app")
 }
 
-func TestHandler_UpdateApplication(t *testing.T) {
+// TestHandler_CreateOps_DateCreatedIsRealTimestamp verifies DateCreated is a real
+// ISO 8601 timestamp, not hardcoded, across every Create* operation.
+func TestHandler_CreateOps_DateCreatedIsRealTimestamp(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-		setup      bool
+		name   string
+		action string
 	}{
 		{
-			name:       "success",
-			setup:      true,
-			body:       "Version=2010-12-01&Action=UpdateApplication&ApplicationName=my-app&Description=updated",
-			wantStatus: http.StatusOK,
-			wantXML:    "UpdateApplicationResponse",
+			name:   "CreateApplication has real DateCreated",
+			action: "Version=2010-12-01&Action=CreateApplication&ApplicationName=ts-app",
 		},
 		{
-			name:       "missing application name",
-			body:       "Version=2010-12-01&Action=UpdateApplication&Description=updated",
-			wantStatus: http.StatusBadRequest,
+			name:   "CreateEnvironment has real DateCreated",
+			action: "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env1",
 		},
 		{
-			name:       "not found",
-			body:       "Version=2010-12-01&Action=UpdateApplication&ApplicationName=nonexistent",
-			wantStatus: http.StatusBadRequest,
+			name: "CreateApplicationVersion has real DateCreated",
+			action: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app" +
+				"&VersionLabel=v1&AutoCreateApplication=true",
 		},
 	}
 
@@ -1180,48 +351,40 @@ func TestHandler_UpdateApplication(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
+			rec := postEBForm(t, h, tt.action)
+			require.Equal(t, http.StatusOK, rec.Code)
 
-			if tt.setup {
-				postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=my-app")
-			}
-
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
+			body := rec.Body.String()
+			assert.Contains(t, body, "<DateCreated>")
+			assert.NotContains(t, body, "<DateCreated>2026-01-01T00:00:00Z</DateCreated>",
+				"timestamp should not be hardcoded")
+			assert.Regexp(t, iso8601Re, body, "response must include an ISO 8601 timestamp")
 		})
 	}
 }
 
-func TestHandler_UpdateEnvironment(t *testing.T) {
+// TestHandler_CreateOps_DateUpdatedPresent verifies DateUpdated is returned for
+// resources across every Create* operation.
+func TestHandler_CreateOps_DateUpdatedPresent(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-		setup      bool
+		name   string
+		setup  string
+		action string
 	}{
 		{
-			name:  "success",
-			setup: true,
-			body: "Version=2010-12-01&Action=UpdateEnvironment" +
-				"&ApplicationName=my-app&EnvironmentName=my-env&Description=updated",
-			wantStatus: http.StatusOK,
-			wantXML:    "UpdateEnvironmentResponse",
+			name:   "CreateApplication includes DateUpdated",
+			action: "Version=2010-12-01&Action=CreateApplication&ApplicationName=app1",
 		},
 		{
-			name:       "missing environment name",
-			body:       "Version=2010-12-01&Action=UpdateEnvironment&ApplicationName=my-app",
-			wantStatus: http.StatusBadRequest,
+			name:   "CreateEnvironment includes DateUpdated",
+			action: "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app&EnvironmentName=env1",
 		},
 		{
-			name:       "not found",
-			body:       "Version=2010-12-01&Action=UpdateEnvironment&EnvironmentName=nonexistent",
-			wantStatus: http.StatusBadRequest,
+			name:   "CreateApplicationVersion includes DateUpdated",
+			setup:  "Version=2010-12-01&Action=CreateApplication&ApplicationName=app",
+			action: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app&VersionLabel=v1",
 		},
 	}
 
@@ -1230,382 +393,13 @@ func TestHandler_UpdateEnvironment(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-
-			if tt.setup {
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=my-app&EnvironmentName=my-env",
-				)
+			if tt.setup != "" {
+				postEBForm(t, h, tt.setup)
 			}
 
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_DescribeApplicationVersions(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*elasticbeanstalk.Handler)
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name: "list all",
-			setup: func(h *elasticbeanstalk.Handler) {
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=my-app&VersionLabel=v1",
-				)
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=my-app&VersionLabel=v2",
-				)
-			},
-			body:       "Version=2010-12-01&Action=DescribeApplicationVersions",
-			wantStatus: http.StatusOK,
-			wantXML:    "DescribeApplicationVersionsResponse",
-		},
-		{
-			name: "filter by app",
-			setup: func(h *elasticbeanstalk.Handler) {
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=my-app&VersionLabel=v1",
-				)
-			},
-			body:       "Version=2010-12-01&Action=DescribeApplicationVersions&ApplicationName=my-app",
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_DeleteApplicationVersionOp(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-		setup      bool
-	}{
-		{
-			name:       "success",
-			setup:      true,
-			body:       "Version=2010-12-01&Action=DeleteApplicationVersion&ApplicationName=my-app&VersionLabel=v1",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "not found",
-			body:       "Version=2010-12-01&Action=DeleteApplicationVersion&ApplicationName=my-app&VersionLabel=nonexistent",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setup {
-				postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=my-app")
-				postEBForm(
-					t,
-					h,
-					"Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=my-app&VersionLabel=v1",
-				)
-			}
-
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_UpdateTagsForResource(t *testing.T) {
-	t.Parallel()
-
-	// createAppAndGetARN creates a tagged application and returns its ARN.
-	createAppAndGetARN := func(h *elasticbeanstalk.Handler) string {
-		createBody := "Version=2010-12-01&Action=CreateApplication" +
-			"&ApplicationName=tag-app&Tags.member.1.Key=k1&Tags.member.1.Value=v1"
-		rec := postEBForm(t, h, createBody)
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		var resp struct {
-			CreateApplicationResult struct {
-				Application struct {
-					ApplicationArn string `xml:"ApplicationArn"`
-				} `xml:"Application"`
-			} `xml:"CreateApplicationResult"`
-		}
-
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-
-		return resp.CreateApplicationResult.Application.ApplicationArn
-	}
-
-	tests := []struct {
-		setup      func(*elasticbeanstalk.Handler) string
-		name       string
-		body       string
-		wantStatus int
-	}{
-		{
-			name:  "add tags",
-			setup: createAppAndGetARN,
-			body: "Version=2010-12-01&Action=UpdateTagsForResource" +
-				"&TagsToAdd.member.1.Key=k2&TagsToAdd.member.1.Value=v2",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "remove tags",
-			setup:      createAppAndGetARN,
-			body:       "Version=2010-12-01&Action=UpdateTagsForResource&TagsToRemove.member.1=k1",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing resource arn",
-			body:       "Version=2010-12-01&Action=UpdateTagsForResource",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			body := tt.body
-			if tt.setup != nil {
-				arn := tt.setup(h)
-				body = body + "&ResourceArn=" + arn
-			}
-
-			rec := postEBForm(t, h, body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_DescribeEvents(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "returns empty events list",
-			body:       "Version=2010-12-01&Action=DescribeEvents&ApplicationName=my-app",
-			wantStatus: http.StatusOK,
-			wantXML:    "DescribeEventsResponse",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_DescribeEnvironmentResources(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		body        string
-		wantXML     string
-		wantContain string
-		wantStatus  int
-	}{
-		{
-			name:        "returns resources for environment",
-			body:        "Version=2010-12-01&Action=DescribeEnvironmentResources&EnvironmentName=my-env",
-			wantStatus:  http.StatusOK,
-			wantXML:     "DescribeEnvironmentResourcesResponse",
-			wantContain: "my-env",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			postEBForm(
-				t,
-				h,
-				"Version=2010-12-01&Action=CreateEnvironment&ApplicationName=my-app&EnvironmentName=my-env",
-			)
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-
-			if tt.wantContain != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantContain)
-			}
-		})
-	}
-}
-
-func TestHandler_DescribeConfigurationSettings(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*elasticbeanstalk.Handler)
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name: "existing environment",
-			setup: func(h *elasticbeanstalk.Handler) {
-				createEnvBody := "Version=2010-12-01&Action=CreateEnvironment" +
-					"&ApplicationName=my-app&EnvironmentName=my-env&SolutionStackName=64bit+Amazon+Linux"
-				postEBForm(t, h, createEnvBody)
-			},
-			body: "Version=2010-12-01&Action=DescribeConfigurationSettings" +
-				"&ApplicationName=my-app&EnvironmentName=my-env",
-			wantStatus: http.StatusOK,
-			wantXML:    "DescribeConfigurationSettingsResponse",
-		},
-		{
-			name: "nonexistent environment returns empty",
-			body: "Version=2010-12-01&Action=DescribeConfigurationSettings" +
-				"&ApplicationName=my-app&EnvironmentName=nonexistent",
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_RestartAppServer(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "success no-op",
-			body:       "Version=2010-12-01&Action=RestartAppServer&EnvironmentName=my-env",
-			wantStatus: http.StatusOK,
-			wantXML:    "RestartAppServerResponse",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
-		})
-	}
-}
-
-func TestHandler_RebuildEnvironment(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       string
-		wantXML    string
-		wantStatus int
-	}{
-		{
-			name:       "success no-op",
-			body:       "Version=2010-12-01&Action=RebuildEnvironment&EnvironmentName=my-env",
-			wantStatus: http.StatusOK,
-			wantXML:    "RebuildEnvironmentResponse",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler()
-			rec := postEBForm(t, h, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantXML != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantXML)
-			}
+			rec := postEBForm(t, h, tt.action)
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), "<DateUpdated>", "response must include DateUpdated")
 		})
 	}
 }

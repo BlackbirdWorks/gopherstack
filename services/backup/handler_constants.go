@@ -91,7 +91,8 @@ const (
 	opUpdateReportPlan   = "UpdateReportPlan"
 	opDeleteReportPlan   = "DeleteReportPlan"
 
-	// Stub operations (minimal implementations).
+	// Extended operations (settings, protected resources, restore/report/scan
+	// jobs, plan templates, tiering, restore-access vaults).
 	opCreateTieringConfiguration             = "CreateTieringConfiguration"
 	opDeleteTieringConfiguration             = "DeleteTieringConfiguration"
 	opDescribeGlobalSettings                 = "DescribeGlobalSettings"
@@ -313,7 +314,7 @@ func supportedOpsReportPlans() []string {
 	}
 }
 
-func supportedOpsStub() []string {
+func supportedOpsExtended() []string {
 	return []string{
 		opCreateTieringConfiguration,
 		opDeleteTieringConfiguration,

@@ -325,7 +325,7 @@ func TestGetImageBlockPublicAccessState_DefaultUnblocked(t *testing.T) {
 // "ModifyEbsDefaultKmsKeyIdResponse", not "GetEbsDefaultKmsKeyIdResponse".
 // The wrong element name causes AWS SDK deserialisation to fail.
 
-func TestParityFinalHTTP_CancelImageLaunchPermission(t *testing.T) {
+func TestCancelImageLaunchPermissionHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -339,7 +339,7 @@ func TestParityFinalHTTP_CancelImageLaunchPermission(t *testing.T) {
 	assert.Contains(t, resp, "<return>true</return>")
 }
 
-func TestParityFinalHTTP_DescribeImageReferences(t *testing.T) {
+func TestDescribeImageReferencesHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -358,7 +358,7 @@ func TestParityFinalHTTP_DescribeImageReferences(t *testing.T) {
 	assert.Contains(t, resp, "<resourceType>ec2:Instance</resourceType>")
 }
 
-func TestParityFinalHTTP_GetImageAncestry(t *testing.T) {
+func TestGetImageAncestryHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

@@ -1,6 +1,8 @@
 package batch_test
 
 import (
+	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -190,3 +192,146 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sj-1", sjGot.ServiceJobName)
 }
+
+func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Create compute environment.
+	ce, err := b.CreateComputeEnvironment(
+		context.Background(), "test-ce", "MANAGED", "ENABLED", nil, "", nil, nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, ce.ComputeEnvironmentArn)
+
+	// Create job queue.
+	ceOrder := []batch.ComputeEnvironmentOrder{
+		{ComputeEnvironment: ce.ComputeEnvironmentArn, Order: 1},
+	}
+	jq, err := b.CreateJobQueue(context.Background(), "test-jq", 10, "ENABLED", ceOrder, nil, "", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, jq.JobQueueArn)
+
+	// Register job definition.
+	jd, err := b.RegisterJobDefinition(
+		context.Background(), "test-jd", "container", nil, nil, 0, 0, nil, nil, nil, nil, nil, nil, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, jd.JobDefinitionArn)
+
+	// Submit a job.
+	job, err := b.SubmitJob(
+		context.Background(),
+		"test-job",
+		jq.JobQueueName,
+		jd.JobDefinitionArn,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"",
+		0,
+		false,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, job.JobID)
+
+	// Snapshot and restore.
+	h := batch.NewHandler(b)
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := batch.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := batch.NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Compute environment is restored.
+	ces, _ := b2.DescribeComputeEnvironments(context.Background(), []string{"test-ce"}, 0, "")
+	require.Len(t, ces, 1)
+	assert.Equal(t, "test-ce", ces[0].ComputeEnvironmentName)
+
+	// Job queue is restored.
+	jqs, _ := b2.DescribeJobQueues(context.Background(), []string{"test-jq"}, 0, "")
+	require.Len(t, jqs, 1)
+	assert.Equal(t, "test-jq", jqs[0].JobQueueName)
+
+	// Job definition is restored.
+	jds, _ := b2.DescribeJobDefinitions(context.Background(), []string{"test-jd"}, "", "", 0, "")
+	require.NotEmpty(t, jds)
+	assert.Equal(t, "test-jd", jds[0].JobDefinitionName)
+
+	// Submitted job is restored.
+	jobs := b2.DescribeJobs(context.Background(), []string{job.JobID})
+	require.Len(t, jobs, 1)
+	assert.Equal(t, "test-job", jobs[0].JobName)
+	assert.Equal(t, jq.JobQueueName, jobs[0].JobQueue)
+
+	// jobsByQueue index is rebuilt — ListJobs must return the submitted job.
+	listed, _, err := b2.ListJobs(context.Background(), jq.JobQueueName, "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, job.JobID, listed[0].JobID)
+}
+
+// --- ConsumableResource tests ---
+
+func TestBatch_PersistenceWithNewResourceTypes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create resources of each new type.
+	rec := post(t, h, "/v1/createconsumableresource", map[string]any{
+		"consumableResourceName": "cr-persist",
+		"totalQuantity":          int64(42),
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createschedulingpolicy", map[string]any{
+		"name": "sp-persist",
+		"tags": map[string]string{"k": "v"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createserviceenvironment", map[string]any{
+		"serviceEnvironmentName": "senv-persist",
+		"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Snapshot and restore.
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	h2 := batch.NewHandler(batch.NewInMemoryBackend("000000000000", "us-east-1"))
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Verify consumable resource is restored.
+	rec2 := post(t, h2, "/v1/describeconsumableresource", map[string]any{
+		"consumableResource": "cr-persist",
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var crOut map[string]any
+	mustUnmarshal(t, rec2, &crOut)
+	assert.Equal(t, "cr-persist", crOut["consumableResourceName"])
+	assert.EqualValues(t, 42, crOut["totalQuantity"])
+
+	// Verify scheduling policy is restored via describe.
+	rec3 := post(t, h2, "/v1/describeschedulingpolicies", map[string]any{})
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var spList map[string]any
+	mustUnmarshal(t, rec3, &spList)
+	items := spList["schedulingPolicies"].([]any)
+	assert.Len(t, items, 1)
+
+	// Verify scheduling policy name index is rebuilt (dedup by name should work).
+	rec4 := post(t, h2, "/v1/createschedulingpolicy", map[string]any{"name": "sp-persist"})
+	assert.Equal(t, http.StatusBadRequest, rec4.Code)
+}
+
+// --- ResourceTypeValidation tests ---

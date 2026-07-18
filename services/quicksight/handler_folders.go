@@ -475,3 +475,98 @@ func folderFiltersFromBody(body map[string]any) []FolderSearchFilter {
 
 	return filters
 }
+
+// classifyFolderPaths routes /accounts/{id}/folders/... paths.
+func classifyFolderPaths( //nolint:gocognit,cyclop // existing issue.
+	method string,
+	segs []string,
+	n int,
+) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		switch method { //nolint:gocritic // existing issue.
+		case http.MethodGet:
+			return opListFolders, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodPost:
+			return opCreateFolder, id
+		case http.MethodGet:
+			return opDescribeFolder, id
+		case http.MethodPut:
+			return opUpdateFolder, id
+		case http.MethodDelete:
+			return opDeleteFolder, id
+		}
+	case nSegsSubRes:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		switch sub {
+		case pathSegPermissions:
+			switch method {
+			case http.MethodGet:
+				return opDescribeFolderPermissions, id
+			case http.MethodPut:
+				return opUpdateFolderPermissions, id
+			}
+		case pathSegResolvedPerms:
+			if method == http.MethodGet {
+				return opDescribeFolderResolvedPerms, id
+			}
+		case pathSegMembers:
+			if method == http.MethodGet {
+				return opListFolderMembers, id
+			}
+		}
+	case nSegsSubSubRes:
+		if seg(segs, segSubRes) == pathSegMembers {
+			id := seg(segs, segResID)
+			switch method {
+			case http.MethodPut:
+				return opCreateFolderMembership, id
+			case http.MethodDelete:
+				return opDeleteFolderMembership, id
+			}
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyResourceFoldersPaths routes /accounts/{id}/resource/{resARN}/folders paths.
+func classifyResourceFoldersPaths(method string, segs []string, n int) (string, string) {
+	if n == nSegsSubRes && seg(segs, segSubRes) == pathSegFolders && method == http.MethodGet {
+		return opListFoldersForResource, seg(segs, segResID)
+	}
+
+	return opUnknown, ""
+}
+
+// ---- ListFoldersForResource ----
+
+func (h *Handler) handleListFoldersForResource(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+	resourceArn := seg(segs, segResID)
+
+	folderArns, next, err := h.Backend.ListFoldersForResource(
+		accountID, resourceArn, maxResultsParam(c), nextTokenParam(c),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	resp := map[string]any{
+		"Folders":    folderArns,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
+}

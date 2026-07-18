@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -13,6 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/iotwireless"
+)
+
+const (
+	testAccountID = "000000000000"
+	testRegion    = "us-east-1"
 )
 
 func newTestHandlerHTTP() *iotwireless.Handler {
@@ -47,311 +51,6 @@ func doIoTWRequest(t *testing.T, h *iotwireless.Handler, method, path, body stri
 	return rec
 }
 
-func TestHandler_CreateGetListDeleteWirelessDevice(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		deviceName string
-		devType    string
-		wantStatus int
-	}{
-		{
-			name:       "full_lifecycle",
-			deviceName: "my-device",
-			devType:    "LoRaWAN",
-			wantStatus: http.StatusCreated,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-
-			body := `{"Name":"` + tt.deviceName + `","Type":"` + tt.devType + `","DestinationName":"d1"}`
-
-			// Create
-			rec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-			id, ok := createResp["Id"].(string)
-			require.True(t, ok)
-			assert.NotEmpty(t, id)
-
-			// Get
-			rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+id, "")
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-			assert.Equal(t, tt.deviceName, getResp["Name"])
-
-			// List
-			rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices", "")
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-			devices, ok := listResp["WirelessDeviceList"].([]any)
-			require.True(t, ok)
-			assert.Len(t, devices, 1)
-
-			// Delete
-			rec = doIoTWRequest(t, h, http.MethodDelete, "/wireless-devices/"+id, "")
-			assert.Equal(t, http.StatusNoContent, rec.Code)
-
-			// Get after delete returns 404
-			rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+id, "")
-			assert.Equal(t, http.StatusNotFound, rec.Code)
-		})
-	}
-}
-
-func TestHandler_GetWirelessDevice_NotFound(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		id   string
-	}{
-		{name: "no_such_device", id: "does-not-exist"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-			rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+tt.id, "")
-			assert.Equal(t, http.StatusNotFound, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CreateGetListDeleteServiceProfile(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		profileName string
-		wantStatus  int
-	}{
-		{
-			name:        "full_lifecycle",
-			profileName: "my-profile",
-			wantStatus:  http.StatusCreated,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-
-			body := `{"Name":"` + tt.profileName + `"}`
-
-			// Create
-			rec := doIoTWRequest(t, h, http.MethodPost, "/service-profiles", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-			id, ok := createResp["Id"].(string)
-			require.True(t, ok)
-			assert.NotEmpty(t, id)
-
-			// Get
-			rec = doIoTWRequest(t, h, http.MethodGet, "/service-profiles/"+id, "")
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-			assert.Equal(t, tt.profileName, getResp["Name"])
-
-			// List
-			rec = doIoTWRequest(t, h, http.MethodGet, "/service-profiles", "")
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-			profiles, ok := listResp["ServiceProfileList"].([]any)
-			require.True(t, ok)
-			assert.Len(t, profiles, 1)
-
-			// Delete
-			rec = doIoTWRequest(t, h, http.MethodDelete, "/service-profiles/"+id, "")
-			assert.Equal(t, http.StatusNoContent, rec.Code)
-
-			// Get after delete returns 404
-			rec = doIoTWRequest(t, h, http.MethodGet, "/service-profiles/"+id, "")
-			assert.Equal(t, http.StatusNotFound, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CreateGetListDeleteDestination(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		destName   string
-		expression string
-		wantStatus int
-	}{
-		{
-			name:       "full_lifecycle",
-			destName:   "my-dest",
-			expression: "my-iot-rule",
-			wantStatus: http.StatusCreated,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-
-			body := `{"Name":"` + tt.destName + `","Expression":"` + tt.expression +
-				`","ExpressionType":"RuleName","RoleArn":"arn:aws:iam::000000000000:role/r"}`
-
-			// Create
-			rec := doIoTWRequest(t, h, http.MethodPost, "/destinations", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-			assert.Equal(t, tt.destName, createResp["Name"])
-
-			// Get
-			rec = doIoTWRequest(t, h, http.MethodGet, "/destinations/"+tt.destName, "")
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-			assert.Equal(t, tt.destName, getResp["Name"])
-			assert.Equal(t, tt.expression, getResp["Expression"])
-
-			// List
-			rec = doIoTWRequest(t, h, http.MethodGet, "/destinations", "")
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-			dests, ok := listResp["DestinationList"].([]any)
-			require.True(t, ok)
-			assert.Len(t, dests, 1)
-
-			// Delete
-			rec = doIoTWRequest(t, h, http.MethodDelete, "/destinations/"+tt.destName, "")
-			assert.Equal(t, http.StatusNoContent, rec.Code)
-
-			// Get after delete returns 404
-			rec = doIoTWRequest(t, h, http.MethodGet, "/destinations/"+tt.destName, "")
-			assert.Equal(t, http.StatusNotFound, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListTagsTagUntagResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		addTags    string
-		wantKey    string
-		wantValue  string
-		wantGone   string
-		removeTags []string
-	}{
-		{
-			name:      "tag_and_list",
-			addTags:   `{"Tags":[{"Key":"env","Value":"prod"},{"Key":"team","Value":"platform"}]}`,
-			wantKey:   "env",
-			wantValue: "prod",
-		},
-		{
-			name:       "tag_then_untag",
-			addTags:    `{"Tags":[{"Key":"env","Value":"staging"},{"Key":"team","Value":"infra"}]}`,
-			removeTags: []string{"team"},
-			wantKey:    "env",
-			wantValue:  "staging",
-			wantGone:   "team",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-
-			// Create a service profile to get a real ARN.
-			rec := doIoTWRequest(t, h, http.MethodPost, "/service-profiles", `{"Name":"tag-test-profile"}`)
-			require.Equal(t, http.StatusCreated, rec.Code)
-
-			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-			arn := createResp["Arn"].(string)
-			require.NotEmpty(t, arn)
-
-			// Real AWS binds all three tag ops to the bare "/tags" path with
-			// the resource ARN as the "resourceArn" query parameter (never a
-			// path segment).
-			encodedARN := url.QueryEscape(arn)
-
-			// TagResource
-			rec = doIoTWRequest(t, h, http.MethodPost, "/tags?resourceArn="+encodedARN, tt.addTags)
-			assert.Equal(t, http.StatusNoContent, rec.Code)
-
-			// Untag if specified.
-			if len(tt.removeTags) > 0 {
-				var queryStr strings.Builder
-				queryStr.WriteString("resourceArn=" + encodedARN)
-				for _, k := range tt.removeTags {
-					queryStr.WriteString("&tagKeys=" + k)
-				}
-
-				e := echo.New()
-				req := httptest.NewRequest(http.MethodDelete, "/tags?"+queryStr.String(), http.NoBody)
-				recDel := httptest.NewRecorder()
-				c := e.NewContext(req, recDel)
-				require.NoError(t, h.Handler()(c))
-				assert.Equal(t, http.StatusNoContent, recDel.Code)
-			}
-
-			// ListTags
-			rec = doIoTWRequest(t, h, http.MethodGet, "/tags?resourceArn="+encodedARN, "")
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
-			tagList, ok := tagsResp["Tags"].([]any)
-			require.True(t, ok)
-
-			got := make(map[string]string, len(tagList))
-
-			for _, kv := range tagList {
-				m, kvOK := kv.(map[string]any)
-				require.True(t, kvOK)
-				got[m["Key"].(string)] = m["Value"].(string)
-			}
-
-			assert.Equal(t, tt.wantValue, got[tt.wantKey])
-
-			if tt.wantGone != "" {
-				_, present := got[tt.wantGone]
-				assert.False(t, present, "tag %q should be removed", tt.wantGone)
-			}
-		})
-	}
-}
-
 func TestHandler_UnknownPath(t *testing.T) {
 	t.Parallel()
 
@@ -369,76 +68,6 @@ func TestHandler_UnknownPath(t *testing.T) {
 
 			h := newTestHandlerHTTP()
 			rec := doIoTWRequest(t, h, http.MethodGet, tt.path, "")
-			assert.Equal(t, http.StatusNotFound, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CreateGetListDeleteWirelessGateway(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		gatewayName string
-		description string
-		wantStatus  int
-	}{
-		{
-			name:        "full_lifecycle",
-			gatewayName: "my-gateway",
-			description: "test gateway",
-			wantStatus:  http.StatusCreated,
-		},
-		{
-			name:        "gateway_with_empty_description",
-			gatewayName: "bare-gateway",
-			description: "",
-			wantStatus:  http.StatusCreated,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-
-			body := `{"Name":"` + tt.gatewayName + `","Description":"` + tt.description + `"}`
-
-			// Create
-			rec := doIoTWRequest(t, h, http.MethodPost, "/wireless-gateways", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-			id, ok := createResp["Id"].(string)
-			require.True(t, ok)
-			assert.NotEmpty(t, id)
-
-			// Get
-			rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways/"+id, "")
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-			assert.Equal(t, tt.gatewayName, getResp["Name"])
-
-			// List
-			rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways", "")
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-			gateways, ok := listResp["WirelessGatewayList"].([]any)
-			require.True(t, ok)
-			assert.Len(t, gateways, 1)
-
-			// Delete
-			rec = doIoTWRequest(t, h, http.MethodDelete, "/wireless-gateways/"+id, "")
-			assert.Equal(t, http.StatusNoContent, rec.Code)
-
-			// Get after delete returns 404
-			rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-gateways/"+id, "")
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 		})
 	}
@@ -593,394 +222,6 @@ func TestHandler_PersistenceSnapshotRestore(t *testing.T) {
 	assert.Equal(t, "persist-dev", devices[0].Name)
 }
 
-func TestHandler_CreateDeviceProfile(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		profileName string
-		wantStatus  int
-	}{
-		{
-			name:        "create_device_profile",
-			profileName: "my-device-profile",
-			wantStatus:  http.StatusCreated,
-		},
-		{
-			name:        "create_with_empty_name",
-			profileName: "",
-			wantStatus:  http.StatusCreated,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-			body := `{"Name":"` + tt.profileName + `"}`
-			rec := doIoTWRequest(t, h, http.MethodPost, "/device-profiles", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.NotEmpty(t, resp["Id"])
-			assert.NotEmpty(t, resp["Arn"])
-		})
-	}
-}
-
-func TestHandler_CreateFuotaTask(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		taskName    string
-		description string
-		wantStatus  int
-	}{
-		{
-			name:        "create_fuota_task",
-			taskName:    "my-fuota-task",
-			description: "firmware update task",
-			wantStatus:  http.StatusCreated,
-		},
-		{
-			name:       "create_without_description",
-			taskName:   "bare-fuota-task",
-			wantStatus: http.StatusCreated,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-			body := `{"Name":"` + tt.taskName + `","Description":"` + tt.description +
-				`","FirmwareUpdateImage":"s3://bucket/fw.bin","FirmwareUpdateRole":"arn:aws:iam::000000000000:role/r"}`
-			rec := doIoTWRequest(t, h, http.MethodPost, "/fuota-tasks", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.NotEmpty(t, resp["Id"])
-			assert.NotEmpty(t, resp["Arn"])
-		})
-	}
-}
-
-func TestHandler_AssociateAwsAccountWithPartnerAccount(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		partnerAccountID string
-		wantStatus       int
-	}{
-		{
-			name:             "associate_partner_account",
-			partnerAccountID: "partner-123",
-			wantStatus:       http.StatusOK,
-		},
-		{
-			name:             "idempotent_reassociation",
-			partnerAccountID: "partner-456",
-			wantStatus:       http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-			// Real AWS binds this op to POST /partner-accounts (no path
-			// parameter): the partner account ID is Sidewalk.AmazonId in the
-			// body, and Tags is a []Tag{Key,Value} list.
-			body := `{"Sidewalk":{"AmazonId":"` + tt.partnerAccountID + `"},"Tags":[{"Key":"env","Value":"prod"}]}`
-			rec := doIoTWRequest(t, h, http.MethodPost, "/partner-accounts", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.NotEmpty(t, resp["Arn"])
-			sidewalk, ok := resp["Sidewalk"].(map[string]any)
-			require.True(t, ok)
-			assert.Equal(t, tt.partnerAccountID, sidewalk["AmazonId"])
-		})
-	}
-}
-
-func TestHandler_AssociateMulticastGroupWithFuotaTask(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		fuotaTaskID      string
-		multicastGroupID string
-		wantStatus       int
-	}{
-		{
-			name:             "associate_multicast_group",
-			fuotaTaskID:      "fuota-task-001",
-			multicastGroupID: "multicast-group-001",
-			wantStatus:       http.StatusNoContent,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-			body := `{"MulticastGroupId":"` + tt.multicastGroupID + `"}`
-			rec := doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+tt.fuotaTaskID+"/multicast-groups", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_AssociateWirelessDeviceWithFuotaTask(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		fuotaTaskID      string
-		wirelessDeviceID string
-		wantStatus       int
-	}{
-		{
-			name:             "associate_wireless_device",
-			fuotaTaskID:      "fuota-task-002",
-			wirelessDeviceID: "dev-001",
-			wantStatus:       http.StatusNoContent,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-			body := `{"WirelessDeviceId":"` + tt.wirelessDeviceID + `"}`
-			rec := doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+tt.fuotaTaskID+"/wireless-devices", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_AssociateWirelessDeviceWithMulticastGroup(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		multicastGroupID string
-		wirelessDeviceID string
-		wantStatus       int
-	}{
-		{
-			name:             "associate_wireless_device",
-			multicastGroupID: "multicast-group-002",
-			wirelessDeviceID: "dev-002",
-			wantStatus:       http.StatusNoContent,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-			body := `{"WirelessDeviceId":"` + tt.wirelessDeviceID + `"}`
-			rec := doIoTWRequest(t, h, http.MethodPut,
-				"/multicast-groups/"+tt.multicastGroupID+"/wireless-devices", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_AssociateWirelessDeviceWithThing(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		thingArn   string
-		createDev  bool
-		wantStatus int
-	}{
-		{
-			name:       "associate_existing_device",
-			thingArn:   "arn:aws:iot:us-east-1:000000000000:thing/my-thing",
-			createDev:  true,
-			wantStatus: http.StatusNoContent,
-		},
-		{
-			name:       "device_not_found",
-			thingArn:   "arn:aws:iot:us-east-1:000000000000:thing/other-thing",
-			createDev:  false,
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-
-			devID := "no-such-device"
-
-			if tt.createDev {
-				createRec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices",
-					`{"Name":"dev-thing","Type":"LoRaWAN","DestinationName":"d"}`)
-				require.Equal(t, http.StatusCreated, createRec.Code)
-
-				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-				devID = createResp["Id"].(string)
-			}
-
-			body := `{"ThingArn":"` + tt.thingArn + `"}`
-			rec := doIoTWRequest(t, h, http.MethodPut, "/wireless-devices/"+devID+"/thing", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_AssociateWirelessGatewayWithCertificate(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		iotCertificateID string
-		createGateway    bool
-		wantStatus       int
-	}{
-		{
-			name:             "associate_existing_gateway",
-			iotCertificateID: "cert-abc123",
-			createGateway:    true,
-			wantStatus:       http.StatusOK,
-		},
-		{
-			name:             "gateway_not_found",
-			iotCertificateID: "cert-xyz789",
-			createGateway:    false,
-			wantStatus:       http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-
-			gwID := "no-such-gateway"
-
-			if tt.createGateway {
-				createRec := doIoTWRequest(t, h, http.MethodPost, "/wireless-gateways",
-					`{"Name":"gw-cert","Description":"cert gw"}`)
-				require.Equal(t, http.StatusCreated, createRec.Code)
-
-				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-				gwID = createResp["Id"].(string)
-			}
-
-			body := `{"IotCertificateId":"` + tt.iotCertificateID + `"}`
-			rec := doIoTWRequest(t, h, http.MethodPut, "/wireless-gateways/"+gwID+"/certificate", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotEmpty(t, resp["IotCertificateArn"])
-			}
-		})
-	}
-}
-
-func TestHandler_AssociateWirelessGatewayWithThing(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		thingArn      string
-		createGateway bool
-		wantStatus    int
-	}{
-		{
-			name:          "associate_existing_gateway",
-			thingArn:      "arn:aws:iot:us-east-1:000000000000:thing/gw-thing",
-			createGateway: true,
-			wantStatus:    http.StatusNoContent,
-		},
-		{
-			name:          "gateway_not_found",
-			thingArn:      "arn:aws:iot:us-east-1:000000000000:thing/other-thing",
-			createGateway: false,
-			wantStatus:    http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-
-			gwID := "no-such-gateway"
-
-			if tt.createGateway {
-				createRec := doIoTWRequest(t, h, http.MethodPost, "/wireless-gateways",
-					`{"Name":"gw-thing","Description":"thing gw"}`)
-				require.Equal(t, http.StatusCreated, createRec.Code)
-
-				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-				gwID = createResp["Id"].(string)
-			}
-
-			body := `{"ThingArn":"` + tt.thingArn + `"}`
-			rec := doIoTWRequest(t, h, http.MethodPut, "/wireless-gateways/"+gwID+"/thing", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CancelMulticastGroupSession(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		multicastGroupID string
-		wantStatus       int
-	}{
-		{
-			name:             "cancel_existing_session",
-			multicastGroupID: "multicast-group-session-01",
-			wantStatus:       http.StatusNoContent,
-		},
-		{
-			name:             "cancel_nonexistent_session_is_idempotent",
-			multicastGroupID: "nonexistent-group",
-			wantStatus:       http.StatusNoContent,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandlerHTTP()
-			rec := doIoTWRequest(t, h, http.MethodDelete, "/multicast-groups/"+tt.multicastGroupID+"/session", "")
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
 func TestHandler_GetSupportedOperations_NewOps(t *testing.T) {
 	t.Parallel()
 
@@ -1002,5 +243,359 @@ func TestHandler_GetSupportedOperations_NewOps(t *testing.T) {
 
 	for _, op := range newOps {
 		assert.Contains(t, ops, op, "GetSupportedOperations should contain %q", op)
+	}
+}
+
+// TestHandler_NotFoundErrors verifies that not-found errors return 404.
+func TestHandler_NotFoundErrors(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	tests := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/multicast-groups/nonexistent", ""},
+		{http.MethodDelete, "/multicast-groups/nonexistent", ""},
+		{http.MethodPatch, "/multicast-groups/nonexistent", `{"Name":"x"}`},
+		{http.MethodGet, "/network-analyzer-configurations/nonexistent", ""},
+		{http.MethodDelete, "/network-analyzer-configurations/nonexistent", ""},
+		{http.MethodGet, "/fuota-tasks/nonexistent", ""},
+		{http.MethodPatch, "/fuota-tasks/nonexistent", `{"Name":"x"}`},
+		{http.MethodPut, "/fuota-tasks/nonexistent", `{}`},
+		{http.MethodGet, "/wireless-devices/nonexistent", ""},
+		{http.MethodDelete, "/wireless-devices/nonexistent", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+"_"+tt.path, func(t *testing.T) {
+			t.Parallel()
+			rec := doIoTWRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+// TestHandler_BackendReset verifies that Reset() clears all new backend state.
+func TestHandler_BackendReset(t *testing.T) {
+	t.Parallel()
+
+	bk := iotwireless.NewInMemoryBackend()
+
+	// Add some data
+	_, err := bk.CreateMulticastGroup(testAccountID, testRegion, "mg1", "", nil)
+	require.NoError(t, err)
+
+	err = bk.PutResourceLogLevel("res1", "DEBUG")
+	require.NoError(t, err)
+
+	_, err = bk.CreateWirelessGatewayTaskDefinition("000000000000", "us-east-1", "def1", false)
+	require.NoError(t, err)
+
+	// Reset
+	bk.Reset()
+
+	// Verify cleared
+	groups := bk.ListMulticastGroups(testAccountID, testRegion)
+	assert.Empty(t, groups)
+
+	level := bk.GetResourceLogLevel("res1")
+	assert.Equal(t, "INFO", level)
+
+	taskDefs := bk.ListWirelessGatewayTaskDefinitions()
+	assert.Empty(t, taskDefs)
+}
+
+// TestHandler_Reset verifies that Handler.Reset() delegates to the backend.
+func TestHandler_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices",
+		`{"Name":"dev1","Type":"LoRaWAN","DestinationName":"d"}`)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	h.Reset()
+
+	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	list, ok := resp["WirelessDeviceList"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, list)
+}
+
+// TestHandler_GetSupportedOperations_AllOps verifies that all expected ops are included.
+func TestHandler_GetSupportedOperations_AllOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+	ops := h.GetSupportedOperations()
+
+	expected := []string{
+		"GetDeviceProfile",
+		"ListDeviceProfiles",
+		"DeleteDeviceProfile",
+		"GetFuotaTask",
+		"ListFuotaTasks",
+		"DeleteFuotaTask",
+	}
+
+	for _, op := range expected {
+		assert.Contains(t, ops, op, "GetSupportedOperations should contain %q", op)
+	}
+}
+
+// TestHandler_HandleError_NotFound verifies that handleError maps not-found errors to 404.
+func TestHandler_HandleError_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "device_profile_not_found",
+			path:       "/device-profiles/no-such-id",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "fuota_task_not_found",
+			path:       "/fuota-tasks/no-such-id",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			rec := doIoTWRequest(t, h, http.MethodGet, tt.path, "")
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestHandler_ListEmpty_NonNil verifies that HTTP list responses return an empty array, not null.
+func TestHandler_ListEmpty_NonNil(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		path    string
+		listKey string
+	}{
+		{name: "device_profiles", path: "/device-profiles", listKey: "DeviceProfileList"},
+		{name: "fuota_tasks", path: "/fuota-tasks", listKey: "FuotaTaskList"},
+		{name: "wireless_devices", path: "/wireless-devices", listKey: "WirelessDeviceList"},
+		{name: "wireless_gateways", path: "/wireless-gateways", listKey: "WirelessGatewayList"},
+		{name: "service_profiles", path: "/service-profiles", listKey: "ServiceProfileList"},
+		{name: "destinations", path: "/destinations", listKey: "DestinationList"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			rec := doIoTWRequest(t, h, http.MethodGet, tt.path, "")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			list, ok := resp[tt.listKey].([]any)
+			require.True(t, ok, "key %q should be a JSON array, got %T", tt.listKey, resp[tt.listKey])
+			assert.Empty(t, list)
+		})
+	}
+}
+
+// sigV4AuthHeader carries an AWS SigV4 credential scope naming "iotwireless"
+// as the service. RouteMatcher (via httputils.ExtractServiceFromRequest)
+// requires this to disambiguate REST paths — like "/tags" — that other
+// REST-JSON services could plausibly also expose.
+const sigV4AuthHeader = "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/20240101/us-east-1/iotwireless/aws4_request, " +
+	"SignedHeaders=host, Signature=deadbeef"
+
+// routeMatchRequest drives a request through the real RouteMatcher and then
+// the Handler, the same path a live aws-sdk-go-v2 client takes. Unlike
+// doIoTWRequest (which calls h.Handler()(c) directly), this catches ops that
+// the handler's dispatch logic can serve correctly but that RouteMatcher or
+// the path parser would never route a real SDK request to in the first
+// place — exactly the bug class that made AssociateAwsAccountWithPartnerAccount
+// and the /tags family unreachable before this fix.
+func routeMatchRequest(
+	t *testing.T, h *iotwireless.Handler, method, path, body string,
+) (bool, *httptest.ResponseRecorder) {
+	t.Helper()
+
+	e := echo.New()
+
+	var req *http.Request
+	if body != "" {
+		req = httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		req = httptest.NewRequest(method, path, http.NoBody)
+	}
+
+	req.Header.Set("Authorization", sigV4AuthHeader)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if !h.RouteMatcher()(c) {
+		return false, rec
+	}
+
+	require.NoError(t, h.Handler()(c))
+
+	return true, rec
+}
+
+// Test_RouteMatcher_TagOperations verifies TagResource, ListTagsForResource,
+// and UntagResource are reachable at their real wire path+method: bare
+// "/tags" with the resource ARN as the "resourceArn" query parameter. A
+// prior version of this handler expected the ARN as a path segment
+// ("/tags/{arn}"), which no real aws-sdk-go-v2 client ever sends — the ops
+// were unreachable despite unit tests (calling h.Handler()(c) directly)
+// passing.
+func Test_RouteMatcher_TagOperations(t *testing.T) {
+	t.Parallel()
+
+	h := iotwireless.NewHandler(iotwireless.NewInMemoryBackend())
+	h.AccountID = testAccountID
+	h.DefaultRegion = testRegion
+
+	matched, rec := routeMatchRequest(t, h, http.MethodPost, "/service-profiles", `{"Name":"tagme"}`)
+	require.True(t, matched)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	resourceArn := created["Arn"].(string)
+	require.NotEmpty(t, resourceArn)
+
+	encodedArn := strings.ReplaceAll(resourceArn, ":", "%3A")
+
+	matched, rec = routeMatchRequest(t, h, http.MethodPost, "/tags?resourceArn="+encodedArn,
+		`{"Tags":[{"Key":"env","Value":"prod"}]}`)
+	require.True(t, matched, "POST /tags must be routed by RouteMatcher")
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	matched, rec = routeMatchRequest(t, h, http.MethodGet, "/tags?resourceArn="+encodedArn, "")
+	require.True(t, matched, "GET /tags must be routed by RouteMatcher")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listed struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
+	require.Len(t, listed.Tags, 1)
+	assert.Equal(t, "env", listed.Tags[0].Key)
+	assert.Equal(t, "prod", listed.Tags[0].Value)
+
+	matched, rec = routeMatchRequest(t, h, http.MethodDelete, "/tags?resourceArn="+encodedArn+"&tagKeys=env", "")
+	require.True(t, matched, "DELETE /tags must be routed by RouteMatcher")
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+// Test_RouteMatcher_AssociateAwsAccountWithPartnerAccount verifies the op is
+// reachable at its real wire path+method: POST /partner-accounts (no path
+// parameter — the partner account ID is Sidewalk.AmazonId in the body). A
+// prior version of this handler only accepted PUT /partner-accounts/{id},
+// which no real aws-sdk-go-v2 client ever sends.
+func Test_RouteMatcher_AssociateAwsAccountWithPartnerAccount(t *testing.T) {
+	t.Parallel()
+
+	h := iotwireless.NewHandler(iotwireless.NewInMemoryBackend())
+	h.AccountID = testAccountID
+	h.DefaultRegion = testRegion
+
+	matched, rec := routeMatchRequest(t, h, http.MethodPost, "/partner-accounts",
+		`{"Sidewalk":{"AmazonId":"partner-abc"}}`)
+	require.True(t, matched, "POST /partner-accounts must be routed by RouteMatcher")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp["Arn"])
+
+	sidewalk, ok := resp["Sidewalk"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "partner-abc", sidewalk["AmazonId"])
+
+	// The association must be a real state mutation, not a disguised no-op:
+	// GetPartnerAccount for the same ID must now report AccountLinked.
+	matched, rec = routeMatchRequest(t, h, http.MethodGet, "/partner-accounts/partner-abc", "")
+	require.True(t, matched)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	assert.Equal(t, true, getResp["AccountLinked"])
+}
+
+// Test_ErrorResponse_SetsAmznErrortypeHeader verifies every error response
+// carries the X-Amzn-Errortype header (and matching __type body field) the
+// aws-sdk-go-v2 REST-JSON error deserializer needs to construct the correct
+// typed *types.XxxException. Previously no header or __type field was ever
+// set, so every error — 404s included — deserialized client-side into an
+// untyped smithy.GenericAPIError{Code: "UnknownError"}, silently breaking
+// any errors.As(err, &types.ResourceNotFoundException{}) style handling.
+func Test_ErrorResponse_SetsAmznErrortypeHeader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		method      string
+		path        string
+		body        string
+		wantErrType string
+		wantStatus  int
+	}{
+		{
+			name:        "not_found_maps_to_ResourceNotFoundException",
+			method:      http.MethodGet,
+			path:        "/wireless-devices/no-such-device",
+			wantErrType: "ResourceNotFoundException",
+			wantStatus:  http.StatusNotFound,
+		},
+		{
+			name:        "bad_body_maps_to_ValidationException",
+			method:      http.MethodPost,
+			path:        "/tags",
+			body:        "",
+			wantErrType: "ValidationException",
+			wantStatus:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+			rec := doIoTWRequest(t, h, tt.method, tt.path, tt.body)
+			require.Equal(t, tt.wantStatus, rec.Code)
+			assert.Equal(t, tt.wantErrType, rec.Header().Get("X-Amzn-Errortype"))
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, tt.wantErrType, body["__type"])
+			assert.NotEmpty(t, body["Message"])
+		})
 	}
 }

@@ -85,23 +85,24 @@ func (j *Janitor) tick(ctx context.Context) {
 func (j *Janitor) sweepCompletedBuilds(ctx context.Context) {
 	cutoff := float64(time.Now().Add(-j.BuildTTL).Unix())
 
-	j.Backend.mu.Lock("CodeBuildJanitor")
-
 	var swept []string
 
-	// IDs are gathered first, then deleted, since store.Table.Delete mutates
-	// the very index groups a live iteration would otherwise be reading.
-	for _, build := range j.Backend.builds.All() {
-		if isTerminalBuild(build.BuildStatus) && build.EndTime > 0 && build.EndTime < cutoff {
-			swept = append(swept, build.ID)
+	func() {
+		j.Backend.mu.Lock("CodeBuildJanitor")
+		defer j.Backend.mu.Unlock()
+
+		// IDs are gathered first, then deleted, since store.Table.Delete mutates
+		// the very index groups a live iteration would otherwise be reading.
+		for _, build := range j.Backend.builds.All() {
+			if isTerminalBuild(build.BuildStatus) && build.EndTime > 0 && build.EndTime < cutoff {
+				swept = append(swept, build.ID)
+			}
 		}
-	}
 
-	for _, id := range swept {
-		j.Backend.builds.Delete(id)
-	}
-
-	j.Backend.mu.Unlock()
+		for _, id := range swept {
+			j.Backend.builds.Delete(id)
+		}
+	}()
 
 	count := len(swept)
 
@@ -129,9 +130,36 @@ func (j *Janitor) sweepCompletedBuilds(ctx context.Context) {
 func (j *Janitor) advanceInProgressBuilds(ctx context.Context) {
 	now := float64(time.Now().Unix())
 
+	buildIDs, batchIDs := j.collectInProgressIDs()
+
+	if len(buildIDs) == 0 && len(batchIDs) == 0 {
+		return
+	}
+
+	j.advanceBuildsLocked(buildIDs, batchIDs, now)
+
+	count := len(buildIDs) + len(batchIDs)
+
+	telemetry.RecordWorkerTask(codebuildWorkerServiceName, buildAdvancerComponent, "success")
+
+	if count == 0 {
+		return
+	}
+
+	telemetry.RecordWorkerItems(codebuildWorkerServiceName, buildAdvancerComponent, count)
+
+	logger.Load(ctx).InfoContext(ctx, "CodeBuild janitor: in-progress builds advanced to SUCCEEDED",
+		"builds", len(buildIDs), "buildBatches", len(batchIDs))
+}
+
+// collectInProgressIDs returns the IDs of builds and build batches currently
+// IN_PROGRESS, gathered under the backend read lock.
+func (j *Janitor) collectInProgressIDs() ([]string, []string) {
+	j.Backend.mu.RLock("CodeBuildJanitorAdvanceRead")
+	defer j.Backend.mu.RUnlock()
+
 	var buildIDs, batchIDs []string
 
-	j.Backend.mu.RLock("CodeBuildJanitorAdvanceRead")
 	for _, build := range j.Backend.builds.All() {
 		if build.BuildStatus == buildStatusInProgress {
 			buildIDs = append(buildIDs, build.ID)
@@ -143,13 +171,15 @@ func (j *Janitor) advanceInProgressBuilds(ctx context.Context) {
 			batchIDs = append(batchIDs, batch.ID)
 		}
 	}
-	j.Backend.mu.RUnlock()
 
-	if len(buildIDs) == 0 && len(batchIDs) == 0 {
-		return
-	}
+	return buildIDs, batchIDs
+}
 
+// advanceBuildsLocked transitions the given builds and build batches to
+// SUCCEEDED, under the backend write lock.
+func (j *Janitor) advanceBuildsLocked(buildIDs, batchIDs []string, now float64) {
 	j.Backend.mu.Lock("CodeBuildJanitorAdvance")
+	defer j.Backend.mu.Unlock()
 
 	for _, id := range buildIDs {
 		if build, ok := j.Backend.builds.Get(id); ok && build.BuildStatus == buildStatusInProgress {
@@ -166,19 +196,4 @@ func (j *Janitor) advanceInProgressBuilds(ctx context.Context) {
 			batch.EndTime = now
 		}
 	}
-
-	j.Backend.mu.Unlock()
-
-	count := len(buildIDs) + len(batchIDs)
-
-	telemetry.RecordWorkerTask(codebuildWorkerServiceName, buildAdvancerComponent, "success")
-
-	if count == 0 {
-		return
-	}
-
-	telemetry.RecordWorkerItems(codebuildWorkerServiceName, buildAdvancerComponent, count)
-
-	logger.Load(ctx).InfoContext(ctx, "CodeBuild janitor: in-progress builds advanced to SUCCEEDED",
-		"builds", len(buildIDs), "buildBatches", len(batchIDs))
 }

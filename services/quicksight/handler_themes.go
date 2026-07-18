@@ -440,3 +440,68 @@ func themeAliasToMap(a *ThemeAlias) map[string]any {
 		"ThemeVersionNumber": a.ThemeVersionNumber,
 	}
 }
+
+// classifyThemePaths routes /accounts/{id}/themes/... paths.
+func classifyThemePaths( //nolint:gocognit,cyclop // existing issue.
+	method string,
+	segs []string,
+	n int,
+) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		if method == http.MethodGet {
+			return opListThemes, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodPost:
+			return opCreateTheme, id
+		case http.MethodGet:
+			return opDescribeTheme, id
+		case http.MethodPut:
+			return opUpdateTheme, id
+		case http.MethodDelete:
+			return opDeleteTheme, id
+		}
+	case nSegsSubRes:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		switch sub {
+		case pathSegPermissions:
+			switch method {
+			case http.MethodGet:
+				return opDescribeThemePerms, id
+			case http.MethodPut:
+				return opUpdateThemePerms, id
+			}
+		case pathSegAliases:
+			if method == http.MethodGet {
+				return opListThemeAliases, id
+			}
+		case pathSegVersions:
+			if method == http.MethodGet {
+				return opListThemeVersions, id
+			}
+		}
+	case nSegsSubResID:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		alias := seg(segs, segSubResID)
+		if sub == pathSegAliases {
+			switch method {
+			case http.MethodPost:
+				return opCreateThemeAlias, alias
+			case http.MethodGet:
+				return opDescribeThemeAlias, alias
+			case http.MethodPut:
+				return opUpdateThemeAlias, alias
+			case http.MethodDelete:
+				return opDeleteThemeAlias, id
+			}
+		}
+	}
+
+	return opUnknown, ""
+}

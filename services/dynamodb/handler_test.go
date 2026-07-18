@@ -252,7 +252,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 	}
 }
 
-func TestHandler_Dispatch_Coverage(t *testing.T) {
+func TestHandler_Dispatch_UnknownAndKnownActions(t *testing.T) {
 	t.Parallel()
 	// Test dispatching to all supported operations to ensure dispatch switch is covered
 
@@ -392,7 +392,7 @@ func mustMarshal(t *testing.T, v any) string {
 	return string(data)
 }
 
-func TestHandler_TransactOps_Coverage(t *testing.T) {
+func TestHandler_TransactOps_AllActions(t *testing.T) {
 	t.Parallel()
 	backend := dynamodb.NewInMemoryDB()
 	handler := dynamodb.NewHandler(backend)

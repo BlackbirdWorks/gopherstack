@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestParitySweep_MonitoringSubscription_NotFound verifies Get and Delete both 404 when no
+// TestMonitoringSubscription_NotFound verifies Get and Delete both 404 when no
 // subscription has been created for a distribution, and that Get succeeds once one has.
-func TestParitySweep_MonitoringSubscription_NotFound(t *testing.T) {
+func TestMonitoringSubscription_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	const prefix = "/2020-05-31/"
@@ -47,8 +47,8 @@ func TestParitySweep_MonitoringSubscription_NotFound(t *testing.T) {
 // ResourcePolicy
 // ---------------------------------------------------------------------------
 
-// TestNewOps_MonitoringSubscription tests monitoring subscription Create/Get/Delete.
-func TestNewOps_MonitoringSubscription(t *testing.T) {
+// TestMonitoringSubscription_CRUD tests monitoring subscription Create/Get/Delete.
+func TestMonitoringSubscription_CRUD(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const distID = "E1DIST123456"

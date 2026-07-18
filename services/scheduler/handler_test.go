@@ -3,7 +3,6 @@ package scheduler_test
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
@@ -57,6 +55,44 @@ func doInvalidSchedulerRequest(t *testing.T, h *scheduler.Handler, action string
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("not-json"))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "AWSScheduler."+action)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+// doRESTRequest sends a REST request to the scheduler handler and returns the recorder.
+func doRESTRequest(
+	t *testing.T,
+	h *scheduler.Handler,
+	method, path string,
+	body any,
+	query map[string]string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = json.Marshal(body)
+		require.NoError(t, err)
+	}
+
+	e := echo.New()
+	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+
+	if len(query) > 0 {
+		q := req.URL.Query()
+		for k, v := range query {
+			q.Set(k, v)
+		}
+		req.URL.RawQuery = q.Encode()
+	}
 
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -122,6 +158,39 @@ func TestSchedulerHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "UpdateSchedule")
 	assert.Contains(t, ops, "TagResource")
 	assert.Contains(t, ops, "ListTagsForResource")
+	assert.Contains(t, ops, "CreateScheduleGroup")
+	assert.Contains(t, ops, "DeleteScheduleGroup")
+	assert.Contains(t, ops, "GetScheduleGroup")
+	assert.Contains(t, ops, "ListScheduleGroups")
+	assert.Contains(t, ops, "UntagResource")
+}
+
+// TestSchedulerHandler_OpsLen verifies the internal dispatch table's size both
+// tracks GetSupportedOperations() dynamically and matches the known op count.
+func TestSchedulerHandler_OpsLen(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wantLen int
+		useOps  bool
+	}{
+		{name: "matches_supported_operations_length", useOps: true},
+		{name: "equals_known_op_count", wantLen: 12},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSchedulerHandler(t)
+			want := tt.wantLen
+			if tt.useOps {
+				want = len(h.GetSupportedOperations())
+			}
+			assert.Equal(t, want, scheduler.HandlerOpsLen(h))
+		})
+	}
 }
 
 func TestSchedulerHandler_MatchPriority(t *testing.T) {
@@ -177,6 +246,41 @@ func TestSchedulerHandler_ExtractOperation(t *testing.T) {
 	assert.Equal(t, "Unknown", h.ExtractOperation(c2))
 }
 
+func TestSchedulerHandler_ExtractOperationRESTPaths(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		method  string
+		path    string
+		wantOp  string
+		wantRes string
+	}{
+		{http.MethodGet, "/schedules", "ListSchedules", ""},
+		{http.MethodGet, "/schedules/", "ListSchedules", ""},
+		{http.MethodPost, "/schedules/my-sched", "CreateSchedule", "my-sched"},
+		{http.MethodGet, "/schedules/my-sched", "GetSchedule", "my-sched"},
+		{http.MethodDelete, "/schedules/my-sched", "DeleteSchedule", "my-sched"},
+		{http.MethodPut, "/schedules/my-sched", "UpdateSchedule", "my-sched"},
+		{http.MethodGet, "/schedule-groups", "ListScheduleGroups", ""},
+		{http.MethodPost, "/schedule-groups/grp", "CreateScheduleGroup", "grp"},
+		{http.MethodGet, "/schedule-groups/grp", "GetScheduleGroup", "grp"},
+		{http.MethodDelete, "/schedule-groups/grp", "DeleteScheduleGroup", "grp"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+"_"+tt.path, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
 func TestSchedulerHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
@@ -186,261 +290,6 @@ func TestSchedulerHandler_ExtractResource(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"Name":"my-schedule"}`))
 	c := e.NewContext(req, httptest.NewRecorder())
 	assert.Equal(t, "my-schedule", h.ExtractResource(c))
-}
-
-func TestSchedulerHandler_CreateSchedule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "my-schedule",
-		"ScheduleExpression": "rate(5 minutes)",
-		"Target": map[string]string{
-			"Arn":     "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
-			"RoleArn": "arn:aws:iam::000000000000:role/my-role",
-		},
-		"FlexibleTimeWindow": map[string]any{
-			"Mode": "OFF",
-		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp["ScheduleArn"], "arn:aws:scheduler:")
-}
-
-func TestSchedulerHandler_CreateScheduleAlreadyExists(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	body := map[string]any{
-		"Name":               "my-schedule",
-		"ScheduleExpression": "rate(5 minutes)",
-		"Target":             map[string]string{"Arn": "arn:aws:lambda:::fn", "RoleArn": "arn:aws:iam:::role"},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	}
-	doSchedulerRequest(t, h, "CreateSchedule", body)
-
-	rec := doSchedulerRequest(t, h, "CreateSchedule", body)
-	assert.Equal(t, http.StatusConflict, rec.Code)
-}
-
-func TestSchedulerHandler_CreateScheduleDefaultState(t *testing.T) {
-	t.Parallel()
-
-	// When State is omitted, it should default to ENABLED.
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "no-state-schedule",
-		"ScheduleExpression": "rate(1 hour)",
-		"Target": map[string]string{
-			"Arn":     "arn:aws:lambda:us-east-1:0:function:f",
-			"RoleArn": "arn:aws:iam::0:role/r",
-		},
-		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	getRec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "no-state-schedule"})
-	require.Equal(t, http.StatusOK, getRec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
-	assert.Equal(t, "ENABLED", resp["State"])
-}
-
-func TestSchedulerHandler_CreateScheduleCronExpression(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "cron-schedule",
-		"ScheduleExpression": "cron(0 12 * * ? *)",
-		"Target": map[string]string{
-			"Arn":     "arn:aws:lambda:us-east-1:0:function:f",
-			"RoleArn": "arn:aws:iam::0:role/r",
-		},
-		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
-		"State":              "ENABLED",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestSchedulerHandler_GetSchedule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "my-schedule",
-		"ScheduleExpression": "rate(5 minutes)",
-		"Target":             map[string]string{"Arn": "arn:aws:lambda:::fn", "RoleArn": "arn:aws:iam:::role"},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
-
-	rec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "my-schedule"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "my-schedule", resp["Name"])
-	assert.Equal(t, "rate(5 minutes)", resp["ScheduleExpression"])
-	assert.Contains(t, resp, "Target")
-	assert.Contains(t, resp, "FlexibleTimeWindow")
-}
-
-func TestSchedulerHandler_ListSchedules(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "s1",
-		"ScheduleExpression": "rate(1 minute)",
-		"Target": map[string]string{
-			"Arn":     "arn:a",
-			"RoleArn": "arn:r",
-		},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
-	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "s2",
-		"ScheduleExpression": "rate(2 minutes)",
-		"Target": map[string]string{
-			"Arn":     "arn:a",
-			"RoleArn": "arn:r",
-		},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
-
-	rec := doSchedulerRequest(t, h, "ListSchedules", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp, "Schedules")
-	schedules, ok := resp["Schedules"].([]any)
-	require.True(t, ok)
-	assert.Len(t, schedules, 2)
-}
-
-func TestSchedulerHandler_DeleteSchedule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "my-schedule",
-		"ScheduleExpression": "rate(5 minutes)",
-		"Target": map[string]string{
-			"Arn":     "arn:a",
-			"RoleArn": "arn:r",
-		},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
-
-	rec := doSchedulerRequest(t, h, "DeleteSchedule", map[string]any{"Name": "my-schedule"})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Verify deleted
-	rec2 := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "my-schedule"})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
-}
-
-func TestSchedulerHandler_UpdateSchedule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "my-schedule",
-		"ScheduleExpression": "rate(5 minutes)",
-		"Target": map[string]string{
-			"Arn":     "arn:a",
-			"RoleArn": "arn:r",
-		},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
-
-	rec := doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
-		"Name":               "my-schedule",
-		"ScheduleExpression": "rate(10 minutes)",
-		"Target":             map[string]string{"Arn": "arn:a2", "RoleArn": "arn:r2"},
-		"State":              "DISABLED",
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp["ScheduleArn"], "arn:aws:scheduler:")
-
-	// Verify the update
-	getRec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "my-schedule"})
-	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
-	assert.Equal(t, "rate(10 minutes)", getResp["ScheduleExpression"])
-	assert.Equal(t, "DISABLED", getResp["State"])
-}
-
-func TestSchedulerHandler_TagResource(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	// Create a schedule and get its ARN
-	createRec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "my-schedule",
-		"ScheduleExpression": "rate(5 minutes)",
-		"Target": map[string]string{
-			"Arn":     "arn:a",
-			"RoleArn": "arn:r",
-		},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	arn := createResp["ScheduleArn"]
-
-	rec := doSchedulerRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": arn,
-		"Tags":        wireTagsBody(map[string]string{"env": "test", "team": "platform"}),
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestSchedulerHandler_ListTagsForResource(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	// Create schedule and tag it
-	createRec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "my-schedule",
-		"ScheduleExpression": "rate(5 minutes)",
-		"Target": map[string]string{
-			"Arn":     "arn:a",
-			"RoleArn": "arn:r",
-		},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	arn := createResp["ScheduleArn"]
-
-	doSchedulerRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": arn,
-		"Tags":        wireTagsBody(map[string]string{"env": "prod"}),
-	})
-
-	rec := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": arn})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp, "Tags")
-	tags := wireTagsToMap(t, resp["Tags"])
-	assert.Equal(t, "prod", tags["env"])
 }
 
 func TestSchedulerHandler_ErrorStatus(t *testing.T) {
@@ -498,6 +347,33 @@ func TestSchedulerHandler_ErrorStatus(t *testing.T) {
 			body:     nil,
 			wantCode: http.StatusBadRequest,
 		},
+		{
+			name:     "GetScheduleGroup_NotFound",
+			action:   "GetScheduleGroup",
+			body:     map[string]any{"Name": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "DeleteScheduleGroup_NotFound",
+			action:   "DeleteScheduleGroup",
+			body:     map[string]any{"Name": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "DeleteScheduleGroup_Default",
+			action:   "DeleteScheduleGroup",
+			body:     map[string]any{"Name": "default"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "UntagResource_NotFound",
+			action: "UntagResource",
+			body: map[string]any{
+				"ResourceArn": "arn:aws:scheduler:us-east-1:000000000000:schedule/default/nope",
+				"TagKeys":     []string{"k"},
+			},
+			wantCode: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -525,6 +401,10 @@ func TestSchedulerHandler_InvalidJSON(t *testing.T) {
 		{name: "UpdateSchedule", action: "UpdateSchedule", wantCode: http.StatusBadRequest},
 		{name: "TagResource", action: "TagResource", wantCode: http.StatusBadRequest},
 		{name: "ListTagsForResource", action: "ListTagsForResource", wantCode: http.StatusBadRequest},
+		{name: "CreateScheduleGroup", action: "CreateScheduleGroup", wantCode: http.StatusBadRequest},
+		{name: "DeleteScheduleGroup", action: "DeleteScheduleGroup", wantCode: http.StatusBadRequest},
+		{name: "GetScheduleGroup", action: "GetScheduleGroup", wantCode: http.StatusBadRequest},
+		{name: "UntagResource", action: "UntagResource", wantCode: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -538,20 +418,89 @@ func TestSchedulerHandler_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestSchedulerProvider(t *testing.T) {
+// TestSchedulerHandler_Routing verifies the RouteMatcher accepts both the JSON
+// protocol (X-Amz-Target) and REST-style paths.
+func TestSchedulerHandler_Routing(t *testing.T) {
 	t.Parallel()
 
-	p := &scheduler.Provider{}
-	assert.Equal(t, "Scheduler", p.Name())
+	h := scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"))
+
+	assert.Equal(t, "Scheduler", h.Name())
+	assert.Positive(t, h.MatchPriority())
+
+	e := echo.New()
+
+	tests := []struct {
+		name      string
+		path      string
+		target    string
+		wantMatch bool
+	}{
+		{"target match", "/", "AWSScheduler.ListSchedules", true},
+		{"rest path match", "/schedules", "", true},
+		{"no match", "/other", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
+		})
+	}
 }
 
-func TestSchedulerProviderInit(t *testing.T) {
+// TestSchedulerHandler_RESTPath exercises a full REST create-then-get round trip
+// through the raw echo.HandlerFunc, without going through doRESTRequest.
+func TestSchedulerHandler_RESTPath(t *testing.T) {
 	t.Parallel()
 
-	p := &scheduler.Provider{}
-	ctx := &service.AppContext{Logger: slog.Default()}
-	svc, err := p.Init(ctx)
+	h := scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"))
+
+	e := echo.New()
+
+	// Create via REST POST /schedules
+	target := `"Target":{"Arn":"arn:aws:lambda:us-east-1:000000000000:function:test",` +
+		`"RoleArn":"arn:aws:iam::000000000000:role/test"}`
+	body := `{"Name":"rest-sched","ScheduleExpression":"rate(1 minute)",` + target +
+		`,"FlexibleTimeWindow":{"Mode":"OFF"},"State":"ENABLED"}`
+	req := httptest.NewRequest(http.MethodPost, "/schedules/rest-sched", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetPath("/schedules/rest-sched")
+
+	err := h.Handler()(c)
 	require.NoError(t, err)
-	assert.NotNil(t, svc)
-	assert.Equal(t, "Scheduler", svc.Name())
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Get via REST GET /schedules/{name}
+	req2 := httptest.NewRequest(http.MethodGet, "/schedules/rest-sched", nil)
+	rec2 := httptest.NewRecorder()
+	c2 := e.NewContext(req2, rec2)
+	c2.SetPath("/schedules/rest-sched")
+
+	err = h.Handler()(c2)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+// TestSchedulerHandler_REST_UnknownPath verifies an unsupported REST method/path
+// combination returns 404 rather than falling through to the JSON dispatcher.
+func TestSchedulerHandler_REST_UnknownPath(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+	e := echo.New()
+
+	// PUT on /schedule-groups/{name} is not a valid REST operation → 404.
+	req := httptest.NewRequest(http.MethodPut, "/schedule-groups/my-group", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

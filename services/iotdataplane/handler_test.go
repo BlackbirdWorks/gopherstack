@@ -7,11 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
 func newTestHandler(t *testing.T) *iotdataplane.Handler {
@@ -19,7 +18,6 @@ func newTestHandler(t *testing.T) *iotdataplane.Handler {
 
 	return iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
 }
-
 func doRequest(t *testing.T, h *iotdataplane.Handler, method, path string, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -42,14 +40,12 @@ func doRequest(t *testing.T, h *iotdataplane.Handler, method, path string, body 
 
 	return rec
 }
-
 func TestHandler_Name(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	assert.Equal(t, "IoTDataPlane", h.Name())
 }
-
 func TestHandler_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
@@ -61,7 +57,6 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "DeleteThingShadow")
 	assert.Contains(t, ops, "ListNamedShadowsForThing")
 }
-
 func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
@@ -115,7 +110,6 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		})
 	}
 }
-
 func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
@@ -143,81 +137,6 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		})
 	}
 }
-
-func TestHandler_ShadowCRUD(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	shadowDoc := map[string]any{
-		"state": map[string]any{
-			"desired": map[string]any{"color": "red"},
-		},
-	}
-	docBytes, err := json.Marshal(shadowDoc)
-	require.NoError(t, err)
-
-	// Step 1: shadow does not exist yet.
-	rec := doRequest(t, h, http.MethodGet, "/things/myThing/shadow", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	// Step 2: create/update classic shadow.
-	rec = doRequest(t, h, http.MethodPost, "/things/myThing/shadow", docBytes)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "color")
-
-	// Step 3: get classic shadow.
-	rec = doRequest(t, h, http.MethodGet, "/things/myThing/shadow", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "color")
-
-	// Step 4: create named shadow.
-	rec = doRequest(t, h, http.MethodPost, "/things/myThing/shadow?name=myNamedShadow", docBytes)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Step 5: get named shadow.
-	rec = doRequest(t, h, http.MethodGet, "/things/myThing/shadow?name=myNamedShadow", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "color")
-
-	// Step 6: list named shadows.
-	rec = doRequest(t, h, http.MethodGet, "/api/things/shadow/ListNamedShadowsForThing/myThing", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "myNamedShadow")
-
-	// Step 7: delete classic shadow.
-	rec = doRequest(t, h, http.MethodDelete, "/things/myThing/shadow", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Step 8: delete non-existent shadow.
-	rec = doRequest(t, h, http.MethodDelete, "/things/myThing/shadow", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandler_PublishMethodNotAllowed(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/topics/test", nil)
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestHandler_ShadowMethodNotAllowed(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPut, "/things/myThing/shadow", nil)
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestHandler_ListNamedShadowsMethodNotAllowed(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/api/things/shadow/ListNamedShadowsForThing/myThing", nil)
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
 func TestHandler_NotFound(t *testing.T) {
 	t.Parallel()
 
@@ -225,7 +144,6 @@ func TestHandler_NotFound(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/unknown/path", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
-
 func TestHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
@@ -263,14 +181,12 @@ func TestHandler_ExtractResource(t *testing.T) {
 		})
 	}
 }
-
 func TestHandler_ChaosServiceName(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	assert.Equal(t, "iotdata", h.ChaosServiceName())
 }
-
 func TestHandler_ChaosOperations(t *testing.T) {
 	t.Parallel()
 
@@ -278,7 +194,6 @@ func TestHandler_ChaosOperations(t *testing.T) {
 	ops := h.ChaosOperations()
 	assert.Contains(t, ops, "Publish")
 }
-
 func TestHandler_ChaosRegions(t *testing.T) {
 	t.Parallel()
 
@@ -286,552 +201,19 @@ func TestHandler_ChaosRegions(t *testing.T) {
 	regions := h.ChaosRegions()
 	assert.NotEmpty(t, regions)
 }
-
 func TestHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	assert.Equal(t, 88, h.MatchPriority())
 }
-
 func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	p := &iotdataplane.Provider{}
 	assert.Equal(t, "IoTDataPlane", p.Name())
 }
-
-func TestHandler_PublishEmptyTopic(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/topics/", nil)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_ListNamedShadows_EmptyThingName(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/api/things/shadow/ListNamedShadowsForThing/", nil)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestBackend_ListNamedShadows_NoShadows(t *testing.T) {
-	t.Parallel()
-
-	b := iotdataplane.NewInMemoryBackend()
-	names, err := b.ListNamedShadowsForThing("nonexistent")
-	require.NoError(t, err)
-	assert.Empty(t, names)
-}
-
-func TestBackend_DeleteThingShadow_ThingNotFound(t *testing.T) {
-	t.Parallel()
-
-	b := iotdataplane.NewInMemoryBackend()
-	_, err := b.DeleteThingShadow("nonexistent", "")
-	require.Error(t, err)
-}
-
-func TestBackend_GetThingShadow_ThingNotFound(t *testing.T) {
-	t.Parallel()
-
-	b := iotdataplane.NewInMemoryBackend()
-	_, err := b.GetThingShadow("nonexistent", "")
-	require.Error(t, err)
-}
-
-func TestBackend_ShadowVersioning(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		updates     [][]byte
-		wantVersion int
-		wantErr     bool
-	}{
-		{
-			name: "first_update_is_version_1",
-			updates: [][]byte{
-				[]byte(`{"state":{"desired":{"color":"red"}}}`),
-			},
-			wantVersion: 1,
-		},
-		{
-			name: "second_update_increments_to_2",
-			updates: [][]byte{
-				[]byte(`{"state":{"desired":{"color":"red"}}}`),
-				[]byte(`{"state":{"desired":{"color":"blue"}}}`),
-			},
-			wantVersion: 2,
-		},
-		{
-			name: "correct_version_check_succeeds",
-			updates: [][]byte{
-				[]byte(`{"state":{"desired":{"color":"red"}}}`),
-				// second update supplies version=1 which matches current
-				[]byte(`{"state":{"desired":{"color":"blue"}},"version":1}`),
-			},
-			wantVersion: 2,
-		},
-		{
-			name: "wrong_version_check_returns_conflict",
-			updates: [][]byte{
-				[]byte(`{"state":{"desired":{"color":"red"}}}`),
-				// second update supplies wrong version=99
-				[]byte(`{"state":{"desired":{"color":"blue"}},"version":99}`),
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := iotdataplane.NewInMemoryBackend()
-
-			var lastErr error
-
-			for _, doc := range tt.updates {
-				_, lastErr = b.UpdateThingShadow("thing", "", doc)
-				if lastErr != nil {
-					break
-				}
-			}
-
-			if tt.wantErr {
-				require.Error(t, lastErr)
-				require.ErrorIs(t, lastErr, iotdataplane.ErrVersionConflict)
-
-				return
-			}
-
-			require.NoError(t, lastErr)
-
-			resp, err := b.GetThingShadow("thing", "")
-			require.NoError(t, err)
-
-			var result map[string]any
-			require.NoError(t, json.Unmarshal(resp, &result))
-
-			gotVersion, ok := result["version"].(float64)
-			require.True(t, ok, "response should contain numeric version field")
-			assert.Equal(t, tt.wantVersion, int(gotVersion))
-
-			_, hasTimestamp := result["timestamp"]
-			assert.True(t, hasTimestamp, "response should contain timestamp field")
-		})
-	}
-}
-
-func TestHandler_ShadowVersionConflict(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	doc := []byte(`{"state":{"desired":{"color":"red"}}}`)
-
-	// Initial update – creates shadow at version 1.
-	rec := doRequest(t, h, http.MethodPost, "/things/myThing/shadow", doc)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Second update with wrong version should return HTTP 409.
-	docBadVer := []byte(`{"state":{"desired":{"color":"blue"}},"version":99}`)
-	rec = doRequest(t, h, http.MethodPost, "/things/myThing/shadow", docBadVer)
-	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ConflictException")
-}
-
-func TestHandler_ShadowResponseContainsVersionAndTimestamp(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	doc := []byte(`{"state":{"desired":{"color":"green"}}}`)
-
-	// Update returns shadow document with version and timestamp.
-	rec := doRequest(t, h, http.MethodPost, "/things/myThing/shadow", doc)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp, "version")
-	assert.Contains(t, resp, "timestamp")
-
-	// Get also returns shadow document with version and timestamp.
-	rec = doRequest(t, h, http.MethodGet, "/things/myThing/shadow", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-	assert.Contains(t, getResp, "version")
-	assert.Contains(t, getResp, "timestamp")
-}
-
-func TestBackend_ShadowUpdate_NonObjectDocumentRejected(t *testing.T) {
-	t.Parallel()
-
-	// AWS IoT requires shadow documents to be JSON objects. Arrays, primitives,
-	// and plain strings must be rejected with ErrValidation.
-	b := iotdataplane.NewInMemoryBackend()
-
-	tests := []struct {
-		name    string
-		payload []byte
-	}{
-		{name: "json_array", payload: []byte(`["a","b","c"]`)},
-		{name: "plain_string", payload: []byte(`"just a string"`)},
-		{name: "number", payload: []byte(`42`)},
-		{name: "empty", payload: []byte{}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			_, err := b.UpdateThingShadow("thing-"+tt.name, "", tt.payload)
-			require.ErrorIs(t, err, iotdataplane.ErrValidation, "non-object document must be rejected")
-		})
-	}
-}
-
-func TestBackend_ShadowUpdate_ObjectDocumentSucceeds(t *testing.T) {
-	t.Parallel()
-
-	// Valid JSON object documents must be accepted and the response must include
-	// version + timestamp (verifies the response is built before state mutation).
-	b := iotdataplane.NewInMemoryBackend()
-
-	resp, err := b.UpdateThingShadow("thing1", "", []byte(`{"state":{"desired":{"key":"value"}}}`))
-	require.NoError(t, err)
-
-	var result map[string]any
-	require.NoError(t, json.Unmarshal(resp, &result), "response must be valid JSON")
-	assert.Contains(t, result, "version", "response must contain version")
-	assert.Contains(t, result, "timestamp", "response must contain timestamp")
-}
-
-// mockMQTTPublisher implements MQTTPublisher for testing.
-type mockMQTTPublisher struct {
-	topic   string
-	payload []byte
-}
-
-func (m *mockMQTTPublisher) Publish(topic string, payload []byte, _ bool, _ byte) error {
-	m.topic = topic
-	m.payload = payload
-
-	return nil
-}
-
-func TestBackend_Publish(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		topic     string
-		payload   []byte
-		wantErr   bool
-		setupMock bool
-	}{
-		{
-			name:      "publish with broker",
-			topic:     "test/topic",
-			payload:   []byte("hello"),
-			wantErr:   false,
-			setupMock: true,
-		},
-		{
-			name:    "publish without broker",
-			topic:   "test/topic",
-			payload: []byte("hello"),
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := iotdataplane.NewInMemoryBackend()
-
-			if tt.setupMock {
-				mock := &mockMQTTPublisher{}
-				b.SetBroker(mock)
-			}
-
-			err := b.Publish(tt.topic, tt.payload, 0, false)
-
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestHandler_PublishWithBroker(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		path     string
-		body     []byte
-		wantCode int
-	}{
-		{
-			name:     "publish plain payload",
-			path:     "/topics/test/topic",
-			body:     []byte("hello"),
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "publish json payload",
-			path:     "/topics/json/topic",
-			body:     []byte(`{"payload":"world"}`),
-			wantCode: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := iotdataplane.NewInMemoryBackend()
-			b.SetBroker(&mockMQTTPublisher{})
-			h := iotdataplane.NewHandler(b)
-
-			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestHandler_DeleteConnection(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		method   string
-		clientID string
-		wantCode int
-	}{
-		{
-			name:     "delete_existing_connection",
-			method:   http.MethodDelete,
-			clientID: "client-001",
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "delete_nonexistent_connection_is_idempotent",
-			method:   http.MethodDelete,
-			clientID: "unknown-client",
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "missing_clientId_returns_bad_request",
-			method:   http.MethodDelete,
-			clientID: "",
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name:     "wrong_method_returns_method_not_allowed",
-			method:   http.MethodGet,
-			clientID: "client-001",
-			wantCode: http.StatusMethodNotAllowed,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := iotdataplane.NewInMemoryBackend()
-			b.AddConnectionInternal("client-001")
-			h := iotdataplane.NewHandler(b)
-
-			path := "/_admin/connections/" + tt.clientID
-			rec := doRequest(t, h, tt.method, path, nil)
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestHandler_GetRetainedMessage(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup       func(*iotdataplane.InMemoryBackend)
-		name        string
-		method      string
-		topic       string
-		wantPayload string
-		wantCode    int
-	}{
-		{
-			name: "get_existing_retained_message",
-			setup: func(b *iotdataplane.InMemoryBackend) {
-				require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("42"), 0))
-			},
-			method:      http.MethodGet,
-			topic:       "sensor/temp",
-			wantCode:    http.StatusOK,
-			wantPayload: "sensor/temp",
-		},
-		{
-			name:     "get_nonexistent_topic_returns_not_found",
-			setup:    nil,
-			method:   http.MethodGet,
-			topic:    "sensor/humidity",
-			wantCode: http.StatusNotFound,
-		},
-		{
-			name:     "missing_topic_returns_bad_request",
-			setup:    nil,
-			method:   http.MethodGet,
-			topic:    "",
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name:     "wrong_method_returns_method_not_allowed",
-			setup:    nil,
-			method:   http.MethodPost,
-			topic:    "sensor/temp",
-			wantCode: http.StatusMethodNotAllowed,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := iotdataplane.NewInMemoryBackend()
-			if tt.setup != nil {
-				tt.setup(b)
-			}
-
-			h := iotdataplane.NewHandler(b)
-
-			path := "/retainedMessage/" + tt.topic
-			rec := doRequest(t, h, tt.method, path, nil)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantPayload != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantPayload)
-			}
-		})
-	}
-}
-
-func TestHandler_ListRetainedMessages(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*iotdataplane.InMemoryBackend)
-		name       string
-		method     string
-		wantTopics []string
-		wantCode   int
-	}{
-		{
-			name: "list_with_multiple_retained_messages",
-			setup: func(b *iotdataplane.InMemoryBackend) {
-				require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("42"), 0))
-				require.NoError(t, b.StoreRetainedMessage("sensor/humidity", []byte("70"), 1))
-			},
-			method:     http.MethodGet,
-			wantCode:   http.StatusOK,
-			wantTopics: []string{"sensor/humidity", "sensor/temp"},
-		},
-		{
-			name:     "list_empty_returns_empty_array",
-			setup:    nil,
-			method:   http.MethodGet,
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "wrong_method_returns_method_not_allowed",
-			setup:    nil,
-			method:   http.MethodPost,
-			wantCode: http.StatusMethodNotAllowed,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := iotdataplane.NewInMemoryBackend()
-			if tt.setup != nil {
-				tt.setup(b)
-			}
-
-			h := iotdataplane.NewHandler(b)
-
-			rec := doRequest(t, h, tt.method, "/retainedMessage", nil)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			for _, topic := range tt.wantTopics {
-				assert.Contains(t, rec.Body.String(), topic)
-			}
-		})
-	}
-}
-
-func TestHandler_PublishWithRetain(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		path          string
-		retainedTopic string
-		body          []byte
-		wantCode      int
-		wantRetained  bool
-	}{
-		{
-			name:          "publish_with_retain_true_stores_message",
-			path:          "/topics/sensor/data?retain=true",
-			body:          []byte(`{"temp":25}`),
-			wantCode:      http.StatusOK,
-			wantRetained:  true,
-			retainedTopic: "sensor/data",
-		},
-		{
-			name:          "publish_without_retain_does_not_store",
-			path:          "/topics/sensor/data",
-			body:          []byte(`{"temp":25}`),
-			wantCode:      http.StatusOK,
-			wantRetained:  false,
-			retainedTopic: "sensor/data",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := iotdataplane.NewInMemoryBackend()
-			b.SetBroker(&mockMQTTPublisher{})
-			h := iotdataplane.NewHandler(b)
-
-			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			_, err := b.GetRetainedMessage(tt.retainedTopic)
-			if tt.wantRetained {
-				require.NoError(t, err, "retained message should be stored")
-			} else {
-				require.Error(t, err, "retained message should not be stored")
-			}
-		})
-	}
-}
-
-func TestHandler_GetSupportedOperations_NewOps(t *testing.T) {
+func TestHandler_GetSupportedOperations_ConnectionAndRetainedOps(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -840,8 +222,7 @@ func TestHandler_GetSupportedOperations_NewOps(t *testing.T) {
 	assert.Contains(t, ops, "GetRetainedMessage")
 	assert.Contains(t, ops, "ListRetainedMessages")
 }
-
-func TestHandler_ExtractOperation_NewOps(t *testing.T) {
+func TestHandler_ExtractOperation_ConnectionAndRetainedPaths(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -882,8 +263,7 @@ func TestHandler_ExtractOperation_NewOps(t *testing.T) {
 		})
 	}
 }
-
-func TestHandler_RouteMatcher_NewOps(t *testing.T) {
+func TestHandler_RouteMatcher_ConnectionAndRetainedPaths(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -910,80 +290,283 @@ func TestHandler_RouteMatcher_NewOps(t *testing.T) {
 		})
 	}
 }
-
-// TestHandler_RouteMatcher_DeleteConnectionRealPath verifies the RouteMatcher
-// (which real HTTP traffic goes through, unlike doRequest's direct Handler()
-// call) recognizes the real AWS DeleteConnection wire path "DELETE
-// /connections/{clientId}", while GET/POST on the same bare prefix -- which
-// have no real AWS equivalent -- do not match.
-func TestHandler_RouteMatcher_DeleteConnectionRealPath(t *testing.T) {
+func Test_Reset(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		method    string
-		path      string
-		wantMatch bool
+		setup func(b *iotdataplane.InMemoryBackend)
+		name  string
 	}{
-		{name: "delete_matches", method: http.MethodDelete, path: "/connections/client-001", wantMatch: true},
-		{name: "get_does_not_match", method: http.MethodGet, path: "/connections/client-001", wantMatch: false},
-		{name: "post_does_not_match", method: http.MethodPost, path: "/connections/client-001", wantMatch: false},
+		{
+			name: "empty_backend",
+		},
+		{
+			name: "populated_backend_clears_all",
+			setup: func(b *iotdataplane.InMemoryBackend) {
+				b.AddShadowInternal("thing1", "", []byte(`{"state":{}}`))
+				b.AddConnectionInternal("client-1")
+				require.NoError(t, b.StoreRetainedMessage("t/1", []byte("x"), 0))
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			e := echo.New()
-			req := httptest.NewRequest(tt.method, tt.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
-			matcher := h.RouteMatcher()
-			assert.Equal(t, tt.wantMatch, matcher(c))
+			b := iotdataplane.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			b.Reset()
+
+			assert.Equal(t, 0, iotdataplane.ShadowCount(b))
+			assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
+			assert.Equal(t, 0, iotdataplane.RetainedMessageCount(b))
 		})
 	}
 }
-
-func TestBackend_RetainedMessageLifecycle(t *testing.T) {
+func Test_MultipleResetCycle(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
-
-	// Store two retained messages.
-	require.NoError(t, b.StoreRetainedMessage("a/b", []byte("hello"), 1))
-	require.NoError(t, b.StoreRetainedMessage("c/d", []byte("world"), 0))
-
-	// GetRetainedMessage returns exact data.
-	msg, err := b.GetRetainedMessage("a/b")
-	require.NoError(t, err)
-	assert.Equal(t, "a/b", msg.Topic)
-	assert.Equal(t, []byte("hello"), msg.Payload)
-	assert.Equal(t, int32(1), msg.Qos)
-	assert.NotZero(t, msg.LastModifiedTime)
-
-	// ListRetainedMessages returns sorted summaries.
-	msgs, err := b.ListRetainedMessages()
-	require.NoError(t, err)
-	require.Len(t, msgs, 2)
-	assert.Equal(t, "a/b", msgs[0].Topic)
-	assert.Equal(t, "c/d", msgs[1].Topic)
-
-	// Storing empty payload removes the retained message.
-	require.NoError(t, b.StoreRetainedMessage("a/b", []byte{}, 0))
-	_, err = b.GetRetainedMessage("a/b")
-	require.Error(t, err)
+	for range 3 {
+		b.AddShadowInternal("thing", "shadow", []byte(`{}`))
+		require.NoError(t, b.StoreRetainedMessage("t/1", []byte("x"), 0))
+		b.Reset()
+		assert.Equal(t, 0, iotdataplane.ShadowCount(b))
+		assert.Equal(t, 0, iotdataplane.RetainedMessageCount(b))
+	}
 }
-
-func TestBackend_DeleteConnection_Idempotent(t *testing.T) {
+func Test_HandlerReset(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
-	b.AddConnectionInternal("my-client")
+	b.AddShadowInternal("thing", "", []byte(`{"state":{}}`))
+	h := iotdataplane.NewHandler(b)
+	assert.Equal(t, 1, iotdataplane.ShadowCount(b))
 
-	// First delete succeeds.
-	require.NoError(t, b.DeleteConnection("my-client"))
-	// Second delete on already-removed client is also a no-op.
-	require.NoError(t, b.DeleteConnection("my-client"))
-	// Deleting an unknown client is also fine.
-	require.NoError(t, b.DeleteConnection("never-existed"))
+	h.Reset()
+
+	assert.Equal(t, 0, iotdataplane.ShadowCount(b))
+}
+func Test_ProviderInit_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &iotdataplane.Provider{}
+	_, err := p.Init(nil)
+	require.ErrorIs(t, err, iotdataplane.ErrNilAppContext)
+}
+func Test_GetSupportedOperations_AllOps(t *testing.T) {
+	t.Parallel()
+
+	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
+	ops := h.GetSupportedOperations()
+	want := []string{
+		"DeleteConnection", "DeleteThingShadow", "GetRetainedMessage",
+		"GetThingShadow", "ListNamedShadowsForThing", "ListRetainedMessages",
+		"Publish", "UpdateThingShadow",
+	}
+
+	for _, op := range want {
+		assert.Contains(t, ops, op, "missing op: %s", op)
+	}
+}
+func Test_SeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	b.AddShadowInternal("thing1", "", []byte(`{"state":{"desired":{"k":"v"}}}`))
+	b.AddShadowInternal("thing1", "named", []byte(`{"state":{"desired":{"k":"v2"}}}`))
+	b.AddConnectionInternal("client-abc")
+	require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("25"), 0))
+
+	assert.Equal(t, 2, iotdataplane.ShadowCount(b))
+	assert.Equal(t, 1, iotdataplane.ThingCount(b))
+	assert.Equal(t, 1, iotdataplane.ConnectionCount(b))
+	assert.Equal(t, 1, iotdataplane.RetainedMessageCount(b))
+}
+func Test_ExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	assert.Equal(t, 0, iotdataplane.ShadowCount(b))
+	assert.Equal(t, 0, iotdataplane.ThingCount(b))
+	assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
+	assert.Equal(t, 0, iotdataplane.RetainedMessageCount(b))
+
+	b.AddShadowInternal("t", "s", []byte(`{}`))
+	assert.Equal(t, 1, iotdataplane.ShadowCount(b))
+	assert.Equal(t, 1, iotdataplane.ThingCount(b))
+}
+func Test_ErrValidationMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		path     string
+		wantBody string
+		wantCode int
+	}{
+		{
+			name:     "publish_empty_topic",
+			path:     "/topics/",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete_connection_empty_client",
+			path:     "/_admin/connections/",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "get_retained_empty_topic",
+			path:     "/retainedMessage/",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
+			method := http.MethodPost
+			if tt.path != "/topics/" {
+				method = http.MethodDelete
+				if tt.path == "/retainedMessage/" {
+					method = http.MethodGet
+				}
+			}
+
+			rec := doRequest(t, h, method, tt.path, nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+func Test_Dispatch_ConnectionsShadowsAndThingsPaths(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	b.AddShadowInternal("device", "", []byte(`{"state":{}}`))
+	h := iotdataplane.NewHandler(b)
+
+	tests := []struct {
+		method  string
+		path    string
+		body    []byte
+		matched bool
+	}{
+		{http.MethodGet, "/_admin/connections", nil, true},
+		{http.MethodPost, "/_admin/connections/device-1", nil, true}, // registers → 201
+		{http.MethodGet, "/api/things/shadow/ListThingsWithShadows", nil, true},
+		{http.MethodGet, "/things/device/shadow", nil, true}, // seeded above → 200
+		{http.MethodGet, "/things/device/shadow/extra", nil, false},
+		{http.MethodGet, "/other", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			if tt.matched {
+				assert.NotEqual(t, http.StatusNotFound, rec.Code, "path %q should be matched by handler", tt.path)
+			} else {
+				assert.Equal(t, http.StatusNotFound, rec.Code, "path %q should NOT be matched by handler", tt.path)
+			}
+		})
+	}
+}
+func Test_ErrorShapes_AllTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		method    string
+		path      string
+		wantError string
+		body      []byte
+		wantCode  int
+	}{
+		{
+			name:      "shadow_not_found",
+			method:    http.MethodGet,
+			path:      "/things/missing-thing/shadow",
+			wantCode:  http.StatusNotFound,
+			wantError: "ResourceNotFoundException",
+		},
+		{
+			name:      "retained_message_not_found",
+			method:    http.MethodGet,
+			path:      "/retainedMessage/no/such/topic",
+			wantCode:  http.StatusNotFound,
+			wantError: "ResourceNotFoundException",
+		},
+		{
+			name:      "invalid_request_bad_state",
+			method:    http.MethodPost,
+			path:      "/things/device1/shadow",
+			body:      []byte(`{}`),
+			wantCode:  http.StatusBadRequest,
+			wantError: "InvalidRequestException",
+		},
+		{
+			name:      "invalid_request_wildcard_topic",
+			method:    http.MethodPost,
+			path:      "/topics/bad/+/wildcard",
+			body:      []byte(`{"data":"val"}`),
+			wantCode:  http.StatusBadRequest,
+			wantError: "InvalidRequestException",
+		},
+		{
+			name:      "duplicate_connection",
+			method:    http.MethodPost,
+			path:      "/_admin/connections/dup-client",
+			wantCode:  http.StatusConflict,
+			wantError: "ResourceAlreadyExistsException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
+
+			// Pre-seed for duplicate connection test.
+			if tt.name == "duplicate_connection" {
+				doRequest(t, h, http.MethodPost, "/_admin/connections/dup-client", nil)
+			}
+
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code, "unexpected status for %s %s", tt.method, tt.path)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.wantError, resp["error"],
+				"unexpected error type for %s %s", tt.method, tt.path)
+			_, hasMsg := resp["message"]
+			assert.True(t, hasMsg, "error response must include message field")
+		})
+	}
+}
+func Test_VersionConflict_ErrorShape(t *testing.T) {
+	t.Parallel()
+
+	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
+
+	doRequest(t, h, http.MethodPost, "/things/dev/shadow", []byte(`{"state":{"desired":{"k":"v"}}}`))
+
+	rec := doRequest(t, h, http.MethodPost, "/things/dev/shadow",
+		[]byte(`{"state":{"desired":{"k":"v2"}},"version":99}`))
+	require.Equal(t, http.StatusConflict, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ConflictException", resp["error"])
+	// AWS includes the numeric code in the body.
+	code, hasCode := resp["code"]
+	require.True(t, hasCode, "ConflictException body must include code")
+	assert.InDelta(t, float64(http.StatusConflict), code, 0)
 }

@@ -51,9 +51,9 @@ func TestSNSPagination(t *testing.T) {
 func TestListTopicsNoNextToken(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	rec := doB2Request(t, h, url.Values{"Action": {"ListTopics"}})
+	rec := doTestRequest(t, h, url.Values{"Action": {"ListTopics"}})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := rec.Body.String()
@@ -65,9 +65,9 @@ func TestListTopicsNoNextToken(t *testing.T) {
 func TestListSubscriptionsNoNextToken(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	rec := doB2Request(t, h, url.Values{"Action": {"ListSubscriptions"}})
+	rec := doTestRequest(t, h, url.Values{"Action": {"ListSubscriptions"}})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := rec.Body.String()
@@ -79,12 +79,12 @@ func TestListSubscriptionsNoNextToken(t *testing.T) {
 func TestListSubscriptionsByTopicNoNextToken(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 
 	tp, err := b.CreateTopic("listsubs-topic", nil)
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":   {"ListSubscriptionsByTopic"},
 		"TopicArn": {tp.TopicArn},
 	})
@@ -99,9 +99,9 @@ func TestListSubscriptionsByTopicNoNextToken(t *testing.T) {
 func TestListPlatformApplicationsNoNextToken(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	rec := doB2Request(t, h, url.Values{"Action": {"ListPlatformApplications"}})
+	rec := doTestRequest(t, h, url.Values{"Action": {"ListPlatformApplications"}})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := rec.Body.String()
@@ -113,12 +113,12 @@ func TestListPlatformApplicationsNoNextToken(t *testing.T) {
 func TestListEndpointsByPlatformApplicationNoNextToken(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 
 	app, err := b.CreatePlatformApplication("no-next-app", "GCM", nil)
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":                 {"ListEndpointsByPlatformApplication"},
 		"PlatformApplicationArn": {app.PlatformApplicationArn},
 	})
@@ -133,9 +133,9 @@ func TestListEndpointsByPlatformApplicationNoNextToken(t *testing.T) {
 func TestListSMSSandboxPhoneNumbersNoNextToken(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	rec := doB2Request(t, h, url.Values{"Action": {"ListSMSSandboxPhoneNumbers"}})
+	rec := doTestRequest(t, h, url.Values{"Action": {"ListSMSSandboxPhoneNumbers"}})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := rec.Body.String()
@@ -147,9 +147,9 @@ func TestListSMSSandboxPhoneNumbersNoNextToken(t *testing.T) {
 func TestListPhoneNumbersOptedOutNoNextToken(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	rec := doB2Request(t, h, url.Values{"Action": {"ListPhoneNumbersOptedOut"}})
+	rec := doTestRequest(t, h, url.Values{"Action": {"ListPhoneNumbersOptedOut"}})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := rec.Body.String()

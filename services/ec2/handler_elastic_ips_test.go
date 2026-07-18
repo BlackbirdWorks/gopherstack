@@ -64,7 +64,7 @@ func TestAddressTransfers(t *testing.T) { //nolint:paralleltest // existing issu
 
 // ---- Subnet CIDR reservations ---- //nolint:godot // existing issue.
 
-func TestParityFinalHTTP_MoveAddressToVpcAndDescribeMovingAddresses(t *testing.T) {
+func TestMoveAddressToVpcAndDescribeMovingAddressesHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -86,3 +86,137 @@ func TestParityFinalHTTP_MoveAddressToVpcAndDescribeMovingAddresses(t *testing.T
 	assert.Contains(t, resp, "<publicIp>"+addr.PublicIP+"</publicIp>")
 	assert.Contains(t, resp, "<moveStatus>movingToVpc</moveStatus>")
 }
+
+func TestAssociateAddress_NetworkInterfaceId_Accepted(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	// Create an instance so its ENI exists.
+	insts, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":             {"AssociateAddress"},
+		"Version":            {"2016-11-15"},
+		"AllocationId":       {addr.AllocationID},
+		"NetworkInterfaceId": {insts[0].ID}, // use instance ID as target (backend accepts it)
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "AssociateAddressResponse")
+}
+
+func TestAssociateAddress_NoTarget_Rejected(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":       {"AssociateAddress"},
+		"Version":      {"2016-11-15"},
+		"AllocationId": {addr.AllocationID},
+		// Neither InstanceId nor NetworkInterfaceId provided.
+	}
+
+	_, err = ec2.ExportDispatch(h, vals)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "required")
+}
+
+func TestAssociateAddress_NoAllocationId_Rejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	vals := url.Values{
+		"Action":     {"AssociateAddress"},
+		"Version":    {"2016-11-15"},
+		"InstanceId": {"i-12345678"},
+	}
+
+	_, err := ec2.ExportDispatch(h, vals)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "AllocationId")
+}
+
+func TestAssociateAddress_InstanceId_StillWorks(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	insts, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":       {"AssociateAddress"},
+		"Version":      {"2016-11-15"},
+		"AllocationId": {addr.AllocationID},
+		"InstanceId":   {insts[0].ID},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "AssociateAddressResponse")
+}
+
+// ---- Gap F: instanceItem groupSet in DescribeInstances response ----
+
+func TestAssociateAddress_BothInstanceAndNetworkInterface_UsesInstance(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	insts, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":             {"AssociateAddress"},
+		"Version":            {"2016-11-15"},
+		"AllocationId":       {addr.AllocationID},
+		"InstanceId":         {insts[0].ID},
+		"NetworkInterfaceId": {"eni-12345678"},
+	}
+
+	// When both are given, InstanceId takes precedence (InstanceId is checked first).
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "AssociateAddressResponse")
+}
+
+// ---- runTestHandlerWithBackend helper ----
+
+func newTestHandlerWithBackend(b *ec2.InMemoryBackend) *ec2.Handler {
+	h := ec2.NewHandler(b)
+	h.AccountID = "123456789012"
+	h.Region = "us-east-1"
+
+	return h
+}
+
+// ---- Gap M: DescribeInstances grouped filters preserve state filter semantics ----

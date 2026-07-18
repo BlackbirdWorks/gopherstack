@@ -1,6 +1,7 @@
 package accessanalyzer_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,12 +14,63 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 )
 
+// newTestHandler constructs a Handler backed by a fresh InMemoryBackend, for
+// tests across this package that don't need direct access to the backend.
 func newTestHandler(t *testing.T) *accessanalyzer.Handler {
 	t.Helper()
 
 	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
 
 	return accessanalyzer.NewHandler(b)
+}
+
+// doRequest fires a request at the handler and returns the recorder.
+func doRequest(t *testing.T, h *accessanalyzer.Handler, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var bodyBytes []byte
+
+	if body != nil {
+		var err error
+
+		bodyBytes, err = json.Marshal(body)
+		require.NoError(t, err)
+	}
+
+	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
+
+	if len(bodyBytes) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+// mustAnalyzer creates an analyzer and returns its ARN.
+func mustAnalyzer(t *testing.T, b *accessanalyzer.InMemoryBackend, name string) string {
+	t.Helper()
+
+	a, err := b.CreateAnalyzer(name, accessanalyzer.AnalyzerTypeAccount, nil)
+	require.NoError(t, err)
+
+	return a.Arn
+}
+
+// mustFinding creates a finding for an analyzer and returns its ID.
+func mustFinding(t *testing.T, b *accessanalyzer.InMemoryBackend, analyzerName string) string {
+	t.Helper()
+
+	f, err := b.AddFinding(analyzerName, "AWS::S3::Bucket", "arn:aws:s3:::bucket", nil, nil, nil)
+	require.NoError(t, err)
+
+	return f.ID
 }
 
 func TestAccessAnalyzerHandler_RouteMatcher(t *testing.T) {
@@ -89,146 +141,4 @@ func TestAccessAnalyzerHandler_RouteMatcher(t *testing.T) {
 			assert.Equal(t, tt.wantMatch, matcher(c))
 		})
 	}
-}
-
-// TestGetFinding verifies GET /finding/{id}?analyzerArn=... -- the real wire
-// route (top-level /finding, analyzer carried as an ARN query param), NOT
-// /analyzer/{name}/finding/{id}. Exercised through h.Handler() (not the
-// backend directly) so both the RouteMatcher and the path parser are proven
-// to accept the path a real SDK client sends.
-func TestGetFinding(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		wantStatus int
-		badArn     bool
-		missingID  bool
-	}{
-		{name: "existing_finding", wantStatus: http.StatusOK},
-		{name: "wrong_analyzer_arn", wantStatus: http.StatusNotFound, badArn: true},
-		{name: "missing_finding_id", wantStatus: http.StatusNotFound, missingID: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
-			h := accessanalyzer.NewHandler(b)
-
-			analyzerArn := mustAnalyzer(t, b, "get-finding-analyzer")
-			findingID := mustFinding(t, b, "get-finding-analyzer")
-
-			if tt.badArn {
-				analyzerArn = "arn:aws:access-analyzer:us-east-1:000000000000:analyzer/missing"
-			}
-
-			if tt.missingID {
-				findingID = "no-such-id"
-			}
-
-			rec := doRequest(t, h, http.MethodGet, "/finding/"+findingID+"?analyzerArn="+analyzerArn, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus != http.StatusOK {
-				return
-			}
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			finding, ok := resp["finding"].(map[string]any)
-			require.True(t, ok)
-			assert.Equal(t, findingID, finding["id"])
-			// Real GetFinding wire shape serializes the resource under
-			// "resource", not "resourceArn" (that key is only correct for
-			// AnalyzedResource); resourceOwnerAccount and analyzedAt are
-			// required fields.
-			assert.Equal(t, "arn:aws:s3:::bucket", finding["resource"])
-			assert.Equal(t, "000000000000", finding["resourceOwnerAccount"])
-			assert.NotEmpty(t, finding["analyzedAt"])
-
-			_, hasWrongKey := finding["resourceArn"]
-			assert.False(t, hasWrongKey, `wire shape must use "resource", not "resourceArn"`)
-		})
-	}
-}
-
-// TestListFindings verifies POST /finding -- the real wire route (top-level
-// /finding, analyzer carried as an ARN in the JSON body), NOT
-// /analyzer/{name}/findings.
-func TestListFindings(t *testing.T) {
-	t.Parallel()
-
-	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
-	h := accessanalyzer.NewHandler(b)
-
-	analyzerArn := mustAnalyzer(t, b, "list-findings-analyzer")
-	mustFinding(t, b, "list-findings-analyzer")
-	mustFinding(t, b, "list-findings-analyzer")
-
-	t.Run("lists_findings_for_analyzer", func(t *testing.T) {
-		t.Parallel()
-
-		rec := doRequest(t, h, http.MethodPost, "/finding", map[string]any{"analyzerArn": analyzerArn})
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-		findings, ok := resp["findings"].([]any)
-		require.True(t, ok)
-		require.Len(t, findings, 2)
-
-		first, ok := findings[0].(map[string]any)
-		require.True(t, ok)
-		assert.Equal(t, "arn:aws:s3:::bucket", first["resource"])
-		assert.Equal(t, "000000000000", first["resourceOwnerAccount"])
-	})
-
-	t.Run("missing_analyzer_arn_is_validation_error", func(t *testing.T) {
-		t.Parallel()
-
-		rec := doRequest(t, h, http.MethodPost, "/finding", map[string]any{})
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
-}
-
-// TestUpdateFindings verifies PUT /finding -- the real wire route (top-level
-// /finding, analyzer carried as an ARN in the JSON body), NOT
-// /analyzer/{name}/findings.
-func TestUpdateFindings(t *testing.T) {
-	t.Parallel()
-
-	b := accessanalyzer.NewInMemoryBackend("000000000000", "us-east-1")
-	h := accessanalyzer.NewHandler(b)
-
-	analyzerArn := mustAnalyzer(t, b, "update-findings-analyzer")
-	findingID := mustFinding(t, b, "update-findings-analyzer")
-
-	t.Run("archives_via_put_finding", func(t *testing.T) {
-		t.Parallel()
-
-		rec := doRequest(t, h, http.MethodPut, "/finding", map[string]any{
-			"analyzerArn": analyzerArn,
-			"ids":         []string{findingID},
-			"status":      "ARCHIVED",
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		got, err := b.GetFinding("update-findings-analyzer", findingID)
-		require.NoError(t, err)
-		assert.Equal(t, accessanalyzer.FindingStatusArchived, got.Status)
-	})
-
-	t.Run("missing_analyzer_arn_is_validation_error", func(t *testing.T) {
-		t.Parallel()
-
-		rec := doRequest(t, h, http.MethodPut, "/finding", map[string]any{
-			"ids":    []string{findingID},
-			"status": "ARCHIVED",
-		})
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
 }

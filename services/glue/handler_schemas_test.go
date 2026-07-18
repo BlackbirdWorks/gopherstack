@@ -226,7 +226,7 @@ func TestDeleteSchemaVersions_Stateful(t *testing.T) {
 	assert.Equal(t, int64(9), out.SchemaVersionErrors[0].VersionNumber)
 }
 
-func TestBatch3_SchemaRegistry_Registry_CRUD(t *testing.T) {
+func TestSchemaRegistry_Registry_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -307,7 +307,7 @@ func TestBatch3_SchemaRegistry_Registry_CRUD(t *testing.T) {
 	}
 }
 
-func TestBatch3_SchemaRegistry_Schema_CRUD(t *testing.T) {
+func TestSchemaRegistry_Schema_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -394,7 +394,7 @@ func TestBatch3_SchemaRegistry_Schema_CRUD(t *testing.T) {
 	}
 }
 
-func TestBatch3_SchemaRegistry_SchemaVersion_CRUD(t *testing.T) {
+func TestSchemaRegistry_SchemaVersion_CRUD(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

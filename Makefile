@@ -1,4 +1,4 @@
-.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check
+.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -178,6 +178,12 @@ upgrade: upgrade-static install-tofu
 
 bench:
 	go test -bench=. -benchmem ./...
+
+# Regenerate the repo-root default.pgo Profile-Guided Optimization profile
+# that `go build` auto-consumes. See scripts/pgo.sh and the "Profile-Guided
+# Optimization (PGO)" section in README.md for details and knobs.
+pgo:
+	bash scripts/pgo.sh
 
 demo: ui-build
 	docker compose down

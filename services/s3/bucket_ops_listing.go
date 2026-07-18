@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"net/http"
 	"strconv"
@@ -300,4 +301,53 @@ func mapListVersionsOutput(
 			CommonPrefixXML{Prefix: encodeListKey(encodingType, aws.ToString(cp.Prefix))},
 		)
 	}
+}
+
+// s3DirectoryBucketEntry is one bucket in a ListDirectoryBuckets response.
+type s3DirectoryBucketEntry struct {
+	Name         string `xml:"Name"`
+	CreationDate string `xml:"CreationDate,omitempty"`
+}
+
+// s3DirectoryBucketsResult is the XML response for ListDirectoryBuckets.
+type s3DirectoryBucketsResult struct {
+	XMLName xml.Name                 `xml:"ListDirectoryBucketsResult"`
+	Xmlns   string                   `xml:"xmlns,attr"`
+	Buckets []s3DirectoryBucketEntry `xml:"Buckets>Bucket,omitempty"`
+}
+
+// handleListDirectoryBuckets handles GET / with ?list-type=directory.
+// Returns only S3 Express directory buckets (name suffix --x-s3), matching the
+// AWS partition between ListBuckets (general-purpose) and ListDirectoryBuckets.
+func (h *S3Handler) handleListDirectoryBuckets(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	h.setOperation(ctx, "ListDirectoryBuckets")
+
+	buckets, err := h.Backend.ListDirectoryBuckets(ctx)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	entries := make([]s3DirectoryBucketEntry, 0, len(buckets))
+	for _, b := range buckets {
+		entry := s3DirectoryBucketEntry{Name: aws.ToString(b.Name)}
+		if b.CreationDate != nil {
+			entry.CreationDate = b.CreationDate.UTC().Format(time.RFC3339)
+		}
+
+		entries = append(entries, entry)
+	}
+
+	httputils.WriteXML(ctx, w, http.StatusOK,
+		s3DirectoryBucketsResult{Xmlns: xmlNamespaceS3, Buckets: entries})
+}
+
+// isListDirectoryBucketsRequest returns true when the request targets ListDirectoryBuckets.
+func isListDirectoryBucketsRequest(r *http.Request) bool {
+	return r.URL.Query().Get("list-type") == "directory"
 }

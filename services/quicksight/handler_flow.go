@@ -204,3 +204,39 @@ func (h *Handler) handleUpdateFlowPermissions(c *echo.Context) error {
 		keyStatus:      http.StatusOK,
 	})
 }
+
+// classifyFlowPaths routes /accounts/{id}/flows/... paths. Per the real
+// QuickSight API, SearchFlows lives at /flows/searchFlows (POST) and
+// GetFlowMetadata at /flows/{FlowId}/metadata (GET); there is no
+// /flows/{FlowId} (bare) endpoint.
+func classifyFlowPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		if method == http.MethodGet {
+			return opListFlows, accountID
+		}
+	case nSegsAccountResID:
+		if method == http.MethodPost && seg(segs, segResID) == pathSegSearchFlows {
+			return opSearchFlows, accountID
+		}
+	case nSegsSubRes:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		switch sub {
+		case pathSegMetadata:
+			if method == http.MethodGet {
+				return opGetFlowMetadata, id
+			}
+		case pathSegPermissions:
+			switch method {
+			case http.MethodGet:
+				return opGetFlowPermissions, id
+			case http.MethodPut:
+				return opUpdateFlowPerms, id
+			}
+		}
+	}
+
+	return opUnknown, ""
+}

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestNewOps_Session tests Session + Statement CRUD.
-func TestNewOps_Session(t *testing.T) {
+// TestSession tests Session + Statement CRUD.
+func TestSession(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 

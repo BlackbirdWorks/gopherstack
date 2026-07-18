@@ -30,6 +30,9 @@ type tableStateSnapshot struct {
 
 const txCancelPrefix = "Transaction cancelled, please refer cancellation reasons for specific reasons"
 
+// replicationOpDelete is the mutation op string for item deletion in global-table replication.
+const replicationOpDelete = "DELETE"
+
 // TransactWriteItems executes up to 100 write actions atomically.
 func (db *InMemoryDB) TransactWriteItems(
 	ctx context.Context,

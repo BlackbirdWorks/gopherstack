@@ -12,8 +12,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-// TestAudit2_NameLengthLimits tests max 255-char name enforcement.
-func TestAudit2_NameLengthLimits(t *testing.T) {
+// TestNameLengthLimits tests max 255-char name enforcement.
+func TestNameLengthLimits(t *testing.T) {
 	t.Parallel()
 
 	longName := strings.Repeat("a", 256)
@@ -86,8 +86,8 @@ func TestAudit2_NameLengthLimits(t *testing.T) {
 	}
 }
 
-// TestRefinement2_Validation tests input validation across operations.
-func TestRefinement2_Validation(t *testing.T) {
+// TestValidation tests input validation across operations.
+func TestValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -162,8 +162,8 @@ func TestRefinement2_Validation(t *testing.T) {
 	}
 }
 
-// TestRefinement2_Timestamps tests that resources have timestamps populated.
-func TestRefinement2_Timestamps(t *testing.T) {
+// TestTimestamps tests that resources have timestamps populated.
+func TestTimestamps(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

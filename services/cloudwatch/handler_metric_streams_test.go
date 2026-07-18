@@ -1,0 +1,257 @@
+package cloudwatch_test
+
+import (
+	"net/http"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
+)
+
+func TestHandler_DeleteMetricStream_CleansUpTags(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	const streamBody = "Action=PutMetricStream&Name=my-stream" +
+		"&FirehoseArn=arn:aws:firehose:us-east-1:123:deliverystream/ds" +
+		"&RoleArn=arn:aws:iam::123:role/r&OutputFormat=json"
+	rec := postForm(t, h, streamBody)
+	assert.Equal(t, 200, rec.Code)
+
+	rec = postForm(t, h, "Action=DeleteMetricStream&Name=my-stream")
+	assert.Equal(t, 200, rec.Code, "delete stream: %s", rec.Body.String())
+}
+
+// ---------------------------------------------------------------------------
+// MetricStream filters via handler (gap #8)
+// ---------------------------------------------------------------------------
+
+func TestHandler_PutMetricStream_WithIncludeFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+	rec := postForm(
+		t, h,
+		"Action=PutMetricStream"+
+			"&Name=filtered-stream"+
+			"&FirehoseArn=arn:aws:firehose:us-east-1:123:deliverystream/ds"+
+			"&RoleArn=arn:aws:iam::123:role/r"+
+			"&OutputFormat=json"+
+			"&IncludeFilters.member.1.Namespace=AWS/EC2",
+	)
+	assert.Equal(t, 200, rec.Code, "stream with IncludeFilters: %s", rec.Body.String())
+}
+
+func TestHandler_PutMetricStream_WithExcludeFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+	rec := postForm(
+		t, h,
+		"Action=PutMetricStream"+
+			"&Name=exclude-stream"+
+			"&FirehoseArn=arn:aws:firehose:us-east-1:123:deliverystream/ds"+
+			"&RoleArn=arn:aws:iam::123:role/r"+
+			"&OutputFormat=json"+
+			"&ExcludeFilters.member.1.Namespace=AWS/EC2",
+	)
+	assert.Equal(t, 200, rec.Code, "stream with ExcludeFilters: %s", rec.Body.String())
+}
+
+func TestHandler_MetricStream_FullCycle(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	const streamBody = "Action=PutMetricStream&Name=s1" +
+		"&FirehoseArn=arn:aws:firehose:us-east-1:123:deliverystream/ds" +
+		"&RoleArn=arn:aws:iam::123:role/r&OutputFormat=json"
+
+	rec := postForm(t, h, streamBody)
+	assert.Equal(t, 200, rec.Code)
+
+	rec = postForm(t, h, "Action=GetMetricStream&Name=s1")
+	assert.Equal(t, 200, rec.Code)
+	assert.Contains(t, rec.Body.String(), "s1")
+
+	rec = postForm(t, h, "Action=ListMetricStreams")
+	assert.Equal(t, 200, rec.Code)
+
+	rec = postForm(t, h, "Action=StartMetricStreams&Names.member.1=s1")
+	assert.Equal(t, 200, rec.Code)
+
+	rec = postForm(t, h, "Action=StopMetricStreams&Names.member.1=s1")
+	assert.Equal(t, 200, rec.Code)
+
+	rec = postForm(t, h, "Action=DeleteMetricStream&Name=s1")
+	assert.Equal(t, 200, rec.Code)
+}
+func TestCW_MetricStreams(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	// StartMetricStreams
+	rec := postForm(t, h, url.Values{
+		"Action":         []string{"StartMetricStreams"},
+		"Names.member.1": []string{"my-stream"},
+	}.Encode())
+	assert.Equal(t, 200, rec.Code)
+
+	// StopMetricStreams
+	rec = postForm(t, h, url.Values{
+		"Action":         []string{"StopMetricStreams"},
+		"Names.member.1": []string{"my-stream"},
+	}.Encode())
+	assert.Equal(t, 200, rec.Code)
+}
+
+func TestCloudWatchHandler_MetricStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(t *testing.T, h *cloudwatch.Handler, b *cloudwatch.InMemoryBackend)
+		name            string
+		body            string
+		wantContains    []string
+		wantNotContains []string
+		wantCode        int
+	}{
+		{
+			name: "PutMetricStream/success",
+			body: "Action=PutMetricStream&Name=my-stream" +
+				"&FirehoseArn=arn%3Aaws%3Afirehose%3Aus-east-1%3A123456789012%3Adeliverystream%2Fmain" +
+				"&RoleArn=arn%3Aaws%3Aiam%3A%3A123456789012%3Arole%2Fstream-role",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutMetricStreamResponse"},
+		},
+		{
+			name:     "PutMetricStream/missing name",
+			body:     "Action=PutMetricStream",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "UpdateMetricStream/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutMetricStreamInternal(&cloudwatch.MetricStream{Name: "my-stream"})
+			},
+			body:         "Action=UpdateMetricStream&Name=my-stream&OutputFormat=opentelemetry0.7",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"UpdateMetricStreamResponse"},
+		},
+		{
+			name:     "UpdateMetricStream/not found",
+			body:     "Action=UpdateMetricStream&Name=missing-stream",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "DeleteMetricStream/success",
+			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutMetricStreamInternal(&cloudwatch.MetricStream{Name: "my-stream"})
+			},
+			body:         "Action=DeleteMetricStream&Name=my-stream",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteMetricStreamResponse"},
+		},
+		{
+			name:     "DeleteMetricStream/not found",
+			body:     "Action=DeleteMetricStream&Name=ghost-stream",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "DeleteMetricStream/missing name",
+			body:     "Action=DeleteMetricStream",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newCWHandlerWithBackend()
+			if tt.setup != nil {
+				tt.setup(t, h, b)
+			}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestCloudWatchHandler_ListMetricStreams(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	b.PutMetricStreamInternal(&cloudwatch.MetricStream{Name: "stream1", State: "running", OutputFormat: "json"})
+	b.PutMetricStreamInternal(&cloudwatch.MetricStream{Name: "stream2", State: "running", OutputFormat: "json"})
+	h := cloudwatch.NewHandler(b)
+
+	rec := postForm(t, h, "Action=ListMetricStreams")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "stream1")
+	assert.Contains(t, rec.Body.String(), "stream2")
+}
+
+func TestCloudWatchHandler_GetMetricStream(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	b.PutMetricStreamInternal(&cloudwatch.MetricStream{Name: "mystream", State: "running", OutputFormat: "json"})
+	h := cloudwatch.NewHandler(b)
+
+	rec := postForm(t, h, "Action=GetMetricStream&Name=mystream")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "mystream")
+}
+
+func TestCloudWatchHandler_GetMetricStream_NotFound(t *testing.T) {
+	t.Parallel()
+	h := newCWHandler()
+	rec := postForm(t, h, "Action=GetMetricStream&Name=nonexistent")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestCloudWatchHandler_PutMetricStream_WithFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	body := strings.Join([]string{
+		"Action=PutMetricStream",
+		"Name=filtered-stream",
+		"FirehoseArn=arn%3Aaws%3Afirehose%3Aus-east-1%3A123%3Adeliverystream%2Fs",
+		"RoleArn=arn%3Aaws%3Aiam%3A%3A123%3Arole%2Frole",
+		"OutputFormat=json",
+		"IncludeFilters.member.1.Namespace=AWS%2FEC2",
+		"IncludeFilters.member.1.MetricNames.member.1=CPUUtilization",
+		"ExcludeFilters.member.1.Namespace=AWS%2FLambda",
+	}, "&")
+	rec := postForm(t, h, body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Retrieve and verify the filters were persisted.
+	b := h.Backend.(*cloudwatch.InMemoryBackend)
+	stream, err := b.GetMetricStream("filtered-stream")
+	require.NoError(t, err)
+	require.Len(t, stream.IncludeFilters, 1)
+	assert.Equal(t, "AWS/EC2", stream.IncludeFilters[0].Namespace)
+	assert.Equal(t, []string{"CPUUtilization"}, stream.IncludeFilters[0].MetricNames)
+	require.Len(t, stream.ExcludeFilters, 1)
+	assert.Equal(t, "AWS/Lambda", stream.ExcludeFilters[0].Namespace)
+}

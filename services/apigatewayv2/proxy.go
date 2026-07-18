@@ -239,7 +239,7 @@ func (h *Handler) invokeWSRoute(c *echo.Context, apiID, routeKey, connectionID s
 			"routeKey":     routeKey,
 			"eventType":    "MESSAGE",
 			"connectionId": connectionID,
-			"apiId":        apiID,
+			logKeyAPIID:    apiID,
 		},
 		"body": string(body),
 	}

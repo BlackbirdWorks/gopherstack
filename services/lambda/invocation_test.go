@@ -21,7 +21,7 @@ import (
 
 // ---- RecursiveLoop enforcement ----
 
-func TestAudit_RecursiveLoop_Deny_BlocksSelfInvoke(t *testing.T) {
+func TestRecursiveLoop_Deny_BlocksSelfInvoke(t *testing.T) {
 	t.Parallel()
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
@@ -59,7 +59,7 @@ func TestAudit_RecursiveLoop_Deny_BlocksSelfInvoke(t *testing.T) {
 	assert.ErrorIs(t, err, lambda.ErrInvalidParameterValue)
 }
 
-func TestAudit_RecursiveLoop_Terminate_AllowsSelfInvoke(t *testing.T) {
+func TestRecursiveLoop_Terminate_AllowsSelfInvoke(t *testing.T) {
 	t.Parallel()
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
@@ -97,7 +97,7 @@ func TestAudit_RecursiveLoop_Terminate_AllowsSelfInvoke(t *testing.T) {
 
 // ---- InvokeWithResponseStream ----
 
-func TestAudit_InvokeWithResponseStream_FunctionNotFound(t *testing.T) {
+func TestInvokeWithResponseStream_FunctionNotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -111,7 +111,7 @@ func TestAudit_InvokeWithResponseStream_FunctionNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestAudit_InvokeWithResponseStream_ReturnsEventstreamContentType(t *testing.T) {
+func TestInvokeWithResponseStream_ReturnsEventstreamContentType(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -135,7 +135,7 @@ func TestAudit_InvokeWithResponseStream_ReturnsEventstreamContentType(t *testing
 
 // ---- Eventstream frame format ----
 
-func TestAudit_EventstreamFrame_Format(t *testing.T) {
+func TestEventstreamFrame_Format(t *testing.T) {
 	t.Parallel()
 
 	// Verify our frame encoding: 4-byte big-endian length prefix followed by payload.
@@ -169,7 +169,7 @@ func TestAudit_EventstreamFrame_Format(t *testing.T) {
 
 // ---- Streaming invoke reads body correctly ----
 
-func TestAudit_InvokeWithResponseStream_NoBody_NotBadRequest(t *testing.T) {
+func TestInvokeWithResponseStream_NoBody_NotBadRequest(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -189,7 +189,7 @@ func TestAudit_InvokeWithResponseStream_NoBody_NotBadRequest(t *testing.T) {
 
 // ---- Streaming response frame structure ----
 
-func TestAudit_InvokeWithResponseStream_FrameStructure(t *testing.T) {
+func TestInvokeWithResponseStream_FrameStructure(t *testing.T) {
 	t.Parallel()
 
 	// Create a minimal fake response to verify frame encoding.
@@ -242,8 +242,8 @@ func TestAudit_InvokeWithResponseStream_FrameStructure(t *testing.T) {
 	assert.Equal(t, uint32(0), f2.length)
 }
 
-// TestAuditLambda_ExecutedVersionHeader verifies X-Amz-Executed-Version is set on invoke responses.
-func TestAuditLambda_ExecutedVersionHeader(t *testing.T) {
+// TestExecutedVersionHeader verifies X-Amz-Executed-Version is set on invoke responses.
+func TestExecutedVersionHeader(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -298,9 +298,9 @@ func TestAuditLambda_ExecutedVersionHeader(t *testing.T) {
 	}
 }
 
-// TestNewOps_InvokeWithResponseStream verifies that the streaming invoke endpoint
+// TestInvokeWithResponseStream verifies that the streaming invoke endpoint
 // returns application/vnd.amazon.eventstream and at least one data frame.
-func TestNewOps_InvokeWithResponseStream(t *testing.T) {
+func TestInvokeWithResponseStream(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -320,7 +320,7 @@ func TestNewOps_InvokeWithResponseStream(t *testing.T) {
 	}
 }
 
-func TestNewOps_InvokeWithResponseStream_NotFound(t *testing.T) {
+func TestInvokeWithResponseStream_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)

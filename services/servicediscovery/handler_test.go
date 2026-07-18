@@ -8,12 +8,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
 func newTestHandler(t *testing.T) *servicediscovery.Handler {
@@ -226,1001 +225,6 @@ func TestHandler_ExtractResource(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateHTTPNamespace(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		bodyRaw    []byte
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       map[string]any{"Name": "my-namespace"},
-			wantStatus: http.StatusOK,
-			wantBody:   "OperationId",
-		},
-		{
-			name:       "invalid_json",
-			bodyRaw:    []byte("not-json"),
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_name",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-			if tt.bodyRaw != nil {
-				rec = doSDRawRequest(t, h, "CreateHttpNamespace", tt.bodyRaw)
-			} else {
-				rec = doSDRequest(t, h, "CreateHttpNamespace", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_CreatePrivateDNSNamespace(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		bodyRaw    []byte
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       map[string]any{"Name": "private.local", "Vpc": "vpc-12345"},
-			wantStatus: http.StatusOK,
-			wantBody:   "OperationId",
-		},
-		{
-			name:       "missing_name",
-			body:       map[string]any{"Vpc": "vpc-12345"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-			if tt.bodyRaw != nil {
-				rec = doSDRawRequest(t, h, "CreatePrivateDnsNamespace", tt.bodyRaw)
-			} else {
-				rec = doSDRequest(t, h, "CreatePrivateDnsNamespace", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_CreatePublicDNSNamespace(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		bodyRaw    []byte
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       map[string]any{"Name": "public.example.com"},
-			wantStatus: http.StatusOK,
-			wantBody:   "OperationId",
-		},
-		{
-			name:       "missing_name",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-			if tt.bodyRaw != nil {
-				rec = doSDRawRequest(t, h, "CreatePublicDnsNamespace", tt.bodyRaw)
-			} else {
-				rec = doSDRequest(t, h, "CreatePublicDnsNamespace", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_CreateNamespace_DuplicateName(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "my-ns"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "my-ns"})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "NamespaceAlreadyExists")
-}
-
-func TestHandler_GetNamespace(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		bodyRaw    []byte
-		wantStatus int
-		createNS   bool
-	}{
-		{
-			name:       "success",
-			createNS:   true,
-			wantStatus: http.StatusOK,
-			wantBody:   "Namespace",
-		},
-		{
-			name:       "not_found",
-			body:       map[string]any{"Id": "ns-does-not-exist"},
-			wantStatus: http.StatusBadRequest,
-			wantBody:   "NamespaceNotFound",
-		},
-		{
-			name:       "missing_id",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-
-			switch {
-			case tt.createNS:
-				createRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "my-ns"})
-				require.Equal(t, http.StatusOK, createRec.Code)
-
-				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-				opID := createResp["OperationId"].(string)
-
-				opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
-				require.Equal(t, http.StatusOK, opRec.Code)
-
-				var opResp map[string]any
-				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
-
-				operation := opResp["Operation"].(map[string]any)
-				targets := operation["Targets"].(map[string]any)
-				nsID := targets["NAMESPACE"].(string)
-
-				rec = doSDRequest(t, h, "GetNamespace", map[string]any{"Id": nsID})
-			case tt.bodyRaw != nil:
-				rec = doSDRawRequest(t, h, "GetNamespace", tt.bodyRaw)
-			default:
-				rec = doSDRequest(t, h, "GetNamespace", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_DeleteNamespace(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       any
-		bodyRaw    []byte
-		wantStatus int
-		createNS   bool
-	}{
-		{
-			name:       "success",
-			createNS:   true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			body:       map[string]any{"Id": "ns-does-not-exist"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_id",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-
-			switch {
-			case tt.createNS:
-				createRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "delete-ns"})
-				require.Equal(t, http.StatusOK, createRec.Code)
-
-				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-				opID := createResp["OperationId"].(string)
-
-				opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
-				require.Equal(t, http.StatusOK, opRec.Code)
-
-				var opResp map[string]any
-				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
-				operation := opResp["Operation"].(map[string]any)
-				targets := operation["Targets"].(map[string]any)
-				nsID := targets["NAMESPACE"].(string)
-
-				rec = doSDRequest(t, h, "DeleteNamespace", map[string]any{"Id": nsID})
-			case tt.bodyRaw != nil:
-				rec = doSDRawRequest(t, h, "DeleteNamespace", tt.bodyRaw)
-			default:
-				rec = doSDRequest(t, h, "DeleteNamespace", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListNamespaces(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ns-alpha"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doSDRequest(t, h, "ListNamespaces", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Namespaces")
-	assert.Contains(t, rec.Body.String(), "ns-alpha")
-}
-
-func TestHandler_CreateService(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		bodyRaw    []byte
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       map[string]any{"Name": "my-service"},
-			wantStatus: http.StatusOK,
-			wantBody:   "Service",
-		},
-		{
-			name:       "invalid_json",
-			bodyRaw:    []byte("not-json"),
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_name",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-			if tt.bodyRaw != nil {
-				rec = doSDRawRequest(t, h, "CreateService", tt.bodyRaw)
-			} else {
-				rec = doSDRequest(t, h, "CreateService", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_GetService(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		wantStatus int
-		createSvc  bool
-	}{
-		{
-			name:       "success",
-			createSvc:  true,
-			wantStatus: http.StatusOK,
-			wantBody:   "Service",
-		},
-		{
-			name:       "not_found",
-			body:       map[string]any{"Id": "svc-does-not-exist"},
-			wantStatus: http.StatusBadRequest,
-			wantBody:   "ServiceNotFound",
-		},
-		{
-			name:       "missing_id",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-
-			if tt.createSvc {
-				createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "my-svc"})
-				require.Equal(t, http.StatusOK, createRec.Code)
-
-				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-				svcData := createResp["Service"].(map[string]any)
-				svcID := svcData["Id"].(string)
-
-				rec = doSDRequest(t, h, "GetService", map[string]any{"Id": svcID})
-			} else {
-				rec = doSDRequest(t, h, "GetService", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_DeleteService(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantStatus int
-		createSvc  bool
-	}{
-		{
-			name:       "success",
-			createSvc:  true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			body:       map[string]any{"Id": "svc-does-not-exist"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_id",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-
-			if tt.createSvc {
-				createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "del-svc"})
-				require.Equal(t, http.StatusOK, createRec.Code)
-
-				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-				svcData := createResp["Service"].(map[string]any)
-				svcID := svcData["Id"].(string)
-
-				rec = doSDRequest(t, h, "DeleteService", map[string]any{"Id": svcID})
-			} else {
-				rec = doSDRequest(t, h, "DeleteService", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListServices(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-alpha"})
-
-	rec := doSDRequest(t, h, "ListServices", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Services")
-	assert.Contains(t, rec.Body.String(), "svc-alpha")
-}
-
-func TestHandler_RegisterInstance(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       any
-		bodyRaw    []byte
-		wantStatus int
-		createSvc  bool
-	}{
-		{
-			name:       "success",
-			createSvc:  true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing_service_id",
-			body:       map[string]any{"InstanceId": "i-001"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_instance_id",
-			body:       map[string]any{"ServiceId": "svc-00000001"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "service_not_found",
-			body:       map[string]any{"ServiceId": "svc-does-not-exist", "InstanceId": "i-001"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "invalid_json",
-			bodyRaw:    []byte("not-json"),
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-
-			switch {
-			case tt.createSvc:
-				createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "reg-svc"})
-				require.Equal(t, http.StatusOK, createRec.Code)
-
-				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-				svcData := createResp["Service"].(map[string]any)
-				svcID := svcData["Id"].(string)
-
-				rec = doSDRequest(t, h, "RegisterInstance", map[string]any{
-					"ServiceId":  svcID,
-					"InstanceId": "i-001",
-					"Attributes": map[string]string{"AWS_INSTANCE_IPV4": "10.0.0.1"},
-				})
-			case tt.bodyRaw != nil:
-				rec = doSDRawRequest(t, h, "RegisterInstance", tt.bodyRaw)
-			default:
-				rec = doSDRequest(t, h, "RegisterInstance", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_GetInstance(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "inst-svc"})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	svcData := createResp["Service"].(map[string]any)
-	svcID := svcData["Id"].(string)
-
-	regRec := doSDRequest(t, h, "RegisterInstance", map[string]any{
-		"ServiceId":  svcID,
-		"InstanceId": "i-001",
-	})
-	require.Equal(t, http.StatusOK, regRec.Code)
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       map[string]any{"ServiceId": svcID, "InstanceId": "i-001"},
-			wantStatus: http.StatusOK,
-			wantBody:   "Instance",
-		},
-		{
-			name:       "not_found",
-			body:       map[string]any{"ServiceId": svcID, "InstanceId": "i-does-not-exist"},
-			wantStatus: http.StatusBadRequest,
-			wantBody:   "InstanceNotFound",
-		},
-		{
-			name:       "missing_service_id",
-			body:       map[string]any{"InstanceId": "i-001"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_instance_id",
-			body:       map[string]any{"ServiceId": svcID},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doSDRequest(t, h, "GetInstance", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_ListInstances(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "list-inst-svc"})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	svcData := createResp["Service"].(map[string]any)
-	svcID := svcData["Id"].(string)
-
-	doSDRequest(t, h, "RegisterInstance", map[string]any{
-		"ServiceId": svcID, "InstanceId": "i-001",
-	})
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       map[string]any{"ServiceId": svcID},
-			wantStatus: http.StatusOK,
-			wantBody:   "Instances",
-		},
-		{
-			name:       "service_not_found",
-			body:       map[string]any{"ServiceId": "svc-does-not-exist"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_service_id",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doSDRequest(t, h, "ListInstances", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_DeregisterInstance(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "dereg-svc"})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	svcData := createResp["Service"].(map[string]any)
-	svcID := svcData["Id"].(string)
-
-	doSDRequest(t, h, "RegisterInstance", map[string]any{
-		"ServiceId": svcID, "InstanceId": "i-001",
-	})
-
-	tests := []struct {
-		body       any
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			body:       map[string]any{"ServiceId": svcID, "InstanceId": "i-001"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			body:       map[string]any{"ServiceId": svcID, "InstanceId": "i-does-not-exist"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_service_id",
-			body:       map[string]any{"InstanceId": "i-001"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_instance_id",
-			body:       map[string]any{"ServiceId": svcID},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doSDRequest(t, h, "DeregisterInstance", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_DiscoverInstances(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	nsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "example.local"})
-	require.Equal(t, http.StatusOK, nsRec.Code)
-
-	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
-	opID := nsResp["OperationId"].(string)
-
-	opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
-	require.Equal(t, http.StatusOK, opRec.Code)
-
-	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
-	operation := opResp["Operation"].(map[string]any)
-	targets := operation["Targets"].(map[string]any)
-	nsID := targets["NAMESPACE"].(string)
-
-	svcRec := doSDRequest(t, h, "CreateService", map[string]any{
-		"Name":        "my-service",
-		"NamespaceId": nsID,
-	})
-	require.Equal(t, http.StatusOK, svcRec.Code)
-
-	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
-	svcData := svcResp["Service"].(map[string]any)
-	svcID := svcData["Id"].(string)
-
-	doSDRequest(t, h, "RegisterInstance", map[string]any{
-		"ServiceId":  svcID,
-		"InstanceId": "i-001",
-		"Attributes": map[string]string{"AWS_INSTANCE_IPV4": "10.0.0.1"},
-	})
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		wantStatus int
-	}{
-		{
-			name: "success_with_results",
-			body: map[string]any{
-				"NamespaceName": "example.local",
-				"ServiceName":   "my-service",
-			},
-			wantStatus: http.StatusOK,
-			wantBody:   "Instances",
-		},
-		{
-			name: "no_results_unknown_ns",
-			body: map[string]any{
-				"NamespaceName": "does-not-exist",
-				"ServiceName":   "my-service",
-			},
-			wantStatus: http.StatusOK,
-			wantBody:   "Instances",
-		},
-		{
-			name:       "missing_namespace_name",
-			body:       map[string]any{"ServiceName": "my-service"},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_service_name",
-			body:       map[string]any{"NamespaceName": "example.local"},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doSDRequest(t, h, "DiscoverInstances", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_GetOperation(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		bodyRaw    []byte
-		wantStatus int
-		createNS   bool
-	}{
-		{
-			name:       "success",
-			createNS:   true,
-			wantStatus: http.StatusOK,
-			wantBody:   "Operation",
-		},
-		{
-			name:       "not_found",
-			body:       map[string]any{"OperationId": "op-does-not-exist"},
-			wantStatus: http.StatusBadRequest,
-			wantBody:   "OperationNotFound",
-		},
-		{
-			name:       "missing_operation_id",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-
-			switch {
-			case tt.createNS:
-				createRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "op-ns"})
-				require.Equal(t, http.StatusOK, createRec.Code)
-
-				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-				opID := createResp["OperationId"].(string)
-
-				rec = doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
-			case tt.bodyRaw != nil:
-				rec = doSDRawRequest(t, h, "GetOperation", tt.bodyRaw)
-			default:
-				rec = doSDRequest(t, h, "GetOperation", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_ListOperations(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ops-ns"})
-
-	rec := doSDRequest(t, h, "ListOperations", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Operations")
-}
-
-func TestHandler_TagsLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	createRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{
-		"Name": "tag-ns",
-		"Tags": []map[string]string{{"Key": "env", "Value": "test"}},
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	opID := createResp["OperationId"].(string)
-
-	opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
-	require.Equal(t, http.StatusOK, opRec.Code)
-
-	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
-	operation := opResp["Operation"].(map[string]any)
-	targets := operation["Targets"].(map[string]any)
-	nsID := targets["NAMESPACE"].(string)
-
-	nsRec := doSDRequest(t, h, "GetNamespace", map[string]any{"Id": nsID})
-	require.Equal(t, http.StatusOK, nsRec.Code)
-
-	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
-	arn := nsResp["Namespace"].(map[string]any)["Arn"].(string)
-
-	rec := doSDRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": arn})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	tagRec := doSDRequest(t, h, "TagResource", map[string]any{
-		"ResourceARN": arn,
-		"Tags":        []map[string]string{{"Key": "team", "Value": "platform"}},
-	})
-	assert.Equal(t, http.StatusOK, tagRec.Code)
-
-	untagRec := doSDRequest(t, h, "UntagResource", map[string]any{
-		"ResourceARN": arn,
-		"TagKeys":     []string{"env"},
-	})
-	assert.Equal(t, http.StatusOK, untagRec.Code)
-}
-
-func TestHandler_TagsErrors(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	tests := []struct {
-		body       any
-		name       string
-		op         string
-		wantStatus int
-	}{
-		{
-			name:       "list_tags_missing_arn",
-			op:         "ListTagsForResource",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "tag_resource_missing_arn",
-			op:         "TagResource",
-			body:       map[string]any{"Tags": []map[string]string{}},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "untag_resource_missing_arn",
-			op:         "UntagResource",
-			body:       map[string]any{"TagKeys": []string{"env"}},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "list_tags_not_found",
-			op:   "ListTagsForResource",
-			body: map[string]any{
-				"ResourceARN": "arn:aws:servicediscovery:us-east-1:000000000000:" +
-					"namespace/ns-does-not-exist",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doSDRequest(t, h, tt.op, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-// TestHandler_TagResource_TooManyTags verifies that exceeding the 50-tag limit
-// returns the dedicated TooManyTagsException error, not a generic InvalidInput.
-func TestHandler_TagResource_TooManyTags(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	tags := make([]map[string]string, 0, 51)
-	for i := range 51 {
-		tags = append(tags, map[string]string{"Key": fmt.Sprintf("k%d", i), "Value": "v"})
-	}
-
-	rec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{
-		"Name": "too-many-tags-ns",
-		"Tags": tags,
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "TooManyTagsException")
-}
-
 func TestHandler_UnknownOperation(t *testing.T) {
 	t.Parallel()
 
@@ -1228,56 +232,6 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	rec := doSDRequest(t, h, "UnknownOperation", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InvalidInput")
-}
-
-func TestBackend_Region(t *testing.T) {
-	t.Parallel()
-
-	b := servicediscovery.NewInMemoryBackend("000000000000", "eu-west-1")
-	assert.Equal(t, "eu-west-1", b.Region())
-}
-
-func TestBackend_ListNamespaces(t *testing.T) {
-	t.Parallel()
-
-	b := servicediscovery.NewInMemoryBackend("000000000000", "us-east-1")
-
-	_, err := b.CreateHTTPNamespace("ns-b", "", nil)
-	require.NoError(t, err)
-
-	_, err = b.CreateHTTPNamespace("ns-a", "", nil)
-	require.NoError(t, err)
-
-	list := b.ListNamespaces(servicediscovery.ListNamespacesFilter{})
-	require.Len(t, list, 2)
-	assert.Equal(t, "ns-a", list[0].Name, "namespaces should be sorted by name")
-}
-
-func TestBackend_ListServices_FilterByNamespace(t *testing.T) {
-	t.Parallel()
-
-	b := servicediscovery.NewInMemoryBackend("000000000000", "us-east-1")
-
-	opID, err := b.CreateHTTPNamespace("ns-filter", "", nil)
-	require.NoError(t, err)
-
-	op, err := b.GetOperation(opID)
-	require.NoError(t, err)
-
-	nsID := op.Targets["NAMESPACE"]
-
-	_, err = b.CreateService("svc-in-ns", nsID, "", "", nil, nil, nil, nil)
-	require.NoError(t, err)
-
-	_, err = b.CreateService("svc-no-ns", "", "", "", nil, nil, nil, nil)
-	require.NoError(t, err)
-
-	all := b.ListServices(servicediscovery.ListServicesFilter{})
-	assert.Len(t, all, 2)
-
-	filtered := b.ListServices(servicediscovery.ListServicesFilter{NamespaceID: nsID})
-	assert.Len(t, filtered, 1)
-	assert.Equal(t, "svc-in-ns", filtered[0].Name)
 }
 
 func TestProvider_Init(t *testing.T) {
@@ -1339,76 +293,100 @@ func TestServiceDiscovery_Handler_Reset(t *testing.T) {
 	}
 }
 
-func TestHandler_GetInstancesHealthStatus(t *testing.T) {
+// newBackendAndHandler returns both handler and backend for refinement tests
+// that need direct backend access.
+func newBackendAndHandler(t *testing.T) (*servicediscovery.InMemoryBackend, *servicediscovery.Handler) {
+	t.Helper()
+
+	b := servicediscovery.NewInMemoryBackend("123456789012", "us-east-1")
+
+	return b, servicediscovery.NewHandler(b)
+}
+
+// TestHandler_AccountID verifies that AccountID() method is exposed on the backend.
+func TestHandler_AccountID(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		setup      func(t *testing.T, h *servicediscovery.Handler) string
-		body       func(serviceID string) map[string]any
-		name       string
-		wantFields []string
-		wantCode   int
-	}{
-		{
-			name: "returns_healthy_for_all_instances",
-			setup: func(t *testing.T, h *servicediscovery.Handler) string {
-				t.Helper()
-				// Create namespace and service
-				nsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{
-					"Name":             "ns-health",
-					"CreatorRequestId": "req-health",
-				})
-				require.Equal(t, http.StatusOK, nsRec.Code)
+	b := servicediscovery.NewInMemoryBackend("999999999999", "eu-west-1")
+	assert.Equal(t, "999999999999", b.AccountID())
+	assert.Equal(t, "eu-west-1", b.Region())
+}
 
-				// Create service
-				svcRec := doSDRequest(t, h, "CreateService", map[string]any{
-					"Name":             "svc-health",
-					"CreatorRequestId": "req-svc-health",
-				})
-				require.Equal(t, http.StatusOK, svcRec.Code)
+// TestHandler_ErrNilAppContext verifies that Provider.Init rejects nil context.
+func TestHandler_ErrNilAppContext(t *testing.T) {
+	t.Parallel()
 
-				var svcOut map[string]any
-				require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcOut))
-				svc := svcOut["Service"].(map[string]any)
+	p := &servicediscovery.Provider{}
+	_, err := p.Init(nil)
+	require.ErrorIs(t, err, servicediscovery.ErrNilAppContext)
+}
 
-				return svc["Id"].(string)
-			},
-			body: func(serviceID string) map[string]any {
-				return map[string]any{"ServiceId": serviceID}
-			},
-			wantCode:   http.StatusOK,
-			wantFields: []string{"Status"},
-		},
-		{
-			name: "missing_service_id_returns_error",
-			setup: func(t *testing.T, _ *servicediscovery.Handler) string {
-				t.Helper()
+// TestHandler_GetSupportedOperationsSorted verifies that GetSupportedOperations
+// returns a sorted, deterministic list with the expected count.
+func TestHandler_GetSupportedOperationsSorted(t *testing.T) {
+	t.Parallel()
 
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{}
-			},
-			wantCode: http.StatusBadRequest,
-		},
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	assert.Equal(t, 30, servicediscovery.HandlerOpsLen(h), "expected 30 supported operations")
+
+	for i := 1; i < len(ops); i++ {
+		assert.LessOrEqual(t, ops[i-1], ops[i], "operations should be sorted; %q > %q", ops[i-1], ops[i])
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+// TestHandlerBackendInterface verifies that NewHandler accepts a StorageBackend.
+func TestHandlerBackendInterface(t *testing.T) {
+	t.Parallel()
 
-			h := newTestHandler(t)
-			serviceID := tt.setup(t, h)
-			rec := doSDRequest(t, h, "GetInstancesHealthStatus", tt.body(serviceID))
-			require.Equal(t, tt.wantCode, rec.Code)
+	b := servicediscovery.NewInMemoryBackend("000000000000", "us-east-1")
 
-			if len(tt.wantFields) > 0 {
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				for _, field := range tt.wantFields {
-					assert.Contains(t, out, field)
-				}
-			}
-		})
+	// This should compile because *InMemoryBackend implements StorageBackend.
+	var sb servicediscovery.StorageBackend = b
+	h := servicediscovery.NewHandler(sb)
+	assert.NotNil(t, h)
+}
+
+// createNamespaceHelper is a convenience function that creates an HTTP namespace
+// and returns its ID.
+func createNamespaceHelper(t *testing.T, h *servicediscovery.Handler, name string) string {
+	t.Helper()
+
+	nsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": name})
+	require.Equal(t, 200, nsRec.Code)
+
+	var nsResp map[string]any
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+
+	opID := nsResp["OperationId"].(string)
+	nsOpRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
+
+	var nsOpResp map[string]any
+	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp))
+
+	return nsOpResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
+}
+
+// TestHandler_GetSupportedOperationsIncludesUpdateAndAttributeOps verifies the
+// update, attribute, and revision operations are in GetSupportedOperations.
+func TestHandler_GetSupportedOperationsIncludesUpdateAndAttributeOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	for _, op := range []string{
+		"DeleteServiceAttributes",
+		"DiscoverInstancesRevision",
+		"GetServiceAttributes",
+		"UpdateHttpNamespace",
+		"UpdateInstanceCustomHealthStatus",
+		"UpdatePrivateDnsNamespace",
+		"UpdatePublicDnsNamespace",
+		"UpdateService",
+		"UpdateServiceAttributes",
+	} {
+		assert.Contains(t, ops, op, "expected %s in GetSupportedOperations", op)
 	}
 }

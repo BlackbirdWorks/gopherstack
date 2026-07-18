@@ -221,9 +221,47 @@ func (h *Handler) handleDisassociateRecoveryPointFromParent(
 
 // --- Vault compliance handlers ---
 
+// dispatchRecoveryPointQueryOps handles recovery-point lookups keyed by
+// legal hold, protected resource, or index status.
+func (h *Handler) dispatchRecoveryPointQueryOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
+	case opListRecoveryPointsByLegalHold:
+		rps := h.Backend.ListRecoveryPointsByLegalHold(route.resource)
+		items := make([]map[string]any, 0, len(rps))
+		for _, rp := range rps {
+			items = append(items, map[string]any{keyRecoveryPointArn: rp.RecoveryPointArn})
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{keyRecoveryPoints: items})
+	case opListRecoveryPointsByResource:
+		rps := h.Backend.ListRecoveryPointsByResource(route.resource)
+		items := make([]map[string]any, 0, len(rps))
+		for _, rp := range rps {
+			items = append(
+				items,
+				map[string]any{keyRecoveryPointArn: rp.RecoveryPointArn, keyStatus: rp.Status},
+			)
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{keyRecoveryPoints: items})
+	case opListIndexedRecoveryPoints:
+		rps := h.Backend.ListIndexedRecoveryPoints()
+		items := make([]map[string]any, 0, len(rps))
+		for _, rp := range rps {
+			items = append(
+				items,
+				map[string]any{keyRecoveryPointArn: rp.RecoveryPointArn, keyStatus: rp.Status},
+			)
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"IndexedRecoveryPoints": items})
+	}
+
+	return false, nil
+}
+
 // dispatchRecoveryPointIndexOps handles the recovery-point index and
-// lifecycle sub-resource operations. Split out of dispatchStubLegalHoldOps to
-// keep its cognitive complexity in check.
+// lifecycle sub-resource operations.
 func (h *Handler) dispatchRecoveryPointIndexOps(
 	c *echo.Context,
 	route backupRoute,

@@ -70,11 +70,6 @@ var (
 
 // naclDefaultDenyRuleNumber is the AWS-defined default-deny rule number placed at the end of every NACL.
 
-// Key pairs (formerly refinement3 errors).
-var (
-	errR3KeyPairNotFound = errors.New("InvalidKeyPair.NotFound")
-)
-
 // TGW propagation / interruptible capacity / elastic IP (formerly parity-final errors).
 var (
 	// ErrTGWPropagationNotFound is returned when disabling a transit gateway

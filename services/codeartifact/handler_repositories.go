@@ -1,0 +1,386 @@
+package codeartifact
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+
+	"github.com/labstack/echo/v5"
+)
+
+type upstreamRepoEntry struct {
+	RepositoryName string `json:"repositoryName"`
+}
+
+// createRepositoryBody's Upstreams field uses the wire key "upstreams" (verified against
+// aws-sdk-go-v2 serializers.go's awsRestjson1_serializeOpDocumentCreateRepositoryInput) --
+// NOT "upstreamRepositories" as the RepositoryDescription.Upstreams Go field name might
+// suggest.
+
+type createRepositoryBody struct {
+	Description string              `json:"description"`
+	Tags        []map[string]any    `json:"tags"`
+	Upstreams   []upstreamRepoEntry `json:"upstreams"`
+}
+
+func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
+	m := map[string]any{
+		keyArn:                 r.ARN,
+		keyName:                r.Name,
+		keyDomainName:          r.DomainName,
+		keyDomainOwner:         r.DomainOwner,
+		"administratorAccount": r.AdministratorAccount,
+	}
+	if r.Description != "" {
+		m["description"] = r.Description
+	}
+
+	extConns := make([]map[string]any, 0, len(connections))
+	for _, ec := range connections {
+		extConns = append(extConns, map[string]any{
+			"externalConnectionName": ec.ExternalConnectionName,
+			"packageFormat":          ec.PackageFormat,
+			keyStatusField:           ec.Status,
+		})
+	}
+	m["externalConnections"] = extConns
+
+	upstreams := make([]map[string]string, 0, len(r.UpstreamRepositories))
+	for _, name := range r.UpstreamRepositories {
+		upstreams = append(upstreams, map[string]string{"repositoryName": name})
+	}
+	// Wire key is "upstreams", not "upstreamRepositories" -- verified against
+	// aws-sdk-go-v2 deserializers.go's awsRestjson1_deserializeDocumentRepositoryDescription.
+	m["upstreams"] = upstreams
+
+	return m
+}
+
+func (h *Handler) handleCreateRepository(c *echo.Context, domainName, repoName string, body []byte) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+
+	var in createRepositoryBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		}
+	}
+
+	upstreams := make([]string, 0, len(in.Upstreams))
+	for _, u := range in.Upstreams {
+		upstreams = append(upstreams, u.RepositoryName)
+	}
+
+	r, err := h.Backend.CreateRepository(
+		c.Request().Context(),
+		domainName,
+		repoName,
+		in.Description,
+		tagsFromSlice(in.Tags),
+		upstreams,
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)),
+	})
+}
+
+func (h *Handler) handleDescribeRepository(c *echo.Context, domainName, repoName string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+
+	r, err := h.Backend.DescribeRepository(c.Request().Context(), domainName, repoName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)),
+	})
+}
+
+func (h *Handler) handleDeleteRepository(c *echo.Context, domainName, repoName string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+
+	conns := h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)
+
+	r, err := h.Backend.DeleteRepository(c.Request().Context(), domainName, repoName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyRepository: repoToMap(r, conns),
+	})
+}
+
+func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
+
+	all, err := h.Backend.ListRepositoriesInDomain(c.Request().Context(), domainName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	page, next := paginateSlice(all, maxResults, nextToken, func(r *Repository) string { return r.Name })
+
+	items := make([]map[string]any, 0, len(page))
+	for _, r := range page {
+		items = append(items, map[string]any{
+			keyArn:         r.ARN,
+			keyName:        r.Name,
+			keyDomainName:  r.DomainName,
+			keyDomainOwner: r.DomainOwner,
+		})
+	}
+
+	resp := map[string]any{"repositories": items}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleListRepositories(c *echo.Context) error {
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
+
+	all := h.Backend.ListRepositories(c.Request().Context())
+	page, next := paginateSlice(all, maxResults, nextToken, func(r *Repository) string { return r.Name })
+
+	items := make([]map[string]any, 0, len(page))
+	for _, r := range page {
+		items = append(items, map[string]any{
+			keyArn:         r.ARN,
+			keyName:        r.Name,
+			keyDomainName:  r.DomainName,
+			keyDomainOwner: r.DomainOwner,
+		})
+	}
+
+	resp := map[string]any{"repositories": items}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleGetRepositoryEndpoint(c *echo.Context, domainName, repoName, format string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+	if format == "" {
+		format = "generic"
+	}
+
+	_, err := h.Backend.DescribeRepository(c.Request().Context(), domainName, repoName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	endpoint := fmt.Sprintf(
+		"https://%s-%s.d.codeartifact.%s.amazonaws.com/%s/%s/",
+		domainName, h.Backend.accountID, h.Backend.region, format, repoName,
+	)
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"repositoryEndpoint": endpoint,
+	})
+}
+
+func (h *Handler) handleAssociateExternalConnection(
+	c *echo.Context,
+	domainName, repoName, connectionName string,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+	if connectionName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "externalConnection is required"))
+	}
+
+	r, err := h.Backend.AssociateExternalConnection(c.Request().Context(), domainName, repoName, connectionName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)),
+	})
+}
+
+func (h *Handler) handleGetRepositoryPermissionsPolicy(c *echo.Context, domainName, repoName string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+
+	pol, err := h.Backend.GetRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyPolicy: map[string]any{
+			keyDocument:    pol.Document,
+			keyRevision:    pol.Revision,
+			keyResourceArn: pol.ResourceARN,
+		},
+	})
+}
+
+type putRepositoryPermissionsPolicyBody struct {
+	PolicyDocument string `json:"policyDocument"`
+}
+
+func (h *Handler) handlePutRepositoryPermissionsPolicy(
+	c *echo.Context,
+	domainName, repoName string,
+	body []byte,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+
+	var in putRepositoryPermissionsPolicyBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		}
+	}
+
+	if in.PolicyDocument == "" {
+		in.PolicyDocument = `{"Version":"2012-10-17","Statement":[]}`
+	}
+
+	pol, err := h.Backend.PutRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName, in.PolicyDocument)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyPolicy: map[string]any{
+			keyDocument:    pol.Document,
+			keyRevision:    pol.Revision,
+			keyResourceArn: pol.ResourceARN,
+		},
+	})
+}
+
+func (h *Handler) handleDeleteRepositoryPermissionsPolicy(c *echo.Context, domainName, repoName string) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+
+	pol, err := h.Backend.DeleteRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyPolicy: map[string]any{
+			keyDocument:    pol.Document,
+			keyRevision:    pol.Revision,
+			keyResourceArn: pol.ResourceARN,
+		},
+	})
+}
+
+func (h *Handler) handleDisassociateExternalConnection(
+	c *echo.Context, domainName, repoName, connectionName string,
+) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+	if connectionName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "externalConnection is required"))
+	}
+
+	r, err := h.Backend.DisassociateExternalConnection(c.Request().Context(), domainName, repoName, connectionName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	extConns := h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)
+
+	return c.JSON(http.StatusOK, map[string]any{keyRepository: repoToMap(r, extConns)})
+}
+
+type updateRepositoryBody struct {
+	Description string              `json:"description"`
+	Upstreams   []upstreamRepoEntry `json:"upstreams"`
+}
+
+func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName string, body []byte) error {
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
+	}
+	if repoName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
+	}
+
+	var in updateRepositoryBody
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &in)
+	}
+
+	var upstreams []string
+	if in.Upstreams != nil {
+		upstreams = make([]string, 0, len(in.Upstreams))
+		for _, u := range in.Upstreams {
+			upstreams = append(upstreams, u.RepositoryName)
+		}
+	}
+
+	r, err := h.Backend.UpdateRepository(c.Request().Context(), domainName, repoName, in.Description, upstreams)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	extConns := h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)
+
+	return c.JSON(http.StatusOK, map[string]any{keyRepository: repoToMap(r, extConns)})
+}

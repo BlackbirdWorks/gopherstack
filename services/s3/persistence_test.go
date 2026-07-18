@@ -300,3 +300,41 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
+
+func TestInMemoryBackend_Persistence_NewConfigMaps(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	mustCreateBucket(t, b, "bkt")
+	ctx := t.Context()
+
+	require.NoError(t, b.PutBucketAnalyticsConfiguration(ctx, "bkt", "a1",
+		"<AnalyticsConfiguration><Id>a1</Id></AnalyticsConfiguration>"))
+	require.NoError(t, b.PutBucketIntelligentTieringConfiguration(ctx, "bkt", "t1",
+		"<IntelligentTieringConfiguration><Id>t1</Id></IntelligentTieringConfiguration>"))
+	require.NoError(t, b.PutBucketInventoryConfiguration(ctx, "bkt", "i1",
+		"<InventoryConfiguration><Id>i1</Id></InventoryConfiguration>"))
+	require.NoError(t, b.PutBucketMetricsConfiguration(ctx, "bkt", "m1",
+		"<MetricsConfiguration><Id>m1</Id></MetricsConfiguration>"))
+
+	snap := b.Snapshot(t.Context())
+
+	b2 := newTestBackend(t)
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	got, err := b2.GetBucketAnalyticsConfiguration(ctx, "bkt", "a1")
+	require.NoError(t, err)
+	assert.Contains(t, got, "a1")
+
+	got, err = b2.GetBucketIntelligentTieringConfiguration(ctx, "bkt", "t1")
+	require.NoError(t, err)
+	assert.Contains(t, got, "t1")
+
+	got, err = b2.GetBucketInventoryConfiguration(ctx, "bkt", "i1")
+	require.NoError(t, err)
+	assert.Contains(t, got, "i1")
+
+	got, err = b2.GetBucketMetricsConfiguration(ctx, "bkt", "m1")
+	require.NoError(t, err)
+	assert.Contains(t, got, "m1")
+}

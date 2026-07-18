@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_SubnetGroup_Modify(t *testing.T) {
+func TestSubnetGroup_Modify(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -28,7 +28,7 @@ func TestBatch2_SubnetGroup_Modify(t *testing.T) {
 	assert.Equal(t, "subnet-c", updated.SubnetIDs[0])
 }
 
-func TestBatch2_SubnetGroup_NotFound(t *testing.T) {
+func TestSubnetGroup_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -40,7 +40,7 @@ func TestBatch2_SubnetGroup_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, rds.ErrSubnetGroupNotFound)
 }
 
-func TestBatch2_SubnetGroup_Duplicate(t *testing.T) {
+func TestSubnetGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -52,7 +52,7 @@ func TestBatch2_SubnetGroup_Duplicate(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrSubnetGroupAlreadyExists)
 }
 
-func TestBatch2_SubnetGroup_HTTP_Modify(t *testing.T) {
+func TestSubnetGroup_HTTP_Modify(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -78,7 +78,7 @@ func TestBatch2_SubnetGroup_HTTP_Modify(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "http-sg")
 }
 
-func TestAccOps3_CreateDBSubnetGroup_SubnetIDs_AreCaptured(t *testing.T) {
+func TestCreateDBSubnetGroup_SubnetIDs_AreCaptured(t *testing.T) {
 	t.Parallel()
 
 	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
@@ -98,7 +98,7 @@ func TestAccOps3_CreateDBSubnetGroup_SubnetIDs_AreCaptured(t *testing.T) {
 	assert.Contains(t, body, "subnet-bbb222", "second subnet ID must appear in response")
 }
 
-func TestAccOps3_ModifyDBSubnetGroup_SubnetIDs_AreCaptured(t *testing.T) {
+func TestModifyDBSubnetGroup_SubnetIDs_AreCaptured(t *testing.T) {
 	t.Parallel()
 
 	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
@@ -126,7 +126,7 @@ func TestAccOps3_ModifyDBSubnetGroup_SubnetIDs_AreCaptured(t *testing.T) {
 	assert.Contains(t, body, "subnet-new2", "second new subnet ID must appear in response")
 }
 
-func TestAccOps3_SubnetGroup_MultipleSubnets_RoundTrip(t *testing.T) {
+func TestSubnetGroup_MultipleSubnets_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

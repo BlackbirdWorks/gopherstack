@@ -444,11 +444,11 @@ func TestSNS_PlatformApplicationRegion(t *testing.T) {
 	}
 }
 
-// TestRefinement1_ListAllPlatformApplications verifies list works.
+// TestListAllPlatformApplications verifies list works.
 func TestListAllPlatformApplications(t *testing.T) {
 	t.Parallel()
 
-	b := newR1Backend(t)
+	b := newTestBackend(t)
 	apps := b.ListAllPlatformApplications()
 	assert.Empty(t, apps)
 
@@ -461,11 +461,11 @@ func TestListAllPlatformApplications(t *testing.T) {
 	assert.Len(t, apps, 1)
 }
 
-// TestBatch2_FCMPlatformCreated verifies FCM is a valid platform name.
+// TestFCMPlatformCreated verifies FCM is a valid platform name.
 func TestFCMPlatformCreated(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	app, err := b.CreatePlatformApplication("my-fcm-app", "FCM", map[string]string{
 		"PlatformCredential": "fake-api-key",
 	})
@@ -473,11 +473,11 @@ func TestFCMPlatformCreated(t *testing.T) {
 	assert.Contains(t, app.PlatformApplicationArn, "FCM")
 }
 
-// TestBatch2_APNSVoIPPlatformCreated verifies APNS_VOIP is a valid platform name.
+// TestAPNSVoIPPlatformCreated verifies APNS_VOIP is a valid platform name.
 func TestAPNSVoIPPlatformCreated(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	app, err := b.CreatePlatformApplication("my-voip-app", "APNS_VOIP", map[string]string{
 		"PlatformCredential": "fake-cred",
 		"PlatformPrincipal":  "fake-cert",
@@ -486,11 +486,11 @@ func TestAPNSVoIPPlatformCreated(t *testing.T) {
 	assert.Contains(t, app.PlatformApplicationArn, "APNS_VOIP")
 }
 
-// TestBatch2_APNSVoIPSandboxPlatformCreated verifies APNS_VOIP_SANDBOX is valid.
+// TestAPNSVoIPSandboxPlatformCreated verifies APNS_VOIP_SANDBOX is valid.
 func TestAPNSVoIPSandboxPlatformCreated(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	app, err := b.CreatePlatformApplication("my-voip-sandbox", "APNS_VOIP_SANDBOX", map[string]string{
 		"PlatformCredential": "fake-cred",
 	})
@@ -498,7 +498,7 @@ func TestAPNSVoIPSandboxPlatformCreated(t *testing.T) {
 	assert.Contains(t, app.PlatformApplicationArn, "APNS_VOIP_SANDBOX")
 }
 
-// TestBatch2_AllKnownPlatformsAccepted verifies every documented AWS SNS push platform.
+// TestAllKnownPlatformsAccepted verifies every documented AWS SNS push platform.
 func TestAllKnownPlatformsAccepted(t *testing.T) {
 	t.Parallel()
 
@@ -508,7 +508,7 @@ func TestAllKnownPlatformsAccepted(t *testing.T) {
 		"ADM", "BAIDU", "WNS", "MPNS",
 	}
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	for i, platform := range platforms {
 		name := fmt.Sprintf("app-%d", i)
@@ -519,22 +519,22 @@ func TestAllKnownPlatformsAccepted(t *testing.T) {
 	}
 }
 
-// TestBatch2_InvalidPlatformRejected verifies that unknown platforms are rejected.
+// TestInvalidPlatformRejected verifies that unknown platforms are rejected.
 func TestInvalidPlatformRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	_, err := b.CreatePlatformApplication("bad-app", "BOGUS_PLATFORM", nil)
 	require.ErrorIs(t, err, sns.ErrInvalidParameter)
 }
 
-// TestBatch2_FCMViaHandler verifies FCM platform creation through the HTTP handler.
+// TestFCMPlatformCreatedViaHandler verifies FCM platform creation through the HTTP handler.
 func TestFCMPlatformCreatedViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":                   {"CreatePlatformApplication"},
 		"Name":                     {"fcm-handler-app"},
 		"Platform":                 {"FCM"},

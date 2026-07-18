@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -127,6 +129,134 @@ func TestObjectTagging_NoSuchKey(t *testing.T) {
 			serveS3Handler(handler, rec, req)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteObjectTagging_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "delete tags from non-existent object returns 204",
+			path:       "/bkt/no-such-key?tagging",
+			wantStatus: http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "bkt")
+
+			req := httptest.NewRequest(http.MethodDelete, tt.path, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ObjectTagging(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "put get delete tagging lifecycle"},
+		{name: "invalid XML returns 400"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "bkt")
+			mustPutObject(t, backend, "bkt", "key", []byte("data"))
+
+			switch tt.name {
+			case "put get delete tagging lifecycle":
+				body := `<Tagging><TagSet><Tag><Key>env</Key><Value>prod</Value></Tag></TagSet></Tagging>`
+				req := httptest.NewRequest(
+					http.MethodPut,
+					"/bkt/key?tagging",
+					strings.NewReader(body),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				req = httptest.NewRequest(http.MethodGet, "/bkt/key?tagging", nil)
+				rec = httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "prod")
+
+				req = httptest.NewRequest(http.MethodDelete, "/bkt/key?tagging", nil)
+				rec = httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				assert.Equal(t, http.StatusNoContent, rec.Code)
+
+			case "invalid XML returns 400":
+				req := httptest.NewRequest(
+					http.MethodPut,
+					"/bkt/key?tagging",
+					strings.NewReader("not xml"),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			}
+		})
+	}
+}
+
+func TestHandler_PutObjectWithTaggingHeader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "put with tagging header stores tags"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "bkt")
+
+			req := httptest.NewRequest(http.MethodPut, "/bkt/key", strings.NewReader("data"))
+			req.Header.Set("X-Amz-Tagging", "env=prod&team=alpha")
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			out, err := backend.GetObjectTagging(t.Context(), &sdk_s3.GetObjectTaggingInput{
+				Bucket: aws.String("bkt"),
+				Key:    aws.String("key"),
+			})
+			require.NoError(t, err)
+			assert.Len(t, out.TagSet, 2)
+
+			getTag := func(key string) string {
+				for _, tag := range out.TagSet {
+					if *tag.Key == key {
+						return *tag.Value
+					}
+				}
+
+				return ""
+			}
+			assert.Equal(t, "prod", getTag("env"))
+			assert.Equal(t, "alpha", getTag("team"))
 		})
 	}
 }

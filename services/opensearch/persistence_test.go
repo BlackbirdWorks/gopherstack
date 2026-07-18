@@ -332,7 +332,7 @@ func TestPersistence_DomainMaintenanceRoundTrip(t *testing.T) {
 	assert.Equal(t, "node-1", maintenances[0].NodeID)
 }
 
-func TestOpenSearchHandler_Persistence_NewOps(t *testing.T) {
+func TestOpenSearchHandler_Persistence_AdditionalResources(t *testing.T) {
 	t.Parallel()
 
 	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")

@@ -522,7 +522,7 @@ func TestBackend_PutGetDeleteFunctionConcurrency(t *testing.T) {
 // Concurrency (reserved)
 // ============================================================
 
-func TestBatch2_Concurrency_PutGetDelete(t *testing.T) {
+func TestConcurrency_PutGetDelete(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -558,7 +558,7 @@ func TestBatch2_Concurrency_PutGetDelete(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getRec2.Code)
 }
 
-func TestBatch2_Concurrency_PutZero(t *testing.T) {
+func TestConcurrency_PutZero(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)

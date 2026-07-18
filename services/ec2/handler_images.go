@@ -2,7 +2,11 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type imageBlockPublicAccessStateResponse struct {
@@ -636,4 +640,248 @@ func imagesSupportedOperations() []string {
 		"DescribeImageReferences",
 		"GetImageAncestry",
 	}
+}
+
+type amiItem struct {
+	ImageID        string `xml:"imageId"`
+	Name           string `xml:"name"`
+	Description    string `xml:"description,omitempty"`
+	Architecture   string `xml:"architecture"`
+	Platform       string `xml:"platform,omitempty"`
+	State          string `xml:"imageState"`
+	RootDeviceName string `xml:"rootDeviceName,omitempty"`
+}
+
+type amiItemSet struct {
+	Items []amiItem `xml:"item"`
+}
+
+type describeImagesResponse struct {
+	XMLName   xml.Name   `xml:"DescribeImagesResponse"`
+	Xmlns     string     `xml:"xmlns,attr"`
+	RequestID string     `xml:"requestId"`
+	NextToken string     `xml:"nextToken,omitempty"`
+	ImagesSet amiItemSet `xml:"imagesSet"`
+}
+
+type regionItem struct {
+	RegionName string `xml:"regionName"`
+	Endpoint   string `xml:"regionEndpoint"`
+}
+
+type regionItemSet struct {
+	Items []regionItem `xml:"item"`
+}
+
+type describeRegionsResponse struct {
+	XMLName    xml.Name      `xml:"DescribeRegionsResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	RequestID  string        `xml:"requestId"`
+	RegionInfo regionItemSet `xml:"regionInfo"`
+}
+
+type azItem struct {
+	ZoneName   string `xml:"zoneName"`
+	RegionName string `xml:"regionName"`
+	State      string `xml:"zoneState"`
+}
+
+type azItemSet struct {
+	Items []azItem `xml:"item"`
+}
+
+type describeAvailabilityZonesResponse struct {
+	XMLName              xml.Name  `xml:"DescribeAvailabilityZonesResponse"`
+	Xmlns                string    `xml:"xmlns,attr"`
+	RequestID            string    `xml:"requestId"`
+	AvailabilityZoneInfo azItemSet `xml:"availabilityZoneInfo"`
+}
+
+func parseImagesPagination(vals url.Values) (int, int, error) {
+	maxResults := describeImagesDefaultResults
+	if v := vals.Get("MaxResults"); v != "" {
+		n, parseErr := strconv.Atoi(v)
+		if parseErr != nil || n < describeImagesMinResults || n > describeImagesMaxResults {
+			return 0, 0, fmt.Errorf(
+				"%w: MaxResults must be between %d and %d",
+				ErrInvalidParameter, describeImagesMinResults, describeImagesMaxResults,
+			)
+		}
+		maxResults = n
+	}
+
+	offset := 0
+	if tok := vals.Get("NextToken"); tok != "" {
+		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
+		if n == 0 {
+			return 0, 0, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
+		}
+		offset = n
+	}
+
+	return maxResults, offset, nil
+}
+
+func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
+	amis := h.Backend.DescribeImages()
+
+	// Collect requested image IDs from ImageId.1, ImageId.2, ... query params.
+	requested := make(map[string]struct{})
+
+	for i := 1; ; i++ {
+		id := vals.Get(fmt.Sprintf("ImageId.%d", i))
+		if id == "" {
+			break
+		}
+
+		requested[id] = struct{}{}
+	}
+
+	// Pre-filter by ID, then apply named EC2 filters (name, architecture, state, etc.).
+	idFiltered := make([]*AMIStub, 0, len(amis))
+	for i := range amis {
+		if len(requested) > 0 {
+			if _, ok := requested[amis[i].ImageID]; !ok {
+				continue
+			}
+		}
+		idFiltered = append(idFiltered, &amis[i])
+	}
+
+	filters := parseEC2Filters(vals)
+	idFiltered = applyImageFilters(idFiltered, filters, h.Backend)
+
+	filtered := make([]amiItem, 0, len(idFiltered))
+	for _, a := range idFiltered {
+		st := a.State
+		if st == "" {
+			st = stateAvailable
+		}
+
+		filtered = append(filtered, amiItem{
+			ImageID:        a.ImageID,
+			Name:           a.Name,
+			Description:    a.Description,
+			Architecture:   a.Architecture,
+			Platform:       a.Platform,
+			State:          st,
+			RootDeviceName: a.RootDeviceName,
+		})
+	}
+
+	maxResults, offset, err := parseImagesPagination(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	if offset > len(filtered) {
+		offset = len(filtered)
+	}
+	filtered = filtered[offset:]
+
+	var nextToken string
+	if len(filtered) > maxResults {
+		nextToken = page.EncodeHMACToken(offset+maxResults, ec2PaginationSalt)
+		filtered = filtered[:maxResults]
+	}
+
+	return &describeImagesResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		NextToken: nextToken,
+		ImagesSet: amiItemSet{Items: filtered},
+	}, nil
+}
+
+func (h *Handler) handleDescribeRegions(_ url.Values, reqID string) (any, error) {
+	regions := h.Backend.DescribeRegions()
+
+	items := make([]regionItem, 0, len(regions))
+	for _, r := range regions {
+		items = append(items, regionItem{
+			RegionName: r,
+			Endpoint:   fmt.Sprintf("ec2.%s.amazonaws.com", r),
+		})
+	}
+
+	return &describeRegionsResponse{
+		Xmlns:      ec2XMLNS,
+		RequestID:  reqID,
+		RegionInfo: regionItemSet{Items: items},
+	}, nil
+}
+
+func (h *Handler) handleDescribeAvailabilityZones(vals url.Values, reqID string) (any, error) {
+	region := vals.Get("RegionName")
+	azs := h.Backend.DescribeAvailabilityZones(region)
+
+	effectiveRegion := region
+	if effectiveRegion == "" {
+		effectiveRegion = h.Region
+	}
+
+	items := make([]azItem, 0, len(azs))
+	for _, az := range azs {
+		items = append(items, azItem{
+			ZoneName:   az,
+			RegionName: effectiveRegion,
+			State:      stateAvailable,
+		})
+	}
+
+	return &describeAvailabilityZonesResponse{
+		Xmlns:                ec2XMLNS,
+		RequestID:            reqID,
+		AvailabilityZoneInfo: azItemSet{Items: items},
+	}, nil
+}
+
+// ---- DescribeImageAttribute ----
+
+type describeImageAttributeResponse struct {
+	XMLName   xml.Name `xml:"DescribeImageAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	ImageID   string   `xml:"imageId"`
+	// LaunchPermission is the only attribute modelled here; others return empty.
+	LaunchPermission launchPermissionList `xml:"launchPermission"`
+}
+
+type launchPermissionList struct {
+	Items []launchPermissionItem `xml:"item"`
+}
+
+type launchPermissionItem struct {
+	Group  string `xml:"group,omitempty"`
+	UserID string `xml:"userId,omitempty"`
+}
+
+// handleDescribeImageAttribute returns stub launch-permission attributes for
+// the specified image. AWS requires the Attribute parameter; if it is absent
+// we return an error matching real-AWS behaviour.
+func (h *Handler) handleDescribeImageAttribute(vals url.Values, reqID string) (any, error) {
+	imageID := vals.Get("ImageId")
+	if imageID == "" {
+		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	attribute := vals.Get("Attribute")
+	if attribute == "" {
+		return nil, fmt.Errorf("%w: Attribute is required", ErrInvalidParameter)
+	}
+
+	// Only launchPermission is modelled; all other attributes return an empty placeholder.
+	resp := &describeImageAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		ImageID:   imageID,
+	}
+
+	if attribute == "launchPermission" {
+		resp.LaunchPermission = launchPermissionList{
+			Items: []launchPermissionItem{{Group: "all"}},
+		}
+	}
+
+	return resp, nil
 }

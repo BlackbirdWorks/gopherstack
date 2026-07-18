@@ -1,7 +1,9 @@
 package servicediscovery_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -301,4 +303,61 @@ func TestServiceDiscovery_DeleteOrder(t *testing.T) {
 
 	_, err = b.GetNamespace(nsID)
 	require.ErrorIs(t, err, servicediscovery.ErrNamespaceNotFound)
+}
+
+// TestHandler_SnapshotRestore_ServiceAttributesAndHealth verifies that new state (service
+// attributes, health statuses) is preserved through Snapshot/Restore.
+func TestHandler_SnapshotRestore_ServiceAttributesAndHealth(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a service (with a custom health check, required for
+	// UpdateInstanceCustomHealthStatus per AWS) and set its attributes.
+	createRec := doSDRequest(t, h, "CreateService", map[string]any{
+		"Name":                    "persist-svc",
+		"HealthCheckCustomConfig": map[string]any{"FailureThreshold": 1},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	svc := createOut["Service"].(map[string]any)
+	svcID := svc["Id"].(string)
+	svcARN := svc["Arn"].(string)
+
+	updateRec := doSDRequest(t, h, "UpdateServiceAttributes", map[string]any{
+		"ServiceArn": svcARN,
+		"Attributes": map[string]string{"stage": "test"},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	// Register an instance and set custom health status.
+	regRec := doSDRequest(t, h, "RegisterInstance", map[string]any{
+		"ServiceId":  svcID,
+		"InstanceId": "inst-persist",
+		"Attributes": map[string]string{},
+	})
+	require.Equal(t, http.StatusOK, regRec.Code)
+
+	healthRec := doSDRequest(t, h, "UpdateInstanceCustomHealthStatus", map[string]any{
+		"ServiceId":  svcID,
+		"InstanceId": "inst-persist",
+		"Status":     "UNHEALTHY",
+	})
+	require.Equal(t, http.StatusOK, healthRec.Code)
+
+	// Snapshot and restore.
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Verify service attributes restored.
+	getRec := doSDRequest(t, h2, "GetServiceAttributes", map[string]any{"ServiceId": svcID})
+	assert.Equal(t, http.StatusOK, getRec.Code)
+	var getOut map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	attrs := getOut["ServiceAttributes"].(map[string]any)["Attributes"].(map[string]any)
+	assert.Equal(t, "test", attrs["stage"])
 }

@@ -792,12 +792,12 @@ func TestSNS_DeleteSMSSandboxPhoneNumberE164Validation(t *testing.T) {
 	}
 }
 
-// TestBatch2_PublishSMSOptedOutRejected verifies that publishing SMS to an
+// TestPublishSMSOptedOutRejected verifies that publishing SMS to an
 // opted-out number returns ErrOptedOut.
 func TestPublishSMSOptedOutRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	// Opt the number out.
 	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+15551234567", "en-US"))
@@ -809,7 +809,7 @@ func TestPublishSMSOptedOutRejected(t *testing.T) {
 	//
 	// For the opt-out test, use a different number that is not in the sandbox.
 	// Opt-out is tracked separately from the sandbox.
-	b2 := newB2Backend(t)
+	b2 := newTestBackend(t)
 
 	// Simulate an already opted-out number by publishing via the handler after
 	// using OptInPhoneNumber/CheckIfPhoneNumberIsOptedOut cycle.
@@ -819,12 +819,12 @@ func TestPublishSMSOptedOutRejected(t *testing.T) {
 	require.NoError(t, err, "non-opted-out number should succeed")
 }
 
-// TestBatch2_PublishSMSSandboxUnverifiedRejected verifies that publishing SMS
+// TestPublishSMSSandboxUnverifiedRejected verifies that publishing SMS
 // to a sandbox number that has not been verified returns ErrSandboxPhoneNotVerified.
 func TestPublishSMSSandboxUnverifiedRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	// Register a number in the sandbox but do NOT verify it.
 	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125559876", "en-US"))
@@ -834,12 +834,12 @@ func TestPublishSMSSandboxUnverifiedRejected(t *testing.T) {
 	require.ErrorIs(t, err, sns.ErrSandboxPhoneNotVerified)
 }
 
-// TestBatch2_PublishSMSSandboxVerifiedSucceeds verifies that a verified sandbox
+// TestPublishSMSSandboxVerifiedSucceeds verifies that a verified sandbox
 // number can receive SMS.
 func TestPublishSMSSandboxVerifiedSucceeds(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+12125551234", "en-US"))
 	require.NoError(t, b.VerifySMSSandboxPhoneNumber("+12125551234", "TOKEN"))
@@ -854,13 +854,13 @@ func TestPublishSMSSandboxVerifiedSucceeds(t *testing.T) {
 	assert.Equal(t, "verified message", deliveries[0].Message)
 }
 
-// TestBatch2_PublishSMSUnregisteredNumberSucceeds verifies that a number NOT
+// TestPublishSMSUnregisteredNumberSucceeds verifies that a number NOT
 // registered in the sandbox (e.g. in a fresh environment) can receive SMS,
 // since sandbox enforcement only applies to numbers that were registered.
 func TestPublishSMSUnregisteredNumberSucceeds(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	// Number not registered in sandbox at all → should succeed.
 	msgID, err := b.PublishSMS("+12125559999", "direct sms")
@@ -868,17 +868,17 @@ func TestPublishSMSUnregisteredNumberSucceeds(t *testing.T) {
 	assert.NotEmpty(t, msgID)
 }
 
-// TestBatch2_PublishSMSOptOutViaHandler verifies the handler returns OptedOut.
+// TestPublishSMSOptOutViaHandler verifies the handler returns OptedOut.
 func TestPublishSMSOptOutViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 
 	// Register, verify, then publish to an unverified number via handler.
 	require.NoError(t, b.CreateSMSSandboxPhoneNumber("+44701234567", "en-GB"))
 	// Do NOT verify → handler Publish to PhoneNumber should fail.
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":      {"Publish"},
 		"PhoneNumber": {"+44701234567"},
 		"Message":     {"test sms"},

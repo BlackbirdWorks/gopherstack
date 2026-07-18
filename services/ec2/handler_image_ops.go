@@ -9,7 +9,7 @@ import (
 
 // handler_image_ops.go implements the HTTP handlers for the Allowed Images Settings,
 // Store/Restore Image Task, Image Usage Report, and ConfirmProductInstance families, backed
-// by backend_image_ops.go.
+// by image_ops.go.
 
 // ---- Registration ----
 

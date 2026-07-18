@@ -2,15 +2,11 @@ package codeartifact
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"maps"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -173,12 +169,14 @@ const (
 var errInvalidRequest = errors.New("invalid request")
 
 // Handler is the Echo HTTP handler for AWS CodeArtifact operations (REST-JSON protocol).
+
 type Handler struct {
 	ops     map[string]func(*echo.Context, []byte) error
 	Backend *InMemoryBackend
 }
 
 // NewHandler creates a new CodeArtifact handler.
+
 func NewHandler(backend *InMemoryBackend) *Handler {
 	h := &Handler{Backend: backend}
 	h.ops = h.buildOps()
@@ -187,12 +185,15 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 }
 
 // Name returns the service name.
+
 func (h *Handler) Name() string { return "CodeArtifact" }
 
 // Reset clears all backend state.
+
 func (h *Handler) Reset() { h.Backend.Reset() }
 
 // GetSupportedOperations returns the list of supported CodeArtifact operations.
+
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opAssociateExternalConnection,
@@ -247,15 +248,19 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+
 func (h *Handler) ChaosServiceName() string { return "codeartifact" }
 
 // ChaosOperations returns all operations that can be fault-injected.
+
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this CodeArtifact instance handles.
+
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // isDomainRepoPath returns true if the path is a known domain/repo/tag/auth path.
+
 func isDomainRepoPath(path string) bool {
 	return path == pathV1Domain || strings.HasPrefix(path, pathV1Domain+"/") ||
 		path == pathV1Domains || path == pathV1Repository ||
@@ -266,6 +271,7 @@ func isDomainRepoPath(path string) bool {
 }
 
 // isPackageCoreGroupPath returns true for core package and package-group paths.
+
 func isPackageCoreGroupPath(path string) bool {
 	return path == pathV1PackageGroup || path == pathV1PackageGroups ||
 		path == pathV1Package || path == pathV1PackageVersion ||
@@ -273,6 +279,7 @@ func isPackageCoreGroupPath(path string) bool {
 }
 
 // isPackageExtendedPath returns true for extended package-version and group operation paths.
+
 func isPackageExtendedPath(path string) bool {
 	return path == pathV1PackageVersionsDispose || path == pathV1PackageVersionsUpdateStatus ||
 		path == pathV1PackageVersionAsset || path == pathV1PackageVersionReadme ||
@@ -283,17 +290,20 @@ func isPackageExtendedPath(path string) bool {
 }
 
 // isPackagePath returns true if the path is a known package/package-group path.
+
 func isPackagePath(path string) bool {
 	return isPackageCoreGroupPath(path) || isPackageExtendedPath(path)
 }
 
 // isCodeArtifactPath returns true if the given path is a known CodeArtifact REST path.
+
 func isCodeArtifactPath(path string) bool {
 	return isDomainRepoPath(path) || isPackagePath(path)
 }
 
 // RouteMatcher returns a function that matches AWS CodeArtifact REST requests.
 // CodeArtifact uses /v1/ paths that are distinct from Batch and AppSync.
+
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
@@ -303,15 +313,18 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority (higher than Batch to avoid conflicts on /v1/).
+
 func (h *Handler) MatchPriority() int { return codeartifactMatchPriority }
 
 // codeartifactRoute holds the parsed information from a CodeArtifact REST request.
+
 type codeartifactRoute struct {
 	operation string
 }
 
 // parseCodeArtifactPath maps HTTP method + path to an operation name.
 // It delegates to sub-parsers to stay within cyclomatic complexity limits.
+
 func parseCodeArtifactPath(method, path string) codeartifactRoute {
 	if strings.HasPrefix(path, "/v1/package") {
 		return parsePackageOpPath(method, path)
@@ -321,6 +334,7 @@ func parseCodeArtifactPath(method, path string) codeartifactRoute {
 }
 
 // parseDomainRepoPath handles domain, repository, tag and auth token routes.
+
 func parseDomainRepoPath(method, path string) codeartifactRoute {
 	if op, ok := domainRepoStaticRoutes[path]; ok {
 		return codeartifactRoute{operation: op}
@@ -382,6 +396,7 @@ var packageOpStaticRoutes = map[string]string{
 }
 
 // parsePackageOpPath handles package, package-group, and package-version routes.
+
 func parsePackageOpPath(method, path string) codeartifactRoute {
 	// Method-dispatched paths first.
 	switch path {
@@ -444,6 +459,7 @@ func parseRepositoryRoute(method string) codeartifactRoute {
 // path. Unlike Get/Put, DeleteRepositoryPermissionsPolicy does NOT live here -- it has its
 // own plural "/v1/repository/permissions/policies" path (see domainRepoStaticRoutes),
 // verified against aws-sdk-go-v2 serializers.go.
+
 func parseRepositoryPermissionsRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodGet:
@@ -484,6 +500,7 @@ func parseRepositoryExternalConnectionRoute(method string) codeartifactRoute {
 // parsePackageRoute handles the shared "/v1/package" path. PutPackageOriginConfiguration
 // has no path of its own in the real API -- it is POST on this same path (verified against
 // aws-sdk-go-v2 serializers.go), alongside GET DescribePackage and DELETE DeletePackage.
+
 func parsePackageRoute(method string) codeartifactRoute {
 	switch method {
 	case http.MethodGet:
@@ -498,6 +515,7 @@ func parsePackageRoute(method string) codeartifactRoute {
 }
 
 // ExtractOperation extracts the CodeArtifact operation name from the REST path.
+
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	r := parseCodeArtifactPath(c.Request().Method, c.Request().URL.Path)
 
@@ -505,6 +523,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 }
 
 // ExtractResource extracts the primary resource identifier from the URL path or query params.
+
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	q := c.Request().URL.Query()
 	if domain := q.Get(keyDomain); domain != "" {
@@ -519,6 +538,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // Handler returns the Echo handler function for CodeArtifact requests.
+
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		// Attach the resolved region to the request context so backend operations
@@ -541,6 +561,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // PublishPackageVersion's httpPayload is the raw asset content (application/octet-stream),
 // not a JSON document -- attempting a JSON decode there would silently discard every
 // published asset's bytes. Every other op's httpPayload-less body is a JSON document.
+
 func readRequestBody(c *echo.Context, op string) []byte {
 	if c.Request().Body == nil {
 		return nil
@@ -669,7 +690,14 @@ func (h *Handler) buildDomainRepoOps() map[string]func(*echo.Context, []byte) er
 	}
 }
 
-func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error { //nolint:funlen
+func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error {
+	ops := h.buildPackageCoreOps()
+	maps.Copy(ops, h.buildPackageVersionOps())
+
+	return ops
+}
+
+func (h *Handler) buildPackageCoreOps() map[string]func(*echo.Context, []byte) error {
 	return map[string]func(*echo.Context, []byte) error{
 		opCopyPackageVersions: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
@@ -758,6 +786,11 @@ func (h *Handler) buildPackageOps() map[string]func(*echo.Context, []byte) error
 				q.Get("namespace"), q.Get("package"), q.Get(keyVersion),
 			)
 		},
+	}
+}
+
+func (h *Handler) buildPackageVersionOps() map[string]func(*echo.Context, []byte) error {
+	return map[string]func(*echo.Context, []byte) error{
 		opListAllowedRepositoriesForGroup: func(c *echo.Context, _ []byte) error {
 			q := c.Request().URL.Query()
 
@@ -867,6 +900,7 @@ func errResp(code, msg string) map[string]string {
 }
 
 // parseMaxResults parses an integer from a query-param string; returns 0 on empty/invalid.
+
 func parseMaxResults(s string) int {
 	if s == "" {
 		return 0
@@ -879,6 +913,7 @@ func parseMaxResults(s string) int {
 // paginateSlice applies cursor-based pagination to a pre-sorted slice.
 // keyFn must return the same value used for sorting. nextToken is the key of the
 // first item on the next page (opaque to callers). Returns (page, nextToken).
+
 func paginateSlice[T any](list []T, maxResults int, nextToken string, keyFn func(T) string) ([]T, string) {
 	const defaultMax = 100
 	limit := maxResults
@@ -910,15 +945,9 @@ func paginateSlice[T any](list []T, maxResults int, nextToken string, keyFn func
 
 // epochSeconds returns the Unix epoch timestamp as a float64 for JSON serialization.
 // The AWS CodeArtifact SDK deserializes timestamps as JSON numbers (epoch seconds).
+
 func epochSeconds(ts time.Time) float64 {
 	return float64(ts.Unix())
-}
-
-// --- Domain handlers ---
-
-type createDomainBody struct {
-	EncryptionKey string           `json:"encryptionKey"`
-	Tags          []map[string]any `json:"tags"`
 }
 
 func tagsFromSlice(raw []map[string]any) map[string]string {
@@ -932,1622 +961,4 @@ func tagsFromSlice(raw []map[string]any) map[string]string {
 	}
 
 	return out
-}
-
-func domainToMap(d *Domain, repoCount int) map[string]any {
-	m := map[string]any{
-		keyArn:            d.ARN,
-		keyName:           d.Name,
-		"owner":           d.Owner,
-		keyStatusField:    d.Status,
-		keyCreatedTime:    epochSeconds(d.CreatedTime),
-		"assetSizeBytes":  d.AssetSizeBytes,
-		"repositoryCount": repoCount,
-	}
-	if d.EncryptionKey != "" {
-		m["encryptionKey"] = d.EncryptionKey
-	}
-	if d.S3BucketARN != "" {
-		m["s3BucketArn"] = d.S3BucketARN
-	}
-
-	return m
-}
-
-func domainSummaryToMap(d *Domain) map[string]any {
-	m := map[string]any{
-		keyArn:         d.ARN,
-		keyName:        d.Name,
-		"owner":        d.Owner,
-		keyStatusField: d.Status,
-		keyCreatedTime: epochSeconds(d.CreatedTime),
-	}
-	if d.EncryptionKey != "" {
-		m["encryptionKey"] = d.EncryptionKey
-	}
-
-	return m
-}
-
-func (h *Handler) handleCreateDomain(c *echo.Context, name string, body []byte) error {
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain name is required"))
-	}
-
-	var in createDomainBody
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-		}
-	}
-
-	d, err := h.Backend.CreateDomain(c.Request().Context(), name, in.EncryptionKey, tagsFromSlice(in.Tags))
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyDomain: domainToMap(d, 0),
-	})
-}
-
-func (h *Handler) handleDescribeDomain(c *echo.Context, name string) error {
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain name is required"))
-	}
-
-	d, err := h.Backend.DescribeDomain(c.Request().Context(), name)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	repoCount := h.Backend.CountRepositoriesInDomain(c.Request().Context(), name)
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyDomain: domainToMap(d, repoCount),
-	})
-}
-
-// listDomainsBody is ListDomains' request shape. Unlike every other List op in this
-// service, ListDomains sends maxResults/nextToken as JSON body fields (it is the only
-// List op whose Smithy model has no httpQuery bindings at all) rather than as
-// "max-results"/"next-token" query params -- verified against aws-sdk-go-v2 serializers.go.
-type listDomainsBody struct {
-	NextToken  string `json:"nextToken"`
-	MaxResults int    `json:"maxResults"`
-}
-
-func (h *Handler) handleListDomains(c *echo.Context, body []byte) error {
-	var in listDomainsBody
-	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
-	}
-
-	all := h.Backend.ListDomains(c.Request().Context())
-	page, next := paginateSlice(all, in.MaxResults, in.NextToken, func(d *Domain) string { return d.Name })
-
-	items := make([]map[string]any, 0, len(page))
-	for _, d := range page {
-		items = append(items, domainSummaryToMap(d))
-	}
-
-	resp := map[string]any{"domains": items}
-	if next != "" {
-		resp["nextToken"] = next
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleDeleteDomain(c *echo.Context, name string) error {
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain name is required"))
-	}
-
-	repoCount := h.Backend.CountRepositoriesInDomain(c.Request().Context(), name)
-
-	d, err := h.Backend.DeleteDomain(c.Request().Context(), name)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyDomain: domainToMap(d, repoCount),
-	})
-}
-
-// --- Repository handlers ---
-
-type upstreamRepoEntry struct {
-	RepositoryName string `json:"repositoryName"`
-}
-
-// createRepositoryBody's Upstreams field uses the wire key "upstreams" (verified against
-// aws-sdk-go-v2 serializers.go's awsRestjson1_serializeOpDocumentCreateRepositoryInput) --
-// NOT "upstreamRepositories" as the RepositoryDescription.Upstreams Go field name might
-// suggest.
-type createRepositoryBody struct {
-	Description string              `json:"description"`
-	Tags        []map[string]any    `json:"tags"`
-	Upstreams   []upstreamRepoEntry `json:"upstreams"`
-}
-
-func repoToMap(r *Repository, connections []ExternalConnection) map[string]any {
-	m := map[string]any{
-		keyArn:                 r.ARN,
-		keyName:                r.Name,
-		keyDomainName:          r.DomainName,
-		keyDomainOwner:         r.DomainOwner,
-		"administratorAccount": r.AdministratorAccount,
-	}
-	if r.Description != "" {
-		m["description"] = r.Description
-	}
-
-	extConns := make([]map[string]any, 0, len(connections))
-	for _, ec := range connections {
-		extConns = append(extConns, map[string]any{
-			"externalConnectionName": ec.ExternalConnectionName,
-			"packageFormat":          ec.PackageFormat,
-			keyStatusField:           ec.Status,
-		})
-	}
-	m["externalConnections"] = extConns
-
-	upstreams := make([]map[string]string, 0, len(r.UpstreamRepositories))
-	for _, name := range r.UpstreamRepositories {
-		upstreams = append(upstreams, map[string]string{"repositoryName": name})
-	}
-	// Wire key is "upstreams", not "upstreamRepositories" -- verified against
-	// aws-sdk-go-v2 deserializers.go's awsRestjson1_deserializeDocumentRepositoryDescription.
-	m["upstreams"] = upstreams
-
-	return m
-}
-
-func (h *Handler) handleCreateRepository(c *echo.Context, domainName, repoName string, body []byte) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-
-	var in createRepositoryBody
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-		}
-	}
-
-	upstreams := make([]string, 0, len(in.Upstreams))
-	for _, u := range in.Upstreams {
-		upstreams = append(upstreams, u.RepositoryName)
-	}
-
-	r, err := h.Backend.CreateRepository(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		in.Description,
-		tagsFromSlice(in.Tags),
-		upstreams,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)),
-	})
-}
-
-func (h *Handler) handleDescribeRepository(c *echo.Context, domainName, repoName string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-
-	r, err := h.Backend.DescribeRepository(c.Request().Context(), domainName, repoName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)),
-	})
-}
-
-func (h *Handler) handleDeleteRepository(c *echo.Context, domainName, repoName string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-
-	conns := h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)
-
-	r, err := h.Backend.DeleteRepository(c.Request().Context(), domainName, repoName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyRepository: repoToMap(r, conns),
-	})
-}
-
-func (h *Handler) handleListRepositoriesInDomain(c *echo.Context, domainName string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-
-	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("max-results"))
-	nextToken := q.Get("next-token")
-
-	all, err := h.Backend.ListRepositoriesInDomain(c.Request().Context(), domainName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	page, next := paginateSlice(all, maxResults, nextToken, func(r *Repository) string { return r.Name })
-
-	items := make([]map[string]any, 0, len(page))
-	for _, r := range page {
-		items = append(items, map[string]any{
-			keyArn:         r.ARN,
-			keyName:        r.Name,
-			keyDomainName:  r.DomainName,
-			keyDomainOwner: r.DomainOwner,
-		})
-	}
-
-	resp := map[string]any{"repositories": items}
-	if next != "" {
-		resp["nextToken"] = next
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleListRepositories(c *echo.Context) error {
-	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("max-results"))
-	nextToken := q.Get("next-token")
-
-	all := h.Backend.ListRepositories(c.Request().Context())
-	page, next := paginateSlice(all, maxResults, nextToken, func(r *Repository) string { return r.Name })
-
-	items := make([]map[string]any, 0, len(page))
-	for _, r := range page {
-		items = append(items, map[string]any{
-			keyArn:         r.ARN,
-			keyName:        r.Name,
-			keyDomainName:  r.DomainName,
-			keyDomainOwner: r.DomainOwner,
-		})
-	}
-
-	resp := map[string]any{"repositories": items}
-	if next != "" {
-		resp["nextToken"] = next
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleGetRepositoryEndpoint(c *echo.Context, domainName, repoName, format string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		format = "generic"
-	}
-
-	_, err := h.Backend.DescribeRepository(c.Request().Context(), domainName, repoName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	endpoint := fmt.Sprintf(
-		"https://%s-%s.d.codeartifact.%s.amazonaws.com/%s/%s/",
-		domainName, h.Backend.accountID, h.Backend.region, format, repoName,
-	)
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"repositoryEndpoint": endpoint,
-	})
-}
-
-func (h *Handler) handleGetAuthorizationToken(c *echo.Context, domainName string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-
-	_, err := h.Backend.DescribeDomain(c.Request().Context(), domainName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	// Return a plausible stub token.
-	return c.JSON(http.StatusOK, map[string]any{
-		"authorizationToken": "codeartifact-stub-token-" + domainName,
-		"expiration":         epochSeconds(time.Now().Add(stubTokenExpireHours * time.Hour)),
-	})
-}
-
-// --- Tag handlers ---
-
-type tagResourceBody struct {
-	Tags []map[string]any `json:"tags"`
-}
-
-type untagResourceBody struct {
-	TagKeys []string `json:"tagKeys"`
-}
-
-func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
-	if resourceARN == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "resourceArn is required"))
-	}
-
-	kv, err := h.Backend.ListTagsForResource(c.Request().Context(), resourceARN)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	tagList := make([]map[string]string, 0, len(kv))
-	for k, v := range kv {
-		tagList = append(tagList, map[string]string{"key": k, "value": v})
-	}
-	slices.SortFunc(tagList, func(a, b map[string]string) int {
-		return strings.Compare(a["key"], b["key"])
-	})
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"tags": tagList,
-	})
-}
-
-func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []byte) error {
-	if resourceARN == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "resourceArn is required"))
-	}
-
-	var in tagResourceBody
-	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-	}
-
-	if err := h.Backend.TagResource(c.Request().Context(), resourceARN, tagsFromSlice(in.Tags)); err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.NoContent(http.StatusOK)
-}
-
-func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, body []byte) error {
-	if resourceARN == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "resourceArn is required"))
-	}
-
-	var in untagResourceBody
-	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-	}
-
-	if err := h.Backend.UntagResource(c.Request().Context(), resourceARN, in.TagKeys); err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.NoContent(http.StatusOK)
-}
-
-// --- Permissions policy handlers ---
-
-func (h *Handler) handleGetDomainPermissionsPolicy(c *echo.Context, domainName string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-
-	pol, err := h.Backend.GetDomainPermissionsPolicy(c.Request().Context(), domainName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPolicy: map[string]any{
-			keyDocument:    pol.Document,
-			keyRevision:    pol.Revision,
-			keyResourceArn: pol.ResourceARN,
-		},
-	})
-}
-
-type putDomainPermissionsPolicyBody struct {
-	PolicyDocument string `json:"policyDocument"`
-}
-
-func (h *Handler) handlePutDomainPermissionsPolicy(c *echo.Context, domainName string, body []byte) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-
-	var in putDomainPermissionsPolicyBody
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-		}
-	}
-
-	if in.PolicyDocument == "" {
-		in.PolicyDocument = `{"Version":"2012-10-17","Statement":[]}`
-	}
-
-	pol, err := h.Backend.PutDomainPermissionsPolicy(c.Request().Context(), domainName, in.PolicyDocument)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPolicy: map[string]any{
-			keyDocument:    pol.Document,
-			keyRevision:    pol.Revision,
-			keyResourceArn: pol.ResourceARN,
-		},
-	})
-}
-
-func (h *Handler) handleDeleteDomainPermissionsPolicy(c *echo.Context, domainName string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-
-	pol, err := h.Backend.DeleteDomainPermissionsPolicy(c.Request().Context(), domainName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPolicy: map[string]any{
-			keyDocument:    pol.Document,
-			keyRevision:    pol.Revision,
-			keyResourceArn: pol.ResourceARN,
-		},
-	})
-}
-
-// --- Package group handlers ---
-
-type createPackageGroupBody struct {
-	Pattern     string           `json:"pattern"`
-	Description string           `json:"description"`
-	ContactInfo string           `json:"contactInfo"`
-	Tags        []map[string]any `json:"tags"`
-}
-
-func packageGroupToMap(pg *PackageGroup) map[string]any {
-	m := map[string]any{
-		keyArn:         pg.ARN,
-		keyDomainName:  pg.DomainName,
-		keyDomainOwner: pg.DomainOwner,
-		"pattern":      pg.Pattern,
-		keyCreatedTime: epochSeconds(pg.CreatedTime),
-	}
-	if pg.Description != "" {
-		m["description"] = pg.Description
-	}
-	if pg.ContactInfo != "" {
-		m["contactInfo"] = pg.ContactInfo
-	}
-
-	return m
-}
-
-func (h *Handler) handleCreatePackageGroup(c *echo.Context, domainName string, body []byte) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-
-	var in createPackageGroupBody
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-		}
-	}
-
-	pattern := in.Pattern
-	if pattern == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "pattern is required"))
-	}
-
-	pg, err := h.Backend.CreatePackageGroup(
-		c.Request().Context(),
-		domainName,
-		pattern,
-		in.Description,
-		in.ContactInfo,
-		tagsFromSlice(in.Tags),
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPackageGroup: packageGroupToMap(pg),
-	})
-}
-
-func (h *Handler) handleDescribePackageGroup(c *echo.Context, domainName, pattern string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if pattern == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
-	}
-
-	pg, err := h.Backend.DescribePackageGroup(c.Request().Context(), domainName, pattern)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPackageGroup: packageGroupToMap(pg),
-	})
-}
-
-func (h *Handler) handleDeletePackageGroup(c *echo.Context, domainName, pattern string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if pattern == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
-	}
-
-	pg, err := h.Backend.DeletePackageGroup(c.Request().Context(), domainName, pattern)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPackageGroup: packageGroupToMap(pg),
-	})
-}
-
-// --- Package handlers ---
-
-func packageToMap(pkg *Package) map[string]any {
-	m := map[string]any{
-		keyFormat:      pkg.Format,
-		keyName:        pkg.Name,
-		keyDomainName:  pkg.DomainName,
-		keyDomainOwner: pkg.DomainOwner,
-		keyRepository:  pkg.Repository,
-	}
-	if pkg.Namespace != "" {
-		m["namespace"] = pkg.Namespace
-	}
-	if pkg.OriginConfigPublish != "" || pkg.OriginConfigUpstream != "" {
-		m["originConfiguration"] = originConfigurationToMap(pkg.OriginConfigPublish, pkg.OriginConfigUpstream)
-	}
-
-	return m
-}
-
-// originConfigurationToMap builds the wire shape of PackageOriginConfiguration --
-// verified against aws-sdk-go-v2 deserializers.go's
-// awsRestjson1_deserializeDocumentPackageOriginConfiguration /
-// ...PackageOriginRestrictions.
-func originConfigurationToMap(publish, upstream string) map[string]any {
-	return map[string]any{
-		"restrictions": map[string]any{
-			"publish":  publish,
-			"upstream": upstream,
-		},
-	}
-}
-
-func (h *Handler) handleDescribePackage(c *echo.Context, domainName, repoName, format, namespace, name string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-
-	pkg, err := h.Backend.DescribePackage(c.Request().Context(), domainName, repoName, format, namespace, name)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPackageKey: packageToMap(pkg),
-	})
-}
-
-func (h *Handler) handleDeletePackage(c *echo.Context, domainName, repoName, format, namespace, name string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-
-	pkg, err := h.Backend.DeletePackage(c.Request().Context(), domainName, repoName, format, namespace, name)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"deletedPackage": packageToMap(pkg),
-	})
-}
-
-// --- Package version handlers ---
-
-// packageVersionToMap builds the wire shape of PackageVersionDescription (used by
-// DescribePackageVersion). The publish-time field's wire key is "publishedTime" --
-// verified against aws-sdk-go-v2 deserializers.go's
-// awsRestjson1_deserializeDocumentPackageVersionDescription; "publishedAt" is not a
-// field the real deserializer recognizes.
-func packageVersionToMap(pv *PackageVersion) map[string]any {
-	m := map[string]any{
-		keyVersion:      pv.Version,
-		keyStatusField:  pv.Status,
-		"format":        pv.Format,
-		"packageName":   pv.PackageName,
-		"publishedTime": epochSeconds(pv.PublishedAt),
-		keyRevision:     pv.Revision,
-	}
-	if pv.Namespace != "" {
-		m["namespace"] = pv.Namespace
-	}
-
-	return m
-}
-
-func (h *Handler) handleDescribePackageVersion(
-	c *echo.Context,
-	domainName, repoName, format, namespace, name, version string,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-	if version == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
-	}
-
-	pv, err := h.Backend.DescribePackageVersion(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		format,
-		namespace,
-		name,
-		version,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"packageVersion": packageVersionToMap(pv),
-	})
-}
-
-type deletePackageVersionsBody struct {
-	Versions []string `json:"versions"`
-}
-
-func (h *Handler) handleDeletePackageVersions(
-	c *echo.Context,
-	domainName, repoName, format, namespace, name string,
-	body []byte,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-
-	var in deletePackageVersionsBody
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-		}
-	}
-
-	failed, err := h.Backend.DeletePackageVersions(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		format,
-		namespace,
-		name,
-		in.Versions,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	failedList := make([]map[string]string, 0, len(failed))
-	for v, code := range failed {
-		failedList = append(failedList, map[string]string{keyVersion: v, "errorCode": code})
-	}
-
-	successList := make([]map[string]string, 0, len(in.Versions))
-	for _, v := range in.Versions {
-		if _, ok := failed[v]; !ok {
-			successList = append(successList, map[string]string{keyVersion: v, keyStatusField: "Deleted"})
-		}
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyFailedVersions:     failedList,
-		keySuccessfulVersions: successList,
-	})
-}
-
-type copyPackageVersionsBody struct {
-	Versions []string `json:"versions"`
-}
-
-func (h *Handler) handleCopyPackageVersions(
-	c *echo.Context,
-	domainName, srcRepo, dstRepo, format, namespace, name string,
-	body []byte,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if srcRepo == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "sourceRepository is required"))
-	}
-	if dstRepo == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "destinationRepository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-
-	var in copyPackageVersionsBody
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-		}
-	}
-
-	failed, err := h.Backend.CopyPackageVersions(
-		c.Request().Context(),
-		domainName,
-		srcRepo,
-		dstRepo,
-		format,
-		namespace,
-		name,
-		in.Versions,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	failedList := make([]map[string]string, 0, len(failed))
-	for v, code := range failed {
-		failedList = append(failedList, map[string]string{keyVersion: v, "errorCode": code})
-	}
-
-	successList := make([]map[string]string, 0, len(in.Versions))
-	for _, v := range in.Versions {
-		if _, ok := failed[v]; !ok {
-			successList = append(successList, map[string]string{keyVersion: v, keyStatusField: "Copied"})
-		}
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyFailedVersions:     failedList,
-		keySuccessfulVersions: successList,
-	})
-}
-
-// --- External connection handler ---
-
-func (h *Handler) handleAssociateExternalConnection(
-	c *echo.Context,
-	domainName, repoName, connectionName string,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if connectionName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "externalConnection is required"))
-	}
-
-	r, err := h.Backend.AssociateExternalConnection(c.Request().Context(), domainName, repoName, connectionName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyRepository: repoToMap(r, h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)),
-	})
-}
-
-// --- Repository permissions policy handlers (new) ---
-
-func (h *Handler) handleGetRepositoryPermissionsPolicy(c *echo.Context, domainName, repoName string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-
-	pol, err := h.Backend.GetRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPolicy: map[string]any{
-			keyDocument:    pol.Document,
-			keyRevision:    pol.Revision,
-			keyResourceArn: pol.ResourceARN,
-		},
-	})
-}
-
-type putRepositoryPermissionsPolicyBody struct {
-	PolicyDocument string `json:"policyDocument"`
-}
-
-func (h *Handler) handlePutRepositoryPermissionsPolicy(
-	c *echo.Context,
-	domainName, repoName string,
-	body []byte,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-
-	var in putRepositoryPermissionsPolicyBody
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-		}
-	}
-
-	if in.PolicyDocument == "" {
-		in.PolicyDocument = `{"Version":"2012-10-17","Statement":[]}`
-	}
-
-	pol, err := h.Backend.PutRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName, in.PolicyDocument)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPolicy: map[string]any{
-			keyDocument:    pol.Document,
-			keyRevision:    pol.Revision,
-			keyResourceArn: pol.ResourceARN,
-		},
-	})
-}
-
-func (h *Handler) handleDeleteRepositoryPermissionsPolicy(c *echo.Context, domainName, repoName string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-
-	pol, err := h.Backend.DeleteRepositoryPermissionsPolicy(c.Request().Context(), domainName, repoName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyPolicy: map[string]any{
-			keyDocument:    pol.Document,
-			keyRevision:    pol.Revision,
-			keyResourceArn: pol.ResourceARN,
-		},
-	})
-}
-
-// --- New handler implementations ---
-
-func (h *Handler) handleDisassociateExternalConnection(
-	c *echo.Context, domainName, repoName, connectionName string,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if connectionName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "externalConnection is required"))
-	}
-
-	r, err := h.Backend.DisassociateExternalConnection(c.Request().Context(), domainName, repoName, connectionName)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	extConns := h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)
-
-	return c.JSON(http.StatusOK, map[string]any{keyRepository: repoToMap(r, extConns)})
-}
-
-type disposeVersionsBody struct {
-	Versions []string `json:"versions"`
-}
-
-func (h *Handler) handleDisposePackageVersions(
-	c *echo.Context, domainName, repoName, format, namespace, name string, body []byte,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-
-	var in disposeVersionsBody
-	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
-	}
-
-	results, err := h.Backend.DisposePackageVersions(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		format,
-		namespace,
-		name,
-		in.Versions,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{keySuccessfulVersions: results, keyFailedVersions: map[string]any{}})
-}
-
-func (h *Handler) handleGetAssociatedPackageGroup(c *echo.Context, domainName, format, namespace, name string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-
-	pg, err := h.Backend.GetAssociatedPackageGroup(c.Request().Context(), domainName, format, namespace, name)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	if pg == nil {
-		return c.JSON(http.StatusOK, map[string]any{keyPackageGroup: nil})
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{keyPackageGroup: packageGroupToMap(pg)})
-}
-
-func (h *Handler) handleGetPackageVersionAsset(
-	c *echo.Context, domainName, repoName, format, namespace, name, version, asset string,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-	if version == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
-	}
-	if asset == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "asset is required"))
-	}
-
-	data, err := h.Backend.GetPackageVersionAsset(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		format,
-		namespace,
-		name,
-		version,
-		asset,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.Blob(http.StatusOK, "application/octet-stream", data)
-}
-
-func (h *Handler) validatePackageVersionParams(
-	c *echo.Context,
-	domainName, repoName, format, name, version string,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-	if version == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
-	}
-
-	return nil
-}
-
-func (h *Handler) handleGetPackageVersionReadme(
-	c *echo.Context, domainName, repoName, format, namespace, name, version string,
-) error {
-	if err := h.validatePackageVersionParams(c, domainName, repoName, format, name, version); err != nil {
-		return err
-	}
-
-	readme, err := h.Backend.GetPackageVersionReadme(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		format,
-		namespace,
-		name,
-		version,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"readme": readme})
-}
-
-func (h *Handler) handleListAllowedRepositoriesForGroup(c *echo.Context, domainName, pattern string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if pattern == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
-	}
-
-	repos, err := h.Backend.ListAllowedRepositoriesForGroup(c.Request().Context(), domainName, pattern)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"allowedRepositories": repos})
-}
-
-func (h *Handler) handleListAssociatedPackages(c *echo.Context, domainName, pattern string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if pattern == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
-	}
-
-	pkgs, err := h.Backend.ListAssociatedPackages(c.Request().Context(), domainName, pattern)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	items := make([]map[string]any, 0, len(pkgs))
-	for _, pkg := range pkgs {
-		items = append(items, packageToMap(pkg))
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"packages": items})
-}
-
-func (h *Handler) handleListPackageGroups(c *echo.Context, domainName, prefix string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-
-	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("max-results"))
-	nextToken := q.Get("next-token")
-
-	all, err := h.Backend.ListPackageGroups(c.Request().Context(), domainName, prefix)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	page, next := paginateSlice(all, maxResults, nextToken, func(pg *PackageGroup) string { return pg.Pattern })
-
-	items := make([]map[string]any, 0, len(page))
-	for _, pg := range page {
-		items = append(items, packageGroupToMap(pg))
-	}
-
-	resp := map[string]any{"packageGroups": items}
-	if next != "" {
-		resp["nextToken"] = next
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleListPackageVersionAssets(
-	c *echo.Context, domainName, repoName, format, namespace, name, version string,
-) error {
-	if err := h.validatePackageVersionParams(c, domainName, repoName, format, name, version); err != nil {
-		return err
-	}
-
-	assets, err := h.Backend.ListPackageVersionAssets(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		format,
-		namespace,
-		name,
-		version,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	items := make([]map[string]any, 0, len(assets))
-	for _, a := range assets {
-		items = append(items, assetSummaryToMap(a))
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"assets": items})
-}
-
-// assetSummaryToMap builds the wire shape of AssetSummary -- verified against
-// aws-sdk-go-v2 deserializers.go's awsRestjson1_deserializeDocumentAssetSummary.
-func assetSummaryToMap(a AssetInfo) map[string]any {
-	return map[string]any{
-		"name": a.Name,
-		"size": a.Size,
-		"hashes": map[string]string{
-			"SHA256": a.SHA256,
-		},
-	}
-}
-
-func (h *Handler) handleListPackageVersionDependencies(
-	c *echo.Context, domainName, repoName, format, namespace, name, version string,
-) error {
-	if err := h.validatePackageVersionParams(c, domainName, repoName, format, name, version); err != nil {
-		return err
-	}
-
-	deps, err := h.Backend.ListPackageVersionDependencies(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		format,
-		namespace,
-		name,
-		version,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"dependencies": deps})
-}
-
-func (h *Handler) handleListPackageVersions(
-	c *echo.Context, domainName, repoName, format, namespace, name string,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-
-	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("max-results"))
-	nextToken := q.Get("next-token")
-
-	all, err := h.Backend.ListPackageVersions(c.Request().Context(), domainName, repoName, format, namespace, name)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	page, next := paginateSlice(all, maxResults, nextToken, func(pv *PackageVersion) string { return pv.Version })
-
-	items := make([]map[string]any, 0, len(page))
-	for _, pv := range page {
-		items = append(items, packageVersionToMap(pv))
-	}
-
-	resp := map[string]any{"versions": items, "package": name, "format": format}
-	if next != "" {
-		resp["nextToken"] = next
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleListPackages(c *echo.Context, domainName, repoName, format, namespace string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-
-	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("max-results"))
-	nextToken := q.Get("next-token")
-
-	all, err := h.Backend.ListPackages(c.Request().Context(), domainName, repoName, format, namespace)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	page, next := paginateSlice(all, maxResults, nextToken, func(p *Package) string { return p.Name })
-
-	items := make([]map[string]any, 0, len(page))
-	for _, pkg := range page {
-		items = append(items, packageToMap(pkg))
-	}
-
-	resp := map[string]any{"packages": items}
-	if next != "" {
-		resp["nextToken"] = next
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleListSubPackageGroups(c *echo.Context, domainName, pattern string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if pattern == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
-	}
-
-	q := c.Request().URL.Query()
-	maxResults := parseMaxResults(q.Get("max-results"))
-	nextToken := q.Get("next-token")
-
-	all, err := h.Backend.ListSubPackageGroups(c.Request().Context(), domainName, pattern)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	page, next := paginateSlice(all, maxResults, nextToken, func(pg *PackageGroup) string { return pg.Pattern })
-
-	items := make([]map[string]any, 0, len(page))
-	for _, pg := range page {
-		items = append(items, packageGroupToMap(pg))
-	}
-
-	resp := map[string]any{"packageGroups": items}
-	if next != "" {
-		resp["nextToken"] = next
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handlePublishPackageVersion(
-	c *echo.Context, domainName, repoName, format, namespace, name, version, assetName string, body []byte,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-	if version == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "version is required"))
-	}
-	if assetName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "asset is required"))
-	}
-
-	sum := sha256.Sum256(body)
-	asset := AssetInfo{
-		Name:    assetName,
-		Size:    int64(len(body)),
-		SHA256:  hex.EncodeToString(sum[:]),
-		Content: body,
-	}
-
-	pv, err := h.Backend.PublishPackageVersion(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		format,
-		namespace,
-		name,
-		version,
-		asset,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, publishPackageVersionToMap(pv, asset))
-}
-
-// publishPackageVersionToMap builds PublishPackageVersionOutput's wire shape -- a FLAT
-// object (no "packageVersion" envelope), with field names "package"/"versionRevision"
-// (not "packageName"/"revision") and an "asset" summary. Verified against aws-sdk-go-v2
-// deserializers.go's awsRestjson1_deserializeOpDocumentPublishPackageVersionOutput.
-func publishPackageVersionToMap(pv *PackageVersion, asset AssetInfo) map[string]any {
-	m := map[string]any{
-		keyFormat:         pv.Format,
-		keyPackageKey:     pv.PackageName,
-		keyStatusField:    pv.Status,
-		keyVersion:        pv.Version,
-		"versionRevision": pv.Revision,
-		"asset":           assetSummaryToMap(asset),
-	}
-	if pv.Namespace != "" {
-		m["namespace"] = pv.Namespace
-	}
-
-	return m
-}
-
-// putPackageOriginConfigurationBody is PutPackageOriginConfigurationInput's request
-// shape -- verified against aws-sdk-go-v2 serializers.go's
-// awsRestjson1_serializeOpDocumentPutPackageOriginConfigurationInput.
-type putPackageOriginConfigurationBody struct {
-	Restrictions struct {
-		Publish  string `json:"publish"`
-		Upstream string `json:"upstream"`
-	} `json:"restrictions"`
-}
-
-func (h *Handler) handlePutPackageOriginConfiguration(
-	c *echo.Context, domainName, repoName, format, namespace, name string, body []byte,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-
-	var in putPackageOriginConfigurationBody
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-		}
-	}
-
-	pkg, err := h.Backend.PutPackageOriginConfiguration(
-		c.Request().Context(),
-		domainName,
-		repoName,
-		format,
-		namespace,
-		name,
-		in.Restrictions.Publish,
-		in.Restrictions.Upstream,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	// PutPackageOriginConfigurationOutput is a FLAT {"originConfiguration": ...} object,
-	// not wrapped in "package" -- verified against aws-sdk-go-v2 deserializers.go's
-	// awsRestjson1_deserializeOpDocumentPutPackageOriginConfigurationOutput.
-	return c.JSON(http.StatusOK, map[string]any{
-		"originConfiguration": originConfigurationToMap(pkg.OriginConfigPublish, pkg.OriginConfigUpstream),
-	})
-}
-
-type updatePackageGroupBody struct {
-	Description  string `json:"description"`
-	ContactInfo  string `json:"contactInfo"`
-	PackageGroup string `json:"packageGroup"`
-}
-
-func (h *Handler) handleUpdatePackageGroup(c *echo.Context, domainName string, body []byte) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-
-	var in updatePackageGroupBody
-	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
-	}
-
-	pattern := c.Request().URL.Query().Get(keyPackageGroup)
-	if pattern == "" {
-		pattern = in.PackageGroup
-	}
-
-	pg, err := h.Backend.UpdatePackageGroup(c.Request().Context(), domainName, pattern, in.Description, in.ContactInfo)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"packageGroup": packageGroupToMap(pg)})
-}
-
-func (h *Handler) handleUpdatePackageGroupOriginConfiguration(c *echo.Context, domainName, pattern string) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if pattern == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
-	}
-
-	pg, err := h.Backend.UpdatePackageGroupOriginConfiguration(c.Request().Context(), domainName, pattern)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"packageGroup": packageGroupToMap(pg)})
-}
-
-type updateVersionsStatusBody struct {
-	TargetStatus string   `json:"targetStatus"`
-	Versions     []string `json:"versions"`
-}
-
-func (h *Handler) handleUpdatePackageVersionsStatus(
-	c *echo.Context, domainName, repoName, format, namespace, name string, body []byte,
-) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-	if format == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "format is required"))
-	}
-	if name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "package is required"))
-	}
-
-	var in updateVersionsStatusBody
-	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
-	}
-
-	if in.TargetStatus == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "targetStatus is required"))
-	}
-
-	results, err := h.Backend.UpdatePackageVersionsStatus(
-		c.Request().Context(), domainName, repoName, format, namespace, name, in.TargetStatus, in.Versions,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{keySuccessfulVersions: results, keyFailedVersions: map[string]any{}})
-}
-
-// updateRepositoryBody's Upstreams field uses the wire key "upstreams", same as
-// createRepositoryBody -- see its comment for the verified source.
-type updateRepositoryBody struct {
-	Description string              `json:"description"`
-	Upstreams   []upstreamRepoEntry `json:"upstreams"`
-}
-
-func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName string, body []byte) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-	if repoName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "repository is required"))
-	}
-
-	var in updateRepositoryBody
-	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
-	}
-
-	var upstreams []string
-	if in.Upstreams != nil {
-		upstreams = make([]string, 0, len(in.Upstreams))
-		for _, u := range in.Upstreams {
-			upstreams = append(upstreams, u.RepositoryName)
-		}
-	}
-
-	r, err := h.Backend.UpdateRepository(c.Request().Context(), domainName, repoName, in.Description, upstreams)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	extConns := h.Backend.GetExternalConnections(c.Request().Context(), domainName, repoName)
-
-	return c.JSON(http.StatusOK, map[string]any{keyRepository: repoToMap(r, extConns)})
 }

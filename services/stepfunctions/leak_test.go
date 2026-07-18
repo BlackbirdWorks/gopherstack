@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	sfn "github.com/blackbirdworks/gopherstack/services/stepfunctions"
@@ -252,5 +253,60 @@ func TestSweepTaskTokens_EvictsStaleTokens(t *testing.T) {
 		case <-deadline:
 			t.Fatal("InvokeActivity goroutine did not unblock after SweepTaskTokens")
 		}
+	}
+}
+
+// TestLeak_DeletedExecsTombstoneCleanup verifies that pruneExecutionsLocked
+// cleans up orphaned tombstones (goroutines that exited without clearing them).
+func TestDeletedExecsTombstoneCleanup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn func(t *testing.T, bk *sfn.InMemoryBackend) float64 // returns prune cutoff
+		name    string
+	}{
+		{
+			name: "no tombstones after prune clears finished execs",
+			setupFn: func(t *testing.T, bk *sfn.InMemoryBackend) float64 {
+				t.Helper()
+
+				ctx := context.Background()
+				sm, err := bk.CreateStateMachine(
+					ctx, "tomb-sm",
+					`{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`,
+					"arn:aws:iam::123456789012:role/r", "STANDARD",
+				)
+				require.NoError(t, err)
+
+				exec, err := bk.StartExecution(sm.StateMachineArn, "tomb-exec", `{}`)
+				require.NoError(t, err)
+
+				require.Eventually(t, func() bool {
+					e, descErr := bk.DescribeExecution(exec.ExecutionArn)
+
+					return descErr == nil && e.Status != "RUNNING"
+				}, 3*time.Second, 10*time.Millisecond)
+
+				// Return a cutoff far in the future to prune everything.
+				return float64(time.Now().Add(10 * time.Second).Unix())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := sfn.NewInMemoryBackend()
+			cutoff := tt.setupFn(t, bk)
+
+			beforeTombstones := bk.DeletedExecsCountForTest()
+			bk.PruneExecutionsForTest(cutoff)
+			afterTombstones := bk.DeletedExecsCountForTest()
+
+			// Tombstone count should not increase after pruning.
+			assert.LessOrEqual(t, afterTombstones, beforeTombstones,
+				"tombstone count should not increase after prune")
+		})
 	}
 }

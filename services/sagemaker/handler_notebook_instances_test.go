@@ -96,3 +96,29 @@ func TestHandler_NotebookInstance_EventuallyInService(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
 	assert.NotEmpty(t, descOut["NotebookInstanceStatus"])
 }
+
+// TestUpdateNotebookInstance_RequiresStoppedState verifies that updating a notebook
+// instance that is not in Stopped status returns 400. Real AWS returns ValidationException
+// for updates on InService, Pending, Stopping, or other non-Stopped notebooks.
+func TestUpdateNotebookInstance_RequiresStoppedState(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a notebook instance.
+	rec := doSageMakerRequest(t, h, "CreateNotebookInstance", map[string]any{
+		"NotebookInstanceName": "update-state-nb",
+		"InstanceType":         "ml.t2.medium",
+		"RoleArn":              "arn:aws:iam::123456789012:role/SageMakerRole",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "CreateNotebookInstance failed: %s", rec.Body.String())
+
+	// While still in Pending/InService state (freshly created), update must be rejected.
+	rec = doSageMakerRequest(t, h, "UpdateNotebookInstance", map[string]any{
+		"NotebookInstanceName": "update-state-nb",
+		"InstanceType":         "ml.t3.medium",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"UpdateNotebookInstance on non-Stopped notebook must return 400; body: %s",
+		rec.Body.String())
+}

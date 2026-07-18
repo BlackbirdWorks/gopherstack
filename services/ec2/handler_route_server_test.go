@@ -201,12 +201,12 @@ func extractBetween(t *testing.T, s, start, end string) string {
 	return rest[:j]
 }
 
-// TestUnshadowedBatch5Ops verifies the systemic stub-shadowing fix: these ops
-// have real handlers registered in handler_batch5.go, and previously the
-// stub registered after them in buildOps silently won the dispatch-table
+// TestOperationsNotShadowedByGenericHandlers verifies the systemic stub-shadowing fix: these ops
+// have real handlers registered in handler_fleet.go and handler_carrier_gateways.go, and previously
+// the stub registered after them in buildOps silently won the dispatch-table
 // slot. They must now dispatch to the real handler and return the real
 // response shape rather than the generic StubResponse.
-func TestUnshadowedBatch5Ops(t *testing.T) { //nolint:paralleltest // existing issue.
+func TestOperationsNotShadowedByGenericHandlers(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler()
 
 	tests := []struct {

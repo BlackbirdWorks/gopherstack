@@ -104,8 +104,10 @@ func TestErrCustomKeyStoreNotFound_Mapping(t *testing.T) {
 	}
 }
 
-// TestNewOpsHandler verifies the HTTP handler dispatches all 10 new operations correctly.
-func TestNewOpsHandler(t *testing.T) {
+// TestHandlerDispatchesCustomKeyStoreAndCryptoOps verifies the HTTP handler dispatches
+// custom-key-store and related crypto operations (random, MAC, data-key-pair, shared
+// secret) correctly.
+func TestHandlerDispatchesCustomKeyStoreAndCryptoOps(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -318,8 +320,8 @@ func TestNewOpsHandler(t *testing.T) {
 	}
 }
 
-// TestNewOpsHandlerReset verifies that custom key stores are cleared after Reset.
-func TestNewOpsHandlerReset(t *testing.T) {
+// TestHandlerResetClearsCustomKeyStores verifies that custom key stores are cleared after Reset.
+func TestHandlerResetClearsCustomKeyStores(t *testing.T) {
 	t.Parallel()
 
 	b := kms.NewInMemoryBackend()

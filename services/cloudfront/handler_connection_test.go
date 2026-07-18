@@ -14,10 +14,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestNewOps_ConnectionGroup_Full exercises the full ConnectionGroup lifecycle: create with a
+// TestConnectionGroup_Full exercises the full ConnectionGroup lifecycle: create with a
 // full config (AnycastIpListId, Ipv6Enabled, Enabled), get, get-by-routing-endpoint, list,
 // update (partial merge), and delete.
-func TestNewOps_ConnectionGroup_Full(t *testing.T) {
+func TestConnectionGroup_Full(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -96,9 +96,9 @@ func TestNewOps_ConnectionGroup_Full(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionGroup_NameUniqueness verifies that creating a connection group with a
+// TestConnectionGroup_NameUniqueness verifies that creating a connection group with a
 // name that already exists fails with 409 EntityAlreadyExists.
-func TestNewOps_ConnectionGroup_NameUniqueness(t *testing.T) {
+func TestConnectionGroup_NameUniqueness(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -115,9 +115,9 @@ func TestNewOps_ConnectionGroup_NameUniqueness(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionGroup_NotFound verifies Get/GetByRoutingEndpoint/Update/Delete on a
+// TestConnectionGroup_NotFound verifies Get/GetByRoutingEndpoint/Update/Delete on a
 // missing ID or endpoint return 404 NoSuchConnectionGroup.
-func TestNewOps_ConnectionGroup_NotFound(t *testing.T) {
+func TestConnectionGroup_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -149,9 +149,9 @@ func TestNewOps_ConnectionGroup_NotFound(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionGroup_IfMatchEnforcement verifies that a mismatched If-Match header on
+// TestConnectionGroup_IfMatchEnforcement verifies that a mismatched If-Match header on
 // update/delete is rejected with 412 PreconditionFailed, and the correct ETag succeeds.
-func TestNewOps_ConnectionGroup_IfMatchEnforcement(t *testing.T) {
+func TestConnectionGroup_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	const prefix = "/2020-05-31/"
@@ -198,9 +198,9 @@ func TestNewOps_ConnectionGroup_IfMatchEnforcement(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionGroup_Tags verifies tags can be attached to a connection group via the
+// TestConnectionGroup_Tags verifies tags can be attached to a connection group via the
 // generic TagResource/ListTagsForResource endpoints.
-func TestNewOps_ConnectionGroup_Tags(t *testing.T) {
+func TestConnectionGroup_Tags(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -227,9 +227,9 @@ func TestNewOps_ConnectionGroup_Tags(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionGroup_Persistence verifies connection groups, their tags, and derived
+// TestConnectionGroup_Persistence verifies connection groups, their tags, and derived
 // indexes (ARN, name-uniqueness, routing endpoint) survive a Snapshot/Restore round-trip.
-func TestNewOps_ConnectionGroup_Persistence(t *testing.T) {
+func TestConnectionGroup_Persistence(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -285,10 +285,10 @@ func TestNewOps_ConnectionGroup_Persistence(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionFunction_Full exercises the full ConnectionFunction lifecycle: create
+// TestConnectionFunction_Full exercises the full ConnectionFunction lifecycle: create
 // with code/runtime/comment, get (raw code), describe (summary), list, update (full replace),
 // publish (DEVELOPMENT -> LIVE), test, and delete.
-func TestNewOps_ConnectionFunction_Full(t *testing.T) {
+func TestConnectionFunction_Full(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -372,10 +372,10 @@ func TestNewOps_ConnectionFunction_Full(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionFunction_TestResultVariesWithInput verifies that TestConnectionFunction's
+// TestConnectionFunction_TestResultVariesWithInput verifies that TestConnectionFunction's
 // ComputeUtilization is derived from the input rather than a hardcoded constant: two different
 // connection objects against the same function must not always produce identical utilization.
-func TestNewOps_ConnectionFunction_TestResultVariesWithInput(t *testing.T) {
+func TestConnectionFunction_TestResultVariesWithInput(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -407,9 +407,9 @@ func TestNewOps_ConnectionFunction_TestResultVariesWithInput(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionFunction_NotFound verifies Describe/Get/Update/Delete/Publish/Test on a
+// TestConnectionFunction_NotFound verifies Describe/Get/Update/Delete/Publish/Test on a
 // missing ID return 404 NoSuchConnectionFunction.
-func TestNewOps_ConnectionFunction_NotFound(t *testing.T) {
+func TestConnectionFunction_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -435,9 +435,9 @@ func TestNewOps_ConnectionFunction_NotFound(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionFunction_IfMatchEnforcement verifies that a mismatched If-Match header
+// TestConnectionFunction_IfMatchEnforcement verifies that a mismatched If-Match header
 // on update/delete/publish/test is rejected with 412 PreconditionFailed.
-func TestNewOps_ConnectionFunction_IfMatchEnforcement(t *testing.T) {
+func TestConnectionFunction_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	const prefix = "/2020-05-31/"
@@ -485,9 +485,9 @@ func TestNewOps_ConnectionFunction_IfMatchEnforcement(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionFunction_InvalidRuntime verifies that an unsupported Runtime is rejected
+// TestConnectionFunction_InvalidRuntime verifies that an unsupported Runtime is rejected
 // with 400 InvalidArgument on both create and update.
-func TestNewOps_ConnectionFunction_InvalidRuntime(t *testing.T) {
+func TestConnectionFunction_InvalidRuntime(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -504,9 +504,9 @@ func TestNewOps_ConnectionFunction_InvalidRuntime(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionFunction_Tags verifies tags can be attached to a connection function via
+// TestConnectionFunction_Tags verifies tags can be attached to a connection function via
 // the generic TagResource/ListTagsForResource endpoints.
-func TestNewOps_ConnectionFunction_Tags(t *testing.T) {
+func TestConnectionFunction_Tags(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -532,9 +532,9 @@ func TestNewOps_ConnectionFunction_Tags(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionFunction_Persistence verifies connection functions and their tags survive
+// TestConnectionFunction_Persistence verifies connection functions and their tags survive
 // a Snapshot/Restore round-trip via the restored ARN index.
-func TestNewOps_ConnectionFunction_Persistence(t *testing.T) {
+func TestConnectionFunction_Persistence(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -575,9 +575,9 @@ func TestNewOps_ConnectionFunction_Persistence(t *testing.T) {
 	}
 }
 
-// TestNewOps_ListDistributionsByConnectionFunction verifies distributions referencing a
+// TestListDistributionsByConnectionFunction verifies distributions referencing a
 // connection function are returned, and that an unrelated function ID yields an empty list.
-func TestNewOps_ListDistributionsByConnectionFunction(t *testing.T) {
+func TestListDistributionsByConnectionFunction(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -606,8 +606,8 @@ func TestNewOps_ListDistributionsByConnectionFunction(t *testing.T) {
 	}
 }
 
-// TestNewOps_ConnectionGroup tests connection group Get/List/Update/Delete.
-func TestNewOps_ConnectionGroup(t *testing.T) {
+// TestConnectionGroup_ListDistributionsByConnectionGroup tests connection group Get/List/Update/Delete.
+func TestConnectionGroup_ListDistributionsByConnectionGroup(t *testing.T) {
 	t.Parallel()
 	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
 	h := cloudfront.NewHandler(b)
@@ -686,7 +686,7 @@ func TestTestConnectionFunction_TableDriven(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := cloudfront.NewHandler(newBatch2Backend())
+			h := cloudfront.NewHandler(newTestBackend())
 			fnID := tt.setup(h)
 			rec := cfRequest(t, h, http.MethodPost, prefix+"connection-function/"+fnID+"/test", "")
 
@@ -814,8 +814,8 @@ func TestCreateConnectionGroup(t *testing.T) {
 	}
 }
 
-// TestRefinement1_ConnectionFunctionByID verifies ConnectionFunction stores by ID not by name.
-func TestRefinement1_ConnectionFunctionByID(t *testing.T) {
+// TestConnectionFunctionByID verifies ConnectionFunction stores by ID not by name.
+func TestConnectionFunctionByID(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)

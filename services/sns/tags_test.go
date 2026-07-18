@@ -94,11 +94,11 @@ func TestSNSHandler_ListTagsForResource(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "staging")
 }
 
-// TestRefinement1_TaggedTopics verifies TaggedTopics returns topic info.
+// TestTaggedTopics verifies TaggedTopics returns topic info.
 func TestTaggedTopics(t *testing.T) {
 	t.Parallel()
 
-	b := newR1Backend(t)
+	b := newTestBackend(t)
 	top, err := b.CreateTopic("my-topic", nil)
 	require.NoError(t, err)
 
@@ -107,7 +107,7 @@ func TestTaggedTopics(t *testing.T) {
 	assert.Equal(t, top.TopicArn, topics[0].ARN)
 }
 
-// TestRefinement1_TagTopicByARN verifies TagTopicByARN.
+// TestTagTopicByARN verifies TagTopicByARN.
 func TestTagTopicByARN(t *testing.T) {
 	t.Parallel()
 
@@ -141,7 +141,7 @@ func TestTagTopicByARN(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newR1Backend(t)
+			b := newTestBackend(t)
 			topicARN := tt.setup(b)
 
 			err := b.TagTopicByARN(topicARN, tt.tags)
@@ -157,7 +157,7 @@ func TestTagTopicByARN(t *testing.T) {
 	}
 }
 
-// TestRefinement1_UntagTopicByARN verifies UntagTopicByARN.
+// TestUntagTopicByARN verifies UntagTopicByARN.
 func TestUntagTopicByARN(t *testing.T) {
 	t.Parallel()
 
@@ -202,7 +202,7 @@ func TestUntagTopicByARN(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newR1Backend(t)
+			b := newTestBackend(t)
 			topicARN := tt.setup(b)
 
 			err := b.UntagTopicByARN(topicARN, tt.keys)

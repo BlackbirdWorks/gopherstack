@@ -641,9 +641,9 @@ func TestBackendOps_ListResourceComplianceSummaries(t *testing.T) {
 }
 func TestFull_Inventory_PutGetSchema(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	code, _ := mustPost(t, h, "PutInventory", map[string]any{
+	code, _ := postJSON(t, h, "PutInventory", map[string]any{
 		"InstanceId": "i-inv001",
 		"Items": []map[string]any{
 			{
@@ -656,15 +656,15 @@ func TestFull_Inventory_PutGetSchema(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, code)
 
-	code, out := mustPost(t, h, "GetInventory", map[string]any{})
+	code, out := postJSON(t, h, "GetInventory", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotNil(t, out["Entities"])
 
-	code, out = mustPost(t, h, "GetInventorySchema", map[string]any{})
+	code, out = postJSON(t, h, "GetInventorySchema", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotNil(t, out["Schemas"])
 
-	code, out = mustPost(t, h, "ListInventoryEntries", map[string]any{
+	code, out = postJSON(t, h, "ListInventoryEntries", map[string]any{
 		"InstanceId": "i-inv001",
 		"TypeName":   "AWS:Application",
 	})
@@ -673,9 +673,9 @@ func TestFull_Inventory_PutGetSchema(t *testing.T) {
 }
 func TestFull_Compliance_PutListSummary(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	code, _ := mustPost(t, h, "PutComplianceItems", map[string]any{
+	code, _ := postJSON(t, h, "PutComplianceItems", map[string]any{
 		"ResourceId":     "i-comp001",
 		"ResourceType":   "ManagedInstance",
 		"ComplianceType": "Association",
@@ -688,15 +688,15 @@ func TestFull_Compliance_PutListSummary(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, code)
 
-	code, out := mustPost(t, h, "ListComplianceItems", map[string]any{})
+	code, out := postJSON(t, h, "ListComplianceItems", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotNil(t, out["ComplianceItems"])
 
-	code, out = mustPost(t, h, "ListComplianceSummaries", map[string]any{})
+	code, out = postJSON(t, h, "ListComplianceSummaries", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotNil(t, out["ComplianceSummaryItems"])
 
-	code, out = mustPost(t, h, "ListResourceComplianceSummaries", map[string]any{})
+	code, out = postJSON(t, h, "ListResourceComplianceSummaries", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotNil(t, out["ResourceComplianceSummaryItems"])
 }

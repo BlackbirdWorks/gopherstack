@@ -67,23 +67,24 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 func (j *Janitor) sweepExpiredSessions(ctx context.Context) {
 	b := j.Backend
 
-	b.mu.Lock("SessionSweep")
-
 	var expired []string
 
-	b.sessions.Range(func(session *SessionInfo) bool {
-		if isSessionExpired(session) {
-			expired = append(expired, session.AccessKeyID)
+	func() {
+		b.mu.Lock("SessionSweep")
+		defer b.mu.Unlock()
+
+		b.sessions.Range(func(session *SessionInfo) bool {
+			if isSessionExpired(session) {
+				expired = append(expired, session.AccessKeyID)
+			}
+
+			return true
+		})
+
+		for _, id := range expired {
+			b.sessions.Delete(id)
 		}
-
-		return true
-	})
-
-	for _, id := range expired {
-		b.sessions.Delete(id)
-	}
-
-	b.mu.Unlock()
+	}()
 
 	count := len(expired)
 	// Count every sweep tick, even when no sessions are evicted.

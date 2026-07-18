@@ -79,7 +79,7 @@ func TestHandler_DescribeDBParameterGroups_Pagination(t *testing.T) {
 	assert.Greater(t, pages, 1, "expected multiple pages")
 }
 
-func TestBatch2_DBParameterGroup_ResetAll(t *testing.T) {
+func TestDBParameterGroup_ResetAll(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -113,7 +113,7 @@ func TestBatch2_DBParameterGroup_ResetAll(t *testing.T) {
 	}
 }
 
-func TestBatch2_DBParameterGroup_ResetSpecific(t *testing.T) {
+func TestDBParameterGroup_ResetSpecific(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -141,7 +141,7 @@ func TestBatch2_DBParameterGroup_ResetSpecific(t *testing.T) {
 	assert.Equal(t, "256MB", paramMap["shared_buffers"], "shared_buffers should be unchanged")
 }
 
-func TestBatch2_DBParameterGroup_NotFoundErrors(t *testing.T) {
+func TestDBParameterGroup_NotFoundErrors(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -160,7 +160,7 @@ func TestBatch2_DBParameterGroup_NotFoundErrors(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
 }
 
-func TestBatch2_DBParameterGroup_Duplicate(t *testing.T) {
+func TestDBParameterGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -172,7 +172,7 @@ func TestBatch2_DBParameterGroup_Duplicate(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrParameterGroupAlreadyExists)
 }
 
-func TestBatch2_DBParameterGroup_CopyPreservesParams(t *testing.T) {
+func TestDBParameterGroup_CopyPreservesParams(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -195,7 +195,7 @@ func TestBatch2_DBParameterGroup_CopyPreservesParams(t *testing.T) {
 	assert.Equal(t, "64MB", dstParams[0].ParameterValue)
 }
 
-func TestBatch2_DBParameterGroup_HTTP_CRUD(t *testing.T) {
+func TestDBParameterGroup_HTTP_CRUD(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -252,7 +252,7 @@ func TestBatch2_DBParameterGroup_HTTP_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch2_Concurrent_DBParameterGroup(t *testing.T) {
+func TestConcurrent_DBParameterGroup(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -276,7 +276,7 @@ func TestBatch2_Concurrent_DBParameterGroup(t *testing.T) {
 	wg.Wait()
 }
 
-func TestAccOps2_ModifyDBParameterGroup_SetsSourceAndApplyMethod(t *testing.T) {
+func TestModifyDBParameterGroup_SetsSourceAndApplyMethod(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -301,7 +301,7 @@ func TestAccOps2_ModifyDBParameterGroup_SetsSourceAndApplyMethod(t *testing.T) {
 	}
 }
 
-func TestAccOps2_ModifyDBParameterGroup_ExplicitApplyMethod_Preserved(t *testing.T) {
+func TestModifyDBParameterGroup_ExplicitApplyMethod_Preserved(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -322,7 +322,7 @@ func TestAccOps2_ModifyDBParameterGroup_ExplicitApplyMethod_Preserved(t *testing
 	assert.Equal(t, "user", params[0].Source)
 }
 
-func TestAccOps2_DescribeDBParameters_SourceInXMLResponse(t *testing.T) {
+func TestDescribeDBParameters_SourceInXMLResponse(t *testing.T) {
 	t.Parallel()
 
 	h := newAccOps2Handler(t)

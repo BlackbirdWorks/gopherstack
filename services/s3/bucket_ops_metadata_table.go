@@ -114,3 +114,63 @@ func (h *S3Handler) deleteBucketMetadataTableConfiguration(
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handleUpdateBucketMetadataInventoryTableConfig handles PUT /{bucket}?metadataInventoryTableConfiguration.
+// Persists the inventory table configuration so it survives round-trips, matching real S3 behaviour.
+func (h *S3Handler) handleUpdateBucketMetadataInventoryTableConfig(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	h.setOperation(ctx, "UpdateBucketMetadataInventoryTableConfiguration")
+
+	bucket, _, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" {
+		WriteError(ctx, w, r, ErrNoSuchBucket)
+
+		return
+	}
+
+	body, _ := httputils.ReadBody(r)
+
+	if err := h.Backend.UpdateBucketMetadataInventoryTableConfig(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleUpdateBucketMetadataJournalTableConfig handles PUT /{bucket}?metadataJournalTableConfiguration.
+// Persists the journal table configuration so it survives round-trips, matching real S3 behaviour.
+func (h *S3Handler) handleUpdateBucketMetadataJournalTableConfig(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	h.setOperation(ctx, "UpdateBucketMetadataJournalTableConfiguration")
+
+	bucket, _, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" {
+		WriteError(ctx, w, r, ErrNoSuchBucket)
+
+		return
+	}
+
+	body, _ := httputils.ReadBody(r)
+
+	if err := h.Backend.UpdateBucketMetadataJournalTableConfig(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}

@@ -1,8 +1,6 @@
 package sts
 
 import (
-	"errors"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -12,9 +10,6 @@ import (
 type ConfigProvider interface {
 	GetSTSSettings() Settings
 }
-
-// ErrNilAppContext is returned when Init is called with a nil AppContext.
-var ErrNilAppContext = errors.New("sts: nil app context")
 
 // Provider implements service.Provider for the STS service.
 type Provider struct{}

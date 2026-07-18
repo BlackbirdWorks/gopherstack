@@ -100,3 +100,28 @@ func (h *Handler) handleDescribeAutomationJob(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, resp)
 }
+
+// classifyAutomationPaths routes
+// /accounts/{id}/automation-groups/{groupId}/automations/{automationId}/jobs[/{jobId}]
+// paths (StartAutomationJob is the 7-segment POST; DescribeAutomationJob is
+// the 8-segment GET with a trailing JobId).
+func classifyAutomationPaths(method string, segs []string, n int) (string, string) {
+	if n < nSegsSubSubRes || seg(segs, segSubSubRes) != pathSegJobs {
+		return opUnknown, ""
+	}
+
+	automationID := seg(segs, segSubResID)
+
+	switch method {
+	case http.MethodPost:
+		if n == nSegsSubSubRes {
+			return opStartAutomationJob, automationID
+		}
+	case http.MethodGet:
+		if n == nSegsSubSubResID {
+			return opDescribeAutomationJob, automationID
+		}
+	}
+
+	return opUnknown, ""
+}

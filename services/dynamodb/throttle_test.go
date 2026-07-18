@@ -1,7 +1,9 @@
 package dynamodb_test
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -562,5 +564,94 @@ func TestThrottler_UpdateItemExceedsCapacity(t *testing.T) {
 				require.NoError(t, lastErr)
 			}
 		})
+	}
+}
+
+func TestOnDemand_WriteBypassesThrottle(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	db.SetEnforceThroughput(true)
+	ctx := context.Background()
+	createOnDemandTestTable(t, db, "OnDemandW")
+
+	// PAY_PER_REQUEST table should never throttle regardless of volume.
+	for i := range 50 {
+		_, err := db.PutItem(ctx, &ddbsdk.PutItemInput{
+			TableName: aws.String("OnDemandW"),
+			Item: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("k%d", i)},
+			},
+		})
+		if err != nil {
+			t.Fatalf("PutItem %d on PAY_PER_REQUEST table should not be throttled: %v", i, err)
+		}
+	}
+}
+
+func TestOnDemand_ReadBypassesThrottle(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	db.SetEnforceThroughput(true)
+	ctx := context.Background()
+	createOnDemandTestTable(t, db, "OnDemandR")
+
+	for i := range 50 {
+		_, err := db.GetItem(ctx, &ddbsdk.GetItemInput{
+			TableName: aws.String("OnDemandR"),
+			Key: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("k%d", i)},
+			},
+		})
+		if err != nil {
+			t.Fatalf("GetItem %d on PAY_PER_REQUEST table should not be throttled: %v", i, err)
+		}
+	}
+}
+
+func TestDeleteItem_OnDemandTable_NoThrottle(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	db.SetEnforceThroughput(true)
+	ctx := context.Background()
+	createOnDemandTestTable(t, db, "OnDemandDel")
+
+	putTestItem(t, db, "OnDemandDel", map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "k1"},
+	})
+
+	_, err := db.DeleteItem(ctx, &ddbsdk.DeleteItemInput{
+		TableName: aws.String("OnDemandDel"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "k1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DeleteItem on PAY_PER_REQUEST table should not throttle: %v", err)
+	}
+}
+
+func TestUpdateItem_OnDemandTable_NoThrottle(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	db.SetEnforceThroughput(true)
+	ctx := context.Background()
+	createOnDemandTestTable(t, db, "OnDemandUpd")
+
+	putTestItem(t, db, "OnDemandUpd", map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "k1"},
+	})
+
+	_, err := db.UpdateItem(ctx, &ddbsdk.UpdateItemInput{
+		TableName: aws.String("OnDemandUpd"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "k1"},
+		},
+		UpdateExpression: aws.String("SET v = :v"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":v": &types.AttributeValueMemberS{Value: "new"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateItem on PAY_PER_REQUEST table should not throttle: %v", err)
 	}
 }

@@ -110,7 +110,7 @@ func TestWireShape_DescribePublishingDestination_UsesRealKeysAndTags(t *testing.
 	})
 	destID := createResp["destinationId"].(string)
 
-	rec := auditDo(t, h, http.MethodGet, "/detector/"+detID+"/publishingDestination/"+destID, nil)
+	rec := doRequest(t, h, http.MethodGet, "/detector/"+detID+"/publishingDestination/"+destID, nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var raw map[string]json.RawMessage
@@ -138,7 +138,7 @@ func TestWireShape_GetMalwareScan_UsesRealFieldNames(t *testing.T) {
 	})
 	scanID := startResp["scanId"].(string)
 
-	rec := auditDo(t, h, http.MethodGet, "/malware-scan/"+scanID, nil)
+	rec := doRequest(t, h, http.MethodGet, "/malware-scan/"+scanID, nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var raw map[string]json.RawMessage

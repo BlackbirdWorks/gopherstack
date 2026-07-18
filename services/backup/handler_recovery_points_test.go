@@ -51,10 +51,10 @@ func TestRecoveryPointOps(t *testing.T) {
 func TestRecoveryPointNewFields(t *testing.T) {
 	t.Parallel()
 
-	h, b := newBatch1Handler(t)
+	h, b := newHandler(t)
 
 	// Create vault + recovery point.
-	doBatch1Request(t, h, http.MethodPut, "/backup-vaults/rp-vault", `{}`)
+	doRequest(t, h, http.MethodPut, "/backup-vaults/rp-vault", `{}`)
 
 	rp := &backup.RecoveryPoint{
 		RecoveryPointArn:     "arn:aws:backup:us-east-1:000000000000:recovery-point:rp-1",
@@ -106,7 +106,7 @@ func TestRecoveryPointNewFields(t *testing.T) {
 		},
 	}
 
-	descResp := doBatch1Request(t, h, http.MethodGet,
+	descResp := doRequest(t, h, http.MethodGet,
 		"/backup-vaults/rp-vault/recovery-points/"+rp.RecoveryPointArn, "")
 	require.Equal(t, http.StatusOK, descResp.Code)
 

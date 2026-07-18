@@ -13,7 +13,7 @@ import (
 // TestParity_ListObjects_EncodingTypeURL verifies that encoding-type=url
 // URL-encodes Key/Prefix/Delimiter in list responses (V1 and V2), so keys with
 // special characters round-trip through the AWS SDK (which URL-decodes them).
-func TestParity_ListObjects_EncodingTypeURL(t *testing.T) {
+func TestListObjects_EncodingTypeURL(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)

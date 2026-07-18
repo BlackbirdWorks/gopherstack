@@ -94,7 +94,7 @@ func TestGetEntityRecords_ValidConnection(t *testing.T) {
 	assert.Contains(t, missRec.Body.String(), "EntityNotFoundException")
 }
 
-func TestBatch3_Connection_CRUD_WithCredentials(t *testing.T) {
+func TestConnection_CRUD_WithCredentials(t *testing.T) {
 	t.Parallel()
 
 	jdbcProps := map[string]any{
@@ -213,7 +213,7 @@ func TestBatch3_Connection_CRUD_WithCredentials(t *testing.T) {
 	}
 }
 
-func TestBatch3_Connection_BatchDelete(t *testing.T) {
+func TestConnection_BatchDelete(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -262,7 +262,7 @@ func TestBatch3_Connection_BatchDelete(t *testing.T) {
 	}
 }
 
-func TestBatch3_Connection_NetworkType(t *testing.T) {
+func TestConnection_NetworkType(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -291,7 +291,7 @@ func TestBatch3_Connection_NetworkType(t *testing.T) {
 	assert.Equal(t, "10.0.1.5", props["HOST"])
 }
 
-func TestBatch3_Connection_CredentialsPersistAfterUpdate(t *testing.T) {
+func TestConnection_CredentialsPersistAfterUpdate(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -328,8 +328,8 @@ func TestBatch3_Connection_CredentialsPersistAfterUpdate(t *testing.T) {
 	assert.Equal(t, "pass2", props["PASSWORD"])
 }
 
-// TestRefinement2_ConnectionCRUD tests Connection create/get/delete operations.
-func TestRefinement2_ConnectionCRUD(t *testing.T) {
+// TestConnectionCRUD tests Connection create/get/delete operations.
+func TestConnectionCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -410,8 +410,8 @@ func TestRefinement2_ConnectionCRUD(t *testing.T) {
 	}
 }
 
-// TestRefinement2_ConnectionGetFields tests that GetConnection returns expected fields.
-func TestRefinement2_ConnectionGetFields(t *testing.T) {
+// TestConnectionGetFields tests that GetConnection returns expected fields.
+func TestConnectionGetFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -466,8 +466,8 @@ func TestRefinement2_ConnectionGetFields(t *testing.T) {
 	}
 }
 
-// TestRefinement2_GetConnections tests listing connections.
-func TestRefinement2_GetConnections(t *testing.T) {
+// TestGetConnections tests listing connections.
+func TestGetConnections(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -505,8 +505,8 @@ func TestRefinement2_GetConnections(t *testing.T) {
 	}
 }
 
-// TestRefinement2_ConnectionTagging tests tagging Connections via ARN.
-func TestRefinement2_ConnectionTagging(t *testing.T) {
+// TestConnectionTagging tests tagging Connections via ARN.
+func TestConnectionTagging(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -644,7 +644,7 @@ func TestTestConnection_ValidatesConnection(t *testing.T) {
 	}
 }
 
-func TestAccuracy_UpdateConnection_Updates(t *testing.T) {
+func TestUpdateConnection_Updates(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -686,7 +686,7 @@ func TestAccuracy_UpdateConnection_Updates(t *testing.T) {
 	assert.Equal(t, "jdbc:mysql://newhost:3306/db", out.Connection.ConnectionProperties["JDBC_CONNECTION_URL"])
 }
 
-func TestAccuracy_UpdateConnection_NotFound(t *testing.T) {
+func TestUpdateConnection_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

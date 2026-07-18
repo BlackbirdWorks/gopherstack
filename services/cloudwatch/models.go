@@ -272,3 +272,17 @@ type InsightRuleFailure struct {
 	FailureCode        string `json:"FailureCode"`
 	FailureDescription string `json:"FailureDescription,omitempty"`
 }
+
+// metricRecord holds time-series data for a single (MetricName, Dimensions) combination.
+type metricRecord struct {
+	MetricName string        `json:"MetricName"`
+	Dimensions []Dimension   `json:"Dimensions,omitempty"`
+	Points     []MetricDatum `json:"Points"`
+}
+
+// dashboardRecord holds dashboard body and metadata.
+type dashboardRecord struct {
+	LastModified time.Time `json:"LastModified"`
+	Name         string    `json:"Name"`
+	Body         string    `json:"Body"`
+}

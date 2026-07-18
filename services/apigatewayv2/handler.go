@@ -5,8 +5,8 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -322,281 +322,6 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return extractAPIsOp(path, method)
 }
 
-func extractDomainNamesOp(path, method string) string {
-	suffix := strings.Trim(strings.TrimPrefix(path, domainNamesPrefix), "/")
-
-	if suffix == "" {
-		switch method {
-		case http.MethodPost:
-			return "CreateDomainName"
-		case http.MethodGet:
-			return "GetDomainNames"
-		}
-
-		return opUnknown
-	}
-
-	parts := strings.SplitN(suffix, "/", maxPathParts)
-
-	switch len(parts) {
-	case pathPartOne:
-		return extractDomainNameByIDOp(method)
-	case pathPartTwo:
-		return extractAPIMappingsCollOp(parts[1], method)
-	case maxPathParts:
-		return extractAPIMappingResourceOp(parts[1], method)
-	}
-
-	return opUnknown
-}
-
-func extractDomainNameByIDOp(method string) string {
-	switch method {
-	case http.MethodGet:
-		return "GetDomainName"
-	case http.MethodDelete:
-		return "DeleteDomainName"
-	case http.MethodPatch:
-		return "UpdateDomainName"
-	}
-
-	return opUnknown
-}
-
-func extractAPIMappingsCollOp(collection, method string) string {
-	switch collection {
-	case collAPIMappings:
-		switch method {
-		case http.MethodPost:
-			return "CreateApiMapping"
-		case http.MethodGet:
-			return "GetApiMappings"
-		}
-	case collRoutingRules:
-		switch method {
-		case http.MethodPost:
-			return "CreateRoutingRule"
-		case http.MethodGet:
-			return "ListRoutingRules"
-		}
-	}
-
-	return opUnknown
-}
-
-func extractAPIMappingResourceOp(collection, method string) string {
-	switch collection {
-	case collAPIMappings:
-		switch method {
-		case http.MethodGet:
-			return "GetApiMapping"
-		case http.MethodDelete:
-			return "DeleteApiMapping"
-		case http.MethodPatch:
-			return "UpdateApiMapping"
-		}
-	case collRoutingRules:
-		switch method {
-		case http.MethodGet:
-			return "GetRoutingRule"
-		case http.MethodDelete:
-			return "DeleteRoutingRule"
-		case http.MethodPut:
-			return "PutRoutingRule"
-		}
-	}
-
-	return opUnknown
-}
-
-func extractPortalsOp(path, method string) string {
-	suffix := strings.Trim(strings.TrimPrefix(path, portalsPrefix), "/")
-
-	if suffix == "" {
-		switch method {
-		case http.MethodPost:
-			return "CreatePortal"
-		case http.MethodGet:
-			return "ListPortals"
-		}
-
-		return opUnknown
-	}
-
-	parts := strings.SplitN(suffix, "/", maxPathParts)
-	if len(parts) == 1 {
-		switch method {
-		case http.MethodGet:
-			return "GetPortal"
-		case http.MethodPatch:
-			return "UpdatePortal"
-		case http.MethodDelete:
-			return "DeletePortal"
-		}
-	}
-	if len(parts) == pathPartTwo && parts[1] == collPreview && method == http.MethodPost {
-		return "PreviewPortal"
-	}
-	if len(parts) == pathPartTwo && parts[1] == collPublish {
-		switch method {
-		case http.MethodPost:
-			return "PublishPortal"
-		case http.MethodDelete:
-			return "DisablePortal"
-		}
-	}
-
-	return opUnknown
-}
-
-func extractPortalProductsOp(path, method string) string {
-	suffix := strings.Trim(strings.TrimPrefix(path, portalProductsPrefix), "/")
-
-	if suffix == "" {
-		switch method {
-		case http.MethodPost:
-			return "CreatePortalProduct"
-		case http.MethodGet:
-			return "ListPortalProducts"
-		}
-
-		return opUnknown
-	}
-
-	parts := strings.SplitN(suffix, "/", maxPathParts)
-
-	switch len(parts) {
-	case pathPartOne:
-		return extractPortalProductByIDOp(method)
-	case pathPartTwo:
-		return extractPortalProductSubCollOp(parts[1], method)
-	case maxPathParts:
-		return extractPortalProductPageOp(parts[1], method)
-	}
-
-	return opUnknown
-}
-
-func extractPortalProductByIDOp(method string) string {
-	switch method {
-	case http.MethodGet:
-		return "GetPortalProduct"
-	case http.MethodPatch:
-		return "UpdatePortalProduct"
-	case http.MethodDelete:
-		return "DeletePortalProduct"
-	}
-
-	return opUnknown
-}
-
-func extractPortalProductSubCollOp(collection, method string) string {
-	switch collection {
-	case collProductPages:
-		switch method {
-		case http.MethodPost:
-			return "CreateProductPage"
-		case http.MethodGet:
-			return "ListProductPages"
-		}
-	case collProductREPages:
-		switch method {
-		case http.MethodPost:
-			return "CreateProductRestEndpointPage"
-		case http.MethodGet:
-			return "ListProductRestEndpointPages"
-		}
-	case collSharingPolicy:
-		switch method {
-		case http.MethodGet:
-			return "GetPortalProductSharingPolicy"
-		case http.MethodPut:
-			return "PutPortalProductSharingPolicy"
-		case http.MethodDelete:
-			return "DeletePortalProductSharingPolicy"
-		}
-	}
-
-	return opUnknown
-}
-
-func extractPortalProductPageOp(collection, method string) string {
-	switch collection {
-	case collProductPages:
-		switch method {
-		case http.MethodGet:
-			return "GetProductPage"
-		case http.MethodDelete:
-			return "DeleteProductPage"
-		case http.MethodPatch:
-			return "UpdateProductPage"
-		}
-	case collProductREPages:
-		switch method {
-		case http.MethodGet:
-			return "GetProductRestEndpointPage"
-		case http.MethodDelete:
-			return "DeleteProductRestEndpointPage"
-		case http.MethodPatch:
-			return "UpdateProductRestEndpointPage"
-		}
-	}
-
-	return opUnknown
-}
-
-func extractVpcLinksOp(path, method string) string {
-	suffix := strings.Trim(strings.TrimPrefix(path, vpcLinksPrefix), "/")
-	if suffix == "" {
-		switch method {
-		case http.MethodPost:
-			return "CreateVpcLink"
-		case http.MethodGet:
-			return "GetVpcLinks"
-		}
-
-		return opUnknown
-	}
-
-	switch method {
-	case http.MethodGet:
-		return "GetVpcLink"
-	case http.MethodDelete:
-		return "DeleteVpcLink"
-	case http.MethodPatch:
-		return "UpdateVpcLink"
-	default:
-		return opUnknown
-	}
-}
-
-func extractAPIsOp(path, method string) string {
-	segs := pathSegments(path)
-	nsegs := len(segs)
-
-	var seg1 string
-
-	switch {
-	case nsegs == segCountDeepRes:
-		// e.g. ["{apiId}", "integrations", "{id}", "integrationresponses", "{responseId}"]
-		seg1 = segs[segCountDeepColl-1]
-	case nsegs == segCountDeepColl:
-		// pathSegments strips the /v2/apis prefix, so segs[3] is the 4th element
-		// (0-indexed last) of e.g. ["{apiId}", "integrations", "{id}", "integrationresponses"].
-		seg1 = segs[segCountDeepColl-1]
-	case nsegs >= segCountSubColl:
-		seg1 = segs[segCountSubColl-1]
-	}
-
-	key := operationKey{segs: nsegs, seg1: seg1, method: method}
-
-	if op, ok := onceOpTable()[key]; ok {
-		return op
-	}
-
-	return opUnknown
-}
-
 // ExtractResource extracts the API ID from the URL path for metrics.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	segs := pathSegments(c.Request().URL.Path)
@@ -633,60 +358,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		default:
 			return writeErr(c, http.StatusNotFound, msgNotFound)
 		}
-	}
-}
-
-// handleAPIsPath dispatches requests under the /v2/apis prefix.
-func (h *Handler) handleAPIsPath(c *echo.Context, method, path string) error {
-	segs := pathSegments(path)
-
-	switch len(segs) {
-	case segCountAPIs:
-		return h.handleAPIs(c, method)
-	case segCountAPIByID:
-		return h.handleAPI(c, method, segs[0])
-	case segCountSubColl:
-		return h.handleSubCollection(c, method, segs[0], segs[1])
-	case segCountSubRes:
-		return h.handleSubResource(c, method, segs[0], segs[1], segs[2])
-	case segCountDeepColl:
-		return h.handleDeepCollection(c, method, segs[0], segs[1], segs[2], segs[3])
-	case segCountDeepRes:
-		return h.handleDeepResource(c, method, segs[0], segs[1], segs[2], segs[3], segs[4])
-	default:
-		logger.Load(c.Request().Context()).Warn("apigatewayv2: unhandled path", "path", path)
-
-		return writeErr(c, http.StatusNotFound, msgNotFound)
-	}
-}
-
-// handleAPIs handles POST /v2/apis and GET /v2/apis.
-func (h *Handler) handleAPIs(c *echo.Context, method string) error {
-	switch method {
-	case http.MethodPost:
-		return h.handleCreateAPI(c)
-	case http.MethodGet:
-		return h.handleGetAPIs(c)
-	case http.MethodPut:
-		return h.handleImportAPI(c)
-	default:
-		return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
-	}
-}
-
-// handleAPI handles /v2/apis/{apiId}.
-func (h *Handler) handleAPI(c *echo.Context, method, apiID string) error {
-	switch method {
-	case http.MethodGet:
-		return h.handleGetAPI(c, apiID)
-	case http.MethodDelete:
-		return h.handleDeleteAPI(c, apiID)
-	case http.MethodPatch:
-		return h.handleUpdateAPI(c, apiID)
-	case http.MethodPut:
-		return h.handleReimportAPI(c, apiID)
-	default:
-		return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
 	}
 }
 
@@ -779,7 +450,7 @@ func (h *Handler) handleDeepCollection(
 				ErrAPINotFound, ErrIntegrationNotFound)
 		},
 		{http.MethodGet, collIntegrationResponses}: func(c *echo.Context, apiID, resourceID string) error {
-			return h.handleGetIntegrationResponses(c, apiID, resourceID)
+			return h.integrationResponseOps().handleList(c, apiID, resourceID)
 		},
 		{http.MethodPost, collRouteResponses}: func(c *echo.Context, apiID, resourceID string) error {
 			return handleCreateMulti(c, apiID, "route response",
@@ -789,7 +460,7 @@ func (h *Handler) handleDeepCollection(
 				ErrAPINotFound, ErrRouteNotFound)
 		},
 		{http.MethodGet, collRouteResponses}: func(c *echo.Context, apiID, resourceID string) error {
-			return h.handleGetRouteResponses(c, apiID, resourceID)
+			return h.routeResponseOps().handleList(c, apiID, resourceID)
 		},
 		{http.MethodDelete, collAccessLogSettings}: func(c *echo.Context, apiID, resourceID string) error {
 			return h.handleDeleteAccessLogSettings(c, apiID, resourceID)
@@ -804,1037 +475,6 @@ func (h *Handler) handleDeepCollection(
 	}
 
 	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-// handleDomainNamesPath handles requests for /v2/domainnames and /v2/domainnames/{domainName}/...
-func (h *Handler) handleDomainNamesPath(c *echo.Context, method, path string) error {
-	suffix := strings.TrimPrefix(path, domainNamesPrefix)
-	suffix = strings.Trim(suffix, "/")
-
-	if suffix == "" {
-		switch method {
-		case http.MethodPost:
-			return handleCreateNoParent(c, "domain name", func(input CreateDomainNameInput) (*DomainName, error) {
-				return h.Backend.CreateDomainName(c.Request().Context(), input)
-			})
-		case http.MethodGet:
-			return h.handleGetDomainNames(c)
-		default:
-			return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
-		}
-	}
-
-	parts := strings.Split(suffix, "/")
-
-	switch len(parts) {
-	case pathPartOne:
-		domainName := parts[0]
-		switch method {
-		case http.MethodGet:
-			return h.handleGetDomainName(c, domainName)
-		case http.MethodDelete:
-			return h.handleDeleteDomainName(c, domainName)
-		case http.MethodPatch:
-			return h.handleUpdateDomainName(c, domainName)
-		}
-	case pathPartTwo:
-		if parts[1] == collAPIMappings {
-			return h.handleAPIMappingsCollection(c, method, parts[0])
-		}
-		if parts[1] == collRoutingRules {
-			return h.handleRoutingRulesCollection(c, method, parts[0])
-		}
-	case maxPathParts:
-		if parts[1] == collAPIMappings {
-			return h.handleAPIMappingResource(c, method, parts[0], parts[pathPartTwo])
-		}
-		if parts[1] == collRoutingRules {
-			return h.handleRoutingRuleResource(c, method, parts[0], parts[pathPartTwo])
-		}
-	}
-
-	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-func (h *Handler) handleAPIMappingsCollection(c *echo.Context, method, domainName string) error {
-	switch method {
-	case http.MethodPost:
-		return handleCreateMulti(c, domainName, "api mapping",
-			func(input CreateAPIMappingInput) (*APIMapping, error) {
-				return h.Backend.CreateAPIMapping(domainName, input)
-			},
-			ErrDomainNameNotFound, ErrAPINotFound, ErrStageNotFound)
-	case http.MethodGet:
-		return h.handleGetAPIMappings(c, domainName)
-	}
-
-	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-func (h *Handler) handleAPIMappingResource(c *echo.Context, method, domainName, mappingID string) error {
-	switch method {
-	case http.MethodGet:
-		return h.handleGetAPIMapping(c, domainName, mappingID)
-	case http.MethodDelete:
-		return h.handleDeleteAPIMapping(c, domainName, mappingID)
-	case http.MethodPatch:
-		return h.handleUpdateAPIMapping(c, domainName, mappingID)
-	}
-
-	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-func (h *Handler) handleRoutingRulesCollection(c *echo.Context, method, domainName string) error {
-	switch method {
-	case http.MethodPost:
-		return handleCreate(c, domainName, "routing rule", ErrDomainNameNotFound,
-			func(input CreateRoutingRuleInput) (*RoutingRule, error) {
-				return h.Backend.CreateRoutingRule(c.Request().Context(), domainName, input)
-			})
-	case http.MethodGet:
-		rules, err := h.Backend.ListRoutingRules(domainName)
-		if err != nil {
-			if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrRoutingRuleNotFound) {
-				return writeErr(c, http.StatusNotFound, msgNotFound)
-			}
-
-			return writeErr(c, http.StatusInternalServerError, err.Error())
-		}
-
-		return c.JSON(http.StatusOK, listRoutingRulesOutput{Items: rules})
-	}
-
-	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-func (h *Handler) handleRoutingRuleResource(c *echo.Context, method, domainName, ruleID string) error {
-	switch method {
-	case http.MethodGet:
-		rule, err := h.Backend.GetRoutingRule(domainName, ruleID)
-		if err != nil {
-			if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrRoutingRuleNotFound) {
-				return writeErr(c, http.StatusNotFound, msgNotFound)
-			}
-
-			return writeErr(c, http.StatusInternalServerError, err.Error())
-		}
-
-		return c.JSON(http.StatusOK, rule)
-	case http.MethodPut:
-		return handleUpdate(c, domainName, ruleID, "routing rule",
-			func(input PutRoutingRuleInput) (*RoutingRule, error) {
-				return h.Backend.PutRoutingRule(domainName, ruleID, input)
-			},
-			ErrDomainNameNotFound, ErrRoutingRuleNotFound)
-	case http.MethodDelete:
-		err := h.Backend.DeleteRoutingRule(domainName, ruleID)
-		if err != nil {
-			if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrRoutingRuleNotFound) {
-				return writeErr(c, http.StatusNotFound, msgNotFound)
-			}
-
-			return writeErr(c, http.StatusInternalServerError, err.Error())
-		}
-
-		return c.NoContent(http.StatusNoContent)
-	}
-
-	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-// handlePortalsPath handles requests for /v2/portals and /v2/portals/{portalId}/...
-func (h *Handler) handlePortalsPath(c *echo.Context, method, path string) error {
-	suffix := strings.TrimPrefix(path, portalsPrefix)
-	suffix = strings.Trim(suffix, "/")
-
-	if suffix == "" {
-		switch method {
-		case http.MethodPost:
-			return handleCreateNoParent(c, "portal", func(input CreatePortalInput) (*Portal, error) {
-				return h.Backend.CreatePortal(input)
-			})
-		case http.MethodGet:
-			return h.handleListPortals(c)
-		default:
-			return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
-		}
-	}
-
-	parts := strings.Split(suffix, "/")
-	if len(parts) == 1 {
-		switch method {
-		case http.MethodGet:
-			return h.handleGetPortal(c, parts[0])
-		case http.MethodPatch:
-			return h.handleUpdatePortal(c, parts[0])
-		case http.MethodDelete:
-			return h.handleDeletePortal(c, parts[0])
-		}
-	}
-	if len(parts) == pathPartTwo {
-		return h.handlePortalSubAction(c, method, parts[0], parts[1])
-	}
-
-	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-func (h *Handler) handlePortalSubAction(c *echo.Context, method, portalID, action string) error {
-	switch {
-	case action == collPreview && method == http.MethodPost:
-		p, err := h.Backend.GetPortal(portalID)
-		if err != nil {
-			if errors.Is(err, ErrPortalNotFound) {
-				return writeErr(c, http.StatusNotFound, msgNotFound)
-			}
-
-			return writeErr(c, http.StatusInternalServerError, err.Error())
-		}
-
-		return c.JSON(http.StatusOK, p)
-	case action == collPublish && method == http.MethodPost:
-		return h.handlePublishPortal(c, portalID)
-	case action == collPublish && method == http.MethodDelete:
-		return h.handleDisablePortal(c, portalID)
-	default:
-		return writeErr(c, http.StatusNotFound, msgNotFound)
-	}
-}
-
-// handlePortalProductsPath handles requests for /v2/portalproducts and nested paths.
-func (h *Handler) handlePortalProductsPath(c *echo.Context, method, path string) error {
-	suffix := strings.TrimPrefix(path, portalProductsPrefix)
-	suffix = strings.Trim(suffix, "/")
-
-	if suffix == "" {
-		switch method {
-		case http.MethodPost:
-			return handleCreateNoParent(
-				c,
-				"portal product",
-				func(input CreatePortalProductInput) (*PortalProduct, error) {
-					return h.Backend.CreatePortalProduct(input)
-				},
-			)
-		case http.MethodGet:
-			return h.handleListPortalProducts(c)
-		default:
-			return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
-		}
-	}
-
-	parts := strings.Split(suffix, "/")
-
-	switch len(parts) {
-	case pathPartOne:
-		switch method {
-		case http.MethodGet:
-			return h.handleGetPortalProduct(c, parts[0])
-		case http.MethodPatch:
-			return h.handleUpdatePortalProduct(c, parts[0])
-		case http.MethodDelete:
-			return h.handleDeletePortalProduct(c, parts[0])
-		}
-	case pathPartTwo:
-		return h.handlePortalProductSubCollection(c, method, parts[0], parts[1])
-	case maxPathParts:
-		return h.handlePortalProductPage(c, method, parts[0], parts[1], parts[pathPartTwo])
-	}
-
-	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-func (h *Handler) handlePortalProductSubCollection(
-	c *echo.Context, method, portalProductID, subColl string,
-) error {
-	switch method {
-	case http.MethodPost:
-		switch subColl {
-		case collProductPages:
-			return handleCreate(c, portalProductID, "product page", ErrPortalProductNotFound,
-				func(input CreateProductPageInput) (*ProductPage, error) {
-					return h.Backend.CreateProductPage(portalProductID, input)
-				})
-		case collProductREPages:
-			return handleCreate(c, portalProductID, "product rest endpoint page", ErrPortalProductNotFound,
-				func(input CreateProductRestEndpointPageInput) (*ProductRestEndpointPage, error) {
-					return h.Backend.CreateProductRestEndpointPage(portalProductID, input)
-				})
-		}
-	case http.MethodGet:
-		switch subColl {
-		case collProductPages:
-			return h.handleListProductPages(c, portalProductID)
-		case collProductREPages:
-			return h.handleListProductRestEndpointPages(c, portalProductID)
-		case collSharingPolicy:
-			return h.handleGetPortalProductSharingPolicy(c, portalProductID)
-		}
-	case http.MethodPut:
-		if subColl == collSharingPolicy {
-			return h.handlePutPortalProductSharingPolicy(c, portalProductID)
-		}
-	case http.MethodDelete:
-		if subColl == collSharingPolicy {
-			return h.handleDeletePortalProductSharingPolicy(c, portalProductID)
-		}
-	}
-
-	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-func (h *Handler) handlePortalProductPage(
-	c *echo.Context, method, portalProductID, collection, pageID string,
-) error {
-	switch collection {
-	case collProductPages:
-		switch method {
-		case http.MethodGet:
-			return h.handleGetProductPage(c, portalProductID, pageID)
-		case http.MethodDelete:
-			return h.handleDeleteProductPage(c, portalProductID, pageID)
-		case http.MethodPatch:
-			return h.handleUpdateProductPage(c, portalProductID, pageID)
-		}
-	case collProductREPages:
-		switch method {
-		case http.MethodGet:
-			return h.handleGetProductRestEndpointPage(c, portalProductID, pageID)
-		case http.MethodDelete:
-			return h.handleDeleteProductRestEndpointPage(c, portalProductID, pageID)
-		case http.MethodPatch:
-			return h.handleUpdateProductRestEndpointPage(c, portalProductID, pageID)
-		}
-	}
-
-	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-func (h *Handler) handleVpcLinksPath(c *echo.Context, method, path string) error {
-	suffix := strings.Trim(strings.TrimPrefix(path, vpcLinksPrefix), "/")
-	if suffix == "" {
-		switch method {
-		case http.MethodPost:
-			return handleCreateNoParent(c, "vpc link", func(input CreateVpcLinkInput) (*VpcLink, error) {
-				return h.Backend.CreateVpcLink(input)
-			})
-		case http.MethodGet:
-			links, err := h.Backend.GetVpcLinks()
-			if err != nil {
-				return writeErr(c, http.StatusInternalServerError, err.Error())
-			}
-
-			return c.JSON(http.StatusOK, listVpcLinksOutput{Items: links})
-		default:
-			return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
-		}
-	}
-
-	switch method {
-	case http.MethodGet:
-		vpcLink, err := h.Backend.GetVpcLink(suffix)
-		if err != nil {
-			if errors.Is(err, ErrVpcLinkNotFound) {
-				return writeErr(c, http.StatusNotFound, msgNotFound)
-			}
-
-			return writeErr(c, http.StatusInternalServerError, err.Error())
-		}
-
-		return c.JSON(http.StatusOK, vpcLink)
-	case http.MethodPatch:
-		return handleUpdate(c, suffix, "", "vpc link",
-			func(input UpdateVpcLinkInput) (*VpcLink, error) { return h.Backend.UpdateVpcLink(suffix, input) },
-			ErrVpcLinkNotFound)
-	case http.MethodDelete:
-		if err := h.Backend.DeleteVpcLink(suffix); err != nil {
-			if errors.Is(err, ErrVpcLinkNotFound) {
-				return writeErr(c, http.StatusNotFound, msgNotFound)
-			}
-
-			return writeErr(c, http.StatusInternalServerError, err.Error())
-		}
-
-		return c.NoContent(http.StatusNoContent)
-	default:
-		return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
-	}
-}
-
-func (h *Handler) handleCreateAPI(c *echo.Context) error {
-	log := logger.Load(c.Request().Context())
-
-	var input CreateAPIInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
-	}
-
-	api, err := h.Backend.CreateAPI(c.Request().Context(), input)
-	if err != nil {
-		log.Error("apigatewayv2: create api failed", "error", err)
-
-		if errors.Is(err, ErrBadRequest) {
-			return writeErr(c, http.StatusBadRequest, err.Error())
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusCreated, api)
-}
-
-func (h *Handler) handleGetAPIs(c *echo.Context) error {
-	log := logger.Load(c.Request().Context())
-
-	apis, err := h.Backend.GetAPIs()
-	if err != nil {
-		log.Error("apigatewayv2: get apis failed", "error", err)
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	maxResults, nextToken := apigwPaginationParams(c)
-	p := page.New(apis, nextToken, maxResults, apigwDefaultPageSize)
-
-	return c.JSON(http.StatusOK, listApisOutput{Items: p.Data, NextToken: p.Next})
-}
-
-func (h *Handler) handleGetAPI(c *echo.Context, apiID string) error {
-	log := logger.Load(c.Request().Context())
-
-	api, err := h.Backend.GetAPI(apiID)
-	if err != nil {
-		log.Error("apigatewayv2: get api failed", "apiId", apiID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, api)
-}
-
-func (h *Handler) handleDeleteAPI(c *echo.Context, apiID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteAPI(apiID); err != nil {
-		log.Error("apigatewayv2: delete api failed", "apiId", apiID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleUpdateAPI(c *echo.Context, apiID string) error {
-	log := logger.Load(c.Request().Context())
-
-	var input UpdateAPIInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
-	}
-
-	api, err := h.Backend.UpdateAPI(apiID, input)
-	if err != nil {
-		log.Error("apigatewayv2: update api failed", "apiId", apiID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, api)
-}
-
-// openAPISpec is a minimal representation of an OpenAPI 3 / Swagger 2 document.
-// Only the fields needed to derive an API name, routes, and integrations are
-// modeled; unknown fields are ignored so that minimal specs are tolerated.
-type openAPISpec struct {
-	Paths map[string]map[string]openAPIOperation `json:"paths"`
-	Info  openAPIInfo                            `json:"info"`
-}
-
-type openAPIInfo struct {
-	Title string `json:"title"`
-}
-
-type openAPIOperation struct {
-	Integration *openAPIIntegration `json:"x-amazon-apigateway-integration"`
-}
-
-// openAPIIntegration models the x-amazon-apigateway-integration extension.
-type openAPIIntegration struct {
-	Type                 string `json:"type"`
-	HTTPMethod           string `json:"httpMethod"`
-	URI                  string `json:"uri"`
-	PayloadFormatVersion string `json:"payloadFormatVersion"`
-	ConnectionType       string `json:"connectionType"`
-	TimeoutInMillis      int32  `json:"timeoutInMillis"`
-}
-
-// parseOpenAPISpec decodes an OpenAPI body into an openAPISpec, tolerating
-// minimal/partial documents.
-func parseOpenAPISpec(body string) (*openAPISpec, error) {
-	var spec openAPISpec
-	if strings.TrimSpace(body) == "" {
-		return &spec, nil
-	}
-
-	if err := json.Unmarshal([]byte(body), &spec); err != nil {
-		return nil, err
-	}
-
-	return &spec, nil
-}
-
-// applyOpenAPIToAPI creates a route (and integration, when defined) for each
-// path+method in the spec. Entries that are not valid HTTP route keys are
-// skipped gracefully.
-//
-//nolint:gocognit // walks the full OpenAPI spec; complexity is inherent to the mapping
-func (h *Handler) applyOpenAPIToAPI(apiID string, spec *openAPISpec) {
-	for path, methods := range spec.Paths {
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
-		}
-
-		for method, op := range methods {
-			routeKey := strings.ToUpper(method) + " " + path
-
-			// Skip route keys that the backend would reject (e.g. spec-level
-			// fields like "parameters" that share the path map).
-			if err := validateHTTPRouteKey(routeKey); err != nil {
-				continue
-			}
-
-			var target string
-
-			if op.Integration != nil {
-				integrationType := op.Integration.Type
-				switch integrationType {
-				case "http", "http_proxy":
-					integrationType = integrationTypeHTTPProxy
-				case "aws", "aws_proxy":
-					integrationType = IntegrationTypeAWSProxy
-				case "mock":
-					integrationType = "MOCK"
-				case "":
-					integrationType = IntegrationTypeAWSProxy
-				default:
-					integrationType = strings.ToUpper(integrationType)
-				}
-
-				integ, err := h.Backend.CreateIntegration(apiID, CreateIntegrationInput{
-					IntegrationType:      integrationType,
-					IntegrationMethod:    op.Integration.HTTPMethod,
-					IntegrationURI:       op.Integration.URI,
-					PayloadFormatVersion: op.Integration.PayloadFormatVersion,
-					ConnectionType:       op.Integration.ConnectionType,
-					TimeoutInMillis:      op.Integration.TimeoutInMillis,
-				})
-				if err == nil && integ != nil {
-					target = "integrations/" + integ.IntegrationID
-				}
-			}
-
-			if _, err := h.Backend.CreateRoute(apiID, CreateRouteInput{
-				RouteKey: routeKey,
-				Target:   target,
-			}); err != nil {
-				continue
-			}
-		}
-	}
-}
-
-func (h *Handler) handleImportAPI(c *echo.Context) error {
-	var input struct {
-		Body string `json:"body"`
-	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
-	}
-
-	spec, err := parseOpenAPISpec(input.Body)
-	if err != nil {
-		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
-	}
-
-	name := spec.Info.Title
-	if name == "" {
-		name = "imported-api"
-	}
-
-	api, err := h.Backend.CreateAPI(c.Request().Context(), CreateAPIInput{
-		Name:         name,
-		ProtocolType: protocolTypeHTTP,
-	})
-	if err != nil {
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	h.applyOpenAPIToAPI(api.APIID, spec)
-
-	return c.JSON(http.StatusCreated, api)
-}
-
-func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
-	var input struct {
-		Body string `json:"body"`
-	}
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
-	}
-
-	spec, err := parseOpenAPISpec(input.Body)
-	if err != nil {
-		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
-	}
-
-	// Replace existing routes and integrations from the new spec.
-	if routes, rErr := h.Backend.GetRoutes(apiID); rErr == nil {
-		for _, r := range routes {
-			_ = h.Backend.DeleteRoute(apiID, r.RouteID)
-		}
-	} else if errors.Is(rErr, ErrAPINotFound) {
-		return writeErr(c, http.StatusNotFound, msgNotFound)
-	}
-
-	if integrations, iErr := h.Backend.GetIntegrations(apiID); iErr == nil {
-		for _, i := range integrations {
-			_ = h.Backend.DeleteIntegration(apiID, i.IntegrationID)
-		}
-	}
-
-	update := UpdateAPIInput{}
-	if spec.Info.Title != "" {
-		update.Name = spec.Info.Title
-	}
-
-	api, err := h.Backend.UpdateAPI(apiID, update)
-	if err != nil {
-		if errors.Is(err, ErrAPINotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	h.applyOpenAPIToAPI(apiID, spec)
-
-	return c.JSON(http.StatusCreated, api)
-}
-
-func (h *Handler) handleDeleteCorsConfiguration(c *echo.Context, apiID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteCorsConfiguration(apiID); err != nil {
-		log.Error("apigatewayv2: delete cors configuration failed", "apiId", apiID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) error {
-	// API Gateway v2 only supports the OAS30 specification for exports.
-	if specification != "" && specification != "OAS30" {
-		return writeErr(c, http.StatusBadRequest, "specification must be OAS30")
-	}
-
-	spec, err := h.Backend.ExportAPI(apiID)
-	if err != nil {
-		if errors.Is(err, ErrAPINotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	// AWS returns the raw OpenAPI document as the HTTP response body (the SDK's
-	// ExportApi `Body` blob), not a wrapper object.
-	blob, mErr := json.Marshal(spec)
-	if mErr != nil {
-		return writeErr(c, http.StatusInternalServerError, mErr.Error())
-	}
-
-	return c.JSONBlob(http.StatusOK, blob)
-}
-
-func (h *Handler) handleGetModelTemplate(c *echo.Context, apiID, modelID string) error {
-	model, err := h.Backend.GetModel(apiID, modelID)
-	if err != nil {
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrModelNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	// AWS returns the model's schema as the template value; fall back to an empty
-	// object only when the model has no schema defined.
-	value := model.Schema
-	if value == "" {
-		value = emptyModelTemplate
-	}
-
-	return c.JSON(http.StatusOK, map[string]string{"value": value})
-}
-
-func (h *Handler) handleDeleteAccessLogSettings(c *echo.Context, apiID, stageName string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteAccessLogSettings(apiID, stageName); err != nil {
-		log.Error("apigatewayv2: delete access log settings failed",
-			"apiId", apiID, "stageName", stageName, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleDeleteRouteSettings(c *echo.Context, apiID, stageName, routeKey string) error {
-	if routeKey == "" {
-		return writeErr(c, http.StatusBadRequest, "routeKey is required")
-	}
-
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteRouteSettings(apiID, stageName, routeKey); err != nil {
-		log.Error("apigatewayv2: delete route settings failed",
-			"apiId", apiID, "stageName", stageName, "routeKey", routeKey, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleDeleteRouteRequestParameter(c *echo.Context, apiID, routeID, requestParameterKey string) error {
-	if requestParameterKey == "" {
-		return writeErr(c, http.StatusBadRequest, "requestParameterKey is required")
-	}
-
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteRouteRequestParameter(apiID, routeID, requestParameterKey); err != nil {
-		log.Error("apigatewayv2: delete route request parameter failed",
-			"apiId", apiID, "routeId", routeID, "key", requestParameterKey, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-// --- Stage handlers ---
-
-func (h *Handler) handleCreateStage(c *echo.Context, apiID string) error {
-	return handleCreate(c, apiID, "stage", ErrAPINotFound, func(input CreateStageInput) (*Stage, error) {
-		return h.Backend.CreateStage(apiID, input)
-	})
-}
-
-func (h *Handler) handleGetStages(c *echo.Context, apiID string) error {
-	return handleGetList(c, apiID, "stages", func() ([]Stage, error) {
-		return h.Backend.GetStages(apiID)
-	}, func(items []Stage, next string) any { return listStagesOutput{Items: items, NextToken: next} })
-}
-
-func (h *Handler) handleGetStage(c *echo.Context, apiID, stageName string) error {
-	log := logger.Load(c.Request().Context())
-
-	stage, err := h.Backend.GetStage(apiID, stageName)
-	if err != nil {
-		log.Error("apigatewayv2: get stage failed", "apiId", apiID, "stageName", stageName, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, stage)
-}
-
-func (h *Handler) handleDeleteStage(c *echo.Context, apiID, stageName string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteStage(apiID, stageName); err != nil {
-		log.Error("apigatewayv2: delete stage failed", "apiId", apiID, "stageName", stageName, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleUpdateStage(c *echo.Context, apiID, stageName string) error {
-	return handleUpdate(c, apiID, stageName, "stage",
-		func(input UpdateStageInput) (*Stage, error) {
-			return h.Backend.UpdateStage(apiID, stageName, input)
-		},
-		ErrAPINotFound, ErrStageNotFound)
-}
-
-// --- Route handlers ---
-
-func (h *Handler) handleCreateRoute(c *echo.Context, apiID string) error {
-	return handleCreate(c, apiID, "route", ErrAPINotFound, func(input CreateRouteInput) (*Route, error) {
-		return h.Backend.CreateRoute(apiID, input)
-	})
-}
-
-func (h *Handler) handleGetRoutes(c *echo.Context, apiID string) error {
-	return handleGetList(c, apiID, "routes", func() ([]Route, error) {
-		return h.Backend.GetRoutes(apiID)
-	}, func(items []Route, next string) any { return listRoutesOutput{Items: items, NextToken: next} })
-}
-
-func (h *Handler) handleGetRoute(c *echo.Context, apiID, routeID string) error {
-	log := logger.Load(c.Request().Context())
-
-	route, err := h.Backend.GetRoute(apiID, routeID)
-	if err != nil {
-		log.Error("apigatewayv2: get route failed", "apiId", apiID, "routeId", routeID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, route)
-}
-
-func (h *Handler) handleDeleteRoute(c *echo.Context, apiID, routeID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteRoute(apiID, routeID); err != nil {
-		log.Error("apigatewayv2: delete route failed", "apiId", apiID, "routeId", routeID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleUpdateRoute(c *echo.Context, apiID, routeID string) error {
-	return handleUpdate(c, apiID, routeID, "route",
-		func(input UpdateRouteInput) (*Route, error) {
-			return h.Backend.UpdateRoute(apiID, routeID, input)
-		},
-		ErrAPINotFound, ErrRouteNotFound)
-}
-
-// --- Integration handlers ---
-
-func (h *Handler) handleCreateIntegration(c *echo.Context, apiID string) error {
-	return handleCreate(c, apiID, "integration", ErrAPINotFound,
-		func(input CreateIntegrationInput) (*Integration, error) {
-			return h.Backend.CreateIntegration(apiID, input)
-		})
-}
-
-func (h *Handler) handleGetIntegrations(c *echo.Context, apiID string) error {
-	return handleGetList(c, apiID, "integrations", func() ([]Integration, error) {
-		return h.Backend.GetIntegrations(apiID)
-	}, func(items []Integration, next string) any {
-		return listIntegrationsOutput{Items: items, NextToken: next}
-	})
-}
-
-func (h *Handler) handleGetIntegration(c *echo.Context, apiID, integrationID string) error {
-	log := logger.Load(c.Request().Context())
-
-	integration, err := h.Backend.GetIntegration(apiID, integrationID)
-	if err != nil {
-		log.Error("apigatewayv2: get integration failed", "apiId", apiID, "integrationId", integrationID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, integration)
-}
-
-func (h *Handler) handleDeleteIntegration(c *echo.Context, apiID, integrationID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteIntegration(apiID, integrationID); err != nil {
-		log.Error("apigatewayv2: delete integration failed",
-			"apiId", apiID, "integrationId", integrationID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleUpdateIntegration(c *echo.Context, apiID, integrationID string) error {
-	return handleUpdate(c, apiID, integrationID, "integration",
-		func(input UpdateIntegrationInput) (*Integration, error) {
-			return h.Backend.UpdateIntegration(apiID, integrationID, input)
-		},
-		ErrAPINotFound, ErrIntegrationNotFound)
-}
-
-// --- Deployment handlers ---
-
-func (h *Handler) handleCreateDeployment(c *echo.Context, apiID string) error {
-	return handleCreateMulti(c, apiID, "deployment",
-		func(input CreateDeploymentInput) (*Deployment, error) {
-			return h.Backend.CreateDeployment(apiID, input)
-		},
-		ErrAPINotFound, ErrStageNotFound)
-}
-
-func (h *Handler) handleGetDeployments(c *echo.Context, apiID string) error {
-	return handleGetList(c, apiID, "deployments", func() ([]Deployment, error) {
-		return h.Backend.GetDeployments(apiID)
-	}, func(items []Deployment, next string) any {
-		return listDeploymentsOutput{Items: items, NextToken: next}
-	})
-}
-
-func (h *Handler) handleGetDeployment(c *echo.Context, apiID, deploymentID string) error {
-	log := logger.Load(c.Request().Context())
-
-	deployment, err := h.Backend.GetDeployment(apiID, deploymentID)
-	if err != nil {
-		log.Error("apigatewayv2: get deployment failed", "apiId", apiID, "deploymentId", deploymentID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrDeploymentNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, deployment)
-}
-
-func (h *Handler) handleDeleteDeployment(c *echo.Context, apiID, deploymentID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteDeployment(apiID, deploymentID); err != nil {
-		log.Error("apigatewayv2: delete deployment failed", "apiId", apiID, "deploymentId", deploymentID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrDeploymentNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-// --- Authorizer handlers ---
-
-func (h *Handler) handleCreateAuthorizer(c *echo.Context, apiID string) error {
-	return handleCreate(c, apiID, "authorizer", ErrAPINotFound, func(input CreateAuthorizerInput) (*Authorizer, error) {
-		return h.Backend.CreateAuthorizer(apiID, input)
-	})
-}
-
-func (h *Handler) handleGetAuthorizers(c *echo.Context, apiID string) error {
-	return handleGetList(c, apiID, "authorizers", func() ([]Authorizer, error) {
-		return h.Backend.GetAuthorizers(apiID)
-	}, func(items []Authorizer, next string) any {
-		return listAuthorizersOutput{Items: items, NextToken: next}
-	})
-}
-
-func (h *Handler) handleGetAuthorizer(c *echo.Context, apiID, authorizerID string) error {
-	log := logger.Load(c.Request().Context())
-
-	authorizer, err := h.Backend.GetAuthorizer(apiID, authorizerID)
-	if err != nil {
-		log.Error("apigatewayv2: get authorizer failed", "apiId", apiID, "authorizerId", authorizerID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrAuthorizerNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, authorizer)
-}
-
-func (h *Handler) handleDeleteAuthorizer(c *echo.Context, apiID, authorizerID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteAuthorizer(apiID, authorizerID); err != nil {
-		log.Error("apigatewayv2: delete authorizer failed", "apiId", apiID, "authorizerId", authorizerID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrAuthorizerNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleUpdateAuthorizer(c *echo.Context, apiID, authorizerID string) error {
-	return handleUpdate(c, apiID, authorizerID, "authorizer",
-		func(input UpdateAuthorizerInput) (*Authorizer, error) {
-			return h.Backend.UpdateAuthorizer(apiID, authorizerID, input)
-		},
-		ErrAPINotFound, ErrAuthorizerNotFound)
-}
-
-// --- Model handlers ---
-
-func (h *Handler) handleCreateModel(c *echo.Context, apiID string) error {
-	return handleCreate(c, apiID, "model", ErrAPINotFound, func(input CreateModelInput) (*Model, error) {
-		return h.Backend.CreateModel(apiID, input)
-	})
 }
 
 // handleCreate is a generic helper for Create* handlers that decode a body,
@@ -1865,7 +505,7 @@ func handleCreateMulti[I, O any](
 
 	result, err := backendFn(input)
 	if err != nil {
-		log.Error("apigatewayv2: create "+resourceName+" failed", "apiId", apiID, "error", err)
+		log.Error("apigatewayv2: create "+resourceName+" failed", logKeyAPIID, apiID, "error", err)
 
 		if errors.Is(err, awserr.ErrAlreadyExists) {
 			return writeErr(c, http.StatusConflict, err.Error())
@@ -1905,7 +545,7 @@ func handleUpdate[I, O any](
 	result, err := backendFn(input)
 	if err != nil {
 		log.Error("apigatewayv2: update "+resourceName+" failed",
-			"apiId", apiID, "resourceId", resourceID, "error", err)
+			logKeyAPIID, apiID, "resourceId", resourceID, "error", err)
 
 		for _, nfe := range notFoundErrs {
 			if errors.Is(err, nfe) {
@@ -1947,7 +587,7 @@ func handleGetList[T any](
 
 	items, err := backendFn()
 	if err != nil {
-		log.Error("apigatewayv2: get "+resourceName+" failed", "apiId", apiID, "error", err)
+		log.Error("apigatewayv2: get "+resourceName+" failed", logKeyAPIID, apiID, "error", err)
 
 		if errors.Is(err, ErrAPINotFound) {
 			return writeErr(c, http.StatusNotFound, msgNotFound)
@@ -1993,6 +633,168 @@ func handleCreateNoParent[I, O any](
 	return c.JSON(http.StatusCreated, result)
 }
 
+// handleGetChildList is a generic helper for GET-collection handlers on a
+// resource nested two levels deep (e.g. GetIntegrationResponses,
+// GetRouteResponses) that do not paginate.
+func handleGetChildList[T any](
+	c *echo.Context,
+	logMsg string,
+	logArgs []any,
+	backendFn func() ([]T, error),
+	wrapFn func([]T) any,
+	notFoundErrs ...error,
+) error {
+	log := logger.Load(c.Request().Context())
+
+	items, err := backendFn()
+	if err != nil {
+		log.Error(logMsg, append(logArgs, "error", err)...)
+
+		for _, nfe := range notFoundErrs {
+			if errors.Is(err, nfe) {
+				return writeErr(c, http.StatusNotFound, msgNotFound)
+			}
+		}
+
+		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, wrapFn(items))
+}
+
+// handleGetChild is a generic helper for GET-single handlers on a resource
+// nested two levels deep.
+func handleGetChild[T any](
+	c *echo.Context,
+	logMsg string,
+	logArgs []any,
+	backendFn func() (*T, error),
+	notFoundErrs ...error,
+) error {
+	log := logger.Load(c.Request().Context())
+
+	item, err := backendFn()
+	if err != nil {
+		log.Error(logMsg, append(logArgs, "error", err)...)
+
+		for _, nfe := range notFoundErrs {
+			if errors.Is(err, nfe) {
+				return writeErr(c, http.StatusNotFound, msgNotFound)
+			}
+		}
+
+		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, item)
+}
+
+// handleDeleteChild is a generic helper for DELETE handlers on a resource
+// nested two levels deep.
+func handleDeleteChild(
+	c *echo.Context,
+	logMsg string,
+	logArgs []any,
+	backendFn func() error,
+	notFoundErrs ...error,
+) error {
+	log := logger.Load(c.Request().Context())
+
+	if err := backendFn(); err != nil {
+		log.Error(logMsg, append(logArgs, "error", err)...)
+
+		for _, nfe := range notFoundErrs {
+			if errors.Is(err, nfe) {
+				return writeErr(c, http.StatusNotFound, msgNotFound)
+			}
+		}
+
+		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// nestedResponseOps bundles the backend calls and error classification needed
+// to implement the four handlers (list/get/delete/update) for a "response"
+// resource nested two levels under an API. IntegrationResponse (under an
+// integration) and RouteResponse (under a route) share this exact shape, so
+// this single generic implementation replaces what would otherwise be two
+// hand-duplicated copies of the same four handlers.
+type nestedResponseOps[T, U any] struct {
+	selfNotFound error
+	list         func(apiID, parentID string) ([]T, error)
+	wrapList     func([]T) any
+	get          func(apiID, parentID, id string) (*T, error)
+	del          func(apiID, parentID, id string) error
+	update       func(apiID, parentID, id string, input U) (*T, error)
+	kind         string
+	parentIDKey  string
+	notFoundErrs []error
+}
+
+func (ops nestedResponseOps[T, U]) handleList(c *echo.Context, apiID, parentID string) error {
+	return handleGetChildList(c,
+		"apigatewayv2: get "+ops.kind+"s failed", []any{logKeyAPIID, apiID, ops.parentIDKey, parentID},
+		func() ([]T, error) { return ops.list(apiID, parentID) },
+		ops.wrapList,
+		ops.notFoundErrs...)
+}
+
+func (ops nestedResponseOps[T, U]) handleGet(c *echo.Context, apiID, parentID, id string) error {
+	return handleGetChild(c,
+		"apigatewayv2: get "+ops.kind+" failed",
+		[]any{logKeyAPIID, apiID, ops.parentIDKey, parentID, "responseId", id},
+		func() (*T, error) { return ops.get(apiID, parentID, id) },
+		append(slices.Clone(ops.notFoundErrs), ops.selfNotFound)...)
+}
+
+func (ops nestedResponseOps[T, U]) handleDelete(c *echo.Context, apiID, parentID, id string) error {
+	return handleDeleteChild(c,
+		"apigatewayv2: delete "+ops.kind+" failed",
+		[]any{logKeyAPIID, apiID, ops.parentIDKey, parentID, "responseId", id},
+		func() error { return ops.del(apiID, parentID, id) },
+		append(slices.Clone(ops.notFoundErrs), ops.selfNotFound)...)
+}
+
+func (ops nestedResponseOps[T, U]) handleUpdate(c *echo.Context, apiID, parentID, id string) error {
+	return handleUpdate(c, apiID, id, ops.kind,
+		func(input U) (*T, error) { return ops.update(apiID, parentID, id, input) },
+		append(slices.Clone(ops.notFoundErrs), ops.selfNotFound)...)
+}
+
+// integrationResponseOps returns the nestedResponseOps binding for
+// IntegrationResponse, nested under an integration.
+func (h *Handler) integrationResponseOps() nestedResponseOps[IntegrationResponse, UpdateIntegrationResponseInput] {
+	return nestedResponseOps[IntegrationResponse, UpdateIntegrationResponseInput]{
+		kind:         "integration response",
+		parentIDKey:  "integrationId",
+		list:         h.Backend.GetIntegrationResponses,
+		wrapList:     func(items []IntegrationResponse) any { return listIntegrationResponsesOutput{Items: items} },
+		get:          h.Backend.GetIntegrationResponse,
+		del:          h.Backend.DeleteIntegrationResponse,
+		update:       h.Backend.UpdateIntegrationResponse,
+		notFoundErrs: []error{ErrAPINotFound, ErrIntegrationNotFound},
+		selfNotFound: ErrIntegrationResponseNotFound,
+	}
+}
+
+// routeResponseOps returns the nestedResponseOps binding for RouteResponse,
+// nested under a route.
+func (h *Handler) routeResponseOps() nestedResponseOps[RouteResponse, UpdateRouteResponseInput] {
+	return nestedResponseOps[RouteResponse, UpdateRouteResponseInput]{
+		kind:         "route response",
+		parentIDKey:  "routeId",
+		list:         h.Backend.GetRouteResponses,
+		wrapList:     func(items []RouteResponse) any { return listRouteResponsesOutput{Items: items} },
+		get:          h.Backend.GetRouteResponse,
+		del:          h.Backend.DeleteRouteResponse,
+		update:       h.Backend.UpdateRouteResponse,
+		notFoundErrs: []error{ErrAPINotFound, ErrRouteNotFound},
+		selfNotFound: ErrRouteResponseNotFound,
+	}
+}
+
 // pathSegments strips the /v2/apis prefix and returns the remaining path segments.
 // For example: /v2/apis/abc123/stages/prod → ["abc123", "stages", "prod"].
 func pathSegments(path string) []string {
@@ -2004,159 +806,6 @@ func pathSegments(path string) []string {
 	}
 
 	return strings.Split(trimmed, "/")
-}
-
-func (h *Handler) handleGetModels(c *echo.Context, apiID string) error {
-	return handleGetList(c, apiID, "models", func() ([]Model, error) {
-		return h.Backend.GetModels(apiID)
-	}, func(items []Model, next string) any { return listModelsOutput{Items: items, NextToken: next} })
-}
-
-func (h *Handler) handleGetModel(c *echo.Context, apiID, modelID string) error {
-	log := logger.Load(c.Request().Context())
-
-	model, err := h.Backend.GetModel(apiID, modelID)
-	if err != nil {
-		log.Error("apigatewayv2: get model failed", "apiId", apiID, "modelId", modelID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrModelNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, model)
-}
-
-func (h *Handler) handleDeleteModel(c *echo.Context, apiID, modelID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteModel(apiID, modelID); err != nil {
-		log.Error("apigatewayv2: delete model failed", "apiId", apiID, "modelId", modelID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrModelNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-// --- Integration Response handlers ---
-
-func (h *Handler) handleGetIntegrationResponses(c *echo.Context, apiID, integrationID string) error {
-	log := logger.Load(c.Request().Context())
-
-	items, err := h.Backend.GetIntegrationResponses(apiID, integrationID)
-	if err != nil {
-		log.Error("apigatewayv2: get integration responses failed",
-			"apiId", apiID, "integrationId", integrationID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, listIntegrationResponsesOutput{Items: items})
-}
-
-func (h *Handler) handleGetIntegrationResponse(c *echo.Context, apiID, integrationID, responseID string) error {
-	log := logger.Load(c.Request().Context())
-
-	ir, err := h.Backend.GetIntegrationResponse(apiID, integrationID, responseID)
-	if err != nil {
-		log.Error("apigatewayv2: get integration response failed",
-			"apiId", apiID, "integrationId", integrationID, "responseId", responseID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) ||
-			errors.Is(err, ErrIntegrationResponseNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, ir)
-}
-
-func (h *Handler) handleDeleteIntegrationResponse(c *echo.Context, apiID, integrationID, responseID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteIntegrationResponse(apiID, integrationID, responseID); err != nil {
-		log.Error("apigatewayv2: delete integration response failed",
-			"apiId", apiID, "integrationId", integrationID, "responseId", responseID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrIntegrationNotFound) ||
-			errors.Is(err, ErrIntegrationResponseNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-// --- Route Response handlers ---
-
-func (h *Handler) handleGetRouteResponses(c *echo.Context, apiID, routeID string) error {
-	log := logger.Load(c.Request().Context())
-
-	items, err := h.Backend.GetRouteResponses(apiID, routeID)
-	if err != nil {
-		log.Error("apigatewayv2: get route responses failed",
-			"apiId", apiID, "routeId", routeID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, listRouteResponsesOutput{Items: items})
-}
-
-func (h *Handler) handleGetRouteResponse(c *echo.Context, apiID, routeID, responseID string) error {
-	log := logger.Load(c.Request().Context())
-
-	rr, err := h.Backend.GetRouteResponse(apiID, routeID, responseID)
-	if err != nil {
-		log.Error("apigatewayv2: get route response failed",
-			"apiId", apiID, "routeId", routeID, "responseId", responseID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) ||
-			errors.Is(err, ErrRouteResponseNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, rr)
-}
-
-func (h *Handler) handleDeleteRouteResponse(c *echo.Context, apiID, routeID, responseID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteRouteResponse(apiID, routeID, responseID); err != nil {
-		log.Error("apigatewayv2: delete route response failed",
-			"apiId", apiID, "routeId", routeID, "responseId", responseID, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrRouteNotFound) ||
-			errors.Is(err, ErrRouteResponseNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
 }
 
 // handleDeepResource handles GET/DELETE on /v2/apis/{apiId}/{coll}/{resourceId}/{subColl}/{subResourceId}.
@@ -2177,12 +826,24 @@ func (h *Handler) handleDeepResource(
 	type threeArgHandler func(*echo.Context, string, string, string) error
 
 	dispatch := map[subDispatchKey]threeArgHandler{
-		{http.MethodGet, collIntegrationResponses}:    h.handleGetIntegrationResponse,
-		{http.MethodDelete, collIntegrationResponses}: h.handleDeleteIntegrationResponse,
-		{http.MethodPatch, collIntegrationResponses}:  h.handleUpdateIntegrationResponse,
-		{http.MethodGet, collRouteResponses}:          h.handleGetRouteResponse,
-		{http.MethodDelete, collRouteResponses}:       h.handleDeleteRouteResponse,
-		{http.MethodPatch, collRouteResponses}:        h.handleUpdateRouteResponse,
+		{http.MethodGet, collIntegrationResponses}: func(c *echo.Context, apiID, integrationID, responseID string) error {
+			return h.integrationResponseOps().handleGet(c, apiID, integrationID, responseID)
+		},
+		{http.MethodDelete, collIntegrationResponses}: func(c *echo.Context, apiID, integrationID, responseID string) error {
+			return h.integrationResponseOps().handleDelete(c, apiID, integrationID, responseID)
+		},
+		{http.MethodPatch, collIntegrationResponses}: func(c *echo.Context, apiID, integrationID, responseID string) error {
+			return h.integrationResponseOps().handleUpdate(c, apiID, integrationID, responseID)
+		},
+		{http.MethodGet, collRouteResponses}: func(c *echo.Context, apiID, routeID, responseID string) error {
+			return h.routeResponseOps().handleGet(c, apiID, routeID, responseID)
+		},
+		{http.MethodDelete, collRouteResponses}: func(c *echo.Context, apiID, routeID, responseID string) error {
+			return h.routeResponseOps().handleDelete(c, apiID, routeID, responseID)
+		},
+		{http.MethodPatch, collRouteResponses}: func(c *echo.Context, apiID, routeID, responseID string) error {
+			return h.routeResponseOps().handleUpdate(c, apiID, routeID, responseID)
+		},
 	}
 
 	if fn, ok := dispatch[subDispatchKey{method, subCollection}]; ok {
@@ -2190,582 +851,4 @@ func (h *Handler) handleDeepResource(
 	}
 
 	return writeErr(c, http.StatusNotFound, msgNotFound)
-}
-
-// --- Domain Name handlers ---
-
-func (h *Handler) handleGetDomainNames(c *echo.Context) error {
-	log := logger.Load(c.Request().Context())
-
-	items, err := h.Backend.GetDomainNames()
-	if err != nil {
-		log.Error("apigatewayv2: get domain names failed", "error", err)
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, listDomainNamesOutput{Items: items})
-}
-
-func (h *Handler) handleGetDomainName(c *echo.Context, domainName string) error {
-	log := logger.Load(c.Request().Context())
-
-	dn, err := h.Backend.GetDomainName(domainName)
-	if err != nil {
-		log.Error("apigatewayv2: get domain name failed", "domainName", domainName, "error", err)
-
-		if errors.Is(err, ErrDomainNameNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, dn)
-}
-
-func (h *Handler) handleDeleteDomainName(c *echo.Context, domainName string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteDomainName(domainName); err != nil {
-		log.Error("apigatewayv2: delete domain name failed", "domainName", domainName, "error", err)
-
-		if errors.Is(err, ErrDomainNameNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleGetAPIMappings(c *echo.Context, domainName string) error {
-	log := logger.Load(c.Request().Context())
-
-	items, err := h.Backend.GetAPIMappings(domainName)
-	if err != nil {
-		log.Error("apigatewayv2: get api mappings failed", "domainName", domainName, "error", err)
-
-		if errors.Is(err, ErrDomainNameNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, listAPIMappingsOutput{Items: items})
-}
-
-func (h *Handler) handleGetAPIMapping(c *echo.Context, domainName, mappingID string) error {
-	log := logger.Load(c.Request().Context())
-
-	m, err := h.Backend.GetAPIMapping(domainName, mappingID)
-	if err != nil {
-		log.Error("apigatewayv2: get api mapping failed",
-			"domainName", domainName, "mappingId", mappingID, "error", err)
-
-		if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrAPIMappingNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, m)
-}
-
-func (h *Handler) handleDeleteAPIMapping(c *echo.Context, domainName, mappingID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteAPIMapping(domainName, mappingID); err != nil {
-		log.Error("apigatewayv2: delete api mapping failed",
-			"domainName", domainName, "mappingId", mappingID, "error", err)
-
-		if errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrAPIMappingNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-// --- Portal handlers ---
-
-func (h *Handler) handleListPortals(c *echo.Context) error {
-	log := logger.Load(c.Request().Context())
-
-	items, err := h.Backend.ListPortals()
-	if err != nil {
-		log.Error("apigatewayv2: list portals failed", "error", err)
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, listPortalsOutput{Items: items})
-}
-
-func (h *Handler) handleGetPortal(c *echo.Context, portalID string) error {
-	log := logger.Load(c.Request().Context())
-
-	p, err := h.Backend.GetPortal(portalID)
-	if err != nil {
-		log.Error("apigatewayv2: get portal failed", "portalId", portalID, "error", err)
-
-		if errors.Is(err, ErrPortalNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, p)
-}
-
-// --- Portal Product handlers ---
-
-func (h *Handler) handleListPortalProducts(c *echo.Context) error {
-	log := logger.Load(c.Request().Context())
-
-	items, err := h.Backend.ListPortalProducts()
-	if err != nil {
-		log.Error("apigatewayv2: list portal products failed", "error", err)
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, listPortalProductsOutput{Items: items})
-}
-
-func (h *Handler) handleGetPortalProduct(c *echo.Context, portalProductID string) error {
-	log := logger.Load(c.Request().Context())
-
-	pp, err := h.Backend.GetPortalProduct(portalProductID)
-	if err != nil {
-		log.Error("apigatewayv2: get portal product failed", "portalProductId", portalProductID, "error", err)
-
-		if errors.Is(err, ErrPortalProductNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, pp)
-}
-
-func (h *Handler) handleListProductPages(c *echo.Context, portalProductID string) error {
-	log := logger.Load(c.Request().Context())
-
-	items, err := h.Backend.ListProductPages(portalProductID)
-	if err != nil {
-		log.Error("apigatewayv2: list product pages failed", "portalProductId", portalProductID, "error", err)
-
-		if errors.Is(err, ErrPortalProductNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, listProductPagesOutput{Items: items})
-}
-
-func (h *Handler) handleListProductRestEndpointPages(c *echo.Context, portalProductID string) error {
-	log := logger.Load(c.Request().Context())
-
-	items, err := h.Backend.ListProductRestEndpointPages(portalProductID)
-	if err != nil {
-		log.Error("apigatewayv2: list product rest endpoint pages failed",
-			"portalProductId", portalProductID, "error", err)
-
-		if errors.Is(err, ErrPortalProductNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, listProductREPagesOutput{Items: items})
-}
-
-// --- Tags handlers ---
-
-func extractTagsOp(path, method string) string {
-	suffix := strings.Trim(strings.TrimPrefix(path, tagsPrefix), "/")
-	if suffix == "" {
-		return opUnknown
-	}
-
-	switch method {
-	case http.MethodGet:
-		return "GetTags"
-	case http.MethodPost:
-		return "TagResource"
-	case http.MethodDelete:
-		return "UntagResource"
-	}
-
-	return opUnknown
-}
-
-func (h *Handler) handleTagsPath(c *echo.Context, method, path string) error {
-	resourceARN := strings.TrimPrefix(path, tagsPrefix+"/")
-	if resourceARN == "" {
-		return writeErr(c, http.StatusNotFound, msgNotFound)
-	}
-
-	switch method {
-	case http.MethodGet:
-		return h.handleGetTags(c, resourceARN)
-	case http.MethodPost:
-		return h.handleTagResource(c, resourceARN)
-	case http.MethodDelete:
-		return h.handleUntagResource(c, resourceARN)
-	default:
-		return writeErr(c, http.StatusMethodNotAllowed, msgMethodNotAllowed)
-	}
-}
-
-func (h *Handler) handleGetTags(c *echo.Context, resourceARN string) error {
-	log := logger.Load(c.Request().Context())
-
-	tags, err := h.Backend.GetTags(resourceARN)
-	if err != nil {
-		log.Error("apigatewayv2: get tags failed", "resourceArn", resourceARN, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
-			errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrStageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	if tags == nil {
-		tags = map[string]string{}
-	}
-
-	return c.JSON(http.StatusOK, getTagsOutput{Tags: tags})
-}
-
-func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
-	log := logger.Load(c.Request().Context())
-
-	var input tagResourceInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
-	}
-
-	if err := h.Backend.TagResource(resourceARN, input.Tags); err != nil {
-		log.Error("apigatewayv2: tag resource failed", "resourceArn", resourceARN, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
-			errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrStageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusCreated)
-}
-
-func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
-	log := logger.Load(c.Request().Context())
-
-	// AWS SDK sends tagKeys as repeated query parameters: ?tagKeys=key1&tagKeys=key2
-	tagKeys := c.Request().URL.Query()["tagKeys"]
-
-	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
-		log.Error("apigatewayv2: untag resource failed", "resourceArn", resourceARN, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrVpcLinkNotFound) ||
-			errors.Is(err, ErrDomainNameNotFound) || errors.Is(err, ErrStageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleUpdateAPIMapping(c *echo.Context, domainName, mappingID string) error {
-	return handleUpdate(c, domainName, mappingID, "api mapping",
-		func(input UpdateAPIMappingInput) (*APIMapping, error) {
-			return h.Backend.UpdateAPIMapping(domainName, mappingID, input)
-		},
-		ErrDomainNameNotFound, ErrAPIMappingNotFound, ErrAPINotFound, ErrStageNotFound)
-}
-
-func (h *Handler) handleUpdateDeployment(c *echo.Context, apiID, deploymentID string) error {
-	return handleUpdate(c, apiID, deploymentID, "deployment",
-		func(input UpdateDeploymentInput) (*Deployment, error) {
-			return h.Backend.UpdateDeployment(apiID, deploymentID, input)
-		},
-		ErrAPINotFound, ErrDeploymentNotFound)
-}
-
-func (h *Handler) handleUpdateDomainName(c *echo.Context, domainName string) error {
-	return handleUpdate(c, domainName, "", "domain name",
-		func(input UpdateDomainNameInput) (*DomainName, error) {
-			return h.Backend.UpdateDomainName(domainName, input)
-		},
-		ErrDomainNameNotFound)
-}
-
-func (h *Handler) handleUpdateIntegrationResponse(c *echo.Context, apiID, integrationID, responseID string) error {
-	return handleUpdate(c, apiID, responseID, "integration response",
-		func(input UpdateIntegrationResponseInput) (*IntegrationResponse, error) {
-			return h.Backend.UpdateIntegrationResponse(apiID, integrationID, responseID, input)
-		},
-		ErrAPINotFound, ErrIntegrationNotFound, ErrIntegrationResponseNotFound)
-}
-
-func (h *Handler) handleUpdateModel(c *echo.Context, apiID, modelID string) error {
-	return handleUpdate(c, apiID, modelID, "model",
-		func(input UpdateModelInput) (*Model, error) {
-			return h.Backend.UpdateModel(apiID, modelID, input)
-		},
-		ErrAPINotFound, ErrModelNotFound)
-}
-
-func (h *Handler) handleUpdateRouteResponse(c *echo.Context, apiID, routeID, responseID string) error {
-	return handleUpdate(c, apiID, responseID, "route response",
-		func(input UpdateRouteResponseInput) (*RouteResponse, error) {
-			return h.Backend.UpdateRouteResponse(apiID, routeID, responseID, input)
-		},
-		ErrAPINotFound, ErrRouteNotFound, ErrRouteResponseNotFound)
-}
-
-func (h *Handler) handleUpdatePortal(c *echo.Context, portalID string) error {
-	return handleUpdate(c, portalID, "", "portal",
-		func(input UpdatePortalInput) (*Portal, error) {
-			return h.Backend.UpdatePortal(portalID, input)
-		},
-		ErrPortalNotFound)
-}
-
-func (h *Handler) handlePublishPortal(c *echo.Context, portalID string) error {
-	var input PublishPortalInput
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil && !errors.Is(err, io.EOF) {
-		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
-	}
-
-	p, err := h.Backend.UpdatePortal(portalID, UpdatePortalInput{Status: "PUBLISHED"})
-	if err != nil {
-		if errors.Is(err, ErrPortalNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, p)
-}
-
-func (h *Handler) handleDisablePortal(c *echo.Context, portalID string) error {
-	p, err := h.Backend.UpdatePortal(portalID, UpdatePortalInput{Status: "DISABLED"})
-	if err != nil {
-		if errors.Is(err, ErrPortalNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, p)
-}
-
-func (h *Handler) handleDeletePortal(c *echo.Context, portalID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeletePortal(portalID); err != nil {
-		log.Error("apigatewayv2: delete portal failed", "portalId", portalID, "error", err)
-
-		if errors.Is(err, ErrPortalNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleUpdatePortalProduct(c *echo.Context, portalProductID string) error {
-	return handleUpdate(c, portalProductID, "", "portal product",
-		func(input UpdatePortalProductInput) (*PortalProduct, error) {
-			return h.Backend.UpdatePortalProduct(portalProductID, input)
-		},
-		ErrPortalProductNotFound)
-}
-
-func (h *Handler) handleGetPortalProductSharingPolicy(c *echo.Context, portalProductID string) error {
-	policy, err := h.Backend.GetPortalProductSharingPolicy(portalProductID)
-	if err != nil {
-		if errors.Is(err, ErrPortalProductNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, policy)
-}
-
-func (h *Handler) handlePutPortalProductSharingPolicy(c *echo.Context, portalProductID string) error {
-	var input PortalProductSharingPolicy
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
-		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
-	}
-
-	policy, err := h.Backend.PutPortalProductSharingPolicy(portalProductID, input.PolicyDocument)
-	if err != nil {
-		if errors.Is(err, ErrPortalProductNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, policy)
-}
-
-func (h *Handler) handleDeletePortalProductSharingPolicy(c *echo.Context, portalProductID string) error {
-	if err := h.Backend.DeletePortalProductSharingPolicy(portalProductID); err != nil {
-		if errors.Is(err, ErrPortalProductNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleUpdateProductPage(c *echo.Context, portalProductID, pageID string) error {
-	return handleUpdate(c, portalProductID, pageID, "product page",
-		func(input UpdateProductPageInput) (*ProductPage, error) {
-			return h.Backend.UpdateProductPage(portalProductID, pageID, input)
-		},
-		ErrPortalProductNotFound, ErrProductPageNotFound)
-}
-
-func (h *Handler) handleUpdateProductRestEndpointPage(c *echo.Context, portalProductID, pageID string) error {
-	return handleUpdate(c, portalProductID, pageID, "product rest endpoint page",
-		func(input UpdateProductRestEndpointPageInput) (*ProductRestEndpointPage, error) {
-			return h.Backend.UpdateProductRestEndpointPage(portalProductID, pageID, input)
-		},
-		ErrPortalProductNotFound, ErrProductREPageNotFound)
-}
-
-func (h *Handler) handleDeletePortalProduct(c *echo.Context, portalProductID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeletePortalProduct(portalProductID); err != nil {
-		log.Error("apigatewayv2: delete portal product failed", "portalProductId", portalProductID, "error", err)
-
-		if errors.Is(err, ErrPortalProductNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleGetProductPage(c *echo.Context, portalProductID, pageID string) error {
-	log := logger.Load(c.Request().Context())
-
-	p, err := h.Backend.GetProductPage(portalProductID, pageID)
-	if err != nil {
-		log.Error("apigatewayv2: get product page failed",
-			"portalProductId", portalProductID, "pageId", pageID, "error", err)
-
-		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductPageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, p)
-}
-
-func (h *Handler) handleDeleteProductPage(c *echo.Context, portalProductID, pageID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteProductPage(portalProductID, pageID); err != nil {
-		log.Error("apigatewayv2: delete product page failed",
-			"portalProductId", portalProductID, "pageId", pageID, "error", err)
-
-		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductPageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleGetProductRestEndpointPage(c *echo.Context, portalProductID, pageID string) error {
-	log := logger.Load(c.Request().Context())
-
-	p, err := h.Backend.GetProductRestEndpointPage(portalProductID, pageID)
-	if err != nil {
-		log.Error("apigatewayv2: get product rest endpoint page failed",
-			"portalProductId", portalProductID, "pageId", pageID, "error", err)
-
-		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductREPageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.JSON(http.StatusOK, p)
-}
-
-func (h *Handler) handleDeleteProductRestEndpointPage(c *echo.Context, portalProductID, pageID string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.DeleteProductRestEndpointPage(portalProductID, pageID); err != nil {
-		log.Error("apigatewayv2: delete product rest endpoint page failed",
-			"portalProductId", portalProductID, "pageId", pageID, "error", err)
-
-		if errors.Is(err, ErrPortalProductNotFound) || errors.Is(err, ErrProductREPageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleResetAuthorizersCache(c *echo.Context, apiID, stageName string) error {
-	log := logger.Load(c.Request().Context())
-
-	if err := h.Backend.ResetAuthorizersCache(apiID, stageName); err != nil {
-		log.Error("apigatewayv2: reset authorizers cache failed", "apiId", apiID, "stageName", stageName, "error", err)
-
-		if errors.Is(err, ErrAPINotFound) || errors.Is(err, ErrStageNotFound) {
-			return writeErr(c, http.StatusNotFound, msgNotFound)
-		}
-
-		return writeErr(c, http.StatusInternalServerError, err.Error())
-	}
-
-	// Drop cached Lambda-authorizer decisions so subsequent requests re-invoke.
-	if h.authCache != nil {
-		h.authCache.reset()
-	}
-
-	return c.NoContent(http.StatusNoContent)
 }

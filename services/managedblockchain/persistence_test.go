@@ -383,3 +383,43 @@ func TestManagedBlockchain_PersistenceVersionMismatch(t *testing.T) {
 		})
 	}
 }
+
+// TestManagedBlockchain_PersistenceRoundTripAllResourceCounts verifies Snapshot/Restore
+// preserves every resource collection (including nodes and the ARN index rebuilt from
+// them), using the AddXInternal seed helpers and count helpers rather than the
+// setup/verify table above.
+func TestManagedBlockchain_PersistenceRoundTripAllResourceCounts(t *testing.T) {
+	t.Parallel()
+
+	b := managedblockchain.NewInMemoryBackend()
+	n := b.AddNetworkInternal(testRegion, testAccountID, "persist-net")
+	m := b.AddMemberInternal(testRegion, testAccountID, n.ID, "persist-member")
+	node := b.AddNodeInternal(testRegion, testAccountID, n.ID, m.ID, "bc.t3.small.ethereum")
+	accessor := b.AddAccessorInternal(testRegion, testAccountID, "BILLING_TOKEN", "ETHEREUM_MAINNET")
+	b.AddProposalInternal(testRegion, testAccountID, n.ID, m.ID, "test proposal")
+	b.AddInvitationInternal(testRegion, testAccountID, n.ID, "persist-net")
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := managedblockchain.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, managedblockchain.NetworkCount(b2))
+	assert.Equal(t, 1, managedblockchain.MemberCount(b2))
+	assert.Equal(t, 1, managedblockchain.NodeCount(b2))
+	assert.Equal(t, 1, managedblockchain.AccessorCount(b2))
+	assert.Equal(t, 1, managedblockchain.ProposalCount(b2))
+	assert.Equal(t, 1, managedblockchain.InvitationCount(b2))
+
+	// Network, member, node, accessor all in ARN index = 4
+	assert.Equal(t, 4, managedblockchain.ARNIndexSize(b2))
+
+	// Tags on node work after restore
+	err := b2.TagResource(node.Arn, map[string]string{"restored": "true"})
+	require.NoError(t, err)
+
+	// Tags on accessor work after restore
+	err = b2.TagResource(accessor.Arn, map[string]string{"restored": "true"})
+	require.NoError(t, err)
+}

@@ -13,7 +13,7 @@ import (
 
 // --- RecursionConfig, ScalingConfig, RuntimeManagementConfig HTTP tests ---
 
-func TestBatch1_FunctionRecursionConfig_PutGet(t *testing.T) {
+func TestFunctionRecursionConfig_PutGet(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -36,7 +36,7 @@ func TestBatch1_FunctionRecursionConfig_PutGet(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "Deny")
 }
 
-func TestBatch1_FunctionScalingConfig_PutGet(t *testing.T) {
+func TestFunctionScalingConfig_PutGet(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -63,7 +63,7 @@ func TestBatch1_FunctionScalingConfig_PutGet(t *testing.T) {
 	assert.InDelta(t, float64(maxConc), out["MaximumConcurrency"], 0.001)
 }
 
-func TestBatch1_RuntimeManagementConfig_PutGet(t *testing.T) {
+func TestRuntimeManagementConfig_PutGet(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -89,7 +89,7 @@ func TestBatch1_RuntimeManagementConfig_PutGet(t *testing.T) {
 // RuntimeManagementConfig
 // ============================================================
 
-func TestBatch2_RuntimeManagementConfig_GetDefault(t *testing.T) {
+func TestRuntimeManagementConfig_GetDefault(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -104,7 +104,7 @@ func TestBatch2_RuntimeManagementConfig_GetDefault(t *testing.T) {
 	assert.Equal(t, "Auto", cfg.UpdateRuntimeOn)
 }
 
-func TestBatch2_RuntimeManagementConfig_Put(t *testing.T) {
+func TestRuntimeManagementConfig_Put(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -120,7 +120,7 @@ func TestBatch2_RuntimeManagementConfig_Put(t *testing.T) {
 	assert.Equal(t, "FunctionUpdate", cfg.UpdateRuntimeOn)
 }
 
-func TestBatch2_RuntimeManagementConfig_PutManualWithARN(t *testing.T) {
+func TestRuntimeManagementConfig_PutManualWithARN(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -138,7 +138,7 @@ func TestBatch2_RuntimeManagementConfig_PutManualWithARN(t *testing.T) {
 	assert.Equal(t, rva, cfg.RuntimeVersionArn)
 }
 
-func TestBatch2_RuntimeManagementConfig_FunctionARNInResponse(t *testing.T) {
+func TestRuntimeManagementConfig_FunctionARNInResponse(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -157,7 +157,7 @@ func TestBatch2_RuntimeManagementConfig_FunctionARNInResponse(t *testing.T) {
 // FunctionRecursionConfig
 // ============================================================
 
-func TestBatch2_RecursionConfig_GetDefault(t *testing.T) {
+func TestRecursionConfig_GetDefault(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -172,7 +172,7 @@ func TestBatch2_RecursionConfig_GetDefault(t *testing.T) {
 	assert.Equal(t, "Terminate", cfg.RecursiveLoop)
 }
 
-func TestBatch2_RecursionConfig_Put_Allow(t *testing.T) {
+func TestRecursionConfig_Put_Allow(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -188,7 +188,7 @@ func TestBatch2_RecursionConfig_Put_Allow(t *testing.T) {
 	assert.Equal(t, "Allow", cfg.RecursiveLoop)
 }
 
-func TestBatch2_RecursionConfig_Put_Terminate(t *testing.T) {
+func TestRecursionConfig_Put_Terminate(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -276,7 +276,7 @@ func TestFunctionSettingsRoute_ErrorCases(t *testing.T) {
 
 // ---- Gap 8: ScalingConfig.MaximumConcurrency enforcement ----
 
-func TestAudit_ScalingConfig_MaximumConcurrency_Enforced(t *testing.T) {
+func TestScalingConfig_MaximumConcurrency_Enforced(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)
@@ -308,7 +308,7 @@ func TestAudit_ScalingConfig_MaximumConcurrency_Enforced(t *testing.T) {
 	lambda.ReleaseConcurrencySlot(bk, "scaling-fn")
 }
 
-func TestAudit_ScalingConfig_ZeroConcurrency_Blocked(t *testing.T) {
+func TestScalingConfig_ZeroConcurrency_Blocked(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)

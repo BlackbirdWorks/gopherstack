@@ -928,3 +928,13 @@ func fromTagObjects(tags []tagObject) map[string]string {
 
 	return result
 }
+
+// listResp builds a paginated list response with the given key and items.
+func listResp(key string, items []map[string]any, nextToken string) ([]byte, error) {
+	resp := map[string]any{key: items}
+	if nextToken != "" {
+		resp[keyNextToken] = nextToken
+	}
+
+	return json.Marshal(resp)
+}

@@ -278,7 +278,7 @@ func assertRawMapResourcesRestored(t *testing.T, b *InMemoryBackend, f fullState
 // Test_Restore_RebuildsServiceIndex proves that after a Snapshot/Restore
 // round-trip, the deployment reconciler still sees pre-existing services.
 //
-// getServicesForReconciler (backend.go) reads only the flat serviceIndex map
+// getServicesForReconciler (store.go) reads only the flat serviceIndex map
 // with no linear-scan fallback (unlike tasksByInstance, which
 // enrichContainerInstance falls back to scanning for). Restore previously
 // loaded b.services from the snapshot but never rebuilt b.serviceIndex, so a

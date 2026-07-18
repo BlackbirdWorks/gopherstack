@@ -1,0 +1,392 @@
+package rekognition
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+)
+
+func (h *Handler) faceOps() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"IndexFaces":         service.WrapOp(h.handleIndexFaces),
+		"DeleteFaces":        service.WrapOp(h.handleDeleteFaces),
+		"ListFaces":          service.WrapOp(h.handleListFaces),
+		"SearchFaces":        service.WrapOp(h.handleSearchFaces),
+		"SearchFacesByImage": service.WrapOp(h.handleSearchFacesByImage),
+		"CompareFaces":       service.WrapOp(h.handleCompareFaces),
+		"DetectFaces":        service.WrapOp(h.handleDetectFaces),
+		"StartFaceDetection": service.WrapOp(h.handleStartFaceDetection),
+		"GetFaceDetection":   service.WrapOp(h.handleGetFaceDetection),
+		"StartFaceSearch":    service.WrapOp(h.handleStartFaceSearch),
+		"GetFaceSearch":      service.WrapOp(h.handleGetFaceSearch),
+	}
+}
+
+// --- Face requests ---
+
+type indexFacesReq struct {
+	CollectionID    string `json:"CollectionId"`
+	ExternalImageID string `json:"ExternalImageId"`
+}
+
+type faceRecord struct {
+	Face struct {
+		FaceID          string  `json:"FaceId"`
+		ImageID         string  `json:"ImageId"`
+		ExternalImageID string  `json:"ExternalImageId"`
+		Confidence      float64 `json:"Confidence"`
+	} `json:"Face"`
+}
+
+type indexFacesResp struct {
+	FaceModelVersion string       `json:"FaceModelVersion"`
+	FaceRecords      []faceRecord `json:"FaceRecords"`
+}
+
+func (h *Handler) handleIndexFaces(_ context.Context, req *indexFacesReq) (*indexFacesResp, error) {
+	if req.CollectionID == "" {
+		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
+	}
+
+	faces, err := h.Backend.IndexFaces(req.CollectionID, req.ExternalImageID)
+	if err != nil {
+		return nil, err
+	}
+
+	records := make([]faceRecord, 0, len(faces))
+
+	for _, f := range faces {
+		var rec faceRecord
+		rec.Face.FaceID = f.FaceID
+		rec.Face.ImageID = f.ImageID
+		rec.Face.ExternalImageID = f.ExternalImageID
+		rec.Face.Confidence = f.Confidence
+		records = append(records, rec)
+	}
+
+	return &indexFacesResp{
+		FaceModelVersion: faceModelVersion,
+		FaceRecords:      records,
+	}, nil
+}
+
+type deleteFacesReq struct {
+	CollectionID string   `json:"CollectionId"`
+	FaceIDs      []string `json:"FaceIds"`
+}
+
+type deleteFacesResp struct {
+	DeletedFaces []string `json:"DeletedFaces"`
+}
+
+func (h *Handler) handleDeleteFaces(_ context.Context, req *deleteFacesReq) (*deleteFacesResp, error) {
+	if req.CollectionID == "" {
+		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
+	}
+
+	deleted, err := h.Backend.DeleteFaces(req.CollectionID, req.FaceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	if deleted == nil {
+		deleted = []string{}
+	}
+
+	return &deleteFacesResp{DeletedFaces: deleted}, nil
+}
+
+type listFacesReq struct {
+	CollectionID string `json:"CollectionId"`
+	NextToken    string `json:"NextToken"`
+	MaxResults   int32  `json:"MaxResults"`
+}
+
+type faceEntry struct {
+	FaceID          string  `json:"FaceId"`
+	ImageID         string  `json:"ImageId"`
+	ExternalImageID string  `json:"ExternalImageId"`
+	Confidence      float64 `json:"Confidence"`
+}
+
+type listFacesResp struct {
+	FaceModelVersion string      `json:"FaceModelVersion"`
+	NextToken        string      `json:"NextToken,omitempty"`
+	Faces            []faceEntry `json:"Faces"`
+}
+
+func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFacesResp, error) {
+	if req.CollectionID == "" {
+		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
+	}
+
+	faces, nextToken, err := h.Backend.ListFaces(req.CollectionID, req.MaxResults, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]faceEntry, 0, len(faces))
+
+	for _, f := range faces {
+		entries = append(entries, faceEntry{
+			FaceID:          f.FaceID,
+			ImageID:         f.ImageID,
+			ExternalImageID: f.ExternalImageID,
+			Confidence:      f.Confidence,
+		})
+	}
+
+	return &listFacesResp{
+		FaceModelVersion: faceModelVersion,
+		Faces:            entries,
+		NextToken:        nextToken,
+	}, nil
+}
+
+type searchFacesReq struct {
+	CollectionID string `json:"CollectionId"`
+	FaceID       string `json:"FaceId"`
+	MaxFaces     int32  `json:"MaxFaces"`
+}
+
+type faceMatchEntry struct {
+	Face       faceEntry `json:"Face"`
+	Similarity float64   `json:"Similarity"`
+}
+
+type searchFacesResp struct {
+	FaceModelVersion string           `json:"FaceModelVersion"`
+	SearchedFaceID   string           `json:"SearchedFaceId"`
+	FaceMatches      []faceMatchEntry `json:"FaceMatches"`
+}
+
+func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*searchFacesResp, error) {
+	if req.CollectionID == "" {
+		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
+	}
+
+	if req.FaceID == "" {
+		return nil, fmt.Errorf("%w: FaceId is required", ErrValidation)
+	}
+
+	matches, err := h.Backend.SearchFaces(req.CollectionID, req.FaceID, req.MaxFaces)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]faceMatchEntry, 0, len(matches))
+
+	for _, m := range matches {
+		entries = append(entries, faceMatchEntry{
+			Similarity: m.Similarity,
+			Face: faceEntry{
+				FaceID:          m.Face.FaceID,
+				ImageID:         m.Face.ImageID,
+				ExternalImageID: m.Face.ExternalImageID,
+				Confidence:      m.Face.Confidence,
+			},
+		})
+	}
+
+	return &searchFacesResp{
+		FaceMatches:      entries,
+		FaceModelVersion: faceModelVersion,
+		SearchedFaceID:   req.FaceID,
+	}, nil
+}
+
+type searchFacesByImageReq struct {
+	CollectionID string   `json:"CollectionId"`
+	Image        imageRef `json:"Image"`
+	MaxFaces     int32    `json:"MaxFaces"`
+}
+
+type searchFacesByImageResp struct {
+	FaceModelVersion string           `json:"FaceModelVersion"`
+	FaceMatches      []faceMatchEntry `json:"FaceMatches"`
+}
+
+func (h *Handler) handleSearchFacesByImage(
+	_ context.Context,
+	req *searchFacesByImageReq,
+) (*searchFacesByImageResp, error) {
+	if req.CollectionID == "" {
+		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
+	}
+
+	imageKey := imageRefKey(req.Image)
+	matches, err := h.Backend.SearchFacesByImage(req.CollectionID, req.MaxFaces, imageKey)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]faceMatchEntry, 0, len(matches))
+
+	for _, m := range matches {
+		entries = append(entries, faceMatchEntry{
+			Similarity: m.Similarity,
+			Face: faceEntry{
+				FaceID:          m.Face.FaceID,
+				ImageID:         m.Face.ImageID,
+				ExternalImageID: m.Face.ExternalImageID,
+				Confidence:      m.Face.Confidence,
+			},
+		})
+	}
+
+	return &searchFacesByImageResp{
+		FaceMatches:      entries,
+		FaceModelVersion: faceModelVersion,
+	}, nil
+}
+
+// --- Face image analysis (stateless mock results) ---
+
+type compareFacesReq struct {
+	SourceImage         imageRef `json:"SourceImage"`
+	TargetImage         imageRef `json:"TargetImage"`
+	SimilarityThreshold float64  `json:"SimilarityThreshold"`
+}
+
+type faceMatchResult struct {
+	Similarity float64 `json:"Similarity"`
+	Face       struct {
+		BoundingBox struct {
+			Height float32 `json:"Height"`
+			Left   float32 `json:"Left"`
+			Top    float32 `json:"Top"`
+			Width  float32 `json:"Width"`
+		} `json:"BoundingBox"`
+		Confidence float64 `json:"Confidence"`
+	} `json:"Face"`
+}
+
+type compareFacesResp struct {
+	FaceMatches     []faceMatchResult `json:"FaceMatches"`
+	UnmatchedFaces  []struct{}        `json:"UnmatchedFaces"`
+	SourceImageFace struct {
+		BoundingBox struct {
+			Height float32 `json:"Height"`
+			Left   float32 `json:"Left"`
+			Top    float32 `json:"Top"`
+			Width  float32 `json:"Width"`
+		} `json:"BoundingBox"`
+		Confidence float64 `json:"Confidence"`
+	} `json:"SourceImageFace"`
+}
+
+func (h *Handler) handleCompareFaces(_ context.Context, _ *compareFacesReq) (*compareFacesResp, error) {
+	resp := &compareFacesResp{}
+	resp.SourceImageFace.Confidence = 99.9
+	resp.SourceImageFace.BoundingBox.Height = 0.5
+	resp.SourceImageFace.BoundingBox.Width = 0.3
+	resp.FaceMatches = []faceMatchResult{}
+	resp.UnmatchedFaces = []struct{}{}
+
+	return resp, nil
+}
+
+type detectFacesReq struct {
+	Image      imageRef `json:"Image"`
+	Attributes []string `json:"Attributes"`
+}
+
+type faceDetailEntry struct {
+	BoundingBox struct {
+		Height float32 `json:"Height"`
+		Left   float32 `json:"Left"`
+		Top    float32 `json:"Top"`
+		Width  float32 `json:"Width"`
+	} `json:"BoundingBox"`
+	Confidence float64 `json:"Confidence"`
+}
+
+type detectFacesResp struct { //nolint:govet // existing issue.
+	FaceDetails           []faceDetailEntry `json:"FaceDetails"`
+	OrientationCorrection string            `json:"OrientationCorrection"`
+}
+
+func (h *Handler) handleDetectFaces(_ context.Context, _ *detectFacesReq) (*detectFacesResp, error) {
+	return &detectFacesResp{
+		FaceDetails:           []faceDetailEntry{},
+		OrientationCorrection: orientationRotate0,
+	}, nil
+}
+
+// --- Async video jobs: face detection / face search ---
+
+type startFaceDetectionReq struct {
+	Video              videoRef `json:"Video"`
+	ClientRequestToken string   `json:"ClientRequestToken"`
+	JobTag             string   `json:"JobTag"`
+	FaceAttributes     string   `json:"FaceAttributes"`
+}
+
+func (h *Handler) handleStartFaceDetection(
+	_ context.Context, _ *startFaceDetectionReq,
+) (*startJobResp, error) {
+	jobID, err := h.Backend.StartAsyncJob("face_detection", "")
+	if err != nil {
+		return nil, err
+	}
+
+	return &startJobResp{JobId: jobID}, nil
+}
+
+type getFaceDetectionResp struct {
+	getJobBaseResp
+	Faces []struct{} `json:"Faces"`
+}
+
+func (h *Handler) handleGetFaceDetection(
+	_ context.Context, req *getJobReq,
+) (*getFaceDetectionResp, error) {
+	base, err := h.getJobBase(req.JobId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getFaceDetectionResp{
+		getJobBaseResp: *base,
+		Faces:          []struct{}{},
+	}, nil
+}
+
+type startFaceSearchReq struct {
+	Video              videoRef `json:"Video"`
+	CollectionId       string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	ClientRequestToken string   `json:"ClientRequestToken"`
+	JobTag             string   `json:"JobTag"`
+	FaceMatchThreshold float32  `json:"FaceMatchThreshold"`
+}
+
+func (h *Handler) handleStartFaceSearch(
+	_ context.Context, req *startFaceSearchReq,
+) (*startJobResp, error) {
+	jobID, err := h.Backend.StartAsyncJob("face_search", req.CollectionId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startJobResp{JobId: jobID}, nil
+}
+
+type getFaceSearchResp struct {
+	getJobBaseResp
+	Persons []struct{} `json:"Persons"`
+}
+
+func (h *Handler) handleGetFaceSearch(
+	_ context.Context, req *getJobReq,
+) (*getFaceSearchResp, error) {
+	base, err := h.getJobBase(req.JobId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getFaceSearchResp{
+		getJobBaseResp: *base,
+		Persons:        []struct{}{},
+	}, nil
+}

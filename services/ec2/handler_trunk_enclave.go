@@ -8,7 +8,7 @@ import (
 
 // handler_trunk_enclave.go implements the HTTP handlers for the Trunk Interface association
 // family and the Enclave Certificate IAM Role association family, backed by
-// backend_trunk_enclave.go.
+// trunk_enclave.go.
 
 // ---- Registration ----
 

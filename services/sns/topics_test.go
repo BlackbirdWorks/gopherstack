@@ -708,7 +708,7 @@ func TestSNS_ListTopicsInRegion_Pagination(t *testing.T) {
 func TestStandardTopicFifoTopicAttributeFalse(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("standard-topic", nil)
 	require.NoError(t, err)
 
@@ -723,7 +723,7 @@ func TestStandardTopicFifoTopicAttributeFalse(t *testing.T) {
 func TestFIFOTopicFifoTopicAttributeTrue(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("fifo-topic.fifo", map[string]string{"FifoTopic": "true"})
 	require.NoError(t, err)
 
@@ -738,9 +738,9 @@ func TestFIFOTopicFifoTopicAttributeTrue(t *testing.T) {
 func TestStandardTopicFifoTopicAttributeViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	createRec := doB2Request(t, h, url.Values{
+	createRec := doTestRequest(t, h, url.Values{
 		"Action": {"CreateTopic"},
 		"Name":   {"standard-via-handler"},
 	})
@@ -751,7 +751,7 @@ func TestStandardTopicFifoTopicAttributeViaHandler(t *testing.T) {
 	require.Len(t, matches, 2, "could not extract TopicArn")
 	topicArn := matches[1]
 
-	getAttrsRec := doB2Request(t, h, url.Values{
+	getAttrsRec := doTestRequest(t, h, url.Values{
 		"Action":   {"GetTopicAttributes"},
 		"TopicArn": {topicArn},
 	})
@@ -762,12 +762,12 @@ func TestStandardTopicFifoTopicAttributeViaHandler(t *testing.T) {
 	assert.Contains(t, body, "<value>false</value>")
 }
 
-// TestBatch2_CreateTopicIdempotentReturnsSameARN verifies that CreateTopic with
+// TestCreateTopicIdempotentReturnsSameARN verifies that CreateTopic with
 // an already-existing name returns the existing topic ARN (AWS idempotency).
 func TestCreateTopicIdempotentReturnsSameARN(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp1, err := b.CreateTopic("idem-topic", nil)
 	require.NoError(t, err)
 
@@ -776,21 +776,21 @@ func TestCreateTopicIdempotentReturnsSameARN(t *testing.T) {
 	assert.Equal(t, tp1.TopicArn, tp2.TopicArn, "idempotent CreateTopic must return the same ARN")
 }
 
-// TestBatch2_CreateTopicIdempotentViaHandler verifies the handler returns 200 with
+// TestCreateTopicIdempotentViaHandler verifies the handler returns 200 with
 // the existing ARN when CreateTopic is called twice with the same name.
 func TestCreateTopicIdempotentViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	rec1 := doB2Request(t, h, url.Values{
+	rec1 := doTestRequest(t, h, url.Values{
 		"Action":  {"CreateTopic"},
 		"Name":    {"idem-handler-topic"},
 		"Version": {"2010-03-31"},
 	})
 	require.Equal(t, http.StatusOK, rec1.Code)
 
-	rec2 := doB2Request(t, h, url.Values{
+	rec2 := doTestRequest(t, h, url.Values{
 		"Action":  {"CreateTopic"},
 		"Name":    {"idem-handler-topic"},
 		"Version": {"2010-03-31"},

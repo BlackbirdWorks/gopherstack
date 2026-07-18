@@ -359,7 +359,7 @@ func TestCreateActivation_IamRoleValidation(t *testing.T) {
 	}
 }
 
-// TestRefinement2_GenerateCode verifies generateCode properties.
+// TestGenerateCode verifies generateCode properties.
 func TestGenerateCode(t *testing.T) {
 	t.Parallel()
 
@@ -397,7 +397,7 @@ func TestGenerateCode(t *testing.T) {
 	}
 }
 
-// TestRefinement2_CreateActivationWithTags verifies tags are stored on activation create.
+// TestCreateActivationWithTags verifies tags are stored on activation create.
 func TestCreateActivationWithTags(t *testing.T) {
 	t.Parallel()
 
@@ -444,7 +444,7 @@ func TestCreateActivationWithTags(t *testing.T) {
 	}
 }
 
-// TestRefinement2_InternalTimestamp verifies activation codes use valid timestamp format.
+// TestInternalTimestamp verifies activation codes use valid timestamp format.
 func TestInternalTimestamp(t *testing.T) {
 	t.Parallel()
 
@@ -473,9 +473,9 @@ func TestInternalTimestamp(t *testing.T) {
 }
 func TestFull_Activation_CreateList(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	code, out := mustPost(t, h, "CreateActivation", map[string]any{
+	code, out := postJSON(t, h, "CreateActivation", map[string]any{
 		"IamRole":           "SSMServiceRole",
 		"RegistrationLimit": 5,
 		"Description":       "test activation",
@@ -486,23 +486,23 @@ func TestFull_Activation_CreateList(t *testing.T) {
 }
 func TestFull_ResourceDataSync_CreateListDelete(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	code, _ := mustPost(t, h, "CreateResourceDataSync", map[string]any{
+	code, _ := postJSON(t, h, "CreateResourceDataSync", map[string]any{
 		"SyncName": "my-sync",
 		"SyncType": "SyncToDestination",
 	})
 	assert.Equal(t, http.StatusOK, code)
 
-	code, out := mustPost(t, h, "ListResourceDataSync", map[string]any{})
+	code, out := postJSON(t, h, "ListResourceDataSync", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	syncs := out["ResourceDataSyncItems"].([]any)
 	assert.Len(t, syncs, 1)
 
-	code, _ = mustPost(t, h, "DeleteResourceDataSync", map[string]any{"SyncName": "my-sync"})
+	code, _ = postJSON(t, h, "DeleteResourceDataSync", map[string]any{"SyncName": "my-sync"})
 	assert.Equal(t, http.StatusOK, code)
 
-	code, out = mustPost(t, h, "ListResourceDataSync", map[string]any{})
+	code, out = postJSON(t, h, "ListResourceDataSync", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	syncs = out["ResourceDataSyncItems"].([]any)
 	assert.Empty(t, syncs)

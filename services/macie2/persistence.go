@@ -115,7 +115,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.tags = make(map[string]map[string]string)
 		b.administrator = nil
 		b.orgConfig = &OrgConfig{AutoEnable: false}
-		b.autoDiscoveryConfig = &AutoDiscoveryConfig{Status: "DISABLED"} //nolint:goconst // existing issue.
+		b.autoDiscoveryConfig = &AutoDiscoveryConfig{Status: statusDisabled}
 		b.classExportConfig = nil
 		b.findingsPubConfig = nil
 		b.resourceDetections = make(map[string][]ResourceProfileDetection)

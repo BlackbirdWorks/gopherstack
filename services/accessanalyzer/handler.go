@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -19,7 +18,6 @@ const (
 	accessAnalyzerService = "access-analyzer"
 	matchPriority         = service.PriorityPathVersioned
 	pathAnalyzer          = "analyzer"
-	pathArchiveRule       = "archive-rule"
 	pathFinding           = "finding"
 	pathTags              = "tags"
 	pathResource          = "resource"
@@ -28,39 +26,25 @@ const (
 	pathDisable           = "disable"
 	pathAnalyzedResource  = "analyzedResource"
 
-	opCreateAnalyzer      = "CreateAnalyzer"
-	opGetAnalyzer         = "GetAnalyzer"
-	opListAnalyzers       = "ListAnalyzers"
-	opDeleteAnalyzer      = "DeleteAnalyzer"
-	opCreateArchiveRule   = "CreateArchiveRule"
-	opGetArchiveRule      = "GetArchiveRule"
-	opListArchiveRules    = "ListArchiveRules"
-	opDeleteArchiveRule   = "DeleteArchiveRule"
-	opUpdateArchiveRule   = "UpdateArchiveRule"
-	opGetFinding          = "GetFinding"
-	opListFindings        = "ListFindings"
-	opUpdateFindings      = "UpdateFindings"
-	opStartResourceScan   = "StartResourceScan"
-	opTagResource         = "TagResource"
-	opUntagResource       = "UntagResource"
-	opListTagsForResource = "ListTagsForResource"
-	opUnknown             = "Unknown"
+	opUnknown = "Unknown"
 
 	segmentDepthResource     = 2
 	segmentDepthSubResource  = 3
 	segmentDepthLeafResource = 4
 
-	keyCreatedAt         = "createdAt"
-	keyUpdatedAt         = "updatedAt"
-	keyAnalyzer          = "analyzer"
-	keyArchiveRule       = "archiveRule"
-	keyFinding           = "finding"
-	keyFindings          = "findings"
-	keyARN               = "arn"
-	keyTags              = "tags"
-	keyResource          = "resource"
-	keyResourceOwnerAcct = "resourceOwnerAccount"
-	keyAnalyzedAt        = "analyzedAt"
+	// keyCreatedAt/keyUpdatedAt/keyAnalyzedAt/keyTags/keyStatus/
+	// keyAnalyzerArn/keyResourceType are JSON wire keys shared by more than
+	// one operation family's response builder (analyzer, archive-rule,
+	// finding, analyzed-resource, access-preview, and generated-policy
+	// serializers all set one or more of these), so they live here rather
+	// than in any one handler_<family>.go.
+	keyCreatedAt    = "createdAt"
+	keyUpdatedAt    = "updatedAt"
+	keyAnalyzedAt   = "analyzedAt"
+	keyTags         = "tags"
+	keyStatus       = "status"
+	keyAnalyzerArn  = "analyzerArn"
+	keyResourceType = "resourceType"
 )
 
 // Handler handles Access Analyzer HTTP requests.
@@ -78,6 +62,54 @@ func (h *Handler) Name() string { return "AccessAnalyzer" }
 
 // Reset resets the backend.
 func (h *Handler) Reset() { h.Backend.Reset() }
+
+// GetSupportedOperations returns every operation this handler routes,
+// across all operation families (analyzers, archive rules, findings,
+// analyzed resources, generated policies, access previews, policy
+// validation, tags).
+func (h *Handler) GetSupportedOperations() []string {
+	return []string{
+		opCreateAnalyzer,
+		opGetAnalyzer,
+		opListAnalyzers,
+		opDeleteAnalyzer,
+		opUpdateAnalyzer,
+		opCreateServiceLinkedAnalyzer,
+		opDeleteServiceLinkedAnalyzer,
+		opCreateArchiveRule,
+		opGetArchiveRule,
+		opListArchiveRules,
+		opDeleteArchiveRule,
+		opUpdateArchiveRule,
+		opApplyArchiveRule,
+		opGetFinding,
+		opListFindings,
+		opUpdateFindings,
+		opGetFindingV2,
+		opListFindingsV2,
+		opGetFindingsStatistics,
+		opGenerateFindingRecommendation,
+		opGetFindingRecommendation,
+		opGetAnalyzedResource,
+		opListAnalyzedResources,
+		opStartResourceScan,
+		opStartPolicyGeneration,
+		opGetGeneratedPolicy,
+		opCancelPolicyGeneration,
+		opListPolicyGenerations,
+		opCreateAccessPreview,
+		opGetAccessPreview,
+		opListAccessPreviews,
+		opListAccessPreviewFindings,
+		opCheckAccessNotGranted,
+		opCheckNoNewAccess,
+		opCheckNoPublicAccess,
+		opValidatePolicy,
+		opTagResource,
+		opUntagResource,
+		opListTagsForResource,
+	}
+}
 
 // RouteMatcher returns a function that matches Access Analyzer requests by path prefix.
 // For /tags/{ARN} paths, only matches when the ARN belongs to Access Analyzer
@@ -139,14 +171,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return resource
 }
 
-// parseAllPaths tries both the original and appendixa parsers.
+// parseAllPaths tries both the primary and extended path parsers.
 func parseAllPaths(method, path string) (string, string) {
 	op, resource := parseRESTPath(method, path)
 	if op != opUnknown {
 		return op, resource
 	}
 
-	if op2, resource2, ok := parseRESTPathAppendixA(method, path); ok {
+	if op2, resource2, ok := parseExtendedRESTPath(method, path); ok {
 		return op2, resource2
 	}
 
@@ -198,7 +230,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	return c.JSONBlob(statusCode, data)
 }
 
-// dispatch routes to the appropriate operation handler.
+// dispatch routes to the appropriate family-level dispatcher.
 func (h *Handler) dispatch(
 	_ context.Context,
 	op, path, query string,
@@ -208,399 +240,31 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
+	if result, code, ok, err := h.dispatchArchiveRuleOps(op, path, query, body); ok {
+		return result, code, err
+	}
+
 	if result, code, ok, err := h.dispatchFindingOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchAppendixA(op, path, query, body); ok {
+	if result, code, ok, err := h.dispatchAnalyzedResourceOps(op, path, query, body); ok {
+		return result, code, err
+	}
+
+	if result, code, ok, err := h.dispatchGeneratedPolicyOps(op, path, query, body); ok {
+		return result, code, err
+	}
+
+	if result, code, ok, err := h.dispatchAccessPreviewOps(op, path, query, body); ok {
+		return result, code, err
+	}
+
+	if result, code, ok, err := h.dispatchPolicyValidationOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
 	return h.dispatchTagOps(op, path, query, body)
-}
-
-func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any, int, bool, error) {
-	switch op {
-	case opCreateAnalyzer:
-		r, c, e := h.handleCreateAnalyzer(body)
-
-		return r, c, true, e
-	case opGetAnalyzer:
-		r, c, e := h.handleGetAnalyzer(path)
-
-		return r, c, true, e
-	case opListAnalyzers:
-		r, c, e := h.handleListAnalyzers(query)
-
-		return r, c, true, e
-	case opDeleteAnalyzer:
-		c, e := h.handleDeleteAnalyzer(path)
-
-		return nil, c, true, e
-	case opCreateArchiveRule:
-		c, e := h.handleCreateArchiveRule(path, body)
-
-		return nil, c, true, e
-	case opGetArchiveRule:
-		r, c, e := h.handleGetArchiveRule(path)
-
-		return r, c, true, e
-	case opListArchiveRules:
-		r, c, e := h.handleListArchiveRules(path)
-
-		return r, c, true, e
-	case opDeleteArchiveRule:
-		c, e := h.handleDeleteArchiveRule(path)
-
-		return nil, c, true, e
-	case opUpdateArchiveRule:
-		c, e := h.handleUpdateArchiveRule(path, body)
-
-		return nil, c, true, e
-	}
-
-	return nil, 0, false, nil
-}
-
-func (h *Handler) dispatchFindingOps(op, path, query string, body []byte) (any, int, bool, error) {
-	switch op {
-	case opGetFinding:
-		r, c, e := h.handleGetFinding(path, query)
-
-		return r, c, true, e
-	case opListFindings:
-		r, c, e := h.handleListFindings(body)
-
-		return r, c, true, e
-	case opUpdateFindings:
-		c, e := h.handleUpdateFindings(body)
-
-		return nil, c, true, e
-	case opStartResourceScan:
-		c, e := h.handleStartResourceScan(body)
-
-		return nil, c, true, e
-	}
-
-	return nil, 0, false, nil
-}
-
-func (h *Handler) dispatchTagOps(op, path, query string, body []byte) (any, int, error) {
-	switch op {
-	case opTagResource:
-		return h.handleTagResource(path, body)
-	case opUntagResource:
-		return h.handleUntagResource(path, query)
-	case opListTagsForResource:
-		return h.handleListTagsForResource(path)
-	}
-
-	return nil, http.StatusNotFound, nil
-}
-
-// ---- operation handlers ----
-
-func (h *Handler) handleCreateAnalyzer(body []byte) (any, int, error) {
-	var req struct {
-		Tags         map[string]string `json:"tags"`
-		AnalyzerName string            `json:"analyzerName"`
-		Type         string            `json:"type"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, 0, ErrValidation
-	}
-
-	if req.AnalyzerName == "" {
-		return nil, 0, ErrValidation
-	}
-
-	analyzerType := AnalyzerType(req.Type)
-	if analyzerType == "" {
-		analyzerType = AnalyzerTypeAccount
-	}
-
-	a, err := h.Backend.CreateAnalyzer(req.AnalyzerName, analyzerType, req.Tags)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return map[string]string{keyARN: a.Arn}, http.StatusOK, nil
-}
-
-func (h *Handler) handleGetAnalyzer(path string) (any, int, error) {
-	name := extractAnalyzerName(path)
-
-	a, err := h.Backend.GetAnalyzer(name)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return map[string]any{keyAnalyzer: analyzerToJSON(a)}, http.StatusOK, nil
-}
-
-func (h *Handler) handleListAnalyzers(query string) (any, int, error) {
-	analyzerType := ""
-
-	for part := range strings.SplitSeq(query, "&") {
-		if after, ok := strings.CutPrefix(part, "type="); ok {
-			analyzerType = after
-		}
-	}
-
-	analyzers, err := h.Backend.ListAnalyzers(analyzerType)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	list := make([]any, 0, len(analyzers))
-
-	for _, a := range analyzers {
-		list = append(list, analyzerToJSON(a))
-	}
-
-	return map[string]any{"analyzers": list}, http.StatusOK, nil
-}
-
-func (h *Handler) handleDeleteAnalyzer(path string) (int, error) {
-	name := extractAnalyzerName(path)
-
-	if err := h.Backend.DeleteAnalyzer(name); err != nil {
-		return 0, err
-	}
-
-	return http.StatusOK, nil
-}
-
-func (h *Handler) handleCreateArchiveRule(path string, body []byte) (int, error) {
-	analyzerName := extractAnalyzerName(path)
-
-	var req struct {
-		Filter   map[string]FilterCriterion `json:"filter"`
-		RuleName string                     `json:"ruleName"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return 0, ErrValidation
-	}
-
-	if _, err := h.Backend.CreateArchiveRule(analyzerName, req.RuleName, req.Filter); err != nil {
-		return 0, err
-	}
-
-	return http.StatusOK, nil
-}
-
-func (h *Handler) handleGetArchiveRule(path string) (any, int, error) {
-	analyzerName, ruleName := extractAnalyzerAndSubName(path, pathArchiveRule)
-
-	rule, err := h.Backend.GetArchiveRule(analyzerName, ruleName)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return map[string]any{keyArchiveRule: archiveRuleToJSON(rule)}, http.StatusOK, nil
-}
-
-func (h *Handler) handleListArchiveRules(path string) (any, int, error) {
-	analyzerName := extractAnalyzerName(path)
-
-	rules, err := h.Backend.ListArchiveRules(analyzerName)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	list := make([]any, 0, len(rules))
-
-	for _, r := range rules {
-		list = append(list, archiveRuleToJSON(r))
-	}
-
-	return map[string]any{"archiveRules": list}, http.StatusOK, nil
-}
-
-func (h *Handler) handleDeleteArchiveRule(path string) (int, error) {
-	analyzerName, ruleName := extractAnalyzerAndSubName(path, pathArchiveRule)
-
-	if err := h.Backend.DeleteArchiveRule(analyzerName, ruleName); err != nil {
-		return 0, err
-	}
-
-	return http.StatusOK, nil
-}
-
-func (h *Handler) handleUpdateArchiveRule(path string, body []byte) (int, error) {
-	analyzerName, ruleName := extractAnalyzerAndSubName(path, pathArchiveRule)
-
-	var req struct {
-		Filter map[string]FilterCriterion `json:"filter"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return 0, ErrValidation
-	}
-
-	if _, err := h.Backend.UpdateArchiveRule(analyzerName, ruleName, req.Filter); err != nil {
-		return 0, err
-	}
-
-	return http.StatusOK, nil
-}
-
-// handleGetFinding serves GET /finding/{id}?analyzerArn=... . Unlike the
-// analyzer/archive-rule/finding-family ops nested under /analyzer/{name}/...,
-// the real GetFinding endpoint carries the owning analyzer as an ARN query
-// parameter, not a path segment (see aws-sdk-go-v2's
-// awsRestjson1_serializeOpHttpBindingsGetFindingInput).
-func (h *Handler) handleGetFinding(path, query string) (any, int, error) {
-	findingID := extractLastSegment(path, pathFinding)
-	analyzerArn := queryParamValue(query, "analyzerArn")
-	analyzerName := analyzerNameFromArn(analyzerArn)
-
-	f, err := h.Backend.GetFinding(analyzerName, findingID)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return map[string]any{keyFinding: findingToJSON(f, h.Backend.AccountID())}, http.StatusOK, nil
-}
-
-// handleListFindings serves POST /finding. The owning analyzer is carried as
-// an ARN in the JSON body (analyzerArn), not a path segment.
-func (h *Handler) handleListFindings(body []byte) (any, int, error) {
-	var req struct {
-		Filter      map[string]FilterCriterion `json:"filter"`
-		AnalyzerArn string                     `json:"analyzerArn"`
-		NextToken   string                     `json:"nextToken"`
-		Status      string                     `json:"status"`
-		MaxResults  int                        `json:"maxResults"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, 0, ErrValidation
-	}
-
-	if req.AnalyzerArn == "" {
-		return nil, 0, ErrValidation
-	}
-
-	analyzerName := analyzerNameFromArn(req.AnalyzerArn)
-
-	findings, nextToken, err := h.Backend.ListFindings(
-		analyzerName, req.Filter, req.Status, req.MaxResults, req.NextToken,
-	)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	accountID := h.Backend.AccountID()
-	list := make([]any, 0, len(findings))
-
-	for _, f := range findings {
-		list = append(list, findingToJSON(f, accountID))
-	}
-
-	resp := map[string]any{keyFindings: list}
-
-	if nextToken != "" {
-		resp["nextToken"] = nextToken
-	}
-
-	return resp, http.StatusOK, nil
-}
-
-// handleUpdateFindings serves PUT /finding. The owning analyzer is carried as
-// an ARN in the JSON body (analyzerArn), not a path segment.
-func (h *Handler) handleUpdateFindings(body []byte) (int, error) {
-	var req struct {
-		AnalyzerArn string   `json:"analyzerArn"`
-		Status      string   `json:"status"`
-		IDs         []string `json:"ids"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return 0, ErrValidation
-	}
-
-	if req.AnalyzerArn == "" {
-		return 0, ErrValidation
-	}
-
-	analyzerName := analyzerNameFromArn(req.AnalyzerArn)
-
-	if err := h.Backend.UpdateFindings(analyzerName, req.IDs, FindingStatus(req.Status)); err != nil {
-		return 0, err
-	}
-
-	return http.StatusOK, nil
-}
-
-func (h *Handler) handleStartResourceScan(body []byte) (int, error) {
-	var req struct {
-		AnalyzerArn string `json:"analyzerArn"`
-		ResourceArn string `json:"resourceArn"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return 0, ErrValidation
-	}
-
-	if err := h.Backend.StartResourceScan(req.AnalyzerArn, req.ResourceArn); err != nil {
-		return 0, err
-	}
-
-	return http.StatusOK, nil
-}
-
-func (h *Handler) handleTagResource(path string, body []byte) (any, int, error) {
-	resourceARN := strings.TrimPrefix(path, "/"+pathTags+"/")
-
-	var req struct {
-		Tags map[string]string `json:"tags"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, 0, ErrValidation
-	}
-
-	if err := h.Backend.TagResource(resourceARN, req.Tags); err != nil {
-		return nil, 0, err
-	}
-
-	return nil, http.StatusOK, nil
-}
-
-func (h *Handler) handleUntagResource(path, query string) (any, int, error) {
-	resourceARN := strings.TrimPrefix(path, "/"+pathTags+"/")
-
-	var tagKeys []string
-
-	for part := range strings.SplitSeq(query, "&") {
-		if after, ok := strings.CutPrefix(part, "tagKeys="); ok {
-			tagKeys = append(tagKeys, after)
-		}
-	}
-
-	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
-		return nil, 0, err
-	}
-
-	return nil, http.StatusOK, nil
-}
-
-func (h *Handler) handleListTagsForResource(path string) (any, int, error) {
-	resourceARN := strings.TrimPrefix(path, "/"+pathTags+"/")
-
-	tags, err := h.Backend.ListTagsForResource(resourceARN)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if tags == nil {
-		tags = make(map[string]string)
-	}
-
-	return map[string]any{keyTags: tags}, http.StatusOK, nil
 }
 
 // handleError writes an error response.
@@ -625,7 +289,7 @@ func isNotFoundErr(err error) bool {
 	return errors.As(err, &nfe)
 }
 
-// ---- URL path parsing ----
+// ---- URL path parsing (top-level routers; delegate to per-family parsers) ----
 
 // parseRESTPath maps an HTTP method + path to an operation name and resource identifier.
 func parseRESTPath(method, path string) (string, string) {
@@ -653,127 +317,51 @@ func parseRESTPath(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
-func parseAnalyzerPath(method string, segments []string) (string, string) {
-	switch len(segments) {
-	case 1:
-		return parseAnalyzerCollection(method)
-	case segmentDepthResource:
-		return parseAnalyzerResource(method, segments[1])
-	case segmentDepthSubResource:
-		return parseAnalyzerSubResource(method, segments)
-	case segmentDepthLeafResource:
-		return parseAnalyzerLeafResource(method, segments)
+// parseExtendedRESTPath parses the REST paths added after the original
+// analyzer/archive-rule/finding/tags surface: archive-rule (apply), access
+// previews, service-linked analyzers, finding recommendations, analyzed
+// resources, findings v2, and policy validation/generation.
+// Returns (op, resource, ok) — ok=true means the path was handled.
+func parseExtendedRESTPath(method, path string) (string, string, bool) {
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(segments) == 0 {
+		return "", "", false
 	}
 
-	return opUnknown, ""
-}
+	switch segments[0] {
+	case pathArchiveRuleRoot:
+		if len(segments) == 1 && method == http.MethodPut {
+			return opApplyArchiveRule, "", true
+		}
 
-func parseAnalyzerCollection(method string) (string, string) {
-	switch method {
-	case http.MethodPut:
-		return opCreateAnalyzer, ""
-	case http.MethodGet:
-		return opListAnalyzers, ""
-	}
+	case pathAccessPreview:
+		return parseAccessPreviewPath(method, segments)
 
-	return opUnknown, ""
-}
+	case pathServiceLinkedAnalyzer:
+		return parseServiceLinkedAnalyzerPath(method, segments)
 
-func parseAnalyzerResource(method, name string) (string, string) {
-	switch method {
-	case http.MethodGet:
-		return opGetAnalyzer, name
-	case http.MethodDelete:
-		return opDeleteAnalyzer, name
-	case http.MethodPut:
-		return opUpdateAnalyzer, name
-	}
+	case pathRecommendation:
+		return parseRecommendationPath(method, segments)
 
-	return opUnknown, ""
-}
-
-func parseAnalyzerSubResource(method string, segments []string) (string, string) {
-	name := segments[1]
-
-	switch segments[2] {
-	case pathArchiveRule:
+	case pathAnalyzedResourceHyph:
 		switch method {
-		case http.MethodPut:
-			return opCreateArchiveRule, name
 		case http.MethodGet:
-			return opListArchiveRules, name
-		}
-	case pathStatistics:
-		// /analyzer/findings/statistics (name == "findings" here)
-		if method == http.MethodPost {
-			return opGetFindingsStatistics, ""
-		}
-	}
-
-	return opUnknown, ""
-}
-
-// parseFindingPath parses GetFinding/ListFindings/UpdateFindings paths.
-// Unlike the analyzer/archive-rule family, these live at the top-level
-// /finding and /finding/{id} -- the owning analyzer is carried as an ARN in
-// the query string (Get) or JSON body (List/Update), never as a path
-// segment. See aws-sdk-go-v2's serializers.go for GetFinding ("/finding/{id}"
-// GET), ListFindings ("/finding" POST), UpdateFindings ("/finding" PUT).
-func parseFindingPath(method string, segments []string) (string, string) {
-	switch len(segments) {
-	case 1:
-		switch method {
+			return opGetAnalyzedResource, "", true
 		case http.MethodPost:
-			return opListFindings, ""
-		case http.MethodPut:
-			return opUpdateFindings, ""
+			return opListAnalyzedResources, "", true
 		}
-	case segmentDepthResource:
-		if method == http.MethodGet {
-			return opGetFinding, segments[1]
-		}
+
+	case pathFindingV2:
+		return parseFindingV2Path(method, segments)
+
+	case pathPolicy:
+		return parsePolicyPath(method, segments)
 	}
 
-	return opUnknown, ""
+	return "", "", false
 }
 
-func parseAnalyzerLeafResource(method string, segments []string) (string, string) {
-	name := segments[1]
-
-	if segments[2] == pathArchiveRule {
-		switch method {
-		case http.MethodGet:
-			return opGetArchiveRule, name
-		case http.MethodDelete:
-			return opDeleteArchiveRule, name
-		case http.MethodPut:
-			return opUpdateArchiveRule, name
-		}
-	}
-
-	return opUnknown, ""
-}
-
-func parseTagsPath(method string, segments []string) (string, string) {
-	if len(segments) < 2 || segments[1] == "" {
-		return opUnknown, ""
-	}
-
-	resourceARN := strings.Join(segments[1:], "/")
-
-	switch method {
-	case http.MethodGet:
-		return opListTagsForResource, resourceARN
-	case http.MethodPost:
-		return opTagResource, resourceARN
-	case http.MethodDelete:
-		return opUntagResource, resourceARN
-	}
-
-	return opUnknown, ""
-}
-
-// ---- path parameter extraction ----
+// ---- shared path parameter extraction ----
 
 // extractAnalyzerName extracts the analyzer name from a path.
 // For /analyzer/{name}/... returns name.
@@ -789,24 +377,18 @@ func extractAnalyzerName(path string) string {
 	return ""
 }
 
-// extractAnalyzerAndSubName extracts analyzer name and a sub-resource name from a path.
-// For /analyzer/{name}/archive-rule/{ruleName} with subKey "archive-rule",
-// returns (name, ruleName).
-func extractAnalyzerAndSubName(path, subKey string) (string, string) {
+// extractLastSegment extracts the last path segment after the given prefix segment.
+// For /access-preview/{id}, extractLastSegment(path, "access-preview") returns the id.
+func extractLastSegment(path, prefix string) string {
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	var first, second string
 
 	for i, s := range segments {
-		if s == pathAnalyzer && i+1 < len(segments) {
-			first = segments[i+1]
-		}
-
-		if s == subKey && i+1 < len(segments) {
-			second = segments[i+1]
+		if s == prefix && i+1 < len(segments) {
+			return segments[i+1]
 		}
 	}
 
-	return first, second
+	return ""
 }
 
 // queryParamValue returns the first value of the given "&"-delimited query
@@ -821,77 +403,6 @@ func queryParamValue(query, key string) string {
 	}
 
 	return ""
-}
-
-// ---- JSON serialization ----
-
-func analyzerToJSON(a *Analyzer) map[string]any {
-	m := map[string]any{
-		keyARN:       a.Arn,
-		"name":       a.Name,
-		"type":       string(a.Type),
-		"status":     string(a.Status), //nolint:goconst // existing issue.
-		keyCreatedAt: a.CreatedAt.Format(time.RFC3339),
-	}
-
-	if a.Tags != nil {
-		m[keyTags] = a.Tags
-	}
-
-	if a.LastResourceAnalyzedAt != nil {
-		m["lastResourceAnalyzedAt"] = a.LastResourceAnalyzedAt.Format(time.RFC3339)
-	}
-
-	return m
-}
-
-func archiveRuleToJSON(r *ArchiveRule) map[string]any {
-	return map[string]any{
-		"ruleName":   r.RuleName,
-		"filter":     r.Filter,
-		keyCreatedAt: r.CreatedAt.Format(time.RFC3339),
-		keyUpdatedAt: r.UpdatedAt.Format(time.RFC3339),
-	}
-}
-
-// findingToJSON builds the wire shape for the (v1) Finding type. The real API
-// serializes the owning resource under "resource" (not "resourceArn" --
-// that's only correct for AnalyzedResource) and requires
-// "resourceOwnerAccount"/"analyzedAt", neither of which InMemoryBackend
-// tracks per-finding; resourceOwnerAccount defaults to the backend's own
-// account (emulated resources belong to the same test account) and
-// analyzedAt mirrors updatedAt, matching the GetFindingV2/ListFindingsV2
-// convention already used for the same data.
-func findingToJSON(f *Finding, accountID string) map[string]any {
-	m := map[string]any{
-		"id":                 f.ID,
-		"analyzerArn":        f.AnalyzerArn, //nolint:goconst // existing issue.
-		"status":             string(f.Status),
-		"resourceType":       f.ResourceType, //nolint:goconst // existing issue.
-		keyResource:          f.ResourceArn,
-		keyResourceOwnerAcct: accountID,
-		keyAnalyzedAt:        f.UpdatedAt.Format(time.RFC3339),
-		keyUpdatedAt:         f.UpdatedAt.Format(time.RFC3339),
-		keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
-	}
-
-	if len(f.Action) > 0 {
-		m["action"] = f.Action
-	}
-
-	if len(f.Principal) > 0 {
-		m["principal"] = f.Principal
-	}
-
-	if len(f.Condition) > 0 {
-		m["condition"] = f.Condition
-	}
-
-	if f.IsPublic != nil {
-		m["isPublic"] = *f.IsPublic
-	}
-
-	return m
 }
 
 // errorBody constructs a JSON error payload.

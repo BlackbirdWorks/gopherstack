@@ -13,9 +13,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestParitySweep_AnycastIPList_NameUniqueness verifies CreateAnycastIPList rejects a duplicate
+// TestAnycastIPList_NameUniqueness verifies CreateAnycastIPList rejects a duplicate
 // name and that DeleteAnycastIPList frees the name for reuse.
-func TestParitySweep_AnycastIPList_NameUniqueness(t *testing.T) {
+func TestAnycastIPList_NameUniqueness(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
@@ -33,9 +33,9 @@ func TestParitySweep_AnycastIPList_NameUniqueness(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestParitySweep_AnycastIPList_GeneratedIPs verifies AnycastIPs is populated with IPCount
+// TestAnycastIPList_GeneratedIPs verifies AnycastIPs is populated with IPCount
 // entries on create, and regenerated to match a new count on update.
-func TestParitySweep_AnycastIPList_GeneratedIPs(t *testing.T) {
+func TestAnycastIPList_GeneratedIPs(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
@@ -57,9 +57,9 @@ func TestParitySweep_AnycastIPList_GeneratedIPs(t *testing.T) {
 	assert.Len(t, unchanged.AnycastIPs, 7)
 }
 
-// TestParitySweep_AnycastIPList_IfMatchEnforcement mirrors the trust store If-Match test:
+// TestAnycastIPList_IfMatchEnforcement mirrors the trust store If-Match test:
 // a mismatched If-Match header on update/delete is rejected with 412.
-func TestParitySweep_AnycastIPList_IfMatchEnforcement(t *testing.T) {
+func TestAnycastIPList_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	const prefix = "/2020-05-31/"
@@ -93,9 +93,9 @@ func TestParitySweep_AnycastIPList_IfMatchEnforcement(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, goodDelete.Code)
 }
 
-// TestParitySweep_AnycastIPList_Tags verifies tags supplied on create are stored and retrievable
+// TestAnycastIPList_Tags verifies tags supplied on create are stored and retrievable
 // via the generic ListTagsForResource endpoint.
-func TestParitySweep_AnycastIPList_Tags(t *testing.T) {
+func TestAnycastIPList_Tags(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	const prefix = "/2020-05-31/"
@@ -114,9 +114,9 @@ func TestParitySweep_AnycastIPList_Tags(t *testing.T) {
 	assert.Contains(t, listRec.Body.String(), "<Value>prod</Value>")
 }
 
-// TestParitySweep_AnycastIPList_PersistenceRoundTrip verifies AnycastIPList survives a
+// TestAnycastIPList_PersistenceRoundTrip verifies AnycastIPList survives a
 // Snapshot/Restore cycle including its ETag, tags, generated IPs, and name-uniqueness index.
-func TestParitySweep_AnycastIPList_PersistenceRoundTrip(t *testing.T) {
+func TestAnycastIPList_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
@@ -146,8 +146,8 @@ func TestParitySweep_AnycastIPList_PersistenceRoundTrip(t *testing.T) {
 // ContinuousDeploymentPolicy
 // ---------------------------------------------------------------------------
 
-// TestNewOps_AnycastIPList tests anycast IP list Get/List/Update/Delete.
-func TestNewOps_AnycastIPList(t *testing.T) {
+// TestAnycastIPList_CRUD tests anycast IP list Get/List/Update/Delete.
+func TestAnycastIPList_CRUD(t *testing.T) {
 	t.Parallel()
 	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
 	h := cloudfront.NewHandler(b)
@@ -237,8 +237,8 @@ func TestCreateAnycastIPList(t *testing.T) {
 	}
 }
 
-// TestRefinement1_AnycastIpListIPCountValidation verifies IPCount must be positive.
-func TestRefinement1_AnycastIpListIPCountValidation(t *testing.T) {
+// TestAnycastIPList_IPCountValidation verifies IPCount must be positive.
+func TestAnycastIPList_IPCountValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

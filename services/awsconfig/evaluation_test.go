@@ -370,14 +370,15 @@ func TestStartResourceEvaluation_RealIDAndReadback(t *testing.T) {
 func TestHandler_DescribeConfigRulesPagination(t *testing.T) {
 	t.Parallel()
 
-	h, b := newConfigBackend()
+	h := newTestAWSConfigHandler(t)
+	b := h.Backend
 
 	const total = 150
 	for i := range total {
 		require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: fmt.Sprintf("rule-%04d", i)}))
 	}
 
-	rec := doConfig(t, h, "DescribeConfigRules", nil)
+	rec := doAWSConfigRequest(t, h, "DescribeConfigRules", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 struct {
@@ -388,7 +389,7 @@ func TestHandler_DescribeConfigRulesPagination(t *testing.T) {
 	require.Len(t, page1.ConfigRules, 100)
 	require.NotEmpty(t, page1.NextToken)
 
-	rec = doConfig(t, h, "DescribeConfigRules", map[string]any{"NextToken": page1.NextToken})
+	rec = doAWSConfigRequest(t, h, "DescribeConfigRules", map[string]any{"NextToken": page1.NextToken})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 struct {
@@ -407,15 +408,16 @@ func TestHandler_DescribeConfigRulesPagination(t *testing.T) {
 func TestHandler_DescribeConfigRules_InvalidToken(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newConfigBackend()
-	rec := doConfig(t, h, "DescribeConfigRules", map[string]any{"NextToken": "!!!not-base64!!!"})
+	h := newTestAWSConfigHandler(t)
+	rec := doAWSConfigRequest(t, h, "DescribeConfigRules", map[string]any{"NextToken": "!!!not-base64!!!"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_GetComplianceDetailsByConfigRule_RealResults(t *testing.T) {
 	t.Parallel()
 
-	h, b := newConfigBackend()
+	h := newTestAWSConfigHandler(t)
+	b := h.Backend
 	require.NoError(t, b.PutConfigRule(awsRule("ver", "S3_BUCKET_VERSIONING_ENABLED", "")))
 	require.NoError(t, b.PutResourceConfig("AWS::S3::Bucket", "on", `{"VersioningConfiguration":{"Status":"Enabled"}}`))
 	require.NoError(
@@ -424,7 +426,7 @@ func TestHandler_GetComplianceDetailsByConfigRule_RealResults(t *testing.T) {
 	)
 	require.NoError(t, b.StartConfigRulesEvaluation())
 
-	rec := doConfig(t, h, "GetComplianceDetailsByConfigRule", map[string]any{"ConfigRuleName": "ver"})
+	rec := doAWSConfigRequest(t, h, "GetComplianceDetailsByConfigRule", map[string]any{"ConfigRuleName": "ver"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
@@ -444,9 +446,9 @@ func TestHandler_GetComplianceDetailsByConfigRule_RealResults(t *testing.T) {
 func TestHandler_StartResourceEvaluationAndSummary(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newConfigBackend()
+	h := newTestAWSConfigHandler(t)
 
-	rec := doConfig(t, h, "StartResourceEvaluation", map[string]any{
+	rec := doAWSConfigRequest(t, h, "StartResourceEvaluation", map[string]any{
 		"EvaluationMode": "DETAILED",
 		"ResourceDetails": map[string]any{
 			"ResourceId":            "b1",
@@ -463,7 +465,7 @@ func TestHandler_StartResourceEvaluationAndSummary(t *testing.T) {
 	require.NotEmpty(t, started.ResourceEvaluationID)
 	assert.NotEqual(t, "eval-stub", started.ResourceEvaluationID)
 
-	rec = doConfig(t, h, "GetResourceEvaluationSummary", map[string]any{
+	rec = doAWSConfigRequest(t, h, "GetResourceEvaluationSummary", map[string]any{
 		"ResourceEvaluationId": started.ResourceEvaluationID,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -471,7 +473,7 @@ func TestHandler_StartResourceEvaluationAndSummary(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "SUCCEEDED")
 
 	// Unknown id → ResourceNotFoundException.
-	rec = doConfig(t, h, "GetResourceEvaluationSummary", map[string]any{
+	rec = doAWSConfigRequest(t, h, "GetResourceEvaluationSummary", map[string]any{
 		"ResourceEvaluationId": "does-not-exist",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -481,12 +483,13 @@ func TestHandler_StartResourceEvaluationAndSummary(t *testing.T) {
 func TestHandler_GetResourceConfigHistoryPagination(t *testing.T) {
 	t.Parallel()
 
-	h, b := newConfigBackend()
+	h := newTestAWSConfigHandler(t)
+	b := h.Backend
 	const rt, id = "AWS::S3::Bucket", "bkt"
 	require.NoError(t, b.PutResourceConfig(rt, id, `{"v":1}`))
 	require.NoError(t, b.PutResourceConfig(rt, id, `{"v":2}`))
 
-	rec := doConfig(t, h, "GetResourceConfigHistory", map[string]any{
+	rec := doAWSConfigRequest(t, h, "GetResourceConfigHistory", map[string]any{
 		"resourceType": rt,
 		"resourceId":   id,
 		"limit":        1,
@@ -502,7 +505,7 @@ func TestHandler_GetResourceConfigHistoryPagination(t *testing.T) {
 	assert.Equal(t, `{"v":2}`, out.ConfigurationItems[0].Configuration)
 	require.NotEmpty(t, out.NextToken)
 
-	rec = doConfig(t, h, "GetResourceConfigHistory", map[string]any{
+	rec = doAWSConfigRequest(t, h, "GetResourceConfigHistory", map[string]any{
 		"resourceType": rt,
 		"resourceId":   id,
 		"limit":        1,
@@ -523,9 +526,10 @@ func TestHandler_GetResourceConfigHistoryPagination(t *testing.T) {
 func TestHandler_PutEvaluationsAWSKeys(t *testing.T) {
 	t.Parallel()
 
-	h, b := newConfigBackend()
+	h := newTestAWSConfigHandler(t)
+	b := h.Backend
 
-	rec := doConfig(t, h, "PutEvaluations", map[string]any{
+	rec := doAWSConfigRequest(t, h, "PutEvaluations", map[string]any{
 		"ConfigRuleName": "rule",
 		"ResultToken":    "tok",
 		"Evaluations": []map[string]any{

@@ -133,6 +133,32 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 
+	// Escape hatch: if GOPHERSTACK_ENDPOINT is set, point the suite at an
+	// already-running server instead of building/starting a testcontainer.
+	// This is used by `make pgo` to run the integration suite against a
+	// locally-running, pprof-enabled server so that profile data covers
+	// realistic request traffic. Placed at the very top of the
+	// container-setup path so Docker is not required in this mode.
+	// Container build/start and teardown are both skipped; sharedContainer
+	// stays nil, so anything that dumps container logs on failure is a
+	// no-op (see dumpContainerLogsOnFailure).
+	if envEndpoint := os.Getenv("GOPHERSTACK_ENDPOINT"); envEndpoint != "" {
+		endpoint = envEndpoint
+		logger.Info("using external Gopherstack endpoint from GOPHERSTACK_ENDPOINT; skipping container setup",
+			"endpoint", endpoint)
+
+		if resetErr := resetGopherstackState(endpoint); resetErr != nil {
+			logger.Error("failed to reset gopherstack state", "error", resetErr)
+			os.Exit(1)
+		}
+
+		logger.Info("gopherstack state reset; starting tests")
+
+		code := m.Run()
+
+		os.Exit(code)
+	}
+
 	if err := checkDocker(); err != nil {
 		logger.Error("integration tests require docker", "error", err)
 		os.Exit(1)
@@ -210,8 +236,10 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	if tErr := container.Terminate(ctx); tErr != nil {
-		logger.Error("failed to terminate container", "error", tErr)
+	if sharedContainer != nil {
+		if tErr := sharedContainer.Terminate(ctx); tErr != nil {
+			logger.Error("failed to terminate container", "error", tErr)
+		}
 	}
 
 	os.Exit(code)

@@ -1,0 +1,231 @@
+package iotwireless
+
+// Device profiles and service profiles are both simple flat resources with
+// no nested wire structure: same fields, same CRUD shape. Kept in one file
+// (rather than two near-identical files) per project convention: a `dupl`
+// finding from splitting near-identical logic into separate files means the
+// ops belong grouped in one cohesive file instead.
+
+import (
+	"cmp"
+	"fmt"
+	"maps"
+	"slices"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
+
+func deviceProfileARN(region, accountID, id string) string {
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("DeviceProfile/%s", id))
+}
+
+// copyDeviceProfile returns a shallow copy of dp with an independent Tags map.
+func copyDeviceProfile(dp *DeviceProfile) *DeviceProfile {
+	cp := *dp
+	cp.Tags = make(map[string]string, len(dp.Tags))
+	maps.Copy(cp.Tags, dp.Tags)
+
+	return &cp
+}
+
+// CreateDeviceProfile creates a new device profile.
+func (b *InMemoryBackend) CreateDeviceProfile(
+	accountID, region, name string,
+	tags map[string]string,
+) (*DeviceProfile, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()
+	arn := deviceProfileARN(region, accountID, id)
+
+	dp := &DeviceProfile{
+		ID:        id,
+		ARN:       arn,
+		Name:      name,
+		Tags:      newTagsCopy(tags),
+		CreatedAt: time.Now(),
+		AccountID: accountID,
+		Region:    region,
+	}
+
+	b.deviceProfiles.Put(dp)
+	b.storeResourceTagsLocked(arn, tags)
+
+	return copyDeviceProfile(dp), nil
+}
+
+// GetDeviceProfile returns a device profile by ID.
+func (b *InMemoryBackend) GetDeviceProfile(accountID, region, id string) (*DeviceProfile, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	dp, ok := b.deviceProfiles.Get(compositeKey(accountID, region, id))
+	if !ok {
+		return nil, ErrDeviceProfileNotFound
+	}
+
+	return copyDeviceProfile(dp), nil
+}
+
+// ListDeviceProfiles returns all device profiles for the given account and region,
+// sorted by name for deterministic output.
+func (b *InMemoryBackend) ListDeviceProfiles(accountID, region string) []*DeviceProfile {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	all := b.deviceProfiles.All()
+	result := make([]*DeviceProfile, 0, len(all))
+
+	for _, dp := range all {
+		if dp.AccountID == accountID && dp.Region == region {
+			result = append(result, copyDeviceProfile(dp))
+		}
+	}
+
+	slices.SortFunc(result, func(a, b *DeviceProfile) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	return result
+}
+
+// DeleteDeviceProfile deletes a device profile by ID.
+func (b *InMemoryBackend) DeleteDeviceProfile(accountID, region, id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := compositeKey(accountID, region, id)
+
+	dp, ok := b.deviceProfiles.Get(key)
+	if !ok {
+		return ErrDeviceProfileNotFound
+	}
+
+	delete(b.resourceTags, dp.ARN)
+	b.deviceProfiles.Delete(key)
+
+	return nil
+}
+
+// AddDeviceProfileInternal inserts a DeviceProfile directly into the backend, bypassing ID generation.
+// Intended for test setup only.
+func (b *InMemoryBackend) AddDeviceProfileInternal(accountID, region string, dp *DeviceProfile) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := copyDeviceProfile(dp)
+	cp.AccountID = accountID
+	cp.Region = region
+	b.deviceProfiles.Put(cp)
+	b.storeResourceTagsLocked(dp.ARN, dp.Tags)
+}
+
+func serviceProfileARN(region, accountID, id string) string {
+	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("ServiceProfile/%s", id))
+}
+
+// copyServiceProfile returns a shallow copy of sp with an independent Tags map.
+func copyServiceProfile(sp *ServiceProfile) *ServiceProfile {
+	cp := *sp
+	cp.Tags = make(map[string]string, len(sp.Tags))
+	maps.Copy(cp.Tags, sp.Tags)
+
+	return &cp
+}
+
+// CreateServiceProfile creates a new service profile.
+func (b *InMemoryBackend) CreateServiceProfile(
+	accountID, region, name string,
+	tags map[string]string,
+) (*ServiceProfile, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()
+	arn := serviceProfileARN(region, accountID, id)
+
+	sp := &ServiceProfile{
+		ID:        id,
+		ARN:       arn,
+		Name:      name,
+		Tags:      newTagsCopy(tags),
+		CreatedAt: time.Now(),
+		AccountID: accountID,
+		Region:    region,
+	}
+
+	b.serviceProfiles.Put(sp)
+	b.storeResourceTagsLocked(arn, tags)
+
+	return copyServiceProfile(sp), nil
+}
+
+// GetServiceProfile returns a service profile by ID.
+func (b *InMemoryBackend) GetServiceProfile(accountID, region, id string) (*ServiceProfile, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	sp, ok := b.serviceProfiles.Get(compositeKey(accountID, region, id))
+	if !ok {
+		return nil, ErrServiceProfileNotFound
+	}
+
+	return copyServiceProfile(sp), nil
+}
+
+// ListServiceProfiles returns all service profiles for the given account and region,
+// sorted by name for deterministic output.
+func (b *InMemoryBackend) ListServiceProfiles(accountID, region string) []*ServiceProfile {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	all := b.serviceProfiles.All()
+	result := make([]*ServiceProfile, 0, len(all))
+
+	for _, sp := range all {
+		if sp.AccountID == accountID && sp.Region == region {
+			result = append(result, copyServiceProfile(sp))
+		}
+	}
+
+	slices.SortFunc(result, func(a, b *ServiceProfile) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
+
+	return result
+}
+
+// DeleteServiceProfile deletes a service profile.
+func (b *InMemoryBackend) DeleteServiceProfile(accountID, region, id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := compositeKey(accountID, region, id)
+
+	sp, ok := b.serviceProfiles.Get(key)
+	if !ok {
+		return ErrServiceProfileNotFound
+	}
+
+	delete(b.resourceTags, sp.ARN)
+	b.serviceProfiles.Delete(key)
+
+	return nil
+}
+
+// AddServiceProfileInternal inserts a ServiceProfile directly into the backend, bypassing ID generation.
+// Intended for test setup only.
+func (b *InMemoryBackend) AddServiceProfileInternal(accountID, region string, sp *ServiceProfile) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := copyServiceProfile(sp)
+	cp.AccountID = accountID
+	cp.Region = region
+	b.serviceProfiles.Put(cp)
+	b.storeResourceTagsLocked(sp.ARN, sp.Tags)
+}

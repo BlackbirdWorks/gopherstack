@@ -44,25 +44,29 @@ func (j *ArchiveJanitor) Run(ctx context.Context) {
 func (j *ArchiveJanitor) SweepOnce(ctx context.Context) {
 	now := j.now()
 
-	j.Backend.mu.Lock("EventBridgeArchiveJanitor")
 	count := 0
-	for region, archives := range j.Backend.archives {
-		for _, archive := range archives.All() {
-			if archive.RetentionDays <= 0 {
-				continue
-			}
 
-			expiry := archive.CreationTime.Add(time.Duration(archive.RetentionDays) * 24 * time.Hour)
-			if now.Before(expiry) {
-				continue
-			}
+	func() {
+		j.Backend.mu.Lock("EventBridgeArchiveJanitor")
+		defer j.Backend.mu.Unlock()
 
-			archives.Delete(archive.ArchiveName)
-			delete(j.Backend.archivedEvents[region], archive.ArchiveName)
-			count++
+		for region, archives := range j.Backend.archives {
+			for _, archive := range archives.All() {
+				if archive.RetentionDays <= 0 {
+					continue
+				}
+
+				expiry := archive.CreationTime.Add(time.Duration(archive.RetentionDays) * 24 * time.Hour)
+				if now.Before(expiry) {
+					continue
+				}
+
+				archives.Delete(archive.ArchiveName)
+				delete(j.Backend.archivedEvents[region], archive.ArchiveName)
+				count++
+			}
 		}
-	}
-	j.Backend.mu.Unlock()
+	}()
 
 	j.Backend.patternCache.Clear()
 

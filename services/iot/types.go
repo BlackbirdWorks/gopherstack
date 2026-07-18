@@ -600,8 +600,8 @@ type RegisterThingOutput struct {
 // ThingRegistrationTask represents a bulk thing provisioning task.
 //
 // CreationDate/LastModifiedDate are epoch-seconds (float64), matching the real AWS IoT JSON
-// wire shape and the convention used elsewhere in this package (see backend_batch2.go /
-// backend_batch3.go), not RFC3339 strings.
+// wire shape and the convention used elsewhere in this package (see thing_registration.go),
+// not RFC3339 strings.
 type ThingRegistrationTask struct {
 	TaskID             string  `json:"taskId"`
 	Status             string  `json:"status"`

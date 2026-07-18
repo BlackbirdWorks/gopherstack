@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -20,11 +21,23 @@ const (
 	testRegion    = "us-east-1"
 )
 
+// --- shared test helpers ---
+
 func newHandler() *forecast.Handler {
 	return forecast.NewHandler(forecast.NewInMemoryBackend(testAccountID, testRegion))
 }
 
 func request(t *testing.T, h *forecast.Handler, operation string, body map[string]any) (int, map[string]any) {
+	t.Helper()
+
+	rec := doRequest(t, h, operation, body)
+
+	return rec.Code, unmarshalResponse(t, rec)
+}
+
+// doRequest performs a raw request and returns the recorder, for tests that
+// need to inspect headers or the status code independently of the decoded body.
+func doRequest(t *testing.T, h *forecast.Handler, operation string, body map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
 
 	payload, err := json.Marshal(body)
@@ -39,11 +52,19 @@ func request(t *testing.T, h *forecast.Handler, operation string, body map[strin
 
 	require.NoError(t, h.Handler()(ctx))
 
+	return rec
+}
+
+func unmarshalResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+
 	var response map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 
-	return rec.Code, response
+	return response
 }
+
+// --- routing and metadata ---
 
 func TestHandler_MetadataAndRouting(t *testing.T) {
 	t.Parallel()
@@ -62,6 +83,113 @@ func TestHandler_MetadataAndRouting(t *testing.T) {
 	assert.True(t, h.RouteMatcher()(ctx))
 	assert.Equal(t, "CreateDataset", h.ExtractOperation(ctx))
 }
+
+// --- protocol accuracy ---
+
+func TestHandler_Protocol_ContentType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		action     string
+		wantCT     string
+		wantStatus int
+	}{
+		{
+			name:       "success_has_json11_content_type",
+			action:     "CreateDatasetGroup",
+			body:       map[string]any{"DatasetGroupName": "ct-group", "Domain": "RETAIL"},
+			wantStatus: http.StatusOK,
+			wantCT:     "application/x-amz-json-1.1",
+		},
+		{
+			name:       "error_has_json11_content_type",
+			action:     "DescribeForecast",
+			body:       map[string]any{"ForecastArn": "arn:aws:forecast:us-east-1:000000000000:forecast/missing"},
+			wantStatus: http.StatusBadRequest,
+			wantCT:     "application/x-amz-json-1.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Contains(t, rec.Header().Get("Content-Type"), tt.wantCT)
+		})
+	}
+}
+
+func TestHandler_Protocol_ErrorEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "not_found_resource",
+			action: "DescribeForecast",
+			body:   map[string]any{"ForecastArn": "arn:aws:forecast:us-east-1:000000000000:forecast/missing"},
+		},
+		{
+			name:   "missing_name_invalid_input",
+			action: "CreateDatasetGroup",
+			body:   map[string]any{"DatasetGroupName": "", "Domain": "RETAIL"},
+		},
+		{
+			name:   "unknown_operation",
+			action: "NoSuchOperation",
+			body:   map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.GreaterOrEqual(t, rec.Code, http.StatusBadRequest)
+
+			m := unmarshalResponse(t, rec)
+			assert.NotEmpty(t, m["__type"], "__type must be present in error envelope")
+			assert.NotEmpty(t, m["message"], "message must be present in error envelope")
+		})
+	}
+}
+
+func TestHandler_Protocol_NonPost(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/some-path", nil)
+	req.Header.Set("X-Amz-Target", "AmazonForecast.ListForecasts")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	h := newHandler()
+	require.NoError(t, h.Handler()(c))
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestHandler_Protocol_MissingTarget(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	h := newHandler()
+	require.NoError(t, h.Handler()(c))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// --- shared CRUD engine (spans every resource kind) ---
 
 func TestHandler_ResourceLifecycles(t *testing.T) {
 	t.Parallel()
@@ -206,21 +334,6 @@ func TestHandler_ResourceLifecycles(t *testing.T) {
 	}
 }
 
-func TestHandler_DatasetImportCreateFailure(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-	_, created := request(t, h, "CreateDatasetImportJob", map[string]any{
-		"DatasetImportJobName": "broken-import",
-		"DatasetArn":           "dataset",
-		"DataSource":           map[string]any{"S3Config": map[string]any{}},
-	})
-	_, described := request(t, h, "DescribeDatasetImportJob", map[string]any{
-		"DatasetImportJobArn": created["DatasetImportJobArn"],
-	})
-	assert.Equal(t, "CREATE_FAILED", described["Status"])
-}
-
 func TestHandler_ConfigurationRetentionAndUpdates(t *testing.T) {
 	t.Parallel()
 
@@ -263,73 +376,6 @@ func TestHandler_ConfigurationRetentionAndUpdates(t *testing.T) {
 	assert.Equal(t, []any{"dataset-a", "dataset-b"}, group["DatasetArns"])
 }
 
-func TestHandler_MonitorEvaluationsAndErrors(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-	_, created := request(t, h, "CreateMonitor", map[string]any{
-		"MonitorName": "monitor-evaluations", "ResourceArn": "arn:aws:forecast:us-east-1:000000000000:predictor/p1",
-	})
-	code, response := request(t, h, "ListMonitorEvaluations", map[string]any{"MonitorArn": created["MonitorArn"]})
-	require.Equal(t, http.StatusOK, code)
-	evaluations, ok := response["PredictorMonitorEvaluations"].([]any)
-	require.True(t, ok)
-	require.Len(t, evaluations, 1)
-	assert.Equal(t, "SUCCESS", evaluations[0].(map[string]any)["EvaluationState"])
-
-	code, response = request(t, h, "DescribeForecast", map[string]any{"ForecastArn": "missing"})
-	assert.Equal(t, http.StatusBadRequest, code)
-	assert.Equal(t, "ResourceNotFoundException", response["__type"])
-}
-
-// TestHandler_TagOperations_UnknownResourceNotFound verifies that TagResource,
-// UntagResource, and ListTagsForResource return ResourceNotFoundException for
-// an ARN that was never created, matching the real Amazon Forecast API (which
-// models ResourceNotFoundException on all three operations). Previously these
-// operations accepted any ARN and silently wrote/read an orphaned tag map
-// entry instead of validating the resource exists.
-func TestHandler_TagOperations_UnknownResourceNotFound(t *testing.T) {
-	t.Parallel()
-
-	unknownARN := "arn:aws:forecast:us-east-1:000000000000:dataset-group/never-created"
-
-	tests := []struct {
-		body   map[string]any
-		name   string
-		action string
-	}{
-		{
-			name:   "tag_resource",
-			action: "TagResource",
-			body: map[string]any{
-				"ResourceArn": unknownARN,
-				"Tags":        []any{map[string]any{"Key": "env", "Value": "test"}},
-			},
-		},
-		{
-			name:   "untag_resource",
-			action: "UntagResource",
-			body:   map[string]any{"ResourceArn": unknownARN, "TagKeys": []any{"env"}},
-		},
-		{
-			name:   "list_tags_for_resource",
-			action: "ListTagsForResource",
-			body:   map[string]any{"ResourceArn": unknownARN},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newHandler()
-			code, resp := request(t, h, tt.action, tt.body)
-			assert.Equal(t, http.StatusBadRequest, code)
-			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
-		})
-	}
-}
-
 // TestHandler_ListOperations_InvalidNextToken verifies that a malformed
 // NextToken on a List* operation returns InvalidNextTokenException, matching
 // the real Amazon Forecast API (which models InvalidNextTokenException on
@@ -342,6 +388,61 @@ func TestHandler_ListOperations_InvalidNextToken(t *testing.T) {
 	code, resp := request(t, h, "ListDatasetGroups", map[string]any{"NextToken": "not-valid-base64!!"})
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "InvalidNextTokenException", resp["__type"])
+}
+
+// TestHandler_ErrorPaths verifies error-envelope shape (__type + message) for
+// the three error classes Forecast Create/Describe operations can surface.
+func TestHandler_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		action   string
+		wantType string
+		wantCode int
+	}{
+		{
+			name:     "not_found_forecast",
+			action:   "DescribeForecast",
+			body:     map[string]any{"ForecastArn": "arn:aws:forecast:us-east-1:000000000000:forecast/missing"},
+			wantCode: http.StatusBadRequest,
+			wantType: "ResourceNotFoundException",
+		},
+		{
+			name:     "already_exists_dataset_group",
+			action:   "CreateDatasetGroup",
+			body:     map[string]any{"DatasetGroupName": "dup-group", "Domain": "RETAIL"},
+			wantCode: http.StatusBadRequest,
+			wantType: "ResourceAlreadyExistsException",
+		},
+		{
+			name:     "invalid_input_empty_name",
+			action:   "CreateForecast",
+			body:     map[string]any{"ForecastName": "", "PredictorArn": "predictor"},
+			wantCode: http.StatusBadRequest,
+			wantType: "InvalidInputException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			if tt.wantType == "ResourceAlreadyExistsException" {
+				// Pre-create to trigger conflict
+				code, _ := request(t, h, tt.action, tt.body)
+				require.Equal(t, http.StatusOK, code)
+			}
+
+			code, m := request(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantCode, code)
+			assert.Equal(t, tt.wantType, m["__type"])
+			assert.NotEmpty(t, m["message"])
+		})
+	}
 }
 
 func TestProvider(t *testing.T) {

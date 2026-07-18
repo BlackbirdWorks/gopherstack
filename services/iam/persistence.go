@@ -89,18 +89,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return persistence.MarshalSnapshot(ctx, "iam", snap)
 }
 
-// Restore loads backend state from a JSON snapshot.
-// It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var snap backendSnapshot
-
-	if err := persistence.UnmarshalSnapshot(ctx, "iam", data, &snap); err != nil {
-		return err
-	}
-
-	normalizeSnapshot(&snap)
-
+// restoreSnapshotLocked applies snap to backend state under b.mu. It returns
+// versionMismatch=true if snap's version doesn't match iamSnapshotVersion, in
+// which case the backend registry has been reset to empty and no other
+// fields from snap were applied.
+func (b *InMemoryBackend) restoreSnapshotLocked(ctx context.Context, snap *backendSnapshot) (bool, error) {
 	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
 
 	if snap.Version != iamSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
@@ -114,15 +109,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", iamSnapshotVersion)
 
 		b.registry.ResetAll()
-		b.mu.Unlock()
 
-		return nil
+		return true, nil
 	}
 
 	if err := b.registry.RestoreAll(snap.Tables); err != nil {
-		b.mu.Unlock()
-
-		return fmt.Errorf("iam: restore snapshot tables: %w", err)
+		return false, fmt.Errorf("iam: restore snapshot tables: %w", err)
 	}
 
 	// userAccessKeys is a secondary index (username -> []AccessKeyID) over
@@ -168,7 +160,28 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 	b.passwordPolicy = snap.PasswordPolicy
 
-	b.mu.Unlock()
+	return false, nil
+}
+
+// Restore loads backend state from a JSON snapshot.
+// It implements persistence.Persistable.
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
+	var snap backendSnapshot
+
+	if err := persistence.UnmarshalSnapshot(ctx, "iam", data, &snap); err != nil {
+		return err
+	}
+
+	normalizeSnapshot(&snap)
+
+	versionMismatch, restoreErr := b.restoreSnapshotLocked(ctx, &snap)
+	if restoreErr != nil {
+		return restoreErr
+	}
+
+	if versionMismatch {
+		return nil
+	}
 
 	// Restore comprehensive state after releasing b.mu (see the matching note
 	// in Snapshot): comprehensiveBackend.restore takes c.mu independently.

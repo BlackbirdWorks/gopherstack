@@ -223,692 +223,6 @@ func TestHandler_Routing(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateStateMachine(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo)
-		check    func(t *testing.T, rec *httptest.ResponseRecorder)
-		name     string
-		body     string
-		wantCode int
-	}{
-		{
-			name:     "success returns ARN containing name",
-			body:     makeSMBody("test-sm", validPassDef, "STANDARD"),
-			wantCode: http.StatusOK,
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				t.Helper()
-
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp["stateMachineArn"].(string), "test-sm")
-			},
-		},
-		{
-			name: "duplicate name returns conflict",
-			setup: func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) {
-				t.Helper()
-
-				sfnPost(ctx, t, h, e, "CreateStateMachine",
-					makeSMBody("dup", validPassDef, ""))
-			},
-			// Different definition → StateMachineAlreadyExists (same def would be idempotent).
-			body:     makeSMBody("dup", `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`, ""),
-			wantCode: http.StatusConflict,
-		},
-		{
-			name:     "invalid definition returns bad request",
-			body:     makeSMBody("invalid-sm", "{}", "STANDARD"),
-			wantCode: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(t, ctx, h, e)
-			}
-
-			rec := sfnPost(ctx, t, h, e, "CreateStateMachine", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.check != nil {
-				tt.check(t, rec)
-			}
-		})
-	}
-}
-
-func TestHandler_DeleteStateMachine(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string
-		bodyFn   func(setupArn string) string
-		name     string
-		body     string
-		wantCode int
-	}{
-		{
-			name: "success deletes existing state machine",
-			setup: func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string {
-				t.Helper()
-
-				return createSM(ctx, t, h, e, "del-sm")
-			},
-			bodyFn:   func(arn string) string { return `{"stateMachineArn":"` + arn + `"}` },
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "not found returns 404",
-			body:     `{"stateMachineArn":"arn:aws:states:us-east-1:123:stateMachine:nonexistent"}`,
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			var setupArn string
-			if tt.setup != nil {
-				setupArn = tt.setup(t, ctx, h, e)
-			}
-
-			body := tt.body
-			if tt.bodyFn != nil {
-				body = tt.bodyFn(setupArn)
-			}
-
-			rec := sfnPost(ctx, t, h, e, "DeleteStateMachine", body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListStateMachines(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		smNames   []string
-		wantCode  int
-		wantCount int
-	}{
-		{
-			name:      "returns all created state machines",
-			smNames:   []string{"sm-1", "sm-2"},
-			wantCode:  http.StatusOK,
-			wantCount: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			for _, smName := range tt.smNames {
-				createSM(ctx, t, h, e, smName)
-			}
-
-			rec := sfnPost(ctx, t, h, e, "ListStateMachines", `{}`)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Len(t, resp["stateMachines"].([]any), tt.wantCount)
-		})
-	}
-}
-
-func TestHandler_DescribeStateMachine(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string
-		bodyFn   func(setupArn string) string
-		check    func(t *testing.T, rec *httptest.ResponseRecorder)
-		name     string
-		body     string
-		wantCode int
-	}{
-		{
-			name: "success returns state machine details",
-			setup: func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string {
-				t.Helper()
-
-				rec := sfnPost(ctx, t, h, e, "CreateStateMachine",
-					makeSMBody("desc-sm", validPassDef, "EXPRESS"))
-				require.Equal(t, http.StatusOK, rec.Code)
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-				return resp["stateMachineArn"].(string)
-			},
-			bodyFn:   func(arn string) string { return `{"stateMachineArn":"` + arn + `"}` },
-			wantCode: http.StatusOK,
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				t.Helper()
-
-				var sm map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sm))
-				assert.Equal(t, "EXPRESS", sm["type"])
-			},
-		},
-		{
-			name:     "not found returns 404",
-			body:     `{"stateMachineArn":"arn:nonexistent"}`,
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			var setupArn string
-			if tt.setup != nil {
-				setupArn = tt.setup(t, ctx, h, e)
-			}
-
-			body := tt.body
-			if tt.bodyFn != nil {
-				body = tt.bodyFn(setupArn)
-			}
-
-			rec := sfnPost(ctx, t, h, e, "DescribeStateMachine", body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.check != nil {
-				tt.check(t, rec)
-			}
-		})
-	}
-}
-
-func TestHandler_StartExecution(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string
-		bodyFn   func(setupArn string) string
-		check    func(t *testing.T, rec *httptest.ResponseRecorder)
-		name     string
-		body     string
-		wantCode int
-	}{
-		{
-			name: "success returns execution ARN",
-			setup: func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string {
-				t.Helper()
-
-				return createSM(ctx, t, h, e, "start-sm")
-			},
-			bodyFn:   func(arn string) string { return `{"stateMachineArn":"` + arn + `","name":"exec1","input":"{}"}` },
-			wantCode: http.StatusOK,
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				t.Helper()
-
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp["executionArn"].(string), "exec1")
-			},
-		},
-		{
-			name:     "state machine not found returns 404",
-			body:     `{"stateMachineArn":"arn:nonexistent","name":"exec1","input":"{}"}`,
-			wantCode: http.StatusNotFound,
-		},
-		{
-			name: "duplicate execution name returns conflict",
-			setup: func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string {
-				t.Helper()
-
-				arn := createSM(ctx, t, h, e, "dup-exec-sm")
-				startExec(ctx, t, h, e, arn, "exec-dup")
-
-				return arn
-			},
-			bodyFn:   func(arn string) string { return `{"stateMachineArn":"` + arn + `","name":"exec-dup","input":"{}"}` },
-			wantCode: http.StatusConflict,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			var setupArn string
-			if tt.setup != nil {
-				setupArn = tt.setup(t, ctx, h, e)
-			}
-
-			body := tt.body
-			if tt.bodyFn != nil {
-				body = tt.bodyFn(setupArn)
-			}
-
-			rec := sfnPost(ctx, t, h, e, "StartExecution", body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.check != nil {
-				tt.check(t, rec)
-			}
-		})
-	}
-}
-
-func TestHandler_DescribeExecution(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string
-		bodyFn   func(setupResult string) string
-		name     string
-		body     string
-		wantCode int
-	}{
-		{
-			name: "success returns execution details",
-			setup: func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string {
-				t.Helper()
-
-				smArn := createSM(ctx, t, h, e, "ex-sm")
-
-				return startExec(ctx, t, h, e, smArn, "myexec")
-			},
-			bodyFn:   func(execArn string) string { return `{"executionArn":"` + execArn + `"}` },
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "not found returns 404",
-			body:     `{"executionArn":"arn:nonexistent"}`,
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			var setupResult string
-			if tt.setup != nil {
-				setupResult = tt.setup(t, ctx, h, e)
-			}
-
-			body := tt.body
-			if tt.bodyFn != nil {
-				body = tt.bodyFn(setupResult)
-			}
-
-			rec := sfnPost(ctx, t, h, e, "DescribeExecution", body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestHandler_StopExecution(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string
-		bodyFn   func(setupResult string) string
-		name     string
-		body     string
-		wantCode int
-	}{
-		{
-			name: "stops running execution successfully",
-			setup: func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string {
-				t.Helper()
-
-				smArn := createSM(ctx, t, h, e, "stop-sm")
-
-				return startExec(ctx, t, h, e, smArn, "stop-exec")
-			},
-			bodyFn: func(execArn string) string {
-				return `{"executionArn":"` + execArn + `","error":"MyErr","cause":"test stop"}`
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "not found returns 404",
-			body:     `{"executionArn":"arn:nonexistent"}`,
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			var setupResult string
-			if tt.setup != nil {
-				setupResult = tt.setup(t, ctx, h, e)
-			}
-
-			body := tt.body
-			if tt.bodyFn != nil {
-				body = tt.bodyFn(setupResult)
-			}
-
-			rec := sfnPost(ctx, t, h, e, "StopExecution", body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListExecutions(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		execNames []string
-		wantCode  int
-		wantCount int
-	}{
-		{
-			name:      "returns all executions for state machine",
-			execNames: []string{"e1", "e2"},
-			wantCode:  http.StatusOK,
-			wantCount: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			smArn := createSM(ctx, t, h, e, "list-exec-sm")
-			for _, execName := range tt.execNames {
-				startExec(ctx, t, h, e, smArn, execName)
-			}
-
-			rec := sfnPost(ctx, t, h, e, "ListExecutions", `{"stateMachineArn":"`+smArn+`"}`)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Len(t, resp["executions"].([]any), tt.wantCount)
-		})
-	}
-}
-
-func TestHandler_GetExecutionHistory(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string
-		bodyFn     func(setupResult string) string
-		name       string
-		body       string
-		wantCode   int
-		wantEvents int
-	}{
-		{
-			name: "returns history events for execution",
-			setup: func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string {
-				t.Helper()
-
-				smArn := createSM(ctx, t, h, e, "hist-sm")
-				execArn := startExec(ctx, t, h, e, smArn, "hist-exec")
-
-				// Wait for the async execution to complete before checking history.
-				require.Eventually(t, func() bool {
-					rec := sfnPost(ctx, t, h, e, "DescribeExecution",
-						`{"executionArn":"`+execArn+`"}`)
-					if rec.Code != http.StatusOK {
-						return false
-					}
-					var resp map[string]any
-					if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-						return false
-					}
-
-					return resp["status"] != "RUNNING"
-				}, 5*time.Second, 50*time.Millisecond)
-
-				return execArn
-			},
-			bodyFn:     func(execArn string) string { return `{"executionArn":"` + execArn + `"}` },
-			wantCode:   http.StatusOK,
-			wantEvents: 4,
-		},
-		{
-			name:     "not found returns 404",
-			body:     `{"executionArn":"arn:nonexistent"}`,
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			var setupResult string
-			if tt.setup != nil {
-				setupResult = tt.setup(t, ctx, h, e)
-			}
-
-			body := tt.body
-			if tt.bodyFn != nil {
-				body = tt.bodyFn(setupResult)
-			}
-
-			rec := sfnPost(ctx, t, h, e, "GetExecutionHistory", body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantEvents > 0 {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Len(t, resp["events"].([]any), tt.wantEvents)
-			}
-		})
-	}
-}
-
-func TestHandler_TagResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		tags     string
-		wantCode int
-	}{
-		{
-			name:     "tags state machine successfully",
-			tags:     `{"env":"prod","team":"infra"}`,
-			wantCode: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			arn := createSM(ctx, t, h, e, "tag-sm")
-			rec := sfnPost(ctx, t, h, e, "TagResource",
-				`{"resourceArn":"`+arn+`","tags":`+tt.tags+`}`)
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListTagsForResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		wantCode int
-	}{
-		{
-			name:     "returns tags for tagged resource",
-			wantCode: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			arn := createSM(ctx, t, h, e, "list-tag-sm")
-			sfnPost(ctx, t, h, e, "TagResource", `{"resourceArn":"`+arn+`","tags":{"env":"prod"}}`)
-
-			rec := sfnPost(ctx, t, h, e, "ListTagsForResource", `{"resourceArn":"`+arn+`"}`)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			tags := resp["tags"].([]any)
-			assert.NotEmpty(t, tags)
-		})
-	}
-}
-
-func TestHandler_UntagResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		tagKeys      string
-		wantTagKey   string
-		wantTagValue string
-		wantCode     int
-		wantTagCount int
-	}{
-		{
-			name:         "removes specified tag and leaves remaining tags",
-			tagKeys:      `["team"]`,
-			wantCode:     http.StatusOK,
-			wantTagCount: 1,
-			wantTagKey:   "env",
-			wantTagValue: "prod",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			arn := createSM(ctx, t, h, e, "untag-sm")
-			sfnPost(ctx, t, h, e, "TagResource",
-				`{"resourceArn":"`+arn+`","tags":{"env":"prod","team":"infra"}}`)
-
-			rec := sfnPost(ctx, t, h, e, "UntagResource",
-				`{"resourceArn":"`+arn+`","tagKeys":`+tt.tagKeys+`}`)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			listRec := sfnPost(ctx, t, h, e, "ListTagsForResource", `{"resourceArn":"`+arn+`"}`)
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
-
-			tags := resp["tags"].([]any)
-			assert.Len(t, tags, tt.wantTagCount)
-
-			tag := tags[0].(map[string]any)
-			assert.Equal(t, tt.wantTagKey, tag["key"])
-			assert.Equal(t, tt.wantTagValue, tag["value"])
-		})
-	}
-}
-
-func TestHandler_ValidateStateMachineDefinition(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		definition string
-		wantResult string
-		wantCode   int
-		wantDiags  bool
-	}{
-		{
-			name: "valid definition returns OK result with no diagnostics",
-			definition: `{
-"StartAt": "S",
-"States": {"S": {"Type": "Pass", "End": true}}
-}`,
-			wantCode:   http.StatusOK,
-			wantResult: "OK",
-			wantDiags:  false,
-		},
-		{
-			name:       "invalid definition returns FAIL result with diagnostics",
-			definition: `{"StartAt": "Missing", "States": {"S": {"Type": "Pass", "End": true}}}`,
-			wantCode:   http.StatusOK,
-			wantResult: "FAIL",
-			wantDiags:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx := t.Context()
-			h, e := newSFNHandler(t)
-
-			reqBody, err := json.Marshal(map[string]string{"definition": tt.definition})
-			require.NoError(t, err)
-
-			rec := sfnPost(ctx, t, h, e, "ValidateStateMachineDefinition", string(reqBody))
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, tt.wantResult, resp["result"])
-
-			diag, ok := resp["diagnostics"].([]any)
-			require.True(t, ok)
-
-			if tt.wantDiags {
-				assert.NotEmpty(t, diag)
-			} else {
-				assert.Empty(t, diag)
-			}
-		})
-	}
-}
-
 func TestHandler_Shutdown_CancelsRunningExecutions(t *testing.T) {
 	t.Parallel()
 
@@ -981,4 +295,427 @@ func TestHandler_Shutdown_CancelsRunningExecutions(t *testing.T) {
 				"[%s] execution should leave RUNNING state after Shutdown", tt.name)
 		})
 	}
+}
+
+func TestClassifyError_InvalidExecutionInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		wantCode int
+		wantErr  bool
+	}{
+		{
+			name:     "input_within_limit_succeeds",
+			input:    `{}`,
+			wantCode: http.StatusOK,
+			wantErr:  false,
+		},
+		{
+			name:     "input_over_256kib_returns_400",
+			input:    `{"data":"` + strings.Repeat("x", 256*1024+1) + `"}`,
+			wantCode: http.StatusBadRequest,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			h, e := newSFNHandler(t)
+			smARN := createSM(ctx, t, h, e, "input-limit-sm-"+tt.name)
+
+			body, err := json.Marshal(map[string]string{
+				"stateMachineArn": smARN,
+				"input":           tt.input,
+			})
+			require.NoError(t, err)
+
+			rec := sfnPost(ctx, t, h, e, "StartExecution", string(body))
+
+			if tt.wantErr {
+				assert.Equal(t, tt.wantCode, rec.Code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, "InvalidExecutionInput", resp["__type"])
+			} else {
+				assert.Equal(t, http.StatusOK, rec.Code)
+			}
+		})
+	}
+}
+
+func TestClassifyError_InvalidArn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		roleArn  string
+		wantCode int
+	}{
+		{
+			name:     "valid_role_arn",
+			roleArn:  "arn:aws:iam::123456789012:role/sfn-role",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "non_arn_prefix_returns_400",
+			roleArn:  "not-an-arn",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "arn_with_whitespace_returns_400",
+			roleArn:  "arn:aws:iam::123456 789012:role/sfn-role",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			h, e := newSFNHandler(t)
+
+			body, err := json.Marshal(map[string]string{
+				"name":       "arn-check-sm-" + tt.name,
+				"definition": sfnPassDefinition,
+				"roleArn":    tt.roleArn,
+			})
+			require.NoError(t, err)
+
+			rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusBadRequest {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, "InvalidArn", resp["__type"])
+			}
+		})
+	}
+}
+
+// ─── Name Validation ─────────────────────────────────────────────────────────
+
+func TestHTTP_StateMachineDoesNotExist_Returns404(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+
+	rec := sfnPost(ctx, t, h, e, "DescribeStateMachine",
+		`{"stateMachineArn":"arn:aws:states:us-east-1:123:stateMachine:ghost"}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHTTP_ExecutionDoesNotExist_Returns404(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+
+	rec := sfnPost(ctx, t, h, e, "DescribeExecution",
+		`{"executionArn":"arn:aws:states:us-east-1:123:execution:sm:ghost"}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHTTP_StateMachineAlreadyExists_Returns409(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+
+	createSM(ctx, t, h, e, "dupe-http-sm")
+
+	// Different definition triggers StateMachineAlreadyExists (409).
+	altDef := `{"StartAt":"T","States":{"T":{"Type":"Succeed"}}}`
+	rec := sfnPost(ctx, t, h, e, "CreateStateMachine",
+		makeSMBody("dupe-http-sm", altDef, ""))
+	assert.Equal(t, http.StatusConflict, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "StateMachineAlreadyExists", out["__type"])
+}
+
+func TestHTTP_InvalidDefinition_Returns400(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+
+	rec := sfnPost(ctx, t, h, e, "CreateStateMachine",
+		`{"name":"inv-def-sm","definition":"{\"bad\":true}","roleArn":"arn:role"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "InvalidDefinition", out["__type"])
+}
+
+func TestHTTP_ActivityDoesNotExist_Returns404(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h, e := newSFNHandler(t)
+
+	rec := sfnPost(ctx, t, h, e, "DescribeActivity",
+		`{"activityArn":"arn:aws:states:us-east-1:123:activity:ghost"}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// ─── CreateStateMachine HTTP response fields ──────────────────────────────────
+
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		wantPrio int
+	}{
+		{
+			name:     "returns_100",
+			wantPrio: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend())
+			assert.Equal(t, tt.wantPrio, h.MatchPriority())
+		})
+	}
+}
+
+func TestHandler_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		target    string
+		wantMatch bool
+	}{
+		{
+			name:      "sfn_target_matches",
+			target:    "AmazonStates.CreateStateMachine",
+			wantMatch: true,
+		},
+		{
+			name:      "sqs_target_no_match",
+			target:    "AmazonSQS.CreateQueue",
+			wantMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend())
+			matcher := h.RouteMatcher()
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			assert.Equal(t, tt.wantMatch, matcher(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
+}
+
+func TestHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		wantOp string
+	}{
+		{
+			name:   "known_operation",
+			target: "AmazonStates.ListStateMachines",
+			wantOp: "ListStateMachines",
+		},
+		{
+			name:   "no_target_header",
+			target: "",
+			wantOp: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend())
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		wantResource string
+	}{
+		{
+			name:         "name_field",
+			body:         `{"name":"my-sm"}`,
+			wantResource: "my-sm",
+		},
+		{
+			name:         "state_machine_arn",
+			body:         `{"stateMachineArn":"arn:aws:states:us-east-1:123:stateMachine:test"}`,
+			wantResource: "arn:aws:states:us-east-1:123:stateMachine:test",
+		},
+		{
+			name:         "execution_arn",
+			body:         `{"executionArn":"arn:aws:states:us-east-1:123:execution:test:exec1"}`,
+			wantResource: "arn:aws:states:us-east-1:123:execution:test:exec1",
+		},
+		{
+			name:         "empty_body",
+			body:         `{}`,
+			wantResource: "",
+		},
+		{
+			name:         "bad_json",
+			body:         `not-json`,
+			wantResource: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend())
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", stringReader(tt.body))
+			assert.Equal(t, tt.wantResource, h.ExtractResource(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
+}
+
+func stringReader(s string) *strings.Reader {
+	return strings.NewReader(s)
+}
+
+func newSFBackend() *stepfunctions.InMemoryBackend {
+	return stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+}
+
+// newSFNHandlerWithBackend creates a handler and echo instance backed by the provided backend.
+func newSFNHandlerWithBackend(
+	bk *stepfunctions.InMemoryBackend,
+) (*stepfunctions.Handler, *echo.Echo) {
+	return stepfunctions.NewHandler(bk), echo.New()
+}
+
+func TestHandler_ExtractResource_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		target   string
+		body     string
+		wantName string
+	}{
+		{
+			name:     "name_field_extracted",
+			target:   "AmazonStates.CreateStateMachine",
+			body:     `{"name":"my-sm"}`,
+			wantName: "my-sm",
+		},
+		{
+			name:     "stateMachineArn_extracted",
+			target:   "AmazonStates.DescribeStateMachine",
+			body:     `{"stateMachineArn":"arn:aws:states:us-east-1:123456:stateMachine:my-sm"}`,
+			wantName: "arn:aws:states:us-east-1:123456:stateMachine:my-sm",
+		},
+		{
+			name:     "executionArn_extracted",
+			target:   "AmazonStates.DescribeExecution",
+			body:     `{"executionArn":"arn:aws:states:us-east-1:123456:execution:my-sm:exec1"}`,
+			wantName: "arn:aws:states:us-east-1:123456:execution:my-sm:exec1",
+		},
+		{
+			name:     "empty_json_returns_empty",
+			target:   "AmazonStates.ListStateMachines",
+			body:     `{}`,
+			wantName: "",
+		},
+		{
+			name:     "invalid_json_returns_empty",
+			target:   "AmazonStates.CreateStateMachine",
+			body:     `not-json`,
+			wantName: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e := newSFNHandler(t)
+			ctx := t.Context()
+
+			var req *http.Request
+			if tt.body != "" {
+				req = httptest.NewRequestWithContext(ctx, http.MethodPost, "/", strings.NewReader(tt.body))
+			} else {
+				req = httptest.NewRequestWithContext(ctx, http.MethodPost, "/", nil)
+			}
+			req.Header.Set("X-Amz-Target", tt.target)
+
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.wantName, h.ExtractResource(c))
+		})
+	}
+}
+
+// ---- stateMachineActions: invalid JSON for each operation ----
+
+// TestRefinement1_HandlerOpsLen verifies GetSupportedOperations count.
+func TestHandlerOpsLen(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	h := stepfunctions.NewHandler(b)
+	assert.Len(t, h.GetSupportedOperations(), h.HandlerOpsLen())
+}
+
+// TestRefinement1_HandlerOpsLenHelper verifies the HandlerOpsLen export helper.
+func TestHandlerOpsLenHelper(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	h := stepfunctions.NewHandler(b)
+	assert.Equal(t, 38, h.HandlerOpsLen())
+}
+
+// TestRefinement1_HandlersErrorResponse verifies that unknown operations return 400.
+func TestHandlersErrorResponse(t *testing.T) {
+	t.Parallel()
+
+	h, e := newSFNHandler(t)
+	rec := sfnPost(t.Context(), t, h, e, "NonExistentOperation", `{}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

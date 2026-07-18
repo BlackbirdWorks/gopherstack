@@ -467,3 +467,41 @@ func parseGraphQLRequest(body []byte) (*graphqlRequest, error) {
 
 	return &req, nil
 }
+
+// ExecuteGraphQL executes a GraphQL query/mutation against the configured resolvers.
+func (b *InMemoryBackend) ExecuteGraphQL(
+	ctx context.Context,
+	apiID, query, operationName string,
+	variables map[string]any,
+) (map[string]any, error) {
+	b.mu.RLock("ExecuteGraphQL")
+
+	api, apiOK := b.apis.Get(apiID)
+	schema, _ := b.schemas.Get(apiID)
+
+	// Copy resolver and datasource maps under the lock to avoid data races with
+	// concurrent Create/Delete operations.
+	apiResolvers := b.resolversByAPI.Get(apiID)
+	resolversCopy := make(map[string]*Resolver, len(apiResolvers))
+
+	for _, r := range apiResolvers {
+		resolversCopy[resolverKey(r.TypeName, r.FieldName)] = r
+	}
+
+	apiDatasources := b.datasourcesByAPI.Get(apiID)
+	datasourcesCopy := make(map[string]*DataSource, len(apiDatasources))
+
+	for _, ds := range apiDatasources {
+		datasourcesCopy[ds.Name] = ds
+	}
+
+	b.mu.RUnlock()
+
+	if !apiOK {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
+	_ = api
+
+	return executeGraphQL(ctx, b, schema, resolversCopy, datasourcesCopy, query, operationName, variables)
+}

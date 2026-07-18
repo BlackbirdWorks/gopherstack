@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBatch2Audit_StopMaterializedViewRefreshTaskRun_NotFound verifies that
+// TestStopMaterializedViewRefreshTaskRun_NotFound verifies that
 // StopMaterializedViewRefreshTaskRun raises EntityNotFoundException for an unknown task run ID.
-func TestBatch2Audit_StopMaterializedViewRefreshTaskRun_NotFound(t *testing.T) {
+func TestStopMaterializedViewRefreshTaskRun_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -66,7 +66,7 @@ func TestBatch2Audit_StopMaterializedViewRefreshTaskRun_NotFound(t *testing.T) {
 	}
 }
 
-func TestBatch2_MaterializedViewRefresh(t *testing.T) {
+func TestMaterializedViewRefresh(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -82,7 +82,7 @@ func TestBatch2_MaterializedViewRefresh(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "Runs")
 }
 
-func TestBatch3_MaterializedViewRefreshTaskRun(t *testing.T) {
+func TestMaterializedViewRefreshTaskRun(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

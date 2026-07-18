@@ -5,6 +5,8 @@ import (
 	"maps"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
@@ -25,6 +27,11 @@ const (
 )
 
 const resourceTypeSession = "SESSION"
+
+func (b *InMemoryBackend) sessionARN(applicationID, sessionID string) string {
+	return arn.Build("emr-serverless", b.region, b.accountID,
+		fmt.Sprintf("/applications/%s/sessions/%s", applicationID, sessionID))
+}
 
 // Session represents an interactive EMR Serverless session.
 type Session struct {

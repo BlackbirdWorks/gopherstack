@@ -2,6 +2,7 @@ package kinesis
 
 import (
 	"context"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
@@ -196,6 +197,39 @@ func parseThrottlePercentage(s string) float64 {
 	}
 
 	return float64(v) / kinesisThrottleDivisor
+}
+
+// isThroughputFaultActive reports whether a FIS throughput exception should be
+// applied to the current request for the given stream name, using probability-based
+// sampling when percentage < 100.
+// The method lazily removes expired fault entries to prevent unbounded map growth.
+func (b *InMemoryBackend) isThroughputFaultActive(region, streamName string) bool {
+	b.faultsMu.Lock("isThroughputFaultActive")
+	defer b.faultsMu.Unlock()
+
+	regionFaults := b.fisThroughputFaults[region]
+	fault, ok := regionFaults[streamName]
+	if !ok || fault == nil {
+		return false
+	}
+
+	if !fault.expiry.IsZero() && time.Now().After(fault.expiry) {
+		// Lazily evict expired entry.
+		delete(regionFaults, streamName)
+
+		return false
+	}
+
+	if fault.probability <= 0 {
+		return false
+	}
+
+	if fault.probability >= 1.0 {
+		return true
+	}
+
+	//nolint:gosec // weak random is intentional for fault injection
+	return rand.Float64() < fault.probability
 }
 
 // streamNamesFromARNs extracts Kinesis stream names from ARNs or bare names.

@@ -3,8 +3,11 @@ package stepfunctions_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -689,4 +692,773 @@ func TestHandler_Restore_LegacyFormat(t *testing.T) {
 			assert.Equal(t, "legacy-sm", sms[0].Name)
 		})
 	}
+}
+
+func TestActivityName_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		actName  string
+		wantCode int
+	}{
+		{
+			name:     "valid_name",
+			actName:  "my-activity",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "empty_name_rejected",
+			actName:  "",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "too_long_name_rejected",
+			actName:  strings.Repeat("c", 81),
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid_chars_rejected",
+			actName:  "bad|name",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			h, e := newSFNHandler(t)
+
+			body, err := json.Marshal(map[string]string{"name": tt.actName})
+			require.NoError(t, err)
+
+			rec := sfnPost(ctx, t, h, e, "CreateActivity", string(body))
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+// ─── Tags in CreateStateMachine ──────────────────────────────────────────────
+
+func TestBackend_ValidateName_Activity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		actName string
+	}{
+		{
+			name:    "valid_name",
+			actName: "my-activity",
+			wantErr: nil,
+		},
+		{
+			name:    "empty_name_invalid",
+			actName: "",
+			wantErr: stepfunctions.ErrInvalidName,
+		},
+		{
+			name:    "name_too_long_invalid",
+			actName: strings.Repeat("a", 81),
+			wantErr: stepfunctions.ErrInvalidName,
+		},
+		{
+			name:    "name_with_invalid_chars",
+			actName: "bad#activity",
+			wantErr: stepfunctions.ErrInvalidName,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := stepfunctions.NewInMemoryBackend()
+			_, err := b.CreateActivity(context.Background(), tt.actName)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// ─── SetStateMachineConfigurations with Encryption ───────────────────────────
+
+func TestARN_Activity(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	act, err := b.CreateActivity(context.Background(), "my-activity")
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:states:us-east-1:123456789012:activity:my-activity", act.ActivityArn)
+}
+
+func TestActivityName_TooLong(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	longName := strings.Repeat("x", 81)
+	_, err := b.CreateActivity(context.Background(), longName)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepfunctions.ErrInvalidName)
+}
+
+func TestActivity_CreateAndDescribe(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	act, err := b.CreateActivity(context.Background(), "my-act")
+	require.NoError(t, err)
+	assert.Equal(t, "my-act", act.Name)
+	assert.NotEmpty(t, act.ActivityArn)
+	assert.Greater(t, act.CreationDate, float64(0))
+
+	got, err := b.DescribeActivity(act.ActivityArn)
+	require.NoError(t, err)
+	assert.Equal(t, act.ActivityArn, got.ActivityArn)
+}
+
+func TestActivity_DuplicateReturnsError(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	_, err := b.CreateActivity(context.Background(), "dup-act")
+	require.NoError(t, err)
+
+	_, err = b.CreateActivity(context.Background(), "dup-act")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepfunctions.ErrActivityAlreadyExists)
+}
+
+func TestActivity_Delete(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	act, err := b.CreateActivity(context.Background(), "del-act")
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteActivity(act.ActivityArn))
+
+	_, err = b.DescribeActivity(act.ActivityArn)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepfunctions.ErrActivityDoesNotExist)
+}
+
+func TestActivity_DeleteNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	err := b.DeleteActivity("arn:aws:states:us-east-1:123:activity:ghost")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepfunctions.ErrActivityDoesNotExist)
+}
+
+func TestActivity_ListAndPaginate(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	for i := range 5 {
+		_, err := b.CreateActivity(context.Background(), fmt.Sprintf("list-act-%d", i))
+		require.NoError(t, err)
+	}
+
+	all, _, err := b.ListActivities(context.Background(), "", 100)
+	require.NoError(t, err)
+	assert.Len(t, all, 5)
+
+	page1, next, err := b.ListActivities(context.Background(), "", 2)
+	require.NoError(t, err)
+	require.NotEmpty(t, next)
+	assert.Len(t, page1, 2)
+}
+
+func TestActivity_SendTaskSuccess(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	defer b.Destroy()
+
+	act, err := b.CreateActivity(context.Background(), "send-act")
+	require.NoError(t, err)
+
+	actDef := fmt.Sprintf(`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"End":true}}}`,
+		act.ActivityArn)
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"act-sm",
+		actDef,
+		validRoleARN,
+		"STANDARD",
+	)
+	require.NoError(t, err)
+
+	exec, err := b.StartExecution(sm.StateMachineArn, "act-exec", `{"in":1}`)
+	require.NoError(t, err)
+
+	// Poll for the task.
+	var task *stepfunctions.ActivityTask
+
+	require.Eventually(t, func() bool {
+		ctx2, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		t2, e := b.GetActivityTask(ctx2, act.ActivityArn, "worker1")
+
+		if e == nil && t2 != nil {
+			task = t2
+
+			return true
+		}
+
+		return false
+	}, 5*time.Second, 50*time.Millisecond)
+
+	require.NotNil(t, task)
+	require.NoError(t, b.SendTaskSuccess(task.TaskToken, `{"out":2}`))
+
+	require.Eventually(t, func() bool {
+		d, e := b.DescribeExecution(exec.ExecutionArn)
+
+		return e == nil && d.Status == "SUCCEEDED"
+	}, 5*time.Second, 20*time.Millisecond)
+}
+
+func TestActivity_SendTaskFailure(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	defer b.Destroy()
+
+	act, err := b.CreateActivity(context.Background(), "fail-act")
+	require.NoError(t, err)
+
+	actDef := fmt.Sprintf(`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"End":true}}}`,
+		act.ActivityArn)
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"act-fail-sm",
+		actDef,
+		validRoleARN,
+		"STANDARD",
+	)
+	require.NoError(t, err)
+
+	exec, err := b.StartExecution(sm.StateMachineArn, "act-fail-exec", "{}")
+	require.NoError(t, err)
+
+	var task *stepfunctions.ActivityTask
+
+	require.Eventually(t, func() bool {
+		ctx2, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		t2, e := b.GetActivityTask(ctx2, act.ActivityArn, "worker1")
+
+		if e == nil && t2 != nil {
+			task = t2
+
+			return true
+		}
+
+		return false
+	}, 5*time.Second, 50*time.Millisecond)
+
+	require.NotNil(t, task)
+	require.NoError(t, b.SendTaskFailure(task.TaskToken, "MyErr", "failed on purpose"))
+
+	require.Eventually(t, func() bool {
+		d, e := b.DescribeExecution(exec.ExecutionArn)
+
+		return e == nil && d.Status == "FAILED"
+	}, 5*time.Second, 20*time.Millisecond)
+}
+
+func TestActivity_SendTaskSuccessUnknownToken(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	err := b.SendTaskSuccess("unknown-token", `{}`)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+}
+
+func TestActivity_SendTaskHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	defer b.Destroy()
+
+	act, err := b.CreateActivity(context.Background(), "hb-act")
+	require.NoError(t, err)
+
+	actDef := fmt.Sprintf(
+		`{"StartAt":"A","States":{"A":{"Type":"Task","Resource":%q,"HeartbeatSeconds":60,"End":true}}}`,
+		act.ActivityArn,
+	)
+	sm, err := b.CreateStateMachine(context.Background(), "hb-sm", actDef, validRoleARN, "STANDARD")
+	require.NoError(t, err)
+
+	_, err = b.StartExecution(sm.StateMachineArn, "hb-exec", "{}")
+	require.NoError(t, err)
+
+	var task *stepfunctions.ActivityTask
+
+	require.Eventually(t, func() bool {
+		ctx2, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		t2, e := b.GetActivityTask(ctx2, act.ActivityArn, "hb-worker")
+
+		if e == nil && t2 != nil {
+			task = t2
+
+			return true
+		}
+
+		return false
+	}, 5*time.Second, 50*time.Millisecond)
+
+	require.NotNil(t, task)
+	require.NoError(t, b.SendTaskHeartbeat(task.TaskToken))
+}
+
+// ─── Versions ─────────────────────────────────────────────────────────────────
+
+// TestActivity_CreateDescribeDelete tests the activity lifecycle.
+func TestActivity_CreateDescribeDelete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr   error
+		name      string
+		actName   string
+		duplicate bool
+	}{
+		{
+			name:    "create_and_describe",
+			actName: "my-activity",
+		},
+		{
+			name:      "duplicate_create",
+			actName:   "dup-activity",
+			duplicate: true,
+			wantErr:   stepfunctions.ErrActivityAlreadyExists,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+
+			a, err := b.CreateActivity(context.Background(), tt.actName)
+			require.NoError(t, err)
+			assert.Equal(t, tt.actName, a.Name)
+			assert.Contains(t, a.ActivityArn, ":activity:"+tt.actName)
+			assert.Greater(t, a.CreationDate, float64(0))
+
+			if tt.duplicate {
+				_, err = b.CreateActivity(context.Background(), tt.actName)
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			described, err := b.DescribeActivity(a.ActivityArn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.actName, described.Name)
+
+			err = b.DeleteActivity(a.ActivityArn)
+			require.NoError(t, err)
+
+			_, err = b.DescribeActivity(a.ActivityArn)
+			require.ErrorIs(t, err, stepfunctions.ErrActivityDoesNotExist)
+		})
+	}
+}
+
+// TestActivity_GetActivityTaskAndSendSuccess tests the activity task polling and success flow.
+func TestActivity_GetActivityTaskAndSendSuccess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		input      string
+		output     string
+		wantOutput string
+	}{
+		{
+			name:       "success_with_output",
+			input:      `{"key":"val"}`,
+			output:     `{"result":"ok"}`,
+			wantOutput: `{"result":"ok"}`,
+		},
+		{
+			name:       "empty_output",
+			input:      `{}`,
+			output:     `{}`,
+			wantOutput: `{}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			a, err := b.CreateActivity(context.Background(), "task-act-"+tt.name)
+			require.NoError(t, err)
+
+			resultCh := make(chan string, 1)
+			errCh := make(chan error, 1)
+
+			go func() {
+				out, invokeErr := b.InvokeActivity(t.Context(), a.ActivityArn, tt.input, 0)
+				if invokeErr != nil {
+					errCh <- invokeErr
+
+					return
+				}
+				resultCh <- out
+			}()
+
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+
+			task, err := b.GetActivityTask(ctx, a.ActivityArn, "worker-1")
+			require.NoError(t, err)
+			require.NotNil(t, task)
+			require.NotEmpty(t, task.TaskToken, "expected a task to be available")
+			assert.Equal(t, tt.input, task.Input)
+
+			err = b.SendTaskSuccess(task.TaskToken, tt.output)
+			require.NoError(t, err)
+
+			select {
+			case out := <-resultCh:
+				assert.Equal(t, tt.wantOutput, out)
+			case invokeErr := <-errCh:
+				require.NoError(t, invokeErr)
+			case <-time.After(5 * time.Second):
+				t.Fatal("timeout waiting for InvokeActivity result")
+			}
+		})
+	}
+}
+
+// TestActivity_GetActivityTaskAndSendFailure tests the activity task failure flow.
+func TestActivity_GetActivityTaskAndSendFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		errCode     string
+		cause       string
+		wantErrCode string
+	}{
+		{
+			name:        "task_failed",
+			errCode:     "ActivityFailed",
+			cause:       "worker error",
+			wantErrCode: "ActivityFailed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			a, err := b.CreateActivity(context.Background(), "fail-act-"+tt.name)
+			require.NoError(t, err)
+
+			invokeErrCh := make(chan error, 1)
+
+			go func() {
+				_, invokeErr := b.InvokeActivity(t.Context(), a.ActivityArn, `{}`, 0)
+				invokeErrCh <- invokeErr
+			}()
+
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+
+			task, err := b.GetActivityTask(ctx, a.ActivityArn, "worker-1")
+			require.NoError(t, err)
+			require.NotNil(t, task)
+			require.NotEmpty(t, task.TaskToken, "expected a task to be available")
+
+			err = b.SendTaskFailure(task.TaskToken, tt.errCode, tt.cause)
+			require.NoError(t, err)
+
+			select {
+			case invokeErr := <-invokeErrCh:
+				require.Error(t, invokeErr)
+				assert.Contains(t, invokeErr.Error(), tt.wantErrCode)
+			case <-time.After(5 * time.Second):
+				t.Fatal("timeout waiting for InvokeActivity failure")
+			}
+		})
+	}
+}
+
+// TestActivity_GetActivityTask_Timeout verifies that GetActivityTask returns an empty task
+// when no task is available within the poll timeout.
+func TestActivity_GetActivityTask_Timeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		timeout time.Duration
+	}{
+		{
+			name:    "returns_empty_on_timeout",
+			timeout: 100 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			a, err := b.CreateActivity(context.Background(), "timeout-act-"+tt.name)
+			require.NoError(t, err)
+
+			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
+			defer cancel()
+
+			task, err := b.GetActivityTask(ctx, a.ActivityArn, "worker-1")
+			require.NoError(t, err)
+			// AWS returns empty response (no task token) when poll times out.
+			assert.Empty(t, task.TaskToken)
+		})
+	}
+}
+
+func TestActivity_InvokeCancellationRemovesTaskToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sendResult func(*stepfunctions.InMemoryBackend, string) error
+		name       string
+	}{
+		{
+			name: "cancelled_invoke_rejects_send_task_success",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskSuccess(taskToken, `{"status":"late"}`)
+			},
+		},
+		{
+			name: "cancelled_invoke_rejects_send_task_failure",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskFailure(taskToken, "ActivityFailed", "late failure")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			a, err := b.CreateActivity(context.Background(), "cancel-act-"+tt.name)
+			require.NoError(t, err)
+
+			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
+			defer cancelInvoke()
+
+			invokeErrCh := make(chan error, 1)
+			go func() {
+				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`, 0)
+				invokeErrCh <- invokeErr
+			}()
+
+			pollCtx, cancelPoll := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancelPoll()
+
+			task, err := b.GetActivityTask(pollCtx, a.ActivityArn, "worker-1")
+			require.NoError(t, err)
+			require.NotNil(t, task)
+			require.NotEmpty(t, task.TaskToken)
+
+			cancelInvoke()
+
+			require.Eventually(t, func() bool {
+				select {
+				case invokeErr := <-invokeErrCh:
+					return errors.Is(invokeErr, context.Canceled)
+				default:
+					return false
+				}
+			}, 2*time.Second, 25*time.Millisecond)
+
+			err = tt.sendResult(b, task.TaskToken)
+			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+		})
+	}
+}
+
+func TestActivity_DeleteActivityRemovesOutstandingTaskTokens(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		sendResult func(*stepfunctions.InMemoryBackend, string) error
+		name       string
+	}{
+		{
+			name: "delete_activity_rejects_send_task_failure",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskFailure(taskToken, "ActivityFailed", "worker failed")
+			},
+		},
+		{
+			name: "delete_activity_rejects_send_task_success",
+			sendResult: func(
+				b *stepfunctions.InMemoryBackend,
+				taskToken string,
+			) error {
+				return b.SendTaskSuccess(taskToken, `{"ok":true}`)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newSFBackend()
+			a, err := b.CreateActivity(context.Background(), "delete-act-"+tt.name)
+			require.NoError(t, err)
+
+			invokeCtx, cancelInvoke := context.WithCancel(t.Context())
+			defer cancelInvoke()
+
+			invokeErrCh := make(chan error, 1)
+			go func() {
+				_, invokeErr := b.InvokeActivity(invokeCtx, a.ActivityArn, `{}`, 0)
+				invokeErrCh <- invokeErr
+			}()
+
+			pollCtx, cancelPoll := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancelPoll()
+
+			task, err := b.GetActivityTask(pollCtx, a.ActivityArn, "worker-1")
+			require.NoError(t, err)
+			require.NotNil(t, task)
+			require.NotEmpty(t, task.TaskToken)
+
+			err = b.DeleteActivity(a.ActivityArn)
+			require.NoError(t, err)
+
+			err = tt.sendResult(b, task.TaskToken)
+			require.ErrorIs(t, err, stepfunctions.ErrTaskTokenNotFound)
+
+			// DeleteActivity signals resultCh for in-flight tasks, so InvokeActivity
+			// must unblock and return an error without requiring context cancellation.
+			require.Eventually(t, func() bool {
+				select {
+				case invokeErr := <-invokeErrCh:
+					return invokeErr != nil
+				default:
+					return false
+				}
+			}, 2*time.Second, 25*time.Millisecond)
+			cancelInvoke()
+		})
+	}
+}
+
+// TestPerf_SweepTaskTokensRLock verifies that SweepTaskTokens evicts stale tokens correctly.
+func TestSweepTaskTokensRLock(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn       func(t *testing.T, bk *stepfunctions.InMemoryBackend)
+		name          string
+		wantEvictions int
+	}{
+		{
+			name:          "no stale tokens evicts nothing",
+			setupFn:       func(_ *testing.T, _ *stepfunctions.InMemoryBackend) {},
+			wantEvictions: 0,
+		},
+		{
+			name: "aged tokens are evicted",
+			setupFn: func(t *testing.T, bk *stepfunctions.InMemoryBackend) {
+				t.Helper()
+
+				ctx, cancel := context.WithCancel(context.Background())
+				t.Cleanup(cancel)
+
+				act, err := bk.CreateActivity(ctx, "sweep-test-act")
+				require.NoError(t, err)
+
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					// InvokeActivity registers a token; we never complete it.
+					bk.InvokeActivity(ctx, act.ActivityArn, `{}`, 0)
+				}()
+
+				// Give the goroutine time to register its token.
+				require.Eventually(t, func() bool {
+					return bk.TaskTokenCount() > 0
+				}, time.Second, 5*time.Millisecond)
+
+				// Age all tokens well past the TTL.
+				bk.AgeTaskTokensForTest(2 * stepfunctions.DefaultTaskTokenTTLForTest)
+			},
+			wantEvictions: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := stepfunctions.NewInMemoryBackend()
+			tt.setupFn(t, bk)
+
+			evicted := bk.SweepTaskTokens()
+			assert.Equal(t, tt.wantEvictions, evicted)
+		})
+	}
+}
+
+// TestRefinement1_ActivityAlreadyExists verifies creating duplicate activity returns error.
+func TestActivityAlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	_, err := b.CreateActivity(context.Background(), "my-act")
+	require.NoError(t, err)
+
+	_, err = b.CreateActivity(context.Background(), "my-act")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepfunctions.ErrActivityAlreadyExists)
+}
+
+// TestRefinement1_DeleteActivityNotFound verifies deleting nonexistent activity returns error.
+func TestDeleteActivityNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	err := b.DeleteActivity("arn:aws:states:us-east-1:123:activity:nonexistent")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, stepfunctions.ErrActivityDoesNotExist)
 }

@@ -4,7 +4,7 @@ package appconfig
 // resource-collection map on InMemoryBackend is replaced with a
 // *store.Table[T] (plus companion *store.Index values where a per-parent
 // scan or cascade delete needs one). See pkgs/store's package doc for the
-// underlying primitive, and the InMemoryBackend doc comment (backend.go) for
+// underlying primitive, and the InMemoryBackend doc comment (store.go) for
 // why each table registers directly vs. on a composite key.
 //
 // applications, deploymentStrategies, extensions, and extensionAssociations
@@ -27,7 +27,7 @@ package appconfig
 // (applicationID -> profileID/environmentID -> VersionNumber/
 // DeploymentNumber). Those innermost keys are per-parent counters, not
 // globally unique, so both flatten to a composite "applicationID|parentID|
-// number" key (hcvKey/deploymentKey in backend.go) with a byProfile/byEnv
+// number" key (hcvKey/deploymentKey in store.go) with a byProfile/byEnv
 // index for the per-parent List operations and a byApp index for
 // DeleteApplication's cascade delete. hostedConfigVersions additionally
 // carries a byLabel index (composite "applicationID|profileID|label")

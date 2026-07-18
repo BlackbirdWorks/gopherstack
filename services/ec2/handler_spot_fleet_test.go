@@ -303,7 +303,7 @@ func TestHTTP_DescribeSpotDatafeedSubscription(t *testing.T) { //nolint:parallel
 	require.NoError(t, err)
 }
 
-func TestParityFinalHTTP_GetSpotPlacementScores(t *testing.T) {
+func TestGetSpotPlacementScoresHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

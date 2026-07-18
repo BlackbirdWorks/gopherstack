@@ -8,7 +8,7 @@ import (
 )
 
 // handler_scheduled_instances.go implements the HTTP handlers for the Scheduled Instances
-// family, backed by backend_scheduled_instances.go.
+// family, backed by scheduled_instances.go.
 
 // ---- Registration ----
 

@@ -203,3 +203,36 @@ func TestStartReplicationTaskAssessment(t *testing.T) {
 			"StartReplicationTaskAssessment must not return test-failed as initial status")
 	})
 }
+
+func TestHandler_CancelReplicationTaskAssessmentRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "missing_arn",
+			wantCode: http.StatusBadRequest,
+			input:    map[string]any{},
+		},
+		{
+			name:     "not_found",
+			wantCode: http.StatusNotFound,
+			input: map[string]any{
+				"ReplicationTaskAssessmentRunArn": "arn:aws:dms:us-east-1:123:assessment-run:nonexistent",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "CancelReplicationTaskAssessmentRun", tt.input)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}

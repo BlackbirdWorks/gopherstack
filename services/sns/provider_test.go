@@ -26,7 +26,7 @@ func TestProviderInit(t *testing.T) {
 	assert.Equal(t, "SNS", reg.Name())
 }
 
-// TestRefinement1_ErrNilAppContext verifies the provider nil guard.
+// TestProviderInitNilAppContext verifies the provider nil guard.
 func TestProviderInitNilAppContext(t *testing.T) {
 	t.Parallel()
 
@@ -37,7 +37,7 @@ func TestProviderInitNilAppContext(t *testing.T) {
 	assert.ErrorIs(t, err, sns.ErrNilAppContext)
 }
 
-// TestRefinement1_ProviderInit verifies normal provider init.
+// TestProviderInitWithJanitorContext verifies normal provider init.
 func TestProviderInitWithJanitorContext(t *testing.T) {
 	t.Parallel()
 

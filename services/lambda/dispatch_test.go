@@ -14,7 +14,7 @@ import (
 // GetSupportedOperations: verify batch-2 ops listed
 // ============================================================
 
-func TestBatch2_GetSupportedOperations_AllBatch2Ops(t *testing.T) {
+func TestGetSupportedOperations_IncludesExpectedOps(t *testing.T) {
 	t.Parallel()
 
 	h := lambda.NewHandler(nil)
@@ -83,7 +83,7 @@ func TestBatch2_GetSupportedOperations_AllBatch2Ops(t *testing.T) {
 
 // --- RouteMatcher tests ---
 
-func TestNewOps_RouteMatcher_NewPaths(t *testing.T) {
+func TestRouteMatcher_AdditionalPaths(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -132,8 +132,8 @@ func TestNewOps_RouteMatcher_NewPaths(t *testing.T) {
 	}
 }
 
-// TestNewOps_GetSupportedOperations validates all new ops are in GetSupportedOperations.
-func TestNewOps_GetSupportedOperations(t *testing.T) {
+// TestGetSupportedOperations_IncludesAccountAndProviderOps validates all new ops are in GetSupportedOperations.
+func TestGetSupportedOperations_IncludesAccountAndProviderOps(t *testing.T) {
 	t.Parallel()
 
 	h := lambda.NewHandler(nil)
@@ -175,8 +175,8 @@ func TestNewOps_GetSupportedOperations(t *testing.T) {
 	}
 }
 
-// TestNewOps_ListFunctionURLConfigs_All tests listing all function URL configs.
-func TestNewOps_ListFunctionURLConfigs_All(t *testing.T) {
+// TestListFunctionURLConfigs_All tests listing all function URL configs.
+func TestListFunctionURLConfigs_All(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -202,8 +202,8 @@ func TestNewOps_ListFunctionURLConfigs_All(t *testing.T) {
 	assert.Len(t, listOut.FunctionURLConfigs, 2)
 }
 
-// TestNewOps_Reset tests that handler Reset clears state.
-func TestNewOps_Reset(t *testing.T) {
+// TestHandlerReset_ClearsState tests that handler Reset clears state.
+func TestHandlerReset_ClearsState(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)

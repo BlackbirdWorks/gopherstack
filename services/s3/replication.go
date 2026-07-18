@@ -39,16 +39,25 @@ func bucketNameFromARN(arn string) string {
 // destination buckets configured in the source bucket's ReplicationConfiguration.
 // It is called after PutObject completes successfully.
 func (b *InMemoryBackend) triggerReplication(ctx context.Context, bucketName, key, _ string) {
-	b.mu.RLock("triggerReplication.readConfig")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	var err error
+	func() {
+		b.mu.RLock("triggerReplication.readConfig")
+		defer b.mu.RUnlock()
+
+		bucket, err = b.getBucket(bucketName)
+	}()
 	if err != nil {
 		return
 	}
 
-	bucket.mu.RLock("triggerReplication.readConfig")
-	cfgXML := bucket.ReplicationConfig
-	bucket.mu.RUnlock()
+	var cfgXML string
+	func() {
+		bucket.mu.RLock("triggerReplication.readConfig")
+		defer bucket.mu.RUnlock()
+
+		cfgXML = bucket.ReplicationConfig
+	}()
 
 	if cfgXML == "" {
 		return
@@ -120,16 +129,25 @@ func (b *InMemoryBackend) triggerDeleteMarkerReplication(
 	ctx context.Context,
 	bucketName, key string,
 ) {
-	b.mu.RLock("triggerDeleteMarkerReplication.readConfig")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	var err error
+	func() {
+		b.mu.RLock("triggerDeleteMarkerReplication.readConfig")
+		defer b.mu.RUnlock()
+
+		bucket, err = b.getBucket(bucketName)
+	}()
 	if err != nil {
 		return
 	}
 
-	bucket.mu.RLock("triggerDeleteMarkerReplication.readConfig")
-	cfgXML := bucket.ReplicationConfig
-	bucket.mu.RUnlock()
+	var cfgXML string
+	func() {
+		bucket.mu.RLock("triggerDeleteMarkerReplication.readConfig")
+		defer bucket.mu.RUnlock()
+
+		cfgXML = bucket.ReplicationConfig
+	}()
 
 	if cfgXML == "" {
 		return

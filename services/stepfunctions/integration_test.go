@@ -492,3 +492,10 @@ func TestRecordTask_SucceededAndFailed(t *testing.T) {
 		})
 	}
 }
+
+func TestSetLambdaInvoker(t *testing.T) {
+	t.Parallel()
+	b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	// Setting nil is a no-op but shouldn't panic.
+	b.SetLambdaInvoker(nil)
+}

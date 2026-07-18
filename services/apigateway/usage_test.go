@@ -1,0 +1,190 @@
+package apigateway_test
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/apigateway"
+)
+
+// TestUpdateUsage_ValidatesUsagePlanExists verifies that UpdateUsage returns 404
+// for an unknown usage plan. Real AWS returns NotFoundException.
+func TestUpdateUsage_ValidatesUsagePlanExists(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+
+	rec := restRequest(t, h, http.MethodPatch,
+		"/usageplans/nonexistent-plan/keys/somekey/usage",
+		`{"patchOperations":[{"op":"replace","path":"/remaining","value":"100"}]}`,
+	)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"UpdateUsage with unknown planId must return 404; body: %s", rec.Body.String())
+}
+
+// TestUpdateUsage_ValidatesKeyExists verifies that UpdateUsage returns 404 for an
+// unknown key. Real AWS returns NotFoundException.
+func TestUpdateUsage_ValidatesKeyExists(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+
+	// Create a usage plan.
+	rec := restRequest(t, h, http.MethodPost, "/usageplans",
+		`{"name":"test-plan","throttle":{"rateLimit":100,"burstLimit":50}}`)
+	require.True(t, rec.Code >= 200 && rec.Code < 300, "create plan: %s", rec.Body.String())
+
+	var plan map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &plan))
+	planID, _ := plan["id"].(string)
+	require.NotEmpty(t, planID)
+
+	rec = restRequest(t, h, http.MethodPatch,
+		fmt.Sprintf("/usageplans/%s/keys/nonexistent-key/usage", planID),
+		`{"patchOperations":[{"op":"replace","path":"/remaining","value":"100"}]}`,
+	)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"UpdateUsage with unknown keyId must return 404; body: %s", rec.Body.String())
+}
+
+func TestAPIGateway_UpdateUsage_RESTRoute(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+
+	plan, err := backend.CreateUsagePlan(apigateway.CreateUsagePlanInput{Name: "plan"})
+	require.NoError(t, err)
+
+	key, err := backend.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "usage-key"})
+	require.NoError(t, err)
+
+	_, err = backend.CreateUsagePlanKey(apigateway.CreateUsagePlanKeyInput{
+		UsagePlanID: plan.ID, KeyID: key.ID, KeyType: "API_KEY",
+	})
+	require.NoError(t, err)
+
+	// "/remaining" is the real (and only) AWS-documented UpdateUsage patch
+	// path (patch-operations.html's UpdateUsage table lists just this single
+	// scalar field — there is no per-date path segment).
+	rec := restCall(
+		t, h, http.MethodPatch, "/usageplans/"+plan.ID+"/keys/"+key.ID+"/usage", "application/json",
+		`[{"op":"replace","path":"/remaining","value":"42"}]`,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	items, _ := resp["items"].(map[string]any)
+	require.Contains(t, items, key.ID)
+
+	// GetUsage must reflect the same override afterward.
+	usage, err := backend.GetUsage(apigateway.GetUsageInput{UsagePlanID: plan.ID})
+	require.NoError(t, err)
+	require.Contains(t, usage.Items, key.ID)
+
+	pair, ok := usage.Items[key.ID][0].([]int)
+	require.True(t, ok, "usage.Items[keyID][0] must be a [used, remaining] pair")
+	require.Equal(t, 42, pair[1], "PATCH /remaining must set the overridden remaining quota")
+}
+
+func TestAPIGateway_UpdateUsage_UnknownPlan(t *testing.T) {
+	t.Parallel()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+
+	rec := restCall(
+		t, h, http.MethodPatch, "/usageplans/nope/keys/also-nope/usage", "application/json",
+		`[{"op":"replace","path":"/remaining","value":"42"}]`,
+	)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestBackend_GetUsage_RealItems(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+	api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "a"})
+	require.NoError(t, err)
+	key, err := b.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "k", Enabled: true})
+	require.NoError(t, err)
+
+	plan, err := b.CreateUsagePlan(apigateway.CreateUsagePlanInput{
+		Name:      "plan",
+		Quota:     &apigateway.QuotaSettings{Limit: 100, Period: "DAY"},
+		APIStages: []apigateway.APIStageAssociation{{RestAPIID: api.ID, Stage: "prod"}},
+	})
+	require.NoError(t, err)
+	_, err = b.CreateUsagePlanKey(apigateway.CreateUsagePlanKeyInput{
+		UsagePlanID: plan.ID, KeyID: key.ID, KeyType: "API_KEY",
+	})
+	require.NoError(t, err)
+
+	// Meter three requests.
+	for range 3 {
+		require.NoError(t, b.EnforceUsagePlan(api.ID, "prod", key.ID))
+	}
+
+	usage, err := b.GetUsage(apigateway.GetUsageInput{UsagePlanID: plan.ID})
+	require.NoError(t, err)
+	require.Contains(t, usage.Items, key.ID)
+
+	pair, ok := usage.Items[key.ID][0].([]int)
+	require.True(t, ok, "usage item should be a [used, remaining] pair")
+	assert.Equal(t, 3, pair[0], "used count should reflect metered requests")
+	assert.Equal(t, 97, pair[1], "remaining should be limit minus used")
+}
+
+// TestGetUsage tests GetUsage.
+func TestGetUsage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		wantCode int
+		useValid bool
+	}{
+		{
+			name:     "success",
+			wantCode: http.StatusOK,
+			useValid: true,
+		},
+		{
+			name:     "plan_not_found",
+			wantCode: http.StatusNotFound,
+			useValid: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, e := boostSetup()
+
+			// Create a usage plan
+			planRec := postWithHandler(t, handler, e, "CreateUsagePlan", `{"name":"my-plan"}`)
+			require.Equal(t, http.StatusCreated, planRec.Code)
+			var planResp map[string]any
+			require.NoError(t, json.Unmarshal(planRec.Body.Bytes(), &planResp))
+			planID := planResp["id"].(string)
+
+			lookupID := planID
+			if !tt.useValid {
+				lookupID = "notexist"
+			}
+
+			rec := postWithHandler(t, handler, e, "GetUsage",
+				fmt.Sprintf(`{"usagePlanId":%q,"startDate":"2024-01-01","endDate":"2024-01-31"}`, lookupID))
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}

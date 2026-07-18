@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_ProxyTargetGroup_DefaultCreated(t *testing.T) {
+func TestProxyTargetGroup_DefaultCreated(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -23,7 +23,7 @@ func TestBatch2_ProxyTargetGroup_DefaultCreated(t *testing.T) {
 	assert.Equal(t, "default", groups[0].TargetGroupName)
 }
 
-func TestBatch2_ProxyTargetGroup_Modify(t *testing.T) {
+func TestProxyTargetGroup_Modify(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -37,7 +37,7 @@ func TestBatch2_ProxyTargetGroup_Modify(t *testing.T) {
 	assert.Equal(t, 90, tg.ConnectionPoolConfig.MaxConnectionsPercent)
 }
 
-func TestBatch2_ProxyTargets_RegisterByInstance(t *testing.T) {
+func TestProxyTargets_RegisterByInstance(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -65,7 +65,7 @@ func TestBatch2_ProxyTargets_RegisterByInstance(t *testing.T) {
 	assert.NotEmpty(t, got)
 }
 
-func TestBatch2_ProxyTargets_Deregister(t *testing.T) {
+func TestProxyTargets_Deregister(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -83,7 +83,7 @@ func TestBatch2_ProxyTargets_Deregister(t *testing.T) {
 	assert.Empty(t, targets)
 }
 
-func TestBatch2_ProxyTargets_HTTP(t *testing.T) {
+func TestProxyTargets_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -133,7 +133,7 @@ func TestBatch2_ProxyTargets_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch2_ProxyEndpoint_CRUD(t *testing.T) {
+func TestProxyEndpoint_CRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -162,7 +162,7 @@ func TestBatch2_ProxyEndpoint_CRUD(t *testing.T) {
 	assert.Empty(t, eps)
 }
 
-func TestBatch2_ProxyEndpoint_Modify(t *testing.T) {
+func TestProxyEndpoint_Modify(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -183,7 +183,7 @@ func TestBatch2_ProxyEndpoint_Modify(t *testing.T) {
 	assert.Equal(t, "mod-endpoint", ep.DBProxyEndpointName)
 }
 
-func TestBatch2_ProxyEndpoint_ListFiltered(t *testing.T) {
+func TestProxyEndpoint_ListFiltered(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -205,7 +205,7 @@ func TestBatch2_ProxyEndpoint_ListFiltered(t *testing.T) {
 	assert.Equal(t, "ep-a", specific[0].DBProxyEndpointName)
 }
 
-func TestBatch2_ProxyEndpoint_HTTP(t *testing.T) {
+func TestProxyEndpoint_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()

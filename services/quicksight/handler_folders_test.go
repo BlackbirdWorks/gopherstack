@@ -394,3 +394,197 @@ func TestQuickSight_FolderResolvedPermissions_InheritsFromParent(t *testing.T) {
 	assert.True(t, principals["arn:aws:quicksight:us-east-1:000000000000:user/default/bob"])
 	assert.True(t, principals["arn:aws:quicksight:us-east-1:000000000000:user/default/carol"])
 }
+
+// ---- Folder tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Folders(t *testing.T) { //nolint:paralleltest // existing issue.
+	tests := []struct {
+		body       any
+		setup      func(h any)
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create folder",
+			method:     http.MethodPost,
+			path:       accountPath("/folders/f1"),
+			body:       map[string]any{"Name": "MyFolder"},
+			wantStatus: http.StatusOK,
+			wantKey:    "FolderId",
+		},
+		{
+			name:       "describe folder",
+			method:     http.MethodGet,
+			path:       accountPath("/folders/f1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "Folder",
+		},
+		{
+			name:       "update folder",
+			method:     http.MethodPut,
+			path:       accountPath("/folders/f1"),
+			body:       map[string]any{"Name": "Renamed"},
+			wantStatus: http.StatusOK,
+			wantKey:    "FolderId",
+		},
+		{
+			name:       "list folders",
+			method:     http.MethodGet,
+			path:       accountPath("/folders"),
+			wantStatus: http.StatusOK,
+			wantKey:    "FolderSummaryList",
+		},
+		{
+			name:       "describe folder permissions",
+			method:     http.MethodGet,
+			path:       accountPath("/folders/f1/permissions"),
+			wantStatus: http.StatusOK,
+			wantKey:    "FolderId",
+		},
+		{
+			name:       "update folder permissions",
+			method:     http.MethodPut,
+			path:       accountPath("/folders/f1/permissions"),
+			body:       map[string]any{"GrantPermissions": []any{}, "RevokePermissions": []any{}},
+			wantStatus: http.StatusOK,
+			wantKey:    "FolderId",
+		},
+		{
+			name:       "describe folder resolved permissions",
+			method:     http.MethodGet,
+			path:       accountPath("/folders/f1/resolved-permissions"),
+			wantStatus: http.StatusOK,
+			wantKey:    "FolderId",
+		},
+		{
+			name:       "create folder membership",
+			method:     http.MethodPut,
+			path:       accountPath("/folders/f1/members/DATASET/ds1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "FolderMember",
+		},
+		{
+			name:       "list folder members",
+			method:     http.MethodGet,
+			path:       accountPath("/folders/f1/members"),
+			wantStatus: http.StatusOK,
+			wantKey:    "FolderMemberList",
+		},
+		{
+			name:       "list folders for resource",
+			method:     http.MethodGet,
+			path:       accountPath("/resource/ds1resarn/folders"),
+			wantStatus: http.StatusOK,
+			wantKey:    "Folders",
+		},
+		{
+			name:       "delete folder membership",
+			method:     http.MethodDelete,
+			path:       accountPath("/folders/f1/members/DATASET/ds1"),
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "delete folder",
+			method:     http.MethodDelete,
+			path:       accountPath("/folders/f1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "FolderId",
+		},
+	}
+
+	h := newTestHandler(t)
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}
+
+func TestQuickSight_FolderRoundTrip(t *testing.T) { //nolint:paralleltest // shared handler state.
+	b := newTestBackend(t)
+	h := quicksight.NewHandler(b)
+
+	steps := []roundTripStep{
+		{
+			name:         "describe missing folder returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/folders/rtf1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+		{
+			name:         "create folder",
+			method:       http.MethodPost,
+			path:         accountPath("/folders/rtf1"),
+			body:         map[string]any{"Name": "RT Folder"},
+			wantStatus:   http.StatusOK,
+			wantContains: "FolderId",
+		},
+		{
+			name:         "describe reflects created folder",
+			method:       http.MethodGet,
+			path:         accountPath("/folders/rtf1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "Folder",
+		},
+		{
+			name:         "update folder",
+			method:       http.MethodPut,
+			path:         accountPath("/folders/rtf1"),
+			body:         map[string]any{"Name": "RT Renamed"},
+			wantStatus:   http.StatusOK,
+			wantContains: "FolderId",
+		},
+		{
+			name:         "list folders includes folder",
+			method:       http.MethodGet,
+			path:         accountPath("/folders"),
+			wantStatus:   http.StatusOK,
+			wantContains: "FolderSummaryList",
+		},
+		{
+			name:         "delete folder",
+			method:       http.MethodDelete,
+			path:         accountPath("/folders/rtf1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "FolderId",
+		},
+		{
+			name:         "describe after delete returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/folders/rtf1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+	}
+
+	runRoundTrip(t, h, steps)
+
+	// describe reflects renamed value before delete is verified separately below.
+	assert.Equal(t, 0, quicksight.FolderCount(b), "folder removed after delete")
+}
+
+func TestQuickSight_FolderDescribeReflectsUpdate(t *testing.T) { //nolint:paralleltest // shared handler state.
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, accountPath("/folders/upd1"), map[string]any{"Name": "Original"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodPut, accountPath("/folders/upd1"), map[string]any{"Name": "Updated"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, accountPath("/folders/upd1"), nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := parseBody(t, rec)
+	folder, ok := body["Folder"].(map[string]any)
+	require.True(t, ok, "Folder object present")
+	assert.Equal(t, "Updated", folder["Name"], "describe reflects updated name")
+}

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch1_DurableExecution_CheckpointCreatesExecution(t *testing.T) {
+func TestDurableExecution_CheckpointCreatesExecution(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -29,7 +29,7 @@ func TestBatch1_DurableExecution_CheckpointCreatesExecution(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "RUNNING")
 }
 
-func TestBatch1_DurableExecution_GetHistory(t *testing.T) {
+func TestDurableExecution_GetHistory(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -44,7 +44,7 @@ func TestBatch1_DurableExecution_GetHistory(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "Checkpoint")
 }
 
-func TestBatch1_DurableExecution_GetHistoryEmpty(t *testing.T) {
+func TestDurableExecution_GetHistoryEmpty(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -57,7 +57,7 @@ func TestBatch1_DurableExecution_GetHistoryEmpty(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "Events")
 }
 
-func TestBatch1_DurableExecution_GetState(t *testing.T) {
+func TestDurableExecution_GetState(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -71,7 +71,7 @@ func TestBatch1_DurableExecution_GetState(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "Status")
 }
 
-func TestBatch1_DurableExecution_GetStateNotFound(t *testing.T) {
+func TestDurableExecution_GetStateNotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -82,7 +82,7 @@ func TestBatch1_DurableExecution_GetStateNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestBatch1_DurableExecution_Stop(t *testing.T) {
+func TestDurableExecution_Stop(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -101,7 +101,7 @@ func TestBatch1_DurableExecution_Stop(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "STOPPED")
 }
 
-func TestBatch1_DurableExecution_StopNonExistent(t *testing.T) {
+func TestDurableExecution_StopNonExistent(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -113,7 +113,7 @@ func TestBatch1_DurableExecution_StopNonExistent(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "STOPPED")
 }
 
-func TestBatch1_DurableExecution_CallbackSuccess(t *testing.T) {
+func TestDurableExecution_CallbackSuccess(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -130,7 +130,7 @@ func TestBatch1_DurableExecution_CallbackSuccess(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "SUCCEEDED")
 }
 
-func TestBatch1_DurableExecution_CallbackFailure(t *testing.T) {
+func TestDurableExecution_CallbackFailure(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -144,7 +144,7 @@ func TestBatch1_DurableExecution_CallbackFailure(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "FAILED")
 }
 
-func TestBatch1_DurableExecution_CallbackHeartbeat(t *testing.T) {
+func TestDurableExecution_CallbackHeartbeat(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -159,7 +159,7 @@ func TestBatch1_DurableExecution_CallbackHeartbeat(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "RUNNING")
 }
 
-func TestBatch1_DurableExecution_ListByFunction(t *testing.T) {
+func TestDurableExecution_ListByFunction(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -180,7 +180,7 @@ func TestBatch1_DurableExecution_ListByFunction(t *testing.T) {
 
 // --- CheckpointDurableExecution tests ---
 
-func TestNewOps_CheckpointDurableExecution(t *testing.T) {
+func TestCheckpointDurableExecution(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)

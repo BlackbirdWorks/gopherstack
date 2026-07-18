@@ -1,6 +1,8 @@
 package codeartifact_test
 
 import (
+	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -188,4 +190,116 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Error(t, err)
 	_, err = fresh.DescribeDomain(ctx, "domain-1")
 	require.Error(t, err)
+}
+func TestHandler_Persistence(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=persist-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=persist-domain&repository=persist-repo", nil)
+
+	// Snapshot and restore.
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	descRec := doRequest(t, h2, http.MethodGet, "/v1/domain?domain=persist-domain", nil)
+	assert.Equal(t, http.StatusOK, descRec.Code)
+
+	repoRec := doRequest(t, h2, http.MethodGet, "/v1/repository?domain=persist-domain&repository=persist-repo", nil)
+	assert.Equal(t, http.StatusOK, repoRec.Code)
+}
+
+func TestHandler_NewOperations_Persistence(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/v1/domain?domain=persist2-domain", nil)
+	doRequest(t, h, http.MethodPost, "/v1/repository?domain=persist2-domain&repository=persist2-repo", nil)
+
+	// Create package group.
+	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=persist2-domain", map[string]any{"pattern": "/npm/*"})
+
+	// Create package version entry.
+	doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/v1/package/version?domain=persist2-domain&repository=persist2-repo&format=npm&package=react&version=18.0.0",
+		nil,
+	)
+
+	// Associate external connection.
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/repository/external-connection?domain=persist2-domain&repository=persist2-repo&external-connection=public:npmjs",
+		nil,
+	)
+
+	// Put repository permissions policy.
+	doRequest(
+		t,
+		h,
+		http.MethodPut,
+		"/v1/repository/permissions/policy?domain=persist2-domain&repository=persist2-repo",
+		map[string]any{
+			"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+		},
+	)
+
+	// Snapshot and restore.
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Verify package group survived.
+	pgRec := doRequest(t, h2, http.MethodGet, "/v1/package-group?domain=persist2-domain&package-group=/npm/*", nil)
+	assert.Equal(t, http.StatusOK, pgRec.Code)
+
+	// Verify package version survived.
+	pvRec := doRequest(
+		t,
+		h2,
+		http.MethodGet,
+		"/v1/package/version?domain=persist2-domain&repository=persist2-repo&format=npm&package=react&version=18.0.0",
+		nil,
+	)
+	assert.Equal(t, http.StatusOK, pvRec.Code)
+
+	// Verify repository permissions policy survived.
+	polRec := doRequest(
+		t,
+		h2,
+		http.MethodGet,
+		"/v1/repository/permissions/policy?domain=persist2-domain&repository=persist2-repo",
+		nil,
+	)
+	assert.Equal(t, http.StatusOK, polRec.Code)
+}
+
+func TestCABackend_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := codeartifact.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	_, err := b.CreateDomain(context.Background(), "snap-domain", "", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateRepository(context.Background(), "snap-domain", "snap-repo", "", nil, nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := codeartifact.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	err = b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	doms := b2.ListDomains(context.Background())
+	require.Len(t, doms, 1)
 }

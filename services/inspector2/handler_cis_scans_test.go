@@ -64,7 +64,7 @@ func firstScanArn(t *testing.T, h *inspector2.Handler, cfgARN string) string {
 func TestCisScans_CreatedConfigMaterializesScan(t *testing.T) {
 	t.Parallel()
 
-	h := axHandler(t)
+	h := newAuditHandler(t)
 
 	// No configs yet => no scans.
 	rec := auditDo(t, h, http.MethodPost, "/cis/scan/list", map[string]any{})
@@ -92,7 +92,7 @@ func TestCisScans_CreatedConfigMaterializesScan(t *testing.T) {
 func TestCisScans_ResultDetailsReflectConfig(t *testing.T) {
 	t.Parallel()
 
-	h := axHandler(t)
+	h := newAuditHandler(t)
 	cfgARN := createCisConfig(t, h, "scan-detail", []string{"111111111111", "222222222222"})
 	scanARN := firstScanArn(t, h, cfgARN)
 
@@ -127,7 +127,7 @@ func TestCisScans_ResultDetailsReflectConfig(t *testing.T) {
 func TestCisScans_ReportReflectsScan(t *testing.T) {
 	t.Parallel()
 
-	h := axHandler(t)
+	h := newAuditHandler(t)
 	cfgARN := createCisConfig(t, h, "scan-report", []string{"111111111111"})
 	scanARN := firstScanArn(t, h, cfgARN)
 
@@ -149,7 +149,7 @@ func TestCisScans_ReportReflectsScan(t *testing.T) {
 func TestCisScans_AggregationsConsistent(t *testing.T) {
 	t.Parallel()
 
-	h := axHandler(t)
+	h := newAuditHandler(t)
 	cfgARN := createCisConfig(t, h, "scan-agg", []string{"111111111111", "222222222222"})
 	scanARN := firstScanArn(t, h, cfgARN)
 
@@ -186,7 +186,7 @@ func TestCisScans_AggregationsConsistent(t *testing.T) {
 func TestCisScans_DeleteConfigRemovesScans(t *testing.T) {
 	t.Parallel()
 
-	h := axHandler(t)
+	h := newAuditHandler(t)
 	cfgARN := createCisConfig(t, h, "scan-del", []string{"111111111111"})
 
 	rec := auditDo(t, h, http.MethodPost, "/cis/scan-configuration/delete", map[string]any{
@@ -206,7 +206,7 @@ func TestCisScans_DeleteConfigRemovesScans(t *testing.T) {
 func TestCisScans_UnknownScanArnDegradesBenignly(t *testing.T) {
 	t.Parallel()
 
-	h := axHandler(t)
+	h := newAuditHandler(t)
 	unknown := "arn:aws:inspector2:us-east-1:123456789012:cis-scan/does-not-exist"
 
 	cases := []struct {
@@ -287,4 +287,302 @@ func TestCisScans_ResetClearsState(t *testing.T) {
 	cfgs, err := b.ListCisScanConfigurations()
 	require.NoError(t, err)
 	assert.Empty(t, cfgs)
+}
+
+// --- HTTP-level CIS scan configuration / session tests ---
+
+func TestCisScanConfigurationLifecycle(t *testing.T) {
+	t.Parallel()
+
+	type step struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
+		name   string
+		method string
+		path   string
+	}
+
+	tests := []struct {
+		name  string
+		steps []step
+	}{
+		{
+			name: "Create/List/Update/Delete cycle",
+			steps: []step{
+				{
+					name:   "create",
+					method: http.MethodPost,
+					path:   "/cis/scan-configuration/create",
+					body: map[string]any{
+						"scanName": "my-cis-scan",
+						"schedule": map[string]any{"daily": map[string]any{"startTime": "12:00"}},
+						"targets":  map[string]any{"accountIds": []string{"123456789012"}},
+						"tags":     map[string]string{"env": "prod"},
+					},
+					check: func(t *testing.T, code int, body []byte) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+						var resp map[string]any
+						require.NoError(t, json.Unmarshal(body, &resp))
+						assert.NotEmpty(t, resp["scanConfigurationArn"])
+					},
+				},
+				{
+					name:   "list shows config",
+					method: http.MethodPost,
+					path:   "/cis/scan-configuration/list",
+					body:   map[string]any{},
+					check: func(t *testing.T, code int, body []byte) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+						var resp map[string]any
+						require.NoError(t, json.Unmarshal(body, &resp))
+						cfgs, _ := resp["scanConfigurations"].([]any)
+						assert.Len(t, cfgs, 1)
+					},
+				},
+				{
+					name:   "update config name",
+					method: http.MethodPost,
+					path:   "/cis/scan-configuration/update",
+					body: func() any {
+						// We need to know the ARN; just pass an empty one to test error path in a separate test.
+						// This step will be tested with a real ARN in the sequential flow below.
+						return map[string]any{
+							"scanConfigurationArn": "placeholder-see-subtests",
+							"scanName":             "updated-name",
+						}
+					}(),
+					check: func(t *testing.T, code int, _ []byte) {
+						t.Helper()
+						// Placeholder ARN will return 404 — that's expected in this static table test.
+						assert.Equal(t, http.StatusNotFound, code)
+					},
+				},
+			},
+		},
+		{
+			name: "Create/Delete cycle",
+			steps: []step{
+				{
+					name:   "create",
+					method: http.MethodPost,
+					path:   "/cis/scan-configuration/create",
+					body:   map[string]any{"scanName": "to-delete"},
+					check: func(t *testing.T, code int, _ []byte) {
+						t.Helper()
+						assert.Equal(t, http.StatusOK, code)
+					},
+				},
+				{
+					name:   "delete unknown ARN returns 404",
+					method: http.MethodPost,
+					path:   "/cis/scan-configuration/delete",
+					body: map[string]any{
+						"scanConfigurationArn": "arn:aws:inspector2:us-east-1:123456789012:cis-scan-configuration/nonexistent",
+					},
+					check: func(t *testing.T, code int, _ []byte) {
+						t.Helper()
+						assert.Equal(t, http.StatusNotFound, code)
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newAuditHandler(t)
+
+			for _, s := range tc.steps {
+				rec := auditDo(t, h, s.method, s.path, s.body)
+				s.check(t, rec.Code, rec.Body.Bytes())
+			}
+		})
+	}
+}
+
+// TestCisScanConfigurationFullCycle exercises create/update/delete with a real ARN.
+func TestCisScanConfigurationFullCycle(t *testing.T) {
+	t.Parallel()
+
+	h := newAuditHandler(t)
+
+	rec := auditDo(t, h, http.MethodPost, "/cis/scan-configuration/create", map[string]any{
+		"scanName": "full-cycle-cis",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	cfgARN, _ := createResp["scanConfigurationArn"].(string)
+	require.NotEmpty(t, cfgARN)
+
+	rec = auditDo(t, h, http.MethodPost, "/cis/scan-configuration/update", map[string]any{
+		"scanConfigurationArn": cfgARN,
+		"scanName":             "renamed-cis",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditDo(t, h, http.MethodPost, "/cis/scan-configuration/delete", map[string]any{
+		"scanConfigurationArn": cfgARN,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditDo(t, h, http.MethodPost, "/cis/scan-configuration/list", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	cfgs, _ := listResp["scanConfigurations"].([]any)
+	assert.Empty(t, cfgs)
+}
+
+func TestCisSessionOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   any
+		check  func(t *testing.T, code int, body []byte)
+		name   string
+		method string
+		path   string
+	}{
+		{
+			name:   "StartCisSession returns OK",
+			method: http.MethodPut,
+			path:   "/cissession/start",
+			body:   map[string]any{"scanJobId": "job-001", "message": map[string]any{"sessionToken": "tok"}},
+			check: func(t *testing.T, code int, _ []byte) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, code)
+			},
+		},
+		{
+			name:   "StopCisSession unknown job returns 404",
+			method: http.MethodPut,
+			path:   "/cissession/stop",
+			body:   map[string]any{"scanJobId": "nonexistent"},
+			check: func(t *testing.T, code int, _ []byte) {
+				t.Helper()
+				assert.Equal(t, http.StatusNotFound, code)
+			},
+		},
+		{
+			name:   "SendCisSessionHealth returns OK",
+			method: http.MethodPut,
+			path:   "/cissession/health/send",
+			body:   map[string]any{"scanJobId": "job-002"},
+			check: func(t *testing.T, code int, _ []byte) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, code)
+			},
+		},
+		{
+			name:   "SendCisSessionTelemetry returns OK",
+			method: http.MethodPut,
+			path:   "/cissession/telemetry/send",
+			body:   map[string]any{"scanJobId": "job-002"},
+			check: func(t *testing.T, code int, _ []byte) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, code)
+			},
+		},
+		{
+			name:   "GetCisScanReport returns status",
+			method: http.MethodPost,
+			path:   "/cis/scan/report/get",
+			body:   map[string]any{"scanArn": "arn:aws:inspector2:us-east-1:123456789012:cis-scan/test"},
+			check: func(t *testing.T, code int, body []byte) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				assert.Equal(t, "SUCCEEDED", resp["status"])
+			},
+		},
+		{
+			name:   "GetCisScanResultDetails returns checkResults",
+			method: http.MethodPost,
+			path:   "/cis/scan-result/details/get",
+			body:   map[string]any{"scanArn": "arn:aws:inspector2:us-east-1:123456789012:cis-scan/test"},
+			check: func(t *testing.T, code int, body []byte) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				_, ok := resp["checkResults"]
+				assert.True(t, ok)
+			},
+		},
+		{
+			name:   "ListCisScans returns empty list",
+			method: http.MethodPost,
+			path:   "/cis/scan/list",
+			body:   map[string]any{},
+			check: func(t *testing.T, code int, body []byte) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				scans, _ := resp["cisScans"].([]any)
+				assert.Empty(t, scans)
+			},
+		},
+		{
+			name:   "ListCisScanResultsAggregatedByChecks returns empty",
+			method: http.MethodPost,
+			path:   "/cis/scan-result/check/list",
+			body:   map[string]any{"scanArn": "arn:aws:inspector2:us-east-1:123456789012:cis-scan/test"},
+			check: func(t *testing.T, code int, body []byte) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				_, ok := resp["checkAggregations"]
+				assert.True(t, ok)
+			},
+		},
+		{
+			name:   "ListCisScanResultsAggregatedByTargetResource returns empty",
+			method: http.MethodPost,
+			path:   "/cis/scan-result/resource/list",
+			body:   map[string]any{"scanArn": "arn:aws:inspector2:us-east-1:123456789012:cis-scan/test"},
+			check: func(t *testing.T, code int, body []byte) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				_, ok := resp["targetResourceAggregations"]
+				assert.True(t, ok)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newAuditHandler(t)
+			rec := auditDo(t, h, tc.method, tc.path, tc.body)
+			tc.check(t, rec.Code, rec.Body.Bytes())
+		})
+	}
+}
+
+// TestCisSessionStartStop exercises a start/stop cycle with a real session.
+func TestCisSessionStartStop(t *testing.T) {
+	t.Parallel()
+
+	h := newAuditHandler(t)
+
+	rec := auditDo(t, h, http.MethodPut, "/cissession/start", map[string]any{
+		"scanJobId": "job-ss-001",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = auditDo(t, h, http.MethodPut, "/cissession/stop", map[string]any{
+		"scanJobId": "job-ss-001",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
 }

@@ -25,6 +25,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+const (
+	opImportAPIKeys            = "ImportApiKeys"
+	opImportDocumentationParts = "ImportDocumentationParts"
+	opImportRestAPI            = "ImportRestApi"
+	opPutRestAPI               = "PutRestApi"
+)
+
 // isRawBodyAPIGWAction reports whether action carries an opaque raw-bytes
 // request body that must not be JSON-merged with path/query parameters.
 func isRawBodyAPIGWAction(action string) bool {
@@ -101,6 +108,56 @@ func (h *Handler) restAPISpecActions() map[string]actionFn {
 			}
 
 			return http.StatusOK, api, nil
+		},
+	}
+}
+
+// apiKeysImportView is the response for ImportApiKeys.
+type apiKeysImportView struct {
+	IDs      []string `json:"ids"`
+	Warnings []string `json:"warnings"`
+}
+
+// documentationPartsImportView is the response for ImportDocumentationParts.
+type documentationPartsImportView struct {
+	IDs      []string `json:"ids"`
+	Warnings []string `json:"warnings"`
+}
+
+// importAPIKeysInput is the input for ImportApiKeys. The raw payload document is
+// carried in Body; Format is the query parameter (csv or json).
+type importAPIKeysInput struct {
+	Format string `json:"format"`
+	Body   []byte `json:"body"`
+}
+
+// importActions returns real handlers for the bulk-import operations.
+func (h *Handler) importActions() map[string]actionFn {
+	return map[string]actionFn{
+		opImportAPIKeys: func(b []byte) (int, any, error) {
+			specBody, env := decodeRestAPISpecPayload(b)
+
+			ids, warnings, err := h.Backend.ImportAPIKeys(specBody, env.Parameters["format"], env.FailOnWarnings)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, &apiKeysImportView{IDs: ids, Warnings: warnings}, nil
+		},
+		opImportDocumentationParts: func(b []byte) (int, any, error) {
+			specBody, env := decodeRestAPISpecPayload(b)
+
+			ids, warnings, err := h.Backend.ImportDocumentationParts(
+				env.RestAPIID,
+				specBody,
+				env.Mode,
+				env.FailOnWarnings,
+			)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, &documentationPartsImportView{IDs: ids, Warnings: warnings}, nil
 		},
 	}
 }

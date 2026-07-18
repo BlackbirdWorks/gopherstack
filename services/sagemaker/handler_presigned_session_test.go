@@ -67,6 +67,42 @@ func TestHandler_StartSession_MissingResourceIdentifier(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestHandler_CreatePresignedDomainUrl(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	recDomain := doSageMakerRequest(t, h, "CreateDomain", map[string]any{"DomainName": "my-domain2"})
+	var domainOut map[string]any
+	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
+	domainID, _ := domainOut["DomainId"].(string)
+	require.NotEmpty(t, domainID)
+
+	doSageMakerRequest(t, h, "CreateUserProfile", map[string]any{
+		"DomainId": domainID, "UserProfileName": "my-user",
+	})
+
+	rec := doSageMakerRequest(t, h, "CreatePresignedDomainUrl", map[string]any{
+		"DomainId": domainID, "UserProfileName": "my-user",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.NotEmpty(t, out["AuthorizedUrl"])
+}
+
+func TestHandler_CreatePresignedDomainUrl_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreatePresignedDomainUrl", map[string]any{
+		"DomainId": "no-such-domain", "UserProfileName": "no-such-user",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 // ---------------------------------------------------------------------------
 // DeleteProcessingJob
 // ---------------------------------------------------------------------------

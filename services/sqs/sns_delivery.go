@@ -53,11 +53,13 @@ func (b *InMemoryBackend) SubscribeToSNS(emitter events.EventEmitter[*events.SNS
 	})
 
 	b.mu.Lock("SubscribeToSNS")
+	defer b.mu.Unlock()
+
 	if b.snsUnsubscribe != nil {
 		b.snsUnsubscribe()
 	}
+
 	b.snsUnsubscribe = unsubscribe
-	b.mu.Unlock()
 }
 
 // deliverSNSSubscription delivers a single SNS published event to an SQS subscription.

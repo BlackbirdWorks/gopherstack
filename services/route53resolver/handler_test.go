@@ -3,7 +3,6 @@ package route53resolver_test
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -205,202 +203,6 @@ func TestHandlerExtractResource(t *testing.T) {
 	assert.Equal(t, "my-endpoint", h.ExtractResource(c))
 }
 
-func TestCreateResolverEndpoint(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
-		"Name":      "my-endpoint",
-		"Direction": "INBOUND",
-		"IpAddresses": []map[string]string{
-			{"SubnetId": "subnet-abc", "Ip": "10.0.0.1"},
-		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	ep, ok := resp["ResolverEndpoint"].(map[string]any)
-	require.True(t, ok)
-	assert.Contains(t, ep["Arn"], "arn:aws:route53resolver:")
-	assert.Equal(t, "my-endpoint", ep["Name"])
-	assert.Equal(t, "INBOUND", ep["Direction"])
-	assert.Equal(t, "OPERATIONAL", ep["Status"])
-}
-
-func TestGetResolverEndpoint(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
-		"Name":      "ep1",
-		"Direction": "OUTBOUND",
-	})
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	ep := createResp["ResolverEndpoint"].(map[string]any)
-	id := ep["Id"].(string)
-
-	rec := doRequest(t, h, "GetResolverEndpoint", map[string]any{
-		"ResolverEndpointId": id,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	got := resp["ResolverEndpoint"].(map[string]any)
-	assert.Equal(t, id, got["Id"])
-}
-
-func TestListResolverEndpoints(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	doRequest(t, h, "CreateResolverEndpoint", map[string]any{"Name": "ep1", "Direction": "INBOUND"})
-	doRequest(
-		t,
-		h,
-		"CreateResolverEndpoint",
-		map[string]any{"Name": "ep2", "Direction": "OUTBOUND"},
-	)
-
-	rec := doRequest(t, h, "ListResolverEndpoints", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	endpoints, ok := resp["ResolverEndpoints"].([]any)
-	require.True(t, ok)
-	assert.Len(t, endpoints, 2)
-}
-
-func TestDeleteResolverEndpoint(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
-		"Name":      "ep-to-delete",
-		"Direction": "INBOUND",
-	})
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	ep := createResp["ResolverEndpoint"].(map[string]any)
-	id := ep["Id"].(string)
-
-	rec := doRequest(t, h, "DeleteResolverEndpoint", map[string]any{
-		"ResolverEndpointId": id,
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Verify deleted
-	getRec := doRequest(t, h, "GetResolverEndpoint", map[string]any{"ResolverEndpointId": id})
-	assert.Equal(t, http.StatusNotFound, getRec.Code)
-}
-
-func TestCreateResolverRule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, "CreateResolverRule", map[string]any{
-		"Name":       "my-rule",
-		"DomainName": "example.com",
-		"RuleType":   "FORWARD",
-		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	rule, ok := resp["ResolverRule"].(map[string]any)
-	require.True(t, ok)
-	assert.Contains(t, rule["Arn"], "arn:aws:route53resolver:")
-	assert.Equal(t, "my-rule", rule["Name"])
-	assert.Equal(t, "example.com", rule["DomainName"])
-	assert.Equal(t, "FORWARD", rule["RuleType"])
-	assert.Equal(t, "COMPLETE", rule["Status"])
-}
-
-func TestListResolverRules(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	doRequest(
-		t,
-		h,
-		"CreateResolverRule",
-		map[string]any{
-			"Name":       "r1",
-			"DomainName": "a.com",
-			"RuleType":   "FORWARD",
-			"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
-		},
-	)
-	doRequest(
-		t,
-		h,
-		"CreateResolverRule",
-		map[string]any{"Name": "r2", "DomainName": "b.com", "RuleType": "SYSTEM"},
-	)
-
-	rec := doRequest(t, h, "ListResolverRules", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	rules, ok := resp["ResolverRules"].([]any)
-	require.True(t, ok)
-	assert.Len(t, rules, 2)
-}
-
-func TestDeleteResolverRule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	createRec := doRequest(t, h, "CreateResolverRule", map[string]any{
-		"Name":       "rule-to-delete",
-		"DomainName": "test.com",
-		"RuleType":   "FORWARD",
-		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
-	})
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	rule := createResp["ResolverRule"].(map[string]any)
-	id := rule["Id"].(string)
-
-	rec := doRequest(t, h, "DeleteResolverRule", map[string]any{
-		"ResolverRuleId": id,
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestGetResolverRule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	createRec := doRequest(t, h, "CreateResolverRule", map[string]any{
-		"Name":       "get-rule",
-		"DomainName": "get.example.com",
-		"RuleType":   "FORWARD",
-		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
-	})
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	rule := createResp["ResolverRule"].(map[string]any)
-	id := rule["Id"].(string)
-
-	rec := doRequest(t, h, "GetResolverRule", map[string]any{
-		"ResolverRuleId": id,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	got, ok := resp["ResolverRule"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, id, got["Id"])
-	assert.Equal(t, "get-rule", got["Name"])
-}
-
 func TestHandlerRequestErrors(t *testing.T) {
 	t.Parallel()
 
@@ -492,20 +294,39 @@ func TestHandlerInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestProviderName(t *testing.T) {
+func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 
-	p := &route53resolver.Provider{}
-	assert.Equal(t, "Route53Resolver", p.Name())
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "ep-to-reset",
+		"Direction": "INBOUND",
+	})
+
+	h.Reset()
+
+	rec := doRequest(t, h, "ListResolverEndpoints", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	endpoints, ok := resp["ResolverEndpoints"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, endpoints)
 }
 
-func TestProviderInit(t *testing.T) {
+func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
-	p := &route53resolver.Provider{}
-	ctx := &service.AppContext{Logger: slog.Default()}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	assert.NotNil(t, svc)
-	assert.Equal(t, "Route53Resolver", svc.Name())
+	h := newTestHandler(t)
+	assert.Equal(t, 68, route53resolver.HandlerOpsLen(h))
+}
+
+func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+
+	var m map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&m))
+
+	return m
 }

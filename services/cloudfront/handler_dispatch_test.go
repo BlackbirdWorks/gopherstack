@@ -171,8 +171,8 @@ func TestMalformedXMLHandling(t *testing.T) {
 	}
 }
 
-// TestRefinement1_ErrorMapping verifies handleError maps sentinel errors to correct HTTP codes.
-func TestRefinement1_ErrorMapping(t *testing.T) {
+// TestErrorMapping verifies handleError maps sentinel errors to correct HTTP codes.
+func TestErrorMapping(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

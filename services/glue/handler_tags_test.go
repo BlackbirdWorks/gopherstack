@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAudit2_TagValidation tests tag validation constraints on TagResource and resource creation.
-func TestAudit2_TagValidation(t *testing.T) {
+// TestTagValidation tests tag validation constraints on TagResource and resource creation.
+func TestTagValidation(t *testing.T) {
 	t.Parallel()
 
 	longKey := strings.Repeat("k", 129)
@@ -62,8 +62,8 @@ func TestAudit2_TagValidation(t *testing.T) {
 	}
 }
 
-// TestAudit2_TagResource_Validation tests TagResource validation.
-func TestAudit2_TagResource_Validation(t *testing.T) {
+// TestTagResource_Validation tests TagResource validation.
+func TestTagResource_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

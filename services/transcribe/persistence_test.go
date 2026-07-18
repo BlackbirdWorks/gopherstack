@@ -72,6 +72,24 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_SnapshotRestore_AllTableCounts verifies Snapshot/Restore
+// round-trips all 9 store.Table-backed resources by count, complementing
+// TestInMemoryBackend_SnapshotRestore_FullState's field-level assertions below.
+func TestInMemoryBackend_SnapshotRestore_AllTableCounts(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	seedOneOfEachResource(t, b)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := transcribe.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assertAllResourceCounts(t, b2, 1)
+}
+
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 

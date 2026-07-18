@@ -18,16 +18,16 @@ ops:
   GetClusterCredentialsWithIAM: {wire: ok, errors: ok, state: ok, persist: n/a}
   ResizeCluster: {wire: ok, errors: ok, state: partial, persist: ok, note: "does not populate activeResizes; see gaps"}
 families:
-  Cluster: {status: ok, note: "CreateCluster/DeleteCluster/DescribeClusters/RebootCluster/PauseCluster/ResumeCluster/RotateEncryptionKey/ModifyClusterIamRoles/ModifyClusterMaintenance verified against backend.go + backend_cluster_mgmt.go; ModifyCluster fixed this pass"}
+  Cluster: {status: ok, note: "CreateCluster/DeleteCluster/DescribeClusters/RebootCluster/PauseCluster/ResumeCluster/RotateEncryptionKey/ModifyClusterIamRoles/ModifyClusterMaintenance verified against store.go + cluster_mgmt.go; ModifyCluster fixed this pass"}
   Tags: {status: ok, note: "CreateTags/DeleteTags/DescribeTags verified; was silently crashing for any cluster produced by RestoreFromClusterSnapshot before this pass's fix"}
-  ClusterParameterGroup: {status: ok, note: "backend_param_groups.go / handler_param_groups.go audited, real state mutation confirmed, no changes needed"}
-  ClusterSubnetGroup: {status: ok, note: "backend_subnet_groups.go / handler_subnet_groups.go audited, wire shapes (Subnets>Subnet, ClusterSubnetGroups>ClusterSubnetGroup) verified against SDK deserializers.go, no changes needed"}
-  ClusterSecurityGroup: {status: ok, note: "backend_security_groups.go audited, ingress authorize/revoke mutate real state, no changes needed"}
+  ClusterParameterGroup: {status: ok, note: "param_groups.go / handler_param_groups.go audited, real state mutation confirmed, no changes needed"}
+  ClusterSubnetGroup: {status: ok, note: "subnet_groups.go / handler_subnet_groups.go audited, wire shapes (Subnets>Subnet, ClusterSubnetGroups>ClusterSubnetGroup) verified against SDK deserializers.go, no changes needed"}
+  ClusterSecurityGroup: {status: ok, note: "security_groups.go audited, ingress authorize/revoke mutate real state, no changes needed"}
   Snapshot/ClusterSnapshot: {status: ok, note: "CreateClusterSnapshot/DeleteClusterSnapshot/DescribeClusterSnapshots/CopyClusterSnapshot verified ok; RestoreFromClusterSnapshot had 2 real bugs, fixed this pass"}
   ClusterCredentials: {status: ok, note: "GetClusterCredentials Expiration wire gap fixed this pass; GetClusterCredentialsWithIAM already correct (used as the reference for the fix)"}
   Resize: {status: partial, note: "ResizeCluster mutates cluster synchronously but never records activeResizes, so DescribeResize/CancelResize always report ResizeNotFound immediately after a resize -- see gaps"}
 gaps:
-  - "ResizeCluster (backend_cluster_mgmt.go) applies node-type/count changes synchronously but never calls AddActiveResizeInternal-equivalent to populate b.activeResizes, so DescribeResize and CancelResize can never observe an in-progress resize triggered via the ResizeCluster op itself (only via the AddActiveResizeInternal test-seed helper). Real AWS resize is asynchronous and trackable; this emulator's instant-apply model makes the resize untrackable. Needs a bd issue for proper async resize modeling (schedule a transition + activeResizes entry, matching the CreateCluster/clusterActivationDelay pattern)."
+  - "ResizeCluster (cluster_mgmt.go) applies node-type/count changes synchronously but never calls AddActiveResizeInternal-equivalent to populate b.activeResizes, so DescribeResize and CancelResize can never observe an in-progress resize triggered via the ResizeCluster op itself (only via the AddActiveResizeInternal test-seed helper). Real AWS resize is asynchronous and trackable; this emulator's instant-apply model makes the resize untrackable. Needs a bd issue for proper async resize modeling (schedule a transition + activeResizes entry, matching the CreateCluster/clusterActivationDelay pattern)."
   - "ModifyCluster accepts a non-real ApplyImmediately parameter (not present in the real ModifyClusterInput/aws-sdk-go-v2 wire shape) and, when explicitly set to \"false\", stores changes in PendingModifiedValues -- but xmlCluster never serializes PendingModifiedValues in ANY response (CreateCluster/DescribeClusters/ModifyCluster all omit it). Low priority: real aws-sdk-go-v2 clients never send ApplyImmediately for Redshift (the SDK input struct has no such field), so this path is unreachable via genuine SDK traffic and only affects hand-crafted form posts / this service's own tests. Documented here so the next auditor doesn't re-flag it as urgent."
 deferred:                 # not touched this pass -- next audit should target these
   - DataShare (Associate/Authorize/Deauthorize/Reject/DescribeDataShares*)
@@ -47,7 +47,7 @@ deferred:                 # not touched this pass -- next audit should target th
   - Partner (AddPartner/DeletePartner/DescribePartners/UpdatePartnerStatus)
   - Descriptive/static ops (DescribeAccountAttributes, DescribeClusterVersions, DescribeClusterTracks, DescribeOrderableClusterOptions, DescribeStorage, DescribeNodeConfigurationOptions, DescribeClusterDbRevisions, ListRecommendations, ModifyAquaConfiguration, ModifyClusterDbRevision, ModifyLakehouseConfiguration, GetIdentityCenterAuthToken, RegisterNamespace/DeregisterNamespace)
   - Redshift Serverless (ServerlessHandler in handler_serverless.go: Namespace/Workgroup/Snapshot/UsageLimit/ScheduledAction/Credentials) -- separate JSON-protocol API surface, not touched this pass
-leaks: {status: clean, note: "reviewed backend_reconciler.go: StartReconciler/StopReconciler use a WaitGroup + stop channel, idempotent, no per-cluster goroutines (single managed reconciler advances all pending clusterTransitions). No new goroutines/maps introduced by this pass's fixes."}
+leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconciler use a WaitGroup + stop channel, idempotent, no per-cluster goroutines (single managed reconciler advances all pending clusterTransitions). No new goroutines/maps introduced by this pass's fixes."}
 ---
 
 ## Notes
@@ -63,8 +63,8 @@ numbers for this service -- that's a JSON-protocol convention used elsewhere
 
 ### Bugs fixed this pass
 
-1. **`RestoreFromClusterSnapshot` nil `Tags` panic** (backend_snapshots.go). Every other
-   cluster-creation path (`CreateCluster`, backend.go) initializes
+1. **`RestoreFromClusterSnapshot` nil `Tags` panic** (snapshots.go). Every other
+   cluster-creation path (`CreateCluster`, store.go) initializes
    `Tags: tags.New("redshift.cluster." + id + ".tags")`, but `RestoreFromClusterSnapshot`
    built its `*Cluster` without setting `Tags` at all. `tags.Tags.Clone/Get/Set/Merge/
    DeleteKeys` (pkgs/tags/tags.go) are NOT nil-receiver-safe (only `Close()` is) --
@@ -84,7 +84,7 @@ numbers for this service -- that's a JSON-protocol convention used elsewhere
    `"available"`. Fixed to mirror `CreateCluster`'s exact pattern.
 
 3. **`ModifyCluster` `Encrypted`/`EnhancedVpcRouting` could never be turned off**
-   (backend_cluster_mgmt.go, handler_cluster_mgmt.go, interfaces.go). Real
+   (cluster_mgmt.go, handler_cluster_mgmt.go, interfaces.go). Real
    `ModifyClusterInput.Encrypted`/`.EnhancedVpcRouting` are `*bool` -- a real
    aws-sdk-go-v2 client can explicitly send `Encrypted=false` to decrypt a cluster (per
    the SDK doc comment: "If the value is not encrypted (false), then the cluster is

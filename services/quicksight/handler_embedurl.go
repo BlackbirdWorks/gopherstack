@@ -160,3 +160,74 @@ func (h *Handler) handleGetSessionEmbedURL(c *echo.Context) error {
 		keyStatus:    http.StatusOK,
 	})
 }
+
+// classifyEmbedURLPaths routes /accounts/{id}/embed-url/... paths.
+func classifyEmbedURLPaths(method string, segs []string, n int) (string, string) {
+	if n < nSegsAccountResID {
+		return opUnknown, ""
+	}
+
+	accountID := seg(segs, segAccountID)
+	subType := seg(segs, segResID)
+
+	if method != http.MethodPost {
+		return opUnknown, ""
+	}
+
+	switch subType {
+	case "anonymous-user":
+		return opGenerateEmbedForAnonUser, accountID
+	case "registered-user":
+		return opGenerateEmbedForRegUser, accountID
+	case "registered-user-with-identity":
+		return opGenerateEmbedForRegUserIdentity, accountID
+	}
+
+	return opUnknown, ""
+}
+
+// ---- Identity Context ----
+
+// identityFromUserIdentifier extracts the (kind, value) pair from a
+// UserIdentifier request field, a smithy union serialized as exactly one of
+// {"Email":..}, {"UserArn":..}, {"UserName":..}. Returns ("", "") if none of
+// those keys are present.
+func identityFromUserIdentifier(m map[string]any) (string, string) {
+	for _, kind := range []string{identityKindEmail, identityKindUserArn, identityKindUserName} {
+		if v, ok := m[kind].(string); ok && v != "" {
+			return kind, v
+		}
+	}
+
+	return "", ""
+}
+
+// handleGetIdentityContext mints an identity-context token for a QuickSight
+// user. Real GetIdentityContextOutput returns the token under Context (an
+// STS-style identity token to pass as AssumeRole's ContextAssertion), not a
+// fabricated field.
+func (h *Handler) handleGetIdentityContext(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	userIdentifier, _ := body["UserIdentifier"].(map[string]any)
+	kind, value := identityFromUserIdentifier(userIdentifier)
+
+	token, err := h.Backend.GenerateIdentityContext(
+		accountID, strField(body, "Namespace"), kind, value, strField(body, "ContextRegion"),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"Context":    token,
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}

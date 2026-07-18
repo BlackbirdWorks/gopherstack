@@ -2,6 +2,7 @@ package memorydb_test
 
 import (
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -238,4 +239,182 @@ func TestInMemoryBackend_Restore_IncompatibleVersion(t *testing.T) {
 
 	assert.Equal(t, 0, memorydb.ClusterCount(fresh),
 		"incompatible-version restore must reset to empty, not keep pre-existing or partially decoded state")
+}
+
+// TestRefinement1_PersistenceRoundTrip verifies Snapshot/Restore round-trip.
+func TestPersistenceRoundTrip_Backend(t *testing.T) {
+	t.Parallel()
+
+	b1 := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+	b1.AddClusterInternal("cluster-a", "db.r6g.large")
+	b1.AddSnapshotInternal("snap-a", "cluster-a")
+	b1.AddUserInternal("user-a", "on ~*")
+	b1.AddSubnetGroupInternal("sg-a")
+	b1.AddParameterGroupInternal("pg-a", "memorydb_redis7")
+
+	data := b1.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	assert.Equal(t, 1, memorydb.ClusterCount(b2))
+	assert.Equal(t, 1, memorydb.SnapshotCount(b2))
+	assert.Equal(t, 1, memorydb.UserCount(b2))
+	assert.Equal(t, 1, memorydb.SubnetGroupCount(b2))
+	assert.Equal(t, 5, memorydb.ParameterGroupCount(b2)) // 4 defaults + 1 custom (pg-a)
+}
+
+// TestRefinement1_HandlerPersistence verifies Handler Snapshot/Restore delegates to backend.
+func TestHandlerPersistence(t *testing.T) {
+	t.Parallel()
+
+	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+	b.AddClusterInternal("h-cluster", "db.r6g.large")
+	h := memorydb.NewHandler(b)
+
+	data := h.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+	h2 := memorydb.NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), data))
+
+	assert.Equal(t, 1, memorydb.ClusterCount(b2))
+}
+
+// TestHandler_Persistence_SnapshotRestore tests snapshot/restore round-trip.
+func TestHandler_Persistence_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "snapshot and restore preserves clusters"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// Create a cluster
+			doRequest(t, h, "CreateCluster", map[string]any{
+				"ClusterName": "persist-cluster",
+				"NodeType":    "db.r6g.large",
+			})
+
+			// Snapshot the state
+			snapData := h.Snapshot(t.Context())
+			require.NotNil(t, snapData)
+
+			// Create new handler and restore
+			h2 := newTestHandler(t)
+			err := h2.Restore(t.Context(), snapData)
+			require.NoError(t, err)
+
+			// Verify cluster is present
+			rec := doRequest(t, h2, "DescribeClusters", map[string]any{"ClusterName": "persist-cluster"})
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+}
+
+// TestHandler_Persistence_RestoreInvalidData tests Restore with invalid JSON.
+func TestHandler_Persistence_RestoreInvalidData(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr bool
+	}{
+		{name: "invalid JSON returns error", data: []byte("{invalid"), wantErr: true},
+		{name: "empty snapshot restores", data: []byte(`{}`), wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			err := h.Restore(t.Context(), tt.data)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestHandler_Persistence_SnapshotRestoreWithNilTags tests restore with nil tags triggers fixups.
+func TestHandler_Persistence_SnapshotRestoreWithNilTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "restore with empty snapshot populates nil maps"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// A minimal Phase-3.3-shaped snapshot with resource entries that have
+			// nil tags. Clusters, acls, subnetGroups, users, parameterGroups,
+			// snapshots, and reservedNodes are region-keyed slices
+			// (map[region][]*T), matching store.Table.Snapshot's deterministic
+			// output. multiRegionClusters, multiRegionParameterGroups, and
+			// serviceUpdates are partition-scoped (not region-nested) and live
+			// inside the registry-backed "tables" blob instead.
+			snapJSON := `{
+				"version": 1,
+				"tables": {
+					"multiRegionClusters": [{"MultiRegionClusterName": "mrc", "Tags": null}],
+					"multiRegionParameterGroups": [{"Name": "mrpg", "Tags": null, "Parameters": null}],
+					"serviceUpdates": []
+				},
+				"clusters": {"us-east-1": [{"Name": "cl", "ARN": "arn:cl", "Tags": null}]},
+				"acls": {"us-east-1": [{"Name": "acl", "ARN": "arn:acl", "Tags": null}]},
+				"subnetGroups": {"us-east-1": [{"Name": "sg", "ARN": "arn:sg", "Tags": null}]},
+				"users": {"us-east-1": [{"Name": "u", "ARN": "arn:u", "Tags": null}]},
+				"parameterGroups": {"us-east-1": [{"Name": "pg", "ARN": "arn:pg", "Tags": null, "Parameters": null}]},
+				"snapshots": {"us-east-1": [{"Name": "sn", "ARN": "arn:sn", "Tags": null}]},
+				"reservedNodes": {},
+				"arnToResource": {},
+				"events": {},
+				"accountID": "123456789012",
+				"defaultRegion": "us-east-1"
+			}`
+
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+			h := memorydb.NewHandler(b)
+			h.AccountID = testAccountID
+			h.DefaultRegion = testRegion
+
+			err := h.Restore(t.Context(), []byte(snapJSON))
+			require.NoError(t, err)
+
+			clusters, err := b.DescribeClusters(t.Context(), "cl")
+			require.NoError(t, err)
+			require.Len(t, clusters, 1)
+			assert.NotNil(t, clusters[0].Tags)
+
+			pgs, err := b.DescribeParameterGroups(t.Context(), "pg")
+			require.NoError(t, err)
+			require.Len(t, pgs, 1)
+			assert.NotNil(t, pgs[0].Tags)
+			assert.NotNil(t, pgs[0].Parameters)
+
+			mrpgs, err := b.DescribeMultiRegionParameterGroups(t.Context(), "mrpg")
+			require.NoError(t, err)
+			require.Len(t, mrpgs, 1)
+			assert.NotNil(t, mrpgs[0].Tags)
+			assert.NotNil(t, mrpgs[0].Parameters)
+		})
+	}
 }

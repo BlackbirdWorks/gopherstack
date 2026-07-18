@@ -16,8 +16,8 @@ func dispatchNewOpExpectError(t *testing.T, h *glue.Handler, op string, body any
 	}
 }
 
-// TestNewOps_UserDefinedFunction tests UDF CRUD.
-func TestNewOps_UserDefinedFunction(t *testing.T) {
+// TestUserDefinedFunction tests UDF CRUD.
+func TestUserDefinedFunction(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 

@@ -2,8 +2,11 @@ package s3
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -305,4 +308,210 @@ func (h *S3Handler) deleteBucketOwnershipControls(
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// s3PolicyStatus is the XML response for GetBucketPolicyStatus.
+type s3PolicyStatus struct {
+	XMLName  xml.Name `xml:"PolicyStatus"`
+	Xmlns    string   `xml:"xmlns,attr"`
+	IsPublic string   `xml:"IsPublic,omitempty"`
+}
+
+// s3AbacConfiguration is the XML response for Get/PutBucketAbac.
+type s3AbacConfiguration struct {
+	XMLName xml.Name `xml:"AbacConfiguration"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Status  string   `xml:"Status,omitempty"`
+}
+
+// routeBucketGetStubsExtra handles additional bucket GET sub-resource stubs.
+// Returns true if handled.
+func (h *S3Handler) routeBucketGetStubsExtra(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) bool {
+	q := r.URL.Query()
+
+	switch {
+	case q.Has("accelerate"):
+		h.setOperation(ctx, "GetBucketAccelerateConfiguration")
+
+		status, err := h.Backend.GetBucketAccelerateConfiguration(ctx, bucket)
+		if err != nil {
+			WriteError(ctx, w, r, err)
+
+			return true
+		}
+
+		httputils.WriteXML(ctx, w, http.StatusOK,
+			s3AccelerateConfiguration{Xmlns: xmlNamespaceS3, Status: status})
+
+		return true
+
+	case q.Has("policyStatus"):
+		h.handleGetBucketPolicyStatus(ctx, w, r, bucket)
+
+		return true
+
+	case q.Has("abac"):
+		h.setOperation(ctx, "GetBucketAbac")
+
+		configXML, err := h.Backend.GetBucketAbac(ctx, bucket)
+		if err != nil {
+			WriteError(ctx, w, r, err)
+
+			return true
+		}
+
+		var cfg s3AbacConfiguration
+		if configXML != "" {
+			_ = xml.Unmarshal([]byte(configXML), &cfg)
+		}
+
+		cfg.Xmlns = xmlNamespaceS3
+		httputils.WriteXML(ctx, w, http.StatusOK, cfg)
+
+		return true
+	}
+
+	return false
+}
+
+// policyStatement is a single statement in a bucket policy JSON document.
+type policyStatement struct {
+	Principal any    `json:"Principal"`
+	Action    any    `json:"Action"`
+	Effect    string `json:"Effect"`
+}
+
+// policyDoc is the minimal structure needed to evaluate public access.
+type policyDoc struct {
+	Statement []policyStatement `json:"Statement"`
+}
+
+// handleGetBucketPolicyStatus implements GetBucketPolicyStatus.
+// It returns IsPublic=true when the bucket policy grants s3:GetObject to "*".
+func (h *S3Handler) handleGetBucketPolicyStatus(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "GetBucketPolicyStatus")
+
+	isPublic := sqlValFalse
+
+	policy, err := h.Backend.GetBucketPolicy(ctx, bucket)
+	if err != nil && !errors.Is(err, ErrNoBucketPolicy) {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	// A public policy only makes the bucket public when the Public Access Block
+	// isn't restricting public bucket policies. RestrictPublicBuckets causes S3
+	// to report IsPublic=false regardless of the policy content.
+	pab, _ := loadPublicAccessBlock(ctx, h.Backend, bucket)
+	if policy != "" && policyGrantsPublicGetObject(policy) && !pab.RestrictPublicBuckets {
+		isPublic = sqlValTrue
+	}
+
+	httputils.WriteXML(ctx, w, http.StatusOK,
+		s3PolicyStatus{Xmlns: xmlNamespaceS3, IsPublic: isPublic})
+}
+
+// policyGrantsPublicGetObject returns true if the JSON policy document
+// contains an Allow statement that grants s3:GetObject to the wildcard principal "*".
+func policyGrantsPublicGetObject(policyJSON string) bool {
+	var doc policyDoc
+	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+		return false
+	}
+
+	for _, stmt := range doc.Statement {
+		if stmt.Effect != "Allow" {
+			continue
+		}
+
+		if !principalIsWildcard(stmt.Principal) {
+			continue
+		}
+
+		if actionIncludesGetObject(stmt.Action) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// principalIsWildcard returns true when the policy principal is "*" (any principal).
+func principalIsWildcard(principal any) bool {
+	switch v := principal.(type) {
+	case string:
+		return v == "*"
+	case map[string]any:
+		if aws, ok := v["AWS"]; ok {
+			return principalIsWildcard(aws)
+		}
+	case []any:
+		return slices.ContainsFunc(v, principalIsWildcard)
+	}
+
+	return false
+}
+
+// actionIncludesGetObject returns true when the action list includes s3:GetObject or s3:*.
+func actionIncludesGetObject(action any) bool {
+	check := func(s string) bool {
+		s = strings.ToLower(s)
+
+		return s == actionGetObjectLower || s == "s3:*" || s == "*"
+	}
+
+	switch v := action.(type) {
+	case string:
+		return check(v)
+	case []any:
+		return slices.ContainsFunc(v, func(item any) bool {
+			s, ok := item.(string)
+
+			return ok && check(s)
+		})
+	}
+
+	return false
+}
+
+// handlePutBucketAbac handles PUT /{bucket}?abac.
+// Parses and stores the AbacConfiguration XML so that GetBucketAbac returns
+// the persisted config, matching real S3 Tables behaviour.
+func (h *S3Handler) handlePutBucketAbac(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	h.setOperation(ctx, "PutBucketAbac")
+
+	bucket, _, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" {
+		WriteError(ctx, w, r, ErrNoSuchBucket)
+
+		return
+	}
+
+	body, _ := httputils.ReadBody(r)
+
+	if err := h.Backend.PutBucketAbac(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

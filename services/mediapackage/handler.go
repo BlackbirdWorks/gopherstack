@@ -10,7 +10,6 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -250,7 +249,7 @@ func classifyPath(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
-func classifyChannelPath(method, path string) (string, string, bool) { //nolint:cyclop // existing issue.
+func classifyChannelPath(method, path string) (string, string, bool) {
 	const prefix = pathChannels + "/"
 
 	switch {
@@ -268,37 +267,49 @@ func classifyChannelPath(method, path string) (string, string, bool) { //nolint:
 	id, sub, hasSub := strings.Cut(rest, "/")
 
 	if !hasSub {
-		switch method {
-		case http.MethodGet:
-			return opDescribeChannel, id, true
-		case http.MethodPut:
-			return opUpdateChannel, id, true
-		case http.MethodDelete:
-			return opDeleteChannel, id, true
-		}
-
-		return opUnknown, id, true
+		return classifyChannelRootOp(method), id, true
 	}
 
+	return classifyChannelSubOp(method, sub), id, true
+}
+
+// classifyChannelRootOp classifies a request to the bare /channels/{id}
+// path (no sub-resource) by HTTP method.
+func classifyChannelRootOp(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opDescribeChannel
+	case http.MethodPut:
+		return opUpdateChannel
+	case http.MethodDelete:
+		return opDeleteChannel
+	default:
+		return opUnknown
+	}
+}
+
+// classifyChannelSubOp classifies a request to a /channels/{id}/{sub...}
+// path by sub-resource and HTTP method.
+func classifyChannelSubOp(method, sub string) string {
 	switch {
 	case sub == "credentials" && method == http.MethodPut:
-		return opRotateChannelCred, id, true
+		return opRotateChannelCred
 	case sub == "configure_logs" && method == http.MethodPut:
-		return opConfigureLogs, id, true
+		return opConfigureLogs
 	case sub == subLifecyclePolicy && method == http.MethodPut:
-		return opPutChannelLifecyclePolicy, id, true
+		return opPutChannelLifecyclePolicy
 	case sub == subLifecyclePolicy && method == http.MethodGet:
-		return opGetChannelLifecyclePolicy, id, true
+		return opGetChannelLifecyclePolicy
 	}
 
 	// PUT /channels/{id}/ingest_endpoints/{ingestEndpointId}/credentials
 	if method == http.MethodPut &&
 		strings.HasPrefix(sub, "ingest_endpoints/") &&
 		strings.HasSuffix(sub, "/credentials") {
-		return opRotateIngestEndpointCred, id, true
+		return opRotateIngestEndpointCred
 	}
 
-	return opUnknown, id, true
+	return opUnknown
 }
 
 func classifyOriginEndpointPath(method, path string) (string, string, bool) {
@@ -420,502 +431,6 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 	}
 }
 
-// --- channel output helpers ---
-
-type ingestEndpointOutput struct {
-	ID       string `json:"id"`
-	URL      string `json:"url"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type hlsIngestOutput struct {
-	IngestEndpoints []ingestEndpointOutput `json:"ingestEndpoints"`
-}
-
-// logGroupOutput mirrors the AWS EgressAccessLogs/IngressAccessLogs shape:
-// a single-member object wrapping the configured CloudWatch Logs group name.
-type logGroupOutput struct {
-	LogGroupName string `json:"logGroupName"`
-}
-
-type channelOutput struct {
-	EgressAccessLogs  *logGroupOutput `json:"egressAccessLogs,omitempty"`
-	IngressAccessLogs *logGroupOutput `json:"ingressAccessLogs,omitempty"`
-	Tags              map[string]any  `json:"tags"`
-	Arn               string          `json:"arn"`
-	ID                string          `json:"id"`
-	Description       string          `json:"description"`
-	CreatedAt         string          `json:"createdAt"`
-	HlsIngest         hlsIngestOutput `json:"hlsIngest"`
-}
-
-func toChannelOutput(ch *Channel) channelOutput {
-	endpoints := make([]ingestEndpointOutput, 0, len(ch.HlsIngest.IngestEndpoints))
-	for _, ep := range ch.HlsIngest.IngestEndpoints {
-		endpoints = append(endpoints, ingestEndpointOutput{
-			ID:       ep.ID,
-			URL:      ep.URL,
-			Username: ep.Username,
-			Password: ep.Password,
-		})
-	}
-
-	tags := make(map[string]any, len(ch.Tags))
-	for k, v := range ch.Tags {
-		tags[k] = v
-	}
-
-	out := channelOutput{
-		Arn:         ch.ARN,
-		ID:          ch.ID,
-		Description: ch.Description,
-		CreatedAt:   ch.CreatedAt,
-		HlsIngest:   hlsIngestOutput{IngestEndpoints: endpoints},
-		Tags:        tags,
-	}
-
-	if ch.EgressLogGroupName != nil {
-		out.EgressAccessLogs = &logGroupOutput{LogGroupName: *ch.EgressLogGroupName}
-	}
-
-	if ch.IngressLogGroupName != nil {
-		out.IngressAccessLogs = &logGroupOutput{LogGroupName: *ch.IngressLogGroupName}
-	}
-
-	return out
-}
-
-// --- origin endpoint output helper ---
-
-type originEndpointOutput struct {
-	Authorization          map[string]any `json:"authorization,omitempty"`
-	CmafPackage            map[string]any `json:"cmafPackage,omitempty"`
-	DashPackage            map[string]any `json:"dashPackage,omitempty"`
-	HlsPackage             map[string]any `json:"hlsPackage,omitempty"`
-	MssPackage             map[string]any `json:"mssPackage,omitempty"`
-	Tags                   map[string]any `json:"tags"`
-	Arn                    string         `json:"arn"`
-	ChannelID              string         `json:"channelId"`
-	ID                     string         `json:"id"`
-	Description            string         `json:"description"`
-	ManifestName           string         `json:"manifestName"`
-	URL                    string         `json:"url"`
-	Origination            string         `json:"origination"`
-	CreatedAt              string         `json:"createdAt"`
-	Whitelist              []string       `json:"whitelist"`
-	StartoverWindowSeconds int            `json:"startoverWindowSeconds"`
-	TimeDelaySeconds       int            `json:"timeDelaySeconds"`
-}
-
-func toOriginEndpointOutput(ep *OriginEndpoint) originEndpointOutput {
-	tags := make(map[string]any, len(ep.Tags))
-	for k, v := range ep.Tags {
-		tags[k] = v
-	}
-
-	whitelist := ep.Whitelist
-	if whitelist == nil {
-		whitelist = []string{}
-	}
-
-	return originEndpointOutput{
-		Arn:                    ep.ARN,
-		ChannelID:              ep.ChannelID,
-		ID:                     ep.ID,
-		Description:            ep.Description,
-		ManifestName:           ep.ManifestName,
-		URL:                    ep.URL,
-		Origination:            ep.Origination,
-		CreatedAt:              ep.CreatedAt,
-		StartoverWindowSeconds: ep.StartoverWindowSeconds,
-		TimeDelaySeconds:       ep.TimeDelaySeconds,
-		Whitelist:              whitelist,
-		Tags:                   tags,
-		Authorization:          ep.Authorization,
-		CmafPackage:            ep.CmafPackage,
-		DashPackage:            ep.DashPackage,
-		HlsPackage:             ep.HlsPackage,
-		MssPackage:             ep.MssPackage,
-	}
-}
-
-// --- channel handlers ---
-
-func (h *Handler) handleCreateChannel(c *echo.Context, body map[string]any) error {
-	id, _ := body["id"].(string)
-	description, _ := body["description"].(string)
-	tags := extractTags(body)
-
-	ch, err := h.Backend.CreateChannel(id, description, tags)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusCreated, toChannelOutput(ch))
-}
-
-func (h *Handler) handleDescribeChannel(c *echo.Context, id string) error {
-	ch, err := h.Backend.DescribeChannel(id)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, toChannelOutput(ch))
-}
-
-func (h *Handler) handleUpdateChannel(c *echo.Context, id string, body map[string]any) error {
-	description, _ := body["description"].(string)
-
-	ch, err := h.Backend.UpdateChannel(id, description)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, toChannelOutput(ch))
-}
-
-func (h *Handler) handleDeleteChannel(c *echo.Context, id string) error {
-	_, err := h.Backend.DeleteChannel(id)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.NoContent(http.StatusAccepted)
-}
-
-func (h *Handler) handleListChannels(c *echo.Context) error {
-	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
-	channels, nextToken, err := h.Backend.ListChannels(maxResults, c.QueryParam("nextToken"))
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	out := make([]channelOutput, 0, len(channels))
-	for _, ch := range channels {
-		out = append(out, toChannelOutput(ch))
-	}
-
-	resp := map[string]any{"channels": out}
-	if nextToken != "" {
-		resp["nextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleConfigureLogs(c *echo.Context, id string, body map[string]any) error {
-	egressLogGroup := logGroupNameFromBody(body, "egressAccessLogs")
-	ingressLogGroup := logGroupNameFromBody(body, "ingressAccessLogs")
-
-	ch, err := h.Backend.ConfigureLogs(id, egressLogGroup, ingressLogGroup)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, toChannelOutput(ch))
-}
-
-// logGroupNameFromBody extracts {key}.logGroupName as a *string, returning
-// nil when the request body did not include the key at all -- this
-// distinguishes "leave the existing log configuration untouched" (key
-// absent) from "configure with this log group name" (key present).
-func logGroupNameFromBody(body map[string]any, key string) *string {
-	raw, ok := body[key].(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	name, _ := raw["logGroupName"].(string)
-
-	return &name
-}
-
-func (h *Handler) handleRotateChannelCredentials(c *echo.Context, id string) error {
-	ch, err := h.Backend.RotateChannelCredentials(id)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, toChannelOutput(ch))
-}
-
-// --- origin endpoint handlers ---
-
-func (h *Handler) handleCreateOriginEndpoint(c *echo.Context, body map[string]any) error {
-	channelID, _ := body["channelId"].(string)
-	id, _ := body["id"].(string)
-	description, _ := body["description"].(string)
-	manifestName, _ := body["manifestName"].(string)
-	origination, _ := body["origination"].(string)
-	startover := intFromBody(body, "startoverWindowSeconds")
-	timeDelay := intFromBody(body, "timeDelaySeconds")
-	whitelist := stringsFromBody(body, "whitelist")
-	tags := extractTags(body)
-	pkg := packagingConfigFromBody(body)
-
-	ep, err := h.Backend.CreateOriginEndpoint(
-		channelID,
-		id,
-		description,
-		manifestName,
-		startover,
-		timeDelay,
-		origination,
-		whitelist,
-		tags,
-		pkg,
-	)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusCreated, toOriginEndpointOutput(ep))
-}
-
-// packagingConfigFromBody extracts the opaque CDN-authorization and
-// per-protocol packaging blocks from a CreateOriginEndpoint/
-// UpdateOriginEndpoint request body. Each block is passed through verbatim
-// (see PackagingConfig).
-func packagingConfigFromBody(body map[string]any) PackagingConfig {
-	return PackagingConfig{
-		Authorization: mapFromBody(body, "authorization"),
-		CmafPackage:   mapFromBody(body, "cmafPackage"),
-		DashPackage:   mapFromBody(body, "dashPackage"),
-		HlsPackage:    mapFromBody(body, "hlsPackage"),
-		MssPackage:    mapFromBody(body, "mssPackage"),
-	}
-}
-
-func mapFromBody(body map[string]any, key string) map[string]any {
-	raw, ok := body[key].(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	return raw
-}
-
-func (h *Handler) handleDescribeOriginEndpoint(c *echo.Context, id string) error {
-	ep, err := h.Backend.DescribeOriginEndpoint(id)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, toOriginEndpointOutput(ep))
-}
-
-func (h *Handler) handleUpdateOriginEndpoint(c *echo.Context, id string, body map[string]any) error {
-	description, _ := body["description"].(string)
-	manifestName, _ := body["manifestName"].(string)
-	origination, _ := body["origination"].(string)
-	startover := intFromBody(body, "startoverWindowSeconds")
-	timeDelay := intFromBody(body, "timeDelaySeconds")
-	whitelist := stringsFromBody(body, "whitelist")
-	pkg := packagingConfigFromBody(body)
-
-	ep, err := h.Backend.UpdateOriginEndpoint(
-		id,
-		description,
-		manifestName,
-		startover,
-		timeDelay,
-		origination,
-		whitelist,
-		pkg,
-	)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, toOriginEndpointOutput(ep))
-}
-
-func (h *Handler) handleDeleteOriginEndpoint(c *echo.Context, id string) error {
-	_, err := h.Backend.DeleteOriginEndpoint(id)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.NoContent(http.StatusAccepted)
-}
-
-func (h *Handler) handleListOriginEndpoints(c *echo.Context) error {
-	channelID := c.QueryParam("channelId")
-
-	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
-	endpoints, nextToken, err := h.Backend.ListOriginEndpoints(channelID, maxResults, c.QueryParam("nextToken"))
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	out := make([]originEndpointOutput, 0, len(endpoints))
-	for _, ep := range endpoints {
-		out = append(out, toOriginEndpointOutput(ep))
-	}
-
-	resp := map[string]any{"originEndpoints": out}
-	if nextToken != "" {
-		resp["nextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-// --- tag handlers ---
-
-func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body map[string]any) error {
-	tags := extractTags(body)
-
-	if err := h.Backend.TagResource(resourceARN, tags); err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
-	tagKeys := c.QueryParams()["tagKeys"]
-
-	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
-	tags, err := h.Backend.ListTagsForResource(resourceARN)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	// Sort for stable output.
-	keys := collections.SortedKeys(tags)
-
-	out := make(map[string]any, len(tags))
-	for _, k := range keys {
-		out[k] = tags[k]
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"tags": out})
-}
-
-// --- harvest job handlers ---
-
-type s3DestinationOutput struct {
-	BucketName  string `json:"bucketName"`
-	ManifestKey string `json:"manifestKey"`
-	RoleArn     string `json:"roleArn"`
-}
-
-type harvestJobOutput struct {
-	S3Destination    *s3DestinationOutput `json:"s3Destination"`
-	Arn              string               `json:"arn"`
-	ChannelID        string               `json:"channelId"`
-	CreatedAt        string               `json:"createdAt"`
-	EndTime          string               `json:"endTime"`
-	ID               string               `json:"id"`
-	OriginEndpointID string               `json:"originEndpointId"`
-	StartTime        string               `json:"startTime"`
-	Status           string               `json:"status"`
-}
-
-func toHarvestJobOutput(j *HarvestJob) harvestJobOutput {
-	out := harvestJobOutput{
-		Arn:              j.ARN,
-		ChannelID:        j.ChannelID,
-		CreatedAt:        j.CreatedAt,
-		EndTime:          j.EndTime,
-		ID:               j.ID,
-		OriginEndpointID: j.OriginEndpointID,
-		StartTime:        j.StartTime,
-		Status:           j.Status,
-	}
-
-	if j.S3Destination != nil {
-		out.S3Destination = &s3DestinationOutput{
-			BucketName:  j.S3Destination.BucketName,
-			ManifestKey: j.S3Destination.ManifestKey,
-			RoleArn:     j.S3Destination.RoleArn,
-		}
-	}
-
-	return out
-}
-
-func (h *Handler) handleCreateHarvestJob(c *echo.Context, body map[string]any) error {
-	id, _ := body["id"].(string)
-	originEndpointID, _ := body["originEndpointId"].(string)
-	startTime, _ := body["startTime"].(string)
-	endTime, _ := body["endTime"].(string)
-
-	var s3Dest S3Destination
-
-	if raw, ok := body["s3Destination"].(map[string]any); ok {
-		s3Dest.BucketName, _ = raw["bucketName"].(string)
-		s3Dest.ManifestKey, _ = raw["manifestKey"].(string)
-		s3Dest.RoleArn, _ = raw["roleArn"].(string)
-	}
-
-	job, err := h.Backend.CreateHarvestJob(id, originEndpointID, startTime, endTime, s3Dest)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusCreated, toHarvestJobOutput(job))
-}
-
-func (h *Handler) handleDescribeHarvestJob(c *echo.Context, id string) error {
-	job, err := h.Backend.DescribeHarvestJob(id)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, toHarvestJobOutput(job))
-}
-
-func (h *Handler) handleListHarvestJobs(c *echo.Context) error {
-	includeChannelID := c.QueryParam("includeChannelId")
-	includeStatus := c.QueryParam("includeStatus")
-
-	maxResults := parseMediaPkgMaxResults(c.QueryParam("maxResults"))
-	jobs, nextToken, err := h.Backend.ListHarvestJobs(
-		includeChannelID, includeStatus, maxResults, c.QueryParam("nextToken"),
-	)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	out := make([]harvestJobOutput, 0, len(jobs))
-	for _, j := range jobs {
-		out = append(out, toHarvestJobOutput(j))
-	}
-
-	resp := map[string]any{"harvestJobs": out}
-	if nextToken != "" {
-		resp["nextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleRotateIngestEndpointCredentials(c *echo.Context, path string) error {
-	// path: /channels/{channelId}/ingest_endpoints/{ingestEndpointId}/credentials
-	rest := strings.TrimPrefix(path, pathChannels+"/")
-	channelID, sub, _ := strings.Cut(rest, "/")
-	// sub: ingest_endpoints/{ingestEndpointId}/credentials
-	sub = strings.TrimPrefix(sub, "ingest_endpoints/")
-	ingestEndpointID := strings.TrimSuffix(sub, "/credentials")
-
-	ch, err := h.Backend.RotateIngestEndpointCredentials(channelID, ingestEndpointID)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, toChannelOutput(ch))
-}
-
 // --- body helpers ---
 
 func extractTags(body map[string]any) map[string]string {
@@ -968,6 +483,15 @@ func stringsFromBody(body map[string]any, key string) []string {
 	return result
 }
 
+func mapFromBody(body map[string]any, key string) map[string]any {
+	raw, ok := body[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return raw
+}
+
 // parseMediaPkgMaxResults converts a query-parameter string to a non-negative int.
 func parseMediaPkgMaxResults(s string) int {
 	n, err := strconv.Atoi(s)
@@ -976,88 +500,4 @@ func parseMediaPkgMaxResults(s string) int {
 	}
 
 	return n
-}
-
-// --- packaging configuration handlers ---
-
-func (h *Handler) handleCreatePackagingConfiguration(c *echo.Context, body map[string]any) error {
-	id, _ := body["id"].(string)
-	if id == "" {
-		return h.jsonError(c, http.StatusUnprocessableEntity, ErrInvalidParameter)
-	}
-	groupID, _ := body["packagingGroupId"].(string)
-	description, _ := body["description"].(string)
-	tags := extractTags(body)
-
-	pc, err := h.Backend.CreatePackagingConfiguration(id, groupID, description, tags)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusCreated, toPackagingConfigOutput(pc))
-}
-
-func (h *Handler) handleDescribePackagingConfiguration(c *echo.Context, id string) error {
-	pc, err := h.Backend.DescribePackagingConfiguration(id)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, toPackagingConfigOutput(pc))
-}
-
-func (h *Handler) handleDeletePackagingConfiguration(c *echo.Context, id string) error {
-	if err := h.Backend.DeletePackagingConfiguration(id); err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusAccepted, map[string]any{})
-}
-
-func (h *Handler) handleListPackagingConfigurations(c *echo.Context) error {
-	items, nextToken, err := h.Backend.ListPackagingConfigurations(0, "")
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	out := make([]map[string]any, 0, len(items))
-	for _, pc := range items {
-		out = append(out, toPackagingConfigOutput(pc))
-	}
-
-	resp := map[string]any{"packagingConfigurations": out}
-	if nextToken != "" {
-		resp["nextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handlePutChannelLifecyclePolicy(c *echo.Context, channelID string, body map[string]any) error {
-	policy, _ := body["policy"].(string)
-	if err := h.Backend.PutChannelLifecyclePolicy(channelID, policy); err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
-}
-
-func (h *Handler) handleGetChannelLifecyclePolicy(c *echo.Context, channelID string) error {
-	policy, err := h.Backend.GetChannelLifecyclePolicy(channelID)
-	if err != nil {
-		return h.mapError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"policy": policy})
-}
-
-func toPackagingConfigOutput(pc *PackagingConfiguration) map[string]any {
-	return map[string]any{
-		"id":               pc.ID,
-		"arn":              pc.ARN,
-		"packagingGroupId": pc.PackagingGroupID,
-		"description":      pc.Description,
-		"createdAt":        pc.CreatedAt,
-		"tags":             pc.Tags,
-	}
 }

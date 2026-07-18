@@ -103,3 +103,178 @@ func TestSetStateMachineConfigurations(t *testing.T) {
 		})
 	}
 }
+
+func TestSetStateMachineConfigurations_Encryption(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		encryption *stepfunctions.EncryptionConfiguration
+		name       string
+		wantType   string
+	}{
+		{
+			name:       "nil_encryption_no_change",
+			encryption: nil,
+			wantType:   "",
+		},
+		{
+			name: "set_customer_managed_key",
+			encryption: &stepfunctions.EncryptionConfiguration{
+				Type:     "CUSTOMER_MANAGED_KMS_KEY",
+				KMSKeyID: "arn:aws:kms:us-east-1:123456789012:key/test",
+			},
+			wantType: "CUSTOMER_MANAGED_KMS_KEY",
+		},
+		{
+			name: "set_aws_owned_key",
+			encryption: &stepfunctions.EncryptionConfiguration{
+				Type: "AWS_OWNED_KEY",
+			},
+			wantType: "AWS_OWNED_KEY",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := stepfunctions.NewInMemoryBackend()
+			sm, err := b.CreateStateMachine(
+				context.Background(),
+				"enc-cfg-sm-"+tt.name,
+				sfnPassDefinition,
+				"arn:role",
+				"STANDARD",
+			)
+			require.NoError(t, err)
+
+			err = b.SetStateMachineConfigurations(sm.StateMachineArn, nil, nil, tt.encryption)
+			require.NoError(t, err)
+
+			described, err := b.DescribeStateMachine(sm.StateMachineArn)
+			require.NoError(t, err)
+
+			if tt.wantType == "" {
+				assert.Nil(t, described.EncryptionConfiguration)
+			} else {
+				require.NotNil(t, described.EncryptionConfiguration)
+				assert.Equal(t, tt.wantType, described.EncryptionConfiguration.Type)
+			}
+		})
+	}
+}
+
+func TestConfig_LoggingPersisted(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"log-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
+	require.NoError(t, err)
+
+	logging := &stepfunctions.LoggingConfiguration{
+		Level:                "ALL",
+		IncludeExecutionData: true,
+		Destinations: []stepfunctions.LoggingDestination{{
+			CloudWatchLogsLogGroup: &stepfunctions.CloudWatchLogsLogGroup{
+				LogGroupArn: "arn:aws:logs:us-east-1:123:log-group:sfn:*",
+			},
+		}},
+	}
+
+	require.NoError(t, b.SetStateMachineConfigurations(sm.StateMachineArn, nil, logging, nil))
+
+	got, err := b.DescribeStateMachine(sm.StateMachineArn)
+	require.NoError(t, err)
+	require.NotNil(t, got.LoggingConfiguration)
+	assert.Equal(t, "ALL", got.LoggingConfiguration.Level)
+	assert.True(t, got.LoggingConfiguration.IncludeExecutionData)
+	require.Len(t, got.LoggingConfiguration.Destinations, 1)
+	assert.Equal(t, "arn:aws:logs:us-east-1:123:log-group:sfn:*",
+		got.LoggingConfiguration.Destinations[0].CloudWatchLogsLogGroup.LogGroupArn)
+}
+
+func TestConfig_TracingPersisted(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"trace-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, b.SetStateMachineConfigurations(sm.StateMachineArn,
+		&stepfunctions.TracingConfiguration{Enabled: true}, nil, nil))
+
+	got, err := b.DescribeStateMachine(sm.StateMachineArn)
+	require.NoError(t, err)
+	require.NotNil(t, got.TracingConfiguration)
+	assert.True(t, got.TracingConfiguration.Enabled)
+}
+
+func TestConfig_EncryptionPersisted(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"enc-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
+	require.NoError(t, err)
+
+	enc := &stepfunctions.EncryptionConfiguration{
+		KMSKeyID:                     "arn:aws:kms:us-east-1:123:key/abc",
+		Type:                         "CUSTOMER_MANAGED_KMS_KEY",
+		KMSDataKeyReusePeriodSeconds: 300,
+	}
+
+	require.NoError(t, b.SetStateMachineConfigurations(sm.StateMachineArn, nil, nil, enc))
+
+	got, err := b.DescribeStateMachine(sm.StateMachineArn)
+	require.NoError(t, err)
+	require.NotNil(t, got.EncryptionConfiguration)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/abc", got.EncryptionConfiguration.KMSKeyID)
+	assert.Equal(t, 300, got.EncryptionConfiguration.KMSDataKeyReusePeriodSeconds)
+}
+
+func TestConfig_NilArgDoesNotClearExisting(t *testing.T) {
+	t.Parallel()
+
+	b := stepfunctions.NewInMemoryBackend()
+	sm, err := b.CreateStateMachine(
+		context.Background(),
+		"nil-cfg-sm",
+		minimalDefinition,
+		validRoleARN,
+		"STANDARD",
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, b.SetStateMachineConfigurations(sm.StateMachineArn,
+		&stepfunctions.TracingConfiguration{Enabled: true}, nil, nil))
+
+	// Passing nil logging must not clear existing tracing.
+	require.NoError(t, b.SetStateMachineConfigurations(sm.StateMachineArn, nil,
+		&stepfunctions.LoggingConfiguration{Level: "ERROR"}, nil))
+
+	got, err := b.DescribeStateMachine(sm.StateMachineArn)
+	require.NoError(t, err)
+	require.NotNil(t, got.TracingConfiguration, "tracing should not be cleared by nil update")
+	assert.True(t, got.TracingConfiguration.Enabled)
+	require.NotNil(t, got.LoggingConfiguration)
+	assert.Equal(t, "ERROR", got.LoggingConfiguration.Level)
+}
+
+// ─── ValidateStateMachineDefinition (HTTP) ────────────────────────────────────

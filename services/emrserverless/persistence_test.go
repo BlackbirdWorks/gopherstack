@@ -2,6 +2,7 @@ package emrserverless_test
 
 import (
 	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 
@@ -198,4 +199,102 @@ func Test_Persistence_Restore_MalformedJSON(t *testing.T) {
 	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
 	err := b.Restore(t.Context(), []byte("{not valid json"))
 	require.Error(t, err)
+}
+
+// Test_Persistence_EnsureMaps_NilJobRunSubMap verifies a snapshot/restore
+// round trip survives when the job runs map has entries (ensureNonNilTags
+// runs and handles any nil sub-maps).
+func Test_Persistence_EnsureMaps_NilJobRunSubMap(t *testing.T) {
+	t.Parallel()
+
+	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	app, err := b.CreateApplication("ensure-maps-app", "SPARK", "emr-6.6.0", "", nil)
+	require.NoError(t, err)
+
+	// Start a job run so the job runs map has an entry.
+	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "run1", "", nil)
+	require.NoError(t, err)
+
+	// Snapshot and restore — ensureMaps will run and handle any nil sub-maps.
+	snap := b.Snapshot(t.Context())
+	b2 := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+	assert.Equal(t, 1, emrserverless.ApplicationCount(b2))
+	assert.Equal(t, 1, emrserverless.JobRunCount(b2))
+}
+
+// Test_Persistence_Restore_InvalidJSON covers Restore with completely
+// non-JSON input.
+func Test_Persistence_Restore_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	err := b.Restore(t.Context(), []byte("not-valid-json"))
+	require.Error(t, err)
+}
+
+// Test_Persistence_RoundTrip_AppAndJobRun covers a Snapshot/Restore round
+// trip of one application (with tags) and one job run.
+func Test_Persistence_RoundTrip_AppAndJobRun(t *testing.T) {
+	t.Parallel()
+
+	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	app, err := b.CreateApplication("persist-app", "SPARK", "emr-6.6.0", "", map[string]string{"k": "v"})
+	require.NoError(t, err)
+
+	_, err = b.StartJobRun(app.ApplicationID, "arn:aws:iam::000000000000:role/r", "persist-run", "", nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, emrserverless.ApplicationCount(b2))
+	assert.Equal(t, 1, emrserverless.JobRunCount(b2))
+
+	got, err := b2.GetApplication(app.ApplicationID)
+	require.NoError(t, err)
+	assert.Equal(t, app.Name, got.Name)
+	assert.Equal(t, "v", got.Tags["k"])
+}
+
+// Test_Persistence_Empty covers a Snapshot/Restore round trip of a
+// completely empty backend.
+func Test_Persistence_Empty(t *testing.T) {
+	t.Parallel()
+
+	b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 0, emrserverless.ApplicationCount(b2))
+	assert.Equal(t, 0, emrserverless.JobRunCount(b2))
+}
+
+// Test_Persistence_HandlerSnapshotRestore covers Handler.Snapshot/Restore
+// delegation to the backend.
+func Test_Persistence_HandlerSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	h := emrserverless.NewHandler(emrserverless.NewInMemoryBackend("000000000000", "us-east-1"))
+	createApp(t, h, "snap-app")
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := emrserverless.NewHandler(emrserverless.NewInMemoryBackend("000000000000", "us-east-1"))
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	rec := doRequest(t, h2, http.MethodGet, "/applications", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	apps := out["applications"].([]any)
+	assert.Len(t, apps, 1)
 }

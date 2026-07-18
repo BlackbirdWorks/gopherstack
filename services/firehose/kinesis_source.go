@@ -20,9 +20,12 @@ const (
 func (b *InMemoryBackend) launchKinesisPoller(region, firehoseStream, kinesisStreamARN string) {
 	ctx, cancel := context.WithCancel(b.svcCtx) //nolint:gosec // existing issue.
 
-	b.mu.Lock("launchKinesisPoller")
-	b.pollerStore(region)[firehoseStream] = cancel
-	b.mu.Unlock()
+	func() {
+		b.mu.Lock("launchKinesisPoller")
+		defer b.mu.Unlock()
+
+		b.pollerStore(region)[firehoseStream] = cancel
+	}()
 
 	go b.pollKinesisStream(ctx, region, firehoseStream, kinesisStreamARN)
 }

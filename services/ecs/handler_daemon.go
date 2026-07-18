@@ -6,7 +6,7 @@ package ecs
 // RegisterDaemonTaskDefinition, DescribeDaemonTaskDefinition,
 // DeleteDaemonTaskDefinition, and ListDaemonTaskDefinitions.
 //
-// These back onto real, typed backend state (see backend_daemon.go) rather
+// These back onto real, typed backend state (see daemon.go) rather
 // than returning fixed placeholder values.
 
 import (

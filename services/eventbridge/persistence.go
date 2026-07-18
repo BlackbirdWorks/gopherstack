@@ -238,12 +238,17 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	}
 
 	// Collect tags outside the backend lock.
-	h.tagsMu.RLock("Snapshot")
-	tagMap := make(map[string]map[string]string, len(h.tags))
-	for k, t := range h.tags {
-		tagMap[k] = t.Clone()
-	}
-	h.tagsMu.RUnlock()
+	var tagMap map[string]map[string]string
+
+	func() {
+		h.tagsMu.RLock("Snapshot")
+		defer h.tagsMu.RUnlock()
+
+		tagMap = make(map[string]map[string]string, len(h.tags))
+		for k, t := range h.tags {
+			tagMap[k] = t.Clone()
+		}
+	}()
 
 	snap := handlerSnapshot{
 		Backend: backendData,

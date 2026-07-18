@@ -1,6 +1,8 @@
 package applicationautoscaling_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -342,4 +344,75 @@ func Test_PersistenceHandlerDelegates(t *testing.T) {
 	})
 	require.Len(t, targets, 1)
 	assert.Equal(t, "table/my-table", targets[0].ResourceID)
+}
+
+func TestPersistence_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(10),
+	})
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	rec := doRequest(t, h2, "DescribeScalableTargets", map[string]any{"ServiceNamespace": "ecs"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	targets := resp["ScalableTargets"].([]any)
+	assert.Len(t, targets, 1)
+}
+
+func TestHandler_PersistenceRebuildsSecondaryIndexes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "PutScalingPolicy", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"PolicyName":        "my-policy",
+		"PolicyType":        "TargetTrackingScaling",
+	})
+	doRequest(t, h, "PutScheduledAction", map[string]any{
+		"ServiceNamespace":    "ecs",
+		"ResourceId":          "service/default/my-svc",
+		"ScalableDimension":   "ecs:service:DesiredCount",
+		"ScheduledActionName": "my-action",
+		"Schedule":            "rate(1 hour)",
+	})
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Delete should work via secondary index (O(1) lookup)
+	rec := doRequest(t, h2, "DeleteScalingPolicy", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"PolicyName":        "my-policy",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doRequest(t, h2, "DeleteScheduledAction", map[string]any{
+		"ServiceNamespace":    "ecs",
+		"ResourceId":          "service/default/my-svc",
+		"ScalableDimension":   "ecs:service:DesiredCount",
+		"ScheduledActionName": "my-action",
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
 }

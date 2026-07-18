@@ -273,3 +273,43 @@ func verifyActiveTasksRestored(t *testing.T, b *swf.InMemoryBackend, activityTas
 
 	require.NoError(t, b.RespondDecisionTaskCompleted(decisionTaskToken, "", nil))
 }
+
+// TestSnapshotRestore_ActivityTypes verifies activities survive snapshot/restore.
+func TestSnapshotRestore_ActivityTypes(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterActivityType("dom", "act", "1.0", "persisted", swf.ActivityTypeDefaults{}))
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := swf.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	at, err := b2.DescribeActivityType("dom", "act", "1.0")
+	require.NoError(t, err)
+	assert.Equal(t, "persisted", at.Description)
+}
+
+// TestSnapshotRestore_WorkflowTypes verifies workflow types survive snapshot/restore.
+func TestSnapshotRestore_WorkflowTypes(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "wf", "2.0", "wf desc", swf.WorkflowTypeDefaults{}))
+	require.NoError(t, b.DeprecateWorkflowType("dom", "wf", "2.0"))
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := swf.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	wt, err := b2.DescribeWorkflowType("dom", "wf", "2.0")
+	require.NoError(t, err)
+	assert.Equal(t, "DEPRECATED", wt.Status)
+	assert.Equal(t, "wf desc", wt.Description)
+}

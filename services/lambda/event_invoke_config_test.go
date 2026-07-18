@@ -617,7 +617,7 @@ func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
 
 // --- FunctionEventInvokeConfig tests ---
 
-func TestBatch1_FunctionEventInvokeConfig_PutGetUpdateDeleteList(t *testing.T) {
+func TestFunctionEventInvokeConfig_PutGetUpdateDeleteList(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -662,7 +662,7 @@ func TestBatch1_FunctionEventInvokeConfig_PutGetUpdateDeleteList(t *testing.T) {
 // FunctionEventInvokeConfig
 // ============================================================
 
-func TestBatch2_EventInvokeConfig_Lifecycle(t *testing.T) {
+func TestEventInvokeConfig_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -718,7 +718,7 @@ func TestBatch2_EventInvokeConfig_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getRec2.Code)
 }
 
-func TestBatch2_EventInvokeConfig_WithDestinations(t *testing.T) {
+func TestEventInvokeConfig_WithDestinations(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -743,8 +743,8 @@ func TestBatch2_EventInvokeConfig_WithDestinations(t *testing.T) {
 	assert.Contains(t, cfg.DestinationConfig.OnFailure.Destination, "failure-q")
 }
 
-// TestComprehensive_FunctionDestinations verifies PutFunctionEventInvokeConfig with DestinationConfig.
-func TestComprehensive_FunctionDestinations(t *testing.T) {
+// TestFunctionDestinations verifies PutFunctionEventInvokeConfig with DestinationConfig.
+func TestFunctionDestinations(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)

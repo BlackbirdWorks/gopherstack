@@ -3,7 +3,7 @@ package support_test
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/support"
 )
 
@@ -42,6 +41,39 @@ func doSupportRequest(t *testing.T, h *support.Handler, action string, body any)
 	return rec
 }
 
+// decodeSupportResponse decodes a JSON response body into a generic map, for
+// tests that inspect specific fields. Shared across the family test files.
+func decodeSupportResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+
+	return result
+}
+
+// createAccurateCase creates a fully-populated case via the HTTP handler and
+// returns its caseId. Shared across the family test files that need a
+// realistic seeded case.
+func createAccurateCase(t *testing.T, h *support.Handler, extra map[string]any) string {
+	t.Helper()
+
+	body := map[string]any{
+		"subject":           "API fidelity case",
+		"communicationBody": "Initial customer report",
+		"serviceCode":       "amazon-s3",
+		"categoryCode":      "general-guidance",
+		"severityCode":      "normal",
+		"language":          "en",
+		"issueType":         "technical",
+	}
+	maps.Copy(body, extra)
+	rec := doSupportRequest(t, h, "CreateCase", body)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	return decodeSupportResponse(t, rec)["caseId"].(string)
+}
+
 func TestSupport_Name(t *testing.T) {
 	t.Parallel()
 
@@ -57,6 +89,29 @@ func TestSupport_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "CreateCase")
 	assert.Contains(t, ops, "DescribeCases")
 	assert.Contains(t, ops, "ResolveCase")
+}
+
+func TestSupport_HandlerOpsLen(t *testing.T) {
+	t.Parallel()
+
+	b := support.NewInMemoryBackend()
+	h := support.NewHandler(b)
+	assert.Equal(t, 16, support.HandlerOpsLen(h))
+}
+
+func TestSupport_SDKOpsSorted(t *testing.T) {
+	t.Parallel()
+
+	b := support.NewInMemoryBackend()
+	h := support.NewHandler(b)
+	ops := h.GetSupportedOperations()
+
+	require.NotEmpty(t, ops)
+
+	for i := 1; i < len(ops); i++ {
+		assert.LessOrEqual(t, ops[i-1], ops[i],
+			"ops not sorted at index %d: %s > %s", i, ops[i-1], ops[i])
+	}
 }
 
 func TestSupport_MatchPriority(t *testing.T) {
@@ -117,13 +172,27 @@ func TestSupport_ExtractResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSupportHandler(t)
-	e := echo.New()
 
-	body := `{"subject":"my ticket"}`
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(body)))
-	req.Header.Set("X-Amz-Target", "AWSSupport_20130415.CreateCase")
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.Equal(t, "my ticket", h.ExtractResource(c))
+	tests := []struct {
+		body string
+		want string
+	}{
+		{body: `{"subject":"my ticket"}`, want: "my ticket"},
+		{body: `{"checkId":"Pfx0RwqBli"}`, want: "Pfx0RwqBli"},
+		{body: `{"attachmentId":"att-1"}`, want: "att-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(tt.body)))
+			req.Header.Set("X-Amz-Target", "AWSSupport_20130415.CreateCase")
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
 }
 
 func TestSupport_Handler(t *testing.T) {
@@ -184,256 +253,11 @@ func TestSupport_Handler(t *testing.T) {
 			}
 
 			if len(tt.wantNonEmptyKeys) > 0 {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				resp := decodeSupportResponse(t, rec)
 
 				for _, key := range tt.wantNonEmptyKeys {
 					assert.NotEmpty(t, resp[key])
 				}
-			}
-		})
-	}
-}
-
-func TestSupport_DescribeCases(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSupportHandler(t)
-
-	rec1 := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject":           "Case One",
-		"communicationBody": "Initial question",
-	})
-	require.Equal(t, http.StatusOK, rec1.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &createResp))
-	caseID := createResp["caseId"].(string)
-
-	rec := doSupportRequest(t, h, "DescribeCases", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	cases, ok := resp["cases"].([]any)
-	require.True(t, ok)
-	assert.NotEmpty(t, cases)
-
-	// Describe by caseId
-	rec2 := doSupportRequest(t, h, "DescribeCases", map[string]any{
-		"caseIdList": []string{caseID},
-	})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	cases2, ok := resp2["cases"].([]any)
-	require.True(t, ok)
-	assert.Len(t, cases2, 1)
-}
-
-func TestSupport_ResolveCase(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSupportHandler(t)
-
-	createRec := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject":           "Resolve me",
-		"communicationBody": "Please resolve this.",
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	caseID := createResp["caseId"].(string)
-
-	rec := doSupportRequest(t, h, "ResolveCase", map[string]any{
-		"caseId": caseID,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "opened", resp["initialCaseStatus"])
-	assert.Equal(t, "resolved", resp["finalCaseStatus"])
-}
-
-func TestSupport_Provider_Init(t *testing.T) {
-	t.Parallel()
-
-	p := &support.Provider{}
-	assert.Equal(t, "Support", p.Name())
-
-	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
-	require.NoError(t, err)
-	assert.NotNil(t, svc)
-}
-
-func TestSupport_AddCommunicationToCase(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSupportHandler(t)
-
-	createRec := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject":           "Comm test",
-		"communicationBody": "Initial message",
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	caseID := createResp["caseId"].(string)
-
-	tests := []struct {
-		body     map[string]any
-		name     string
-		wantCode int
-	}{
-		{
-			name:     "add communication",
-			body:     map[string]any{"caseId": caseID, "communicationBody": "Hello support"},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "missing caseId",
-			body:     map[string]any{"communicationBody": "Hello"},
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name:     "unknown caseId",
-			body:     map[string]any{"caseId": "nonexistent", "communicationBody": "Hello"},
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doSupportRequest(t, h, "AddCommunicationToCase", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestSupport_DescribeCommunications(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSupportHandler(t)
-
-	createRec := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject":           "Comm test",
-		"communicationBody": "Initial message",
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	caseID := createResp["caseId"].(string)
-
-	addRec := doSupportRequest(t, h, "AddCommunicationToCase", map[string]any{
-		"caseId":            caseID,
-		"communicationBody": "Hello support",
-	})
-	require.Equal(t, http.StatusOK, addRec.Code)
-
-	tests := []struct {
-		body          map[string]any
-		name          string
-		wantCode      int
-		wantCommCount int
-	}{
-		{
-			name:          "describe communications",
-			body:          map[string]any{"caseId": caseID},
-			wantCode:      http.StatusOK,
-			wantCommCount: 2,
-		},
-		{
-			name:     "missing caseId",
-			body:     map[string]any{},
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name:     "unknown caseId",
-			body:     map[string]any{"caseId": "nonexistent"},
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doSupportRequest(t, h, "DescribeCommunications", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantCommCount > 0 {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				comms, ok := resp["communications"].([]any)
-				require.True(t, ok)
-				assert.Len(t, comms, tt.wantCommCount)
-			}
-		})
-	}
-}
-
-func TestSupport_DescribeTrustedAdvisorChecks(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSupportHandler(t)
-
-	rec := doSupportRequest(t, h, "DescribeTrustedAdvisorChecks", map[string]any{
-		"language": "en",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	checks, ok := resp["checks"].([]any)
-	require.True(t, ok)
-	assert.NotEmpty(t, checks)
-}
-
-func TestSupport_AddAttachmentsToSet(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body     map[string]any
-		name     string
-		wantCode int
-	}{
-		{
-			name: "new attachment set",
-			body: map[string]any{
-				"attachments": []any{map[string]any{"fileName": "new.txt", "data": []byte("data")}},
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name: "unknown existing set id",
-			body: map[string]any{
-				"attachmentSetId": "existing-set-id",
-				"attachments":     []any{map[string]any{"fileName": "new.txt", "data": []byte("data")}},
-			},
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestSupportHandler(t)
-			rec := doSupportRequest(t, h, "AddAttachmentsToSet", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantCode == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotEmpty(t, resp["attachmentSetId"])
-				assert.NotEmpty(t, resp["expiryTime"])
 			}
 		})
 	}

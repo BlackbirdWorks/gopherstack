@@ -15,14 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch3_HandlerOpsLen(t *testing.T) {
+func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch3Handler()
 	assert.Equal(t, 165, rds.HandlerOpsLen(h))
 }
 
-func TestBatch3_SDKCompleteness(t *testing.T) {
+func TestSupportedOperations_ContainsExtendedOps(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -36,8 +36,8 @@ func TestBatch3_SDKCompleteness(t *testing.T) {
 	assert.Contains(t, ops, "CreateIntegration")
 }
 
-// TestRefinement1_AccountIDAndRegion verifies AccountID() and Region() on the backend.
-func TestRefinement1_AccountIDAndRegion(t *testing.T) {
+// TestAccountIDAndRegion verifies AccountID() and Region() on the backend.
+func TestAccountIDAndRegion(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("123456789012", "eu-west-1")
@@ -46,8 +46,8 @@ func TestRefinement1_AccountIDAndRegion(t *testing.T) {
 	assert.Equal(t, "eu-west-1", b.Region())
 }
 
-// TestRefinement1_HandlerReset verifies that Handler.Reset() clears all backend state.
-func TestRefinement1_HandlerReset(t *testing.T) {
+// TestHandlerReset verifies that Handler.Reset() clears all backend state.
+func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -62,8 +62,8 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	assert.Equal(t, 0, rds.InstanceCount(b))
 }
 
-// TestRefinement1_HandlerOpsLen verifies GetSupportedOperations has the expected count.
-func TestRefinement1_HandlerOpsLen(t *testing.T) {
+// TestHandlerOpsLen_FreshBackend verifies GetSupportedOperations has the expected count.
+func TestHandlerOpsLen_FreshBackend(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -72,8 +72,8 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 	assert.Equal(t, 165, rds.HandlerOpsLen(h))
 }
 
-// TestRefinement1_GetSupportedOperationsSorted verifies that GetSupportedOperations is alphabetically sorted.
-func TestRefinement1_GetSupportedOperationsSorted(t *testing.T) {
+// TestGetSupportedOperationsSorted verifies that GetSupportedOperations is alphabetically sorted.
+func TestGetSupportedOperationsSorted(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -86,15 +86,15 @@ func TestRefinement1_GetSupportedOperationsSorted(t *testing.T) {
 	}
 }
 
-// TestRefinement1_StorageBackendInterface verifies InMemoryBackend implements StorageBackend.
-func TestRefinement1_StorageBackendInterface(t *testing.T) {
+// TestStorageBackendInterface verifies InMemoryBackend implements StorageBackend.
+func TestStorageBackendInterface(t *testing.T) {
 	t.Parallel()
 
 	var _ rds.StorageBackend = (*rds.InMemoryBackend)(nil)
 }
 
-// TestRefinement1_ProviderNilAppContext verifies Init returns error for nil AppContext.
-func TestRefinement1_ProviderNilAppContext(t *testing.T) {
+// TestProviderNilAppContext verifies Init returns error for nil AppContext.
+func TestProviderNilAppContext(t *testing.T) {
 	t.Parallel()
 
 	p := &rds.Provider{}
@@ -741,8 +741,8 @@ func TestRDS_FormParseFail_Returns400(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 
-// TestRDSCoverage_StubOps covers all the stub RDS operations.
-func TestRDSCoverage_StubOps(t *testing.T) {
+// TestExtendedOperations_DoNotError covers all the stub RDS operations.
+func TestExtendedOperations_DoNotError(t *testing.T) {
 	t.Parallel()
 
 	stubOps := []struct {
@@ -813,8 +813,8 @@ func TestRDSCoverage_StubOps(t *testing.T) {
 	}
 }
 
-// TestRDSCoverage_BackendOps covers DescribeDBInstanceAutomatedBackups backend.
-func TestRDSCoverage_BackendOps(t *testing.T) {
+// TestBackendOps covers DescribeDBInstanceAutomatedBackups backend.
+func TestBackendOps(t *testing.T) {
 	t.Parallel()
 
 	h := newRDSHandler()

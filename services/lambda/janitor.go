@@ -55,17 +55,21 @@ func (j *Janitor) sweepIdleRuntimes(ctx context.Context) {
 		idleTimeout = defaultIdleTimeout
 	}
 
-	j.Backend.mu.Lock("JanitorSweepRuntimes")
 	var toEvict []*functionRuntime
-	now := time.Now()
 
-	for name, rt := range j.Backend.runtimes {
-		if now.Sub(rt.lastUsed) > idleTimeout {
-			toEvict = append(toEvict, rt)
-			delete(j.Backend.runtimes, name)
+	func() {
+		j.Backend.mu.Lock("JanitorSweepRuntimes")
+		defer j.Backend.mu.Unlock()
+
+		now := time.Now()
+
+		for name, rt := range j.Backend.runtimes {
+			if now.Sub(rt.lastUsed) > idleTimeout {
+				toEvict = append(toEvict, rt)
+				delete(j.Backend.runtimes, name)
+			}
 		}
-	}
-	j.Backend.mu.Unlock()
+	}()
 
 	if len(toEvict) == 0 {
 		telemetry.RecordWorkerTask(lambdaWorkerService, runtimeJanitorName, "success")
@@ -94,16 +98,23 @@ type esmHealthEntry struct {
 // LastProcessingResult as "PROBLEM" — mirroring the AWS behaviour where a
 // deleted-function mapping transitions to a degraded state.
 func (j *Janitor) sweepESMs(ctx context.Context) {
-	j.Backend.mu.RLock("JanitorSweepESMs")
-	esmCount := j.Backend.eventSourceMappings.Len()
+	var (
+		esmCount int
+		toCheck  []esmHealthEntry
+	)
 
-	var toCheck []esmHealthEntry
-	for _, esm := range j.Backend.eventSourceMappings.All() {
-		if esm.State == ESMStateEnabled {
-			toCheck = append(toCheck, esmHealthEntry{uuid: esm.UUID, functionARN: esm.FunctionARN})
+	func() {
+		j.Backend.mu.RLock("JanitorSweepESMs")
+		defer j.Backend.mu.RUnlock()
+
+		esmCount = j.Backend.eventSourceMappings.Len()
+
+		for _, esm := range j.Backend.eventSourceMappings.All() {
+			if esm.State == ESMStateEnabled {
+				toCheck = append(toCheck, esmHealthEntry{uuid: esm.UUID, functionARN: esm.FunctionARN})
+			}
 		}
-	}
-	j.Backend.mu.RUnlock()
+	}()
 
 	// Check each enabled ESM's function without holding the lock.
 	var degraded []string
@@ -115,13 +126,16 @@ func (j *Janitor) sweepESMs(ctx context.Context) {
 	}
 
 	if len(degraded) > 0 {
-		j.Backend.mu.Lock("JanitorSweepESMs.degrade")
-		for _, id := range degraded {
-			if esm, ok := j.Backend.eventSourceMappings.Get(id); ok {
-				esm.LastProcessingResult = "PROBLEM"
+		func() {
+			j.Backend.mu.Lock("JanitorSweepESMs.degrade")
+			defer j.Backend.mu.Unlock()
+
+			for _, id := range degraded {
+				if esm, ok := j.Backend.eventSourceMappings.Get(id); ok {
+					esm.LastProcessingResult = "PROBLEM"
+				}
 			}
-		}
-		j.Backend.mu.Unlock()
+		}()
 
 		logger.Load(ctx).WarnContext(ctx, "Lambda janitor: ESMs with missing functions",
 			"count", len(degraded))

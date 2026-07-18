@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBatch2Audit_DeleteUsageProfile_NotFound verifies that DeleteUsageProfile
+// TestDeleteUsageProfile_NotFound verifies that DeleteUsageProfile
 // raises EntityNotFoundException when the profile does not exist.
-func TestBatch2Audit_DeleteUsageProfile_NotFound(t *testing.T) {
+func TestDeleteUsageProfile_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -55,7 +55,7 @@ func TestBatch2Audit_DeleteUsageProfile_NotFound(t *testing.T) {
 	}
 }
 
-func TestBatch2_UsageProfile_CRUD(t *testing.T) {
+func TestUsageProfile_CRUD(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -89,9 +89,9 @@ func TestBatch2_UsageProfile_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestBatch2Accuracy_CreateUsageProfile_NameRequired verifies CreateUsageProfile
+// TestCreateUsageProfile_NameRequired verifies CreateUsageProfile
 // rejects an empty Name with InvalidInputException.
-func TestBatch2Accuracy_CreateUsageProfile_NameRequired(t *testing.T) {
+func TestCreateUsageProfile_NameRequired(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

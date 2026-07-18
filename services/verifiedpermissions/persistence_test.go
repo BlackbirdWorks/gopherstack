@@ -179,3 +179,122 @@ func TestInMemoryBackend_SnapshotRestore_ResourceTags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"k1": "v1"}, tagVals)
 }
+func TestBackend_SnapshotRestoreARNIndex(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	ps := seedPolicyStore(t, b, "snap store")
+	_ = b.TagResource(ps.Arn, map[string]string{"env": "test"})
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := newTestBackend()
+	err := b2.Restore(t.Context(), data)
+	require.NoError(t, err)
+
+	assert.GreaterOrEqual(t, verifiedpermissions.ARNIndexSize(b2), 1)
+
+	tags, err := b2.ListTagsForResource(ps.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "test", tags["env"])
+}
+
+func TestBackend_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	ps := seedPolicyStore(t, b, "persist store")
+
+	_, _ = b.CreatePolicy(
+		ps.PolicyStoreID,
+		verifiedpermissions.CreatePolicyParams{PolicyType: "STATIC", Statement: "permit(principal,action,resource);"},
+	)
+	_, _ = b.CreatePolicyTemplate(ps.PolicyStoreID, "tmpl", "permit(principal,action,resource);")
+	_, _ = b.PutSchema(ps.PolicyStoreID, `{"ns":{}}`)
+	_, _ = b.CreateIdentitySource(
+		ps.PolicyStoreID,
+		"User",
+		verifiedpermissions.IdentitySourceConfig{
+			UserPoolArn: "arn:aws:cognito-idp:us-east-1:123456789012:userpool/pool",
+		},
+	)
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := newTestBackend()
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	assert.Equal(t, 1, verifiedpermissions.PolicyStoreCount(b2))
+	assert.Equal(t, 1, verifiedpermissions.PolicyCount(b2))
+	assert.Equal(t, 1, verifiedpermissions.PolicyTemplateCount(b2))
+	assert.Equal(t, 1, verifiedpermissions.SchemaCount(b2))
+	assert.Equal(t, 1, verifiedpermissions.IdentitySourceCount(b2))
+	assert.Equal(t, 4, verifiedpermissions.ARNIndexSize(b2)) // store + policy + template + identity source
+}
+
+func TestBackend_Snapshot_Restore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		numStores int
+	}{
+		{name: "empty backend", numStores: 0},
+		{name: "with stores and policies", numStores: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			var storeIDs []string
+
+			for range tt.numStores {
+				ps, err := b.CreatePolicyStore("desc", map[string]string{"env": "test"}, "OFF", "")
+				require.NoError(t, err)
+
+				_, err = b.CreatePolicy(
+					ps.PolicyStoreID,
+					verifiedpermissions.CreatePolicyParams{
+						PolicyType: "STATIC",
+						Statement:  "permit(principal, action, resource);",
+					},
+				)
+				require.NoError(t, err)
+
+				_, err = b.CreatePolicyTemplate(
+					ps.PolicyStoreID, "tpl", "permit(principal == ?principal, action, resource);",
+				)
+				require.NoError(t, err)
+
+				storeIDs = append(storeIDs, ps.PolicyStoreID)
+			}
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := newTestBackend()
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			stores2, _ := b2.ListPolicyStores("", 0)
+			assert.Len(t, stores2, tt.numStores)
+
+			for _, id := range storeIDs {
+				ps, err := b2.GetPolicyStore(id)
+				require.NoError(t, err)
+				assert.Equal(t, id, ps.PolicyStoreID)
+
+				policies, _, err := b2.ListPolicies(id, verifiedpermissions.ListPoliciesFilter{}, "", 0)
+				require.NoError(t, err)
+				assert.Len(t, policies, 1)
+
+				templates, _, err := b2.ListPolicyTemplates(id, "", 0)
+				require.NoError(t, err)
+				assert.Len(t, templates, 1)
+			}
+		})
+	}
+}

@@ -1,7 +1,7 @@
 package quicksight
 
 // Code in this file wires up snapshot/restore persistence for the QuickSight
-// service at the Handler level. InMemoryBackend.Snapshot/Restore (backend.go)
+// service at the Handler level. InMemoryBackend.Snapshot/Restore (store.go)
 // already implement a full round trip over every registered resource
 // collection (see the registry-backed Snapshot/Restore above) -- but until
 // now nothing on *Handler exposed that: cli.go's setupPersistence registers a

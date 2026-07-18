@@ -1,5 +1,7 @@
 package cloudwatchlogs
 
+import "time"
+
 // LogGroupClass constants match the AWS CloudWatch Logs API enum.
 const (
 	LogGroupClassStandard         = "STANDARD"
@@ -303,4 +305,82 @@ type QueryDefinition struct {
 	QueryString       string   `json:"queryString"`
 	LogGroupNames     []string `json:"logGroupNames,omitempty"`
 	LastModified      int64    `json:"lastModified"`
+}
+
+// ResourcePolicy represents a CloudWatch Logs resource policy.
+type ResourcePolicy struct {
+	LastUpdated    time.Time `json:"-"`
+	PolicyName     string    `json:"policyName"`
+	PolicyDocument string    `json:"policyDocument"`
+}
+
+// DeliveryDestination represents a CloudWatch Logs delivery destination.
+type DeliveryDestination struct {
+	CreatedAt    time.Time         `json:"-"`
+	Tags         map[string]string `json:"tags,omitempty"`
+	Name         string            `json:"name"`
+	Arn          string            `json:"arn"`
+	OutputFormat string            `json:"outputFormat,omitempty"`
+	TargetArn    string            `json:"deliveryDestinationConfiguration,omitempty"`
+	Policy       string            `json:"policy,omitempty"`
+}
+
+// DeliverySource represents a CloudWatch Logs delivery source.
+type DeliverySource struct {
+	CreatedAt    time.Time         `json:"-"`
+	Tags         map[string]string `json:"tags,omitempty"`
+	Name         string            `json:"name"`
+	Arn          string            `json:"arn"`
+	LogType      string            `json:"logType,omitempty"`
+	ResourceArns []string          `json:"resourceArns,omitempty"`
+}
+
+// CWLDestination represents a CloudWatch Logs log routing destination.
+type CWLDestination struct {
+	CreatedAt       time.Time `json:"-"`
+	DestinationName string    `json:"destinationName"`
+	TargetArn       string    `json:"targetArn"`
+	RoleArn         string    `json:"roleArn"`
+	AccessPolicy    string    `json:"accessPolicy,omitempty"`
+	Arn             string    `json:"arn"`
+}
+
+// IndexPolicy represents a CloudWatch Logs field index policy.
+type IndexPolicy struct {
+	LastUpdated        time.Time `json:"lastUpdateTime"`
+	LogGroupIdentifier string    `json:"logGroupIdentifier"`
+	PolicyDocument     string    `json:"policyDocument"`
+}
+
+// Transformer represents a CloudWatch Logs log transformer.
+type Transformer struct {
+	CreatedAt          time.Time        `json:"-"`
+	LogGroupIdentifier string           `json:"logGroupIdentifier"`
+	Processors         []map[string]any `json:"transformerConfig"`
+}
+
+// CWLIntegration represents a CloudWatch Logs integration (e.g. OpenSearch).
+type CWLIntegration struct {
+	CreatedAt time.Time `json:"-"`
+	Name      string    `json:"integrationName"`
+	Type      string    `json:"integrationType"`
+	Status    string    `json:"integrationStatus"`
+}
+
+// AggregateLogGroupSummary describes aggregated statistics for a single log group.
+type AggregateLogGroupSummary struct {
+	LogGroupName  string `json:"logGroupName"`
+	LogGroupArn   string `json:"logGroupArn"`
+	LogGroupClass string `json:"logGroupClass,omitempty"`
+	StoredBytes   int64  `json:"storedBytes"`
+	LogEventCount int64  `json:"logEventCount"`
+}
+
+// TestTransformerOutput is a single transformed log event result. It mirrors the
+// AWS TransformedLogRecord shape, carrying both the original and transformed
+// message plus the 1-based event number.
+type TestTransformerOutput struct {
+	EventMessage            string `json:"eventMessage"`
+	TransformedEventMessage string `json:"transformedEventMessage"`
+	EventNumber             int64  `json:"eventNumber"`
 }

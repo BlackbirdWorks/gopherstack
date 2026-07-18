@@ -283,3 +283,56 @@ func (h *Handler) handleDeleteBrandAssignment(c *echo.Context) error {
 		keyStatus:    http.StatusOK,
 	})
 }
+
+// classifyBrandPaths routes /accounts/{id}/brands/... paths.
+func classifyBrandPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		if method == http.MethodGet {
+			return opListBrands, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodPost:
+			return opCreateBrand, id
+		case http.MethodGet:
+			return opDescribeBrand, id
+		case http.MethodPut:
+			return opUpdateBrand, id
+		case http.MethodDelete:
+			return opDeleteBrand, id
+		}
+	case nSegsSubRes:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		if sub == pathSegPublishedVersion {
+			switch method {
+			case http.MethodGet:
+				return opDescribeBrandPublishedVer, id
+			case http.MethodPut:
+				return opUpdateBrandPublishedVer, id
+			}
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyBrandAssignmentPaths routes /accounts/{id}/brandassignments/... paths.
+func classifyBrandAssignmentPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodGet:
+			return opDescribeBrandAssignment, accountID
+		case http.MethodPut:
+			return opUpdateBrandAssignment, accountID
+		case http.MethodDelete:
+			return opDeleteBrandAssignment, accountID
+		}
+	}
+
+	return opUnknown, ""
+}

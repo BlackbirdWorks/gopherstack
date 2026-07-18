@@ -84,7 +84,7 @@ func mustRP(
 
 // ---- Rule validation ----
 
-func newBatch1Handler(
+func newHandler(
 	t *testing.T,
 ) (*backup.Handler, *backup.InMemoryBackend) {
 	t.Helper()
@@ -94,7 +94,7 @@ func newBatch1Handler(
 	return h, b
 }
 
-func doBatch1Request(
+func doRequest(
 	t *testing.T,
 	h *backup.Handler,
 	method, path, body string,

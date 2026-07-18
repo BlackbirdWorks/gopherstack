@@ -7,7 +7,7 @@ import (
 )
 
 // handler_sql_ha.go implements the HTTP handlers for the SQL Server High
-// Availability standby detection family, backed by backend_sql_ha.go.
+// Availability standby detection family, backed by sql_ha.go.
 
 // Wire action names use AWS's exact spelling ("Sql", not "SQL"); Go
 // identifiers use "SQL" per revive's var-naming convention.

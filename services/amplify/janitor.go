@@ -152,22 +152,23 @@ func (j *Janitor) advanceDomains(ctx context.Context) {
 		return
 	}
 
-	j.Backend.mu.Lock("AmplifyJanitorAdvanceDomains")
+	func() {
+		j.Backend.mu.Lock("AmplifyJanitorAdvanceDomains")
+		defer j.Backend.mu.Unlock()
 
-	for _, key := range domainKeys {
-		domain, ok := j.Backend.domains.Get(key)
-		if !ok || isTerminalDomainStatus(domain.DomainStatus) {
-			continue
+		for _, key := range domainKeys {
+			domain, ok := j.Backend.domains.Get(key)
+			if !ok || isTerminalDomainStatus(domain.DomainStatus) {
+				continue
+			}
+
+			domain.DomainStatus = DomainStatusAvailable
+
+			for i := range domain.SubDomains {
+				domain.SubDomains[i].Verified = true
+			}
 		}
-
-		domain.DomainStatus = DomainStatusAvailable
-
-		for i := range domain.SubDomains {
-			domain.SubDomains[i].Verified = true
-		}
-	}
-
-	j.Backend.mu.Unlock()
+	}()
 
 	count := len(domainKeys)
 

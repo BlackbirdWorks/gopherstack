@@ -4,7 +4,7 @@ package cognitoidentity
 // collections that were previously nested by region (outer key = region, e.g.
 // map[string]map[string]*IdentityPool) are each replaced by a single flat
 // *store.Table[T], keyed by the composite "region|id" string (see regionKey in
-// backend.go), with companion *store.Index values grouping entries for the
+// store.go), with companion *store.Index values grouping entries for the
 // per-region / per-pool scans the old reverse-lookup maps (poolsByName,
 // poolsByARN, identitiesByPool) and prefix-scan (principal-tag cleanup on
 // DeleteIdentityPool) provided -- the region-qualified-table pattern
@@ -46,7 +46,7 @@ func principalTagsPoolIndexKeyFn(v *PrincipalTagMapping) string {
 // once. It must be called during construction only (immediately after b.registry is
 // created -- see NewInMemoryBackend), never on every Reset() -- store.Register panics on
 // a duplicate name, so runtime resets go through b.registry.ResetAll() instead (see
-// InMemoryBackend.Reset in backend.go).
+// InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	b.pools = store.Register(b.registry, "pools", store.New(poolKeyFn))
 	b.poolsByRegion = b.pools.AddIndex("byRegion", poolRegionIndexKeyFn)

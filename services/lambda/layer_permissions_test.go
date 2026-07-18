@@ -103,7 +103,7 @@ func TestInMemoryBackend_LayerVersionPolicy(t *testing.T) {
 
 // --- Layer permission HTTP tests ---
 
-func TestBatch1_LayerVersionPermission_AddGetRemove(t *testing.T) {
+func TestLayerVersionPermission_AddGetRemove(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)
@@ -138,7 +138,7 @@ func TestBatch1_LayerVersionPermission_AddGetRemove(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
-func TestBatch1_LayerVersionPermission_AddNotFound(t *testing.T) {
+func TestLayerVersionPermission_AddNotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -151,7 +151,7 @@ func TestBatch1_LayerVersionPermission_AddNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestBatch2_Layer_Policy_AddAndGet(t *testing.T) {
+func TestLayer_Policy_AddAndGet(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -178,7 +178,7 @@ func TestBatch2_Layer_Policy_AddAndGet(t *testing.T) {
 	assert.NotEmpty(t, pol.Policy)
 }
 
-func TestBatch2_Layer_Policy_Remove(t *testing.T) {
+func TestLayer_Policy_Remove(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)

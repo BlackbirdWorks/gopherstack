@@ -278,6 +278,32 @@ type purchaseProvisionedCapacityResponse struct {
 	CapacityID string `json:"capacityId"`
 }
 
+// inventoryArchiveItem is a single archive entry in a JSON-format inventory job output.
+type inventoryArchiveItem struct {
+	ArchiveID          string `json:"ArchiveId"`
+	ArchiveDescription string `json:"ArchiveDescription"`
+	CreationDate       string `json:"CreationDate"`
+	SHA256TreeHash     string `json:"SHA256TreeHash"`
+	Size               int64  `json:"Size"`
+}
+
+// dataRetrievalRule is a single rule in the data retrieval policy.
+// BytesPerHour pointer comes first so the struct fits in 16 pointer bytes.
+type dataRetrievalRule struct {
+	BytesPerHour *int64 `json:"BytesPerHour,omitempty"`
+	Strategy     string `json:"Strategy"`
+}
+
+// dataRetrievalPolicyBody wraps the Rules slice in the AWS request/response envelope.
+type dataRetrievalPolicyBody struct {
+	Rules []dataRetrievalRule `json:"Rules"`
+}
+
+// dataRetrievalPolicyRequest is the outer envelope for SetDataRetrievalPolicy.
+type dataRetrievalPolicyRequest struct {
+	Policy dataRetrievalPolicyBody `json:"Policy"`
+}
+
 // formatDate formats a [time.Time] as an ISO 8601 timestamp.
 func formatDate(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.000Z")

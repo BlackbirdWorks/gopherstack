@@ -2,6 +2,7 @@ package elasticsearch_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -353,4 +354,97 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 
 	require.NoError(t, h2.Restore(t.Context(), snap))
 	assert.Equal(t, 1, b2.DomainCount())
+}
+
+// TestElasticsearch_PersistenceCoversAllMaps verifies that packages and
+// connections survive snapshot/restore.
+func TestElasticsearch_PersistenceCoversAllMaps(t *testing.T) {
+	t.Parallel()
+
+	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	_, err := b.CreatePackage(context.Background(), "dict-pkg", "TXT-DICTIONARY", "my dictionary")
+	require.NoError(t, err)
+
+	_, err = b.CreateVpcEndpoint(
+		context.Background(), "arn:aws:es:us-east-1:123456789012:domain/my-dom", map[string]string{"VpcId": "vpc-1"},
+	)
+	require.NoError(t, err)
+
+	b.AddInboundConnectionInternal(context.Background(), elasticsearch.InboundConnection{
+		ConnectionID: "conn-snap", ConnectionStatus: "PENDING_ACCEPTANCE",
+	})
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, b2.PackageCount())
+	assert.Equal(t, 1, b2.VpcEndpointCount())
+	assert.Equal(t, 1, b2.InboundConnectionCount())
+}
+
+// TestElasticsearch_PersistenceNextIDPreserved verifies nextID is preserved
+// across snapshot/restore.
+func TestElasticsearch_PersistenceNextIDPreserved(t *testing.T) {
+	t.Parallel()
+
+	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+	_, err := b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
+	require.NoError(t, err)
+	_, err = b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// After restore, a new endpoint should get id 3, not 1.
+	ep, err := b2.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/test", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "vpc-endpoint-0000000003", ep.ID)
+}
+
+// TestElasticsearch_SnapshotWarnOnEmptyState verifies Snapshot returns valid
+// JSON even with no data.
+func TestElasticsearch_SnapshotWarnOnEmptyState(t *testing.T) {
+	t.Parallel()
+
+	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	var v map[string]any
+	require.NoError(t, json.Unmarshal(snap, &v))
+}
+
+// TestElasticsearch_PersistenceReservedAndVpcAccessCombined verifies that VPC
+// endpoint access grants and purchased reserved instances both survive a
+// snapshot/restore round trip together.
+func TestElasticsearch_PersistenceReservedAndVpcAccessCombined(t *testing.T) {
+	t.Parallel()
+
+	backend := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+	_, err := backend.CreateDomain(
+		context.Background(), elasticsearch.CreateDomainInput{Name: "saved-domain"},
+	)
+	require.NoError(t, err)
+	require.NoError(t, backend.AuthorizeVpcEndpointAccess(context.Background(), "saved-domain", "222222222222"))
+	_, err = backend.PurchaseReservedElasticsearchInstanceOffering(
+		context.Background(), "offer-t3-small-1y", "saved-reservation", 1,
+	)
+	require.NoError(t, err)
+
+	restored := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, restored.Restore(t.Context(), backend.Snapshot(t.Context())))
+
+	accounts, err := restored.ListVpcEndpointAccess(context.Background(), "saved-domain")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"222222222222"}, accounts)
+	assert.Len(t, restored.DescribeReservedElasticsearchInstances(context.Background()), 1)
 }

@@ -227,7 +227,7 @@ func TestHandlerDescribeTransitGatewaysAndDelete(t *testing.T) {
 // extractXMLField extracts a simple XML element value from a string.
 // It looks for <tag>value</tag> patterns.
 
-func TestParityFinalHTTP_TransitGatewayRoutePropagation(t *testing.T) {
+func TestTransitGatewayRoutePropagationHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -258,7 +258,7 @@ func TestParityFinalHTTP_TransitGatewayRoutePropagation(t *testing.T) {
 	assert.Contains(t, resp, "<state>disabled</state>")
 }
 
-func TestParityFinalHTTP_DescribeTransitGatewayAttachments(t *testing.T) {
+func TestDescribeTransitGatewayAttachmentsHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

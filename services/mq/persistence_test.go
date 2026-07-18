@@ -132,3 +132,82 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, restoredCfg.Tags, restored.ListTags(restoredCfg.Arn))
 	assert.Equal(t, map[string]string{"k": "v"}, restored.ListTags(standaloneARN))
 }
+
+// TestPersistenceRoundTrip exercises a broker + configuration snapshot/restore
+// round trip via the public API, including re-syncing tags after restore.
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+
+	br, err := b.CreateBroker(
+		"persist-broker", mq.DeploymentModeSingleInstance,
+		mq.EngineTypeRabbitMQ, "3.13.2", "mq.m5.large",
+		true, false, nil, nil, nil,
+		map[string]string{"env": "test"},
+	)
+	require.NoError(t, err)
+
+	cfg, err := b.CreateConfiguration(
+		"persist-cfg",
+		"desc",
+		mq.EngineTypeActiveMQ,
+		"5.18.3",
+		map[string]string{"k": "v"},
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := mq.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, mq.BrokerCount(b2))
+	assert.Equal(t, 1, mq.ConfigurationCount(b2))
+
+	restored, err := b2.DescribeBroker(br.BrokerID)
+	require.NoError(t, err)
+	assert.Equal(t, "persist-broker", restored.BrokerName)
+	assert.Equal(t, map[string]string{"env": "test"}, restored.Tags)
+
+	rcfg, err := b2.DescribeConfiguration(cfg.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "persist-cfg", rcfg.Name)
+
+	// Tags should still be in sync after Restore.
+	b2.CreateTags(br.BrokerArn, map[string]string{"new-key": "new-val"})
+
+	restored2, err := b2.DescribeBroker(br.BrokerID)
+	require.NoError(t, err)
+	assert.Equal(t, "new-val", restored2.Tags["new-key"])
+}
+
+// TestTagsSync_AfterRestore verifies that CreateTags via a broker's ARN
+// remains reflected in DescribeBroker after a snapshot/restore cycle.
+func TestTagsSync_AfterRestore(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	br, err := b.CreateBroker(
+		"tag-sync-broker", mq.DeploymentModeSingleInstance,
+		mq.EngineTypeActiveMQ, "", "",
+		false, false, nil, nil, nil,
+		map[string]string{"original": "yes"},
+	)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := mq.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// CreateTags via ARN should be reflected in DescribeBroker.
+	b2.CreateTags(br.BrokerArn, map[string]string{"added": "after-restore"})
+
+	got, err := b2.DescribeBroker(br.BrokerID)
+	require.NoError(t, err)
+	assert.Equal(t, "yes", got.Tags["original"])
+	assert.Equal(t, "after-restore", got.Tags["added"])
+}

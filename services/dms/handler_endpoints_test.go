@@ -3,8 +3,10 @@ package dms_test
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/dms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -188,4 +190,377 @@ func TestDeleteEndpointInUse(t *testing.T) {
 	body := parseJSON(t, del)
 	msg, _ := body["message"].(string)
 	assert.Contains(t, msg, "in use")
+}
+
+func TestHandler_EndpointCRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_success",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "src-ep",
+					"EndpointType":       "SOURCE",
+					"EngineName":         "mysql",
+					"ServerName":         "db.example.com",
+					"Port":               3306,
+					"DatabaseName":       "mydb",
+					"Username":           "admin",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				ep, ok := resp["Endpoint"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "src-ep", ep["EndpointIdentifier"])
+				assert.Equal(t, "SOURCE", ep["EndpointType"])
+				assert.Equal(t, "mysql", ep["EngineName"])
+				assert.Equal(t, "active", ep["Status"])
+				assert.NotEmpty(t, ep["EndpointArn"])
+			},
+		},
+		{
+			name: "create_duplicate_conflict",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "dup-ep",
+					"EndpointType":       "SOURCE",
+					"EngineName":         "mysql",
+				})
+				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "dup-ep",
+					"EndpointType":       "SOURCE",
+					"EngineName":         "mysql",
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "describe_all",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "ep-a",
+					"EndpointType":       "SOURCE",
+					"EngineName":         "postgres",
+				})
+				rec := doDMS(t, h, "DescribeEndpoints", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				list, ok := resp["Endpoints"].([]any)
+				require.True(t, ok)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name: "delete_by_arn",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				create := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "del-ep",
+					"EndpointType":       "TARGET",
+					"EngineName":         "s3",
+				})
+				require.Equal(t, http.StatusOK, create.Code)
+				createResp := parseJSON(t, create)
+				ep := createResp["Endpoint"].(map[string]any)
+				arn := ep["EndpointArn"].(string)
+
+				rec := doDMS(t, h, "DeleteEndpoint", map[string]any{
+					"EndpointArn": arn,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				deleteResp := parseJSON(t, rec)
+				delEp, ok := deleteResp["Endpoint"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "del-ep", delEp["EndpointIdentifier"])
+			},
+		},
+		{
+			name: "delete_not_found",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DeleteEndpoint", map[string]any{
+					"EndpointArn": "arn:aws:dms:us-east-1:123:endpoint:nonexistent",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "create_missing_identifier",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointType": "SOURCE",
+					"EngineName":   "mysql",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_missing_engine",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "ep-no-engine",
+					"EndpointType":       "SOURCE",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "describe_by_arn_filter",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				create := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "arn-ep",
+					"EndpointType":       "SOURCE",
+					"EngineName":         "mysql",
+				})
+				require.Equal(t, http.StatusOK, create.Code)
+				createResp := parseJSON(t, create)
+				ep := createResp["Endpoint"].(map[string]any)
+				arnVal := ep["EndpointArn"].(string)
+
+				rec := doDMS(t, h, "DescribeEndpoints", map[string]any{
+					"Filters": []map[string]any{
+						{"Name": "endpoint-arn", "Values": []string{arnVal}},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				list, ok := resp["Endpoints"].([]any)
+				require.True(t, ok)
+				assert.Len(t, list, 1)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestHandler_DescribeEndpointsByFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "ep-filter-1",
+		"EndpointType":       "SOURCE",
+		"EngineName":         "mysql",
+	})
+	doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "ep-filter-2",
+		"EndpointType":       "TARGET",
+		"EngineName":         "s3",
+	})
+
+	rec := doDMS(t, h, "DescribeEndpoints", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "endpoint-id", "Values": []string{"ep-filter-1"}},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	resp := parseJSON(t, rec)
+	list := resp["Endpoints"].([]any)
+	assert.Len(t, list, 1)
+	assert.Equal(t, "ep-filter-1", list[0].(map[string]any)["EndpointIdentifier"])
+}
+
+// TestDescribeEndpointsPagination verifies Marker/MaxRecords pagination.
+func TestDescribeEndpointsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		count      int
+		maxRecords int
+		wantCount  int
+		wantMarker bool
+	}{
+		{
+			name:       "first_page_limited",
+			count:      3,
+			maxRecords: 2,
+			wantCount:  2,
+			wantMarker: true,
+		},
+		{
+			name:       "all_results_no_marker",
+			count:      2,
+			maxRecords: 10,
+			wantCount:  2,
+			wantMarker: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+
+			for i := range tt.count {
+				doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "ep-" + strconv.Itoa(i),
+					"EndpointType":       "SOURCE",
+					"EngineName":         "mysql",
+				})
+			}
+
+			rec := doDMS(t, h, "DescribeEndpoints", map[string]any{"MaxRecords": tt.maxRecords})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseJSON(t, rec)
+			list, ok := resp["Endpoints"].([]any)
+			require.True(t, ok)
+			assert.Len(t, list, tt.wantCount)
+
+			_, hasMarker := resp["Marker"]
+			assert.Equal(t, tt.wantMarker, hasMarker)
+		})
+	}
+}
+
+// TestDescribeEndpointsContinuation verifies a two-page traversal.
+func TestDescribeEndpointsContinuation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	for i := range 3 {
+		doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": "ep-" + strconv.Itoa(i),
+			"EndpointType":       "SOURCE",
+			"EngineName":         "mysql",
+		})
+	}
+
+	rec1 := doDMS(t, h, "DescribeEndpoints", map[string]any{"MaxRecords": 2})
+	require.Equal(t, http.StatusOK, rec1.Code)
+	resp1 := parseJSON(t, rec1)
+	page1, ok := resp1["Endpoints"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page1, 2)
+
+	marker, hasMarker := resp1["Marker"].(string)
+	require.True(t, hasMarker)
+	require.NotEmpty(t, marker)
+
+	rec2 := doDMS(t, h, "DescribeEndpoints", map[string]any{
+		"MaxRecords": 2,
+		"Marker":     marker,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	resp2 := parseJSON(t, rec2)
+	page2, ok := resp2["Endpoints"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page2, 1)
+
+	_, stillHasMarker := resp2["Marker"]
+	assert.False(t, stillHasMarker)
+}
+
+func TestDescribeEndpointsFilterMiss(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	rec := doDMS(t, h, "DescribeEndpoints", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "endpoint-id", "Values": []string{"nonexistent"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := parseJSON(t, rec)
+	endpoints := body["Endpoints"].([]any)
+	assert.Empty(t, endpoints)
+}
+
+func TestHandler_DescribeEngineVersions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "returns_non_empty_list",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEngineVersions", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				versions, ok := resp["EngineVersions"].([]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, versions)
+			},
+		},
+		{
+			name: "versions_have_version_and_lifecycle",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEngineVersions", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				versions := resp["EngineVersions"].([]any)
+				require.NotEmpty(t, versions)
+				v0 := versions[0].(map[string]any)
+				assert.NotEmpty(t, v0["Version"])
+				assert.NotEmpty(t, v0["Lifecycle"])
+			},
+		},
+		{
+			name: "contains_current_default_engine_version",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEngineVersions", map[string]any{})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				versions := resp["EngineVersions"].([]any)
+
+				found := false
+				for _, v := range versions {
+					if v.(map[string]any)["Version"] == "3.5.3" {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "expected version 3.5.3 in engine versions list")
+			},
+		},
+		{
+			name: "supports_pagination",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DescribeEngineVersions", map[string]any{"MaxRecords": 2})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				versions, ok := resp["EngineVersions"].([]any)
+				require.True(t, ok)
+				assert.Len(t, versions, 2)
+				_, hasMarker := resp["Marker"]
+				assert.True(t, hasMarker)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
 }

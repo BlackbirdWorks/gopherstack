@@ -54,9 +54,12 @@ func (d *fifoDeduplication) startPeriodicSweep(ctx context.Context) {
 		for {
 			select {
 			case now := <-ticker.C:
-				d.mu.Lock()
-				d.sweepExpiredLocked(now)
-				d.mu.Unlock()
+				func() {
+					d.mu.Lock()
+					defer d.mu.Unlock()
+
+					d.sweepExpiredLocked(now)
+				}()
 			case <-ctx.Done():
 				return
 			}

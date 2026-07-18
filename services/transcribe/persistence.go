@@ -48,17 +48,25 @@ func ensureNonNilMaps(s *backendSnapshot) {
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
+	var (
+		snap   backendSnapshot
+		tblErr error
+	)
 
-	tables, tblErr := b.registry.SnapshotAll()
+	func() {
+		b.mu.RLock("Snapshot")
+		defer b.mu.RUnlock()
 
-	snap := backendSnapshot{
-		Version:      transcribeSnapshotVersion,
-		Tables:       tables,
-		ResourceTags: b.resourceTags,
-	}
+		var tables map[string]json.RawMessage
 
-	b.mu.RUnlock()
+		tables, tblErr = b.registry.SnapshotAll()
+
+		snap = backendSnapshot{
+			Version:      transcribeSnapshotVersion,
+			Tables:       tables,
+			ResourceTags: b.resourceTags,
+		}
+	}()
 
 	if tblErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "transcribe: snapshot table marshal failed", "error", tblErr)

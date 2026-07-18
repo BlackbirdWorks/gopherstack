@@ -90,7 +90,7 @@ func Test_Crawler_CreateOptions_RoundTrip(t *testing.T) {
 	assert.Equal(t, "curated_", out.Crawler.TablePrefix)
 }
 
-func TestBatch3_Crawler_CRUD(t *testing.T) {
+func TestCrawler_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -198,7 +198,7 @@ func TestBatch3_Crawler_CRUD(t *testing.T) {
 	}
 }
 
-func TestBatch3_Crawler_Lifecycle_States(t *testing.T) {
+func TestCrawler_Lifecycle_States(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -259,7 +259,7 @@ func TestBatch3_Crawler_Lifecycle_States(t *testing.T) {
 	}
 }
 
-func TestBatch3_Crawler_Schedule(t *testing.T) {
+func TestCrawler_Schedule(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -284,8 +284,8 @@ func TestBatch3_Crawler_Schedule(t *testing.T) {
 	assert.Equal(t, http.StatusOK, metricsRec.Code)
 }
 
-// TestAudit2_DeleteCrawler_WhileRunning tests that deleting a running crawler fails.
-func TestAudit2_DeleteCrawler_WhileRunning(t *testing.T) {
+// TestDeleteCrawler_WhileRunning tests that deleting a running crawler fails.
+func TestDeleteCrawler_WhileRunning(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -332,8 +332,8 @@ func TestAudit2_DeleteCrawler_WhileRunning(t *testing.T) {
 	}
 }
 
-// TestAudit2_CreateCrawler_TagValidation tests tag validation on CreateCrawler.
-func TestAudit2_CreateCrawler_TagValidation(t *testing.T) {
+// TestCreateCrawler_TagValidation tests tag validation on CreateCrawler.
+func TestCreateCrawler_TagValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -376,7 +376,7 @@ func TestAudit2_CreateCrawler_TagValidation(t *testing.T) {
 	}
 }
 
-func TestRefinement1_HTTPBatchGetCrawlers(t *testing.T) {
+func TestHTTPBatchGetCrawlers(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -407,8 +407,8 @@ func TestRefinement1_HTTPBatchGetCrawlers(t *testing.T) {
 	assert.Len(t, missing, 1)
 }
 
-// TestRefinement2_ListCrawlers tests listing crawlers.
-func TestRefinement2_ListCrawlers(t *testing.T) {
+// TestListCrawlers tests listing crawlers.
+func TestListCrawlers(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -451,8 +451,8 @@ func TestRefinement2_ListCrawlers(t *testing.T) {
 	}
 }
 
-// TestRefinement2_CrawlerErrors tests crawler-specific error types.
-func TestRefinement2_CrawlerErrors(t *testing.T) {
+// TestCrawlerErrors tests crawler-specific error types.
+func TestCrawlerErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -507,8 +507,8 @@ func TestRefinement2_CrawlerErrors(t *testing.T) {
 	}
 }
 
-// TestRefinement2_CrawlerSchedule tests crawler schedule operations.
-func TestRefinement2_CrawlerSchedule(t *testing.T) {
+// TestCrawlerSchedule tests crawler schedule operations.
+func TestCrawlerSchedule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -575,8 +575,8 @@ func TestRefinement2_CrawlerSchedule(t *testing.T) {
 	}
 }
 
-// TestRefinement2_ExtractResource tests ExtractResource with CrawlerName/JobName/ConnectionName.
-func TestRefinement2_ExtractResource(t *testing.T) {
+// TestExtractResource tests ExtractResource with CrawlerName/JobName/ConnectionName.
+func TestExtractResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -662,7 +662,7 @@ func TestListCrawls_ReturnsRealCrawlHistory(t *testing.T) {
 	assert.NotEmpty(t, after.Crawls[0]["StartTime"])
 }
 
-func TestAccuracy_CreateCrawler_WithoutDatabase(t *testing.T) {
+func TestCreateCrawler_WithoutDatabase(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

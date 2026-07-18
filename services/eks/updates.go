@@ -1,0 +1,280 @@
+package eks
+
+import (
+	"fmt"
+	"slices"
+	"strconv"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+)
+
+// AssociateEncryptionConfig associates encryption configuration with a cluster.
+// Each call replaces the stored configuration rather than appending.
+func (b *InMemoryBackend) AssociateEncryptionConfig(
+	clusterName string,
+	configs []EncryptionConfig,
+) ([]EncryptionConfig, error) {
+	b.mu.Lock("AssociateEncryptionConfig")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters.Get(clusterName)
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	for _, cfg := range configs {
+		if keyARN, hasKey := cfg.Provider["keyArn"]; hasKey && keyARN != "" {
+			if !isKMSARN(keyARN) {
+				return nil, fmt.Errorf("%w: provider.keyArn %q is not a valid KMS key ARN", ErrValidation, keyARN)
+			}
+		}
+	}
+
+	stored := make([]EncryptionConfig, len(configs))
+	copy(stored, configs)
+	b.encryptionConfigs[clusterName] = stored
+	c.EncryptionConfig = stored
+
+	result := make([]EncryptionConfig, len(stored))
+	copy(result, stored)
+
+	return result, nil
+}
+
+// isKMSARN returns true when s begins with the KMS ARN prefix.
+func isKMSARN(s string) bool {
+	return len(s) > 12 && s[:12] == "arn:aws:kms:"
+}
+
+// ClusterConfigUpdate holds mutable cluster config fields for UpdateClusterConfig.
+type ClusterConfigUpdate struct {
+	AccessConfig  *AccessConfig
+	ComputeConfig *ComputeConfig
+	StorageConfig *StorageConfig
+	LogEntries    []ClusterLogEntry
+	SubnetIDs     []string
+}
+
+// UpdateClusterConfig updates the cluster configuration including logging, subnets, and access settings.
+func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterConfigUpdate) (*Update, error) {
+	b.mu.Lock("UpdateClusterConfig")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters.Get(clusterName)
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	if upd.LogEntries != nil {
+		c.ClusterLogging = mergeClusterLogEntries(c.ClusterLogging, upd.LogEntries)
+	}
+
+	if len(upd.SubnetIDs) > 0 {
+		if c.VpcConfig == nil {
+			c.VpcConfig = &VpcConfig{}
+		}
+
+		c.VpcConfig.SubnetIDs = cloneStrings(upd.SubnetIDs)
+	}
+
+	if upd.AccessConfig != nil {
+		if c.AccessConfig == nil {
+			c.AccessConfig = &AccessConfig{}
+		}
+
+		if upd.AccessConfig.AuthenticationMode != "" {
+			c.AccessConfig.AuthenticationMode = upd.AccessConfig.AuthenticationMode
+		}
+
+		c.AccessConfig.BootstrapClusterCreatorAdminPermissions = upd.AccessConfig.BootstrapClusterCreatorAdminPermissions
+	}
+
+	if upd.ComputeConfig != nil {
+		c.ComputeConfig = upd.ComputeConfig
+	}
+
+	if upd.StorageConfig != nil {
+		c.StorageConfig = upd.StorageConfig
+	}
+
+	u := &Update{
+		ID:          stableID(clusterName + "/config-update/" + time.Now().String()),
+		ClusterName: clusterName,
+		Status:      statusInProgress,
+		Type:        "ConfigUpdate",
+		CreatedAt:   time.Now().UTC(),
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
+}
+
+// VpcEndpointUpdate carries optional VPC endpoint access changes for UpdateClusterVpcEndpoint.
+type VpcEndpointUpdate struct {
+	EndpointPublicAccess  *bool
+	EndpointPrivateAccess *bool
+	PublicAccessCIDRs     []string
+}
+
+// UpdateClusterVpcEndpoint updates the VPC endpoint access settings on a cluster.
+// Fields with nil pointer values are left unchanged.
+func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEndpointUpdate) (*Update, error) {
+	b.mu.Lock("UpdateClusterVpcEndpoint")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters.Get(clusterName)
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	if c.VpcConfig == nil {
+		c.VpcConfig = &VpcConfig{
+			EndpointPublicAccess: true,
+		}
+	}
+
+	var params []UpdateParam
+	if upd.EndpointPublicAccess != nil {
+		c.VpcConfig.EndpointPublicAccess = *upd.EndpointPublicAccess
+		params = append(
+			params,
+			UpdateParam{Type: "EndpointPublicAccess", Value: strconv.FormatBool(*upd.EndpointPublicAccess)},
+		)
+	}
+	if upd.EndpointPrivateAccess != nil {
+		c.VpcConfig.EndpointPrivateAccess = *upd.EndpointPrivateAccess
+		params = append(
+			params,
+			UpdateParam{Type: "EndpointPrivateAccess", Value: strconv.FormatBool(*upd.EndpointPrivateAccess)},
+		)
+	}
+	if upd.PublicAccessCIDRs != nil {
+		c.VpcConfig.PublicAccessCIDRs = cloneStrings(upd.PublicAccessCIDRs)
+		params = append(params, UpdateParam{Type: "PublicAccessCidrs", Value: fmt.Sprintf("%v", upd.PublicAccessCIDRs)})
+	}
+
+	u := &Update{
+		ID:          stableID(clusterName + "/vpc-update/" + time.Now().String()),
+		ClusterName: clusterName,
+		Status:      statusSuccessful,
+		Type:        "EndpointAccessUpdate",
+		Params:      params,
+		CreatedAt:   time.Now().UTC(),
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
+}
+
+// mergeClusterLogEntries applies logEntries on top of existing, enabling or disabling
+// individual log types, and returns the merged structured result.
+func mergeClusterLogEntries(existing []ClusterLogEntry, updates []ClusterLogEntry) []ClusterLogEntry {
+	merged := make(map[string]bool)
+
+	for _, e := range existing {
+		if e.Enabled {
+			for _, t := range e.Types {
+				merged[t] = true
+			}
+		}
+	}
+
+	for _, entry := range updates {
+		for _, t := range entry.Types {
+			if entry.Enabled {
+				merged[t] = true
+			} else {
+				delete(merged, t)
+			}
+		}
+	}
+
+	if len(merged) == 0 {
+		return nil
+	}
+
+	enabled := collections.SortedKeys(merged)
+
+	return []ClusterLogEntry{{Types: enabled, Enabled: true}}
+}
+
+// UpdateClusterVersion updates the cluster Kubernetes version.
+func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Update, error) {
+	b.mu.Lock("UpdateClusterVersion")
+	defer b.mu.Unlock()
+
+	c, ok := b.clusters.Get(clusterName)
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	if version != "" {
+		c.Version = version
+	}
+
+	u := &Update{
+		ID:          stableID(clusterName + "/version-update/" + time.Now().String()),
+		ClusterName: clusterName,
+		Status:      statusInProgress,
+		Type:        typeVersionUpdate,
+		Params:      []UpdateParam{{Type: "Version", Value: version}},
+		CreatedAt:   time.Now().UTC(),
+	}
+	b.storeUpdateLocked(u)
+
+	return u, nil
+}
+
+// storeUpdateLocked stores an update record. Must be called with b.mu held.
+func (b *InMemoryBackend) storeUpdateLocked(u *Update) {
+	b.updates.Put(u)
+}
+
+// StoreUpdate stores an update record created outside the backend (e.g. by a handler).
+func (b *InMemoryBackend) StoreUpdate(u *Update) {
+	b.mu.Lock("StoreUpdate")
+	defer b.mu.Unlock()
+
+	b.storeUpdateLocked(u)
+}
+
+// DescribeUpdate returns an update record by cluster and update ID.
+func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update, error) {
+	b.mu.RLock("DescribeUpdate")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters.Get(clusterName); !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	u, ok := b.updates.Get(updateKey(clusterName, updateID))
+	if !ok {
+		return nil, fmt.Errorf("%w: update %s not found in cluster %s", ErrNotFound, updateID, clusterName)
+	}
+
+	cp := *u
+
+	return &cp, nil
+}
+
+// ListUpdates returns all update IDs for a cluster sorted alphabetically.
+func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
+	b.mu.RLock("ListUpdates")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.clusters.Get(clusterName); !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	items := b.updatesByCluster.Get(clusterName)
+	ids := make([]string, len(items))
+
+	for i, u := range items {
+		ids[i] = u.ID
+	}
+
+	slices.Sort(ids)
+
+	return ids, nil
+}

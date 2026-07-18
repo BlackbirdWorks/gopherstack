@@ -19,150 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
-// ---- Backend tests ---------------------------------------------------------
+// ---- Shared test helpers used across the family test files -----------------
+// These build/post through a Handler or Echo context; they are intentionally
+// kept as distinct helpers (rather than unified into one) since each was
+// authored against a slightly different calling convention and unifying them
+// would require touching every call site across the package.
 
-func TestGetCallerIdentity(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-
-	resp, err := backend.GetCallerIdentity("", "")
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
-	assert.Equal(t, sts.MockAccountID, resp.GetCallerIdentityResult.Account)
-	assert.Equal(t, sts.MockUserArn, resp.GetCallerIdentityResult.Arn)
-	assert.Equal(t, sts.MockUserID, resp.GetCallerIdentityResult.UserID)
-	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
-	assert.Equal(t, sts.STSNamespace, resp.Xmlns)
-}
-
-func TestAssumeRole_Success(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-
-	resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn:         "arn:aws:iam::123456789012:role/TestRole",
-		RoleSessionName: "my-session",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
-	creds := resp.AssumeRoleResult.Credentials
-	assert.True(t, strings.HasPrefix(creds.AccessKeyID, "ASIA"), "AccessKeyId should start with ASIA")
-	assert.Len(t, creds.AccessKeyID, 20, "AccessKeyId should be 20 chars")
-	assert.Len(t, creds.SecretAccessKey, 40, "SecretAccessKey should be 40 chars")
-	assert.NotEmpty(t, creds.SessionToken)
-	assert.NotEmpty(t, creds.Expiration)
-
-	user := resp.AssumeRoleResult.AssumedRoleUser
-	assert.Contains(t, user.Arn, "assumed-role")
-	assert.Contains(t, user.Arn, "my-session")
-	assert.Contains(t, user.AssumedRoleID, "my-session")
-}
-
-func TestAssumeRole_DefaultDuration(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-
-	resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn:         "arn:aws:iam::123456789012:role/TestRole",
-		RoleSessionName: "session",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.NotEmpty(t, resp.AssumeRoleResult.Credentials.Expiration)
-}
-
-func TestAssumeRole_CustomDuration(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-
-	resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn:         "arn:aws:iam::123456789012:role/TestRole",
-		RoleSessionName: "session",
-		DurationSeconds: 1800,
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, resp.AssumeRoleResult.Credentials.Expiration)
-}
-
-func TestAssumeRole_MissingRoleArn(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-
-	_, err := backend.AssumeRole(&sts.AssumeRoleInput{
-		RoleSessionName: "session",
-	})
-	require.ErrorIs(t, err, sts.ErrMissingRoleArn)
-}
-
-func TestAssumeRole_MissingSessionName(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-
-	_, err := backend.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn: "arn:aws:iam::123456789012:role/TestRole",
-	})
-	require.ErrorIs(t, err, sts.ErrMissingSessionName)
-}
-
-func TestAssumeRole_InvalidDurationTooShort(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-
-	_, err := backend.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn:         "arn:aws:iam::123456789012:role/TestRole",
-		RoleSessionName: "session",
-		DurationSeconds: 100,
-	})
-	require.ErrorIs(t, err, sts.ErrInvalidDuration)
-}
-
-func TestAssumeRole_InvalidDurationTooLong(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-
-	_, err := backend.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn:         "arn:aws:iam::123456789012:role/TestRole",
-		RoleSessionName: "session",
-		DurationSeconds: 99999,
-	})
-	require.ErrorIs(t, err, sts.ErrInvalidDuration)
-}
-
-func TestAssumeRole_CredentialsAreUnique(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-	input := &sts.AssumeRoleInput{
-		RoleArn:         "arn:aws:iam::123456789012:role/TestRole",
-		RoleSessionName: "session",
-	}
-
-	r1, err := backend.AssumeRole(input)
-	require.NoError(t, err)
-
-	r2, err := backend.AssumeRole(input)
-	require.NoError(t, err)
-
-	// Each call should produce unique credentials.
-	assert.NotEqual(t, r1.AssumeRoleResult.Credentials.AccessKeyID, r2.AssumeRoleResult.Credentials.AccessKeyID)
-}
-
-// ---- Handler tests ---------------------------------------------------------
-
+// newTestHandler builds a fresh in-memory-backed Handler and Echo instance.
 func newTestHandler(t *testing.T) (*sts.Handler, *echo.Echo) {
 	t.Helper()
 
@@ -174,6 +40,7 @@ func newTestHandler(t *testing.T) (*sts.Handler, *echo.Echo) {
 	return h, e
 }
 
+// postForm posts URL-encoded form values through the handler and returns the recorder.
 func postForm(t *testing.T, e *echo.Echo, h *sts.Handler, values url.Values) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -187,114 +54,104 @@ func postForm(t *testing.T, e *echo.Echo, h *sts.Handler, values url.Values) *ht
 	return rec
 }
 
-func TestHandler_GetCallerIdentity(t *testing.T) {
-	t.Parallel()
+// r1PostForm is a test helper that posts form values through the STS handler.
+func r1PostForm(t *testing.T, h *sts.Handler, values url.Values) *httptest.ResponseRecorder {
+	t.Helper()
 
-	h, e := newTestHandler(t)
-	rec := postForm(t, e, h, url.Values{
-		"Action":  {"GetCallerIdentity"},
-		"Version": {"2011-06-15"},
-	})
+	e := echo.New()
+	body := values.Encode()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, h.Handler()(c))
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Header().Get("Content-Type"), "text/xml")
-
-	var resp sts.GetCallerIdentityResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, sts.MockAccountID, resp.GetCallerIdentityResult.Account)
-	assert.Equal(t, sts.MockUserArn, resp.GetCallerIdentityResult.Arn)
+	return rec
 }
 
-func TestHandler_AssumeRole(t *testing.T) {
-	t.Parallel()
+// accuracyHandler builds a fresh backend, handler, and Echo instance.
+func accuracyHandler(t *testing.T) (*sts.Handler, *sts.InMemoryBackend, *echo.Echo) {
+	t.Helper()
 
-	h, e := newTestHandler(t)
-	rec := postForm(t, e, h, url.Values{
-		"Action":          {"AssumeRole"},
-		"Version":         {"2011-06-15"},
-		"RoleArn":         {"arn:aws:iam::123456789012:role/TestRole"},
-		"RoleSessionName": {"test-session"},
-	})
+	b := sts.NewInMemoryBackend()
+	h := sts.NewHandler(b)
+	e := echo.New()
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp sts.AssumeRoleResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.True(t, strings.HasPrefix(resp.AssumeRoleResult.Credentials.AccessKeyID, "ASIA"))
-	assert.Contains(t, resp.AssumeRoleResult.AssumedRoleUser.Arn, "assumed-role")
+	return h, b, e
 }
 
-func TestHandler_AssumeRole_WithDuration(t *testing.T) {
-	t.Parallel()
+// accuracyPost posts a form through the handler with a logger-bearing context.
+func accuracyPost(t *testing.T, h *sts.Handler, e *echo.Echo, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
 
-	h, e := newTestHandler(t)
-	rec := postForm(t, e, h, url.Values{
-		"Action":          {"AssumeRole"},
-		"Version":         {"2011-06-15"},
-		"RoleArn":         {"arn:aws:iam::123456789012:role/TestRole"},
-		"RoleSessionName": {"test-session"},
-		"DurationSeconds": {"1800"},
-	})
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	req = req.WithContext(logger.Save(req.Context(), nil))
 
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
 
-	var resp sts.AssumeRoleResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotEmpty(t, resp.AssumeRoleResult.Credentials.Expiration)
+	return rec
 }
 
-func TestHandler_AssumeRole_InvalidDuration(t *testing.T) {
-	t.Parallel()
+// decodeError unmarshals an STS XML error envelope.
+func decodeError(t *testing.T, body []byte) sts.ErrorResponse {
+	t.Helper()
 
-	h, e := newTestHandler(t)
-	rec := postForm(t, e, h, url.Values{
-		"Action":          {"AssumeRole"},
-		"Version":         {"2011-06-15"},
-		"RoleArn":         {"arn:aws:iam::123456789012:role/TestRole"},
-		"RoleSessionName": {"test-session"},
-		"DurationSeconds": {"not-a-number"},
-	})
+	var resp sts.ErrorResponse
+	require.NoError(t, xml.Unmarshal(body, &resp))
 
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var errResp sts.ErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "ValidationError", errResp.Error.Code)
+	return resp
 }
 
-func TestHandler_AssumeRole_MissingRoleArn(t *testing.T) {
-	t.Parallel()
+// xmlElementOrder parses raw XML and returns the top-level child element names in order.
+// Used to verify Result-before-ResponseMetadata field ordering across every operation.
+func xmlElementOrder(t *testing.T, data []byte) []string {
+	t.Helper()
 
-	h, e := newTestHandler(t)
-	rec := postForm(t, e, h, url.Values{
-		"Action":          {"AssumeRole"},
-		"RoleSessionName": {"session"},
-	})
+	d := xml.NewDecoder(strings.NewReader(string(data)))
 
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	var order []string
 
-	var errResp sts.ErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "MissingParameter", errResp.Error.Code)
-	assert.Equal(t, "Sender", errResp.Error.Type)
+	depth := 0
+
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			break
+		}
+
+		switch se := tok.(type) {
+		case xml.StartElement:
+			depth++
+			if depth == 2 {
+				order = append(order, se.Name.Local)
+			}
+		case xml.EndElement:
+			depth--
+		}
+	}
+
+	return order
 }
 
-func TestHandler_AssumeRole_MissingSessionName(t *testing.T) {
-	t.Parallel()
+// buildSTSClient creates an AWS STS SDK client pointed at the given endpoint URL.
+func buildSTSClient(t *testing.T, endpoint string) *stssdk.Client {
+	t.Helper()
 
-	h, e := newTestHandler(t)
-	rec := postForm(t, e, h, url.Values{
-		"Action":  {"AssumeRole"},
-		"RoleArn": {"arn:aws:iam::123456789012:role/TestRole"},
+	cfg, err := awscfg.LoadDefaultConfig(
+		t.Context(),
+		awscfg.WithRegion("us-east-1"),
+		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
+	)
+	require.NoError(t, err)
+
+	return stssdk.NewFromConfig(cfg, func(o *stssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
 	})
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var errResp sts.ErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "MissingParameter", errResp.Error.Code)
-	assert.Equal(t, "Sender", errResp.Error.Type)
 }
+
+// ---- Core routing / dispatch tests ------------------------------------------
 
 func TestHandler_UnknownAction(t *testing.T) {
 	t.Parallel()
@@ -408,6 +265,22 @@ func TestHandler_RouteMatcher_ExcludesDashboard(t *testing.T) {
 	}
 }
 
+// TestRouteMatcher_ContentTypeCaseInsensitive verifies the service routes
+// correctly with an uppercase Content-Type header (validated indirectly via
+// the existing HTTP tests, which all use the standard-case content type; the
+// RouteMatcher itself lowercases before comparing).
+func TestRouteMatcher_ContentTypeCaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Version=2011-06-15"))
+	req.Header.Set("Content-Type", "APPLICATION/X-WWW-FORM-URLENCODED")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	assert.True(t, h.RouteMatcher()(c))
+}
+
 func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
@@ -517,61 +390,148 @@ func TestSTSHandler_ViaSDK(t *testing.T) {
 	assert.True(t, strings.HasPrefix(*roleOut.Credentials.AccessKeyId, "ASIA"))
 }
 
-// buildSTSClient creates an AWS STS SDK client pointed at the given endpoint URL.
-func buildSTSClient(t *testing.T, endpoint string) *stssdk.Client {
-	t.Helper()
+// ---- Error-mapping / error-path tests ---------------------------------------
 
-	cfg, err := awscfg.LoadDefaultConfig(
-		t.Context(),
-		awscfg.WithRegion("us-east-1"),
-		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
-	)
-	require.NoError(t, err)
+// TestHandleErrorRequestIDNotZero verifies errors return a non-zero request ID.
+func TestHandleErrorRequestIDNotZero(t *testing.T) {
+	t.Parallel()
 
-	return stssdk.NewFromConfig(cfg, func(o *stssdk.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
+	b := sts.NewInMemoryBackend()
+	h := sts.NewHandler(b)
+
+	rec := r1PostForm(t, h, url.Values{
+		"Action":  {"AssumeRole"},
+		"Version": {"2011-06-15"},
+		// Missing RoleArn and RoleSessionName.
 	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp sts.ErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.NotEqual(t, "00000000-0000-0000-0000-000000000000", errResp.RequestID)
+	assert.NotEmpty(t, errResp.RequestID)
 }
 
-// ---- Provider tests ---------------------------------------------------------
-
-func TestProvider_Name(t *testing.T) {
+// TestErrorMappingMissingParam verifies error mapping for missing params.
+func TestErrorMappingMissingParam(t *testing.T) {
 	t.Parallel()
 
-	p := &sts.Provider{}
-	assert.Equal(t, "STS", p.Name())
-}
-
-func TestProvider_Init(t *testing.T) {
-	t.Parallel()
-
-	p := &sts.Provider{}
-	appCtx := &service.AppContext{
-		Logger: logger.NewTestLogger(),
+	tests := []struct {
+		name       string
+		values     url.Values
+		wantCode   string
+		wantStatus int
+	}{
+		{
+			name: "missing_role_arn",
+			values: url.Values{
+				"Action":          {"AssumeRole"},
+				"Version":         {"2011-06-15"},
+				"RoleSessionName": {"session"},
+			},
+			wantCode:   "MissingParameter",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_action",
+			values: url.Values{
+				"Action":  {"NonExistentAction"},
+				"Version": {"2011-06-15"},
+			},
+			wantCode:   "InvalidAction",
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
-	reg, err := p.Init(appCtx)
-	require.NoError(t, err)
-	assert.NotNil(t, reg)
-	assert.Equal(t, "STS", reg.Name())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sts.NewInMemoryBackend()
+			h := sts.NewHandler(b)
+
+			rec := r1PostForm(t, h, tt.values)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var errResp sts.ErrorResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, tt.wantCode, errResp.Error.Code)
+		})
+	}
 }
 
-// ---- Additional backend tests -----------------------------------------------
-
-func TestAssumeRole_MalformedArn(t *testing.T) {
+// TestErrorCodes verifies error-code mapping for a selection of validation failures.
+func TestErrorCodes(t *testing.T) {
 	t.Parallel()
 
-	// A malformed ARN (fewer than 6 colon-separated components) is now rejected
-	// by the validateRoleArn check added for AWS realism.
-	backend := sts.NewInMemoryBackend()
-	_, err := backend.AssumeRole(&sts.AssumeRoleInput{
-		RoleArn:         "short/role",
-		RoleSessionName: "session",
-	})
-	require.ErrorIs(t, err, sts.ErrInvalidRoleArn)
-}
+	t.Run("malformed_policy_returns_MalformedPolicyDocument", func(t *testing.T) {
+		t.Parallel()
 
-// ---- Handler error-path tests -----------------------------------------------
+		h, _, e := accuracyHandler(t)
+		form := url.Values{
+			"Action":          {"AssumeRole"},
+			"Version":         {"2011-06-15"},
+			"RoleArn":         {"arn:aws:iam::123456789012:role/R"},
+			"RoleSessionName": {"session"},
+			"Policy":          {"not-valid-json"},
+		}
+		rec := accuracyPost(t, h, e, form)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+		errResp := decodeError(t, rec.Body.Bytes())
+		assert.Equal(t, "MalformedPolicyDocument", errResp.Error.Code)
+	})
+
+	t.Run("policy_too_large_returns_PackedPolicyTooLarge", func(t *testing.T) {
+		t.Parallel()
+
+		h, _, e := accuracyHandler(t)
+		// Build a valid JSON string that exceeds the 2048-byte session-policy limit.
+		bigPolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"` +
+			strings.Repeat("arn:aws:s3:::my-bucket/prefix/", 80) + `*"}]}`
+		form := url.Values{
+			"Action":          {"AssumeRole"},
+			"Version":         {"2011-06-15"},
+			"RoleArn":         {"arn:aws:iam::123456789012:role/R"},
+			"RoleSessionName": {"session"},
+			"Policy":          {bigPolicy},
+		}
+		rec := accuracyPost(t, h, e, form)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+		errResp := decodeError(t, rec.Body.Bytes())
+		assert.Equal(t, "PackedPolicyTooLarge", errResp.Error.Code)
+	})
+
+	t.Run("too_many_policy_arns_returns_ValidationError", func(t *testing.T) {
+		t.Parallel()
+
+		h, _, e := accuracyHandler(t)
+		form := url.Values{
+			"Action":                   {"AssumeRole"},
+			"Version":                  {"2011-06-15"},
+			"RoleArn":                  {"arn:aws:iam::123456789012:role/R"},
+			"RoleSessionName":          {"session"},
+			"PolicyArns.member.1.arn":  {"arn:aws:iam::aws:policy/A"},
+			"PolicyArns.member.2.arn":  {"arn:aws:iam::aws:policy/B"},
+			"PolicyArns.member.3.arn":  {"arn:aws:iam::aws:policy/C"},
+			"PolicyArns.member.4.arn":  {"arn:aws:iam::aws:policy/D"},
+			"PolicyArns.member.5.arn":  {"arn:aws:iam::aws:policy/E"},
+			"PolicyArns.member.6.arn":  {"arn:aws:iam::aws:policy/F"},
+			"PolicyArns.member.7.arn":  {"arn:aws:iam::aws:policy/G"},
+			"PolicyArns.member.8.arn":  {"arn:aws:iam::aws:policy/H"},
+			"PolicyArns.member.9.arn":  {"arn:aws:iam::aws:policy/I"},
+			"PolicyArns.member.10.arn": {"arn:aws:iam::aws:policy/J"},
+			"PolicyArns.member.11.arn": {"arn:aws:iam::aws:policy/K"},
+		}
+		rec := accuracyPost(t, h, e, form)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+		errResp := decodeError(t, rec.Body.Bytes())
+		assert.Equal(t, "ValidationError", errResp.Error.Code)
+	})
+}
 
 // errBackendFailure is returned by errorBackend to trigger the InternalFailure path.
 var errBackendFailure = errors.New("unexpected backend failure")
@@ -744,178 +704,103 @@ func TestDispatch_ParseFormError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestGetAccessKeyInfo verifies the GetAccessKeyInfo action.
-func TestGetAccessKeyInfo(t *testing.T) {
+// ---- XML wire-envelope ordering (Result before ResponseMetadata) -----------
+//
+// AWS query-protocol responses always nest the operation Result element before
+// ResponseMetadata. This table exercises every credential-issuing operation to
+// confirm that ordering holds across the board.
+func TestXMLResponseResultBeforeMetadata(t *testing.T) {
 	t.Parallel()
 
-	backend := sts.NewInMemoryBackend()
-	h := sts.NewHandler(backend)
-	e := echo.New()
-
-	// Obtain a real session key first so GetAccessKeyInfo can look it up.
-	sessionOut, err := backend.GetSessionToken(&sts.GetSessionTokenInput{DurationSeconds: 3600})
-	require.NoError(t, err)
-
-	accessKeyID := sessionOut.GetSessionTokenResult.Credentials.AccessKeyID
-
-	form := url.Values{
-		"Action":      {"GetAccessKeyInfo"},
-		"Version":     {"2011-06-15"},
-		"AccessKeyId": {accessKeyID},
+	tests := []struct {
+		form       url.Values
+		name       string
+		wantResult string
+	}{
+		{
+			name: "AssumeRole",
+			form: url.Values{
+				"Action":          {"AssumeRole"},
+				"Version":         {"2011-06-15"},
+				"RoleArn":         {"arn:aws:iam::123456789012:role/R"},
+				"RoleSessionName": {"session"},
+			},
+			wantResult: "AssumeRoleResult",
+		},
+		{
+			name: "GetFederationToken",
+			form: url.Values{
+				"Action":  {"GetFederationToken"},
+				"Version": {"2011-06-15"},
+				"Name":    {"alice"},
+			},
+			wantResult: "GetFederationTokenResult",
+		},
+		{
+			name: "AssumeRoleWithSAML",
+			form: url.Values{
+				"Action":        {"AssumeRoleWithSAML"},
+				"Version":       {"2011-06-15"},
+				"RoleArn":       {"arn:aws:iam::123456789012:role/R"},
+				"PrincipalArn":  {"arn:aws:iam::123456789012:saml-provider/MyIdP"},
+				"SAMLAssertion": {"PHNhbWxwOkFzc2VydGlvbj4="},
+			},
+			wantResult: "AssumeRoleWithSAMLResult",
+		},
+		{
+			name: "AssumeRoot",
+			form: url.Values{
+				"Action":          {"AssumeRoot"},
+				"Version":         {"2011-06-15"},
+				"TargetPrincipal": {"123456789012"},
+				"TaskPolicyArn":   {"arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials"},
+			},
+			wantResult: "AssumeRootResult",
+		},
+		{
+			name: "GetDelegatedAccessToken",
+			form: url.Values{
+				"Action":       {"GetDelegatedAccessToken"},
+				"Version":      {"2011-06-15"},
+				"TradeInToken": {"my-token"},
+			},
+			wantResult: "GetDelegatedAccessTokenResult",
+		},
+		{
+			name: "GetWebIdentityToken",
+			form: url.Values{
+				"Action":            {"GetWebIdentityToken"},
+				"Version":           {"2011-06-15"},
+				"Audience.member.1": {"https://example.com"},
+				"SigningAlgorithm":  {"RS256"},
+			},
+			wantResult: "GetWebIdentityTokenResult",
+		},
+		{
+			name: "AssumeRoleWithWebIdentity",
+			form: url.Values{
+				"Action":           {"AssumeRoleWithWebIdentity"},
+				"Version":          {"2011-06-15"},
+				"RoleArn":          {"arn:aws:iam::123456789012:role/R"},
+				"RoleSessionName":  {"session"},
+				"WebIdentityToken": {"token"},
+			},
+			wantResult: "AssumeRoleWithWebIdentityResult",
+		},
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	ctxWithLogger := logger.Save(req.Context(), nil)
-	req = req.WithContext(ctxWithLogger)
+			h, _, e := accuracyHandler(t)
+			rec := accuracyPost(t, h, e, tt.form)
+			require.Equal(t, http.StatusOK, rec.Code)
 
-	err = h.Handler()(e.NewContext(req, rec))
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		XMLName xml.Name `xml:"GetAccessKeyInfoResponse"`
-		Result  struct {
-			Account string `xml:"Account"`
-		} `xml:"GetAccessKeyInfoResult"`
+			order := xmlElementOrder(t, rec.Body.Bytes())
+			require.Len(t, order, 2)
+			assert.Equal(t, tt.wantResult, order[0])
+			assert.Equal(t, "ResponseMetadata", order[1])
+		})
 	}
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, sts.MockAccountID, resp.Result.Account)
-}
-
-// TestGetAccessKeyInfo_WellFormedUnknownKey verifies that a well-formed key not in any session
-// returns 200 with the backend account ID (Gap #14: AWS derives account from key prefix encoding).
-func TestGetAccessKeyInfo_WellFormedUnknownKey(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-	h := sts.NewHandler(backend)
-	e := echo.New()
-
-	form := url.Values{
-		"Action":      {"GetAccessKeyInfo"},
-		"Version":     {"2011-06-15"},
-		"AccessKeyId": {"ASIAIOSFODNN7EXAMPLE"},
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-
-	ctxWithLogger := logger.Save(req.Context(), nil)
-	req = req.WithContext(ctxWithLogger)
-
-	err := h.Handler()(e.NewContext(req, rec))
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		XMLName xml.Name `xml:"GetAccessKeyInfoResponse"`
-		Result  struct {
-			Account string `xml:"Account"`
-		} `xml:"GetAccessKeyInfoResult"`
-	}
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, sts.MockAccountID, resp.Result.Account)
-}
-
-// TestGetAccessKeyInfo_MalformedKey verifies that a completely malformed key returns ValidationError.
-func TestGetAccessKeyInfo_MalformedKey(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-	h := sts.NewHandler(backend)
-	e := echo.New()
-
-	form := url.Values{
-		"Action":      {"GetAccessKeyInfo"},
-		"Version":     {"2011-06-15"},
-		"AccessKeyId": {"not-a-real-key"},
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-
-	ctxWithLogger := logger.Save(req.Context(), nil)
-	req = req.WithContext(ctxWithLogger)
-
-	err := h.Handler()(e.NewContext(req, rec))
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var errResp sts.ErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "ValidationError", errResp.Error.Code)
-}
-
-// TestGetAccessKeyInfo_EmptyKey verifies that an empty AccessKeyId returns ValidationError.
-func TestGetAccessKeyInfo_EmptyKey(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-	h := sts.NewHandler(backend)
-	e := echo.New()
-
-	form := url.Values{
-		"Action":      {"GetAccessKeyInfo"},
-		"Version":     {"2011-06-15"},
-		"AccessKeyId": {""},
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-
-	ctxWithLogger := logger.Save(req.Context(), nil)
-	req = req.WithContext(ctxWithLogger)
-
-	err := h.Handler()(e.NewContext(req, rec))
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var errResp sts.ErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "ValidationError", errResp.Error.Code)
-}
-
-// TestDecodeAuthorizationMessage verifies the DecodeAuthorizationMessage action.
-func TestDecodeAuthorizationMessage(t *testing.T) {
-	t.Parallel()
-
-	backend := sts.NewInMemoryBackend()
-	h := sts.NewHandler(backend)
-	e := echo.New()
-
-	original := "this is a test message"
-	// Only STS-issued encoded messages are accepted. Use the backend to issue one.
-	encoded := backend.IssueEncodedAuthorizationMessage(original)
-
-	form := url.Values{
-		"Action":         {"DecodeAuthorizationMessage"},
-		"Version":        {"2011-06-15"},
-		"EncodedMessage": {encoded},
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-
-	ctxWithLogger := logger.Save(req.Context(), nil)
-	req = req.WithContext(ctxWithLogger)
-
-	err := h.Handler()(e.NewContext(req, rec))
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		XMLName xml.Name `xml:"DecodeAuthorizationMessageResponse"`
-		Result  struct {
-			DecodedMessage string `xml:"DecodedMessage"`
-		} `xml:"DecodeAuthorizationMessageResult"`
-	}
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, original, resp.Result.DecodedMessage)
 }

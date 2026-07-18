@@ -49,9 +49,63 @@ func doSWFRequest(t *testing.T, h *swf.Handler, action string, body any) *httpte
 	return rec
 }
 
+// parseSWFResp decodes a handler response body into a generic map.
+func parseSWFResp(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+
+	return m
+}
+
 type setupAction struct {
 	body   any
 	action string
+}
+
+// createSWFDomain registers a domain via the handler for test setup.
+func createSWFDomain(t *testing.T, h *swf.Handler, name string) {
+	t.Helper()
+
+	rec := doSWFRequest(t, h, "RegisterDomain", map[string]any{
+		"name":                                   name,
+		"workflowExecutionRetentionPeriodInDays": "10",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// createSWFWorkflowType registers a workflow type via the handler for test setup.
+func createSWFWorkflowType(t *testing.T, h *swf.Handler, domain, name string) {
+	t.Helper()
+
+	rec := doSWFRequest(t, h, "RegisterWorkflowType", map[string]any{
+		"domain":  domain,
+		"name":    name,
+		"version": "1.0",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// startSWFExecution starts a workflow execution via the handler for test
+// setup and returns its runId.
+func startSWFExecution(t *testing.T, h *swf.Handler, domain, workflowType, execID string) string {
+	t.Helper()
+
+	rec := doSWFRequest(t, h, "StartWorkflowExecution", map[string]any{
+		"domain":     domain,
+		"workflowId": execID,
+		"workflowType": map[string]any{
+			"name":    workflowType,
+			"version": "1.0",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseSWFResp(t, rec)
+	runID, _ := resp["runId"].(string)
+	require.NotEmpty(t, runID)
+
+	return runID
 }
 
 func TestSWFHandler_Actions(t *testing.T) {
@@ -187,8 +241,7 @@ func TestSWFHandler_Actions(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			if tt.wantRespContains != "" {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				resp := parseSWFResp(t, rec)
 				assert.Contains(t, resp, tt.wantRespContains)
 			}
 
@@ -199,6 +252,21 @@ func TestSWFHandler_Actions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_ValidationError_Returns400 verifies validation failures surface
+// as HTTP 400 with a ValidationException __type.
+func TestHandler_ValidationError_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+
+	// Register domain with empty name should return 400.
+	rec := doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": ""})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	resp := parseSWFResp(t, rec)
+	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
 func TestSWFHandler_RouteMatcher(t *testing.T) {
@@ -272,6 +340,44 @@ func TestSWFHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "ListWorkflowTypes")
 	assert.Contains(t, ops, "StartWorkflowExecution")
 	assert.Contains(t, ops, "DescribeWorkflowExecution")
+}
+
+// TestHandler_OpsLen verifies GetSupportedOperations count.
+func TestHandler_OpsLen(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	h := swf.NewHandler(b)
+	assert.Len(t, h.GetSupportedOperations(), 39)
+}
+
+// TestHandler_GetSupportedOperationsSorted verifies GetSupportedOperations is sorted.
+func TestHandler_GetSupportedOperationsSorted(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	h := swf.NewHandler(b)
+	ops := h.GetSupportedOperations()
+
+	require.NotEmpty(t, ops)
+
+	for i := 1; i < len(ops); i++ {
+		assert.LessOrEqual(t, ops[i-1], ops[i],
+			"ops not sorted at index %d: %s > %s", i, ops[i-1], ops[i])
+	}
+}
+
+// TestHandler_Reset verifies Handler.Reset() delegates to the backend.
+func TestHandler_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("d1", "", "NONE"))
+	h := swf.NewHandler(b)
+
+	h.Reset()
+
+	assert.Zero(t, swf.DomainCount(b))
 }
 
 func TestSWFHandler_MatchPriority(t *testing.T) {
@@ -372,6 +478,25 @@ func TestSWFProvider(t *testing.T) {
 		assert.NotNil(t, svc)
 		assert.Equal(t, "SWF", svc.Name())
 	})
+
+	t.Run("InitWithJanitorCtx", func(t *testing.T) {
+		t.Parallel()
+
+		p := &swf.Provider{}
+		reg, err := p.Init(&service.AppContext{JanitorCtx: t.Context()})
+		require.NoError(t, err)
+		assert.NotNil(t, reg)
+	})
+
+	t.Run("NilAppContext", func(t *testing.T) {
+		t.Parallel()
+
+		p := &swf.Provider{}
+		_, err := p.Init(nil)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, swf.ErrNilAppContext)
+	})
 }
 
 // TestSWFHandler_ErrorTypes verifies that typed SWF faults include __type in the JSON response
@@ -444,239 +569,5 @@ func TestSWFHandler_ErrorTypes(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			assert.Equal(t, tt.wantType, resp["__type"])
 		})
-	}
-}
-
-func TestHandler_ListDomains_Pagination(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSWFHandler(t)
-
-	for _, name := range []string{"domain-a", "domain-b", "domain-c"} {
-		rec := doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": name, "description": "test"})
-		require.Equal(t, http.StatusOK, rec.Code)
-	}
-
-	tests := []struct {
-		body          map[string]any
-		name          string
-		wantMinCount  int
-		wantNextToken bool
-	}{
-		{
-			name:         "all domains no limit",
-			body:         map[string]any{"registrationStatus": "REGISTERED"},
-			wantMinCount: 3,
-		},
-		{
-			name:          "paginated maximumPageSize=1",
-			body:          map[string]any{"registrationStatus": "REGISTERED", "maximumPageSize": 1},
-			wantMinCount:  1,
-			wantNextToken: true,
-		},
-		{
-			name:         "paginated maximumPageSize=2",
-			body:         map[string]any{"registrationStatus": "REGISTERED", "maximumPageSize": 2},
-			wantMinCount: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doSWFRequest(t, h, "ListDomains", tt.body)
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			infos, ok := resp["domainInfos"].([]any)
-			require.True(t, ok)
-			assert.GreaterOrEqual(t, len(infos), tt.wantMinCount)
-
-			if tt.wantNextToken {
-				assert.NotEmpty(t, resp["nextPageToken"])
-			}
-		})
-	}
-}
-
-func TestHandler_ListDomains_TokenChaining(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSWFHandler(t)
-
-	domains := []string{"domain-x", "domain-y", "domain-z"}
-	for _, name := range domains {
-		rec := doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": name, "description": "test"})
-		require.Equal(t, http.StatusOK, rec.Code)
-	}
-
-	// First page: maximumPageSize=2.
-	rec := doSWFRequest(t, h, "ListDomains", map[string]any{
-		"registrationStatus": "REGISTERED",
-		"maximumPageSize":    2,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
-
-	infos1 := page1["domainInfos"].([]any)
-	assert.Len(t, infos1, 2)
-
-	nextToken, ok := page1["nextPageToken"].(string)
-	require.True(t, ok)
-	assert.NotEmpty(t, nextToken)
-
-	// Second page using the token.
-	rec2 := doSWFRequest(t, h, "ListDomains", map[string]any{
-		"registrationStatus": "REGISTERED",
-		"maximumPageSize":    2,
-		"nextPageToken":      nextToken,
-	})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
-
-	infos2 := page2["domainInfos"].([]any)
-	assert.GreaterOrEqual(t, len(infos2), 1)
-
-	// No duplicates.
-	names1 := make(map[string]bool)
-	for _, d := range infos1 {
-		dm := d.(map[string]any)
-		names1[dm["name"].(string)] = true
-	}
-
-	for _, d := range infos2 {
-		dm := d.(map[string]any)
-		assert.False(t, names1[dm["name"].(string)], "duplicate domain in page 2")
-	}
-}
-
-func TestHandler_ListWorkflowTypes_Pagination(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSWFHandler(t)
-
-	// Register domain first.
-	doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": "wf-domain", "description": "test"})
-
-	for _, wt := range []string{"wf-a", "wf-b", "wf-c"} {
-		rec := doSWFRequest(t, h, "RegisterWorkflowType", map[string]any{
-			"domain":  "wf-domain",
-			"name":    wt,
-			"version": "1.0",
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-	}
-
-	tests := []struct {
-		body          map[string]any
-		name          string
-		wantMinCount  int
-		wantNextToken bool
-	}{
-		{
-			name:         "all workflow types",
-			body:         map[string]any{"domain": "wf-domain", "registrationStatus": "REGISTERED"},
-			wantMinCount: 3,
-		},
-		{
-			name: "paginated maximumPageSize=1",
-			body: map[string]any{
-				"domain":             "wf-domain",
-				"registrationStatus": "REGISTERED",
-				"maximumPageSize":    1,
-			},
-			wantMinCount:  1,
-			wantNextToken: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doSWFRequest(t, h, "ListWorkflowTypes", tt.body)
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			infos, ok := resp["typeInfos"].([]any)
-			require.True(t, ok)
-			assert.GreaterOrEqual(t, len(infos), tt.wantMinCount)
-
-			if tt.wantNextToken {
-				assert.NotEmpty(t, resp["nextPageToken"])
-			}
-		})
-	}
-}
-
-func TestHandler_ListWorkflowTypes_TokenChaining(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSWFHandler(t)
-
-	doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": "chain-domain", "description": "test"})
-
-	for _, wt := range []string{"wf-1", "wf-2", "wf-3"} {
-		doSWFRequest(t, h, "RegisterWorkflowType", map[string]any{
-			"domain":  "chain-domain",
-			"name":    wt,
-			"version": "1.0",
-		})
-	}
-
-	// First page.
-	rec := doSWFRequest(t, h, "ListWorkflowTypes", map[string]any{
-		"domain":             "chain-domain",
-		"registrationStatus": "REGISTERED",
-		"maximumPageSize":    2,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
-
-	infos1 := page1["typeInfos"].([]any)
-	assert.Len(t, infos1, 2)
-
-	nextToken, ok := page1["nextPageToken"].(string)
-	require.True(t, ok)
-	assert.NotEmpty(t, nextToken)
-
-	// Second page using the token.
-	rec2 := doSWFRequest(t, h, "ListWorkflowTypes", map[string]any{
-		"domain":             "chain-domain",
-		"registrationStatus": "REGISTERED",
-		"maximumPageSize":    2,
-		"nextPageToken":      nextToken,
-	})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
-
-	infos2 := page2["typeInfos"].([]any)
-	assert.GreaterOrEqual(t, len(infos2), 1)
-
-	// No duplicates between pages.
-	names1 := make(map[string]bool)
-	for _, wt := range infos1 {
-		wm := wt.(map[string]any)
-		wtRef := wm["workflowType"].(map[string]any)
-		names1[wtRef["name"].(string)] = true
-	}
-
-	for _, wt := range infos2 {
-		wm := wt.(map[string]any)
-		wtRef := wm["workflowType"].(map[string]any)
-		assert.False(t, names1[wtRef["name"].(string)], "duplicate workflow type in page 2")
 	}
 }

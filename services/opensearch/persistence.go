@@ -28,7 +28,7 @@ const opensearchSnapshotVersion = 2
 // domainIndexSnapshot are DTOs used ONLY for Snapshot/Restore. Each mirrors
 // its live type field for field, except the identity field (DomainName) is
 // given a real JSON tag here instead of the live type's `json:"-"` (see
-// backend.go / backend_advanced.go) -- marshaling the live type directly
+// models.go / advanced.go) -- marshaling the live type directly
 // would silently drop that field, and unmarshaling into it would leave it
 // permanently empty, corrupting the table's key on restore. This is the same
 // DTO-registry technique services/sqs uses for its Queue/moveTaskState types

@@ -11,7 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestBatch3_Workflow_CRUD(t *testing.T) {
+func TestWorkflow_CRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -79,7 +79,7 @@ func TestBatch3_Workflow_CRUD(t *testing.T) {
 	}
 }
 
-func TestBatch3_Workflow_DeleteAndList(t *testing.T) {
+func TestWorkflow_DeleteAndList(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -136,7 +136,7 @@ func TestBatch3_Workflow_DeleteAndList(t *testing.T) {
 	})
 }
 
-func TestBatch3_Workflow_RunLifecycle(t *testing.T) {
+func TestWorkflow_RunLifecycle(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -158,7 +158,7 @@ func TestBatch3_Workflow_RunLifecycle(t *testing.T) {
 	})
 }
 
-func TestBatch3_Workflow_GetRunAndProperties(t *testing.T) {
+func TestWorkflow_GetRunAndProperties(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -214,7 +214,7 @@ func TestBatch3_Workflow_GetRunAndProperties(t *testing.T) {
 	assert.Equal(t, http.StatusOK, stopRunRec.Code)
 }
 
-func TestBatch3_Workflow_UpdateDefaultRunProperties(t *testing.T) {
+func TestWorkflow_UpdateDefaultRunProperties(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -241,8 +241,8 @@ func TestBatch3_Workflow_UpdateDefaultRunProperties(t *testing.T) {
 	assert.Equal(t, "us-east-1", props["region"])
 }
 
-// TestNewOps_WorkflowRunExtras tests StopWorkflowRun and PutWorkflowRunProperties.
-func TestNewOps_WorkflowRunExtras(t *testing.T) {
+// TestWorkflowRunExtras tests StopWorkflowRun and PutWorkflowRunProperties.
+func TestWorkflowRunExtras(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 

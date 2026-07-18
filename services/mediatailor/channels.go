@@ -1,0 +1,259 @@
+package mediatailor
+
+import (
+	"fmt"
+	"maps"
+	"sort"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+type storedChannel struct {
+	FillerSlate  *SlateSource      `json:"fillerSlate,omitempty"`
+	CreationTime time.Time         `json:"creationTime"`
+	LastModified time.Time         `json:"lastModified"`
+	Tags         map[string]string `json:"tags"`
+	Name         string            `json:"name"`
+	ARN          string            `json:"arn"`
+	PlaybackMode string            `json:"playbackMode"`
+	ChannelState string            `json:"channelState"`
+	Tier         string            `json:"tier"`
+	Outputs      []OutputItem      `json:"outputs"`
+}
+
+func (c *storedChannel) toChannel() *Channel {
+	tags := make(map[string]string, len(c.Tags))
+	maps.Copy(tags, c.Tags)
+
+	outputs := make([]OutputItem, len(c.Outputs))
+	copy(outputs, c.Outputs)
+
+	ch := &Channel{
+		CreationTime: c.CreationTime,
+		LastModified: c.LastModified,
+		Tags:         tags,
+		Name:         c.Name,
+		ARN:          c.ARN,
+		PlaybackMode: c.PlaybackMode,
+		ChannelState: c.ChannelState,
+		Tier:         c.Tier,
+		Outputs:      outputs,
+	}
+
+	if c.FillerSlate != nil {
+		ch.FillerSlate = &SlateSource{
+			SourceLocationName: c.FillerSlate.SourceLocationName,
+			VodSourceName:      c.FillerSlate.VodSourceName,
+		}
+	}
+
+	return ch
+}
+
+func (c *storedChannel) toSummary() *ChannelSummary {
+	tags := make(map[string]string, len(c.Tags))
+	maps.Copy(tags, c.Tags)
+
+	s := &ChannelSummary{
+		CreationTime: c.CreationTime,
+		LastModified: c.LastModified,
+		Tags:         tags,
+		Name:         c.Name,
+		ARN:          c.ARN,
+		PlaybackMode: c.PlaybackMode,
+		ChannelState: c.ChannelState,
+		Tier:         c.Tier,
+	}
+
+	if c.FillerSlate != nil {
+		s.FillerSlate = &SlateSource{
+			SourceLocationName: c.FillerSlate.SourceLocationName,
+			VodSourceName:      c.FillerSlate.VodSourceName,
+		}
+	}
+
+	return s
+}
+
+// --- Channel operations ---
+
+// CreateChannel creates a new channel.
+func (b *InMemoryBackend) CreateChannel(
+	name, playbackMode string,
+	outputs []OutputItem,
+	fillerSlate *SlateSource,
+	tags map[string]string,
+) (*Channel, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: ChannelName required", ErrInvalidParameter)
+	}
+
+	switch playbackMode {
+	case "", playbackModeLoop:
+		playbackMode = playbackModeLoop
+	case playbackModeLinear:
+	default:
+		return nil, fmt.Errorf(
+			"%w: PlaybackMode must be %s or %s",
+			ErrInvalidParameter, playbackModeLinear, playbackModeLoop,
+		)
+	}
+
+	b.mu.Lock("CreateChannel")
+	defer b.mu.Unlock()
+
+	if b.channels.Has(name) {
+		return nil, fmt.Errorf("%w: channel %s already exists", ErrConflict, name)
+	}
+
+	out := make([]OutputItem, len(outputs))
+	copy(out, outputs)
+
+	now := time.Now().UTC()
+	ch := &storedChannel{
+		Tags:         copyTags(tags),
+		Name:         name,
+		ARN:          b.channelARN(name),
+		PlaybackMode: playbackMode,
+		ChannelState: channelStateStopped,
+		Tier:         "BASIC",
+		CreationTime: now,
+		LastModified: now,
+		Outputs:      out,
+	}
+
+	if fillerSlate != nil {
+		ch.FillerSlate = &SlateSource{
+			SourceLocationName: fillerSlate.SourceLocationName,
+			VodSourceName:      fillerSlate.VodSourceName,
+		}
+	}
+
+	b.channels.Put(ch)
+
+	return ch.toChannel(), nil
+}
+
+// DescribeChannel returns a channel by name.
+func (b *InMemoryBackend) DescribeChannel(name string) (*Channel, error) {
+	b.mu.RLock("DescribeChannel")
+	defer b.mu.RUnlock()
+
+	ch, ok := b.channels.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
+	}
+
+	result := ch.toChannel()
+	result.Tags = make(map[string]string)
+	maps.Copy(result.Tags, b.tags[ch.ARN])
+
+	return result, nil
+}
+
+// UpdateChannel updates a channel's outputs.
+func (b *InMemoryBackend) UpdateChannel(name string, outputs []OutputItem) (*Channel, error) {
+	b.mu.Lock("UpdateChannel")
+	defer b.mu.Unlock()
+
+	ch, ok := b.channels.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
+	}
+
+	out := make([]OutputItem, len(outputs))
+	copy(out, outputs)
+	ch.Outputs = out
+
+	return ch.toChannel(), nil
+}
+
+// DeleteChannel deletes a channel.
+func (b *InMemoryBackend) DeleteChannel(name string) error {
+	b.mu.Lock("DeleteChannel")
+	defer b.mu.Unlock()
+
+	ch, ok := b.channels.Get(name)
+	if !ok {
+		return fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
+	}
+
+	if ch.ChannelState == channelStateRunning {
+		return fmt.Errorf("%w: channel must be stopped before deleting", ErrConflict)
+	}
+
+	delete(b.tags, ch.ARN)
+	b.channels.Delete(name)
+
+	return nil
+}
+
+// ListChannels returns a paginated list of channels.
+func (b *InMemoryBackend) ListChannels(maxResults int, nextToken string) ([]*ChannelSummary, string, error) {
+	b.mu.RLock("ListChannels")
+	defer b.mu.RUnlock()
+
+	all := b.channels.All()
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
+
+	summaries := make([]*ChannelSummary, 0, len(pg.Data))
+	for _, ch := range pg.Data {
+		s := ch.toSummary()
+		s.Tags = make(map[string]string)
+		maps.Copy(s.Tags, b.tags[ch.ARN])
+		summaries = append(summaries, s)
+	}
+
+	return summaries, pg.Next, nil
+}
+
+// StartChannel transitions a channel to RUNNING.
+// Idempotent: no error if already running.
+func (b *InMemoryBackend) StartChannel(name string) error {
+	b.mu.Lock("StartChannel")
+	defer b.mu.Unlock()
+
+	ch, ok := b.channels.Get(name)
+	if !ok {
+		return fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
+	}
+
+	ch.ChannelState = channelStateRunning
+
+	return nil
+}
+
+// StopChannel transitions a channel to STOPPED.
+// Idempotent: no error if already stopped.
+func (b *InMemoryBackend) StopChannel(name string) error {
+	b.mu.Lock("StopChannel")
+	defer b.mu.Unlock()
+
+	ch, ok := b.channels.Get(name)
+	if !ok {
+		return fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
+	}
+
+	ch.ChannelState = channelStateStopped
+
+	return nil
+}
+
+// ConfigureLogsForChannel sets log types on a channel.
+func (b *InMemoryBackend) ConfigureLogsForChannel(channelName string, logTypes []string) (string, []string, error) {
+	b.mu.Lock("ConfigureLogsForChannel")
+	defer b.mu.Unlock()
+
+	if !b.channels.Has(channelName) {
+		return "", nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
+	}
+
+	result := make([]string, len(logTypes))
+	copy(result, logTypes)
+
+	return channelName, result, nil
+}

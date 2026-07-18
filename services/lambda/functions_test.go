@@ -14,7 +14,7 @@ import (
 
 // --- FunctionConfig state tests (waiter compatibility) ---
 
-func TestBatch1_FunctionConfig_StateActiveAfterCreate(t *testing.T) {
+func TestFunctionConfig_StateActiveAfterCreate(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -29,7 +29,7 @@ func TestBatch1_FunctionConfig_StateActiveAfterCreate(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"LastUpdateStatus":"Successful"`)
 }
 
-func TestBatch1_FunctionConfig_StateAfterUpdateCode(t *testing.T) {
+func TestFunctionConfig_StateAfterUpdateCode(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -46,7 +46,7 @@ func TestBatch1_FunctionConfig_StateAfterUpdateCode(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"LastUpdateStatus":"Successful"`)
 }
 
-func TestBatch1_FunctionConfig_StateAfterUpdateConfiguration(t *testing.T) {
+func TestFunctionConfig_StateAfterUpdateConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -67,7 +67,7 @@ func TestBatch1_FunctionConfig_StateAfterUpdateConfiguration(t *testing.T) {
 // FunctionConfiguration: env vars + timeout + memory + layers + vpc + dlq + tracing + filesystem
 // ============================================================
 
-func TestBatch2_UpdateConfig_EnvVars(t *testing.T) {
+func TestUpdateConfig_EnvVars(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -85,7 +85,7 @@ func TestBatch2_UpdateConfig_EnvVars(t *testing.T) {
 	assert.Equal(t, "bar", fn.Environment.Variables["FOO"])
 }
 
-func TestBatch2_UpdateConfig_TimeoutAndMemory(t *testing.T) {
+func TestUpdateConfig_TimeoutAndMemory(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -102,7 +102,7 @@ func TestBatch2_UpdateConfig_TimeoutAndMemory(t *testing.T) {
 	assert.Equal(t, 512, fn.MemorySize)
 }
 
-func TestBatch2_UpdateConfig_VPC(t *testing.T) {
+func TestUpdateConfig_VPC(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -120,7 +120,7 @@ func TestBatch2_UpdateConfig_VPC(t *testing.T) {
 	assert.Equal(t, []string{"sg-xyz"}, fn.VpcConfig.SecurityGroupIDs)
 }
 
-func TestBatch2_UpdateConfig_DLQ(t *testing.T) {
+func TestUpdateConfig_DLQ(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -137,7 +137,7 @@ func TestBatch2_UpdateConfig_DLQ(t *testing.T) {
 	assert.Equal(t, "arn:aws:sqs:us-east-1:000000000000:dlq", fn.DeadLetterConfig.TargetArn)
 }
 
-func TestBatch2_UpdateConfig_Tracing(t *testing.T) {
+func TestUpdateConfig_Tracing(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -154,7 +154,7 @@ func TestBatch2_UpdateConfig_Tracing(t *testing.T) {
 	assert.Equal(t, "Active", fn.TracingConfig.Mode)
 }
 
-func TestBatch2_UpdateConfig_FileSystem(t *testing.T) {
+func TestUpdateConfig_FileSystem(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -172,7 +172,7 @@ func TestBatch2_UpdateConfig_FileSystem(t *testing.T) {
 	assert.Equal(t, "/mnt/data", fn.FileSystemConfigs[0].LocalMountPath)
 }
 
-func TestBatch2_UpdateConfig_Layers(t *testing.T) {
+func TestUpdateConfig_Layers(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -200,7 +200,7 @@ func TestBatch2_UpdateConfig_Layers(t *testing.T) {
 	assert.Contains(t, fn.Layers[0].Arn, "my-layer")
 }
 
-func TestBatch2_UpdateConfig_NotFound(t *testing.T) {
+func TestUpdateConfig_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -211,7 +211,7 @@ func TestBatch2_UpdateConfig_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestBatch2_UpdateConfig_InvalidTimeout(t *testing.T) {
+func TestUpdateConfig_InvalidTimeout(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -223,7 +223,7 @@ func TestBatch2_UpdateConfig_InvalidTimeout(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestBatch2_GetFunctionConfiguration(t *testing.T) {
+func TestGetFunctionConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -247,7 +247,7 @@ func TestBatch2_GetFunctionConfiguration(t *testing.T) {
 // FunctionArchitectures: arm64 + x86_64
 // ============================================================
 
-func TestBatch2_Architectures_CreateArm64(t *testing.T) {
+func TestArchitectures_CreateArm64(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -262,7 +262,7 @@ func TestBatch2_Architectures_CreateArm64(t *testing.T) {
 	require.Equal(t, []string{"arm64"}, fn.Architectures)
 }
 
-func TestBatch2_Architectures_CreateX86(t *testing.T) {
+func TestArchitectures_CreateX86(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -277,7 +277,7 @@ func TestBatch2_Architectures_CreateX86(t *testing.T) {
 	assert.Equal(t, []string{"x86_64"}, fn.Architectures)
 }
 
-func TestBatch2_Architectures_UpdateCode(t *testing.T) {
+func TestArchitectures_UpdateCode(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -293,7 +293,7 @@ func TestBatch2_Architectures_UpdateCode(t *testing.T) {
 	assert.Equal(t, []string{"arm64"}, fn.Architectures)
 }
 
-func TestBatch2_Architectures_DefaultIsX86(t *testing.T) {
+func TestArchitectures_DefaultIsX86(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -315,7 +315,7 @@ func TestBatch2_Architectures_DefaultIsX86(t *testing.T) {
 // SnapStart
 // ============================================================
 
-func TestBatch2_SnapStart_CreateWithPublishedVersions(t *testing.T) {
+func TestSnapStart_CreateWithPublishedVersions(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -333,7 +333,7 @@ func TestBatch2_SnapStart_CreateWithPublishedVersions(t *testing.T) {
 	assert.Equal(t, "On", fn.SnapStart.OptimizationStatus)
 }
 
-func TestBatch2_SnapStart_CreateWithNone(t *testing.T) {
+func TestSnapStart_CreateWithNone(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -350,7 +350,7 @@ func TestBatch2_SnapStart_CreateWithNone(t *testing.T) {
 	assert.Equal(t, "Off", fn.SnapStart.OptimizationStatus)
 }
 
-func TestBatch2_SnapStart_UpdateFunctionConfiguration(t *testing.T) {
+func TestSnapStart_UpdateFunctionConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -368,7 +368,7 @@ func TestBatch2_SnapStart_UpdateFunctionConfiguration(t *testing.T) {
 	assert.Equal(t, "On", fn.SnapStart.OptimizationStatus)
 }
 
-func TestBatch2_SnapStart_DisableViaUpdate(t *testing.T) {
+func TestSnapStart_DisableViaUpdate(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -389,7 +389,7 @@ func TestBatch2_SnapStart_DisableViaUpdate(t *testing.T) {
 	assert.Equal(t, "Off", fn.SnapStart.OptimizationStatus)
 }
 
-func TestBatch2_SnapStart_GetFunctionReflectsState(t *testing.T) {
+func TestSnapStart_GetFunctionReflectsState(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -411,7 +411,7 @@ func TestBatch2_SnapStart_GetFunctionReflectsState(t *testing.T) {
 // Function State: Active / Pending / Inactive lifecycle
 // ============================================================
 
-func TestBatch2_FunctionState_ActiveOnCreate(t *testing.T) {
+func TestFunctionState_ActiveOnCreate(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -426,14 +426,14 @@ func TestBatch2_FunctionState_ActiveOnCreate(t *testing.T) {
 	assert.Equal(t, lambda.FunctionStateActive, out.Configuration.State)
 }
 
-func TestBatch2_FunctionState_InactiveConstant(t *testing.T) {
+func TestFunctionState_InactiveConstant(t *testing.T) {
 	t.Parallel()
 
 	// Verify the constant exists and has the correct value
 	assert.Equal(t, lambda.FunctionStateInactive, lambda.FunctionState("Inactive"))
 }
 
-func TestBatch2_FunctionState_ListedFunctionsHaveState(t *testing.T) {
+func TestFunctionState_ListedFunctionsHaveState(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -450,7 +450,7 @@ func TestBatch2_FunctionState_ListedFunctionsHaveState(t *testing.T) {
 	}
 }
 
-func TestBatch2_FunctionState_VersionHasState(t *testing.T) {
+func TestFunctionState_VersionHasState(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -469,7 +469,7 @@ func TestBatch2_FunctionState_VersionHasState(t *testing.T) {
 // CreateFunction: all input field roundtrips
 // ============================================================
 
-func TestBatch2_CreateFunction_AllFields(t *testing.T) {
+func TestCreateFunction_AllFields(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -506,7 +506,7 @@ func TestBatch2_CreateFunction_AllFields(t *testing.T) {
 // Misc: function URL + version + alias qualifier invokes
 // ============================================================
 
-func TestBatch2_GetFunction_WithQualifierAlias(t *testing.T) {
+func TestGetFunction_WithQualifierAlias(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -521,7 +521,7 @@ func TestBatch2_GetFunction_WithQualifierAlias(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch2_GetFunction_WithVersionQualifier(t *testing.T) {
+func TestGetFunction_WithVersionQualifier(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -533,7 +533,7 @@ func TestBatch2_GetFunction_WithVersionQualifier(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch2_GetFunction_WithLatestQualifier(t *testing.T) {
+func TestGetFunction_WithLatestQualifier(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -544,11 +544,11 @@ func TestBatch2_GetFunction_WithLatestQualifier(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestBatch2Audit_UpdateFunctionCode_Publish verifies that UpdateFunctionCode with
+// TestUpdateFunctionCode_Publish verifies that UpdateFunctionCode with
 // Publish=true publishes a new numbered version after updating the code, matching
 // AWS Lambda behaviour. Previously the Publish field was absent from the input
 // struct and the version was never published.
-func TestBatch2Audit_UpdateFunctionCode_Publish(t *testing.T) {
+func TestUpdateFunctionCode_Publish(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -597,10 +597,10 @@ func TestBatch2Audit_UpdateFunctionCode_Publish(t *testing.T) {
 	}
 }
 
-// TestBatch2Audit_CreateFunction_Tags verifies that tags supplied in CreateFunction
+// TestCreateFunction_Tags verifies that tags supplied in CreateFunction
 // are returned in the function configuration, matching AWS Lambda behaviour.
 // Previously CreateFunctionInput lacked a Tags field and any tags were silently dropped.
-func TestBatch2Audit_CreateFunction_Tags(t *testing.T) {
+func TestCreateFunction_Tags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -648,11 +648,11 @@ func TestBatch2Audit_CreateFunction_Tags(t *testing.T) {
 	}
 }
 
-// TestBatch2Audit_CreateFunction_MemorySizeNotDivisibleBy64 verifies that CreateFunction
+// TestCreateFunction_MemorySizeNotDivisibleBy64 verifies that CreateFunction
 // returns HTTP 400 InvalidParameterValueException when MemorySize is not divisible by 64,
 // matching AWS Lambda behaviour. Previously the backend returned ErrInvalidParameterValue
 // but the handler mapped it to HTTP 500 ServiceException.
-func TestBatch2Audit_CreateFunction_MemorySizeNotDivisibleBy64(t *testing.T) {
+func TestCreateFunction_MemorySizeNotDivisibleBy64(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -709,7 +709,7 @@ func TestBatch2Audit_CreateFunction_MemorySizeNotDivisibleBy64(t *testing.T) {
 // SnapStart — OptimizationStatus in GetFunctionConfiguration
 // ============================================================
 
-func TestBatch3_SnapStart_GetConfiguration_OptimizationStatus(t *testing.T) {
+func TestSnapStart_GetConfiguration_OptimizationStatus(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -735,9 +735,9 @@ func TestBatch3_SnapStart_GetConfiguration_OptimizationStatus(t *testing.T) {
 	assert.Equal(t, "On", snap["OptimizationStatus"])
 }
 
-// TestAuditLambda_LoggingConfig_DefaultOnCreate verifies GetFunction returns
+// TestLoggingConfig_DefaultOnCreate verifies GetFunction returns
 // LoggingConfig with format=Text and the correct log group.
-func TestAuditLambda_LoggingConfig_DefaultOnCreate(t *testing.T) {
+func TestLoggingConfig_DefaultOnCreate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -783,9 +783,9 @@ func TestAuditLambda_LoggingConfig_DefaultOnCreate(t *testing.T) {
 	}
 }
 
-// TestAuditLambda_ListFunctions_FunctionVersionAll verifies that ListFunctions?FunctionVersion=ALL
+// TestListFunctions_FunctionVersionAll verifies that ListFunctions?FunctionVersion=ALL
 // returns published versions alongside $LATEST.
-func TestAuditLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
+func TestListFunctions_FunctionVersionAll(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -847,8 +847,8 @@ func TestAuditLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
 	}
 }
 
-// TestComprehensive_UpdateFunctionCodeArchitectures verifies that Architectures is stored and returned.
-func TestComprehensive_UpdateFunctionCodeArchitectures(t *testing.T) {
+// TestUpdateFunctionCodeArchitectures verifies that Architectures is stored and returned.
+func TestUpdateFunctionCodeArchitectures(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)
@@ -880,8 +880,8 @@ func TestComprehensive_UpdateFunctionCodeArchitectures(t *testing.T) {
 	assert.Equal(t, []string{"arm64"}, fn2.Architectures)
 }
 
-// TestComprehensive_MasterArn verifies that MasterArn is returned when set on a function.
-func TestComprehensive_MasterArn(t *testing.T) {
+// TestMasterArn verifies that MasterArn is returned when set on a function.
+func TestMasterArn(t *testing.T) {
 	t.Parallel()
 
 	_, bk := newInMemoryHandler(t)

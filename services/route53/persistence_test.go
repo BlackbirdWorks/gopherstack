@@ -1,6 +1,7 @@
 package route53_test
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 
@@ -320,4 +321,146 @@ func TestInMemoryBackend_SnapshotRestore_HealthChecks(t *testing.T) {
 			tt.verify(t, fresh, id)
 		})
 	}
+}
+func TestTagsPersistAcrossSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	original := route53.NewInMemoryBackend()
+
+	hz, err := original.CreateHostedZone("example.com", "ref-tags-persist", "", false, "")
+	require.NoError(t, err)
+
+	require.NoError(t, original.ChangeTagsForResource(
+		"hostedzone", hz.ID, map[string]string{"env": "prod"}, nil,
+	))
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := route53.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	tags, err := fresh.ListTagsForResource("hostedzone", hz.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "prod", tags["env"],
+		"resource tags must be wired into backendSnapshot and survive a restore")
+}
+
+func TestSnapshotRestore_KSK(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantKSKCount int
+	}{
+		{
+			name:         "ksk_survives_snapshot_restore",
+			wantKSKCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := route53.NewInMemoryBackend()
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
+			require.NoError(t, err)
+
+			_, err = b.CreateKeySigningKey(hz.ID, "caller-1", "key1", "arn:kms:test", "ACTIVE")
+			require.NoError(t, err)
+
+			snap := b.Snapshot(t.Context())
+			require.NotEmpty(t, snap)
+
+			b2 := route53.NewInMemoryBackend()
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			assert.Equal(t, tt.wantKSKCount, route53.KeySigningKeyCount(b2))
+		})
+	}
+}
+
+func TestSnapshotRestore_VPCAssociation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		wantVPCCount int
+	}{
+		{
+			name:         "vpc_association_survives_snapshot_restore",
+			wantVPCCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := route53.NewInMemoryBackend()
+			hz, err := b.CreateHostedZone("example.com", "ref-1", "", true, "")
+			require.NoError(t, err)
+
+			require.NoError(t, b.AssociateVPCWithHostedZone(hz.ID, "vpc-123", "us-east-1"))
+
+			snap := b.Snapshot(t.Context())
+			require.NotEmpty(t, snap)
+
+			b2 := route53.NewInMemoryBackend()
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			assert.Equal(t, tt.wantVPCCount, route53.VPCAssociationCount(b2))
+		})
+	}
+}
+
+func TestRoute53_SnapshotRestore_NewOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	// Create a zone.
+	zoneRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, zoneRec.Code)
+	zoneID := extractZoneID(t, zoneRec.Body.String())
+
+	// Create a CIDR collection.
+	cidrBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateCidrCollectionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>snap-cidrs</Name>
+  <CallerReference>snap-cidr-ref</CallerReference>
+</CreateCidrCollectionRequest>`
+	cidrRec := send(t, h, http.MethodPost, "/2013-04-01/cidrcollection", cidrBody)
+	require.Equal(t, http.StatusCreated, cidrRec.Code)
+
+	// Create a traffic policy.
+	tpBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>snap-policy</Name>
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01"}</Document>
+</CreateTrafficPolicyRequest>`
+	tpRec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", tpBody)
+	require.Equal(t, http.StatusCreated, tpRec.Code)
+	policyID := extractTrafficPolicyID(t, tpRec.Body.String())
+
+	// Snapshot and restore.
+	snap := h.Backend.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	newBackend := route53.NewInMemoryBackend()
+	require.NoError(t, newBackend.Restore(t.Context(), snap))
+	newHandler := route53.NewHandler(newBackend)
+
+	// Verify zone still accessible.
+	getRec := send(t, newHandler, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID, "")
+	assert.Equal(t, http.StatusOK, getRec.Code)
+
+	// Verify traffic policy version can be created (policy still exists).
+	versionBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateTrafficPolicyVersionRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Document>{"AWSPolicyFormatVersion":"2015-10-01","v2":true}</Document>
+</CreateTrafficPolicyVersionRequest>`
+	versionRec := send(t, newHandler, http.MethodPost, "/2013-04-01/trafficpolicy/"+policyID, versionBody)
+	assert.Equal(t, http.StatusCreated, versionRec.Code)
 }
