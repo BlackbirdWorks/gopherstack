@@ -2,6 +2,7 @@ package fis
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -512,6 +513,56 @@ func builtinActionSummaries(accountID, region string) []ActionSummary {
 	}
 
 	return result
+}
+
+// ----------------------------------------
+// Action discovery
+// ----------------------------------------
+
+// ListActions returns all available FIS actions: built-in + service-provided, sorted by ID.
+// Built-in actions take precedence over provider-supplied actions with the same ID (dedup by ID).
+func (b *InMemoryBackend) ListActions() []ActionSummary {
+	b.mu.RLock("ListActions")
+	providers := b.actionProviders
+	b.mu.RUnlock()
+
+	seen := make(map[string]ActionSummary)
+
+	for _, a := range builtinActionSummaries(b.accountID, b.region) {
+		seen[a.ID] = a
+	}
+
+	for _, p := range providers {
+		for _, def := range p.FISActions() {
+			if _, exists := seen[def.ActionID]; !exists {
+				seen[def.ActionID] = actionDefToSummary(def, b.accountID, b.region)
+			}
+		}
+	}
+
+	all := make([]ActionSummary, 0, len(seen))
+	for _, a := range seen {
+		all = append(all, a)
+	}
+
+	slices.SortFunc(all, func(a, b ActionSummary) int { return strings.Compare(a.ID, b.ID) })
+
+	return all
+}
+
+// GetAction returns a single action by ID.
+func (b *InMemoryBackend) GetAction(id string) (*ActionSummary, error) {
+	all := b.ListActions()
+
+	for _, a := range all {
+		if a.ID == id {
+			cp := a
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrActionNotFound, id)
 }
 
 // defaultTargetKey returns the default target map key for an action when TargetKey is not set.

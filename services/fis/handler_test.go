@@ -2,12 +2,13 @@ package fis_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
-	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -16,10 +17,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
-
-// ----------------------------------------
-// Test helpers
-// ----------------------------------------
 
 func newTestHandler(t *testing.T) *fis.Handler {
 	t.Helper()
@@ -64,6 +61,46 @@ func mustJSON(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 // ----------------------------------------
 // Handler metadata tests
 // ----------------------------------------
+
+// minimalTemplateBody returns a minimal valid create-experiment-template request body.
+func minimalTemplateBody() map[string]any {
+	return map[string]any{
+		"description": "refinement test template",
+		"roleArn":     "arn:aws:iam::000000000000:role/TestRole",
+		"stopConditions": []map[string]any{
+			{"source": "none"},
+		},
+		"targets": map[string]any{},
+		"actions": map[string]any{},
+	}
+}
+
+// seedTemplate creates a template via HTTP and returns its ID.
+func seedTemplate(t *testing.T, h *fis.Handler) string {
+	t.Helper()
+
+	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", minimalTemplateBody())
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp struct {
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
+	}
+	mustJSON(t, rec, &resp)
+
+	return resp.ExperimentTemplate.ID
+}
+
+// ----------------------------------------
+// Reset tests
+// ----------------------------------------
+
+// jsonUnmarshalFIS decodes JSON from a recorder into v.
+func jsonUnmarshalFIS(t *testing.T, data []byte, v any) {
+	t.Helper()
+	require.NoError(t, json.Unmarshal(data, v))
+}
 
 func TestFISHandler_Name(t *testing.T) {
 	t.Parallel()
@@ -146,531 +183,6 @@ func TestFISHandler_RouteMatcher(t *testing.T) {
 // ExperimentTemplate CRUD tests
 // ----------------------------------------
 
-func TestFISHandler_CreateGetExperimentTemplate(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	body := map[string]any{
-		"description": "test template",
-		"roleArn":     "arn:aws:iam::000000000000:role/TestRole",
-		"stopConditions": []map[string]any{
-			{"source": "none"},
-		},
-		"targets": map[string]any{},
-		"actions": map[string]any{
-			"wait": map[string]any{
-				"actionId": "aws:fis:wait",
-				"parameters": map[string]string{
-					"duration": "PT1S",
-				},
-			},
-		},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	assert.Equal(t, http.StatusCreated, rec.Code)
-
-	var createResp struct {
-		ExperimentTemplate struct {
-			Tags        map[string]string `json:"tags"`
-			ID          string            `json:"id"`
-			Description string            `json:"description"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &createResp)
-	assert.NotEmpty(t, createResp.ExperimentTemplate.ID)
-	assert.Equal(t, "test template", createResp.ExperimentTemplate.Description)
-
-	id := createResp.ExperimentTemplate.ID
-
-	// GetExperimentTemplate
-	rec2 := doRequest(t, h, http.MethodGet, "/experimentTemplates/"+id, nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var getResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec2, &getResp)
-	assert.Equal(t, id, getResp.ExperimentTemplate.ID)
-}
-
-func TestFISHandler_GetExperimentTemplate_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/experimentTemplates/EXTnonexistent0000000000", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestFISHandler_UpdateExperimentTemplate(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create first.
-	createBody := map[string]any{
-		"description":    "original",
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions":        map[string]any{},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", createBody)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var createResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &createResp)
-	id := createResp.ExperimentTemplate.ID
-
-	// Update.
-	updateBody := map[string]any{"description": "updated"}
-	rec2 := doRequest(t, h, http.MethodPatch, "/experimentTemplates/"+id, updateBody)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var updateResp struct {
-		ExperimentTemplate struct {
-			Description string `json:"description"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec2, &updateResp)
-	assert.Equal(t, "updated", updateResp.ExperimentTemplate.Description)
-}
-
-func TestFISHandler_DeleteExperimentTemplate(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create first.
-	createBody := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions":        map[string]any{},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", createBody)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var createResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &createResp)
-	id := createResp.ExperimentTemplate.ID
-
-	// Delete.
-	rec2 := doRequest(t, h, http.MethodDelete, "/experimentTemplates/"+id, nil)
-	assert.Equal(t, http.StatusNoContent, rec2.Code)
-
-	// Verify deletion.
-	rec3 := doRequest(t, h, http.MethodGet, "/experimentTemplates/"+id, nil)
-	assert.Equal(t, http.StatusNotFound, rec3.Code)
-}
-
-func TestFISHandler_ListExperimentTemplates(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	createBody := func(desc string) map[string]any {
-		return map[string]any{
-			"description":    desc,
-			"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-			"stopConditions": []map[string]any{{"source": "none"}},
-			"targets":        map[string]any{},
-			"actions":        map[string]any{},
-		}
-	}
-
-	doRequest(t, h, http.MethodPost, "/experimentTemplates", createBody("first"))
-	doRequest(t, h, http.MethodPost, "/experimentTemplates", createBody("second"))
-
-	rec := doRequest(t, h, http.MethodGet, "/experimentTemplates", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var listResp struct {
-		ExperimentTemplates []struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplates"`
-	}
-
-	mustJSON(t, rec, &listResp)
-	assert.Len(t, listResp.ExperimentTemplates, 2)
-}
-
-// ----------------------------------------
-// Experiment lifecycle tests
-// ----------------------------------------
-
-func createTestTemplate(t *testing.T, h *fis.Handler) string {
-	t.Helper()
-
-	body := map[string]any{
-		"description":    "integration test template",
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions": map[string]any{
-			"wait": map[string]any{
-				"actionId":   "aws:fis:wait",
-				"parameters": map[string]string{"duration": "PT1S"},
-			},
-		},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var resp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &resp)
-	require.NotEmpty(t, resp.ExperimentTemplate.ID)
-
-	return resp.ExperimentTemplate.ID
-}
-
-func TestFISHandler_StartGetExperiment(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	templateID := createTestTemplate(t, h)
-
-	// StartExperiment
-	startBody := map[string]any{
-		"experimentTemplateId": templateID,
-		"tags":                 map[string]string{"env": "test"},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experiments", startBody)
-	assert.Equal(t, http.StatusCreated, rec.Code)
-
-	var startResp struct {
-		Experiment struct {
-			ID                   string `json:"id"`
-			ExperimentTemplateID string `json:"experimentTemplateId"`
-			Status               struct {
-				Status string `json:"status"`
-			} `json:"status"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec, &startResp)
-	assert.NotEmpty(t, startResp.Experiment.ID)
-	assert.Equal(t, templateID, startResp.Experiment.ExperimentTemplateID)
-	assert.NotEmpty(t, startResp.Experiment.Status.Status)
-
-	expID := startResp.Experiment.ID
-
-	// GetExperiment
-	rec2 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var getResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &getResp)
-	assert.Equal(t, expID, getResp.Experiment.ID)
-}
-
-func TestFISHandler_StartExperiment_TemplateNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	startBody := map[string]any{
-		"experimentTemplateId": "EXTnonexistent0000000000",
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experiments", startBody)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestFISHandler_StopExperiment(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Use a long-duration experiment so it's still running when we stop it.
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions": map[string]any{
-			"wait": map[string]any{
-				"actionId":   "aws:fis:wait",
-				"parameters": map[string]string{"duration": "PT1H"},
-			},
-		},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	// Stop the experiment.
-	rec3 := doRequest(t, h, http.MethodDelete, "/experiments/"+expID, nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-}
-
-func TestFISHandler_GetExperiment_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/experiments/EXPnonexistent0000000000", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestFISHandler_ListExperiments(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	templateID := createTestTemplate(t, h)
-
-	doRequest(t, h, http.MethodPost, "/experiments", map[string]any{"experimentTemplateId": templateID})
-	doRequest(t, h, http.MethodPost, "/experiments", map[string]any{"experimentTemplateId": templateID})
-
-	rec := doRequest(t, h, http.MethodGet, "/experiments", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var listResp struct {
-		Experiments []struct {
-			ID string `json:"id"`
-		} `json:"experiments"`
-	}
-
-	mustJSON(t, rec, &listResp)
-	assert.Len(t, listResp.Experiments, 2)
-}
-
-// ----------------------------------------
-// Action discovery tests
-// ----------------------------------------
-
-func TestFISHandler_ListActions(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, http.MethodGet, "/actions", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		Actions []struct {
-			ID string `json:"id"`
-		} `json:"actions"`
-	}
-
-	mustJSON(t, rec, &resp)
-	assert.NotEmpty(t, resp.Actions)
-
-	ids := make([]string, len(resp.Actions))
-	for i, a := range resp.Actions {
-		ids[i] = a.ID
-	}
-
-	assert.Contains(t, ids, "aws:fis:wait")
-	assert.Contains(t, ids, "aws:fis:inject-api-internal-error")
-	assert.Contains(t, ids, "aws:fis:inject-api-throttle-error")
-	assert.Contains(t, ids, "aws:fis:inject-api-unavailable-error")
-}
-
-func TestFISHandler_GetAction(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, http.MethodGet, "/actions/aws:fis:wait", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		Action struct {
-			ID string `json:"id"`
-		} `json:"action"`
-	}
-
-	mustJSON(t, rec, &resp)
-	assert.Equal(t, "aws:fis:wait", resp.Action.ID)
-}
-
-func TestFISHandler_GetAction_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, http.MethodGet, "/actions/aws:fis:nonexistent", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// ----------------------------------------
-// Target resource type tests
-// ----------------------------------------
-
-func TestFISHandler_ListTargetResourceTypes(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, http.MethodGet, "/targetResourceTypes", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		TargetResourceTypes []struct {
-			ResourceType string `json:"resourceType"`
-		} `json:"targetResourceTypes"`
-	}
-
-	mustJSON(t, rec, &resp)
-	assert.NotEmpty(t, resp.TargetResourceTypes)
-
-	types := make([]string, len(resp.TargetResourceTypes))
-	for i, rt := range resp.TargetResourceTypes {
-		types[i] = rt.ResourceType
-	}
-
-	assert.Contains(t, types, "aws:ec2:instance")
-	assert.Contains(t, types, "aws:lambda:function")
-	assert.Contains(t, types, "aws:iam:role")
-}
-
-func TestFISHandler_GetTargetResourceType(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// URL-encode the resource type.
-	rec := doRequest(t, h, http.MethodGet, "/targetResourceTypes/aws%3Aec2%3Ainstance", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		TargetResourceType struct {
-			ResourceType string `json:"resourceType"`
-		} `json:"targetResourceType"`
-	}
-
-	mustJSON(t, rec, &resp)
-	assert.Equal(t, "aws:ec2:instance", resp.TargetResourceType.ResourceType)
-}
-
-func TestFISHandler_GetTargetResourceType_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, http.MethodGet, "/targetResourceTypes/aws%3Anonexistent%3Atype", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// ----------------------------------------
-// Tag operations tests
-// ----------------------------------------
-
-func TestFISHandler_TagResource_ListTags_UntagResource(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create a template to get its ARN.
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions":        map[string]any{},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var createResp struct {
-		ExperimentTemplate struct {
-			ID  string `json:"id"`
-			Arn string `json:"arn"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &createResp)
-	arnStr := createResp.ExperimentTemplate.Arn
-
-	// TagResource.
-	tagPath := "/tags/" + arnStr
-	tagBody := map[string]any{"tags": map[string]string{"env": "prod", "owner": "team"}}
-
-	rec2 := doRequest(t, h, http.MethodPost, tagPath, tagBody)
-	assert.Equal(t, http.StatusNoContent, rec2.Code)
-
-	// ListTagsForResource.
-	rec3 := doRequest(t, h, http.MethodGet, tagPath, nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	var tagsResp struct {
-		Tags map[string]string `json:"tags"`
-	}
-
-	mustJSON(t, rec3, &tagsResp)
-	assert.Equal(t, "prod", tagsResp.Tags["env"])
-	assert.Equal(t, "team", tagsResp.Tags["owner"])
-
-	// UntagResource.
-	rec4 := doRequest(t, h, http.MethodDelete, tagPath+"?tagKeys=env", nil)
-	assert.Equal(t, http.StatusNoContent, rec4.Code)
-
-	// Verify tag removed.
-	rec5 := doRequest(t, h, http.MethodGet, tagPath, nil)
-	var tagsResp2 struct {
-		Tags map[string]string `json:"tags"`
-	}
-
-	mustJSON(t, rec5, &tagsResp2)
-	assert.NotContains(t, tagsResp2.Tags, "env")
-	assert.Equal(t, "team", tagsResp2.Tags["owner"])
-}
-
-// ----------------------------------------
-// Invalid request tests
-// ----------------------------------------
-
 func TestFISHandler_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
@@ -705,294 +217,6 @@ func TestFISHandler_InvalidJSON(t *testing.T) {
 // Experiment completion test
 // ----------------------------------------
 
-func TestFISHandler_ExperimentCompletesAfterDuration(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Template with a very short wait action.
-	body := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions": map[string]any{
-			"wait": map[string]any{
-				"actionId":   "aws:fis:wait",
-				"parameters": map[string]string{"duration": "PT0.1S"},
-			},
-		},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", body)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	// Wait for the experiment to complete.
-	require.Eventually(t, func() bool {
-		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if rec3.Code != http.StatusOK {
-			return false
-		}
-
-		var resp struct {
-			Experiment struct {
-				Status struct {
-					Status string `json:"status"`
-				} `json:"status"`
-			} `json:"experiment"`
-		}
-
-		if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
-			return false
-		}
-
-		return resp.Experiment.Status.Status == "completed"
-	}, 5*time.Second, 100*time.Millisecond)
-}
-
-// ----------------------------------------
-// ChaosProvider interface tests
-// ----------------------------------------
-
-func TestFISHandler_ChaosProvider(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	assert.Equal(t, "fis", h.ChaosServiceName())
-	assert.NotEmpty(t, h.ChaosOperations())
-	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
-}
-
-// ----------------------------------------
-// SetFaultStore / SetActionProviders on handler
-// ----------------------------------------
-
-func TestFISHandler_SetFaultStore(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	// SetFaultStore with nil should not panic.
-	h.SetFaultStore(nil)
-}
-
-func TestFISHandler_SetActionProviders(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	h.SetActionProviders(nil)
-}
-
-// ----------------------------------------
-// UpdateExperimentTemplate invalid JSON
-// ----------------------------------------
-
-func TestFISHandler_UpdateTemplate_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	createBody := map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions":        map[string]any{},
-	}
-
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", createBody)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var createResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &createResp)
-
-	e := echo.New()
-	req := httptest.NewRequest(
-		http.MethodPatch,
-		"/experimentTemplates/"+createResp.ExperimentTemplate.ID,
-		bytes.NewReader([]byte("not-json")),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec2 := httptest.NewRecorder()
-	c := e.NewContext(req, rec2)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
-}
-
-// ----------------------------------------
-// Tag resource with invalid JSON
-// ----------------------------------------
-
-func TestFISHandler_TagResource_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	e := echo.New()
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/tags/arn:aws:fis:us-east-1:000:experiment-template/EXTabc",
-		bytes.NewReader([]byte("not-json")),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// ----------------------------------------
-// List actions with action providers
-// ----------------------------------------
-
-func TestFISHandler_ListActions_WithActionProvider(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Setting a nil slice of providers should still work.
-	h.SetActionProviders(nil)
-
-	rec := doRequest(t, h, http.MethodGet, "/actions", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		Actions []struct {
-			ID string `json:"id"`
-		} `json:"actions"`
-	}
-
-	mustJSON(t, rec, &resp)
-	assert.NotEmpty(t, resp.Actions)
-}
-
-// ----------------------------------------
-// Handler read body error
-// ----------------------------------------
-
-func TestFISHandler_EmptyBody_Actions(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// GET /actions with empty body should still work.
-	rec := doRequest(t, h, http.MethodGet, "/actions", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-// ----------------------------------------
-// List target resource types
-// ----------------------------------------
-
-func TestFISHandler_ListTargetResourceTypes_WithFilter(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, http.MethodGet, "/targetResourceTypes", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		TargetResourceTypes []struct {
-			ResourceType string `json:"resourceType"`
-		} `json:"targetResourceTypes"`
-	}
-
-	mustJSON(t, rec, &resp)
-
-	// Verify various resource types are present.
-	types := make(map[string]bool, len(resp.TargetResourceTypes))
-	for _, rt := range resp.TargetResourceTypes {
-		types[rt.ResourceType] = true
-	}
-
-	assert.True(t, types["aws:ec2:instance"])
-	assert.True(t, types["aws:lambda:function"])
-	assert.True(t, types["aws:iam:role"])
-}
-
-// ----------------------------------------
-// Tag experiments tests
-// ----------------------------------------
-
-func TestFISHandler_TagExperiment(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	templateID := createTestTemplate(t, h)
-
-	// Start experiment to get ARN.
-	rec := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": templateID,
-	})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID  string `json:"id"`
-			Arn string `json:"arn"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec, &expResp)
-	arnStr := expResp.Experiment.Arn
-	require.NotEmpty(t, arnStr)
-
-	// TagResource on experiment.
-	tagPath := "/tags/" + arnStr
-	rec2 := doRequest(t, h, http.MethodPost, tagPath, map[string]any{
-		"tags": map[string]string{"phase": "test"},
-	})
-	assert.Equal(t, http.StatusNoContent, rec2.Code)
-
-	// ListTagsForResource on experiment.
-	rec3 := doRequest(t, h, http.MethodGet, tagPath, nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	var tagsResp struct {
-		Tags map[string]string `json:"tags"`
-	}
-
-	mustJSON(t, rec3, &tagsResp)
-	assert.Equal(t, "test", tagsResp.Tags["phase"])
-
-	// UntagResource on experiment.
-	rec4 := doRequest(t, h, http.MethodDelete, tagPath+"?tagKeys=phase", nil)
-	assert.Equal(t, http.StatusNoContent, rec4.Code)
-}
-
-// ----------------------------------------
-// Provider tests
-// ----------------------------------------
-
 func TestFISProvider_Name(t *testing.T) {
 	t.Parallel()
 
@@ -1013,901 +237,138 @@ func TestFISProvider_Init(t *testing.T) {
 // Tag resource not found tests
 // ----------------------------------------
 
-func TestFISHandler_TagResource_NotFound(t *testing.T) {
+func TestErrorResponse_HasType(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// Tagging a non-existent ARN should return 404.
-	rec := doRequest(
-		t,
-		h,
-		http.MethodPost,
-		"/tags/arn:aws:fis:us-east-1:000:experiment-template/EXTdoesnotexist",
-		map[string]any{
-			"tags": map[string]string{"key": "val"},
-		},
-	)
+	rec := doRequest(t, h, http.MethodGet, "/experimentTemplates/EXTnotfound", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestFISHandler_UntagResource_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(
-		t,
-		h,
-		http.MethodDelete,
-		"/tags/arn:aws:fis:us-east-1:000:experiment-template/EXTdoesnotexist?tagKeys=key",
-		nil,
-	)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestFISHandler_ListTags_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, http.MethodGet, "/tags/arn:aws:fis:us-east-1:000:experiment-template/EXTdoesnotexist", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// ----------------------------------------
-// Experiment completes when no timed actions (maxDuration == 0)
-// ----------------------------------------
-
-func TestFISHandler_ExperimentCompletes_NoTimedActions(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Template with no actions → maxDuration is 0, should complete immediately.
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", map[string]any{
-		"roleArn":        "arn:aws:iam::000000000000:role/FISRole",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions":        map[string]any{},
-	})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-	expID := expResp.Experiment.ID
-
-	require.Eventually(t, func() bool {
-		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
-		if rec3.Code != http.StatusOK {
-			return false
-		}
-
-		var resp struct {
-			Experiment struct {
-				Status struct {
-					Status string `json:"status"`
-				} `json:"status"`
-			} `json:"experiment"`
-		}
-
-		if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
-			return false
-		}
-
-		return resp.Experiment.Status.Status == "completed"
-	}, 5*time.Second, 50*time.Millisecond)
-}
-
-// ----------------------------------------
-// Phase 3 — Safety Lever tests
-// ----------------------------------------
-
-func TestFISHandler_GetSafetyLever(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// The safety lever ID is the account ID.
-	rec := doRequest(t, h, http.MethodGet, "/safetyLevers/000000000000", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		SafetyLever struct {
-			ID    string `json:"id"`
-			State struct {
-				Status string `json:"status"`
-			} `json:"state"`
-		} `json:"safetyLever"`
+		Type    string `json:"__type"`
+		Message string `json:"message"`
 	}
 
 	mustJSON(t, rec, &resp)
-	assert.Equal(t, "000000000000", resp.SafetyLever.ID)
-	assert.Equal(t, "disengaged", resp.SafetyLever.State.Status)
+	// FIS's API model defines a single ResourceNotFoundException shape service-wide —
+	// there is no per-resource "ExperimentTemplateNotFoundException".
+	assert.Equal(t, "ResourceNotFoundException", resp.Type)
+	assert.NotEmpty(t, resp.Message)
 }
 
-func TestFISHandler_GetSafetyLever_AnyIDReturnsLever(t *testing.T) {
+func TestErrorResponse_ValidationException_HasType(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// Real AWS returns the account's single lever for any ID path segment.
-	rec := doRequest(t, h, http.MethodGet, "/safetyLevers/999999999999", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestFISHandler_UpdateSafetyLeverState(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		input        map[string]any
-		wantStatus   string
-		wantHTTPCode int
-	}{
-		{
-			name: "engage_lever",
-			input: map[string]any{
-				"updateSafetyLeverStateInput": map[string]any{
-					"status": "engaged",
-					"reason": "testing safety lever",
-				},
-			},
-			wantStatus:   "engaged",
-			wantHTTPCode: http.StatusOK,
-		},
-		{
-			name: "disengage_lever",
-			input: map[string]any{
-				"updateSafetyLeverStateInput": map[string]any{
-					"status": "disengaged",
-					"reason": "resuming operations",
-				},
-			},
-			wantStatus:   "disengaged",
-			wantHTTPCode: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			rec := doRequest(t, h, http.MethodPatch, "/safetyLevers/000000000000", tt.input)
-			require.Equal(t, tt.wantHTTPCode, rec.Code)
-
-			var resp struct {
-				SafetyLever struct {
-					State struct {
-						Status string `json:"status"`
-					} `json:"state"`
-				} `json:"safetyLever"`
-			}
-
-			mustJSON(t, rec, &resp)
-			assert.Equal(t, tt.wantStatus, resp.SafetyLever.State.Status)
-		})
-	}
-}
-
-func TestFISHandler_UpdateSafetyLeverState_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPatch, "/safetyLevers/000000000000",
-		bytes.NewBufferString("not-json"))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestFISHandler_StartExperiment_SafetyLeverEngaged(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create a template first.
 	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", map[string]any{
-		"description":    "test",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets":        map[string]any{},
-		"actions":        map[string]any{},
-		"roleArn":        "arn:aws:iam::000000000000:role/fis-role",
-	})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
-	}
-
-	mustJSON(t, rec, &tplResp)
-
-	// Engage the safety lever.
-	rec2 := doRequest(t, h, http.MethodPatch, "/safetyLevers/000000000000", map[string]any{
-		"updateSafetyLeverStateInput": map[string]any{
-			"status": "engaged",
-			"reason": "blocking all experiments",
-		},
-	})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	// Starting an experiment should now fail.
-	rec3 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	assert.Equal(t, http.StatusConflict, rec3.Code)
-}
-
-// ----------------------------------------
-// Phase 3 — Resolved Targets tests
-// ----------------------------------------
-
-func TestFISHandler_ListExperimentResolvedTargets(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create a template with targets.
-	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", map[string]any{
-		"description":    "test",
-		"stopConditions": []map[string]any{{"source": "none"}},
-		"targets": map[string]any{
-			"MyInstances": map[string]any{
-				"resourceType":  "aws:ec2:instance",
-				"selectionMode": "ALL",
-				"resourceArns":  []string{"arn:aws:ec2:us-east-1:000000000000:instance/i-1234"},
-			},
-		},
+		"targets": map[string]any{},
 		"actions": map[string]any{},
-		"roleArn": "arn:aws:iam::000000000000:role/fis-role",
 	})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var tplResp struct {
-		ExperimentTemplate struct {
-			ID string `json:"id"`
-		} `json:"experimentTemplate"`
+	var resp struct {
+		Type string `json:"__type"`
 	}
 
-	mustJSON(t, rec, &tplResp)
-
-	// Start an experiment.
-	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
-		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
-	})
-	require.Equal(t, http.StatusCreated, rec2.Code)
-
-	var expResp struct {
-		Experiment struct {
-			ID string `json:"id"`
-		} `json:"experiment"`
-	}
-
-	mustJSON(t, rec2, &expResp)
-
-	// List resolved targets.
-	rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expResp.Experiment.ID+"/resolvedTargets", nil)
-	require.Equal(t, http.StatusOK, rec3.Code)
-
-	var resolvedResp struct {
-		ResolvedTargets []struct {
-			ResourceType         string `json:"resourceType"`
-			TargetName           string `json:"targetName"`
-			TargetResourcesCount int    `json:"targetResourcesCount"`
-		} `json:"resolvedTargets"`
-	}
-
-	mustJSON(t, rec3, &resolvedResp)
-	require.Len(t, resolvedResp.ResolvedTargets, 1)
-	assert.Equal(t, "aws:ec2:instance", resolvedResp.ResolvedTargets[0].ResourceType)
-	assert.Equal(t, "MyInstances", resolvedResp.ResolvedTargets[0].TargetName)
-	assert.Equal(t, 1, resolvedResp.ResolvedTargets[0].TargetResourcesCount)
-}
-
-func TestFISHandler_ListExperimentResolvedTargets_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, http.MethodGet, "/experiments/EXPNOTEXIST/resolvedTargets", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestFISHandler_StartExperiment_TooManyExperiments(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		startCount int
-		wantStatus int
-	}{
-		{
-			name:       "below_limit_succeeds",
-			startCount: 1,
-			wantStatus: http.StatusCreated,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			templateID := createTestTemplate(t, h)
-
-			startBody := map[string]any{
-				"experimentTemplateId": templateID,
-			}
-
-			var rec *httptest.ResponseRecorder
-			for range tt.startCount {
-				rec = doRequest(t, h, http.MethodPost, "/experiments", startBody)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
+	mustJSON(t, rec, &resp)
+	assert.Equal(t, "ValidationException", resp.Type)
 }
 
 // ----------------------------------------
-// Target Account Configuration tests
+// Issue #27 — ListActions deduplication
 // ----------------------------------------
 
-func TestFISHandler_CreateTargetAccountConfiguration(t *testing.T) {
+func TestReset(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		roleArn    string
-		desc       string
-		wantStatus int
-	}{
-		{
-			name:       "create_with_description",
-			roleArn:    "arn:aws:iam::111111111111:role/FISRole",
-			desc:       "target account for testing",
-			wantStatus: http.StatusCreated,
-		},
-		{
-			name:       "create_without_description",
-			roleArn:    "arn:aws:iam::222222222222:role/FISRole",
-			desc:       "",
-			wantStatus: http.StatusCreated,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			templateID := createTestTemplate(t, h)
-			accountID := "111111111111"
-			path := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
-
-			body := map[string]any{
-				"roleArn":     tt.roleArn,
-				"description": tt.desc,
-			}
-
-			rec := doRequest(t, h, http.MethodPost, path, body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			var resp struct {
-				TargetAccountConfiguration struct {
-					AccountID   string `json:"accountId"`
-					RoleArn     string `json:"roleArn"`
-					Description string `json:"description"`
-				} `json:"targetAccountConfiguration"`
-			}
-
-			mustJSON(t, rec, &resp)
-			assert.Equal(t, accountID, resp.TargetAccountConfiguration.AccountID)
-			assert.Equal(t, tt.roleArn, resp.TargetAccountConfiguration.RoleArn)
-			assert.Equal(t, tt.desc, resp.TargetAccountConfiguration.Description)
-		})
-	}
-}
-
-func TestFISHandler_CreateTargetAccountConfiguration_TemplateNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	path := "/experimentTemplates/EXTnonexistent0000000000/targetAccountConfigurations/111111111111"
-
-	body := map[string]any{
-		"roleArn": "arn:aws:iam::111111111111:role/FISRole",
-	}
-
-	rec := doRequest(t, h, http.MethodPost, path, body)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestFISHandler_GetTargetAccountConfiguration(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		accountID  string
-		wantStatus int
-	}{
-		{
-			name:       "existing_config",
-			accountID:  "111111111111",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "nonexistent_config",
-			accountID:  "999999999999",
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			templateID := createTestTemplate(t, h)
-
-			// Create a config for accountID 111111111111.
-			createPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/111111111111", templateID)
-			rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
-				"roleArn": "arn:aws:iam::111111111111:role/FISRole",
-			})
-			require.Equal(t, http.StatusCreated, rec.Code)
-
-			// Get.
-			getPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, tt.accountID)
-			rec2 := doRequest(t, h, http.MethodGet, getPath, nil)
-			assert.Equal(t, tt.wantStatus, rec2.Code)
-		})
-	}
-}
-
-func TestFISHandler_UpdateTargetAccountConfiguration(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		updateBody  map[string]any
-		wantRoleArn string
-		wantDesc    string
-		wantStatus  int
-	}{
-		{
-			name:        "update_role_arn",
-			updateBody:  map[string]any{"roleArn": "arn:aws:iam::111111111111:role/NewRole"},
-			wantRoleArn: "arn:aws:iam::111111111111:role/NewRole",
-			wantDesc:    "initial description",
-			wantStatus:  http.StatusOK,
-		},
-		{
-			name:        "update_description",
-			updateBody:  map[string]any{"description": "updated description"},
-			wantRoleArn: "arn:aws:iam::111111111111:role/FISRole",
-			wantDesc:    "updated description",
-			wantStatus:  http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			templateID := createTestTemplate(t, h)
-			accountID := "111111111111"
-
-			// Create initial config.
-			createPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
-			rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
-				"roleArn":     "arn:aws:iam::111111111111:role/FISRole",
-				"description": "initial description",
-			})
-			require.Equal(t, http.StatusCreated, rec.Code)
-
-			// Update.
-			updatePath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
-			rec2 := doRequest(t, h, http.MethodPatch, updatePath, tt.updateBody)
-			assert.Equal(t, tt.wantStatus, rec2.Code)
-
-			var resp struct {
-				TargetAccountConfiguration struct {
-					AccountID   string `json:"accountId"`
-					RoleArn     string `json:"roleArn"`
-					Description string `json:"description"`
-				} `json:"targetAccountConfiguration"`
-			}
-
-			mustJSON(t, rec2, &resp)
-			assert.Equal(t, tt.wantRoleArn, resp.TargetAccountConfiguration.RoleArn)
-			assert.Equal(t, tt.wantDesc, resp.TargetAccountConfiguration.Description)
-		})
-	}
-}
-
-func TestFISHandler_DeleteTargetAccountConfiguration(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		accountID  string
-		wantStatus int
-	}{
-		{
-			name:       "delete_existing",
-			accountID:  "111111111111",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "delete_nonexistent",
-			accountID:  "999999999999",
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			templateID := createTestTemplate(t, h)
-
-			// Create a config for accountID 111111111111.
-			createPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/111111111111", templateID)
-			rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
-				"roleArn": "arn:aws:iam::111111111111:role/FISRole",
-			})
-			require.Equal(t, http.StatusCreated, rec.Code)
-
-			// Delete.
-			deletePath := fmt.Sprintf(
-				"/experimentTemplates/%s/targetAccountConfigurations/%s",
-				templateID,
-				tt.accountID,
-			)
-			rec2 := doRequest(t, h, http.MethodDelete, deletePath, nil)
-			assert.Equal(t, tt.wantStatus, rec2.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				// Verify it's gone.
-				rec3 := doRequest(t, h, http.MethodGet, deletePath, nil)
-				assert.Equal(t, http.StatusNotFound, rec3.Code)
-			}
-		})
-	}
-}
-
-func TestFISHandler_ListTargetAccountConfigurations(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		accountIDs   []string
-		wantCount    int
-		wantStatus   int
-		unknownTplID bool
-	}{
-		{
-			name:       "empty_list",
-			accountIDs: nil,
-			wantCount:  0,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "single_config",
-			accountIDs: []string{"111111111111"},
-			wantCount:  1,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "multiple_configs",
-			accountIDs: []string{"111111111111", "222222222222", "333333333333"},
-			wantCount:  3,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:         "template_not_found",
-			unknownTplID: true,
-			wantStatus:   http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			templateID := createTestTemplate(t, h)
-
-			for _, accountID := range tt.accountIDs {
-				path := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
-				rec := doRequest(t, h, http.MethodPost, path, map[string]any{
-					"roleArn": "arn:aws:iam::" + accountID + ":role/FISRole",
-				})
-				require.Equal(t, http.StatusCreated, rec.Code)
-			}
-
-			listTplID := templateID
-			if tt.unknownTplID {
-				listTplID = "EXTnonexistent0000000000"
-			}
-
-			listPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations", listTplID)
-			rec := doRequest(t, h, http.MethodGet, listPath, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var resp struct {
-					TargetAccountConfigurations []struct {
-						AccountID string `json:"accountId"`
-					} `json:"targetAccountConfigurations"`
-				}
-
-				mustJSON(t, rec, &resp)
-				assert.Len(t, resp.TargetAccountConfigurations, tt.wantCount)
-			}
-		})
-	}
-}
-
-func TestFISHandler_GetExperimentTargetAccountConfiguration(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		accountID  string
-		wantStatus int
-	}{
-		{
-			name:       "existing_config",
-			accountID:  "111111111111",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "nonexistent_config",
-			accountID:  "999999999999",
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			templateID := createTestTemplate(t, h)
-
-			// Create a target account config on the template.
-			createPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/111111111111", templateID)
-			rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
-				"roleArn":     "arn:aws:iam::111111111111:role/FISRole",
-				"description": "multi-account target",
-			})
-			require.Equal(t, http.StatusCreated, rec.Code)
-
-			// Start an experiment from the template.
-			startBody := map[string]any{"experimentTemplateId": templateID}
-			expRec := doRequest(t, h, http.MethodPost, "/experiments", startBody)
-			require.Equal(t, http.StatusCreated, expRec.Code)
-
-			var expResp struct {
-				Experiment struct {
-					ID string `json:"id"`
-				} `json:"experiment"`
-			}
-
-			mustJSON(t, expRec, &expResp)
-			experimentID := expResp.Experiment.ID
-
-			// Get experiment target account config.
-			getPath := fmt.Sprintf("/experiments/%s/targetAccountConfigurations/%s", experimentID, tt.accountID)
-			rec2 := doRequest(t, h, http.MethodGet, getPath, nil)
-			assert.Equal(t, tt.wantStatus, rec2.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var resp struct {
-					TargetAccountConfiguration struct {
-						AccountID   string `json:"accountId"`
-						RoleArn     string `json:"roleArn"`
-						Description string `json:"description"`
-					} `json:"targetAccountConfiguration"`
-				}
-
-				mustJSON(t, rec2, &resp)
-				assert.Equal(t, "111111111111", resp.TargetAccountConfiguration.AccountID)
-				assert.Equal(t, "arn:aws:iam::111111111111:role/FISRole", resp.TargetAccountConfiguration.RoleArn)
-				assert.Equal(t, "multi-account target", resp.TargetAccountConfiguration.Description)
-			}
-		})
-	}
-}
-
-func TestFISHandler_ListExperimentTargetAccountConfigurations(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		accountIDs   []string
-		wantCount    int
-		wantStatus   int
-		unknownExpID bool
-	}{
-		{
-			name:       "empty_list",
-			accountIDs: nil,
-			wantCount:  0,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "single_config",
-			accountIDs: []string{"111111111111"},
-			wantCount:  1,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "multiple_configs",
-			accountIDs: []string{"111111111111", "222222222222"},
-			wantCount:  2,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:         "experiment_not_found",
-			unknownExpID: true,
-			wantStatus:   http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			templateID := createTestTemplate(t, h)
-
-			for _, accountID := range tt.accountIDs {
-				createPath := fmt.Sprintf(
-					"/experimentTemplates/%s/targetAccountConfigurations/%s",
-					templateID,
-					accountID,
-				)
-				rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
-					"roleArn": "arn:aws:iam::" + accountID + ":role/FISRole",
-				})
-				require.Equal(t, http.StatusCreated, rec.Code)
-			}
-
-			// Start an experiment.
-			startBody := map[string]any{"experimentTemplateId": templateID}
-			expRec := doRequest(t, h, http.MethodPost, "/experiments", startBody)
-			require.Equal(t, http.StatusCreated, expRec.Code)
-
-			var expResp struct {
-				Experiment struct {
-					ID string `json:"id"`
-				} `json:"experiment"`
-			}
-
-			mustJSON(t, expRec, &expResp)
-			experimentID := expResp.Experiment.ID
-
-			if tt.unknownExpID {
-				experimentID = "EXPnonexistent0000000000"
-			}
-
-			listPath := fmt.Sprintf("/experiments/%s/targetAccountConfigurations", experimentID)
-			rec := doRequest(t, h, http.MethodGet, listPath, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var resp struct {
-					TargetAccountConfigurations []struct {
-						AccountID string `json:"accountId"`
-					} `json:"targetAccountConfigurations"`
-				}
-
-				mustJSON(t, rec, &resp)
-				assert.Len(t, resp.TargetAccountConfigurations, tt.wantCount)
-			}
-		})
-	}
-}
-
-func TestFISHandler_TargetAccountConfiguration_RoundTrip(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	templateID := createTestTemplate(t, h)
-
-	accountIDs := []string{"111111111111", "222222222222"}
-
-	// Create configs.
-	for _, accountID := range accountIDs {
-		path := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountID)
-		rec := doRequest(t, h, http.MethodPost, path, map[string]any{
-			"roleArn":     "arn:aws:iam::" + accountID + ":role/FISRole",
-			"description": "account " + accountID,
-		})
-		require.Equal(t, http.StatusCreated, rec.Code)
-	}
-
-	// List verifies both exist.
-	listPath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations", templateID)
-	rec := doRequest(t, h, http.MethodGet, listPath, nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var listResp struct {
-		TargetAccountConfigurations []struct {
-			AccountID string `json:"accountId"`
-		} `json:"targetAccountConfigurations"`
-	}
-
-	mustJSON(t, rec, &listResp)
-	assert.Len(t, listResp.TargetAccountConfigurations, 2)
-
-	// Delete one.
-	deletePath := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/%s", templateID, accountIDs[0])
-	rec2 := doRequest(t, h, http.MethodDelete, deletePath, nil)
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	// List verifies one remains.
-	rec3 := doRequest(t, h, http.MethodGet, listPath, nil)
-	require.Equal(t, http.StatusOK, rec3.Code)
-
-	mustJSON(t, rec3, &listResp)
-	assert.Len(t, listResp.TargetAccountConfigurations, 1)
-	assert.Equal(t, accountIDs[1], listResp.TargetAccountConfigurations[0].AccountID)
-}
-
-func TestFISHandler_TargetAccountConfiguration_UpdateNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	templateID := createTestTemplate(t, h)
-
-	path := fmt.Sprintf("/experimentTemplates/%s/targetAccountConfigurations/999999999999", templateID)
-	rec := doRequest(t, h, http.MethodPatch, path, map[string]any{
-		"description": "updated",
+	b := fis.NewTestBackend()
+	b.AddTemplateInternal(&fis.ExperimentTemplate{
+		ID:  "EXT-reset1",
+		Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-reset1",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, 1, b.TemplateCount())
+
+	b.Reset()
+
+	assert.Equal(t, 0, b.TemplateCount())
+	assert.Equal(t, 0, b.ExperimentCount())
+	assert.Equal(t, 0, b.TargetAccountConfigCount())
 }
 
-func TestFISHandler_GetSupportedOperations_TargetAccountConfigOps(t *testing.T) {
+func TestMultipleResetCycle(t *testing.T) {
+	t.Parallel()
+
+	b := fis.NewTestBackend()
+
+	for i := range 3 {
+		b.AddTemplateInternal(&fis.ExperimentTemplate{
+			ID:  "EXT-cycle1",
+			Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-cycle1",
+		})
+		b.Reset()
+		assert.Equal(t, 0, b.TemplateCount(), "reset cycle %d", i)
+	}
+}
+
+func TestHandlerReset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	seedTemplate(t, h)
+
+	b := h.Backend.(*fis.ExportedInMemoryBackend)
+	require.Equal(t, 1, b.TemplateCount())
+
+	h.Reset()
+	assert.Equal(t, 0, b.TemplateCount())
+}
+
+// ----------------------------------------
+// Provider tests
+// ----------------------------------------
+
+func TestProviderInit_NilCtx(t *testing.T) {
+	t.Parallel()
+
+	p := &fis.Provider{}
+	_, err := p.Init(nil)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, fis.ErrNilAppContext)
+}
+
+// ----------------------------------------
+// GetSupportedOperations
+// ----------------------------------------
+
+func TestGetSupportedOperations_AllOps(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	ops := h.GetSupportedOperations()
 
-	for _, expected := range []string{
+	expected := []string{
+		"CreateExperimentTemplate",
+		"GetExperimentTemplate",
+		"UpdateExperimentTemplate",
+		"DeleteExperimentTemplate",
+		"ListExperimentTemplates",
+		"StartExperiment",
+		"GetExperiment",
+		"StopExperiment",
+		"ListExperiments",
+		"ListExperimentResolvedTargets",
+		"GetAction",
+		"ListActions",
+		"GetTargetResourceType",
+		"ListTargetResourceTypes",
+		"TagResource",
+		"UntagResource",
+		"ListTagsForResource",
+		"GetSafetyLever",
+		"UpdateSafetyLeverState",
 		"CreateTargetAccountConfiguration",
 		"DeleteTargetAccountConfiguration",
 		"GetExperimentTargetAccountConfiguration",
@@ -1915,7 +376,244 @@ func TestFISHandler_GetSupportedOperations_TargetAccountConfigOps(t *testing.T) 
 		"ListExperimentTargetAccountConfigurations",
 		"ListTargetAccountConfigurations",
 		"UpdateTargetAccountConfiguration",
-	} {
-		assert.Contains(t, ops, expected)
+	}
+
+	for _, op := range expected {
+		assert.Contains(t, ops, op, "missing op: %s", op)
+	}
+
+	assert.Equal(t, len(expected), h.HandlerOpsLen())
+}
+
+// ----------------------------------------
+// Seed helpers and count helpers
+// ----------------------------------------
+
+func TestSeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := fis.NewTestBackend()
+
+	tpl := &fis.ExperimentTemplate{
+		ID:   "EXT-seed1",
+		Arn:  "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-seed1",
+		Tags: map[string]string{"env": "test"},
+	}
+	b.AddTemplateInternal(tpl)
+
+	require.Equal(t, 1, b.TemplateCount())
+
+	got, err := b.GetExperimentTemplate("EXT-seed1")
+	require.NoError(t, err)
+	assert.Equal(t, "test", got.Tags["env"])
+
+	cfg := &fis.TargetAccountConfiguration{
+		ExperimentTemplateID: "EXT-seed1",
+		AccountID:            "111111111111",
+		RoleArn:              "arn:aws:iam::111111111111:role/FISRole",
+	}
+	b.AddTargetAccountConfigInternal(cfg)
+
+	assert.Equal(t, 1, b.TargetAccountConfigCount())
+}
+
+func TestExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := fis.NewTestBackend()
+	assert.Equal(t, 0, b.TemplateCount())
+	assert.Equal(t, 0, b.ExperimentCount())
+	assert.Equal(t, 0, b.TargetAccountConfigCount())
+
+	b.AddTemplateInternal(&fis.ExperimentTemplate{
+		ID:  "EXT-count1",
+		Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-count1",
+	})
+	assert.Equal(t, 1, b.TemplateCount())
+
+	b.AddTargetAccountConfigInternal(&fis.TargetAccountConfiguration{
+		ExperimentTemplateID: "EXT-count1",
+		AccountID:            "222222222222",
+		RoleArn:              "arn:aws:iam::222222222222:role/FISRole",
+	})
+	assert.Equal(t, 1, b.TargetAccountConfigCount())
+}
+
+// ----------------------------------------
+// ErrValidation mapping
+// ----------------------------------------
+
+func TestErrValidationMapping(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	tplID := seedTemplate(t, h)
+
+	// CreateTargetAccountConfiguration with empty roleArn → 400
+	rec := doRequest(
+		t, h, http.MethodPost,
+		"/experimentTemplates/"+tplID+"/targetAccountConfigurations/123456789012",
+		map[string]any{"roleArn": ""},
+	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := fis.NewTestBackend()
+
+	b.AddTemplateInternal(&fis.ExperimentTemplate{
+		ID:   "EXT-persist1",
+		Arn:  "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-persist1",
+		Tags: map[string]string{"key": "val"},
+	})
+	b.AddTargetAccountConfigInternal(&fis.TargetAccountConfiguration{
+		ExperimentTemplateID: "EXT-persist1",
+		AccountID:            "444444444444",
+		RoleArn:              "arn:aws:iam::444444444444:role/FISRole",
+		Description:          "persist test",
+	})
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := fis.NewTestBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, b2.TemplateCount())
+	assert.Equal(t, 1, b2.TargetAccountConfigCount())
+
+	cfg, err := b2.GetTargetAccountConfiguration("EXT-persist1", "444444444444")
+	require.NoError(t, err)
+	assert.Equal(t, "persist test", cfg.Description)
+}
+
+func TestPersistenceEmpty(t *testing.T) {
+	t.Parallel()
+
+	b := fis.NewTestBackend()
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := fis.NewTestBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 0, b2.TemplateCount())
+	assert.Equal(t, 0, b2.ExperimentCount())
+	assert.Equal(t, 0, b2.TargetAccountConfigCount())
+}
+
+func TestSeedHelper_DeepCopy(t *testing.T) {
+	t.Parallel()
+
+	b := fis.NewTestBackend()
+	b.AddTemplateInternal(&fis.ExperimentTemplate{
+		ID:  "EXT-deepcopy1",
+		Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-deepcopy1",
+	})
+
+	original := &fis.TargetAccountConfiguration{
+		ExperimentTemplateID: "EXT-deepcopy1",
+		AccountID:            "999999999999",
+		RoleArn:              "arn:aws:iam::999999999999:role/Original",
+		Description:          "original",
+	}
+	b.AddTargetAccountConfigInternal(original)
+
+	// Mutate original after insert — stored copy should not change.
+	original.Description = "mutated"
+
+	got, err := b.GetTargetAccountConfiguration("EXT-deepcopy1", "999999999999")
+	require.NoError(t, err)
+	assert.Equal(t, "original", got.Description)
+}
+
+// TestFISPaginateOpaqueToken verifies that nextToken is a base64-encoded integer
+// offset (not a raw item ID), so deleted items do not silently rewind the cursor.
+func TestFISPaginateOpaqueToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		total      int
+		pageSize   int
+		wantPage1  int
+		wantPage2  int
+		wantOpaque bool
+	}{
+		{
+			name:       "three items two per page",
+			total:      3,
+			pageSize:   2,
+			wantPage1:  2,
+			wantPage2:  1,
+			wantOpaque: true,
+		},
+		{
+			name:      "exact fit no token",
+			total:     2,
+			pageSize:  2,
+			wantPage1: 2,
+			wantPage2: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range tc.total {
+				rec := doRequest(
+					t, h, http.MethodPost, "/experimentTemplates",
+					minimalTemplate(fmt.Sprintf("tpl-%d", i), "arn:aws:iam::000000000000:role/R"),
+				)
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			// Page 1
+			url1 := fmt.Sprintf("/experimentTemplates?maxResults=%d", tc.pageSize)
+			rec1 := doRequest(t, h, http.MethodGet, url1, nil)
+			require.Equal(t, http.StatusOK, rec1.Code)
+
+			var resp1 struct { //nolint:govet // field order chosen for readability
+				ExperimentTemplates []any  `json:"experimentTemplates"`
+				NextToken           string `json:"nextToken"`
+			}
+
+			jsonUnmarshalFIS(t, rec1.Body.Bytes(), &resp1)
+			assert.Len(t, resp1.ExperimentTemplates, tc.wantPage1)
+
+			if !tc.wantOpaque {
+				assert.Empty(t, resp1.NextToken)
+
+				return
+			}
+
+			require.NotEmpty(t, resp1.NextToken)
+
+			// Token must be base64-encoded integer, not a raw item ID.
+			b, err := base64.StdEncoding.DecodeString(resp1.NextToken)
+			require.NoError(t, err, "nextToken must be valid base64")
+			offset, err := strconv.Atoi(string(b))
+			require.NoError(t, err, "decoded token must be an integer offset")
+			assert.Equal(t, tc.pageSize, offset)
+
+			// Page 2
+			url2 := fmt.Sprintf("/experimentTemplates?maxResults=%d&nextToken=%s", tc.pageSize, resp1.NextToken)
+			rec2 := doRequest(t, h, http.MethodGet, url2, nil)
+			require.Equal(t, http.StatusOK, rec2.Code)
+
+			var resp2 struct { //nolint:govet // field order chosen for readability
+				ExperimentTemplates []any  `json:"experimentTemplates"`
+				NextToken           string `json:"nextToken"`
+			}
+
+			jsonUnmarshalFIS(t, rec2.Body.Bytes(), &resp2)
+			assert.Len(t, resp2.ExperimentTemplates, tc.wantPage2)
+			assert.Empty(t, resp2.NextToken, "last page must have no nextToken")
+		})
 	}
 }
