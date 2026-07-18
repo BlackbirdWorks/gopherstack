@@ -1,0 +1,260 @@
+package networkmonitor
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+	"time"
+)
+
+// CreateMonitor creates a new monitor.
+func (b *InMemoryBackend) CreateMonitor(
+	ctx context.Context,
+	name string,
+	aggregationPeriod *int64,
+	probeInputs []createMonitorProbeInput,
+	tags map[string]string,
+) (*Monitor, error) {
+	if err := validateMonitorName(name); err != nil {
+		return nil, err
+	}
+
+	region := getRegion(ctx, b.defaultRegion)
+	period := defaultAggregationPeriod
+
+	if aggregationPeriod != nil {
+		if *aggregationPeriod != 30 && *aggregationPeriod != 60 {
+			return nil, fmt.Errorf("%w: aggregationPeriod must be 30 or 60", ErrValidation)
+		}
+
+		period = *aggregationPeriod
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := regionKey(region, name)
+
+	if b.monitors.Has(key) {
+		return nil, fmt.Errorf("%w: monitor %q already exists", ErrAlreadyExists, name)
+	}
+
+	now := time.Now().UTC()
+	monARN := b.buildMonitorARN(region, name)
+
+	var probes []*Probe
+
+	for _, pi := range probeInputs {
+		proto, err := validateProbeInput(pi.Destination, pi.Protocol, pi.SourceArn, pi.DestinationPort, pi.PacketSize)
+		if err != nil {
+			return nil, err
+		}
+
+		probeID := b.nextProbeID()
+		probeARN := b.buildProbeARN(region, name, probeID)
+		af := detectAddressFamily(pi.Destination)
+
+		probeTags := make(map[string]string, len(pi.Tags))
+		maps.Copy(probeTags, pi.Tags)
+
+		probes = append(probes, &Probe{
+			ProbeID:         probeID,
+			ProbeArn:        probeARN,
+			SourceArn:       pi.SourceArn,
+			Destination:     pi.Destination,
+			Protocol:        proto,
+			DestinationPort: pi.DestinationPort,
+			PacketSize:      pi.PacketSize,
+			State:           probeStateActive,
+			AddressFamily:   af,
+			CreatedAt:       &now,
+			ModifiedAt:      &now,
+			Tags:            probeTags,
+		})
+	}
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	m := &Monitor{
+		MonitorArn:        monARN,
+		MonitorName:       name,
+		Region:            region,
+		State:             monitorStateActive,
+		AggregationPeriod: period,
+		Probes:            probes,
+		Tags:              tagsCopy,
+		CreatedAt:         &now,
+		ModifiedAt:        &now,
+	}
+
+	b.monitors.Put(m)
+	b.regionARNIndex(region)[monARN] = name
+
+	return monitorCopy(m), nil
+}
+
+// DeleteMonitor deletes a monitor and its probes.
+func (b *InMemoryBackend) DeleteMonitor(ctx context.Context, name string) error {
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := regionKey(region, name)
+
+	m, exists := b.monitors.Get(key)
+	if !exists {
+		return fmt.Errorf("%w: monitor %q not found", ErrNotFound, name)
+	}
+
+	delete(b.regionARNIndex(region), m.MonitorArn)
+	b.monitors.Delete(key)
+
+	return nil
+}
+
+// GetMonitor returns a monitor by name.
+func (b *InMemoryBackend) GetMonitor(ctx context.Context, name string) (*Monitor, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	m, exists := b.monitors.Get(regionKey(region, name))
+	if !exists {
+		return nil, fmt.Errorf("%w: monitor %q not found", ErrNotFound, name)
+	}
+
+	return monitorCopy(m), nil
+}
+
+// UpdateMonitor updates a monitor's aggregation period.
+func (b *InMemoryBackend) UpdateMonitor(
+	ctx context.Context,
+	name string,
+	aggregationPeriod int64,
+) (*Monitor, error) {
+	if aggregationPeriod != 30 && aggregationPeriod != 60 {
+		return nil, fmt.Errorf("%w: aggregationPeriod must be 30 or 60", ErrValidation)
+	}
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	m, exists := b.monitors.Get(regionKey(region, name))
+	if !exists {
+		return nil, fmt.Errorf("%w: monitor %q not found", ErrNotFound, name)
+	}
+
+	now := time.Now().UTC()
+	m.AggregationPeriod = aggregationPeriod
+	m.ModifiedAt = &now
+
+	return monitorCopy(m), nil
+}
+
+// ListMonitors returns a filtered, paginated list of monitor summaries.
+func (b *InMemoryBackend) ListMonitors(
+	ctx context.Context,
+	state, nextToken string,
+	maxResults int,
+) ([]monitorSummary, string, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	sorted := slices.Clone(b.monitorsByRegion.Get(region))
+	slices.SortFunc(sorted, func(a, mo *Monitor) int {
+		return strings.Compare(a.MonitorName, mo.MonitorName)
+	})
+
+	// Default startIdx past-the-end so an unrecognised token returns nothing.
+	startIdx := 0
+	if nextToken != "" {
+		startIdx = len(sorted)
+		for i, m := range sorted {
+			if m.MonitorName > nextToken {
+				startIdx = i
+
+				break
+			}
+		}
+	}
+
+	if maxResults <= 0 || maxResults > 100 {
+		maxResults = 100
+	}
+
+	var summaries []monitorSummary
+	var outToken string
+
+	for i := startIdx; i < len(sorted); i++ {
+		if len(summaries) == maxResults {
+			outToken = summaries[len(summaries)-1].MonitorName
+
+			break
+		}
+
+		m := sorted[i]
+		if state != "" && !strings.EqualFold(m.State, state) {
+			continue
+		}
+
+		period := m.AggregationPeriod
+		summaries = append(summaries, monitorSummary{
+			MonitorArn:        m.MonitorArn,
+			MonitorName:       m.MonitorName,
+			State:             m.State,
+			AggregationPeriod: &period,
+			Tags:              maps.Clone(m.Tags),
+		})
+	}
+
+	if summaries == nil {
+		summaries = []monitorSummary{}
+	}
+
+	return summaries, outToken, nil
+}
+
+func validateMonitorName(name string) error {
+	if !monitorNameRE.MatchString(name) {
+		return fmt.Errorf("%w: monitorName must match [a-zA-Z0-9_-]{1,200}", ErrValidation)
+	}
+
+	return nil
+}
+
+func monitorCopy(m *Monitor) *Monitor {
+	if m == nil {
+		return nil
+	}
+
+	cp := *m
+	cp.Tags = maps.Clone(m.Tags)
+
+	if m.Probes != nil {
+		cp.Probes = make([]*Probe, len(m.Probes))
+		for i, p := range m.Probes {
+			cp.Probes[i] = probeCopy(p)
+		}
+	}
+
+	if m.CreatedAt != nil {
+		t := *m.CreatedAt
+		cp.CreatedAt = &t
+	}
+
+	if m.ModifiedAt != nil {
+		t := *m.ModifiedAt
+		cp.ModifiedAt = &t
+	}
+
+	return &cp
+}
