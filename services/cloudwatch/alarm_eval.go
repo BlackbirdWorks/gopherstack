@@ -12,28 +12,29 @@ import (
 // periodically by the Janitor.
 func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 	// Snapshot alarms under a read-lock to avoid holding the lock during evaluation.
-	b.mu.RLock("EvaluateAlarms.snapshot")
-
 	type alarmSnap struct {
 		alarm MetricAlarm
 	}
 
 	var snaps []alarmSnap
 
-	for _, a := range b.alarms.All() {
-		isMultiMetric := len(a.Metrics) > 0
-		if !isMultiMetric && (a.MetricName == "" || a.Namespace == "" || a.Period <= 0) {
-			continue
-		}
-		if a.EvaluationPeriods <= 0 {
-			continue
-		}
+	func() {
+		b.mu.RLock("EvaluateAlarms.snapshot")
+		defer b.mu.RUnlock()
 
-		cp := *a
-		snaps = append(snaps, alarmSnap{alarm: cp})
-	}
+		for _, a := range b.alarms.All() {
+			isMultiMetric := len(a.Metrics) > 0
+			if !isMultiMetric && (a.MetricName == "" || a.Namespace == "" || a.Period <= 0) {
+				continue
+			}
+			if a.EvaluationPeriods <= 0 {
+				continue
+			}
 
-	b.mu.RUnlock()
+			cp := *a
+			snaps = append(snaps, alarmSnap{alarm: cp})
+		}
+	}()
 
 	for _, snap := range snaps {
 		newState := b.evaluateMetricAlarmState(snap.alarm, now)

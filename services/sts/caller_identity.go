@@ -22,17 +22,22 @@ func (b *InMemoryBackend) GetCallerIdentity(
 		return b.rootCallerIdentity(), nil
 	}
 
-	b.mu.Lock("GetCallerIdentity")
-	session, ok := b.sessions.Get(accessKeyID)
+	var session *SessionInfo
+	var ok bool
 	wasExpired := false
 
-	if ok && isSessionExpired(session) {
-		b.sessions.Delete(accessKeyID)
-		ok = false
-		wasExpired = true
-	}
+	func() {
+		b.mu.Lock("GetCallerIdentity")
+		defer b.mu.Unlock()
 
-	b.mu.Unlock()
+		session, ok = b.sessions.Get(accessKeyID)
+
+		if ok && isSessionExpired(session) {
+			b.sessions.Delete(accessKeyID)
+			ok = false
+			wasExpired = true
+		}
+	}()
 
 	if ok {
 		// When the caller presents a session token, it must match the stored value.

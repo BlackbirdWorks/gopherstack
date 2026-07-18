@@ -191,40 +191,47 @@ func (b *InMemoryBackend) PutMetricData(
 		)
 	}
 
-	b.mu.Lock("PutMetricData")
+	var matchingStreams []string
 
-	if b.metrics[namespace] == nil {
-		b.metrics[namespace] = make(map[string]*metricRecord)
-	}
+	err := func() error {
+		b.mu.Lock("PutMetricData")
+		defer b.mu.Unlock()
 
-	if err := b.validatePutMetricDataBatch(namespace, data); err != nil {
-		b.mu.Unlock()
+		if b.metrics[namespace] == nil {
+			b.metrics[namespace] = make(map[string]*metricRecord)
+		}
 
+		if err := b.validatePutMetricDataBatch(namespace, data); err != nil {
+			return err
+		}
+
+		for _, d := range data {
+			d.Namespace = namespace
+			b.storeDatum(namespace, d)
+		}
+
+		// Collect matching running stream names while holding the write lock; the
+		// actual timestamp update happens in a second, shorter lock acquisition so
+		// the main metrics write lock is not held during filter iteration.
+		matchingStreams = b.matchingRunningStreamNames(namespace, data)
+
+		return nil
+	}()
+	if err != nil {
 		return err
 	}
-
-	for _, d := range data {
-		d.Namespace = namespace
-		b.storeDatum(namespace, d)
-	}
-
-	// Collect matching running stream names while holding the write lock; the
-	// actual timestamp update happens in a second, shorter lock acquisition so
-	// the main metrics write lock is not held during filter iteration.
-	matchingStreams := b.matchingRunningStreamNames(namespace, data)
-
-	b.mu.Unlock()
 
 	// Update LastUpdateDate for matched streams outside the metrics write lock.
 	if len(matchingStreams) > 0 {
 		now := time.Now().UTC()
 		b.mu.Lock("PutMetricData.streamDelivery")
+		defer b.mu.Unlock()
+
 		for _, name := range matchingStreams {
 			if s, ok := b.metricStreams.Get(name); ok && s.State == metricStreamStateRunning {
 				s.LastUpdateDate = now
 			}
 		}
-		b.mu.Unlock()
 	}
 
 	return nil

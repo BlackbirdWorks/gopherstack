@@ -133,9 +133,12 @@ func (b *InMemoryBackend) GetMetricDataPaged(
 		maxDatapoints = defaultMaxDatapoints
 	}
 
-	b.mu.RLock("GetMetricDataPaged")
-	all := b.resolveMetricDataQueries(queries, startTime, endTime, scanBy)
-	b.mu.RUnlock()
+	var all []MetricDataResult
+	func() {
+		b.mu.RLock("GetMetricDataPaged")
+		defer b.mu.RUnlock()
+		all = b.resolveMetricDataQueries(queries, startTime, endTime, scanBy)
+	}()
 
 	return paginateMetricData(all, maxDatapoints, nextToken), nil
 }

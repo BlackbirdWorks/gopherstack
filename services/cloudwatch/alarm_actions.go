@@ -106,9 +106,11 @@ func (b *InMemoryBackend) executeActions(
 
 		if alarmName != "" {
 			summary := fmt.Sprintf("Alarm %q action executed: %s → %s", alarmName, action, actionResult)
-			b.mu.Lock("executeActions-history")
-			b.appendHistory(alarmName, alarmTypeName, historyTypeAction, summary, "")
-			b.mu.Unlock()
+			func() {
+				b.mu.Lock("executeActions-history")
+				defer b.mu.Unlock()
+				b.appendHistory(alarmName, alarmTypeName, historyTypeAction, summary, "")
+			}()
 		}
 	}
 }

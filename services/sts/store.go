@@ -202,10 +202,11 @@ func (b *InMemoryBackend) evictExpiredSessionsLocked() {
 // is never blocked by an O(n) sweep.
 func (b *InMemoryBackend) maybeEvictExpiredSessions() {
 	b.mu.Lock("EvictExpiredSessions")
+	defer b.mu.Unlock()
+
 	if b.sessions.Len() >= sessionEvictThreshold {
 		b.evictExpiredSessionsLocked()
 	}
-	b.mu.Unlock()
 }
 
 // storeSession registers a new session under its access key ID and increments
@@ -213,10 +214,13 @@ func (b *InMemoryBackend) maybeEvictExpiredSessions() {
 // eviction of expired sessions is deferred to a separate lock acquisition so
 // that the 11 credential-issuing operations do not serialize on O(n) sweeps.
 func (b *InMemoryBackend) storeSession(session *SessionInfo) {
-	b.mu.Lock("StoreSession")
-	b.sessions.Put(session)
-	b.totalSessionsCreated.Add(1)
-	b.mu.Unlock()
+	func() {
+		b.mu.Lock("StoreSession")
+		defer b.mu.Unlock()
+
+		b.sessions.Put(session)
+		b.totalSessionsCreated.Add(1)
+	}()
 
 	b.maybeEvictExpiredSessions()
 }
@@ -228,13 +232,19 @@ func (b *InMemoryBackend) LookupSession(accessKeyID, sessionToken string) *Sessi
 		return nil
 	}
 
-	b.mu.Lock("LookupSession")
-	session, ok := b.sessions.Get(accessKeyID)
-	if ok && isSessionExpired(session) {
-		b.sessions.Delete(accessKeyID)
-		ok = false
-	}
-	b.mu.Unlock()
+	var session *SessionInfo
+	var ok bool
+
+	func() {
+		b.mu.Lock("LookupSession")
+		defer b.mu.Unlock()
+
+		session, ok = b.sessions.Get(accessKeyID)
+		if ok && isSessionExpired(session) {
+			b.sessions.Delete(accessKeyID)
+			ok = false
+		}
+	}()
 
 	if !ok {
 		return nil
@@ -252,15 +262,20 @@ func (b *InMemoryBackend) LookupSession(accessKeyID, sessionToken string) *Sessi
 func (b *InMemoryBackend) ValidateSessionCredential(
 	accessKeyID, sessionToken string,
 ) (*SessionInfo, error) {
-	b.mu.Lock("ValidateSessionCredential")
-	session, ok := b.sessions.Get(accessKeyID)
+	var session *SessionInfo
+	var ok bool
 
-	if ok && isSessionExpired(session) {
-		b.sessions.Delete(accessKeyID)
-		ok = false
-	}
+	func() {
+		b.mu.Lock("ValidateSessionCredential")
+		defer b.mu.Unlock()
 
-	b.mu.Unlock()
+		session, ok = b.sessions.Get(accessKeyID)
+
+		if ok && isSessionExpired(session) {
+			b.sessions.Delete(accessKeyID)
+			ok = false
+		}
+	}()
 
 	if !ok {
 		return nil, ErrSessionNotFound
@@ -277,9 +292,12 @@ func (b *InMemoryBackend) ValidateSessionCredential(
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 // Operation counters and totalSessionsCreated are also reset to zero.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock("Reset")
-	b.registry.ResetAll()
-	b.mu.Unlock()
+	func() {
+		b.mu.Lock("Reset")
+		defer b.mu.Unlock()
+
+		b.registry.ResetAll()
+	}()
 
 	b.cntAssumeRole.Store(0)
 	b.cntAssumeRoleWithSAML.Store(0)

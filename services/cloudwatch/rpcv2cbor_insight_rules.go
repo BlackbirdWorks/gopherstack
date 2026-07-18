@@ -180,16 +180,18 @@ func (h *Handler) cborGetInsightRuleReport(input cbor.Map, c *echo.Context) erro
 
 	var contributors []AlarmContributor
 	if bk, ok := h.Backend.(*InMemoryBackend); ok {
-		bk.mu.RLock("GetInsightRuleReport")
 		var innerErr error
-		contributors, innerErr = bk.GetInsightRuleContributors(
-			ruleName,
-			startTime,
-			endTime,
-			maxContributors,
-			orderBy,
-		)
-		bk.mu.RUnlock()
+		func() {
+			bk.mu.RLock("GetInsightRuleReport")
+			defer bk.mu.RUnlock()
+			contributors, innerErr = bk.GetInsightRuleContributors(
+				ruleName,
+				startTime,
+				endTime,
+				maxContributors,
+				orderBy,
+			)
+		}()
 		if innerErr != nil {
 			return h.cborError(
 				c,
