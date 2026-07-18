@@ -331,11 +331,14 @@ func (b *InMemoryBackend) PutObject(
 	// When overwriting a non-versioned object (NullVersion) without new tags,
 	// evict any stale tags from the previous version to prevent b.tags from growing unbounded.
 	if newVersionID == NullVersion && input.Tagging == nil {
-		b.mu.Lock("PutObject.evictTags")
-		if b.tags != nil {
-			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, key, NullVersion))
-		}
-		b.mu.Unlock()
+		func() {
+			b.mu.Lock("PutObject.evictTags")
+			defer b.mu.Unlock()
+
+			if b.tags != nil {
+				delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, key, NullVersion))
+			}
+		}()
 	}
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
@@ -850,9 +853,14 @@ func (b *InMemoryBackend) verifyChecksum(
 
 // checkPutObjectAuthAndLock performs initial checks for bucket existence and object lock.
 func (b *InMemoryBackend) checkPutObjectAuthAndLock(bucketName, key string) (*StoredBucket, error) {
-	b.mu.RLock("PutObjectCheck")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	var err error
+	func() {
+		b.mu.RLock("PutObjectCheck")
+		defer b.mu.RUnlock()
+
+		bucket, err = b.getBucket(bucketName)
+	}()
 	if err != nil {
 		return nil, err
 	}

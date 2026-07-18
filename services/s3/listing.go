@@ -47,15 +47,19 @@ func (b *InMemoryBackend) processListObjects(
 	input *s3.ListObjectsInput,
 ) ([]types.Object, []types.CommonPrefix, bool, string, int32) {
 	// Snapshot object pointers under lock
-	bucket.mu.RLock("ListObjects")
 	prefix := aws.ToString(input.Prefix)
-	objectSnapshots := make([]*StoredObject, 0, len(bucket.Objects))
-	for _, obj := range bucket.Objects {
-		if strings.HasPrefix(obj.Key, prefix) {
-			objectSnapshots = append(objectSnapshots, obj)
+	var objectSnapshots []*StoredObject
+	func() {
+		bucket.mu.RLock("ListObjects")
+		defer bucket.mu.RUnlock()
+
+		objectSnapshots = make([]*StoredObject, 0, len(bucket.Objects))
+		for _, obj := range bucket.Objects {
+			if strings.HasPrefix(obj.Key, prefix) {
+				objectSnapshots = append(objectSnapshots, obj)
+			}
 		}
-	}
-	bucket.mu.RUnlock()
+	}()
 
 	// Process objects outside the bucket lock
 	contents := b.processObjectSnapshots(objectSnapshots)
@@ -97,16 +101,19 @@ func (b *InMemoryBackend) processListObjects(
 func (b *InMemoryBackend) processObjectSnapshots(objectSnapshots []*StoredObject) []types.Object {
 	contents := make([]types.Object, 0, len(objectSnapshots)) // #61: capacity hint
 	for _, obj := range objectSnapshots {
-		obj.mu.RLock("ListObjects")
-		latestID := obj.LatestVersionID
 		var latest *StoredObjectVersion
-		if latestID != "" {
-			latest = obj.Versions[latestID]
-		} else {
-			// Fallback: scan for latest if not cached
-			latest = findLatestVersion(obj.Versions)
-		}
-		obj.mu.RUnlock()
+		func() {
+			obj.mu.RLock("ListObjects")
+			defer obj.mu.RUnlock()
+
+			latestID := obj.LatestVersionID
+			if latestID != "" {
+				latest = obj.Versions[latestID]
+			} else {
+				// Fallback: scan for latest if not cached
+				latest = findLatestVersion(obj.Versions)
+			}
+		}()
 
 		if latest == nil || latest.Deleted {
 			continue
@@ -144,9 +151,14 @@ func (b *InMemoryBackend) ListObjects(
 ) (*s3.ListObjectsOutput, error) {
 	bucketName := *input.Bucket
 
-	b.mu.RLock("ListObjects")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	var err error
+	func() {
+		b.mu.RLock("ListObjects")
+		defer b.mu.RUnlock()
+
+		bucket, err = b.getBucket(bucketName)
+	}()
 
 	if err != nil {
 		return nil, err
@@ -232,9 +244,14 @@ func (b *InMemoryBackend) ListObjectVersions(
 ) (*s3.ListObjectVersionsOutput, error) {
 	bucketName := *input.Bucket
 
-	b.mu.RLock("ListObjectVersions")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	var err error
+	func() {
+		b.mu.RLock("ListObjectVersions")
+		defer b.mu.RUnlock()
+
+		bucket, err = b.getBucket(bucketName)
+	}()
 
 	if err != nil {
 		return nil, err
@@ -296,6 +313,8 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 	var snapshots []versionSnapshot
 
 	bucket.mu.RLock("ListObjectVersions")
+	defer bucket.mu.RUnlock()
+
 	for _, obj := range bucket.Objects {
 		if !strings.HasPrefix(obj.Key, prefix) {
 			continue
@@ -319,7 +338,6 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 			})
 		}
 	}
-	bucket.mu.RUnlock()
 
 	return snapshots
 }

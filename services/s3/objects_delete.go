@@ -16,17 +16,26 @@ func (b *InMemoryBackend) DeleteObject(
 ) (*s3.DeleteObjectOutput, error) {
 	bucketName := *input.Bucket
 
-	b.mu.RLock("DeleteObject")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	var err error
+	func() {
+		b.mu.RLock("DeleteObject")
+		defer b.mu.RUnlock()
+
+		bucket, err = b.getBucket(bucketName)
+	}()
 
 	if err != nil {
 		return nil, err
 	}
 
-	bucket.mu.Lock("DeleteObject")
-	out, err := b.deleteObjectLocked(bucket, *input.Key, input.VersionId)
-	bucket.mu.Unlock()
+	var out *s3.DeleteObjectOutput
+	func() {
+		bucket.mu.Lock("DeleteObject")
+		defer bucket.mu.Unlock()
+
+		out, err = b.deleteObjectLocked(bucket, *input.Key, input.VersionId)
+	}()
 
 	if err != nil {
 		return nil, err
@@ -39,11 +48,14 @@ func (b *InMemoryBackend) DeleteObject(
 			vid = *input.VersionId
 		}
 
-		b.mu.Lock("DeleteObject.tags")
-		if b.tags != nil {
-			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, *input.Key, vid))
-		}
-		b.mu.Unlock()
+		func() {
+			b.mu.Lock("DeleteObject.tags")
+			defer b.mu.Unlock()
+
+			if b.tags != nil {
+				delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, *input.Key, vid))
+			}
+		}()
 	}
 
 	// Async delete-marker replication when versioning created a delete marker,
@@ -175,10 +187,14 @@ func deleteSpecificVersion(
 
 	// Acquire obj.mu to serialize the map deletion with concurrent readers
 	// (GetObject/HeadObject use obj.mu.RLock after releasing bucket.mu).
-	obj.mu.Lock("deleteSpecificVersion")
-	delete(obj.Versions, *versionID)
-	empty := len(obj.Versions) == 0
-	obj.mu.Unlock()
+	var empty bool
+	func() {
+		obj.mu.Lock("deleteSpecificVersion")
+		defer obj.mu.Unlock()
+
+		delete(obj.Versions, *versionID)
+		empty = len(obj.Versions) == 0
+	}()
 
 	if empty {
 		// Remove the now-empty object from the bucket map (still under bucket.mu).
@@ -202,22 +218,23 @@ func deleteLatestVersion(
 
 		// Acquire obj.mu to serialize the version-map mutation with concurrent
 		// readers that use obj.mu.RLock after releasing bucket.mu.
-		obj.mu.Lock("deleteLatestVersion")
+		func() {
+			obj.mu.Lock("deleteLatestVersion")
+			defer obj.mu.Unlock()
 
-		for _, v := range obj.Versions {
-			v.IsLatest = false
-		}
-		deleteMarker := &StoredObjectVersion{
-			VersionID:    newVersionID,
-			Key:          key,
-			Deleted:      true,
-			IsLatest:     true,
-			LastModified: time.Now().UTC(),
-		}
-		obj.Versions[newVersionID] = deleteMarker
-		obj.LatestVersionID = newVersionID // Update cache
-
-		obj.mu.Unlock()
+			for _, v := range obj.Versions {
+				v.IsLatest = false
+			}
+			deleteMarker := &StoredObjectVersion{
+				VersionID:    newVersionID,
+				Key:          key,
+				Deleted:      true,
+				IsLatest:     true,
+				LastModified: time.Now().UTC(),
+			}
+			obj.Versions[newVersionID] = deleteMarker
+			obj.LatestVersionID = newVersionID // Update cache
+		}()
 
 		return &s3.DeleteObjectOutput{
 			DeleteMarker: aws.Bool(true),
@@ -228,34 +245,41 @@ func deleteLatestVersion(
 	// Suspended versioning: an unversioned DELETE removes only the existing
 	// "null" version and inserts a "null" delete marker. Any non-null versions
 	// created while versioning was enabled must remain retrievable by versionId.
-	obj.mu.Lock("deleteLatestVersion")
+	var isEmpty bool
+	func() {
+		obj.mu.Lock("deleteLatestVersion")
+		defer obj.mu.Unlock()
 
-	delete(obj.Versions, NullVersion)
+		delete(obj.Versions, NullVersion)
 
-	// If no prior (non-null) versions remain, the object disappears entirely —
-	// matching the behaviour of a bucket that was never versioned.
-	if len(obj.Versions) == 0 {
-		obj.mu.Unlock()
+		// If no prior (non-null) versions remain, the object disappears entirely —
+		// matching the behaviour of a bucket that was never versioned.
+		if len(obj.Versions) == 0 {
+			isEmpty = true
+
+			return
+		}
+
+		for _, v := range obj.Versions {
+			v.IsLatest = false
+		}
+		deleteMarker := &StoredObjectVersion{
+			VersionID:    NullVersion,
+			Key:          key,
+			Deleted:      true,
+			IsLatest:     true,
+			LastModified: time.Now().UTC(),
+		}
+		obj.Versions[NullVersion] = deleteMarker
+		obj.LatestVersionID = NullVersion
+	}()
+
+	if isEmpty {
 		delete(bucket.Objects, key)
 		obj.mu.Close()
 
 		return &s3.DeleteObjectOutput{}
 	}
-
-	for _, v := range obj.Versions {
-		v.IsLatest = false
-	}
-	deleteMarker := &StoredObjectVersion{
-		VersionID:    NullVersion,
-		Key:          key,
-		Deleted:      true,
-		IsLatest:     true,
-		LastModified: time.Now().UTC(),
-	}
-	obj.Versions[NullVersion] = deleteMarker
-	obj.LatestVersionID = NullVersion
-
-	obj.mu.Unlock()
 
 	return &s3.DeleteObjectOutput{
 		DeleteMarker: aws.Bool(true),
@@ -274,9 +298,14 @@ func (b *InMemoryBackend) DeleteObjects(
 
 	bucketName := *input.Bucket
 
-	b.mu.RLock("DeleteObjects")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	var err error
+	func() {
+		b.mu.RLock("DeleteObjects")
+		defer b.mu.RUnlock()
+
+		bucket, err = b.getBucket(bucketName)
+	}()
 
 	if err != nil {
 		for _, obj := range input.Delete.Objects {
@@ -294,36 +323,40 @@ func (b *InMemoryBackend) DeleteObjects(
 	// when deleting thousands of objects.
 	var tagKeysToDelete []string
 
-	bucket.mu.Lock("DeleteObjects")
-	for _, obj := range input.Delete.Objects {
-		deleted, tagKey, delErr := b.deleteSingleObject(bucket, bucketName, obj)
-		if delErr != nil {
-			out.Errors = append(out.Errors, types.Error{
-				Key:     obj.Key,
-				Code:    aws.String("AccessDenied"),
-				Message: aws.String(delErr.Error()),
-			})
+	func() {
+		bucket.mu.Lock("DeleteObjects")
+		defer bucket.mu.Unlock()
 
-			continue
+		for _, obj := range input.Delete.Objects {
+			deleted, tagKey, delErr := b.deleteSingleObject(bucket, bucketName, obj)
+			if delErr != nil {
+				out.Errors = append(out.Errors, types.Error{
+					Key:     obj.Key,
+					Code:    aws.String("AccessDenied"),
+					Message: aws.String(delErr.Error()),
+				})
+
+				continue
+			}
+
+			if tagKey != "" {
+				tagKeysToDelete = append(tagKeysToDelete, tagKey)
+			}
+
+			out.Deleted = append(out.Deleted, deleted)
 		}
-
-		if tagKey != "" {
-			tagKeysToDelete = append(tagKeysToDelete, tagKey)
-		}
-
-		out.Deleted = append(out.Deleted, deleted)
-	}
-	bucket.mu.Unlock()
+	}()
 
 	// Clean up tags after the bucket lock is released.
 	if len(tagKeysToDelete) > 0 {
 		b.mu.Lock("DeleteObjects.tags")
+		defer b.mu.Unlock()
+
 		if b.tags != nil {
 			for _, k := range tagKeysToDelete {
 				delete(b.tags, k)
 			}
 		}
-		b.mu.Unlock()
 	}
 
 	return out, nil

@@ -110,19 +110,23 @@ func (b *InMemoryBackend) ListBuckets(
 	_ *s3.ListBucketsInput,
 ) (*s3.ListBucketsOutput, error) {
 	// Snapshot bucket data under lock, release immediately.
-	b.mu.RLock("ListBuckets")
-	all := b.buckets.All()
-	buckets := make([]types.Bucket, 0, len(all))
-	for _, bucket := range all {
-		if bucket.DeletePending || bucket.IsDirectoryBucket {
-			continue
+	var buckets []types.Bucket
+	func() {
+		b.mu.RLock("ListBuckets")
+		defer b.mu.RUnlock()
+
+		all := b.buckets.All()
+		buckets = make([]types.Bucket, 0, len(all))
+		for _, bucket := range all {
+			if bucket.DeletePending || bucket.IsDirectoryBucket {
+				continue
+			}
+			buckets = append(buckets, types.Bucket{
+				Name:         aws.String(bucket.Name),
+				CreationDate: aws.Time(bucket.CreationDate),
+			})
 		}
-		buckets = append(buckets, types.Bucket{
-			Name:         aws.String(bucket.Name),
-			CreationDate: aws.Time(bucket.CreationDate),
-		})
-	}
-	b.mu.RUnlock()
+	}()
 
 	// Sort outside the lock
 	sort.Slice(buckets, func(i, j int) bool {
@@ -143,20 +147,22 @@ func (b *InMemoryBackend) ListBuckets(
 // AWS behaviour where ListBuckets and ListDirectoryBuckets partition the two
 // bucket types into separate lists.
 func (b *InMemoryBackend) ListDirectoryBuckets(_ context.Context) ([]types.Bucket, error) {
-	b.mu.RLock("ListDirectoryBuckets")
 	buckets := make([]types.Bucket, 0)
+	func() {
+		b.mu.RLock("ListDirectoryBuckets")
+		defer b.mu.RUnlock()
 
-	for _, bucket := range b.buckets.All() {
-		if bucket.DeletePending || !bucket.IsDirectoryBucket {
-			continue
+		for _, bucket := range b.buckets.All() {
+			if bucket.DeletePending || !bucket.IsDirectoryBucket {
+				continue
+			}
+
+			buckets = append(buckets, types.Bucket{
+				Name:         aws.String(bucket.Name),
+				CreationDate: aws.Time(bucket.CreationDate),
+			})
 		}
-
-		buckets = append(buckets, types.Bucket{
-			Name:         aws.String(bucket.Name),
-			CreationDate: aws.Time(bucket.CreationDate),
-		})
-	}
-	b.mu.RUnlock()
+	}()
 
 	sort.Slice(buckets, func(i, j int) bool {
 		return *buckets[i].Name < *buckets[j].Name
@@ -223,9 +229,13 @@ func (b *InMemoryBackend) BucketsByRegion(region string) []types.Bucket {
 
 // CreateSession returns a stub session response for a bucket (S3 Express One Zone).
 func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (string, error) {
-	b.mu.RLock("CreateSession")
-	_, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var err error
+	func() {
+		b.mu.RLock("CreateSession")
+		defer b.mu.RUnlock()
+
+		_, err = b.getBucket(bucketName)
+	}()
 
 	if err != nil {
 		return "", err
@@ -246,20 +256,29 @@ func (b *InMemoryBackend) GetBucketMetadata(
 	_ context.Context,
 	bucketName string,
 ) (string, string, []types.Tag, error) {
-	b.mu.RLock("GetBucketMetadata")
-	bucket, ok := b.buckets.Get(bucketName)
-	if !ok {
-		b.mu.RUnlock()
+	var bucket *StoredBucket
+	var ok bool
+	func() {
+		b.mu.RLock("GetBucketMetadata")
+		defer b.mu.RUnlock()
 
+		bucket, ok = b.buckets.Get(bucketName)
+	}()
+
+	if !ok {
 		return "", "", nil, ErrNoSuchBucket
 	}
-	b.mu.RUnlock()
 
-	bucket.mu.RLock("GetBucketMetadata")
-	region := bucket.Region
-	lcXML := bucket.LifecycleConfig
-	tags := slices.Clone(bucket.Tags)
-	bucket.mu.RUnlock()
+	var region, lcXML string
+	var tags []types.Tag
+	func() {
+		bucket.mu.RLock("GetBucketMetadata")
+		defer bucket.mu.RUnlock()
+
+		region = bucket.Region
+		lcXML = bucket.LifecycleConfig
+		tags = slices.Clone(bucket.Tags)
+	}()
 
 	return region, lcXML, tags, nil
 }

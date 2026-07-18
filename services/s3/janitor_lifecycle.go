@@ -128,7 +128,6 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 	// Snapshot bucket names, lifecycle configs, and per-object tags under a
 	// read-lock so we can evaluate tag-based lifecycle filters without holding
 	// b.mu during the (potentially slow) object scan.
-	b.mu.RLock("S3Janitor.sweepLifecycle")
 	type bucketSnapshot struct {
 		bucket    *StoredBucket
 		tagsByKey map[string][]types.Tag
@@ -137,35 +136,44 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 	}
 	var snapshots []bucketSnapshot
 
-	for _, bucket := range b.buckets.All() {
-		name := bucket.Name
-		if bucket.DeletePending || bucket.LifecycleConfig == "" {
-			continue
-		}
-		bucket.mu.RLock("S3Janitor.sweepLifecycleLCRead")
-		lcXML := bucket.LifecycleConfig
-		bucket.mu.RUnlock()
-		if lcXML == "" {
-			continue
-		}
+	func() {
+		b.mu.RLock("S3Janitor.sweepLifecycle")
+		defer b.mu.RUnlock()
 
-		// Snapshot tags for this bucket's objects.
-		tagsByKey := make(map[string][]types.Tag)
-		pfx := name + "/"
-		for k, v := range b.tags {
-			if strings.HasPrefix(k, pfx) {
-				tagsByKey[k] = slices.Clone(v)
+		for _, bucket := range b.buckets.All() {
+			name := bucket.Name
+			if bucket.DeletePending || bucket.LifecycleConfig == "" {
+				continue
 			}
-		}
 
-		snapshots = append(snapshots, bucketSnapshot{
-			name:      name,
-			bucket:    bucket,
-			lcXML:     lcXML,
-			tagsByKey: tagsByKey,
-		})
-	}
-	b.mu.RUnlock()
+			var lcXML string
+			func() {
+				bucket.mu.RLock("S3Janitor.sweepLifecycleLCRead")
+				defer bucket.mu.RUnlock()
+
+				lcXML = bucket.LifecycleConfig
+			}()
+			if lcXML == "" {
+				continue
+			}
+
+			// Snapshot tags for this bucket's objects.
+			tagsByKey := make(map[string][]types.Tag)
+			pfx := name + "/"
+			for k, v := range b.tags {
+				if strings.HasPrefix(k, pfx) {
+					tagsByKey[k] = slices.Clone(v)
+				}
+			}
+
+			snapshots = append(snapshots, bucketSnapshot{
+				name:      name,
+				bucket:    bucket,
+				lcXML:     lcXML,
+				tagsByKey: tagsByKey,
+			})
+		}
+	}()
 
 	for _, snap := range snapshots {
 		evicted := j.applyLifecycleRules(
@@ -365,6 +373,8 @@ func (j *Janitor) collectExpiredKeys(
 	var evicted []string
 
 	bucket.mu.Lock("S3Janitor.evictExpiredObjects")
+	defer bucket.mu.Unlock()
+
 	for key, obj := range bucket.Objects {
 		if !strings.HasPrefix(key, prefix) {
 			continue
@@ -378,7 +388,6 @@ func (j *Janitor) collectExpiredKeys(
 		delete(bucket.Objects, key)
 		obj.mu.Close()
 	}
-	bucket.mu.Unlock()
 
 	return evicted
 }
@@ -398,10 +407,16 @@ func isExpiredAndMatches(
 	// Acquire obj.mu once to read both the modification time and the version ID
 	// atomically; reading LatestVersionID without obj.mu would race with writers
 	// (PutObject/DeleteObject) that update it under obj.mu.Lock.
-	obj.mu.RLock("isExpiredAndMatches")
-	latestMod, latestVID := latestVersionModAndID(obj)
-	locked := isLatestVersionLocked(obj)
-	obj.mu.RUnlock()
+	var latestMod time.Time
+	var latestVID string
+	var locked bool
+	func() {
+		obj.mu.RLock("isExpiredAndMatches")
+		defer obj.mu.RUnlock()
+
+		latestMod, latestVID = latestVersionModAndID(obj)
+		locked = isLatestVersionLocked(obj)
+	}()
 
 	if latestMod.IsZero() || latestMod.After(expireBefore) {
 		return false
@@ -469,6 +484,8 @@ func (j *Janitor) cleanupEvictedTags(bucket *StoredBucket, evictedKeys []string)
 	}
 
 	b.mu.Lock("S3Janitor.evictExpiredObjects.tags")
+	defer b.mu.Unlock()
+
 	for k := range b.tags {
 		// Tag keys have the format "bucket/key/versionID".
 		// Derive the object prefix ("bucket/key/") by trimming after the last '/'.
@@ -478,7 +495,6 @@ func (j *Janitor) cleanupEvictedTags(bucket *StoredBucket, evictedKeys []string)
 			}
 		}
 	}
-	b.mu.Unlock()
 }
 
 // objectMatchesTags returns true when all tag filters are satisfied by the given tag list.
@@ -610,53 +626,59 @@ func (j *Janitor) evictNoncurrentVersions(
 	noncurrentBefore time.Time,
 ) int {
 	// Phase 1: collect candidate keys under read lock.
-	bucket.mu.RLock("S3Janitor.evictNoncurrentVersions.scan")
-	keys := make([]string, 0, len(bucket.Objects))
+	var keys []string
+	func() {
+		bucket.mu.RLock("S3Janitor.evictNoncurrentVersions.scan")
+		defer bucket.mu.RUnlock()
 
-	for key := range bucket.Objects {
-		if strings.HasPrefix(key, prefix) {
-			keys = append(keys, key)
+		keys = make([]string, 0, len(bucket.Objects))
+
+		for key := range bucket.Objects {
+			if strings.HasPrefix(key, prefix) {
+				keys = append(keys, key)
+			}
 		}
-	}
-	bucket.mu.RUnlock()
+	}()
 
 	evicted := 0
 
 	// Phase 2: process one object at a time, holding bucket write lock only briefly
 	// per object so concurrent operations are not blocked for the entire sweep.
 	for _, key := range keys {
-		bucket.mu.Lock("S3Janitor.evictNoncurrentVersions.obj")
+		func() {
+			bucket.mu.Lock("S3Janitor.evictNoncurrentVersions.obj")
+			defer bucket.mu.Unlock()
 
-		obj, ok := bucket.Objects[key]
-		if !ok {
-			// Object was deleted since the scan phase.
-			bucket.mu.Unlock()
-
-			continue
-		}
-
-		obj.mu.Lock("S3Janitor.evictNoncurrentVersions.versions")
-
-		for vid, ver := range obj.Versions {
-			if ver.IsLatest || isNoncurrentVersionLocked(ver) {
-				continue
+			obj, ok := bucket.Objects[key]
+			if !ok {
+				// Object was deleted since the scan phase.
+				return
 			}
 
-			if ver.LastModified.Before(noncurrentBefore) {
-				delete(obj.Versions, vid)
-				evicted++
+			var isEmpty bool
+			func() {
+				obj.mu.Lock("S3Janitor.evictNoncurrentVersions.versions")
+				defer obj.mu.Unlock()
+
+				for vid, ver := range obj.Versions {
+					if ver.IsLatest || isNoncurrentVersionLocked(ver) {
+						continue
+					}
+
+					if ver.LastModified.Before(noncurrentBefore) {
+						delete(obj.Versions, vid)
+						evicted++
+					}
+				}
+
+				isEmpty = len(obj.Versions) == 0
+			}()
+
+			if isEmpty {
+				delete(bucket.Objects, key)
+				obj.mu.Close()
 			}
-		}
-
-		isEmpty := len(obj.Versions) == 0
-		obj.mu.Unlock()
-
-		if isEmpty {
-			delete(bucket.Objects, key)
-			obj.mu.Close()
-		}
-
-		bucket.mu.Unlock()
+		}()
 	}
 
 	return evicted

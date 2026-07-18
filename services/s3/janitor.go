@@ -114,16 +114,20 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 func (j *Janitor) sweepAndDrain(ctx context.Context) {
 	b := j.Backend
 
-	b.mu.RLock("S3Janitor")
-	all := b.buckets.All()
-	pending := make([]string, 0, len(all))
+	var pending []string
+	func() {
+		b.mu.RLock("S3Janitor")
+		defer b.mu.RUnlock()
 
-	for _, bucket := range all {
-		if bucket.DeletePending {
-			pending = append(pending, bucket.Name)
+		all := b.buckets.All()
+		pending = make([]string, 0, len(all))
+
+		for _, bucket := range all {
+			if bucket.DeletePending {
+				pending = append(pending, bucket.Name)
+			}
 		}
-	}
-	b.mu.RUnlock()
+	}()
 
 	telemetry.RecordWorkerQueueDepth("s3", "BucketCleaner", len(pending))
 	telemetry.RecordWorkerTask("s3", "BucketCleaner", "success")
@@ -196,25 +200,28 @@ func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 	now := time.Now().UTC()
 	abortBefore := now.Add(-defaultMultipartMaxAge)
 
-	b.mu.RLock("S3Janitor.cleanupDefaultMultipart.scan")
 	var expired []string
+	func() {
+		b.mu.RLock("S3Janitor.cleanupDefaultMultipart.scan")
+		defer b.mu.RUnlock()
 
-	for _, upload := range b.uploads.All() {
-		if upload.Initiated.Before(abortBefore) {
-			expired = append(expired, upload.UploadID)
+		for _, upload := range b.uploads.All() {
+			if upload.Initiated.Before(abortBefore) {
+				expired = append(expired, upload.UploadID)
+			}
 		}
-	}
-	b.mu.RUnlock()
+	}()
 
 	if len(expired) == 0 {
 		return
 	}
 
 	b.mu.Lock("S3Janitor.cleanupDefaultMultipart.delete")
+	defer b.mu.Unlock()
+
 	for _, uploadID := range expired {
 		b.uploads.Delete(uploadID)
 	}
-	b.mu.Unlock()
 }
 
 // processBucket fully drains a pending bucket by deleting all objects in repeated
@@ -230,9 +237,14 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 
 	// Locate the bucket once; buckets are keyed by name, so this is a single
 	// O(1) lookup (bucket names cannot collide, let alone "move regions").
-	b.mu.RLock("S3Janitor.processBucket")
-	bucket, ok := b.buckets.Get(name)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	var ok bool
+	func() {
+		b.mu.RLock("S3Janitor.processBucket")
+		defer b.mu.RUnlock()
+
+		bucket, ok = b.buckets.Get(name)
+	}()
 
 	if !ok {
 		return
@@ -247,10 +259,14 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 		default:
 		}
 
-		bucket.mu.Lock("S3Janitor.processBucket")
-		count := deleteBatch(bucket.Objects, drainChunkSize)
-		remaining := len(bucket.Objects)
-		bucket.mu.Unlock()
+		var count, remaining int
+		func() {
+			bucket.mu.Lock("S3Janitor.processBucket")
+			defer bucket.mu.Unlock()
+
+			count = deleteBatch(bucket.Objects, drainChunkSize)
+			remaining = len(bucket.Objects)
+		}()
 
 		telemetry.RecordWorkerItems("s3", "BucketCleaner", count)
 
@@ -262,18 +278,20 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 
 		// Bucket is empty — remove it from the table and purge orphaned
 		// uploads and tags to prevent resource leaks.
-		b.mu.Lock("S3Janitor.removeBucket")
-		b.buckets.Delete(name)
-		b.purgeUploadsForBucketLocked(name)
+		func() {
+			b.mu.Lock("S3Janitor.removeBucket")
+			defer b.mu.Unlock()
 
-		prefix := name + "/"
-		for tagKey := range b.tags {
-			if strings.HasPrefix(tagKey, prefix) {
-				delete(b.tags, tagKey)
+			b.buckets.Delete(name)
+			b.purgeUploadsForBucketLocked(name)
+
+			prefix := name + "/"
+			for tagKey := range b.tags {
+				if strings.HasPrefix(tagKey, prefix) {
+					delete(b.tags, tagKey)
+				}
 			}
-		}
-
-		b.mu.Unlock()
+		}()
 		bucket.mu.Close()
 
 		logger.Load(ctx).InfoContext(ctx, "S3 janitor: bucket deleted", "bucket", name)

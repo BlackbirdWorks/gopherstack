@@ -50,9 +50,14 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	bucketName := *input.Bucket
 	key := *input.Key
 
-	b.mu.RLock("CreateMultipartUpload")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	var err error
+	func() {
+		b.mu.RLock("CreateMultipartUpload")
+		defer b.mu.RUnlock()
+
+		bucket, err = b.getBucket(bucketName)
+	}()
 
 	if err != nil {
 		return nil, err
@@ -80,6 +85,8 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	}
 
 	b.mu.Lock("CreateMultipartUpload")
+	defer b.mu.Unlock()
+
 	b.uploads.Put(&StoredMultipartUpload{
 		UploadID:  uploadID,
 		Bucket:    bucketName,
@@ -90,7 +97,6 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		SSE:       sse,
 		mu:        lockmetrics.New("s3.upload"),
 	})
-	b.mu.Unlock()
 
 	return &s3.CreateMultipartUploadOutput{
 		Bucket:   input.Bucket,
@@ -190,9 +196,13 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	// 1. Read the upload pointer — we need it for assembly but don't consume
 	// the upload yet, since assembly may fail (e.g. ErrInvalidPart) and the
 	// caller should still be able to retry or abort.
-	b.mu.RLock(opCompleteMultipartUpload)
-	upload := b.getUpload(bucketName, uploadID)
-	b.mu.RUnlock()
+	var upload *StoredMultipartUpload
+	func() {
+		b.mu.RLock(opCompleteMultipartUpload)
+		defer b.mu.RUnlock()
+
+		upload = b.getUpload(bucketName, uploadID)
+	}()
 
 	if upload == nil {
 		return nil, ErrNoSuchUpload
@@ -200,10 +210,15 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 
 	// Snapshot the upload's tagging + SSE before claiming (the upload is
 	// removed from the index during claim, so we must capture them first).
-	upload.mu.RLock("CompleteMultipartUpload.tagging")
-	tagging := upload.Tagging
-	sse := upload.SSE
-	upload.mu.RUnlock()
+	var tagging string
+	var sse sseInfo
+	func() {
+		upload.mu.RLock("CompleteMultipartUpload.tagging")
+		defer upload.mu.RUnlock()
+
+		tagging = upload.Tagging
+		sse = upload.SSE
+	}()
 
 	// 2. Assemble and compress data. If this fails, the upload is untouched and
 	// can be retried or aborted by the caller.
@@ -219,9 +234,13 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	}
 
 	// 4. Update bucket/object state.
-	b.mu.RLock(opCompleteMultipartUpload)
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	var bucket *StoredBucket
+	func() {
+		b.mu.RLock(opCompleteMultipartUpload)
+		defer b.mu.RUnlock()
+
+		bucket, err = b.getBucket(bucketName)
+	}()
 
 	if err != nil {
 		return nil, err
@@ -244,25 +263,32 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 // b.uploads under b.mu.Lock. Called by CompleteMultipartUpload after successful
 // assembly so that a concurrent AbortMultipartUpload cannot also succeed.
 func (b *InMemoryBackend) claimMultipartUpload(bucketName, uploadID string) error {
-	b.mu.Lock("CompleteMultipartUpload.claim")
+	var err error
 
-	upload := b.getUpload(bucketName, uploadID)
-	if upload == nil {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("CompleteMultipartUpload.claim")
+		defer b.mu.Unlock()
 
-		return ErrNoSuchUpload
-	}
+		upload := b.getUpload(bucketName, uploadID)
+		if upload == nil {
+			err = ErrNoSuchUpload
 
-	// Mark closed while holding b.mu to block concurrent UploadPart calls that
-	// already hold a pointer to this upload struct.
-	upload.mu.Lock("CompleteMultipartUpload.claim")
-	upload.closed = true
-	upload.mu.Unlock()
+			return
+		}
 
-	b.uploads.Delete(uploadID)
-	b.mu.Unlock()
+		// Mark closed while holding b.mu to block concurrent UploadPart calls that
+		// already hold a pointer to this upload struct.
+		func() {
+			upload.mu.Lock("CompleteMultipartUpload.claim")
+			defer upload.mu.Unlock()
 
-	return nil
+			upload.closed = true
+		}()
+
+		b.uploads.Delete(uploadID)
+	}()
+
+	return err
 }
 
 // multipartAssemblyResult holds the results of assembleMultipartData.
@@ -280,64 +306,76 @@ func (b *InMemoryBackend) collectPartsData(
 	upload *StoredMultipartUpload,
 	parts []types.CompletedPart,
 ) ([]byte, []byte, error) {
-	upload.mu.RLock(opCompleteMultipartUpload)
+	var data, partMD5s []byte
+	var err error
 
-	// Validate ascending order.
-	for i := 1; i < len(parts); i++ {
-		if *parts[i].PartNumber <= *parts[i-1].PartNumber {
-			upload.mu.RUnlock()
+	func() {
+		upload.mu.RLock(opCompleteMultipartUpload)
+		defer upload.mu.RUnlock()
 
-			return nil, nil, ErrInvalidPartOrder
+		// Validate ascending order.
+		for i := 1; i < len(parts); i++ {
+			if *parts[i].PartNumber <= *parts[i-1].PartNumber {
+				err = ErrInvalidPartOrder
+
+				return
+			}
 		}
+
+		// Pre-calculate total size.
+		totalSize := 0
+		for _, part := range parts {
+			if sp, ok := upload.Parts[*part.PartNumber]; ok {
+				totalSize += len(sp.Data)
+			}
+		}
+
+		buf := bytes.NewBuffer(make([]byte, 0, totalSize))
+		md5s := make([]byte, 0, len(parts)*md5.Size)
+
+		for i, part := range parts {
+			pNum := *part.PartNumber
+			storedPart, ok := upload.Parts[pNum]
+			if !ok {
+				err = ErrInvalidPart
+
+				return
+			}
+
+			if *part.ETag != storedPart.ETag {
+				err = ErrInvalidPart
+
+				return
+			}
+
+			isLastPart := i == len(parts)-1
+			if !isLastPart && storedPart.Size < multipartMinPartSize && !b.skipMultipartSizeCheck {
+				err = ErrEntityTooSmall
+
+				return
+			}
+
+			buf.Write(storedPart.Data)
+
+			rawETag := strings.Trim(storedPart.ETag, "\"")
+			rawBytes, decErr := hex.DecodeString(rawETag)
+			if decErr != nil {
+				err = ErrInvalidPart
+
+				return
+			}
+			md5s = append(md5s, rawBytes...)
+		}
+
+		data = buf.Bytes()
+		partMD5s = md5s
+	}()
+
+	if err != nil {
+		return nil, nil, err
 	}
 
-	// Pre-calculate total size.
-	totalSize := 0
-	for _, part := range parts {
-		if sp, ok := upload.Parts[*part.PartNumber]; ok {
-			totalSize += len(sp.Data)
-		}
-	}
-
-	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
-	partMD5s := make([]byte, 0, len(parts)*md5.Size)
-
-	for i, part := range parts {
-		pNum := *part.PartNumber
-		storedPart, ok := upload.Parts[pNum]
-		if !ok {
-			upload.mu.RUnlock()
-
-			return nil, nil, ErrInvalidPart
-		}
-
-		if *part.ETag != storedPart.ETag {
-			upload.mu.RUnlock()
-
-			return nil, nil, ErrInvalidPart
-		}
-
-		isLastPart := i == len(parts)-1
-		if !isLastPart && storedPart.Size < multipartMinPartSize && !b.skipMultipartSizeCheck {
-			upload.mu.RUnlock()
-
-			return nil, nil, ErrEntityTooSmall
-		}
-
-		buf.Write(storedPart.Data)
-
-		rawETag := strings.Trim(storedPart.ETag, "\"")
-		rawBytes, decErr := hex.DecodeString(rawETag)
-		if decErr != nil {
-			upload.mu.RUnlock()
-
-			return nil, nil, ErrInvalidPart
-		}
-		partMD5s = append(partMD5s, rawBytes...)
-	}
-	upload.mu.RUnlock()
-
-	return buf.Bytes(), partMD5s, nil
+	return data, partMD5s, nil
 }
 
 // assembleMultipartData reads all parts under the per-upload read lock, assembles
@@ -402,72 +440,89 @@ func (b *InMemoryBackend) commitMultipartObject(
 	tagging string,
 	sse sseInfo,
 ) (string, error) {
-	bucket.mu.Lock(opCompleteMultipartUpload)
+	var obj *StoredObject
+	var newVersion *StoredObjectVersion
+	var versionID string
+	var err error
 
-	obj, exists := bucket.Objects[key]
-	if !exists {
-		obj = &StoredObject{
-			Key:      key,
-			Versions: make(map[string]*StoredObjectVersion),
-			mu:       lockmetrics.New("s3.object"),
+	func() {
+		bucket.mu.Lock(opCompleteMultipartUpload)
+		defer bucket.mu.Unlock()
+
+		var exists bool
+		obj, exists = bucket.Objects[key]
+		if !exists {
+			obj = &StoredObject{
+				Key:      key,
+				Versions: make(map[string]*StoredObjectVersion),
+				mu:       lockmetrics.New("s3.object"),
+			}
+			bucket.Objects[key] = obj
 		}
-		bucket.Objects[key] = obj
-	}
 
-	versionID := NullVersion
-	if bucket.Versioning == types.BucketVersioningStatusEnabled {
-		versionID = newObjectVersionID()
-	}
-
-	// Seal the assembled body under SSE if the session was created with it.
-	// On encryption failure we release the bucket lock and surface the error
-	// to the caller so it can be returned as a structured S3 error response
-	// rather than panicking the request goroutine.
-	storedBody := assembled.compressedData
-	var dek, nonce []byte
-	if sse.Algorithm != "" || sse.SSECAlgorithm != "" {
-		var encErr error
-		storedBody, dek, nonce, encErr = encryptWithSSE(
-			assembled.compressedData,
-			sse,
-			sse.SSECKeyB64,
-		)
-		if encErr != nil {
-			bucket.mu.Unlock()
-
-			return "", fmt.Errorf("commitMultipartObject: SSE encryption failed: %w", encErr)
+		versionID = NullVersion
+		if bucket.Versioning == types.BucketVersioningStatusEnabled {
+			versionID = newObjectVersionID()
 		}
+
+		// Seal the assembled body under SSE if the session was created with it.
+		// On encryption failure we surface the error to the caller so it can be
+		// returned as a structured S3 error response rather than panicking the
+		// request goroutine.
+		storedBody := assembled.compressedData
+		var dek, nonce []byte
+		if sse.Algorithm != "" || sse.SSECAlgorithm != "" {
+			var encErr error
+			storedBody, dek, nonce, encErr = encryptWithSSE(
+				assembled.compressedData,
+				sse,
+				sse.SSECKeyB64,
+			)
+			if encErr != nil {
+				err = fmt.Errorf("commitMultipartObject: SSE encryption failed: %w", encErr)
+
+				return
+			}
+		}
+
+		newVersion = &StoredObjectVersion{
+			VersionID:       versionID,
+			Key:             key,
+			Data:            storedBody,
+			IsCompressed:    assembled.isCompressed,
+			Size:            int64(len(assembled.data)),
+			ETag:            assembled.etag,
+			LastModified:    time.Now(),
+			IsLatest:        true,
+			SSEAlgorithm:    sse.Algorithm,
+			SSEKMSKeyID:     sse.KMSKeyID,
+			SSECAlgorithm:   sse.SSECAlgorithm,
+			SSECKeyMD5:      sse.SSECKeyMD5,
+			EncryptionDEK:   dek,
+			EncryptionNonce: nonce,
+		}
+
+		// Acquire obj.mu while bucket.mu is still held (the defer above releases
+		// bucket.mu as soon as this closure returns, i.e. right after obj.mu is
+		// acquired) to prevent TOCTOU and to serialize version-map mutations
+		// with concurrent readers (obj.mu.RLock). obj.mu itself is released by
+		// the follow-up closure below once the version-map mutation is done.
+		obj.mu.Lock(opCompleteMultipartUpload)
+	}()
+
+	if err != nil {
+		return "", err
 	}
 
-	newVersion := &StoredObjectVersion{
-		VersionID:       versionID,
-		Key:             key,
-		Data:            storedBody,
-		IsCompressed:    assembled.isCompressed,
-		Size:            int64(len(assembled.data)),
-		ETag:            assembled.etag,
-		LastModified:    time.Now(),
-		IsLatest:        true,
-		SSEAlgorithm:    sse.Algorithm,
-		SSEKMSKeyID:     sse.KMSKeyID,
-		SSECAlgorithm:   sse.SSECAlgorithm,
-		SSECKeyMD5:      sse.SSECKeyMD5,
-		EncryptionDEK:   dek,
-		EncryptionNonce: nonce,
-	}
+	func() {
+		defer obj.mu.Unlock()
 
-	// Acquire obj.mu while bucket.mu is still held to prevent TOCTOU and to
-	// serialize version-map mutations with concurrent readers (obj.mu.RLock).
-	obj.mu.Lock(opCompleteMultipartUpload)
-	bucket.mu.Unlock()
-
-	for _, v := range obj.Versions {
-		v.IsLatest = false
-	}
-	obj.Versions[versionID] = newVersion
-	obj.LatestVersionID = versionID
-
-	obj.mu.Unlock()
+		for _, v := range obj.Versions {
+			v.IsLatest = false
+		}
+		obj.Versions[versionID] = newVersion
+		obj.LatestVersionID = versionID
+	}()
 
 	// Store tags outside bucket.mu to respect lock ordering.
 	if tagging != "" {
@@ -484,23 +539,33 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 	uploadID := *input.UploadId
 	bucketName := aws.ToString(input.Bucket)
 
-	b.mu.Lock("AbortMultipartUpload")
+	var err error
+	func() {
+		b.mu.Lock("AbortMultipartUpload")
+		defer b.mu.Unlock()
 
-	upload := b.getUpload(bucketName, uploadID)
-	if upload == nil {
-		b.mu.Unlock()
+		upload := b.getUpload(bucketName, uploadID)
+		if upload == nil {
+			err = ErrNoSuchUpload
 
-		return nil, ErrNoSuchUpload
+			return
+		}
+
+		// Mark closed while holding b.mu so concurrent UploadPart calls that already
+		// hold a pointer to this upload will observe the invalidation flag.
+		func() {
+			upload.mu.Lock("AbortMultipartUpload")
+			defer upload.mu.Unlock()
+
+			upload.closed = true
+		}()
+
+		b.uploads.Delete(uploadID)
+	}()
+
+	if err != nil {
+		return nil, err
 	}
-
-	// Mark closed while holding b.mu so concurrent UploadPart calls that already
-	// hold a pointer to this upload will observe the invalidation flag.
-	upload.mu.Lock("AbortMultipartUpload")
-	upload.closed = true
-	upload.mu.Unlock()
-
-	b.uploads.Delete(uploadID)
-	b.mu.Unlock()
 
 	return &s3.AbortMultipartUploadOutput{}, nil
 }
@@ -654,9 +719,13 @@ func (b *InMemoryBackend) ListParts(
 	uploadID := aws.ToString(input.UploadId)
 	bucketName := aws.ToString(input.Bucket)
 
-	b.mu.RLock("ListParts")
-	upload := b.getUpload(bucketName, uploadID)
-	b.mu.RUnlock()
+	var upload *StoredMultipartUpload
+	func() {
+		b.mu.RLock("ListParts")
+		defer b.mu.RUnlock()
+
+		upload = b.getUpload(bucketName, uploadID)
+	}()
 
 	if upload == nil {
 		return nil, ErrNoSuchUpload
@@ -674,36 +743,41 @@ func (b *InMemoryBackend) ListParts(
 		}
 	}
 
-	upload.mu.RLock("ListParts")
-	partNumbers := make([]int32, 0, len(upload.Parts))
-	for pn := range upload.Parts {
-		partNumbers = append(partNumbers, pn)
-	}
-
-	slices.Sort(partNumbers)
-
-	// Apply part-number-marker: skip parts whose number is <= marker.
-	startIdx := sort.Search(len(partNumbers), func(i int) bool {
-		return partNumbers[i] > partNumberMarker
-	})
-	partNumbers = partNumbers[startIdx:]
-
 	var parts []types.Part
-	for _, pn := range partNumbers {
-		if int32(len(parts)) >= maxParts { //nolint:gosec // safe: len bounded by slice
-			break
+	var totalPartNumbers int
+	func() {
+		upload.mu.RLock("ListParts")
+		defer upload.mu.RUnlock()
+
+		partNumbers := make([]int32, 0, len(upload.Parts))
+		for pn := range upload.Parts {
+			partNumbers = append(partNumbers, pn)
 		}
-		p := upload.Parts[pn]
-		parts = append(parts, types.Part{
-			PartNumber: aws.Int32(pn),
-			ETag:       aws.String(p.ETag),
-			Size:       aws.Int64(p.Size),
+
+		slices.Sort(partNumbers)
+
+		// Apply part-number-marker: skip parts whose number is <= marker.
+		startIdx := sort.Search(len(partNumbers), func(i int) bool {
+			return partNumbers[i] > partNumberMarker
 		})
-	}
-	upload.mu.RUnlock()
+		partNumbers = partNumbers[startIdx:]
+		totalPartNumbers = len(partNumbers)
+
+		for _, pn := range partNumbers {
+			if int32(len(parts)) >= maxParts { //nolint:gosec // safe: len bounded by slice
+				break
+			}
+			p := upload.Parts[pn]
+			parts = append(parts, types.Part{
+				PartNumber: aws.Int32(pn),
+				ETag:       aws.String(p.ETag),
+				Size:       aws.Int64(p.Size),
+			})
+		}
+	}()
 
 	partsCount := int32(len(parts)) //nolint:gosec // G115: bounded by maxParts
-	isTruncated := partsCount == maxParts && int(partsCount) < len(partNumbers)
+	isTruncated := partsCount == maxParts && int(partsCount) < totalPartNumbers
 	var nextPartNumberMarker *string
 	if isTruncated && len(parts) > 0 {
 		last := parts[len(parts)-1]

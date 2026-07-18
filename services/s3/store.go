@@ -163,13 +163,14 @@ func (b *InMemoryBackend) SetServiceContext(ctx context.Context) {
 	newCtx, newCancel := context.WithCancel(ctx)
 
 	b.serviceCtxMu.Lock()
+	defer b.serviceCtxMu.Unlock()
+
 	if b.serviceCancel != nil {
 		b.serviceCancel()
 	}
 
 	b.serviceCtx = newCtx
 	b.serviceCancel = newCancel
-	b.serviceCtxMu.Unlock()
 }
 
 // replicationContext builds the context for a replication goroutine: parented to
@@ -177,9 +178,13 @@ func (b *InMemoryBackend) SetServiceContext(ctx context.Context) {
 // but never the request's cancellation or its SSE key. serviceCtx is always
 // non-nil (initialised in NewInMemoryBackend).
 func (b *InMemoryBackend) replicationContext(reqCtx context.Context) context.Context {
-	b.serviceCtxMu.RLock()
-	base := b.serviceCtx
-	b.serviceCtxMu.RUnlock()
+	var base context.Context
+	func() {
+		b.serviceCtxMu.RLock()
+		defer b.serviceCtxMu.RUnlock()
+
+		base = b.serviceCtx
+	}()
 
 	return logger.Save(base, logger.Load(reqCtx))
 }
@@ -220,11 +225,14 @@ func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 // Shutdown cancels the backend's service context and waits for all in-flight
 // replication goroutines to complete. Safe to call more than once.
 func (b *InMemoryBackend) Shutdown() {
-	b.serviceCtxMu.Lock()
-	if b.serviceCancel != nil {
-		b.serviceCancel()
-	}
-	b.serviceCtxMu.Unlock()
+	func() {
+		b.serviceCtxMu.Lock()
+		defer b.serviceCtxMu.Unlock()
+
+		if b.serviceCancel != nil {
+			b.serviceCancel()
+		}
+	}()
 
 	b.replicationWg.Wait()
 }
