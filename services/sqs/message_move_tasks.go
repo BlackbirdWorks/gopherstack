@@ -129,104 +129,102 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 		return nil, ErrInvalidMaxMessagesPerSecond
 	}
 
-	var (
-		taskHandle string
-		srcURL     string
-		destURL    string
-		state      *moveTaskState
-		ctx        context.Context
-		startErr   error
-	)
-
-	func() {
-		b.mu.Lock("StartMessageMoveTask")
-		defer b.mu.Unlock()
-
-		// Check for existing running task on the same source ARN (AWS realism).
-		// We check task status while holding both b.mu and t.mu to ensure the
-		// status snapshot is consistent with the subsequent task insertion.
-		for _, t := range b.moveTasks.All() {
-			if t.sourceArn != input.SourceArn {
-				continue
-			}
-
-			t.mu.Lock()
-			isActive := t.status == MoveTaskStatusRunning || t.status == MoveTaskStatusCancelling
-			t.mu.Unlock()
-
-			if isActive {
-				startErr = ErrMoveTaskAlreadyRunning
-
-				return
-			}
-		}
-
-		// Resolve source queue under the lock to avoid TOCTOU races.
-		var ok bool
-
-		srcURL, ok = b.queueURLFromARNLocked(input.SourceArn)
-		if !ok {
-			startErr = ErrQueueNotFound
-
-			return
-		}
-
-		// Resolve destination queue under the same lock.
-		destArn := input.DestinationArn
-
-		if destArn == "" {
-			destURL, ok = b.findDefaultMoveDestinationLocked(input.SourceArn)
-			if !ok {
-				startErr = ErrQueueNotFound
-
-				return
-			}
-
-			// Derive destination ARN from its URL for task metadata.
-			destName := queueNameFromInput(destURL)
-			destArn = arn.Build("sqs", b.region, b.accountID, destName)
-		} else {
-			destURL, ok = b.queueURLFromARNLocked(destArn)
-			if !ok {
-				startErr = ErrQueueNotFound
-
-				return
-			}
-		}
-
-		// Snapshot queue depth under the lock so the estimate is consistent.
-		srcQueue, _ := b.lookupQueueByURL("", srcURL)
-		totalCount := approximateQueueDepthLocked(srcQueue)
-
-		taskHandle = uuid.New().String()
-
-		var cancel context.CancelFunc
-
-		ctx, cancel = context.WithCancel(
-			b.svcCtx,
-		)
-
-		state = &moveTaskState{
-			cancel:     cancel,
-			taskHandle: taskHandle,
-			sourceArn:  input.SourceArn,
-			destArn:    destArn,
-			status:     MoveTaskStatusRunning,
-			maxPerSec:  input.MaxNumberOfMessagesPerSecond,
-			startedAt:  time.Now().UnixMilli(),
-			totalCount: totalCount,
-		}
-
-		b.moveTasks.Put(state)
-	}()
-
-	if startErr != nil {
-		return nil, startErr
+	taskHandle, srcURL, destURL, state, ctx, err := b.startMessageMoveTaskLocked(input)
+	if err != nil {
+		return nil, err
 	}
 
 	go b.runMoveTask(ctx, state, srcURL, destURL)
 
 	return &StartMessageMoveTaskOutput{TaskHandle: taskHandle}, nil
+}
+
+// startMessageMoveTaskLocked checks for an already-running task on the same
+// source ARN, resolves the source/destination queues, and registers the new
+// move task, all under b.mu. Extracted from StartMessageMoveTask so the locked
+// region is a plain method body rather than a function literal.
+func (b *InMemoryBackend) startMessageMoveTaskLocked(
+	input *StartMessageMoveTaskInput,
+) (string, string, string, *moveTaskState, context.Context, error) {
+	b.mu.Lock("StartMessageMoveTask")
+	defer b.mu.Unlock()
+
+	// Check for existing running task on the same source ARN (AWS realism).
+	// We check task status while holding both b.mu and t.mu to ensure the
+	// status snapshot is consistent with the subsequent task insertion.
+	if b.hasActiveMoveTaskForSourceLocked(input.SourceArn) {
+		return "", "", "", nil, nil, ErrMoveTaskAlreadyRunning
+	}
+
+	// Resolve source queue under the lock to avoid TOCTOU races.
+	srcURL, ok := b.queueURLFromARNLocked(input.SourceArn)
+	if !ok {
+		return "", "", "", nil, nil, ErrQueueNotFound
+	}
+
+	// Resolve destination queue under the same lock.
+	destArn := input.DestinationArn
+
+	var destURL string
+
+	if destArn == "" {
+		destURL, ok = b.findDefaultMoveDestinationLocked(input.SourceArn)
+		if !ok {
+			return "", "", "", nil, nil, ErrQueueNotFound
+		}
+
+		// Derive destination ARN from its URL for task metadata.
+		destName := queueNameFromInput(destURL)
+		destArn = arn.Build("sqs", b.region, b.accountID, destName)
+	} else {
+		destURL, ok = b.queueURLFromARNLocked(destArn)
+		if !ok {
+			return "", "", "", nil, nil, ErrQueueNotFound
+		}
+	}
+
+	// Snapshot queue depth under the lock so the estimate is consistent.
+	srcQueue, _ := b.lookupQueueByURL("", srcURL)
+	totalCount := approximateQueueDepthLocked(srcQueue)
+
+	taskHandle := uuid.New().String()
+
+	ctx, cancel := context.WithCancel(b.svcCtx)
+
+	state := &moveTaskState{
+		cancel:     cancel,
+		taskHandle: taskHandle,
+		sourceArn:  input.SourceArn,
+		destArn:    destArn,
+		status:     MoveTaskStatusRunning,
+		maxPerSec:  input.MaxNumberOfMessagesPerSecond,
+		startedAt:  time.Now().UnixMilli(),
+		totalCount: totalCount,
+	}
+
+	b.moveTasks.Put(state)
+
+	return taskHandle, srcURL, destURL, state, ctx, nil
+}
+
+// hasActiveMoveTaskForSourceLocked reports whether there is already a RUNNING or
+// CANCELLING move task for sourceArn. Must be called with b.mu held.
+func (b *InMemoryBackend) hasActiveMoveTaskForSourceLocked(sourceArn string) bool {
+	for _, t := range b.moveTasks.All() {
+		if t.sourceArn != sourceArn {
+			continue
+		}
+
+		t.mu.Lock()
+		isActive := t.status == MoveTaskStatusRunning || t.status == MoveTaskStatusCancelling
+		t.mu.Unlock()
+
+		if isActive {
+			return true
+		}
+	}
+
+	return false
 }
 
 // from the source queue one at a time and writes them to the destination queue

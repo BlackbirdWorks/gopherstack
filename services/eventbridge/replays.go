@@ -103,90 +103,9 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 
 	region := getRegionFromContext(ctx, b.region)
 
-	var (
-		ferr           error
-		cp             Replay
-		eventsToReplay []EventEntry
-		dt             *DeliveryTargets
-		workerSem      chan struct{}
-		svcCtx         context.Context
-		delivTimeout   time.Duration
-	)
-
-	func() {
-		b.mu.Lock("StartReplay")
-		defer b.mu.Unlock()
-
-		replays := b.replaysTable(region)
-		if replays.Has(input.ReplayName) {
-			ferr = fmt.Errorf("%w: replay %s already exists", ErrAlreadyExists, input.ReplayName)
-
-			return
-		}
-
-		// Validate destination ARN points to a known event bus.
-		if input.Destination != nil && input.Destination.Arn != "" {
-			found := false
-			for _, bus := range b.busesTable(region).All() {
-				if bus.Arn == input.Destination.Arn {
-					found = true
-
-					break
-				}
-			}
-			if !found {
-				ferr = fmt.Errorf(
-					"%w: destination ARN %s does not match any event bus",
-					ErrInvalidParameter,
-					input.Destination.Arn,
-				)
-
-				return
-			}
-		}
-
-		// Find the archive by ARN (EventSourceArn points to an archive ARN).
-		var archiveName string
-		var archivePattern string
-		for _, archive := range b.archivesTable(region).All() {
-			if archive.ArchiveArn == input.EventSourceArn {
-				archiveName = archive.ArchiveName
-				archivePattern = archive.EventPattern
-
-				break
-			}
-		}
-
-		replay := &Replay{
-			EventSourceArn:  input.EventSourceArn,
-			EventStartTime:  input.EventStartTime,
-			EventEndTime:    input.EventEndTime,
-			ReplayArn:       b.replayARN(input.ReplayName),
-			ReplayName:      input.ReplayName,
-			ReplayStartTime: time.Now(),
-			State:           replayStateStarting,
-			StateReason:     input.Description,
-		}
-		replays.Put(replay)
-
-		// Collect archived events to replay filtered by time window and event pattern.
-		eventsToReplay = b.filterArchivedEvents(
-			region,
-			archiveName,
-			archivePattern,
-			input.EventStartTime,
-			input.EventEndTime,
-		)
-
-		dt = b.deliveryTargets
-		workerSem = b.workerSem
-		svcCtx = b.ctx
-		delivTimeout = b.deliveryTimeout
-		cp = *replay
-	}()
-
-	if ferr != nil {
-		return nil, ferr
+	cp, eventsToReplay, dt, workerSem, svcCtx, delivTimeout, err := b.startReplayLocked(region, input)
+	if err != nil {
+		return nil, err
 	}
 
 	// Deliver archived events asynchronously and mark the replay complete.
@@ -195,6 +114,84 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 	}
 
 	return &cp, nil
+}
+
+// startReplayLocked validates the new replay, records it, and collects the
+// archived events to replay, all under b.mu. It returns the replay snapshot and
+// the delivery configuration StartReplay needs to schedule the async worker
+// after releasing the lock. Extracted from StartReplay so the locked region is
+// a plain method body rather than a function literal.
+func (b *InMemoryBackend) startReplayLocked(region string, input StartReplayInput) (
+	Replay,
+	[]EventEntry,
+	*DeliveryTargets,
+	chan struct{},
+	context.Context,
+	time.Duration,
+	error,
+) {
+	b.mu.Lock("StartReplay")
+	defer b.mu.Unlock()
+
+	replays := b.replaysTable(region)
+	if replays.Has(input.ReplayName) {
+		return Replay{}, nil, nil, nil, nil, 0,
+			fmt.Errorf("%w: replay %s already exists", ErrAlreadyExists, input.ReplayName)
+	}
+
+	// Validate destination ARN points to a known event bus.
+	if input.Destination != nil && input.Destination.Arn != "" {
+		found := false
+		for _, bus := range b.busesTable(region).All() {
+			if bus.Arn == input.Destination.Arn {
+				found = true
+
+				break
+			}
+		}
+		if !found {
+			return Replay{}, nil, nil, nil, nil, 0, fmt.Errorf(
+				"%w: destination ARN %s does not match any event bus",
+				ErrInvalidParameter,
+				input.Destination.Arn,
+			)
+		}
+	}
+
+	// Find the archive by ARN (EventSourceArn points to an archive ARN).
+	var archiveName string
+	var archivePattern string
+	for _, archive := range b.archivesTable(region).All() {
+		if archive.ArchiveArn == input.EventSourceArn {
+			archiveName = archive.ArchiveName
+			archivePattern = archive.EventPattern
+
+			break
+		}
+	}
+
+	replay := &Replay{
+		EventSourceArn:  input.EventSourceArn,
+		EventStartTime:  input.EventStartTime,
+		EventEndTime:    input.EventEndTime,
+		ReplayArn:       b.replayARN(input.ReplayName),
+		ReplayName:      input.ReplayName,
+		ReplayStartTime: time.Now(),
+		State:           replayStateStarting,
+		StateReason:     input.Description,
+	}
+	replays.Put(replay)
+
+	// Collect archived events to replay filtered by time window and event pattern.
+	eventsToReplay := b.filterArchivedEvents(
+		region,
+		archiveName,
+		archivePattern,
+		input.EventStartTime,
+		input.EventEndTime,
+	)
+
+	return *replay, eventsToReplay, b.deliveryTargets, b.workerSem, b.ctx, b.deliveryTimeout, nil
 }
 
 // filterArchivedEvents returns archived events for the named archive filtered by

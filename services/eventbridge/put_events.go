@@ -89,73 +89,7 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) (
 
 	region := getRegionFromContext(ctx, b.region)
 
-	var (
-		results      []EventResultEntry
-		accepted     []EventEntry
-		dt           *DeliveryTargets
-		workerSem    chan struct{}
-		svcCtx       context.Context
-		delivTimeout time.Duration
-	)
-
-	func() {
-		b.mu.Lock("PutEvents")
-		defer b.mu.Unlock()
-
-		results = make([]EventResultEntry, 0, len(entries))
-		accepted = make([]EventEntry, 0, len(entries))
-		totalBytes := 0
-		for _, entry := range entries {
-			if errCode, msg, ok := validatePutEventsEntry(entry); !ok {
-				results = append(results, EventResultEntry{ErrorCode: errCode, ErrorMessage: msg})
-
-				continue
-			}
-
-			entryBytes := putEventsEntryBytes(entry)
-			if totalBytes+entryBytes > maxBatchBytes {
-				results = append(results, EventResultEntry{
-					ErrorCode:    "EventSizeLimitExceeded",
-					ErrorMessage: "Event size exceeds 256 KB total batch limit",
-				})
-
-				continue
-			}
-
-			totalBytes += entryBytes
-			eventID := uuid.New().String()
-			busName := entry.EventBusName
-			if busName == "" {
-				busName = defaultEventBusName
-			}
-			eventTime := time.Now()
-			if entry.Time != nil {
-				eventTime = *entry.Time
-			}
-			logEntry := EventLogEntry{
-				ID:           eventID,
-				Source:       entry.Source,
-				DetailType:   entry.DetailType,
-				Detail:       entry.Detail,
-				EventBusName: busName,
-				Time:         eventTime,
-			}
-			b.eventLog = append(b.eventLog, logEntry)
-			// Trim event log to last 1000 entries.
-			if len(b.eventLog) > maxEventLogSize {
-				b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
-			}
-			// Capture event into matching archives.
-			b.captureEventInArchives(region, entry, busName)
-			accepted = append(accepted, entry)
-			results = append(results, EventResultEntry{EventID: eventID})
-		}
-
-		dt = b.deliveryTargets
-		workerSem = b.workerSem
-		svcCtx = b.ctx
-		delivTimeout = b.deliveryTimeout
-	}()
+	results, accepted, dt, workerSem, svcCtx, delivTimeout := b.putEventsLocked(region, entries, maxBatchBytes)
 
 	// Trigger async fan-out delivery after releasing the lock.
 	// Skip if the backend is already closing to prevent wg.Add concurrent with
@@ -177,6 +111,78 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) (
 	}
 
 	return results, nil
+}
+
+// putEventsLocked validates and records entries into the event log (and matching
+// archives) under b.mu, returning the per-entry results, the accepted entries, and
+// the delivery configuration snapshot needed by PutEvents to fan out delivery after
+// releasing the lock. Extracted from PutEvents so the locked region is a plain
+// method body rather than a function literal.
+func (b *InMemoryBackend) putEventsLocked(
+	region string,
+	entries []EventEntry,
+	maxBatchBytes int,
+) (
+	[]EventResultEntry,
+	[]EventEntry,
+	*DeliveryTargets,
+	chan struct{},
+	context.Context,
+	time.Duration,
+) {
+	b.mu.Lock("PutEvents")
+	defer b.mu.Unlock()
+
+	results := make([]EventResultEntry, 0, len(entries))
+	accepted := make([]EventEntry, 0, len(entries))
+	totalBytes := 0
+	for _, entry := range entries {
+		if errCode, msg, ok := validatePutEventsEntry(entry); !ok {
+			results = append(results, EventResultEntry{ErrorCode: errCode, ErrorMessage: msg})
+
+			continue
+		}
+
+		entryBytes := putEventsEntryBytes(entry)
+		if totalBytes+entryBytes > maxBatchBytes {
+			results = append(results, EventResultEntry{
+				ErrorCode:    "EventSizeLimitExceeded",
+				ErrorMessage: "Event size exceeds 256 KB total batch limit",
+			})
+
+			continue
+		}
+
+		totalBytes += entryBytes
+		eventID := uuid.New().String()
+		busName := entry.EventBusName
+		if busName == "" {
+			busName = defaultEventBusName
+		}
+		eventTime := time.Now()
+		if entry.Time != nil {
+			eventTime = *entry.Time
+		}
+		logEntry := EventLogEntry{
+			ID:           eventID,
+			Source:       entry.Source,
+			DetailType:   entry.DetailType,
+			Detail:       entry.Detail,
+			EventBusName: busName,
+			Time:         eventTime,
+		}
+		b.eventLog = append(b.eventLog, logEntry)
+		// Trim event log to last 1000 entries.
+		if len(b.eventLog) > maxEventLogSize {
+			b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
+		}
+		// Capture event into matching archives.
+		b.captureEventInArchives(region, entry, busName)
+		accepted = append(accepted, entry)
+		results = append(results, EventResultEntry{EventID: eventID})
+	}
+
+	return results, accepted, b.deliveryTargets, b.workerSem, b.ctx, b.deliveryTimeout
 }
 
 // GetEventLog returns a copy of the current event log.

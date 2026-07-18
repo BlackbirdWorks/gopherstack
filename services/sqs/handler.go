@@ -51,64 +51,80 @@ func (h *Handler) WithJanitor(interval ...time.Duration) *Handler {
 
 // StartWorker starts the background janitor if it is configured.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	if h.janitor != nil {
-		var runCtx context.Context
-
-		var done chan struct{}
-
-		func() {
-			h.janitorMu.Lock()
-			defer h.janitorMu.Unlock()
-
-			if h.janitorDone != nil {
-				return
-			}
-
-			var cancel context.CancelFunc
-
-			runCtx, cancel = context.WithCancel(ctx)
-			done = make(chan struct{})
-			h.janitorCancel = cancel
-			h.janitorDone = done
-		}()
-
-		if done != nil {
-			go func() {
-				defer close(done)
-				h.janitor.Run(runCtx)
-			}()
-		}
+	if h.janitor == nil {
+		return nil
 	}
+
+	runCtx, done := h.startJanitorLocked(ctx)
+	if done == nil {
+		return nil
+	}
+
+	go func() {
+		defer close(done)
+		h.janitor.Run(runCtx)
+	}()
 
 	return nil
 }
 
-// Shutdown stops the janitor worker and waits for it to exit.
-func (h *Handler) Shutdown(ctx context.Context) {
-	var cancel context.CancelFunc
+// startJanitorLocked registers a new janitor run context under h.janitorMu,
+// unless one is already running (in which case it returns a nil done channel
+// to signal that StartWorker should not start a second run). Extracted from
+// StartWorker so the locked region is a plain method body rather than a
+// function literal, and so h.janitorCancel = cancel is a direct field store
+// gosec can trace.
+func (h *Handler) startJanitorLocked(ctx context.Context) (context.Context, chan struct{}) {
+	h.janitorMu.Lock()
+	defer h.janitorMu.Unlock()
 
-	var done chan struct{}
-
-	func() {
-		h.janitorMu.Lock()
-		defer h.janitorMu.Unlock()
-
-		cancel = h.janitorCancel
-		done = h.janitorDone
-		h.janitorCancel = nil
-		h.janitorDone = nil
-	}()
-
-	if cancel == nil || done == nil {
-		return
+	if h.janitorDone != nil {
+		return nil, nil
 	}
 
-	cancel()
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	h.janitorCancel = cancel
+	h.janitorDone = done
+
+	return runCtx, done
+}
+
+// Shutdown stops the janitor worker and waits for it to exit.
+func (h *Handler) Shutdown(ctx context.Context) {
+	done := h.stopJanitorLocked()
+	if done == nil {
+		return
+	}
 
 	select {
 	case <-done:
 	case <-ctx.Done():
 	}
+}
+
+// stopJanitorLocked cancels any active janitor run and clears the run
+// bookkeeping under h.janitorMu, returning the run's done channel so Shutdown
+// can wait for it to exit outside the lock (or nil if no run is active).
+// Extracted from Shutdown so the locked region is a plain method body rather
+// than a function literal, and so gosec sees h.janitorCancel loaded and called
+// as a direct field access in this method (not through a nested closure).
+func (h *Handler) stopJanitorLocked() chan struct{} {
+	h.janitorMu.Lock()
+	defer h.janitorMu.Unlock()
+
+	cancel := h.janitorCancel
+	done := h.janitorDone
+	h.janitorCancel = nil
+	h.janitorDone = nil
+
+	if cancel == nil || done == nil {
+		return nil
+	}
+
+	cancel()
+
+	return done
 }
 
 var (

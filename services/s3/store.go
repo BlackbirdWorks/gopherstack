@@ -178,15 +178,17 @@ func (b *InMemoryBackend) SetServiceContext(ctx context.Context) {
 // but never the request's cancellation or its SSE key. serviceCtx is always
 // non-nil (initialised in NewInMemoryBackend).
 func (b *InMemoryBackend) replicationContext(reqCtx context.Context) context.Context {
-	var base context.Context
-	func() {
-		b.serviceCtxMu.RLock()
-		defer b.serviceCtxMu.RUnlock()
+	return logger.Save(b.currentServiceContextLocked(), logger.Load(reqCtx))
+}
 
-		base = b.serviceCtx
-	}()
+// currentServiceContextLocked returns the backend's current long-lived service
+// context under b.serviceCtxMu. Extracted from replicationContext so the locked
+// read is a plain method body rather than a function literal.
+func (b *InMemoryBackend) currentServiceContextLocked() context.Context {
+	b.serviceCtxMu.RLock()
+	defer b.serviceCtxMu.RUnlock()
 
-	return logger.Save(base, logger.Load(reqCtx))
+	return b.serviceCtx
 }
 
 // bucketTableKey is the [store.Table] key function for b.buckets: bucket

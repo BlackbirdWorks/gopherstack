@@ -192,71 +192,16 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(
 func (b *InMemoryBackend) SetSubscriptionAttributes(
 	subscriptionArn, attrName, attrValue string,
 ) error {
-	// Parse the FilterPolicy outside the backend lock so JSON validation does
-	// not serialize against unrelated SNS operations on large policies.
-	var parsedPolicy parsedFilterPolicy
-
-	if attrName == attrFilterPolicy {
-		p, err := parseFilterPolicy(attrValue)
-		if err != nil {
-			return err
-		}
-
-		parsedPolicy = p
+	// Parse/validate outside the backend lock so JSON parsing, DLQ existence
+	// checks, and RFC3339 timestamp validation don't hold the lock.
+	parsedPolicy, replayFromTime, err := subscriptionAttrPreValidation(b, attrName, attrValue)
+	if err != nil {
+		return err
 	}
 
-	// Pre-validate redrive policy outside the backend lock for the same reason.
-	if attrName == attrRedrivePolicy && attrValue != "" {
-		if err := validateRedrivePolicy(attrValue); err != nil {
-			return err
-		}
-		if err := b.checkDLQExists(attrValue); err != nil {
-			return err
-		}
-	}
-
-	// Validate and parse ReplayPolicy before acquiring the lock so JSON parsing
-	// and RFC3339 timestamp validation don't hold the lock.
-	var replayFromTime time.Time
-	if attrName == attrReplayPolicy && attrValue != "" {
-		ts, err := parseReplayFromTimestamp(attrValue)
-		if err != nil {
-			return err
-		}
-
-		replayFromTime = ts
-	}
-
-	var (
-		subSnap  Subscription
-		topicArn string
-		setErr   error
-	)
-
-	func() {
-		b.mu.Lock("SetSubscriptionAttributes")
-		defer b.mu.Unlock()
-
-		sub, exists := b.subscriptions.Get(subscriptionArn)
-		if !exists {
-			setErr = ErrSubscriptionNotFound
-
-			return
-		}
-
-		if err := applySubscriptionAttr(sub, attrName, attrValue, parsedPolicy); err != nil {
-			setErr = err
-
-			return
-		}
-
-		// Capture a snapshot for replay (after the attribute is applied so RawMessageDelivery etc. are current).
-		subSnap = *sub
-		topicArn = sub.TopicArn
-	}()
-
-	if setErr != nil {
-		return setErr
+	subSnap, topicArn, err := b.setSubscriptionAttributesLocked(subscriptionArn, attrName, attrValue, parsedPolicy)
+	if err != nil {
+		return err
 	}
 
 	// Trigger asynchronous replay when ReplayPolicy is set to a non-empty value.
@@ -265,6 +210,73 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(
 	}
 
 	return nil
+}
+
+// subscriptionAttrPreValidation performs the attribute-kind-specific validation
+// that SetSubscriptionAttributes must do before acquiring the backend lock:
+// FilterPolicy JSON parsing, RedrivePolicy DLQ existence checking, and
+// ReplayPolicy timestamp parsing. Extracted to keep SetSubscriptionAttributes
+// under the cyclomatic complexity budget.
+func subscriptionAttrPreValidation(
+	b *InMemoryBackend,
+	attrName, attrValue string,
+) (parsedFilterPolicy, time.Time, error) {
+	var parsedPolicy parsedFilterPolicy
+
+	if attrName == attrFilterPolicy {
+		p, err := parseFilterPolicy(attrValue)
+		if err != nil {
+			return parsedFilterPolicy{}, time.Time{}, err
+		}
+
+		parsedPolicy = p
+	}
+
+	if attrName == attrRedrivePolicy && attrValue != "" {
+		if err := validateRedrivePolicy(attrValue); err != nil {
+			return parsedFilterPolicy{}, time.Time{}, err
+		}
+		if err := b.checkDLQExists(attrValue); err != nil {
+			return parsedFilterPolicy{}, time.Time{}, err
+		}
+	}
+
+	var replayFromTime time.Time
+
+	if attrName == attrReplayPolicy && attrValue != "" {
+		ts, err := parseReplayFromTimestamp(attrValue)
+		if err != nil {
+			return parsedFilterPolicy{}, time.Time{}, err
+		}
+
+		replayFromTime = ts
+	}
+
+	return parsedPolicy, replayFromTime, nil
+}
+
+// setSubscriptionAttributesLocked applies the attribute change under b.mu and
+// returns a snapshot of the subscription (and its topic ARN) for the caller's
+// post-unlock replay trigger. Extracted from SetSubscriptionAttributes so the
+// locked region is a plain method body rather than a function literal.
+func (b *InMemoryBackend) setSubscriptionAttributesLocked(
+	subscriptionArn, attrName, attrValue string,
+	parsedPolicy parsedFilterPolicy,
+) (Subscription, string, error) {
+	b.mu.Lock("SetSubscriptionAttributes")
+	defer b.mu.Unlock()
+
+	sub, exists := b.subscriptions.Get(subscriptionArn)
+	if !exists {
+		return Subscription{}, "", ErrSubscriptionNotFound
+	}
+
+	if err := applySubscriptionAttr(sub, attrName, attrValue, parsedPolicy); err != nil {
+		return Subscription{}, "", err
+	}
+
+	// Capture a snapshot for replay (after the attribute is applied so RawMessageDelivery etc. are current).
+	return *sub, sub.TopicArn, nil
 }
 
 // applySubscriptionAttr mutates sub with the given attribute value.

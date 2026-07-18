@@ -199,33 +199,48 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 			continue
 		}
 
-		streamName := firehoseStreamNameFromARN(sub.Endpoint)
-		if streamName == "" {
-			continue
-		}
+		b.deliverFirehoseSubscription(ev, sub, firehose, sqsSender, topicEffectivePolicy)
+	}
+}
 
-		record := []byte(ev.Message)
-		if !sub.RawMessageDelivery {
-			record = buildFirehoseEnvelope(ev, sub)
-		}
+// deliverFirehoseSubscription delivers ev to a single Firehose-protocol
+// subscription, retrying per the effective delivery policy and forwarding to
+// the subscription DLQ on final failure. Extracted from
+// deliverToFirehoseSubscriptions to reduce cognitive complexity.
+func (b *InMemoryBackend) deliverFirehoseSubscription(
+	ev *events.SNSPublishedEvent,
+	sub events.SNSSubscriptionSnapshot,
+	firehose FirehosePutter,
+	sqsSender SQSSender,
+	topicEffectivePolicy string,
+) {
+	streamName := firehoseStreamNameFromARN(sub.Endpoint)
+	if streamName == "" {
+		return
+	}
 
-		numRetries := getRetryConfig(topicEffectivePolicy, sub.DeliveryPolicy, protocolFirehose)
-		var err error
-		for i := 0; i <= numRetries; i++ {
-			_, err = firehose.PutRecordBatch(streamName, [][]byte{record})
-			if err == nil {
-				b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "SUCCESS", nil)
+	record := []byte(ev.Message)
+	if !sub.RawMessageDelivery {
+		record = buildFirehoseEnvelope(ev, sub)
+	}
 
-				break
-			}
-		}
+	numRetries := getRetryConfig(topicEffectivePolicy, sub.DeliveryPolicy, protocolFirehose)
 
-		if err != nil {
-			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "FAILURE", err)
-			if sub.RedrivePolicy != "" && sqsSender != nil {
-				sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, string(record))
-			}
+	var err error
+
+	for i := 0; i <= numRetries; i++ {
+		_, err = firehose.PutRecordBatch(streamName, [][]byte{record})
+		if err == nil {
+			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "SUCCESS", nil)
+
+			return
 		}
+	}
+
+	b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "FAILURE", err)
+
+	if sub.RedrivePolicy != "" && sqsSender != nil {
+		sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, string(record))
 	}
 }
 

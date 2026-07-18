@@ -306,76 +306,84 @@ func (b *InMemoryBackend) collectPartsData(
 	upload *StoredMultipartUpload,
 	parts []types.CompletedPart,
 ) ([]byte, []byte, error) {
-	var data, partMD5s []byte
-	var err error
+	upload.mu.RLock(opCompleteMultipartUpload)
+	defer upload.mu.RUnlock()
 
-	func() {
-		upload.mu.RLock(opCompleteMultipartUpload)
-		defer upload.mu.RUnlock()
+	return b.collectPartsDataLocked(upload, parts)
+}
 
-		// Validate ascending order.
-		for i := 1; i < len(parts); i++ {
-			if *parts[i].PartNumber <= *parts[i-1].PartNumber {
-				err = ErrInvalidPartOrder
-
-				return
-			}
+// collectPartsDataLocked does the actual work of collectPartsData under
+// upload.mu.RLock. Extracted so the locked region is a plain method body
+// rather than a function literal, and so per-part validation can be delegated
+// to validateAndAppendPart to keep cognitive complexity down.
+func (b *InMemoryBackend) collectPartsDataLocked(
+	upload *StoredMultipartUpload,
+	parts []types.CompletedPart,
+) ([]byte, []byte, error) {
+	// Validate ascending order.
+	for i := 1; i < len(parts); i++ {
+		if *parts[i].PartNumber <= *parts[i-1].PartNumber {
+			return nil, nil, ErrInvalidPartOrder
 		}
-
-		// Pre-calculate total size.
-		totalSize := 0
-		for _, part := range parts {
-			if sp, ok := upload.Parts[*part.PartNumber]; ok {
-				totalSize += len(sp.Data)
-			}
-		}
-
-		buf := bytes.NewBuffer(make([]byte, 0, totalSize))
-		md5s := make([]byte, 0, len(parts)*md5.Size)
-
-		for i, part := range parts {
-			pNum := *part.PartNumber
-			storedPart, ok := upload.Parts[pNum]
-			if !ok {
-				err = ErrInvalidPart
-
-				return
-			}
-
-			if *part.ETag != storedPart.ETag {
-				err = ErrInvalidPart
-
-				return
-			}
-
-			isLastPart := i == len(parts)-1
-			if !isLastPart && storedPart.Size < multipartMinPartSize && !b.skipMultipartSizeCheck {
-				err = ErrEntityTooSmall
-
-				return
-			}
-
-			buf.Write(storedPart.Data)
-
-			rawETag := strings.Trim(storedPart.ETag, "\"")
-			rawBytes, decErr := hex.DecodeString(rawETag)
-			if decErr != nil {
-				err = ErrInvalidPart
-
-				return
-			}
-			md5s = append(md5s, rawBytes...)
-		}
-
-		data = buf.Bytes()
-		partMD5s = md5s
-	}()
-
-	if err != nil {
-		return nil, nil, err
 	}
 
-	return data, partMD5s, nil
+	// Pre-calculate total size.
+	totalSize := 0
+	for _, part := range parts {
+		if sp, ok := upload.Parts[*part.PartNumber]; ok {
+			totalSize += len(sp.Data)
+		}
+	}
+
+	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
+	md5s := make([]byte, 0, len(parts)*md5.Size)
+
+	for i, part := range parts {
+		rawBytes, err := b.validateAndAppendPart(upload, part, i == len(parts)-1, buf)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		md5s = append(md5s, rawBytes...)
+	}
+
+	return buf.Bytes(), md5s, nil
+}
+
+// validateAndAppendPart validates a single completed part against its stored
+// counterpart, writes its raw bytes into buf, and returns the raw MD5 bytes
+// decoded from its ETag. Extracted from collectPartsDataLocked to keep its
+// cognitive complexity down.
+func (b *InMemoryBackend) validateAndAppendPart(
+	upload *StoredMultipartUpload,
+	part types.CompletedPart,
+	isLastPart bool,
+	buf *bytes.Buffer,
+) ([]byte, error) {
+	pNum := *part.PartNumber
+	storedPart, ok := upload.Parts[pNum]
+	if !ok {
+		return nil, ErrInvalidPart
+	}
+
+	if *part.ETag != storedPart.ETag {
+		return nil, ErrInvalidPart
+	}
+
+	if !isLastPart && storedPart.Size < multipartMinPartSize && !b.skipMultipartSizeCheck {
+		return nil, ErrEntityTooSmall
+	}
+
+	buf.Write(storedPart.Data)
+
+	rawETag := strings.Trim(storedPart.ETag, "\"")
+
+	rawBytes, err := hex.DecodeString(rawETag)
+	if err != nil {
+		return nil, ErrInvalidPart
+	}
+
+	return rawBytes, nil
 }
 
 // assembleMultipartData reads all parts under the per-upload read lock, assembles
