@@ -1,0 +1,155 @@
+package cloudwatch
+
+import (
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+)
+
+const (
+	statusTrainedInsufficient = "TRAINED_INSUFFICIENT_DATA"
+	metricDataStatusComplete  = "Complete"
+	statSum                   = "Sum"
+)
+
+const (
+	keyAlarmName        = "AlarmName"
+	keyAlarmDescription = "AlarmDescription"
+	keyAlarmArn         = "AlarmArn"
+)
+
+const (
+	cwDefaultListMetricsLimit               = 500
+	cwDefaultDescribeAlarmsLimit            = 100
+	cwDefaultAlarmHistoryLimit              = 100
+	cwDefaultDescribeForMetricLimit         = 100
+	cwDefaultListDashboardsLimit            = 300
+	cwDefaultDescribeAnomalyDetectorLimit   = 100
+	cwDefaultDescribeInsightRulesLimit      = 100
+	cwDefaultDescribeAlarmContributorsLimit = 100
+	cwDefaultListMetricStreamsLimit         = 500
+	cwDefaultDescribeMetricFiltersLimit     = 50
+	cwDefaultListAlarmMuteRulesLimit        = 100
+	cwDefaultListManagedInsightRulesLimit   = 100
+	cwMaxMetricDataPoints                   = 1000 // maximum data points retained per metric
+	cwMaxMetricNamesPerNamespace            = 500  // maximum unique metric names per namespace
+	cwMaxAlarmHistory                       = 100  // maximum alarm history entries per alarm
+	cwMetricRetentionDays                   = 15   // data points older than this are evicted
+	cwMaxCompositeEvalDepth                 = 10   // maximum recursion depth for composite alarm evaluation
+	// cwMaxMetricDataPerRequest mirrors the AWS CloudWatch PutMetricData hard
+	// limit on the number of MetricDatum entries accepted per request (1000).
+	cwMaxMetricDataPerRequest = 1000
+	// cwMaxTotalMetricRecords is a cluster-wide safety cap on distinct metric time series.
+	cwMaxTotalMetricRecords = 10000
+
+	alarmStateAlarm            = "ALARM"
+	alarmStateOK               = "OK"
+	alarmStateInsufficientData = "INSUFFICIENT_DATA"
+
+	insightRuleStateEnabled = "ENABLED"
+
+	historyTypeStateUpdate         = "StateUpdate"
+	historyTypeConfigurationUpdate = "ConfigurationUpdate"
+	historyTypeAction              = "Action"
+)
+
+// InMemoryBackend implements StorageBackend using in-memory maps.
+// metrics is a two-level map: namespace -> composite-key -> *metricRecord.
+// The composite key is produced by metricStorageKey(metricName, dims) so that
+// different dimension sets for the same metric name are stored separately.
+// metrics and alarmHistory are deliberately left as plain maps rather than
+// store.Table -- see the comment block at the top of store_setup.go for why.
+// Every other resource field is registered on registry -- see
+// registerAllTables in store_setup.go.
+type InMemoryBackend struct {
+	metrics          map[string]map[string]*metricRecord
+	alarmHistory     map[string][]AlarmHistoryItem
+	alarms           *store.Table[MetricAlarm]
+	compositeAlarms  *store.Table[CompositeAlarm]
+	dashboards       *store.Table[dashboardRecord]
+	anomalyDetectors *store.Table[AnomalyDetector]
+	insightRules     *store.Table[InsightRule]
+	metricStreams    *store.Table[MetricStream]
+	alarmMuteRules   *store.Table[AlarmMuteRule]
+	metricFilters    *store.Table[MetricFilter]
+	registry         *store.Registry
+	snsPublisher     SNSPublisher
+	lambdaInvoker    LambdaInvoker
+	ec2Actioner      EC2InstanceActioner
+	asgExecutor      AutoScalingPolicyExecutor
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
+	// totalMetrics is the running count of distinct metric series across all
+	// namespaces, maintained on insert/delete to avoid O(namespaces) walks (#60).
+	totalMetrics int
+}
+
+// NewInMemoryBackend creates a new InMemoryBackend with default configuration.
+func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
+}
+
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	b := &InMemoryBackend{
+		accountID:    accountID,
+		region:       region,
+		metrics:      make(map[string]map[string]*metricRecord),
+		alarmHistory: make(map[string][]AlarmHistoryItem),
+		registry:     store.NewRegistry(),
+		mu:           lockmetrics.New("cloudwatch"),
+	}
+
+	registerAllTables(b)
+
+	return b
+}
+
+// countTotalMetrics returns the total number of distinct metric time series
+// across all namespaces. Uses the running counter (#60) maintained on insert.
+// Caller must hold b.mu (at least read lock).
+func (b *InMemoryBackend) countTotalMetrics() int {
+	return b.totalMetrics
+}
+
+// SetSNSPublisher registers an SNS publisher used to fire alarm action notifications.
+func (b *InMemoryBackend) SetSNSPublisher(pub SNSPublisher) {
+	b.mu.Lock("SetSNSPublisher")
+	defer b.mu.Unlock()
+	b.snsPublisher = pub
+}
+
+// SetLambdaInvoker registers a Lambda invoker used to fire alarm action Lambda invocations.
+func (b *InMemoryBackend) SetLambdaInvoker(inv LambdaInvoker) {
+	b.mu.Lock("SetLambdaInvoker")
+	defer b.mu.Unlock()
+	b.lambdaInvoker = inv
+}
+
+// SetEC2Actioner registers an EC2 actioner used to execute arn:aws:automate EC2
+// alarm actions (stop/terminate/reboot/recover).
+func (b *InMemoryBackend) SetEC2Actioner(a EC2InstanceActioner) {
+	b.mu.Lock("SetEC2Actioner")
+	defer b.mu.Unlock()
+	b.ec2Actioner = a
+}
+
+// SetAutoScalingExecutor registers an Auto Scaling executor used to run
+// scaling-policy alarm actions.
+func (b *InMemoryBackend) SetAutoScalingExecutor(e AutoScalingPolicyExecutor) {
+	b.mu.Lock("SetAutoScalingExecutor")
+	defer b.mu.Unlock()
+	b.asgExecutor = e
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.metrics = make(map[string]map[string]*metricRecord)
+	b.alarmHistory = make(map[string][]AlarmHistoryItem)
+	b.registry.ResetAll()
+}

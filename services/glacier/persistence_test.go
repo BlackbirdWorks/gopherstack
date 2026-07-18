@@ -1,6 +1,8 @@
 package glacier_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -214,3 +216,226 @@ func TestGlacier_PersistenceVersionGuard(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// TestVaultLocks_Persistence verifies snapshot/restore preserves vault locks.
+func TestVaultLocks_Persistence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		vaultName string
+		lockID    string
+	}{
+		{name: "vault_lock_survives_roundtrip", vaultName: "locked-vault", lockID: "my-lock-id"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := glacier.NewInMemoryBackend()
+			_, err := b.CreateVault(testAccountID, testRegion, tt.vaultName)
+			require.NoError(t, err)
+
+			err = b.SetVaultLock(testAccountID, testRegion, tt.vaultName, "policy", tt.lockID)
+			require.NoError(t, err)
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := glacier.NewInMemoryBackend()
+			err = b2.Restore(t.Context(), snap)
+			require.NoError(t, err)
+
+			lock, err := b2.GetVaultLock(testAccountID, testRegion, tt.vaultName)
+			require.NoError(t, err)
+			assert.Equal(t, tt.lockID, lock.LockID)
+			assert.Equal(t, "InProgress", lock.State)
+		})
+	}
+}
+
+// TestPersistenceRoundTrip verifies full snapshot/restore preserves state.
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		vaultName    string
+		archiveDesc  string
+		wantVaults   int
+		wantArchives int
+	}{
+		{name: "full_state_roundtrip", vaultName: "myv", archiveDesc: "my-archive", wantVaults: 1, wantArchives: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := glacier.NewInMemoryBackend()
+			_, err := b.CreateVault(testAccountID, testRegion, tt.vaultName)
+			require.NoError(t, err)
+
+			_, err = b.UploadArchive(
+				testAccountID,
+				testRegion,
+				tt.vaultName,
+				tt.archiveDesc,
+				"chk",
+				512,
+				[]byte("data"),
+			)
+			require.NoError(t, err)
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := glacier.NewInMemoryBackend()
+			err = b2.Restore(t.Context(), snap)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantVaults, glacier.VaultCount(b2))
+			assert.Equal(t, tt.wantArchives, glacier.ArchiveCount(b2))
+		})
+	}
+}
+
+// TestPersistenceEmpty verifies an empty snapshot round-trips cleanly.
+func TestPersistenceEmpty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "empty_snapshot_restores_cleanly"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := glacier.NewInMemoryBackend()
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap, tt.name)
+
+			b2 := glacier.NewInMemoryBackend()
+			err := b2.Restore(t.Context(), snap)
+			require.NoError(t, err)
+
+			assert.Equal(t, 0, glacier.VaultCount(b2))
+		})
+	}
+}
+
+func TestPersistenceRoundTrip_DataRetrievalPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		policy string
+	}{
+		{
+			name:   "drp_survives_snapshot_restore",
+			policy: `{"Policy":{"Rules":[{"Strategy":"BytesPerHour","BytesPerHour":1048576}]}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPut,
+				"/"+testAccountID+"/policies/data-retrieval",
+				tt.policy,
+			)
+			require.Equal(t, http.StatusNoContent, rec.Code)
+
+			snap := h.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			h2 := newTestHandler()
+			require.NoError(t, h2.Restore(t.Context(), snap))
+
+			rec = doRequest(t, h2, http.MethodGet, "/"+testAccountID+"/policies/data-retrieval", "")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var got map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			assert.NotEmpty(t, got)
+		})
+	}
+}
+
+func TestPersistenceRoundTrip_MultipartAndCapacity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{
+			name: "snapshot_restore_preserves_multipart_and_capacity",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			// Create vault and initiate multipart upload
+			rec := doRequest(t, h, http.MethodPut, "/-/vaults/persist-vault", "")
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			rec = doRequestWithHeaders(
+				t,
+				h,
+				http.MethodPost,
+				"/-/vaults/persist-vault/multipart-uploads",
+				"",
+				map[string]string{"X-Amz-Part-Size": "1048576"},
+			)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			// Purchase provisioned capacity
+			rec = doRequest(t, h, http.MethodPost, "/-/provisioned-capacity", "")
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			// Snapshot and restore
+			snap := h.Snapshot(t.Context())
+			require.NotEmpty(t, snap)
+
+			h2 := newTestHandler()
+			require.NoError(t, h2.Restore(t.Context(), snap))
+
+			// Verify multipart uploads are restored
+			rec = doRequest(t, h2, http.MethodGet, "/-/vaults/persist-vault/multipart-uploads", "")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var uploadsResp struct {
+				UploadsList []any `json:"UploadsList"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &uploadsResp))
+			assert.Len(t, uploadsResp.UploadsList, 1)
+
+			// Verify provisioned capacity is restored
+			rec = doRequest(t, h2, http.MethodGet, "/-/provisioned-capacity", "")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var capsResp struct {
+				ProvisionedCapacityList []any `json:"ProvisionedCapacityList"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &capsResp))
+			assert.Len(t, capsResp.ProvisionedCapacityList, 1)
+		})
+	}
+}
+
+// ----------------------------------------
+// GetSupportedOperations includes new ops
+// ----------------------------------------

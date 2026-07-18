@@ -127,29 +127,39 @@ func (b *InMemoryBackend) deliverScheduledRule(
 ) {
 	const detail = `{"scheduled":true}`
 
-	b.mu.Lock("deliverScheduledRule")
-	var storedTargets *store.Table[Target]
-	if regionTargets := b.targets[region]; regionTargets != nil {
-		storedTargets = regionTargets[b.targetKey(busName, rule.Name)]
-	}
-	snapped := snapshotTargets(storedTargets)
-	accountID := b.accountID
-	dt := *b.deliveryTargets
-	timeout := b.deliveryTimeout
-	// Log the event so diagnostic callers (GetEventLog) can observe it.
-	eventID := uuid.NewString()
-	b.eventLog = append(b.eventLog, EventLogEntry{
-		ID:           eventID,
-		Source:       "aws.events",
-		DetailType:   detailType,
-		Detail:       detail,
-		EventBusName: busName,
-		Time:         time.Now(),
-	})
-	if len(b.eventLog) > maxEventLogSize {
-		b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
-	}
-	b.mu.Unlock()
+	var (
+		snapped   []*Target
+		accountID string
+		dt        DeliveryTargets
+		timeout   time.Duration
+	)
+
+	func() {
+		b.mu.Lock("deliverScheduledRule")
+		defer b.mu.Unlock()
+
+		var storedTargets *store.Table[Target]
+		if regionTargets := b.targets[region]; regionTargets != nil {
+			storedTargets = regionTargets[b.targetKey(busName, rule.Name)]
+		}
+		snapped = snapshotTargets(storedTargets)
+		accountID = b.accountID
+		dt = *b.deliveryTargets
+		timeout = b.deliveryTimeout
+		// Log the event so diagnostic callers (GetEventLog) can observe it.
+		eventID := uuid.NewString()
+		b.eventLog = append(b.eventLog, EventLogEntry{
+			ID:           eventID,
+			Source:       "aws.events",
+			DetailType:   detailType,
+			Detail:       detail,
+			EventBusName: busName,
+			Time:         time.Now(),
+		})
+		if len(b.eventLog) > maxEventLogSize {
+			b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
+		}
+	}()
 
 	if len(snapped) == 0 {
 		return

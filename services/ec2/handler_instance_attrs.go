@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 	"time"
@@ -9,7 +10,7 @@ import (
 
 // handler_instance_attrs.go implements the HTTP handlers for the
 // instance-attribute misc operation cluster, backed by
-// backend_instance_attrs.go: ModifyAvailabilityZoneGroup, ModifyHosts,
+// instance_attrs.go: ModifyAvailabilityZoneGroup, ModifyHosts,
 // ModifyInstanceCapacityReservationAttributes, ModifyInstanceCpuOptions,
 // ModifyInstanceEventStartTime, ModifyInstanceMaintenanceOptions,
 // ModifyInstanceNetworkPerformanceOptions, ModifyInstancePlacement,
@@ -438,4 +439,127 @@ func (h *Handler) handleGetInstanceUefiData(vals url.Values, reqID string) (any,
 	return &getInstanceUefiDataResponse{
 		Xmlns: ec2XMLNS, RequestID: reqID, InstanceID: instanceID, UefiData: uefiData,
 	}, nil
+}
+
+// ---- instance attribute stubs ----
+
+func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (any, error) {
+	instanceID := vals.Get("InstanceId")
+	if instanceID == "" {
+		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
+	}
+
+	// Determine which attribute is being set and its new value.
+	// AWS uses different value wrappers per attribute type.
+	attrName, attrValue := parseModifyInstanceAttributeValue(vals)
+
+	// AWS rejects a ModifyInstanceAttribute call that does not identify a
+	// recognised attribute to change, rather than silently succeeding.
+	if attrName == "" {
+		return nil, fmt.Errorf(
+			"%w: the request must contain exactly one modifiable attribute",
+			ErrMissingParameter,
+		)
+	}
+
+	// Enforce stopped-state requirement for certain attributes at the handler level.
+	if modifyInstanceAttributeStoppedRequired[attrName] {
+		instances := h.Backend.DescribeInstances([]string{instanceID}, "")
+		if len(instances) == 0 {
+			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+		}
+
+		if instances[0].State != StateStopped {
+			return nil, fmt.Errorf("%w: instance %s must be in the stopped state to modify %s",
+				ErrInvalidInstanceState, instanceID, attrName)
+		}
+	}
+
+	if err := h.Backend.SetInstanceAttribute(instanceID, attrName, attrValue); err != nil {
+		return nil, err
+	}
+
+	return &modifyInstanceAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+// modifyInstanceAttributeStoppedRequired lists attributes that require the
+// instance to be stopped when modified via ModifyInstanceAttribute.
+//
+//nolint:gochecknoglobals // lookup set
+var modifyInstanceAttributeStoppedRequired = map[string]bool{
+	attrInstanceType: true,
+	attrUserData:     true,
+	attrKernel:       true,
+	attrRamdisk:      true,
+}
+
+// parseModifyInstanceAttributeValue extracts the (name, value) pair from a
+// ModifyInstanceAttribute request. AWS encodes different attributes differently:
+// boolean attrs use .Value, string attrs use .Value, userData uses base64.
+func parseModifyInstanceAttributeValue(vals url.Values) (string, string) {
+	// Well-known attribute params ordered by specificity.
+	checks := []struct {
+		attr  string
+		param string
+	}{
+		{attrInstanceType, "InstanceType.Value"},
+		{attrUserData, "UserData.Value"},
+		{attrEnaSupport, "EnaSupport.Value"},
+		{attrSriovNetSupport, "SriovNetSupport.Value"},
+		{attrDisableAPITermination, "DisableApiTermination.Value"},
+		{attrDisableAPIStop, "DisableApiStop.Value"},
+		{attrEBSOptimized, "EbsOptimized.Value"},
+		{attrSourceDest, "SourceDestCheck.Value"},
+		{attrInstanceInitiatedShutdownBehavior, "InstanceInitiatedShutdownBehavior.Value"},
+	}
+
+	for _, c := range checks {
+		if v := vals.Get(c.param); v != "" {
+			return c.attr, v
+		}
+	}
+
+	// Explicit Attribute= selector form.
+	if attr := vals.Get("Attribute"); attr != "" {
+		if v := vals.Get("Value"); v != "" {
+			return attr, v
+		}
+	}
+
+	return "", ""
+}
+
+type modifyInstanceAttributeResponse struct {
+	XMLName   xml.Name `xml:"ModifyInstanceAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleResetInstanceAttribute(vals url.Values, reqID string) (any, error) {
+	instanceID := vals.Get("InstanceId")
+	if instanceID == "" {
+		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
+	}
+
+	if instances := h.Backend.DescribeInstances([]string{instanceID}, ""); len(instances) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	return &resetInstanceAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type resetInstanceAttributeResponse struct {
+	XMLName   xml.Name `xml:"ResetInstanceAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
 }

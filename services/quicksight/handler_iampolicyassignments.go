@@ -249,3 +249,25 @@ func iamPolicyAssignmentToMap(a *IAMPolicyAssignment) map[string]any {
 		keyIdentities:       a.Identities,
 	}
 }
+
+// classifyNamespaceSingularPaths routes /accounts/{id}/namespace/{ns}/... paths.
+func classifyNamespaceSingularPaths(method string, segs []string, n int) (string, string) {
+	if n < nSegsSubResID {
+		return opUnknown, ""
+	}
+
+	ns := seg(segs, segResID)
+	sub := seg(segs, segSubRes)
+	subID := seg(segs, segSubResID)
+
+	if sub == pathSegIAMPolicyAssignments {
+		switch method { //nolint:gocritic // existing issue.
+		case http.MethodDelete:
+			return opDeleteIAMPolicyAssignment, subID
+		}
+	}
+
+	_ = ns
+
+	return opUnknown, ""
+}

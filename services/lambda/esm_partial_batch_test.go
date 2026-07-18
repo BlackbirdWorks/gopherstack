@@ -212,5 +212,5 @@ func mustMarshal(v any) []byte {
 	return b
 }
 
-// ensure fakeSQSReader is only declared once across test files; reuse the one from esm_test.go.
+// ensure fakeSQSReader is only declared once across test files; reuse the one from esm_poller_test.go.
 var _ sync.Mutex

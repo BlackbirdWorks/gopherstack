@@ -173,7 +173,7 @@ func TestDeleteIntegrationTableProperties(t *testing.T) {
 	}
 }
 
-func TestBatch2_Integration(t *testing.T) {
+func TestIntegration(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

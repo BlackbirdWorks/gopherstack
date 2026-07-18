@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/quicksight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -143,4 +144,83 @@ func TestQuickSight_DashboardSnapshotJob_Lifecycle(t *testing.T) {
 
 	missingJobRec := doRequest(t, h, http.MethodGet, accountPath("/dashboards/dash1/snapshot-jobs/notexist"), nil)
 	assert.Equal(t, http.StatusNotFound, missingJobRec.Code)
+}
+
+// ---- StartDashboardSnapshotJobSchedule ----
+
+// TestQuickSight_StartDashboardSnapshotJobSchedule verifies the real (not
+// fabricated) response shape and error behavior: real
+// StartDashboardSnapshotJobScheduleOutput carries only RequestId/Status (no
+// DashboardId), the target dashboard must actually exist, and a missing
+// ScheduleId is a validation error.
+func TestQuickSight_StartDashboardSnapshotJobSchedule(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, http.MethodPost, accountPath("/dashboards/dash-sched"), map[string]any{
+		"Name": "DashSched",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	tests := []struct {
+		name       string
+		path       string
+		wantCode   string
+		wantStatus int
+	}{
+		{
+			name:       "existing_dashboard_and_schedule",
+			path:       accountPath("/dashboards/dash-sched/schedules/sched1"),
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "nonexistent_dashboard",
+			path:       accountPath("/dashboards/no-such-dashboard/schedules/sched1"),
+			wantStatus: http.StatusNotFound,
+			wantCode:   "ResourceNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, http.MethodPost, tt.path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			body := parseBody(t, rec)
+			if tt.wantStatus == http.StatusOK {
+				assert.NotContains(t, body, "DashboardId",
+					"a stub response would fabricate a DashboardId field; real AWS output has none")
+				assert.Contains(t, body, "RequestId")
+
+				return
+			}
+
+			assert.Equal(t, tt.wantCode, body["Code"])
+		})
+	}
+}
+
+// TestSnapshotJobIDIsUnique verifies StartDashboardSnapshotJob returns distinct IDs per call.
+func TestSnapshotJobIDIsUnique(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	h := quicksight.NewHandler(b)
+
+	doRequest(t, h, http.MethodPost, accountPath("/dashboards/d1"), map[string]any{"Name": "Dash"})
+
+	path := accountPath("/dashboards/d1/snapshot-jobs")
+
+	rec1 := doRequest(t, h, http.MethodPost, path, map[string]any{"SnapshotJobId": "job1"})
+	rec2 := doRequest(t, h, http.MethodPost, path, map[string]any{"SnapshotJobId": "job2"})
+	require.Equal(t, http.StatusOK, rec1.Code)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	id1, _ := parseBody(t, rec1)["SnapshotJobId"].(string)
+	id2, _ := parseBody(t, rec2)["SnapshotJobId"].(string)
+	assert.NotEmpty(t, id1)
+	assert.NotEqual(t, id1, id2, "each snapshot job must have a unique ID")
 }

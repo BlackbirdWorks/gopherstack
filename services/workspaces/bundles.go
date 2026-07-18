@@ -1,0 +1,209 @@
+package workspaces
+
+import (
+	"context"
+	"encoding/base64"
+	"sort"
+)
+
+const ownerAmazon = "Amazon"
+
+// bundlesPageSize is the AWS default page size for DescribeWorkspaceBundles.
+const bundlesPageSize = 25
+
+// Bundle storage capacities in GiB matching real Amazon-owned bundle defaults.
+const (
+	bundleValueUserGiB       int32 = 10
+	bundleStandardUserGiB    int32 = 50
+	bundlePerformanceUserGiB int32 = 100
+	bundlePowerUserGiB       int32 = 100
+	bundlePowerProUserGiB    int32 = 100
+	bundleStdRootGiB         int32 = 80
+	bundlePowerRootGiB       int32 = 175
+)
+
+// amazonBundleList returns the predefined Amazon-owned bundles sorted by BundleID.
+func amazonBundleList() []*WorkspaceBundle {
+	return []*WorkspaceBundle{
+		{
+			BundleID:    "wsb-1b5w9hkng",
+			Name:        "PowerPro",
+			Owner:       ownerAmazon,
+			Description: "PowerPro with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "POWERPRO"},
+			UserStorage: BundleStorage{Capacity: bundlePowerProUserGiB},
+			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
+		},
+		{
+			BundleID:    "wsb-b0s22j3d7",
+			Name:        "Performance",
+			Owner:       ownerAmazon,
+			Description: "Performance with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "PERFORMANCE"},
+			UserStorage: BundleStorage{Capacity: bundlePerformanceUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
+		},
+		{
+			BundleID:    "wsb-bh8rsxt14",
+			Name:        "Value",
+			Owner:       ownerAmazon,
+			Description: "Value with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "VALUE"},
+			UserStorage: BundleStorage{Capacity: bundleValueUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
+		},
+		{
+			BundleID:    "wsb-clj85qzj1",
+			Name:        "Power",
+			Owner:       ownerAmazon,
+			Description: "Power with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "POWER"},
+			UserStorage: BundleStorage{Capacity: bundlePowerUserGiB},
+			RootStorage: BundleStorage{Capacity: bundlePowerRootGiB},
+		},
+		{
+			BundleID:    "wsb-gm4d5tx2v",
+			Name:        "Standard",
+			Owner:       ownerAmazon,
+			Description: "Standard with Windows 10 and Office 2019",
+			ComputeType: BundleComputeType{Name: "STANDARD"},
+			UserStorage: BundleStorage{Capacity: bundleStandardUserGiB},
+			RootStorage: BundleStorage{Capacity: bundleStdRootGiB},
+		},
+	}
+}
+
+// DescribeWorkspaceBundles returns workspace bundles, optionally filtered by IDs or owner.
+// When no owner is specified, returns both Amazon-owned and account-owned custom bundles.
+// When owner is "Amazon", returns only Amazon-owned bundles.
+// When owner is an account ID, returns custom bundles for that account.
+// Results are sorted by BundleID and paginated (max 25 per page, matching AWS).
+func (b *InMemoryBackend) DescribeWorkspaceBundles(
+	_ context.Context,
+	bundleIDs []string, owner string, nextToken string,
+) ([]*WorkspaceBundle, string, error) {
+	b.mu.RLock("DescribeWorkspaceBundles")
+	defer b.mu.RUnlock()
+
+	var bundles []*WorkspaceBundle
+
+	// Include Amazon bundles unless the caller explicitly requests a specific account.
+	if owner == "" || owner == ownerAmazon {
+		bundles = append(bundles, amazonBundleList()...)
+	}
+
+	// Include custom bundles when the caller wants all bundles or account-specific bundles.
+	if owner != ownerAmazon {
+		for _, bun := range b.customBundles.All() {
+			bundles = append(bundles, &WorkspaceBundle{
+				BundleID:    bun.BundleID,
+				Name:        bun.Name,
+				Owner:       b.accountID,
+				Description: bun.Description,
+				ImageID:     bun.ImageID,
+				ComputeType: BundleComputeType{Name: bun.ComputeType},
+			})
+		}
+	}
+
+	sort.Slice(bundles, func(i, j int) bool {
+		return bundles[i].BundleID < bundles[j].BundleID
+	})
+
+	if len(bundleIDs) > 0 {
+		idFilter := buildFilter(bundleIDs)
+		filtered := bundles[:0]
+
+		for _, bun := range bundles {
+			if matchesFilter(idFilter, bun.BundleID) {
+				filtered = append(filtered, bun)
+			}
+		}
+
+		return filtered, "", nil
+	}
+
+	bundles = advanceBundleCursor(bundles, nextToken)
+
+	var newToken string
+
+	if len(bundles) > bundlesPageSize {
+		newToken = base64.StdEncoding.EncodeToString([]byte(bundles[bundlesPageSize].BundleID))
+		bundles = bundles[:bundlesPageSize]
+	}
+
+	return bundles, newToken, nil
+}
+
+// advanceBundleCursor removes all bundles that sort before the decoded nextToken cursor.
+func advanceBundleCursor(bundles []*WorkspaceBundle, nextToken string) []*WorkspaceBundle {
+	if nextToken == "" {
+		return bundles
+	}
+
+	cursorBytes, err := base64.StdEncoding.DecodeString(nextToken)
+	if err != nil {
+		return bundles
+	}
+
+	cursor := string(cursorBytes)
+
+	for i, bun := range bundles {
+		if bun.BundleID >= cursor {
+			return bundles[i:]
+		}
+	}
+
+	return nil
+}
+
+// CreateWorkspaceBundle creates a custom bundle.
+func (b *InMemoryBackend) CreateWorkspaceBundle(
+	name, description, imageID, computeType string,
+	tags map[string]string,
+) (*storedCustomBundle, error) {
+	b.mu.Lock("CreateWorkspaceBundle")
+	defer b.mu.Unlock()
+
+	id := b.nextID("wsb-")
+	bun := &storedCustomBundle{
+		BundleID:    id,
+		Name:        name,
+		Description: description,
+		ImageID:     imageID,
+		ComputeType: computeType,
+		Tags:        cloneTags(tags),
+	}
+	b.customBundles.Put(bun)
+
+	return bun, nil
+}
+
+// DeleteWorkspaceBundle removes a custom bundle.
+func (b *InMemoryBackend) DeleteWorkspaceBundle(bundleID string) error {
+	b.mu.Lock("DeleteWorkspaceBundle")
+	defer b.mu.Unlock()
+
+	if !b.customBundles.Has(bundleID) {
+		return errBundleNotFound
+	}
+
+	b.customBundles.Delete(bundleID)
+
+	return nil
+}
+
+// UpdateWorkspaceBundle updates the image of a custom bundle.
+func (b *InMemoryBackend) UpdateWorkspaceBundle(bundleID, imageID string) error {
+	b.mu.Lock("UpdateWorkspaceBundle")
+	defer b.mu.Unlock()
+
+	bun, ok := b.customBundles.Get(bundleID)
+	if !ok {
+		return errBundleNotFound
+	}
+
+	bun.ImageID = imageID
+
+	return nil
+}

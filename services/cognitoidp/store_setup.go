@@ -103,7 +103,7 @@ func (b *InMemoryBackend) userBySub(poolID, sub string) (*User, bool) {
 // exactly once. It must be called during construction only (immediately after
 // b.registry is created), never on every Reset() -- store.Register panics on a
 // duplicate name, so runtime resets go through registry.ResetAll() instead
-// (see InMemoryBackend.Reset in backend.go).
+// (see InMemoryBackend.Reset in store.go).
 //
 // The following resource fields are deliberately left as plain maps (not
 // registered here) because their value carries no pure identity for the key

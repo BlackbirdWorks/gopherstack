@@ -28,7 +28,7 @@ const resourcegroupsSnapshotVersion = 1
 // work without carrying Prometheus metric state. It doubles as the
 // store.Table DTO value type for the "groups" snapshot table (see
 // buildPersistenceDTORegistry); its ARN carries the live table's composite-key
-// region through the round-trip (see groupRegionOf in backend.go).
+// region through the round-trip (see groupRegionOf in store.go).
 type groupSnapshot struct {
 	Tags           map[string]string `json:"tags,omitempty"`
 	ResourceQuery  *ResourceQuery    `json:"resourceQuery,omitempty"`
@@ -67,7 +67,7 @@ func toGroupSnapshot(g *Group) *groupSnapshot {
 
 // groupFromSnapshot rebuilds a live Group from its persisted representation,
 // giving it a freshly (and correctly) named Tags instance -- see the Group
-// field comment in backend.go for why the Prometheus metric name must match
+// field comment in models.go for why the Prometheus metric name must match
 // "rg.<name>.tags" exactly.
 func groupFromSnapshot(s *groupSnapshot) *Group {
 	return &Group{

@@ -649,3 +649,167 @@ func answerErrorsToMaps(errs []TopicAnswerError) []map[string]any {
 
 	return out
 }
+
+// classifyTopicPaths routes /accounts/{id}/topics/... paths.
+func classifyTopicPaths( //nolint:gocognit,cyclop,funlen // existing issue.
+	method string,
+	segs []string,
+	n int,
+) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		switch method {
+		case http.MethodPost:
+			return opCreateTopic, accountID
+		case http.MethodGet:
+			return opListTopics, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodGet:
+			return opDescribeTopic, id
+		case http.MethodPut:
+			return opUpdateTopic, id
+		case http.MethodDelete:
+			return opDeleteTopic, id
+		}
+	case nSegsSubRes:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		switch sub {
+		case pathSegPermissions:
+			switch method {
+			case http.MethodGet:
+				return opDescribeTopicPerms, id
+			case http.MethodPut:
+				return opUpdateTopicPerms, id
+			}
+		case pathSegSchedules:
+			if method == http.MethodPost {
+				return opCreateTopicRefreshSchedule, id
+			}
+			if method == http.MethodGet {
+				return opListTopicRefreshSchedules, id
+			}
+		case pathSegReviewedAnswers:
+			if method == http.MethodGet {
+				return opListTopicReviewedAnswers, id
+			}
+		case pathSegBatchCreateReviewed:
+			if method == http.MethodPost {
+				return opBatchCreateTopicAnswers, id
+			}
+		case pathSegBatchDeleteReviewed:
+			if method == http.MethodPost {
+				return opBatchDeleteTopicAnswers, id
+			}
+		}
+	case nSegsSubResID:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		subID := seg(segs, segSubResID)
+		switch sub {
+		case pathSegSchedules:
+			switch method {
+			case http.MethodGet:
+				return opDescribeTopicRefreshSchedule, id
+			case http.MethodPut:
+				return opUpdateTopicRefreshSchedule, id
+			case http.MethodDelete:
+				return opDeleteTopicRefreshSchedule, id
+			}
+		case pathSegRefresh:
+			_ = subID
+			if method == http.MethodGet {
+				return opDescribeTopicRefresh, id
+			}
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// ---- Predict QA ----
+
+// qaResultToMap converts a QAResult into its PredictQAResultsOutput wire
+// representation. Real AWS nests the generated-answer fields under a
+// GeneratedAnswer object; the DASHBOARD_VISUAL result type (not produced by
+// this emulator, since it cannot render a visual for a natural-language
+// query) is intentionally not modeled here.
+func qaResultToMap(r *QAResult) map[string]any {
+	m := map[string]any{"ResultType": r.ResultType}
+
+	if r.ResultType == qaResultTypeGeneratedAnswer {
+		m["GeneratedAnswer"] = map[string]any{
+			"AnswerId":     r.AnswerID,
+			"AnswerStatus": r.AnswerStatus,
+			"QuestionId":   r.QuestionID,
+			"QuestionText": r.QuestionText,
+			"TopicId":      r.TopicID,
+			"TopicName":    r.TopicName,
+		}
+	}
+
+	return m
+}
+
+// handlePredictQAResults answers a natural-language query, grounding the
+// answer in the account's real Topics rather than fabricating a response.
+func (h *Handler) handlePredictQAResults(c *echo.Context) error {
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	result, err := h.Backend.PredictQAResults(accountID, strField(body, "QueryText"))
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"PrimaryResult": qaResultToMap(result),
+		keyRequestID:    reqIDPlaceholder,
+		keyStatus:       http.StatusOK,
+	})
+}
+
+// handleSearchTopics searches the account's topics. Real SearchTopicsOutput
+// returns the matches under TopicSummaryList (distinct from ListTopics'
+// TopicsSummaries key).
+func (h *Handler) handleSearchTopics(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	topics, next, err := h.Backend.SearchTopics(
+		accountID, folderFiltersFromBody(body), maxResultsParam(c), nextTokenParam(c),
+	)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	items := make([]map[string]any, 0, len(topics))
+	for _, t := range topics {
+		items = append(items, topicSummaryToMap(t))
+	}
+
+	resp := map[string]any{
+		"TopicSummaryList": items,
+		keyRequestID:       reqIDPlaceholder,
+		keyStatus:          http.StatusOK,
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
+}

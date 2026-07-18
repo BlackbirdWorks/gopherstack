@@ -12,7 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestBatch3_MLTransform_CRUD(t *testing.T) {
+func TestMLTransform_CRUD(t *testing.T) {
 	t.Parallel()
 
 	createBody := map[string]any{
@@ -91,7 +91,7 @@ func TestBatch3_MLTransform_CRUD(t *testing.T) {
 	}
 }
 
-func TestBatch3_MLTransform_Delete(t *testing.T) {
+func TestMLTransform_Delete(t *testing.T) {
 	t.Parallel()
 
 	t.Run("delete-found", func(t *testing.T) {
@@ -119,7 +119,7 @@ func TestBatch3_MLTransform_Delete(t *testing.T) {
 	})
 }
 
-func TestBatch3_MLTransform_TaskRunStubs(t *testing.T) {
+func TestMLTransform_TaskRunStubs(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -170,8 +170,8 @@ func TestBatch3_MLTransform_TaskRunStubs(t *testing.T) {
 	})
 }
 
-// TestNewOps_MLTransform tests MLTransform CRUD.
-func TestNewOps_MLTransform(t *testing.T) {
+// TestMLTransform tests MLTransform CRUD.
+func TestMLTransform(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 

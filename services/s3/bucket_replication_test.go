@@ -329,3 +329,111 @@ func TestS3BucketReplication_DeleteMarker(t *testing.T) {
 		return false
 	}, 3*time.Second, 50*time.Millisecond, "delete marker should propagate to destination")
 }
+
+func TestS3BucketReplicationCRUD(t *testing.T) {
+	t.Parallel()
+
+	replicationXML := `<ReplicationConfiguration>` +
+		`<Role>arn:aws:iam::123456789012:role/replication-role</Role>` +
+		`<Rule>` +
+		`<ID>rule1</ID>` +
+		`<Status>Enabled</Status>` +
+		`<Prefix></Prefix>` +
+		`<Destination><Bucket>arn:aws:s3:::dest-bucket</Bucket></Destination>` +
+		`</Rule>` +
+		`</ReplicationConfiguration>`
+
+	tests := []struct {
+		name       string
+		configXML  string
+		wantBody   string
+		wantPut    int
+		wantGet    int
+		wantDelete int
+	}{
+		{
+			name:       "valid-replication",
+			configXML:  replicationXML,
+			wantPut:    http.StatusOK,
+			wantGet:    http.StatusOK,
+			wantDelete: http.StatusNoContent,
+			wantBody:   "dest-bucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sdkClient := newTestHandler(t)
+			bucket := "replication-test-" + tt.name
+
+			_, err := sdkClient.CreateBucket(
+				t.Context(),
+				&sdk_s3.CreateBucketInput{Bucket: &bucket},
+			)
+			require.NoError(t, err)
+
+			// Real S3 requires versioning enabled before replication config.
+			enableVersioning(t, handler, bucket)
+
+			// GetBucketReplication before put → 404
+			req := httptest.NewRequest(http.MethodGet, "/"+bucket+"?replication", nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ReplicationConfigurationNotFoundError")
+
+			// PutBucketReplication
+			req = httptest.NewRequest(
+				http.MethodPut,
+				"/"+bucket+"?replication",
+				strings.NewReader(tt.configXML),
+			)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantPut, rec.Code)
+
+			// GetBucketReplication
+			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?replication", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantGet, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantBody)
+
+			// DeleteBucketReplication
+			req = httptest.NewRequest(http.MethodDelete, "/"+bucket+"?replication", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantDelete, rec.Code)
+
+			// GetBucketReplication after delete → 404
+			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?replication", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+// TestS3BucketReplication_MalformedXML verifies that PutBucketReplication rejects invalid XML.
+
+func TestS3BucketReplication_MalformedXML(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "replication-malformed-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"?replication",
+		strings.NewReader("not-valid-xml"),
+	)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
+}
+
+// TestS3NewOperations_GetSupportedOperations verifies that all new operations are listed.

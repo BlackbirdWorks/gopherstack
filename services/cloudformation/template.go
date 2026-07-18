@@ -1188,7 +1188,7 @@ func getResourceAttribute(resType, physID, attrName, accountID, region string) s
 		return getCloudFormationStackAttribute(physID, attrName)
 	}
 
-	if v, ok := getPhase5ResourceAttribute(resType, physID, attrName, accountID, region); ok {
+	if v, ok := getExtraResourceAttribute(resType, physID, attrName, accountID, region); ok {
 		return v
 	}
 

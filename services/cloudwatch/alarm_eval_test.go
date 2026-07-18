@@ -479,3 +479,214 @@ func TestAlarmEvaluator_BackgroundJanitor(t *testing.T) {
 		return listErr == nil && len(pages.Data) > 0 && pages.Data[0].StateValue == "ALARM"
 	}, 500*time.Millisecond, 10*time.Millisecond, "background janitor must evaluate alarm to ALARM")
 }
+
+// putMetric is a test helper that normalizes Value into Sum/Count/Min/Max and stores the datum.
+// Backends aggregate via Sum+Count, not Value directly.
+func putMetric(t *testing.T, b *cloudwatch.InMemoryBackend, datum cloudwatch.MetricDatum) {
+	t.Helper()
+	if !datum.HasStatisticSet {
+		datum.Sum = datum.Value
+		datum.Count = 1
+		datum.Min = datum.Value
+		datum.Max = datum.Value
+	}
+	err := b.PutMetricData(datum.Namespace, []cloudwatch.MetricDatum{datum})
+	require.NoError(t, err)
+}
+
+// describeMetricAlarm returns the single named metric alarm or fails.
+func describeMetricAlarm(t *testing.T, b *cloudwatch.InMemoryBackend, name string) cloudwatch.MetricAlarm {
+	t.Helper()
+	metric, _, err := b.DescribeAlarms([]string{name}, nil, "", "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, metric.Data, 1, "expected exactly one alarm named %q", name)
+
+	return metric.Data[0]
+}
+
+// ---------------------------------------------------------------------------
+// Alarm state evaluation — band-aware comparison operators
+// ---------------------------------------------------------------------------
+
+func TestAnomalyBandAlarmEval(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ns     = "BandNS"
+		metric = "Latency"
+	)
+
+	now := time.Now().UTC()
+
+	tests := []struct {
+		name      string
+		operator  string
+		wantState string
+		value     float64
+	}{
+		{
+			name:      "GreaterThanUpperThreshold_above_band_is_alarm",
+			operator:  "GreaterThanUpperThreshold",
+			value:     999.0,
+			wantState: "ALARM",
+		},
+		{
+			name:      "GreaterThanUpperThreshold_within_band_is_ok",
+			operator:  "GreaterThanUpperThreshold",
+			value:     10.0,
+			wantState: "OK",
+		},
+		{
+			name:      "LessThanLowerOrGreaterThanUpperThreshold_above_band_is_alarm",
+			operator:  "LessThanLowerOrGreaterThanUpperThreshold",
+			value:     999.0,
+			wantState: "ALARM",
+		},
+		{
+			name:      "LessThanLowerOrGreaterThanUpperThreshold_within_band_is_ok",
+			operator:  "LessThanLowerOrGreaterThanUpperThreshold",
+			value:     10.0,
+			wantState: "OK",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackend()
+			aName := "band-alarm-" + tc.name
+
+			// Seed 20 stable points to build a meaningful anomaly band.
+			for i := range 20 {
+				putMetric(t, b, cloudwatch.MetricDatum{
+					Namespace:  ns,
+					MetricName: metric,
+					Timestamp:  now.Add(-time.Duration(20-i) * time.Minute),
+					Value:      10.0,
+				})
+			}
+
+			require.NoError(t, b.PutAnomalyDetector(&cloudwatch.AnomalyDetector{
+				Namespace:  ns,
+				MetricName: metric,
+				Stat:       "Average",
+			}))
+
+			putMetric(t, b, cloudwatch.MetricDatum{
+				Namespace:  ns,
+				MetricName: metric,
+				Timestamp:  now.Add(-30 * time.Second),
+				Value:      tc.value,
+			})
+
+			require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+				AlarmName:          aName,
+				Namespace:          ns,
+				MetricName:         metric,
+				Statistic:          "Average",
+				ComparisonOperator: tc.operator,
+				EvaluationPeriods:  1,
+				DatapointsToAlarm:  1,
+				Period:             60,
+				Threshold:          0,
+				ActionsEnabled:     false,
+			}))
+
+			b.EvaluateAlarms(context.Background(), now)
+
+			got := describeMetricAlarm(t, b, aName)
+			assert.Equal(t, tc.wantState, got.StateValue, "operator=%s value=%v", tc.operator, tc.value)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Multi-metric alarm evaluation (metric math)
+// ---------------------------------------------------------------------------
+
+func TestMultiMetricAlarmEval(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ns1   = "MMAlarmNS"
+		errM  = "Errors"
+		reqM  = "Requests"
+		aName = "mm-alarm"
+	)
+
+	now := time.Now().UTC()
+
+	tests := []struct {
+		name      string
+		wantState string
+		errors    float64
+		requests  float64
+	}{
+		{
+			name:      "ratio_above_threshold_is_alarm",
+			errors:    50.0,
+			requests:  100.0,
+			wantState: "ALARM",
+		},
+		{
+			name:      "ratio_below_threshold_is_ok",
+			errors:    5.0,
+			requests:  100.0,
+			wantState: "OK",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackend()
+			alarmName := aName + "-" + tc.name
+
+			putMetric(t, b, cloudwatch.MetricDatum{
+				Namespace: ns1, MetricName: errM,
+				Timestamp: now.Add(-30 * time.Second), Value: tc.errors,
+			})
+			putMetric(t, b, cloudwatch.MetricDatum{
+				Namespace: ns1, MetricName: reqM,
+				Timestamp: now.Add(-30 * time.Second), Value: tc.requests,
+			})
+
+			require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+				AlarmName:          alarmName,
+				ComparisonOperator: "GreaterThanThreshold",
+				EvaluationPeriods:  1,
+				DatapointsToAlarm:  1,
+				Threshold:          0.1,
+				ActionsEnabled:     false,
+				Metrics: []cloudwatch.MetricDataQuery{
+					{
+						ID: "m1",
+						MetricStat: cloudwatch.MetricStat{
+							Namespace: ns1, MetricName: errM,
+							Stat: "Sum", Period: 60,
+						},
+					},
+					{
+						ID: "m2",
+						MetricStat: cloudwatch.MetricStat{
+							Namespace: ns1, MetricName: reqM,
+							Stat: "Sum", Period: 60,
+						},
+					},
+					{
+						ID:         "ratio",
+						Expression: "m1/m2",
+						ReturnData: true,
+					},
+				},
+			}))
+
+			b.EvaluateAlarms(context.Background(), now)
+
+			got := describeMetricAlarm(t, b, alarmName)
+			assert.Equal(t, tc.wantState, got.StateValue, "errors=%v requests=%v", tc.errors, tc.requests)
+		})
+	}
+}

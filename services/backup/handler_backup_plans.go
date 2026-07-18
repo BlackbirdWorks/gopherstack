@@ -162,4 +162,170 @@ func (h *Handler) handleDeleteBackupPlan(c *echo.Context, id string) error {
 	})
 }
 
+// builtinBackupPlanTemplate is one of the backup plan templates AWS Backup
+// ships out of the box (surfaced by ListBackupPlanTemplates / GetBackupPlanFromTemplate).
+type builtinBackupPlanTemplate struct {
+	ID    string
+	Name  string
+	Rules []Rule
+}
+
+const (
+	// builtinTemplateDefaultVault is the target vault name used by the
+	// built-in backup plan templates, matching the AWS console default.
+	builtinTemplateDefaultVault = "Default"
+
+	builtinTemplateRetentionDays35  = 35
+	builtinTemplateRetentionDays90  = 90
+	builtinTemplateRetentionDays365 = 365
+	builtinTemplateColdStorageDays  = 30
+)
+
+// builtinBackupPlanTemplates mirrors the built-in backup plan templates AWS
+// Backup provides (the same ones shown under "Backup plan templates" in the console).
+func builtinBackupPlanTemplates() []builtinBackupPlanTemplate {
+	return []builtinBackupPlanTemplate{
+		{
+			ID:   "1n5nA02m8Z",
+			Name: "Daily-35day-Retention",
+			Rules: []Rule{
+				{
+					RuleName:           "DailyRule",
+					TargetVaultName:    builtinTemplateDefaultVault,
+					ScheduleExpression: "cron(0 5 ? * * *)",
+					Lifecycle:          &Lifecycle{DeleteAfterDays: builtinTemplateRetentionDays35},
+				},
+			},
+		},
+		{
+			ID:   "2m6oB13n9A",
+			Name: "Daily-Weekly-Monthly-1yr-Retention",
+			Rules: []Rule{
+				{
+					RuleName:           "DailyRule",
+					TargetVaultName:    builtinTemplateDefaultVault,
+					ScheduleExpression: "cron(0 5 ? * * *)",
+					Lifecycle:          &Lifecycle{DeleteAfterDays: builtinTemplateRetentionDays35},
+				},
+				{
+					RuleName:           "WeeklyRule",
+					TargetVaultName:    builtinTemplateDefaultVault,
+					ScheduleExpression: "cron(0 5 ? * 1 *)",
+					Lifecycle: &Lifecycle{
+						MoveToColdStorageAfterDays: builtinTemplateColdStorageDays,
+						DeleteAfterDays:            builtinTemplateRetentionDays90,
+					},
+				},
+				{
+					RuleName:           "MonthlyRule",
+					TargetVaultName:    builtinTemplateDefaultVault,
+					ScheduleExpression: "cron(0 5 1 * ? *)",
+					Lifecycle: &Lifecycle{
+						MoveToColdStorageAfterDays: builtinTemplateColdStorageDays,
+						DeleteAfterDays:            builtinTemplateRetentionDays365,
+					},
+				},
+			},
+		},
+	}
+}
+
+// lookupBuiltinBackupPlanTemplate finds a built-in backup plan template by its ID.
+func lookupBuiltinBackupPlanTemplate(id string) (builtinBackupPlanTemplate, bool) {
+	for _, t := range builtinBackupPlanTemplates() {
+		if t.ID == id {
+			return t, true
+		}
+	}
+
+	return builtinBackupPlanTemplate{}, false
+}
+
+// dispatchPlanTemplateCatalogOps handles the backup-plan-template family of
+// operations (export/import/list/resolve) plus plan version listing.
+func (h *Handler) dispatchPlanTemplateCatalogOps(
+	c *echo.Context,
+	route backupRoute,
+	body []byte,
+) (bool, error) {
+	switch route.operation {
+	case opListBackupPlanVersions:
+		versions, err := h.Backend.ListBackupPlanVersions(route.resource)
+		if err != nil {
+			return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanVersionsList": []any{}})
+		}
+		items := make([]map[string]any, 0, len(versions))
+		for _, v := range versions {
+			items = append(items, map[string]any{
+				"BackupPlanId":    v.BackupPlanID,
+				keyBackupPlanName: v.BackupPlanName,
+				keyVersionID:      v.VersionID,
+				keyCreationDate:   epochSeconds(v.CreationTime),
+			})
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanVersionsList": items})
+	case opExportBackupPlanTemplate:
+		tmpl, err := h.Backend.ExportBackupPlanTemplate(route.resource)
+		if err != nil {
+			tmpl = "{}"
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanTemplateJson": tmpl})
+	case opGetBackupPlanFromJSON:
+		var reqBody struct {
+			BackupPlanTemplateJSON string `json:"BackupPlanTemplateJson"`
+		}
+		if err := json.Unmarshal(body, &reqBody); err != nil {
+			return true, c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		}
+
+		var doc backupPlanBodyDoc
+		if err := json.Unmarshal([]byte(reqBody.BackupPlanTemplateJSON), &doc); err != nil {
+			return true, c.JSON(
+				http.StatusBadRequest,
+				errResp("ValidationException", "invalid BackupPlanTemplateJson"),
+			)
+		}
+
+		planDoc := map[string]any{
+			keyBackupPlanName: doc.BackupPlanName,
+			keyRules:          doc.Rules,
+		}
+		if len(doc.AdvancedBackupSettings) > 0 {
+			planDoc["AdvancedBackupSettings"] = doc.AdvancedBackupSettings
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlan": planDoc})
+	case opGetBackupPlanFromTemplate:
+		tmpl, ok := lookupBuiltinBackupPlanTemplate(route.resource)
+		if !ok {
+			return true, c.JSON(
+				http.StatusNotFound,
+				errResp("ResourceNotFoundException", "Backup plan template with ID "+route.resource+" not found"),
+			)
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"BackupPlanDocument": map[string]any{
+				keyBackupPlanName: tmpl.Name,
+				keyRules:          rulesToJSON(tmpl.Rules),
+			},
+		})
+	case opListBackupPlanTemplates:
+		templates := builtinBackupPlanTemplates()
+		items := make([]map[string]any, 0, len(templates))
+		for _, t := range templates {
+			items = append(items, map[string]any{
+				"BackupPlanTemplateId":   t.ID,
+				"BackupPlanTemplateName": t.Name,
+			})
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"BackupPlanTemplatesList": items})
+	}
+
+	return false, nil
+}
+
 // --- Job handlers ---

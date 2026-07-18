@@ -97,3 +97,65 @@ func TestQuickSight_ListOAuthClientApps_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, page2.Code)
 	assert.Len(t, parseBody(t, page2)["OAuthClientApplications"].([]any), 2)
 }
+
+// ---- OAuth Client App tests ---- //nolint:godot // existing issue.
+func TestQuickSight_OAuthClientApps(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create oauth app",
+			method:     http.MethodPost,
+			path:       accountPath("/oauth-client-applications"),
+			body:       map[string]any{"OAuthClientApplicationId": "app1", "Name": "App1"},
+			wantStatus: http.StatusOK,
+			wantKey:    "OAuthClientApplicationId",
+		},
+		{
+			name:       "describe oauth app",
+			method:     http.MethodGet,
+			path:       accountPath("/oauth-client-applications/app1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "OAuthClientApplication",
+		},
+		{
+			name:       "update oauth app",
+			method:     http.MethodPut,
+			path:       accountPath("/oauth-client-applications/app1"),
+			body:       map[string]any{"Name": "App1Renamed"},
+			wantStatus: http.StatusOK,
+			wantKey:    "OAuthClientApplicationId",
+		},
+		{
+			name:       "list oauth apps",
+			method:     http.MethodGet,
+			path:       accountPath("/oauth-client-applications"),
+			wantStatus: http.StatusOK,
+			wantKey:    "OAuthClientApplications",
+		},
+		{
+			name:       "delete oauth app",
+			method:     http.MethodDelete,
+			path:       accountPath("/oauth-client-applications/app1"),
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}

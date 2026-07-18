@@ -35,7 +35,7 @@ func tagSyncHandler(t *testing.T) *guardduty.Handler {
 func doJSON(t *testing.T, h *guardduty.Handler, method, path string, body any) map[string]any {
 	t.Helper()
 
-	rec := auditDo(t, h, method, path, body)
+	rec := doRequest(t, h, method, path, body)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
@@ -146,7 +146,7 @@ func TestTagSync_TagResource_ReflectsInOwningResourceGet(t *testing.T) {
 			arn, reread := tt.setup(t, h)
 
 			// TagResource: the resource's own Get response must show the new tag.
-			rec := auditDo(t, h, http.MethodPost, "/tags/"+arn, map[string]any{
+			rec := doRequest(t, h, http.MethodPost, "/tags/"+arn, map[string]any{
 				"tags": map[string]string{"owner": "alice"},
 			})
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -156,7 +156,7 @@ func TestTagSync_TagResource_ReflectsInOwningResourceGet(t *testing.T) {
 			assert.Equal(t, "alice", gotTags["owner"], "TagResource must be visible via the resource's own Get op")
 
 			// UntagResource: the resource's own Get response must drop it.
-			rec = auditDo(t, h, http.MethodDelete, "/tags/"+arn+"?tagKeys=owner", nil)
+			rec = doRequest(t, h, http.MethodDelete, "/tags/"+arn+"?tagKeys=owner", nil)
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			got = reread(t)

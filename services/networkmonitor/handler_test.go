@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/networkmonitor"
 )
@@ -60,311 +61,40 @@ func doNMRequest(
 	return rec
 }
 
-func TestHandlerCreateMonitor(t *testing.T) {
-	t.Parallel()
+// createMonitorP creates a monitor via the handler. Returns the monitor ARN.
+func createMonitorP(t *testing.T, h *networkmonitor.Handler, name string) string {
+	t.Helper()
 
-	tests := []struct {
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "valid create",
-			body:       map[string]any{"monitorName": "test-mon"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing name",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "invalid period",
-			body:       map[string]any{"monitorName": "x", "aggregationPeriod": 45},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
+	rec := doNMRequest(t, h, http.MethodPost, "/monitors", map[string]any{"monitorName": name})
+	require.Equal(t, http.StatusOK, rec.Code, "create monitor: %s", rec.Body.String())
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	arn, _ := out["monitorArn"].(string)
+	require.NotEmpty(t, arn)
 
-			h := newTestHandler(t)
-			rr := doNMRequest(t, h, http.MethodPost, "/monitors", tc.body)
-
-			if rr.Code != tc.wantStatus {
-				t.Errorf(
-					"status: got %d, want %d — body: %s",
-					rr.Code,
-					tc.wantStatus,
-					rr.Body.String(),
-				)
-			}
-		})
-	}
+	return arn
 }
 
-func TestHandlerGetMonitor(t *testing.T) {
-	t.Parallel()
+// createProbeP creates a probe in the given monitor. Returns the probe ID.
+func createProbeP(t *testing.T, h *networkmonitor.Handler, monitorName, destination, protocol string) string {
+	t.Helper()
 
-	tests := []struct {
-		name       string
-		monName    string
-		wantStatus int
-		create     bool
-	}{
-		{
-			name:       "existing monitor",
-			create:     true,
-			monName:    "my-mon",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing monitor",
-			create:     false,
-			monName:    "ghost",
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tc.create {
-				rr := doNMRequest(
-					t,
-					h,
-					http.MethodPost,
-					"/monitors",
-					map[string]any{"monitorName": tc.monName},
-				)
-				if rr.Code != http.StatusOK {
-					t.Fatalf("create: status %d", rr.Code)
-				}
-			}
-
-			rr := doNMRequest(t, h, http.MethodGet, "/monitors/"+tc.monName, nil)
-
-			if rr.Code != tc.wantStatus {
-				t.Errorf(
-					"status: got %d, want %d — body: %s",
-					rr.Code,
-					tc.wantStatus,
-					rr.Body.String(),
-				)
-			}
-		})
-	}
-}
-
-func TestHandlerDeleteMonitor(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		monName    string
-		wantStatus int
-		create     bool
-	}{
-		{
-			name:       "delete existing",
-			create:     true,
-			monName:    "del-mon",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "delete missing",
-			create:     false,
-			monName:    "ghost",
-			wantStatus: http.StatusNotFound,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tc.create {
-				rr := doNMRequest(
-					t,
-					h,
-					http.MethodPost,
-					"/monitors",
-					map[string]any{"monitorName": tc.monName},
-				)
-				if rr.Code != http.StatusOK {
-					t.Fatalf("create: status %d", rr.Code)
-				}
-			}
-
-			rr := doNMRequest(t, h, http.MethodDelete, "/monitors/"+tc.monName, nil)
-
-			if rr.Code != tc.wantStatus {
-				t.Errorf(
-					"status: got %d, want %d — body: %s",
-					rr.Code,
-					tc.wantStatus,
-					rr.Body.String(),
-				)
-			}
-		})
-	}
-}
-
-func TestHandlerListMonitors(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	for _, name := range []string{"first-mon", "second-mon"} {
-		rr := doNMRequest(t, h, http.MethodPost, "/monitors", map[string]any{"monitorName": name})
-		if rr.Code != http.StatusOK {
-			t.Fatalf("create %s: status %d", name, rr.Code)
-		}
-	}
-
-	rr := doNMRequest(t, h, http.MethodGet, "/monitors", nil)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("list: status %d — body: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	monitors, ok := resp["monitors"].([]any)
-	if !ok {
-		t.Fatalf("monitors field missing or wrong type in: %s", rr.Body.String())
-	}
-
-	if len(monitors) != 2 {
-		t.Errorf("count: got %d, want 2", len(monitors))
-	}
-}
-
-func TestHandlerUpdateMonitor(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		period     int64
-		wantStatus int
-	}{
-		{
-			name:       "update to 30",
-			period:     30,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "invalid period",
-			period:     45,
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rr := doNMRequest(
-				t,
-				h,
-				http.MethodPost,
-				"/monitors",
-				map[string]any{"monitorName": "upd-mon"},
-			)
-
-			if rr.Code != http.StatusOK {
-				t.Fatalf("create: status %d", rr.Code)
-			}
-
-			rr = doNMRequest(
-				t,
-				h,
-				http.MethodPatch,
-				"/monitors/upd-mon",
-				map[string]any{"aggregationPeriod": tc.period},
-			)
-
-			if rr.Code != tc.wantStatus {
-				t.Errorf(
-					"status: got %d, want %d — body: %s",
-					rr.Code,
-					tc.wantStatus,
-					rr.Body.String(),
-				)
-			}
-		})
-	}
-}
-
-func TestHandlerProbeLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rr := doNMRequest(
-		t,
-		h,
-		http.MethodPost,
-		"/monitors",
-		map[string]any{"monitorName": "probe-mon"},
-	)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("create monitor: status %d", rr.Code)
-	}
-
-	rr = doNMRequest(t, h, http.MethodPost, "/monitors/probe-mon/probes", map[string]any{
+	rec := doNMRequest(t, h, http.MethodPost, "/monitors/"+monitorName+"/probes", map[string]any{
 		"probe": map[string]any{
-			"destination": "10.0.0.2",
-			"protocol":    "ICMP",
+			"destination": destination,
+			"protocol":    protocol,
 			"sourceArn":   "arn:aws:ec2:us-east-1:000000000000:subnet/subnet-abc",
 		},
 	})
+	require.Equal(t, http.StatusOK, rec.Code, "create probe: %s", rec.Body.String())
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("create probe: status %d — body: %s", rr.Code, rr.Body.String())
-	}
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	id, _ := out["probeId"].(string)
+	require.NotEmpty(t, id)
 
-	var probeResp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &probeResp); err != nil {
-		t.Fatalf("unmarshal probe: %v", err)
-	}
-
-	probeID, _ := probeResp["probeId"].(string)
-	if probeID == "" {
-		t.Fatal("expected non-empty probeId")
-	}
-
-	rr = doNMRequest(t, h, http.MethodGet, "/monitors/probe-mon/probes/"+probeID, nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("get probe: status %d", rr.Code)
-	}
-
-	rr = doNMRequest(t, h, http.MethodPatch, "/monitors/probe-mon/probes/"+probeID, map[string]any{
-		"destination": "10.0.0.3",
-	})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("update probe: status %d — %s", rr.Code, rr.Body.String())
-	}
-
-	rr = doNMRequest(t, h, http.MethodDelete, "/monitors/probe-mon/probes/"+probeID, nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("delete probe: status %d", rr.Code)
-	}
-
-	rr = doNMRequest(t, h, http.MethodGet, "/monitors/probe-mon/probes/"+probeID, nil)
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("expected 404 after delete, got %d", rr.Code)
-	}
+	return id
 }
 
 // TestHandler_RouteMatcher verifies RouteMatcher gates on both the signing
@@ -505,72 +235,5 @@ func TestHandler_ExtractOperation_MethodPathMatrix(t *testing.T) {
 				t.Errorf("ExtractOperation(%s %s): got %q, want %q", tt.method, tt.path, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestHandlerTags(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rr := doNMRequest(t, h, http.MethodPost, "/monitors", map[string]any{
-		"monitorName": "tagged",
-		"tags":        map[string]any{"env": "prod"},
-	})
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("create: status %d", rr.Code)
-	}
-
-	var mon map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &mon); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	monARN, _ := mon["monitorArn"].(string)
-	if monARN == "" {
-		t.Fatal("expected monitorArn in response")
-	}
-
-	rr = doNMRequest(t, h, http.MethodGet, "/tags/"+monARN, nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("list tags: status %d", rr.Code)
-	}
-
-	var tagResp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &tagResp); err != nil {
-		t.Fatalf("unmarshal tags: %v", err)
-	}
-
-	tags, _ := tagResp["tags"].(map[string]any)
-	if tags["env"] != "prod" {
-		t.Errorf("tag env: got %v, want prod", tags["env"])
-	}
-
-	rr = doNMRequest(t, h, http.MethodPost, "/tags/"+monARN, map[string]any{
-		"tags": map[string]any{"team": "sre"},
-	})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("tag: status %d", rr.Code)
-	}
-
-	rr = doNMRequest(t, h, http.MethodDelete, "/tags/"+monARN+"?tagKeys=env", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("untag: status %d", rr.Code)
-	}
-
-	rr = doNMRequest(t, h, http.MethodGet, "/tags/"+monARN, nil)
-	if err := json.Unmarshal(rr.Body.Bytes(), &tagResp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	tags, _ = tagResp["tags"].(map[string]any)
-
-	if _, ok := tags["env"]; ok {
-		t.Error("env tag should be removed")
-	}
-
-	if tags["team"] != "sre" {
-		t.Errorf("team tag: got %v, want sre", tags["team"])
 	}
 }

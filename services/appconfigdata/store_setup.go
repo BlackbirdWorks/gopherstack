@@ -7,7 +7,7 @@ package appconfigdata
 // clean-direct-register template this file follows throughout.
 //
 // profiles was already a flat, top-level map[string]*ConfigurationProfile
-// keyed by a composite "app|env|profile" string (profileKey in backend.go).
+// keyed by a composite "app|env|profile" string (profileKey in store.go).
 // ConfigurationProfile already carries all three identity fields
 // (ApplicationIdentifier, EnvironmentIdentifier,
 // ConfigurationProfileIdentifier) as real, wire-visible struct fields, so it
@@ -25,7 +25,7 @@ package appconfigdata
 // field was unexported (so encoding/json, which store.Table's
 // snapshot/restore relies on, could not see any of them). graceEntry's
 // fields were promoted to exported and a Token field was added to carry the
-// key -- see the graceEntry doc comment in backend.go for why it carries no
+// key -- see the graceEntry doc comment in models.go for why it carries no
 // json:"-" tag, unlike the hidden-identity DTOs elsewhere -- so it too
 // registers directly.
 import (

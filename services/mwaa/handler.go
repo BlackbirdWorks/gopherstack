@@ -5,15 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
-
-	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/labstack/echo/v5"
 )
 
 const (
@@ -374,189 +372,6 @@ func writeEnvironmentVoidResult(c *echo.Context, _ *Environment, err error) erro
 	return nil
 }
 
-func (h *Handler) handleCreateEnvironment(c *echo.Context, name string) error {
-	var req createEnvironmentRequest
-	if !decodeJSONBody(c, &req) {
-		return nil
-	}
-
-	env, err := h.Backend.CreateEnvironment(h.contextWithRegion(c), name, &req)
-
-	return writeEnvironmentResult(c, env, err)
-}
-
-func (h *Handler) handleGetEnvironment(c *echo.Context, name string) error {
-	env, err := h.Backend.GetEnvironment(h.contextWithRegion(c), name)
-	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{
-		"Environment": env,
-	})
-
-	return nil
-}
-
-func (h *Handler) handleDeleteEnvironment(c *echo.Context, name string) error {
-	env, err := h.Backend.DeleteEnvironment(h.contextWithRegion(c), name)
-
-	return writeEnvironmentVoidResult(c, env, err)
-}
-
-func (h *Handler) handleUpdateEnvironment(c *echo.Context, name string) error {
-	var req updateEnvironmentRequest
-	if !decodeJSONBody(c, &req) {
-		return nil
-	}
-
-	env, err := h.Backend.UpdateEnvironment(h.contextWithRegion(c), name, &req)
-
-	return writeEnvironmentResult(c, env, err)
-}
-
-func (h *Handler) handleListEnvironments(c *echo.Context) error {
-	q := c.Request().URL.Query()
-	nextToken := q.Get("NextToken")
-
-	pageSize := 0
-	if v := q.Get("MaxResults"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > listEnvMaxPageSize {
-			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException",
-				"MaxResults must be between 1 and 100")
-		}
-
-		pageSize = n
-	}
-
-	names, outToken, err := h.Backend.ListEnvironmentsPage(h.contextWithRegion(c), nextToken, pageSize)
-	if err != nil {
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	if names == nil {
-		names = []string{}
-	}
-
-	resp := map[string]any{"Environments": names}
-	if outToken != "" {
-		resp["NextToken"] = outToken
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
-
-	return nil
-}
-
-func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
-	tags, err := h.Backend.ListTagsForResource(h.contextWithRegion(c), resourceARN)
-	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	if tags == nil {
-		tags = map[string]string{}
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{
-		"Tags": tags,
-	})
-
-	return nil
-}
-
-func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "failed to read request body")
-	}
-
-	var req struct {
-		Tags map[string]string `json:"Tags"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-
-	if tagErr := h.Backend.TagResource(h.contextWithRegion(c), resourceARN, req.Tags); tagErr != nil {
-		if errors.Is(tagErr, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", tagErr.Error())
-		}
-
-		if errors.Is(tagErr, awserr.ErrInvalidParameter) {
-			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", tagErr.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", tagErr.Error())
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{})
-
-	return nil
-}
-
-func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
-	tagKeys := c.Request().URL.Query()["tagKeys"]
-
-	if err := h.Backend.UntagResource(h.contextWithRegion(c), resourceARN, tagKeys); err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{})
-
-	return nil
-}
-
-func (h *Handler) handleCreateCliToken(c *echo.Context, name string) error {
-	token, hostname, err := h.Backend.CreateCliToken(h.contextWithRegion(c), name)
-	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
-		"CliToken":          token,
-		"WebServerHostname": hostname,
-	})
-
-	return nil
-}
-
-func (h *Handler) handleCreateWebLoginToken(c *echo.Context, name string) error {
-	token, hostname, err := h.Backend.CreateWebLoginToken(h.contextWithRegion(c), name)
-	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
-		"WebToken":          token,
-		"WebServerHostname": hostname,
-	})
-
-	return nil
-}
-
 func (h *Handler) dispatchRestAPI(c *echo.Context, path string) error {
 	name := strings.TrimPrefix(path, pathRestAPIPrefix)
 	if c.Request().Method == http.MethodPost {
@@ -564,36 +379,6 @@ func (h *Handler) dispatchRestAPI(c *echo.Context, path string) error {
 	}
 
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
-}
-
-func (h *Handler) handleInvokeRestAPI(c *echo.Context, name string) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "failed to read request body")
-	}
-
-	var req invokeRestAPIRequest
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-
-	resp, err := h.Backend.InvokeRestAPI(h.contextWithRegion(c), name, &req)
-	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
-
-		if errors.Is(err, awserr.ErrInvalidParameter) {
-			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", err.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
-
-	return nil
 }
 
 func (h *Handler) dispatchMetrics(c *echo.Context, path string) error {
@@ -607,52 +392,6 @@ func (h *Handler) dispatchMetrics(c *echo.Context, path string) error {
 	}
 
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
-}
-
-func (h *Handler) handleGetMetrics(c *echo.Context, name string) error {
-	metrics, err := h.Backend.GetMetrics(h.contextWithRegion(c), name)
-	if err != nil {
-		if errors.Is(err, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
-	}
-
-	if metrics == nil {
-		metrics = []MetricDatum{}
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{
-		"MetricData": metrics,
-	})
-
-	return nil
-}
-
-func (h *Handler) handlePublishMetrics(c *echo.Context, name string) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "failed to read request body")
-	}
-
-	var req publishMetricsRequest
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-
-	if pubErr := h.Backend.PublishMetrics(h.contextWithRegion(c), name, &req); pubErr != nil {
-		if errors.Is(pubErr, awserr.ErrNotFound) {
-			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", pubErr.Error())
-		}
-
-		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", pubErr.Error())
-	}
-
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{})
-
-	return nil
 }
 
 // writeErrorResponse writes a JSON error response in the MWAA REST API format.

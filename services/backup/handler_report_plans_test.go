@@ -68,9 +68,9 @@ func TestReportPlanSubFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			resp := doBatch1Request(t, h, http.MethodPost, "/audit/report-plans", tt.body)
+			resp := doRequest(t, h, http.MethodPost, "/audit/report-plans", tt.body)
 			require.Equal(t, tt.wantStatus, resp.Code)
 
 			var createData map[string]any
@@ -78,7 +78,7 @@ func TestReportPlanSubFields(t *testing.T) {
 			rpName := createData["ReportPlanName"].(string)
 
 			// Describe and verify sub-fields.
-			getResp := doBatch1Request(t, h, http.MethodGet, "/audit/report-plans/"+rpName, "")
+			getResp := doRequest(t, h, http.MethodGet, "/audit/report-plans/"+rpName, "")
 			require.Equal(t, http.StatusOK, getResp.Code)
 
 			var getData map[string]any

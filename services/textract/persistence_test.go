@@ -290,3 +290,75 @@ func Test_PersistenceMalformedSnapshot(t *testing.T) {
 	err := b.Restore(t.Context(), []byte("{not valid json"))
 	require.Error(t, err)
 }
+
+// TestInMemoryBackend_PersistenceSnapshotRestore proves that a backend
+// containing a mix of DocumentAnalysis and TextDetection jobs survives a
+// Snapshot/Restore round trip, and that the restored backend's snapshots are
+// isolated from further mutation of the restored backend.
+func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		jobCount int
+	}{
+		{
+			name:     "empty_backend",
+			jobCount: 0,
+		},
+		{
+			name:     "with_jobs",
+			jobCount: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := NewInMemoryBackendSync("123456789012", "us-east-1")
+
+			var lastJobID string
+
+			for i := range tt.jobCount {
+				var job *DocumentJob
+				var err error
+
+				if i%2 == 0 {
+					job, err = b.StartDocumentAnalysis(context.Background(), "s3://bucket/doc.pdf")
+				} else {
+					job, err = b.StartDocumentTextDetection(context.Background(), "s3://bucket/doc.png")
+				}
+
+				require.NoError(t, err)
+				lastJobID = job.JobID
+			}
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := NewInMemoryBackendSync("123456789012", "us-east-1")
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			jobs := b2.ListJobs(context.Background())
+			assert.Len(t, jobs, tt.jobCount)
+
+			if tt.jobCount > 0 {
+				// The last job from original backend should be retrievable after restore.
+				retrieved, err := b2.GetDocumentAnalysis(context.Background(), lastJobID)
+				if err != nil {
+					// May be text detection type; try that.
+					retrieved, err = b2.GetDocumentTextDetection(context.Background(), lastJobID)
+					require.NoError(t, err)
+				}
+
+				assert.Equal(t, lastJobID, retrieved.JobID)
+
+				// Snapshot isolation: adding to b2 after restore should not affect original snap.
+				_, _ = b2.StartDocumentAnalysis(context.Background(), "s3://bucket/extra.pdf")
+				snap2 := b2.Snapshot(t.Context())
+				assert.NotEqual(t, snap, snap2)
+			}
+		})
+	}
+}

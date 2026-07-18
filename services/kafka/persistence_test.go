@@ -238,3 +238,142 @@ func TestBackend_SnapshotRestoreFullState(t *testing.T) {
 	_, err = fresh.DescribeTopic(ctx, cluster.ClusterArn, topic.TopicName)
 	require.ErrorIs(t, err, kafka.ErrNotFound)
 }
+
+func TestPersistenceRoundTripFromSeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
+	cl := b.AddClusterInternal("c1", "2.8.0")
+	b.AddConfigurationInternal("cfg1")
+	b.AddReplicatorInternal("rep1")
+	b.AddTopicInternal(cl.ClusterArn, "t1")
+	b.AddClusterOperationInternal(cl.ClusterArn, "UPDATE")
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
+	err := b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, kafka.ClusterCount(b2))
+	assert.Equal(t, 1, kafka.ConfigurationCount(b2))
+	assert.Equal(t, 1, kafka.ReplicatorCount(b2))
+	assert.Equal(t, 1, kafka.TopicCount(b2))
+	assert.Equal(t, 1, kafka.ClusterOperationCount(b2))
+	assert.Equal(t, testAccountID, b2.AccountID())
+	assert.Equal(t, testRegion, b2.Region())
+}
+
+func TestPersistenceEmptyBackend(t *testing.T) {
+	t.Parallel()
+
+	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
+	err := b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, kafka.ClusterCount(b2))
+}
+
+func TestPersistence_ServerlessCluster(t *testing.T) {
+	t.Parallel()
+
+	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
+	srv := &kafka.ServerlessClusterInfo{
+		VpcConfigs: []kafka.ServerlessVpcConfig{
+			{SubnetIDs: []string{"subnet-1"}, SecurityGroupIDs: []string{"sg-1"}},
+		},
+	}
+	cl, err := b.CreateServerlessCluster(context.Background(), "srv-persist", srv, map[string]string{"env": "test"})
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	described, err := b2.DescribeCluster(context.Background(), cl.ClusterArn)
+	require.NoError(t, err)
+	assert.Equal(t, kafka.ClusterTypeServerless, described.ClusterType)
+	require.NotNil(t, described.Serverless)
+	require.Len(t, described.Serverless.VpcConfigs, 1)
+	assert.Equal(t, []string{"subnet-1"}, described.Serverless.VpcConfigs[0].SubnetIDs)
+}
+
+// TestRefinement2_Persistence_EncryptionInfo verifies EncryptionInfo survives snapshot/restore.
+
+func TestPersistence_EncryptionInfo(t *testing.T) {
+	t.Parallel()
+
+	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
+	cl := b.AddClusterInternal("enc-persist", "3.5.1")
+
+	stored := kafka.GetStoredCluster(b, cl.ClusterArn)
+	stored.EncryptionInfo = &kafka.EncryptionInfo{
+		EncryptionAtRest: &kafka.EncryptionAtRest{
+			DataVolumeKMSKeyID: "arn:aws:kms:us-east-1:123:key/persist",
+		},
+		EncryptionInTransit: &kafka.EncryptionInTransit{
+			ClientBroker: kafka.EncryptionInTransitTLS,
+			InCluster:    true,
+		},
+	}
+
+	snap := b.Snapshot(t.Context())
+	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	described, err := b2.DescribeCluster(context.Background(), cl.ClusterArn)
+	require.NoError(t, err)
+	require.NotNil(t, described.EncryptionInfo)
+	require.NotNil(t, described.EncryptionInfo.EncryptionAtRest)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/persist",
+		described.EncryptionInfo.EncryptionAtRest.DataVolumeKMSKeyID)
+}
+
+// TestRefinement2_Persistence_ConfigurationInfo verifies ConfigurationInfo survives snapshot/restore.
+
+func TestPersistence_ConfigurationInfo(t *testing.T) {
+	t.Parallel()
+
+	b := kafka.NewInMemoryBackend(testAccountID, testRegion)
+	cl := b.AddClusterInternal("cfginfo-persist", "3.5.1")
+
+	_, err := b.UpdateClusterConfiguration(context.Background(), cl.ClusterArn,
+		"arn:aws:kafka:us-east-1:123:configuration/my-cfg/xyz",
+		3)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	b2 := kafka.NewInMemoryBackend("other", "eu-west-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	described, err := b2.DescribeCluster(context.Background(), cl.ClusterArn)
+	require.NoError(t, err)
+	require.NotNil(t, described.ConfigurationInfo)
+	assert.Equal(t, "arn:aws:kafka:us-east-1:123:configuration/my-cfg/xyz",
+		described.ConfigurationInfo.Arn)
+	assert.Equal(t, int64(3), described.ConfigurationInfo.Revision)
+}
+
+// TestRefinement2_DeepCopy_ProvisionedThroughput verifies no aliasing in ProvisionedThroughput.
+
+func TestHandlerSnapshotFromSeedHelper(t *testing.T) {
+	t.Parallel()
+
+	h, backend := newTestHandlerWithBackend(t)
+	backend.AddClusterInternal("c1", "2.8.0")
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2, backend2 := newTestHandlerWithBackend(t)
+	err := h2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+	assert.Equal(t, 1, kafka.ClusterCount(backend2))
+}

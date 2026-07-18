@@ -112,8 +112,8 @@ func mustCreateAccOps2Cluster(t *testing.T, h *rds.Handler, id string) {
 	require.Equal(t, http.StatusOK, rec.Code, "setup cluster: %s", rec.Body)
 }
 
-// TestRefinement1_ExportCountHelpers verifies the count helpers work correctly.
-func TestRefinement1_ExportCountHelpers(t *testing.T) {
+// TestExportCountHelpers verifies the count helpers work correctly.
+func TestExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -138,8 +138,8 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 1, rds.SecurityGroupCount(b))
 }
 
-// TestRefinement1_SeedHelpers verifies all seed helpers work correctly.
-func TestRefinement1_SeedHelpers(t *testing.T) {
+// TestSeedHelpers verifies all seed helpers work correctly.
+func TestSeedHelpers(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"io"
+	"net/http"
 	"sort"
 	"strings"
 	"testing"
@@ -280,4 +282,197 @@ func TestExportImport_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	importDesc := waitForImport(t, db, aws.ToString(out.ImportTableDescription.ImportArn))
 	assert.Equal(t, int64(3), importDesc.ImportTableDescription.ImportedItemCount)
+}
+
+func TestImportTable_MissingTableCreationParameters(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+
+	_, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
+		S3BucketSource: &ddbtypes.S3BucketSource{
+			S3Bucket: aws.String("bucket"),
+		},
+		// TableCreationParameters intentionally omitted
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TableCreationParameters")
+}
+
+func TestImportTable_MissingS3Bucket(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+
+	_, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
+		TableCreationParameters: &ddbtypes.TableCreationParameters{
+			TableName: aws.String("MyTable"),
+		},
+		// S3BucketSource intentionally omitted
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "S3BucketSource")
+}
+
+func TestImportTable_ReturnsCompleted(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+
+	out, err := db.ImportTable(t.Context(), &sdk.ImportTableInput{
+		S3BucketSource: &ddbtypes.S3BucketSource{
+			S3Bucket: aws.String("my-bucket"),
+		},
+		TableCreationParameters: &ddbtypes.TableCreationParameters{
+			TableName: aws.String("ImportedTable"),
+			KeySchema: []ddbtypes.KeySchemaElement{
+				{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+			},
+			AttributeDefinitions: []ddbtypes.AttributeDefinition{
+				{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+			},
+			BillingMode: ddbtypes.BillingModePayPerRequest,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ImportTableDescription)
+	// With no S3 backend wired the import completes against the freshly created table.
+	assert.Equal(t, ddbtypes.ImportStatusInProgress, out.ImportTableDescription.ImportStatus)
+	assert.NotEmpty(t, aws.ToString(out.ImportTableDescription.ImportArn))
+
+	// The target table must actually exist after ImportTable.
+	desc, err := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+		TableName: aws.String("ImportedTable"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "ImportedTable", aws.ToString(desc.Table.TableName))
+}
+
+// (11) ListImports: always empty
+
+func TestListImports_ReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+
+	out, err := db.ListImports(t.Context(), &sdk.ListImportsInput{})
+	require.NoError(t, err)
+	assert.Empty(t, out.ImportSummaryList)
+}
+
+// (12) PartiQL key schema cache: repeated queries hit cache
+
+func TestDescribeImport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body             any
+		name             string
+		wantBodyContains string
+		wantStatus       int
+	}{
+		{
+			// AWS returns ImportNotFoundException for an unknown ARN (not a fake COMPLETED).
+			name: "unknown_arn_not_found",
+			body: map[string]any{
+				"ImportArn": "arn:aws:dynamodb:us-east-1:123456789012:table/MyTable/import/01000000-0000-0000-0000-000000000001",
+			},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: "ImportNotFoundException",
+		},
+		{
+			name:             "empty_import_arn",
+			body:             map[string]any{"ImportArn": ""},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: "ValidationException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := dynamodb.NewInMemoryDB()
+			handler := dynamodb.NewHandler(backend)
+
+			code, resp := invokeOp(t, handler, "DescribeImport", tt.body)
+			assert.Equal(t, tt.wantStatus, code)
+
+			if tt.wantBodyContains != "" {
+				bodyBytes, _ := json.Marshal(resp)
+				assert.Contains(t, string(bodyBytes), tt.wantBodyContains)
+			}
+		})
+	}
+}
+
+// TestListImports_Pagination verifies NextToken cursor and PageSize.
+func TestListImports_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		seedCount     int
+		wantCount     int
+		pageSize      int32
+		wantNextToken bool
+	}{
+		{
+			name:          "no imports returns empty",
+			seedCount:     0,
+			pageSize:      25,
+			wantCount:     0,
+			wantNextToken: false,
+		},
+		{
+			name:          "fewer than page size returns all",
+			seedCount:     2,
+			pageSize:      25,
+			wantCount:     2,
+			wantNextToken: false,
+		},
+		{
+			name:          "more than page size returns NextToken",
+			seedCount:     5,
+			pageSize:      3,
+			wantCount:     3,
+			wantNextToken: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			h := dynamodb.NewHandler(db)
+
+			// Seed by calling ImportTable once per needed import, each with a unique table name.
+			for i := range tc.seedCount {
+				tblName := "IMP" + string(rune('A'+i))
+				invokeOp(t, h, "ImportTable", map[string]any{
+					"TableCreationParameters": map[string]any{
+						"TableName": tblName,
+						"KeySchema": []map[string]any{
+							{"AttributeName": "pk", "KeyType": "HASH"},
+						},
+						"AttributeDefinitions": []map[string]any{
+							{"AttributeName": "pk", "AttributeType": "S"},
+						},
+						"BillingMode": "PAY_PER_REQUEST",
+					},
+					"S3BucketSource": map[string]any{"S3Bucket": "my-bucket"},
+					"InputFormat":    "DYNAMODB_JSON",
+				})
+			}
+
+			code, resp := invokeOp(t, h, "ListImports", map[string]any{"PageSize": tc.pageSize})
+			assert.Equal(t, 200, code)
+
+			imports, _ := resp["ImportSummaryList"].([]any)
+			assert.Len(t, imports, tc.wantCount)
+			_, hasNextToken := resp["NextToken"]
+			assert.Equal(t, tc.wantNextToken, hasNextToken, "NextToken presence mismatch")
+		})
+	}
 }

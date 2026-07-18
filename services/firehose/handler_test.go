@@ -2,9 +2,12 @@ package firehose_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,254 +53,103 @@ func doFirehoseRequest(t *testing.T, h *firehose.Handler, action string, body an
 	return rec
 }
 
-func TestFirehoseHandler_CreateDeliveryStream(t *testing.T) {
-	t.Parallel()
+// createStream is a helper that creates a delivery stream via the API.
+func createStream(t *testing.T, h *firehose.Handler, name string, extra ...map[string]any) {
+	t.Helper()
 
-	tests := []struct {
-		setup        func(t *testing.T, h *firehose.Handler)
-		name         string
-		streamName   string
-		wantContains []string
-		wantCode     int
-	}{
-		{
-			name:         "success",
-			streamName:   "my-stream",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"arn:aws:firehose:"},
-		},
-		{
-			name:       "already_exists",
-			streamName: "my-stream",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-			},
-			wantCode: http.StatusBadRequest,
-		},
+	body := map[string]any{"DeliveryStreamName": name}
+	if len(extra) > 0 {
+		maps.Copy(body, extra[0])
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
-				"DeliveryStreamName": tt.streamName,
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
-			for _, s := range tt.wantContains {
-				assert.Contains(t, rec.Body.String(), s)
-			}
-		})
-	}
+	rec := doFirehoseRequest(t, h, "CreateDeliveryStream", body)
+	require.Equal(t, http.StatusOK, rec.Code, "create stream %q: %s", name, rec.Body.String())
 }
 
-func TestFirehoseHandler_DeleteDeliveryStream(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setup      func(t *testing.T, h *firehose.Handler)
-		streamName string
-		wantCode   int
-	}{
-		{
-			name:       "success",
-			streamName: "my-stream",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			streamName: "nonexistent",
-			wantCode:   http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "DeleteDeliveryStream", map[string]any{
-				"DeliveryStreamName": tt.streamName,
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestFirehoseHandler_DescribeDeliveryStream(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup        func(t *testing.T, h *firehose.Handler)
-		name         string
-		streamName   string
-		wantContains []string
-		wantCode     int
-	}{
-		{
-			name:       "success",
-			streamName: "my-stream",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-			},
-			wantCode:     http.StatusOK,
-			wantContains: []string{"DeliveryStreamDescription"},
-		},
-		{
-			name:       "not_found",
-			streamName: "nonexistent",
-			wantCode:   http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "DescribeDeliveryStream", map[string]any{
-				"DeliveryStreamName": tt.streamName,
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
-			for _, s := range tt.wantContains {
-				assert.Contains(t, rec.Body.String(), s)
-			}
-		})
-	}
-}
-
-func TestFirehoseHandler_ListDeliveryStreams(t *testing.T) {
-	t.Parallel()
+// auditHandler returns a handler with a mock S3 backend wired in.
+func auditHandler(t *testing.T) (*firehose.Handler, *mockS3Storer) {
+	t.Helper()
 
 	h := newTestFirehoseHandler(t)
-	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "s1"})
-	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "s2"})
+	s3mock := &mockS3Storer{}
+	h.Backend.(*firehose.InMemoryBackend).SetS3Backend(s3mock)
 
-	rec := doFirehoseRequest(t, h, "ListDeliveryStreams", nil)
+	return h, s3mock
+}
+
+// auditCreateStream creates a delivery stream via the handler and returns the ARN.
+func auditCreateStream(t *testing.T, h *firehose.Handler, name string, extra map[string]any) string {
+	t.Helper()
+
+	body := map[string]any{"DeliveryStreamName": name}
+	maps.Copy(body, extra)
+
+	rec := doFirehoseRequest(t, h, "CreateDeliveryStream", body)
+	require.Equal(t, http.StatusOK, rec.Code, "createStream %q: %s", name, rec.Body.String())
+
+	var out struct {
+		DeliveryStreamARN string `json:"DeliveryStreamARN"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out.DeliveryStreamARN
+}
+
+// auditDescribe calls DescribeDeliveryStream and returns the raw parsed map.
+func auditDescribe(t *testing.T, h *firehose.Handler, name string) map[string]any {
+	t.Helper()
+
+	rec := doFirehoseRequest(t, h, "DescribeDeliveryStream",
+		map[string]any{"DeliveryStreamName": name})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DeliveryStreamNames")
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out["DeliveryStreamDescription"].(map[string]any)
 }
 
-func TestFirehoseHandler_PutRecord(t *testing.T) {
-	t.Parallel()
+// auditPut puts a single base64-encoded record via the handler.
+func auditPut(t *testing.T, h *firehose.Handler, name string, data string) {
+	t.Helper()
 
-	tests := []struct {
-		name       string
-		setup      func(t *testing.T, h *firehose.Handler)
-		streamName string
-		data       string
-		wantCode   int
-	}{
-		{
-			name:       "success",
-			streamName: "my-stream",
-			data:       base64.StdEncoding.EncodeToString([]byte("hello world")),
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			streamName: "nonexistent",
-			data:       base64.StdEncoding.EncodeToString([]byte("hello")),
-			wantCode:   http.StatusNotFound,
-		},
-		{
-			name:       "raw_data",
-			streamName: "my-stream",
-			data:       "not-base64!@#",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-			},
-			wantCode: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
-				"DeliveryStreamName": tt.streamName,
-				"Record":             map[string]string{"Data": tt.data},
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
+	rec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
+		"DeliveryStreamName": name,
+		"Record":             map[string]any{"Data": base64.StdEncoding.EncodeToString([]byte(data))},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestFirehoseHandler_PutRecordBatch(t *testing.T) {
-	t.Parallel()
+// gunzip decompresses gzip bytes and returns the raw content.
+func gunzip(t *testing.T, data []byte) []byte {
+	t.Helper()
 
-	tests := []struct {
-		name       string
-		setup      func(t *testing.T, h *firehose.Handler)
-		streamName string
-		data       string
-		wantCode   int
-	}{
-		{
-			name:       "success",
-			streamName: "my-stream",
-			data:       base64.StdEncoding.EncodeToString([]byte("rec1")),
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			streamName: "nonexistent",
-			data:       base64.StdEncoding.EncodeToString([]byte("a")),
-			wantCode:   http.StatusNotFound,
-		},
-		{
-			name:       "raw_data",
-			streamName: "my-stream",
-			data:       "not-base64!@#",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-			},
-			wantCode: http.StatusOK,
-		},
-	}
+	r, err := gzip.NewReader(bytes.NewReader(data))
+	require.NoError(t, err)
+	defer r.Close()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "PutRecordBatch", map[string]any{
-				"DeliveryStreamName": tt.streamName,
-				"Records":            []map[string]string{{"Data": tt.data}},
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+
+	return out
+}
+
+// singleDestination extracts the sole entry of the Describe response's "Destinations"
+// list and returns the nested map found under wireKey (e.g.
+// "ExtendedS3DestinationDescription"), matching AWS's DestinationDescription wrapper
+// shape where every destination type nests under one "Destinations" array entry.
+func singleDestination(t *testing.T, desc map[string]any, wireKey string) map[string]any {
+	t.Helper()
+
+	dests, ok := desc["Destinations"].([]any)
+	require.True(t, ok, "Destinations must be present")
+	require.Len(t, dests, 1)
+
+	entry := dests[0].(map[string]any)
+	d, ok := entry[wireKey].(map[string]any)
+	require.True(t, ok, "%s must be present in Destinations[0]", wireKey)
+
+	return d
 }
 
 func TestFirehoseHandler_UnknownAction(t *testing.T) {
@@ -371,6 +223,15 @@ func TestFirehoseHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "PutRecordBatch")
 }
 
+func TestFirehoseHandler_GetSupportedOperations_EncryptionOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "StartDeliveryStreamEncryption")
+	assert.Contains(t, ops, "StopDeliveryStreamEncryption")
+}
+
 func TestFirehoseHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
@@ -424,157 +285,6 @@ func TestFirehoseHandler_ExtractResource(t *testing.T) {
 	assert.Equal(t, "my-stream", h.ExtractResource(c))
 }
 
-func TestFirehoseHandler_TagDeliveryStream(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setup      func(t *testing.T, h *firehose.Handler)
-		streamName string
-		tags       []map[string]string
-		wantCode   int
-	}{
-		{
-			name:       "success",
-			streamName: "my-stream",
-			tags:       []map[string]string{{"Key": "env", "Value": "prod"}},
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			streamName: "nonexistent",
-			tags:       []map[string]string{{"Key": "env", "Value": "prod"}},
-			wantCode:   http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "TagDeliveryStream", map[string]any{
-				"DeliveryStreamName": tt.streamName,
-				"Tags":               tt.tags,
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestFirehoseHandler_UntagDeliveryStream(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		setup      func(t *testing.T, h *firehose.Handler)
-		streamName string
-		tagKeys    []string
-		wantCode   int
-	}{
-		{
-			name:       "success",
-			streamName: "my-stream",
-			tagKeys:    []string{"env"},
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-				doFirehoseRequest(t, h, "TagDeliveryStream", map[string]any{
-					"DeliveryStreamName": "my-stream",
-					"Tags":               []map[string]string{{"Key": "env", "Value": "prod"}},
-				})
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			streamName: "nonexistent",
-			tagKeys:    []string{"env"},
-			wantCode:   http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "UntagDeliveryStream", map[string]any{
-				"DeliveryStreamName": tt.streamName,
-				"TagKeys":            tt.tagKeys,
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestFirehoseHandler_ListTagsForDeliveryStream(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup        func(t *testing.T, h *firehose.Handler)
-		name         string
-		streamName   string
-		wantContains []string
-		wantCode     int
-	}{
-		{
-			name:       "empty_tags",
-			streamName: "my-stream",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-			},
-			wantCode:     http.StatusOK,
-			wantContains: []string{"Tags", "HasMoreTags"},
-		},
-		{
-			name:       "with_tags",
-			streamName: "my-stream",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-				doFirehoseRequest(t, h, "TagDeliveryStream", map[string]any{
-					"DeliveryStreamName": "my-stream",
-					"Tags":               []map[string]string{{"Key": "env", "Value": "prod"}},
-				})
-			},
-			wantCode:     http.StatusOK,
-			wantContains: []string{"env", "prod"},
-		},
-		{
-			name:       "not_found",
-			streamName: "nonexistent",
-			wantCode:   http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "ListTagsForDeliveryStream", map[string]any{
-				"DeliveryStreamName": tt.streamName,
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
-			for _, s := range tt.wantContains {
-				assert.Contains(t, rec.Body.String(), s)
-			}
-		})
-	}
-}
-
 func TestFirehoseHandler_ProviderInit(t *testing.T) {
 	t.Parallel()
 
@@ -586,140 +296,14 @@ func TestFirehoseHandler_ProviderInit(t *testing.T) {
 	assert.Equal(t, "Firehose", svc.Name())
 }
 
-func TestFirehoseHandler_CreateDeliveryStream_WithS3Destination(t *testing.T) {
+// TestProvider_Init_NilCtx verifies Init rejects a nil AppContext.
+func TestProvider_Init_NilCtx(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body         map[string]any
-		name         string
-		wantContains []string
-		wantCode     int
-	}{
-		{
-			name: "s3_destination",
-			body: map[string]any{
-				"DeliveryStreamName": "s3-stream",
-				"S3DestinationConfiguration": map[string]any{
-					"BucketARN": "arn:aws:s3:::my-bucket",
-					"RoleARN":   "arn:aws:iam::000000000000:role/firehose",
-					"BufferingHints": map[string]any{
-						"SizeInMBs":         5,
-						"IntervalInSeconds": 300,
-					},
-					"CompressionFormat": "GZIP",
-				},
-			},
-			wantCode:     http.StatusOK,
-			wantContains: []string{"DeliveryStreamARN"},
-		},
-		{
-			name: "extended_s3_destination",
-			body: map[string]any{
-				"DeliveryStreamName": "ext-s3-stream",
-				"ExtendedS3DestinationConfiguration": map[string]any{
-					"BucketARN": "arn:aws:s3:::ext-bucket",
-					"RoleARN":   "arn:aws:iam::000000000000:role/firehose",
-					"ProcessingConfiguration": map[string]any{
-						"Enabled": true,
-						"Processors": []map[string]any{
-							{
-								"Type": "Lambda",
-								"Parameters": []map[string]any{
-									{
-										"ParameterName":  "LambdaArn",
-										"ParameterValue": "my-fn",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantCode:     http.StatusOK,
-			wantContains: []string{"DeliveryStreamARN"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			rec := doFirehoseRequest(t, h, "CreateDeliveryStream", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-			for _, s := range tt.wantContains {
-				assert.Contains(t, rec.Body.String(), s)
-			}
-		})
-	}
-}
-
-func TestFirehoseHandler_DescribeDeliveryStream_WithS3Destination(t *testing.T) {
-	t.Parallel()
-
-	h := newTestFirehoseHandler(t)
-	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
-		"DeliveryStreamName": "describe-s3-stream",
-		"S3DestinationConfiguration": map[string]any{
-			"BucketARN": "arn:aws:s3:::my-bucket",
-		},
-	})
-
-	rec := doFirehoseRequest(t, h, "DescribeDeliveryStream", map[string]any{
-		"DeliveryStreamName": "describe-s3-stream",
-	})
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ExtendedS3DestinationDescription")
-	assert.Contains(t, rec.Body.String(), "arn:aws:s3:::my-bucket")
-}
-
-func TestFirehoseHandler_UpdateDestination(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(t *testing.T, h *firehose.Handler)
-		body     map[string]any
-		name     string
-		wantCode int
-	}{
-		{
-			name: "success",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
-					"DeliveryStreamName": "upd-stream",
-				})
-			},
-			body: map[string]any{
-				"DeliveryStreamName":             "upd-stream",
-				"CurrentDeliveryStreamVersionId": "1",
-				"DestinationId":                  "destinationId-000000000001",
-				"S3DestinationUpdate": map[string]any{
-					"BucketARN": "arn:aws:s3:::new-bucket",
-				},
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name: "not_found",
-			body: map[string]any{
-				"DeliveryStreamName": "nonexistent",
-			},
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "UpdateDestination", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
+	p := &firehose.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, firehose.ErrNilAppContext)
 }
 
 func TestHandler_Shutdown_FlushesBufferedRecords(t *testing.T) {
@@ -801,154 +385,126 @@ func TestHandler_Shutdown_FlushesBufferedRecords(t *testing.T) {
 	}
 }
 
-func TestFirehoseHandler_StartDeliveryStreamEncryption(t *testing.T) {
+func TestHandler_Reset(t *testing.T) {
 	t.Parallel()
 
+	h := newTestFirehoseHandler(t)
+	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "s1"})
+	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "s2"})
+
+	h.Reset()
+
+	rec := doFirehoseRequest(t, h, "ListDeliveryStreams", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"DeliveryStreamNames":[]`)
+}
+
+func TestHandler_OpsLen(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	assert.Equal(t, 12, firehose.HandlerOpsLen(h))
+}
+
+// --- Error response __type field ---
+
+// Real AWS Firehose returns __type in every error response so SDK clients can
+// deserialize errors into typed structs.  The handler must include __type for
+// 400-class errors, not only 404s.
+
+func TestErrorResponse_ResourceInUseException_HasType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	createStream(t, h, "dup-stream")
+
+	rec := doFirehoseRequest(t, h, "CreateDeliveryStream",
+		map[string]any{"DeliveryStreamName": "dup-stream"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "ResourceInUseException", body["__type"],
+		"duplicate-stream error must carry __type=ResourceInUseException")
+}
+
+func TestErrorResponse_InvalidArgumentException_HasType(t *testing.T) {
+	t.Parallel()
+
+	longKey := make([]byte, 129)
+	for i := range longKey {
+		longKey[i] = 'x'
+	}
+
 	tests := []struct {
-		setup        func(t *testing.T, h *firehose.Handler)
-		body         map[string]any
-		name         string
-		streamName   string
-		wantContains []string
-		wantCode     int
+		body   map[string]any
+		name   string
+		action string
 	}{
 		{
-			name:       "success_default_key_type",
-			streamName: "my-stream",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+			name:   "empty_record_data",
+			action: "PutRecord",
+			body: map[string]any{
+				"DeliveryStreamName": "invalid-stream",
+				"Record":             map[string]any{"Data": ""},
 			},
-			body:     map[string]any{"DeliveryStreamName": "my-stream"},
-			wantCode: http.StatusOK,
 		},
 		{
-			name:       "success_customer_managed_cmk",
-			streamName: "encrypted-stream",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(
-					t, h, "CreateDeliveryStream",
-					map[string]any{"DeliveryStreamName": "encrypted-stream"},
-				)
-			},
+			name:   "tag_key_too_long",
+			action: "CreateDeliveryStream",
 			body: map[string]any{
-				"DeliveryStreamName": "encrypted-stream",
-				"DeliveryStreamEncryptionConfigurationInput": map[string]any{
-					"KeyType": "CUSTOMER_MANAGED_CMK",
-					"KeyARN":  "arn:aws:kms:us-east-1:000000000000:key/test-key-id",
+				"DeliveryStreamName": "tag-err-stream",
+				"Tags": []map[string]string{
+					{"Key": string(longKey), "Value": "v"},
 				},
 			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			streamName: "nonexistent",
-			body:       map[string]any{"DeliveryStreamName": "nonexistent"},
-			wantCode:   http.StatusNotFound,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
+			// Pre-create the stream for PutRecord tests.
+			if tt.action == "PutRecord" {
+				createStream(t, h, "invalid-stream")
 			}
-			rec := doFirehoseRequest(t, h, "StartDeliveryStreamEncryption", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-			for _, s := range tt.wantContains {
-				assert.Contains(t, rec.Body.String(), s)
-			}
+
+			rec := doFirehoseRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "InvalidArgumentException", body["__type"],
+				"validation error must carry __type=InvalidArgumentException; got: %v", body)
 		})
 	}
 }
 
-func TestFirehoseHandler_StopDeliveryStreamEncryption(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(t *testing.T, h *firehose.Handler)
-		name       string
-		streamName string
-		wantCode   int
-	}{
-		{
-			name:       "success",
-			streamName: "my-stream",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-				doFirehoseRequest(
-					t,
-					h,
-					"StartDeliveryStreamEncryption",
-					map[string]any{"DeliveryStreamName": "my-stream"},
-				)
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:       "stop_without_start_succeeds",
-			streamName: "plain-stream",
-			setup: func(t *testing.T, h *firehose.Handler) {
-				t.Helper()
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "plain-stream"})
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name:       "not_found",
-			streamName: "nonexistent",
-			wantCode:   http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := newTestFirehoseHandler(t)
-			if tt.setup != nil {
-				tt.setup(t, h)
-			}
-			rec := doFirehoseRequest(t, h, "StopDeliveryStreamEncryption", map[string]any{
-				"DeliveryStreamName": tt.streamName,
-			})
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-func TestFirehoseHandler_EncryptionRoundTrip(t *testing.T) {
+func TestErrorResponse_ResourceNotFoundException_HasType(t *testing.T) {
 	t.Parallel()
 
 	h := newTestFirehoseHandler(t)
+	rec := doFirehoseRequest(t, h, "DescribeDeliveryStream",
+		map[string]any{"DeliveryStreamName": "no-such-stream"})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-	// Create a stream.
-	rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "enc-stream"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Enable encryption with a customer managed key.
-	rec = doFirehoseRequest(t, h, "StartDeliveryStreamEncryption", map[string]any{
-		"DeliveryStreamName": "enc-stream",
-		"DeliveryStreamEncryptionConfigurationInput": map[string]any{
-			"KeyType": "CUSTOMER_MANAGED_CMK",
-			"KeyARN":  "arn:aws:kms:us-east-1:000000000000:key/abc123",
-		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Disable encryption.
-	rec = doFirehoseRequest(t, h, "StopDeliveryStreamEncryption", map[string]any{"DeliveryStreamName": "enc-stream"})
-	require.Equal(t, http.StatusOK, rec.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "ResourceNotFoundException", body["__type"],
+		"not-found error must carry __type=ResourceNotFoundException")
 }
 
-func TestFirehoseHandler_GetSupportedOperations_EncryptionOps(t *testing.T) {
+func TestErrorResponse_UnknownOperation_HasType(t *testing.T) {
 	t.Parallel()
 
 	h := newTestFirehoseHandler(t)
-	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "StartDeliveryStreamEncryption")
-	assert.Contains(t, ops, "StopDeliveryStreamEncryption")
+	rec := doFirehoseRequest(t, h, "NoSuchAction", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "UnknownOperationException", body["__type"],
+		"unknown operation must carry __type=UnknownOperationException")
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -35,6 +36,35 @@ func request(t *testing.T, handler *comprehend.Handler, operation string, input 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &output))
 
 	return output
+}
+
+// rawRequest issues a Comprehend target-header request with a literal JSON
+// body and returns the raw recorder, for tests that need to assert on
+// non-200 status codes or malformed/edge-case request bodies (request()
+// above requires a 200 response and a map[string]any input, which cannot
+// express those cases).
+func rawRequest(t *testing.T, handler *comprehend.Handler, operation, body string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "Comprehend_20171127."+operation)
+	rec := httptest.NewRecorder()
+	ctx := echo.New().NewContext(req, rec)
+	require.NoError(t, handler.Handler()(ctx))
+
+	return rec
+}
+
+// decodeBody unmarshals a raw response recorder body into a map, for use
+// alongside rawRequest.
+func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out
 }
 
 func TestHandlerMetadataAndRouting(t *testing.T) {
@@ -591,4 +621,152 @@ func TestImportModel_RoutesResourceTypeFromSourceArn(t *testing.T) {
 			assert.Contains(t, described, test.objectField)
 		})
 	}
+}
+
+// --- Protocol accuracy ---
+
+func TestProtocolContentType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		action     string
+		body       string
+		wantCT     string
+		wantStatus int
+	}{
+		{
+			name:       "success_response_has_json11_content_type",
+			action:     "DetectDominantLanguage",
+			body:       `{"Text":"hello world"}`,
+			wantStatus: http.StatusOK,
+			wantCT:     "application/x-amz-json-1.1",
+		},
+		{
+			name:       "error_response_has_json11_content_type",
+			action:     "DetectSentiment",
+			body:       `{"Text":"","LanguageCode":"en"}`,
+			wantStatus: http.StatusBadRequest,
+			wantCT:     "application/x-amz-json-1.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := rawRequest(t, newHandler(), tt.action, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Contains(t, rec.Header().Get("Content-Type"), tt.wantCT)
+		})
+	}
+}
+
+func TestProtocolErrorEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+		body   string
+	}{
+		{
+			name:   "not_found_resource",
+			action: "DescribeDocumentClassifier",
+			body:   `{"DocumentClassifierArn":"arn:aws:comprehend:us-east-1:000000000000:document-classifier/missing"}`,
+		},
+		{
+			name:   "missing_required_text",
+			action: "DetectSentiment",
+			body:   `{"Text":"","LanguageCode":"en"}`,
+		},
+		{
+			name:   "unknown_operation",
+			action: "NoSuchOperation",
+			body:   `{}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := rawRequest(t, newHandler(), tt.action, tt.body)
+			assert.GreaterOrEqual(t, rec.Code, http.StatusBadRequest)
+
+			m := decodeBody(t, rec)
+			assert.NotEmpty(t, m["__type"], "__type must be present in error envelope")
+			assert.NotEmpty(t, m["message"], "message must be present in error envelope")
+		})
+	}
+}
+
+func TestProtocolHTTPRouting(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		target     string
+		wantStatus int
+	}{
+		{
+			name:       "GET_slash_returns_op_list",
+			method:     http.MethodGet,
+			path:       "/",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "PUT_returns_405",
+			method:     http.MethodPut,
+			path:       "/",
+			target:     "Comprehend_20171127.DetectSentiment",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
+			name:       "POST_missing_target_returns_400",
+			method:     http.MethodPost,
+			path:       "/",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := newHandler()
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader("{}"))
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			require.NoError(t, handler.Handler()(c))
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestProtocolOpList(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, handler.Handler()(c))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var ops []string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+	assert.NotEmpty(t, ops, "GET / must return non-empty operation list")
+	assert.Contains(t, ops, "DetectSentiment")
+	assert.Contains(t, ops, "DetectEntities")
+	assert.Contains(t, ops, "StartDocumentClassificationJob")
 }

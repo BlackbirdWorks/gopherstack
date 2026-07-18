@@ -1,6 +1,7 @@
 package ssoadmin_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -249,4 +250,33 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 
 	_, err := freshBackend.DescribeInstance(instanceArn)
 	require.NoError(t, err)
+}
+
+// TestSnapshotRestorePreservesState verifies that Snapshot and Restore preserve state.
+func TestSnapshotRestorePreservesState(t *testing.T) {
+	t.Parallel()
+
+	b1 := ssoadmin.NewInMemoryBackend("000000000000", "us-east-1")
+	h1 := ssoadmin.NewHandler(b1)
+
+	// Create state.
+	instanceArn := createInstance(t, h1, "snap-inst")
+	createPermissionSet(t, h1, instanceArn, "snap-ps")
+
+	// Snapshot.
+	snap := b1.Snapshot(t.Context())
+	require.NotNil(t, snap)
+	require.NotEmpty(t, snap)
+
+	// Restore into fresh backend.
+	b2 := ssoadmin.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := ssoadmin.NewHandler(b2)
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify instance is present.
+	rec := doRequest(t, h2, "DescribeInstance", map[string]any{"InstanceArn": instanceArn})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify permission set count preserved.
+	assert.GreaterOrEqual(t, ssoadmin.PermissionSetCount(b2), 1)
 }

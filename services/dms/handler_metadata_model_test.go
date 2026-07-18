@@ -135,3 +135,99 @@ func listField(m map[string]any) []any {
 
 	return nil
 }
+
+func TestHandler_CancelMetadataModelConversion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "success",
+			wantCode: http.StatusOK,
+			input: map[string]any{
+				"MigrationProjectIdentifier": "proj-1",
+				"RequestIdentifier":          "req-abc",
+			},
+		},
+		{
+			name:     "missing_project_identifier",
+			wantCode: http.StatusBadRequest,
+			input: map[string]any{
+				"RequestIdentifier": "req-abc",
+			},
+		},
+		{
+			name:     "missing_request_identifier",
+			wantCode: http.StatusBadRequest,
+			input: map[string]any{
+				"MigrationProjectIdentifier": "proj-1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "CancelMetadataModelConversion", tt.input)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				resp := parseJSON(t, rec)
+				assert.Equal(t, "req-abc", resp["RequestIdentifier"])
+			}
+		})
+	}
+}
+
+func TestHandler_CancelMetadataModelCreation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "success",
+			wantCode: http.StatusOK,
+			input: map[string]any{
+				"MigrationProjectIdentifier": "proj-1",
+				"RequestIdentifier":          "req-xyz",
+			},
+		},
+		{
+			name:     "missing_project",
+			wantCode: http.StatusBadRequest,
+			input: map[string]any{
+				"RequestIdentifier": "req-xyz",
+			},
+		},
+		{
+			name:     "missing_request_identifier",
+			wantCode: http.StatusBadRequest,
+			input: map[string]any{
+				"MigrationProjectIdentifier": "proj-1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, "CancelMetadataModelCreation", tt.input)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				resp := parseJSON(t, rec)
+				assert.Equal(t, "req-xyz", resp["RequestIdentifier"])
+			}
+		})
+	}
+}

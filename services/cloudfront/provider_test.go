@@ -8,8 +8,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestRefinement1_ProviderInitNilCtx verifies Provider.Init handles nil context.
-func TestRefinement1_ProviderInitNilCtx(t *testing.T) {
+// TestProviderInitNilCtx verifies Provider.Init handles nil context.
+func TestProviderInitNilCtx(t *testing.T) {
 	t.Parallel()
 
 	p := &cloudfront.Provider{}

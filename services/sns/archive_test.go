@@ -14,12 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBatch2_ArchivePolicyStoresMessages verifies that messages published to a
+// TestArchivePolicyStoresMessages verifies that messages published to a
 // topic with ArchivePolicy are stored in the archive.
 func TestArchivePolicyStoresMessages(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("archive-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
@@ -36,12 +36,12 @@ func TestArchivePolicyStoresMessages(t *testing.T) {
 	assert.Equal(t, "message-2", archived[2].Message)
 }
 
-// TestBatch2_NoArchivePolicyDoesNotStore verifies that topics without
+// TestNoArchivePolicyDoesNotStore verifies that topics without
 // ArchivePolicy do not accumulate archived messages.
 func TestNoArchivePolicyDoesNotStore(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("no-archive-topic", nil)
 	require.NoError(t, err)
 
@@ -52,12 +52,12 @@ func TestNoArchivePolicyDoesNotStore(t *testing.T) {
 	assert.Nil(t, archived, "topic without ArchivePolicy must not archive messages")
 }
 
-// TestBatch2_ArchivePolicyPreservesAttributes verifies that message attributes
+// TestArchivePolicyPreservesAttributes verifies that message attributes
 // are preserved in the archive.
 func TestArchivePolicyPreservesAttributes(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("archive-attrs-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":7}`,
 	})
@@ -78,14 +78,14 @@ func TestArchivePolicyPreservesAttributes(t *testing.T) {
 	assert.Equal(t, "42", archived[0].Attributes["count"].StringValue)
 }
 
-// TestBatch2_ArchiveCapEvictsOldestMessages verifies the archive cap evicts
+// TestArchiveCapEvictsOldestMessages verifies the archive cap evicts
 // the oldest entries when maxArchivedMessagesPerTopic is exceeded.
 func TestArchiveCapEvictsOldestMessages(t *testing.T) {
 	t.Parallel()
 
 	// Use a small number for this test rather than the real cap.
 	// We can verify the eviction logic by publishing cap+1 messages.
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("cap-archive-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":365}`,
 	})
@@ -107,12 +107,12 @@ func TestArchiveCapEvictsOldestMessages(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("msg-%05d", count-1), archived[count-1].Message)
 }
 
-// TestBatch2_ReplayPolicyInvalidJSONRejected verifies that a malformed
+// TestReplayPolicyInvalidJSONRejected verifies that a malformed
 // ReplayPolicy is rejected at SetSubscriptionAttributes time.
 func TestReplayPolicyInvalidJSONRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("rp-invalid-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
@@ -125,12 +125,12 @@ func TestReplayPolicyInvalidJSONRejected(t *testing.T) {
 	require.ErrorIs(t, err, sns.ErrInvalidParameter)
 }
 
-// TestBatch2_ReplayPolicyMissingTimestampRejected verifies that a ReplayPolicy
+// TestReplayPolicyMissingTimestampRejected verifies that a ReplayPolicy
 // without replayFromTimestamp is rejected.
 func TestReplayPolicyMissingTimestampRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("rp-missing-ts-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
@@ -143,12 +143,12 @@ func TestReplayPolicyMissingTimestampRejected(t *testing.T) {
 	require.ErrorIs(t, err, sns.ErrInvalidParameter)
 }
 
-// TestBatch2_ReplayPolicyInvalidTimestampRejected verifies that a non-RFC3339
+// TestReplayPolicyInvalidTimestampRejected verifies that a non-RFC3339
 // timestamp in ReplayPolicy is rejected.
 func TestReplayPolicyInvalidTimestampRejected(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("rp-bad-ts-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
@@ -162,11 +162,11 @@ func TestReplayPolicyInvalidTimestampRejected(t *testing.T) {
 	require.ErrorIs(t, err, sns.ErrInvalidParameter)
 }
 
-// TestBatch2_ReplayPolicyValidAccepted verifies that a valid ReplayPolicy is accepted.
+// TestReplayPolicyValidAccepted verifies that a valid ReplayPolicy is accepted.
 func TestReplayPolicyValidAccepted(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("rp-valid-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
@@ -184,7 +184,7 @@ func TestReplayPolicyValidAccepted(t *testing.T) {
 	assert.Contains(t, attrs["ReplayPolicy"], "replayFromTimestamp")
 }
 
-// TestBatch2_ReplayPolicyTriggersHTTPReplay verifies that when ReplayPolicy is
+// TestReplayPolicyTriggersHTTPReplay verifies that when ReplayPolicy is
 // set on an HTTP subscription, archived messages are replayed to that endpoint.
 func TestReplayPolicyTriggersHTTPReplay(t *testing.T) {
 	t.Parallel()
@@ -197,7 +197,7 @@ func TestReplayPolicyTriggersHTTPReplay(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("replay-http-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
@@ -240,7 +240,7 @@ func TestReplayPolicyTriggersHTTPReplay(t *testing.T) {
 	}
 }
 
-// TestBatch2_ReplayPolicyFutureTimestampReplayesNothing verifies that a
+// TestReplayPolicyFutureTimestampReplaysNothing verifies that a
 // replayFromTimestamp in the future results in no replay (no messages match).
 func TestReplayPolicyFutureTimestampReplaysNothing(t *testing.T) {
 	t.Parallel()
@@ -253,7 +253,7 @@ func TestReplayPolicyFutureTimestampReplaysNothing(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("replay-future-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})
@@ -421,7 +421,7 @@ func TestReplayPolicyDeliversToAllSubscriptionProtocols(t *testing.T) {
 			t.Parallel()
 
 			// Each subtest builds its own isolated backend, topic, and subscription.
-			b := newB2Backend(t)
+			b := newTestBackend(t)
 			tp, err := b.CreateTopic("replay-fanout-"+tc.name, map[string]string{
 				"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 			})
@@ -447,11 +447,11 @@ func TestReplayPolicyDeliversToAllSubscriptionProtocols(t *testing.T) {
 	}
 }
 
-// TestBatch2_ArchiveClearedOnReset verifies that Reset() clears the message archive.
+// TestArchiveClearedOnReset verifies that Reset() clears the message archive.
 func TestArchiveClearedOnReset(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	tp, err := b.CreateTopic("archive-reset-topic", map[string]string{
 		"ArchivePolicy": `{"MessageRetentionPeriod":30}`,
 	})

@@ -208,3 +208,65 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 		assert.Equal(t, wantEvent.ID, gotHistory[i].ID, "history event %d ID mismatch after restore", i)
 	}
 }
+
+func TestSFNHandler_SnapshotRestore_Delegation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *stepfunctions.InMemoryBackend)
+		check func(t *testing.T, b *stepfunctions.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "with_state_machine",
+			setup: func(b *stepfunctions.InMemoryBackend) {
+				_, _ = b.CreateStateMachine(context.Background(), "snap-sm", sfnPassDefinition, "arn:role", "STANDARD")
+			},
+			check: func(t *testing.T, b *stepfunctions.InMemoryBackend) {
+				t.Helper()
+
+				sms, _, err := b.ListStateMachines(context.Background(), "", 0)
+				require.NoError(t, err)
+				assert.Len(t, sms, 1)
+				assert.Equal(t, "snap-sm", sms[0].Name)
+			},
+		},
+		{
+			name:  "empty_backend",
+			setup: func(_ *stepfunctions.InMemoryBackend) {},
+			check: func(t *testing.T, b *stepfunctions.InMemoryBackend) {
+				t.Helper()
+
+				sms, _, err := b.ListStateMachines(context.Background(), "", 0)
+				require.NoError(t, err)
+				assert.Empty(t, sms)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			origBackend := stepfunctions.NewInMemoryBackend()
+			tt.setup(origBackend)
+
+			h, _ := newSFNHandler(t)
+			// Create a handler wrapping origBackend
+			origH := stepfunctions.NewHandler(origBackend)
+
+			snap := origH.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			freshBackend := stepfunctions.NewInMemoryBackend()
+			freshH := stepfunctions.NewHandler(freshBackend)
+			require.NoError(t, freshH.Restore(t.Context(), snap))
+
+			tt.check(t, freshBackend)
+
+			_ = h
+		})
+	}
+}
+
+// ---- GetExecutionHistory: reverse order ----

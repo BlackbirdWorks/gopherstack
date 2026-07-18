@@ -82,7 +82,7 @@ func Test_CreateTrigger_StartOnCreation_IgnoredForOnDemand(t *testing.T) {
 	assert.Equal(t, "CREATED", triggerState(t, h, "auto-start-od"))
 }
 
-func TestBatch3_Trigger_Create_OnDemand(t *testing.T) {
+func TestTrigger_Create_OnDemand(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -145,7 +145,7 @@ func TestBatch3_Trigger_Create_OnDemand(t *testing.T) {
 	}
 }
 
-func TestBatch3_Trigger_GetTrigger(t *testing.T) {
+func TestTrigger_GetTrigger(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -178,7 +178,7 @@ func TestBatch3_Trigger_GetTrigger(t *testing.T) {
 	}
 }
 
-func TestBatch3_Trigger_UpdateTrigger(t *testing.T) {
+func TestTrigger_UpdateTrigger(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -212,7 +212,7 @@ func TestBatch3_Trigger_UpdateTrigger(t *testing.T) {
 	}
 }
 
-func TestBatch3_Trigger_DeleteTrigger(t *testing.T) {
+func TestTrigger_DeleteTrigger(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -237,7 +237,7 @@ func TestBatch3_Trigger_DeleteTrigger(t *testing.T) {
 	}
 }
 
-func TestBatch3_Trigger_StartStopActivate(t *testing.T) {
+func TestTrigger_StartStopActivate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -273,7 +273,7 @@ func TestBatch3_Trigger_StartStopActivate(t *testing.T) {
 	}
 }
 
-func TestBatch3_Trigger_BatchGetAndList(t *testing.T) {
+func TestTrigger_BatchGetAndList(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -310,7 +310,7 @@ func TestBatch3_Trigger_BatchGetAndList(t *testing.T) {
 	})
 }
 
-func TestBatch3_Trigger_WithActions(t *testing.T) {
+func TestTrigger_WithActions(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)

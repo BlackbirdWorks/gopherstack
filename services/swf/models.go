@@ -1,0 +1,315 @@
+package swf
+
+import (
+	"encoding/json"
+	"maps"
+	"strings"
+)
+
+const (
+	// maxWorkflowExecutions is the maximum number of workflow executions retained.
+	maxWorkflowExecutions = 10_000
+
+	statusDeprecated     = "DEPRECATED"
+	statusRegistered     = "REGISTERED"
+	statusRunning        = "RUNNING"
+	statusTerminated     = "TERMINATED"
+	statusCanceled       = "CANCELED"
+	statusCompleted      = "COMPLETED"
+	statusFailed         = "FAILED"
+	statusTimedOut       = "TIMED_OUT"
+	statusContinuedAsNew = "CONTINUED_AS_NEW"
+
+	defaultAccountID = "123456789012"
+	defaultRegion    = "us-east-1"
+	maxTags          = 50
+	maxTagKeyLen     = 128
+	maxTagValueLen   = 256
+
+	milliDivisor = 1000.0
+
+	retentionNone     = "NONE"
+	attrDetails       = "details"
+	attrInput         = "input"
+	attrReason        = "reason"
+	attrName          = "name"
+	attrScheduledEvID = "scheduledEventId"
+	attrStartedEvID   = "startedEventId"
+)
+
+// WorkflowTypeDefaults holds the registered defaults for a workflow type.
+type WorkflowTypeDefaults struct {
+	DefaultTaskList                     string `json:"defaultTaskList,omitempty"`
+	DefaultTaskPriority                 string `json:"defaultTaskPriority,omitempty"`
+	DefaultTaskStartToCloseTimeout      string `json:"defaultTaskStartToCloseTimeout,omitempty"`
+	DefaultExecutionStartToCloseTimeout string `json:"defaultExecutionStartToCloseTimeout,omitempty"`
+	DefaultChildPolicy                  string `json:"defaultChildPolicy,omitempty"`
+	DefaultLambdaRole                   string `json:"defaultLambdaRole,omitempty"`
+}
+
+// ActivityTypeDefaults holds the registered defaults for an activity type.
+type ActivityTypeDefaults struct {
+	DefaultTaskList                   string `json:"defaultTaskList,omitempty"`
+	DefaultTaskPriority               string `json:"defaultTaskPriority,omitempty"`
+	DefaultTaskHeartbeatTimeout       string `json:"defaultTaskHeartbeatTimeout,omitempty"`
+	DefaultTaskScheduleToCloseTimeout string `json:"defaultTaskScheduleToCloseTimeout,omitempty"`
+	DefaultTaskScheduleToStartTimeout string `json:"defaultTaskScheduleToStartTimeout,omitempty"`
+	DefaultTaskStartToCloseTimeout    string `json:"defaultTaskStartToCloseTimeout,omitempty"`
+}
+
+// HistoryEvent is a single event in a workflow execution's history.
+// The Attributes map holds the event-type-specific payload which is serialised
+// under the key "<eventType>EventAttributes" per the AWS SWF JSON protocol.
+type HistoryEvent struct {
+	Attributes map[string]any `json:"-"`
+	EventType  string         `json:"eventType"`
+	EventID    int64          `json:"eventId"`
+	Timestamp  float64        `json:"eventTimestamp"`
+}
+
+// MarshalJSON emits the event-type-specific attributes alongside the standard fields.
+func (e HistoryEvent) MarshalJSON() ([]byte, error) {
+	m := map[string]any{
+		"eventType":      e.EventType,
+		"eventId":        e.EventID,
+		"eventTimestamp": e.Timestamp,
+	}
+	maps.Copy(m, e.Attributes)
+
+	return json.Marshal(m)
+}
+
+// UnmarshalJSON restores a HistoryEvent from its JSON representation,
+// capturing any unknown keys (the attributes block) into Attributes.
+func (e *HistoryEvent) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if v, ok := raw["eventType"]; ok {
+		_ = json.Unmarshal(v, &e.EventType)
+	}
+	if v, ok := raw["eventId"]; ok {
+		_ = json.Unmarshal(v, &e.EventID)
+	}
+	if v, ok := raw["eventTimestamp"]; ok {
+		_ = json.Unmarshal(v, &e.Timestamp)
+	}
+	known := map[string]bool{
+		"eventType": true, "eventId": true, "eventTimestamp": true,
+	}
+	e.Attributes = make(map[string]any)
+	for k, v := range raw {
+		if !known[k] {
+			var x any
+			_ = json.Unmarshal(v, &x)
+			e.Attributes[k] = x
+		}
+	}
+
+	return nil
+}
+
+// eventAttrKey returns the attribute key name for a given event type,
+// e.g. "WorkflowExecutionStarted" → "workflowExecutionStartedEventAttributes".
+func eventAttrKey(eventType string) string {
+	if eventType == "" {
+		return ""
+	}
+
+	return strings.ToLower(eventType[:1]) + eventType[1:] + "EventAttributes"
+}
+
+// ActivityTaskActivityType is the activity type reference within an activity task.
+type ActivityTaskActivityType struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// ActivityTask represents a pending activity task returned by PollForActivityTask.
+type ActivityTask struct {
+	TaskToken        string                   `json:"taskToken"`
+	ActivityID       string                   `json:"activityId"`
+	ActivityType     ActivityTaskActivityType `json:"activityType"`
+	Input            string                   `json:"input,omitempty"`
+	WorkflowID       string                   `json:"workflowId"`
+	RunID            string                   `json:"runId"`
+	StartedEventID   int64                    `json:"startedEventId"`
+	ScheduledEventID int64                    `json:"scheduledEventId"`
+}
+
+// DecisionTask represents a pending decision task returned by PollForDecisionTask.
+type DecisionTask struct {
+	TaskToken              string         `json:"taskToken"`
+	WorkflowID             string         `json:"workflowId"`
+	RunID                  string         `json:"runId"`
+	NextPageToken          string         `json:"nextPageToken,omitempty"`
+	WorkflowTypeName       string         `json:"workflowTypeName,omitempty"`
+	WorkflowTypeVersion    string         `json:"workflowTypeVersion,omitempty"`
+	Events                 []HistoryEvent `json:"events"`
+	StartedEventID         int64          `json:"startedEventId"`
+	PreviousStartedEventID int64          `json:"previousStartedEventId"`
+}
+
+// Domain represents an SWF domain.
+type Domain struct {
+	Name                                   string `json:"name"`
+	Description                            string `json:"description"`
+	Status                                 string `json:"status"` // REGISTERED or DEPRECATED
+	Arn                                    string `json:"arn,omitempty"`
+	WorkflowExecutionRetentionPeriodInDays string `json:"workflowExecutionRetentionPeriodInDays"`
+}
+
+// ActivityType represents an SWF activity type.
+type ActivityType struct {
+	Defaults     ActivityTypeDefaults `json:"defaults"`
+	Description  string               `json:"description"`
+	Domain       string               `json:"domain"`
+	Name         string               `json:"name"`
+	Version      string               `json:"version"`
+	Status       string               `json:"status"`
+	CreationDate float64              `json:"creationDate"`
+}
+
+// WorkflowType represents an SWF workflow type.
+type WorkflowType struct {
+	Defaults     WorkflowTypeDefaults `json:"defaults"`
+	Description  string               `json:"description"`
+	Domain       string               `json:"domain"`
+	Name         string               `json:"name"`
+	Version      string               `json:"version"`
+	Status       string               `json:"status"`
+	CreationDate float64              `json:"creationDate"`
+}
+
+// WorkflowExecution represents an SWF workflow execution.
+type WorkflowExecution struct {
+	WorkflowTypeVersion          string   `json:"workflowTypeVersion,omitempty"`
+	LambdaRole                   string   `json:"lambdaRole,omitempty"`
+	RunID                        string   `json:"runID"`
+	TaskList                     string   `json:"taskList,omitempty"`
+	CloseStatus                  string   `json:"closeStatus,omitempty"`
+	LatestExecutionContext       string   `json:"latestExecutionContext,omitempty"`
+	TaskPriority                 string   `json:"taskPriority,omitempty"`
+	WorkflowTypeName             string   `json:"workflowTypeName,omitempty"`
+	WorkflowID                   string   `json:"workflowID"`
+	Input                        string   `json:"input,omitempty"`
+	Status                       string   `json:"status"`
+	TaskStartToCloseTimeout      string   `json:"taskStartToCloseTimeout,omitempty"`
+	ChildPolicy                  string   `json:"childPolicy,omitempty"`
+	Domain                       string   `json:"domain"`
+	ExecutionStartToCloseTimeout string   `json:"executionStartToCloseTimeout,omitempty"`
+	TagList                      []string `json:"tagList,omitempty"`
+	CloseTimestamp               float64  `json:"closeTimestamp,omitempty"`
+	StartTimestamp               float64  `json:"startTimestamp"`
+	CancelRequested              bool     `json:"cancelRequested,omitempty"`
+}
+
+// StartWorkflowExecutionInput holds all parameters for starting a workflow execution.
+type StartWorkflowExecutionInput struct {
+	Input                        string
+	WorkflowID                   string
+	RunID                        string
+	WorkflowTypeName             string
+	WorkflowTypeVersion          string
+	TaskList                     string
+	Domain                       string
+	ChildPolicy                  string
+	LambdaRole                   string
+	ExecutionStartToCloseTimeout string
+	TaskStartToCloseTimeout      string
+	TaskPriority                 string
+	TagList                      []string
+}
+
+// activeActivityTaskRecord tracks an activity task that has been dispatched to a poller.
+// TaskToken has no wire-visible home on this record (the token is the caller-facing
+// identity, never round-tripped through an AWS response body here); it exists purely so
+// store.Table's keyFn can derive a key from the value (see store_setup.go). It is tagged
+// json:"-" because activeActivityTasks is a "dirty" table -- persistence.go instead
+// round-trips it through a dedicated activeActivityTaskDTO that carries the token as a
+// real JSON field, so it survives the round trip despite being excluded here.
+type activeActivityTaskRecord struct {
+	ActivityType     ActivityTaskActivityType
+	Domain           string
+	WorkflowID       string
+	RunID            string
+	ActivityID       string
+	TaskList         string
+	TaskToken        string `json:"-"`
+	ScheduledEventID int64
+	StartedEventID   int64
+}
+
+// activeDecisionTaskRecord tracks a decision task token dispatched to a poller.
+// TaskToken carries the same store.Table keyFn / persistence caveats as
+// [activeActivityTaskRecord.TaskToken] above.
+type activeDecisionTaskRecord struct {
+	Domain     string
+	WorkflowID string
+	RunID      string
+	TaskToken  string `json:"-"`
+}
+
+// CompleteWorkflowExecutionDecisionAttrs holds attributes for CompleteWorkflowExecution.
+type CompleteWorkflowExecutionDecisionAttrs struct {
+	Result string
+}
+
+// FailWorkflowExecutionDecisionAttrs holds attributes for FailWorkflowExecution.
+type FailWorkflowExecutionDecisionAttrs struct {
+	Reason  string
+	Details string
+}
+
+// CancelWorkflowExecutionDecisionAttrs holds attributes for CancelWorkflowExecution.
+type CancelWorkflowExecutionDecisionAttrs struct {
+	Details string
+}
+
+// ScheduleActivityTaskDecisionAttrs holds attributes for ScheduleActivityTask.
+type ScheduleActivityTaskDecisionAttrs struct {
+	ActivityType           ActivityTaskActivityType
+	ActivityID             string
+	Input                  string
+	TaskList               string
+	ScheduleToCloseTimeout string
+	ScheduleToStartTimeout string
+	StartToCloseTimeout    string
+	HeartbeatTimeout       string
+}
+
+// RequestCancelActivityTaskDecisionAttrs holds attributes for RequestCancelActivityTask.
+type RequestCancelActivityTaskDecisionAttrs struct {
+	ActivityID string
+}
+
+// StartTimerDecisionAttrs holds attributes for StartTimer.
+type StartTimerDecisionAttrs struct {
+	TimerID            string
+	StartToFireTimeout string
+}
+
+// CancelTimerDecisionAttrs holds attributes for CancelTimer.
+type CancelTimerDecisionAttrs struct {
+	TimerID string
+}
+
+// RecordMarkerDecisionAttrs holds attributes for RecordMarker.
+type RecordMarkerDecisionAttrs struct {
+	MarkerName string
+	Details    string
+}
+
+// Decision represents a single decision returned by a decider.
+type Decision struct {
+	CompleteWorkflowExecutionAttrs *CompleteWorkflowExecutionDecisionAttrs
+	FailWorkflowExecutionAttrs     *FailWorkflowExecutionDecisionAttrs
+	CancelWorkflowExecutionAttrs   *CancelWorkflowExecutionDecisionAttrs
+	ScheduleActivityTaskAttrs      *ScheduleActivityTaskDecisionAttrs
+	RequestCancelActivityTaskAttrs *RequestCancelActivityTaskDecisionAttrs
+	StartTimerAttrs                *StartTimerDecisionAttrs
+	CancelTimerAttrs               *CancelTimerDecisionAttrs
+	RecordMarkerAttrs              *RecordMarkerDecisionAttrs
+	DecisionType                   string
+}

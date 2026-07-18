@@ -125,7 +125,7 @@ func TestCreatePatchBaseline_ValidationError(t *testing.T) {
 	}
 }
 
-// TestRefinement2_PatchBaseline_DefaultOS verifies default OperatingSystem.
+// TestPatchBaseline_DefaultOS verifies default OperatingSystem.
 func TestPatchBaseline_DefaultOS(t *testing.T) {
 	t.Parallel()
 

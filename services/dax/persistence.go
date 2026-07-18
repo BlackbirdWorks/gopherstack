@@ -115,20 +115,28 @@ func rebuildTagIndex(clusters *store.Table[Cluster], tagsMap map[string]map[stri
 
 // Snapshot serializes the backend state to JSON.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
+	var (
+		snap   backendSnapshot
+		tblErr error
+	)
 
-	tables, tblErr := b.registry.SnapshotAll()
+	func() {
+		b.mu.RLock("Snapshot")
+		defer b.mu.RUnlock()
 
-	snap := backendSnapshot{
-		Version:   daxSnapshotVersion,
-		Tables:    tables,
-		Tags:      b.tags,
-		Events:    b.events,
-		AccountID: b.AccountID,
-		Region:    b.Region,
-	}
+		var tables map[string]json.RawMessage
 
-	b.mu.RUnlock()
+		tables, tblErr = b.registry.SnapshotAll()
+
+		snap = backendSnapshot{
+			Version:   daxSnapshotVersion,
+			Tables:    tables,
+			Tags:      b.tags,
+			Events:    b.events,
+			AccountID: b.AccountID,
+			Region:    b.Region,
+		}
+	}()
 
 	if tblErr != nil {
 		logger.Load(ctx).ErrorContext(ctx, "dax: failed to marshal snapshot", "error", tblErr)

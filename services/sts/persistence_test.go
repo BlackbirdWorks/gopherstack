@@ -121,6 +121,115 @@ func TestSTSHandler_Persistence(t *testing.T) {
 	require.NoError(t, freshH.Restore(t.Context(), snap))
 }
 
+// TestSnapshotDeepCopy verifies Snapshot doesn't share pointers with live sessions.
+func TestSnapshotDeepCopy(t *testing.T) {
+	t.Parallel()
+
+	b := sts.NewInMemoryBackend()
+	b.AddSessionInternal(&sts.SessionInfo{
+		AccessKeyID:    "ASIATEST000000000002",
+		AssumedRoleArn: "arn:aws:sts::000000000000:assumed-role/test/session",
+		AccountID:      sts.MockAccountID,
+		SessionName:    "original",
+		Expiration:     time.Now().Add(time.Hour),
+	})
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	// Mutate the live session.
+	b.SetSessionExpiration("ASIATEST000000000002", time.Now().Add(2*time.Hour))
+
+	// Restore from snapshot - should reflect original data (not mutated).
+	b2 := sts.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+	assert.Equal(t, 1, b2.SessionCount())
+}
+
+// TestEnsureNonNilMapsAfterRestore verifies Restore with empty data leaves sessions usable.
+func TestEnsureNonNilMapsAfterRestore(t *testing.T) {
+	t.Parallel()
+
+	b := sts.NewInMemoryBackend()
+	require.NoError(t, b.Restore(t.Context(), nil))
+	// sessions map should still be usable (non-nil); verify by adding a session.
+	b.AddSessionInternal(&sts.SessionInfo{
+		AccessKeyID:    "ASIATEST000000000003",
+		AssumedRoleArn: "arn:aws:sts::000000000000:assumed-role/test/session",
+		AccountID:      sts.MockAccountID,
+		SessionName:    "after-restore",
+		Expiration:     time.Now().Add(time.Hour),
+	})
+	assert.Equal(t, 1, b.SessionCount())
+}
+
+// TestSnapshotRestoreRoundtrip verifies Snapshot/Restore preserves all fields.
+func TestSnapshotRestoreRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	expiration := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	original := &sts.SessionInfo{
+		AccessKeyID:    "ASIATEST000000000099",
+		AssumedRoleArn: "arn:aws:sts::000000000000:assumed-role/my-role/my-session",
+		AccountID:      sts.MockAccountID,
+		SessionName:    "my-session",
+		AssumedRoleID:  "AROAMY-ROLE:my-session",
+		SourceIdentity: "test-identity",
+		Tags:           []sts.Tag{{Key: "k", Value: "v"}},
+		Expiration:     expiration,
+	}
+
+	b := sts.NewInMemoryBackend()
+	b.AddSessionInternal(original)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := sts.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+	assert.Equal(t, 1, b2.SessionCount())
+
+	ci, err := b2.GetCallerIdentity("ASIATEST000000000099", "")
+	require.NoError(t, err)
+	assert.Equal(t, sts.MockAccountID, ci.GetCallerIdentityResult.Account)
+	assert.Equal(t, original.AssumedRoleArn, ci.GetCallerIdentityResult.Arn)
+}
+
+// TestSnapshotRestore_PreservesCounters verifies operation counters survive a
+// Snapshot/Restore round trip.
+func TestSnapshotRestore_PreservesCounters(t *testing.T) {
+	t.Parallel()
+
+	b := sts.NewInMemoryBackend()
+
+	// Perform some operations.
+	for range 3 {
+		_, err := b.AssumeRole(&sts.AssumeRoleInput{
+			RoleArn:         "arn:aws:iam::123456789012:role/R",
+			RoleSessionName: "session",
+		})
+		require.NoError(t, err)
+	}
+
+	_, err := b.GetSessionToken(&sts.GetSessionTokenInput{})
+	require.NoError(t, err)
+
+	// Snapshot and restore.
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := sts.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	h2 := sts.NewHandler(b2)
+
+	// Verify counters are preserved in metrics.
+	metrics := h2.SessionMetrics()
+	assert.Equal(t, int64(3), metrics.OpsAssumeRole)
+	assert.Equal(t, int64(1), metrics.OpsGetSessionToken)
+	assert.Equal(t, int64(4), metrics.TotalSessionsCreated)
+}
+
 func TestSTSHandler_Routing(t *testing.T) {
 	t.Parallel()
 

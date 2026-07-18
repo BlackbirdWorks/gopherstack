@@ -2,18 +2,14 @@ package amplify
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -31,7 +27,22 @@ const (
 	pathSegsAppSub    = 3 // ["apps", "{appId}", "branches"]
 	pathSegsAppBranch = 4 // ["apps", "{appId}", "branches", "{branchName}"]
 
+	pathSegsAppBranchSub  = 5 // ["apps", "{appId}", "branches", "{branchName}", "jobs"]
+	pathSegsAppBranchItem = 6 // ["apps", "{appId}", "branches", "{branchName}", "jobs", "{jobId}"]
+	pathSegsJobAction     = 7 // ["apps", "{appId}", "branches", "{branchName}", "jobs", "{jobId}", "action"]
+
 	opUnknown = "Unknown"
+
+	// Path segment literals shared by the routing tree below.
+	subWebhooks            = "webhooks"
+	subBackendEnvironments = "backendenvironments"
+	subDomains             = "domains"
+	subJobs                = "jobs"
+	subDeployments         = "deployments"
+	subAccessLogs          = "accesslogs"
+	subArtifactsRoot       = "artifacts"
+	subStop                = "stop"
+	subStart               = "start"
 )
 
 // Handler is the Echo HTTP handler for Amplify operations.
@@ -206,62 +217,128 @@ func parseAmplifyOperation(method, path string) string {
 	}
 }
 
-func parseAppsOperation(method string) string {
-	switch method {
-	case http.MethodPost:
-		return "CreateApp"
-	case http.MethodGet:
-		return "ListApps"
+// parseAppsPathOp dispatches operation-name parsing for /apps/* paths by
+// segment-count shape. This mirrors the runtime routing tree below
+// (routeApps and friends) and must stay in lock-step with it.
+func parseAppsPathOp(method string, segs []string) string {
+	switch len(segs) {
+	case pathSegsApps:
+		return parseAppsOperation(method)
+	case pathSegsAppID:
+		return parseAppIDOperation(method)
+	case pathSegsAppSub:
+		return parseAppSubPathOp(method, segs[2])
+	case pathSegsAppBranch:
+		return parseAppItemPathOp(method, segs[2])
+	case pathSegsAppBranchSub:
+		if segs[2] != arnResourceBranches {
+			return opUnknown
+		}
+
+		return parseAppBranchSubPathOp(method, segs[4])
+	case pathSegsAppBranchItem:
+		if segs[2] != arnResourceBranches {
+			return opUnknown
+		}
+
+		return parseAppBranchItemPathOp(method, segs[4], segs[5])
+	case pathSegsJobAction:
+		if segs[2] != arnResourceBranches || segs[4] != subJobs {
+			return opUnknown
+		}
+
+		return parseJobActionPathOp(method, segs[6])
 	default:
 		return opUnknown
 	}
 }
 
-func parseTagsOperation(method string) string {
-	switch method {
-	case http.MethodGet:
-		return "ListTagsForResource"
-	case http.MethodPost:
-		return "TagResource"
-	case http.MethodDelete:
-		return "UntagResource"
+func parseAppSubPathOp(method, sub string) string {
+	switch sub {
+	case arnResourceBranches:
+		return parseBranchesOperation(method)
+	case subWebhooks:
+		return parseListOrCreateOp(method, "ListWebhooks", "CreateWebhook")
+	case subBackendEnvironments:
+		return parseListOrCreateOp(method, "ListBackendEnvironments", "CreateBackendEnvironment")
+	case subDomains:
+		return parseListOrCreateOp(method, "ListDomainAssociations", "CreateDomainAssociation")
+	case subAccessLogs:
+		if method == http.MethodPost {
+			return "GenerateAccessLogs"
+		}
+
+		return opUnknown
 	default:
 		return opUnknown
 	}
 }
 
-func parseAppIDOperation(method string) string {
+// parseListOrCreateOp maps a list/create resource-collection path to its
+// operation name based on HTTP method. Shared across the webhooks, backend
+// environments, and domain associations sub-resource families.
+func parseListOrCreateOp(method, listOp, createOp string) string {
 	switch method {
 	case http.MethodGet:
-		return "GetApp"
-	case http.MethodDelete:
-		return "DeleteApp"
+		return listOp
 	case http.MethodPost:
-		return "UpdateApp"
+		return createOp
 	default:
 		return opUnknown
 	}
 }
 
-func parseBranchesOperation(method string) string {
-	switch method {
-	case http.MethodPost:
-		return "CreateBranch"
-	case http.MethodGet:
-		return "ListBranches"
+func parseAppItemPathOp(method, sub string) string {
+	switch {
+	case sub == arnResourceBranches:
+		return parseBranchOperation(method)
+	case sub == subBackendEnvironments && method == http.MethodGet:
+		return "GetBackendEnvironment"
+	case sub == subBackendEnvironments && method == http.MethodDelete:
+		return "DeleteBackendEnvironment"
+	case sub == subDomains && method == http.MethodGet:
+		return "GetDomainAssociation"
+	case sub == subDomains && method == http.MethodDelete:
+		return "DeleteDomainAssociation"
+	case sub == subDomains && method == http.MethodPost:
+		return "UpdateDomainAssociation"
 	default:
 		return opUnknown
 	}
 }
 
-func parseBranchOperation(method string) string {
-	switch method {
-	case http.MethodGet:
-		return "GetBranch"
-	case http.MethodDelete:
-		return "DeleteBranch"
-	case http.MethodPost:
-		return "UpdateBranch"
+func parseAppBranchSubPathOp(method, sub string) string {
+	switch {
+	case sub == subJobs && method == http.MethodPost:
+		return "StartJob"
+	case sub == subJobs && method == http.MethodGet:
+		return "ListJobs"
+	case sub == subDeployments && method == http.MethodPost:
+		return "CreateDeployment"
+	default:
+		return opUnknown
+	}
+}
+
+func parseAppBranchItemPathOp(method, sub, item string) string {
+	switch {
+	case sub == subJobs && method == http.MethodGet:
+		return "GetJob"
+	case sub == subJobs && method == http.MethodDelete:
+		return "DeleteJob"
+	case sub == subDeployments && item == subStart && method == http.MethodPost:
+		return "StartDeployment"
+	default:
+		return opUnknown
+	}
+}
+
+func parseJobActionPathOp(method, action string) string {
+	switch {
+	case action == subStop && method == http.MethodDelete:
+		return "StopJob"
+	case action == subArtifactsRoot && method == http.MethodGet:
+		return "ListArtifacts"
 	default:
 		return opUnknown
 	}
@@ -278,23 +355,6 @@ func splitAmplifyPath(path string) []string {
 	}
 
 	return segs
-}
-
-// extractResourceARN extracts and URL-decodes the resource ARN from a /tags/{arn} path.
-func extractResourceARN(rawPath, decodedPath string) string {
-	if rawPath == "" {
-		rawPath = decodedPath
-	}
-
-	const tagsPrefix = "/tags/"
-	encoded := strings.TrimPrefix(rawPath, tagsPrefix)
-
-	decoded, err := url.PathUnescape(encoded)
-	if err != nil {
-		return encoded
-	}
-
-	return decoded
 }
 
 // Handler returns the Echo handler function for Amplify requests.
@@ -329,272 +389,135 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-// handleApps handles POST/GET /apps.
-func (h *Handler) handleApps(ctx context.Context, c *echo.Context) error {
-	switch c.Request().Method {
-	case http.MethodPost:
-		return h.createApp(ctx, c)
-	case http.MethodGet:
-		return h.listApps(ctx, c)
+// routeApps dispatches /apps/* paths.
+func (h *Handler) routeApps(ctx context.Context, c *echo.Context, segs []string) error {
+	switch len(segs) {
+	case pathSegsApps:
+		return h.handleApps(ctx, c)
+	case pathSegsAppID:
+		return h.handleAppID(ctx, c, segs[1])
+	case pathSegsAppSub:
+		return h.routeAppSub(ctx, c, segs)
+	case pathSegsAppBranch:
+		return h.routeAppItem(ctx, c, segs)
+	case pathSegsAppBranchSub:
+		return h.routeAppBranchSub(ctx, c, segs)
+	case pathSegsAppBranchItem:
+		return h.routeAppBranchItem(ctx, c, segs)
+	case pathSegsJobAction:
+		return h.routeJobAction(ctx, c, segs)
 	default:
-		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
-// handleAppID handles GET/POST/DELETE /apps/{appId}.
-func (h *Handler) handleAppID(ctx context.Context, c *echo.Context, appID string) error {
-	switch c.Request().Method {
-	case http.MethodGet:
-		return h.getApp(ctx, c, appID)
-	case http.MethodDelete:
-		return h.deleteApp(ctx, c, appID)
-	case http.MethodPost:
-		return h.updateApp(ctx, c, appID)
+// routeAppSub dispatches /apps/{appId}/{sub}.
+func (h *Handler) routeAppSub(ctx context.Context, c *echo.Context, segs []string) error {
+	appID, sub := segs[1], segs[2]
+	switch sub {
+	case arnResourceBranches:
+		return h.handleBranches(ctx, c, appID)
+	case subWebhooks:
+		return h.handleAppWebhooks(ctx, c, appID)
+	case subBackendEnvironments:
+		return h.handleBackendEnvironments(ctx, c, appID)
+	case subDomains:
+		return h.handleDomainAssociations(ctx, c, appID)
+	case subAccessLogs:
+		return h.generateAccessLogs(ctx, c, appID)
 	default:
-		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
-// handleBranches handles POST/GET /apps/{appId}/branches.
-func (h *Handler) handleBranches(ctx context.Context, c *echo.Context, appID string) error {
-	switch c.Request().Method {
-	case http.MethodPost:
-		return h.createBranch(ctx, c, appID)
-	case http.MethodGet:
-		return h.listBranches(ctx, c, appID)
+// routeAppItem dispatches /apps/{appId}/{sub}/{item}.
+func (h *Handler) routeAppItem(ctx context.Context, c *echo.Context, segs []string) error {
+	appID, sub, item := segs[1], segs[2], segs[3]
+	switch sub {
+	case arnResourceBranches:
+		return h.handleBranchName(ctx, c, appID, item)
+	case subBackendEnvironments:
+		return h.handleBackendEnvironmentName(ctx, c, appID, item)
+	case subDomains:
+		return h.handleDomainAssociationName(ctx, c, appID, item)
 	default:
-		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
-// handleBranchName handles GET/POST/DELETE /apps/{appId}/branches/{branchName}.
-func (h *Handler) handleBranchName(ctx context.Context, c *echo.Context, appID, branchName string) error {
-	switch c.Request().Method {
-	case http.MethodGet:
-		return h.getBranch(ctx, c, appID, branchName)
-	case http.MethodDelete:
-		return h.deleteBranch(ctx, c, appID, branchName)
-	case http.MethodPost:
-		return h.updateBranch(ctx, c, appID, branchName)
+// routeAppBranchSub dispatches /apps/{appId}/branches/{branchName}/{sub}.
+func (h *Handler) routeAppBranchSub(ctx context.Context, c *echo.Context, segs []string) error {
+	if segs[2] != arnResourceBranches {
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
+	}
+
+	appID, branchName, sub := segs[1], segs[3], segs[4]
+	switch sub {
+	case subJobs:
+		return h.handleBranchJobs(ctx, c, appID, branchName)
+	case subDeployments:
+		return h.createDeployment(ctx, c, appID, branchName)
 	default:
-		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 }
 
-// handleTags dispatches GET/POST/DELETE /tags/{resourceArn}.
-func (h *Handler) handleTags(ctx context.Context, c *echo.Context) error {
-	resourceARN := extractResourceARN(c.Request().URL.RawPath, c.Request().URL.Path)
-
-	switch c.Request().Method {
-	case http.MethodGet:
-		return h.listTagsForResource(ctx, c, resourceARN)
-	case http.MethodPost:
-		return h.tagResource(ctx, c, resourceARN)
-	case http.MethodDelete:
-		return h.untagResource(ctx, c, resourceARN)
-	default:
-		return amplifyErrorJSON(c, http.StatusMethodNotAllowed, "method not allowed")
-	}
-}
-
-// createApp handles POST /apps.
-func (h *Handler) createApp(ctx context.Context, c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
+// routeAppBranchItem dispatches /apps/{appId}/branches/{branchName}/{sub}/{item}.
+func (h *Handler) routeAppBranchItem(ctx context.Context, c *echo.Context, segs []string) error {
+	if segs[2] != arnResourceBranches {
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 
-	var input struct {
-		Tags        map[string]string `json:"tags"`
-		Name        string            `json:"name"`
-		Description string            `json:"description"`
-		Repository  string            `json:"repository"`
-		Platform    string            `json:"platform"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
-	}
-
-	if input.Name == "" {
-		return amplifyErrorJSON(c, http.StatusBadRequest, "name is required")
-	}
-
-	app, createErr := h.Backend.CreateApp(input.Name, input.Description, input.Repository, input.Platform, input.Tags)
-	if createErr != nil {
-		return h.handleBackendError(ctx, c, "CreateApp", createErr)
-	}
-
-	return c.JSON(http.StatusCreated, map[string]any{keyApp: toAppView(app)})
-}
-
-// getApp handles GET /apps/{appId}.
-func (h *Handler) getApp(ctx context.Context, c *echo.Context, appID string) error {
-	app, err := h.Backend.GetApp(appID)
-	if err != nil {
-		return h.handleBackendError(ctx, c, "GetApp", err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{keyApp: toAppView(app)})
-}
-
-// listApps handles GET /apps.
-func (h *Handler) listApps(ctx context.Context, c *echo.Context) error {
-	q := c.Request().URL.Query()
-	nextToken := q.Get("nextToken")
-
-	maxResults := 0
-	if s := q.Get("maxResults"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxResults = n
+	appID, branchName, sub, item := segs[1], segs[3], segs[4], segs[5]
+	switch sub {
+	case subJobs:
+		return h.handleBranchJobID(ctx, c, appID, branchName, item)
+	case subDeployments:
+		if item != subStart {
+			return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 		}
-	}
 
-	apps, outToken, err := h.Backend.ListApps(nextToken, maxResults)
-	if err != nil {
-		return h.handleBackendError(ctx, c, "ListApps", err)
+		return h.startDeployment(ctx, c, appID, branchName)
+	default:
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
-
-	resp := map[string]any{arnResourceApps: toAppViews(apps)}
-	if outToken != "" {
-		resp["nextToken"] = outToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
 }
 
-// deleteApp handles DELETE /apps/{appId}.
-func (h *Handler) deleteApp(ctx context.Context, c *echo.Context, appID string) error {
-	if err := h.Backend.DeleteApp(appID); err != nil {
-		return h.handleBackendError(ctx, c, "DeleteApp", err)
+// routeJobAction dispatches /apps/{appId}/branches/{branchName}/jobs/{jobId}/{action}.
+func (h *Handler) routeJobAction(ctx context.Context, c *echo.Context, segs []string) error {
+	if segs[2] != arnResourceBranches || segs[4] != subJobs {
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	appID, branchName, jobID, action := segs[1], segs[3], segs[5], segs[6]
+	switch action {
+	case subStop:
+		return h.stopJob(ctx, c, appID, branchName, jobID)
+	case subArtifactsRoot:
+		return h.listArtifacts(ctx, c, appID, branchName, jobID)
+	default:
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
+	}
 }
 
-// createBranch handles POST /apps/{appId}/branches.
-func (h *Handler) createBranch(ctx context.Context, c *echo.Context, appID string) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
+// routeWebhooks dispatches /webhooks/{webhookId}.
+func (h *Handler) routeWebhooks(ctx context.Context, c *echo.Context, segs []string) error {
+	const webhookIDSegs = 2
+	if len(segs) != webhookIDSegs {
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 
-	var input struct {
-		Tags            map[string]string `json:"tags"`
-		BranchName      string            `json:"branchName"`
-		Description     string            `json:"description"`
-		Stage           string            `json:"stage"`
-		EnableAutoBuild bool              `json:"enableAutoBuild"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
-	}
-
-	if input.BranchName == "" {
-		return amplifyErrorJSON(c, http.StatusBadRequest, "branchName is required")
-	}
-
-	branch, createErr := h.Backend.CreateBranch(
-		appID,
-		input.BranchName,
-		input.Description,
-		input.Stage,
-		input.EnableAutoBuild,
-		input.Tags,
-	)
-	if createErr != nil {
-		return h.handleBackendError(ctx, c, "CreateBranch", createErr)
-	}
-
-	return c.JSON(http.StatusCreated, map[string]any{keyBranch: toBranchView(branch)})
+	return h.handleWebhookID(ctx, c, segs[1])
 }
 
-// getBranch handles GET /apps/{appId}/branches/{branchName}.
-func (h *Handler) getBranch(ctx context.Context, c *echo.Context, appID, branchName string) error {
-	branch, err := h.Backend.GetBranch(appID, branchName)
-	if err != nil {
-		return h.handleBackendError(ctx, c, "GetBranch", err)
+// routeArtifacts dispatches /artifacts/{artifactId}.
+func (h *Handler) routeArtifacts(ctx context.Context, c *echo.Context, segs []string) error {
+	const artifactIDSegs = 2
+	if len(segs) != artifactIDSegs {
+		return amplifyErrorJSON(c, http.StatusNotFound, "not found")
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyBranch: toBranchView(branch)})
-}
-
-// listBranches handles GET /apps/{appId}/branches.
-func (h *Handler) listBranches(ctx context.Context, c *echo.Context, appID string) error {
-	q := c.Request().URL.Query()
-	nextToken := q.Get("nextToken")
-
-	maxResults := 0
-	if s := q.Get("maxResults"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			maxResults = n
-		}
-	}
-
-	branches, outToken, err := h.Backend.ListBranches(appID, nextToken, maxResults)
-	if err != nil {
-		return h.handleBackendError(ctx, c, "ListBranches", err)
-	}
-
-	resp := map[string]any{"branches": toBranchViews(branches)}
-	if outToken != "" {
-		resp["nextToken"] = outToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-// deleteBranch handles DELETE /apps/{appId}/branches/{branchName}.
-func (h *Handler) deleteBranch(ctx context.Context, c *echo.Context, appID, branchName string) error {
-	if err := h.Backend.DeleteBranch(appID, branchName); err != nil {
-		return h.handleBackendError(ctx, c, "DeleteBranch", err)
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-// listTagsForResource handles GET /tags/{resourceArn}.
-func (h *Handler) listTagsForResource(ctx context.Context, c *echo.Context, resourceARN string) error {
-	tagMap, err := h.Backend.ListTagsForResource(resourceARN)
-	if err != nil {
-		return h.handleBackendError(ctx, c, "ListTagsForResource", err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"tags": tagMap})
-}
-
-// tagResource handles POST /tags/{resourceArn}.
-func (h *Handler) tagResource(ctx context.Context, c *echo.Context, resourceARN string) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return amplifyErrorJSON(c, http.StatusInternalServerError, err.Error())
-	}
-
-	var input struct {
-		Tags map[string]string `json:"tags"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
-		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
-	}
-
-	if tagErr := h.Backend.TagResource(resourceARN, input.Tags); tagErr != nil {
-		return h.handleBackendError(ctx, c, "TagResource", tagErr)
-	}
-
-	return c.NoContent(http.StatusOK)
-}
-
-// untagResource handles DELETE /tags/{resourceArn}?tagKeys=key1&tagKeys=key2.
-func (h *Handler) untagResource(ctx context.Context, c *echo.Context, resourceARN string) error {
-	tagKeys := c.Request().URL.Query()["tagKeys"]
-
-	if untagErr := h.Backend.UntagResource(resourceARN, tagKeys); untagErr != nil {
-		return h.handleBackendError(ctx, c, "UntagResource", untagErr)
-	}
-
-	return c.NoContent(http.StatusOK)
+	return h.getArtifactURL(ctx, c, segs[1])
 }
 
 // handleBackendError maps backend errors to appropriate HTTP responses.
@@ -611,92 +534,6 @@ func (h *Handler) handleBackendError(ctx context.Context, c *echo.Context, op st
 	}
 
 	return amplifyErrorJSON(c, http.StatusInternalServerError, "internal error: "+err.Error())
-}
-
-// appView is the JSON representation of an App with timestamps as Unix epoch
-// float64 values, as required by the AWS SDK v2 deserialiser.
-type appView struct {
-	Tags          map[string]string `json:"tags,omitempty"`
-	AppID         string            `json:"appId"`
-	ARN           string            `json:"appArn"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description,omitempty"`
-	Repository    string            `json:"repository,omitempty"`
-	DefaultDomain string            `json:"defaultDomain,omitempty"`
-	Platform      Platform          `json:"platform"`
-	CreateTime    float64           `json:"createTime"`
-	UpdateTime    float64           `json:"updateTime"`
-}
-
-// branchView is the JSON representation of a Branch with timestamps as Unix
-// epoch float64 values, as required by the AWS SDK v2 deserialiser.
-type branchView struct {
-	Tags            map[string]string `json:"tags,omitempty"`
-	AppID           string            `json:"appId"`
-	BranchARN       string            `json:"branchArn"`
-	BranchName      string            `json:"branchName"`
-	Description     string            `json:"description,omitempty"`
-	Stage           Stage             `json:"stage,omitempty"`
-	CreateTime      float64           `json:"createTime"`
-	UpdateTime      float64           `json:"updateTime"`
-	EnableAutoBuild bool              `json:"enableAutoBuild"`
-}
-
-func toAppView(a *App) appView {
-	var tagMap map[string]string
-	if a.Tags != nil {
-		tagMap = a.Tags.Clone()
-	}
-
-	return appView{
-		Tags:          tagMap,
-		CreateTime:    float64(a.CreateTime.Unix()),
-		UpdateTime:    float64(a.UpdateTime.Unix()),
-		AppID:         a.AppID,
-		ARN:           a.ARN,
-		Name:          a.Name,
-		Description:   a.Description,
-		Repository:    a.Repository,
-		DefaultDomain: a.DefaultDomain,
-		Platform:      a.Platform,
-	}
-}
-
-func toBranchView(b *Branch) branchView {
-	var tagMap map[string]string
-	if b.Tags != nil {
-		tagMap = b.Tags.Clone()
-	}
-
-	return branchView{
-		Tags:            tagMap,
-		CreateTime:      float64(b.CreateTime.Unix()),
-		UpdateTime:      float64(b.UpdateTime.Unix()),
-		AppID:           b.AppID,
-		BranchARN:       b.BranchARN,
-		BranchName:      b.BranchName,
-		Description:     b.Description,
-		Stage:           b.Stage,
-		EnableAutoBuild: b.EnableAutoBuild,
-	}
-}
-
-func toAppViews(apps []*App) []appView {
-	views := make([]appView, len(apps))
-	for i, a := range apps {
-		views[i] = toAppView(a)
-	}
-
-	return views
-}
-
-func toBranchViews(branches []*Branch) []branchView {
-	views := make([]branchView, len(branches))
-	for i, b := range branches {
-		views[i] = toBranchView(b)
-	}
-
-	return views
 }
 
 // codeForStatus maps an HTTP status code to the Amplify restjson1 exception

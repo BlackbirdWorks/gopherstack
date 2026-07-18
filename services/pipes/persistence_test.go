@@ -85,3 +85,55 @@ func TestPipes_PersistenceSnapshotRestore(t *testing.T) {
 		})
 	}
 }
+
+// TestSnapshot_PersistsEnrichmentCallCount verifies that Snapshot includes
+// enrichment call counters and Restore brings them back.
+func TestSnapshot_PersistsEnrichmentCallCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		pipeName  string
+		callCount int
+	}{
+		{name: "single_call", pipeName: "enrich-pipe-a", callCount: 1},
+		{name: "multiple_calls", pipeName: "enrich-pipe-b", callCount: 5},
+		{name: "zero_calls", pipeName: "enrich-pipe-c", callCount: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := b3Backend()
+			b3CreatePipe(t, b, tt.pipeName, b3LambdaTarget)
+
+			for range tt.callCount {
+				b.RecordEnrichmentCall(context.Background(), tt.pipeName)
+			}
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap, "Snapshot should not return nil")
+
+			b2 := b3Backend()
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			got := b2.GetEnrichmentCallCount(context.Background(), tt.pipeName)
+			assert.Equal(t, int64(tt.callCount), got, "enrichment call count should survive snapshot/restore")
+		})
+	}
+}
+
+// TestRestore_MissingEnrichmentCallCount verifies backward compatibility:
+// restoring from a snapshot without the enrichment field initialises an empty map.
+func TestRestore_MissingEnrichmentCallCount(t *testing.T) {
+	t.Parallel()
+
+	legacySnap := []byte(`{"pipes":{},"accountID":"111122223333","region":"eu-west-1"}`)
+
+	b := b3Backend()
+	require.NoError(t, b.Restore(t.Context(), legacySnap))
+
+	// Must not panic; count for unknown pipe is zero.
+	assert.Equal(t, int64(0), b.GetEnrichmentCallCount(context.Background(), "any-pipe"))
+}

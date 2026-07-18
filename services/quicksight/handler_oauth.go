@@ -207,3 +207,29 @@ func (h *Handler) handleListOAuthClientApps(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, resp)
 }
+
+// classifyOAuthAppPaths routes /accounts/{id}/oauth-client-applications/... paths.
+func classifyOAuthAppPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		switch method {
+		case http.MethodPost:
+			return opCreateOAuthClientApp, accountID
+		case http.MethodGet:
+			return opListOAuthClientApps, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodGet:
+			return opDescribeOAuthClientApp, id
+		case http.MethodPut:
+			return opUpdateOAuthClientApp, id
+		case http.MethodDelete:
+			return opDeleteOAuthClientApp, id
+		}
+	}
+
+	return opUnknown, ""
+}

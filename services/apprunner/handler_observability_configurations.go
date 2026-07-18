@@ -1,0 +1,169 @@
+package apprunner
+
+import (
+	"context"
+	"fmt"
+)
+
+type traceConfigurationInput struct {
+	Vendor string `json:"Vendor"`
+}
+
+type createObservabilityConfigurationInput struct {
+	TraceConfiguration             *traceConfigurationInput `json:"TraceConfiguration"`
+	ObservabilityConfigurationName string                   `json:"ObservabilityConfigurationName"`
+	Tags                           []tagInput               `json:"Tags"`
+}
+
+type observabilityConfigurationOutput struct {
+	ObservabilityConfigurationArn      string `json:"ObservabilityConfigurationArn"`
+	ObservabilityConfigurationName     string `json:"ObservabilityConfigurationName"`
+	Status                             string `json:"Status"`
+	ObservabilityConfigurationRevision int32  `json:"ObservabilityConfigurationRevision"`
+	Latest                             bool   `json:"Latest"`
+	CreatedAt                          int64  `json:"CreatedAt"`
+}
+
+type createObservabilityConfigurationOutput struct {
+	ObservabilityConfiguration observabilityConfigurationOutput `json:"ObservabilityConfiguration"`
+}
+
+func toObservabilityConfigurationOutput(cfg *ObservabilityConfiguration) observabilityConfigurationOutput {
+	return observabilityConfigurationOutput{
+		ObservabilityConfigurationArn:      cfg.ObservabilityConfigurationArn,
+		ObservabilityConfigurationName:     cfg.ObservabilityConfigurationName,
+		ObservabilityConfigurationRevision: cfg.ObservabilityConfigurationRevision,
+		Status:                             cfg.Status,
+		Latest:                             cfg.Latest,
+		CreatedAt:                          cfg.CreatedAt.Unix(),
+	}
+}
+
+func (h *Handler) handleCreateObservabilityConfiguration(
+	_ context.Context,
+	in *createObservabilityConfigurationInput,
+) (*createObservabilityConfigurationOutput, error) {
+	if in.ObservabilityConfigurationName == "" {
+		return nil, fmt.Errorf("%w: ObservabilityConfigurationName is required", errInvalidRequest)
+	}
+
+	vendor := ""
+	if in.TraceConfiguration != nil {
+		vendor = in.TraceConfiguration.Vendor
+	}
+
+	tags := tagsFromInput(in.Tags)
+	cfg, err := h.Backend.CreateObservabilityConfiguration(in.ObservabilityConfigurationName, vendor, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createObservabilityConfigurationOutput{
+		ObservabilityConfiguration: toObservabilityConfigurationOutput(cfg),
+	}, nil
+}
+
+type describeObservabilityConfigurationInput struct {
+	ObservabilityConfigurationArn string `json:"ObservabilityConfigurationArn"`
+}
+
+type describeObservabilityConfigurationOutput struct {
+	ObservabilityConfiguration observabilityConfigurationOutput `json:"ObservabilityConfiguration"`
+}
+
+func (h *Handler) handleDescribeObservabilityConfiguration(
+	_ context.Context,
+	in *describeObservabilityConfigurationInput,
+) (*describeObservabilityConfigurationOutput, error) {
+	if in.ObservabilityConfigurationArn == "" {
+		return nil, fmt.Errorf("%w: ObservabilityConfigurationArn is required", errInvalidRequest)
+	}
+
+	cfg, err := h.Backend.DescribeObservabilityConfiguration(in.ObservabilityConfigurationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeObservabilityConfigurationOutput{
+		ObservabilityConfiguration: toObservabilityConfigurationOutput(cfg),
+	}, nil
+}
+
+type deleteObservabilityConfigurationInput struct {
+	ObservabilityConfigurationArn string `json:"ObservabilityConfigurationArn"`
+}
+
+type deleteObservabilityConfigurationOutput struct {
+	ObservabilityConfiguration observabilityConfigurationOutput `json:"ObservabilityConfiguration"`
+}
+
+func (h *Handler) handleDeleteObservabilityConfiguration(
+	_ context.Context,
+	in *deleteObservabilityConfigurationInput,
+) (*deleteObservabilityConfigurationOutput, error) {
+	if in.ObservabilityConfigurationArn == "" {
+		return nil, fmt.Errorf("%w: ObservabilityConfigurationArn is required", errInvalidRequest)
+	}
+
+	cfg, err := h.Backend.DeleteObservabilityConfiguration(in.ObservabilityConfigurationArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteObservabilityConfigurationOutput{
+		ObservabilityConfiguration: toObservabilityConfigurationOutput(cfg),
+	}, nil
+}
+
+type listObservabilityConfigurationsInput struct {
+	ObservabilityConfigurationName string `json:"ObservabilityConfigurationName"`
+	NextToken                      string `json:"NextToken"`
+	MaxResults                     int32  `json:"MaxResults"`
+	LatestOnly                     bool   `json:"LatestOnly"`
+}
+
+type observabilityConfigurationSummaryOutput struct {
+	ObservabilityConfigurationArn      string `json:"ObservabilityConfigurationArn"`
+	ObservabilityConfigurationName     string `json:"ObservabilityConfigurationName"`
+	Status                             string `json:"Status"`
+	ObservabilityConfigurationRevision int32  `json:"ObservabilityConfigurationRevision"`
+	Latest                             bool   `json:"Latest"`
+	CreatedAt                          int64  `json:"CreatedAt"`
+}
+
+type listObservabilityConfigurationsOutput struct {
+	NextToken                             string                                    `json:"NextToken,omitempty"`
+	ObservabilityConfigurationSummaryList []observabilityConfigurationSummaryOutput `json:"ObservabilityConfigurationSummaryList"` //nolint:lll // existing issue.
+}
+
+func (h *Handler) handleListObservabilityConfigurations(
+	_ context.Context,
+	in *listObservabilityConfigurationsInput,
+) (*listObservabilityConfigurationsOutput, error) {
+	cfgs, nextToken, err := h.Backend.ListObservabilityConfigurations(
+		in.ObservabilityConfigurationName,
+		in.LatestOnly,
+		in.MaxResults,
+		in.NextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]observabilityConfigurationSummaryOutput, 0, len(cfgs))
+	for _, c := range cfgs {
+		out = append(out, observabilityConfigurationSummaryOutput{
+			ObservabilityConfigurationArn:      c.ObservabilityConfigurationArn,
+			ObservabilityConfigurationName:     c.ObservabilityConfigurationName,
+			ObservabilityConfigurationRevision: c.ObservabilityConfigurationRevision,
+			Status:                             c.Status,
+			Latest:                             c.Latest,
+			CreatedAt:                          c.CreatedAt.Unix(),
+		})
+	}
+
+	return &listObservabilityConfigurationsOutput{
+		ObservabilityConfigurationSummaryList: out,
+		NextToken:                             nextToken,
+	}, nil
+}

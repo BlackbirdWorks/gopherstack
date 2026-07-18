@@ -9,6 +9,7 @@ package waf_test
 // permissionPolicies, tags), and a snapshot-version-mismatch test.
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -313,4 +314,83 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, waf.RegexPatternSetCount(original), waf.RegexPatternSetCount(fresh))
 	assert.Equal(t, waf.RegexMatchSetCount(original), waf.RegexMatchSetCount(fresh))
 	assert.Equal(t, waf.RuleGroupCount(original), waf.RuleGroupCount(fresh))
+}
+
+// TestWAF_SnapshotRestore_HandlerLevel exercises Snapshot/Restore through the
+// Handler (dispatch-level), covering the resource families introduced first.
+func TestWAF_SnapshotRestore_HandlerLevel(t *testing.T) {
+	t.Parallel()
+
+	h := newWAFHandler(t)
+	wafCreateWebACL(t, h, "snap-acl")
+	wafCreateRule(t, h, "snap-rule")
+	wafCreateIPSet(t, h, "snap-ipset")
+
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	h2 := newWAFHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, waf.WebACLCount(h2.Backend.(*waf.InMemoryBackend)))
+	assert.Equal(t, 1, waf.RuleCount(h2.Backend.(*waf.InMemoryBackend)))
+	assert.Equal(t, 1, waf.IPSetCount(h2.Backend.(*waf.InMemoryBackend)))
+}
+
+// TestSnapshotRestore_ExtendedResourceFamilies exercises Snapshot/Restore
+// through the Handler for the resource families not covered by
+// TestWAF_SnapshotRestore_HandlerLevel (RateBasedRule, RegexPatternSet,
+// RegexMatchSet, RuleGroup, LoggingConfiguration, PermissionPolicy).
+func TestSnapshotRestore_ExtendedResourceFamilies(t *testing.T) {
+	t.Parallel()
+
+	t.Run("snapshot and restore preserves extended resource state", func(t *testing.T) {
+		t.Parallel()
+
+		h := newWAFHandler(t)
+
+		// Create one of each batch-2 resource type
+		wafCreateRateBasedRule(t, h, "SnapshotRule")
+		wafCreateRegexPatternSet(t, h, "SnapshotPatterns")
+		wafCreateRegexMatchSet(t, h, "SnapshotMatch")
+		rgID := wafCreateRuleGroup(t, h, "SnapshotGroup")
+		rgARN := "arn:aws:waf::123456789012:rulegroup/" + rgID
+		aclID := wafCreateWebACL(t, h, "SnapshotACL")
+		aclARN := "arn:aws:waf::123456789012:webacl/" + aclID
+
+		rec := wafDo(t, h, "PutLoggingConfiguration", map[string]any{
+			"LoggingConfiguration": map[string]any{
+				"ResourceArn":           aclARN,
+				"LogDestinationConfigs": []string{"arn:aws:firehose:us-east-1:123:deliverystream/logs"},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		rec = wafDo(t, h, "PutPermissionPolicy", map[string]any{
+			"ResourceArn": rgARN,
+			"Policy":      `{"Version":"2012-10-17"}`,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		// Snapshot
+		snap := h.Snapshot(t.Context())
+
+		// Restore into new handler
+		h2 := newWAFHandler(t)
+		require.NoError(t, h2.Restore(t.Context(), snap))
+
+		b2 := h2.Backend.(*waf.InMemoryBackend)
+		assert.Equal(t, 1, waf.RateBasedRuleCount(b2))
+		assert.Equal(t, 1, waf.RegexPatternSetCount(b2))
+		assert.Equal(t, 1, waf.RegexMatchSetCount(b2))
+		assert.Equal(t, 1, waf.RuleGroupCount(b2))
+
+		// Verify logging config restored
+		rec = wafDo(t, h2, "GetLoggingConfiguration", map[string]any{"ResourceArn": aclARN})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		// Verify permission policy restored
+		rec = wafDo(t, h2, "GetPermissionPolicy", map[string]any{"ResourceArn": rgARN})
+		require.Equal(t, http.StatusOK, rec.Code)
+	})
 }

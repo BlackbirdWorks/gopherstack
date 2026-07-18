@@ -31,7 +31,7 @@ package codecommit
 // itself only needs CommentID, which is not hidden.
 //
 // A handful of fields are deliberately NOT registered here and remain plain
-// maps -- see the field comments on InMemoryBackend in backend.go for the
+// maps -- see the field comments on InMemoryBackend in store.go for the
 // full audit of which field went which way and why (repositoriesByARN is a
 // rebuildable reverse index; repoTemplateAssoc/prApprovals/prOverrides/
 // prOverriders/prEvents/commentReactions/fileHistory/triggers all have a
@@ -47,7 +47,7 @@ package codecommit
 // them directly; persistence.go instead builds an ephemeral DTO registry
 // (mirroring services/neptune's regionalDTO / services/apigateway's
 // resourceSnapshot pattern) that gives each hidden field a real JSON tag,
-// and Reset (backend.go) resets each of the three explicitly.
+// and Reset (store.go) resets each of the three explicitly.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func repositoryKeyFn(v *Repository) string { return v.RepositoryName }
@@ -84,7 +84,7 @@ func fileRepoIndexKeyFn(v *File) string        { return v.RepoName }
 // b.registry exactly once. It must be called during construction only
 // (immediately after b.registry is created), never on every Reset() --
 // store.Register panics on a duplicate name, so runtime resets go through
-// b.registry.ResetAll() instead (see InMemoryBackend.Reset in backend.go).
+// b.registry.ResetAll() instead (see InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)
@@ -118,7 +118,7 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.pullRequests = store.Register(b.registry, "pullRequests", store.New(pullRequestKeyFn))
 	},
 	// "Dirty" tables: store.New only, NOT store.Register -- see the file doc
-	// comment above. Reset() (backend.go) resets each of these explicitly;
+	// comment above. Reset() (store.go) resets each of these explicitly;
 	// persistence.go builds a separate ephemeral DTO registry for them.
 	func(b *InMemoryBackend) {
 		b.prApprovalRules = store.New(prApprovalRuleKeyFn)

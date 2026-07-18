@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParityFinalHTTP_GetFlowLogsIntegrationTemplate(t *testing.T) {
+func TestGetFlowLogsIntegrationTemplateHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

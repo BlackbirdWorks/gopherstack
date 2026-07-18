@@ -428,3 +428,32 @@ func TestMultiplexProgram_ListEmpty(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Empty(t, resp["multiplexPrograms"])
 }
+
+func TestMultiplexAlerts(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/prod/multiplexes", map[string]any{
+		"name":              "mux-1",
+		"availabilityZones": []string{"us-east-1a", "us-east-1b"},
+		"multiplexSettings": map[string]any{
+			"transportStreamBitrate": 1000000,
+			"transportStreamId":      1,
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	mux := created["multiplex"].(map[string]any)
+	muxID := mux["id"].(string)
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+muxID+"/alerts", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var alertsResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alertsResp))
+	assert.NotNil(t, alertsResp["alerts"])
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/missing/alerts", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}

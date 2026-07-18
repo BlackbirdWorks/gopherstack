@@ -6,58 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
-
-// newTestAgentsHandler creates a Handler and AgentsHandler sharing the same backend.
-func newTestAgentsHandler(t *testing.T) (*bedrock.AgentsHandler, *bedrock.InMemoryBackend) {
-	t.Helper()
-
-	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-
-	return bedrock.NewAgentsHandler(b), b
-}
-
-func doAgentRequest(
-	t *testing.T,
-	h *bedrock.AgentsHandler,
-	method, path string,
-	body any,
-) *httptest.ResponseRecorder {
-	t.Helper()
-
-	var bodyBytes []byte
-
-	if body != nil {
-		var err error
-		bodyBytes, err = json.Marshal(body)
-		require.NoError(t, err)
-	}
-
-	e := echo.New()
-	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
-
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-
-	return rec
-}
-
-// ---------------------------------------------------------------------------
-// AgentsHandler metadata tests
-// ---------------------------------------------------------------------------
 
 func TestAgentsHandler_Name(t *testing.T) {
 	t.Parallel()
@@ -205,10 +160,6 @@ func TestAgentsHandler_ExtractOperation(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Agent CRUD
-// ---------------------------------------------------------------------------
 
 func TestAgentsHandler_CreateAgent(t *testing.T) {
 	t.Parallel()
@@ -416,677 +367,6 @@ func TestAgentsHandler_PrepareAgent(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
 
-// ---------------------------------------------------------------------------
-// Agent Action Groups
-// ---------------------------------------------------------------------------
-
-func TestAgentsHandler_AgentActionGroupLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("ag-group-agent", "", "", "", nil)
-	require.NoError(t, err)
-	agentID := ag.AgentID
-
-	// Create action group.
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents/"+agentID+"/action-groups", map[string]any{
-		"actionGroupName": "my-action-group",
-		"description":     "test action group",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-	ag2 := createOut["agentActionGroup"].(map[string]any)
-	agGroupID := ag2["actionGroupId"].(string)
-	assert.NotEmpty(t, agGroupID)
-
-	// List action groups.
-	rec2 := doAgentRequest(t, h, http.MethodGet, "/agents/"+agentID+"/action-groups", nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
-	assert.Len(t, listOut["actionGroupSummaries"].([]any), 1)
-
-	// Get action group (via /action-groups/{version}/{id} path).
-	rec3 := doAgentRequest(
-		t, h, http.MethodGet,
-		fmt.Sprintf("/agents/%s/action-groups/DRAFT/%s", agentID, agGroupID), nil,
-	)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	// Update action group.
-	rec4 := doAgentRequest(
-		t, h, http.MethodPut,
-		fmt.Sprintf("/agents/%s/action-groups/DRAFT/%s", agentID, agGroupID),
-		map[string]any{"description": "updated description"},
-	)
-	assert.Equal(t, http.StatusOK, rec4.Code)
-
-	// Delete action group.
-	rec5 := doAgentRequest(
-		t, h, http.MethodDelete,
-		fmt.Sprintf("/agents/%s/action-groups/DRAFT/%s", agentID, agGroupID), nil,
-	)
-	assert.Equal(t, http.StatusOK, rec5.Code)
-
-	// Now list should be empty.
-	rec6 := doAgentRequest(t, h, http.MethodGet, "/agents/"+agentID+"/action-groups", nil)
-	assert.Equal(t, http.StatusOK, rec6.Code)
-
-	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(rec6.Body.Bytes(), &listOut2))
-	assert.Empty(t, listOut2["actionGroupSummaries"].([]any))
-}
-
-func TestAgentsHandler_CreateActionGroup_AgentNotFound(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestAgentsHandler(t)
-
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents/nonexistent/action-groups", map[string]any{
-		"actionGroupName": "test",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestAgentsHandler_CreateActionGroup_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("json-agent", "", "", "", nil)
-	require.NoError(t, err)
-
-	e := echo.New()
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/agents/"+ag.AgentID+"/action-groups",
-		bytes.NewReader([]byte("bad json")),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	require.NoError(t, h.Handler()(c))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestAgentsHandler_UpdateActionGroup_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("upd-ag-agent", "", "", "", nil)
-	require.NoError(t, err)
-
-	rec := doAgentRequest(
-		t, h, http.MethodPut,
-		fmt.Sprintf("/agents/%s/action-groups/DRAFT/nonexistent", ag.AgentID),
-		map[string]any{"description": "x"},
-	)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestAgentsHandler_DeleteActionGroup_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("del-ag-agent", "", "", "", nil)
-	require.NoError(t, err)
-
-	rec := doAgentRequest(
-		t, h, http.MethodDelete,
-		fmt.Sprintf("/agents/%s/action-groups/DRAFT/nonexistent", ag.AgentID), nil,
-	)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// ---------------------------------------------------------------------------
-// Agent Aliases
-// ---------------------------------------------------------------------------
-
-func TestAgentsHandler_AgentAliasLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("alias-agent", "", "", "", nil)
-	require.NoError(t, err)
-	agentID := ag.AgentID
-
-	// Create alias.
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents/"+agentID+"/aliases", map[string]any{
-		"agentAliasName": "my-alias",
-	})
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-
-	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-	alias := createOut["agentAlias"].(map[string]any)
-	aliasID := alias["agentAliasId"].(string)
-	assert.NotEmpty(t, aliasID)
-
-	// List aliases.
-	rec2 := doAgentRequest(t, h, http.MethodGet, "/agents/"+agentID+"/aliases", nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
-	assert.Len(t, listOut["agentAliasSummaries"].([]any), 1)
-
-	// Get alias.
-	rec3 := doAgentRequest(t, h, http.MethodGet, "/agents/"+agentID+"/aliases/"+aliasID, nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	// Update alias.
-	rec4 := doAgentRequest(t, h, http.MethodPut, "/agents/"+agentID+"/aliases/"+aliasID, map[string]any{
-		"agentAliasName": "updated-alias",
-	})
-	assert.Equal(t, http.StatusOK, rec4.Code)
-
-	// Delete alias.
-	rec5 := doAgentRequest(t, h, http.MethodDelete, "/agents/"+agentID+"/aliases/"+aliasID, nil)
-	assert.Equal(t, http.StatusAccepted, rec5.Code)
-
-	// Alias should be gone.
-	rec6 := doAgentRequest(t, h, http.MethodGet, "/agents/"+agentID+"/aliases/"+aliasID, nil)
-	assert.Equal(t, http.StatusNotFound, rec6.Code)
-}
-
-func TestAgentsHandler_Alias_AgentNotFound(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestAgentsHandler(t)
-
-	rec := doAgentRequest(t, h, http.MethodPost, "/agents/nonexistent/aliases", map[string]any{
-		"agentAliasName": "alias",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestAgentsHandler_UpdateAlias_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("alias-json-agent", "", "", "", nil)
-	require.NoError(t, err)
-	alias, err := b.CreateAgentAlias(ag.AgentID, "test-alias", "DRAFT")
-	require.NoError(t, err)
-
-	e := echo.New()
-	req := httptest.NewRequest(
-		http.MethodPut,
-		fmt.Sprintf("/agents/%s/aliases/%s", ag.AgentID, alias.AgentAliasID),
-		bytes.NewReader([]byte("bad json")),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	require.NoError(t, h.Handler()(c))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// ---------------------------------------------------------------------------
-// Knowledge Bases
-// ---------------------------------------------------------------------------
-
-func TestAgentsHandler_KnowledgeBaseLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestAgentsHandler(t)
-
-	// Create KB.
-	rec := doAgentRequest(t, h, http.MethodPost, "/knowledgebases", map[string]any{
-		"name":        "my-kb",
-		"description": "test kb",
-		"roleArn":     "arn:aws:iam::000000000000:role/test",
-	})
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-
-	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-	kb := createOut["knowledgeBase"].(map[string]any)
-	kbID := kb["knowledgeBaseId"].(string)
-	assert.NotEmpty(t, kbID)
-	assert.Equal(t, "ACTIVE", kb["status"])
-
-	// List KBs.
-	rec2 := doAgentRequest(t, h, http.MethodGet, "/knowledgebases", nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
-	assert.Len(t, listOut["knowledgeBaseSummaries"].([]any), 1)
-
-	// Get KB.
-	rec3 := doAgentRequest(t, h, http.MethodGet, "/knowledgebases/"+kbID, nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &getOut))
-	assert.Equal(t, "my-kb", getOut["knowledgeBase"].(map[string]any)["name"])
-
-	// Update KB.
-	rec4 := doAgentRequest(t, h, http.MethodPut, "/knowledgebases/"+kbID, map[string]any{
-		"description": "updated description",
-	})
-	assert.Equal(t, http.StatusOK, rec4.Code)
-
-	// Delete KB.
-	rec5 := doAgentRequest(t, h, http.MethodDelete, "/knowledgebases/"+kbID, nil)
-	assert.Equal(t, http.StatusAccepted, rec5.Code)
-
-	// KB should be gone.
-	rec6 := doAgentRequest(t, h, http.MethodGet, "/knowledgebases/"+kbID, nil)
-	assert.Equal(t, http.StatusNotFound, rec6.Code)
-}
-
-func TestAgentsHandler_CreateKnowledgeBase_Duplicate(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	_, err := b.CreateKnowledgeBase("dup-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-
-	rec := doAgentRequest(t, h, http.MethodPost, "/knowledgebases", map[string]any{
-		"name": "dup-kb",
-	})
-	assert.Equal(t, http.StatusConflict, rec.Code)
-}
-
-func TestAgentsHandler_KnowledgeBase_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestAgentsHandler(t)
-
-	t.Run("get nonexistent", func(t *testing.T) {
-		t.Parallel()
-
-		rec := doAgentRequest(t, h, http.MethodGet, "/knowledgebases/nonexistent", nil)
-		assert.Equal(t, http.StatusNotFound, rec.Code)
-	})
-
-	t.Run("update nonexistent", func(t *testing.T) {
-		t.Parallel()
-
-		rec := doAgentRequest(t, h, http.MethodPut, "/knowledgebases/nonexistent", map[string]any{
-			"name": "test",
-		})
-		assert.Equal(t, http.StatusNotFound, rec.Code)
-	})
-
-	t.Run("delete nonexistent", func(t *testing.T) {
-		t.Parallel()
-
-		rec := doAgentRequest(t, h, http.MethodDelete, "/knowledgebases/nonexistent", nil)
-		assert.Equal(t, http.StatusNotFound, rec.Code)
-	})
-}
-
-func TestAgentsHandler_KnowledgeBase_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	kb, err := b.CreateKnowledgeBase("json-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-
-	for _, tc := range []struct {
-		path   string
-		method string
-	}{
-		{"/knowledgebases", http.MethodPost},
-		{"/knowledgebases/" + kb.KnowledgeBaseID, http.MethodPut},
-	} {
-		e := echo.New()
-		req := httptest.NewRequest(tc.method, tc.path, bytes.NewReader([]byte("bad json")))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		require.NoError(t, h.Handler()(c))
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Data Sources
-// ---------------------------------------------------------------------------
-
-func TestAgentsHandler_DataSourceLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	kb, err := b.CreateKnowledgeBase("ds-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-	kbID := kb.KnowledgeBaseID
-
-	// Create data source.
-	rec := doAgentRequest(t, h, http.MethodPost, "/knowledgebases/"+kbID+"/datasources", map[string]any{
-		"name":        "my-ds",
-		"description": "test data source",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-	ds := createOut["dataSource"].(map[string]any)
-	dsID := ds["dataSourceId"].(string)
-	assert.NotEmpty(t, dsID)
-
-	// List data sources.
-	rec2 := doAgentRequest(t, h, http.MethodGet, "/knowledgebases/"+kbID+"/datasources", nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
-	assert.Len(t, listOut["dataSourceSummaries"].([]any), 1)
-
-	// Get data source.
-	rec3 := doAgentRequest(t, h, http.MethodGet, "/knowledgebases/"+kbID+"/datasources/"+dsID, nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	// Update data source.
-	rec4 := doAgentRequest(t, h, http.MethodPut, "/knowledgebases/"+kbID+"/datasources/"+dsID, map[string]any{
-		"description": "updated",
-	})
-	assert.Equal(t, http.StatusOK, rec4.Code)
-
-	// Delete data source.
-	rec5 := doAgentRequest(t, h, http.MethodDelete, "/knowledgebases/"+kbID+"/datasources/"+dsID, nil)
-	assert.Equal(t, http.StatusOK, rec5.Code)
-}
-
-func TestAgentsHandler_DataSource_KBNotFound(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestAgentsHandler(t)
-
-	rec := doAgentRequest(t, h, http.MethodPost, "/knowledgebases/nonexistent/datasources", map[string]any{
-		"name": "ds",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestAgentsHandler_DataSource_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	kb, err := b.CreateKnowledgeBase("notfound-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-
-	for _, tc := range []struct {
-		path   string
-		method string
-	}{
-		{"/knowledgebases/" + kb.KnowledgeBaseID + "/datasources/nonexistent", http.MethodGet},
-		{"/knowledgebases/" + kb.KnowledgeBaseID + "/datasources/nonexistent", http.MethodPut},
-		{"/knowledgebases/" + kb.KnowledgeBaseID + "/datasources/nonexistent", http.MethodDelete},
-	} {
-		rec := doAgentRequest(t, h, tc.method, tc.path, map[string]any{"name": "test"})
-		assert.Equal(t, http.StatusNotFound, rec.Code)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Ingestion Jobs
-// ---------------------------------------------------------------------------
-
-func TestAgentsHandler_IngestionJobLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	kb, err := b.CreateKnowledgeBase("ij-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-	ds, err := b.CreateDataSource(kb.KnowledgeBaseID, "ij-ds", "", nil)
-	require.NoError(t, err)
-
-	kbID := kb.KnowledgeBaseID
-	dsID := ds.DataSourceID
-
-	// Start ingestion job.
-	rec := doAgentRequest(
-		t, h, http.MethodPost,
-		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID),
-		map[string]any{"description": "test ingestion"},
-	)
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-
-	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
-	job := startOut["ingestionJob"].(map[string]any)
-	jobID := job["ingestionJobId"].(string)
-	assert.NotEmpty(t, jobID)
-	assert.Equal(t, "STARTING", job["status"])
-
-	// Get ingestion job.
-	rec2 := doAgentRequest(
-		t, h, http.MethodGet,
-		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs/%s", kbID, dsID, jobID), nil,
-	)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	// List ingestion jobs.
-	rec3 := doAgentRequest(
-		t, h, http.MethodGet,
-		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kbID, dsID), nil,
-	)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listOut))
-	assert.Len(t, listOut["ingestionJobSummaries"].([]any), 1)
-}
-
-func TestAgentsHandler_IngestionJob_EventuallyComplete(t *testing.T) {
-	t.Parallel()
-
-	_, b := newTestAgentsHandler(t)
-	kb, err := b.CreateKnowledgeBase("ij-complete-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-	ds, err := b.CreateDataSource(kb.KnowledgeBaseID, "ij-complete-ds", "", nil)
-	require.NoError(t, err)
-
-	job, err := b.StartIngestionJob(kb.KnowledgeBaseID, ds.DataSourceID, "test")
-	require.NoError(t, err)
-	assert.Equal(t, "STARTING", job.Status)
-
-	// Wait for async completion.
-	time.Sleep(500 * time.Millisecond)
-
-	got, err := b.GetIngestionJob(kb.KnowledgeBaseID, ds.DataSourceID, job.IngestionJobID)
-	require.NoError(t, err)
-	assert.Equal(t, "COMPLETE", got.Status)
-}
-
-func TestAgentsHandler_StartIngestionJob_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	kb, err := b.CreateKnowledgeBase("ij-json-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-	ds, err := b.CreateDataSource(kb.KnowledgeBaseID, "ij-json-ds", "", nil)
-	require.NoError(t, err)
-
-	e := echo.New()
-	req := httptest.NewRequest(
-		http.MethodPost,
-		fmt.Sprintf("/knowledgebases/%s/datasources/%s/ingestionjobs", kb.KnowledgeBaseID, ds.DataSourceID),
-		bytes.NewReader([]byte("bad json")),
-	)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	require.NoError(t, h.Handler()(c))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// ---------------------------------------------------------------------------
-// Agent KB Associations
-// ---------------------------------------------------------------------------
-
-func TestAgentsHandler_AgentKBAssociationLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("kb-assoc-agent", "", "", "", nil)
-	require.NoError(t, err)
-	kb, err := b.CreateKnowledgeBase("kb-assoc-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-
-	agentID := ag.AgentID
-	kbID := kb.KnowledgeBaseID
-
-	// Associate KB with agent.
-	rec := doAgentRequest(
-		t, h, http.MethodPut,
-		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases", agentID),
-		map[string]any{
-			"knowledgeBaseId": kbID,
-			"description":     "test association",
-		},
-	)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var assocOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assocOut))
-	assert.NotNil(t, assocOut["agentKnowledgeBase"])
-
-	// List KB associations.
-	rec2 := doAgentRequest(
-		t, h, http.MethodGet,
-		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases", agentID), nil,
-	)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
-	assert.Len(t, listOut["agentKnowledgeBaseSummaries"].([]any), 1)
-
-	// Get specific KB association.
-	rec3 := doAgentRequest(
-		t, h, http.MethodGet,
-		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases/%s", agentID, kbID), nil,
-	)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	// Disassociate KB (204 No Content — echo may return body write error for 204, ignore it).
-	e := echo.New()
-	reqDel := httptest.NewRequest(
-		http.MethodDelete,
-		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases/%s", agentID, kbID),
-		http.NoBody,
-	)
-	recDel := httptest.NewRecorder()
-	cDel := e.NewContext(reqDel, recDel)
-	_ = h.Handler()(cDel) // ignore body-write error on 204
-	assert.Equal(t, http.StatusNoContent, recDel.Code)
-
-	// Now list should be empty.
-	rec5 := doAgentRequest(
-		t, h, http.MethodGet,
-		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases", agentID), nil,
-	)
-	assert.Equal(t, http.StatusOK, rec5.Code)
-
-	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &listOut2))
-	assert.Empty(t, listOut2["agentKnowledgeBaseSummaries"].([]any))
-}
-
-func TestAgentsHandler_AgentKBAssociation_AgentNotFound(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	kb, err := b.CreateKnowledgeBase("notfound-assoc-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-
-	rec := doAgentRequest(
-		t, h, http.MethodPut,
-		"/agents/nonexistent/agentversions/DRAFT/knowledgebases",
-		map[string]any{"knowledgeBaseId": kb.KnowledgeBaseID},
-	)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestAgentsHandler_AgentKBAssociation_KBNotFound(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-	ag, err := b.CreateAgent("kbnotfound-agent", "", "", "", nil)
-	require.NoError(t, err)
-
-	rec := doAgentRequest(
-		t, h, http.MethodPut,
-		fmt.Sprintf("/agents/%s/agentversions/DRAFT/knowledgebases", ag.AgentID),
-		map[string]any{"knowledgeBaseId": "nonexistent-kb"},
-	)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-// ---------------------------------------------------------------------------
-// AgentsHandler Reset
-// ---------------------------------------------------------------------------
-
-func TestAgentsHandler_Reset(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestAgentsHandler(t)
-
-	// Create a variety of resources.
-	ag, err := b.CreateAgent("reset-agent", "", "", "", nil)
-	require.NoError(t, err)
-
-	kb, err := b.CreateKnowledgeBase("reset-kb", "", "", nil, nil, nil)
-	require.NoError(t, err)
-
-	_, err = b.CreateDataSource(kb.KnowledgeBaseID, "reset-ds", "", nil)
-	require.NoError(t, err)
-
-	_, err = b.CreateAgentAlias(ag.AgentID, "reset-alias", "DRAFT")
-	require.NoError(t, err)
-
-	// Verify resources exist.
-	rec := doAgentRequest(t, h, http.MethodGet, "/agents", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
-	assert.Len(t, listOut["agentSummaries"].([]any), 1)
-
-	// Reset.
-	h.Reset()
-
-	// All agents should be gone.
-	rec2 := doAgentRequest(t, h, http.MethodGet, "/agents", nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut2))
-	assert.Empty(t, listOut2["agentSummaries"].([]any))
-
-	// All KBs should be gone.
-	rec3 := doAgentRequest(t, h, http.MethodGet, "/knowledgebases", nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	var listKBOut map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listKBOut))
-	assert.Empty(t, listKBOut["knowledgeBaseSummaries"].([]any))
-
-	// IDs reset - first agent after reset should get sequential id again.
-	ag2, err := b.CreateAgent("post-reset-agent", "", "", "", nil)
-	require.NoError(t, err)
-	assert.Equal(t, "agent-00000001", ag2.AgentID)
-}
-
-// ---------------------------------------------------------------------------
-// Unknown operation
-// ---------------------------------------------------------------------------
-
-func TestAgentsHandler_UnknownOperation(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestAgentsHandler(t)
-	rec := doAgentRequest(t, h, http.MethodGet, "/unknown-path", nil)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
 func TestAgentsHandler_AgentPreparationTerminalStates(t *testing.T) {
 	t.Parallel()
 
@@ -1123,185 +403,233 @@ func TestAgentsHandler_AgentPreparationTerminalStates(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Custom Model CRUD (via HTTP handler)
-// ---------------------------------------------------------------------------
-
-func TestHandler_CustomModelLifecycle(t *testing.T) {
+func TestAgentVersionCRUD(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	h, _ := newTestAgentsHandler(t)
 
-	// Create via handler.
-	rec := doRequest(t, h, http.MethodPost, "/custom-models/create-custom-model", map[string]any{
-		"modelName": "lifecycle-model",
+	// Create agent
+	rec := doAgentRequest(t, h, http.MethodPost, "/agents", map[string]any{
+		"agentName":            "av-agent",
+		"foundationModel":      "amazon.titan-text-express-v1",
+		"agentResourceRoleArn": "arn:aws:iam::000000000000:role/role",
 	})
-	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-	modelARN := createOut["modelArn"].(string)
+	var ab map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ab))
+	agentID := ab["agent"].(map[string]any)["agentId"].(string)
 
-	// List custom models.
-	rec2 := doRequest(t, h, http.MethodGet, "/custom-models", nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
+	// Create version
+	rec = doAgentRequest(t, h, http.MethodPost,
+		fmt.Sprintf("/agents/%s/versions", agentID), nil)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
 
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
-	assert.NotEmpty(t, listOut["modelSummaries"])
+	var vb map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vb))
+	version := vb["agentVersion"].(map[string]any)["agentVersion"].(string)
+	assert.Equal(t, "1", version)
 
-	// Get custom model by ARN.
-	rec3 := doRequest(t, h, http.MethodGet, "/custom-models/"+url.PathEscape(modelARN), nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	// Delete custom model.
-	rec4 := doRequest(t, h, http.MethodDelete, "/custom-models/"+url.PathEscape(modelARN), nil)
-	assert.Equal(t, http.StatusOK, rec4.Code)
-}
-
-func TestHandler_InferenceProfileLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create inference profile.
-	rec := doRequest(t, h, http.MethodPost, "/inference-profiles", map[string]any{
-		"inferenceProfileName": "my-profile",
-		"modelSource":          map[string]any{"copyFrom": "anthropic.claude-v2"},
-	})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-	profileARN := createOut["inferenceProfileArn"].(string)
-
-	// List profiles.
-	rec2 := doRequest(t, h, http.MethodGet, "/inference-profiles", nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
-	assert.NotEmpty(t, listOut["inferenceProfileSummaries"])
-
-	// Get profile.
-	rec3 := doRequest(t, h, http.MethodGet, "/inference-profiles/"+url.PathEscape(profileARN), nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	// Delete profile.
-	rec4 := doRequest(t, h, http.MethodDelete, "/inference-profiles/"+url.PathEscape(profileARN), nil)
-	assert.Equal(t, http.StatusOK, rec4.Code)
-}
-
-func TestHandler_ModelCustomizationJobLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create customization job.
-	rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs", map[string]any{
-		"jobName":         "my-customization-job",
-		"baseModelId":     "amazon.titan-text-express-v1",
-		"customModelName": "my-fine-tuned-model",
-	})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-	jobARN := createOut["jobArn"].(string)
-	assert.NotEmpty(t, jobARN)
-
-	// List jobs.
-	rec2 := doRequest(t, h, http.MethodGet, "/model-customization-jobs", nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
-	assert.NotEmpty(t, listOut["modelCustomizationJobSummaries"])
-
-	// Get job.
-	rec3 := doRequest(t, h, http.MethodGet, "/model-customization-jobs/"+url.PathEscape(jobARN), nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	// Stop job.
-	rec4 := doRequest(t, h, http.MethodPost, "/model-customization-jobs/"+url.PathEscape(jobARN)+"/stop", nil)
-	assert.Equal(t, http.StatusOK, rec4.Code)
-}
-
-func TestHandler_MarketplaceModelEndpointLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create marketplace endpoint.
-	rec := doRequest(t, h, http.MethodPost, "/marketplace-model/endpoints", map[string]any{
-		"endpointName":          "my-market-endpoint",
-		"modelSourceIdentifier": "arn:aws:sagemaker:us-east-1:000000000000:hub-content/my-hub/Model/my-model",
-		"endpointConfig":        map[string]any{},
-	})
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-	endpointARN := createOut["marketplaceModelEndpoint"].(map[string]any)["endpointArn"].(string)
-
-	// List endpoints.
-	rec2 := doRequest(t, h, http.MethodGet, "/marketplace-model/endpoints", nil)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-
-	// Get endpoint.
-	rec3 := doRequest(t, h, http.MethodGet, "/marketplace-model/endpoints/"+url.PathEscape(endpointARN), nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-
-	// Update endpoint.
-	rec4 := doRequest(
-		t, h, http.MethodPatch,
-		"/marketplace-model/endpoints/"+url.PathEscape(endpointARN),
-		map[string]any{"endpointConfig": map[string]any{}},
-	)
-	assert.Equal(t, http.StatusOK, rec4.Code)
-
-	// Register endpoint.
-	regPath := "/marketplace-model/endpoints/" + url.PathEscape(endpointARN) + "/registration"
-	rec5 := doRequest(t, h, http.MethodPost, regPath, nil)
-	assert.Equal(t, http.StatusOK, rec5.Code)
-
-	// Deregister endpoint (same "/registration" path, DELETE method).
-	rec6 := doRequest(t, h, http.MethodDelete, regPath, nil)
-	assert.Equal(t, http.StatusOK, rec6.Code)
-
-	// Delete endpoint.
-	rec7 := doRequest(t, h, http.MethodDelete, "/marketplace-model/endpoints/"+url.PathEscape(endpointARN), nil)
-	assert.Equal(t, http.StatusOK, rec7.Code)
-}
-
-func TestHandler_ModelInvocationLoggingConfig(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Get (returns empty by default).
-	rec := doRequest(t, h, http.MethodGet, "/logging/modelinvocations", nil)
+	// Get version
+	rec = doAgentRequest(t, h, http.MethodGet,
+		fmt.Sprintf("/agents/%s/versions/%s", agentID, version), nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Put.
-	rec2 := doRequest(t, h, http.MethodPut, "/logging/modelinvocations", map[string]any{
-		"loggingConfig": map[string]any{
-			"cloudWatchConfig": map[string]any{
-				"logGroupName": "/aws/bedrock/model-invocations",
-			},
+	// List versions
+	rec = doAgentRequest(t, h, http.MethodGet,
+		fmt.Sprintf("/agents/%s/versions", agentID), nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var lb map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lb))
+	assert.Len(t, lb["agentVersionSummaries"], 1)
+
+	// Delete version
+	rec = doAgentRequest(t, h, http.MethodDelete,
+		fmt.Sprintf("/agents/%s/versions/%s", agentID, version), nil)
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+}
+
+func TestAgentResourceTags(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestAgentsHandler(t)
+
+	resourceArn := "arn:aws:bedrock-agent:us-east-1:000000000000:flow/flow-00000001"
+
+	// Tag
+	rec := doAgentRequest(t, h, http.MethodPost, "/tags/"+resourceArn, map[string]any{
+		"tags": map[string]string{"env": "prod", "team": "core"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// List tags
+	rec = doAgentRequest(t, h, http.MethodGet, "/tags/"+resourceArn, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var lb map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lb))
+	tags := lb["tags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
+	assert.Equal(t, "core", tags["team"])
+
+	// Untag
+	rec = doAgentRequest(t, h, http.MethodDelete, "/tags/"+resourceArn, map[string]any{
+		"tagKeys": []string{"team"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// List tags again — team should be gone
+	rec = doAgentRequest(t, h, http.MethodGet, "/tags/"+resourceArn, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var lb2 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lb2))
+	tags2 := lb2["tags"].(map[string]any)
+	assert.Equal(t, "prod", tags2["env"])
+	_, hasTeam := tags2["team"]
+	assert.False(t, hasTeam)
+}
+
+func TestAgentMemory(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestAgentsHandler(t)
+
+	// Create agent
+	rec := doAgentRequest(t, h, http.MethodPost, "/agents", map[string]any{
+		"agentName":            "mem-agent",
+		"foundationModel":      "amazon.titan-text-express-v1",
+		"agentResourceRoleArn": "arn:aws:iam::000000000000:role/role",
+	})
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	var ab map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ab))
+	agentID := ab["agent"].(map[string]any)["agentId"].(string)
+
+	memPath := fmt.Sprintf("/agents/%s/agentversions/DRAFT/memories", agentID)
+
+	// Get memory (empty)
+	rec = doAgentRequest(t, h, http.MethodGet, memPath+"?sessionId=s1", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Delete memory
+	rec = doAgentRequest(t, h, http.MethodDelete, memPath+"?sessionId=s1", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestAgentsHandler_AgentExtendedConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestAgentsHandler(t)
+	rec := doAgentRequest(t, h, http.MethodPost, "/agents", map[string]any{
+		"agentName":          "configured-agent",
+		"foundationModel":    "amazon.titan-text-express-v1",
+		"agentCollaboration": "SUPERVISOR",
+		"description":        "coordinates specialists",
+		"guardrailConfiguration": map[string]any{
+			"guardrailIdentifier": "guardrail-1",
+			"guardrailVersion":    "1",
+		},
+		"memoryConfiguration": map[string]any{
+			"enabledMemoryTypes": []string{"SESSION_SUMMARY"},
+			"storageDays":        float64(7),
 		},
 	})
-	assert.Equal(t, http.StatusOK, rec2.Code)
+	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	// Get again — should have config now.
-	rec3 := doRequest(t, h, http.MethodGet, "/logging/modelinvocations", nil)
-	assert.Equal(t, http.StatusOK, rec3.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	agent := body["agent"].(map[string]any)
+	assert.Equal(t, "SUPERVISOR", agent["agentCollaboration"])
+	assert.Equal(t, "guardrail-1", agent["guardrailConfiguration"].(map[string]any)["guardrailIdentifier"])
+	assert.InDelta(t, 7, agent["memoryConfiguration"].(map[string]any)["storageDays"], 0)
+}
 
-	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &getOut))
-	assert.NotNil(t, getOut["loggingConfig"])
+func TestBatch2AgentOps_DeleteAgent_WithActiveAlias_Rejected(t *testing.T) {
+	t.Parallel()
 
-	// Delete.
-	rec4 := doRequest(t, h, http.MethodDelete, "/logging/modelinvocations", nil)
-	assert.Equal(t, http.StatusOK, rec4.Code)
+	tests := []struct {
+		name string
+	}{
+		{name: "one_alias"},
+		{name: "named_alias"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestAgentsHandler(t)
+			agent, err := b.CreateAgent("delete-agent-"+tc.name, "model", "", "", nil)
+			require.NoError(t, err)
+
+			// Create an alias for the agent.
+			aliasRec := doAgentRequest(t, h, http.MethodPost,
+				fmt.Sprintf("/agents/%s/aliases", agent.AgentID),
+				map[string]any{"agentAliasName": "live"})
+			require.Equal(t, http.StatusAccepted, aliasRec.Code)
+
+			// Delete agent with active alias — must fail with ConflictException.
+			delRec := doAgentRequest(t, h, http.MethodDelete,
+				fmt.Sprintf("/agents/%s", agent.AgentID), nil)
+			assert.Equal(t, http.StatusConflict, delRec.Code,
+				"deleting agent with active aliases should return 409 ConflictException")
+
+			var errBody map[string]any
+			require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &errBody))
+			assert.Equal(t, "ConflictException", errBody["__type"])
+
+			// Agent must still exist.
+			getRec := doAgentRequest(t, h, http.MethodGet,
+				fmt.Sprintf("/agents/%s", agent.AgentID), nil)
+			assert.Equal(t, http.StatusOK, getRec.Code, "agent must still exist after rejected delete")
+		})
+	}
+}
+
+func TestBatch2AgentOps_DeleteAgent_NoAliases_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestAgentsHandler(t)
+	agent, err := b.CreateAgent("delete-no-alias", "model", "", "", nil)
+	require.NoError(t, err)
+
+	// Delete agent with no aliases — must succeed.
+	delRec := doAgentRequest(t, h, http.MethodDelete,
+		fmt.Sprintf("/agents/%s", agent.AgentID), nil)
+	assert.Equal(t, http.StatusAccepted, delRec.Code)
+
+	// Agent must be gone.
+	getRec := doAgentRequest(t, h, http.MethodGet,
+		fmt.Sprintf("/agents/%s", agent.AgentID), nil)
+	assert.Equal(t, http.StatusNotFound, getRec.Code)
+}
+
+func TestBatch2AgentOps_DeleteAgent_AfterDeleteAlias_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestAgentsHandler(t)
+	agent, err := b.CreateAgent("delete-after-alias-removed", "model", "", "", nil)
+	require.NoError(t, err)
+
+	// Create then delete the alias.
+	aliasRec := doAgentRequest(t, h, http.MethodPost,
+		fmt.Sprintf("/agents/%s/aliases", agent.AgentID),
+		map[string]any{"agentAliasName": "temp"})
+	require.Equal(t, http.StatusAccepted, aliasRec.Code)
+
+	var aliasBody map[string]any
+	require.NoError(t, json.Unmarshal(aliasRec.Body.Bytes(), &aliasBody))
+	aliasID := aliasBody["agentAlias"].(map[string]any)["agentAliasId"].(string)
+
+	delAliasRec := doAgentRequest(t, h, http.MethodDelete,
+		fmt.Sprintf("/agents/%s/aliases/%s", agent.AgentID, aliasID), nil)
+	require.Equal(t, http.StatusAccepted, delAliasRec.Code)
+
+	// Now delete the agent — must succeed.
+	delRec := doAgentRequest(t, h, http.MethodDelete,
+		fmt.Sprintf("/agents/%s", agent.AgentID), nil)
+	assert.Equal(t, http.StatusAccepted, delRec.Code)
 }

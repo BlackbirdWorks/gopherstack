@@ -223,3 +223,143 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	require.Len(t, projects, 1)
 	assert.Equal(t, "proj1", projects[0])
 }
+
+// TestCodeBuild_PersistenceSnapshotRestore round-trips a project and one of its
+// builds through Snapshot -> Restore, verifying the buildsByProject index survives.
+func TestCodeBuild_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Create a project and start a build.
+	src := codebuild.ProjectSource{Type: "NO_SOURCE"}
+	arts := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
+	env := codebuild.ProjectEnvironment{
+		Type:        "LINUX_CONTAINER",
+		Image:       "aws/codebuild/standard:5.0",
+		ComputeType: "BUILD_GENERAL1_SMALL",
+	}
+	_, err := b.CreateProject(codebuild.ProjectConfig{
+		Name:        "snap-proj",
+		ServiceRole: "arn:aws:iam::000000000000:role/codebuild",
+		Source:      &src,
+		Artifacts:   &arts,
+		Environment: &env,
+	})
+	require.NoError(t, err)
+
+	build, err := b.StartBuild("snap-proj", codebuild.StartBuildConfig{})
+	require.NoError(t, err)
+	require.NotEmpty(t, build.ID)
+
+	// Snapshot and restore.
+	h := codebuild.NewHandler(b)
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := codebuild.NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	// Project is restored.
+	projs := b2.ListProjects()
+	require.Len(t, projs, 1)
+	assert.Equal(t, "snap-proj", projs[0])
+
+	// Build is restored.
+	builds, notFound := b2.BatchGetBuilds([]string{build.ID})
+	assert.Empty(t, notFound)
+	require.Len(t, builds, 1)
+	assert.Equal(t, "snap-proj", builds[0].ProjectName)
+
+	// ListBuildsForProject uses the project index.
+	ids, err := b2.ListBuildsForProject("snap-proj")
+	require.NoError(t, err)
+	require.Len(t, ids, 1)
+	assert.Equal(t, build.ID, ids[0])
+}
+
+// TestHandler_NewOperations_PersistenceRoundTrip round-trips fleets, report groups,
+// reports, build batches, command executions, and sandboxes through Snapshot -> Restore.
+func TestHandler_NewOperations_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Seed a fleet.
+	_, err := b.CreateFleet("persist-fleet", 2, "BUILD_GENERAL1_SMALL", "LINUX_CONTAINER", nil)
+	require.NoError(t, err)
+
+	// Seed a report group.
+	_, err = b.CreateReportGroup("persist-rg", "TEST", codebuild.ReportExportConfig{}, nil)
+	require.NoError(t, err)
+
+	// Seed a report.
+	b.AddReportInternal(&codebuild.Report{
+		Arn:    "arn:aws:codebuild:us-east-1:000000000000:report/persist-rg:r1",
+		Status: "SUCCEEDED",
+	})
+
+	// Seed a build batch.
+	b.AddBuildBatchInternal(&codebuild.BuildBatch{
+		ID:               "persist-proj:bb1",
+		Arn:              "arn:aws:codebuild:us-east-1:000000000000:build-batch/persist-proj:bb1",
+		ProjectName:      "persist-proj",
+		BuildBatchStatus: "SUCCEEDED",
+	})
+
+	// Seed a command execution.
+	b.AddCommandExecutionInternal(&codebuild.CommandExecution{
+		ID:        "ce1",
+		SandboxID: "sb1",
+		Status:    "SUCCEEDED",
+	})
+
+	// Seed a sandbox.
+	b.AddSandboxInternal(&codebuild.Sandbox{
+		ID:     "sb1",
+		Arn:    "arn:aws:codebuild:us-east-1:000000000000:sandbox/sb1",
+		Status: "RUNNING",
+	})
+
+	// Snapshot and restore.
+	snap := b.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify fleet is restored.
+	fleets, notFound := b2.BatchGetFleets([]string{"persist-fleet"})
+	assert.Empty(t, notFound)
+	require.Len(t, fleets, 1)
+	assert.Equal(t, "persist-fleet", fleets[0].Name)
+
+	// Verify report group is restored.
+	rgs, notFound := b2.BatchGetReportGroups(
+		[]string{"arn:aws:codebuild:us-east-1:000000000000:report-group/persist-rg"},
+	)
+	assert.Empty(t, notFound)
+	require.Len(t, rgs, 1)
+	assert.Equal(t, "persist-rg", rgs[0].Name)
+
+	// Verify report is restored.
+	reports, notFound := b2.BatchGetReports([]string{"arn:aws:codebuild:us-east-1:000000000000:report/persist-rg:r1"})
+	assert.Empty(t, notFound)
+	require.Len(t, reports, 1)
+
+	// Verify build batch is restored.
+	batches, notFound := b2.BatchGetBuildBatches([]string{"persist-proj:bb1"})
+	assert.Empty(t, notFound)
+	require.Len(t, batches, 1)
+
+	// Verify command execution is restored.
+	ces, notFound := b2.BatchGetCommandExecutions("sb1", []string{"ce1"})
+	assert.Empty(t, notFound)
+	require.Len(t, ces, 1)
+
+	// Verify sandbox is restored.
+	sandboxes, notFound := b2.BatchGetSandboxes([]string{"sb1"})
+	assert.Empty(t, notFound)
+	require.Len(t, sandboxes, 1)
+}

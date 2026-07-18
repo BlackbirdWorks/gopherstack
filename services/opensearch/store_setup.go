@@ -62,7 +62,7 @@ func dryRunKeyFn(v *DryRunStatus) string { return v.DomainName }
 func autoTuneConfigKeyFn(v *AutoTuneConfig) string { return autoTuneKey(v.DomainName) }
 
 // slCollectionKeyFn/slAccessPolicyKeyFn/... reuse the serverless*Key helpers
-// (defined in backend_serverless.go, next to the other serverless
+// (defined in serverless.go, next to the other serverless
 // constructors) so the table key matches exactly what every access site
 // already computes. Unlike the apigateway "dirty" families, every serverless
 // value type already carries the fields (Name, Type, ID) its key is built

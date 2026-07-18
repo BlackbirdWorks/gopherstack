@@ -557,3 +557,43 @@ func TestLifecycle_TagFilter(t *testing.T) {
 		})
 	}
 }
+
+// TestS3Janitor_DrainSemaphoreCapacity verifies that the drain semaphore is
+// initialised with the correct capacity (maxConcurrentDrains) to bound the
+// number of concurrent bucket drain goroutines.
+func TestS3Janitor_DrainSemaphoreCapacity(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	j := s3.NewJanitor(backend, s3.Settings{})
+
+	assert.Equal(t, s3.MaxConcurrentDrains, j.DrainSemCapacity(),
+		"drain semaphore capacity should equal maxConcurrentDrains")
+}
+
+// TestS3JanitorRun_ExitsOnContextCancel verifies that the S3 janitor Run loop
+// exits cleanly when the context is cancelled (no panic, no goroutine leak).
+func TestS3JanitorRun_ExitsOnContextCancel(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	j := s3.NewJanitor(backend, s3.Settings{})
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		j.Run(ctx)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+		// clean exit
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("S3 janitor Run did not exit after context cancellation")
+	}
+}

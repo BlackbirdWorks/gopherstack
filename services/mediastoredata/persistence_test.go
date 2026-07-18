@@ -155,10 +155,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = restored.GetObject(ctxEast, "/west-only.mp4")
 	require.Error(t, err)
 
-	// ListItems ordering (sorted by Name, per backend.go) must be identical
+	// ListItems ordering (sorted by Name, per items.go) must be identical
 	// before and after the round-trip -- Table.Snapshot's sorted-key order
 	// must not silently change the observable listing order, since it's
-	// backend.go's explicit sort.Slice, not table/map order, that determines
+	// items.go's explicit sort.Slice, not table/map order, that determines
 	// it either way.
 	postRestoreEastList := restored.ListItems(ctxEast, ListItemsInput{FolderPath: ""})
 	assert.Equal(t, preRestoreEastNames, itemNames(postRestoreEastList.Items))

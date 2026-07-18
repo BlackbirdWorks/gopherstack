@@ -21,7 +21,7 @@ package s3control
 //     the per-access-point "accessPointPABs" table -- carried no access
 //     point name at all. Both gained an identity-only field tagged
 //     json:"-" purely so store.Table's keyFn can derive a key from the
-//     value -- see the doc comments on those fields in backend.go. They are
+//     value -- see the doc comments on those fields in store.go. They are
 //     NOT registered on b.registry: persistence.go instead builds a
 //     throwaway DTO store.Registry (mirroring the services/sqs pilot) whose
 //     DTO types carry the identity as a real JSON field, so Snapshot/Restore
@@ -59,12 +59,12 @@ func storageLensGroupKeyFn(v *StorageLensGroup) string { return v.AccountID + ":
 
 // mrapRequestKeyFn is the "dirty" keyFn for the mrapRequests Table -- see the
 // file doc comment above and MultiRegionAccessPointRequest.Token's doc
-// comment in backend.go.
+// comment in store.go.
 func mrapRequestKeyFn(v *MultiRegionAccessPointRequest) string { return v.AccountID + ":" + v.Token }
 
 // accessPointPABKeyFn is the "dirty" keyFn for the accessPointPABs Table --
 // see the file doc comment above and PublicAccessBlock.APName's doc comment
-// in backend.go. It is a distinct *store.Table[PublicAccessBlock] from the
+// in store.go. It is a distinct *store.Table[PublicAccessBlock] from the
 // "configs" table (account-level, keyed by AccountID alone via
 // publicAccessBlockKeyFn); APName is always empty for configs entries.
 func accessPointPABKeyFn(v *PublicAccessBlock) string { return v.AccountID + ":" + v.APName }
@@ -75,7 +75,7 @@ func accessPointPABKeyFn(v *PublicAccessBlock) string { return v.AccountID + ":"
 // constructed alongside them but deliberately NOT registered -- see the
 // file doc comment above. It must be called during construction only, never
 // on every Reset(): store.Register panics on a duplicate name, so runtime
-// resets go through resetTablesLocked (backend.go) instead.
+// resets go through resetTablesLocked (store.go) instead.
 func registerAllTables(b *InMemoryBackend) {
 	b.configs = store.Register(b.registry, "configs", store.New(publicAccessBlockKeyFn))
 	b.accessGrantsInstances = store.Register(

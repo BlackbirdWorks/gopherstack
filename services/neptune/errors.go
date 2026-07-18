@@ -1,0 +1,30 @@
+package neptune
+
+import "errors"
+
+var (
+	ErrClusterNotFound                    = errors.New("DBClusterNotFound")
+	ErrClusterAlreadyExists               = errors.New("DBClusterAlreadyExists")
+	ErrInstanceNotFound                   = errors.New("DBInstanceNotFound")
+	ErrInstanceAlreadyExists              = errors.New("DBInstanceAlreadyExists")
+	ErrSubnetGroupNotFound                = errors.New("DBSubnetGroupNotFound")
+	ErrSubnetGroupAlreadyExists           = errors.New("DBSubnetGroupAlreadyExists")
+	ErrClusterParameterGroupNotFound      = errors.New("DBClusterParameterGroupNotFound")
+	ErrClusterParameterGroupAlreadyExists = errors.New("DBClusterParameterGroupAlreadyExists")
+	ErrClusterSnapshotNotFound            = errors.New("DBClusterSnapshotNotFound")
+	ErrClusterSnapshotAlreadyExists       = errors.New("DBClusterSnapshotAlreadyExists")
+	ErrParameterGroupNotFound             = errors.New("DBParameterGroupNotFound")
+	ErrParameterGroupAlreadyExists        = errors.New("DBParameterGroupAlreadyExists")
+	ErrClusterEndpointNotFound            = errors.New("DBClusterEndpointNotFound")
+	ErrClusterEndpointAlreadyExists       = errors.New("DBClusterEndpointAlreadyExists")
+	ErrSubscriptionNotFound               = errors.New("SubscriptionNotFound")
+	ErrSubscriptionAlreadyExists          = errors.New("SubscriptionAlreadyExists")
+	ErrGlobalClusterNotFound              = errors.New("GlobalClusterNotFound")
+	ErrGlobalClusterAlreadyExists         = errors.New("GlobalClusterAlreadyExists")
+	ErrInvalidParameter                   = errors.New("InvalidParameterValue")
+	ErrUnknownAction                      = errors.New("InvalidAction")
+	ErrInvalidDBClusterStateFault         = errors.New("InvalidDBClusterStateFault")
+	ErrInvalidDBInstanceStateFault        = errors.New("InvalidDBInstanceStateFault")
+	ErrInvalidDBClusterSnapshotStateFault = errors.New("InvalidDBClusterSnapshotStateFault")
+	ErrSnapshotRequired                   = errors.New("InvalidParameterCombination")
+)

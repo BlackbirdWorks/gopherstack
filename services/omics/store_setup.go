@@ -7,12 +7,12 @@ package omics
 // resources (their own ID, Name, or ShareID field) are keyed by that field
 // directly. Resources previously nested under a parent (reference store,
 // sequence store, run, workflow, or annotation store) are keyed by the
-// composite "parent|id" string built by parentKey in backend.go, with a
+// composite "parent|id" string built by parentKey in store.go, with a
 // companion *store.Index grouping entries by parent for the per-parent
 // listing every List* operation needs -- the same region-qualified-table
 // pattern services/emr and services/codeartifact use, applied here to
 // genuine parent/child nesting rather than a region dimension (see the
-// InMemoryBackend doc comment in backend.go for why no region qualifier is
+// InMemoryBackend doc comment in store.go for why no region qualifier is
 // needed).
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -82,7 +82,7 @@ func annotationVersionStoreNameFn(v *AnnotationStoreVersion) string { return v.S
 // (immediately after b.registry is created -- see NewInMemoryBackend), never
 // on every Reset() -- store.Register panics on a duplicate name, so runtime
 // resets go through b.registry.ResetAll() instead (see InMemoryBackend.Reset
-// in backend.go).
+// in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	b.referenceStores = store.Register(b.registry, "referenceStores", store.New(referenceStoreKeyFn))
 	b.sequenceStores = store.Register(b.registry, "sequenceStores", store.New(sequenceStoreKeyFn))

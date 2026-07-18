@@ -79,6 +79,39 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestSnapshotRestore_ExtendedFields verifies KmsKeyId, RotationLambdaARN, and
+// LastRotatedDate survive round-trip — distinct from the round-trip tests above in
+// that it exercises rotation-specific fields, not just Description.
+func TestSnapshotRestore_ExtendedFields(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "snap-test",
+		SecretString: "v",
+		KmsKeyID:     "alias/snap-key",
+	})
+	require.NoError(t, err)
+
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "snap-test",
+		RotationLambdaARN: "arn:aws:lambda:us-east-1:123:function:rotator",
+	})
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := secretsmanager.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	desc, err := b2.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "snap-test"})
+	require.NoError(t, err)
+	assert.Equal(t, "alias/snap-key", desc.KmsKeyID)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:123:function:rotator", desc.RotationLambdaARN)
+	assert.NotNil(t, desc.LastRotatedDate)
+}
+
 func TestSecretsManagerHandler_Persistence(t *testing.T) {
 	t.Parallel()
 

@@ -403,3 +403,145 @@ func (h *Handler) handleUpdateNotebookInstanceFull(ctx context.Context, body []b
 
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// NotebookInstance handlers
+// ---------------------------------------------------------------------------
+
+type notebookSummary struct {
+	NotebookInstanceName   string  `json:"NotebookInstanceName"`
+	NotebookInstanceArn    string  `json:"NotebookInstanceArn"`
+	NotebookInstanceStatus string  `json:"NotebookInstanceStatus"`
+	InstanceType           string  `json:"InstanceType,omitempty"`
+	CreationTime           float64 `json:"CreationTime"`
+	LastModifiedTime       float64 `json:"LastModifiedTime"`
+}
+
+func (h *Handler) handleListNotebookInstances(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		NextToken    string `json:"NextToken"`
+		StatusEquals string `json:"StatusEquals"`
+		NameContains string `json:"NameContains"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	nbs, nextToken := h.Backend.ListNotebookInstances(ctx, req.NextToken, ListNotebookInstancesFilter{
+		StatusEquals: req.StatusEquals,
+		NameContains: req.NameContains,
+	})
+	summaries := make([]notebookSummary, 0, len(nbs))
+
+	for _, nb := range nbs {
+		summaries = append(summaries, notebookSummary{
+			NotebookInstanceName:   nb.NotebookInstanceName,
+			NotebookInstanceArn:    nb.NotebookInstanceArn,
+			NotebookInstanceStatus: nb.NotebookInstanceStatus,
+			InstanceType:           nb.InstanceType,
+			CreationTime:           epochSeconds(nb.CreationTime),
+			LastModifiedTime:       epochSeconds(nb.LastModifiedTime),
+		})
+	}
+
+	resp := map[string]any{"NotebookInstances": summaries}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
+
+func (h *Handler) handleDeleteNotebookInstance(ctx context.Context, body []byte) error {
+	var req struct {
+		NotebookInstanceName string `json:"NotebookInstanceName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.NotebookInstanceName == "" {
+		return fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteNotebookInstance(ctx, req.NotebookInstanceName); err != nil {
+		return err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: deleted notebook instance", "name", req.NotebookInstanceName)
+
+	return nil
+}
+
+func (h *Handler) handleStartNotebookInstance(ctx context.Context, body []byte) error {
+	var req struct {
+		NotebookInstanceName string `json:"NotebookInstanceName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.NotebookInstanceName == "" {
+		return fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.StartNotebookInstance(ctx, req.NotebookInstanceName); err != nil {
+		return err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: started notebook instance", "name", req.NotebookInstanceName)
+
+	return nil
+}
+
+func (h *Handler) handleStopNotebookInstance(ctx context.Context, body []byte) error {
+	var req struct {
+		NotebookInstanceName string `json:"NotebookInstanceName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.NotebookInstanceName == "" {
+		return fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.StopNotebookInstance(ctx, req.NotebookInstanceName); err != nil {
+		return err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: stopped notebook instance", "name", req.NotebookInstanceName)
+
+	return nil
+}
+
+func (h *Handler) handleCreatePresignedNotebookInstanceURL(
+	ctx context.Context,
+	body []byte,
+) ([]byte, error) {
+	var req struct {
+		NotebookInstanceName string `json:"NotebookInstanceName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.NotebookInstanceName == "" {
+		return nil, fmt.Errorf("%w: NotebookInstanceName is required", errInvalidRequest)
+	}
+
+	url, err := h.Backend.CreatePresignedNotebookInstanceURL(ctx, req.NotebookInstanceName)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{"AuthorizedUrl": url})
+}

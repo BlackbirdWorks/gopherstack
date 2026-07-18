@@ -314,3 +314,15 @@ func TestHandler_Metadata(t *testing.T) {
 		"ListStreams",
 	}, handler.GetSupportedOperations())
 }
+
+func TestHandler_Metadata_SupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := dynamodbstreams.NewHandler(ddbbackend.NewInMemoryDB())
+
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "DescribeStream")
+	assert.Contains(t, ops, "GetRecords")
+	assert.Contains(t, ops, "GetShardIterator")
+	assert.Contains(t, ops, "ListStreams")
+}

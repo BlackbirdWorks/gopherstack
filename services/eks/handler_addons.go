@@ -1,0 +1,233 @@
+package eks
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v5"
+)
+
+// dispatchAddonOps handles addon CRUD and static addon metadata operations.
+func (h *Handler) dispatchAddonOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
+	switch route.operation {
+	case opCreateAddon:
+		return true, h.handleCreateAddon(c, route.clusterName, body)
+	case opDeleteAddon:
+		return true, h.handleDeleteAddon(c, route.clusterName, route.nodegroupName)
+	case opDescribeAddon:
+		return true, h.handleDescribeAddon(c, route.clusterName, route.nodegroupName)
+	case opListAddons:
+		return true, h.handleListAddons(c, route.clusterName)
+	case opUpdateAddon:
+		return true, h.handleUpdateAddon(c, route.clusterName, route.nodegroupName, body)
+	case opDescribeAddonVersions:
+		return true, h.handleDescribeAddonVersions(c)
+	case opDescribeAddonConfiguration:
+		return true, h.handleDescribeAddonConfiguration(c)
+	}
+
+	return false, nil
+}
+
+// parseAddonRoute returns the route for /clusters/{name}/addons[/{addonName}] paths.
+func parseAddonRoute(method, clusterName string, parts []string) eksRoute {
+	const addonParts = 2
+
+	if len(parts) == addonParts {
+		switch method {
+		case http.MethodPost:
+			return eksRoute{operation: opCreateAddon, clusterName: clusterName}
+		case http.MethodGet:
+			return eksRoute{operation: opListAddons, clusterName: clusterName}
+		}
+
+		return eksRoute{operation: opUnknown}
+	}
+
+	tail := parts[2]
+
+	// Real path is /clusters/{clusterName}/addons/{addonName}/update (POST),
+	// NOT a bare-path PUT -- verified against the SDK serializer.
+	if before, ok := strings.CutSuffix(tail, "/update"); ok {
+		if method == http.MethodPost {
+			return eksRoute{operation: opUpdateAddon, clusterName: clusterName, nodegroupName: before}
+		}
+
+		return eksRoute{operation: opUnknown}
+	}
+
+	switch method {
+	case http.MethodGet:
+		return eksRoute{operation: opDescribeAddon, clusterName: clusterName, nodegroupName: tail}
+	case http.MethodDelete:
+		return eksRoute{operation: opDeleteAddon, clusterName: clusterName, nodegroupName: tail}
+	}
+
+	return eksRoute{operation: opUnknown}
+}
+
+func addonToJSON(a *Addon) map[string]any {
+	m := map[string]any{
+		keyClusterName: a.ClusterName,
+		"addonName":    a.AddonName,
+		"addonArn":     a.ARN,
+		keyStatusField: a.Status,
+		keyCreatedAt:   a.CreatedAt.Unix(),
+		"addonVersion": a.AddonVersion,
+	}
+
+	if a.Tags != nil {
+		m["tags"] = a.Tags.Clone()
+	} else {
+		m["tags"] = map[string]string{}
+	}
+
+	if a.ServiceAccountRoleARN != "" {
+		m["serviceAccountRoleArn"] = a.ServiceAccountRoleARN
+	}
+
+	if a.MarketplaceVersion != "" {
+		m["marketplaceVersion"] = a.MarketplaceVersion
+	}
+
+	if a.Health != nil {
+		m["health"] = map[string]any{
+			"issues": a.Health.Issues,
+		}
+	}
+
+	if a.Configuration != "" {
+		m["configurationValues"] = a.Configuration
+	}
+
+	if a.ResolveConflicts != "" {
+		m["resolveConflicts"] = a.ResolveConflicts
+	}
+
+	return m
+}
+
+type createAddonBody struct {
+	Tags                  map[string]string `json:"tags"`
+	AddonName             string            `json:"addonName"`
+	AddonVersion          string            `json:"addonVersion"`
+	ServiceAccountRoleArn string            `json:"serviceAccountRoleArn"`
+	ConfigurationValues   string            `json:"configurationValues"`
+	ResolveConflicts      string            `json:"resolveConflicts"`
+}
+
+func (h *Handler) handleCreateAddon(c *echo.Context, clusterName string, body []byte) error {
+	var in createAddonBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
+	}
+
+	if in.AddonName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "addonName is required"))
+	}
+
+	addon, err := h.Backend.CreateAddon(
+		clusterName, in.AddonName, in.AddonVersion, in.ServiceAccountRoleArn,
+		in.ConfigurationValues, in.ResolveConflicts,
+		in.Tags,
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyAddon: addonToJSON(addon),
+	})
+}
+
+func (h *Handler) handleDeleteAddon(c *echo.Context, clusterName, addonName string) error {
+	addon, err := h.Backend.DeleteAddon(clusterName, addonName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"addon": addonToJSON(addon),
+	})
+}
+
+func (h *Handler) handleDescribeAddon(c *echo.Context, clusterName, addonName string) error {
+	addon, err := h.Backend.DescribeAddon(clusterName, addonName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"addon": addonToJSON(addon),
+	})
+}
+
+func (h *Handler) handleListAddons(c *echo.Context, clusterName string) error {
+	names, err := h.Backend.ListAddons(clusterName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"addons": names,
+	})
+}
+
+type updateAddonBody struct {
+	AddonVersion          string `json:"addonVersion"`
+	ServiceAccountRoleArn string `json:"serviceAccountRoleArn"`
+	ConfigurationValues   string `json:"configurationValues"`
+	ResolveConflicts      string `json:"resolveConflicts"`
+}
+
+func (h *Handler) handleUpdateAddon(c *echo.Context, clusterName, addonName string, body []byte) error {
+	var in updateAddonBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
+		}
+	}
+
+	addon, err := h.Backend.UpdateAddon(
+		clusterName, addonName, in.AddonVersion, in.ServiceAccountRoleArn,
+		in.ConfigurationValues, in.ResolveConflicts,
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyUpdate: map[string]any{
+			"id":           uuid.NewString()[:8],
+			keyStatusField: statusInProgress,
+			keyType:        "AddonUpdate",
+			keyClusterName: clusterName,
+			"addonName":    addon.AddonName,
+			keyCreatedAt:   float64(time.Now().Unix()),
+		},
+	})
+}
+
+func (h *Handler) handleDescribeAddonVersions(c *echo.Context) error {
+	versions := h.Backend.DescribeAddonVersions()
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"addons": versions,
+	})
+}
+
+func (h *Handler) handleDescribeAddonConfiguration(c *echo.Context) error {
+	addonName := c.Request().URL.Query().Get("addonName")
+	addonVersion := c.Request().URL.Query().Get("addonVersion")
+
+	if addonName == "" {
+		addonName = addonVPCCNI
+	}
+
+	result := h.Backend.DescribeAddonConfiguration(addonName, addonVersion)
+
+	return c.JSON(http.StatusOK, result)
+}

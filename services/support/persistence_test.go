@@ -205,6 +205,78 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, int64(1), result.ResourcesSummary.ResourcesFlagged)
 }
 
+// TestInMemoryBackend_SnapshotIncludesCommunications verifies communications survive Snapshot/Restore.
+func TestInMemoryBackend_SnapshotIncludesCommunications(t *testing.T) {
+	t.Parallel()
+
+	b := support.NewInMemoryBackend()
+
+	c, err := b.CreateCase("Snap comm test", "", "", "", "")
+	require.NoError(t, err)
+
+	require.NoError(t, b.AddCommunicationToCase(c.CaseID, "Hello", ""))
+	assert.Equal(t, 1, support.CommunicationCount(b))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := support.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, support.CommunicationCount(b2))
+}
+
+// TestInMemoryBackend_SnapshotIncludesAttachments verifies attachments survive Snapshot/Restore.
+func TestInMemoryBackend_SnapshotIncludesAttachments(t *testing.T) {
+	t.Parallel()
+
+	b := support.NewInMemoryBackend()
+	b.AddAttachmentInternal(&support.Attachment{
+		AttachmentID: "att-snap-001",
+		FileName:     "snap.log",
+		Data:         []byte("log data"),
+	})
+
+	assert.Equal(t, 1, support.AttachmentCount(b))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := support.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, support.AttachmentCount(b2))
+
+	a, err := b2.DescribeAttachment("att-snap-001")
+	require.NoError(t, err)
+	assert.Equal(t, "snap.log", a.FileName)
+	assert.Equal(t, []byte("log data"), a.Data)
+}
+
+// TestInMemoryBackend_SnapshotIncludesCheckRefreshStatuses verifies refresh statuses survive Snapshot/Restore.
+func TestInMemoryBackend_SnapshotIncludesCheckRefreshStatuses(t *testing.T) {
+	t.Parallel()
+
+	b := support.NewInMemoryBackend()
+
+	_, err := b.RefreshTrustedAdvisorCheck("Pfx0RwqBli")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, support.CheckRefreshStatusCount(b))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := support.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, support.CheckRefreshStatusCount(b2))
+
+	statuses := b2.DescribeTrustedAdvisorCheckRefreshStatuses([]string{"Pfx0RwqBli"})
+	require.Len(t, statuses, 1)
+	assert.Equal(t, "enqueued", statuses[0].Status)
+}
+
 // TestHandler_SnapshotRestoreDelegate verifies the Handler-level Snapshot and
 // Restore -- which the persistence layer actually calls -- correctly
 // delegate to the backend.

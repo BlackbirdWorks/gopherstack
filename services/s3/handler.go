@@ -111,9 +111,12 @@ func (h *S3Handler) WithJanitor(settings Settings, taskTimeout ...time.Duration)
 
 // StartWorker starts the background janitor if it is configured.
 func (h *S3Handler) StartWorker(ctx context.Context) error {
-	h.notificationMu.Lock()
-	h.notificationCtx = ctx
-	h.notificationMu.Unlock()
+	func() {
+		h.notificationMu.Lock()
+		defer h.notificationMu.Unlock()
+
+		h.notificationCtx = ctx
+	}()
 
 	// Wire the service context into the backend so background replication is
 	// parented to it (cancelled on shutdown) rather than to request contexts.

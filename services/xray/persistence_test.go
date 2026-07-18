@@ -2,6 +2,7 @@ package xray_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -232,4 +233,84 @@ func TestXRay_Reset_ClearsTraceSegmentDestination(t *testing.T) {
 	b.Reset()
 
 	assert.Equal(t, "XRay", b.GetTraceSegmentDestination())
+}
+
+// TestSnapshotRestoreWithEncryptionConfig verifies encryption config persists.
+func TestSnapshotRestoreWithEncryptionConfig(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.PutEncryptionConfig("KMS", "arn:aws:kms:us-east-1:123:key/abc")
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	cfg := b2.GetEncryptionConfig()
+	assert.Equal(t, "KMS", cfg.Type)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/abc", cfg.KeyID)
+}
+
+// TestSnapshotRestoreWithIndexingRules verifies indexing rules persist.
+func TestSnapshotRestoreWithIndexingRules(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Default backend has at least one indexing rule.
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	rules := b2.GetIndexingRules()
+	assert.NotEmpty(t, rules)
+}
+
+// TestSnapshotRestorePreservesGroups verifies group data persists.
+func TestSnapshotRestorePreservesGroups(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateGroup("snap-group", `service("svc")`)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	g, err := b2.GetGroup("snap-group")
+	require.NoError(t, err)
+	assert.Equal(t, "snap-group", g.GroupName)
+}
+
+// TestPersistence_RetrievedTracesPersistedInSnapshot verifies retrieval tokens survive snapshot/restore.
+func TestPersistence_RetrievedTracesPersistedInSnapshot(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Seed a trace, then start retrieval.
+	now := float64(time.Now().Unix())
+	seg := segJSON("1-persist-ret", "s1", "", "svc", now-1, now, false, false, false)
+	_ = b.PutTraceSegments([]string{seg})
+
+	token := b.StartTraceRetrieval([]string{"1-persist-ret"})
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := xray.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	status, traces := b2.ListRetrievedTraces(token)
+	assert.Equal(t, "COMPLETE", status)
+	assert.NotEmpty(t, traces, "retrieved traces should survive snapshot/restore")
 }

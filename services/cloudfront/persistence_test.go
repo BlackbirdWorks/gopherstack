@@ -10,11 +10,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestParity_PersistenceBatch2RoundTrip verifies that batch-2 fields
+// TestPersistenceRoundTrip_ExtendedFields verifies that batch-2 fields
 // (TrustStores, StreamingDistributions, MonitoringSubscriptions,
 // DistributionTenants, DistributionCachePolicies, etc.) survive a
 // Snapshot → Restore cycle.
-func TestParity_PersistenceBatch2RoundTrip(t *testing.T) {
+func TestPersistenceRoundTrip_ExtendedFields(t *testing.T) {
 	t.Parallel()
 
 	type restoreTC struct {
@@ -101,8 +101,8 @@ func TestParity_PersistenceBatch2RoundTrip(t *testing.T) {
 	}
 }
 
-// TestNewBackendNewResourcesPersistence verifies the new resource types survive snapshot/restore.
-func TestNewBackendNewResourcesPersistence(t *testing.T) {
+// TestPersistenceRoundTrip_NewResourceTypes verifies the new resource types survive snapshot/restore.
+func TestPersistenceRoundTrip_NewResourceTypes(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
@@ -158,8 +158,8 @@ func TestNewBackendNewResourcesPersistence(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestNewBackendPersistenceWithStrings verifies that persistence doesn't lose data on string fields.
-func TestNewBackendPersistenceWithStrings(t *testing.T) {
+// TestPersistenceRoundTrip_StringFields verifies that persistence doesn't lose data on string fields.
+func TestPersistenceRoundTrip_StringFields(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
@@ -271,8 +271,8 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, "persist-dist", d2.Comment)
 }
 
-// TestRefinement1_PersistenceWithIndexes verifies indexes are rebuilt after snapshot/restore.
-func TestRefinement1_PersistenceWithIndexes(t *testing.T) {
+// TestPersistenceRoundTrip_IndexesRebuilt verifies indexes are rebuilt after snapshot/restore.
+func TestPersistenceRoundTrip_IndexesRebuilt(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)

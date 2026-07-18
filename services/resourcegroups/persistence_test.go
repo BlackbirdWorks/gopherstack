@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
 
@@ -340,4 +341,133 @@ func Test_PersistenceFullStateRoundTrip(t *testing.T) {
 	tagMap, err := b2.GetTagsByARN(ctx, got1.ARN)
 	require.NoError(t, err)
 	assert.NotNil(t, tagMap)
+}
+
+func TestResourceGroupsSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateGroup(context.Background(), "snap-group", "desc", &resourcegroups.ResourceQuery{
+		Type:  "TAG_FILTERS_1_0",
+		Query: `{}`,
+	}, tags.FromMap("test.rg", map[string]string{"env": "test"}), nil)
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	g, err := b2.GetGroup(context.Background(), "snap-group")
+	require.NoError(t, err)
+	assert.Equal(t, "snap-group", g.Name)
+	assert.Equal(t, "desc", g.Description)
+	v, ok := g.Tags.Get("env")
+	assert.True(t, ok)
+	assert.Equal(t, "test", v)
+}
+
+func TestResourceGroupsRestoreInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	err := b.Restore(t.Context(), []byte("not-json"))
+	require.Error(t, err)
+}
+
+// TestSnapshotRestore_TaskIDCounter verifies task counter state after restore.
+func TestSnapshotRestore_TaskIDCounter(t *testing.T) {
+	t.Parallel()
+
+	b1 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b1.CreateGroup(context.Background(), "snap-group", "", nil, nil, nil)
+	require.NoError(t, err)
+	_, err = b1.StartTagSyncTask(context.Background(), "snap-group", "arn:aws:iam::000000000000:role/r", "", "", nil)
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	tasks, _, err := b2.ListTagSyncTasks(context.Background(), nil, "", 0)
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+	assert.NotEmpty(t, tasks[0].TaskArn)
+
+	// Starting a new task after restore should succeed.
+	task2, err := b2.StartTagSyncTask(
+		context.Background(), "snap-group", "arn:aws:iam::000000000000:role/r", "", "", nil,
+	)
+	require.NoError(t, err)
+	assert.NotEmpty(t, task2.TaskArn)
+}
+
+// TestSnapshotRestore_GroupResources verifies resource ARNs survive snapshot/restore.
+func TestSnapshotRestore_GroupResources(t *testing.T) {
+	t.Parallel()
+
+	b1 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b1.CreateGroup(context.Background(), "res-group", "", nil, nil, nil)
+	require.NoError(t, err)
+	_, err = b1.GroupResources(context.Background(), "res-group", []string{
+		"arn:aws:s3:::bucket-1",
+		"arn:aws:ec2:us-east-1:000000000000:instance/i-abc",
+	})
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(t.Context())
+	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	ids, _, err := b2.ListGroupResources(context.Background(), "res-group", nil, "", 0)
+	require.NoError(t, err)
+	assert.Len(t, ids, 2)
+}
+
+// TestPersistenceIncludesNewState verifies snapshot/restore covers group
+// resources, configurations, and tag-sync tasks.
+func TestPersistenceIncludesNewState(t *testing.T) {
+	t.Parallel()
+
+	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	_, _ = b.CreateGroup(context.Background(), "g1", "desc", nil, nil, nil)
+	_, _ = b.GroupResources(context.Background(), "g1", []string{"arn:aws:s3:::b1"})
+	_ = b.PutGroupConfiguration(context.Background(), "g1", []resourcegroups.GroupConfigurationItem{
+		{Type: "AWS::EC2::CapacityReservationPool"},
+	})
+	_, _ = b.StartTagSyncTask(context.Background(), "g1", "arn:aws:iam::000000000000:role/r", "k", "v", nil)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, resourcegroups.GroupCount(b2))
+	assert.Equal(t, 1, resourcegroups.GroupResourceCount(b2))
+	assert.Equal(t, 1, resourcegroups.GroupConfigurationCount(b2))
+	assert.Equal(t, 1, resourcegroups.TagSyncTaskCount(b2))
+}
+
+// TestPersistenceTagsRenamedAfterRestore verifies tags can be accessed after
+// restore without using the "json.tags" name collision.
+func TestPersistenceTagsRenamedAfterRestore(t *testing.T) {
+	t.Parallel()
+
+	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	g, _ := b.CreateGroup(context.Background(), "tagged", "", nil, nil, nil)
+	_, _ = b.AddTagsByARN(context.Background(), g.ARN, map[string]string{"owner": "alice"})
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	got, err := b2.GetTagsByARN(context.Background(), g.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "alice", got["owner"])
 }

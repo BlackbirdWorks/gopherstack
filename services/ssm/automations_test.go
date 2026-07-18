@@ -264,9 +264,9 @@ func TestStartAutomationExecution_InProgressObservable(t *testing.T) {
 }
 func TestFull_AutomationExecution_StartDescribeStop(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	code, out := mustPost(t, h, "StartAutomationExecution", map[string]any{
+	code, out := postJSON(t, h, "StartAutomationExecution", map[string]any{
 		"DocumentName": "AWS-RestartEC2Instance",
 		"Parameters":   map[string]any{"InstanceId": []string{"i-auto"}},
 	})
@@ -274,19 +274,19 @@ func TestFull_AutomationExecution_StartDescribeStop(t *testing.T) {
 	execID := out["AutomationExecutionId"].(string)
 	assert.NotEmpty(t, execID)
 
-	code, out = mustPost(t, h, "GetAutomationExecution", map[string]any{
+	code, out = postJSON(t, h, "GetAutomationExecution", map[string]any{
 		"AutomationExecutionId": execID,
 	})
 	assert.Equal(t, http.StatusOK, code)
 	exec := out["AutomationExecution"].(map[string]any)
 	assert.Equal(t, execID, exec["AutomationExecutionId"])
 
-	code, out = mustPost(t, h, "DescribeAutomationExecutions", map[string]any{})
+	code, out = postJSON(t, h, "DescribeAutomationExecutions", map[string]any{})
 	assert.Equal(t, http.StatusOK, code)
 	executions := out["AutomationExecutionMetadataList"].([]any)
 	assert.NotEmpty(t, executions)
 
-	code, _ = mustPost(t, h, "StopAutomationExecution", map[string]any{
+	code, _ = postJSON(t, h, "StopAutomationExecution", map[string]any{
 		"AutomationExecutionId": execID,
 		"Type":                  "Cancel",
 	})

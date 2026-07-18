@@ -1,5 +1,152 @@
 package transcribe
 
+import "time"
+
+// TranscriptionJob represents an Amazon Transcribe transcription job.
+type TranscriptionJob struct {
+	StartTime                 time.Time                   `json:"startTime"`
+	CompletionTime            time.Time                   `json:"completionTime"`
+	CreationTime              time.Time                   `json:"creationTime"`
+	Tags                      map[string]string           `json:"tags,omitempty"`
+	Subtitles                 *SubtitlesOutput            `json:"subtitles,omitempty"`
+	ContentRedaction          *ContentRedaction           `json:"contentRedaction,omitempty"`
+	ModelSettings             *ModelSettings              `json:"modelSettings,omitempty"`
+	JobExecutionSettings      *JobExecutionSettings       `json:"jobExecutionSettings,omitempty"`
+	Settings                  *TranscriptionSettings      `json:"settings,omitempty"`
+	Media                     Media                       `json:"media"`
+	LanguageCode              string                      `json:"languageCode"`
+	JobStatus                 string                      `json:"jobStatus"`
+	MediaFormat               string                      `json:"mediaFormat,omitempty"`
+	OutputBucketName          string                      `json:"outputBucketName,omitempty"`
+	OutputKey                 string                      `json:"outputKey,omitempty"`
+	OutputEncryptionKMSKeyID  string                      `json:"outputEncryptionKMSKeyId,omitempty"`
+	TranscriptText            string                      `json:"transcriptText"`
+	JobName                   string                      `json:"jobName"`
+	FailureReason             string                      `json:"failureReason,omitempty"`
+	LanguageOptions           []string                    `json:"languageOptions,omitempty"`
+	ToxicityDetection         []ToxicityDetectionSettings `json:"toxicityDetection,omitempty"`
+	LanguageCodes             []LanguageCodeItem          `json:"languageCodes,omitempty"`
+	TranscriptJSON            []byte                      `json:"-"`
+	MediaSampleRateHertz      int32                       `json:"mediaSampleRateHertz,omitempty"`
+	IdentifiedLanguageScore   float32                     `json:"identifiedLanguageScore,omitempty"`
+	IdentifyLanguage          bool                        `json:"identifyLanguage,omitempty"`
+	IdentifyMultipleLanguages bool                        `json:"identifyMultipleLanguages,omitempty"`
+}
+
+// CallAnalyticsCategory represents an Amazon Transcribe Call Analytics category.
+type CallAnalyticsCategory struct {
+	CreateTime     time.Time           `json:"createTime"`
+	LastUpdateTime time.Time           `json:"lastUpdateTime"`
+	Tags           map[string]string   `json:"tags,omitempty"`
+	CategoryName   string              `json:"categoryName"`
+	InputType      string              `json:"inputType"`
+	Rules          []CallAnalyticsRule `json:"rules,omitempty"`
+}
+
+// LanguageModel represents a custom Amazon Transcribe language model.
+type LanguageModel struct {
+	CreateTime          time.Time         `json:"createTime"`
+	LastModifiedTime    time.Time         `json:"lastModifiedTime"`
+	InputDataConfig     *InputDataConfig  `json:"inputDataConfig,omitempty"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	ModelName           string            `json:"modelName"`
+	BaseModelName       string            `json:"baseModelName"`
+	LanguageCode        string            `json:"languageCode"`
+	ModelStatus         string            `json:"modelStatus"`
+	UpgradeAvailability bool              `json:"upgradeAvailability,omitempty"`
+}
+
+// MedicalVocabulary represents an Amazon Transcribe Medical custom vocabulary.
+type MedicalVocabulary struct {
+	LastModifiedTime  time.Time         `json:"lastModifiedTime"`
+	Tags              map[string]string `json:"tags,omitempty"`
+	VocabularyName    string            `json:"vocabularyName"`
+	LanguageCode      string            `json:"languageCode"`
+	VocabularyState   string            `json:"vocabularyState"`
+	VocabularyFileURI string            `json:"vocabularyFileUri"`
+}
+
+// Vocabulary represents an Amazon Transcribe custom vocabulary.
+type Vocabulary struct {
+	LastModifiedTime  time.Time         `json:"lastModifiedTime"`
+	Tags              map[string]string `json:"tags,omitempty"`
+	VocabularyName    string            `json:"vocabularyName"`
+	LanguageCode      string            `json:"languageCode"`
+	VocabularyState   string            `json:"vocabularyState"`
+	VocabularyFileURI string            `json:"vocabularyFileUri,omitempty"`
+	Phrases           []string          `json:"phrases,omitempty"`
+}
+
+// VocabularyFilter represents an Amazon Transcribe custom vocabulary filter.
+type VocabularyFilter struct {
+	LastModifiedTime        time.Time         `json:"lastModifiedTime"`
+	Tags                    map[string]string `json:"tags,omitempty"`
+	VocabularyFilterName    string            `json:"vocabularyFilterName"`
+	LanguageCode            string            `json:"languageCode"`
+	VocabularyFilterFileURI string            `json:"vocabularyFilterFileUri,omitempty"`
+	Words                   []string          `json:"words,omitempty"`
+}
+
+// CallAnalyticsJob represents an Amazon Transcribe Call Analytics job.
+type CallAnalyticsJob struct {
+	StartTime               time.Time              `json:"startTime"`
+	CompletionTime          time.Time              `json:"completionTime"`
+	CreationTime            time.Time              `json:"creationTime"`
+	Tags                    map[string]string      `json:"tags,omitempty"`
+	Settings                *CallAnalyticsSettings `json:"settings,omitempty"`
+	Media                   Media                  `json:"media"`
+	CallAnalyticsJobStatus  string                 `json:"callAnalyticsJobStatus"`
+	LanguageCode            string                 `json:"languageCode"`
+	MediaFormat             string                 `json:"mediaFormat,omitempty"`
+	DataAccessRoleArn       string                 `json:"dataAccessRoleArn,omitempty"`
+	FailureReason           string                 `json:"failureReason,omitempty"`
+	CallAnalyticsJobName    string                 `json:"callAnalyticsJobName"`
+	ChannelDefinitions      []ChannelDefinition    `json:"channelDefinitions,omitempty"`
+	TranscriptJSON          []byte                 `json:"-"`
+	IdentifiedLanguageScore float32                `json:"identifiedLanguageScore,omitempty"`
+	MediaSampleRateHertz    int32                  `json:"mediaSampleRateHertz,omitempty"`
+}
+
+// MedicalScribeJob represents an Amazon Transcribe Medical Scribe job.
+type MedicalScribeJob struct {
+	StartTime                      time.Time                        `json:"startTime"`
+	CompletionTime                 time.Time                        `json:"completionTime"`
+	CreationTime                   time.Time                        `json:"creationTime"`
+	Tags                           map[string]string                `json:"tags,omitempty"`
+	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings  `json:"clinicalNoteGenerationSettings,omitempty"`
+	Settings                       *MedicalScribeSettings           `json:"settings,omitempty"`
+	Media                          Media                            `json:"media"`
+	LanguageCode                   string                           `json:"languageCode,omitempty"`
+	DataAccessRoleArn              string                           `json:"dataAccessRoleArn,omitempty"`
+	OutputBucketName               string                           `json:"outputBucketName,omitempty"`
+	FailureReason                  string                           `json:"failureReason,omitempty"`
+	MedicalScribeJobStatus         string                           `json:"medicalScribeJobStatus"`
+	MedicalScribeJobName           string                           `json:"medicalScribeJobName"`
+	ChannelDefinitions             []MedicalScribeChannelDefinition `json:"channelDefinitions,omitempty"`
+}
+
+// MedicalTranscriptionJob represents an Amazon Transcribe Medical transcription job.
+type MedicalTranscriptionJob struct {
+	CreationTime                     time.Time                     `json:"creationTime"`
+	StartTime                        time.Time                     `json:"startTime"`
+	CompletionTime                   time.Time                     `json:"completionTime"`
+	Tags                             map[string]string             `json:"tags,omitempty"`
+	Settings                         *MedicalTranscriptionSettings `json:"settings,omitempty"`
+	Media                            Media                         `json:"media"`
+	Type                             string                        `json:"type,omitempty"`
+	Specialty                        string                        `json:"specialty,omitempty"`
+	LanguageCode                     string                        `json:"languageCode"`
+	MediaFormat                      string                        `json:"mediaFormat,omitempty"`
+	FailureReason                    string                        `json:"failureReason,omitempty"`
+	OutputBucketName                 string                        `json:"outputBucketName,omitempty"`
+	OutputKey                        string                        `json:"outputKey,omitempty"`
+	TranscriptionJobStatus           string                        `json:"transcriptionJobStatus"`
+	MedicalContentIdentificationType string                        `json:"medicalContentIdentificationType,omitempty"`
+	MedicalTranscriptionJobName      string                        `json:"medicalTranscriptionJobName"`
+	TranscriptJSON                   []byte                        `json:"-"`
+	MediaSampleRateHertz             int32                         `json:"mediaSampleRateHertz,omitempty"`
+}
+
 // TranscriptionSettings represents the Settings field of a transcription job.
 type TranscriptionSettings struct {
 	VocabularyName         string `json:"VocabularyName,omitempty"`

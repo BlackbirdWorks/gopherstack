@@ -510,3 +510,120 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 		})
 	}
 }
+
+func TestBackend_Reset_ClearsNewMaps(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+
+	// Populate all new maps.
+	taskID, err := b.CreateExportTask("task", "/grp", "", "bucket", "", 1000, 2000)
+	require.NoError(t, err)
+	require.NotEmpty(t, taskID)
+
+	task, err := b.CreateImportTask(
+		"arn:aws:iam::123:role/r",
+		"arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc",
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, task.ImportID)
+
+	_, err = b.CreateDelivery("src", "arn:aws:logs:us-east-1:123:delivery-destination:dst", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateLogAnomalyDetector(
+		[]string{"arn:aws:logs:us-east-1:123:log-group:/app"},
+		"detector", "FIVE_MIN", "", "", 0,
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateScheduledQuery("sq", "fields @message", "cron(0 * * * ? *)", "", "ENABLED")
+	require.NoError(t, err)
+
+	// Reset and verify the backend returns empty state.
+	b.Reset()
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := cloudwatchlogs.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// Verify log groups are empty (representative check).
+	groups, _, err := fresh.DescribeLogGroups(context.Background(), "", "", 100)
+	require.NoError(t, err)
+	assert.Empty(t, groups)
+}
+
+func TestInMemoryBackend_SnapshotRestore_NewMaps(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	// Populate export task.
+	taskID, err := b.CreateExportTask("my-export", "/grp", "", "my-bucket", "prefix/", 1000, 2000)
+	require.NoError(t, err)
+
+	// Populate import task.
+	importTask, err := b.CreateImportTask(
+		"arn:aws:iam::123456789012:role/import-role",
+		"arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/abc",
+	)
+	require.NoError(t, err)
+
+	// Populate delivery with tags.
+	delivery, err := b.CreateDelivery(
+		"my-source",
+		"arn:aws:logs:us-east-1:123456789012:delivery-destination:dst",
+		map[string]string{"env": "prod"},
+	)
+	require.NoError(t, err)
+
+	// Populate anomaly detector.
+	detectorArn, err := b.CreateLogAnomalyDetector(
+		[]string{"arn:aws:logs:us-east-1:123456789012:log-group:/app"},
+		"my-detector", "FIVE_MIN", "", "", 0,
+	)
+	require.NoError(t, err)
+
+	// Populate scheduled query.
+	queryArn, err := b.CreateScheduledQuery(
+		"my-query", "fields @message", "cron(0 * * * ? *)", "", "ENABLED",
+	)
+	require.NoError(t, err)
+
+	// Snapshot and restore.
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify export task survived.
+	err = b2.CancelExportTask(taskID)
+	require.NoError(t, err)
+
+	// Verify import task survived.
+	cancelledTask, err := b2.CancelImportTask(importTask.ImportID)
+	require.NoError(t, err)
+	assert.Equal(t, importTask.ImportID, cancelledTask.ImportID)
+	assert.Equal(t, "CANCELLED", cancelledTask.Status)
+
+	// Verify delivery survived (can create another one with same source name - no uniqueness constraint).
+	_ = delivery
+	_ = detectorArn
+	_ = queryArn
+}
+
+func TestHandler_Persistence(t *testing.T) {
+	t.Parallel()
+
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+	// Snapshot should delegate to the backend and return non-nil bytes.
+	data := h.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	// Restore should delegate to the backend without error.
+	require.NoError(t, h.Restore(t.Context(), data))
+}

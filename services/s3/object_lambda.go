@@ -241,3 +241,8 @@ func (d *inMemoryNotificationDispatcher) InvokeFunction(
 
 	return d.targets.LambdaInvoker.InvokeFunction(ctx, name, invocationType, payload)
 }
+
+// isWriteGetObjectResponseRequest returns true when the request targets WriteGetObjectResponse.
+func isWriteGetObjectResponseRequest(r *http.Request) bool {
+	return r.URL.Query().Has("writeGetObjectResponse")
+}

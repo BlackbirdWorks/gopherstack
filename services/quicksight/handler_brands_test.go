@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/quicksight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -157,4 +158,156 @@ func TestQuickSight_ListBrands_Pagination(t *testing.T) {
 		m := it.(map[string]any)
 		assert.False(t, seen[m["BrandId"].(string)], "page 2 must not repeat page 1 items")
 	}
+}
+
+// ---- Brand tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Brands(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create brand",
+			method:     http.MethodPost,
+			path:       accountPath("/brands/brand1"),
+			body:       map[string]any{"BrandDefinition": map[string]any{"BrandName": "MyBrand"}},
+			wantStatus: http.StatusOK,
+			wantKey:    "BrandDetail",
+		},
+		{
+			name:       "describe brand",
+			method:     http.MethodGet,
+			path:       accountPath("/brands/brand1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "BrandDetail",
+		},
+		{
+			name:       "update brand",
+			method:     http.MethodPut,
+			path:       accountPath("/brands/brand1"),
+			body:       map[string]any{"BrandDefinition": map[string]any{"BrandName": "RenamedBrand"}},
+			wantStatus: http.StatusOK,
+			wantKey:    "BrandDetail",
+		},
+		{
+			name:       "list brands",
+			method:     http.MethodGet,
+			path:       accountPath("/brands"),
+			wantStatus: http.StatusOK,
+			wantKey:    "Brands",
+		},
+		{
+			name:       "update brand assignment",
+			method:     http.MethodPut,
+			path:       accountPath("/brandassignments"),
+			body:       map[string]any{"BrandArn": "arn:aws:quicksight:us-east-1:000000000000:brand/brand1"},
+			wantStatus: http.StatusOK,
+			wantKey:    "BrandArn",
+		},
+		{
+			name:       "describe brand assignment",
+			method:     http.MethodGet,
+			path:       accountPath("/brandassignments"),
+			wantStatus: http.StatusOK,
+			wantKey:    "BrandArn",
+		},
+		{
+			name:       "update brand published version",
+			method:     http.MethodPut,
+			path:       accountPath("/brands/brand1/publishedversion"),
+			body:       map[string]any{"VersionId": "2"},
+			wantStatus: http.StatusOK,
+			wantKey:    "VersionId",
+		},
+		{
+			name:       "describe brand published version",
+			method:     http.MethodGet,
+			path:       accountPath("/brands/brand1/publishedversion"),
+			wantStatus: http.StatusOK,
+			wantKey:    "BrandDefinition",
+		},
+		{
+			name:       "delete brand assignment",
+			method:     http.MethodDelete,
+			path:       accountPath("/brandassignments"),
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "delete brand",
+			method:     http.MethodDelete,
+			path:       accountPath("/brands/brand1"),
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}
+
+func TestQuickSight_BrandRoundTrip(t *testing.T) { //nolint:paralleltest // shared handler state.
+	b := newTestBackend(t)
+	h := quicksight.NewHandler(b)
+
+	steps := []roundTripStep{
+		{
+			name:         "describe missing brand returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/brands/rtb1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+		{
+			name:         "create brand",
+			method:       http.MethodPost,
+			path:         accountPath("/brands/rtb1"),
+			body:         map[string]any{"BrandName": "RT Brand"},
+			wantStatus:   http.StatusOK,
+			wantContains: "BrandDetail",
+		},
+		{
+			name:         "describe reflects created brand",
+			method:       http.MethodGet,
+			path:         accountPath("/brands/rtb1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "BrandDetail",
+		},
+		{
+			name:         "list brands includes brand",
+			method:       http.MethodGet,
+			path:         accountPath("/brands"),
+			wantStatus:   http.StatusOK,
+			wantContains: "Brands",
+		},
+		{
+			name:         "delete brand",
+			method:       http.MethodDelete,
+			path:         accountPath("/brands/rtb1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "RequestId",
+		},
+		{
+			name:         "describe after delete returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/brands/rtb1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+	}
+
+	runRoundTrip(t, h, steps)
+	assert.Equal(t, 0, quicksight.BrandCount(b), "brand removed after delete")
 }

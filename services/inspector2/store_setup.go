@@ -90,7 +90,7 @@ func scanConfigAssociationConfigKeyFn(v *CodeSecurityScanConfigurationAssociatio
 // secondary indexes) exactly once. It must be called during construction
 // only, immediately after b.registry is created -- store.Register panics on
 // a duplicate name, so runtime resets go through b.registry.ResetAll()
-// instead (see InMemoryBackend.Reset in backend.go).
+// instead (see InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	b.filters = store.Register(b.registry, "filters", store.New(filterKeyFn))
 

@@ -1,7 +1,10 @@
 package directoryservice_test
 
 import (
+	"context"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -315,4 +318,41 @@ func TestInMemoryBackend_RestoreInvalidJSON(t *testing.T) {
 	b := directoryservice.NewInMemoryBackend("000000000000", "us-east-1")
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
+}
+
+// TestBackendSnapshotSerializesAllState verifies that BackendSnapshot/Restore round-trips
+// region state beyond directories/snapshots/aliases (trusts, log subscriptions, etc.).
+func TestBackendSnapshotSerializesAllState(t *testing.T) {
+	t.Parallel()
+
+	b := directoryservice.NewInMemoryBackend("000000000000", "us-east-1")
+	h := directoryservice.NewHandler(b)
+
+	// Create a directory and wait for Active.
+	dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+	require.True(t, directoryservice.WaitForDirectoryActive(b, dirID, 2*time.Second))
+
+	// Add a log subscription (Appendix-A state not serialized previously).
+	logRec := doRequest(t, h, "CreateLogSubscription", map[string]any{
+		"DirectoryId":  dirID,
+		"LogGroupName": "/aws/directoryservice/testgroup",
+	})
+	require.Equal(t, http.StatusOK, logRec.Code)
+
+	// Snapshot and restore into a fresh backend.
+	snap := b.BackendSnapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := directoryservice.NewInMemoryBackend("000000000000", "us-east-1")
+	err := b2.Restore(context.Background(), snap)
+	require.NoError(t, err)
+
+	h2 := directoryservice.NewHandler(b2)
+
+	// Log subscription must survive round-trip.
+	listRec := doRequest(t, h2, "ListLogSubscriptions", map[string]any{"DirectoryId": dirID})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	body := respBody(t, listRec)
+	subs, _ := body["LogSubscriptions"].([]any)
+	assert.Len(t, subs, 1, "log subscription must survive BackendSnapshot/Restore")
 }

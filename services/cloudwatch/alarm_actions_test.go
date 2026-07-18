@@ -1,9 +1,12 @@
 package cloudwatch_test
 
 import (
+	"context"
 	"testing"
 
 	cloudwatch "github.com/blackbirdworks/gopherstack/services/cloudwatch"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // recordingEC2Actioner records the instance IDs passed to each EC2 action.
@@ -230,4 +233,122 @@ func assertIDs(t *testing.T, label string, got, want []string) {
 			t.Fatalf("%s[%d] = %q, want %q", label, i, got[i], want[i])
 		}
 	}
+}
+
+// mockSNSPublisher captures published messages for assertions.
+type mockSNSPublisher struct {
+	messages []string
+}
+
+func (m *mockSNSPublisher) PublishToTopic(_ string, message string) error {
+	m.messages = append(m.messages, message)
+
+	return nil
+}
+
+// mockLambdaInvoker captures lambda invocations for assertions.
+type mockLambdaInvoker struct {
+	invocations []string
+}
+
+func (m *mockLambdaInvoker) InvokeFunction(
+	_ context.Context,
+	name string,
+	_ string,
+	_ []byte,
+) ([]byte, int, error) {
+	m.invocations = append(m.invocations, name)
+
+	return nil, 200, nil
+}
+
+func TestCloudWatchBackend_LambdaActionFires(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	inv := &mockLambdaInvoker{}
+	b.SetLambdaInvoker(inv)
+
+	lambdaARN := "arn:aws:lambda:us-east-1:123456789012:function:my-fn"
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:      "lambda-alarm",
+		StateValue:     "OK",
+		ActionsEnabled: true,
+		AlarmActions:   []string{lambdaARN},
+	}))
+
+	require.NoError(t, b.SetAlarmState(t.Context(), "lambda-alarm", "ALARM", "test", ""))
+
+	assert.Len(t, inv.invocations, 1)
+	assert.Equal(t, lambdaARN, inv.invocations[0])
+}
+
+func TestCloudWatchBackend_ExecuteActions_NoInvoker(t *testing.T) {
+	t.Parallel()
+
+	// Ensures executeActions does not panic when publisher/invoker is nil.
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:      "no-invoker-alarm",
+		StateValue:     "OK",
+		ActionsEnabled: true,
+		AlarmActions: []string{
+			"arn:aws:sns:us-east-1:123:topic",
+			"arn:aws:lambda:us-east-1:123:function:fn",
+			"arn:aws:ec2:us-east-1:123:action/stop",
+		},
+	}))
+
+	// Should not panic even with nil publisher/invoker.
+	require.NoError(t, b.SetAlarmState(t.Context(), "no-invoker-alarm", "ALARM", "test", ""))
+}
+
+// mockCancelledLambdaInvoker blocks until the context is cancelled, then returns an error.
+type mockCancelledLambdaInvoker struct {
+	called chan struct{}
+}
+
+func (m *mockCancelledLambdaInvoker) InvokeFunction(
+	ctx context.Context,
+	_ string,
+	_ string,
+	_ []byte,
+) ([]byte, int, error) {
+	close(m.called)
+	<-ctx.Done()
+
+	return nil, 0, ctx.Err()
+}
+
+func TestCloudWatchBackend_ExecuteActions_ContextPropagated(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	inv := &mockCancelledLambdaInvoker{called: make(chan struct{})}
+	b.SetLambdaInvoker(inv)
+
+	lambdaARN := "arn:aws:lambda:us-east-1:123456789012:function:ctx-fn"
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:      "ctx-alarm",
+		StateValue:     "OK",
+		ActionsEnabled: true,
+		AlarmActions:   []string{lambdaARN},
+	}))
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- b.SetAlarmState(ctx, "ctx-alarm", "ALARM", "test", "")
+	}()
+
+	// Wait for the invoker to be called, then cancel the context.
+	<-inv.called
+	cancel()
+
+	err := <-done
+	require.NoError(t, err, "SetAlarmState itself should not propagate Lambda delivery errors")
 }

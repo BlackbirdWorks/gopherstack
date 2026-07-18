@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_BlueGreen_CreateAndDescribe(t *testing.T) {
+func TestBlueGreen_CreateAndDescribe(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -25,7 +25,7 @@ func TestBatch2_BlueGreen_CreateAndDescribe(t *testing.T) {
 	require.Len(t, bgs, 1)
 }
 
-func TestBatch2_BlueGreen_Switchover(t *testing.T) {
+func TestBlueGreen_Switchover(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -37,7 +37,7 @@ func TestBatch2_BlueGreen_Switchover(t *testing.T) {
 	assert.NotEmpty(t, switched.BlueGreenDeploymentIdentifier)
 }
 
-func TestBatch2_BlueGreen_DeleteNotFound(t *testing.T) {
+func TestBlueGreen_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -46,7 +46,7 @@ func TestBatch2_BlueGreen_DeleteNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrBlueGreenDeploymentNotFound)
 }
 
-func TestBatch2_BlueGreen_HTTP(t *testing.T) {
+func TestBlueGreen_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -95,7 +95,7 @@ func TestBlueGreenDeployment_TargetViaHandler(t *testing.T) {
 	assert.Contains(t, respStr, "green")
 }
 
-func TestBatch3_Persistence_BlueGreenTarget(t *testing.T) {
+func TestPersistence_BlueGreenTarget(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch3Backend()

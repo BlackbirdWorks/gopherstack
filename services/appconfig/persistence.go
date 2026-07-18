@@ -20,7 +20,7 @@ import (
 // picked it up even though nothing on the backend implemented
 // persistence.Persistable either -- see the Handler.Snapshot/Restore
 // delegation at the bottom of this file, and the Snapshot/Restore doc
-// comment on StorageBackend in backend_iface.go), so there is no legacy
+// comment on StorageBackend in interfaces.go), so there is no legacy
 // snapshot shape to be compatible with -- any snapshot without a matching
 // Version (including one with no version field, which decodes as 0) is
 // discarded the same way any other incompatible snapshot is.
@@ -35,7 +35,7 @@ const appconfigSnapshotVersion = 1
 // wrapper.
 //
 // The remaining fields are the raw (non-store.Table) state left on
-// InMemoryBackend -- see its doc comment in backend.go for why each stays
+// InMemoryBackend -- see its doc comment in store.go for why each stays
 // raw:
 //   - TagsByArn: values are plain map[string]string, not *T.
 //   - VersionCounters/DeploymentCounters: values are int32, not *T, and

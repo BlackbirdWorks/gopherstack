@@ -477,3 +477,30 @@ func applyExclusiveStartKey(
 
 	return candidate
 }
+
+// maxParallelScanSegments is the upper bound on TotalSegments for parallel Scan.
+const maxParallelScanSegments = 1_000_000
+
+// validateScanSegment returns a ValidationException when Segment or TotalSegments
+// are out of range. AWS requires: 0 ≤ Segment < TotalSegments, 1 ≤ TotalSegments ≤ 1_000_000.
+func validateScanSegment(segment, totalSegments int32) error {
+	if totalSegments < 1 || totalSegments > maxParallelScanSegments {
+		return NewValidationException(
+			fmt.Sprintf(
+				"TotalSegments must be between 1 and %d, got %d",
+				maxParallelScanSegments, totalSegments,
+			),
+		)
+	}
+
+	if segment < 0 || segment >= totalSegments {
+		return NewValidationException(
+			fmt.Sprintf(
+				"Segment must be between 0 and TotalSegments-1 (%d), got %d",
+				totalSegments-1, segment,
+			),
+		)
+	}
+
+	return nil
+}

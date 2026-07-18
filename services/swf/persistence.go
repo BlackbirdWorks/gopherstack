@@ -25,7 +25,7 @@ const swfSnapshotVersion = 1
 // activeActivityTaskDTO and activeDecisionTaskDTO wrap the "dirty"
 // activeActivityTasks/activeDecisionTasks tables' records alongside the
 // taskToken identity those records intentionally exclude from JSON
-// (`json:"-"` on TaskToken -- see backend.go) for round-tripping through the
+// (`json:"-"` on TaskToken -- see models.go) for round-tripping through the
 // ephemeral persistence registry below, the same technique services/ses's
 // identitySnapshot and services/codeartifact's regionalDTO use.
 type activeActivityTaskDTO struct {
@@ -77,7 +77,7 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 // plus the two DTO tables built above for the "dirty" activeActivityTasks/
 // activeDecisionTasks. History, ActivityQueues, and DecisionQueues stay plain
 // maps by design (ORDER-SENSITIVE event histories and FIFO task queues --
-// see the InMemoryBackend doc comment in backend.go); only History and Tags
+// see the InMemoryBackend doc comment in store.go); only History and Tags
 // were ever part of the pre-Phase-3.3 snapshot, and that persisted/ephemeral
 // split is preserved unchanged here: ActivityQueues/DecisionQueues remain
 // ephemeral (never written to or read from a snapshot).

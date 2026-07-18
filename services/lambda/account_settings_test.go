@@ -15,7 +15,7 @@ import (
 // AccountUsage — FunctionCount and TotalCodeSize
 // ============================================================
 
-func TestBatch3_AccountUsage_FunctionCount_Increments(t *testing.T) {
+func TestAccountUsage_FunctionCount_Increments(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -40,7 +40,7 @@ func TestBatch3_AccountUsage_FunctionCount_Increments(t *testing.T) {
 	assert.Equal(t, 2, s2.AccountUsage.FunctionCount)
 }
 
-func TestBatch3_AccountUsage_AccountLimit_Fields(t *testing.T) {
+func TestAccountUsage_AccountLimit_Fields(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -58,9 +58,9 @@ func TestBatch3_AccountUsage_AccountLimit_Fields(t *testing.T) {
 	assert.Positive(t, s.AccountLimit.CodeSizeZipped)
 }
 
-// TestAuditLambda_GetAccountSettings_UnreservedConcurrency verifies
+// TestGetAccountSettings_UnreservedConcurrency verifies
 // UnreservedConcurrentExecutions decreases when reserved concurrency is set.
-func TestAuditLambda_GetAccountSettings_UnreservedConcurrency(t *testing.T) {
+func TestGetAccountSettings_UnreservedConcurrency(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -122,7 +122,7 @@ func TestAuditLambda_GetAccountSettings_UnreservedConcurrency(t *testing.T) {
 
 // --- GetAccountSettings tests ---
 
-func TestNewOps_GetAccountSettings(t *testing.T) {
+func TestGetAccountSettings(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -140,7 +140,7 @@ func TestNewOps_GetAccountSettings(t *testing.T) {
 	assert.GreaterOrEqual(t, out.AccountUsage.FunctionCount, 0)
 }
 
-func TestNewOps_GetAccountSettings_FunctionCount(t *testing.T) {
+func TestGetAccountSettings_FunctionCount(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)

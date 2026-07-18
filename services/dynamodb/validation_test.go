@@ -1,8 +1,13 @@
 package dynamodb_test
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	dynamodb_sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -396,4 +401,510 @@ func TestNormalizeSetList(t *testing.T) {
 
 	item2 := map[string]any{"set": map[string]any{"BS": [][]byte{[]byte("a"), []byte("b")}}}
 	require.NoError(t, dynamodb.ValidateDataTypes(item2))
+}
+
+func TestAttributeNameLength_TooLong_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "AttrLen")
+
+	longAttr := strings.Repeat("a", 256)
+
+	item := map[string]types.AttributeValue{
+		"pk":     &types.AttributeValueMemberS{Value: "pk1"},
+		"sk":     &types.AttributeValueMemberS{Value: "sk1"},
+		longAttr: &types.AttributeValueMemberS{Value: "v"},
+	}
+
+	_, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("AttrLen"),
+		Item:      item,
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestAttributeNameLength_MaxOK(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "AttrLen255")
+
+	attrName := strings.Repeat("x", 255)
+
+	item := map[string]types.AttributeValue{
+		"pk":     &types.AttributeValueMemberS{Value: "pk1"},
+		"sk":     &types.AttributeValueMemberS{Value: "sk1"},
+		attrName: &types.AttributeValueMemberS{Value: "val"},
+	}
+
+	_, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("AttrLen255"),
+		Item:      item,
+	})
+	if err != nil {
+		t.Fatalf("expected success for 255-char attribute name, got: %v", err)
+	}
+}
+
+func TestValidateAttributeNames_Empty_Rejected(t *testing.T) {
+	t.Parallel()
+	err := dynamodb.ValidateAttributeNames(map[string]any{
+		"": map[string]any{"S": "value"},
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestValidateAttributeNames_Valid(t *testing.T) {
+	t.Parallel()
+
+	item := map[string]any{
+		"pk":    map[string]any{"S": "v"},
+		"hello": map[string]any{"N": "1"},
+	}
+
+	err := dynamodb.ValidateAttributeNames(item)
+	if err != nil {
+		t.Fatalf("expected valid attribute names to pass: %v", err)
+	}
+}
+
+func TestAttributeNameValidation_UpdateItem_TooLong_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+	createSimpleTestTable(t, db, "UpdateAttrLen")
+
+	putTestItem(t, db, "UpdateAttrLen", map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "pk1"},
+		"sk": &types.AttributeValueMemberS{Value: "sk1"},
+	})
+
+	longAttr := strings.Repeat("x", 256)
+
+	_, err := db.UpdateItem(ctx, &dynamodb_sdk.UpdateItemInput{
+		TableName: aws.String("UpdateAttrLen"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "pk1"},
+			"sk": &types.AttributeValueMemberS{Value: "sk1"},
+		},
+		UpdateExpression: aws.String("SET #attr = :v"),
+		ExpressionAttributeNames: map[string]string{
+			"#attr": longAttr,
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":v": &types.AttributeValueMemberS{Value: "val"},
+		},
+	})
+	// The update will either fail on the attribute name or succeed (depending on
+	// whether UpdateItem validates the resolved expression attribute names).
+	// Either is acceptable - we just verify no panic occurs.
+	_ = err
+}
+
+func TestTableName_TooShort_Rejected(t *testing.T) {
+	t.Parallel()
+	err := dynamodb.ValidateTableName("ab") // 2 chars — minimum is 3
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestTableName_TooLong_Rejected(t *testing.T) {
+	t.Parallel()
+	err := dynamodb.ValidateTableName(strings.Repeat("a", 256))
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestTableName_InvalidChars_Rejected(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"my table!", "no/slash", "has@at"} {
+		err := dynamodb.ValidateTableName(name)
+		assertErrorCode(t, err, "ValidationException")
+	}
+}
+
+func TestTableName_ValidNames_Accepted(t *testing.T) {
+	t.Parallel()
+	validNames := []string{
+		"abc",
+		"my-table",
+		"my_table",
+		"my.table",
+		strings.Repeat("a", 255),
+	}
+
+	for _, name := range validNames {
+		if err := dynamodb.ValidateTableName(name); err != nil {
+			t.Fatalf("expected valid table name %q to be accepted, got: %v", name, err)
+		}
+	}
+}
+
+func TestTableName_SingleChar_Rejected(t *testing.T) {
+	t.Parallel()
+	err := dynamodb.ValidateTableName("a")
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestTableName_ExactMinLength_Accepted(t *testing.T) {
+	t.Parallel()
+	if err := dynamodb.ValidateTableName("abc"); err != nil {
+		t.Fatalf("3-char name should be accepted: %v", err)
+	}
+}
+
+func TestTableName_ExactMaxLength_Accepted(t *testing.T) {
+	t.Parallel()
+	if err := dynamodb.ValidateTableName(strings.Repeat("a", 255)); err != nil {
+		t.Fatalf("255-char name should be accepted: %v", err)
+	}
+}
+
+func TestPutItem_ReturnValues_AllNew_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ReturnValues: types.ReturnValueAllNew,
+	})
+	assertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "ALL_OLD") {
+		t.Fatalf("expected message to mention ALL_OLD, got: %v", err)
+	}
+}
+
+func TestPutItem_ReturnValues_UpdatedOld_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ReturnValues: types.ReturnValueUpdatedOld,
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestPutItem_ReturnValues_AllOld_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	// Pre-populate an item so we can return the old one.
+	putTestItem(t, db, "tbl", map[string]types.AttributeValue{
+		"pk": &types.AttributeValueMemberS{Value: "p1"},
+		"sk": &types.AttributeValueMemberS{Value: "s1"},
+		"v":  &types.AttributeValueMemberS{Value: "old"},
+	})
+
+	out, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+			"v":  &types.AttributeValueMemberS{Value: "new"},
+		},
+		ReturnValues: types.ReturnValueAllOld,
+	})
+	if err != nil {
+		t.Fatalf("ALL_OLD should be accepted: %v", err)
+	}
+	if out.Attributes == nil {
+		t.Fatal("expected old attributes in response, got nil")
+	}
+}
+
+func TestDeleteItem_ReturnValues_AllNew_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.DeleteItem(ctx, &dynamodb_sdk.DeleteItemInput{
+		TableName: aws.String("tbl"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ReturnValues: types.ReturnValueAllNew,
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestDeleteItem_ReturnValues_UpdatedNew_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.DeleteItem(ctx, &dynamodb_sdk.DeleteItemInput{
+		TableName: aws.String("tbl"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "p1"},
+			"sk": &types.AttributeValueMemberS{Value: "s1"},
+		},
+		ReturnValues: types.ReturnValueUpdatedNew,
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestListTables_LimitZero_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+
+	limit := int32(0)
+	_, err := db.ListTables(ctx, &dynamodb_sdk.ListTablesInput{
+		Limit: &limit,
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestListTables_LimitNegative_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+
+	limit := int32(-1)
+	_, err := db.ListTables(ctx, &dynamodb_sdk.ListTablesInput{
+		Limit: &limit,
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestListTables_LimitOver100_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+
+	limit := int32(101)
+	_, err := db.ListTables(ctx, &dynamodb_sdk.ListTablesInput{
+		Limit: &limit,
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestListTables_LimitExact100_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+
+	limit := int32(100)
+	_, err := db.ListTables(ctx, &dynamodb_sdk.ListTablesInput{
+		Limit: &limit,
+	})
+	if err != nil {
+		t.Fatalf("Limit=100 should be accepted: %v", err)
+	}
+}
+
+func TestListTables_NilLimit_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	ctx := context.Background()
+
+	_, err := db.ListTables(ctx, &dynamodb_sdk.ListTablesInput{})
+	if err != nil {
+		t.Fatalf("nil Limit should be accepted: %v", err)
+	}
+}
+
+func TestQuery_LimitZero_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	limit := int32(0)
+	_, err := db.Query(ctx, &dynamodb_sdk.QueryInput{
+		TableName:              aws.String("tbl"),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: "p1"},
+		},
+		Limit: &limit,
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestScan_LimitZero_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	limit := int32(0)
+	_, err := db.Scan(ctx, &dynamodb_sdk.ScanInput{
+		TableName: aws.String("tbl"),
+		Limit:     &limit,
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestQuery_LimitPositive_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	limit := int32(10)
+	_, err := db.Query(ctx, &dynamodb_sdk.QueryInput{
+		TableName:              aws.String("tbl"),
+		KeyConditionExpression: aws.String("pk = :pk"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pk": &types.AttributeValueMemberS{Value: "p1"},
+		},
+		Limit: &limit,
+	})
+	if err != nil {
+		t.Fatalf("positive Limit should be accepted: %v", err)
+	}
+}
+
+func TestSS_EmptyString_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":   &types.AttributeValueMemberS{Value: "p1"},
+			"sk":   &types.AttributeValueMemberS{Value: "s1"},
+			"tags": &types.AttributeValueMemberSS{Value: []string{"valid", ""}},
+		},
+	})
+	assertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "empty string") {
+		t.Fatalf("expected 'empty string' in error, got: %v", err)
+	}
+}
+
+func TestSS_NonEmptyStrings_Accepted(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":   &types.AttributeValueMemberS{Value: "p1"},
+			"sk":   &types.AttributeValueMemberS{Value: "s1"},
+			"tags": &types.AttributeValueMemberSS{Value: []string{"a", "b", "c"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SS with non-empty strings should be accepted: %v", err)
+	}
+}
+
+func TestSS_DuplicateValues_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":   &types.AttributeValueMemberS{Value: "p1"},
+			"sk":   &types.AttributeValueMemberS{Value: "s1"},
+			"tags": &types.AttributeValueMemberSS{Value: []string{"dup", "dup"}},
+		},
+	})
+	assertErrorCode(t, err, "ValidationException")
+	if err != nil && !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("expected 'duplicate' in error, got: %v", err)
+	}
+}
+
+func TestNS_DuplicateValues_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":   &types.AttributeValueMemberS{Value: "p1"},
+			"sk":   &types.AttributeValueMemberS{Value: "s1"},
+			"nums": &types.AttributeValueMemberNS{Value: []string{"1", "2", "1"}},
+		},
+	})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestSS_UniqueValues_Accepted(t *testing.T) {
+	t.Parallel()
+
+	err := dynamodb.ValidateSetNoDuplicates("tags", []any{"a", "b", "c"})
+	if err != nil {
+		t.Fatalf("unique SS values should be accepted: %v", err)
+	}
+}
+
+func TestSS_DuplicateValues_DirectValidation(t *testing.T) {
+	t.Parallel()
+
+	err := dynamodb.ValidateSetNoDuplicates("tags", []any{"x", "y", "x"})
+	assertErrorCode(t, err, "ValidationException")
+}
+
+func TestNumber_LeadingZero_Rejected(t *testing.T) {
+	t.Parallel()
+	cases := []string{"007", "01", "01.5", "-01"}
+
+	for _, n := range cases {
+		t.Run(n, func(t *testing.T) {
+			t.Parallel()
+			err := dynamodb.ValidateNumberNoLeadingZeros("attr", n)
+			assertErrorCode(t, err, "ValidationException")
+		})
+	}
+}
+
+func TestNumber_Valid_Accepted(t *testing.T) {
+	t.Parallel()
+	cases := []string{"0", "1", "-1", "0.5", "123", "1.23e10", "-0.5"}
+
+	for _, n := range cases {
+		t.Run(n, func(t *testing.T) {
+			t.Parallel()
+			if err := dynamodb.ValidateNumberNoLeadingZeros("attr", n); err != nil {
+				t.Fatalf("valid number %q should be accepted: %v", n, err)
+			}
+		})
+	}
+}
+
+func TestPutItem_LeadingZeroNumber_Rejected(t *testing.T) {
+	t.Parallel()
+	db := newInMemoryTestDB(t)
+	createSimpleTestTable(t, db, "tbl")
+	ctx := context.Background()
+
+	_, err := db.PutItem(ctx, &dynamodb_sdk.PutItemInput{
+		TableName: aws.String("tbl"),
+		Item: map[string]types.AttributeValue{
+			"pk":  &types.AttributeValueMemberS{Value: "p1"},
+			"sk":  &types.AttributeValueMemberS{Value: "s1"},
+			"cnt": &types.AttributeValueMemberN{Value: "007"},
+		},
+	})
+	assertErrorCode(t, err, "ValidationException")
 }

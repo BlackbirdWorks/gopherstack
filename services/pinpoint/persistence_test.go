@@ -45,3 +45,189 @@ func Test_Handler_SnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "handler-app", got.Name)
 }
+
+func TestSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
+
+	app, err := b.CreateApp("us-east-1", "123456789012", "snap-app", map[string]string{"env": "test"})
+	require.NoError(t, err)
+
+	_, err = b.CreateCampaign("us-east-1", "123456789012", app.ID, pinpoint.ExportedCreateCampaignRequest{
+		Name:      "snap-campaign",
+		SegmentID: "seg-1",
+	})
+	require.NoError(t, err)
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	assert.Equal(t, 1, pinpoint.AppCount(b2))
+	assert.Equal(t, 1, pinpoint.CampaignCount(b2))
+
+	// ARN index should be rebuilt after restore.
+	assert.Equal(t, pinpoint.ARNIndexSize(b2), pinpoint.ARNIndexSize(b))
+}
+
+func TestSnapshotRestoreEmpty(t *testing.T) {
+	t.Parallel()
+
+	b := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	assert.Equal(t, 0, pinpoint.AppCount(b2))
+}
+
+func TestRestoreInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	b := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
+	err := b.Restore(t.Context(), []byte("not-json"))
+	require.Error(t, err)
+}
+
+// ──────────────────────────────────────────────────
+// Reset
+// ──────────────────────────────────────────────────
+
+func TestSnapshotRestoreARNIndexIntegrity(t *testing.T) {
+	t.Parallel()
+
+	b := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
+
+	app, err := b.CreateApp("us-east-1", "123456789012", "snap-int-app", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateCampaign("us-east-1", "123456789012", app.ID,
+		pinpoint.ExportedCreateCampaignRequest{Name: "snap-int-campaign"})
+	require.NoError(t, err)
+
+	_, err = b.CreateJourney("us-east-1", "123456789012", app.ID,
+		pinpoint.ExportedCreateJourneyRequest{Name: "snap-int-journey"})
+	require.NoError(t, err)
+
+	_, err = b.CreateSegment("us-east-1", "123456789012", app.ID,
+		pinpoint.ExportedCreateSegmentRequest{Name: "snap-int-segment"})
+	require.NoError(t, err)
+
+	originalARNSize := pinpoint.ARNIndexSize(b)
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := pinpoint.NewInMemoryBackend("us-east-1", "123456789012")
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	// ARN index should be fully rebuilt.
+	assert.Equal(t, originalARNSize, pinpoint.ARNIndexSize(b2))
+
+	// Tags on restored app should work via ARN index.
+	require.NoError(t, b2.TagResource(app.ARN, map[string]string{"restored": "true"}))
+	tags, err := b2.ListTagsForResource(app.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "true", tags["restored"])
+}
+
+// TestSnapshotRestore_FullStateRoundTrip exercises a Snapshot->Restore round
+// trip across every store.Table the Phase 3.3 datalayer conversion produced,
+// covering both the persisted resource kinds (apps, campaigns, segments, the
+// four templates, export/import jobs, journeys, recommenders) and the
+// resource kinds that were never part of a persisted snapshot before the
+// conversion (voice templates, endpoints, event streams, channels) to confirm
+// the persisted/non-persisted split was preserved exactly.
+func TestSnapshotRestore_FullStateRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	region, accountID := "us-east-1", "123456789012"
+	b := pinpoint.NewInMemoryBackend(region, accountID)
+
+	app, err := b.CreateApp(region, accountID, "full-state-app", map[string]string{"env": "test"})
+	require.NoError(t, err)
+
+	_, err = b.CreateCampaign(region, accountID, app.ID, pinpoint.ExportedCreateCampaignRequest{Name: "c1"})
+	require.NoError(t, err)
+
+	_, err = b.CreateSegment(region, accountID, app.ID, pinpoint.ExportedCreateSegmentRequest{Name: "s1"})
+	require.NoError(t, err)
+
+	_, err = b.CreateJourney(region, accountID, app.ID, pinpoint.ExportedCreateJourneyRequest{Name: "j1"})
+	require.NoError(t, err)
+
+	_, err = b.CreateEmailTemplate(region, accountID, "email-t1",
+		pinpoint.ExportedCreateEmailTemplateRequest{Subject: "hi"})
+	require.NoError(t, err)
+
+	_, err = b.CreateInAppTemplate(region, accountID, "inapp-t1", pinpoint.ExportedCreateInAppTemplateRequest{})
+	require.NoError(t, err)
+
+	_, err = b.CreatePushTemplate(region, accountID, "push-t1", pinpoint.ExportedCreatePushTemplateRequest{})
+	require.NoError(t, err)
+
+	_, err = b.CreateSmsTemplate(region, accountID, "sms-t1", pinpoint.ExportedCreateSmsTemplateRequest{})
+	require.NoError(t, err)
+
+	_, err = b.CreateExportJob(region, accountID, app.ID,
+		pinpoint.ExportedCreateExportJobRequest{RoleArn: "role-1"})
+	require.NoError(t, err)
+
+	_, err = b.CreateImportJob(region, accountID, app.ID,
+		pinpoint.ExportedCreateImportJobRequest{RoleArn: "role-1", S3Url: "s3://bucket/key"})
+	require.NoError(t, err)
+
+	_, err = b.CreateRecommenderConfiguration(pinpoint.ExportedCreateRecommenderConfigRequest{
+		Name:                         "rec-1",
+		RecommendationProviderIDType: "PINPOINT_ENDPOINT_ID",
+	})
+	require.NoError(t, err)
+
+	// Resource kinds that have never been part of a persisted snapshot.
+	require.NoError(t, pinpoint.CreateVoiceTemplateForTest(b, region, accountID, "voice-t1", "hello"))
+	require.NoError(t, pinpoint.UpdateEndpointForTest(b, app.ID, "endpoint-1", "user@example.com"))
+	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/x"
+	require.NoError(t, pinpoint.PutEventStreamForTest(b, app.ID, streamARN, "role-1"))
+	b.UpsertChannel(app.ID, "EMAIL", true, nil)
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := pinpoint.NewInMemoryBackend(region, accountID)
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	// Persisted resource kinds must all survive the round trip.
+	assert.Equal(t, 1, pinpoint.AppCount(b2))
+	assert.Equal(t, 1, pinpoint.CampaignCount(b2))
+	// CreateImportJob materialises an additional IMPORT-type segment (AWS
+	// behaviour), so the explicit segment created above plus that one gives 2.
+	assert.Equal(t, 2, pinpoint.SegmentCount(b2))
+	assert.Equal(t, 1, pinpoint.JourneyCount(b2))
+	assert.Equal(t, 1, pinpoint.EmailTemplateCount(b2))
+	assert.Equal(t, 1, pinpoint.InAppTemplateCount(b2))
+	assert.Equal(t, 1, pinpoint.PushTemplateCount(b2))
+	assert.Equal(t, 1, pinpoint.SmsTemplateCount(b2))
+	assert.Equal(t, 1, pinpoint.ExportJobCount(b2))
+	assert.Equal(t, 1, pinpoint.ImportJobCount(b2))
+	assert.Equal(t, 1, pinpoint.RecommenderCount(b2))
+
+	// Non-persisted resource kinds must NOT survive: this is the historical
+	// behaviour, not a regression, and the round trip must preserve it.
+	_, err = b2.GetVoiceTemplate("voice-t1")
+	require.ErrorIs(t, err, pinpoint.ErrAppNotFound)
+
+	_, err = b2.GetEndpoint(app.ID, "endpoint-1")
+	require.ErrorIs(t, err, pinpoint.ErrAppNotFound)
+
+	_, err = b2.GetEventStream(app.ID)
+	require.ErrorIs(t, err, pinpoint.ErrAppNotFound)
+
+	// GetChannel synthesises a disabled default when no channel is stored,
+	// which is what a never-persisted channel must look like post-restore.
+	ch := b2.GetChannel(app.ID, "EMAIL")
+	assert.False(t, ch.Enabled)
+}

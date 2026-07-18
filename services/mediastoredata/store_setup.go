@@ -12,7 +12,7 @@ package mediastoredata
 // states is nested per-region (map[string]map[string]*Object -- outer key is
 // region) because MediaStore Data objects are isolated per region: every
 // backend operation resolves the caller's region from the request context
-// (getRegion in backend.go) and operates only on that region's nested store,
+// (getRegion in store.go) and operates only on that region's nested store,
 // and object paths carry no region component of their own. It converts to
 // map[string]*store.Table[Object] (region -> Table) with a lazy per-region
 // accessor ([InMemoryBackend.state]) plus a non-creating read accessor

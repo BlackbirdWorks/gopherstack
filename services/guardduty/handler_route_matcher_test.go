@@ -5,7 +5,7 @@ package guardduty_test
 // whether a request belongs to this service at all, and (b) which operation
 // it maps to.
 //
-// Every other test in this package drives requests through auditDo, which
+// Every other test in this package drives requests through doRequest, which
 // calls h.Handler()(c) directly and so bypasses RouteMatcher and the
 // method-aware branch of ExtractOperation's underlying parseRESTPath
 // entirely. That means a routing bug -- an op registered for the wrong HTTP

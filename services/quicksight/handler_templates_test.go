@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/quicksight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -308,4 +309,187 @@ func TestQuickSight_DeleteTemplate_SpecificVersion(t *testing.T) {
 	// Version 1 itself is gone.
 	describeV1Rec := doRequest(t, h, http.MethodGet, accountPath("/templates/dvtpl?version-number=1"), nil)
 	assert.Equal(t, http.StatusNotFound, describeV1Rec.Code)
+}
+
+// ---- Template tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Templates(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create template",
+			method:     http.MethodPost,
+			path:       accountPath("/templates/t1"),
+			body:       map[string]any{"Name": "Tpl1"},
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateId",
+		},
+		{
+			name:       "describe template",
+			method:     http.MethodGet,
+			path:       accountPath("/templates/t1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "Template",
+		},
+		{
+			name:       "update template",
+			method:     http.MethodPut,
+			path:       accountPath("/templates/t1"),
+			body:       map[string]any{"Name": "TplRenamed"},
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateId",
+		},
+		{
+			name:       "list templates",
+			method:     http.MethodGet,
+			path:       accountPath("/templates"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateSummaryList",
+		},
+		{
+			name:       "describe template definition",
+			method:     http.MethodGet,
+			path:       accountPath("/templates/t1/definition"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateId",
+		},
+		{
+			name:       "describe template permissions",
+			method:     http.MethodGet,
+			path:       accountPath("/templates/t1/permissions"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateId",
+		},
+		{
+			name:       "update template permissions",
+			method:     http.MethodPut,
+			path:       accountPath("/templates/t1/permissions"),
+			body:       map[string]any{"GrantPermissions": []any{}, "RevokePermissions": []any{}},
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateId",
+		},
+		{
+			name:       "create template alias",
+			method:     http.MethodPost,
+			path:       accountPath("/templates/t1/aliases/LATEST"),
+			body:       map[string]any{"TemplateVersionNumber": float64(1)},
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateAlias",
+		},
+		{
+			name:       "describe template alias",
+			method:     http.MethodGet,
+			path:       accountPath("/templates/t1/aliases/LATEST"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateAlias",
+		},
+		{
+			name:       "list template aliases",
+			method:     http.MethodGet,
+			path:       accountPath("/templates/t1/aliases"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateAliasList",
+		},
+		{
+			name:       "list template versions",
+			method:     http.MethodGet,
+			path:       accountPath("/templates/t1/versions"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateVersionSummaryList",
+		},
+		{
+			name:       "update template alias",
+			method:     http.MethodPut,
+			path:       accountPath("/templates/t1/aliases/LATEST"),
+			body:       map[string]any{"TemplateVersionNumber": float64(1)},
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateAlias",
+		},
+		{
+			name:       "delete template alias",
+			method:     http.MethodDelete,
+			path:       accountPath("/templates/t1/aliases/LATEST"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateId",
+		},
+		{
+			name:       "delete template",
+			method:     http.MethodDelete,
+			path:       accountPath("/templates/t1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TemplateId",
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}
+
+func TestQuickSight_TemplateRoundTrip(t *testing.T) { //nolint:paralleltest // shared handler state.
+	b := newTestBackend(t)
+	h := quicksight.NewHandler(b)
+
+	steps := []roundTripStep{
+		{
+			name:         "describe missing template returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/templates/rtt1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+		{
+			name:         "create template",
+			method:       http.MethodPost,
+			path:         accountPath("/templates/rtt1"),
+			body:         map[string]any{"Name": "RT Tpl"},
+			wantStatus:   http.StatusOK,
+			wantContains: "TemplateId",
+		},
+		{
+			name:         "describe reflects created template",
+			method:       http.MethodGet,
+			path:         accountPath("/templates/rtt1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "Template",
+		},
+		{
+			name:         "list templates includes template",
+			method:       http.MethodGet,
+			path:         accountPath("/templates"),
+			wantStatus:   http.StatusOK,
+			wantContains: "TemplateSummaryList",
+		},
+		{
+			name:         "delete template",
+			method:       http.MethodDelete,
+			path:         accountPath("/templates/rtt1"),
+			wantStatus:   http.StatusOK,
+			wantContains: "TemplateId",
+		},
+		{
+			name:         "describe after delete returns not found",
+			method:       http.MethodGet,
+			path:         accountPath("/templates/rtt1"),
+			wantStatus:   http.StatusNotFound,
+			wantContains: "Message",
+		},
+	}
+
+	runRoundTrip(t, h, steps)
+	assert.Equal(t, 0, quicksight.TemplateCount(b), "template removed after delete")
 }

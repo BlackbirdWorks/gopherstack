@@ -38,7 +38,7 @@ func pipelineKeyFn(v *Pipeline) string { return v.Name }
 // registerAllTables registers every backend resource table exactly once. It
 // must be called during construction only, immediately after b.registry is
 // created -- store.Register panics on a duplicate name, so runtime resets go
-// through b.registry.ResetAll() instead (see InMemoryBackend.Reset in backend.go).
+// through b.registry.ResetAll() instead (see InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	b.channels = store.Register(b.registry, "channels", store.New(channelKeyFn))
 	b.datastores = store.Register(b.registry, "datastores", store.New(datastoreKeyFn))

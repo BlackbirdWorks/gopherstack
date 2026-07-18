@@ -3,11 +3,15 @@ package dynamodb_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -705,4 +709,168 @@ func doRequest(
 	require.NoError(t, err)
 
 	return rec
+}
+
+func TestBatchExecuteStatement_Limit25(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+	ctx := t.Context()
+	createSimplePPRTable(t, db, "LimitTable")
+
+	tests := []struct {
+		name      string
+		errSubstr string
+		count     int
+		wantErr   bool
+	}{
+		{
+			name:    "exactly_25_statements",
+			count:   25,
+			wantErr: false,
+		},
+		{
+			name:      "26_statements_rejected",
+			count:     26,
+			wantErr:   true,
+			errSubstr: "statements",
+		},
+		{
+			name:      "100_statements_rejected",
+			count:     100,
+			wantErr:   true,
+			errSubstr: "statements",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stmts := make([]types.BatchStatementRequest, tt.count)
+			for i := range stmts {
+				stmts[i] = types.BatchStatementRequest{
+					Statement: aws.String(
+						fmt.Sprintf("SELECT * FROM \"LimitTable\" WHERE pk = '%d'", i),
+					),
+				}
+			}
+
+			_, err := db.BatchExecuteStatement(ctx, &sdk.BatchExecuteStatementInput{
+				Statements: stmts,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// (2) ExportTableToPointInTime: unique ARN per call
+
+func TestPartiQLKeySchemaCache_CachesResult(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+	createSimplePPRTable(t, db, "CacheTestTable")
+	ctx := t.Context()
+
+	// First call — populates the cache.
+	ks1, err := db.GetKeySchemaForPartiQLForTest(ctx, "CacheTestTable")
+	require.NoError(t, err)
+	require.NotNil(t, ks1)
+
+	// Second call — should be served from cache without error.
+	ks2, err := db.GetKeySchemaForPartiQLForTest(ctx, "CacheTestTable")
+	require.NoError(t, err)
+	require.NotNil(t, ks2)
+
+	// Both calls return the same schema.
+	assert.Equal(t, ks1, ks2)
+}
+
+func TestPartiQLKeySchemaCache_TableNotFound(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+
+	_, err := db.GetKeySchemaForPartiQLForTest(t.Context(), "DoesNotExist")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// (13) sweepTxnTokens two-phase: tokens removed under write lock
+
+// TestPartiQL_UpdateREMOVE verifies REMOVE clause in PartiQL UPDATE.
+func TestPartiQL_UpdateREMOVE(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		seed        map[string]any
+		stmt        string
+		wantPresent []string // attrs that must still be in item
+		wantAbsent  []string // attrs that must not be in item
+	}{
+		{
+			name: "REMOVE only removes specified attribute",
+			seed: map[string]any{
+				"pk":     map[string]string{"S": "r1"},
+				"keep":   map[string]string{"S": "kept"},
+				"remove": map[string]string{"S": "gone"},
+			},
+			stmt:        `UPDATE "PQTBL" REMOVE remove WHERE pk='r1'`,
+			wantPresent: []string{"pk", "keep"},
+			wantAbsent:  []string{"remove"},
+		},
+		{
+			name: "SET and REMOVE combined",
+			seed: map[string]any{
+				"pk":     map[string]string{"S": "r2"},
+				"keep":   map[string]string{"S": "v1"},
+				"remove": map[string]string{"S": "old"},
+			},
+			stmt:        `UPDATE "PQTBL" SET keep='v2' REMOVE remove WHERE pk='r2'`,
+			wantPresent: []string{"pk", "keep"},
+			wantAbsent:  []string{"remove"},
+		},
+		{
+			name: "REMOVE non-existent attribute is no-op",
+			seed: map[string]any{
+				"pk": map[string]string{"S": "r3"},
+			},
+			stmt:        `UPDATE "PQTBL" REMOVE missing WHERE pk='r3'`,
+			wantPresent: []string{"pk"},
+			wantAbsent:  []string{"missing"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerWithTable(t, "PQTBL")
+			seedItemViaHandler(t, h, "PQTBL", tc.seed)
+
+			code, _ := invokeOp(t, h, "ExecuteStatement", map[string]any{"Statement": tc.stmt})
+			assert.Equal(t, 200, code, "ExecuteStatement must succeed")
+
+			pkVal := tc.seed["pk"].(map[string]string)["S"]
+			item := getItemAttrsViaHandler(t, h, "PQTBL", pkVal)
+			require.NotNil(t, item, "item must exist after UPDATE")
+
+			for _, attr := range tc.wantPresent {
+				_, ok := item[attr]
+				assert.True(t, ok, "attribute %q must be present", attr)
+			}
+			for _, attr := range tc.wantAbsent {
+				_, ok := item[attr]
+				assert.False(t, ok, "attribute %q must be absent after REMOVE", attr)
+			}
+		})
+	}
 }

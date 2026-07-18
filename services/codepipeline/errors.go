@@ -1,0 +1,34 @@
+package codepipeline
+
+import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
+
+var (
+	// ErrNotFound is returned when a pipeline resource does not exist.
+	ErrNotFound = awserr.New("PipelineNotFoundException", awserr.ErrNotFound)
+	// ErrPipelineNameInUse is returned when a pipeline with the same name already exists.
+	ErrPipelineNameInUse = awserr.New("PipelineNameInUseException", awserr.ErrAlreadyExists)
+	// ErrAlreadyExists is returned when a non-pipeline resource with the same key already exists.
+	ErrAlreadyExists = awserr.New("InvalidStructureException", awserr.ErrAlreadyExists)
+	// ErrActionTypeNotFound is returned when a requested custom action type does not exist.
+	ErrActionTypeNotFound = awserr.New("ActionTypeNotFoundException", awserr.ErrNotFound)
+	// ErrJobNotFound is returned when a requested job does not exist.
+	ErrJobNotFound = awserr.New("JobNotFoundException", awserr.ErrNotFound)
+	// ErrWebhookNotFound is returned when a requested webhook does not exist.
+	ErrWebhookNotFound = awserr.New("WebhookNotFoundException", awserr.ErrNotFound)
+	// ErrValidation is returned when request input fails validation.
+	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrConflict is returned on optimistic-concurrency version mismatch.
+	ErrConflict = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrResourceInUse is returned when a resource is referenced by another resource.
+	ErrResourceInUse = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	// ErrResourceNotFound is returned for non-pipeline ARNs (e.g. webhook ARNs).
+	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrStageNotFound is returned when a stage name does not exist in a pipeline.
+	ErrStageNotFound = awserr.New("StageNotFoundException", awserr.ErrNotFound)
+	// ErrInvalidStructure is returned for structural pipeline validation errors.
+	ErrInvalidStructure = awserr.New("InvalidStructureException", awserr.ErrInvalidParameter)
+	// ErrExecutionNotFound is returned when a requested pipeline execution ID does not exist.
+	ErrExecutionNotFound = awserr.New("PipelineExecutionNotFoundException", awserr.ErrNotFound)
+	// ErrVersionNotFound is returned when a requested pipeline version does not exist.
+	ErrVersionNotFound = awserr.New("PipelineVersionNotFoundException", awserr.ErrNotFound)
+)

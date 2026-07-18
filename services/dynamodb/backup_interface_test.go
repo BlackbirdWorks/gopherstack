@@ -748,8 +748,8 @@ func TestHandler_UpdateTable_Via_Handler(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestHandler_RestoreTableToPointInTime_Coverage adds coverage for PITR error paths.
-func TestHandler_RestoreTableToPointInTime_Coverage(t *testing.T) {
+// TestHandler_RestoreTableToPointInTime adds coverage for PITR error paths.
+func TestHandler_RestoreTableToPointInTime(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

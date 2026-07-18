@@ -3,10 +3,12 @@ package s3
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/md5" //nolint:gosec // G501: MD5 is required by the SSE-C key validation specification
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 )
 
 // Static SSE errors. The Go-style "wrapped static" pattern keeps err113 happy
@@ -18,6 +20,101 @@ var (
 
 // dataKeySize is the byte length of an AES-256 data encryption key.
 const dataKeySize = 32
+
+// headerSSEAlgorithm is the request header that names the SSE algorithm.
+const headerSSEAlgorithm = "X-Amz-Server-Side-Encryption"
+
+// headerSSEKMSKeyID is the request header for the KMS master key ID.
+const headerSSEKMSKeyID = "X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id"
+
+// headerSSECAlgorithm is the request header for SSE-C customer algorithm.
+const headerSSECAlgorithm = "X-Amz-Server-Side-Encryption-Customer-Algorithm"
+
+// headerSSECKey is the request header for the base64-encoded SSE-C customer key.
+const headerSSECKey = "X-Amz-Server-Side-Encryption-Customer-Key"
+
+// headerSSECKeyMD5 is the request header for the MD5 of the SSE-C customer key.
+const headerSSECKeyMD5 = "X-Amz-Server-Side-Encryption-Customer-Key-Md5"
+
+// sseInfo captures SSE parameters extracted from an HTTP request.
+type sseInfo struct {
+	// Algorithm is one of "AES256", "aws:kms", "aws:kms:dsse", or "" (none).
+	Algorithm string
+	// KMSKeyID is the KMS key ID, populated when Algorithm is aws:kms/dsse.
+	KMSKeyID string
+	// SSECAlgorithm is "AES256" when SSE-C is requested.
+	SSECAlgorithm string
+	// SSECKeyMD5 is the base64-encoded MD5 of the customer-supplied key.
+	SSECKeyMD5 string
+	// SSECKeyB64 is the base64-encoded raw customer key. Kept on the
+	// request-scoped sseInfo only — not persisted (json:"-") — so the backend
+	// can encrypt the body on PUT and the GET handler can decrypt when the
+	// caller re-supplies it.
+	SSECKeyB64 string `json:"-"`
+}
+
+// extractSSEInfo reads SSE-* request headers and validates SSE-C when present.
+// Returns an error when the SSE-C key MD5 does not match the supplied key.
+func extractSSEInfo(r *http.Request) (sseInfo, error) {
+	info := sseInfo{
+		Algorithm:     r.Header.Get(headerSSEAlgorithm),
+		KMSKeyID:      r.Header.Get(headerSSEKMSKeyID),
+		SSECAlgorithm: r.Header.Get(headerSSECAlgorithm),
+		SSECKeyMD5:    r.Header.Get(headerSSECKeyMD5),
+		SSECKeyB64:    r.Header.Get(headerSSECKey),
+	}
+
+	rawKey := r.Header.Get(headerSSECKey)
+	if rawKey == "" {
+		return info, nil
+	}
+
+	if err := validateSSECKey(rawKey, info.SSECKeyMD5); err != nil {
+		return sseInfo{}, err
+	}
+
+	return info, nil
+}
+
+// validateSSECKey decodes the base64 key and verifies the supplied MD5.
+func validateSSECKey(rawKeyB64, suppliedMD5B64 string) error {
+	keyBytes, err := base64.StdEncoding.DecodeString(rawKeyB64)
+	if err != nil {
+		return ErrInvalidArgument
+	}
+
+	if suppliedMD5B64 == "" {
+		return ErrInvalidArgument
+	}
+
+	sum := md5.Sum(keyBytes) //nolint:gosec // MD5 required by SSE-C specification
+	computedMD5 := base64.StdEncoding.EncodeToString(sum[:])
+
+	if computedMD5 != suppliedMD5B64 {
+		return ErrBadChecksum
+	}
+
+	return nil
+}
+
+// setSSEResponseHeaders writes the appropriate SSE response headers.
+func setSSEResponseHeaders(w http.ResponseWriter, info sseInfo) {
+	if info.Algorithm != "" {
+		w.Header().Set(headerSSEAlgorithm, info.Algorithm)
+	}
+
+	if info.KMSKeyID != "" {
+		w.Header().Set(headerSSEKMSKeyID, info.KMSKeyID)
+	}
+
+	if info.SSECAlgorithm != "" {
+		w.Header().Set(headerSSECAlgorithm, info.SSECAlgorithm)
+	}
+
+	if info.SSECKeyMD5 != "" {
+		w.Header().Set(headerSSECKeyMD5, info.SSECKeyMD5)
+	}
+}
 
 // encryptWithSSE applies envelope-style AES-256-GCM encryption to the supplied
 // plaintext when the request specified server-side encryption. Returns the

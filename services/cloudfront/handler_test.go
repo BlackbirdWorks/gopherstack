@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParity_ResponseHasCFIDHeader(t *testing.T) {
+func TestResponseHasCFIDHeader(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -137,8 +137,8 @@ func TestXMLResponseFormat(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestRefinement1_Reset verifies Reset() clears all backend state.
-func TestRefinement1_Reset(t *testing.T) {
+// TestHandlerReset verifies Reset() clears all backend state.
+func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

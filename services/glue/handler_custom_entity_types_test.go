@@ -11,7 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-func TestBatch2_CustomEntityType_CRUD(t *testing.T) {
+func TestCustomEntityType_CRUD_Basic(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -38,9 +38,9 @@ func TestBatch2_CustomEntityType_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestBatch2Accuracy_CreateCustomEntityType_Validation verifies that
+// TestCreateCustomEntityType_Validation verifies that
 // CreateCustomEntityType requires both Name and RegexString.
-func TestBatch2Accuracy_CreateCustomEntityType_Validation(t *testing.T) {
+func TestCreateCustomEntityType_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -88,7 +88,7 @@ func TestBatch2Accuracy_CreateCustomEntityType_Validation(t *testing.T) {
 	}
 }
 
-func TestBatch3_CustomEntityType_CRUD(t *testing.T) {
+func TestCustomEntityType_CRUD_TableDriven(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -168,7 +168,7 @@ func TestBatch3_CustomEntityType_CRUD(t *testing.T) {
 	}
 }
 
-func TestBatch3_CustomEntityType_RegexAndContextWords_Persist(t *testing.T) {
+func TestCustomEntityType_RegexAndContextWords_Persist(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -241,7 +241,7 @@ func TestCustomEntityType_ErrorPropagation(t *testing.T) {
 	}
 }
 
-func TestAccuracy_GetCustomEntityType_NotFound(t *testing.T) {
+func TestGetCustomEntityType_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -252,7 +252,7 @@ func TestAccuracy_GetCustomEntityType_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestAccuracy_GetCustomEntityType_Found(t *testing.T) {
+func TestGetCustomEntityType_Found(t *testing.T) {
 	t.Parallel()
 
 	b := glue.NewInMemoryBackend(testAccountID, testRegion)

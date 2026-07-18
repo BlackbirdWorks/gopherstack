@@ -19,7 +19,7 @@ import (
 // cli.go's generic setupPersistence never picked it up even though nothing
 // on the backend implemented persistence.Persistable either -- see the
 // Handler.Snapshot/Restore delegation at the bottom of this file, and the
-// Snapshot/Restore doc comment on StorageBackend in backend_iface.go), so
+// Snapshot/Restore doc comment on StorageBackend in interfaces.go), so
 // there is no legacy snapshot shape to be compatible with -- any snapshot
 // without a matching Version (including one with no version field, which
 // decodes as 0) is discarded the same way any other incompatible snapshot

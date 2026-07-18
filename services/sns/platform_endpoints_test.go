@@ -590,12 +590,12 @@ func TestApplicationTopicDeliveryDrainEmptyByDefault(t *testing.T) {
 	}
 }
 
-// TestBatch2_PublishToDisabledEndpointFails verifies that publishing to an
+// TestPublishToDisabledEndpointFails verifies that publishing to an
 // endpoint with Enabled=false returns ErrEndpointDisabled.
 func TestPublishToDisabledEndpointFails(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	app, err := b.CreatePlatformApplication("push-app", "GCM", map[string]string{
 		"PlatformCredential": "server-key",
 	})
@@ -613,12 +613,12 @@ func TestPublishToDisabledEndpointFails(t *testing.T) {
 	require.ErrorIs(t, err, sns.ErrEndpointDisabled)
 }
 
-// TestBatch2_PublishToEnabledEndpointSucceeds verifies that a re-enabled
+// TestPublishToEnabledEndpointSucceeds verifies that a re-enabled
 // endpoint (Enabled=true) accepts messages.
 func TestPublishToEnabledEndpointSucceeds(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	app, err := b.CreatePlatformApplication("push-app-en", "APNS", map[string]string{
 		"PlatformCredential": "cert-pem",
 		"PlatformPrincipal":  "key-pem",
@@ -637,12 +637,12 @@ func TestPublishToEnabledEndpointSucceeds(t *testing.T) {
 	assert.NotEmpty(t, msgID)
 }
 
-// TestBatch2_EndpointDisabledViaHandler verifies that the HTTP handler
+// TestEndpointDisabledViaHandler verifies that the HTTP handler
 // returns an EndpointDisabled error code.
 func TestEndpointDisabledViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	app, err := b.CreatePlatformApplication("handler-push-app", "FCM", map[string]string{
 		"PlatformCredential": "key",
 	})
@@ -653,7 +653,7 @@ func TestEndpointDisabledViaHandler(t *testing.T) {
 
 	require.NoError(t, b.SetEndpointAttributes(ep.EndpointArn, map[string]string{"Enabled": "false"}))
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":    {"Publish"},
 		"TargetArn": {ep.EndpointArn},
 		"Message":   {"push payload"},
@@ -663,7 +663,7 @@ func TestEndpointDisabledViaHandler(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "EndpointDisabled")
 }
 
-// TestBatch2_EndpointCreatedEventFired verifies that creating an endpoint
+// TestEndpointCreatedEventFired verifies that creating an endpoint
 // fires EventEndpointCreated to the configured topic.
 func TestEndpointCreatedEventFired(t *testing.T) {
 	t.Parallel()
@@ -676,7 +676,7 @@ func TestEndpointCreatedEventFired(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	// Create the event notification topic.
 	eventTopic, err := b.CreateTopic("endpoint-events", nil)
@@ -706,7 +706,7 @@ func TestEndpointCreatedEventFired(t *testing.T) {
 	}
 }
 
-// TestBatch2_EndpointDeletedEventFired verifies that deleting an endpoint
+// TestEndpointDeletedEventFired verifies that deleting an endpoint
 // fires EventEndpointDeleted to the configured topic.
 func TestEndpointDeletedEventFired(t *testing.T) {
 	t.Parallel()
@@ -719,7 +719,7 @@ func TestEndpointDeletedEventFired(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	eventTopic, err := b.CreateTopic("delete-events", nil)
 	require.NoError(t, err)
@@ -750,7 +750,7 @@ func TestEndpointDeletedEventFired(t *testing.T) {
 	}
 }
 
-// TestBatch2_EndpointUpdatedEventFired verifies that updating endpoint
+// TestEndpointUpdatedEventFired verifies that updating endpoint
 // attributes fires EventEndpointUpdated.
 func TestEndpointUpdatedEventFired(t *testing.T) {
 	t.Parallel()
@@ -763,7 +763,7 @@ func TestEndpointUpdatedEventFired(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	eventTopic, err := b.CreateTopic("update-events", nil)
 	require.NoError(t, err)
@@ -794,12 +794,12 @@ func TestEndpointUpdatedEventFired(t *testing.T) {
 	}
 }
 
-// TestBatch2_EventFiredToNonexistentTopicSilent verifies that a missing event
+// TestEventFiredToNonexistentTopicSilent verifies that a missing event
 // topic does not cause endpoint operations to fail.
 func TestEventFiredToNonexistentTopicSilent(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	app, err := b.CreatePlatformApplication("no-event-topic-app", "GCM", map[string]string{
 		"PlatformCredential":   "key",
@@ -813,12 +813,12 @@ func TestEventFiredToNonexistentTopicSilent(t *testing.T) {
 	assert.NotEmpty(t, ep.EndpointArn)
 }
 
-// TestBatch2_NoEventConfiguredNoFire verifies that endpoint operations complete
+// TestNoEventConfiguredNoFire verifies that endpoint operations complete
 // normally when no event topics are configured on the platform application.
 func TestNoEventConfiguredNoFire(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	app, err := b.CreatePlatformApplication("no-event-app", "ADM", map[string]string{
 		"PlatformCredential": "client-id",
@@ -834,12 +834,12 @@ func TestNoEventConfiguredNoFire(t *testing.T) {
 	require.NoError(t, b.DeleteEndpoint(ep.EndpointArn))
 }
 
-// TestBatch2_EndpointActiveCounts verifies that GetPlatformApplicationAttributes
+// TestEndpointActiveCounts verifies that GetPlatformApplicationAttributes
 // returns accurate EndpointActive and EndpointDisabled counts.
 func TestEndpointActiveCounts(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	app, err := b.CreatePlatformApplication("count-app", "GCM", map[string]string{
 		"PlatformCredential": "key",
 	})
@@ -870,11 +870,11 @@ func TestEndpointActiveCounts(t *testing.T) {
 	assert.Equal(t, "2", attrs["EndpointDisabled"])
 }
 
-// TestBatch2_EndpointCountsViaHandler verifies the counts are returned by the handler.
+// TestEndpointCountsViaHandler verifies the counts are returned by the handler.
 func TestEndpointCountsViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	app, err := b.CreatePlatformApplication("count-handler-app", "FCM", map[string]string{
 		"PlatformCredential": "key",
 	})
@@ -884,7 +884,7 @@ func TestEndpointCountsViaHandler(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, b.SetEndpointAttributes(ep.EndpointArn, map[string]string{"Enabled": "false"}))
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":                 {"GetPlatformApplicationAttributes"},
 		"PlatformApplicationArn": {app.PlatformApplicationArn},
 		"Version":                {"2010-03-31"},
@@ -894,12 +894,12 @@ func TestEndpointCountsViaHandler(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "EndpointDisabled")
 }
 
-// TestBatch2_EventAttributesStoredOnCreate verifies that event topic ARNs
+// TestEventAttributesStoredOnCreate verifies that event topic ARNs
 // set at CreatePlatformApplication time are returned via GetPlatformApplicationAttributes.
 func TestEventAttributesStoredOnCreate(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	eventTopicArn := "arn:aws:sns:us-east-1:000000000000:app-events"
 
 	app, err := b.CreatePlatformApplication("attrs-app", "GCM", map[string]string{
@@ -927,12 +927,12 @@ func TestEventAttributesStoredOnCreate(t *testing.T) {
 	assert.Equal(t, "50", attrs["SuccessFeedbackSampleRate"])
 }
 
-// TestBatch2_EventAttributesUpdatableViaSet verifies that event attributes can
+// TestEventAttributesUpdatableViaSet verifies that event attributes can
 // be updated via SetPlatformApplicationAttributes.
 func TestEventAttributesUpdatableViaSet(t *testing.T) {
 	t.Parallel()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 	app, err := b.CreatePlatformApplication("set-event-app", "FCM", map[string]string{
 		"PlatformCredential": "key",
 	})

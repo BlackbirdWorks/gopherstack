@@ -13,15 +13,29 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
+
+// --- Shared test helpers (used across the eks_test package) ---
 
 func newTestEKSHandler(t *testing.T) *eks.Handler {
 	t.Helper()
 	backend := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	return eks.NewHandler(backend)
+}
+
+func newBackend(t *testing.T) *eks.InMemoryBackend {
+	t.Helper()
+
+	return eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+}
+
+func newHandlerAndBackend(t *testing.T) (*eks.Handler, *eks.InMemoryBackend) {
+	t.Helper()
+	b := newBackend(t)
+
+	return eks.NewHandler(b), b
 }
 
 func doREST(
@@ -61,267 +75,54 @@ func parseResp(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	return m
 }
 
-// TestEKSClusterCRUD exercises CreateCluster, DescribeCluster, ListClusters, and DeleteCluster.
-func TestEKSClusterCRUD(t *testing.T) {
-	t.Parallel()
+func parseClusterResp(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	m := parseResp(t, rec)
+	cluster, ok := m["cluster"].(map[string]any)
+	require.True(t, ok, "response must have 'cluster' key")
 
-	tests := []struct {
-		ops  func(t *testing.T, h *eks.Handler)
-		name string
-	}{
-		{
-			name: "create_cluster",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
-					"name":    "my-cluster",
-					"version": "1.32",
-					"roleArn": "arn:aws:iam::123456789012:role/eks-role",
-					"tags":    map[string]string{"Env": "test"},
-				})
-				assert.Equal(t, http.StatusOK, rec.Code)
-				resp := parseResp(t, rec)
-				cluster, ok := resp["cluster"].(map[string]any)
-				require.True(t, ok, "response should have cluster key")
-				assert.Equal(t, "my-cluster", cluster["name"])
-				assert.NotEmpty(t, cluster["arn"])
-				assert.Equal(t, "CREATING", cluster["status"])
-				assert.Equal(t, "1.32", cluster["version"])
-			},
-		},
-		{
-			name: "describe_cluster",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
-				rec := doREST(t, h, http.MethodGet, "/clusters/my-cluster", nil)
-				assert.Equal(t, http.StatusOK, rec.Code)
-				resp := parseResp(t, rec)
-				cluster, ok := resp["cluster"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, "my-cluster", cluster["name"])
-			},
-		},
-		{
-			name: "describe_cluster_not_found",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				rec := doREST(t, h, http.MethodGet, "/clusters/nonexistent", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
-		},
-		{
-			name: "list_clusters",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "cluster-a"})
-				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "cluster-b"})
-				rec := doREST(t, h, http.MethodGet, "/clusters", nil)
-				assert.Equal(t, http.StatusOK, rec.Code)
-				resp := parseResp(t, rec)
-				names, ok := resp["clusters"].([]any)
-				require.True(t, ok, "clusters key should be a list")
-				assert.Len(t, names, 2)
-			},
-		},
-		{
-			name: "delete_cluster",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "to-delete"})
-				rec := doREST(t, h, http.MethodDelete, "/clusters/to-delete", nil)
-				assert.Equal(t, http.StatusOK, rec.Code)
-				// verify it is gone
-				rec2 := doREST(t, h, http.MethodGet, "/clusters/to-delete", nil)
-				assert.Equal(t, http.StatusNotFound, rec2.Code)
-			},
-		},
-		{
-			name: "create_cluster_duplicate",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "dup-cluster"})
-				rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "dup-cluster"})
-				assert.Equal(t, http.StatusConflict, rec.Code)
-			},
-		},
-		{
-			name: "create_cluster_missing_name",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{"version": "1.32"})
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.ops(t, newTestEKSHandler(t))
-		})
-	}
+	return cluster
 }
 
-// TestEKSNodegroupCRUD exercises CreateNodegroup, DescribeNodegroup, ListNodegroups, and DeleteNodegroup.
-func TestEKSNodegroupCRUD(t *testing.T) {
-	t.Parallel()
+func parseNodegroupResp(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	m := parseResp(t, rec)
+	ng, ok := m["nodegroup"].(map[string]any)
+	require.True(t, ok, "response must have 'nodegroup' key")
 
-	tests := []struct {
-		ops  func(t *testing.T, h *eks.Handler)
-		name string
-	}{
-		{
-			name: "create_nodegroup",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
-				rec := doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
-					"nodegroupName": "my-ng",
-					"nodeRole":      "arn:aws:iam::123456789012:role/ng-role",
-					"subnets":       []string{"subnet-abc"},
-					"scalingConfig": map[string]any{"desiredSize": 2, "minSize": 1, "maxSize": 5},
-				})
-				assert.Equal(t, http.StatusOK, rec.Code)
-				resp := parseResp(t, rec)
-				ng, ok := resp["nodegroup"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, "my-ng", ng["nodegroupName"])
-				assert.Equal(t, "CREATING", ng["status"])
-			},
-		},
-		{
-			name: "describe_nodegroup",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
-				doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
-					"nodegroupName": "my-ng",
-					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
-					"subnets":       []string{"subnet-abc"},
-					"scalingConfig": map[string]any{},
-				})
-				rec := doREST(t, h, http.MethodGet, "/clusters/my-cluster/node-groups/my-ng", nil)
-				assert.Equal(t, http.StatusOK, rec.Code)
-				resp := parseResp(t, rec)
-				ng, ok := resp["nodegroup"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, "my-ng", ng["nodegroupName"])
-			},
-		},
-		{
-			name: "list_nodegroups",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
-				doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
-					"nodegroupName": "ng-1",
-					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
-					"subnets":       []string{"subnet-abc"},
-					"scalingConfig": map[string]any{},
-				})
-				doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
-					"nodegroupName": "ng-2",
-					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
-					"subnets":       []string{"subnet-abc"},
-					"scalingConfig": map[string]any{},
-				})
-				rec := doREST(t, h, http.MethodGet, "/clusters/my-cluster/node-groups", nil)
-				assert.Equal(t, http.StatusOK, rec.Code)
-				resp := parseResp(t, rec)
-				names, ok := resp["nodegroups"].([]any)
-				require.True(t, ok)
-				assert.Len(t, names, 2)
-			},
-		},
-		{
-			name: "delete_nodegroup",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
-				doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
-					"nodegroupName": "to-delete",
-					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
-					"subnets":       []string{"subnet-abc"},
-					"scalingConfig": map[string]any{},
-				})
-				rec := doREST(t, h, http.MethodDelete, "/clusters/my-cluster/node-groups/to-delete", nil)
-				assert.Equal(t, http.StatusOK, rec.Code)
-				rec2 := doREST(t, h, http.MethodGet, "/clusters/my-cluster/node-groups/to-delete", nil)
-				assert.Equal(t, http.StatusNotFound, rec2.Code)
-			},
-		},
-		{
-			name: "nodegroup_cluster_not_found",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				rec := doREST(t, h, http.MethodPost, "/clusters/nonexistent/node-groups", map[string]any{
-					"nodegroupName": "ng",
-					"nodeRole":      "arn:aws:iam::123456789012:role/ng",
-					"subnets":       []string{"subnet-abc"},
-					"scalingConfig": map[string]any{},
-				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.ops(t, newTestEKSHandler(t))
-		})
-	}
+	return ng
 }
 
-// TestEKSTagging exercises TagResource and ListTagsForResource.
-func TestEKSTagging(t *testing.T) {
-	t.Parallel()
+func mustCreateCluster(t *testing.T, b *eks.InMemoryBackend, name string) *eks.Cluster {
+	t.Helper()
+	c, err := b.CreateCluster(name, "1.32", "arn:aws:iam::123456789012:role/eks", &eks.VpcConfig{
+		SubnetIDs:            []string{"subnet-aaa", "subnet-bbb"},
+		SecurityGroupIDs:     []string{"sg-111"},
+		EndpointPublicAccess: true,
+	}, nil, nil)
+	require.NoError(t, err)
 
-	tests := []struct {
-		ops  func(t *testing.T, h *eks.Handler)
-		name string
-	}{
-		{
-			name: "tag_and_list_cluster",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "tagged-cluster"})
-				require.Equal(t, http.StatusOK, rec.Code)
-				resp := parseResp(t, rec)
-				cluster := resp["cluster"].(map[string]any)
-				clusterARN := cluster["arn"].(string)
-
-				tagRec := doREST(t, h, http.MethodPost, "/tags/"+clusterARN, map[string]any{
-					"tags": map[string]string{"Project": "test"},
-				})
-				assert.Equal(t, http.StatusOK, tagRec.Code)
-
-				listRec := doREST(t, h, http.MethodGet, "/tags/"+clusterARN, nil)
-				assert.Equal(t, http.StatusOK, listRec.Code)
-				listResp := parseResp(t, listRec)
-				tagsMap, ok := listResp["tags"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, "test", tagsMap["Project"])
-			},
-		},
-		{
-			name: "list_tags_not_found",
-			ops: func(t *testing.T, h *eks.Handler) {
-				t.Helper()
-				rec := doREST(t, h, http.MethodGet, "/tags/arn:aws:eks:us-east-1:123456789012:cluster/missing", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.ops(t, newTestEKSHandler(t))
-		})
-	}
+	return c
 }
+
+func mustCreateClusterNoVpc(t *testing.T, b *eks.InMemoryBackend, name string) *eks.Cluster {
+	t.Helper()
+	c, err := b.CreateCluster(name, "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	return c
+}
+
+func mustCreateNodegroup(t *testing.T, b *eks.InMemoryBackend, cluster string) *eks.Nodegroup {
+	t.Helper()
+	ng, err := b.CreateNodegroup(cluster, "ng1", "arn:aws:iam::123456789012:role/ng",
+		"", "", "", "", []string{"subnet-aaa"}, 1, 1, 3, eks.NodegroupInput{}, nil)
+	require.NoError(t, err)
+
+	return ng
+}
+
+// --- Core handler metadata / routing tests ---
 
 // TestEKSHandlerMetadata checks Handler name and supported operations.
 func TestEKSHandlerMetadata(t *testing.T) {
@@ -376,9 +177,23 @@ func TestEKSHandlerChaosAndMetrics(t *testing.T) {
 	t.Run("supported_operations", func(t *testing.T) {
 		t.Parallel()
 		ops := h.GetSupportedOperations()
-		assert.Contains(t, ops, "CreateCluster")
-		assert.Contains(t, ops, "DeleteCluster")
-		assert.Contains(t, ops, "CreateNodegroup")
+		for _, op := range []string{
+			"CreateCluster",
+			"DeleteCluster",
+			"CreateNodegroup",
+			"AssociateAccessPolicy",
+			"AssociateEncryptionConfig",
+			"AssociateIdentityProviderConfig",
+			"CreateAccessEntry",
+			"CreateAddon",
+			"CreateCapability",
+			"CreateEksAnywhereSubscription",
+			"CreateFargateProfile",
+			"CreatePodIdentityAssociation",
+			"DeleteAccessEntry",
+		} {
+			assert.Contains(t, ops, op)
+		}
 	})
 
 	t.Run("extract_operation_cluster", func(t *testing.T) {
@@ -407,86 +222,6 @@ func TestEKSHandlerChaosAndMetrics(t *testing.T) {
 		c := e.NewContext(req, rec)
 		assert.NotEmpty(t, h.ExtractResource(c))
 	})
-}
-
-// TestEKSBackendRegion tests the Region getter.
-func TestEKSBackendRegion(t *testing.T) {
-	t.Parallel()
-
-	backend := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-	assert.Equal(t, "us-east-1", backend.Region())
-}
-
-// TestEKSBackendListAllClusters tests the ListAllClusters helper.
-func TestEKSBackendListAllClusters(t *testing.T) {
-	t.Parallel()
-
-	backend := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-	_, _ = backend.CreateCluster("a", "1.32", "", nil, nil, nil)
-	_, _ = backend.CreateCluster("b", "1.32", "", nil, nil, nil)
-
-	all := backend.ListAllClusters()
-	assert.Len(t, all, 2)
-}
-
-// TestEKSUntagResource verifies UntagResource removes specified tag keys and returns 200.
-func TestEKSUntagResource(t *testing.T) {
-	t.Parallel()
-
-	h := newTestEKSHandler(t)
-	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
-		"name": "tag-cluster",
-		"tags": map[string]string{"Env": "test", "Project": "demo"},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-	resp := parseResp(t, rec)
-	clusterARN := resp["cluster"].(map[string]any)["arn"].(string)
-
-	// Remove the "Env" tag via query param
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodDelete, "/tags/"+clusterARN+"?tagKeys=Env", nil)
-	untagRec := httptest.NewRecorder()
-	c := e.NewContext(req, untagRec)
-	err := h.Handler()(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, untagRec.Code)
-
-	// Verify "Env" is gone but "Project" remains
-	listRec := doREST(t, h, http.MethodGet, "/tags/"+clusterARN, nil)
-	assert.Equal(t, http.StatusOK, listRec.Code)
-	listResp := parseResp(t, listRec)
-	tagsMap, ok := listResp["tags"].(map[string]any)
-	require.True(t, ok)
-	assert.NotContains(t, tagsMap, "Env")
-}
-
-// TestEKSTagNodegroup verifies that tags can be applied to a nodegroup.
-func TestEKSTagNodegroup(t *testing.T) {
-	t.Parallel()
-
-	h := newTestEKSHandler(t)
-	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "my-cluster"})
-	ngRec := doREST(t, h, http.MethodPost, "/clusters/my-cluster/node-groups", map[string]any{
-		"nodegroupName": "my-ng",
-		"nodeRole":      "arn:aws:iam::123456789012:role/ng",
-		"subnets":       []string{"subnet-abc"},
-		"scalingConfig": map[string]any{},
-	})
-	require.Equal(t, http.StatusOK, ngRec.Code)
-	ngResp := parseResp(t, ngRec)
-	ngARN := ngResp["nodegroup"].(map[string]any)["nodegroupArn"].(string)
-
-	tagRec := doREST(t, h, http.MethodPost, "/tags/"+ngARN, map[string]any{
-		"tags": map[string]string{"Tier": "worker"},
-	})
-	assert.Equal(t, http.StatusOK, tagRec.Code)
-
-	listRec := doREST(t, h, http.MethodGet, "/tags/"+ngARN, nil)
-	assert.Equal(t, http.StatusOK, listRec.Code)
-	listResp := parseResp(t, listRec)
-	tagsMap, ok := listResp["tags"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "worker", tagsMap["Tier"])
 }
 
 // TestEKSErrorPaths exercises error responses for various invalid operations.
@@ -581,6 +316,16 @@ func TestEKSErrorPaths(t *testing.T) {
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
+		{
+			name: "create_capability_missing_name_is_validation_error",
+			ops: func(t *testing.T, h *eks.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
+				// CreateCapability with no capabilityName -> ErrValidation -> 400.
+				rec := doREST(t, h, http.MethodPost, "/clusters/c1/capabilities", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -589,19 +334,6 @@ func TestEKSErrorPaths(t *testing.T) {
 			tt.ops(t, newTestEKSHandler(t))
 		})
 	}
-}
-
-// TestEKSProvider checks the Provider name and Init.
-func TestEKSProvider(t *testing.T) {
-	t.Parallel()
-
-	p := &eks.Provider{}
-	assert.Equal(t, "EKS", p.Name())
-
-	appCtx := &service.AppContext{JanitorCtx: t.Context()}
-	h, err := p.Init(appCtx)
-	require.NoError(t, err)
-	assert.NotNil(t, h)
 }
 
 // TestEKSRouteMatcher verifies the route matcher accepts EKS paths.
@@ -634,6 +366,60 @@ func TestEKSRouteMatcher(t *testing.T) {
 			matches: false,
 		},
 		{name: "unrelated", path: "/backup-vaults", method: http.MethodGet, matches: false},
+		{name: "capabilities", path: "/clusters/c1/capabilities", method: http.MethodPost, matches: true},
+		{name: "subscriptions", path: "/eks-anywhere-subscriptions", method: http.MethodPost, matches: true},
+		{name: "cluster_registrations", path: "/cluster-registrations", method: http.MethodPost, matches: true},
+		{
+			name:    "cluster_registrations_named",
+			path:    "/cluster-registrations/c1",
+			method:  http.MethodPost,
+			matches: true,
+		},
+		{
+			name:    "addon_supported_versions",
+			path:    "/addons/supported-versions",
+			method:  http.MethodPost,
+			matches: true,
+		},
+		{
+			name:    "addon_configuration_schemas",
+			path:    "/addons/configuration-schemas",
+			method:  http.MethodPost,
+			matches: true,
+		},
+		{name: "access_entries", path: "/clusters/c1/access-entries", method: http.MethodPost, matches: true},
+		{name: "addons", path: "/clusters/c1/addons", method: http.MethodPost, matches: true},
+		{name: "fargate_profiles", path: "/clusters/c1/fargate-profiles", method: http.MethodPost, matches: true},
+		{
+			name:    "pod_identity_assoc",
+			path:    "/clusters/c1/pod-identity-associations",
+			method:  http.MethodPost,
+			matches: true,
+		},
+		{
+			name:    "encryption_config",
+			path:    "/clusters/c1/encryption-config/associate",
+			method:  http.MethodPost,
+			matches: true,
+		},
+		{
+			name:    "idp_configs",
+			path:    "/clusters/c1/identity-provider-configs/associate",
+			method:  http.MethodPost,
+			matches: true,
+		},
+		{
+			name:    "old_subscriptions_path_no_longer_matches",
+			path:    "/subscriptions",
+			method:  http.MethodPost,
+			matches: false,
+		},
+		{
+			name:    "old_capabilities_path_no_longer_matches",
+			path:    "/capabilities",
+			method:  http.MethodPost,
+			matches: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -648,42 +434,47 @@ func TestEKSRouteMatcher(t *testing.T) {
 	}
 }
 
-func TestEKS_PersistenceSnapshotRestore(t *testing.T) {
+// TestParseAddonAndFargatePaths verifies HTTP routing for addons and fargate profiles.
+func TestParseAddonAndFargatePaths(t *testing.T) {
 	t.Parallel()
 
-	b := eks.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	h := newTestEKSHandler(t)
 
-	_, err := b.CreateCluster(
-		"cluster1",
-		"1.30",
-		"arn:aws:iam::000000000000:role/eks-role",
-		nil, nil,
-		map[string]string{"env": "test"},
-	)
-	require.NoError(t, err)
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
 
-	_, err = b.CreateNodegroup(
-		"cluster1", "ng1", "arn:aws:iam::000000000000:role/ng-role",
-		"AL2_x86_64", "ON_DEMAND", "1.30", "",
-		[]string{"t3.medium"}, 2, 1, 5, eks.NodegroupInput{}, map[string]string{"team": "platform"},
-	)
-	require.NoError(t, err)
+	// Create addon
+	rec := doREST(t, h, http.MethodPost, "/clusters/c1/addons", map[string]any{"addonName": "coredns"})
+	assert.Equal(t, http.StatusOK, rec.Code)
 
-	h := eks.NewHandler(b)
-	snap := h.Snapshot(t.Context())
-	require.NotEmpty(t, snap)
+	// Create fargate profile
+	rec = doREST(t, h, http.MethodPost, "/clusters/c1/fargate-profiles",
+		map[string]any{"fargateProfileName": "fp1"})
+	assert.Equal(t, http.StatusOK, rec.Code)
 
-	b2 := eks.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-	h2 := eks.NewHandler(b2)
-	require.NoError(t, h2.Restore(t.Context(), snap))
+	assert.Equal(t, 1, h.Backend.AddonCount())
+	assert.Equal(t, 1, h.Backend.FargateProfileCount())
+}
 
-	c, err := b2.DescribeCluster("cluster1")
-	require.NoError(t, err)
-	assert.Equal(t, "cluster1", c.Name)
-	assert.Equal(t, "test", c.Tags.Clone()["env"])
+// TestParseAssocPaths verifies HTTP routing for encryption-config/IDP associate.
+func TestParseAssocPaths(t *testing.T) {
+	t.Parallel()
 
-	names, err := b2.ListNodegroups("cluster1")
-	require.NoError(t, err)
-	require.Len(t, names, 1)
-	assert.Equal(t, "ng1", names[0])
+	h := newTestEKSHandler(t)
+
+	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "c1"})
+
+	// AssociateEncryptionConfig
+	rec := doREST(t, h, http.MethodPost, "/clusters/c1/encryption-config/associate",
+		map[string]any{"encryptionConfig": []any{}})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// AssociateIdentityProviderConfig
+	rec = doREST(t, h, http.MethodPost, "/clusters/c1/identity-provider-configs/associate", map[string]any{
+		"oidc": map[string]any{
+			"issuerUrl":  "https://example.com",
+			"clientId":   "my-client",
+			"configName": "my-idp",
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
 }

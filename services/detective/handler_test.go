@@ -1,6 +1,8 @@
 package detective_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,7 +10,51 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/detective"
 )
+
+// newTestHandler constructs a Handler backed by a fresh InMemoryBackend, for
+// use by every handler_*_test.go file in this package.
+func newTestHandler(t *testing.T) *detective.Handler {
+	t.Helper()
+	backend := detective.NewInMemoryBackend("000000000000", "us-east-1")
+
+	return detective.NewHandler(backend)
+}
+
+// doRequest issues an HTTP request directly against h.Handler(), bypassing
+// RouteMatcher, and returns the recorded response.
+func doRequest(t *testing.T, h *detective.Handler, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var bodyBytes []byte
+
+	if body != nil {
+		var marshalErr error
+
+		bodyBytes, marshalErr = json.Marshal(body)
+		require.NoError(t, marshalErr)
+	}
+
+	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	handlerErr := h.Handler()(c)
+	require.NoError(t, handlerErr)
+
+	return rec
+}
+
+// parseJSON is a test helper that unmarshals JSON into v.
+func parseJSON(t *testing.T, data []byte, v any) {
+	t.Helper()
+
+	require.NoError(t, json.Unmarshal(data, v))
+}
 
 // TestDetectiveHandler_RouteMatcher verifies the RouteMatcher against every
 // wire path + HTTP method combination the real aws-sdk-go-v2 detective
@@ -172,43 +218,31 @@ func TestDetectiveHandler_ExtractOperation(t *testing.T) {
 	}
 }
 
-// TestHandleStartInvestigation_RequiresScopeTimes verifies ScopeStartTime and
-// ScopeEndTime are enforced as required (both are marked "This member is
-// required" on StartInvestigationInput in the real SDK). Before this test,
-// omitting them silently parsed as the zero time.Time instead of a
-// ValidationException.
-func TestHandleStartInvestigation_RequiresScopeTimes(t *testing.T) {
+// TestDetective_UnknownOperation_Returns400 verifies handleREST's dispatch
+// table falls through to a 400 InvalidInputException for any method+path
+// combination not present in the dispatch map.
+func TestDetective_UnknownOperation_Returns400(t *testing.T) {
 	t.Parallel()
 
+	h := newTestHandler(t)
+
 	tests := []struct {
-		body     map[string]any
 		name     string
+		method   string
+		path     string
 		wantCode int
 	}{
 		{
-			name: "missing ScopeStartTime rejected",
-			body: map[string]any{
-				"EntityArn":    "arn:aws:iam::000000000000:user/bob",
-				"ScopeEndTime": "2024-01-31T00:00:00Z",
-			},
+			name:     "unknown POST path returns 400 InvalidInputException",
+			method:   http.MethodPost,
+			path:     "/unknown/operation",
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "missing ScopeEndTime rejected",
-			body: map[string]any{
-				"EntityArn":      "arn:aws:iam::000000000000:user/bob",
-				"ScopeStartTime": "2024-01-01T00:00:00Z",
-			},
+			name:     "DELETE on non-tag path returns 400",
+			method:   http.MethodDelete,
+			path:     "/graph",
 			wantCode: http.StatusBadRequest,
-		},
-		{
-			name: "both scope times present accepted",
-			body: map[string]any{
-				"EntityArn":      "arn:aws:iam::000000000000:user/bob",
-				"ScopeStartTime": "2024-01-01T00:00:00Z",
-				"ScopeEndTime":   "2024-01-31T00:00:00Z",
-			},
-			wantCode: http.StatusOK,
 		},
 	}
 
@@ -216,56 +250,12 @@ func TestHandleStartInvestigation_RequiresScopeTimes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-
-			createRec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
-			require.Equal(t, http.StatusOK, createRec.Code)
-
-			var createResp map[string]any
-			require.NoError(t, jsonUnmarshal(t, createRec.Body.Bytes(), &createResp))
-			tc.body["GraphArn"] = createResp["GraphArn"]
-
-			rec := doRequest(t, h, http.MethodPost, "/investigations/startInvestigation", tc.body)
+			rec := doRequest(t, h, tc.method, tc.path, map[string]any{})
 			assert.Equal(t, tc.wantCode, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, "InvalidInputException", resp["__type"])
 		})
 	}
-}
-
-// TestHandleStartInvestigation_ClientSuppliedEntityTypeIgnored verifies a
-// client-supplied EntityType field (not part of the real StartInvestigation
-// wire request) has no effect: EntityType must always be derived from
-// EntityArn, matching the real deserializer which has no such input member.
-func TestHandleStartInvestigation_ClientSuppliedEntityTypeIgnored(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	createRec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, jsonUnmarshal(t, createRec.Body.Bytes(), &createResp))
-
-	rec := doRequest(t, h, http.MethodPost, "/investigations/startInvestigation", map[string]any{
-		"GraphArn":       createResp["GraphArn"],
-		"EntityArn":      "arn:aws:iam::000000000000:role/actual-role",
-		"EntityType":     "IAM_USER", // wrong on purpose -- must be ignored.
-		"ScopeStartTime": "2024-01-01T00:00:00Z",
-		"ScopeEndTime":   "2024-01-31T00:00:00Z",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var startResp map[string]any
-	require.NoError(t, jsonUnmarshal(t, rec.Body.Bytes(), &startResp))
-
-	getRec := doRequest(t, h, http.MethodPost, "/investigations/getInvestigation", map[string]any{
-		"GraphArn":        createResp["GraphArn"],
-		"InvestigationId": startResp["InvestigationId"],
-	})
-	require.Equal(t, http.StatusOK, getRec.Code)
-
-	var getResp map[string]any
-	require.NoError(t, jsonUnmarshal(t, getRec.Body.Bytes(), &getResp))
-	assert.Equal(t, "IAM_ROLE", getResp["EntityType"],
-		"EntityType must be derived from the role ARN, not the client field")
 }

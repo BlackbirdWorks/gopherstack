@@ -13,8 +13,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestBatch2Accuracy_TagResource_Validation verifies tag key/value/count constraints.
-func TestBatch2Accuracy_TagResource_Validation(t *testing.T) {
+// TestTagResource_Validation verifies tag key/value/count constraints.
+func TestTagResource_Validation(t *testing.T) {
 	t.Parallel()
 
 	const prefix = "/2020-05-31/"
@@ -94,8 +94,8 @@ func TestBatch2Accuracy_TagResource_Validation(t *testing.T) {
 	}
 }
 
-// TestBatch2Accuracy_TagResource_MaxTagsPerResource verifies the 50-tag limit is enforced.
-func TestBatch2Accuracy_TagResource_MaxTagsPerResource(t *testing.T) {
+// TestTagResource_MaxTagsPerResource verifies the 50-tag limit is enforced.
+func TestTagResource_MaxTagsPerResource(t *testing.T) {
 	t.Parallel()
 
 	const prefix = "/2020-05-31/"
@@ -209,8 +209,8 @@ func TestTagging(t *testing.T) {
 	}
 }
 
-// TestRefinement1_SortedTags verifies tags are returned in sorted order.
-func TestRefinement1_SortedTags(t *testing.T) {
+// TestSortedTags verifies tags are returned in sorted order.
+func TestSortedTags(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -250,8 +250,8 @@ func TestRefinement1_SortedTags(t *testing.T) {
 	assert.Less(t, mangoPos, zebraPos, "mango should appear before zebra")
 }
 
-// TestRefinement1_UntagResource verifies the UntagResource handler.
-func TestRefinement1_UntagResource(t *testing.T) {
+// TestUntagResource verifies the UntagResource handler.
+func TestUntagResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()

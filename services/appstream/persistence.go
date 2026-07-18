@@ -30,7 +30,7 @@ const appstreamSnapshotVersion = 1
 // Associations, Tags, AppBlockBuilderAssoc, AppFleetAssoc, EntitlementApps,
 // SoftwareAssoc, and UserStackAssoc are the seven plain maps left
 // unconverted by Phase 3.3 (see the field comments on InMemoryBackend in
-// backend.go and store_setup.go's doc comment): each holds a value with no
+// store.go and store_setup.go's doc comment): each holds a value with no
 // identity of its own (a many-to-many association set, or a tag map keyed by
 // an external ARN), so there is nothing for store.Table to key on, and each
 // is persisted here directly, matching the pre-conversion behavior.
@@ -126,7 +126,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 }
 
 // resetRawMaps clears every plain (non-store.Table) persisted field to its
-// empty state. Shared by Reset (backend.go) and Restore's version-mismatch
+// empty state. Shared by Reset (store.go) and Restore's version-mismatch
 // path. Callers must hold b.mu.Lock.
 func (b *InMemoryBackend) resetRawMaps() {
 	b.associations = make(map[string]map[string]bool)

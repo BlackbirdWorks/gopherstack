@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -44,245 +44,6 @@ func doRequest(t *testing.T, h *iotanalytics.Handler, method, path string, body 
 	require.NoError(t, err)
 
 	return rec
-}
-
-func TestHandler_CreateAndDescribeChannel(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		channel    string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			channel:    "test_channel",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "empty_name",
-			channel:    "",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{
-				"channelName": tt.channel,
-			})
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				rec2 := doRequest(t, h, http.MethodGet, "/channels/"+tt.channel, nil)
-				assert.Equal(t, http.StatusOK, rec2.Code)
-			}
-		})
-	}
-}
-
-func TestHandler_ListChannels(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		seed    []string
-		wantLen int
-	}{
-		{
-			name:    "empty",
-			wantLen: 0,
-		},
-		{
-			name:    "with_channels",
-			seed:    []string{"ch1", "ch2"},
-			wantLen: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			for _, name := range tt.seed {
-				rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{
-					"channelName": name,
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doRequest(t, h, http.MethodGet, "/channels", nil)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var resp map[string]any
-			err := json.Unmarshal(rec.Body.Bytes(), &resp)
-			require.NoError(t, err)
-
-			summaries, ok := resp["channelSummaries"].([]any)
-			require.True(t, ok)
-			assert.Len(t, summaries, tt.wantLen)
-		})
-	}
-}
-
-func TestHandler_DeleteChannel(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		channelName string
-		seed        bool
-		wantStatus  int
-	}{
-		{
-			name:        "success",
-			channelName: "to_delete",
-			seed:        true,
-			wantStatus:  http.StatusNoContent,
-		},
-		{
-			name:        "not_found",
-			channelName: "nonexistent",
-			seed:        false,
-			wantStatus:  http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.seed {
-				rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{
-					"channelName": tt.channelName,
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doRequest(t, h, http.MethodDelete, "/channels/"+tt.channelName, nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CreateAndDescribeDatastore(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		datastoreName string
-		wantStatus    int
-	}{
-		{
-			name:          "success",
-			datastoreName: "test_datastore",
-			wantStatus:    http.StatusOK,
-		},
-		{
-			name:          "empty_name",
-			datastoreName: "",
-			wantStatus:    http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/datastores", map[string]string{
-				"datastoreName": tt.datastoreName,
-			})
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				rec2 := doRequest(t, h, http.MethodGet, "/datastores/"+tt.datastoreName, nil)
-				assert.Equal(t, http.StatusOK, rec2.Code)
-			}
-		})
-	}
-}
-
-func TestHandler_CreateAndDescribeDataset(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		datasetName string
-		wantStatus  int
-	}{
-		{
-			name:        "success",
-			datasetName: "test_dataset",
-			wantStatus:  http.StatusOK,
-		},
-		{
-			name:        "empty_name",
-			datasetName: "",
-			wantStatus:  http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/datasets", map[string]string{
-				"datasetName": tt.datasetName,
-			})
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_CreateAndDescribePipeline(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		pipelineName string
-		wantStatus   int
-	}{
-		{
-			name:         "success",
-			pipelineName: "test_pipeline",
-			wantStatus:   http.StatusOK,
-		},
-		{
-			name:         "empty_name",
-			pipelineName: "",
-			wantStatus:   http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/pipelines", map[string]string{
-				"pipelineName": tt.pipelineName,
-			})
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				rec2 := doRequest(t, h, http.MethodGet, "/pipelines/"+tt.pipelineName, nil)
-				assert.Equal(t, http.StatusOK, rec2.Code)
-			}
-		})
-	}
 }
 
 func TestHandler_RouteMatcher(t *testing.T) {
@@ -394,45 +155,95 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	}
 }
 
-func TestHandler_BatchPutMessage(t *testing.T) {
+// TestHandler_HandlerReset verifies that Handler.Reset clears backend state reachable
+// through the HTTP surface.
+func TestHandler_HandlerReset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/channels", map[string]any{"channelName": "ch1"})
+	doRequest(t, h, http.MethodPost, "/channels", map[string]any{"channelName": "ch2"})
+
+	h.Reset()
+
+	rec := doRequest(t, h, http.MethodGet, "/channels", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"channelSummaries":[]`)
+}
+
+// TestHandler_ProviderInit_NilAppContext verifies Provider.Init rejects a nil AppContext.
+func TestHandler_ProviderInit_NilAppContext(t *testing.T) {
+	t.Parallel()
+
+	p := &iotanalytics.Provider{}
+
+	_, err := p.Init(nil)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, iotanalytics.ErrNilAppContext)
+}
+
+// TestHandler_OpsTableSize verifies the pre-built dispatch table has one entry per operation.
+func TestHandler_OpsTableSize(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	assert.Equal(t, 34, iotanalytics.HandlerOpsLen(h))
+}
+
+// TestHandler_SupportedOperationsMatchOpsTable verifies GetSupportedOperations stays in sync
+// with the pre-built dispatch table.
+func TestHandler_SupportedOperationsMatchOpsTable(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	assert.Len(t, ops, 34)
+	assert.Len(t, ops, iotanalytics.HandlerOpsLen(h))
+}
+
+// TestHandler_GetSupportedOperations verifies all operations are listed.
+func TestHandler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := iotanalytics.NewHandler(iotanalytics.NewInMemoryBackend())
+	ops := h.GetSupportedOperations()
+
+	expectedOps := []string{
+		"BatchPutMessage",
+		"CancelPipelineReprocessing",
+		"CreateDatasetContent",
+		"DeleteDatasetContent",
+		"DescribeLoggingOptions",
+		"GetDatasetContent",
+		"ListDatasetContents",
+		"PutLoggingOptions",
+		"RunPipelineActivity",
+		"SampleChannelData",
+		"StartPipelineReprocessing",
+	}
+
+	for _, op := range expectedOps {
+		assert.Contains(t, ops, op, "expected operation %s in GetSupportedOperations", op)
+	}
+}
+
+// TestHandler_NotFound_Returns404 verifies that describing a missing resource of any family
+// returns 404, regardless of resource type.
+func TestHandler_NotFound_Returns404(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		messages    any
-		name        string
-		channelSeed string
-		wantStatus  int
-		wantErrors  int
+		name   string
+		method string
+		path   string
 	}{
-		{
-			name:        "success_existing_channel",
-			channelSeed: "my_channel",
-			messages: map[string]any{
-				"channelName": "my_channel",
-				"messages": []map[string]any{
-					{"messageId": "msg1", "payload": []byte("hello")},
-				},
-			},
-			wantStatus: http.StatusOK,
-			wantErrors: 0,
-		},
-		{
-			name:        "unknown_channel_returns_error_entry",
-			channelSeed: "",
-			messages: map[string]any{
-				"channelName": "no-such-channel",
-				"messages": []map[string]any{
-					{"messageId": "msg1", "payload": []byte("hello")},
-				},
-			},
-			wantStatus: http.StatusOK,
-			wantErrors: 1,
-		},
-		{
-			name:       "invalid_body",
-			messages:   "not-json",
-			wantStatus: http.StatusBadRequest,
-		},
+		{name: "channel", method: http.MethodGet, path: "/channels/no-such-channel"},
+		{name: "datastore", method: http.MethodGet, path: "/datastores/no-such-ds"},
+		{name: "dataset", method: http.MethodGet, path: "/datasets/no-such-set"},
+		{name: "pipeline", method: http.MethodGet, path: "/pipelines/no-such-pipe"},
 	}
 
 	for _, tt := range tests {
@@ -440,367 +251,41 @@ func TestHandler_BatchPutMessage(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-
-			if tt.channelSeed != "" {
-				rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{"channelName": tt.channelSeed})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doRequest(t, h, http.MethodPost, "/messages/batch", tt.messages)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				entries, _ := resp["batchPutMessageErrorEntries"].([]any)
-				assert.Len(t, entries, tt.wantErrors)
-			}
+			rec := doRequest(t, h, tt.method, tt.path, nil)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
 		})
 	}
 }
 
-func TestHandler_SampleChannelData(t *testing.T) {
+// TestHandler_AlreadyExistsErrorType verifies ResourceAlreadyExistsException type across
+// every resource family.
+func TestHandler_AlreadyExistsErrorType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		channelName string
-		seed        bool
-		wantStatus  int
-	}{
-		{
-			name:        "empty_channel",
-			channelName: "empty_channel",
-			seed:        true,
-			wantStatus:  http.StatusOK,
-		},
-		{
-			name:        "not_found",
-			channelName: "no-such-channel",
-			seed:        false,
-			wantStatus:  http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.seed {
-				rec := doRequest(t, h, http.MethodPost, "/channels", map[string]string{"channelName": tt.channelName})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doRequest(t, h, http.MethodGet, "/channels/"+tt.channelName+"/sample", nil)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_StartAndCancelPipelineReprocessing(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		pipelineName string
-		seed         bool
-		wantStart    int
-		wantCancel   int
-	}{
-		{
-			name:         "success",
-			pipelineName: "my_pipeline",
-			seed:         true,
-			wantStart:    http.StatusCreated,
-			wantCancel:   http.StatusNoContent,
-		},
-		{
-			name:         "pipeline_not_found",
-			pipelineName: "nonexistent",
-			seed:         false,
-			wantStart:    http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.seed {
-				rec := doRequest(
-					t,
-					h,
-					http.MethodPost,
-					"/pipelines",
-					map[string]string{"pipelineName": tt.pipelineName},
-				)
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			startRec := doRequest(t, h, http.MethodPost, "/pipelines/"+tt.pipelineName+"/reprocessing", nil)
-			assert.Equal(t, tt.wantStart, startRec.Code)
-
-			if tt.wantStart == http.StatusCreated {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &resp))
-				reprocessingID, ok := resp["reprocessingId"].(string)
-				require.True(t, ok)
-				assert.NotEmpty(t, reprocessingID)
-
-				cancelRec := doRequest(
-					t,
-					h,
-					http.MethodDelete,
-					"/pipelines/"+tt.pipelineName+"/reprocessing/"+reprocessingID,
-					nil,
-				)
-				assert.Equal(t, tt.wantCancel, cancelRec.Code)
-			}
-		})
-	}
-}
-
-func TestHandler_DatasetContentLifecycle(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		datasetName string
-		seed        bool
-		wantCreate  int
-		wantGet     int
-		wantList    int
-		wantDelete  int
-	}{
-		{
-			name:        "full_lifecycle",
-			datasetName: "my_dataset",
-			seed:        true,
-			wantCreate:  http.StatusOK,
-			wantGet:     http.StatusOK,
-			wantList:    http.StatusOK,
-			wantDelete:  http.StatusNoContent,
-		},
-		{
-			name:        "dataset_not_found",
-			datasetName: "nonexistent",
-			seed:        false,
-			wantCreate:  http.StatusNotFound,
-			wantGet:     http.StatusNotFound,
-			wantList:    http.StatusNotFound,
-			wantDelete:  http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.seed {
-				rec := doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": tt.datasetName})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			createRec := doRequest(t, h, http.MethodPost, "/datasets/"+tt.datasetName+"/content", nil)
-			assert.Equal(t, tt.wantCreate, createRec.Code)
-
-			getRec := doRequest(t, h, http.MethodGet, "/datasets/"+tt.datasetName+"/content", nil)
-			assert.Equal(t, tt.wantGet, getRec.Code)
-
-			listRec := doRequest(t, h, http.MethodGet, "/datasets/"+tt.datasetName+"/contents", nil)
-			assert.Equal(t, tt.wantList, listRec.Code)
-
-			var versionID string
-
-			if tt.wantList == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
-				summaries, ok := resp["datasetContentSummaries"].([]any)
-				require.True(t, ok)
-				assert.Len(t, summaries, 1)
-
-				if len(summaries) > 0 {
-					if entry, ok2 := summaries[0].(map[string]any); ok2 {
-						versionID, _ = entry["version"].(string)
-					}
-				}
-			}
-
-			deletePath := "/datasets/" + tt.datasetName + "/content"
-			if versionID != "" {
-				deletePath += "?versionId=" + versionID
-			}
-
-			deleteRec := doRequest(t, h, http.MethodDelete, deletePath, nil)
-			assert.Equal(t, tt.wantDelete, deleteRec.Code)
-		})
-	}
-}
-
-func TestHandler_LoggingOptions(t *testing.T) {
-	t.Parallel()
-
-	type testCase struct {
-		loggingOpts  any
-		name         string
-		wantDescribe int
-		wantPut      int
-		putFirst     bool
-	}
-
-	tests := []testCase{
-		{
-			name:         "describe_not_set",
-			putFirst:     false,
-			wantDescribe: http.StatusNotFound,
-		},
-		{
-			name:     "put_and_describe",
-			putFirst: true,
-			loggingOpts: map[string]any{
-				"loggingOptions": map[string]any{
-					"roleArn": "arn:aws:iam::000000000000:role/test-role",
-					"level":   "ERROR",
-					"enabled": true,
-				},
-			},
-			wantPut:      http.StatusNoContent,
-			wantDescribe: http.StatusOK,
-		},
-		{
-			name:        "put_invalid_body",
-			putFirst:    true,
-			loggingOpts: "not-json",
-			wantPut:     http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.putFirst && tt.loggingOpts != nil {
-				putRec := doRequest(t, h, http.MethodPut, "/logging", tt.loggingOpts)
-				assert.Equal(t, tt.wantPut, putRec.Code)
-			}
-
-			if tt.wantDescribe != 0 {
-				descRec := doRequest(t, h, http.MethodGet, "/logging", nil)
-				assert.Equal(t, tt.wantDescribe, descRec.Code)
-
-				if tt.wantDescribe == http.StatusOK {
-					var resp map[string]any
-					require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
-					opts, ok := resp["loggingOptions"].(map[string]any)
-					require.True(t, ok)
-					assert.Equal(t, "ERROR", opts["level"])
-					assert.Equal(t, true, opts["enabled"])
-				}
-			}
-		})
-	}
-}
-
-func TestHandler_RunPipelineActivity(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantStatus int
-		wantLen    int
-	}{
-		{
-			name: "with_payloads",
-			body: map[string]any{
-				"pipelineActivity": map[string]any{
-					"channel": map[string]any{"name": "ch", "channelName": "test"},
-				},
-				"payloads": [][]byte{[]byte(`{"val":1}`), []byte(`{"val":2}`)},
-			},
-			wantStatus: http.StatusOK,
-			wantLen:    2,
-		},
-		{
-			name:       "empty_payloads",
-			body:       map[string]any{"pipelineActivity": map[string]any{}, "payloads": [][]byte{}},
-			wantStatus: http.StatusOK,
-			wantLen:    0,
-		},
-		{
-			name:       "invalid_body",
-			body:       "not-json",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doRequest(t, h, http.MethodPost, "/pipelineactivities/run", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				payloads, _ := resp["payloads"].([]any)
-				assert.Len(t, payloads, tt.wantLen)
-			}
-		})
-	}
-}
-
-// TestHandler_CreateResource_InvalidTagsRejected verifies that Create* operations validate
-// tags up front, the same way TagResource does, instead of persisting a resource with tags
-// that would be rejected had they been attached via a separate TagResource call.
-func TestHandler_CreateResource_InvalidTagsRejected(t *testing.T) {
-	t.Parallel()
-
-	invalidTags := []map[string]string{{"key": "aws:reserved", "value": "v"}}
-	validTags := []map[string]string{{"key": "env", "value": "prod"}}
-
-	tests := []struct {
-		body func(tags []map[string]string) map[string]any
+		body map[string]any
 		name string
 		path string
 	}{
 		{
-			name: "channel",
+			name: "channel_conflict",
 			path: "/channels",
-			body: func(tags []map[string]string) map[string]any {
-				return map[string]any{"channelName": "invtag_ch", "tags": tags}
-			},
+			body: map[string]any{"channelName": "dup_ch2"},
 		},
 		{
-			name: "datastore",
+			name: "datastore_conflict",
 			path: "/datastores",
-			body: func(tags []map[string]string) map[string]any {
-				return map[string]any{"datastoreName": "invtag_ds", "tags": tags}
-			},
+			body: map[string]any{"datastoreName": "dup_ds2"},
 		},
 		{
-			name: "dataset",
+			name: "dataset_conflict",
 			path: "/datasets",
-			body: func(tags []map[string]string) map[string]any {
-				return map[string]any{"datasetName": "invtag_dset", "tags": tags}
-			},
+			body: map[string]any{"datasetName": "dup_set2"},
 		},
 		{
-			name: "pipeline",
+			name: "pipeline_conflict",
 			path: "/pipelines",
-			body: func(tags []map[string]string) map[string]any {
-				return map[string]any{"pipelineName": "invtag_pl", "tags": tags}
-			},
+			body: map[string]any{"pipelineName": "dup_pipe2"},
 		},
 	}
 
@@ -809,51 +294,68 @@ func TestHandler_CreateResource_InvalidTagsRejected(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+			rec1 := doRequest(t, h, http.MethodPost, tt.path, tt.body)
+			require.Equal(t, http.StatusOK, rec1.Code)
 
-			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body(invalidTags))
-			require.Equal(t, http.StatusBadRequest, rec.Code)
+			rec2 := doRequest(t, h, http.MethodPost, tt.path, tt.body)
+			require.Equal(t, http.StatusConflict, rec2.Code)
 
-			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-			assert.Equal(t, "InvalidRequestException", errResp["__type"])
-
-			okRec := doRequest(t, h, http.MethodPost, tt.path, tt.body(validTags))
-			assert.Equal(t, http.StatusOK, okRec.Code)
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			assert.Equal(t, "ResourceAlreadyExistsException", resp["__type"])
 		})
 	}
 }
 
-// TestHandler_CreateChannel_TooManyTagsRejected verifies the 50-tag-per-resource limit is
-// enforced at creation time, not only when tags are added later via TagResource.
-func TestHandler_CreateChannel_TooManyTagsRejected(t *testing.T) {
-	t.Parallel()
-
-	tags := make([]map[string]string, 51)
-	for i := range tags {
-		tags[i] = map[string]string{"key": "k" + strconv.Itoa(i), "value": "v"}
-	}
-
-	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/channels", map[string]any{
-		"channelName": "toomanytags_ch",
-		"tags":        tags,
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// TestHandler_GetDatasetContent_MagicVersionStrings verifies GetDatasetContent honors the
-// AWS-documented "$LATEST" and "$LATEST_SUCCEEDED" versionId sentinels (uppercase, as sent
-// verbatim by the SDK), not just an omitted versionId.
-func TestHandler_GetDatasetContent_MagicVersionStrings(t *testing.T) {
+// TestHandler_ErrorResponseFormat verifies the AWS-style __type field in error responses.
+func TestHandler_ErrorResponseFormat(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name      string
-		versionID string
+		method    string
+		path      string
+		body      any
+		wantType  string
+		wantCode  int
+		seedFirst bool
 	}{
-		{name: "omitted", versionID: ""},
-		{name: "latest", versionID: "$LATEST"},
-		{name: "latest_succeeded", versionID: "$LATEST_SUCCEEDED"},
+		{
+			name:     "not_found_has_ResourceNotFoundException",
+			method:   http.MethodGet,
+			path:     "/channels/nonexistent",
+			wantType: "ResourceNotFoundException",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "datastore_not_found",
+			method:   http.MethodGet,
+			path:     "/datastores/nonexistent",
+			wantType: "ResourceNotFoundException",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "pipeline_not_found",
+			method:   http.MethodGet,
+			path:     "/pipelines/nonexistent",
+			wantType: "ResourceNotFoundException",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "dataset_not_found",
+			method:   http.MethodGet,
+			path:     "/datasets/nonexistent",
+			wantType: "ResourceNotFoundException",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "invalid_name_has_InvalidRequestException",
+			method:   http.MethodPost,
+			path:     "/channels",
+			body:     map[string]any{"channelName": "bad-name"},
+			wantType: "InvalidRequestException",
+			wantCode: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -861,127 +363,344 @@ func TestHandler_GetDatasetContent_MagicVersionStrings(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": "magicver_ds"})
-			createRec := doRequest(t, h, http.MethodPost, "/datasets/magicver_ds/content", nil)
-			require.Equal(t, http.StatusOK, createRec.Code)
-
-			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-			wantVersion, _ := createResp["versionId"].(string)
-			require.NotEmpty(t, wantVersion)
-
-			path := "/datasets/magicver_ds/content"
-			if tt.versionID != "" {
-				path += "?versionId=" + tt.versionID
-			}
-
-			rec := doRequest(t, h, http.MethodGet, path, nil)
-			require.Equal(t, http.StatusOK, rec.Code)
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, wantVersion, resp["versionId"])
+			assert.Equal(t, tt.wantType, resp["__type"], "error response must have __type field")
+			assert.NotEmpty(t, resp["message"], "error response must have message field")
 		})
 	}
 }
 
-// TestHandler_DeleteDatasetContent_OmittedVersionDeletesOnlyLatest verifies that omitting
-// versionId (equivalent to the AWS default "$LATEST_SUCCEEDED") removes exactly one content
-// version -- the most recently created -- not every version for the dataset.
-func TestHandler_DeleteDatasetContent_OmittedVersionDeletesOnlyLatest(t *testing.T) {
+// TestHandler_ResourceNameValidation verifies that only [a-zA-Z0-9_]+ names are accepted,
+// across every resource family.
+func TestHandler_ResourceNameValidation(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": "delonlylatest_ds"})
-
-	var firstVersion string
-
-	for i := range 3 {
-		rec := doRequest(t, h, http.MethodPost, "/datasets/delonlylatest_ds/content", nil)
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		if i == 0 {
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			firstVersion, _ = resp["versionId"].(string)
-			require.NotEmpty(t, firstVersion)
-		}
+	tests := []struct {
+		name       string
+		resource   string
+		body       map[string]any
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "channel_hyphen_rejected",
+			path:       "/channels",
+			body:       map[string]any{"channelName": "bad-name"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "channel_underscore_accepted",
+			path:       "/channels",
+			body:       map[string]any{"channelName": "good_name"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "channel_alphanumeric_accepted",
+			path:       "/channels",
+			body:       map[string]any{"channelName": "GoodName123"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "channel_dot_rejected",
+			path:       "/channels",
+			body:       map[string]any{"channelName": "bad.name"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "channel_space_rejected",
+			path:       "/channels",
+			body:       map[string]any{"channelName": "bad name"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "datastore_hyphen_rejected",
+			path:       "/datastores",
+			body:       map[string]any{"datastoreName": "bad-ds"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "datastore_valid",
+			path:       "/datastores",
+			body:       map[string]any{"datastoreName": "valid_ds"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "dataset_hyphen_rejected",
+			path:       "/datasets",
+			body:       map[string]any{"datasetName": "bad-set"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "dataset_valid",
+			path:       "/datasets",
+			body:       map[string]any{"datasetName": "valid_set"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "pipeline_hyphen_rejected",
+			path:       "/pipelines",
+			body:       map[string]any{"pipelineName": "bad-pipe"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "pipeline_valid",
+			path:       "/pipelines",
+			body:       map[string]any{"pipelineName": "valid_pipe"},
+			wantStatus: http.StatusOK,
+		},
 	}
 
-	deleteRec := doRequest(t, h, http.MethodDelete, "/datasets/delonlylatest_ds/content", nil)
-	require.Equal(t, http.StatusNoContent, deleteRec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	listRec := doRequest(t, h, http.MethodGet, "/datasets/delonlylatest_ds/contents", nil)
-	require.Equal(t, http.StatusOK, listRec.Code)
-
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	summaries, _ := listResp["datasetContentSummaries"].([]any)
-	require.Len(t, summaries, 2, "omitted versionId must delete exactly one version")
-
-	var remainingHasFirst bool
-
-	for _, s := range summaries {
-		summary, _ := s.(map[string]any)
-		if summary["version"] == firstVersion {
-			remainingHasFirst = true
-		}
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
 	}
-
-	assert.True(t, remainingHasFirst, "the two oldest versions must remain; only the newest is deleted")
 }
 
-// TestHandler_ListDatasetContents_PaginationAcrossPages verifies that paging through
-// ListDatasetContents with a small maxResults returns every content version exactly once,
-// with no duplicates or gaps, across repeated backend calls driven by successive nextTokens.
-func TestHandler_ListDatasetContents_PaginationAcrossPages(t *testing.T) {
+// TestHandler_Pagination verifies maxResults and nextToken behavior on list endpoints,
+// across every resource family.
+func TestHandler_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		seedKind   string
+		seedCount  int
+		maxResults int
+		wantLen    int
+		wantToken  bool
+	}{
+		{
+			name:       "channels_maxResults_2_of_5",
+			seedKind:   "channel",
+			seedCount:  5,
+			maxResults: 2,
+			wantLen:    2,
+			wantToken:  true,
+		},
+		{
+			name:       "channels_maxResults_larger_than_count",
+			seedKind:   "channel",
+			seedCount:  3,
+			maxResults: 10,
+			wantLen:    3,
+			wantToken:  false,
+		},
+		{
+			name:       "datastores_maxResults_1",
+			seedKind:   "datastore",
+			seedCount:  3,
+			maxResults: 1,
+			wantLen:    1,
+			wantToken:  true,
+		},
+		{
+			name:       "datasets_maxResults_2",
+			seedKind:   "dataset",
+			seedCount:  4,
+			maxResults: 2,
+			wantLen:    2,
+			wantToken:  true,
+		},
+		{
+			name:       "pipelines_maxResults_3_of_3",
+			seedKind:   "pipeline",
+			seedCount:  3,
+			maxResults: 3,
+			wantLen:    3,
+			wantToken:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var listPath string
+			var summaryKey string
+
+			for i := range tt.seedCount {
+				var body map[string]any
+				var createPath string
+
+				switch tt.seedKind {
+				case "channel":
+					createPath = "/channels"
+					listPath = "/channels"
+					summaryKey = "channelSummaries"
+					body = map[string]any{
+						"channelName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i)),
+					}
+				case "datastore":
+					createPath = "/datastores"
+					listPath = "/datastores"
+					summaryKey = "datastoreSummaries"
+					body = map[string]any{
+						"datastoreName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i)),
+					}
+				case "dataset":
+					createPath = "/datasets"
+					listPath = "/datasets"
+					summaryKey = "datasetSummaries"
+					body = map[string]any{
+						"datasetName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i)),
+					}
+				case "pipeline":
+					createPath = "/pipelines"
+					listPath = "/pipelines"
+					summaryKey = "pipelineSummaries"
+					body = map[string]any{
+						"pipelineName": strings.ReplaceAll(t.Name(), "/", "_") + "_" + string(rune('a'+i)),
+					}
+				}
+
+				rec := doRequest(t, h, http.MethodPost, createPath, body)
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, listPath+"?maxResults="+string(rune('0'+tt.maxResults)), nil)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			summaries, ok := resp[summaryKey].([]any)
+			require.True(t, ok)
+			assert.Len(t, summaries, tt.wantLen)
+
+			_, hasToken := resp["nextToken"]
+			if tt.wantToken {
+				assert.True(t, hasToken, "expected nextToken in response")
+			} else {
+				assert.False(t, hasToken, "expected no nextToken when all results fit")
+			}
+		})
+	}
+}
+
+// TestHandler_PaginationNextToken verifies that nextToken retrieves the next page.
+func TestHandler_PaginationNextToken(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, http.MethodPost, "/datasets", map[string]string{"datasetName": "pageall_ds"})
 
-	wantVersions := make(map[string]bool)
-
-	for range 5 {
-		rec := doRequest(t, h, http.MethodPost, "/datasets/pageall_ds/content", nil)
+	// Seed 3 channels: p2_a, p2_b, p2_c (sorted alphabetically).
+	for _, name := range []string{"p2_a", "p2_b", "p2_c"} {
+		rec := doRequest(t, h, http.MethodPost, "/channels", map[string]any{"channelName": name})
 		require.Equal(t, http.StatusOK, rec.Code)
-
-		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-		vid, _ := resp["versionId"].(string)
-		require.NotEmpty(t, vid)
-		wantVersions[vid] = true
 	}
 
-	seen := make(map[string]bool)
-	path := "/datasets/pageall_ds/contents?maxResults=2"
+	// Page 1: maxResults=2.
+	rec1 := doRequest(t, h, http.MethodGet, "/channels?maxResults=2", nil)
+	require.Equal(t, http.StatusOK, rec1.Code)
 
-	for path != "" {
-		rec := doRequest(t, h, http.MethodGet, path, nil)
-		require.Equal(t, http.StatusOK, rec.Code)
+	var resp1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	summaries1, ok := resp1["channelSummaries"].([]any)
+	require.True(t, ok)
+	assert.Len(t, summaries1, 2)
+	token, ok := resp1["nextToken"].(string)
+	require.True(t, ok, "page 1 must have nextToken")
+	require.NotEmpty(t, token)
 
-		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	// Page 2: use the nextToken.
+	rec2 := doRequest(t, h, http.MethodGet, "/channels?maxResults=2&nextToken="+token, nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
 
-		summaries, _ := resp["datasetContentSummaries"].([]any)
-		for _, s := range summaries {
-			summary, _ := s.(map[string]any)
-			version, _ := summary["version"].(string)
-			require.False(t, seen[version], "version %q must not be returned twice across pages", version)
-			seen[version] = true
-		}
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	summaries2, ok := resp2["channelSummaries"].([]any)
+	require.True(t, ok)
+	assert.Len(t, summaries2, 1, "page 2 should have the remaining 1 channel")
+	_, hasToken := resp2["nextToken"]
+	assert.False(t, hasToken, "page 2 should not have a nextToken")
+}
 
-		nextToken, _ := resp["nextToken"].(string)
-		if nextToken == "" {
-			break
-		}
+// TestHandler_UpdateHandlersAcceptBody verifies Update* handlers parse request bodies,
+// across every resource family.
+func TestHandler_UpdateHandlersAcceptBody(t *testing.T) {
+	t.Parallel()
 
-		path = "/datasets/pageall_ds/contents?maxResults=2&nextToken=" + nextToken
+	tests := []struct {
+		createBody map[string]any
+		updateBody map[string]any
+		name       string
+		createPath string
+		updatePath string
+		wantStatus int
+	}{
+		{
+			name:       "update_channel_with_retention",
+			createPath: "/channels",
+			createBody: map[string]any{"channelName": "upd_ch"},
+			updatePath: "/channels/upd_ch",
+			updateBody: map[string]any{
+				"retentionPeriod": map[string]any{"numberOfDays": 7},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update_datastore_with_retention",
+			createPath: "/datastores",
+			createBody: map[string]any{"datastoreName": "upd_ds"},
+			updatePath: "/datastores/upd_ds",
+			updateBody: map[string]any{
+				"retentionPeriod": map[string]any{"unlimited": true},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update_dataset_with_versioning",
+			createPath: "/datasets",
+			createBody: map[string]any{"datasetName": "upd_set"},
+			updatePath: "/datasets/upd_set",
+			updateBody: map[string]any{
+				"versioningConfiguration": map[string]any{"unlimited": true},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update_pipeline_with_activities",
+			createPath: "/pipelines",
+			createBody: map[string]any{"pipelineName": "upd_pipe"},
+			updatePath: "/pipelines/upd_pipe",
+			updateBody: map[string]any{
+				"pipelineActivities": []map[string]any{
+					{"datastore": map[string]any{"name": "ds_act", "datastoreName": "myds"}},
+				},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update_channel_nil_body_ok",
+			createPath: "/channels",
+			createBody: map[string]any{"channelName": "upd_ch2"},
+			updatePath: "/channels/upd_ch2",
+			updateBody: nil,
+			wantStatus: http.StatusOK,
+		},
 	}
 
-	assert.Len(t, seen, len(wantVersions), "every created version must be returned exactly once across pages")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	for vid := range wantVersions {
-		assert.True(t, seen[vid], "version %q must appear in some page", vid)
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, http.MethodPost, tt.createPath, tt.createBody)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			rec = doRequest(t, h, http.MethodPut, tt.updatePath, tt.updateBody)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
 	}
 }

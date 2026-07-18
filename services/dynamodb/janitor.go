@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
@@ -719,4 +720,41 @@ func sweepTableStreamRecordsLocked(t *Table, now int64) int {
 	}
 
 	return cleared
+}
+
+// TTLGracePeriod is the extra time added after an item's TTL timestamp before it
+// is actually evicted. AWS DynamoDB documents a 48-hour grace period in production.
+// Tests should pass 0 to avoid timing dependencies.
+var TTLGracePeriod = 0 * time.Second //nolint:gochecknoglobals // intentional package-level default
+
+// isItemExpiredWithGrace reports whether an item's TTL attribute has expired,
+// accounting for the configured grace period.
+func isItemExpiredWithGrace(item map[string]any, ttlAttr string, gracePeriod time.Duration) bool {
+	if ttlAttr == "" {
+		return false
+	}
+
+	val, ok := item[ttlAttr]
+	if !ok {
+		return false
+	}
+
+	m, ok := val.(map[string]any)
+	if !ok {
+		return false
+	}
+
+	nStr, ok := m["N"].(string)
+	if !ok {
+		return false
+	}
+
+	var ts float64
+	if _, err := fmt.Sscanf(nStr, "%f", &ts); err != nil {
+		return false
+	}
+
+	expiry := time.Unix(int64(ts), 0).Add(gracePeriod)
+
+	return time.Now().After(expiry)
 }

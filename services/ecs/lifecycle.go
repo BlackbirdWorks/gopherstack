@@ -67,31 +67,32 @@ func (b *InMemoryBackend) registerStartLifecycleLocked(task *Task, clusterName s
 // This is invoked from the reconciler's background loop and is also called
 // directly by tests with a controlled clock for deterministic assertions.
 func (b *InMemoryBackend) stepTaskLifecycle(now time.Time) {
-	b.mu.Lock("stepTaskLifecycle")
-
 	// Collect tasks that finished stopping so their containers can be torn down
 	// outside the lock (Docker calls must not serialize the backend).
 	var toStopRunner []*Task
 
-	for arn, lc := range b.lifecycle {
-		if now.Before(lc.nextAt) {
-			continue
+	func() {
+		b.mu.Lock("stepTaskLifecycle")
+		defer b.mu.Unlock()
+
+		for arn, lc := range b.lifecycle {
+			if now.Before(lc.nextAt) {
+				continue
+			}
+
+			task := b.lookupTaskLocked(arn)
+			if task == nil {
+				// Task was deleted (e.g. janitor swept it or cluster removed).
+				delete(b.lifecycle, arn)
+
+				continue
+			}
+
+			if b.advanceLifecycleLocked(task, lc, now, &toStopRunner) {
+				delete(b.lifecycle, arn)
+			}
 		}
-
-		task := b.lookupTaskLocked(arn)
-		if task == nil {
-			// Task was deleted (e.g. janitor swept it or cluster removed).
-			delete(b.lifecycle, arn)
-
-			continue
-		}
-
-		if b.advanceLifecycleLocked(task, lc, now, &toStopRunner) {
-			delete(b.lifecycle, arn)
-		}
-	}
-
-	b.mu.Unlock()
+	}()
 
 	if b.runner != nil {
 		for _, t := range toStopRunner {

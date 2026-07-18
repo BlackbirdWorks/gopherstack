@@ -1,0 +1,608 @@
+package codepipeline_test
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/codepipeline"
+)
+
+func TestHandler_DisableEnableStageTransition(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		input      any
+		name       string
+		action     string
+		httpStatus int
+		wantErr    bool
+	}{
+		{
+			name:   "disable_success",
+			action: "DisableStageTransition",
+			setup: func(h *codepipeline.Handler) {
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("trans-pipeline"), nil)
+				require.NoError(t, err)
+			},
+			input: map[string]any{
+				"pipelineName":   "trans-pipeline",
+				"stageName":      "Source",
+				"transitionType": "Inbound",
+				"reason":         "waiting for approval",
+			},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:   "disable_pipeline_not_found",
+			action: "DisableStageTransition",
+			setup:  nil,
+			input: map[string]any{
+				"pipelineName":   "ghost-pipeline",
+				"stageName":      "Source",
+				"transitionType": "Inbound",
+				"reason":         "test",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:   "disable_missing_reason",
+			action: "DisableStageTransition",
+			setup:  nil,
+			input: map[string]any{
+				"pipelineName":   "any",
+				"stageName":      "Source",
+				"transitionType": "Inbound",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:   "enable_success",
+			action: "EnableStageTransition",
+			setup: func(h *codepipeline.Handler) {
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("enable-pipeline"), nil)
+				require.NoError(t, err)
+			},
+			input: map[string]any{
+				"pipelineName":   "enable-pipeline",
+				"stageName":      "Source",
+				"transitionType": "Outbound",
+			},
+			httpStatus: http.StatusOK,
+		},
+		{
+			name:   "enable_pipeline_not_found",
+			action: "EnableStageTransition",
+			setup:  nil,
+			input: map[string]any{
+				"pipelineName":   "ghost",
+				"stageName":      "Source",
+				"transitionType": "Outbound",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+		{
+			name:   "enable_missing_transitionType",
+			action: "EnableStageTransition",
+			setup:  nil,
+			input: map[string]any{
+				"pipelineName": "any",
+				"stageName":    "Source",
+			},
+			httpStatus: http.StatusBadRequest,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, tt.action, tt.input)
+			assert.Equal(t, tt.httpStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DisableEnableStageTransition_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("rt-pipeline"), nil)
+	require.NoError(t, err)
+
+	// Disable the transition.
+	rec := doRequest(t, h, "DisableStageTransition", map[string]any{
+		"pipelineName":   "rt-pipeline",
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+		"reason":         "blocked",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Re-enable the transition.
+	rec = doRequest(t, h, "EnableStageTransition", map[string]any{
+		"pipelineName":   "rt-pipeline",
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_DisableStageTransition_StageValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input      map[string]any
+		setup      func(h *codepipeline.Handler)
+		name       string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name: "existing stage disabled ok",
+			setup: func(h *codepipeline.Handler) {
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("stage-exists"), nil)
+				require.NoError(t, err)
+			},
+			input: map[string]any{
+				"pipelineName":   "stage-exists",
+				"stageName":      "Source",
+				"transitionType": "Inbound",
+				"reason":         "testing",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "non-existent stage rejected",
+			setup: func(h *codepipeline.Handler) {
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("stage-missing"), nil)
+				require.NoError(t, err)
+			},
+			input: map[string]any{
+				"pipelineName":   "stage-missing",
+				"stageName":      "NonExistentStage",
+				"transitionType": "Inbound",
+				"reason":         "testing",
+			},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "StageNotFoundException",
+		},
+		{
+			name:  "non-existent pipeline returns PipelineNotFoundException",
+			setup: nil,
+			input: map[string]any{
+				"pipelineName":   "ghost-pipeline",
+				"stageName":      "Source",
+				"transitionType": "Inbound",
+				"reason":         "testing",
+			},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "PipelineNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "DisableStageTransition", tt.input)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantType != "" {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Equal(t, tt.wantType, out["__type"])
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------------
+// #27 & #28 Persistence: Restore calls Reset + defensive copy
+// --------------------------------------------------------------------------
+
+func TestTransitionTypeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		action         string
+		transitionType string
+		wantErr        bool
+	}{
+		{
+			name:           "disable_inbound_ok",
+			action:         "DisableStageTransition",
+			transitionType: "Inbound",
+			wantErr:        false,
+		},
+		{
+			name:           "disable_outbound_ok",
+			action:         "DisableStageTransition",
+			transitionType: "Outbound",
+			wantErr:        false,
+		},
+		{
+			name:           "disable_invalid",
+			action:         "DisableStageTransition",
+			transitionType: "Invalid",
+			wantErr:        true,
+		},
+		{
+			name:           "enable_inbound_ok",
+			action:         "EnableStageTransition",
+			transitionType: "Inbound",
+			wantErr:        false,
+		},
+		{
+			name:           "enable_invalid",
+			action:         "EnableStageTransition",
+			transitionType: "BadValue",
+			wantErr:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("enum-pl"), nil)
+			require.NoError(t, err)
+
+			var input map[string]any
+			if tt.action == "DisableStageTransition" {
+				input = map[string]any{
+					"pipelineName":   "enum-pl",
+					"stageName":      "Source",
+					"transitionType": tt.transitionType,
+					"reason":         "test",
+				}
+			} else {
+				input = map[string]any{
+					"pipelineName":   "enum-pl",
+					"stageName":      "Source",
+					"transitionType": tt.transitionType,
+				}
+			}
+
+			rec := doRequest(t, h, tt.action, input)
+
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			} else {
+				assert.Equal(t, http.StatusOK, rec.Code)
+			}
+		})
+	}
+}
+
+func TestGetStageTransitionState(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("state-pl"), nil)
+	require.NoError(t, err)
+
+	// Initially enabled (nil).
+	state := h.Backend.GetStageTransitionState(context.Background(), "state-pl", "Source", "Inbound")
+	assert.Nil(t, state)
+
+	// Disable it.
+	rec := doRequest(t, h, "DisableStageTransition", map[string]any{
+		"pipelineName":   "state-pl",
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+		"reason":         "blocked",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	state = h.Backend.GetStageTransitionState(context.Background(), "state-pl", "Source", "Inbound")
+	require.NotNil(t, state)
+	assert.Equal(t, "blocked", state.Reason)
+	assert.True(t, state.Disabled)
+
+	// Re-enable it.
+	rec = doRequest(t, h, "EnableStageTransition", map[string]any{
+		"pipelineName":   "state-pl",
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	state = h.Backend.GetStageTransitionState(context.Background(), "state-pl", "Source", "Inbound")
+	assert.Nil(t, state)
+}
+
+func TestPipelineNameRequiredInDisable(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DisableStageTransition", map[string]any{
+		"stageName":      "Source",
+		"transitionType": "Inbound",
+		"reason":         "test",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetPipelineState(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreatePipeline", map[string]any{
+		"pipeline": samplePipeline("state-pipeline"),
+	})
+
+	rec := doRequest(t, h, "GetPipelineState", map[string]any{
+		"name": "state-pipeline",
+	})
+	require.Equal(t, 200, rec.Code)
+
+	// Missing name
+	rec = doRequest(t, h, "GetPipelineState", map[string]any{})
+	assert.Equal(t, 400, rec.Code)
+}
+
+// ---- Retry / Rollback / Override tests ----
+
+func TestHandler_GetPipelineState_ActionStates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(h *codepipeline.Handler)
+		checkFn    func(t *testing.T, out map[string]any)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "actionStates included per stage",
+			setup: func(h *codepipeline.Handler) {
+				_, err := h.Backend.CreatePipeline(context.Background(), samplePipeline("state-pl"), nil)
+				require.NoError(t, err)
+			},
+			wantStatus: http.StatusOK,
+			checkFn: func(t *testing.T, out map[string]any) {
+				t.Helper()
+
+				stages, _ := out["stageStates"].([]any)
+				require.Len(t, stages, 1)
+
+				stage0, _ := stages[0].(map[string]any)
+				actionStates, ok := stage0["actionStates"]
+				assert.True(t, ok, "actionStates key must be present")
+				assert.NotNil(t, actionStates)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, "GetPipelineState", map[string]any{"name": "state-pl"})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkFn != nil {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				tt.checkFn(t, out)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------------
+// ListPipelineExecutions returns stored executions
+// --------------------------------------------------------------------------
+
+func TestHandler_GetPipelineState_LatestExecution(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		checkFn      func(t *testing.T, out map[string]any)
+		name         string
+		pipelineName string
+		wantStatus   int
+		runExec      bool
+	}{
+		{
+			name:         "latestExecution absent before any execution",
+			pipelineName: "le-no-exec",
+			runExec:      false,
+			wantStatus:   http.StatusOK,
+			checkFn: func(t *testing.T, out map[string]any) {
+				t.Helper()
+
+				stages, _ := out["stageStates"].([]any)
+				require.Len(t, stages, 1)
+
+				stage0, _ := stages[0].(map[string]any)
+				actionStates, _ := stage0["actionStates"].([]any)
+				require.Len(t, actionStates, 1)
+
+				action0, _ := actionStates[0].(map[string]any)
+				_, hasLatest := action0["latestExecution"]
+				assert.False(t, hasLatest, "latestExecution must be absent before any execution")
+			},
+		},
+		{
+			name:         "latestExecution populated after StartPipelineExecution",
+			pipelineName: "le-with-exec",
+			runExec:      true,
+			wantStatus:   http.StatusOK,
+			checkFn: func(t *testing.T, out map[string]any) {
+				t.Helper()
+
+				stages, _ := out["stageStates"].([]any)
+				require.Len(t, stages, 1)
+
+				stage0, _ := stages[0].(map[string]any)
+				actionStates, _ := stage0["actionStates"].([]any)
+				require.Len(t, actionStates, 1)
+
+				action0, _ := actionStates[0].(map[string]any)
+				latest, ok := action0["latestExecution"].(map[string]any)
+				require.True(t, ok, "latestExecution must be present after execution")
+
+				assert.NotEmpty(t, latest["actionExecutionId"], "actionExecutionId must be set")
+				assert.NotEmpty(t, latest["status"], "status must be set")
+				assert.NotZero(t, latest["startTime"], "startTime must be set")
+				assert.NotZero(t, latest["lastUpdateTime"], "lastUpdateTime must be set")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.CreatePipeline(context.Background(), samplePipeline(tt.pipelineName), nil)
+			require.NoError(t, err)
+
+			if tt.runExec {
+				_, err = b.StartPipelineExecution(context.Background(), tt.pipelineName)
+				require.NoError(t, err)
+			}
+
+			h := codepipeline.NewHandler(b)
+			rec := doRequest(t, h, "GetPipelineState", map[string]any{"name": tt.pipelineName})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkFn != nil {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				tt.checkFn(t, out)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------------
+// PollForJobs respects maxBatchSize
+// --------------------------------------------------------------------------
+
+func TestGetPipelineState_PipelineVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tests := []struct {
+		name        string
+		wantVersion float64
+		updates     int
+	}{
+		{name: "version_1_on_create", updates: 0, wantVersion: 1},
+		{name: "version_2_after_update", updates: 1, wantVersion: 2},
+		{name: "version_3_after_two_updates", updates: 2, wantVersion: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h2 := newTestHandler(t)
+			pl := samplePipeline("state-version-pipe")
+
+			rec := doRequest(t, h2, "CreatePipeline", map[string]any{"pipeline": pl})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			for range tt.updates {
+				rec = doRequest(t, h2, "UpdatePipeline", map[string]any{"pipeline": pl})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec = doRequest(t, h2, "GetPipelineState", map[string]any{"name": pl.Name})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.InDelta(t, tt.wantVersion, out["pipelineVersion"], 0, "pipelineVersion mismatch")
+		})
+	}
+
+	_ = h
+}
+
+// TestParity_GetJobDetails_DataPopulated verifies data.actionTypeId is populated.
+
+func TestHandler_RetryRollbackOverride(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreatePipeline", map[string]any{
+		"pipeline": samplePipeline("retry-pipeline"),
+	})
+	startRec := doRequest(t, h, "StartPipelineExecution", map[string]any{"name": "retry-pipeline"})
+	startResp := decodeBody(t, startRec.Body.Bytes())
+	execID, _ := startResp["pipelineExecutionId"].(string)
+
+	// Retry stage execution
+	rec := doRequest(t, h, "RetryStageExecution", map[string]any{
+		"pipelineName":        "retry-pipeline",
+		"stageName":           "Source",
+		"pipelineExecutionId": execID,
+		"retryMode":           "FAILED_ACTIONS",
+	})
+	assert.Equal(t, 200, rec.Code)
+
+	// Missing name
+	rec = doRequest(t, h, "RetryStageExecution", map[string]any{})
+	assert.Equal(t, 400, rec.Code)
+
+	// Rollback stage
+	rec = doRequest(t, h, "RollbackStage", map[string]any{
+		"pipelineName":              "retry-pipeline",
+		"stageName":                 "Source",
+		"targetPipelineExecutionId": execID,
+	})
+	assert.Equal(t, 200, rec.Code)
+
+	// Missing name
+	rec = doRequest(t, h, "RollbackStage", map[string]any{})
+	assert.Equal(t, 400, rec.Code)
+
+	// Override stage condition
+	rec = doRequest(t, h, "OverrideStageCondition", map[string]any{
+		"pipelineName":        "retry-pipeline",
+		"stageName":           "Source",
+		"pipelineExecutionId": execID,
+		"conditionType":       "BEFORE_ENTRY",
+	})
+	assert.Equal(t, 200, rec.Code)
+
+	// Missing name
+	rec = doRequest(t, h, "OverrideStageCondition", map[string]any{})
+	assert.Equal(t, 400, rec.Code)
+}
+
+// ---- Webhook tests ----

@@ -264,3 +264,62 @@ func (h *Handler) handleListTrainingJobsFiltered(ctx context.Context, body []byt
 
 	return json.Marshal(resp)
 }
+
+// ---------------------------------------------------------------------------
+// TrainingJob handlers
+// ---------------------------------------------------------------------------
+
+type trainingJobSummary struct {
+	TrainingJobName   string  `json:"TrainingJobName"`
+	TrainingJobArn    string  `json:"TrainingJobArn"`
+	TrainingJobStatus string  `json:"TrainingJobStatus"`
+	CreationTime      float64 `json:"CreationTime"`
+	LastModifiedTime  float64 `json:"LastModifiedTime"`
+}
+
+func (h *Handler) handleDeleteTrainingJob(ctx context.Context, body []byte) error {
+	var req struct {
+		TrainingJobName string `json:"TrainingJobName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.TrainingJobName == "" {
+		return fmt.Errorf("%w: TrainingJobName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteTrainingJob(ctx, req.TrainingJobName); err != nil {
+		return err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: deleted training job", "name", req.TrainingJobName)
+
+	return nil
+}
+
+func (h *Handler) handleUpdateTrainingJob(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		TrainingJobName string `json:"TrainingJobName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.TrainingJobName == "" {
+		return nil, fmt.Errorf("%w: TrainingJobName is required", errInvalidRequest)
+	}
+
+	tj, err := h.Backend.DescribeTrainingJob(ctx, req.TrainingJobName)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: updated training job", "name", req.TrainingJobName)
+
+	return json.Marshal(map[string]string{keyTrainingJobArn: tj.TrainingJobArn})
+}

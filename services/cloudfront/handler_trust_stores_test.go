@@ -9,8 +9,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestNewOps_TrustStore tests trust store CRUD.
-func TestNewOps_TrustStore(t *testing.T) {
+// TestTrustStore_CRUD tests trust store CRUD.
+func TestTrustStore_CRUD(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -43,10 +43,10 @@ func TestNewOps_TrustStore(t *testing.T) {
 	cfOK(t, h, http.MethodDelete, prefix+"trust-store/"+id, "")
 }
 
-// TestNewOps_TrustStore_BundleAndStatus verifies the certificate bundle, Status, and
+// TestTrustStore_BundleAndStatus verifies the certificate bundle, Status, and
 // LastModifiedTime round-trip through create/get/update, and that fields omitted on update
 // (empty bundle, empty comment) leave the existing values unchanged.
-func TestNewOps_TrustStore_BundleAndStatus(t *testing.T) {
+func TestTrustStore_BundleAndStatus(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -92,11 +92,11 @@ func TestNewOps_TrustStore_BundleAndStatus(t *testing.T) {
 	}
 }
 
-// TestNewOps_TrustStore_NameUniqueness verifies that creating a trust store with a name that
+// TestTrustStore_NameUniqueness verifies that creating a trust store with a name that
 // already exists fails with 409 EntityAlreadyExists (the generic AWS fallback code for
 // resources without a dedicated AlreadyExists error type), and that renaming to a taken
 // name on update also fails.
-func TestNewOps_TrustStore_NameUniqueness(t *testing.T) {
+func TestTrustStore_NameUniqueness(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -124,9 +124,9 @@ func TestNewOps_TrustStore_NameUniqueness(t *testing.T) {
 	}
 }
 
-// TestNewOps_TrustStore_NotFound verifies Get/Update/Delete on a missing ID return 404
+// TestTrustStore_NotFound verifies Get/Update/Delete on a missing ID return 404
 // NoSuchTrustStore.
-func TestNewOps_TrustStore_NotFound(t *testing.T) {
+func TestTrustStore_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -151,9 +151,9 @@ func TestNewOps_TrustStore_NotFound(t *testing.T) {
 	}
 }
 
-// TestNewOps_TrustStore_IfMatchEnforcement verifies that a mismatched If-Match header on
+// TestTrustStore_IfMatchEnforcement verifies that a mismatched If-Match header on
 // update/delete is rejected with 412 PreconditionFailed, and that the correct ETag succeeds.
-func TestNewOps_TrustStore_IfMatchEnforcement(t *testing.T) {
+func TestTrustStore_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	const prefix = "/2020-05-31/"
@@ -204,9 +204,9 @@ func TestNewOps_TrustStore_IfMatchEnforcement(t *testing.T) {
 	}
 }
 
-// TestNewOps_TrustStore_Tags verifies tags can be attached to a trust store via the generic
+// TestTrustStore_Tags verifies tags can be attached to a trust store via the generic
 // TagResource/ListTagsForResource endpoints, using the shared tag store.
-func TestNewOps_TrustStore_Tags(t *testing.T) {
+func TestTrustStore_Tags(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -233,9 +233,9 @@ func TestNewOps_TrustStore_Tags(t *testing.T) {
 	}
 }
 
-// TestNewOps_TrustStore_Persistence verifies trust stores, their tags, and derived indexes
+// TestTrustStore_Persistence verifies trust stores, their tags, and derived indexes
 // (ARN and name-uniqueness) survive a Snapshot/Restore round-trip.
-func TestNewOps_TrustStore_Persistence(t *testing.T) {
+func TestTrustStore_Persistence(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"

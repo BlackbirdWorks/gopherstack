@@ -297,3 +297,45 @@ func (h *Handler) handleUpdateActionConnectorPerms(c *echo.Context) error {
 		keyStatus:            http.StatusOK,
 	})
 }
+
+// classifyActionConnectorPaths routes /accounts/{id}/action-connectors/... paths.
+func classifyActionConnectorPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch n {
+	case nSegsAccountRes:
+		switch method {
+		case http.MethodPost:
+			return opCreateActionConnector, accountID
+		case http.MethodGet:
+			return opListActionConnectors, accountID
+		}
+	case nSegsAccountResID:
+		id := seg(segs, segResID)
+		switch method {
+		case http.MethodGet:
+			return opDescribeActionConnector, id
+		case http.MethodPut:
+			return opUpdateActionConnector, id
+		case http.MethodDelete:
+			return opDeleteActionConnector, id
+		}
+	case nSegsSubRes:
+		id := seg(segs, segResID)
+		sub := seg(segs, segSubRes)
+		switch sub {
+		case pathSegPermissions:
+			switch method {
+			case http.MethodGet:
+				return opDescribeActionConnectorPerms, id
+			case http.MethodPut:
+				return opUpdateActionConnectorPerms, id
+			}
+		case pathSegSearch:
+			if method == http.MethodPost {
+				return opSearchActionConnectors, accountID
+			}
+		}
+	}
+
+	return opUnknown, ""
+}

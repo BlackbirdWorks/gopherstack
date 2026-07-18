@@ -1,0 +1,227 @@
+package servicediscovery
+
+import (
+	"fmt"
+	"maps"
+	"sort"
+	"time"
+)
+
+// CreateService creates a new Cloud Map service.
+func (b *InMemoryBackend) CreateService(
+	name, namespaceID, description, svcType string,
+	dnsConfig *DNSConfig,
+	hcc *HealthCheckConfig,
+	hccc *HealthCheckCustomConfig,
+	tags map[string]string,
+) (*Service, error) {
+	b.mu.Lock("CreateService")
+	defer b.mu.Unlock()
+
+	if namespaceID != "" {
+		if !b.namespaces.Has(namespaceID) {
+			return nil, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, namespaceID)
+		}
+	}
+
+	// Derive service type when not explicitly set.
+	resolvedType := svcType
+	if resolvedType == "" && namespaceID != "" {
+		if ns, ok := b.namespaces.Get(namespaceID); ok {
+			switch ns.Type {
+			case namespaceTypeHTTP:
+				resolvedType = serviceTypeHTTP
+			case namespaceTypeDNSPrivate, namespaceTypeDNSPublic:
+				if dnsConfig != nil {
+					resolvedType = serviceTypeDNSHTTP
+				} else {
+					resolvedType = serviceTypeDNS
+				}
+			}
+		}
+	}
+
+	id := b.nextSvcID()
+
+	svc := &Service{
+		ID:                      id,
+		ARN:                     b.serviceARN(id),
+		Name:                    name,
+		NamespaceID:             namespaceID,
+		Description:             description,
+		Type:                    resolvedType,
+		DNSConfig:               copyDNSConfig(dnsConfig),
+		HealthCheckConfig:       copyHealthCheckConfig(hcc),
+		HealthCheckCustomConfig: copyHealthCheckCustomConfig(hccc),
+		Tags:                    copyTags(tags),
+		CreatedAt:               time.Now(),
+	}
+
+	b.services.Put(svc)
+
+	return copyService(svc), nil
+}
+
+// DeleteService deletes a service by ID.
+// Returns ResourceInUse if instances are still registered.
+func (b *InMemoryBackend) DeleteService(id string) error {
+	b.mu.Lock("DeleteService")
+	defer b.mu.Unlock()
+
+	if !b.services.Has(id) {
+		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
+	}
+
+	if insts := b.instancesByService.Get(id); len(insts) > 0 {
+		return fmt.Errorf("%w: service %s has registered instances; deregister them first", ErrResourceInUse, id)
+	}
+
+	b.services.Delete(id)
+	delete(b.serviceAttributes, id)
+
+	return nil
+}
+
+// GetService returns a service by ID.
+func (b *InMemoryBackend) GetService(id string) (*Service, error) {
+	b.mu.RLock("GetService")
+	defer b.mu.RUnlock()
+
+	svc, ok := b.services.Get(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
+	}
+
+	cp := copyService(svc)
+	cp.InstanceCount = len(b.instancesByService.Get(id))
+
+	return cp, nil
+}
+
+// ListServices returns all services, optionally filtered.
+func (b *InMemoryBackend) ListServices(filter ListServicesFilter) []Service {
+	b.mu.RLock("ListServices")
+	defer b.mu.RUnlock()
+
+	all := b.services.All()
+	result := make([]Service, 0, len(all))
+
+	for _, svc := range all {
+		if filter.NamespaceID != "" && svc.NamespaceID != filter.NamespaceID {
+			continue
+		}
+
+		cp := copyService(svc)
+		cp.InstanceCount = len(b.instancesByService.Get(svc.ID))
+		result = append(result, *cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result
+}
+
+// UpdateService updates the description and optionally DNSConfig/HealthCheckConfig of a service.
+// Returns the operation ID, matching real AWS UpdateService behavior.
+func (b *InMemoryBackend) UpdateService(
+	id, description string,
+	dnsConfig *DNSConfig,
+	hcc *HealthCheckConfig,
+) (string, error) {
+	b.mu.Lock("UpdateService")
+	defer b.mu.Unlock()
+
+	svc, ok := b.services.Get(id)
+	if !ok {
+		return "", fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
+	}
+
+	svc.Description = description
+
+	if dnsConfig != nil && len(dnsConfig.DNSRecords) > 0 {
+		if svc.DNSConfig == nil {
+			svc.DNSConfig = &DNSConfig{}
+		}
+
+		for i, newRec := range dnsConfig.DNSRecords {
+			if i < len(svc.DNSConfig.DNSRecords) {
+				svc.DNSConfig.DNSRecords[i].TTL = newRec.TTL
+			}
+		}
+	}
+
+	if hcc != nil {
+		svc.HealthCheckConfig = copyHealthCheckConfig(hcc)
+	}
+
+	now := time.Now()
+	opID := b.nextOpID()
+	b.operations.Put(&Operation{
+		ID:         opID,
+		Type:       operationTypeUpdateService,
+		Status:     operationStatusSuccess,
+		Targets:    map[string]string{typeService: id},
+		CreateDate: now,
+		UpdateDate: now,
+	})
+
+	return opID, nil
+}
+
+// GetServiceAttributes returns the custom attributes for a service.
+func (b *InMemoryBackend) GetServiceAttributes(serviceID string) (string, map[string]string, error) {
+	b.mu.RLock("GetServiceAttributes")
+	defer b.mu.RUnlock()
+
+	svc, ok := b.services.Get(serviceID)
+	if !ok {
+		return "", nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
+	}
+
+	attrs, ok := b.serviceAttributes[serviceID]
+	if !ok {
+		return "", nil, fmt.Errorf("%w: no attributes found for service %s", ErrServiceAttributesNotFound, serviceID)
+	}
+
+	return svc.ARN, copyAttrs(attrs), nil
+}
+
+// UpdateServiceAttributes sets or merges custom attributes for a service identified by ARN.
+func (b *InMemoryBackend) UpdateServiceAttributes(serviceARN string, attributes map[string]string) error {
+	b.mu.Lock("UpdateServiceAttributes")
+	defer b.mu.Unlock()
+
+	svcMatches := b.servicesByARN.Get(serviceARN)
+	if len(svcMatches) == 0 {
+		return fmt.Errorf("%w: service with ARN %s not found", ErrServiceNotFound, serviceARN)
+	}
+
+	svcID := svcMatches[0].ID
+
+	existing := b.serviceAttributes[svcID]
+	if existing == nil {
+		existing = make(map[string]string)
+	}
+
+	maps.Copy(existing, attributes)
+
+	b.serviceAttributes[svcID] = existing
+
+	return nil
+}
+
+// DeleteServiceAttributes removes all custom attributes for a service.
+func (b *InMemoryBackend) DeleteServiceAttributes(serviceID string) error {
+	b.mu.Lock("DeleteServiceAttributes")
+	defer b.mu.Unlock()
+
+	if !b.services.Has(serviceID) {
+		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
+	}
+
+	delete(b.serviceAttributes, serviceID)
+
+	return nil
+}

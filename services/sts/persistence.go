@@ -71,23 +71,25 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	now := time.Now().UTC()
 
-	b.mu.Lock("Restore")
-	b.sessions.Reset()
+	func() {
+		b.mu.Lock("Restore")
+		defer b.mu.Unlock()
 
-	for _, s := range snap.Sessions {
-		if s == nil {
-			continue
+		b.sessions.Reset()
+
+		for _, s := range snap.Sessions {
+			if s == nil {
+				continue
+			}
+
+			// Discard already-expired sessions; keep zero-valued (non-expiring) sessions.
+			if !s.Expiration.IsZero() && !now.Before(s.Expiration) {
+				continue
+			}
+
+			b.sessions.Put(s)
 		}
-
-		// Discard already-expired sessions; keep zero-valued (non-expiring) sessions.
-		if !s.Expiration.IsZero() && !now.Before(s.Expiration) {
-			continue
-		}
-
-		b.sessions.Put(s)
-	}
-
-	b.mu.Unlock()
+	}()
 
 	// Restore operation counters (atomics are safe without the mutex).
 	b.totalSessionsCreated.Store(snap.TotalSessionsCreated)

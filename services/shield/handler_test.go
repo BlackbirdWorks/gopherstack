@@ -2,6 +2,7 @@ package shield_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,31 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
+
+const (
+	testAccountID = "000000000000"
+	testRegion    = "us-east-1"
+)
+
+// eipARN returns a test EIP allocation ARN.
+func eipARN(id string) string {
+	return "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-" + id
+}
+
+// albARN returns a test Application Load Balancer ARN.
+func albARN(id string) string {
+	return "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/app/" + id + "/abc123"
+}
+
+// cfARN returns a test CloudFront distribution ARN.
+func cfARN(id string) string {
+	return "arn:aws:cloudfront::000000000000:distribution/" + id
+}
+
+// r53ARN returns a test Route 53 hosted zone ARN.
+func r53ARN(id string) string {
+	return "arn:aws:route53:::hostedzone/" + id
+}
 
 func newTestHandler(t *testing.T) *shield.Handler {
 	t.Helper()
@@ -52,18 +78,36 @@ func doShieldRequest(
 	return rec
 }
 
+// opaqueOffset decodes a base64url opaque token and returns the embedded offset.
+func opaqueOffset(t *testing.T, token string) int {
+	t.Helper()
+
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	require.NoError(t, err, "token must be valid base64url")
+
+	var obj struct {
+		O int `json:"o"`
+	}
+
+	require.NoError(t, json.Unmarshal(raw, &obj), "token must be JSON with 'o' key")
+
+	return obj.O
+}
+
+func newSubscribedHandler(t *testing.T) (*shield.Handler, *shield.InMemoryBackend) {
+	t.Helper()
+
+	b := shield.NewInMemoryBackend("123456789012", "us-east-1")
+	b.AddSubscriptionInternal()
+
+	return shield.NewHandler(b), b
+}
+
 func TestHandler_Name(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	assert.Equal(t, "Shield", h.Name())
-}
-
-func TestBackend_Region(t *testing.T) {
-	t.Parallel()
-
-	b := shield.NewInMemoryBackend("000000000000", "eu-west-1")
-	assert.Equal(t, "eu-west-1", b.Region())
 }
 
 func TestHandler_RouteMatcher(t *testing.T) {
@@ -152,583 +196,6 @@ func TestHandler_ChaosServiceName(t *testing.T) {
 	assert.Equal(t, "shield", h.ChaosServiceName())
 }
 
-func TestHandler_CreateSubscription(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "success",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "idempotent when already subscribed",
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	h := newTestHandler(t)
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := doShieldRequest(t, h, "CreateSubscription", map[string]any{})
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_DescribeSubscription(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*shield.Handler)
-		name       string
-		wantField  string
-		wantStatus int
-	}{
-		{
-			name: "no subscription returns not found",
-			setup: func(_ *shield.Handler) {
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "after subscription returns details",
-			setup: func(h *shield.Handler) {
-				_ = h.Backend.CreateSubscription()
-			},
-			wantStatus: http.StatusOK,
-			wantField:  "Subscription",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			tt.setup(h)
-
-			rec := doShieldRequest(t, h, "DescribeSubscription", map[string]any{})
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantField != "" {
-				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
-				assert.Contains(t, result, tt.wantField)
-			}
-		})
-	}
-}
-
-// TestHandler_DescribeSubscription_TimeCommitmentInSeconds verifies the wire
-// field is TimeCommitmentInSeconds (seconds), matching aws-sdk-go-v2's
-// types.Subscription.TimeCommitmentInSeconds -- not the fabricated
-// TimeCommitmentInDays key/unit gopherstack used to emit.
-func TestHandler_DescribeSubscription_TimeCommitmentInSeconds(t *testing.T) {
-	t.Parallel()
-
-	const wantSeconds = 365 * 86400
-
-	h := newTestHandler(t)
-	require.NoError(t, h.Backend.CreateSubscription())
-
-	rec := doShieldRequest(t, h, "DescribeSubscription", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
-
-	sub, ok := result["Subscription"].(map[string]any)
-	require.True(t, ok, "response must include a Subscription object")
-
-	_, hasDaysField := sub["TimeCommitmentInDays"]
-	assert.False(t, hasDaysField, "wire response must not use the fabricated TimeCommitmentInDays key")
-
-	got, ok := sub["TimeCommitmentInSeconds"]
-	require.True(t, ok, "wire response must include TimeCommitmentInSeconds")
-	assert.InDelta(t, float64(wantSeconds), got, 0)
-}
-
-func TestHandler_GetSubscriptionState(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		setup     func(*shield.Handler)
-		wantState string
-	}{
-		{
-			name:      "inactive when no subscription",
-			setup:     func(_ *shield.Handler) {},
-			wantState: "INACTIVE",
-		},
-		{
-			name: "active after subscription",
-			setup: func(h *shield.Handler) {
-				_ = h.Backend.CreateSubscription()
-			},
-			wantState: "ACTIVE",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			tt.setup(h)
-
-			rec := doShieldRequest(t, h, "GetSubscriptionState", map[string]any{})
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var result map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
-			assert.Equal(t, tt.wantState, result["SubscriptionState"])
-		})
-	}
-}
-
-func TestHandler_CreateProtection(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*shield.Handler)
-		body       map[string]any
-		name       string
-		wantStatus int
-		wantID     bool
-	}{
-		{
-			name: "success",
-			setup: func(h *shield.Handler) {
-				_ = h.Backend.CreateSubscription()
-			},
-			body: map[string]any{
-				"Name":        "my-protection",
-				"ResourceArn": "arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-12345678",
-			},
-			wantStatus: http.StatusOK,
-			wantID:     true,
-		},
-		{
-			name: "duplicate name returns conflict",
-			setup: func(h *shield.Handler) {
-				_ = h.Backend.CreateSubscription()
-				_, _ = h.Backend.CreateProtection("my-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
-			},
-			body: map[string]any{
-				"Name":        "my-protection",
-				"ResourceArn": "arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-99",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing name returns error",
-			body: map[string]any{
-				"ResourceArn": "arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-12345678",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing resource arn returns error",
-			body: map[string]any{
-				"Name": "my-protection",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doShieldRequest(t, h, "CreateProtection", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantID {
-				var result map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
-				assert.NotEmpty(t, result["ProtectionId"])
-			}
-		})
-	}
-}
-
-func TestHandler_DescribeProtection(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*shield.Handler) string
-		body       func(id string) map[string]any
-		name       string
-		wantName   string
-		wantStatus int
-	}{
-		{
-			name: "by protection id",
-			setup: func(h *shield.Handler) string {
-				_ = h.Backend.CreateSubscription()
-				p, _ := h.Backend.CreateProtection("my-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
-
-				return p.ID
-			},
-			body: func(id string) map[string]any {
-				return map[string]any{"ProtectionId": id}
-			},
-			wantStatus: http.StatusOK,
-			wantName:   "my-protection",
-		},
-		{
-			name: "by resource arn",
-			setup: func(h *shield.Handler) string {
-				_ = h.Backend.CreateSubscription()
-				_, _ = h.Backend.CreateProtection("arn-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-2", nil)
-
-				return "arn:aws:ec2:us-east-1:123:eip/eipalloc-2"
-			},
-			body: func(id string) map[string]any {
-				return map[string]any{"ResourceArn": id}
-			},
-			wantStatus: http.StatusOK,
-			wantName:   "arn-protection",
-		},
-		{
-			name: "not found",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{"ProtectionId": "nonexistent"}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing id and arn returns error",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			id := tt.setup(h)
-			rec := doShieldRequest(t, h, "DescribeProtection", tt.body(id))
-			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantName != "" {
-				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
-				prot, ok := result["Protection"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, tt.wantName, prot["Name"])
-			}
-		})
-	}
-}
-
-func TestHandler_DeleteProtection(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*shield.Handler) string
-		body       func(id string) map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "success",
-			setup: func(h *shield.Handler) string {
-				_ = h.Backend.CreateSubscription()
-				p, _ := h.Backend.CreateProtection("my-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
-
-				return p.ID
-			},
-			body: func(id string) map[string]any {
-				return map[string]any{"ProtectionId": id}
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "not found",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{"ProtectionId": "nonexistent"}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing id returns error",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			id := tt.setup(h)
-			rec := doShieldRequest(t, h, "DeleteProtection", tt.body(id))
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListProtections(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup     func(*shield.Handler)
-		name      string
-		wantCount int
-	}{
-		{
-			name:      "empty list",
-			setup:     func(_ *shield.Handler) {},
-			wantCount: 0,
-		},
-		{
-			name: "two protections",
-			setup: func(h *shield.Handler) {
-				_ = h.Backend.CreateSubscription()
-				_, _ = h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
-				_, _ = h.Backend.CreateProtection("p2", "arn:aws:ec2:us-east-1:123:eip/eipalloc-2", nil)
-			},
-			wantCount: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			tt.setup(h)
-
-			rec := doShieldRequest(t, h, "ListProtections", map[string]any{})
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var result map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
-
-			protections, ok := result["Protections"].([]any)
-			require.True(t, ok)
-			assert.Len(t, protections, tt.wantCount)
-		})
-	}
-}
-
-func TestHandler_TagResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*shield.Handler) string
-		body       func(id string) map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "success",
-			setup: func(h *shield.Handler) string {
-				_ = h.Backend.CreateSubscription()
-				p, _ := h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
-
-				return p.ProtectionArn
-			},
-			body: func(id string) map[string]any {
-				return map[string]any{
-					"ResourceARN": id,
-					"Tags":        []map[string]string{{"Key": "env", "Value": "test"}},
-				}
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "protection not found",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{
-					"ResourceARN": "nonexistent-protection-id",
-					"Tags":        []map[string]string{{"Key": "env", "Value": "test"}},
-				}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing resource arn",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{
-					"Tags": []map[string]string{{"Key": "env", "Value": "test"}},
-				}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			id := tt.setup(h)
-			rec := doShieldRequest(t, h, "TagResource", tt.body(id))
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_ListTagsForResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*shield.Handler) string
-		body       func(id string) map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "success",
-			setup: func(h *shield.Handler) string {
-				_ = h.Backend.CreateSubscription()
-				p, _ := h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1",
-					map[string]string{"env": "prod"})
-
-				return p.ProtectionArn
-			},
-			body: func(id string) map[string]any {
-				return map[string]any{"ResourceARN": id}
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "protection not found",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{"ResourceARN": "nonexistent-id"}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing resource arn",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			id := tt.setup(h)
-			rec := doShieldRequest(t, h, "ListTagsForResource", tt.body(id))
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
-func TestHandler_UntagResource(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup      func(*shield.Handler) string
-		body       func(id string) map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name: "success",
-			setup: func(h *shield.Handler) string {
-				_ = h.Backend.CreateSubscription()
-				p, _ := h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1",
-					map[string]string{"env": "prod"})
-
-				return p.ProtectionArn
-			},
-			body: func(id string) map[string]any {
-				return map[string]any{
-					"ResourceARN": id,
-					"TagKeys":     []string{"env"},
-				}
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "protection not found",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{
-					"ResourceARN": "nonexistent-id",
-					"TagKeys":     []string{"env"},
-				}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing resource arn",
-			setup: func(_ *shield.Handler) string {
-				return ""
-			},
-			body: func(_ string) map[string]any {
-				return map[string]any{"TagKeys": []string{"env"}}
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			id := tt.setup(h)
-			rec := doShieldRequest(t, h, "UntagResource", tt.body(id))
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
-}
-
 func TestHandler_UnknownAction(t *testing.T) {
 	t.Parallel()
 
@@ -746,38 +213,141 @@ func TestHandler_ChaosInterface(t *testing.T) {
 	assert.Equal(t, "shield", h.ChaosServiceName())
 }
 
-func TestBackend_ListProtections(t *testing.T) {
+func TestBackend_Region(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		setup   func(*shield.InMemoryBackend)
-		name    string
-		wantLen int
-	}{
-		{
-			name:    "empty",
-			setup:   func(_ *shield.InMemoryBackend) {},
-			wantLen: 0,
-		},
-		{
-			name: "one protection",
-			setup: func(b *shield.InMemoryBackend) {
-				_ = b.CreateSubscription()
-				_, _ = b.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
-			},
-			wantLen: 1,
-		},
-	}
+	b := shield.NewInMemoryBackend("000000000000", "eu-west-1")
+	assert.Equal(t, "eu-west-1", b.Region())
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+// TestHandler_GetSupportedOperationsNewOps verifies new ops are in supported list.
+func TestHandler_GetSupportedOperationsIncludesAllOps(t *testing.T) {
+	t.Parallel()
 
-			b := shield.NewInMemoryBackend("000000000000", "us-east-1")
-			tt.setup(b)
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
 
-			list := b.ListProtections()
-			assert.Len(t, list, tt.wantLen)
-		})
+	for _, op := range []string{
+		"AssociateDRTLogBucket",
+		"AssociateDRTRole",
+		"AssociateHealthCheck",
+		"AssociateProactiveEngagementDetails",
+		"CreateProtectionGroup",
+		"DeleteProtectionGroup",
+		"DeleteSubscription",
+		"DescribeAttack",
+		"DescribeAttackStatistics",
+		"DescribeDRTAccess",
+	} {
+		assert.Contains(t, ops, op, "missing op: %s", op)
 	}
 }
+
+// TestRefinement1_HandlerOpsLen verifies 37 operations are supported.
+func TestHandler_OpsLen(t *testing.T) {
+	t.Parallel()
+
+	h := shield.NewHandler(shield.NewInMemoryBackend("000000000000", "us-east-1"))
+	assert.Equal(t, 37, shield.HandlerOpsLen(h))
+}
+
+// TestRefinement1_AccountID verifies AccountID returns the configured value.
+func TestBackend_AccountID(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	assert.Equal(t, "000000000000", b.AccountID())
+}
+
+// TestRefinement1_Region verifies Region returns the configured value.
+func TestBackend_RegionDefault(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	assert.Equal(t, "us-east-1", b.Region())
+}
+
+// TestRefinement1_ErrNilAppContext verifies the nil guard in provider.
+func TestProvider_ErrNilAppContext(t *testing.T) {
+	t.Parallel()
+
+	p := &shield.Provider{}
+	_, err := p.Init(nil)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, shield.ErrNilAppContext)
+}
+
+// TestRefinement1_Reset verifies Reset clears all state.
+func TestInMemoryBackend_Reset(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	b.AddProtectionInternal("my-prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-123")
+	assert.Equal(t, 1, shield.ProtectionCount(b))
+
+	b.Reset()
+	assert.Equal(t, 0, shield.ProtectionCount(b))
+}
+
+// TestRefinement1_HandlerReset verifies Handler.Reset delegates to backend.
+func TestHandler_ResetDelegates(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	h := shield.NewHandler(b)
+	b.AddProtectionInternal("my-prot", "arn:aws:ec2:us-east-1::eip-allocation/eipalloc-123")
+
+	h.Reset()
+	assert.Equal(t, 0, shield.ProtectionCount(b))
+}
+
+// TestRefinement1_StorageBackendInterface verifies var_ assertion compiles.
+func TestStorageBackendInterfaceCompiles(t *testing.T) {
+	t.Parallel()
+
+	var _ shield.StorageBackend = (*shield.InMemoryBackend)(nil)
+}
+
+// TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
+func TestHandler_SDKOpsSorted(t *testing.T) {
+	t.Parallel()
+
+	h := shield.NewHandler(shield.NewInMemoryBackend("000000000000", "us-east-1"))
+	ops := h.GetSupportedOperations()
+
+	require.NotEmpty(t, ops)
+
+	for i := 1; i < len(ops); i++ {
+		assert.LessOrEqual(t, ops[i-1], ops[i],
+			"ops not sorted at index %d: %s > %s", i, ops[i-1], ops[i])
+	}
+}
+
+// TestRefinement1_ProviderInit tests Provider Init with valid context.
+func TestProvider_InitReturnsRegisterable(t *testing.T) {
+	t.Parallel()
+
+	p := &shield.Provider{}
+	reg, err := p.Init(&service.AppContext{})
+	require.NoError(t, err)
+	assert.NotNil(t, reg)
+}
+
+// TestAudit_Gap23_ResetClearsAllState verifies Reset clears all fields.
+func TestInMemoryBackend_ResetClearsAllState(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b.CreateSubscription())
+	b.AddProtectionInternal("prot", eipARN("1"))
+	b.AddAttackInternal("atk-1", eipARN("1"))
+
+	b.Reset()
+
+	assert.Equal(t, 0, shield.ProtectionCount(b))
+	assert.Equal(t, 0, shield.AttackCount(b))
+	assert.Equal(t, "INACTIVE", b.GetSubscriptionState())
+}
+
+// --- Gap 24: ListResourcesInProtectionGroup BY_RESOURCE_TYPE ---

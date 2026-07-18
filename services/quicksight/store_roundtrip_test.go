@@ -11,7 +11,7 @@ import (
 )
 
 // TestQuickSight_Phase3_3_StoreRoundTrip verifies that the Phase 3.3
-// pkgs/store conversion (backend.go, store_setup.go: every map[string]*T
+// pkgs/store conversion (store.go, store_setup.go: every map[string]*T
 // resource field with a pure identity registered as a *store.Table[T] on the
 // backend's registry) preserves full backend state across a Snapshot/Restore
 // round-trip. It seeds at least one entry in every converted table plus a

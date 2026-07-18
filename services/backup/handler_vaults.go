@@ -259,3 +259,32 @@ func (h *Handler) handleCreateRestoreAccessBackupVault(c *echo.Context, body []b
 		keyVaultState:                  rav.VaultState,
 	})
 }
+
+// dispatchRestoreAccessVaultOps handles restore-access-vault and MPA
+// approval team operations.
+func (h *Handler) dispatchRestoreAccessVaultOps(c *echo.Context, route backupRoute) (bool, error) {
+	switch route.operation {
+	case opListRestoreAccessBackupVaults:
+		vaults := h.Backend.ListRestoreAccessBackupVaults()
+		items := make([]map[string]any, 0, len(vaults))
+		for _, v := range vaults {
+			items = append(items, map[string]any{
+				"RestoreAccessBackupVaultName": v.RestoreAccessBackupVaultName,
+				"RestoreAccessBackupVaultArn":  v.RestoreAccessBackupVaultArn,
+				keyVaultState:                  v.VaultState,
+			})
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"RestoreAccessBackupVaults": items})
+	case opRevokeRestoreAccessBackupVault:
+		_ = h.Backend.RevokeRestoreAccessBackupVault(route.resource)
+
+		return true, c.NoContent(http.StatusNoContent)
+	case opDisassociateBackupVaultMpaApprovalTeam:
+		_ = h.Backend.DisassociateBackupVaultMpaApprovalTeam(route.resource)
+
+		return true, c.NoContent(http.StatusNoContent)
+	}
+
+	return false, nil
+}

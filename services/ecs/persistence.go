@@ -51,7 +51,7 @@ type backendSnapshot struct {
 	// resourceTagKey(resourceArn). Clusters and Services carry their tags inline
 	// on their own struct, but task definitions and daemon task definitions are
 	// tagged only through this side map (see TagResource/ListTagsForResource in
-	// backend_refinement1.go), so it must be persisted like any other resource
+	// tags.go), so it must be persisted like any other resource
 	// state or tags silently vanish across a snapshot/restore cycle.
 	ResourceTags map[string][]Tag `json:"resourceTags"`
 	Version      int              `json:"version"`

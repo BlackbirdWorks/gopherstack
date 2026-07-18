@@ -172,3 +172,87 @@ func (h *Handler) handleDeleteReportPlan(c *echo.Context, name string) error {
 
 	return c.NoContent(http.StatusOK)
 }
+
+// dispatchReportJobOps handles report-job and scan-job operations.
+func (h *Handler) dispatchReportJobOps(
+	c *echo.Context,
+	route backupRoute,
+	body []byte,
+) (bool, error) {
+	switch route.operation {
+	case opDescribeReportJob:
+		job, err := h.Backend.DescribeReportJob(route.resource)
+		if err != nil {
+			return true, c.JSON(
+				http.StatusNotFound,
+				errResp("ResourceNotFoundException", err.Error()),
+			)
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ReportJob": map[string]any{keyReportJobID: job.ReportJobID, keyStatus: job.Status},
+		})
+	case opListReportJobs:
+		jobs := h.Backend.ListReportJobs("")
+		items := make([]map[string]any, 0, len(jobs))
+		for _, j := range jobs {
+			items = append(
+				items,
+				map[string]any{keyReportJobID: j.ReportJobID, keyStatus: j.Status},
+			)
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"ReportJobs": items})
+	case opStartReportJob:
+		job := h.Backend.StartReportJob(route.resource)
+
+		return true, c.JSON(http.StatusOK, map[string]any{keyReportJobID: job.ReportJobID})
+	case opDescribeScanJob:
+		job, err := h.Backend.DescribeScanJob(route.resource)
+		if err != nil {
+			return true, c.JSON(
+				http.StatusNotFound,
+				errResp("ResourceNotFoundException", err.Error()),
+			)
+		}
+
+		return true, c.JSON(
+			http.StatusOK,
+			map[string]any{keyScanJobID: job.ScanJobID, keyStatus: job.Status},
+		)
+	case opListScanJobs:
+		jobs := h.Backend.ListScanJobs()
+		items := make([]map[string]any, 0, len(jobs))
+		for _, j := range jobs {
+			items = append(items, map[string]any{keyScanJobID: j.ScanJobID, keyStatus: j.Status})
+		}
+
+		return true, c.JSON(http.StatusOK, map[string]any{"ScanJobs": items})
+	case opListScanJobSummaries:
+		jobs := h.Backend.ListScanJobs()
+
+		return true, c.JSON(http.StatusOK, map[string]any{
+			"ScanJobSummaries": []map[string]any{{"Count": len(jobs)}},
+		})
+	case opStartScanJob:
+		// StartScanJobInput carries BackupVaultName (not an ARN) in the JSON body.
+		var reqBody struct {
+			BackupVaultName string `json:"BackupVaultName"`
+		}
+		_ = json.Unmarshal(body, &reqBody)
+
+		vaultArn := reqBody.BackupVaultName
+		if v, err := h.Backend.DescribeBackupVault(reqBody.BackupVaultName); err == nil {
+			vaultArn = v.BackupVaultArn
+		}
+
+		job := h.Backend.StartScanJob(vaultArn)
+
+		return true, c.JSON(http.StatusOK, map[string]any{
+			keyScanJobID:    job.ScanJobID,
+			keyCreationDate: epochSeconds(job.CreationTime),
+		})
+	}
+
+	return false, nil
+}

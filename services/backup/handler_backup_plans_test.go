@@ -23,9 +23,9 @@ func TestUpdateBackupPlanUpdateDate(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			createResp := doBatch1Request(t, h, http.MethodPut, "/backup/plans", `{
+			createResp := doRequest(t, h, http.MethodPut, "/backup/plans", `{
 				"BackupPlan": {
 					"BackupPlanName": "plan-upd",
 					"Rules": [{"RuleName": "r1", "TargetBackupVaultName": "v1"}]
@@ -36,7 +36,7 @@ func TestUpdateBackupPlanUpdateDate(t *testing.T) {
 			require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createData))
 			planID := createData["BackupPlanId"].(string)
 
-			updateResp := doBatch1Request(t, h, http.MethodPost, "/backup/plans/"+planID, `{
+			updateResp := doRequest(t, h, http.MethodPost, "/backup/plans/"+planID, `{
 				"BackupPlan": {
 					"BackupPlanName": "plan-upd",
 					"Rules": [{"RuleName": "r2", "TargetBackupVaultName": "v1"}]
@@ -97,9 +97,9 @@ func TestCreateBackupPlanAdvancedBackupSettings(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
-			resp := doBatch1Request(t, h, http.MethodPut, "/backup/plans", tc.body)
+			resp := doRequest(t, h, http.MethodPut, "/backup/plans", tc.body)
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
@@ -239,12 +239,12 @@ func TestRuleLifecycle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, b := newBatch1Handler(t)
+			h, b := newHandler(t)
 
 			// Create vault first.
 			vaultNames := []string{"my-vault", "vault-a", "vault-b", "vault-c", "vault-d"}
 			for _, vn := range vaultNames {
-				doBatch1Request(t, h, http.MethodPut, "/backup-vaults/"+vn, `{}`)
+				doRequest(t, h, http.MethodPut, "/backup-vaults/"+vn, `{}`)
 			}
 
 			// Create plan with rules.
@@ -256,7 +256,7 @@ func TestRuleLifecycle(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			resp := doBatch1Request(t, h, http.MethodPut, "/backup/plans", string(body))
+			resp := doRequest(t, h, http.MethodPut, "/backup/plans", string(body))
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var createResp map[string]any
@@ -264,7 +264,7 @@ func TestRuleLifecycle(t *testing.T) {
 			planID := createResp["BackupPlanId"].(string)
 
 			// Retrieve and verify.
-			getResp := doBatch1Request(t, h, http.MethodGet, "/backup/plans/"+planID, "")
+			getResp := doRequest(t, h, http.MethodGet, "/backup/plans/"+planID, "")
 			require.Equal(t, http.StatusOK, getResp.Code)
 			_ = b
 
@@ -319,7 +319,7 @@ func TestAdvancedBackupSettings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newBatch1Handler(t)
+			h, _ := newHandler(t)
 
 			planBody := map[string]any{
 				"BackupPlan": map[string]any{
@@ -336,14 +336,14 @@ func TestAdvancedBackupSettings(t *testing.T) {
 			body, err := json.Marshal(planBody)
 			require.NoError(t, err)
 
-			resp := doBatch1Request(t, h, http.MethodPut, "/backup/plans", string(body))
+			resp := doRequest(t, h, http.MethodPut, "/backup/plans", string(body))
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var createResp map[string]any
 			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &createResp))
 			planID := createResp["BackupPlanId"].(string)
 
-			getResp := doBatch1Request(t, h, http.MethodGet, "/backup/plans/"+planID, "")
+			getResp := doRequest(t, h, http.MethodGet, "/backup/plans/"+planID, "")
 			require.Equal(t, http.StatusOK, getResp.Code)
 
 			var getPlan map[string]any
@@ -534,9 +534,9 @@ func TestDeleteBackupPlanDeletionDate(t *testing.T) {
 	assert.GreaterOrEqual(t, deletionDate, creationDate)
 }
 
-// TestParity_GetBackupPlan_LastExecutionDate verifies that GetBackupPlan returns
+// TestGetBackupPlan_LastExecutionDate verifies that GetBackupPlan returns
 // LastExecutionDate when the plan has been updated, matching real AWS behavior.
-func TestParity_GetBackupPlan_LastExecutionDate(t *testing.T) {
+func TestGetBackupPlan_LastExecutionDate(t *testing.T) {
 	t.Parallel()
 
 	h := newTestBackupHandler()

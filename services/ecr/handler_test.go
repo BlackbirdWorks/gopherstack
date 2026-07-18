@@ -1,14 +1,22 @@
 package ecr_test
 
+// handler_test.go — core Handler/dispatch mechanics for handler.go: Name,
+// GetSupportedOperations, MatchPriority, RouteMatcher, ExtractOperation,
+// ExtractResource, unknown-action/error-classification dispatch, Reset,
+// Snapshot/Restore wiring at the Handler level, Provider.Init, and lazy
+// endpoint initialization. Per-family HTTP-level tests live in each family's
+// own test file (e.g. repositories_test.go, images_test.go); this file also
+// hosts the shared HTTP test helpers (doECRRequest/doAccuracy and friends)
+// used package-wide, since nearly every family test file needs them.
+
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"slices"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -29,6 +37,8 @@ const (
 	testRegion    = "us-east-1"
 	testEndpoint  = "localhost:8000"
 )
+
+// ── shared test helpers (used across nearly every family test file) ────────
 
 func newTestHandler(t *testing.T) *ecr.Handler {
 	t.Helper()
@@ -63,6 +73,7 @@ func newTestECRClient(t *testing.T, h *ecr.Handler) *ecrsdk.Client {
 	})
 }
 
+// doECRRequest fires a synthetic ECR control-plane request against h.
 func doECRRequest(
 	t *testing.T,
 	h *ecr.Handler,
@@ -87,11 +98,88 @@ func doECRRequest(
 
 	return rec
 }
-func TestECR_Name(t *testing.T) { //nolint:paralleltest // existing issue.
+
+// newAccuracyBackend creates a fresh InMemoryBackend for testing.
+func newAccuracyBackend() *ecr.InMemoryBackend {
+	return ecr.NewInMemoryBackend("123456789012", "us-east-1", "localhost:5000")
+}
+
+// newAccuracyHandler creates a fresh Handler backed by a fresh InMemoryBackend.
+func newAccuracyHandler() *ecr.Handler {
+	return ecr.NewHandler(newAccuracyBackend(), nil)
+}
+
+// newHandlerWithBackend creates a fresh Handler and returns both it and its
+// backing InMemoryBackend, for tests that need to inspect/mutate backend state
+// directly alongside issuing HTTP requests.
+func newHandlerWithBackend() (*ecr.Handler, *ecr.InMemoryBackend) {
+	b := newAccuracyBackend()
+
+	return ecr.NewHandler(b, nil), b
+}
+
+// doAccuracy fires a synthetic ECR control-plane request against h and
+// returns the raw response. Equivalent to doECRRequest but without the
+// explicit Content-Type header.
+func doAccuracy(t *testing.T, h *ecr.Handler, action string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(raw))
+	req.Header.Set("X-Amz-Target", "AmazonEC2ContainerRegistry_V20150921."+action)
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+
+	return rec
+}
+
+// parseAccuracy decodes rec's JSON body into a generic map.
+func parseAccuracy(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out
+}
+
+// mustCreateRepo creates repository name on h, failing the test on error.
+func mustCreateRepo(t *testing.T, h *ecr.Handler, name string) {
+	t.Helper()
+	rec := doAccuracy(t, h, "CreateRepository", map[string]any{"repositoryName": name})
+	require.Equal(t, http.StatusOK, rec.Code, "CreateRepository %s failed: %s", name, rec.Body.String())
+}
+
+// mustPutImage pushes an image to repoName:tag with manifest, returning its digest.
+func mustPutImage(t *testing.T, h *ecr.Handler, repoName, tag, manifest string) string {
+	t.Helper()
+	rec := doAccuracy(t, h, "PutImage", map[string]any{
+		"repositoryName": repoName,
+		"imageManifest":  manifest,
+		"imageTag":       tag,
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "PutImage failed: %s", rec.Body.String())
+	out := parseAccuracy(t, rec)
+	img, _ := out["image"].(map[string]any)
+
+	return img["imageDigest"].(string)
+}
+
+// ── core dispatch tests ──────────────────────────────────────────────────────
+
+func TestECR_Name(t *testing.T) {
+	t.Parallel()
+
 	h := newTestHandler(t)
 	assert.Equal(t, "ECR", h.Name())
 }
-func TestECR_GetSupportedOperations(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
 	h := newTestHandler(t)
 	ops := h.GetSupportedOperations()
 	assert.Contains(t, ops, "CreateRepository")
@@ -99,11 +187,17 @@ func TestECR_GetSupportedOperations(t *testing.T) { //nolint:paralleltest // exi
 	assert.Contains(t, ops, "DeleteRepository")
 	assert.Contains(t, ops, "GetAuthorizationToken")
 }
-func TestECR_MatchPriority(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_MatchPriority(t *testing.T) {
+	t.Parallel()
+
 	h := newTestHandler(t)
 	assert.Equal(t, service.PriorityHeaderExact, h.MatchPriority())
 }
-func TestECR_RouteMatcher(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		target    string
@@ -136,8 +230,10 @@ func TestECR_RouteMatcher(t *testing.T) { //nolint:paralleltest // existing issu
 		},
 	}
 
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := newTestHandler(t)
 			e := echo.New()
 
@@ -151,7 +247,10 @@ func TestECR_RouteMatcher(t *testing.T) { //nolint:paralleltest // existing issu
 		})
 	}
 }
-func TestECR_ExtractOperation(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		target   string
@@ -176,8 +275,10 @@ func TestECR_ExtractOperation(t *testing.T) { //nolint:paralleltest // existing 
 		},
 	}
 
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := newTestHandler(t)
 			e := echo.New()
 
@@ -196,7 +297,10 @@ func TestECR_ExtractOperation(t *testing.T) { //nolint:paralleltest // existing 
 		})
 	}
 }
-func TestECR_ExtractResource(t *testing.T) { //nolint:paralleltest // existing issue.
+
+func TestECR_ExtractResource(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		body string
@@ -219,8 +323,10 @@ func TestECR_ExtractResource(t *testing.T) { //nolint:paralleltest // existing i
 		},
 	}
 
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := newTestHandler(t)
 			e := echo.New()
 
@@ -231,210 +337,234 @@ func TestECR_ExtractResource(t *testing.T) { //nolint:paralleltest // existing i
 		})
 	}
 }
-func TestECR_CreateRepository(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		input    map[string]any
-		name     string
-		wantCode int
-		wantARN  bool
-		wantURI  bool
-	}{
-		{
-			name:     "success",
-			input:    map[string]any{"repositoryName": "my-repo"},
-			wantCode: http.StatusOK,
-			wantARN:  true,
-			wantURI:  true,
-		},
-		{
-			name:     "missing repository name",
-			input:    map[string]any{},
-			wantCode: http.StatusBadRequest,
-		},
-	}
 
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
-			rec := doECRRequest(t, h, "CreateRepository", tt.input)
+func TestECR_UnknownAction(t *testing.T) {
+	t.Parallel()
 
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantARN || tt.wantURI {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-				repo, ok := resp["repository"].(map[string]any)
-				require.True(t, ok)
-
-				if tt.wantARN {
-					assert.NotEmpty(t, repo["repositoryArn"])
-				}
-
-				if tt.wantURI {
-					assert.NotEmpty(t, repo["repositoryUri"])
-				}
-			}
-		})
-	}
-}
-func TestECR_CreateRepository_AlreadyExists(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
-
-	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "my-repo"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec2 := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "my-repo"})
-	require.Equal(t, http.StatusBadRequest, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "RepositoryAlreadyExistsException")
+	rec := doECRRequest(t, h, "UnknownAction", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "UnknownOperationException")
 }
-func TestECR_DescribeRepositories(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		name     string
-		repos    []string
-		filter   []string
-		wantCode int
-		wantLen  int
-	}{
-		{
-			name:     "list all",
-			repos:    []string{"repo-a", "repo-b"},
-			filter:   nil,
-			wantCode: http.StatusOK,
-			wantLen:  2,
-		},
-		{
-			name:     "filter by name",
-			repos:    []string{"repo-a", "repo-b"},
-			filter:   []string{"repo-a"},
-			wantCode: http.StatusOK,
-			wantLen:  1,
-		},
-		{
-			name:     "filter not found",
-			repos:    []string{"repo-a"},
-			filter:   []string{"repo-missing"},
-			wantCode: http.StatusNotFound,
-		},
-	}
 
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
+func TestECR_Provider_Init(t *testing.T) {
+	t.Parallel()
 
-			for _, repoName := range tt.repos {
-				rec := doECRRequest(
-					t,
-					h,
-					"CreateRepository",
-					map[string]any{"repositoryName": repoName},
-				)
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
+	p := &ecr.Provider{}
+	assert.Equal(t, "ECR", p.Name())
 
-			input := map[string]any{}
-			if tt.filter != nil {
-				input["repositoryNames"] = tt.filter
-			}
-
-			rec := doECRRequest(t, h, "DescribeRepositories", input)
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantLen > 0 {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-				repos, ok := resp["repositories"].([]any)
-				require.True(t, ok)
-				assert.Len(t, repos, tt.wantLen)
-			}
-		})
-	}
-}
-func TestECR_DeleteRepository(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		name     string
-		create   string
-		delete   string
-		wantCode int
-	}{
-		{
-			name:     "success",
-			create:   "my-repo",
-			delete:   "my-repo",
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "not found",
-			create:   "",
-			delete:   "nonexistent",
-			wantCode: http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
-
-			if tt.create != "" {
-				rec := doECRRequest(
-					t,
-					h,
-					"CreateRepository",
-					map[string]any{"repositoryName": tt.create},
-				)
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doECRRequest(
-				t,
-				h,
-				"DeleteRepository",
-				map[string]any{"repositoryName": tt.delete},
-			)
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantCode == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-				repo, ok := resp["repository"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, tt.delete, repo["repositoryName"])
-			}
-		})
-	}
-}
-func TestECR_GetAuthorizationToken(t *testing.T) { //nolint:paralleltest // existing issue.
-	h := newTestHandler(t)
-
-	rec := doECRRequest(t, h, "GetAuthorizationToken", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	authData, ok := resp["authorizationData"].([]any)
-	require.True(t, ok)
-	require.NotEmpty(t, authData)
-
-	entry, ok := authData[0].(map[string]any)
-	require.True(t, ok)
-
-	tokenRaw, ok := entry["authorizationToken"].(string)
-	require.True(t, ok)
-	require.NotEmpty(t, tokenRaw)
-
-	decoded, err := base64.StdEncoding.DecodeString(tokenRaw)
+	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
 	require.NoError(t, err)
-	parts := strings.SplitN(string(decoded), ":", 2)
-	require.Len(t, parts, 2, "token must be user:password")
-	assert.Equal(t, "AWS", parts[0])
-	assert.NotEmpty(t, parts[1], "password must be non-empty")
-
-	assert.NotZero(t, entry["expiresAt"])
+	assert.NotNil(t, svc)
 }
-func TestECR_MissingSDKOperations(t *testing.T) { //nolint:paralleltest // existing issue.
+
+// TestProviderInit_NilAppContext verifies that Init returns ErrNilAppContext when appCtx is nil.
+func TestProviderInit_NilAppContext(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+	}{
+		{name: "nil_ctx_returns_err", wantErr: ecr.ErrNilAppContext},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &ecr.Provider{}
+			_, err := p.Init(nil)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestECR_Persistence(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "persist-me"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	snapshot := h.Snapshot(t.Context())
+	require.NotEmpty(t, snapshot)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snapshot))
+
+	rec2 := doECRRequest(t, h2, "DescribeRepositories", map[string]any{})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	resp := parseAccuracy(t, rec2)
+	repos, ok := resp["repositories"].([]any)
+	require.True(t, ok)
+	assert.Len(t, repos, 1)
+}
+
+// TestECR_LazyEndpointInit verifies that a Handler with an empty backend
+// endpoint sets it from the first request's Host header.
+func TestECR_LazyEndpointInit(t *testing.T) {
+	t.Parallel()
+
+	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, "")
+	h := ecr.NewHandler(backend, nil)
+
+	// First request — Host header provides the server address.
+	bodyBytes, err := json.Marshal(map[string]any{"repositoryName": "lazy-repo"})
+	require.NoError(t, err)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+	req.Host = "localhost:9999"
+	req.Header.Set("X-Amz-Target", "AmazonEC2ContainerRegistry_V20150921.CreateRepository")
+	rec := httptest.NewRecorder()
+
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseAccuracy(t, rec)
+	repo, ok := resp["repository"].(map[string]any)
+	require.True(t, ok)
+	// RepositoryURI must use the lazily-set endpoint from the Host header.
+	assert.Contains(t, repo["repositoryUri"].(string), "localhost:9999")
+}
+
+func TestHandlerReset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		repo string
+	}{
+		{name: "resets_after_create", repo: "to-reset"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newHandlerWithBackend()
+			rec := doAccuracy(t, h, "CreateRepository", map[string]any{"repositoryName": tt.repo})
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, 1, b.RepositoryCount())
+
+			h.Reset()
+			assert.Equal(t, 0, b.RepositoryCount())
+		})
+	}
+}
+
+func TestHandlerOpsPreBuilt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		action     string
+		wantStatus int
+	}{
+		{
+			name:       "describe_repositories",
+			action:     "DescribeRepositories",
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "get_auth_token",
+			action:     "GetAuthorizationToken",
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAccuracyHandler()
+			rec := doAccuracy(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestErrorValidationMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		name       string
+		action     string
+		wantStatus int
+	}{
+		{
+			name:       "create_repository_empty_name",
+			action:     "CreateRepository",
+			body:       map[string]any{"repositoryName": ""},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "delete_nonexistent_repository",
+			action:     "DeleteRepository",
+			body:       map[string]any{"repositoryName": "no-such-repo"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "delete_lifecycle_policy_no_repo",
+			action:     "DeleteLifecyclePolicy",
+			body:       map[string]any{"repositoryName": "ghost"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "delete_registry_policy_none_set",
+			action:     "DeleteRegistryPolicy",
+			body:       map[string]any{},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAccuracyHandler()
+			rec := doAccuracy(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestGetSupportedOperations_NewOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		wantOp string
+	}{
+		{name: "put_lifecycle_policy", wantOp: "PutLifecyclePolicy"},
+		{name: "put_registry_policy", wantOp: "PutRegistryPolicy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAccuracyHandler()
+			ops := h.GetSupportedOperations()
+			assert.True(t, slices.Contains(ops, tt.wantOp), "expected %s in supported operations", tt.wantOp)
+		})
+	}
+}
+
+// TestECR_MissingSDKOperations is a broad smoke test exercising every ECR SDK
+// operation end-to-end through the dispatcher, catching regressions where an
+// operation is missing from the ops map or returns a non-200 by default.
+func TestECR_MissingSDKOperations(t *testing.T) {
+	t.Parallel()
+
 	h := newTestHandler(t)
 
 	rec := doECRRequest(t, h, "CreateRepository", map[string]any{
@@ -452,8 +582,7 @@ func TestECR_MissingSDKOperations(t *testing.T) { //nolint:paralleltest // exist
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var putImage map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putImage))
+	putImage := parseAccuracy(t, rec)
 	image := putImage["image"].(map[string]any)
 	imageID := image["imageId"].(map[string]any)
 
@@ -501,8 +630,7 @@ func TestECR_MissingSDKOperations(t *testing.T) { //nolint:paralleltest // exist
 
 	rec = doECRRequest(t, h, "InitiateLayerUpload", map[string]any{"repositoryName": "sdk-repo"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	var upload map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &upload))
+	upload := parseAccuracy(t, rec)
 	rec = doECRRequest(t, h, "UploadLayerPart", map[string]any{
 		"repositoryName": "sdk-repo",
 		"uploadId":       upload["uploadId"],
@@ -586,8 +714,7 @@ func TestECR_MissingSDKOperations(t *testing.T) { //nolint:paralleltest // exist
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	var templateOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &templateOut))
+	templateOut := parseAccuracy(t, rec)
 	template := templateOut["repositoryCreationTemplate"].(map[string]any)
 	require.IsType(t, []any{}, template["resourceTags"])
 	for _, action := range []string{
@@ -628,8 +755,7 @@ func TestECR_MissingSDKOperations(t *testing.T) { //nolint:paralleltest // exist
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h, "ListPullTimeUpdateExclusions", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	var exclusionsOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &exclusionsOut))
+	exclusionsOut := parseAccuracy(t, rec)
 	exclusions := exclusionsOut["pullTimeUpdateExclusions"].([]any)
 	require.Len(t, exclusions, 1)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/example", exclusions[0])
@@ -638,867 +764,13 @@ func TestECR_MissingSDKOperations(t *testing.T) { //nolint:paralleltest // exist
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
-func TestECR_UnknownAction(t *testing.T) { //nolint:paralleltest // existing issue.
-	h := newTestHandler(t)
-	rec := doECRRequest(t, h, "UnknownAction", map[string]any{})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "UnknownOperationException")
-}
-func TestECR_Provider_Init(t *testing.T) { //nolint:paralleltest // existing issue.
-	p := &ecr.Provider{}
-	assert.Equal(t, "ECR", p.Name())
 
-	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
-	require.NoError(t, err)
-	assert.NotNil(t, svc)
-}
-func TestECR_Provider_Init_WithLocalRegistry(t *testing.T) {
-	t.Setenv("GOPHERSTACK_ENABLE_LOCAL_REGISTRY", "1")
+// TestECR_SDKClient_NewOperations drives the handler through the real
+// aws-sdk-go-v2 ECR client (not synthetic JSON requests) to catch wire-shape
+// regressions across a broad swath of newer operations.
+func TestECR_SDKClient_NewOperations(t *testing.T) {
+	t.Parallel()
 
-	p := &ecr.Provider{}
-	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
-	require.NoError(t, err)
-	assert.NotNil(t, svc)
-
-	h, ok := svc.(*ecr.Handler)
-	require.True(t, ok)
-	assert.True(t, h.RegistryEnabled())
-}
-func TestECR_RouteMatcher_V2Path_WithRegistryEnabled(t *testing.T) {
-	t.Setenv("GOPHERSTACK_ENABLE_LOCAL_REGISTRY", "1")
-
-	p := &ecr.Provider{}
-	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
-	require.NoError(t, err)
-
-	h, ok := svc.(*ecr.Handler)
-	require.True(t, ok)
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/v2/", nil)
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.True(t, h.RouteMatcher()(c))
-}
-func TestECR_Handler_V2Path_ProxiesRegistry(t *testing.T) {
-	t.Setenv("GOPHERSTACK_ENABLE_LOCAL_REGISTRY", "1")
-
-	p := &ecr.Provider{}
-	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
-	require.NoError(t, err)
-
-	h, ok := svc.(*ecr.Handler)
-	require.True(t, ok)
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/v2/", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err = h.Handler()(c)
-	require.NoError(t, err)
-	// Distribution registry responds 200 for /v2/ when no auth is configured.
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestECR_ExtractOperation_V2Path_WithRegistryEnabled(
-	t *testing.T,
-) {
-	t.Setenv("GOPHERSTACK_ENABLE_LOCAL_REGISTRY", "1")
-
-	p := &ecr.Provider{}
-	svc, err := p.Init(&service.AppContext{Logger: slog.Default()})
-	require.NoError(t, err)
-
-	h, ok := svc.(*ecr.Handler)
-	require.True(t, ok)
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/v2/", nil)
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.Equal(t, "RegistryV2", h.ExtractOperation(c))
-}
-func TestECR_Backend_SetEndpoint(t *testing.T) { //nolint:paralleltest // existing issue.
-	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, "")
-
-	backend.SetEndpoint("localhost:9000")
-
-	repo, err := backend.CreateRepository(context.Background(), "my-repo", "", false, "", "")
-	require.NoError(t, err)
-	assert.Contains(t, repo.RepositoryURI, "localhost:9000")
-}
-func TestECR_Persistence(t *testing.T) { //nolint:paralleltest // existing issue.
-	h := newTestHandler(t)
-
-	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "persist-me"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	snapshot := h.Snapshot(t.Context())
-	require.NotEmpty(t, snapshot)
-
-	h2 := newTestHandler(t)
-	require.NoError(t, h2.Restore(t.Context(), snapshot))
-
-	rec2 := doECRRequest(t, h2, "DescribeRepositories", map[string]any{})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-
-	repos, ok := resp["repositories"].([]any)
-	require.True(t, ok)
-	assert.Len(t, repos, 1)
-}
-
-// TestECR_LazyEndpointInit verifies that a Handler with an empty backend
-// endpoint sets it from the first request's Host header.
-func TestECR_LazyEndpointInit(t *testing.T) { //nolint:paralleltest // existing issue.
-	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, "")
-	h := ecr.NewHandler(backend, nil)
-
-	// First request — Host header provides the server address.
-	bodyBytes, err := json.Marshal(map[string]any{"repositoryName": "lazy-repo"})
-	require.NoError(t, err)
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
-	req.Host = "localhost:9999"
-	req.Header.Set("X-Amz-Target", "AmazonEC2ContainerRegistry_V20150921.CreateRepository")
-	rec := httptest.NewRecorder()
-
-	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	repo, ok := resp["repository"].(map[string]any)
-	require.True(t, ok)
-	// RepositoryURI must use the lazily-set endpoint from the Host header.
-	assert.Contains(t, repo["repositoryUri"].(string), "localhost:9999")
-}
-
-// TestECR_ExtractResource_V2Path checks that ExtractResource extracts the
-// repository name from the URL path instead of reading the request body.
-func TestECR_ExtractResource_V2Path(t *testing.T) { //nolint:paralleltest // existing issue.
-	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-	// Pass a no-op http.Handler to enable registry mode.
-	h := ecr.NewHandler(backend, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	tests := []struct {
-		path string
-		want string
-	}{
-		{path: "/v2/my-repo/manifests/latest", want: "my-repo"},
-		{path: "/v2/org/app/blobs/sha256:abc", want: "org"},
-		{path: "/v2/", want: ""},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.path, func(t *testing.T) {
-			e := echo.New()
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
-			assert.Equal(t, tt.want, h.ExtractResource(c))
-		})
-	}
-}
-
-// TestECR_RouteMatcher_V2Strict checks that the route matcher does not match
-// paths that start with "/v2" but are not the Docker registry v2 API
-// (e.g. S3Control's "/v20180820/..." paths).
-func TestECR_RouteMatcher_V2Strict(t *testing.T) { //nolint:paralleltest // existing issue.
-	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-	// Pass a no-op http.Handler to enable registry mode.
-	h := ecr.NewHandler(backend, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	tests := []struct {
-		path      string
-		wantMatch bool
-	}{
-		{path: "/v2/", wantMatch: true},
-		{path: "/v2/my-repo/manifests/latest", wantMatch: true},
-		{path: "/v2", wantMatch: true},
-		{path: "/v20180820/bucket", wantMatch: false},
-		{path: "/v2abc/something", wantMatch: false},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.path, func(t *testing.T) {
-			e := echo.New()
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			c := e.NewContext(req, httptest.NewRecorder())
-			assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
-		})
-	}
-}
-func TestECR_ListTagsForResource(t *testing.T) { //nolint:paralleltest // existing issue.
-	h := newTestHandler(t)
-
-	// Create a repo first so we have an ARN.
-	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "tag-repo"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-
-	repo := createResp["repository"].(map[string]any)
-	arn := repo["repositoryArn"].(string)
-
-	rec = doECRRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": arn})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	tags, ok := out["tags"]
-	require.True(t, ok, "response should contain 'tags' field")
-	assert.IsType(t, []any{}, tags, "tags should be an array")
-}
-func TestECR_TagResource(t *testing.T) { //nolint:paralleltest // existing issue.
-	h := newTestHandler(t)
-
-	rec := doECRRequest(t, h, "TagResource", map[string]any{
-		"resourceArn": "arn:aws:ecr:us-east-1:000000000000:repository/my-repo",
-		"tags":        []map[string]any{{"Key": "Env", "Value": "test"}},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-func TestECR_UntagResource(t *testing.T) { //nolint:paralleltest // existing issue.
-	h := newTestHandler(t)
-
-	rec := doECRRequest(t, h, "UntagResource", map[string]any{
-		"resourceArn": "arn:aws:ecr:us-east-1:000000000000:repository/my-repo",
-		"tagKeys":     []string{"Env"},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-}
-func TestECR_BatchCheckLayerAvailability(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		name           string
-		repositoryName string
-		layerDigests   []string
-		wantStatus     int
-		wantLayers     int
-		wantFailures   int
-		preUpload      bool
-	}{
-		{
-			name:           "no layers uploaded returns failures",
-			repositoryName: "my-repo",
-			layerDigests:   []string{"sha256:abc123"},
-			wantStatus:     http.StatusOK,
-			wantLayers:     0,
-			wantFailures:   1,
-		},
-		{
-			name:           "uploaded layer is available",
-			preUpload:      true,
-			repositoryName: "my-repo",
-			layerDigests:   []string{"sha256:abc123"},
-			wantStatus:     http.StatusOK,
-			wantLayers:     1,
-			wantFailures:   0,
-		},
-		{
-			name:           "empty digests returns empty results",
-			repositoryName: "my-repo",
-			layerDigests:   []string{},
-			wantStatus:     http.StatusOK,
-			wantLayers:     0,
-			wantFailures:   0,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
-
-			// Repository must exist for BatchCheckLayerAvailability.
-			rec0 := doECRRequest(
-				t,
-				h,
-				"CreateRepository",
-				map[string]any{"repositoryName": tt.repositoryName},
-			)
-			require.Equal(t, http.StatusOK, rec0.Code)
-
-			if tt.preUpload {
-				rec := doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
-					"repositoryName": tt.repositoryName,
-					"uploadId":       "upload-1",
-					"layerDigests":   []string{"sha256:abc123"},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doECRRequest(t, h, "BatchCheckLayerAvailability", map[string]any{
-				"repositoryName": tt.repositoryName,
-				"layerDigests":   tt.layerDigests,
-			})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.Len(t, out["layers"], tt.wantLayers)
-			assert.Len(t, out["failures"], tt.wantFailures)
-		})
-	}
-}
-func TestECR_BatchDeleteImage(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		setup          func(*ecr.InMemoryBackend)
-		name           string
-		repositoryName string
-		imageIDs       []map[string]any
-		wantStatus     int
-		wantDeleted    int
-		wantFailures   int
-	}{
-		{
-			name: "image not found returns failure",
-			setup: func(b *ecr.InMemoryBackend) {
-				b.CreateRepoInternal("my-repo")
-			},
-			repositoryName: "my-repo",
-			imageIDs:       []map[string]any{{"imageDigest": "sha256:notfound"}},
-			wantStatus:     http.StatusOK,
-			wantDeleted:    0,
-			wantFailures:   1,
-		},
-		{
-			name: "empty image list returns empty results",
-			setup: func(b *ecr.InMemoryBackend) {
-				b.CreateRepoInternal("my-repo")
-			},
-			repositoryName: "my-repo",
-			imageIDs:       []map[string]any{},
-			wantStatus:     http.StatusOK,
-			wantDeleted:    0,
-			wantFailures:   0,
-		},
-		{
-			name: "delete by digest succeeds",
-			setup: func(b *ecr.InMemoryBackend) {
-				b.CreateRepoInternal("my-repo")
-				b.AddImageInternal("my-repo", ecr.Image{
-					ImageDigest:    "sha256:abc111",
-					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:abc111"},
-					RepositoryName: "my-repo",
-					RegistryID:     testAccountID,
-				})
-			},
-			repositoryName: "my-repo",
-			imageIDs:       []map[string]any{{"imageDigest": "sha256:abc111"}},
-			wantStatus:     http.StatusOK,
-			wantDeleted:    1,
-			wantFailures:   0,
-		},
-		{
-			name: "delete by tag succeeds",
-			setup: func(b *ecr.InMemoryBackend) {
-				b.CreateRepoInternal("my-repo")
-				b.AddImageInternal("my-repo", ecr.Image{
-					ImageDigest: "sha256:tag111",
-					ImageID: ecr.ImageIdentifier{
-						ImageDigest: "sha256:tag111",
-						ImageTag:    "latest",
-					},
-					RepositoryName: "my-repo",
-					RegistryID:     testAccountID,
-				})
-			},
-			repositoryName: "my-repo",
-			imageIDs:       []map[string]any{{"imageTag": "latest"}},
-			wantStatus:     http.StatusOK,
-			wantDeleted:    1,
-			wantFailures:   0,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-			if tt.setup != nil {
-				tt.setup(backend)
-			}
-
-			h := ecr.NewHandler(backend, nil)
-
-			rec := doECRRequest(t, h, "BatchDeleteImage", map[string]any{
-				"repositoryName": tt.repositoryName,
-				"imageIds":       tt.imageIDs,
-			})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.Len(t, out["imageIds"], tt.wantDeleted)
-			assert.Len(t, out["failures"], tt.wantFailures)
-		})
-	}
-}
-func TestECR_BatchGetImage(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		setup          func(*ecr.InMemoryBackend)
-		name           string
-		repositoryName string
-		imageIDs       []map[string]any
-		wantStatus     int
-		wantImages     int
-		wantFailures   int
-	}{
-		{
-			name: "image not found returns failure",
-			setup: func(b *ecr.InMemoryBackend) {
-				b.CreateRepoInternal("my-repo")
-			},
-			repositoryName: "my-repo",
-			imageIDs:       []map[string]any{{"imageDigest": "sha256:notfound"}},
-			wantStatus:     http.StatusOK,
-			wantImages:     0,
-			wantFailures:   1,
-		},
-		{
-			name: "empty image list returns empty results",
-			setup: func(b *ecr.InMemoryBackend) {
-				b.CreateRepoInternal("my-repo")
-			},
-			repositoryName: "my-repo",
-			imageIDs:       []map[string]any{},
-			wantStatus:     http.StatusOK,
-			wantImages:     0,
-			wantFailures:   0,
-		},
-		{
-			name: "get image by digest succeeds",
-			setup: func(b *ecr.InMemoryBackend) {
-				b.CreateRepoInternal("my-repo")
-				b.AddImageInternal("my-repo", ecr.Image{
-					ImageDigest:    "sha256:getdig",
-					ImageManifest:  `{"schemaVersion":2}`,
-					ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:getdig"},
-					RepositoryName: "my-repo",
-					RegistryID:     testAccountID,
-				})
-			},
-			repositoryName: "my-repo",
-			imageIDs:       []map[string]any{{"imageDigest": "sha256:getdig"}},
-			wantStatus:     http.StatusOK,
-			wantImages:     1,
-			wantFailures:   0,
-		},
-		{
-			name: "get image by tag succeeds",
-			setup: func(b *ecr.InMemoryBackend) {
-				b.CreateRepoInternal("my-repo")
-				b.AddImageInternal("my-repo", ecr.Image{
-					ImageDigest:   "sha256:gettag",
-					ImageManifest: `{"schemaVersion":2}`,
-					ImageID: ecr.ImageIdentifier{
-						ImageDigest: "sha256:gettag",
-						ImageTag:    "stable",
-					},
-					RepositoryName: "my-repo",
-					RegistryID:     testAccountID,
-				})
-			},
-			repositoryName: "my-repo",
-			imageIDs:       []map[string]any{{"imageTag": "stable"}},
-			wantStatus:     http.StatusOK,
-			wantImages:     1,
-			wantFailures:   0,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-			if tt.setup != nil {
-				tt.setup(backend)
-			}
-
-			h := ecr.NewHandler(backend, nil)
-
-			rec := doECRRequest(t, h, "BatchGetImage", map[string]any{
-				"repositoryName": tt.repositoryName,
-				"imageIds":       tt.imageIDs,
-			})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.Len(t, out["images"], tt.wantImages)
-			assert.Len(t, out["failures"], tt.wantFailures)
-		})
-	}
-}
-
-func TestECR_BatchGetRepositoryScanningConfiguration( //nolint:paralleltest // existing issue.
-	t *testing.T,
-) {
-	tests := []struct {
-		name            string
-		setup           func(*ecr.Handler)
-		repositoryNames []string
-		wantStatus      int
-		wantConfigs     int
-		wantFailures    int
-	}{
-		{
-			name:            "nonexistent repository returns failure",
-			repositoryNames: []string{"nonexistent"},
-			wantStatus:      http.StatusOK,
-			wantConfigs:     0,
-			wantFailures:    1,
-		},
-		{
-			name: "existing repository returns config",
-			setup: func(h *ecr.Handler) {
-				rec := doECRRequest(
-					t,
-					h,
-					"CreateRepository",
-					map[string]any{"repositoryName": "scan-repo"},
-				)
-				require.Equal(t, http.StatusOK, rec.Code)
-			},
-			repositoryNames: []string{"scan-repo"},
-			wantStatus:      http.StatusOK,
-			wantConfigs:     1,
-			wantFailures:    0,
-		},
-		{
-			name:            "empty list returns empty results",
-			repositoryNames: []string{},
-			wantStatus:      http.StatusOK,
-			wantConfigs:     0,
-			wantFailures:    0,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doECRRequest(t, h, "BatchGetRepositoryScanningConfiguration", map[string]any{
-				"repositoryNames": tt.repositoryNames,
-			})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.Len(t, out["scanningConfigurations"], tt.wantConfigs)
-			assert.Len(t, out["failures"], tt.wantFailures)
-		})
-	}
-}
-func TestECR_CompleteLayerUpload(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		name           string
-		repositoryName string
-		uploadID       string
-		wantDigest     string
-		layerDigests   []string
-		wantStatus     int
-	}{
-		{
-			name:           "completes upload and returns digest",
-			repositoryName: "my-repo",
-			uploadID:       "upload-123",
-			layerDigests:   []string{"sha256:abc123"},
-			wantStatus:     http.StatusOK,
-			wantDigest:     "sha256:abc123",
-		},
-		{
-			name:           "empty digests still completes",
-			repositoryName: "my-repo",
-			uploadID:       "upload-456",
-			layerDigests:   []string{},
-			wantStatus:     http.StatusOK,
-			wantDigest:     "",
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
-
-			// The repository must exist: real ECR returns RepositoryNotFoundException
-			// for CompleteLayerUpload against an unknown repository.
-			createRec := doECRRequest(
-				t, h, "CreateRepository", map[string]any{"repositoryName": tt.repositoryName},
-			)
-			require.Equal(t, http.StatusOK, createRec.Code)
-
-			rec := doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
-				"repositoryName": tt.repositoryName,
-				"uploadId":       tt.uploadID,
-				"layerDigests":   tt.layerDigests,
-			})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.Equal(t, tt.wantDigest, out["layerDigest"])
-			assert.Equal(t, tt.repositoryName, out["repositoryName"])
-			assert.Equal(t, tt.uploadID, out["uploadId"])
-		})
-	}
-}
-func TestECR_CreatePullThroughCacheRule(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		name                string
-		ecrRepositoryPrefix string
-		upstreamRegistryURL string
-		wantPrefix          string
-		wantStatus          int
-	}{
-		{
-			name:                "creates rule successfully",
-			ecrRepositoryPrefix: "docker-hub",
-			upstreamRegistryURL: "registry-1.docker.io",
-			wantStatus:          http.StatusOK,
-			wantPrefix:          "docker-hub",
-		},
-		{
-			name:                "empty prefix returns error",
-			ecrRepositoryPrefix: "",
-			upstreamRegistryURL: "registry-1.docker.io",
-			wantStatus:          http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
-
-			rec := doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
-				"ecrRepositoryPrefix": tt.ecrRepositoryPrefix,
-				"upstreamRegistryUrl": tt.upstreamRegistryURL,
-			})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				assert.Equal(t, tt.wantPrefix, out["ecrRepositoryPrefix"])
-			}
-		})
-	}
-}
-
-func TestECR_CreatePullThroughCacheRule_AlreadyExists( //nolint:paralleltest // existing issue.
-	t *testing.T,
-) {
-	h := newTestHandler(t)
-
-	rec := doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
-		"ecrRepositoryPrefix": "docker-hub",
-		"upstreamRegistryUrl": "registry-1.docker.io",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
-		"ecrRepositoryPrefix": "docker-hub",
-		"upstreamRegistryUrl": "registry-1.docker.io",
-	})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Contains(t, out["__type"], "PullThroughCacheRuleAlreadyExistsException")
-}
-
-func TestECR_CreateRepositoryCreationTemplate( //nolint:paralleltest // existing issue.
-	t *testing.T,
-) {
-	tests := []struct {
-		name       string
-		prefix     string
-		wantStatus int
-	}{
-		{
-			name:       "creates template successfully",
-			prefix:     "my-org",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "empty prefix returns error",
-			prefix:     "",
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
-
-			rec := doECRRequest(t, h, "CreateRepositoryCreationTemplate", map[string]any{
-				"prefix": tt.prefix,
-				"resourceTags": []map[string]any{
-					{"Key": "env", "Value": "test"},
-				},
-			})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				tmpl, ok := out["repositoryCreationTemplate"].(map[string]any)
-				require.True(t, ok)
-				assert.Equal(t, tt.prefix, tmpl["prefix"])
-				require.IsType(t, []any{}, tmpl["resourceTags"])
-			}
-		})
-	}
-}
-func TestECR_DeleteLifecyclePolicy(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		name           string
-		setup          func(*ecr.Handler)
-		repositoryName string
-		wantStatus     int
-	}{
-		{
-			name: "deletes lifecycle policy for existing repo",
-			setup: func(h *ecr.Handler) {
-				rec := doECRRequest(
-					t,
-					h,
-					"CreateRepository",
-					map[string]any{"repositoryName": "policy-repo"},
-				)
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				rec2 := doECRRequest(t, h, "PutLifecyclePolicy", map[string]any{
-					"repositoryName":      "policy-repo",
-					"lifecyclePolicyText": `{"rules":[]}`,
-				})
-				require.Equal(t, http.StatusOK, rec2.Code)
-			},
-			repositoryName: "policy-repo",
-			wantStatus:     http.StatusOK,
-		},
-		{
-			name:           "nonexistent repository returns not found",
-			repositoryName: "nonexistent",
-			wantStatus:     http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doECRRequest(t, h, "DeleteLifecyclePolicy", map[string]any{
-				"repositoryName": tt.repositoryName,
-			})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				assert.Equal(t, tt.repositoryName, out["repositoryName"])
-			}
-		})
-	}
-}
-func TestECR_DeletePullThroughCacheRule(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		name                string
-		setup               func(*ecr.Handler)
-		ecrRepositoryPrefix string
-		wantStatus          int
-	}{
-		{
-			name: "deletes existing rule",
-			setup: func(h *ecr.Handler) {
-				rec := doECRRequest(t, h, "CreatePullThroughCacheRule", map[string]any{
-					"ecrRepositoryPrefix": "docker-hub",
-					"upstreamRegistryUrl": "registry-1.docker.io",
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			},
-			ecrRepositoryPrefix: "docker-hub",
-			wantStatus:          http.StatusOK,
-		},
-		{
-			name:                "nonexistent rule returns not found",
-			ecrRepositoryPrefix: "nonexistent",
-			wantStatus:          http.StatusNotFound,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			h := newTestHandler(t)
-			if tt.setup != nil {
-				tt.setup(h)
-			}
-
-			rec := doECRRequest(t, h, "DeletePullThroughCacheRule", map[string]any{
-				"ecrRepositoryPrefix": tt.ecrRepositoryPrefix,
-			})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				assert.Equal(t, tt.ecrRepositoryPrefix, out["ecrRepositoryPrefix"])
-			}
-		})
-	}
-}
-func TestECR_DeleteRegistryPolicy(t *testing.T) { //nolint:paralleltest // existing issue.
-	tests := []struct {
-		setup      func(*ecr.InMemoryBackend)
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "no registry policy returns not found",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name: "deletes existing registry policy",
-			setup: func(b *ecr.InMemoryBackend) {
-				b.SetRegistryPolicyInternal(`{"Version":"2012-10-17","Statement":[]}`)
-			},
-			wantStatus: http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests { //nolint:paralleltest // existing issue.
-		t.Run(tt.name, func(t *testing.T) {
-			backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-			if tt.setup != nil {
-				tt.setup(backend)
-			}
-
-			h := ecr.NewHandler(backend, nil)
-
-			rec := doECRRequest(t, h, "DeleteRegistryPolicy", map[string]any{})
-			require.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantStatus == http.StatusOK {
-				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				assert.NotEmpty(t, out["policyText"])
-				assert.Equal(t, testAccountID, out["registryId"])
-			}
-		})
-	}
-}
-func TestECR_SDKClient_NewOperations(t *testing.T) { //nolint:paralleltest // existing issue.
 	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
 	h := ecr.NewHandler(backend, nil)
 	client := newTestECRClient(t, h)
@@ -1635,64 +907,13 @@ func TestECR_SDKClient_NewOperations(t *testing.T) { //nolint:paralleltest // ex
 	)
 }
 
-func TestECR_BackendPutImageReturnsDefensiveCopy( //nolint:paralleltest // existing issue.
-	t *testing.T,
-) {
-	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-	_, err := backend.CreateRepository(context.Background(), "copy-repo", "", false, "", "")
-	require.NoError(t, err)
+// TestECR_NewOps_PersistenceRoundTrip verifies that Handler.Snapshot/Restore
+// (as opposed to backend-direct Snapshot/Restore, covered in
+// persistence_test.go) round-trips state across nearly every op family in one
+// pass, through the HTTP dispatcher.
+func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
 
-	img, err := backend.PutImage(context.Background(), "copy-repo", ecr.Image{
-		ImageManifest: `{"schemaVersion":2}`,
-		ImageID:       ecr.ImageIdentifier{ImageTag: "latest"},
-	})
-	require.NoError(t, err)
-	img.ImageStatus = "CORRUPTED"
-	img.ImageID.ImageTag = "changed"
-
-	stored, err := backend.DescribeImages(
-		context.Background(),
-		"copy-repo",
-		[]ecr.ImageIdentifier{{ImageDigest: img.ImageDigest}},
-	)
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-	assert.Equal(t, "ACTIVE", stored[0].ImageStatus)
-	assert.Equal(t, "latest", stored[0].ImageID.ImageTag)
-}
-
-func TestECR_RestoreClearsInFlightLayerUploads( //nolint:paralleltest // existing issue.
-	t *testing.T,
-) {
-	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-	h := ecr.NewHandler(backend, nil)
-
-	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "restore-repo"})
-	require.Equal(t, http.StatusOK, rec.Code)
-	rec = doECRRequest(
-		t,
-		h,
-		"InitiateLayerUpload",
-		map[string]any{"repositoryName": "restore-repo"},
-	)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var upload map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &upload))
-	snapshot := h.Snapshot(t.Context())
-	require.NotEmpty(t, snapshot)
-	require.NoError(t, h.Restore(t.Context(), snapshot))
-
-	rec = doECRRequest(t, h, "UploadLayerPart", map[string]any{
-		"repositoryName": "restore-repo",
-		"uploadId":       upload["uploadId"],
-		"partFirstByte":  0,
-		"partLastByte":   0,
-		"layerPartBlob":  "AQ==",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest // existing issue.
 	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
 	h := ecr.NewHandler(backend, nil)
 
@@ -1797,8 +1018,7 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	out := parseAccuracy(t, rec)
 	assert.Len(t, out["layers"], 1)
 
 	// Verify cache rule is restored by deleting it
@@ -1849,26 +1069,4 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 		"principalArn": "arn:aws:iam::000000000000:role/persist",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-}
-func TestECR_ExportCountHelpers(t *testing.T) { //nolint:paralleltest // existing issue.
-	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
-
-	assert.Equal(t, 0, backend.ImageCount())
-	assert.Equal(t, 0, backend.PullThroughCacheRuleCount())
-	assert.Equal(t, 0, backend.RepositoryCreationTemplateCount())
-	assert.Equal(t, 0, backend.LifecyclePolicyCount())
-
-	backend.AddImageInternal("repo1", ecr.Image{
-		ImageDigest:    "sha256:count1",
-		ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:count1"},
-		RepositoryName: "repo1",
-	})
-	assert.Equal(t, 1, backend.ImageCount())
-
-	backend.AddImageInternal("repo1", ecr.Image{
-		ImageDigest:    "sha256:count2",
-		ImageID:        ecr.ImageIdentifier{ImageDigest: "sha256:count2"},
-		RepositoryName: "repo1",
-	})
-	assert.Equal(t, 2, backend.ImageCount())
 }

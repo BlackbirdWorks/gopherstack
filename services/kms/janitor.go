@@ -123,27 +123,28 @@ func (j *Janitor) scheduleExpiry(region, keyID string, fireAt float64, kind expi
 func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 	now := float64(time.Now().UnixNano()) / nanoToSeconds
 
-	j.Backend.mu.Lock("sweepExpiredKeys")
+	var purged, expired, rotated int
 
-	var purged, expired int
+	func() {
+		j.Backend.mu.Lock("sweepExpiredKeys")
+		defer j.Backend.mu.Unlock()
 
-	if len(j.heap) > 0 {
-		// Fast path: drain heap candidates that are ready.
-		purged, expired = j.sweepFromHeap(now)
-	}
+		if len(j.heap) > 0 {
+			// Fast path: drain heap candidates that are ready.
+			purged, expired = j.sweepFromHeap(now)
+		}
 
-	if purged == 0 && expired == 0 {
-		// Fallback linear scan: catches keys scheduled before janitor started,
-		// or after Reset(), ensuring correctness even with a cold or stale heap.
-		p2, e2 := j.sweepKeys(now)
-		purged += p2
-		expired += e2
-	}
+		if purged == 0 && expired == 0 {
+			// Fallback linear scan: catches keys scheduled before janitor started,
+			// or after Reset(), ensuring correctness even with a cold or stale heap.
+			p2, e2 := j.sweepKeys(now)
+			purged += p2
+			expired += e2
+		}
 
-	// Automatic key rotation always runs unconditionally (not dependent on heap state).
-	rotated := j.sweepAutoRotations(now)
-
-	j.Backend.mu.Unlock()
+		// Automatic key rotation always runs unconditionally (not dependent on heap state).
+		rotated = j.sweepAutoRotations(now)
+	}()
 
 	j.logSweepResults(ctx, purged, expired, rotated)
 }

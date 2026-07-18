@@ -1,0 +1,236 @@
+package cloudwatch
+
+import (
+	"encoding/xml"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v5"
+)
+
+// parseMetricStreamFiltersFromForm parses IncludeFilters.member.N.* or ExcludeFilters.member.N.* form values.
+func parseMetricStreamFiltersFromForm(form url.Values, listPrefix string) []MetricStreamFilter {
+	var filters []MetricStreamFilter
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("%smember.%d.", listPrefix, i)
+		ns := form.Get(prefix + "Namespace")
+		if ns == "" {
+			return filters
+		}
+		var metricNames []string
+		for j := 1; ; j++ {
+			mn := form.Get(fmt.Sprintf("%sMetricNames.member.%d", prefix, j))
+			if mn == "" {
+				break
+			}
+			metricNames = append(metricNames, mn)
+		}
+		filters = append(filters, MetricStreamFilter{Namespace: ns, MetricNames: metricNames})
+	}
+}
+
+func (h *Handler) putMetricStreamFromForm(form url.Values, c *echo.Context) error {
+	name := form.Get("Name")
+	if name == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+
+	if err := h.Backend.PutMetricStream(&MetricStream{
+		Name:           name,
+		FirehoseArn:    form.Get("FirehoseArn"),
+		RoleArn:        form.Get("RoleArn"),
+		OutputFormat:   form.Get("OutputFormat"),
+		State:          form.Get("State"),
+		IncludeFilters: parseMetricStreamFiltersFromForm(form, "IncludeFilters."),
+		ExcludeFilters: parseMetricStreamFiltersFromForm(form, "ExcludeFilters."),
+	}); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return nil
+}
+
+func (h *Handler) handlePutMetricStream(form url.Values, c *echo.Context) error {
+	if err := h.putMetricStreamFromForm(form, c); err != nil {
+		return err
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"PutMetricStreamResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleUpdateMetricStream(form url.Values, c *echo.Context) error {
+	name := form.Get("Name")
+	if name == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+	if _, err := h.Backend.GetMetricStream(name); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	if err := h.putMetricStreamFromForm(form, c); err != nil {
+		return err
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"UpdateMetricStreamResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleDeleteMetricStream(form url.Values, c *echo.Context) error {
+	name := form.Get("Name")
+	if name == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+
+	if err := h.Backend.DeleteMetricStream(name); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	// Clean up tags for the deleted metric stream's ARN.
+	streamARN := "arn:aws:cloudwatch::metric-stream/" + name
+	h.deleteResourceTags(streamARN)
+
+	type response struct {
+		XMLName   xml.Name `xml:"DeleteMetricStreamResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleListMetricStreams(form url.Values, c *echo.Context) error {
+	nextToken := form.Get("NextToken")
+	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+
+	p, err := h.Backend.ListMetricStreams(nextToken, maxResults)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type entryXML struct {
+		Name           string `xml:"Name"`
+		Arn            string `xml:"Arn"`
+		FirehoseArn    string `xml:"FirehoseArn"`
+		State          string `xml:"State"`
+		OutputFormat   string `xml:"OutputFormat"`
+		CreationDate   string `xml:"CreationDate,omitempty"`
+		LastUpdateDate string `xml:"LastUpdateDate,omitempty"`
+	}
+	members := make([]entryXML, 0, len(p.Data))
+	for _, s := range p.Data {
+		members = append(members, entryXML{
+			Name:           s.Name,
+			Arn:            s.Arn,
+			FirehoseArn:    s.FirehoseArn,
+			State:          s.State,
+			OutputFormat:   s.OutputFormat,
+			CreationDate:   formatTimeOmitZero(s.CreationDate),
+			LastUpdateDate: formatTimeOmitZero(s.LastUpdateDate),
+		})
+	}
+
+	type listResult struct {
+		NextToken     string     `xml:"NextToken,omitempty"`
+		MetricStreams []entryXML `xml:"Entries>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"ListMetricStreamsResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListMetricStreamsResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result:    listResult{MetricStreams: members, NextToken: p.Next},
+	})
+}
+
+func (h *Handler) handleGetMetricStream(form url.Values, c *echo.Context) error {
+	name := form.Get("Name")
+	if name == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "Name is required")
+	}
+
+	stream, err := h.Backend.GetMetricStream(name)
+	if err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type result struct {
+		Name           string `xml:"Name"`
+		Arn            string `xml:"Arn"`
+		FirehoseArn    string `xml:"FirehoseArn"`
+		RoleArn        string `xml:"RoleArn"`
+		State          string `xml:"State"`
+		OutputFormat   string `xml:"OutputFormat"`
+		CreationDate   string `xml:"CreationDate,omitempty"`
+		LastUpdateDate string `xml:"LastUpdateDate,omitempty"`
+	}
+	type response struct {
+		XMLName   xml.Name `xml:"GetMetricStreamResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"GetMetricStreamResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+		Result: result{
+			Name:           stream.Name,
+			Arn:            stream.Arn,
+			FirehoseArn:    stream.FirehoseArn,
+			RoleArn:        stream.RoleArn,
+			State:          stream.State,
+			OutputFormat:   stream.OutputFormat,
+			CreationDate:   formatTimeOmitZero(stream.CreationDate),
+			LastUpdateDate: formatTimeOmitZero(stream.LastUpdateDate),
+		},
+	})
+}
+
+func (h *Handler) handleStartMetricStreams(form url.Values, c *echo.Context) error {
+	names := parseMemberList(form, "Names.")
+	if err := h.Backend.StartMetricStreams(names); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"StartMetricStreamsResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleStopMetricStreams(form url.Values, c *echo.Context) error {
+	names := parseMemberList(form, "Names.")
+	if err := h.Backend.StopMetricStreams(names); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"StopMetricStreamsResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}

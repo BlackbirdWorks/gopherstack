@@ -2,6 +2,27 @@ package ecs
 
 import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
 
+var (
+	// ErrClusterNotFound is returned when a cluster does not exist.
+	ErrClusterNotFound = awserr.New("ClusterNotFoundException", awserr.ErrNotFound)
+	// ErrClusterAlreadyExists is returned when a cluster already exists.
+	ErrClusterAlreadyExists = awserr.New("ClusterAlreadyExistsException", awserr.ErrAlreadyExists)
+	// ErrTaskDefinitionNotFound is returned when a task definition does not exist.
+	ErrTaskDefinitionNotFound = awserr.New("TaskDefinitionNotFoundException", awserr.ErrNotFound)
+	// ErrServiceNotFound is returned when a service does not exist.
+	ErrServiceNotFound = awserr.New("ServiceNotFoundException", awserr.ErrNotFound)
+	// ErrServiceAlreadyExists is returned when a service already exists.
+	ErrServiceAlreadyExists = awserr.New("ServiceAlreadyExistsException", awserr.ErrAlreadyExists)
+	// ErrTaskNotFound is returned when a task does not exist.
+	ErrTaskNotFound = awserr.New("TaskNotFoundException", awserr.ErrNotFound)
+	// ErrInvalidParameter is returned when a required parameter is missing or invalid.
+	ErrInvalidParameter = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
+	// ErrClient is returned when a request is structurally invalid in a way that
+	// AWS ECS reports as a ClientException (for example, malformed container
+	// definitions or an unsupported network mode / launch-type combination).
+	ErrClient = awserr.New("ClientException", awserr.ErrInvalidParameter)
+)
+
 var errServiceDeploymentAlreadyStopped = awserr.New(
 	"ServiceDeploymentAlreadyStoppedException", awserr.ErrInvalidParameter,
 )

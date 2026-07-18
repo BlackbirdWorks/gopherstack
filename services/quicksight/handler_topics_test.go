@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/quicksight"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -445,4 +446,287 @@ func TestQuickSight_TopicReviewedAnswers(t *testing.T) {
 		map[string]any{"Answers": []any{}},
 	)
 	assert.Equal(t, http.StatusNotFound, missingRec.Code)
+}
+
+// ---- Topic tests ---- //nolint:godot // existing issue.
+func TestQuickSight_Topics(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantKey    string
+		wantStatus int
+	}{
+		{
+			name:       "create topic",
+			method:     http.MethodPost,
+			path:       accountPath("/topics"),
+			body:       map[string]any{"TopicId": "top1", "Name": "Topic1"},
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "describe topic",
+			method:     http.MethodGet,
+			path:       accountPath("/topics/top1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "update topic",
+			method:     http.MethodPut,
+			path:       accountPath("/topics/top1"),
+			body:       map[string]any{"Name": "Renamed"},
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "list topics",
+			method:     http.MethodGet,
+			path:       accountPath("/topics"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicsSummaries",
+		},
+		{
+			name:       "describe topic permissions",
+			method:     http.MethodGet,
+			path:       accountPath("/topics/top1/permissions"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "update topic permissions",
+			method:     http.MethodPut,
+			path:       accountPath("/topics/top1/permissions"),
+			body:       map[string]any{"GrantPermissions": []any{}, "RevokePermissions": []any{}},
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "describe topic refresh",
+			method:     http.MethodGet,
+			path:       accountPath("/topics/top1/refresh/ref1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "create topic refresh schedule",
+			method:     http.MethodPost,
+			path:       accountPath("/topics/top1/schedules"),
+			body:       map[string]any{"DatasetId": "ds1"},
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "describe topic refresh schedule",
+			method:     http.MethodGet,
+			path:       accountPath("/topics/top1/schedules/ds1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "list topic refresh schedules",
+			method:     http.MethodGet,
+			path:       accountPath("/topics/top1/schedules"),
+			wantStatus: http.StatusOK,
+			wantKey:    "RefreshSchedules",
+		},
+		{
+			name:       "update topic refresh schedule",
+			method:     http.MethodPut,
+			path:       accountPath("/topics/top1/schedules/ds1"),
+			body:       map[string]any{},
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "batch create reviewed answers",
+			method:     http.MethodPost,
+			path:       accountPath("/topics/top1/batch-create-reviewed-answers"),
+			body:       map[string]any{"Answers": []any{}},
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "batch delete reviewed answers",
+			method:     http.MethodPost,
+			path:       accountPath("/topics/top1/batch-delete-reviewed-answers"),
+			body:       map[string]any{"AnswerIds": []any{}},
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "list topic reviewed answers",
+			method:     http.MethodGet,
+			path:       accountPath("/topics/top1/reviewed-answers"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "delete topic refresh schedule",
+			method:     http.MethodDelete,
+			path:       accountPath("/topics/top1/schedules/ds1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+		{
+			name:       "delete topic",
+			method:     http.MethodDelete,
+			path:       accountPath("/topics/top1"),
+			wantStatus: http.StatusOK,
+			wantKey:    "TopicId",
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
+			assert.Equal(t, tc.wantStatus, rec.Code, "status")
+			if tc.wantKey != "" {
+				body := parseBody(t, rec)
+				assert.Contains(t, body, tc.wantKey)
+			}
+		})
+	}
+}
+
+// ---- SearchTopics ----
+
+func TestQuickSight_SearchTopics(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, accountPath("/topics"), map[string]any{
+		"TopicId": "t1",
+		"Name":    "Sales",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodPost, accountPath("/topics"), map[string]any{
+		"TopicId": "t2",
+		"Name":    "Marketing",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// No filters: both topics come back.
+	rec = doRequest(t, h, http.MethodPost, accountPath("/search/topics"), map[string]any{"Filters": []any{}})
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := parseBody(t, rec)
+	list, ok := body["TopicSummaryList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, list, 2)
+
+	summary, ok := list[0].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, summary, "Arn")
+	assert.Contains(t, summary, "TopicId")
+	assert.Contains(t, summary, "Name")
+	assert.Contains(t, summary, "UserExperienceVersion")
+	assert.NotContains(t, summary, "Description")
+	assert.NotContains(t, summary, "CreatedTime")
+
+	// TOPIC_NAME StringEquals filter narrows to a single match.
+	rec = doRequest(t, h, http.MethodPost, accountPath("/search/topics"), map[string]any{
+		"Filters": []any{
+			map[string]any{"Name": "TOPIC_NAME", "Operator": "StringEquals", "Value": "Sales"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = parseBody(t, rec)
+	list, ok = body["TopicSummaryList"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 1)
+	summary, ok = list[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Sales", summary["Name"])
+}
+
+// ---- PredictQAResults ----
+
+// TestQuickSight_PredictQAResults verifies that answers are grounded in real
+// account state (an existing Topic), not fabricated: a query mentioning a
+// registered topic's name gets a GENERATED_ANSWER result referencing that
+// real topic, while an unrelated query gets the explicit NO_ANSWER result.
+func TestQuickSight_PredictQAResults(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, http.MethodPost, accountPath("/topics"), map[string]any{
+		"TopicId": "sales-topic",
+		"Name":    "Sales Performance",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	tests := []struct {
+		name           string
+		queryText      string
+		wantResultType string
+	}{
+		{
+			name:           "matches_real_topic",
+			queryText:      "What is our Sales Performance this quarter?",
+			wantResultType: "GENERATED_ANSWER",
+		},
+		{
+			name:           "no_matching_topic",
+			queryText:      "What is the weather today?",
+			wantResultType: "NO_ANSWER",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, http.MethodPost, accountPath("/qa/predict"), map[string]any{
+				"QueryText": tt.queryText,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			body := parseBody(t, rec)
+			primary, ok := body["PrimaryResult"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantResultType, primary["ResultType"])
+
+			if tt.wantResultType != "GENERATED_ANSWER" {
+				assert.NotContains(t, primary, "GeneratedAnswer")
+
+				return
+			}
+
+			answer, hasAnswer := primary["GeneratedAnswer"].(map[string]any)
+			require.True(t, hasAnswer)
+			assert.Equal(t, "sales-topic", answer["TopicId"])
+			assert.Equal(t, "Sales Performance", answer["TopicName"])
+			assert.NotEmpty(t, answer["AnswerId"])
+		})
+	}
+
+	// Missing QueryText -> validation error, not a fabricated 200.
+	rec := doRequest(t, h, http.MethodPost, accountPath("/qa/predict"), map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestCreateTopicReturnsNonEmptyID verifies CreateTopic (POST /accounts/{id}/topics) returns
+// a non-empty TopicId. AWS CreateTopic requires both TopicId and Name in the request body.
+func TestCreateTopicReturnsNonEmptyID(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend(t)
+	h := quicksight.NewHandler(b)
+
+	rec := doRequest(t, h, http.MethodPost, accountPath("/topics"), map[string]any{
+		"TopicId": "topic1",
+		"Name":    "Topic1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := parseBody(t, rec)
+	topicID, _ := body["TopicId"].(string)
+	assert.NotEmpty(t, topicID, "CreateTopic must return a non-empty TopicId")
 }

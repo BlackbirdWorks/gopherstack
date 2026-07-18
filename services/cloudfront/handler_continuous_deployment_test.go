@@ -12,10 +12,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestParitySweep_ContinuousDeploymentPolicy_TrafficConfig verifies the full request shape
+// TestContinuousDeploymentPolicy_TrafficConfig verifies the full request shape
 // (multiple staging DNS names plus a SingleWeight or SingleHeader traffic config) round-trips
 // through Create/Get/Update, and that ARN/LastModifiedTime are populated.
-func TestParitySweep_ContinuousDeploymentPolicy_TrafficConfig(t *testing.T) {
+func TestContinuousDeploymentPolicy_TrafficConfig(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
@@ -66,9 +66,9 @@ func TestParitySweep_ContinuousDeploymentPolicy_TrafficConfig(t *testing.T) {
 	assert.Nil(t, updated.TrafficConfig.SingleWeightConfig, "full replace should drop the old SingleWeightConfig")
 }
 
-// TestParitySweep_ContinuousDeploymentPolicy_IfMatchEnforcement mirrors the trust store If-Match
+// TestContinuousDeploymentPolicy_IfMatchEnforcement mirrors the trust store If-Match
 // test for the continuous deployment policy update/delete handlers.
-func TestParitySweep_ContinuousDeploymentPolicy_IfMatchEnforcement(t *testing.T) {
+func TestContinuousDeploymentPolicy_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	const prefix = "/2020-05-31/"
@@ -106,7 +106,7 @@ func TestParitySweep_ContinuousDeploymentPolicy_IfMatchEnforcement(t *testing.T)
 // MonitoringSubscription
 // ---------------------------------------------------------------------------
 
-func TestParity_ContinuousDeploymentPolicyXMLIncludesStagingDNS(t *testing.T) {
+func TestContinuousDeploymentPolicyXMLIncludesStagingDNS(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -342,8 +342,8 @@ func TestContinuousDeploymentPolicyCRUD(t *testing.T) {
 	}
 }
 
-// TestBackendContinuousDeploymentPolicyDirectly tests CDP operations directly on the backend.
-func TestBackendContinuousDeploymentPolicyDirectly(t *testing.T) {
+// TestInMemoryBackend_ContinuousDeploymentPolicy tests CDP operations directly on the backend.
+func TestInMemoryBackend_ContinuousDeploymentPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

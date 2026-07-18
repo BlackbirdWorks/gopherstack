@@ -270,9 +270,14 @@ func (p *EventSourcePoller) poll(ctx context.Context) int {
 // processOneMapping dispatches a single enabled event source mapping to the appropriate handler.
 func (p *EventSourcePoller) processOneMapping(ctx context.Context, m *EventSourceMapping) {
 	if isSQSARN(m.EventSourceARN) {
-		p.mu.RLock("poll")
-		sqsR := p.sqsReader
-		p.mu.RUnlock()
+		var sqsR SQSReader
+
+		func() {
+			p.mu.RLock("poll")
+			defer p.mu.RUnlock()
+
+			sqsR = p.sqsReader
+		}()
 
 		if sqsR != nil {
 			p.processSQSMapping(ctx, m, sqsR)
@@ -375,9 +380,17 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 	for _, shardID := range shardIDs {
 		iterKey := m.UUID + ":" + shardID
 
-		p.mu.Lock("processMapping")
-		it, exists := p.shardIterators[iterKey]
-		p.mu.Unlock()
+		var (
+			it     string
+			exists bool
+		)
+
+		func() {
+			p.mu.Lock("processMapping")
+			defer p.mu.Unlock()
+
+			it, exists = p.shardIterators[iterKey]
+		}()
 
 		if !exists {
 			// Initialize iterator at starting position
@@ -389,26 +402,35 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 				continue
 			}
 
-			p.mu.Lock("processMapping")
-			p.shardIterators[iterKey] = it
-			p.mu.Unlock()
+			func() {
+				p.mu.Lock("processMapping")
+				defer p.mu.Unlock()
+
+				p.shardIterators[iterKey] = it
+			}()
 		}
 
 		records, nextIt, readErr := p.kinesisReader.GetRecords(it, m.BatchSize)
 		if readErr != nil {
 			// Iterator may have expired; reset it
-			p.mu.Lock("processMapping")
-			delete(p.shardIterators, iterKey)
-			p.mu.Unlock()
+			func() {
+				p.mu.Lock("processMapping")
+				defer p.mu.Unlock()
+
+				delete(p.shardIterators, iterKey)
+			}()
 			logger.Load(ctx).WarnContext(ctx, "event source poller: GetRecords failed, resetting iterator",
 				"stream", streamName, "shard", shardID, "error", readErr)
 
 			continue
 		}
 
-		p.mu.Lock("processMapping")
-		p.shardIterators[iterKey] = nextIt
-		p.mu.Unlock()
+		func() {
+			p.mu.Lock("processMapping")
+			defer p.mu.Unlock()
+
+			p.shardIterators[iterKey] = nextIt
+		}()
 
 		if len(records) == 0 {
 			continue
@@ -582,9 +604,17 @@ func (p *EventSourcePoller) processDDBShard(
 ) {
 	iterKey := m.UUID + ":" + shardID
 
-	p.mu.RLock("processDDBShard.read")
-	it, exists := p.shardIterators[iterKey]
-	p.mu.RUnlock()
+	var (
+		it     string
+		exists bool
+	)
+
+	func() {
+		p.mu.RLock("processDDBShard.read")
+		defer p.mu.RUnlock()
+
+		it, exists = p.shardIterators[iterKey]
+	}()
 
 	var err error
 
@@ -597,25 +627,34 @@ func (p *EventSourcePoller) processDDBShard(
 			return
 		}
 
-		p.mu.Lock("processDDBShard.initIter")
-		p.shardIterators[iterKey] = it
-		p.mu.Unlock()
+		func() {
+			p.mu.Lock("processDDBShard.initIter")
+			defer p.mu.Unlock()
+
+			p.shardIterators[iterKey] = it
+		}()
 	}
 
 	records, nextIt, readErr := reader.GetStreamRecords(it, m.BatchSize)
 	if readErr != nil {
-		p.mu.Lock("processDDBShard.resetIter")
-		delete(p.shardIterators, iterKey)
-		p.mu.Unlock()
+		func() {
+			p.mu.Lock("processDDBShard.resetIter")
+			defer p.mu.Unlock()
+
+			delete(p.shardIterators, iterKey)
+		}()
 		logger.Load(ctx).WarnContext(ctx, "event source poller: DDB GetStreamRecords failed, resetting iterator",
 			"stream", m.EventSourceARN, "shard", shardID, "error", readErr)
 
 		return
 	}
 
-	p.mu.Lock("processDDBShard.advanceIter")
-	p.shardIterators[iterKey] = nextIt
-	p.mu.Unlock()
+	func() {
+		p.mu.Lock("processDDBShard.advanceIter")
+		defer p.mu.Unlock()
+
+		p.shardIterators[iterKey] = nextIt
+	}()
 
 	if len(records) == 0 {
 		return

@@ -159,8 +159,8 @@ func TestCreateCachePolicy(t *testing.T) {
 	}
 }
 
-// TestRefinement1_CachePolicyUniqueness verifies duplicate cache policy names are rejected.
-func TestRefinement1_CachePolicyUniqueness(t *testing.T) {
+// TestCachePolicyUniqueness verifies duplicate cache policy names are rejected.
+func TestCachePolicyUniqueness(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -181,8 +181,8 @@ func TestRefinement1_CachePolicyUniqueness(t *testing.T) {
 	assert.Contains(t, rec2.Body.String(), "CachePolicyAlreadyExists")
 }
 
-// TestRefinement1_CachePolicyTTLValidation verifies TTL ordering is enforced.
-func TestRefinement1_CachePolicyTTLValidation(t *testing.T) {
+// TestCachePolicyTTLValidation verifies TTL ordering is enforced.
+func TestCachePolicyTTLValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

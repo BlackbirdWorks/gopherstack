@@ -798,7 +798,7 @@ func TestStartupFailure_ClearsRuntimeEntry(t *testing.T) {
 
 // ---- Close() cancels poller ----
 
-func TestAudit_Close_CancelsPoller(t *testing.T) {
+func TestClose_CancelsPoller(t *testing.T) {
 	t.Parallel()
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")

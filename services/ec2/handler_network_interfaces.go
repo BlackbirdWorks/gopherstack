@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -243,4 +244,322 @@ func networkInterfacesSupportedOperations() []string {
 		"AssignIpv6Addresses",
 		"UnassignIpv6Addresses",
 	}
+}
+
+type networkInterfacePrivateIPItem struct {
+	PrivateIPAddress string `xml:"privateIpAddress"`
+	Primary          bool   `xml:"primary"`
+}
+
+type networkInterfacePrivateIPSet struct {
+	Items []networkInterfacePrivateIPItem `xml:"item"`
+}
+
+type networkInterfaceAttachment struct {
+	AttachmentID string `xml:"attachmentId,omitempty"`
+	InstanceID   string `xml:"instanceId,omitempty"`
+	Status       string `xml:"status,omitempty"`
+	DeviceIndex  int    `xml:"deviceIndex,omitempty"`
+}
+
+type networkInterfaceItem struct {
+	Attachment            *networkInterfaceAttachment  `xml:"attachment,omitempty"`
+	NetworkInterfaceID    string                       `xml:"networkInterfaceId"`
+	SubnetID              string                       `xml:"subnetId"`
+	VPCID                 string                       `xml:"vpcId"`
+	PrivateIPAddress      string                       `xml:"privateIpAddress"`
+	Description           string                       `xml:"description"`
+	Status                string                       `xml:"status"`
+	PrivateIPAddressesSet networkInterfacePrivateIPSet `xml:"privateIpAddressesSet"`
+	SourceDestCheck       bool                         `xml:"sourceDestCheck"`
+}
+
+type networkInterfaceItemSet struct {
+	Items []networkInterfaceItem `xml:"item"`
+}
+
+type describeNetworkInterfacesResponse struct {
+	XMLName             xml.Name                `xml:"DescribeNetworkInterfacesResponse"`
+	Xmlns               string                  `xml:"xmlns,attr"`
+	RequestID           string                  `xml:"requestId"`
+	NetworkInterfaceSet networkInterfaceItemSet `xml:"networkInterfaceSet"`
+}
+
+func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "NetworkInterfaceId")
+	enis := h.Backend.DescribeNetworkInterfaces(ids)
+
+	filters := parseEC2Filters(vals)
+	enis = applyENIFilters(enis, filters, h.Backend)
+
+	items := make([]networkInterfaceItem, 0, len(enis))
+	for _, eni := range enis {
+		items = append(items, toNetworkInterfaceItem(eni))
+	}
+
+	return &describeNetworkInterfacesResponse{
+		Xmlns:               ec2XMLNS,
+		RequestID:           reqID,
+		NetworkInterfaceSet: networkInterfaceItemSet{Items: items},
+	}, nil
+}
+
+// parseIPPermissions parses EC2 IpPermissions from [url.Values].
+// Handles: IpPermissions.N.IpProtocol, .FromPort, .ToPort, .IpRanges.M.CidrIp,
+// and .Groups.M.GroupId (security-group source references, gap 6).
+
+// ---- network interface helpers ----
+
+func toNetworkInterfaceItem(eni *NetworkInterface) networkInterfaceItem {
+	privateIPs := make([]networkInterfacePrivateIPItem, 0, 1+len(eni.SecondaryPrivateIPs))
+	privateIPs = append(privateIPs, networkInterfacePrivateIPItem{
+		PrivateIPAddress: eni.PrivateIP,
+		Primary:          true,
+	})
+
+	for _, ip := range eni.SecondaryPrivateIPs {
+		privateIPs = append(privateIPs, networkInterfacePrivateIPItem{
+			PrivateIPAddress: ip,
+			Primary:          false,
+		})
+	}
+
+	item := networkInterfaceItem{
+		NetworkInterfaceID:    eni.ID,
+		SubnetID:              eni.SubnetID,
+		VPCID:                 eni.VPCID,
+		PrivateIPAddress:      eni.PrivateIP,
+		Description:           eni.Description,
+		Status:                eni.Status,
+		SourceDestCheck:       eni.SourceDestCheck,
+		PrivateIPAddressesSet: networkInterfacePrivateIPSet{Items: privateIPs},
+	}
+
+	if eni.AttachmentID != "" {
+		item.Attachment = &networkInterfaceAttachment{
+			AttachmentID: eni.AttachmentID,
+			InstanceID:   eni.InstanceID,
+			DeviceIndex:  eni.DeviceIndex,
+			Status:       attachmentStateAttached,
+		}
+	}
+
+	return item
+}
+
+// ---- network interface CRUD handlers ----
+
+func (h *Handler) handleCreateNetworkInterface(vals url.Values, reqID string) (any, error) {
+	subnetID := vals.Get("SubnetId")
+	if subnetID == "" {
+		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
+	}
+
+	description := vals.Get("Description")
+
+	eni, err := h.Backend.CreateNetworkInterface(subnetID, description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createNetworkInterfaceResponse{
+		Xmlns:            ec2XMLNS,
+		RequestID:        reqID,
+		NetworkInterface: toNetworkInterfaceItem(eni),
+	}, nil
+}
+
+type createNetworkInterfaceResponse struct {
+	XMLName          xml.Name             `xml:"CreateNetworkInterfaceResponse"`
+	Xmlns            string               `xml:"xmlns,attr"`
+	RequestID        string               `xml:"requestId"`
+	NetworkInterface networkInterfaceItem `xml:"networkInterface"`
+}
+
+func (h *Handler) handleDeleteNetworkInterface(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("NetworkInterfaceId")
+	if id == "" {
+		return nil, fmt.Errorf("%w: NetworkInterfaceId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteNetworkInterface(id); err != nil {
+		return nil, err
+	}
+
+	return &deleteNetworkInterfaceResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type deleteNetworkInterfaceResponse struct {
+	XMLName   xml.Name `xml:"DeleteNetworkInterfaceResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleAttachNetworkInterface(vals url.Values, reqID string) (any, error) {
+	eniID := vals.Get("NetworkInterfaceId")
+	instanceID := vals.Get("InstanceId")
+
+	if eniID == "" || instanceID == "" {
+		return nil, fmt.Errorf(
+			"%w: NetworkInterfaceId and InstanceId are required",
+			ErrInvalidParameter,
+		)
+	}
+
+	deviceIndex := 1
+	if v := vals.Get("DeviceIndex"); v != "" {
+		_, _ = fmt.Sscan(v, &deviceIndex) // parse best-effort; deviceIndex stays 1 on error
+	}
+
+	attachmentID, err := h.Backend.AttachNetworkInterface(eniID, instanceID, deviceIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	return &attachNetworkInterfaceResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		AttachmentID: attachmentID,
+	}, nil
+}
+
+type attachNetworkInterfaceResponse struct {
+	XMLName      xml.Name `xml:"AttachNetworkInterfaceResponse"`
+	Xmlns        string   `xml:"xmlns,attr"`
+	RequestID    string   `xml:"requestId"`
+	AttachmentID string   `xml:"attachmentId"`
+}
+
+func (h *Handler) handleDetachNetworkInterface(vals url.Values, reqID string) (any, error) {
+	attachmentID := vals.Get("AttachmentId")
+	if attachmentID == "" {
+		return nil, fmt.Errorf("%w: AttachmentId is required", ErrInvalidParameter)
+	}
+
+	force := vals.Get("Force") == ec2BooleanTrue
+
+	if err := h.Backend.DetachNetworkInterface(attachmentID, force); err != nil {
+		return nil, err
+	}
+
+	return &detachNetworkInterfaceResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type detachNetworkInterfaceResponse struct {
+	XMLName   xml.Name `xml:"DetachNetworkInterfaceResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleAssignPrivateIPAddresses(vals url.Values, reqID string) (any, error) {
+	eniID := vals.Get("NetworkInterfaceId")
+	if eniID == "" {
+		return nil, fmt.Errorf("%w: NetworkInterfaceId is required", ErrInvalidParameter)
+	}
+
+	count := 0
+	if v := vals.Get("SecondaryPrivateIpAddressCount"); v != "" {
+		_, _ = fmt.Sscan(v, &count) // parse best-effort; count stays 0 on error
+	}
+
+	ips := parseMemberList(vals, "PrivateIpAddress")
+
+	if err := h.Backend.AssignPrivateIPAddresses(eniID, count, ips); err != nil {
+		return nil, err
+	}
+
+	return &assignPrivateIPAddressesResponse{
+		Xmlns:              ec2XMLNS,
+		RequestID:          reqID,
+		NetworkInterfaceID: eniID,
+		Return:             true,
+	}, nil
+}
+
+type assignPrivateIPAddressesResponse struct {
+	XMLName            xml.Name `xml:"AssignPrivateIpAddressesResponse"`
+	Xmlns              string   `xml:"xmlns,attr"`
+	RequestID          string   `xml:"requestId"`
+	NetworkInterfaceID string   `xml:"networkInterfaceId"`
+	Return             bool     `xml:"return"`
+}
+
+func (h *Handler) handleUnassignPrivateIPAddresses(vals url.Values, reqID string) (any, error) {
+	eniID := vals.Get("NetworkInterfaceId")
+	if eniID == "" {
+		return nil, fmt.Errorf("%w: NetworkInterfaceId is required", ErrInvalidParameter)
+	}
+
+	ips := parseMemberList(vals, "PrivateIpAddress")
+
+	if err := h.Backend.UnassignPrivateIPAddresses(eniID, ips); err != nil {
+		return nil, err
+	}
+
+	return &unassignPrivateIPAddressesResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type unassignPrivateIPAddressesResponse struct {
+	XMLName   xml.Name `xml:"UnassignPrivateIpAddressesResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleModifyNetworkInterfaceAttribute(
+	vals url.Values,
+	reqID string,
+) (any, error) {
+	eniID := vals.Get("NetworkInterfaceId")
+	if eniID == "" {
+		return nil, fmt.Errorf("%w: NetworkInterfaceId is required", ErrInvalidParameter)
+	}
+
+	// Determine which attribute is being modified.
+	// AWS sends the attribute as a nested element: e.g. Description.Value, SourceDestCheck.Value.
+	// Use HasKey to allow clearing the description (empty string is valid).
+	attr := ""
+	value := ""
+
+	_, hasDesc := vals["Description.Value"]
+	_, hasSdc := vals["SourceDestCheck.Value"]
+
+	if hasDesc {
+		attr = filterKeyDescription
+		value = vals.Get("Description.Value")
+	} else if hasSdc {
+		attr = attrSourceDest
+		value = vals.Get("SourceDestCheck.Value")
+	}
+
+	if err := h.Backend.ModifyNetworkInterfaceAttribute(eniID, attr, value); err != nil {
+		return nil, err
+	}
+
+	return &modifyNetworkInterfaceAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type modifyNetworkInterfaceAttributeResponse struct {
+	XMLName   xml.Name `xml:"ModifyNetworkInterfaceAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
 }

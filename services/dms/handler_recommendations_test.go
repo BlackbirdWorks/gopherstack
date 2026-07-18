@@ -40,3 +40,17 @@ func TestDescribeRecommendations(t *testing.T) {
 	assert.Equal(t, "aurora-mysql", r0["EngineName"])
 	assert.Equal(t, "active", r0["Status"])
 }
+
+func TestHandler_BatchStartRecommendations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	rec := doDMS(t, h, "BatchStartRecommendations", map[string]any{
+		"Data": []any{},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	resp := parseJSON(t, rec)
+	entries, ok := resp["ErrorEntries"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, entries)
+}

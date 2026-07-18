@@ -73,21 +73,22 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 func (j *Janitor) sweepCompletedExperiments(ctx context.Context) {
 	cutoff := time.Now().Add(-j.ExperimentTTL)
 
-	j.Backend.mu.Lock("sweepCompletedExperiments")
-
 	var swept []string
 
-	// Table.All() returns a snapshot slice, so it is safe to call Delete
-	// (which mutates the table's internal map) while iterating over it.
-	for _, exp := range j.Backend.experiments.All() {
-		if isTerminalExperiment(exp.Status.Status) && exp.EndTime != nil &&
-			exp.EndTime.Before(cutoff) {
-			swept = append(swept, exp.ID)
-			j.Backend.experiments.Delete(exp.ID)
-		}
-	}
+	func() {
+		j.Backend.mu.Lock("sweepCompletedExperiments")
+		defer j.Backend.mu.Unlock()
 
-	j.Backend.mu.Unlock()
+		// Table.All() returns a snapshot slice, so it is safe to call Delete
+		// (which mutates the table's internal map) while iterating over it.
+		for _, exp := range j.Backend.experiments.All() {
+			if isTerminalExperiment(exp.Status.Status) && exp.EndTime != nil &&
+				exp.EndTime.Before(cutoff) {
+				swept = append(swept, exp.ID)
+				j.Backend.experiments.Delete(exp.ID)
+			}
+		}
+	}()
 
 	count := len(swept)
 

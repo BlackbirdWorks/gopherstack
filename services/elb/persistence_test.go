@@ -2,6 +2,10 @@ package elb_test
 
 import (
 	"context"
+	"encoding/json"
+	"encoding/xml"
+	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -182,4 +186,296 @@ func Test_Handler_SnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, lbs, 1)
 	assert.Equal(t, "handler-lb", lbs[0].LoadBalancerName)
+}
+
+func TestPersistenceFullState(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	h := elb.NewHandler(b)
+	mustCreateLB(t, h, "full-snap-lb")
+
+	// Register an instance.
+	doELB(t, h, url.Values{
+		"Action":                        {"RegisterInstancesWithLoadBalancer"},
+		"Version":                       {"2012-06-01"},
+		"LoadBalancerName":              {"full-snap-lb"},
+		"Instances.member.1.InstanceId": {"i-aaaaaaaa01"},
+	})
+
+	// Configure health check.
+	doELB(t, h, url.Values{
+		"Action":                         {"ConfigureHealthCheck"},
+		"Version":                        {"2012-06-01"},
+		"LoadBalancerName":               {"full-snap-lb"},
+		"HealthCheck.Target":             {"HTTP:80/health"},
+		"HealthCheck.Interval":           {"30"},
+		"HealthCheck.Timeout":            {"5"},
+		"HealthCheck.UnhealthyThreshold": {"2"},
+		"HealthCheck.HealthyThreshold":   {"3"},
+	})
+
+	// Add a policy.
+	doELB(t, h, url.Values{
+		"Action":           {"CreateLBCookieStickinessPolicy"},
+		"Version":          {"2012-06-01"},
+		"LoadBalancerName": {"full-snap-lb"},
+		"PolicyName":       {"snap-pol"},
+	})
+
+	// Add tags.
+	doELB(t, h, url.Values{
+		"Action":                     {"AddTags"},
+		"Version":                    {"2012-06-01"},
+		"LoadBalancerNames.member.1": {"full-snap-lb"},
+		"Tags.member.1.Key":          {"Env"},
+		"Tags.member.1.Value":        {"test"},
+	})
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := elb.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// Verify LB exists.
+	lbs, err := b2.DescribeLoadBalancers(context.Background(), []string{"full-snap-lb"})
+	require.NoError(t, err)
+	require.Len(t, lbs, 1)
+
+	lb := lbs[0]
+	assert.Len(t, lb.Instances, 1)
+	assert.NotNil(t, lb.HealthCheck)
+	assert.Equal(t, "HTTP:80/health", lb.HealthCheck.Target)
+
+	// Verify policy.
+	assert.Equal(t, 1, b2.PolicyCount())
+
+	// Verify tags.
+	tagMap, err := b2.DescribeTags(context.Background(), []string{"full-snap-lb"})
+	require.NoError(t, err)
+	require.Len(t, tagMap["full-snap-lb"], 1)
+	assert.Equal(t, "Env", tagMap["full-snap-lb"][0].Key)
+}
+
+// TestSnapshotSchemaVersion verifies that a snapshot includes a
+// non-zero schema version and round-trips correctly.
+func TestSnapshotSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	b := elb.NewInMemoryBackend("123456789012", "us-east-1")
+	h := elb.NewHandler(b)
+	mustCreateLB(t, h, "snap-lb")
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+	assert.Contains(t, string(snap), `"version"`)
+
+	// Restore into a fresh backend.
+	b2 := elb.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	lbs, err := b2.DescribeLoadBalancers(context.Background(), []string{"snap-lb"})
+	require.NoError(t, err)
+	assert.Len(t, lbs, 1)
+}
+
+// TestRestorePreservesRegion verifies that restoring a snapshot into a
+// backend that already has a region set does not overwrite that region.
+func TestRestorePreservesRegion(t *testing.T) {
+	t.Parallel()
+
+	// Create snapshot from us-east-1 backend.
+	b1 := elb.NewInMemoryBackend("123456789012", "us-east-1")
+	snap := b1.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	// Restore into us-west-2 backend — region must stay us-west-2.
+	b2 := elb.NewInMemoryBackend("123456789012", "us-west-2")
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	// The backend's region is not directly exported, but we can verify via the
+	// DNS name of a newly-created LB (which incorporates the region).
+	h2 := elb.NewHandler(b2)
+	rec := doELB(t, h2, url.Values{
+		"Action":                              {"CreateLoadBalancer"},
+		"Version":                             {"2012-06-01"},
+		"LoadBalancerName":                    {"region-drift-lb"},
+		"Listeners.member.1.Protocol":         {"HTTP"},
+		"Listeners.member.1.LoadBalancerPort": {"80"},
+		"Listeners.member.1.InstancePort":     {"8080"},
+		"AvailabilityZones.member.1":          {"us-west-2a"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		XMLName xml.Name `xml:"CreateLoadBalancerResponse"`
+		Result  struct {
+			DNSName string `xml:"DNSName"`
+		} `xml:"CreateLoadBalancerResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Contains(t, resp.Result.DNSName, "us-west-2", "DNS should contain us-west-2 region")
+}
+
+// TestPersistenceRoundTripTagsAndPolicy verifies Snapshot/Restore preserves LBs and policies.
+func TestPersistenceRoundTripTagsAndPolicy(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	h := elb.NewHandler(b)
+	mustCreateLB(t, h, "persist-lb")
+
+	doELB(t, h, url.Values{
+		"Action":                     {"AddTags"},
+		"Version":                    {"2012-06-01"},
+		"LoadBalancerNames.member.1": {"persist-lb"},
+		"Tags.member.1.Key":          {"Env"},
+		"Tags.member.1.Value":        {"prod"},
+	})
+
+	doELB(t, h, url.Values{
+		"Action":           {"CreateAppCookieStickinessPolicy"},
+		"Version":          {"2012-06-01"},
+		"LoadBalancerName": {"persist-lb"},
+		"PolicyName":       {"my-pol"},
+		"CookieName":       {"SID"},
+	})
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := newBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, b2.LoadBalancerCount())
+	assert.Equal(t, 1, b2.PolicyCount())
+
+	// Verify tags were persisted.
+	lbs, err := b2.DescribeLoadBalancers(context.Background(), []string{"persist-lb"})
+	require.NoError(t, err)
+	require.Len(t, lbs, 1)
+
+	tagMap, err := b2.DescribeTags(context.Background(), []string{"persist-lb"})
+	require.NoError(t, err)
+	require.Len(t, tagMap["persist-lb"], 1)
+	assert.Equal(t, "Env", tagMap["persist-lb"][0].Key)
+	assert.Equal(t, "prod", tagMap["persist-lb"][0].Value)
+}
+
+// TestPersistenceEmptySnapshot verifies Snapshot on empty backend is valid JSON.
+func TestPersistenceEmptySnapshot(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+	require.True(t, json.Valid(snap))
+}
+
+// TestPersistenceRoundTripBackendServerDescriptions verifies that Snapshot/Restore preserves
+// BackendServerDescriptions and all other load balancer fields.
+func TestPersistenceRoundTripBackendServerDescriptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup         func(t *testing.T, b *elb.InMemoryBackend)
+		name          string
+		lbName        string
+		wantBSDPorts  []int32
+		wantListeners int
+		wantInstances int
+	}{
+		{
+			name:   "bsd_preserved_across_snapshot_restore",
+			lbName: "persist-test-lb",
+			setup: func(t *testing.T, b *elb.InMemoryBackend) {
+				t.Helper()
+				h := elb.NewHandler(b)
+
+				// Create LB with a listener
+				doELB(t, h, url.Values{
+					"Action":                              {"CreateLoadBalancer"},
+					"Version":                             {"2012-06-01"},
+					"LoadBalancerName":                    {"persist-test-lb"},
+					"AvailabilityZones.member.1":          {"us-east-1a"},
+					"Listeners.member.1.Protocol":         {"HTTP"},
+					"Listeners.member.1.LoadBalancerPort": {"80"},
+					"Listeners.member.1.InstancePort":     {"8080"},
+				})
+
+				// Create a policy
+				doELB(t, h, url.Values{
+					"Action":           {"CreateLBCookieStickinessPolicy"},
+					"Version":          {"2012-06-01"},
+					"LoadBalancerName": {"persist-test-lb"},
+					"PolicyName":       {"my-lb-cookie"},
+				})
+
+				// Set backend server descriptions
+				doELB(t, h, url.Values{
+					"Action":               {"SetLoadBalancerPoliciesForBackendServer"},
+					"Version":              {"2012-06-01"},
+					"LoadBalancerName":     {"persist-test-lb"},
+					"InstancePort":         {"8080"},
+					"PolicyNames.member.1": {"my-lb-cookie"},
+				})
+			},
+			wantBSDPorts:  []int32{8080},
+			wantListeners: 1,
+		},
+		{
+			name:   "empty_lb_restored_with_non_nil_slices",
+			lbName: "empty-lb",
+			setup: func(t *testing.T, b *elb.InMemoryBackend) {
+				t.Helper()
+				h := elb.NewHandler(b)
+				doELB(t, h, url.Values{
+					"Action":                              {"CreateLoadBalancer"},
+					"Version":                             {"2012-06-01"},
+					"LoadBalancerName":                    {"empty-lb"},
+					"AvailabilityZones.member.1":          {"us-east-1a"},
+					"Listeners.member.1.Protocol":         {"HTTP"},
+					"Listeners.member.1.LoadBalancerPort": {"80"},
+					"Listeners.member.1.InstancePort":     {"80"},
+				})
+			},
+			wantBSDPorts:  []int32{},
+			wantListeners: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := elb.NewInMemoryBackend("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, backend)
+			}
+
+			// Snapshot and restore into a new backend.
+			snap := backend.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			restored := elb.NewInMemoryBackend("", "")
+			require.NoError(t, restored.Restore(t.Context(), snap))
+
+			// Verify the LB can be described on the restored backend.
+			lbs, err := restored.DescribeLoadBalancers(context.Background(), []string{tt.lbName})
+			require.NoError(t, err)
+			require.Len(t, lbs, 1)
+
+			lb := lbs[0]
+			assert.Len(t, lb.Listeners, tt.wantListeners)
+			assert.NotNil(t, lb.BackendServerDescriptions, "BackendServerDescriptions must not be nil after restore")
+
+			bsdPorts := make([]int32, 0, len(lb.BackendServerDescriptions))
+			for _, bsd := range lb.BackendServerDescriptions {
+				bsdPorts = append(bsdPorts, bsd.InstancePort)
+			}
+
+			assert.Equal(t, tt.wantBSDPorts, bsdPorts)
+		})
+	}
 }

@@ -20,21 +20,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newB2Backend(t *testing.T) *sns.InMemoryBackend {
+func newTestBackend(t *testing.T) *sns.InMemoryBackend {
 	t.Helper()
 
 	return sns.NewInMemoryBackendWithContext(t.Context(), "000000000000", "us-east-1")
 }
 
-func newB2Handler(t *testing.T) (*sns.Handler, *sns.InMemoryBackend) {
+func newTestHandlerPair(t *testing.T) (*sns.Handler, *sns.InMemoryBackend) {
 	t.Helper()
 
-	b := newB2Backend(t)
+	b := newTestBackend(t)
 
 	return sns.NewHandler(b), b
 }
 
-func doB2Request(t *testing.T, h *sns.Handler, vals url.Values) *httptest.ResponseRecorder {
+func doTestRequest(t *testing.T, h *sns.Handler, vals url.Values) *httptest.ResponseRecorder {
 	t.Helper()
 
 	e := echo.New()
@@ -586,7 +586,7 @@ func TestPublishSubjectTooLongRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newB2Backend(t)
+			b := newTestBackend(t)
 			tp, err := b.CreateTopic("subj-len-topic", nil)
 			require.NoError(t, err)
 
@@ -623,7 +623,7 @@ func TestPublishSubjectNonASCIIRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newB2Backend(t)
+			b := newTestBackend(t)
 			tp, err := b.CreateTopic("subj-ascii-topic", nil)
 			require.NoError(t, err)
 
@@ -644,16 +644,16 @@ func TestPublishSubjectNonASCIIRejected(t *testing.T) {
 func TestPublishSubjectTooLongViaHandler(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	createRec := doB2Request(t, h, url.Values{"Action": {"CreateTopic"}, "Name": {"subj-handler-topic"}})
+	createRec := doTestRequest(t, h, url.Values{"Action": {"CreateTopic"}, "Name": {"subj-handler-topic"}})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	matches := regexp.MustCompile(`<TopicArn>(arn:[^<]+)</TopicArn>`).FindStringSubmatch(createRec.Body.String())
 	require.Len(t, matches, 2)
 	topicArn := matches[1]
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":   {"Publish"},
 		"TopicArn": {topicArn},
 		"Message":  {"hello"},
@@ -664,15 +664,15 @@ func TestPublishSubjectTooLongViaHandler(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "InvalidParameter")
 }
 
-// TestBatch2_PublishBatchTopicNotFoundTopLevelError verifies that PublishBatch
+// TestPublishBatchTopicNotFoundTopLevelError verifies that PublishBatch
 // returns a top-level 400 NotFoundException when the topic does not exist,
 // rather than per-entry failures.
 func TestPublishBatchTopicNotFoundTopLevelError(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newB2Handler(t)
+	h, _ := newTestHandlerPair(t)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":                                 {"PublishBatch"},
 		"TopicArn":                               {"arn:aws:sns:us-east-1:000000000000:no-such-topic"},
 		"PublishBatchRequestEntries.member.1.Id": {"e1"},
@@ -684,16 +684,16 @@ func TestPublishBatchTopicNotFoundTopLevelError(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "NotFound")
 }
 
-// TestBatch2_PublishBatchExistingTopicStillWorks verifies that after the
+// TestPublishBatchExistingTopicStillWorks verifies that after the
 // topic existence pre-check, PublishBatch still works correctly for valid topics.
 func TestPublishBatchExistingTopicStillWorks(t *testing.T) {
 	t.Parallel()
 
-	h, b := newB2Handler(t)
+	h, b := newTestHandlerPair(t)
 	tp, err := b.CreateTopic("batch-precheck-topic", nil)
 	require.NoError(t, err)
 
-	rec := doB2Request(t, h, url.Values{
+	rec := doTestRequest(t, h, url.Values{
 		"Action":                                 {"PublishBatch"},
 		"TopicArn":                               {tp.TopicArn},
 		"PublishBatchRequestEntries.member.1.Id": {"e1"},

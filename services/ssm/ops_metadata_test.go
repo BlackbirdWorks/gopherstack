@@ -190,7 +190,7 @@ func TestInvalidJSON(t *testing.T) {
 	}
 }
 
-// TestRefinement2_CreateOpsMetadata_DuplicateResourceID verifies duplicate check.
+// TestCreateOpsMetadata_DuplicateResourceID verifies duplicate check.
 func TestCreateOpsMetadata_DuplicateResourceID(t *testing.T) {
 	t.Parallel()
 
@@ -234,7 +234,7 @@ func TestCreateOpsMetadata_DuplicateResourceID(t *testing.T) {
 	}
 }
 
-// TestRefinement2_SeedHelpers verifies seed helpers work correctly.
+// TestSeedHelpers verifies seed helpers work correctly.
 func TestSeedHelpers(t *testing.T) {
 	t.Parallel()
 
@@ -319,7 +319,7 @@ func TestSeedHelpers(t *testing.T) {
 	})
 }
 
-// TestRefinement2_PersistenceWithNewFields verifies Snapshot/Restore preserves new fields.
+// TestPersistenceWithNewFields verifies Snapshot/Restore preserves new fields.
 func TestPersistenceWithNewFields(t *testing.T) {
 	t.Parallel()
 
@@ -362,7 +362,7 @@ func TestPersistenceWithNewFields(t *testing.T) {
 	}
 }
 
-// TestRefinement2_ResetClearsNewFields verifies Reset clears new fields.
+// TestResetClearsNewFields verifies Reset clears new fields.
 func TestResetClearsNewFields(t *testing.T) {
 	t.Parallel()
 
@@ -454,10 +454,10 @@ func TestBackendOps_DeleteOpsMetadata(t *testing.T) {
 }
 func TestFull_OpsMetadata_CreateUpdateDelete(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
 	// Create
-	code, out := mustPost(t, h, "CreateOpsMetadata", map[string]any{
+	code, out := postJSON(t, h, "CreateOpsMetadata", map[string]any{
 		"ResourceId": "i-abc123",
 		"Metadata": map[string]any{
 			"env": map[string]any{"Value": "prod"},
@@ -468,12 +468,12 @@ func TestFull_OpsMetadata_CreateUpdateDelete(t *testing.T) {
 	assert.NotEmpty(t, arn)
 
 	// Get
-	code, out = mustPost(t, h, "GetOpsMetadata", map[string]any{"OpsMetadataArn": arn})
+	code, out = postJSON(t, h, "GetOpsMetadata", map[string]any{"OpsMetadataArn": arn})
 	assert.Equal(t, http.StatusOK, code)
 	assert.NotNil(t, out["Metadata"])
 
 	// Update
-	code, _ = mustPost(t, h, "UpdateOpsMetadata", map[string]any{
+	code, _ = postJSON(t, h, "UpdateOpsMetadata", map[string]any{
 		"OpsMetadataArn": arn,
 		"MetadataToUpdate": map[string]any{
 			"version": map[string]any{"Value": "2"},
@@ -482,11 +482,11 @@ func TestFull_OpsMetadata_CreateUpdateDelete(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 
 	// Delete
-	code, _ = mustPost(t, h, "DeleteOpsMetadata", map[string]any{"OpsMetadataArn": arn})
+	code, _ = postJSON(t, h, "DeleteOpsMetadata", map[string]any{"OpsMetadataArn": arn})
 	assert.Equal(t, http.StatusOK, code)
 
 	// Gone
-	code, _ = mustPost(t, h, "GetOpsMetadata", map[string]any{"OpsMetadataArn": arn})
+	code, _ = postJSON(t, h, "GetOpsMetadata", map[string]any{"OpsMetadataArn": arn})
 	assert.Equal(t, http.StatusBadRequest, code)
 }
 

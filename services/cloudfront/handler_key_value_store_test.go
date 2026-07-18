@@ -13,9 +13,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
-// TestParityBatch3_KVSStatusAndTimestamp verifies KVS create/describe carry a
+// TestKVSStatusAndTimestamp verifies KVS create/describe carry a
 // READY status and a non-empty last-modified time.
-func TestParityBatch3_KVSStatusAndTimestamp(t *testing.T) {
+func TestKVSStatusAndTimestamp(t *testing.T) {
 	t.Parallel()
 
 	b := newB(t)
@@ -30,8 +30,8 @@ func TestParityBatch3_KVSStatusAndTimestamp(t *testing.T) {
 	assert.NotEmpty(t, got.LastModifiedTime)
 }
 
-// TestBatch2_UpdateKeyValueStore tests that UpdateKeyValueStore works correctly.
-func TestBatch2_UpdateKeyValueStore(t *testing.T) {
+// TestUpdateKeyValueStore tests that UpdateKeyValueStore works correctly.
+func TestUpdateKeyValueStore(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const prefix = "/2020-05-31/"
@@ -223,8 +223,8 @@ func TestKVSDataPlane(t *testing.T) {
 	}
 }
 
-// TestKVSBackendDataPlane tests KVS data plane backend methods directly.
-func TestKVSBackendDataPlane(t *testing.T) {
+// TestInMemoryBackend_KVSDataPlane tests KVS data plane backend methods directly.
+func TestInMemoryBackend_KVSDataPlane(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -485,8 +485,8 @@ func TestKeyValueStoreCRUD(t *testing.T) {
 	}
 }
 
-// TestBackendKeyValueStoreDirectly tests Key Value Store backend operations directly.
-func TestBackendKeyValueStoreDirectly(t *testing.T) {
+// TestInMemoryBackend_KeyValueStore tests Key Value Store backend operations directly.
+func TestInMemoryBackend_KeyValueStore(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

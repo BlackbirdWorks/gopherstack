@@ -717,3 +717,245 @@ func (h *Handler) handleUpdateSPICECapacity(c *echo.Context) error {
 		keyStatus:    http.StatusOK,
 	})
 }
+
+// classifyAccountSubscriptionPaths routes /account/{accountId} paths.
+func classifyAccountSubscriptionPaths(method string, segs []string, _ int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch method {
+	case http.MethodPost:
+		return opCreateAccountSubscription, accountID
+	case http.MethodGet:
+		return opDescribeAccountSubscription, accountID
+	case http.MethodDelete:
+		return opDeleteAccountSubscription, accountID
+	}
+
+	return opUnknown, ""
+}
+
+// classifyCustomizationPaths routes /accounts/{id}/customizations/... paths.
+func classifyCustomizationPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodPost:
+			return opCreateAccountCustomization, accountID
+		case http.MethodGet:
+			return opDescribeAccountCustomization, accountID
+		case http.MethodPut:
+			return opUpdateAccountCustomization, accountID
+		case http.MethodDelete:
+			return opDeleteAccountCustomization, accountID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyAccountCustomPermissionPaths routes /accounts/{id}/custom-permission/... paths.
+func classifyAccountCustomPermissionPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodGet:
+			return opDescribeAccountCustomPerm, accountID
+		case http.MethodPut:
+			return opUpdateAccountCustomPerm, accountID
+		case http.MethodDelete:
+			return opDeleteAccountCustomPerm, accountID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyAccountSettingsPaths routes /accounts/{id}/settings/... paths.
+func classifyAccountSettingsPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodGet:
+			return opDescribeAccountSettings, accountID
+		case http.MethodPut:
+			return opUpdateAccountSettings, accountID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyDashboardsQAPaths routes /accounts/{id}/dashboards-qa-configuration/... paths.
+func classifyDashboardsQAPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodGet:
+			return opDescribeDashboardsQAConfiguration, accountID
+		case http.MethodPut:
+			return opUpdateDashboardsQAConfiguration, accountID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyDefaultQBizPaths routes /accounts/{id}/default-qbusiness-application/... paths.
+func classifyDefaultQBizPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodGet:
+			return opDescribeDefaultQBiz, accountID
+		case http.MethodPut:
+			return opUpdateDefaultQBiz, accountID
+		case http.MethodDelete:
+			return opDeleteDefaultQBiz, accountID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyIPRestrictionPaths routes /accounts/{id}/ip-restriction/... paths.
+func classifyIPRestrictionPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodGet:
+			return opDescribeIpRestriction, accountID
+		case http.MethodPost:
+			return opUpdateIpRestriction, accountID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyKeyRegistrationPaths routes /accounts/{id}/key-registration/... paths.
+func classifyKeyRegistrationPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodGet:
+			return opDescribeKeyRegistration, accountID
+		case http.MethodPost:
+			return opUpdateKeyRegistration, accountID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyQPersonalizationPaths routes /accounts/{id}/q-personalization-configuration/... paths.
+func classifyQPersonalizationPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodGet:
+			return opDescribeQPersonalization, accountID
+		case http.MethodPut:
+			return opUpdateQPersonalization, accountID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyQSearchConfigPaths routes /accounts/{id}/quicksight-q-search-configuration/... paths.
+func classifyQSearchConfigPaths(method string, segs []string, n int) (string, string) {
+	accountID := seg(segs, segAccountID)
+	if n == nSegsAccountRes {
+		switch method {
+		case http.MethodGet:
+			return opDescribeQSearchConfig, accountID
+		case http.MethodPut:
+			return opUpdateQSearchConfig, accountID
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// ---- Account Custom Permission ----
+
+// isAccountCustomPermOp reports whether op is one of the account-level
+// Describe/Update/DeleteAccountCustomPermission operations (applying a named
+// custom permissions profile to an entire account), as distinct from
+// isCustomPermOp's CustomPermissions-profile CRUD family.
+func isAccountCustomPermOp(op string) bool {
+	switch op {
+	case opDescribeAccountCustomPerm, opUpdateAccountCustomPerm, opDeleteAccountCustomPerm:
+		return true
+	}
+
+	return false
+}
+
+func (h *Handler) dispatchAccountCustomPerm(c *echo.Context, op string) error {
+	switch op {
+	case opDescribeAccountCustomPerm:
+		return h.handleDescribeAccountCustomPerm(c)
+	case opUpdateAccountCustomPerm:
+		return h.handleUpdateAccountCustomPerm(c)
+	case opDeleteAccountCustomPerm:
+		return h.handleDeleteAccountCustomPerm(c)
+	}
+
+	return writeError(
+		c,
+		http.StatusNotImplemented,
+		"UnsupportedOperationException",
+		"operation not implemented: "+op,
+	)
+}
+
+func (h *Handler) handleDescribeAccountCustomPerm(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	name, err := h.Backend.DescribeAccountCustomPermission(accountID)
+	if err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"CustomPermissionsName": name,
+		keyRequestID:            reqIDPlaceholder,
+		keyStatus:               http.StatusOK,
+	})
+}
+
+func (h *Handler) handleUpdateAccountCustomPerm(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	body, err := readBody(c)
+	if err != nil {
+		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	if updateErr := h.Backend.UpdateAccountCustomPermission(
+		accountID, strField(body, "CustomPermissionsName"),
+	); updateErr != nil {
+		return httpErr(c, updateErr)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}
+
+func (h *Handler) handleDeleteAccountCustomPerm(c *echo.Context) error {
+	segs := pathSegsFromCtx(c)
+	accountID := seg(segs, segAccountID)
+
+	if err := h.Backend.DeleteAccountCustomPermission(accountID); err != nil {
+		return httpErr(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyRequestID: reqIDPlaceholder,
+		keyStatus:    http.StatusOK,
+	})
+}

@@ -4,8 +4,8 @@ import (
 	"testing"
 )
 
-// TestNewOps_SecurityConfiguration tests SecurityConfiguration CRUD.
-func TestNewOps_SecurityConfiguration(t *testing.T) {
+// TestSecurityConfiguration tests SecurityConfiguration CRUD.
+func TestSecurityConfiguration(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 

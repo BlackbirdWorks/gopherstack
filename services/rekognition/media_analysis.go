@@ -1,0 +1,133 @@
+package rekognition
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+)
+
+const (
+	maxAsyncJobs         = 10_000
+	maxMediaAnalysisJobs = 10_000
+
+	// jobStatusSucceeded is the terminal success status shared by async video
+	// jobs, media analysis jobs, and face liveness sessions.
+	jobStatusSucceeded = "SUCCEEDED"
+)
+
+// =============================================================================
+// Async Jobs
+// =============================================================================
+
+// evictOneIfAtCapacity deletes an arbitrary entry from t when it is already
+// at (or over) max, mirroring the original map's "evict a random entry"
+// eviction (Go map iteration order is unspecified, matching store.Table's
+// own unspecified Range order).
+func evictOneIfAtCapacity[V any](t *store.Table[V], maxLen int, keyFn func(*V) string) {
+	if t.Len() < maxLen {
+		return
+	}
+
+	t.Range(func(v *V) bool {
+		t.Delete(keyFn(v))
+
+		return false
+	})
+}
+
+// StartAsyncJob creates a new async video analysis job.
+func (b *InMemoryBackend) StartAsyncJob(jobType, collectionID string) (string, error) {
+	b.mu.Lock("StartAsyncJob")
+	defer b.mu.Unlock()
+
+	evictOneIfAtCapacity(b.asyncJobs, maxAsyncJobs, asyncJobKeyFn)
+
+	jobID := uuid.NewString()
+	b.asyncJobs.Put(&storedAsyncJob{
+		JobID:        jobID,
+		JobType:      jobType,
+		CollectionID: collectionID,
+		JobStatus:    "IN_PROGRESS",
+	})
+
+	return jobID, nil
+}
+
+// GetAsyncJob returns an async job by ID, simulating state progression on each poll.
+func (b *InMemoryBackend) GetAsyncJob(jobID string) (*AsyncJob, error) {
+	b.mu.Lock("GetAsyncJob")
+	defer b.mu.Unlock()
+
+	job, exists := b.asyncJobs.Get(jobID)
+	if !exists {
+		return nil, ErrAsyncJobNotFound
+	}
+
+	switch job.PollCount {
+	case 0:
+		job.PollCount++
+
+		return &AsyncJob{JobID: job.JobID, JobStatus: "IN_PROGRESS"}, nil
+	case 1:
+		job.PollCount++
+		job.JobStatus = jobStatusSucceeded
+
+		return &AsyncJob{JobID: job.JobID, JobStatus: jobStatusSucceeded}, nil
+	default:
+		return &AsyncJob{JobID: job.JobID, JobStatus: job.JobStatus}, nil
+	}
+}
+
+// =============================================================================
+// MediaAnalysis Jobs
+// =============================================================================
+
+// StartMediaAnalysisJob creates a new media analysis job.
+func (b *InMemoryBackend) StartMediaAnalysisJob(jobName string) (string, error) {
+	b.mu.Lock("StartMediaAnalysisJob")
+	defer b.mu.Unlock()
+
+	evictOneIfAtCapacity(b.mediaAnalysisJobs, maxMediaAnalysisJobs, mediaAnalysisJobKeyFn)
+
+	jobID := uuid.NewString()
+	b.mediaAnalysisJobs.Put(&storedMediaAnalysisJob{
+		CreationTimestamp: time.Now(),
+		JobID:             jobID,
+		JobName:           jobName,
+		Status:            jobStatusSucceeded,
+	})
+
+	return jobID, nil
+}
+
+// GetMediaAnalysisJob returns a media analysis job by ID.
+func (b *InMemoryBackend) GetMediaAnalysisJob(jobID string) (*MediaAnalysisJob, error) {
+	b.mu.RLock("GetMediaAnalysisJob")
+	defer b.mu.RUnlock()
+
+	job, exists := b.mediaAnalysisJobs.Get(jobID)
+	if !exists {
+		return nil, ErrMediaAnalysisJobNotFound
+	}
+
+	return job.toMediaAnalysisJob(), nil
+}
+
+// ListMediaAnalysisJobs returns a paginated list of media analysis jobs.
+func (b *InMemoryBackend) ListMediaAnalysisJobs(
+	maxResults int32, nextToken string,
+) ([]*MediaAnalysisJob, string, error) {
+	b.mu.RLock("ListMediaAnalysisJobs")
+	defer b.mu.RUnlock()
+
+	const maxPerPage = 100
+
+	result, outToken := paginateTable(
+		b.mediaAnalysisJobs, maxResults, maxPerPage, nextToken,
+		mediaAnalysisJobKeyFn, (*storedMediaAnalysisJob).toMediaAnalysisJob,
+	)
+
+	return result, outToken, nil
+}

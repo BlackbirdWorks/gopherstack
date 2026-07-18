@@ -11,9 +11,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
-// TestBatch2Audit_StopColumnStatisticsTaskRun_NotFound verifies that
+// TestStopColumnStatisticsTaskRun_NotFound verifies that
 // StopColumnStatisticsTaskRun raises EntityNotFoundException for an unknown run ID.
-func TestBatch2Audit_StopColumnStatisticsTaskRun_NotFound(t *testing.T) {
+func TestStopColumnStatisticsTaskRun_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -69,7 +69,7 @@ func TestBatch2Audit_StopColumnStatisticsTaskRun_NotFound(t *testing.T) {
 	}
 }
 
-func TestBatch2_ColumnStatisticsTask(t *testing.T) {
+func TestColumnStatisticsTask(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -88,7 +88,7 @@ func TestBatch2_ColumnStatisticsTask(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch3_ColumnStatistics_Table(t *testing.T) {
+func TestColumnStatistics_Table(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -199,7 +199,7 @@ func TestBatch3_ColumnStatistics_Table(t *testing.T) {
 	}
 }
 
-func TestBatch3_ColumnStatistics_Partition(t *testing.T) {
+func TestColumnStatistics_Partition(t *testing.T) {
 	t.Parallel()
 
 	partitionValues := []string{"2024-01-01"}
@@ -297,7 +297,7 @@ func TestBatch3_ColumnStatistics_Partition(t *testing.T) {
 	}
 }
 
-func TestBatch3_ColumnStatisticsTaskSettings(t *testing.T) {
+func TestColumnStatisticsTaskSettings(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -431,8 +431,8 @@ func TestColumnStatisticsTaskRunSchedule_RequiresExistingSettings(t *testing.T) 
 	assert.Equal(t, "NOT_SCHEDULED", out.ColumnStatisticsTaskSettings.Schedule.State)
 }
 
-// TestNewOps_ColumnStatistics tests column statistics for table and partition.
-func TestNewOps_ColumnStatistics(t *testing.T) {
+// TestColumnStatistics tests column statistics for table and partition.
+func TestColumnStatistics(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 

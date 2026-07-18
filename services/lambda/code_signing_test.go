@@ -13,7 +13,7 @@ import (
 
 // --- CodeSigningConfig tests ---
 
-func TestNewOps_CodeSigningConfig_Lifecycle(t *testing.T) {
+func TestCodeSigningConfig_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -56,7 +56,7 @@ func TestNewOps_CodeSigningConfig_Lifecycle(t *testing.T) {
 	}
 }
 
-func TestNewOps_CodeSigningConfig_GetDeleteUpdate(t *testing.T) {
+func TestCodeSigningConfig_GetDeleteUpdate(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -110,7 +110,7 @@ func TestNewOps_CodeSigningConfig_GetDeleteUpdate(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getRec2.Code)
 }
 
-func TestNewOps_FunctionCodeSigningConfig(t *testing.T) {
+func TestFunctionCodeSigningConfig(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -174,7 +174,7 @@ func TestNewOps_FunctionCodeSigningConfig(t *testing.T) {
 	assert.Empty(t, getOut2.CodeSigningConfigArn)
 }
 
-func TestNewOps_FunctionCodeSigningConfig_MissingArn(t *testing.T) {
+func TestFunctionCodeSigningConfig_MissingArn(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -186,8 +186,8 @@ func TestNewOps_FunctionCodeSigningConfig_MissingArn(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestNewOps_CodeSigningConfig_UpdateNotFound tests updating a nonexistent code signing config.
-func TestNewOps_CodeSigningConfig_UpdateNotFound(t *testing.T) {
+// TestCodeSigningConfig_UpdateNotFound tests updating a nonexistent code signing config.
+func TestCodeSigningConfig_UpdateNotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -197,8 +197,8 @@ func TestNewOps_CodeSigningConfig_UpdateNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestNewOps_CodeSigningRoute_MethodNotAllowed tests method not allowed on code signing routes.
-func TestNewOps_CodeSigningRoute_MethodNotAllowed(t *testing.T) {
+// TestCodeSigningRoute_MethodNotAllowed tests method not allowed on code signing routes.
+func TestCodeSigningRoute_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -207,8 +207,8 @@ func TestNewOps_CodeSigningRoute_MethodNotAllowed(t *testing.T) {
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 
-// TestNewOps_2020FunctionRoute_UnknownPath tests unknown 2020 function route.
-func TestNewOps_2020FunctionRoute_UnknownPath(t *testing.T) {
+// Test2020FunctionRoute_UnknownPath tests unknown 2020 function route.
+func Test2020FunctionRoute_UnknownPath(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -217,8 +217,8 @@ func TestNewOps_2020FunctionRoute_UnknownPath(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestComprehensive_CodeSigning verifies full code signing config lifecycle and function association.
-func TestComprehensive_CodeSigning(t *testing.T) {
+// TestCodeSigning verifies full code signing config lifecycle and function association.
+func TestCodeSigning(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)

@@ -31,9 +31,15 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
-	h.tagsMu.RLock("removeTags")
-	t := h.tags[resourceID]
-	h.tagsMu.RUnlock()
+	var t *tags.Tags
+
+	func() {
+		h.tagsMu.RLock("removeTags")
+		defer h.tagsMu.RUnlock()
+
+		t = h.tags[resourceID]
+	}()
+
 	if t != nil {
 		t.DeleteKeys(keys)
 	}
@@ -41,10 +47,15 @@ func (h *Handler) removeTags(resourceID string, keys []string) {
 
 // deleteTags removes the tags entry for a resource and releases its resources.
 func (h *Handler) deleteTags(resourceID string) {
-	h.tagsMu.Lock("deleteTags")
-	t := h.tags[resourceID]
-	delete(h.tags, resourceID)
-	h.tagsMu.Unlock()
+	var t *tags.Tags
+
+	func() {
+		h.tagsMu.Lock("deleteTags")
+		defer h.tagsMu.Unlock()
+
+		t = h.tags[resourceID]
+		delete(h.tags, resourceID)
+	}()
 
 	if t != nil {
 		t.Close()
@@ -52,9 +63,15 @@ func (h *Handler) deleteTags(resourceID string) {
 }
 
 func (h *Handler) getTags(resourceID string) map[string]string {
-	h.tagsMu.RLock("getTags")
-	t := h.tags[resourceID]
-	h.tagsMu.RUnlock()
+	var t *tags.Tags
+
+	func() {
+		h.tagsMu.RLock("getTags")
+		defer h.tagsMu.RUnlock()
+
+		t = h.tags[resourceID]
+	}()
+
 	if t == nil {
 		return map[string]string{}
 	}

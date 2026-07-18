@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_ClusterSnapshot_CRUD(t *testing.T) {
+func TestClusterSnapshot_CRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -47,7 +47,7 @@ func TestBatch2_ClusterSnapshot_CRUD(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrClusterSnapshotNotFound)
 }
 
-func TestBatch2_ClusterSnapshot_Copy(t *testing.T) {
+func TestClusterSnapshot_Copy(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -75,7 +75,7 @@ func TestBatch2_ClusterSnapshot_Copy(t *testing.T) {
 	assert.Len(t, snaps, 2)
 }
 
-func TestBatch2_ClusterSnapshot_Duplicate(t *testing.T) {
+func TestClusterSnapshot_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -99,7 +99,7 @@ func TestBatch2_ClusterSnapshot_Duplicate(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrClusterSnapshotAlreadyExists)
 }
 
-func TestBatch2_ClusterSnapshot_DeleteNotFound(t *testing.T) {
+func TestClusterSnapshot_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -108,7 +108,7 @@ func TestBatch2_ClusterSnapshot_DeleteNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrClusterSnapshotNotFound)
 }
 
-func TestBatch2_ClusterSnapshot_HTTP(t *testing.T) {
+func TestClusterSnapshot_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -154,7 +154,7 @@ func TestBatch2_ClusterSnapshot_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch2_Concurrent_ClusterSnapshot(t *testing.T) {
+func TestConcurrent_ClusterSnapshot(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -187,7 +187,7 @@ func TestBatch2_Concurrent_ClusterSnapshot(t *testing.T) {
 	assert.Len(t, snaps, 10)
 }
 
-func TestAccOps2_DescribeDBClusterSnapshots_FilterByCluster_ReturnsMatching(t *testing.T) {
+func TestDescribeDBClusterSnapshots_FilterByCluster_ReturnsMatching(t *testing.T) {
 	t.Parallel()
 
 	h := newAccOps2Handler(t)
@@ -232,7 +232,7 @@ func TestAccOps2_DescribeDBClusterSnapshots_FilterByCluster_ReturnsMatching(t *t
 	assert.ElementsMatch(t, []string{"csnap-1a", "csnap-1b"}, ids)
 }
 
-func TestAccOps2_DescribeDBClusterSnapshots_FilterByCluster_NoMatch_ReturnsEmpty(t *testing.T) {
+func TestDescribeDBClusterSnapshots_FilterByCluster_NoMatch_ReturnsEmpty(t *testing.T) {
 	t.Parallel()
 
 	h := newAccOps2Handler(t)
@@ -261,7 +261,7 @@ func TestAccOps2_DescribeDBClusterSnapshots_FilterByCluster_NoMatch_ReturnsEmpty
 	assert.Empty(t, resp.Result.Snapshots)
 }
 
-func TestAccOps2_DescribeDBClusterSnapshots_NoFilter_ReturnsAll(t *testing.T) {
+func TestDescribeDBClusterSnapshots_NoFilter_ReturnsAll(t *testing.T) {
 	t.Parallel()
 
 	h := newAccOps2Handler(t)

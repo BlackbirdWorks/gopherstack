@@ -112,7 +112,7 @@ func TestListFunctionVersionsByCapacityProvider_NotFound(t *testing.T) {
 
 // --- CapacityProvider tests ---
 
-func TestNewOps_CapacityProvider_Lifecycle(t *testing.T) {
+func TestCapacityProvider_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -161,7 +161,7 @@ func TestNewOps_CapacityProvider_Lifecycle(t *testing.T) {
 	}
 }
 
-func TestNewOps_CapacityProvider_GetDeleteUpdateList(t *testing.T) {
+func TestCapacityProvider_GetDeleteUpdateList(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -217,7 +217,7 @@ func TestNewOps_CapacityProvider_GetDeleteUpdateList(t *testing.T) {
 
 // --- ListFunctionVersionsByCapacityProvider tests ---
 
-func TestNewOps_ListFunctionVersionsByCapacityProvider(t *testing.T) {
+func TestListFunctionVersionsByCapacityProvider(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -269,8 +269,8 @@ func TestNewOps_ListFunctionVersionsByCapacityProvider(t *testing.T) {
 	}
 }
 
-// TestNewOps_CapacityProvider_UpdateNotFound tests updating a nonexistent capacity provider.
-func TestNewOps_CapacityProvider_UpdateNotFound(t *testing.T) {
+// TestCapacityProvider_UpdateNotFound tests updating a nonexistent capacity provider.
+func TestCapacityProvider_UpdateNotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)

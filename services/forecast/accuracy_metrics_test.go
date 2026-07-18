@@ -16,24 +16,24 @@ import (
 func getMetrics(t *testing.T, h *forecast.Handler, predictorArn string) map[string]any {
 	t.Helper()
 
-	rec := a1ForecastDo(t, h, "GetAccuracyMetrics", map[string]any{"PredictorArn": predictorArn})
-	require.Equal(t, http.StatusOK, rec.Code)
+	code, m := request(t, h, "GetAccuracyMetrics", map[string]any{"PredictorArn": predictorArn})
+	require.Equal(t, http.StatusOK, code)
 
-	return a1ForecastUnmarshal(t, rec)
+	return m
 }
 
 func TestGetAccuracyMetrics_Populated(t *testing.T) {
 	t.Parallel()
 
-	h := a1ForecastHandler(t)
+	h := newHandler()
 
-	rec := a1ForecastDo(t, h, "CreatePredictor", map[string]any{
+	code, created := request(t, h, "CreatePredictor", map[string]any{
 		"PredictorName":   "acc-pred",
 		"ForecastHorizon": 7,
 		"ForecastTypes":   []any{"0.1", "0.5", "0.9"},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-	predictorArn, ok := a1ForecastUnmarshal(t, rec)["PredictorArn"].(string)
+	require.Equal(t, http.StatusOK, code)
+	predictorArn, ok := created["PredictorArn"].(string)
 	require.True(t, ok)
 
 	m := getMetrics(t, h, predictorArn)
@@ -74,17 +74,43 @@ func TestGetAccuracyMetrics_Populated(t *testing.T) {
 func TestGetAccuracyMetrics_Deterministic(t *testing.T) {
 	t.Parallel()
 
-	h := a1ForecastHandler(t)
+	h := newHandler()
 
-	rec := a1ForecastDo(t, h, "CreatePredictor", map[string]any{
+	code, created := request(t, h, "CreatePredictor", map[string]any{
 		"PredictorName": "det-pred", "ForecastHorizon": 7,
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
-	predictorArn, ok := a1ForecastUnmarshal(t, rec)["PredictorArn"].(string)
+	require.Equal(t, http.StatusOK, code)
+	predictorArn, ok := created["PredictorArn"].(string)
 	require.True(t, ok)
 
 	first := getMetrics(t, h, predictorArn)
 	second := getMetrics(t, h, predictorArn)
 
 	assert.Equal(t, first, second, "GetAccuracyMetrics must be deterministic for a given predictor")
+}
+
+// TestGetAccuracyMetrics_ResultsAndNotFound verifies the
+// PredictorEvaluationResults shape for a known predictor and the
+// ResourceNotFoundException path for an unknown one.
+func TestGetAccuracyMetrics_ResultsAndNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	code, created := request(t, h, "CreatePredictor", map[string]any{
+		"PredictorName": "metrics-predictor", "ForecastHorizon": 7,
+	})
+	require.Equal(t, http.StatusOK, code)
+	arn := created["PredictorArn"].(string)
+
+	code, m := request(t, h, "GetAccuracyMetrics", map[string]any{"PredictorArn": arn})
+	require.Equal(t, http.StatusOK, code)
+	results, ok := m["PredictorEvaluationResults"].([]any)
+	require.True(t, ok, "PredictorEvaluationResults must be a list")
+	assert.NotNil(t, results)
+
+	// Not found
+	code, m = request(t, h, "GetAccuracyMetrics", map[string]any{"PredictorArn": "missing"})
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "ResourceNotFoundException", m["__type"])
 }

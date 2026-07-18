@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestParitySweep_ResourcePolicy_NotFound verifies GetResourcePolicy 404s when no policy has
+// TestResourcePolicy_NotFound verifies GetResourcePolicy 404s when no policy has
 // been put for a resource ARN, and succeeds once one has been.
-func TestParitySweep_ResourcePolicy_NotFound(t *testing.T) {
+func TestResourcePolicy_NotFound(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	const prefix = "/2020-05-31/"
@@ -38,8 +38,8 @@ func TestParitySweep_ResourcePolicy_NotFound(t *testing.T) {
 // GetManagedCertificateDetails
 // ---------------------------------------------------------------------------
 
-// TestNewOps_ResourcePolicy tests resource policy Put/Get/Delete.
-func TestNewOps_ResourcePolicy(t *testing.T) {
+// TestResourcePolicy_CRUD tests resource policy Put/Get/Delete.
+func TestResourcePolicy_CRUD(t *testing.T) {
 	t.Parallel()
 	h := newCFHandler(t)
 	const arn = "arn:aws:cloudfront::123456789012:distribution/E1"

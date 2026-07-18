@@ -33,8 +33,8 @@ func newGlueHandler(t *testing.T) *glue.Handler {
 	return glue.NewHandler(b)
 }
 
-// TestNewOps_Catalog tests Catalog CRUD.
-func TestNewOps_Catalog(t *testing.T) {
+// TestCatalog tests Catalog CRUD.
+func TestCatalog(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 
@@ -75,8 +75,8 @@ func TestNewOps_Catalog(t *testing.T) {
 	dispatchNewOpExpectError(t, h, "GetCatalog", map[string]any{"CatalogId": "my-catalog"})
 }
 
-// TestNewOps_DataCatalogEncryptionSettings tests encryption settings.
-func TestNewOps_DataCatalogEncryptionSettings(t *testing.T) {
+// TestDataCatalogEncryptionSettings tests encryption settings.
+func TestDataCatalogEncryptionSettings(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 

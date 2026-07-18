@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -775,3 +776,199 @@ func instancesSupportedOperations() []string {
 		"DescribeElasticGpus",
 	}
 }
+
+// ---- XML response types for extended operations ----
+
+type startInstancesResponse struct {
+	XMLName      xml.Name               `xml:"StartInstancesResponse"`
+	Xmlns        string                 `xml:"xmlns,attr"`
+	RequestID    string                 `xml:"requestId"`
+	InstancesSet instanceStateChangeSet `xml:"instancesSet"`
+}
+
+type stopInstancesResponse struct {
+	XMLName      xml.Name               `xml:"StopInstancesResponse"`
+	Xmlns        string                 `xml:"xmlns,attr"`
+	RequestID    string                 `xml:"requestId"`
+	InstancesSet instanceStateChangeSet `xml:"instancesSet"`
+}
+
+type rebootInstancesResponse struct {
+	XMLName   xml.Name `xml:"RebootInstancesResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+// instanceStatusDetail is a single reachability check detail (e.g. name
+// "reachability", status "passed").
+type instanceStatusDetail struct {
+	Name   string `xml:"name"`
+	Status string `xml:"status"`
+}
+
+// instanceStatusDetails is the health summary AWS reports for both the system
+// status and the instance status. Status is "ok", "impaired", "initializing",
+// "insufficient-data" or "not-applicable".
+type instanceStatusDetails struct {
+	Status  string                 `xml:"status"`
+	Details []instanceStatusDetail `xml:"details>item"`
+}
+
+type instanceStatusItem struct {
+	InstanceID     string                `xml:"instanceId"`
+	AvailZone      string                `xml:"availabilityZone"`
+	InstanceState  stateItem             `xml:"instanceState"`
+	SystemStatus   instanceStatusDetails `xml:"systemStatus"`
+	InstanceStatus instanceStatusDetails `xml:"instanceStatus"`
+}
+
+type instanceStatusSet struct {
+	Items []instanceStatusItem `xml:"item"`
+}
+
+type describeInstanceStatusResponse struct {
+	XMLName           xml.Name          `xml:"DescribeInstanceStatusResponse"`
+	Xmlns             string            `xml:"xmlns,attr"`
+	RequestID         string            `xml:"requestId"`
+	InstanceStatusSet instanceStatusSet `xml:"instanceStatusSet"`
+}
+
+// ---- handler functions ----
+
+func (h *Handler) handleStartInstances(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "InstanceId")
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
+	}
+
+	changes, err := h.Backend.StartInstances(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	if cb, c := h.computeBackend(); c != nil {
+		h.computeStartOrStop(h.svcCtx, cb, c, ids, true)
+	}
+
+	return &startInstancesResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		InstancesSet: instanceStateChangeSet{Items: instanceStateChangeItemsFromChanges(changes)},
+	}, nil
+}
+
+func (h *Handler) handleStopInstances(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "InstanceId")
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
+	}
+
+	changes, err := h.Backend.StopInstances(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	if cb, c := h.computeBackend(); c != nil {
+		h.computeStartOrStop(h.svcCtx, cb, c, ids, false)
+	}
+
+	return &stopInstancesResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		InstancesSet: instanceStateChangeSet{Items: instanceStateChangeItemsFromChanges(changes)},
+	}, nil
+}
+
+// instanceStateChangeItemsFromChanges converts backend InstanceStateChange
+// values into the XML payload representation used by Start/Stop/Terminate.
+func instanceStateChangeItemsFromChanges(changes []*InstanceStateChange) []instanceStateChangeItem {
+	items := make([]instanceStateChangeItem, 0, len(changes))
+	for _, ch := range changes {
+		if ch == nil {
+			continue
+		}
+
+		items = append(items, instanceStateChangeItem{
+			InstanceID:    ch.InstanceID,
+			CurrentState:  stateItem{Code: ch.CurrentState.Code, Name: ch.CurrentState.Name},
+			PreviousState: stateItem{Code: ch.PreviousState.Code, Name: ch.PreviousState.Name},
+		})
+	}
+
+	return items
+}
+
+func (h *Handler) handleRebootInstances(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "InstanceId")
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.RebootInstances(ids); err != nil {
+		return nil, err
+	}
+
+	return &rebootInstancesResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDescribeInstanceStatus(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "InstanceId")
+	instances := h.Backend.DescribeInstanceStatus(ids)
+
+	items := make([]instanceStatusItem, 0, len(instances))
+	for _, inst := range instances {
+		// AWS reports system/instance status as "ok" with a passed
+		// reachability check for running instances; non-running instances
+		// report "initializing" until they reach a steady state. This lets the
+		// SDK InstanceStatusOk waiter reach its terminal state.
+		health := instanceHealthForState(inst.State.Name)
+
+		items = append(items, instanceStatusItem{
+			InstanceID:     inst.ID,
+			AvailZone:      h.Region + "a",
+			InstanceState:  stateItem{Code: inst.State.Code, Name: inst.State.Name},
+			SystemStatus:   health,
+			InstanceStatus: health,
+		})
+	}
+
+	return &describeInstanceStatusResponse{
+		Xmlns:             ec2XMLNS,
+		RequestID:         reqID,
+		InstanceStatusSet: instanceStatusSet{Items: items},
+	}, nil
+}
+
+// instanceHealthForState returns the AWS-style status summary for an instance in
+// the given lifecycle state. Running instances are healthy ("ok"); others are
+// still "initializing".
+func instanceHealthForState(stateName string) instanceStatusDetails {
+	status := "initializing"
+	reachability := "initializing"
+
+	if stateName == "running" {
+		status = "ok"
+		reachability = "passed"
+	}
+
+	return instanceStatusDetails{
+		Status: status,
+		Details: []instanceStatusDetail{
+			{Name: "reachability", Status: reachability},
+		},
+	}
+}
+
+const (
+	describeImagesMaxResults     = 1000
+	describeImagesMinResults     = 1
+	describeImagesDefaultResults = 1000
+)
+
+// parseImagesPagination parses MaxResults and NextToken from query values,
+// returning (maxResults, offset, error).

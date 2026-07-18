@@ -1,0 +1,105 @@
+package codebuild
+
+import (
+	"context"
+	"fmt"
+)
+
+type createFleetInput struct {
+	Tags            map[string]string `json:"tags"`
+	Name            string            `json:"name"`
+	ComputeType     string            `json:"computeType"`
+	EnvironmentType string            `json:"environmentType"`
+	BaseCapacity    int32             `json:"baseCapacity"`
+}
+
+type createFleetOutput struct {
+	Fleet *Fleet `json:"fleet"`
+}
+
+func (h *Handler) handleCreateFleet(
+	_ context.Context,
+	in *createFleetInput,
+) (*createFleetOutput, error) {
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: name is required", errInvalidRequest)
+	}
+
+	f, err := h.Backend.CreateFleet(in.Name, in.BaseCapacity, in.ComputeType, in.EnvironmentType, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createFleetOutput{Fleet: f}, nil
+}
+
+type batchGetFleetsInput struct {
+	Names []string `json:"names"`
+}
+
+type batchGetFleetsOutput struct {
+	Fleets         []*Fleet `json:"fleets"`
+	FleetsNotFound []string `json:"fleetsNotFound"`
+}
+
+func (h *Handler) handleBatchGetFleets(
+	_ context.Context,
+	in *batchGetFleetsInput,
+) (*batchGetFleetsOutput, error) {
+	found, notFound := h.Backend.BatchGetFleets(in.Names)
+
+	return &batchGetFleetsOutput{
+		Fleets:         found,
+		FleetsNotFound: notFound,
+	}, nil
+}
+
+type deleteFleetInput struct {
+	Arn string `json:"arn"`
+}
+
+type deleteFleetOutput struct{}
+
+func (h *Handler) handleDeleteFleet(_ context.Context, in *deleteFleetInput) (*deleteFleetOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteFleet(in.Arn); err != nil {
+		return nil, err
+	}
+
+	return &deleteFleetOutput{}, nil
+}
+
+type listFleetsInput struct{}
+
+type listFleetsOutput struct {
+	Fleets []string `json:"fleets"`
+}
+
+func (h *Handler) handleListFleets(_ context.Context, _ *listFleetsInput) (*listFleetsOutput, error) {
+	return &listFleetsOutput{Fleets: h.Backend.ListFleets()}, nil
+}
+
+type updateFleetInput struct {
+	Arn          string `json:"arn"`
+	BaseCapacity int32  `json:"baseCapacity"`
+}
+
+type updateFleetOutput struct {
+	Fleet *Fleet `json:"fleet"`
+}
+
+func (h *Handler) handleUpdateFleet(_ context.Context, in *updateFleetInput) (*updateFleetOutput, error) {
+	if in.Arn == "" {
+		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
+	}
+
+	f, err := h.Backend.UpdateFleet(in.Arn, in.BaseCapacity)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateFleetOutput{Fleet: f}, nil
+}

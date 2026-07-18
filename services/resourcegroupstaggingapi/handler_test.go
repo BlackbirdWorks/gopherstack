@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +17,46 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
+
+const (
+	testAccountID = "000000000000"
+	testRegion    = "us-east-1"
+)
+
+// ptr returns a pointer to a copy of v, for building test input literals.
+func ptr[T any](v T) *T {
+	p := new(T)
+	*p = v
+
+	return p
+}
+
+// newBackend creates an InMemoryBackend for the default test account/region.
+func newBackend(t *testing.T) *resourcegroupstaggingapi.InMemoryBackend {
+	t.Helper()
+
+	return resourcegroupstaggingapi.NewInMemoryBackend(testAccountID, testRegion)
+}
+
+// seedResources registers a provider that returns the given resources.
+func seedResources(
+	b *resourcegroupstaggingapi.InMemoryBackend,
+	resources []resourcegroupstaggingapi.TaggedResource,
+) {
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource {
+		return resources
+	})
+}
+
+// makeKeys returns n distinct tag-key strings, used to exercise TagKeys count limits.
+func makeKeys(n int) []string {
+	keys := make([]string, n)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("key%d", i)
+	}
+
+	return keys
+}
 
 func newTestHandler(t *testing.T) *resourcegroupstaggingapi.Handler {
 	t.Helper()
@@ -489,4 +530,376 @@ func TestHandler_ListRequiredTags(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ------------------------------------------------------------------ wire error codes ---
+
+// TestValidationFailures_UseInvalidParameterException verifies that resourcegroupstaggingapi
+// -- which has no ValidationException shape in its error model -- reports every
+// parameter-validation failure as InvalidParameterException instead.
+func TestValidationFailures_UseInvalidParameterException(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+		op   string
+	}{
+		{
+			name: "GetResources_duplicate_tag_filter_keys",
+			op:   "GetResources",
+			body: map[string]any{
+				"TagFilters": []map[string]any{{"Key": "env"}, {"Key": "env"}},
+			},
+		},
+		{
+			name: "TagResources_empty_arn_list",
+			op:   "TagResources",
+			body: map[string]any{
+				"ResourceARNList": []string{},
+				"Tags":            map[string]string{"k": "v"},
+			},
+		},
+		{
+			name: "UntagResources_empty_tag_keys",
+			op:   "UntagResources",
+			body: map[string]any{
+				"ResourceARNList": []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
+				"TagKeys":         []string{},
+			},
+		},
+		{
+			name: "StartReportCreation_missing_bucket",
+			op:   "StartReportCreation",
+			body: map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := resourcegroupstaggingapi.NewHandler(newBackend(t))
+			rec := doTaggingRequest(t, h, tt.op, tt.body)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+			assert.Equal(t, "InvalidParameterException", body["__type"],
+				"real resourcegroupstaggingapi has no ValidationException shape")
+			assert.NotContains(t, rec.Body.String(), "ValidationException")
+		})
+	}
+}
+
+// TestMalformedBody_UsesSerializationException verifies that a body the AWS JSON 1.1
+// decoder cannot parse at all -- a protocol-level failure, not a modeled operation error
+// -- is reported as SerializationException regardless of the specific malformation.
+func TestMalformedBody_UsesSerializationException(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{name: "not_json", body: []byte("not-json")},
+		{name: "unterminated_object", body: []byte("{not-json")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := resourcegroupstaggingapi.NewHandler(newBackend(t))
+			rec := doTaggingRequestRaw(t, h, "GetResources", tt.body)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "SerializationException")
+
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+			assert.Equal(t, "SerializationException", body["__type"])
+		})
+	}
+}
+
+// TestHandler_ValidationErrors_Return400 covers handler-level 400 responses across every
+// operation's parameter validation.
+func TestHandler_ValidationErrors_Return400(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body any
+		name string
+		op   string
+		want int
+	}{
+		{
+			name: "GetResources_exclude_compliant_without_include_details",
+			op:   "GetResources",
+			body: map[string]any{
+				"ExcludeCompliantResources": true,
+				"IncludeComplianceDetails":  false,
+			},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "GetResources_duplicate_tag_filter_keys",
+			op:   "GetResources",
+			body: map[string]any{
+				"TagFilters": []map[string]any{
+					{"Key": "env"},
+					{"Key": "env"},
+				},
+			},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "GetResources_invalid_resource_type_filter",
+			op:   "GetResources",
+			body: map[string]any{"ResourceTypeFilters": []string{"SQS:Queue"}},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "GetResources_tags_per_page_too_small",
+			op:   "GetResources",
+			body: map[string]any{"TagsPerPage": 50},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "GetResources_tags_per_page_too_large",
+			op:   "GetResources",
+			body: map[string]any{"TagsPerPage": 501},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "GetResources_too_many_tag_filters",
+			op:   "GetResources",
+			body: map[string]any{"TagFilters": func() []map[string]any {
+				filters := make([]map[string]any, 51)
+				for i := range filters {
+					filters[i] = map[string]any{"Key": fmt.Sprintf("k%d", i)}
+				}
+
+				return filters
+			}()},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "TagResources_empty_arn",
+			op:   "TagResources",
+			body: map[string]any{
+				"ResourceARNList": []string{""},
+				"Tags":            map[string]string{"k": "v"},
+			},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "TagResources_invalid_arn",
+			op:   "TagResources",
+			body: map[string]any{
+				"ResourceARNList": []string{"not-an-arn"},
+				"Tags":            map[string]string{"k": "v"},
+			},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "UntagResources_too_many_keys",
+			op:   "UntagResources",
+			body: map[string]any{
+				"ResourceARNList": []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
+				"TagKeys":         makeKeys(51),
+			},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "UntagResources_empty_key",
+			op:   "UntagResources",
+			body: map[string]any{
+				"ResourceARNList": []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
+				"TagKeys":         []string{""},
+			},
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "UntagResources_empty_tag_keys_list",
+			op:   "UntagResources",
+			body: map[string]any{
+				"ResourceARNList": []string{"arn:aws:sqs:us-east-1:000000000000:q1"},
+				"TagKeys":         []string{},
+			},
+			want: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTaggingRequest(t, h, tt.op, tt.body)
+
+			assert.Equal(t, tt.want, rec.Code)
+		})
+	}
+}
+
+// TestHandler_ValidationError_HasInvalidParameterExceptionBody verifies the JSON error
+// body's __type field, not just the HTTP status code.
+func TestHandler_ValidationError_HasInvalidParameterExceptionBody(t *testing.T) {
+	t.Parallel()
+
+	h := resourcegroupstaggingapi.NewHandler(newBackend(t))
+	rec := doTaggingRequest(t, h, "TagResources", map[string]any{
+		"ResourceARNList": []string{},
+		"Tags":            map[string]string{"k": "v"},
+	})
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+	// Real resourcegroupstaggingapi has no ValidationException shape; parameter
+	// validation failures are modeled as InvalidParameterException.
+	assert.Equal(t, "InvalidParameterException", body["__type"])
+}
+
+// ------------------------------------------------------------------ GetTagValues (handler-level) ---
+
+func TestHandler_GetTagValues_NilKey_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := resourcegroupstaggingapi.NewHandler(newBackend(t))
+	rec := doTaggingRequest(t, h, "GetTagValues", map[string]any{})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
+	assert.Contains(t, rec.Body.String(), "Key is required")
+}
+
+func TestHandler_GetTagValues_EmptyKey_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := resourcegroupstaggingapi.NewHandler(newBackend(t))
+	rec := doTaggingRequest(t, h, "GetTagValues", map[string]any{"Key": ""})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
+}
+
+// ------------------------------------------------------------------ GetComplianceSummary (handler-level) ---
+
+func TestHandler_GetComplianceSummary_InvalidGroupBy_Returns400(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		groupBy []string
+	}{
+		{name: "unknown_value", groupBy: []string{"INVALID"}},
+		{name: "lowercase_region", groupBy: []string{"region"}},
+		{name: "mixed_valid_invalid", groupBy: []string{"REGION", "INVALID_VALUE"}},
+		{name: "empty_string", groupBy: []string{""}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := resourcegroupstaggingapi.NewHandler(newBackend(t))
+			rec := doTaggingRequest(t, h, "GetComplianceSummary", map[string]any{"GroupBy": tt.groupBy})
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "InvalidParameterException")
+		})
+	}
+}
+
+func TestHandler_GetComplianceSummary_ValidGroupBy_Returns200(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		groupBy []string
+	}{
+		{name: "TARGET_ID", groupBy: []string{"TARGET_ID"}},
+		{name: "REGION", groupBy: []string{"REGION"}},
+		{name: "RESOURCE_TYPE", groupBy: []string{"RESOURCE_TYPE"}},
+		{name: "multi", groupBy: []string{"REGION", "RESOURCE_TYPE"}},
+		{name: "empty", groupBy: []string{}},
+		{name: "nil", groupBy: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := resourcegroupstaggingapi.NewHandler(newBackend(t))
+			body := map[string]any{}
+			if tt.groupBy != nil {
+				body["GroupBy"] = tt.groupBy
+			}
+
+			rec := doTaggingRequest(t, h, "GetComplianceSummary", body)
+
+			assert.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "SummaryList")
+		})
+	}
+}
+
+// ------------------------------------------------------------------ StartReportCreation (handler-level) ---
+
+func TestHandler_StartReportCreation_ConcurrentModification_Returns409(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	h := resourcegroupstaggingapi.NewHandler(b)
+
+	// Start first report successfully.
+	rec := doTaggingRequest(t, h, "StartReportCreation", map[string]any{"S3Bucket": "first-bucket"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Concurrent attempt returns 409.
+	rec = doTaggingRequest(t, h, "StartReportCreation", map[string]any{"S3Bucket": "second-bucket"})
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ConcurrentModificationException")
+}
+
+// ------------------------------------------------------------------ Handler lifecycle/construction ---
+
+func TestHandlerReset(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	b.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapi.TaggedResource { return nil })
+	resourcegroupstaggingapi.AddReportStateInternal(b, "SUCCEEDED", "s3://bucket/path", "2025-01-01T00:00:00Z")
+
+	h := resourcegroupstaggingapi.NewHandler(b)
+	require.True(t, resourcegroupstaggingapi.HasReportState(b))
+	require.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b))
+
+	h.Reset()
+
+	// Only reportState is cleared; wired providers survive.
+	assert.False(t, resourcegroupstaggingapi.HasReportState(b))
+	assert.Equal(t, 1, resourcegroupstaggingapi.ProviderCount(b), "providers must survive Handler.Reset()")
+}
+
+func TestHandlerOpsLen(t *testing.T) {
+	t.Parallel()
+
+	h := resourcegroupstaggingapi.NewHandler(newBackend(t))
+
+	assert.Equal(t, 9, resourcegroupstaggingapi.HandlerOpsLen(h))
+}
+
+func TestHandlerAcceptsStorageBackend(t *testing.T) {
+	t.Parallel()
+
+	var backend resourcegroupstaggingapi.StorageBackend = newBackend(t)
+	h := resourcegroupstaggingapi.NewHandler(backend)
+
+	assert.NotNil(t, h)
 }

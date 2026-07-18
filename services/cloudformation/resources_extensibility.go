@@ -147,6 +147,8 @@ func (s *WaitConditionStore) Wait(
 	// Cleanup: remove our channel when done.
 	defer func() {
 		s.mu.Lock()
+		defer s.mu.Unlock()
+
 		notifiers := s.notify[token]
 		for i, c := range notifiers {
 			if c == ch {
@@ -155,7 +157,6 @@ func (s *WaitConditionStore) Wait(
 				break
 			}
 		}
-		s.mu.Unlock()
 	}()
 
 	emTimer := time.NewTimer(emulatorTimeout)

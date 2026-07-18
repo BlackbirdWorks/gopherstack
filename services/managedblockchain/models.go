@@ -2,6 +2,30 @@ package managedblockchain
 
 import "time"
 
+// ListNetworksFilter contains optional filters for ListNetworks.
+type ListNetworksFilter struct {
+	Name      string
+	Framework string
+	Status    string
+}
+
+// ListMembersFilter contains optional filters for ListMembers.
+type ListMembersFilter struct {
+	IsOwned *bool
+	Name    string
+	Status  string
+}
+
+// ListNodesFilter contains optional filters for ListNodes.
+type ListNodesFilter struct {
+	Status string
+}
+
+// ListAccessorsFilter contains optional filters for ListAccessors.
+type ListAccessorsFilter struct {
+	NetworkType string
+}
+
 // Network represents an Amazon Managed Blockchain network.
 type Network struct {
 	CreationDate     *time.Time        `json:"creationDate"`

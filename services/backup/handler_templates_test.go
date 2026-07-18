@@ -30,21 +30,21 @@ func TestExportBackupPlanTemplate(t *testing.T) {
 
 func TestExportBackupPlanTemplate_RealRules(t *testing.T) {
 	t.Parallel()
-	h, _ := newBatch1Handler(t)
+	h, _ := newHandler(t)
 
-	doBatch1Request(t, h, http.MethodPut, "/backup-vaults/my-vault", "{}")
+	doRequest(t, h, http.MethodPut, "/backup-vaults/my-vault", "{}")
 
 	createBody := `{"BackupPlan":{"BackupPlanName":"export-plan","Rules":[
 		{"RuleName":"r1","TargetBackupVaultName":"my-vault","ScheduleExpression":"cron(0 5 * * ? *)"}
 	]}}`
-	createResp := doBatch1Request(t, h, http.MethodPut, "/backup/plans", createBody)
+	createResp := doRequest(t, h, http.MethodPut, "/backup/plans", createBody)
 	require.Equal(t, http.StatusOK, createResp.Code)
 
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
 	planID := created["BackupPlanId"].(string)
 
-	resp := doBatch1Request(t, h, http.MethodGet, "/backup/plans/"+planID+"/toTemplate", "")
+	resp := doRequest(t, h, http.MethodGet, "/backup/plans/"+planID+"/toTemplate", "")
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
@@ -67,11 +67,11 @@ func TestExportBackupPlanTemplate_RealRules(t *testing.T) {
 
 func TestGetBackupPlanFromJSON_BuildsFromParsedBody(t *testing.T) {
 	t.Parallel()
-	h, _ := newBatch1Handler(t)
+	h, _ := newHandler(t)
 
 	body := `{"BackupPlanTemplateJson":"{\"BackupPlanName\":\"json-plan\",` +
 		`\"Rules\":[{\"RuleName\":\"jr1\",\"TargetBackupVaultName\":\"vault-x\"}]}"}`
-	resp := doBatch1Request(t, h, http.MethodPost, "/backup/template/json/toPlan", body)
+	resp := doRequest(t, h, http.MethodPost, "/backup/template/json/toPlan", body)
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
@@ -89,10 +89,10 @@ func TestGetBackupPlanFromJSON_BuildsFromParsedBody(t *testing.T) {
 
 func TestGetBackupPlanFromJSON_InvalidJSON(t *testing.T) {
 	t.Parallel()
-	h, _ := newBatch1Handler(t)
+	h, _ := newHandler(t)
 
 	body := `{"BackupPlanTemplateJson":"not-json"}`
-	resp := doBatch1Request(t, h, http.MethodPost, "/backup/template/json/toPlan", body)
+	resp := doRequest(t, h, http.MethodPost, "/backup/template/json/toPlan", body)
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
 	assert.Contains(t, resp.Body.String(), "ValidationException")
 }
@@ -101,9 +101,9 @@ func TestGetBackupPlanFromJSON_InvalidJSON(t *testing.T) {
 
 func TestGetBackupPlanFromTemplate_ResolvesBuiltinTemplate(t *testing.T) {
 	t.Parallel()
-	h, _ := newBatch1Handler(t)
+	h, _ := newHandler(t)
 
-	listResp := doBatch1Request(t, h, http.MethodGet, "/backup/template/plans", "")
+	listResp := doRequest(t, h, http.MethodGet, "/backup/template/plans", "")
 	require.Equal(t, http.StatusOK, listResp.Code)
 
 	var list map[string]any
@@ -116,7 +116,7 @@ func TestGetBackupPlanFromTemplate_ResolvesBuiltinTemplate(t *testing.T) {
 	tmplID := first["BackupPlanTemplateId"].(string)
 	tmplName := first["BackupPlanTemplateName"].(string)
 
-	getResp := doBatch1Request(t, h, http.MethodGet, "/backup/template/plans/"+tmplID+"/toPlan", "")
+	getResp := doRequest(t, h, http.MethodGet, "/backup/template/plans/"+tmplID+"/toPlan", "")
 	require.Equal(t, http.StatusOK, getResp.Code)
 
 	var doc map[string]any
@@ -131,9 +131,9 @@ func TestGetBackupPlanFromTemplate_ResolvesBuiltinTemplate(t *testing.T) {
 
 func TestGetBackupPlanFromTemplate_UnknownIDNotFound(t *testing.T) {
 	t.Parallel()
-	h, _ := newBatch1Handler(t)
+	h, _ := newHandler(t)
 
-	resp := doBatch1Request(t, h, http.MethodGet, "/backup/template/plans/does-not-exist/toPlan", "")
+	resp := doRequest(t, h, http.MethodGet, "/backup/template/plans/does-not-exist/toPlan", "")
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 	assert.Contains(t, resp.Body.String(), "ResourceNotFoundException")
 }
@@ -142,9 +142,9 @@ func TestGetBackupPlanFromTemplate_UnknownIDNotFound(t *testing.T) {
 
 func TestListBackupPlanTemplates_ReturnsBuiltinCatalog(t *testing.T) {
 	t.Parallel()
-	h, _ := newBatch1Handler(t)
+	h, _ := newHandler(t)
 
-	resp := doBatch1Request(t, h, http.MethodGet, "/backup/template/plans", "")
+	resp := doRequest(t, h, http.MethodGet, "/backup/template/plans", "")
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
@@ -164,13 +164,13 @@ func TestListBackupPlanTemplates_ReturnsBuiltinCatalog(t *testing.T) {
 
 func TestGetTieringConfiguration_ReturnsRealConfig(t *testing.T) {
 	t.Parallel()
-	h, _ := newBatch1Handler(t)
+	h, _ := newHandler(t)
 
-	doBatch1Request(t, h, http.MethodPut, "/backup-vaults/tier-vault", "{}")
-	createResp := doBatch1Request(t, h, http.MethodPost, "/backup-vault-tiering/tier-vault", "")
+	doRequest(t, h, http.MethodPut, "/backup-vaults/tier-vault", "{}")
+	createResp := doRequest(t, h, http.MethodPost, "/backup-vault-tiering/tier-vault", "")
 	require.Equal(t, http.StatusOK, createResp.Code)
 
-	resp := doBatch1Request(t, h, http.MethodGet, "/backup-vault-tiering/tier-vault", "")
+	resp := doRequest(t, h, http.MethodGet, "/backup-vault-tiering/tier-vault", "")
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
@@ -183,9 +183,9 @@ func TestGetTieringConfiguration_ReturnsRealConfig(t *testing.T) {
 
 func TestGetTieringConfiguration_NotFound(t *testing.T) {
 	t.Parallel()
-	h, _ := newBatch1Handler(t)
+	h, _ := newHandler(t)
 
-	resp := doBatch1Request(t, h, http.MethodGet, "/backup-vault-tiering/no-such-vault", "")
+	resp := doRequest(t, h, http.MethodGet, "/backup-vault-tiering/no-such-vault", "")
 	assert.Equal(t, http.StatusNotFound, resp.Code)
 	assert.Contains(t, resp.Body.String(), "ResourceNotFoundException")
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_DBSecurityGroup_CRUD(t *testing.T) {
+func TestDBSecurityGroup_CRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -31,7 +31,7 @@ func TestBatch2_DBSecurityGroup_CRUD(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrDBSecurityGroupNotFound)
 }
 
-func TestBatch2_DBSecurityGroup_AuthorizeRevoke(t *testing.T) {
+func TestDBSecurityGroup_AuthorizeRevoke(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -48,7 +48,7 @@ func TestBatch2_DBSecurityGroup_AuthorizeRevoke(t *testing.T) {
 	assert.Empty(t, sg.IPRanges)
 }
 
-func TestBatch2_DBSecurityGroup_Duplicate(t *testing.T) {
+func TestDBSecurityGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -60,7 +60,7 @@ func TestBatch2_DBSecurityGroup_Duplicate(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrDBSecurityGroupAlreadyExists)
 }
 
-func TestBatch2_DBSecurityGroup_NotFound(t *testing.T) {
+func TestDBSecurityGroup_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -75,7 +75,7 @@ func TestBatch2_DBSecurityGroup_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrDBSecurityGroupNotFound)
 }
 
-func TestBatch2_DBSecurityGroup_HTTP(t *testing.T) {
+func TestDBSecurityGroup_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()

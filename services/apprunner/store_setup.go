@@ -50,7 +50,7 @@ func vicNameIndexKeyFn(v *storedVpcIngressConnection) string {
 // secondary indexes) exactly once. It must be called during construction
 // only, immediately after b.registry is created -- store.Register panics on
 // a duplicate name, so runtime resets go through b.registry.ResetAll()
-// instead (see InMemoryBackend.Reset in backend.go).
+// instead (see InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	b.services = store.Register(b.registry, "services", store.New(serviceKeyFn))
 	b.byName = b.services.AddIndex("byName", serviceNameIndexKeyFn)

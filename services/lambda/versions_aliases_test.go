@@ -15,7 +15,7 @@ import (
 
 // --- Alias HTTP tests ---
 
-func TestBatch1_Alias_CreateGetListUpdateDelete(t *testing.T) {
+func TestAlias_CreateGetListUpdateDelete(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -71,7 +71,7 @@ func TestBatch1_Alias_CreateGetListUpdateDelete(t *testing.T) {
 // FunctionVersion lifecycle: $LATEST → numbered
 // ============================================================
 
-func TestBatch2_PublishVersion_Basic(t *testing.T) {
+func TestPublishVersion_Basic(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -88,7 +88,7 @@ func TestBatch2_PublishVersion_Basic(t *testing.T) {
 	assert.NotEmpty(t, v.FunctionArn)
 }
 
-func TestBatch2_PublishVersion_Increments(t *testing.T) {
+func TestPublishVersion_Increments(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -105,7 +105,7 @@ func TestBatch2_PublishVersion_Increments(t *testing.T) {
 	}
 }
 
-func TestBatch2_PublishVersion_WithDescription(t *testing.T) {
+func TestPublishVersion_WithDescription(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -121,7 +121,7 @@ func TestBatch2_PublishVersion_WithDescription(t *testing.T) {
 	assert.Equal(t, "1", v.Version)
 }
 
-func TestBatch2_PublishVersion_NotFound(t *testing.T) {
+func TestPublishVersion_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -131,7 +131,7 @@ func TestBatch2_PublishVersion_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestBatch2_ListVersionsByFunction_Empty(t *testing.T) {
+func TestListVersionsByFunction_Empty(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -148,7 +148,7 @@ func TestBatch2_ListVersionsByFunction_Empty(t *testing.T) {
 	assert.Equal(t, "$LATEST", out.Versions[0].Version)
 }
 
-func TestBatch2_ListVersionsByFunction_AfterPublish(t *testing.T) {
+func TestListVersionsByFunction_AfterPublish(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -174,7 +174,7 @@ func TestBatch2_ListVersionsByFunction_AfterPublish(t *testing.T) {
 	assert.True(t, versions["2"])
 }
 
-func TestBatch2_ListVersionsByFunction_NotFound(t *testing.T) {
+func TestListVersionsByFunction_NotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -184,7 +184,7 @@ func TestBatch2_ListVersionsByFunction_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestBatch2_PublishVersion_Publish_CreateFunction(t *testing.T) {
+func TestPublishVersion_Publish_CreateFunction(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -199,7 +199,7 @@ func TestBatch2_PublishVersion_Publish_CreateFunction(t *testing.T) {
 	assert.Equal(t, "1", fn.Version)
 }
 
-func TestBatch2_FunctionVersion_ARNFormat(t *testing.T) {
+func TestFunctionVersion_ARNFormat(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -219,7 +219,7 @@ func TestBatch2_FunctionVersion_ARNFormat(t *testing.T) {
 // Alias routing + weights
 // ============================================================
 
-func TestBatch2_Alias_CreateGetDeleteList(t *testing.T) {
+func TestAlias_CreateGetDeleteList(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -269,7 +269,7 @@ func TestBatch2_Alias_CreateGetDeleteList(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getRec2.Code)
 }
 
-func TestBatch2_Alias_RoutingConfig_WeightedTraffic(t *testing.T) {
+func TestAlias_RoutingConfig_WeightedTraffic(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -288,7 +288,7 @@ func TestBatch2_Alias_RoutingConfig_WeightedTraffic(t *testing.T) {
 	assert.InDelta(t, 0.1, alias.RoutingConfig.AdditionalVersionWeights["2"], 0.001)
 }
 
-func TestBatch2_Alias_Update(t *testing.T) {
+func TestAlias_Update(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -312,7 +312,7 @@ func TestBatch2_Alias_Update(t *testing.T) {
 	assert.Equal(t, "now v2", updated.Description)
 }
 
-func TestBatch2_Alias_UpdateRoutingConfig(t *testing.T) {
+func TestAlias_UpdateRoutingConfig(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -335,7 +335,7 @@ func TestBatch2_Alias_UpdateRoutingConfig(t *testing.T) {
 	assert.InDelta(t, 0.2, updated.RoutingConfig.AdditionalVersionWeights["2"], 0.001)
 }
 
-func TestBatch2_Alias_Duplicate(t *testing.T) {
+func TestAlias_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -352,7 +352,7 @@ func TestBatch2_Alias_Duplicate(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, dupRec.Code)
 }
 
-func TestBatch2_Alias_GetNotFound(t *testing.T) {
+func TestAlias_GetNotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -363,7 +363,7 @@ func TestBatch2_Alias_GetNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestBatch2_Alias_FunctionNotFound(t *testing.T) {
+func TestAlias_FunctionNotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -374,7 +374,7 @@ func TestBatch2_Alias_FunctionNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestBatch2_Alias_RevisionID_Changes(t *testing.T) {
+func TestAlias_RevisionID_Changes(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -399,10 +399,10 @@ func TestBatch2_Alias_RevisionID_Changes(t *testing.T) {
 	assert.NotEqual(t, a1.RevisionID, a2.RevisionID)
 }
 
-// TestAudit2_Version_AlwaysLatestInCreateFunction verifies that CreateFunction always
+// TestVersion_AlwaysLatestInCreateFunction verifies that CreateFunction always
 // returns "Version": "$LATEST" in the response, matching AWS Lambda behaviour.
 // Previously Version was absent when Publish was not set.
-func TestAudit2_Version_AlwaysLatestInCreateFunction(t *testing.T) {
+func TestVersion_AlwaysLatestInCreateFunction(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -439,10 +439,10 @@ func TestAudit2_Version_AlwaysLatestInCreateFunction(t *testing.T) {
 	}
 }
 
-// TestAudit2_Version_AlwaysLatestInGetFunctionConfiguration verifies that
+// TestVersion_AlwaysLatestInGetFunctionConfiguration verifies that
 // GetFunctionConfiguration always returns "Version": "$LATEST" for the live code,
 // matching AWS Lambda behaviour. Previously Version was absent from the response.
-func TestAudit2_Version_AlwaysLatestInGetFunctionConfiguration(t *testing.T) {
+func TestVersion_AlwaysLatestInGetFunctionConfiguration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -478,12 +478,12 @@ func TestAudit2_Version_AlwaysLatestInGetFunctionConfiguration(t *testing.T) {
 	}
 }
 
-// TestAudit2_Version_LiveFunctionStaysLatestAfterPublish verifies that after publishing
+// TestVersion_LiveFunctionStaysLatestAfterPublish verifies that after publishing
 // a numbered version (via PublishVersion or UpdateFunctionCode with Publish=true), the
 // live function's GetFunctionConfiguration still returns "Version": "$LATEST".
 // Previously maybePublishVersion mutated the stored live fn.Version to the numbered
 // version, causing subsequent GetFunctionConfiguration to return "1" instead of "$LATEST".
-func TestAudit2_Version_LiveFunctionStaysLatestAfterPublish(t *testing.T) {
+func TestVersion_LiveFunctionStaysLatestAfterPublish(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -536,8 +536,8 @@ func TestAudit2_Version_LiveFunctionStaysLatestAfterPublish(t *testing.T) {
 	}
 }
 
-// TestComprehensive_AliasRouting verifies that alias CRUD and weighted routing work end-to-end.
-func TestComprehensive_AliasRouting(t *testing.T) {
+// TestAliasRouting verifies that alias CRUD and weighted routing work end-to-end.
+func TestAliasRouting(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)

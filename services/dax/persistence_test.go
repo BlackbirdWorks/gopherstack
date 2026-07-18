@@ -187,3 +187,90 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	require.Len(t, clusters, 1)
 	assert.Equal(t, cluster.ClusterArn, clusters[0].ClusterArn)
 }
+
+// ---- Snapshot/Restore (bare cases) ----
+
+func TestSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(b *dax.InMemoryBackend)
+		check func(t *testing.T, b2 *dax.InMemoryBackend)
+		name  string
+	}{
+		{
+			name: "round-trip cluster",
+			setup: func(b *dax.InMemoryBackend) {
+				_, _ = b.CreateCluster(validCreateInput("snap-cluster"))
+			},
+			check: func(t *testing.T, b2 *dax.InMemoryBackend) {
+				t.Helper()
+				clusters, _, err := b2.DescribeClusters(nil, 0, "")
+				require.NoError(t, err)
+				assert.Len(t, clusters, 1)
+				assert.Equal(t, "snap-cluster", clusters[0].ClusterName)
+			},
+		},
+		{
+			name: "tag index rebuilt on restore",
+			setup: func(b *dax.InMemoryBackend) {
+				in := validCreateInput("tagged")
+				in.Tags = map[string]string{"k": "v"}
+				_, _ = b.CreateCluster(in)
+			},
+			check: func(t *testing.T, b2 *dax.InMemoryBackend) {
+				t.Helper()
+				clusters, _, err := b2.DescribeClusters([]string{"tagged"}, 0, "")
+				require.NoError(t, err)
+				require.Len(t, clusters, 1)
+				tags, _, err := b2.ListTags(clusters[0].ClusterArn, "")
+				require.NoError(t, err)
+				assert.Equal(t, "v", tags["k"])
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := newTestBackend()
+			tt.setup(b)
+
+			data := b.Snapshot(t.Context())
+			require.NotEmpty(t, data)
+
+			b2 := newTestBackend()
+			err := b2.Restore(t.Context(), data)
+			require.NoError(t, err)
+
+			tt.check(t, b2)
+		})
+	}
+}
+
+func TestRestore_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	err := b.Restore(t.Context(), []byte("not-json"))
+	require.Error(t, err)
+}
+
+func TestRestore_ReferentialIntegrityFailure(t *testing.T) {
+	t.Parallel()
+
+	// Craft a snapshot where a cluster references a missing parameter group.
+	badSnap := `{` +
+		`"version":1,` +
+		`"tables":{` +
+		`"clusters":[{"clusterName":"bad",` +
+		`"parameterGroup":{"parameterGroupName":"missing-pg"},` +
+		`"subnetGroupName":"default","tags":{},"nodes":[],"securityGroupIds":[]}],` +
+		`"paramGroups":[],` +
+		`"subnetGroups":[{"subnetGroupName":"default","subnets":[]}]` +
+		`},` +
+		`"tags":{}}`
+
+	b := newTestBackend()
+	err := b.Restore(t.Context(), []byte(badSnap))
+	require.Error(t, err)
+}

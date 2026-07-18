@@ -49,14 +49,14 @@ func countParameterHistory(ctx context.Context, t *testing.T, b *ssm.InMemoryBac
 }
 func TestCreateDocument_WithRequires(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	postAudit1(t, h, "CreateDocument", map[string]any{
+	postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "BaseDoc",
 		"Content": `{"schemaVersion":"2.2"}`,
 	})
 
-	code, out := postAudit1(t, h, "CreateDocument", map[string]any{
+	code, out := postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "DerivedDoc",
 		"Content": `{"schemaVersion":"2.2"}`,
 		"Requires": []map[string]any{
@@ -73,9 +73,9 @@ func TestCreateDocument_WithRequires(t *testing.T) {
 }
 func TestCreateDocument_WithAttachments(t *testing.T) {
 	t.Parallel()
-	h := newAudit1Handler()
+	h := newHandler()
 
-	code, out := postAudit1(t, h, "CreateDocument", map[string]any{
+	code, out := postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "DocWithAttach",
 		"Content": `{"schemaVersion":"2.2"}`,
 		"Attachments": []map[string]any{
@@ -117,7 +117,7 @@ func TestCreateAssociation_DocumentNotFound(t *testing.T) {
 	}
 }
 
-// TestRefinement2_DispatchTableCached verifies handler caches the dispatch table.
+// TestDispatchTableCached verifies handler caches the dispatch table.
 func TestDispatchTableCached(t *testing.T) {
 	t.Parallel()
 
@@ -145,14 +145,14 @@ func TestDispatchTableCached(t *testing.T) {
 }
 func TestFull_Document_DuplicateCreate(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "CreateDocument", map[string]any{
+	postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "DupDoc",
 		"Content": `{"schemaVersion":"2.2"}`,
 	})
 
-	code, _ := mustPost(t, h, "CreateDocument", map[string]any{
+	code, _ := postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "DupDoc",
 		"Content": `{"schemaVersion":"2.2"}`,
 	})
@@ -160,14 +160,14 @@ func TestFull_Document_DuplicateCreate(t *testing.T) {
 }
 func TestFull_Command_S3Output(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "CreateDocument", map[string]any{
+	postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "S3Doc",
 		"Content": `{"schemaVersion":"2.2"}`,
 	})
 
-	code, out := mustPost(t, h, "SendCommand", map[string]any{
+	code, out := postJSON(t, h, "SendCommand", map[string]any{
 		"DocumentName":       "S3Doc",
 		"InstanceIds":        []string{"i-s3"},
 		"OutputS3BucketName": "results-bucket",
@@ -181,14 +181,14 @@ func TestFull_Command_S3Output(t *testing.T) {
 }
 func TestFull_Association_Batch(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "CreateDocument", map[string]any{
+	postJSON(t, h, "CreateDocument", map[string]any{
 		"Name":    "BatchDoc",
 		"Content": `{"schemaVersion":"2.2"}`,
 	})
 
-	code, out := mustPost(t, h, "CreateAssociationBatch", map[string]any{
+	code, out := postJSON(t, h, "CreateAssociationBatch", map[string]any{
 		"Entries": []map[string]any{
 			{"Name": "BatchDoc", "InstanceId": "i-b1"},
 			{"Name": "BatchDoc", "InstanceId": "i-b2"},

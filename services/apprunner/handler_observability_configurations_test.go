@@ -1,0 +1,142 @@
+package apprunner_test
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestObservabilityConfigurationCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:   "create returns ARN",
+			action: "CreateObservabilityConfiguration",
+			body: map[string]any{
+				"ObservabilityConfigurationName": "my-obs",
+				"TraceConfiguration":             map[string]any{"Vendor": "AWSXRAY"},
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cfg := resp["ObservabilityConfiguration"].(map[string]any)
+				assert.Contains(t, cfg["ObservabilityConfigurationArn"], "observabilityconfiguration/my-obs/1/")
+				assert.Equal(t, "ACTIVE", cfg["Status"])
+				assert.Equal(t, true, cfg["Latest"])
+				assert.InDelta(t, float64(1), cfg["ObservabilityConfigurationRevision"], 0.0001)
+			},
+		},
+		{
+			name:     "create missing name returns 400",
+			action:   "CreateObservabilityConfiguration",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body)
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+
+func TestObservabilityConfigurationDescribeDeleteList(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateObservabilityConfiguration", map[string]any{
+		"ObservabilityConfigurationName": "obs1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	obsArn := createResp["ObservabilityConfiguration"].(map[string]any)["ObservabilityConfigurationArn"].(string)
+
+	tests := []struct {
+		body     any
+		check    func(t *testing.T, body []byte)
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "describe returns config",
+			action:   "DescribeObservabilityConfiguration",
+			body:     map[string]any{"ObservabilityConfigurationArn": obsArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cfg := resp["ObservabilityConfiguration"].(map[string]any)
+				assert.Equal(t, "obs1", cfg["ObservabilityConfigurationName"])
+			},
+		},
+		{
+			name:     "describe missing ARN returns 400",
+			action:   "DescribeObservabilityConfiguration",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "describe unknown ARN returns 400",
+			action: "DescribeObservabilityConfiguration",
+			body: map[string]any{
+				"ObservabilityConfigurationArn": "arn:aws:apprunner:us-east-1:000000000000:observabilityconfiguration/notexist/1/abc", //nolint:lll // existing issue.
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "list returns config",
+			action:   "ListObservabilityConfigurations",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				list := resp["ObservabilityConfigurationSummaryList"].([]any)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name:     "delete returns config",
+			action:   "DeleteObservabilityConfiguration",
+			body:     map[string]any{"ObservabilityConfigurationArn": obsArn},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				cfg := resp["ObservabilityConfiguration"].(map[string]any)
+				assert.Equal(t, "obs1", cfg["ObservabilityConfigurationName"])
+			},
+		},
+	}
+
+	for _, tc := range tests { //nolint:paralleltest // existing issue.
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRequest(t, h, tc.action, tc.body) //nolint:govet // existing issue.
+			assert.Equal(t, tc.wantCode, rec.Code)
+			if tc.check != nil {
+				tc.check(t, rec.Body.Bytes())
+			}
+		})
+	}
+}

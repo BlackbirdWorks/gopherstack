@@ -14,7 +14,7 @@ package cloudfront
 // invalidations of parent X" lookups the nested maps used to answer directly
 // (mirrors apigateway's resources/deployments/etc.). This requires Invalidation
 // to carry its parent's ID as an identity-only (json:"-") field -- see the
-// distID/tenantID doc on the Invalidation type in backend.go.
+// distID/tenantID doc on the Invalidation type in store.go.
 //
 // A handful of fields are deliberately NOT registered here and remain plain
 // maps -- see the comment block above registerAllTables for the list and why.
@@ -95,7 +95,7 @@ func (b *InMemoryBackend) deleteInvalidationsForTenant(tenantID string) {
 //   - "Dirty" tables (invalidations, tenantInvalidations) are built with store.New
 //     but deliberately NOT registered on b.registry. Their composite key depends on
 //     a field (distID / tenantID) tagged `json:"-"` on the live type (see
-//     backend.go), so a direct json.Marshal/Unmarshal round trip through
+//     store.go), so a direct json.Marshal/Unmarshal round trip through
 //     Table.Snapshot/Restore would silently drop that field and corrupt the
 //     table's key on restore. persistence.go instead builds a throwaway DTO
 //     [store.Registry] purely to get a correctly-tagged JSON encoding (mirrors the

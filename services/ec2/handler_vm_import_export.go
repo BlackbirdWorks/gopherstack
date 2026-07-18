@@ -9,7 +9,7 @@ import (
 
 // handler_vm_import_export.go implements the HTTP handlers for the Bundle Task, Conversion
 // Task (ImportInstance/ImportVolume), and Instance Export Task families, backed by
-// backend_vm_import_export.go. ExportImage/DescribeExportImageTasks are handled in
+// vm_import_export.go. ExportImage/DescribeExportImageTasks are handled in
 // handler_batch3.go alongside the rest of the image lifecycle operations.
 
 // ---- Registration ----

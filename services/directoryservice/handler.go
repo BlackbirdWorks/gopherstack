@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"maps"
 	"net/http"
 	"strings"
 
@@ -46,6 +45,74 @@ const (
 	keyStartTime   = "StartTime"
 	keyStatus      = "Status"
 	keyRegion      = "Region"
+
+	keyRemoteDomainName = "RemoteDomainName"
+	keyTopicName        = "TopicName"
+
+	opAcceptSharedDirectory                = "AcceptSharedDirectory"
+	opAddIpRoutes                          = "AddIpRoutes" //nolint:revive,staticcheck // existing issue.
+	opAddRegion                            = "AddRegion"
+	opCancelSchemaExtension                = "CancelSchemaExtension"
+	opConnectDirectory                     = "ConnectDirectory"
+	opCreateComputer                       = "CreateComputer"
+	opCreateConditionalForwarder           = "CreateConditionalForwarder"
+	opCreateHybridAD                       = "CreateHybridAD"
+	opCreateLogSubscription                = "CreateLogSubscription"
+	opCreateTrust                          = "CreateTrust"
+	opDeleteADAssessment                   = "DeleteADAssessment"
+	opDeleteConditionalForwarder           = "DeleteConditionalForwarder"
+	opDeleteLogSubscription                = "DeleteLogSubscription"
+	opDeleteTrust                          = "DeleteTrust"
+	opDeregisterCertificate                = "DeregisterCertificate"
+	opDeregisterEventTopic                 = "DeregisterEventTopic"
+	opDescribeADAssessment                 = "DescribeADAssessment"
+	opDescribeCAEnrollmentPolicy           = "DescribeCAEnrollmentPolicy"
+	opDescribeCertificate                  = "DescribeCertificate"
+	opDescribeClientAuthenticationSettings = "DescribeClientAuthenticationSettings"
+	opDescribeConditionalForwarders        = "DescribeConditionalForwarders"
+	opDescribeDirectoryDataAccess          = "DescribeDirectoryDataAccess"
+	opDescribeDomainControllers            = "DescribeDomainControllers"
+	opDescribeEventTopics                  = "DescribeEventTopics"
+	opDescribeHybridADUpdate               = "DescribeHybridADUpdate"
+	opDescribeLDAPSSettings                = "DescribeLDAPSSettings"
+	opDescribeRegions                      = "DescribeRegions"
+	opDescribeSettings                     = "DescribeSettings"
+	opDescribeSharedDirectories            = "DescribeSharedDirectories"
+	opDescribeTrusts                       = "DescribeTrusts"
+	opDescribeUpdateDirectory              = "DescribeUpdateDirectory"
+	opDisableCAEnrollmentPolicy            = "DisableCAEnrollmentPolicy"
+	opDisableClientAuthentication          = "DisableClientAuthentication"
+	opDisableDirectoryDataAccess           = "DisableDirectoryDataAccess"
+	opDisableLDAPS                         = "DisableLDAPS"
+	opDisableRadius                        = "DisableRadius"
+	opEnableCAEnrollmentPolicy             = "EnableCAEnrollmentPolicy"
+	opEnableClientAuthentication           = "EnableClientAuthentication"
+	opEnableDirectoryDataAccess            = "EnableDirectoryDataAccess"
+	opEnableLDAPS                          = "EnableLDAPS"
+	opEnableRadius                         = "EnableRadius"
+	opListADAssessments                    = "ListADAssessments"
+	opListCertificates                     = "ListCertificates"
+	opListIpRoutes                         = "ListIpRoutes" //nolint:revive,staticcheck // existing issue.
+	opListLogSubscriptions                 = "ListLogSubscriptions"
+	opListSchemaExtensions                 = "ListSchemaExtensions"
+	opRegisterCertificate                  = "RegisterCertificate"
+	opRegisterEventTopic                   = "RegisterEventTopic"
+	opRejectSharedDirectory                = "RejectSharedDirectory"
+	opRemoveIpRoutes                       = "RemoveIpRoutes" //nolint:revive,staticcheck // existing issue.
+	opRemoveRegion                         = "RemoveRegion"
+	opResetUserPassword                    = "ResetUserPassword"
+	opShareDirectory                       = "ShareDirectory"
+	opStartADAssessment                    = "StartADAssessment"
+	opStartSchemaExtension                 = "StartSchemaExtension"
+	opUnshareDirectory                     = "UnshareDirectory"
+	opUpdateConditionalForwarder           = "UpdateConditionalForwarder"
+	opUpdateDirectorySetup                 = "UpdateDirectorySetup"
+	opUpdateHybridAD                       = "UpdateHybridAD"
+	opUpdateNumberOfDomainControllers      = "UpdateNumberOfDomainControllers"
+	opUpdateRadius                         = "UpdateRadius"
+	opUpdateSettings                       = "UpdateSettings"
+	opUpdateTrust                          = "UpdateTrust"
+	opVerifyTrust                          = "VerifyTrust"
 )
 
 // Handler handles DirectoryService HTTP requests.
@@ -74,9 +141,72 @@ func NewHandler(b StorageBackend) *Handler {
 		opAddTagsToResource:      h.handleAddTagsToResource,
 		opRemoveTagsFromResource: h.handleRemoveTagsFromResource,
 		opListTagsForResource:    h.handleListTagsForResource,
-	}
 
-	maps.Copy(h.dispatch, h.appendixAOps())
+		opAcceptSharedDirectory:                h.handleAcceptSharedDirectory,
+		opAddIpRoutes:                          h.handleAddIpRoutes,
+		opAddRegion:                            h.handleAddRegion,
+		opCancelSchemaExtension:                h.handleCancelSchemaExtension,
+		opConnectDirectory:                     h.handleConnectDirectory,
+		opCreateComputer:                       h.handleCreateComputer,
+		opCreateConditionalForwarder:           h.handleCreateConditionalForwarder,
+		opCreateHybridAD:                       h.handleCreateHybridAD,
+		opCreateLogSubscription:                h.handleCreateLogSubscription,
+		opCreateTrust:                          h.handleCreateTrust,
+		opDeleteADAssessment:                   h.handleDeleteADAssessment,
+		opDeleteConditionalForwarder:           h.handleDeleteConditionalForwarder,
+		opDeleteLogSubscription:                h.handleDeleteLogSubscription,
+		opDeleteTrust:                          h.handleDeleteTrust,
+		opDeregisterCertificate:                h.handleDeregisterCertificate,
+		opDeregisterEventTopic:                 h.handleDeregisterEventTopic,
+		opDescribeADAssessment:                 h.handleDescribeADAssessment,
+		opDescribeCAEnrollmentPolicy:           h.handleDescribeCAEnrollmentPolicy,
+		opDescribeCertificate:                  h.handleDescribeCertificate,
+		opDescribeClientAuthenticationSettings: h.handleDescribeClientAuthenticationSettings,
+		opDescribeConditionalForwarders:        h.handleDescribeConditionalForwarders,
+		opDescribeDirectoryDataAccess:          h.handleDescribeDirectoryDataAccess,
+		opDescribeDomainControllers:            h.handleDescribeDomainControllers,
+		opDescribeEventTopics:                  h.handleDescribeEventTopics,
+		opDescribeHybridADUpdate:               h.handleDescribeHybridADUpdate,
+		opDescribeLDAPSSettings:                h.handleDescribeLDAPSSettings,
+		opDescribeRegions:                      h.handleDescribeRegions,
+		opDescribeSettings:                     h.handleDescribeSettings,
+		opDescribeSharedDirectories:            h.handleDescribeSharedDirectories,
+		opDescribeTrusts:                       h.handleDescribeTrusts,
+		opDescribeUpdateDirectory:              h.handleDescribeUpdateDirectory,
+		opDisableCAEnrollmentPolicy:            h.handleDisableCAEnrollmentPolicy,
+		opDisableClientAuthentication:          h.handleDisableClientAuthentication,
+		opDisableDirectoryDataAccess:           h.handleDisableDirectoryDataAccess,
+		opDisableLDAPS:                         h.handleDisableLDAPS,
+		opDisableRadius:                        h.handleDisableRadius,
+		opEnableCAEnrollmentPolicy:             h.handleEnableCAEnrollmentPolicy,
+		opEnableClientAuthentication:           h.handleEnableClientAuthentication,
+		opEnableDirectoryDataAccess:            h.handleEnableDirectoryDataAccess,
+		opEnableLDAPS:                          h.handleEnableLDAPS,
+		opEnableRadius:                         h.handleEnableRadius,
+		opListADAssessments:                    h.handleListADAssessments,
+		opListCertificates:                     h.handleListCertificates,
+		opListIpRoutes:                         h.handleListIpRoutes,
+		opListLogSubscriptions:                 h.handleListLogSubscriptions,
+		opListSchemaExtensions:                 h.handleListSchemaExtensions,
+		opRegisterCertificate:                  h.handleRegisterCertificate,
+		opRegisterEventTopic:                   h.handleRegisterEventTopic,
+		opRejectSharedDirectory:                h.handleRejectSharedDirectory,
+		opRemoveIpRoutes:                       h.handleRemoveIpRoutes,
+		opRemoveRegion:                         h.handleRemoveRegion,
+		opResetUserPassword:                    h.handleResetUserPassword,
+		opShareDirectory:                       h.handleShareDirectory,
+		opStartADAssessment:                    h.handleStartADAssessment,
+		opStartSchemaExtension:                 h.handleStartSchemaExtension,
+		opUnshareDirectory:                     h.handleUnshareDirectory,
+		opUpdateConditionalForwarder:           h.handleUpdateConditionalForwarder,
+		opUpdateDirectorySetup:                 h.handleUpdateDirectorySetup,
+		opUpdateHybridAD:                       h.handleUpdateHybridAD,
+		opUpdateNumberOfDomainControllers:      h.handleUpdateNumberOfDomainControllers,
+		opUpdateRadius:                         h.handleUpdateRadius,
+		opUpdateSettings:                       h.handleUpdateSettings,
+		opUpdateTrust:                          h.handleUpdateTrust,
+		opVerifyTrust:                          h.handleVerifyTrust,
+	}
 
 	return h
 }
@@ -103,7 +233,7 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
-	base := []string{ //nolint:prealloc // existing issue.
+	return []string{
 		opCreateDirectory,
 		opCreateMicrosoftAD,
 		opDeleteDirectory,
@@ -120,9 +250,72 @@ func (h *Handler) GetSupportedOperations() []string {
 		opAddTagsToResource,
 		opRemoveTagsFromResource,
 		opListTagsForResource,
-	}
 
-	return append(base, appendixAOpsNames()...)
+		opAcceptSharedDirectory,
+		opAddIpRoutes,
+		opAddRegion,
+		opCancelSchemaExtension,
+		opConnectDirectory,
+		opCreateComputer,
+		opCreateConditionalForwarder,
+		opCreateHybridAD,
+		opCreateLogSubscription,
+		opCreateTrust,
+		opDeleteADAssessment,
+		opDeleteConditionalForwarder,
+		opDeleteLogSubscription,
+		opDeleteTrust,
+		opDeregisterCertificate,
+		opDeregisterEventTopic,
+		opDescribeADAssessment,
+		opDescribeCAEnrollmentPolicy,
+		opDescribeCertificate,
+		opDescribeClientAuthenticationSettings,
+		opDescribeConditionalForwarders,
+		opDescribeDirectoryDataAccess,
+		opDescribeDomainControllers,
+		opDescribeEventTopics,
+		opDescribeHybridADUpdate,
+		opDescribeLDAPSSettings,
+		opDescribeRegions,
+		opDescribeSettings,
+		opDescribeSharedDirectories,
+		opDescribeTrusts,
+		opDescribeUpdateDirectory,
+		opDisableCAEnrollmentPolicy,
+		opDisableClientAuthentication,
+		opDisableDirectoryDataAccess,
+		opDisableLDAPS,
+		opDisableRadius,
+		opEnableCAEnrollmentPolicy,
+		opEnableClientAuthentication,
+		opEnableDirectoryDataAccess,
+		opEnableLDAPS,
+		opEnableRadius,
+		opListADAssessments,
+		opListCertificates,
+		opListIpRoutes,
+		opListLogSubscriptions,
+		opListSchemaExtensions,
+		opRegisterCertificate,
+		opRegisterEventTopic,
+		opRejectSharedDirectory,
+		opRemoveIpRoutes,
+		opRemoveRegion,
+		opResetUserPassword,
+		opShareDirectory,
+		opStartADAssessment,
+		opStartSchemaExtension,
+		opUnshareDirectory,
+		opUpdateConditionalForwarder,
+		opUpdateDirectorySetup,
+		opUpdateHybridAD,
+		opUpdateNumberOfDomainControllers,
+		opUpdateRadius,
+		opUpdateSettings,
+		opUpdateTrust,
+		opVerifyTrust,
+	}
 }
 
 // RouteMatcher returns a matcher that accepts DirectoryService requests by X-Amz-Target header.
@@ -197,570 +390,58 @@ func (h *Handler) contextWithRegion(c *echo.Context) context.Context {
 	return context.WithValue(c.Request().Context(), regionContextKey{}, region)
 }
 
-func (h *Handler) handleCreateDirectory(c *echo.Context) error {
+// twoFieldOp describes an operation that takes a directory ID plus one secondary
+// string field and returns only an error. It centralises the identical request
+// parsing, validation and error mapping shared by several handlers across
+// resource families.
+type twoFieldOp struct {
+	invoke    func(ctx context.Context, dirID, second string) error
+	secondKey string // JSON key (and human label) of the secondary field
+}
+
+// handleTwoFieldOp parses {DirectoryId, <secondKey>} from the request body,
+// validates both are present, resolves the request region and invokes op.
+func (h *Handler) handleTwoFieldOp(c *echo.Context, op twoFieldOp) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
 	}
 
-	var req struct {
-		Name        string `json:"Name"`
-		ShortName   string `json:"ShortName"`
-		Description string `json:"Description"`
-		Password    string `json:"Password"`
-		Size        string `json:"Size"`
-		VpcSettings *struct {
-			VpcID     string   `json:"VpcId"`
-			SubnetIDs []string `json:"SubnetIds"`
-		} `json:"VpcSettings"`
-		Tags []struct {
-			Key   string `json:"Key"`
-			Value string `json:"Value"`
-		} `json:"Tags"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	var raw map[string]json.RawMessage
+	if jsonErr := json.Unmarshal(body, &raw); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
-	if req.Name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Name is required"))
-	}
-	if req.Password == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Password is required"))
-	}
-	if req.Size != string(DirectorySizeSmall) && req.Size != string(DirectorySizeLarge) {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Size must be Small or Large"))
-	}
+	dirID := jsonString(raw, keyDirectoryID)
+	second := jsonString(raw, op.secondKey)
 
-	tags := reqTagsToTags(req.Tags)
+	if dirID == "" || second == "" {
+		msg := "DirectoryId and " + op.secondKey + " are required"
 
-	var vpcSettings *DirectoryVpcSettings
-	if req.VpcSettings != nil {
-		vpcSettings = &DirectoryVpcSettings{
-			VpcID:     req.VpcSettings.VpcID,
-			SubnetIDs: req.VpcSettings.SubnetIDs,
-		}
+		return c.JSON(http.StatusBadRequest, errResp("ClientException", msg))
 	}
 
-	d, createErr := h.Backend.CreateDirectory(
-		h.contextWithRegion(c),
-		req.Name,
-		req.ShortName,
-		req.Description,
-		req.Password,
-		DirectorySize(req.Size),
-		vpcSettings,
-		tags,
-	)
-	if createErr != nil {
-		return h.mapError(c, createErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyDirectoryID: d.DirectoryID,
-	})
-}
-
-func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		Name        string `json:"Name"`
-		ShortName   string `json:"ShortName"`
-		Description string `json:"Description"`
-		Password    string `json:"Password"`
-		Edition     string `json:"Edition"`
-		VpcSettings *struct {
-			VpcID     string   `json:"VpcId"`
-			SubnetIDs []string `json:"SubnetIds"`
-		} `json:"VpcSettings"`
-		Tags []struct {
-			Key   string `json:"Key"`
-			Value string `json:"Value"`
-		} `json:"Tags"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.Name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Name is required"))
-	}
-	if req.Password == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Password is required"))
-	}
-
-	edition := DirectoryEdition(req.Edition)
-	if edition == "" {
-		edition = DirectoryEditionEnterprise
-	}
-	if edition != DirectoryEditionEnterprise && edition != DirectoryEditionStandard {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Edition must be Enterprise or Standard"))
-	}
-
-	tags := reqTagsToTags(req.Tags)
-
-	var vpcSettings *DirectoryVpcSettings
-	if req.VpcSettings != nil {
-		vpcSettings = &DirectoryVpcSettings{
-			VpcID:     req.VpcSettings.VpcID,
-			SubnetIDs: req.VpcSettings.SubnetIDs,
-		}
-	}
-
-	d, createErr := h.Backend.CreateMicrosoftAD(
-		h.contextWithRegion(c),
-		req.Name,
-		req.ShortName,
-		req.Description,
-		req.Password,
-		edition,
-		vpcSettings,
-		tags,
-	)
-	if createErr != nil {
-		return h.mapError(c, createErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyDirectoryID: d.DirectoryID,
-	})
-}
-
-func (h *Handler) handleDeleteDirectory(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID string `json:"DirectoryId"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
-	}
-
-	if delErr := h.Backend.DeleteDirectory(h.contextWithRegion(c), req.DirectoryID); delErr != nil {
-		return h.mapError(c, delErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyDirectoryID: req.DirectoryID,
-	})
-}
-
-func (h *Handler) handleDescribeDirectories(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		NextToken    string   `json:"NextToken"`
-		DirectoryIDs []string `json:"DirectoryIds"`
-		Limit        int32    `json:"Limit"`
-	}
-
-	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-		}
-	}
-
-	dirs, nextToken, listErr := h.Backend.DescribeDirectories(
-		h.contextWithRegion(c),
-		req.DirectoryIDs,
-		req.Limit,
-		req.NextToken,
-	)
-	if listErr != nil {
-		return h.mapError(c, listErr)
-	}
-
-	dirList := make([]map[string]any, 0, len(dirs))
-	for _, d := range dirs {
-		dirList = append(dirList, directoryToJSON(d))
-	}
-
-	resp := map[string]any{
-		"DirectoryDescriptions": dirList,
-	}
-	if nextToken != "" {
-		resp["NextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleCreateAlias(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID string `json:"DirectoryId"`
-		Alias       string `json:"Alias"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" || req.Alias == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and Alias are required"))
-	}
-
-	if aliasErr := h.Backend.CreateAlias(h.contextWithRegion(c), req.DirectoryID, req.Alias); aliasErr != nil {
-		return h.mapError(c, aliasErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keyDirectoryID: req.DirectoryID,
-		"Alias":        req.Alias,
-	})
-}
-
-func (h *Handler) handleEnableSso(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID string `json:"DirectoryId"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
-	}
-
-	if ssoErr := h.Backend.EnableSso(h.contextWithRegion(c), req.DirectoryID); ssoErr != nil {
-		return h.mapError(c, ssoErr)
+	if opErr := op.invoke(h.contextWithRegion(c), dirID, second); opErr != nil {
+		return h.mapError(c, opErr)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleDisableSso(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
+// jsonString returns the string value stored under key in raw, or "" if absent
+// or not a JSON string.
+func jsonString(raw map[string]json.RawMessage, key string) string {
+	v, ok := raw[key]
+	if !ok {
+		return ""
 	}
 
-	var req struct {
-		DirectoryID string `json:"DirectoryId"`
+	var s string
+	if err := json.Unmarshal(v, &s); err != nil {
+		return ""
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
-	}
-
-	if ssoErr := h.Backend.DisableSso(h.contextWithRegion(c), req.DirectoryID); ssoErr != nil {
-		return h.mapError(c, ssoErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
-}
-
-func (h *Handler) handleGetDirectoryLimits(c *echo.Context) error {
-	limits := h.Backend.GetDirectoryLimits(h.contextWithRegion(c))
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"DirectoryLimits": map[string]any{
-			"CloudOnlyDirectoriesCurrentCount": limits.CloudOnlyDirectoriesCurrentCount,
-			"CloudOnlyDirectoriesLimit":        limits.CloudOnlyDirectoriesLimit,
-			"CloudOnlyDirectoriesLimitReached": limits.CloudOnlyDirectoriesLimitReached,
-			"CloudOnlyMicrosoftADCurrentCount": limits.CloudOnlyMicrosoftADCurrentCount,
-			"CloudOnlyMicrosoftADLimit":        limits.CloudOnlyMicrosoftADLimit,
-			"CloudOnlyMicrosoftADLimitReached": limits.CloudOnlyMicrosoftADLimitReached,
-			"ConnectedDirectoriesCurrentCount": limits.ConnectedDirectoriesCurrentCount,
-			"ConnectedDirectoriesLimit":        limits.ConnectedDirectoriesLimit,
-			"ConnectedDirectoriesLimitReached": limits.ConnectedDirectoriesLimitReached,
-		},
-	})
-}
-
-func (h *Handler) handleCreateSnapshot(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID string `json:"DirectoryId"`
-		Name        string `json:"Name"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
-	}
-
-	snap, snapErr := h.Backend.CreateSnapshot(h.contextWithRegion(c), req.DirectoryID, req.Name)
-	if snapErr != nil {
-		return h.mapError(c, snapErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keySnapshotID: snap.SnapshotID,
-	})
-}
-
-func (h *Handler) handleDeleteSnapshot(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		SnapshotID string `json:"SnapshotId"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.SnapshotID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SnapshotId is required"))
-	}
-
-	if delErr := h.Backend.DeleteSnapshot(h.contextWithRegion(c), req.SnapshotID); delErr != nil {
-		return h.mapError(c, delErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		keySnapshotID: req.SnapshotID,
-	})
-}
-
-func (h *Handler) handleDescribeSnapshots(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID string   `json:"DirectoryId"`
-		NextToken   string   `json:"NextToken"`
-		SnapshotIDs []string `json:"SnapshotIds"`
-		Limit       int32    `json:"Limit"`
-	}
-
-	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-			return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-		}
-	}
-
-	snaps, nextToken, listErr := h.Backend.DescribeSnapshots(
-		h.contextWithRegion(c),
-		req.DirectoryID,
-		req.SnapshotIDs,
-		req.Limit,
-		req.NextToken,
-	)
-	if listErr != nil {
-		return h.mapError(c, listErr)
-	}
-
-	snapList := make([]map[string]any, 0, len(snaps))
-	for _, s := range snaps {
-		snapList = append(snapList, snapshotToJSON(s))
-	}
-
-	resp := map[string]any{
-		"Snapshots": snapList,
-	}
-	if nextToken != "" {
-		resp["NextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
-}
-
-func (h *Handler) handleGetSnapshotLimits(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		DirectoryID string `json:"DirectoryId"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
-	}
-
-	limits, limErr := h.Backend.GetSnapshotLimits(h.contextWithRegion(c), req.DirectoryID)
-	if limErr != nil {
-		return h.mapError(c, limErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"SnapshotLimits": map[string]any{
-			"ManualSnapshotsCurrentCount": limits.ManualSnapshotsCurrentCount,
-			"ManualSnapshotsLimit":        limits.ManualSnapshotsLimit,
-			"ManualSnapshotsLimitReached": limits.ManualSnapshotsLimitReached,
-		},
-	})
-}
-
-func (h *Handler) handleRestoreFromSnapshot(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		SnapshotID string `json:"SnapshotId"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.SnapshotID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SnapshotId is required"))
-	}
-
-	if restoreErr := h.Backend.RestoreFromSnapshot(h.contextWithRegion(c), req.SnapshotID); restoreErr != nil {
-		return h.mapError(c, restoreErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
-}
-
-func (h *Handler) handleAddTagsToResource(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		ResourceID string `json:"ResourceId"`
-		Tags       []struct {
-			Key   string `json:"Key"`
-			Value string `json:"Value"`
-		} `json:"Tags"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.ResourceID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "ResourceId is required"))
-	}
-
-	tags := reqTagsToTags(req.Tags)
-
-	if tagErr := h.Backend.AddTagsToResource(h.contextWithRegion(c), req.ResourceID, tags); tagErr != nil {
-		return h.mapError(c, tagErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
-}
-
-func (h *Handler) handleRemoveTagsFromResource(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		ResourceID string   `json:"ResourceId"`
-		TagKeys    []string `json:"TagKeys"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.ResourceID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "ResourceId is required"))
-	}
-
-	untagErr := h.Backend.RemoveTagsFromResource(h.contextWithRegion(c), req.ResourceID, req.TagKeys)
-	if untagErr != nil {
-		return h.mapError(c, untagErr)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
-}
-
-func (h *Handler) handleListTagsForResource(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
-	}
-
-	var req struct {
-		ResourceID string `json:"ResourceId"`
-		NextToken  string `json:"NextToken"`
-		Limit      int32  `json:"Limit"`
-	}
-
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
-	}
-
-	if req.ResourceID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "ResourceId is required"))
-	}
-
-	tags, nextToken, listErr := h.Backend.ListTagsForResource(
-		h.contextWithRegion(c),
-		req.ResourceID,
-		req.Limit,
-		req.NextToken,
-	)
-	if listErr != nil {
-		return h.mapError(c, listErr)
-	}
-
-	tagList := make([]map[string]any, 0, len(tags))
-	for _, t := range tags {
-		tagList = append(tagList, map[string]any{
-			"Key":   t.Key,
-			"Value": t.Value,
-		})
-	}
-
-	resp := map[string]any{
-		"Tags": tagList,
-	}
-	if nextToken != "" {
-		resp["NextToken"] = nextToken
-	}
-
-	return c.JSON(http.StatusOK, resp)
+	return s
 }
 
 func (h *Handler) mapError(c *echo.Context, err error) error {

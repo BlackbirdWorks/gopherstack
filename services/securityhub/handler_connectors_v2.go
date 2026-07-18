@@ -1,0 +1,226 @@
+package securityhub
+
+import (
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/labstack/echo/v5"
+)
+
+func classifyConnectorsV2Path(method, path string) (string, string) {
+	switch {
+	case method == http.MethodPost && path == pathConnectorsV2:
+		return opCreateConnectorV2, ""
+	case method == http.MethodGet && path == pathConnectorsV2:
+		return opListConnectorsV2, ""
+	case method == http.MethodPost && path == "/connectorsv2/register": //nolint:goconst // existing issue.
+		return opRegisterConnectorV2, ""
+	case method == http.MethodGet && strings.HasPrefix(path, "/connectorsv2/") &&
+		path != "/connectorsv2/register":
+		return opGetConnectorV2, strings.TrimPrefix(path, "/connectorsv2/")
+	case method == http.MethodPatch && strings.HasPrefix(path, "/connectorsv2/"):
+		return opUpdateConnectorV2, strings.TrimPrefix(path, "/connectorsv2/")
+	case method == http.MethodDelete && strings.HasPrefix(path, "/connectorsv2/") &&
+		path != "/connectorsv2/register":
+		return opDeleteConnectorV2, strings.TrimPrefix(path, "/connectorsv2/")
+	}
+
+	return opUnknown, ""
+}
+
+func classifyTicketsV2Path(method, path string) (string, string) {
+	if method == http.MethodPost && path == "/ticketsv2" {
+		return opCreateTicketV2, ""
+	}
+
+	return opUnknown, ""
+}
+
+func (h *Handler) handleCreateConnectorV2(c *echo.Context, body map[string]any) error { //nolint:dupl // existing issue.
+	name, _ := body["Name"].(string)
+	description, _ := body["Description"].(string)
+
+	var provider map[string]any
+
+	if p, ok := body["Provider"].(map[string]any); ok {
+		provider = p
+	}
+
+	var tags map[string]string
+
+	if t, ok := body["Tags"].(map[string]any); ok {
+		tags = make(map[string]string, len(t))
+
+		for k, v := range t {
+			tags[k], _ = v.(string)
+		}
+	}
+
+	conn, err := h.Backend.CreateConnectorV2(name, description, provider, tags)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
+}
+
+func (h *Handler) handleGetConnectorV2(c *echo.Context, connectorID string) error {
+	conn, err := h.Backend.GetConnectorV2(connectorID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{keyMessage: "Connector V2 not found"}, //nolint:goconst // existing issue.
+			)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
+}
+
+func (h *Handler) handleListConnectorsV2(c *echo.Context) error {
+	nextToken := c.QueryParam("NextToken")
+	maxResults := 0
+
+	if v := c.QueryParam("MaxResults"); v != "" {
+		maxResults, _ = strconv.Atoi(v)
+	}
+
+	connectors, next := h.Backend.ListConnectorsV2(nextToken, maxResults)
+
+	var out []map[string]any //nolint:prealloc // existing issue.
+
+	for _, conn := range connectors {
+		out = append(out, connectorV2ToResponse(conn))
+	}
+
+	if out == nil {
+		out = []map[string]any{}
+	}
+
+	resp := map[string]any{"Connectors": out}
+
+	if next != "" {
+		resp["NextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *Handler) handleUpdateConnectorV2(c *echo.Context, connectorID string, body map[string]any) error {
+	name, _ := body["Name"].(string)
+	description, _ := body["Description"].(string)
+
+	var provider map[string]any
+
+	if p, ok := body["Provider"].(map[string]any); ok {
+		provider = p
+	}
+
+	conn, err := h.Backend.UpdateConnectorV2(connectorID, name, description, provider)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Connector V2 not found"})
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
+}
+
+func (h *Handler) handleDeleteConnectorV2(c *echo.Context, connectorID string) error {
+	if err := h.Backend.DeleteConnectorV2(connectorID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Connector V2 not found"})
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{})
+}
+
+func (h *Handler) handleRegisterConnectorV2(c *echo.Context, body map[string]any) error {
+	connectorID, _ := body["ConnectorId"].(string)
+
+	var provider map[string]any
+
+	if p, ok := body["Provider"].(map[string]any); ok {
+		provider = p
+	}
+
+	conn, err := h.Backend.RegisterConnectorV2(connectorID, provider)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Connector V2 not found"})
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, connectorV2ToResponse(conn))
+}
+
+func connectorV2ToResponse(conn *ConnectorV2) map[string]any {
+	return map[string]any{
+		"ConnectorId":     conn.ConnectorId,
+		"ConnectorArn":    conn.ConnectorArn,
+		"Name":            conn.Name, //nolint:goconst // existing issue.
+		keyDescription:    conn.Description,
+		keyCreatedAt:      conn.CreatedAt,
+		keyUpdatedAt:      conn.UpdatedAt,
+		"ConnectorStatus": conn.ConnectorStatus,
+		"Provider":        conn.Provider,
+	}
+}
+
+func (h *Handler) handleCreateTicketV2(c *echo.Context, body map[string]any) error {
+	var ticketConfig map[string]any
+
+	if tc, ok := body["TicketConfiguration"].(map[string]any); ok {
+		ticketConfig = tc
+	}
+
+	var tags map[string]string
+
+	if t, ok := body["Tags"].(map[string]any); ok {
+		tags = make(map[string]string, len(t))
+
+		for k, v := range t {
+			tags[k], _ = v.(string)
+		}
+	}
+
+	ticket, err := h.Backend.CreateTicketV2(ticketConfig, tags)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"TicketConfigurationArn": ticket.TicketConfigurationArn,
+		keyCreatedAt:             ticket.CreatedAt,
+	})
+}
+
+// connectorsV2OpHandlers returns the Connectors V2 + Tickets V2 operation
+// dispatch table for handleREST.
+func (h *Handler) connectorsV2OpHandlers(
+	c *echo.Context,
+	resource string,
+	body map[string]any,
+) map[string]func() error {
+	return map[string]func() error{
+		opCreateConnectorV2:   func() error { return h.handleCreateConnectorV2(c, body) },
+		opGetConnectorV2:      func() error { return h.handleGetConnectorV2(c, resource) },
+		opListConnectorsV2:    func() error { return h.handleListConnectorsV2(c) },
+		opUpdateConnectorV2:   func() error { return h.handleUpdateConnectorV2(c, resource, body) },
+		opDeleteConnectorV2:   func() error { return h.handleDeleteConnectorV2(c, resource) },
+		opRegisterConnectorV2: func() error { return h.handleRegisterConnectorV2(c, body) },
+		opCreateTicketV2:      func() error { return h.handleCreateTicketV2(c, body) },
+	}
+}

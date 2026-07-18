@@ -13,7 +13,7 @@ import (
 // TestParity_ObjectTagging_Limits verifies AWS object-tag limits: >10 tags →
 // 400 BadRequest, over-long key/value → 400 InvalidTag, on both the PutObject
 // X-Amz-Tagging header and the PutObjectTagging body.
-func TestParity_ObjectTagging_Limits(t *testing.T) {
+func TestObjectTagging_Limits(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
@@ -64,7 +64,7 @@ func TestParity_ObjectTagging_Limits(t *testing.T) {
 // TestParity_CopyObject_SelfCopyGuard verifies that copying an object onto itself
 // without changing any attribute returns 400 InvalidRequest, while a self-copy
 // with X-Amz-Metadata-Directive: REPLACE succeeds.
-func TestParity_CopyObject_SelfCopyGuard(t *testing.T) {
+func TestCopyObject_SelfCopyGuard(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)

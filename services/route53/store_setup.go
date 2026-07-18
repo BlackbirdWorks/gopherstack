@@ -88,7 +88,7 @@ func changeKeyFn(v *ChangeInfo) string { return strings.TrimPrefix(v.ID, "/chang
 // once. It must be called during construction only (immediately after
 // b.registry is created), never on every Reset() -- store.Register panics on
 // a duplicate name, so runtime resets go through registry.ResetAll() instead
-// (see InMemoryBackend.Reset in backend.go).
+// (see InMemoryBackend.Reset in store.go).
 func (b *InMemoryBackend) registerTables() {
 	b.zones = store.Register(b.registry, "zones", store.New(zoneKeyFn))
 	b.healthChecks = store.Register(b.registry, "healthChecks", store.New(healthCheckKeyFn))

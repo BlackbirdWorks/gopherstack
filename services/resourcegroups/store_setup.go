@@ -4,7 +4,7 @@ package resourcegroups
 // region-nested resource collections (previously map[region]map[key]*T, with
 // groups additionally carrying a companion map[region]map[ARN]name reverse
 // index) are replaced by a flat *store.Table[T] keyed by the composite
-// "region|id" string (see regionKey in backend.go), with companion
+// "region|id" string (see regionKey in store.go), with companion
 // *store.Index values: one grouping entries by region (for per-region list
 // scans, replacing the old outer map nesting) and, for groups, one grouping
 // entries by "region|ARN" (replacing the old per-region ARN reverse map used
@@ -15,7 +15,7 @@ package resourcegroups
 // Neither Group nor TagSyncTask carries an exported Region field (not part of
 // either's AWS wire shape) -- each always embeds the region it was created in
 // within its own ARN (see CreateGroup/StartTagSyncTask), so groupRegionOf/
-// taskRegionOf (backend.go) derive it from there instead of adding a new
+// taskRegionOf (store.go) derive it from there instead of adding a new
 // field.
 //
 // groups is a "dirty" table in the persistence sense: each Group carries a
@@ -39,7 +39,7 @@ import "github.com/blackbirdworks/gopherstack/pkgs/store"
 // indexes exactly once, during construction. tagSyncTasks is registered on
 // b.registry (clean); groups is NOT (dirty; see the file doc) -- runtime
 // resets for it go through its own Table.Reset() (see InMemoryBackend.Reset
-// in backend.go) rather than b.registry.ResetAll().
+// in store.go) rather than b.registry.ResetAll().
 func registerAllTables(b *InMemoryBackend) {
 	b.tagSyncTasks = store.Register(b.registry, "tagSyncTasks", store.New(b.tagSyncTaskTableKeyFn))
 	b.tagSyncTasksByRegion = b.tagSyncTasks.AddIndex("byRegion", b.tagSyncTaskRegionIndexKeyFn)

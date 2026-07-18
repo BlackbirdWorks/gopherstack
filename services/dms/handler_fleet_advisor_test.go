@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/dms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -79,4 +80,74 @@ func TestFleetAdvisorDatabases(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	remaining := parseJSON(t, rec)["Databases"].([]any)
 	assert.Len(t, remaining, 1)
+}
+
+func TestHandler_CreateFleetAdvisorCollector(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, h *dms.Handler)
+		name string
+	}{
+		{
+			name: "create_success",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateFleetAdvisorCollector", map[string]any{
+					"CollectorName":        "my-collector",
+					"Description":          "My Fleet Advisor collector",
+					"ServiceAccessRoleArn": "arn:aws:iam::123456789012:role/fleet-role",
+					"S3BucketName":         "my-bucket",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				assert.Equal(t, "my-collector", resp["CollectorName"])
+				assert.NotEmpty(t, resp["CollectorReferencedId"])
+				assert.Equal(t, "arn:aws:iam::123456789012:role/fleet-role", resp["ServiceAccessRoleArn"])
+				assert.Equal(t, "my-bucket", resp["S3BucketName"])
+			},
+		},
+		{
+			name: "create_duplicate_conflict",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				doDMS(t, h, "CreateFleetAdvisorCollector", map[string]any{
+					"CollectorName": "dup-collector",
+				})
+				rec := doDMS(t, h, "CreateFleetAdvisorCollector", map[string]any{
+					"CollectorName": "dup-collector",
+				})
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
+		},
+		{
+			name: "missing_collector_name",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateFleetAdvisorCollector", map[string]any{
+					"S3BucketName": "my-bucket",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestDMSHandler()
+			tt.run(t, h)
+		})
+	}
+}
+
+func TestFleetAdvisorCollectorTagsOnReset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddFleetAdvisorCollectorInternal("col-reset-test")
+
+	// Should not panic on reset even with collector tags.
+	assert.NotPanics(t, func() { h.Backend.Reset() })
+	assert.Equal(t, 0, h.Backend.FleetAdvisorCollectorCount())
 }

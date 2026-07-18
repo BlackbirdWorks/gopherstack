@@ -2,6 +2,7 @@ package athena_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -252,4 +253,215 @@ func TestGetQueryResults_CatalogQualifiedTable(t *testing.T) {
 	data := dataRow["Data"].([]any)
 	cell := data[0].(map[string]any)
 	assert.Equal(t, "shipped", cell["VarCharValue"])
+}
+
+func TestHandler_GetQueryResults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       string
+		name       string
+		setupID    bool
+		wantStatus int
+	}{
+		{
+			name:       "valid_known_id_returns_empty_result_set",
+			setupID:    true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_query_execution_id",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "unknown_query_execution_id",
+			body:       `{"QueryExecutionId":"does-not-exist"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "max_results_too_large",
+			setupID:    true,
+			body:       `{"MaxResults":2000}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := tt.body
+			if tt.setupID {
+				id, err := h.Backend.StartQueryExecution(
+					"SELECT 1", "primary",
+					athena.QueryExecutionContext{},
+					athena.ResultConfiguration{}, nil, nil,
+				)
+				require.NoError(t, err)
+
+				if body == "" {
+					body = `{"QueryExecutionId":"` + id + `"}`
+				} else {
+					// inject the real id into the supplied body
+					body = `{"QueryExecutionId":"` + id + `","MaxResults":2000}`
+				}
+			}
+
+			rec := doRequest(t, h, "GetQueryResults", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			rs, _ := resp["ResultSet"].(map[string]any)
+			require.NotNil(t, rs, "ResultSet should be present")
+			rows, _ := rs["Rows"].([]any)
+			assert.Empty(t, rows, "rows should be empty for mock")
+		})
+	}
+}
+
+// --- PreparedStatement tests ---
+
+// TestGetQueryResults_HeaderOnlyOnFirstPage verifies AWS parity:
+// column header row appears only on page 1, not subsequent pages.
+func TestGetQueryResults_HeaderOnlyOnFirstPage(t *testing.T) {
+	t.Parallel()
+
+	b := athena.NewInMemoryBackend("", "")
+	b.InsertRows("AwsDataCatalog", "db", "t", []map[string]any{
+		{"col": "a"}, {"col": "b"}, {"col": "c"},
+	})
+	h := athena.NewHandler(b)
+
+	id, err := b.StartQueryExecution(
+		"SELECT col FROM db.t", "primary",
+		athena.QueryExecutionContext{Catalog: "AwsDataCatalog", Database: "db"},
+		athena.ResultConfiguration{}, nil, nil,
+	)
+	require.NoError(t, err)
+
+	t.Run("first_page_has_header", func(t *testing.T) {
+		t.Parallel()
+		body := fmt.Sprintf(`{"QueryExecutionId":%q,"MaxResults":2}`, id)
+		rec := athenaDoPass5(t, h, "GetQueryResults", body)
+		require.Equal(t, http.StatusOK, rec.Code)
+		m := athenaUnmarshalPass5(t, rec)
+		rs := m["ResultSet"].(map[string]any)
+		rows := rs["Rows"].([]any)
+		// header + 2 data rows
+		assert.Len(t, rows, 3, "page1: header + 2 data rows")
+		headerRow := rows[0].(map[string]any)["Data"].([]any)
+		cell := headerRow[0].(map[string]any)
+		assert.Equal(t, "col", cell["VarCharValue"])
+
+		// Fetch page 2 — no header expected.
+		tok := m["NextToken"].(string)
+		body2 := fmt.Sprintf(`{"QueryExecutionId":%q,"MaxResults":10,"NextToken":%q}`, id, tok)
+		rec2 := athenaDoPass5(t, h, "GetQueryResults", body2)
+		require.Equal(t, http.StatusOK, rec2.Code)
+		m2 := athenaUnmarshalPass5(t, rec2)
+		rs2 := m2["ResultSet"].(map[string]any)
+		rows2 := rs2["Rows"].([]any)
+		assert.Len(t, rows2, 1, "page2: 1 data row, no header")
+	})
+}
+
+// TestGetQueryResults_ColumnInfo verifies richer ColumnInfo fields on first page.
+func TestGetQueryResults_ColumnInfo(t *testing.T) {
+	t.Parallel()
+
+	b := athena.NewInMemoryBackend("", "")
+	b.InsertRows("AwsDataCatalog", "db", "tab", []map[string]any{
+		{"x": "1"},
+	})
+	h := athena.NewHandler(b)
+
+	id, err := b.StartQueryExecution(
+		"SELECT x FROM db.tab", "primary",
+		athena.QueryExecutionContext{Catalog: "AwsDataCatalog", Database: "db"},
+		athena.ResultConfiguration{}, nil, nil,
+	)
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(`{"QueryExecutionId":%q}`, id)
+	rec := athenaDoPass5(t, h, "GetQueryResults", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+	m := athenaUnmarshalPass5(t, rec)
+
+	rs := m["ResultSet"].(map[string]any)
+	meta, ok := rs["ResultSetMetadata"].(map[string]any)
+	require.True(t, ok, "ResultSetMetadata present")
+	cols, ok := meta["ColumnInfo"].([]any)
+	require.True(t, ok, "ColumnInfo present")
+	require.Len(t, cols, 1)
+
+	col := cols[0].(map[string]any)
+	assert.Equal(t, "x", col["Name"])
+	assert.Equal(t, "x", col["Label"])
+	assert.Equal(t, "string", col["Type"])
+	assert.NotNil(t, col["Nullable"])
+	assert.NotNil(t, col["CaseSensitive"])
+}
+
+func TestGetQueryResults_NonSucceededQueryRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setState   string
+		wantStatus int
+	}{
+		{
+			name:       "succeeded_query_returns_results",
+			setState:   "",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "cancelled_query_returns_400",
+			setState:   "CANCELLED",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "failed_query_returns_400",
+			setState:   "FAILED",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := athena.NewInMemoryBackend("", "")
+			h := athena.NewHandler(b)
+
+			startRec := doRequest(t, h, "StartQueryExecution", `{"QueryString":"SELECT 1"}`)
+			require.Equal(t, http.StatusOK, startRec.Code)
+			execID := jsonField(t, startRec.Body.Bytes(), "QueryExecutionId")
+
+			if tt.setState != "" {
+				b.SetQueryExecutionState(execID, tt.setState, 0)
+			}
+
+			rec := doRequest(t, h, "GetQueryResults", `{"QueryExecutionId":"`+execID+`"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusBadRequest {
+				var errResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Contains(t, errResp["__type"], "InvalidRequestException",
+					"GetQueryResults on a non-SUCCEEDED query must return InvalidRequestException")
+				msg, _ := errResp["message"].(string)
+				assert.Contains(t, msg, tt.setState,
+					"error message must include the current state")
+			}
+		})
+	}
 }

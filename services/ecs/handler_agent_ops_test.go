@@ -443,7 +443,7 @@ func TestHandler_SubmitTaskStateChange(t *testing.T) {
 			// agent" — consistent with that eventually-consistent,
 			// agent-internal contract, an unknown cluster/task reference is
 			// tolerated as a no-op ACK rather than surfaced as a client error
-			// (see backend_agent_ops.go's package doc comment).
+			// (see agent.go's package doc comment).
 			name: "unknown cluster is tolerated as a no-op ACK",
 			input: func(_, _ string) map[string]any {
 				return map[string]any{
@@ -536,7 +536,7 @@ func TestHandler_SubmitContainerStateChange(t *testing.T) {
 			wantACK:    true,
 		},
 		{
-			// See backend_agent_ops.go's package doc comment: agent-facing
+			// See agent.go's package doc comment: agent-facing
 			// Submit* operations tolerate unknown cluster/task/container
 			// references as no-ops rather than surfacing a client error,
 			// matching the real, agent-internal, eventually-consistent
@@ -632,7 +632,7 @@ func TestHandler_SubmitAttachmentStateChanges(t *testing.T) {
 			wantACK:    true,
 		},
 		{
-			// See backend_agent_ops.go's package doc comment: agent-facing
+			// See agent.go's package doc comment: agent-facing
 			// Submit* operations tolerate an unknown cluster as a no-op
 			// rather than surfacing a client error, matching the real,
 			// agent-internal, eventually-consistent contract AWS documents
@@ -778,7 +778,7 @@ func TestHandler_DescribeServiceRevisions_CreateAndUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Revision ARNs are derived from a per-deployment UUID (see
-	// serviceRevisionArnFor in backend_services.go), not a predictable sequential
+	// serviceRevisionArnFor in services.go), not a predictable sequential
 	// number, and are intentionally omitted from the DescribeServices/
 	// CreateService wire view (see toDeploymentView's doc comment) to match the
 	// real AWS Deployment wire shape. So the test reads the ARN back via the

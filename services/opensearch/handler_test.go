@@ -86,7 +86,7 @@ func TestOpenSearchHandler_RouteNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
-func TestOpenSearchHandler_NewOps_RouteMatcher(t *testing.T) {
+func TestOpenSearchHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -145,7 +145,7 @@ func TestOpenSearchHandler_NewOps_RouteMatcher(t *testing.T) {
 	}
 }
 
-func TestOpenSearchHandler_NewOps_EdgeCases(t *testing.T) {
+func TestOpenSearchHandler_RoutingEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

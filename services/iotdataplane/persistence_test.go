@@ -1,6 +1,8 @@
 package iotdataplane_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -277,4 +279,146 @@ func TestHandler_SnapshotRestore(t *testing.T) {
 			tt.check(t, freshBackend)
 		})
 	}
+}
+
+func Test_PersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	b.AddShadowInternal("thing1", "", []byte(`{"state":{"desired":{"k":"v"}}}`))
+	b.AddConnectionInternal("client-1")
+	require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("42"), 1))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotdataplane.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 1, iotdataplane.ShadowCount(b2))
+	assert.Equal(t, 1, iotdataplane.ConnectionCount(b2))
+	assert.Equal(t, 1, iotdataplane.RetainedMessageCount(b2))
+
+	// Verify retained message data integrity.
+	msg, err := b2.GetRetainedMessage("sensor/temp")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("42"), msg.Payload)
+	assert.Equal(t, int32(1), msg.Qos)
+}
+func Test_PersistenceEmpty(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotdataplane.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 0, iotdataplane.ShadowCount(b2))
+	assert.Equal(t, 0, iotdataplane.ConnectionCount(b2))
+	assert.Equal(t, 0, iotdataplane.RetainedMessageCount(b2))
+}
+func Test_HandlerSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	b.AddShadowInternal("thing1", "", []byte(`{"k":"v"}`))
+	h := iotdataplane.NewHandler(b)
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
+	require.NoError(t, h2.Restore(t.Context(), snap))
+	assert.Equal(t, 1, iotdataplane.ShadowCount(b))
+}
+func Test_Persistence_ConnectionsPreserved(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	b.AddConnectionInternal("client-1")
+	b.AddConnectionInternal("client-2")
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotdataplane.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	assert.Equal(t, 2, iotdataplane.ConnectionCount(b2))
+
+	// Verify connections are present with their timestamps preserved.
+	conns := b2.ListConnections()
+	assert.Len(t, conns, 2)
+	for _, c := range conns {
+		assert.False(t, c.ConnectedAt.IsZero(), "ConnectedAt must be restored")
+	}
+}
+func Test_Persistence_ShadowWithMetadata(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	h := iotdataplane.NewHandler(b)
+
+	doRequest(t, h, http.MethodPost, "/things/dev-persist/shadow", []byte(`{
+		"state": {"desired": {"temp": 68}, "reported": {"current": 65}}
+	}`))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotdataplane.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	h2 := iotdataplane.NewHandler(b2)
+
+	rec := doRequest(t, h2, http.MethodGet, "/things/dev-persist/shadow", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	state := resp["state"].(map[string]any)
+	desired := state["desired"].(map[string]any)
+	reported := state["reported"].(map[string]any)
+	assert.InDelta(t, float64(68), desired["temp"], 0)
+	assert.InDelta(t, float64(65), reported["current"], 0)
+
+	_, hasDelta := state["delta"]
+	assert.True(t, hasDelta, "delta must be recomputed after restore")
+
+	_, hasMeta := resp["metadata"]
+	assert.True(t, hasMeta, "metadata must survive snapshot/restore")
+}
+func Test_Persistence_NullWipeSurvivesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b1 := iotdataplane.NewInMemoryBackend()
+
+	_, err := b1.UpdateThingShadow("dev", "", []byte(`{"state":{"desired":{"k":"v"},"reported":{"temp":72}}}`))
+	require.NoError(t, err)
+	// Wipe desired.
+	_, err = b1.UpdateThingShadow("dev", "", []byte(`{"state":{"desired":null}}`))
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := iotdataplane.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	resp, err := b2.GetThingShadow("dev", "")
+	require.NoError(t, err)
+
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(resp, &doc))
+	state := doc["state"].(map[string]any)
+
+	_, hasDesired := state["desired"]
+	assert.False(t, hasDesired, "desired must still be absent after restore")
+
+	reported, hasReported := state["reported"].(map[string]any)
+	require.True(t, hasReported, "reported must survive restore")
+	assert.InDelta(t, float64(72), reported["temp"], 0)
 }

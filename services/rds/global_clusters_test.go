@@ -27,7 +27,7 @@ func TestGlobalClusterPrimaryRegionAndMembers(t *testing.T) {
 	assert.Equal(t, "test-global", clusters[0].GlobalClusterIdentifier)
 }
 
-func TestBatch2_GlobalCluster_Failover(t *testing.T) {
+func TestGlobalCluster_Failover(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -51,7 +51,7 @@ func TestBatch2_GlobalCluster_Failover(t *testing.T) {
 	assert.Equal(t, "gc1", result.GlobalClusterIdentifier)
 }
 
-func TestBatch2_GlobalCluster_Switchover(t *testing.T) {
+func TestGlobalCluster_Switchover(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -75,7 +75,7 @@ func TestBatch2_GlobalCluster_Switchover(t *testing.T) {
 	assert.Equal(t, "gc2", result.GlobalClusterIdentifier)
 }
 
-func TestBatch2_GlobalCluster_RemoveMember(t *testing.T) {
+func TestGlobalCluster_RemoveMember(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -88,7 +88,7 @@ func TestBatch2_GlobalCluster_RemoveMember(t *testing.T) {
 	assert.Equal(t, "gc3", result.GlobalClusterIdentifier)
 }
 
-func TestBatch2_GlobalCluster_NotFound(t *testing.T) {
+func TestGlobalCluster_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -100,7 +100,7 @@ func TestBatch2_GlobalCluster_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, rds.ErrGlobalClusterNotFound)
 }
 
-func TestBatch2_GlobalCluster_HTTP(t *testing.T) {
+func TestGlobalCluster_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()

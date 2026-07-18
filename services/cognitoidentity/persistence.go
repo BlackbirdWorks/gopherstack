@@ -36,7 +36,7 @@ type regionalDTO[V any] struct {
 
 // regionalDTOKeyFn is the shared [store.Table] key function for every regionalDTO[V]
 // table below; it mirrors the "region|id" composite key each live table uses (see
-// regionKey in backend.go).
+// regionKey in store.go).
 func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Region, d.ID) }
 
 // principalTagDTO wraps a PrincipalTagMapping for JSON round-tripping through

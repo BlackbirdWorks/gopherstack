@@ -286,11 +286,11 @@ func TestLabelParameterVersion_Handler_NotFound(t *testing.T) {
 }
 func TestFull_ParameterStore_LabelParameterVersion(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "PutParameter", map[string]any{"Name": "/lbl/p", "Type": "String", "Value": "v1"})
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/lbl/p", "Type": "String", "Value": "v1"})
 
-	code, out := mustPost(t, h, "LabelParameterVersion", map[string]any{
+	code, out := postJSON(t, h, "LabelParameterVersion", map[string]any{
 		"Name":             "/lbl/p",
 		"ParameterVersion": int64(1),
 		"Labels":           []string{"prod", "stable"},
@@ -301,16 +301,16 @@ func TestFull_ParameterStore_LabelParameterVersion(t *testing.T) {
 }
 func TestFull_ParameterStore_UnlabelParameterVersion(t *testing.T) {
 	t.Parallel()
-	h := newFullHandler()
+	h := newHandler()
 
-	mustPost(t, h, "PutParameter", map[string]any{"Name": "/unlbl/p", "Type": "String", "Value": "v"})
-	mustPost(t, h, "LabelParameterVersion", map[string]any{
+	postJSON(t, h, "PutParameter", map[string]any{"Name": "/unlbl/p", "Type": "String", "Value": "v"})
+	postJSON(t, h, "LabelParameterVersion", map[string]any{
 		"Name":             "/unlbl/p",
 		"ParameterVersion": int64(1),
 		"Labels":           []string{"prod", "stable"},
 	})
 
-	code, out := mustPost(t, h, "UnlabelParameterVersion", map[string]any{
+	code, out := postJSON(t, h, "UnlabelParameterVersion", map[string]any{
 		"Name":             "/unlbl/p",
 		"ParameterVersion": int64(1),
 		"Labels":           []string{"prod"},
