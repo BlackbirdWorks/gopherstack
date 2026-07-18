@@ -87,16 +87,19 @@ func (b *InMemoryBackend) DeleteProtection(protectionID string) error {
 // ListProtections returns all protections sorted by name.
 // Clones are built under RLock; sorting happens after the lock is released.
 func (b *InMemoryBackend) ListProtections() []*Protection {
-	b.mu.RLock("ListProtections")
+	var list []*Protection
 
-	items := b.protections.All()
-	list := make([]*Protection, 0, len(items))
+	func() {
+		b.mu.RLock("ListProtections")
+		defer b.mu.RUnlock()
 
-	for _, p := range items {
-		list = append(list, cloneProtection(p))
-	}
+		items := b.protections.All()
+		list = make([]*Protection, 0, len(items))
 
-	b.mu.RUnlock()
+		for _, p := range items {
+			list = append(list, cloneProtection(p))
+		}
+	}()
 
 	slices.SortFunc(list, func(a, b *Protection) int {
 		if a.Name < b.Name {

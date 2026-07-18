@@ -85,23 +85,24 @@ func (j *Janitor) tick(ctx context.Context) {
 func (j *Janitor) sweepCompletedBuilds(ctx context.Context) {
 	cutoff := float64(time.Now().Add(-j.BuildTTL).Unix())
 
-	j.Backend.mu.Lock("CodeBuildJanitor")
-
 	var swept []string
 
-	// IDs are gathered first, then deleted, since store.Table.Delete mutates
-	// the very index groups a live iteration would otherwise be reading.
-	for _, build := range j.Backend.builds.All() {
-		if isTerminalBuild(build.BuildStatus) && build.EndTime > 0 && build.EndTime < cutoff {
-			swept = append(swept, build.ID)
+	func() {
+		j.Backend.mu.Lock("CodeBuildJanitor")
+		defer j.Backend.mu.Unlock()
+
+		// IDs are gathered first, then deleted, since store.Table.Delete mutates
+		// the very index groups a live iteration would otherwise be reading.
+		for _, build := range j.Backend.builds.All() {
+			if isTerminalBuild(build.BuildStatus) && build.EndTime > 0 && build.EndTime < cutoff {
+				swept = append(swept, build.ID)
+			}
 		}
-	}
 
-	for _, id := range swept {
-		j.Backend.builds.Delete(id)
-	}
-
-	j.Backend.mu.Unlock()
+		for _, id := range swept {
+			j.Backend.builds.Delete(id)
+		}
+	}()
 
 	count := len(swept)
 
@@ -131,43 +132,47 @@ func (j *Janitor) advanceInProgressBuilds(ctx context.Context) {
 
 	var buildIDs, batchIDs []string
 
-	j.Backend.mu.RLock("CodeBuildJanitorAdvanceRead")
-	for _, build := range j.Backend.builds.All() {
-		if build.BuildStatus == buildStatusInProgress {
-			buildIDs = append(buildIDs, build.ID)
-		}
-	}
+	func() {
+		j.Backend.mu.RLock("CodeBuildJanitorAdvanceRead")
+		defer j.Backend.mu.RUnlock()
 
-	for _, batch := range j.Backend.buildBatches.All() {
-		if batch.BuildBatchStatus == buildStatusInProgress {
-			batchIDs = append(batchIDs, batch.ID)
+		for _, build := range j.Backend.builds.All() {
+			if build.BuildStatus == buildStatusInProgress {
+				buildIDs = append(buildIDs, build.ID)
+			}
 		}
-	}
-	j.Backend.mu.RUnlock()
+
+		for _, batch := range j.Backend.buildBatches.All() {
+			if batch.BuildBatchStatus == buildStatusInProgress {
+				batchIDs = append(batchIDs, batch.ID)
+			}
+		}
+	}()
 
 	if len(buildIDs) == 0 && len(batchIDs) == 0 {
 		return
 	}
 
-	j.Backend.mu.Lock("CodeBuildJanitorAdvance")
+	func() {
+		j.Backend.mu.Lock("CodeBuildJanitorAdvance")
+		defer j.Backend.mu.Unlock()
 
-	for _, id := range buildIDs {
-		if build, ok := j.Backend.builds.Get(id); ok && build.BuildStatus == buildStatusInProgress {
-			build.BuildStatus = buildStatusSucceeded
-			build.EndTime = now
-			build.CurrentPhase = phaseCompleted
-			build.BuildComplete = true
+		for _, id := range buildIDs {
+			if build, ok := j.Backend.builds.Get(id); ok && build.BuildStatus == buildStatusInProgress {
+				build.BuildStatus = buildStatusSucceeded
+				build.EndTime = now
+				build.CurrentPhase = phaseCompleted
+				build.BuildComplete = true
+			}
 		}
-	}
 
-	for _, id := range batchIDs {
-		if batch, ok := j.Backend.buildBatches.Get(id); ok && batch.BuildBatchStatus == buildStatusInProgress {
-			batch.BuildBatchStatus = buildStatusSucceeded
-			batch.EndTime = now
+		for _, id := range batchIDs {
+			if batch, ok := j.Backend.buildBatches.Get(id); ok && batch.BuildBatchStatus == buildStatusInProgress {
+				batch.BuildBatchStatus = buildStatusSucceeded
+				batch.EndTime = now
+			}
 		}
-	}
-
-	j.Backend.mu.Unlock()
+	}()
 
 	count := len(buildIDs) + len(batchIDs)
 

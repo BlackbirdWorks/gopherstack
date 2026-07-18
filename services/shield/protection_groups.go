@@ -169,16 +169,19 @@ func (b *InMemoryBackend) DescribeProtectionGroup(id string) (*ProtectionGroup, 
 // ListProtectionGroups returns all protection groups sorted by ID.
 // Clones are built under RLock; sorting happens after the lock is released.
 func (b *InMemoryBackend) ListProtectionGroups() []*ProtectionGroup {
-	b.mu.RLock("ListProtectionGroups")
+	var list []*ProtectionGroup
 
-	items := b.protectionGroups.All()
-	list := make([]*ProtectionGroup, 0, len(items))
+	func() {
+		b.mu.RLock("ListProtectionGroups")
+		defer b.mu.RUnlock()
 
-	for _, pg := range items {
-		list = append(list, cloneProtectionGroup(pg))
-	}
+		items := b.protectionGroups.All()
+		list = make([]*ProtectionGroup, 0, len(items))
 
-	b.mu.RUnlock()
+		for _, pg := range items {
+			list = append(list, cloneProtectionGroup(pg))
+		}
+	}()
 
 	slices.SortFunc(list, func(a, b *ProtectionGroup) int {
 		if a.ID < b.ID {

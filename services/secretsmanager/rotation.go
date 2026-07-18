@@ -375,16 +375,18 @@ func (b *InMemoryBackend) StopRotationScheduler() {
 
 func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
 	// Phase 1: create AWSPENDING versions while holding the lock.
-	b.mu.Lock("rotationScheduler")
 	var pending []pendingRotation
 
-	for _, secret := range b.secrets.All() {
-		if p, ok := b.scheduleRotationLocked(secret.region, secret.Name, secret, now); ok {
-			pending = append(pending, p)
-		}
-	}
+	func() {
+		b.mu.Lock("rotationScheduler")
+		defer b.mu.Unlock()
 
-	b.mu.Unlock()
+		for _, secret := range b.secrets.All() {
+			if p, ok := b.scheduleRotationLocked(secret.region, secret.Name, secret, now); ok {
+				pending = append(pending, p)
+			}
+		}
+	}()
 
 	// Phase 2: invoke Lambda WITHOUT holding the lock, then promote or abort.
 	for _, p := range pending {

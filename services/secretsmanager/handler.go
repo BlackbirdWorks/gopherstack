@@ -63,25 +63,38 @@ func (h *Handler) WithJanitor(interval ...time.Duration) *Handler {
 
 // StartWorker starts the background janitor if it is configured.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	if h.janitor != nil {
-		h.janitorMu.Lock()
-		if h.janitorDone != nil {
-			h.janitorMu.Unlock()
+	if h.janitor == nil {
+		return nil
+	}
 
-			return nil
+	var runCtx context.Context
+
+	var cancel context.CancelFunc
+
+	var done chan struct{}
+
+	func() {
+		h.janitorMu.Lock()
+		defer h.janitorMu.Unlock()
+
+		if h.janitorDone != nil {
+			return
 		}
 
-		runCtx, cancel := context.WithCancel(ctx)
-		done := make(chan struct{})
+		runCtx, cancel = context.WithCancel(ctx)
+		done = make(chan struct{})
 		h.janitorCancel = cancel
 		h.janitorDone = done
-		h.janitorMu.Unlock()
+	}()
 
-		go func() {
-			defer close(done)
-			h.janitor.Run(runCtx)
-		}()
+	if done == nil {
+		return nil
 	}
+
+	go func() {
+		defer close(done)
+		h.janitor.Run(runCtx)
+	}()
 
 	return nil
 }
@@ -93,12 +106,19 @@ func (h *Handler) Shutdown(ctx context.Context) {
 		b.StopRotationScheduler()
 	}
 
-	h.janitorMu.Lock()
-	cancel := h.janitorCancel
-	done := h.janitorDone
-	h.janitorCancel = nil
-	h.janitorDone = nil
-	h.janitorMu.Unlock()
+	var cancel context.CancelFunc
+
+	var done chan struct{}
+
+	func() {
+		h.janitorMu.Lock()
+		defer h.janitorMu.Unlock()
+
+		cancel = h.janitorCancel
+		done = h.janitorDone
+		h.janitorCancel = nil
+		h.janitorDone = nil
+	}()
 
 	if cancel == nil || done == nil {
 		return

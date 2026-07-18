@@ -71,11 +71,12 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 // Reset clears all Shield protections and subscription state atomically.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
 	b.registry.ResetAll()
 	b.alarConfigs.Reset()
 	b.subscription = nil
 	b.drtAccess = nil
 	b.emergencyContacts = nil
 	b.proactiveEngagementStatus = ""
-	b.mu.Unlock()
 }

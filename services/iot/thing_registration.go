@@ -9,20 +9,22 @@ import (
 )
 
 func (b *InMemoryBackend) GetRegistrationCode() string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	var code string
+	func() {
+		b.mu.RLock()
+		defer b.mu.RUnlock()
+		code = b.registrationCode
+	}()
+
+	if code != "" {
+		return code
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	if b.registrationCode == "" {
-		b.mu.RUnlock()
-		b.mu.Lock()
-		if b.registrationCode == "" {
-			b.registrationCode = uuid.NewString()
-		}
-		code := b.registrationCode
-		b.mu.Unlock()
-		b.mu.RLock()
-
-		return code
+		b.registrationCode = uuid.NewString()
 	}
 
 	return b.registrationCode
