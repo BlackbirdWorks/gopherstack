@@ -10,13 +10,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
-// TestPersistenceGap264_FullBackendStateSurvivesRoundTrip is the regression
+// TestPersistence_FullBackendStateSurvivesRoundTrip is the regression
 // test for gopherstack-264: backendSnapshot previously omitted many live
 // InMemoryBackend maps (thingTypes, thingGroups, certificates, jobs, etc.),
 // so they silently dropped on Snapshot/Restore. This test seeds one entry in
 // every backend map/field via the real create APIs, takes a snapshot,
 // restores it into a fresh backend, and asserts every seeded entry survives.
-func TestPersistenceGap264_FullBackendStateSurvivesRoundTrip(t *testing.T) {
+func TestPersistence_FullBackendStateSurvivesRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b1 := iot.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
@@ -632,12 +632,12 @@ func persistenceGapChecks(seeded gapSeededIDs) []persistenceGapCheck {
 	}
 }
 
-// TestPersistenceGap264_EmptySnapshotRestoresNotFound verifies that
+// TestPersistence_EmptySnapshotRestoresNotFound verifies that
 // restoring an empty snapshot into a backend that already holds state
 // clears the previously-unpersisted fields cleanly (ensureNonNilSnap
 // defaults them to empty maps instead of nil, and lookups return
 // ErrResourceNotFound rather than panicking).
-func TestPersistenceGap264_EmptySnapshotRestoresNotFound(t *testing.T) {
+func TestPersistence_EmptySnapshotRestoresNotFound(t *testing.T) {
 	t.Parallel()
 
 	empty := iot.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
