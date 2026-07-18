@@ -157,14 +157,17 @@ func (b *InMemoryBackend) ListCertificateAuthorities(
 ) page.Page[CertificateAuthority] {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("ListCertificateAuthorities")
+	var cas []CertificateAuthority
+	func() {
+		b.mu.RLock("ListCertificateAuthorities")
+		defer b.mu.RUnlock()
 
-	casInRegion := b.casInRegion(region)
-	cas := make([]CertificateAuthority, 0, len(casInRegion))
-	for _, ca := range casInRegion {
-		cas = append(cas, copyCA(ca))
-	}
-	b.mu.RUnlock()
+		casInRegion := b.casInRegion(region)
+		cas = make([]CertificateAuthority, 0, len(casInRegion))
+		for _, ca := range casInRegion {
+			cas = append(cas, copyCA(ca))
+		}
+	}()
 
 	sort.Slice(cas, func(i, j int) bool { return cas[i].ARN < cas[j].ARN })
 

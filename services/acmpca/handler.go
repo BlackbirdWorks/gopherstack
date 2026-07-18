@@ -308,12 +308,15 @@ func extractFirstResourceByKeys(body map[string]json.RawMessage, keys ...string)
 
 // Reset clears all handler tag state and delegates to the backend Reset.
 func (h *Handler) Reset() {
-	h.tagsMu.Lock("Reset")
-	for _, t := range h.tags {
-		t.Close()
-	}
-	h.tags = make(map[string]*svcTags.Tags)
-	h.tagsMu.Unlock()
+	func() {
+		h.tagsMu.Lock("Reset")
+		defer h.tagsMu.Unlock()
+
+		for _, t := range h.tags {
+			t.Close()
+		}
+		h.tags = make(map[string]*svcTags.Tags)
+	}()
 
 	h.Backend.Reset()
 }

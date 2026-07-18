@@ -706,21 +706,25 @@ func (b *InMemoryBackend) ImportDocumentationParts(
 		return nil, nil, fmt.Errorf("%w: failed to parse documentation parts payload: %w", ErrInvalidParameter, err)
 	}
 
-	b.mu.Lock("ImportDocumentationParts")
+	err := func() error {
+		b.mu.Lock("ImportDocumentationParts")
+		defer b.mu.Unlock()
 
-	if !b.restApis.Has(restAPIID) {
-		b.mu.Unlock()
-
-		return nil, nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
-	}
-
-	if strings.EqualFold(mode, "overwrite") {
-		for _, p := range append([]*DocumentationPart{}, b.documentationPartsByAPI.Get(restAPIID)...) {
-			b.documentationParts.Delete(documentationPartKeyFn(p))
+		if !b.restApis.Has(restAPIID) {
+			return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 		}
-	}
 
-	b.mu.Unlock()
+		if strings.EqualFold(mode, "overwrite") {
+			for _, p := range append([]*DocumentationPart{}, b.documentationPartsByAPI.Get(restAPIID)...) {
+				b.documentationParts.Delete(documentationPartKeyFn(p))
+			}
+		}
+
+		return nil
+	}()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	ids := make([]string, 0, len(payload.DocumentationParts))
 	warnings := make([]string, 0)

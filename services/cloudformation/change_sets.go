@@ -129,24 +129,29 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 	ctx context.Context,
 	stackName, changeSetName string,
 ) error {
-	b.mu.Lock("ExecuteChangeSet")
-	cs, ok := b.changeSets[stackName][changeSetName]
-	if !ok {
-		b.mu.Unlock()
+	var cs *ChangeSet
+	lockErr := func() error {
+		b.mu.Lock("ExecuteChangeSet")
+		defer b.mu.Unlock()
 
-		return ErrChangeSetNotFound
-	}
-	if cs.ExecutionStatus != "AVAILABLE" {
-		status := cs.ExecutionStatus
-		b.mu.Unlock()
+		var ok bool
+		cs, ok = b.changeSets[stackName][changeSetName]
+		if !ok {
+			return ErrChangeSetNotFound
+		}
+		if cs.ExecutionStatus != "AVAILABLE" {
+			return fmt.Errorf(
+				"%w: ChangeSet [%s] cannot be executed in its current status of %s",
+				ErrChangeSetNotExecutable, changeSetName, cs.ExecutionStatus,
+			)
+		}
+		cs.ExecutionStatus = "EXECUTE_IN_PROGRESS"
 
-		return fmt.Errorf(
-			"%w: ChangeSet [%s] cannot be executed in its current status of %s",
-			ErrChangeSetNotExecutable, changeSetName, status,
-		)
+		return nil
+	}()
+	if lockErr != nil {
+		return lockErr
 	}
-	cs.ExecutionStatus = "EXECUTE_IN_PROGRESS"
-	b.mu.Unlock()
 
 	var execErr error
 	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, StackOptions{})
@@ -158,15 +163,18 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 		}
 	}
 
-	b.mu.Lock("ExecuteChangeSet")
-	if execErr != nil {
-		if cs2, ok2 := b.changeSets[stackName][changeSetName]; ok2 {
-			cs2.ExecutionStatus = "EXECUTE_FAILED"
+	func() {
+		b.mu.Lock("ExecuteChangeSet")
+		defer b.mu.Unlock()
+
+		if execErr != nil {
+			if cs2, ok2 := b.changeSets[stackName][changeSetName]; ok2 {
+				cs2.ExecutionStatus = "EXECUTE_FAILED"
+			}
+		} else {
+			b.changeSets[stackName] = make(map[string]*ChangeSet)
 		}
-	} else {
-		b.changeSets[stackName] = make(map[string]*ChangeSet)
-	}
-	b.mu.Unlock()
+	}()
 
 	return execErr
 }

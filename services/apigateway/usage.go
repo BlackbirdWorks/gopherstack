@@ -232,38 +232,40 @@ func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
 // GetUsage's Items, which are always empty absent real traffic — but the
 // override recorded here is genuinely read back by GetUsage.
 func (b *InMemoryBackend) UpdateUsage(usagePlanID, keyID string, patchedFields map[string]string) (*UsageData, error) {
-	b.mu.Lock("UpdateUsage")
+	err := func() error {
+		b.mu.Lock("UpdateUsage")
+		defer b.mu.Unlock()
 
-	if !b.usagePlans.Has(usagePlanID) {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
-	}
-
-	if !b.usagePlanKeys.Has(usagePlanKeyKey(usagePlanID, keyID)) {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
-	}
-
-	for _, v := range patchedFields {
-		remaining, perr := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-		if perr != nil {
-			continue
+		if !b.usagePlans.Has(usagePlanID) {
+			return fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
 		}
 
-		if b.usageOverrides == nil {
-			b.usageOverrides = make(map[string]map[string]int64)
+		if !b.usagePlanKeys.Has(usagePlanKeyKey(usagePlanID, keyID)) {
+			return fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
 		}
 
-		if b.usageOverrides[usagePlanID] == nil {
-			b.usageOverrides[usagePlanID] = make(map[string]int64)
+		for _, v := range patchedFields {
+			remaining, perr := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+			if perr != nil {
+				continue
+			}
+
+			if b.usageOverrides == nil {
+				b.usageOverrides = make(map[string]map[string]int64)
+			}
+
+			if b.usageOverrides[usagePlanID] == nil {
+				b.usageOverrides[usagePlanID] = make(map[string]int64)
+			}
+
+			b.usageOverrides[usagePlanID][keyID] = remaining
 		}
 
-		b.usageOverrides[usagePlanID][keyID] = remaining
+		return nil
+	}()
+	if err != nil {
+		return nil, err
 	}
-
-	b.mu.Unlock()
 
 	return b.GetUsage(GetUsageInput{UsagePlanID: usagePlanID})
 }
