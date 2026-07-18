@@ -61,3 +61,7 @@ lambda.zip
 
 # session resume checkpoint (transient)
 checkpoint.md
+
+# PGO: intermediate pprof capture from scripts/pgo.sh (renamed to
+# default.pgo on success, which IS committed — do not ignore that file)
+/cpu.pprof
