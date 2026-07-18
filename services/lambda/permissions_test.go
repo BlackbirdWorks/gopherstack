@@ -15,7 +15,7 @@ import (
 // AddPermission / RemovePermission / GetPolicy
 // ============================================================
 
-func TestBatch2_Permission_FullLifecycle(t *testing.T) {
+func TestPermission_FullLifecycle(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -110,7 +110,7 @@ func Test_Permission_ErrorCases(t *testing.T) {
 	}
 }
 
-func TestBatch2_Permission_SourceArn(t *testing.T) {
+func TestPermission_SourceArn(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -213,9 +213,9 @@ func Test_AddPermission_Qualifier(t *testing.T) {
 	}
 }
 
-// TestAuditLambda_PolicyJSON_SourceArnCondition verifies that AddPermission and GetPolicy
+// TestPolicyJSON_SourceArnCondition verifies that AddPermission and GetPolicy
 // include Condition blocks when SourceArn/SourceAccount are provided.
-func TestAuditLambda_PolicyJSON_SourceArnCondition(t *testing.T) {
+func TestPolicyJSON_SourceArnCondition(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -302,7 +302,7 @@ func TestAuditLambda_PolicyJSON_SourceArnCondition(t *testing.T) {
 
 // --- AddPermission tests ---
 
-func TestNewOps_AddPermission(t *testing.T) {
+func TestAddPermission(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -375,7 +375,7 @@ func TestNewOps_AddPermission(t *testing.T) {
 	}
 }
 
-func TestNewOps_AddPermission_Duplicate(t *testing.T) {
+func TestAddPermission_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)

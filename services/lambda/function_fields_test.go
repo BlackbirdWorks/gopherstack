@@ -18,7 +18,7 @@ import (
 // VPC config v2 — Ipv6AllowedForDualStack
 // ============================================================
 
-func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_Create(t *testing.T) {
+func TestVpcConfig_Ipv6AllowedForDualStack_Create(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -45,7 +45,7 @@ func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_Create(t *testing.T) {
 	assert.Equal(t, true, vpc["Ipv6AllowedForDualStack"])
 }
 
-func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_Update(t *testing.T) {
+func TestVpcConfig_Ipv6AllowedForDualStack_Update(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -65,7 +65,7 @@ func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_Update(t *testing.T) {
 	assert.Equal(t, true, vpc["Ipv6AllowedForDualStack"])
 }
 
-func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_NotSet_Omitted(t *testing.T) {
+func TestVpcConfig_Ipv6AllowedForDualStack_NotSet_Omitted(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -91,7 +91,7 @@ func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_NotSet_Omitted(t *testing.T) {
 	assert.False(t, hasField)
 }
 
-func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_GetConfiguration(t *testing.T) {
+func TestVpcConfig_Ipv6AllowedForDualStack_GetConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -122,7 +122,7 @@ func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_GetConfiguration(t *testing.T)
 
 // ---- Gap 1: VpcConfig ----
 
-func TestAudit_VpcConfig_CreateAndGet(t *testing.T) {
+func TestVpcConfig_CreateAndGet(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -155,7 +155,7 @@ func TestAudit_VpcConfig_CreateAndGet(t *testing.T) {
 	assert.Equal(t, []string{"subnet-abc"}, cfg.VpcConfig.SubnetIDs)
 }
 
-func TestAudit_VpcConfig_UpdateAndGet(t *testing.T) {
+func TestVpcConfig_UpdateAndGet(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -174,7 +174,7 @@ func TestAudit_VpcConfig_UpdateAndGet(t *testing.T) {
 
 // ---- Gap 2: TracingConfig ----
 
-func TestAudit_TracingConfig_CreateDefault(t *testing.T) {
+func TestTracingConfig_CreateDefault(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -188,7 +188,7 @@ func TestAudit_TracingConfig_CreateDefault(t *testing.T) {
 	assert.Equal(t, "PassThrough", fn.TracingConfig.Mode)
 }
 
-func TestAudit_TracingConfig_CreateActive(t *testing.T) {
+func TestTracingConfig_CreateActive(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -209,7 +209,7 @@ func TestAudit_TracingConfig_CreateActive(t *testing.T) {
 	assert.Equal(t, "Active", fn.TracingConfig.Mode)
 }
 
-func TestAudit_TracingConfig_Update(t *testing.T) {
+func TestTracingConfig_Update(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -227,7 +227,7 @@ func TestAudit_TracingConfig_Update(t *testing.T) {
 
 // ---- Gap 3: FileSystemConfigs ----
 
-func TestAudit_FileSystemConfigs_CreateAndGet(t *testing.T) {
+func TestFileSystemConfigs_CreateAndGet(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -250,7 +250,7 @@ func TestAudit_FileSystemConfigs_CreateAndGet(t *testing.T) {
 	assert.Equal(t, "/mnt/data", fn.FileSystemConfigs[0].LocalMountPath)
 }
 
-func TestAudit_FileSystemConfigs_Update(t *testing.T) {
+func TestFileSystemConfigs_Update(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -270,7 +270,7 @@ func TestAudit_FileSystemConfigs_Update(t *testing.T) {
 
 // ---- Gap 4: DeadLetterConfig ----
 
-func TestAudit_DeadLetterConfig_CreateAndGet(t *testing.T) {
+func TestDeadLetterConfig_CreateAndGet(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -291,7 +291,7 @@ func TestAudit_DeadLetterConfig_CreateAndGet(t *testing.T) {
 	assert.Equal(t, "arn:aws:sqs:us-east-1:123:my-dlq", fn.DeadLetterConfig.TargetArn)
 }
 
-func TestAudit_DeadLetterConfig_Update(t *testing.T) {
+func TestDeadLetterConfig_Update(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -310,7 +310,7 @@ func TestAudit_DeadLetterConfig_Update(t *testing.T) {
 
 // ---- Gap 5: EphemeralStorage validation ----
 
-func TestAudit_EphemeralStorage_DefaultOn_Create(t *testing.T) {
+func TestEphemeralStorage_DefaultOn_Create(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -323,12 +323,12 @@ func TestAudit_EphemeralStorage_DefaultOn_Create(t *testing.T) {
 	assert.Equal(t, int32(512), fn.EphemeralStorage.Size)
 }
 
-// TestAudit_EphemeralStorage_Create covers CreateFunction with an explicit
+// TestEphemeralStorage_Create covers CreateFunction with an explicit
 // EphemeralStorage.Size: a valid size is accepted and echoed back, and
 // out-of-range sizes are rejected with 400. Table-driven: each case shares
 // the same request/response shape and differs only in the size and the
 // expected outcome.
-func TestAudit_EphemeralStorage_Create(t *testing.T) {
+func TestEphemeralStorage_Create(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -368,12 +368,12 @@ func TestAudit_EphemeralStorage_Create(t *testing.T) {
 	}
 }
 
-// TestAudit_EphemeralStorage_Update covers UpdateFunctionConfiguration with
+// TestEphemeralStorage_Update covers UpdateFunctionConfiguration with
 // an EphemeralStorage.Size change: a valid size is accepted and echoed back,
 // and out-of-range sizes are rejected with 400. Table-driven: each case
 // shares the same create-then-update shape and differs only in the update
 // size and the expected outcome.
-func TestAudit_EphemeralStorage_Update(t *testing.T) {
+func TestEphemeralStorage_Update(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -413,7 +413,7 @@ func TestAudit_EphemeralStorage_Update(t *testing.T) {
 
 // ---- Gap 6: ImageConfig in responses ----
 
-func TestAudit_ImageConfig_Persisted_Create(t *testing.T) {
+func TestImageConfig_Persisted_Create(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -436,7 +436,7 @@ func TestAudit_ImageConfig_Persisted_Create(t *testing.T) {
 	assert.Equal(t, "/app", fn.ImageConfig.WorkingDirectory)
 }
 
-func TestAudit_ImageConfig_InGetFunction(t *testing.T) {
+func TestImageConfig_InGetFunction(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -462,7 +462,7 @@ func TestAudit_ImageConfig_InGetFunction(t *testing.T) {
 	assert.Equal(t, []string{"run"}, cfg.ImageConfig.Command)
 }
 
-func TestAudit_ImageConfig_NotSetForZip(t *testing.T) {
+func TestImageConfig_NotSetForZip(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -476,7 +476,7 @@ func TestAudit_ImageConfig_NotSetForZip(t *testing.T) {
 
 // ---- Gap 10: Qualifier validation ----
 
-func TestAudit_QualifierValidation_InvalidChars(t *testing.T) {
+func TestQualifierValidation_InvalidChars(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -494,7 +494,7 @@ func TestAudit_QualifierValidation_InvalidChars(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
-func TestAudit_QualifierValidation_Latest_OK(t *testing.T) {
+func TestQualifierValidation_Latest_OK(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -511,7 +511,7 @@ func TestAudit_QualifierValidation_Latest_OK(t *testing.T) {
 	assert.NotEqual(t, http.StatusBadRequest, rec2.Code)
 }
 
-func TestAudit_QualifierValidation_VersionNumber_OK(t *testing.T) {
+func TestQualifierValidation_VersionNumber_OK(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -528,7 +528,7 @@ func TestAudit_QualifierValidation_VersionNumber_OK(t *testing.T) {
 	assert.NotEqual(t, http.StatusBadRequest, rec2.Code)
 }
 
-func TestAudit_QualifierValidation_AliasName_OK(t *testing.T) {
+func TestQualifierValidation_AliasName_OK(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -547,7 +547,7 @@ func TestAudit_QualifierValidation_AliasName_OK(t *testing.T) {
 
 // ---- All new config fields persist through GetFunctionConfiguration ----
 
-func TestAudit_AllNewFields_PersistInGetConfiguration(t *testing.T) {
+func TestAllNewFields_PersistInGetConfiguration(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -595,7 +595,7 @@ func TestAudit_AllNewFields_PersistInGetConfiguration(t *testing.T) {
 
 // ---- PublishVersion carries new fields ----
 
-func TestAudit_PublishVersion_CarriesNewFields(t *testing.T) {
+func TestPublishVersion_CarriesNewFields(t *testing.T) {
 	t.Parallel()
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
@@ -632,7 +632,7 @@ func TestAudit_PublishVersion_CarriesNewFields(t *testing.T) {
 
 // ---- EphemeralStorage boundary values ----
 
-func TestAudit_EphemeralStorage_BoundaryValues(t *testing.T) {
+func TestEphemeralStorage_BoundaryValues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -674,7 +674,7 @@ func TestAudit_EphemeralStorage_BoundaryValues(t *testing.T) {
 
 // ---- JSON response shapes match AWS ----
 
-func TestAudit_VpcConfig_JSONShape(t *testing.T) {
+func TestVpcConfig_JSONShape(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -701,7 +701,7 @@ func TestAudit_VpcConfig_JSONShape(t *testing.T) {
 	assert.Contains(t, vpc, "SecurityGroupIds")
 }
 
-func TestAudit_TracingConfig_JSONShape(t *testing.T) {
+func TestTracingConfig_JSONShape(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -717,7 +717,7 @@ func TestAudit_TracingConfig_JSONShape(t *testing.T) {
 
 // ---- Integration: multiple fields round-trip ----
 
-func TestAudit_MultipleFields_RoundTrip(t *testing.T) {
+func TestMultipleFields_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -765,7 +765,7 @@ func TestAudit_MultipleFields_RoundTrip(t *testing.T) {
 
 // ---- IO readback via GetFunctionConfiguration ----
 
-func TestAudit_GetFunctionConfiguration_IncludesNewFields(t *testing.T) {
+func TestGetFunctionConfiguration_IncludesNewFields(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -810,7 +810,7 @@ func TestAudit_GetFunctionConfiguration_IncludesNewFields(t *testing.T) {
 
 // ---- ListFunctions includes new fields ----
 
-func TestAudit_ListFunctions_IncludesNewFields(t *testing.T) {
+func TestListFunctions_IncludesNewFields(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)

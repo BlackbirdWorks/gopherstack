@@ -409,7 +409,7 @@ func TestListProvisionedConcurrencyConfigs(t *testing.T) {
 
 // --- Provisioned Concurrency HTTP tests ---
 
-func TestBatch1_ProvisionedConcurrency_PutGetDeleteList(t *testing.T) {
+func TestProvisionedConcurrency_PutGetDeleteList(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -449,7 +449,7 @@ func TestBatch1_ProvisionedConcurrency_PutGetDeleteList(t *testing.T) {
 // ProvisionedConcurrencyConfig
 // ============================================================
 
-func TestBatch2_ProvisionedConcurrency_Lifecycle(t *testing.T) {
+func TestProvisionedConcurrency_Lifecycle(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -498,7 +498,7 @@ func TestBatch2_ProvisionedConcurrency_Lifecycle(t *testing.T) {
 	assert.Empty(t, listOut2.ProvisionedConcurrencyConfigs)
 }
 
-func TestBatch2_ProvisionedConcurrency_AliasQualifier(t *testing.T) {
+func TestProvisionedConcurrency_AliasQualifier(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -522,7 +522,7 @@ func TestBatch2_ProvisionedConcurrency_AliasQualifier(t *testing.T) {
 // Provisioned concurrency — List and status accuracy
 // ============================================================
 
-func TestBatch3_ProvisionedConcurrency_StatusReady(t *testing.T) {
+func TestProvisionedConcurrency_StatusReady(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)
@@ -550,7 +550,7 @@ func TestBatch3_ProvisionedConcurrency_StatusReady(t *testing.T) {
 	assert.Equal(t, "READY", out["Status"])
 }
 
-func TestBatch3_ProvisionedConcurrency_List_IncludesAllQualifiers(t *testing.T) {
+func TestProvisionedConcurrency_List_IncludesAllQualifiers(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)
@@ -624,8 +624,8 @@ func TestLambda_ProvisionedConcurrency_NoDelayReadyImmediately(t *testing.T) {
 	assert.Equal(t, 3, cfg.AvailableProvisionedConcurrentExecutions)
 }
 
-// TestComprehensive_ProvisionedConcurrency verifies provisioned concurrency CRUD.
-func TestComprehensive_ProvisionedConcurrency(t *testing.T) {
+// TestProvisionedConcurrency_FullCRUD verifies provisioned concurrency CRUD.
+func TestProvisionedConcurrency_FullCRUD(t *testing.T) {
 	t.Parallel()
 
 	h, bk := newInMemoryHandler(t)

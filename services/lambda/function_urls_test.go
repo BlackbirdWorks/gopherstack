@@ -13,7 +13,7 @@ import (
 
 // --- Function URL HTTP tests ---
 
-func TestBatch1_FunctionURL_CreateGetUpdateDelete(t *testing.T) {
+func TestFunctionURL_CreateGetUpdateDelete(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -57,7 +57,7 @@ func TestBatch1_FunctionURL_CreateGetUpdateDelete(t *testing.T) {
 // FunctionURL: complete coverage
 // ============================================================
 
-func TestBatch2_FunctionURL_CORS(t *testing.T) {
+func TestFunctionURL_CORS(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -83,7 +83,7 @@ func TestBatch2_FunctionURL_CORS(t *testing.T) {
 	assert.Equal(t, 300, cfg.Cors.MaxAge)
 }
 
-func TestBatch2_FunctionURL_InvokeMode(t *testing.T) {
+func TestFunctionURL_InvokeMode(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -99,7 +99,7 @@ func TestBatch2_FunctionURL_InvokeMode(t *testing.T) {
 	assert.Equal(t, "RESPONSE_STREAM", cfg.InvokeMode)
 }
 
-func TestBatch2_FunctionURL_AWSIAMAuth(t *testing.T) {
+func TestFunctionURL_AWSIAMAuth(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -115,7 +115,7 @@ func TestBatch2_FunctionURL_AWSIAMAuth(t *testing.T) {
 	assert.Equal(t, "AWS_IAM", cfg.AuthType)
 }
 
-func TestBatch2_FunctionURL_FunctionURLIsSet(t *testing.T) {
+func TestFunctionURL_FunctionURLIsSet(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -131,10 +131,10 @@ func TestBatch2_FunctionURL_FunctionURLIsSet(t *testing.T) {
 	assert.NotEmpty(t, cfg.FunctionURL)
 }
 
-// TestBatch2Audit_UpdateFunctionURLConfig_CORS verifies that UpdateFunctionUrlConfig
+// TestUpdateFunctionURLConfig_CORS verifies that UpdateFunctionUrlConfig
 // updates CORS fields, matching AWS Lambda behaviour. Previously only AuthType was
 // passed to the backend; the Cors field was silently dropped.
-func TestBatch2Audit_UpdateFunctionURLConfig_CORS(t *testing.T) {
+func TestUpdateFunctionURLConfig_CORS(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -194,7 +194,7 @@ func TestBatch2Audit_UpdateFunctionURLConfig_CORS(t *testing.T) {
 // Function URL config — Cors round-trip
 // ============================================================
 
-func TestBatch3_FunctionURL_CorsAllowOrigins_RoundTrip(t *testing.T) {
+func TestFunctionURL_CorsAllowOrigins_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -222,7 +222,7 @@ func TestBatch3_FunctionURL_CorsAllowOrigins_RoundTrip(t *testing.T) {
 
 // --- Function URL config 2021 path tests ---
 
-func TestNewOps_FunctionURLConfig_2021(t *testing.T) {
+func TestFunctionURLConfig_2021(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -267,7 +267,7 @@ func TestNewOps_FunctionURLConfig_2021(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getRec2.Code)
 }
 
-func TestNewOps_FunctionURLConfig_2021_UpdateNotFound(t *testing.T) {
+func TestFunctionURLConfig_2021_UpdateNotFound(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -278,7 +278,7 @@ func TestNewOps_FunctionURLConfig_2021_UpdateNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestNewOps_FunctionURLConfig_2021_ListEmpty(t *testing.T) {
+func TestFunctionURLConfig_2021_ListEmpty(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)

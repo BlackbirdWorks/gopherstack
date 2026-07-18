@@ -14,7 +14,7 @@ import (
 // Tags
 // ============================================================
 
-func TestBatch2_Tags_TagAndListAndUntag(t *testing.T) {
+func TestTags_TagAndListAndUntag(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
@@ -63,7 +63,7 @@ func TestBatch2_Tags_TagAndListAndUntag(t *testing.T) {
 	assert.True(t, hasTeam)
 }
 
-func TestBatch2_Tags_CreateFunctionWithTags(t *testing.T) {
+func TestTags_CreateFunctionWithTags(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newInMemoryHandler(t)
