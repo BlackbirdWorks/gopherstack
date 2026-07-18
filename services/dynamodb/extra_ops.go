@@ -1556,6 +1556,10 @@ func snapshotTxnTableStateRLocked(t *Table) tableStateSnapshot {
 
 	itemsCopy := make([]map[string]any, len(t.Items))
 	copy(itemsCopy, t.Items)
+	// Snapshot itemSizes alongside Items so rollback restores the
+	// len(itemSizes) == len(Items) invariant (and accurate size accounting).
+	itemSizesCopy := make([]int, len(t.itemSizes))
+	copy(itemSizesCopy, t.itemSizes)
 	pkIdxCopy := make(map[string]int, len(t.pkIndex))
 	maps.Copy(pkIdxCopy, t.pkIndex)
 	pkskIdxCopy := make(map[string]map[string]int, len(t.pkskIndex))
@@ -1566,9 +1570,11 @@ func snapshotTxnTableStateRLocked(t *Table) tableStateSnapshot {
 	}
 
 	return tableStateSnapshot{
-		items:     itemsCopy,
-		pkIndex:   pkIdxCopy,
-		pkskIndex: pkskIdxCopy,
+		items:              itemsCopy,
+		itemSizes:          itemSizesCopy,
+		totalItemSizeBytes: t.totalItemSizeBytes,
+		pkIndex:            pkIdxCopy,
+		pkskIndex:          pkskIdxCopy,
 	}
 }
 
@@ -1605,6 +1611,8 @@ func restoreTxnTableStateLocked(t *Table, snap tableStateSnapshot) {
 	defer t.mu.Unlock()
 
 	t.Items = snap.items
+	t.itemSizes = snap.itemSizes
+	t.totalItemSizeBytes = snap.totalItemSizeBytes
 	t.pkIndex = snap.pkIndex
 	t.pkskIndex = snap.pkskIndex
 }

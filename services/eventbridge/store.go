@@ -238,6 +238,7 @@ type InMemoryBackend struct {
 	wg              sync.WaitGroup
 	shutdownTimeout time.Duration
 	deliveryTimeout time.Duration
+	tableMu         sync.Mutex
 	closing         atomic.Bool
 }
 

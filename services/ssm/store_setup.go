@@ -91,6 +91,8 @@ func getOrCreateTable[V any](
 	name, region string,
 	keyFn func(*V) string,
 ) *store.Table[V] {
+	b.tableMu.Lock()
+	defer b.tableMu.Unlock()
 	t, ok := m[region]
 	if !ok {
 		t = store.Register(b.registry, name+"/"+region, store.New(keyFn))

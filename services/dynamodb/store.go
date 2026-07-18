@@ -531,10 +531,23 @@ func (t *Table) initializeIndexes() {
 func (t *Table) rebuildIndexes() {
 	t.initializeIndexes()
 
+	// Rebuild the item-size accounting alongside the key indexes. itemSizes has
+	// no JSON tag, so it is empty after a snapshot Restore even though Items is
+	// populated; recomputing here restores the len(itemSizes) == len(Items)
+	// invariant that the CRUD paths (doUpdate/doPut/deleteItemAtIndex) rely on.
+	// Without this, the first write against a restored/rebuilt item panics with
+	// an itemSizes index out of range.
+	t.itemSizes = make([]int, len(t.Items))
+	t.totalItemSizeBytes = 0
+
 	pkDef, skDef := getPKAndSK(t.KeySchema)
 	hasSortKey := skDef.AttributeName != ""
 
 	for i, item := range t.Items {
+		size, _ := CalculateItemSize(item)
+		t.itemSizes[i] = size
+		t.totalItemSizeBytes += int64(size)
+
 		pkVal := BuildKeyString(item, pkDef.AttributeName)
 
 		if hasSortKey {

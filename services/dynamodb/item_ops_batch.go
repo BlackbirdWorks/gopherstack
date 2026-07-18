@@ -641,6 +641,9 @@ func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
 		table.itemSizes = table.itemSizes[:lastIdx]
 	}
 
+	// rebuildIndexes recomputes the key indexes AND itemSizes/totalItemSizeBytes
+	// from the surviving Items, so the size accounting stays consistent with the
+	// deletions above.
 	table.rebuildIndexes()
 }
 
@@ -715,16 +718,18 @@ func validateBatchWriteRequest(req types.WriteRequest, table *Table) error {
 }
 
 func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) int {
-	oldItem, matchIndex := db.findMatchForPut(table, item)
 	// Reuse the same item-size calculator as PutItem (doPut) so table.itemSizes
 	// and table.totalItemSizeBytes stay in lockstep with table.Items regardless
 	// of which write path (PutItem vs BatchWriteItem) added the item. Without
 	// this, DescribeTable's TableSizeBytes silently excludes anything written
 	// via BatchWriteItem, and itemSizes/Items can drift out of length-sync.
 	itemSize, _ := CalculateItemSize(item)
+	oldItem, matchIndex := db.findMatchForPut(table, item)
 	if matchIndex != -1 {
 		// Capture stream event (MODIFY) before overwriting in place.
 		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(item), "", "")
+		// Keep itemSizes/totalItemSizeBytes in step with Items so the
+		// len(itemSizes) == len(Items) invariant holds for later CRUD ops.
 		table.totalItemSizeBytes += int64(itemSize) - int64(table.itemSizes[matchIndex])
 		table.itemSizes[matchIndex] = itemSize
 		table.Items[matchIndex] = item

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/cipher"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -45,8 +46,8 @@ type KMSEncryptor interface {
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
 	kms                        KMSEncryptor
-	gcm                        cipher.AEAD // per-instance key; not shared across backends
-	registry                   *store.Registry
+	gcm                        cipher.AEAD
+	patchBaselines             map[string]*store.Table[PatchBaseline]
 	activations                map[string]*store.Table[Activation]
 	cloudConnectors            map[string]*store.Table[CloudConnector]
 	maintenanceWindows         map[string]*store.Table[MaintenanceWindow]
@@ -66,35 +67,30 @@ type InMemoryBackend struct {
 	opsItems                   map[string]*store.Table[OpsItem]
 	opsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem
 	opsMetadata                map[string]*store.Table[OpsMetadata]
-	patchBaselines             map[string]*store.Table[PatchBaseline]
-	inventory                  map[string]map[string][]InventoryItem  // key: instanceID
-	compliance                 map[string]map[string][]ComplianceItem // key: resourceID
+	compliance                 map[string]map[string][]ComplianceItem
+	registry                   *store.Registry
+	inventory                  map[string]map[string][]InventoryItem
 	resourceDataSyncs          map[string]*store.Table[ResourceDataSync]
-	parameterLabels            map[string]map[string]map[int64][]string     // paramName → version → labels (0 = latest)
-	automationExecutions       map[string]*store.Table[AutomationExecution] // executionID → exec
-	serviceSettings            map[string]*store.Table[ServiceSetting]      // settingID → setting
-	resourcePolicies           map[string]map[string][]*ResourcePolicy      // resourceARN → policies
-	executionPreviews          map[string]*store.Table[ExecutionPreview]    // previewID → preview
-	instancePatchStates        map[string]*store.Table[InstancePatchState]  // region → instanceID → state
-	instancePatches            map[string]map[string][]PatchComplianceData  // region → instanceID → patches
-	instanceProperties         map[string]*store.Table[InstanceProperty]    // region → instanceID → properties
-	availablePatches           map[string][]Patch                           // region → patches
+	parameterLabels            map[string]map[string]map[int64][]string
+	automationExecutions       map[string]*store.Table[AutomationExecution]
+	serviceSettings            map[string]*store.Table[ServiceSetting]
+	resourcePolicies           map[string]map[string][]*ResourcePolicy
+	executionPreviews          map[string]*store.Table[ExecutionPreview]
+	instancePatchStates        map[string]*store.Table[InstancePatchState]
+	instancePatches            map[string]map[string][]PatchComplianceData
+	instanceProperties         map[string]*store.Table[InstanceProperty]
+	availablePatches           map[string][]Patch
 	mu                         *lockmetrics.RWMutex
+	inventoryDeletions         map[string][]InventoryDeletion
 	miscResourceTags           map[string]map[string]map[string]string
 	resourceIDToOpsMetadataArn map[string]map[string]string
 	opsItemEvents              map[string][]OpsItemEventSummary
-	// associationExecutions holds stable execution records per association,
-	// keyed region → associationID → executions (newest first).
-	associationExecutions map[string]map[string][]AssociationExecution
-	// associationExecTargets holds the per-execution target records,
-	// keyed region → executionID → targets.
-	associationExecTargets map[string]map[string][]AssociationExecutionTarget
-	// inventoryDeletions holds DeleteInventory job records per region, returned
-	// by DescribeInventoryDeletions.
-	inventoryDeletions      map[string][]InventoryDeletion
-	commandExpirySecs       float64
-	commandExecDelaySecs    float64
-	automationExecDelaySecs float64
+	associationExecutions      map[string]map[string][]AssociationExecution
+	associationExecTargets     map[string]map[string][]AssociationExecutionTarget
+	commandExpirySecs          float64
+	commandExecDelaySecs       float64
+	automationExecDelaySecs    float64
+	tableMu                    sync.Mutex
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
