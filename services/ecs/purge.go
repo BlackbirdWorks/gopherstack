@@ -24,13 +24,23 @@ type purgePlan struct {
 // than O(all revisions). Deletions are re-validated in phase 2 so a resource
 // re-created between the phases is not purged.
 func (b *InMemoryBackend) Purge(_ context.Context, cutoff time.Time) {
-	b.mu.RLock("Purge-plan")
-	plan := b.buildPurgePlanLocked(cutoff)
-	b.mu.RUnlock()
+	var plan purgePlan
 
-	b.mu.Lock("Purge-apply")
-	removed := b.applyPurgePlanLocked(plan, cutoff)
-	b.mu.Unlock()
+	func() {
+		b.mu.RLock("Purge-plan")
+		defer b.mu.RUnlock()
+
+		plan = b.buildPurgePlanLocked(cutoff)
+	}()
+
+	var removed []string
+
+	func() {
+		b.mu.Lock("Purge-apply")
+		defer b.mu.Unlock()
+
+		removed = b.applyPurgePlanLocked(plan, cutoff)
+	}()
 
 	// Notify hooks (e.g. reconciler semaphore eviction) after releasing the lock.
 	b.fireClusterDeleteHooks(removed...)

@@ -536,8 +536,6 @@ func (b *InMemoryBackend) StartTaskForService(
 	clusterName, serviceName, taskDefinitionArn string,
 ) error {
 	// Snapshot service config without holding the lock during RunTask.
-	b.mu.RLock("StartTaskForService-svcSnap")
-
 	var svcPropagateTags string
 	var svcTags []Tag
 	var svcEnableExec bool
@@ -545,16 +543,19 @@ func (b *InMemoryBackend) StartTaskForService(
 	var svcPlacementConstraints []PlacementConstraint
 	var svcPlacementStrategy []PlacementStrategy
 
-	if svc, found := b.services.Get(scopedKey(clusterName, serviceName)); found {
-		svcPropagateTags = svc.PropagateTags
-		svcTags = copyTags(svc.Tags)
-		svcEnableExec = svc.EnableExecuteCommand
-		svcLaunchType = svc.LaunchType
-		svcPlacementConstraints = svc.PlacementConstraints
-		svcPlacementStrategy = svc.PlacementStrategy
-	}
+	func() {
+		b.mu.RLock("StartTaskForService-svcSnap")
+		defer b.mu.RUnlock()
 
-	b.mu.RUnlock()
+		if svc, found := b.services.Get(scopedKey(clusterName, serviceName)); found {
+			svcPropagateTags = svc.PropagateTags
+			svcTags = copyTags(svc.Tags)
+			svcEnableExec = svc.EnableExecuteCommand
+			svcLaunchType = svc.LaunchType
+			svcPlacementConstraints = svc.PlacementConstraints
+			svcPlacementStrategy = svc.PlacementStrategy
+		}
+	}()
 
 	_, err := b.RunTask(RunTaskInput{
 		Cluster:                 clusterName,
@@ -575,54 +576,64 @@ func (b *InMemoryBackend) StartTaskForService(
 
 // StopOldestServiceTask stops the oldest running task for a service.
 func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string) error {
-	b.mu.Lock("StopOldestServiceTask")
+	var (
+		oldest      *Task
+		instanceArn string
+	)
 
-	group := "service:" + serviceName
+	func() {
+		b.mu.Lock("StopOldestServiceTask")
+		defer b.mu.Unlock()
 
-	var oldest *Task
+		group := "service:" + serviceName
 
-	for _, t := range b.tasksByCluster.Get(clusterName) {
-		if t.Group == group && t.LastStatus == statusRunning {
-			if oldest == nil ||
-				(t.StartedAt != nil && oldest.StartedAt != nil && t.StartedAt.Before(*oldest.StartedAt)) {
-				oldest = t
+		for _, t := range b.tasksByCluster.Get(clusterName) {
+			if t.Group == group && t.LastStatus == statusRunning {
+				if oldest == nil ||
+					(t.StartedAt != nil && oldest.StartedAt != nil && t.StartedAt.Before(*oldest.StartedAt)) {
+					oldest = t
+				}
 			}
 		}
-	}
+
+		if oldest == nil {
+			return
+		}
+
+		now := time.Now()
+		oldest.LastStatus = statusStopped
+		oldest.DesiredStatus = statusStopped
+		oldest.StoppedAt = &now
+		oldest.StoppedReason = "service scale-in"
+		syncContainerStatuses(oldest, nil)
+		b.deregisterTaskFromELBv2Locked(oldest, clusterName)
+
+		// Decrement the cached running counter (scale-in always stops a running task).
+		if c, _ := b.clusters.Get(clusterName); c != nil {
+			c.RunningTasksCount--
+		}
+
+		instanceArn = oldest.ContainerInstanceArn
+	}()
 
 	if oldest == nil {
-		b.mu.Unlock()
-
 		return nil
 	}
 
-	now := time.Now()
-	oldest.LastStatus = statusStopped
-	oldest.DesiredStatus = statusStopped
-	oldest.StoppedAt = &now
-	oldest.StoppedReason = "service scale-in"
-	syncContainerStatuses(oldest, nil)
-	b.deregisterTaskFromELBv2Locked(oldest, clusterName)
-
-	// Decrement the cached running counter (scale-in always stops a running task).
-	if c, _ := b.clusters.Get(clusterName); c != nil {
-		c.RunningTasksCount--
-	}
-
-	instanceArn := oldest.ContainerInstanceArn
 	taskArn := oldest.TaskArn
 
-	// Release the lock before issuing Docker API calls so other backend
-	// operations are not serialized behind potentially slow container stops.
-	b.mu.Unlock()
-
+	// Docker API calls happen outside the lock so other backend operations are
+	// not serialized behind potentially slow container stops.
 	if b.runner != nil {
 		_ = b.runner.StopTask(oldest)
 	}
 
-	b.mu.Lock("StopOldestServiceTask-unindex")
-	b.unindexTaskFromInstance(clusterName, instanceArn, taskArn)
-	b.mu.Unlock()
+	func() {
+		b.mu.Lock("StopOldestServiceTask-unindex")
+		defer b.mu.Unlock()
+
+		b.unindexTaskFromInstance(clusterName, instanceArn, taskArn)
+	}()
 
 	return nil
 }

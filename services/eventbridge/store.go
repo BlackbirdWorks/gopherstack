@@ -321,9 +321,14 @@ func (b *InMemoryBackend) Close() {
 
 	// Read shutdownTimeout under the same lock used by SetShutdownTimeout so
 	// there is no data race between a concurrent setter and Close.
-	b.mu.RLock("Close")
-	timeout := b.shutdownTimeout
-	b.mu.RUnlock()
+	var timeout time.Duration
+
+	func() {
+		b.mu.RLock("Close")
+		defer b.mu.RUnlock()
+
+		timeout = b.shutdownTimeout
+	}()
 
 	b.cancel()
 

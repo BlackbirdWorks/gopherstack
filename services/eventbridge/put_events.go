@@ -89,62 +89,73 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) (
 
 	region := getRegionFromContext(ctx, b.region)
 
-	b.mu.Lock("PutEvents")
+	var (
+		results      []EventResultEntry
+		accepted     []EventEntry
+		dt           *DeliveryTargets
+		workerSem    chan struct{}
+		svcCtx       context.Context
+		delivTimeout time.Duration
+	)
 
-	results := make([]EventResultEntry, 0, len(entries))
-	accepted := make([]EventEntry, 0, len(entries))
-	totalBytes := 0
-	for _, entry := range entries {
-		if errCode, msg, ok := validatePutEventsEntry(entry); !ok {
-			results = append(results, EventResultEntry{ErrorCode: errCode, ErrorMessage: msg})
+	func() {
+		b.mu.Lock("PutEvents")
+		defer b.mu.Unlock()
 
-			continue
+		results = make([]EventResultEntry, 0, len(entries))
+		accepted = make([]EventEntry, 0, len(entries))
+		totalBytes := 0
+		for _, entry := range entries {
+			if errCode, msg, ok := validatePutEventsEntry(entry); !ok {
+				results = append(results, EventResultEntry{ErrorCode: errCode, ErrorMessage: msg})
+
+				continue
+			}
+
+			entryBytes := putEventsEntryBytes(entry)
+			if totalBytes+entryBytes > maxBatchBytes {
+				results = append(results, EventResultEntry{
+					ErrorCode:    "EventSizeLimitExceeded",
+					ErrorMessage: "Event size exceeds 256 KB total batch limit",
+				})
+
+				continue
+			}
+
+			totalBytes += entryBytes
+			eventID := uuid.New().String()
+			busName := entry.EventBusName
+			if busName == "" {
+				busName = defaultEventBusName
+			}
+			eventTime := time.Now()
+			if entry.Time != nil {
+				eventTime = *entry.Time
+			}
+			logEntry := EventLogEntry{
+				ID:           eventID,
+				Source:       entry.Source,
+				DetailType:   entry.DetailType,
+				Detail:       entry.Detail,
+				EventBusName: busName,
+				Time:         eventTime,
+			}
+			b.eventLog = append(b.eventLog, logEntry)
+			// Trim event log to last 1000 entries.
+			if len(b.eventLog) > maxEventLogSize {
+				b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
+			}
+			// Capture event into matching archives.
+			b.captureEventInArchives(region, entry, busName)
+			accepted = append(accepted, entry)
+			results = append(results, EventResultEntry{EventID: eventID})
 		}
 
-		entryBytes := putEventsEntryBytes(entry)
-		if totalBytes+entryBytes > maxBatchBytes {
-			results = append(results, EventResultEntry{
-				ErrorCode:    "EventSizeLimitExceeded",
-				ErrorMessage: "Event size exceeds 256 KB total batch limit",
-			})
-
-			continue
-		}
-
-		totalBytes += entryBytes
-		eventID := uuid.New().String()
-		busName := entry.EventBusName
-		if busName == "" {
-			busName = defaultEventBusName
-		}
-		eventTime := time.Now()
-		if entry.Time != nil {
-			eventTime = *entry.Time
-		}
-		logEntry := EventLogEntry{
-			ID:           eventID,
-			Source:       entry.Source,
-			DetailType:   entry.DetailType,
-			Detail:       entry.Detail,
-			EventBusName: busName,
-			Time:         eventTime,
-		}
-		b.eventLog = append(b.eventLog, logEntry)
-		// Trim event log to last 1000 entries.
-		if len(b.eventLog) > maxEventLogSize {
-			b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
-		}
-		// Capture event into matching archives.
-		b.captureEventInArchives(region, entry, busName)
-		accepted = append(accepted, entry)
-		results = append(results, EventResultEntry{EventID: eventID})
-	}
-
-	dt := b.deliveryTargets
-	workerSem := b.workerSem
-	svcCtx := b.ctx
-	delivTimeout := b.deliveryTimeout
-	b.mu.Unlock()
+		dt = b.deliveryTargets
+		workerSem = b.workerSem
+		svcCtx = b.ctx
+		delivTimeout = b.deliveryTimeout
+	}()
 
 	// Trigger async fan-out delivery after releasing the lock.
 	// Skip if the backend is already closing to prevent wg.Add concurrent with

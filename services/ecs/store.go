@@ -194,10 +194,15 @@ func (b *InMemoryBackend) fireClusterDeleteHooks(clusterNames ...string) {
 		return
 	}
 
-	b.hooksMu.Lock()
-	hooks := make([]func(string), len(b.clusterDeleteHooks))
-	copy(hooks, b.clusterDeleteHooks)
-	b.hooksMu.Unlock()
+	var hooks []func(string)
+
+	func() {
+		b.hooksMu.Lock()
+		defer b.hooksMu.Unlock()
+
+		hooks = make([]func(string), len(b.clusterDeleteHooks))
+		copy(hooks, b.clusterDeleteHooks)
+	}()
 
 	for _, name := range clusterNames {
 		for _, h := range hooks {

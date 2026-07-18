@@ -79,64 +79,73 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
-	b.mu.Lock("RunTask")
-
-	b.ensureClusterLocked(clusterName)
-
-	td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
-	if err != nil {
-		b.mu.Unlock()
-
-		return nil, err
-	}
-
-	clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
-
-	launchType := input.LaunchType
-	if launchType == "" {
-		launchType = launchTypeFargate
-	}
-
-	// Resolve task tags respecting propagateTags + ECS-managed-tags semantics.
-	// We read tdTags while holding the write lock — safe, no deadlock risk.
-	tdTags := b.resourceTags[resourceTagKey(td.TaskDefinitionArn)]
-	resolvedTags := resolveTaskTags(
-		input.Tags,
-		input.PropagateTags,
-		input.EnableECSManagedTags,
-		clusterName,
-		input.serviceNameForTags,
-		td,
-		tdTags,
-		input.serviceTagsForPropagate,
+	var (
+		ferr error
+		work []taskWork
 	)
 
-	// Create all task entries in PROVISIONING state under the lock so they are
-	// immediately visible, then release the lock before issuing Docker API calls.
-	work := b.createTaskEntriesLocked(
-		clusterName,
-		clusterArn,
-		launchType,
-		resolvedTags,
-		count,
-		td,
-		input,
-	)
+	func() {
+		b.mu.Lock("RunTask")
+		defer b.mu.Unlock()
 
-	b.mu.Unlock()
+		b.ensureClusterLocked(clusterName)
+
+		td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
+		if err != nil {
+			ferr = err
+
+			return
+		}
+
+		clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
+
+		launchType := input.LaunchType
+		if launchType == "" {
+			launchType = launchTypeFargate
+		}
+
+		// Resolve task tags respecting propagateTags + ECS-managed-tags semantics.
+		// We read tdTags while holding the write lock — safe, no deadlock risk.
+		tdTags := b.resourceTags[resourceTagKey(td.TaskDefinitionArn)]
+		resolvedTags := resolveTaskTags(
+			input.Tags,
+			input.PropagateTags,
+			input.EnableECSManagedTags,
+			clusterName,
+			input.serviceNameForTags,
+			td,
+			tdTags,
+			input.serviceTagsForPropagate,
+		)
+
+		// Create all task entries in PROVISIONING state under the lock so they are
+		// immediately visible, then release the lock before issuing Docker API calls.
+		work = b.createTaskEntriesLocked(
+			clusterName,
+			clusterArn,
+			launchType,
+			resolvedTags,
+			count,
+			td,
+			input,
+		)
+	}()
+
+	if ferr != nil {
+		return nil, ferr
+	}
 
 	b.startTasksOutsideLock(work)
 
 	// Snapshot final task states to build the API response.
 	b.mu.RLock("RunTask-response")
+	defer b.mu.RUnlock()
 
 	tasks := make([]Task, 0, len(work))
 	for _, w := range work {
 		cp := *w.task
 		tasks = append(tasks, cp)
 	}
-
-	b.mu.RUnlock()
 
 	return tasks, nil
 }
@@ -393,82 +402,103 @@ func (b *InMemoryBackend) DescribeTasks(
 func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
-	b.mu.Lock("StopTask")
+	var (
+		ferr        error
+		delayedCp   *Task
+		fastCp      Task
+		fastTask    *Task
+		instanceArn string
+	)
 
-	if !b.clusters.Has(clusterName) {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("StopTask")
+		defer b.mu.Unlock()
 
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
-	}
+		if !b.clusters.Has(clusterName) {
+			ferr = fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 
-	task, ok := b.tasks.Get(taskArn)
-	if !ok || clusterKey(task.ClusterArn) != clusterName {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, taskArn)
-	}
-
-	now := time.Now()
-	prevStatus := task.LastStatus
-	task.DesiredStatus = statusStopped
-	task.StoppedReason = reason
-
-	// Decrement the cached cluster counters once, as the task leaves its active
-	// state. This is done up front for both the fast and delayed paths so the
-	// counters stay correct regardless of when the task finally reaches STOPPED.
-	if c, _ := b.clusters.Get(clusterName); c != nil {
-		switch prevStatus {
-		case statusRunning:
-			c.RunningTasksCount--
-		case statusProvisioning, statusPending:
-			c.PendingTasksCount--
-		}
-	}
-
-	// Delayed path: leave the task in DEACTIVATING and let the lifecycle stepper
-	// advance it through STOPPING/DEPROVISIONING/STOPPED so SDK waiters observe
-	// the intermediate states. Only used when a stop delay is configured and the
-	// task is actually in an active state.
-	if b.stopDelay > 0 && isStoppableStatus(prevStatus) {
-		task.LastStatus = statusDeactivating
-		b.lifecycle[taskArn] = &taskLifecycle{
-			clusterName: clusterName,
-			kind:        lifecycleKindStop,
-			phase:       statusDeactivating,
-			nextAt:      now.Add(b.stopDelay),
-			reason:      reason,
+			return
 		}
 
-		cp := *task
-		b.mu.Unlock()
+		task, ok := b.tasks.Get(taskArn)
+		if !ok || clusterKey(task.ClusterArn) != clusterName {
+			ferr = fmt.Errorf("%w: %s", ErrTaskNotFound, taskArn)
 
-		return &cp, nil
+			return
+		}
+
+		now := time.Now()
+		prevStatus := task.LastStatus
+		task.DesiredStatus = statusStopped
+		task.StoppedReason = reason
+
+		// Decrement the cached cluster counters once, as the task leaves its active
+		// state. This is done up front for both the fast and delayed paths so the
+		// counters stay correct regardless of when the task finally reaches STOPPED.
+		if c, _ := b.clusters.Get(clusterName); c != nil {
+			switch prevStatus {
+			case statusRunning:
+				c.RunningTasksCount--
+			case statusProvisioning, statusPending:
+				c.PendingTasksCount--
+			}
+		}
+
+		// Delayed path: leave the task in DEACTIVATING and let the lifecycle stepper
+		// advance it through STOPPING/DEPROVISIONING/STOPPED so SDK waiters observe
+		// the intermediate states. Only used when a stop delay is configured and the
+		// task is actually in an active state.
+		if b.stopDelay > 0 && isStoppableStatus(prevStatus) {
+			task.LastStatus = statusDeactivating
+			b.lifecycle[taskArn] = &taskLifecycle{
+				clusterName: clusterName,
+				kind:        lifecycleKindStop,
+				phase:       statusDeactivating,
+				nextAt:      now.Add(b.stopDelay),
+				reason:      reason,
+			}
+
+			cp := *task
+			delayedCp = &cp
+
+			return
+		}
+
+		// Fast path: transition straight to STOPPED.
+		task.LastStatus = statusStopped
+		task.StoppedAt = &now
+		syncContainerStatuses(task, nil)
+		b.deregisterTaskFromELBv2Locked(task, clusterName)
+
+		instanceArn = task.ContainerInstanceArn
+		fastCp = *task
+		fastTask = task
+	}()
+
+	if ferr != nil {
+		return nil, ferr
 	}
 
-	// Fast path: transition straight to STOPPED.
-	task.LastStatus = statusStopped
-	task.StoppedAt = &now
-	syncContainerStatuses(task, nil)
-	b.deregisterTaskFromELBv2Locked(task, clusterName)
+	if delayedCp != nil {
+		return delayedCp, nil
+	}
 
-	instanceArn := task.ContainerInstanceArn
-	cp := *task
-
-	// Release the lock before issuing Docker API calls so other backend
-	// operations are not serialized behind potentially slow container stops.
-	b.mu.Unlock()
-
+	// Docker API calls happen outside the lock so other backend operations are
+	// not serialized behind potentially slow container stops.
 	if b.runner != nil {
-		_ = b.runner.StopTask(task)
+		_ = b.runner.StopTask(fastTask)
 	}
 
 	// Clean up task protection entry and reverse index to avoid stale entries.
-	b.mu.Lock("StopTask-cleanup")
-	b.taskProtections.Delete(taskArn)
-	b.unindexTaskFromInstance(clusterName, instanceArn, taskArn)
-	b.mu.Unlock()
+	func() {
+		b.mu.Lock("StopTask-cleanup")
+		defer b.mu.Unlock()
 
-	return &cp, nil
+		b.taskProtections.Delete(taskArn)
+		b.unindexTaskFromInstance(clusterName, instanceArn, taskArn)
+	}()
+
+	return &fastCp, nil
 }
 
 // isStoppableStatus reports whether a task in the given state has an active
@@ -551,49 +581,59 @@ func (b *InMemoryBackend) StartTask(input StartTaskInput) ([]Task, error) {
 
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
-	b.mu.Lock("StartTask")
+	var (
+		ferr  error
+		tasks []Task
+	)
 
-	b.ensureClusterLocked(clusterName)
+	func() {
+		b.mu.Lock("StartTask")
+		defer b.mu.Unlock()
 
-	td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
-	if err != nil {
-		b.mu.Unlock()
+		b.ensureClusterLocked(clusterName)
 
-		return nil, err
-	}
+		td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
+		if err != nil {
+			ferr = err
 
-	clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
-
-	tasks := make([]Task, 0, len(input.ContainerInstances))
-
-	for _, ciArn := range input.ContainerInstances {
-		taskID := uuid.New().String()
-		taskArn := arn.Build(
-			"ecs",
-			b.region,
-			b.accountID,
-			fmt.Sprintf("task/%s/%s", clusterName, taskID),
-		)
-		now := time.Now()
-
-		t := &Task{
-			TaskArn:              taskArn,
-			ClusterArn:           clusterArn,
-			TaskDefinitionArn:    td.TaskDefinitionArn,
-			LastStatus:           statusRunning,
-			DesiredStatus:        statusRunning,
-			Group:                input.Group,
-			LaunchType:           "EC2",
-			ContainerInstanceArn: ciArn,
-			StartedBy:            input.StartedBy,
-			StartedAt:            &now,
+			return
 		}
 
-		b.tasks.Put(t)
-		tasks = append(tasks, *t)
-	}
+		clusterArn := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", clusterName))
 
-	b.mu.Unlock()
+		tasks = make([]Task, 0, len(input.ContainerInstances))
+
+		for _, ciArn := range input.ContainerInstances {
+			taskID := uuid.New().String()
+			taskArn := arn.Build(
+				"ecs",
+				b.region,
+				b.accountID,
+				fmt.Sprintf("task/%s/%s", clusterName, taskID),
+			)
+			now := time.Now()
+
+			t := &Task{
+				TaskArn:              taskArn,
+				ClusterArn:           clusterArn,
+				TaskDefinitionArn:    td.TaskDefinitionArn,
+				LastStatus:           statusRunning,
+				DesiredStatus:        statusRunning,
+				Group:                input.Group,
+				LaunchType:           "EC2",
+				ContainerInstanceArn: ciArn,
+				StartedBy:            input.StartedBy,
+				StartedAt:            &now,
+			}
+
+			b.tasks.Put(t)
+			tasks = append(tasks, *t)
+		}
+	}()
+
+	if ferr != nil {
+		return nil, ferr
+	}
 
 	return tasks, nil
 }

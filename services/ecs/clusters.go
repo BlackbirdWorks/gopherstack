@@ -132,52 +132,63 @@ func (b *InMemoryBackend) enrichCluster(c *Cluster) Cluster {
 func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	key := clusterKey(clusterName)
 
-	b.mu.Lock("DeleteCluster")
-
-	c, ok := b.clusters.Get(key)
-	if !ok {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
-	}
+	var (
+		found       bool
+		cp          Cluster
+		tasksToStop []*Task
+	)
 
 	// Snapshot task pointers while still holding the lock so we can stop their
 	// Docker containers after releasing it.  Performing Docker API calls under
 	// the backend lock would unnecessarily serialize all other operations.
-	clusterTasks := b.tasksInClusterLocked(key)
-	tasksToStop := make([]*Task, 0, len(clusterTasks))
+	func() {
+		b.mu.Lock("DeleteCluster")
+		defer b.mu.Unlock()
 
-	if b.runner != nil {
-		tasksToStop = append(tasksToStop, clusterTasks...)
+		c, ok := b.clusters.Get(key)
+		if !ok {
+			return
+		}
+
+		found = true
+
+		clusterTasks := b.tasksInClusterLocked(key)
+		tasksToStop = make([]*Task, 0, len(clusterTasks))
+
+		if b.runner != nil {
+			tasksToStop = append(tasksToStop, clusterTasks...)
+		}
+
+		// Delete task sets and service deployments for all services in this cluster
+		// before removing the services map, preventing stale entries on cluster recreation.
+		for _, svc := range b.servicesInClusterLocked(key) {
+			b.deleteTaskSetsForServiceLocked(svc.ServiceArn)
+			b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
+			delete(b.serviceIndex, svcRef{cluster: key, name: svc.ServiceName})
+		}
+
+		// Clean up per-task state for all tasks in this cluster to avoid memory leaks.
+		for _, task := range clusterTasks {
+			b.taskProtections.Delete(task.TaskArn)
+			delete(b.lifecycle, task.TaskArn)
+		}
+
+		b.clusters.Delete(key)
+		b.deleteServicesForClusterLocked(key)
+		b.deleteTasksForClusterLocked(key)
+		b.deleteContainerInstancesForClusterLocked(key)
+		delete(b.attributes, key)
+		delete(b.tasksByInstance, key)
+
+		cp = *c
+	}()
+
+	if !found {
+		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
 	}
 
-	// Delete task sets and service deployments for all services in this cluster
-	// before removing the services map, preventing stale entries on cluster recreation.
-	for _, svc := range b.servicesInClusterLocked(key) {
-		b.deleteTaskSetsForServiceLocked(svc.ServiceArn)
-		b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
-		delete(b.serviceIndex, svcRef{cluster: key, name: svc.ServiceName})
-	}
-
-	// Clean up per-task state for all tasks in this cluster to avoid memory leaks.
-	for _, task := range clusterTasks {
-		b.taskProtections.Delete(task.TaskArn)
-		delete(b.lifecycle, task.TaskArn)
-	}
-
-	b.clusters.Delete(key)
-	b.deleteServicesForClusterLocked(key)
-	b.deleteTasksForClusterLocked(key)
-	b.deleteContainerInstancesForClusterLocked(key)
-	delete(b.attributes, key)
-	delete(b.tasksByInstance, key)
-
-	cp := *c
-
-	// Release the lock before issuing Docker API calls so other backend
-	// operations are not serialized behind potentially slow container stops.
-	b.mu.Unlock()
-
+	// Docker API calls happen outside the lock so other backend operations are
+	// not serialized behind potentially slow container stops.
 	for _, task := range tasksToStop {
 		_ = b.runner.StopTask(task)
 	}

@@ -118,8 +118,9 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 
 	// All containers started successfully; register them in the tracking map.
 	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.containers[task.TaskArn] = append(r.containers[task.TaskArn], started...)
-	r.mu.Unlock()
 
 	return nil
 }
@@ -252,9 +253,14 @@ func buildEnv(kvs []KeyValuePair) []string {
 func (r *realDockerRunner) StopTask(task *Task) error {
 	// Snapshot the container IDs while holding the lock but without removing
 	// the entry yet — we only remove it once all stops have been attempted.
-	r.mu.Lock()
-	containerIDs := append([]string(nil), r.containers[task.TaskArn]...)
-	r.mu.Unlock()
+	var containerIDs []string
+
+	func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+
+		containerIDs = append([]string(nil), r.containers[task.TaskArn]...)
+	}()
 
 	if len(containerIDs) == 0 {
 		return nil
@@ -277,15 +283,16 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 
 	// Update the tracking map: remove the entry entirely on full success, or
 	// retain only the containers that could not be stopped so callers can retry.
-	r.mu.Lock()
+	func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
 
-	if len(failed) == 0 {
-		delete(r.containers, task.TaskArn)
-	} else {
-		r.containers[task.TaskArn] = failed
-	}
-
-	r.mu.Unlock()
+		if len(failed) == 0 {
+			delete(r.containers, task.TaskArn)
+		} else {
+			r.containers[task.TaskArn] = failed
+		}
+	}()
 
 	return errors.Join(errs...)
 }
