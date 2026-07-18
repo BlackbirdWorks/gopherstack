@@ -80,7 +80,7 @@ func loadBasedAutoScaleKeyFn(v *storedLoadBasedAutoScaling) string { return v.La
 // secondary indexes) exactly once. It must be called during construction
 // only, immediately after b.registry is created -- store.Register panics on
 // a duplicate name, so runtime resets go through b.registry.ResetAll()
-// instead (see InMemoryBackend.Reset in backend.go).
+// instead (see InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	b.stacks = store.Register(b.registry, "stacks", store.New(stackKeyFn))
 
