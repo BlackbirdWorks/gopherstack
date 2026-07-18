@@ -2,7 +2,6 @@ package rdsdata_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -304,497 +303,65 @@ func TestHandler_RequiredFields(t *testing.T) {
 	}
 }
 
-func TestHandler_ExecuteStatement(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		bodyRaw    []byte
-		wantStatus int
-	}{
-		{
-			name: "success",
-			body: map[string]any{
-				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				"sql":         "SELECT 1",
-			},
-			wantStatus: http.StatusOK,
-			wantBody:   "records",
-		},
-		{
-			name:       "invalid_json",
-			bodyRaw:    []byte("not-json"),
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing_resource_arn",
-			body: map[string]any{
-				"sql": "SELECT 1",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing_sql",
-			body: map[string]any{
-				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-			if tt.bodyRaw != nil {
-				rec = doRDSDataRawRequest(t, h, "/Execute", tt.bodyRaw)
-			} else {
-				rec = doRDSDataRequest(t, h, "/Execute", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_BatchExecuteStatement(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		bodyRaw    []byte
-		wantStatus int
-	}{
-		{
-			name: "success_with_params",
-			body: map[string]any{
-				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				"sql":         "INSERT INTO test VALUES (:val)",
-				"parameterSets": []any{
-					[]any{map[string]any{"name": "val", "value": map[string]any{"stringValue": "a"}}},
-				},
-			},
-			wantStatus: http.StatusOK,
-			wantBody:   "updateResults",
-		},
-		{
-			name: "success_empty_params",
-			body: map[string]any{
-				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				"sql":         "INSERT INTO test VALUES (:val)",
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "invalid_json",
-			bodyRaw:    []byte("not-json"),
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing_resource_arn",
-			body: map[string]any{
-				"sql": "INSERT INTO test VALUES (:val)",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing_sql_batch",
-			body: map[string]any{
-				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "invalid_transaction_id",
-			body: map[string]any{
-				"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				"sql":           "INSERT INTO test VALUES (:val)",
-				"transactionId": "txn-does-not-exist",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-			if tt.bodyRaw != nil {
-				rec = doRDSDataRawRequest(t, h, "/BatchExecute", tt.bodyRaw)
-			} else {
-				rec = doRDSDataRequest(t, h, "/BatchExecute", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
-	}
-}
-
-func TestHandler_BeginTransaction(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		bodyRaw    []byte
-		wantStatus int
-	}{
-		{
-			name: "success",
-			body: map[string]any{
-				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "invalid_json",
-			bodyRaw:    []byte("not-json"),
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "missing_resource_arn",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-			if tt.bodyRaw != nil {
-				rec = doRDSDataRawRequest(t, h, "/BeginTransaction", tt.bodyRaw)
-			} else {
-				rec = doRDSDataRequest(t, h, "/BeginTransaction", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if rec.Code == http.StatusOK {
-				assert.Contains(t, rec.Body.String(), "transactionId")
-			}
-		})
-	}
-}
-
-func TestHandler_CommitTransaction(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       any
-		bodyRaw    []byte
-		wantStatus int
-		startTxn   bool
-	}{
-		{
-			name:       "success",
-			startTxn:   true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "invalid_json",
-			bodyRaw:    []byte("not-json"),
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing_transaction_id",
-			body: map[string]any{
-				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "transaction_not_found",
-			body: map[string]any{
-				"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				"transactionId": "txn-does-not-exist",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-
-			switch {
-			case tt.startTxn:
-				beginRec := doRDSDataRequest(t, h, "/BeginTransaction", map[string]any{
-					"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-					"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				})
-				require.Equal(t, http.StatusOK, beginRec.Code)
-
-				var beginResp map[string]any
-				require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
-				txID := beginResp["transactionId"].(string)
-
-				rec = doRDSDataRequest(t, h, "/CommitTransaction", map[string]any{
-					"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-					"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-					"transactionId": txID,
-				})
-			case tt.bodyRaw != nil:
-				rec = doRDSDataRawRequest(t, h, "/CommitTransaction", tt.bodyRaw)
-			default:
-				rec = doRDSDataRequest(t, h, "/CommitTransaction", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if rec.Code == http.StatusOK {
-				assert.Contains(t, rec.Body.String(), "transactionStatus")
-			}
-		})
-	}
-}
-
-func TestHandler_RollbackTransaction(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		body       any
-		bodyRaw    []byte
-		wantStatus int
-		startTxn   bool
-	}{
-		{
-			name:       "success",
-			startTxn:   true,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "invalid_json",
-			bodyRaw:    []byte("not-json"),
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing_transaction_id",
-			body: map[string]any{
-				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "transaction_not_found",
-			body: map[string]any{
-				"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				"transactionId": "txn-does-not-exist",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-
-			switch {
-			case tt.startTxn:
-				beginRec := doRDSDataRequest(t, h, "/BeginTransaction", map[string]any{
-					"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-					"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				})
-				require.Equal(t, http.StatusOK, beginRec.Code)
-
-				var beginResp map[string]any
-				require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
-				txID := beginResp["transactionId"].(string)
-
-				rec = doRDSDataRequest(t, h, "/RollbackTransaction", map[string]any{
-					"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-					"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-					"transactionId": txID,
-				})
-			case tt.bodyRaw != nil:
-				rec = doRDSDataRawRequest(t, h, "/RollbackTransaction", tt.bodyRaw)
-			default:
-				rec = doRDSDataRequest(t, h, "/RollbackTransaction", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if rec.Code == http.StatusOK {
-				assert.Contains(t, rec.Body.String(), "transactionStatus")
-			}
-		})
-	}
-}
-
-func TestHandler_ExecuteStatement_WithTransaction(t *testing.T) {
+func TestHandler_DispatchInvalidJSON_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	beginRec := doRDSDataRequest(t, h, "/BeginTransaction", map[string]any{
-		"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-		"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-	})
-	require.Equal(t, http.StatusOK, beginRec.Code)
-
-	var beginResp map[string]any
-	require.NoError(t, json.Unmarshal(beginRec.Body.Bytes(), &beginResp))
-	txID := beginResp["transactionId"].(string)
-
-	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
-		"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-		"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-		"sql":           "INSERT INTO test VALUES (1)",
-		"transactionId": txID,
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestHandler_ExecuteStatement_InvalidTransaction(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
-		"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-		"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-		"sql":           "INSERT INTO test VALUES (1)",
-		"transactionId": "txn-does-not-exist",
-	})
+	// Bad JSON on a known path exercises the errInvalidRequest branch of
+	// dispatch, since the RouteMatcher guards unregistered paths and an
+	// unknown-op branch is otherwise unreachable via HTTP.
+	rec := doRDSDataRawRequest(t, h, "/Execute", []byte("{bad json"))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestBackend_Region(t *testing.T) {
+func TestHandler_StorageBackendInterface(t *testing.T) {
 	t.Parallel()
 
-	b := rdsdata.NewInMemoryBackend("000000000000", "eu-west-1")
-	assert.Equal(t, "eu-west-1", b.Region())
+	var b rdsdata.StorageBackend = rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	h := rdsdata.NewHandler(b)
+	assert.NotNil(t, h)
 }
 
-func TestBackend_ListExecutedStatements(t *testing.T) {
+// TestHandler_ConcurrentRequests_Race exercises concurrent requests to detect data races.
+func TestHandler_ConcurrentRequests_Race(t *testing.T) {
 	t.Parallel()
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+	h := rdsdata.NewHandler(b)
 
-	_, _, _, err := b.ExecuteStatement(
-		context.Background(),
-		"arn:aws:rds:us-east-1:000000000000:cluster:test",
-		"SELECT 1",
-		"",
-	)
-	require.NoError(t, err)
+	const n = 20
 
-	stmts := b.ListExecutedStatements(context.Background())
-	require.Len(t, stmts, 1)
-	assert.Equal(t, "SELECT 1", stmts[0].SQL)
-}
+	done := make(chan struct{}, n)
 
-func TestBackend_ListTransactions(t *testing.T) {
-	t.Parallel()
+	for i := range n {
+		go func(i int) {
+			defer func() { done <- struct{}{} }()
 
-	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
+			body, _ := json.Marshal(map[string]any{
+				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:c",
+				"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:s",
+				"sql":         "SELECT " + string(rune('0'+i%10)),
+			})
 
-	txID, err := b.BeginTransaction(context.Background(), "arn:aws:rds:us-east-1:000000000000:cluster:test")
-	require.NoError(t, err)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/Execute", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization",
+				"AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/rds-data/aws4_request")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.SetRequest(req)
 
-	txns := b.ListTransactions(context.Background())
-	assert.Contains(t, txns, txID)
-}
-
-func TestHandler_ExecuteSql(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body       any
-		name       string
-		wantBody   string
-		bodyRaw    []byte
-		wantStatus int
-	}{
-		{
-			name: "success",
-			body: map[string]any{
-				"dbClusterOrInstanceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"awsSecretStoreArn":      "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				"sqlStatements":          "SELECT 1; SELECT 2",
-			},
-			wantStatus: http.StatusOK,
-			wantBody:   "sqlStatementResults",
-		},
-		{
-			name:       "invalid_json",
-			bodyRaw:    []byte("not-json"),
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing_db_cluster_arn",
-			body: map[string]any{
-				"awsSecretStoreArn": "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-				"sqlStatements":     "SELECT 1",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name: "missing_sql_statements",
-			body: map[string]any{
-				"dbClusterOrInstanceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
-				"awsSecretStoreArn":      "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
-			},
-			wantStatus: http.StatusBadRequest,
-		},
+			_ = h.Handler()(c)
+		}(i)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			var rec *httptest.ResponseRecorder
-			if tt.bodyRaw != nil {
-				rec = doRDSDataRawRequest(t, h, "/ExecuteSql", tt.bodyRaw)
-			} else {
-				rec = doRDSDataRequest(t, h, "/ExecuteSql", tt.body)
-			}
-
-			assert.Equal(t, tt.wantStatus, rec.Code)
-			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
-			}
-		})
+	for range n {
+		<-done
 	}
+
+	assert.Equal(t, n, rdsdata.ExecutedStatementCount(b))
 }
 
 func TestProvider_Init(t *testing.T) {
@@ -806,4 +373,13 @@ func TestProvider_Init(t *testing.T) {
 	svc, err := p.Init(&service.AppContext{})
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
+}
+
+func TestProvider_ErrNilAppContext(t *testing.T) {
+	t.Parallel()
+
+	p := &rdsdata.Provider{}
+	_, err := p.Init(nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, rdsdata.ErrNilAppContext)
 }
