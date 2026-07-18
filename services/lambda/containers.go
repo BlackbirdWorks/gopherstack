@@ -713,6 +713,51 @@ func (b *InMemoryBackend) startZipContainer(
 	return zipDir, containerID, nil
 }
 
+// layerEntry holds a single Lambda layer's zip bytes, collected under the backend
+// lock so extraction can proceed outside it.
+type layerEntry struct {
+	name    string
+	zipData []byte
+	version int64
+}
+
+// collectLayerEntries gathers zip bytes for all layers attached to fn under the read
+// lock, copying the data out so extraction can proceed without holding the lock.
+func (b *InMemoryBackend) collectLayerEntries(fn *FunctionConfiguration) []layerEntry {
+	b.mu.RLock("prepareLayerMount")
+	defer b.mu.RUnlock()
+
+	var entries []layerEntry
+
+	for _, fl := range fn.Layers {
+		if fl == nil || fl.Arn == "" {
+			continue
+		}
+
+		layerName, layerVersion := parseLayerARN(fl.Arn)
+		if layerName == "" {
+			continue
+		}
+
+		versions := b.layers[layerName]
+
+		for _, lv := range versions {
+			if lv.Version == layerVersion && len(lv.ZipData) > 0 {
+				data := make([]byte, len(lv.ZipData))
+				copy(data, lv.ZipData)
+				entries = append(
+					entries,
+					layerEntry{name: layerName, version: layerVersion, zipData: data},
+				)
+
+				break
+			}
+		}
+	}
+
+	return entries
+}
+
 // prepareLayerMount extracts all layers attached to fn into a single merged temp directory
 // and returns the bind-mount string ("{dir}:/opt:ro"), a list of temp dirs (for cleanup),
 // and any error. If the function has no layers with zip data, returns ("", nil, nil).
@@ -722,45 +767,7 @@ func (b *InMemoryBackend) prepareLayerMount(fn *FunctionConfiguration) (string, 
 		return "", nil, nil
 	}
 
-	// Collect the zip bytes under the read lock, then release before doing any I/O.
-	type layerEntry struct {
-		name    string
-		zipData []byte
-		version int64
-	}
-
-	var entries []layerEntry
-
-	func() {
-		b.mu.RLock("prepareLayerMount")
-		defer b.mu.RUnlock()
-
-		for _, fl := range fn.Layers {
-			if fl == nil || fl.Arn == "" {
-				continue
-			}
-
-			layerName, layerVersion := parseLayerARN(fl.Arn)
-			if layerName == "" {
-				continue
-			}
-
-			versions := b.layers[layerName]
-
-			for _, lv := range versions {
-				if lv.Version == layerVersion && len(lv.ZipData) > 0 {
-					data := make([]byte, len(lv.ZipData))
-					copy(data, lv.ZipData)
-					entries = append(
-						entries,
-						layerEntry{name: layerName, version: layerVersion, zipData: data},
-					)
-
-					break
-				}
-			}
-		}
-	}()
+	entries := b.collectLayerEntries(fn)
 
 	if len(entries) == 0 {
 		return "", nil, nil

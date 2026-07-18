@@ -50,34 +50,39 @@ func (b *InMemoryBackend) intervalFlusher(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			type streamRef struct {
-				region string
-				name   string
-			}
-
-			var refs []streamRef
-
-			func() {
-				b.mu.RLock("intervalFlusher")
-				defer b.mu.RUnlock()
-
-				// Only inspect streams flagged as holding buffered records, rather than
-				// scanning every region×stream on each tick.
-				for region, pending := range b.pendingFlush {
-					for name := range pending {
-						s, ok := b.streams.Get(regionKey(region, name))
-						if ok && b.shouldFlushByIntervalLocked(s) {
-							refs = append(refs, streamRef{region: region, name: name})
-						}
-					}
-				}
-			}()
-
-			for _, ref := range refs {
+			for _, ref := range b.dueFlushRefs() {
 				b.flushStream(ctx, ref.region, ref.name)
 			}
 		}
 	}
+}
+
+// flushRef identifies a delivery stream due for an interval-based flush.
+type flushRef struct {
+	region string
+	name   string
+}
+
+// dueFlushRefs returns the streams flagged as holding buffered records whose
+// interval threshold has been reached, checked under the read lock.
+func (b *InMemoryBackend) dueFlushRefs() []flushRef {
+	b.mu.RLock("intervalFlusher")
+	defer b.mu.RUnlock()
+
+	var refs []flushRef
+
+	// Only inspect streams flagged as holding buffered records, rather than
+	// scanning every region×stream on each tick.
+	for region, pending := range b.pendingFlush {
+		for name := range pending {
+			s, ok := b.streams.Get(regionKey(region, name))
+			if ok && b.shouldFlushByIntervalLocked(s) {
+				refs = append(refs, flushRef{region: region, name: name})
+			}
+		}
+	}
+
+	return refs
 }
 
 // isBackupEnabledLocked returns true when S3 backup mode is enabled for the stream.

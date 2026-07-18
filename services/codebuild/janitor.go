@@ -130,49 +130,13 @@ func (j *Janitor) sweepCompletedBuilds(ctx context.Context) {
 func (j *Janitor) advanceInProgressBuilds(ctx context.Context) {
 	now := float64(time.Now().Unix())
 
-	var buildIDs, batchIDs []string
-
-	func() {
-		j.Backend.mu.RLock("CodeBuildJanitorAdvanceRead")
-		defer j.Backend.mu.RUnlock()
-
-		for _, build := range j.Backend.builds.All() {
-			if build.BuildStatus == buildStatusInProgress {
-				buildIDs = append(buildIDs, build.ID)
-			}
-		}
-
-		for _, batch := range j.Backend.buildBatches.All() {
-			if batch.BuildBatchStatus == buildStatusInProgress {
-				batchIDs = append(batchIDs, batch.ID)
-			}
-		}
-	}()
+	buildIDs, batchIDs := j.collectInProgressIDs()
 
 	if len(buildIDs) == 0 && len(batchIDs) == 0 {
 		return
 	}
 
-	func() {
-		j.Backend.mu.Lock("CodeBuildJanitorAdvance")
-		defer j.Backend.mu.Unlock()
-
-		for _, id := range buildIDs {
-			if build, ok := j.Backend.builds.Get(id); ok && build.BuildStatus == buildStatusInProgress {
-				build.BuildStatus = buildStatusSucceeded
-				build.EndTime = now
-				build.CurrentPhase = phaseCompleted
-				build.BuildComplete = true
-			}
-		}
-
-		for _, id := range batchIDs {
-			if batch, ok := j.Backend.buildBatches.Get(id); ok && batch.BuildBatchStatus == buildStatusInProgress {
-				batch.BuildBatchStatus = buildStatusSucceeded
-				batch.EndTime = now
-			}
-		}
-	}()
+	j.advanceBuildsLocked(buildIDs, batchIDs, now)
 
 	count := len(buildIDs) + len(batchIDs)
 
@@ -186,4 +150,50 @@ func (j *Janitor) advanceInProgressBuilds(ctx context.Context) {
 
 	logger.Load(ctx).InfoContext(ctx, "CodeBuild janitor: in-progress builds advanced to SUCCEEDED",
 		"builds", len(buildIDs), "buildBatches", len(batchIDs))
+}
+
+// collectInProgressIDs returns the IDs of builds and build batches currently
+// IN_PROGRESS, gathered under the backend read lock.
+func (j *Janitor) collectInProgressIDs() ([]string, []string) {
+	j.Backend.mu.RLock("CodeBuildJanitorAdvanceRead")
+	defer j.Backend.mu.RUnlock()
+
+	var buildIDs, batchIDs []string
+
+	for _, build := range j.Backend.builds.All() {
+		if build.BuildStatus == buildStatusInProgress {
+			buildIDs = append(buildIDs, build.ID)
+		}
+	}
+
+	for _, batch := range j.Backend.buildBatches.All() {
+		if batch.BuildBatchStatus == buildStatusInProgress {
+			batchIDs = append(batchIDs, batch.ID)
+		}
+	}
+
+	return buildIDs, batchIDs
+}
+
+// advanceBuildsLocked transitions the given builds and build batches to
+// SUCCEEDED, under the backend write lock.
+func (j *Janitor) advanceBuildsLocked(buildIDs, batchIDs []string, now float64) {
+	j.Backend.mu.Lock("CodeBuildJanitorAdvance")
+	defer j.Backend.mu.Unlock()
+
+	for _, id := range buildIDs {
+		if build, ok := j.Backend.builds.Get(id); ok && build.BuildStatus == buildStatusInProgress {
+			build.BuildStatus = buildStatusSucceeded
+			build.EndTime = now
+			build.CurrentPhase = phaseCompleted
+			build.BuildComplete = true
+		}
+	}
+
+	for _, id := range batchIDs {
+		if batch, ok := j.Backend.buildBatches.Get(id); ok && batch.BuildBatchStatus == buildStatusInProgress {
+			batch.BuildBatchStatus = buildStatusSucceeded
+			batch.EndTime = now
+		}
+	}
 }

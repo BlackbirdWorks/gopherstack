@@ -72,29 +72,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		return nil
 	}
 
-	var (
-		runCtx context.Context
-		done   chan struct{}
-		ready  bool
-	)
-
-	func() {
-		h.janitorMu.Lock()
-		defer h.janitorMu.Unlock()
-
-		if h.janitorDone != nil {
-			return
-		}
-
-		var cancel context.CancelFunc
-
-		runCtx, cancel = context.WithCancel(ctx)
-		done = make(chan struct{})
-		h.janitorCancel = cancel
-		h.janitorDone = done
-		ready = true
-	}()
-
+	runCtx, done, ready := h.startJanitorLocked(ctx)
 	if !ready {
 		return nil
 	}
@@ -105,6 +83,25 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+// startJanitorLocked initializes the janitor's run context and done channel
+// under janitorMu. It returns ready=false without side effects if a janitor
+// run is already active.
+func (h *Handler) startJanitorLocked(ctx context.Context) (context.Context, chan struct{}, bool) {
+	h.janitorMu.Lock()
+	defer h.janitorMu.Unlock()
+
+	if h.janitorDone != nil {
+		return nil, nil, false
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	h.janitorCancel = cancel
+	h.janitorDone = done
+
+	return runCtx, done, true
 }
 
 // Shutdown stops the janitor worker and waits for it to exit.

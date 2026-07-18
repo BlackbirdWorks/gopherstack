@@ -334,29 +334,33 @@ func (b *InMemoryBackend) SetKinesisPoller(p *EventSourcePoller) {
 // StartKinesisPoller starts the Kinesis event source poller if one has been set.
 // It stores a cancel function so Close() can stop the poller gracefully.
 func (b *InMemoryBackend) StartKinesisPoller(ctx context.Context) {
-	var p *EventSourcePoller
-
-	func() {
-		b.mu.Lock("StartKinesisPoller")
-		defer b.mu.Unlock()
-
-		p = b.kinesisPoller
-	}()
+	p := b.kinesisPollerLocked()
 
 	if p == nil {
 		return
 	}
 
 	pollerCtx, cancel := context.WithCancel(ctx)
-
-	func() {
-		b.mu.Lock("StartKinesisPoller.storeCancel")
-		defer b.mu.Unlock()
-
-		b.pollerCancel = cancel
-	}()
+	b.storePollerCancel(cancel)
 
 	p.Start(pollerCtx)
+}
+
+// kinesisPollerLocked returns the configured Kinesis event source poller, if any.
+func (b *InMemoryBackend) kinesisPollerLocked() *EventSourcePoller {
+	b.mu.Lock("StartKinesisPoller")
+	defer b.mu.Unlock()
+
+	return b.kinesisPoller
+}
+
+// storePollerCancel stores the cancel function for the running Kinesis poller so
+// Close() can stop it gracefully.
+func (b *InMemoryBackend) storePollerCancel(cancel context.CancelFunc) {
+	b.mu.Lock("StartKinesisPoller.storeCancel")
+	defer b.mu.Unlock()
+
+	b.pollerCancel = cancel
 }
 
 // SetSQSReader sets the SQS reader on the event source poller so that SQS
