@@ -189,11 +189,14 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	for _, stream := range b.streams.All() {
-		stream.mu.Lock("Reset.stream")
-		if stream.Tags != nil {
-			stream.Tags.Close()
-		}
-		stream.mu.Unlock()
+		func() {
+			stream.mu.Lock("Reset.stream")
+			defer stream.mu.Unlock()
+
+			if stream.Tags != nil {
+				stream.Tags.Close()
+			}
+		}()
 	}
 
 	b.registry.ResetAll()
@@ -250,16 +253,19 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 
 	var purgedNames []string
 
-	b.mu.Lock("Purge")
-	for _, s := range b.streams.All() {
-		if ctx.Err() != nil {
-			break
+	func() {
+		b.mu.Lock("Purge")
+		defer b.mu.Unlock()
+
+		for _, s := range b.streams.All() {
+			if ctx.Err() != nil {
+				break
+			}
+			if b.purgeStreamEntry(s.Region, s.Name, s, cutoff) {
+				purgedNames = append(purgedNames, s.Name)
+			}
 		}
-		if b.purgeStreamEntry(s.Region, s.Name, s, cutoff) {
-			purgedNames = append(purgedNames, s.Name)
-		}
-	}
-	b.mu.Unlock()
+	}()
 
 	b.fireStreamPurgedCallbacks(purgedNames)
 }

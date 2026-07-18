@@ -80,18 +80,19 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 	j.Backend.mu.RUnlock()
 
 	for _, stream := range streamsToSweep {
-		stream.mu.Lock("KinesisJanitor.stream")
-		if stream.Status == streamStatusDeleting {
-			stream.mu.Unlock()
+		func() {
+			stream.mu.Lock("KinesisJanitor.stream")
+			defer stream.mu.Unlock()
 
-			continue
-		}
-		cutoff := now.Add(-time.Duration(stream.RetentionPeriod) * time.Hour)
+			if stream.Status == streamStatusDeleting {
+				return
+			}
+			cutoff := now.Add(-time.Duration(stream.RetentionPeriod) * time.Hour)
 
-		for _, shard := range stream.Shards {
-			totalTrimmed += shard.Records.trimBefore(cutoff)
-		}
-		stream.mu.Unlock()
+			for _, shard := range stream.Shards {
+				totalTrimmed += shard.Records.trimBefore(cutoff)
+			}
+		}()
 	}
 
 	telemetry.RecordWorkerTask(janitorServiceName, retentionSweeperComp, "success")

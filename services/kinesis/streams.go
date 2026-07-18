@@ -97,25 +97,50 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamInput) error {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("DeleteStream")
+	var stream *Stream
+	var found bool
 
-	stream, exists := b.streams.Get(streamKey(region, input.StreamName))
-	if !exists {
-		b.mu.Unlock()
+	// b.mu and stream.mu are both held while the stream is marked DELETING and
+	// removed from b.streams; b.mu releases as soon as that work is done while
+	// stream.mu is handed off to the caller (see stream.mu.Unlock below), matching
+	// the original release timing. handoffOK guards the handoff: if anything in
+	// this closure panics before the handoff point, stream.mu is still released
+	// instead of leaking.
+	func() {
+		b.mu.Lock("DeleteStream")
+		defer b.mu.Unlock()
 
+		s, exists := b.streams.Get(streamKey(region, input.StreamName))
+		if !exists {
+			return
+		}
+		stream = s
+		found = true
+
+		stream.mu.Lock("DeleteStream.stream")
+		handoffOK := false
+		defer func() {
+			if !handoffOK {
+				stream.mu.Unlock()
+			}
+		}()
+
+		if stream.Tags != nil {
+			stream.Tags.Close()
+		}
+
+		// Mark the stream as deleting before removing it (AWS-realistic status transition).
+		stream.Status = streamStatusDeleting
+		b.streams.Delete(streamKey(region, input.StreamName))
+
+		handoffOK = true
+	}()
+
+	if !found {
 		return ErrStreamNotFound
 	}
-	stream.mu.Lock("DeleteStream.stream")
 	defer stream.mu.Unlock()
 
-	if stream.Tags != nil {
-		stream.Tags.Close()
-	}
-
-	// Mark the stream as deleting before removing it (AWS-realistic status transition).
-	stream.Status = streamStatusDeleting
-	b.streams.Delete(streamKey(region, input.StreamName))
-	b.mu.Unlock()
 	b.faultsMu.Lock("DeleteStream.faults")
 	delete(b.faultsStore(region), input.StreamName)
 	b.faultsMu.Unlock()

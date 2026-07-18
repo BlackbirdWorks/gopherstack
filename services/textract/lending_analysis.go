@@ -88,51 +88,60 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 ) (*LendingJob, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("StartLendingAnalysis")
+	var result *LendingJob
+	var done bool
+	var key string
 
-	// Idempotency: if token already seen, return existing job.
-	if clientRequestToken != "" {
-		if existingID, ok := b.lendingClientTokenToJobIDStore(region)[clientRequestToken]; ok {
-			if existing, ok2 := b.lendingJobs.Get(regionKey(region, existingID)); ok2 {
-				result := cloneLendingJob(existing)
-				b.mu.Unlock()
+	func() {
+		b.mu.Lock("StartLendingAnalysis")
+		defer b.mu.Unlock()
 
-				return result, nil
+		// Idempotency: if token already seen, return existing job.
+		if clientRequestToken != "" {
+			if existingID, ok := b.lendingClientTokenToJobIDStore(region)[clientRequestToken]; ok {
+				if existing, ok2 := b.lendingJobs.Get(regionKey(region, existingID)); ok2 {
+					result = cloneLendingJob(existing)
+					done = true
+
+					return
+				}
 			}
 		}
-	}
 
-	jobID := uuid.NewString()
-	job := &LendingJob{
-		Region:              region,
-		JobID:               jobID,
-		JobStatus:           jobStatusInProgress,
-		CreationTime:        time.Now(),
-		Results:             syntheticLendingResults(),
-		Summary:             syntheticLendingSummary(),
-		OutputConfig:        outputConfig,
-		NotificationChannel: notificationChannel,
-		JobTag:              jobTag,
-		ClientRequestToken:  clientRequestToken,
-	}
-	b.lendingJobs.Put(job)
-	trimLendingJobsIfNeeded(b.lendingJobs, b.lendingJobsByRegion, region, b.maxJobs)
+		jobID := uuid.NewString()
+		job := &LendingJob{
+			Region:              region,
+			JobID:               jobID,
+			JobStatus:           jobStatusInProgress,
+			CreationTime:        time.Now(),
+			Results:             syntheticLendingResults(),
+			Summary:             syntheticLendingSummary(),
+			OutputConfig:        outputConfig,
+			NotificationChannel: notificationChannel,
+			JobTag:              jobTag,
+			ClientRequestToken:  clientRequestToken,
+		}
+		b.lendingJobs.Put(job)
+		trimLendingJobsIfNeeded(b.lendingJobs, b.lendingJobsByRegion, region, b.maxJobs)
 
-	if clientRequestToken != "" {
-		b.lendingClientTokenToJobIDStore(region)[clientRequestToken] = jobID
-	}
+		if clientRequestToken != "" {
+			b.lendingClientTokenToJobIDStore(region)[clientRequestToken] = jobID
+		}
 
-	if b.asyncJobDelay == 0 {
-		job.JobStatus = jobStatusSucceeded
-		result := cloneLendingJob(job)
-		b.mu.Unlock()
+		if b.asyncJobDelay == 0 {
+			job.JobStatus = jobStatusSucceeded
+			result = cloneLendingJob(job)
+			done = true
 
+			return
+		}
+
+		key = lendingJobKey(job)
+	}()
+
+	if done {
 		return result, nil
 	}
-
-	b.mu.Unlock()
-
-	key := lendingJobKey(job)
 
 	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartLendingAnalysis-complete")
@@ -143,10 +152,13 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 		}
 	})
 
-	b.mu.RLock("StartLendingAnalysis-read")
-	stored, _ := b.lendingJobs.Get(key)
-	result := cloneLendingJob(stored)
-	b.mu.RUnlock()
+	func() {
+		b.mu.RLock("StartLendingAnalysis-read")
+		defer b.mu.RUnlock()
+
+		stored, _ := b.lendingJobs.Get(key)
+		result = cloneLendingJob(stored)
+	}()
 
 	return result, nil
 }

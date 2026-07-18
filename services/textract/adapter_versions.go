@@ -73,48 +73,61 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 ) (*AdapterVersion, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("CreateAdapterVersion")
+	var result *AdapterVersion
+	var done bool
+	var notFound bool
+	var key string
 
-	adapter, ok := b.adapters.Get(regionKey(region, adapterID))
-	if !ok {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("CreateAdapterVersion")
+		defer b.mu.Unlock()
 
+		adapter, ok := b.adapters.Get(regionKey(region, adapterID))
+		if !ok {
+			notFound = true
+
+			return
+		}
+
+		version := uuid.NewString()
+		av := &AdapterVersion{
+			Region:         region,
+			AdapterID:      adapterID,
+			AdapterVersion: version,
+			CreationTime:   time.Now(),
+			FeatureTypes:   append([]string{}, adapter.FeatureTypes...),
+			// Start in CREATION_IN_PROGRESS; goroutine transitions to ACTIVE.
+			Status:             adapterVersionCreating,
+			Tags:               cloneTags(tags),
+			DatasetConfig:      datasetConfig,
+			OutputConfig:       outputConfig,
+			KMSKeyId:           kmsKeyID,
+			ClientRequestToken: clientRequestToken,
+			EvaluationMetrics: &EvaluationMetrics{
+				F1Score:   evalF1Score,
+				Precision: evalPrecision,
+				Recall:    evalRecall,
+			},
+		}
+		b.adapterVersions.Put(av)
+
+		if b.asyncJobDelay == 0 {
+			av.Status = adapterVersionActive
+			result = cloneAdapterVersion(av)
+			done = true
+
+			return
+		}
+
+		key = adapterVersionTableKey(av)
+	}()
+
+	if notFound {
 		return nil, fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
 	}
-
-	version := uuid.NewString()
-	av := &AdapterVersion{
-		Region:         region,
-		AdapterID:      adapterID,
-		AdapterVersion: version,
-		CreationTime:   time.Now(),
-		FeatureTypes:   append([]string{}, adapter.FeatureTypes...),
-		// Start in CREATION_IN_PROGRESS; goroutine transitions to ACTIVE.
-		Status:             adapterVersionCreating,
-		Tags:               cloneTags(tags),
-		DatasetConfig:      datasetConfig,
-		OutputConfig:       outputConfig,
-		KMSKeyId:           kmsKeyID,
-		ClientRequestToken: clientRequestToken,
-		EvaluationMetrics: &EvaluationMetrics{
-			F1Score:   evalF1Score,
-			Precision: evalPrecision,
-			Recall:    evalRecall,
-		},
-	}
-	b.adapterVersions.Put(av)
-
-	if b.asyncJobDelay == 0 {
-		av.Status = adapterVersionActive
-		result := cloneAdapterVersion(av)
-		b.mu.Unlock()
-
+	if done {
 		return result, nil
 	}
-
-	b.mu.Unlock()
-
-	key := adapterVersionTableKey(av)
 
 	// Transition to ACTIVE after a short delay.
 	b.runDelayed(b.asyncJobDelay, func() {
@@ -126,10 +139,13 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 		}
 	})
 
-	b.mu.RLock("CreateAdapterVersion-read")
-	stored, _ := b.adapterVersions.Get(key)
-	result := cloneAdapterVersion(stored)
-	b.mu.RUnlock()
+	func() {
+		b.mu.RLock("CreateAdapterVersion-read")
+		defer b.mu.RUnlock()
+
+		stored, _ := b.adapterVersions.Get(key)
+		result = cloneAdapterVersion(stored)
+	}()
 
 	return result, nil
 }

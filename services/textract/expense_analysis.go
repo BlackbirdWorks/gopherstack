@@ -104,50 +104,59 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 ) (*ExpenseJob, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("StartExpenseAnalysis")
+	var result *ExpenseJob
+	var done bool
+	var key string
 
-	// Idempotency: if token already seen, return existing job.
-	if clientRequestToken != "" {
-		if existingID, ok := b.expenseClientTokenToJobIDStore(region)[clientRequestToken]; ok {
-			if existing, ok2 := b.expenseJobs.Get(regionKey(region, existingID)); ok2 {
-				result := cloneExpenseJob(existing)
-				b.mu.Unlock()
+	func() {
+		b.mu.Lock("StartExpenseAnalysis")
+		defer b.mu.Unlock()
 
-				return result, nil
+		// Idempotency: if token already seen, return existing job.
+		if clientRequestToken != "" {
+			if existingID, ok := b.expenseClientTokenToJobIDStore(region)[clientRequestToken]; ok {
+				if existing, ok2 := b.expenseJobs.Get(regionKey(region, existingID)); ok2 {
+					result = cloneExpenseJob(existing)
+					done = true
+
+					return
+				}
 			}
 		}
-	}
 
-	jobID := uuid.NewString()
-	job := &ExpenseJob{
-		Region:              region,
-		JobID:               jobID,
-		JobStatus:           jobStatusInProgress,
-		CreationTime:        time.Now(),
-		ExpenseDocuments:    []ExpenseDocument{syntheticExpenseDocument(documentURI)},
-		OutputConfig:        outputConfig,
-		NotificationChannel: notificationChannel,
-		JobTag:              jobTag,
-		ClientRequestToken:  clientRequestToken,
-	}
-	b.expenseJobs.Put(job)
-	trimExpenseJobsIfNeeded(b.expenseJobs, b.expenseJobsByRegion, region, b.maxJobs)
+		jobID := uuid.NewString()
+		job := &ExpenseJob{
+			Region:              region,
+			JobID:               jobID,
+			JobStatus:           jobStatusInProgress,
+			CreationTime:        time.Now(),
+			ExpenseDocuments:    []ExpenseDocument{syntheticExpenseDocument(documentURI)},
+			OutputConfig:        outputConfig,
+			NotificationChannel: notificationChannel,
+			JobTag:              jobTag,
+			ClientRequestToken:  clientRequestToken,
+		}
+		b.expenseJobs.Put(job)
+		trimExpenseJobsIfNeeded(b.expenseJobs, b.expenseJobsByRegion, region, b.maxJobs)
 
-	if clientRequestToken != "" {
-		b.expenseClientTokenToJobIDStore(region)[clientRequestToken] = jobID
-	}
+		if clientRequestToken != "" {
+			b.expenseClientTokenToJobIDStore(region)[clientRequestToken] = jobID
+		}
 
-	if b.asyncJobDelay == 0 {
-		job.JobStatus = jobStatusSucceeded
-		result := cloneExpenseJob(job)
-		b.mu.Unlock()
+		if b.asyncJobDelay == 0 {
+			job.JobStatus = jobStatusSucceeded
+			result = cloneExpenseJob(job)
+			done = true
 
+			return
+		}
+
+		key = expenseJobKey(job)
+	}()
+
+	if done {
 		return result, nil
 	}
-
-	b.mu.Unlock()
-
-	key := expenseJobKey(job)
 
 	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartExpenseAnalysis-complete")
@@ -158,10 +167,13 @@ func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
 		}
 	})
 
-	b.mu.RLock("StartExpenseAnalysis-read")
-	stored, _ := b.expenseJobs.Get(key)
-	result := cloneExpenseJob(stored)
-	b.mu.RUnlock()
+	func() {
+		b.mu.RLock("StartExpenseAnalysis-read")
+		defer b.mu.RUnlock()
+
+		stored, _ := b.expenseJobs.Get(key)
+		result = cloneExpenseJob(stored)
+	}()
 
 	return result, nil
 }

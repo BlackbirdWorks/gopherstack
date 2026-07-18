@@ -44,52 +44,61 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 ) (*DocumentJob, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("StartDocumentAnalysis")
+	var result *DocumentJob
+	var done bool
+	var key string
 
-	// Idempotency: if token already seen, return existing job.
-	if clientRequestToken != "" {
-		if existingID, ok := b.clientTokenToJobIDStore(region)[clientRequestToken]; ok {
-			if existing, ok2 := b.jobs.Get(regionKey(region, existingID)); ok2 {
-				result := cloneJob(existing)
-				b.mu.Unlock()
+	func() {
+		b.mu.Lock("StartDocumentAnalysis")
+		defer b.mu.Unlock()
 
-				return result, nil
+		// Idempotency: if token already seen, return existing job.
+		if clientRequestToken != "" {
+			if existingID, ok := b.clientTokenToJobIDStore(region)[clientRequestToken]; ok {
+				if existing, ok2 := b.jobs.Get(regionKey(region, existingID)); ok2 {
+					result = cloneJob(existing)
+					done = true
+
+					return
+				}
 			}
 		}
-	}
 
-	jobID := uuid.NewString()
-	blocks := analyzeDocumentBlocks(documentURI, featureTypes, queries)
-	job := &DocumentJob{
-		Region:             region,
-		JobID:              jobID,
-		JobStatus:          jobStatusInProgress,
-		JobType:            jobTypeDocumentAnalysis,
-		CreationTime:       time.Now(),
-		Blocks:             blocks,
-		OutputConfig:       outputConfig,
-		JobTag:             jobTag,
-		ClientRequestToken: clientRequestToken,
-	}
-	b.jobs.Put(job)
-	trimJobsIfNeeded(b.jobs, b.jobsByRegion, region, b.maxJobs)
+		jobID := uuid.NewString()
+		blocks := analyzeDocumentBlocks(documentURI, featureTypes, queries)
+		job := &DocumentJob{
+			Region:             region,
+			JobID:              jobID,
+			JobStatus:          jobStatusInProgress,
+			JobType:            jobTypeDocumentAnalysis,
+			CreationTime:       time.Now(),
+			Blocks:             blocks,
+			OutputConfig:       outputConfig,
+			JobTag:             jobTag,
+			ClientRequestToken: clientRequestToken,
+		}
+		b.jobs.Put(job)
+		trimJobsIfNeeded(b.jobs, b.jobsByRegion, region, b.maxJobs)
 
-	if clientRequestToken != "" {
-		b.clientTokenToJobIDStore(region)[clientRequestToken] = jobID
-	}
+		if clientRequestToken != "" {
+			b.clientTokenToJobIDStore(region)[clientRequestToken] = jobID
+		}
 
-	if b.asyncJobDelay == 0 {
-		// Synchronous mode (tests): complete immediately under the same lock.
-		job.JobStatus = jobStatusSucceeded
-		result := cloneJob(job)
-		b.mu.Unlock()
+		if b.asyncJobDelay == 0 {
+			// Synchronous mode (tests): complete immediately under the same lock.
+			job.JobStatus = jobStatusSucceeded
+			result = cloneJob(job)
+			done = true
 
+			return
+		}
+
+		key = jobKey(job)
+	}()
+
+	if done {
 		return result, nil
 	}
-
-	b.mu.Unlock()
-
-	key := jobKey(job)
 
 	// Transition to SUCCEEDED after a short delay.
 	b.runDelayed(b.asyncJobDelay, func() {
@@ -101,10 +110,13 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 		}
 	})
 
-	b.mu.RLock("StartDocumentAnalysis-read")
-	stored, _ := b.jobs.Get(key)
-	result := cloneJob(stored)
-	b.mu.RUnlock()
+	func() {
+		b.mu.RLock("StartDocumentAnalysis-read")
+		defer b.mu.RUnlock()
+
+		stored, _ := b.jobs.Get(key)
+		result = cloneJob(stored)
+	}()
 
 	return result, nil
 }
