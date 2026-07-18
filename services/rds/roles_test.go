@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRefinement1_RemoveRoleFromDBCluster exercises RemoveRoleFromDBCluster.
-func TestRefinement1_RemoveRoleFromDBCluster(t *testing.T) {
+// TestRemoveRoleFromDBCluster exercises RemoveRoleFromDBCluster.
+func TestRemoveRoleFromDBCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -87,8 +87,8 @@ func TestRefinement1_RemoveRoleFromDBCluster(t *testing.T) {
 	}
 }
 
-// TestRefinement1_RemoveRoleFromDBCluster_RoleActuallyRemoved verifies the role is gone after removal.
-func TestRefinement1_RemoveRoleFromDBCluster_RoleActuallyRemoved(t *testing.T) {
+// TestRemoveRoleFromDBCluster_RoleActuallyRemoved verifies the role is gone after removal.
+func TestRemoveRoleFromDBCluster_RoleActuallyRemoved(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -103,8 +103,8 @@ func TestRefinement1_RemoveRoleFromDBCluster_RoleActuallyRemoved(t *testing.T) {
 	assert.Equal(t, 1, rds.ClusterRoleCount(b, "c1"))
 }
 
-// TestRefinement1_RemoveRoleFromDBInstance exercises RemoveRoleFromDBInstance.
-func TestRefinement1_RemoveRoleFromDBInstance(t *testing.T) {
+// TestRemoveRoleFromDBInstance exercises RemoveRoleFromDBInstance.
+func TestRemoveRoleFromDBInstance(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -173,8 +173,8 @@ func TestRefinement1_RemoveRoleFromDBInstance(t *testing.T) {
 	}
 }
 
-// TestRefinement1_HTTP_RemoveRoleFromDBCluster tests the HTTP handler for RemoveRoleFromDBCluster.
-func TestRefinement1_HTTP_RemoveRoleFromDBCluster(t *testing.T) {
+// TestHTTP_RemoveRoleFromDBCluster tests the HTTP handler for RemoveRoleFromDBCluster.
+func TestHTTP_RemoveRoleFromDBCluster(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -217,8 +217,8 @@ func TestRefinement1_HTTP_RemoveRoleFromDBCluster(t *testing.T) {
 	}
 }
 
-// TestRefinement1_HTTP_RemoveRoleFromDBInstance tests the HTTP handler for RemoveRoleFromDBInstance.
-func TestRefinement1_HTTP_RemoveRoleFromDBInstance(t *testing.T) {
+// TestHTTP_RemoveRoleFromDBInstance tests the HTTP handler for RemoveRoleFromDBInstance.
+func TestHTTP_RemoveRoleFromDBInstance(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -261,8 +261,8 @@ func TestRefinement1_HTTP_RemoveRoleFromDBInstance(t *testing.T) {
 	}
 }
 
-// TestRefinement1_ClusterRoleCountAndInstanceRoleCount verifies the count helpers.
-func TestRefinement1_ClusterRoleCountAndInstanceRoleCount(t *testing.T) {
+// TestClusterRoleCountAndInstanceRoleCount verifies the count helpers.
+func TestClusterRoleCountAndInstanceRoleCount(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -280,8 +280,8 @@ func TestRefinement1_ClusterRoleCountAndInstanceRoleCount(t *testing.T) {
 	assert.Equal(t, 1, rds.InstanceRoleCount(b, "i1"))
 }
 
-// TestRefinement1_HTTP_RemoveRoleFromDBCluster_RoleActuallyRemoved verifies end-to-end via HTTP.
-func TestRefinement1_HTTP_RemoveRoleFromDBCluster_RoleActuallyRemoved(t *testing.T) {
+// TestHTTP_RemoveRoleFromDBCluster_RoleActuallyRemoved verifies end-to-end via HTTP.
+func TestHTTP_RemoveRoleFromDBCluster_RoleActuallyRemoved(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")

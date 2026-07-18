@@ -343,7 +343,7 @@ func TestCreateTenantDatabase_ARNFormat(t *testing.T) {
 	assert.NotEmpty(t, tdb.DbiResourceID)
 }
 
-func TestBatch2_Persistence_TenantAndAutomatedBackups(t *testing.T) {
+func TestPersistence_TenantAndAutomatedBackups(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -374,7 +374,7 @@ func TestBatch2_Persistence_TenantAndAutomatedBackups(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestBatch2_Persistence_SnapshotTenantDatabases(t *testing.T) {
+func TestPersistence_SnapshotTenantDatabases(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()

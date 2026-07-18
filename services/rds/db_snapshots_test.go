@@ -280,7 +280,7 @@ func Test_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
 	}
 }
 
-func TestAccOps2_DescribeDBSnapshots_FilterByInstance_ReturnsMatching(t *testing.T) {
+func TestDescribeDBSnapshots_FilterByInstance_ReturnsMatching(t *testing.T) {
 	t.Parallel()
 
 	h := newAccOps2Handler(t)
@@ -326,7 +326,7 @@ func TestAccOps2_DescribeDBSnapshots_FilterByInstance_ReturnsMatching(t *testing
 	assert.ElementsMatch(t, []string{"snap-a1", "snap-a2"}, ids)
 }
 
-func TestAccOps2_DescribeDBSnapshots_FilterByInstance_NoMatch_ReturnsEmpty(t *testing.T) {
+func TestDescribeDBSnapshots_FilterByInstance_NoMatch_ReturnsEmpty(t *testing.T) {
 	t.Parallel()
 
 	h := newAccOps2Handler(t)
@@ -354,7 +354,7 @@ func TestAccOps2_DescribeDBSnapshots_FilterByInstance_NoMatch_ReturnsEmpty(t *te
 	assert.Empty(t, resp.Result.Snapshots)
 }
 
-func TestAccOps2_DescribeDBSnapshots_NoFilter_ReturnsAll(t *testing.T) {
+func TestDescribeDBSnapshots_NoFilter_ReturnsAll(t *testing.T) {
 	t.Parallel()
 
 	h := newAccOps2Handler(t)
@@ -384,7 +384,7 @@ func TestAccOps2_DescribeDBSnapshots_NoFilter_ReturnsAll(t *testing.T) {
 	assert.Len(t, resp.Result.Snapshots, 3)
 }
 
-func TestAccOps2_DescribeDBSnapshots_SpecificID_StillWorks(t *testing.T) {
+func TestDescribeDBSnapshots_SpecificID_StillWorks(t *testing.T) {
 	t.Parallel()
 
 	h := newAccOps2Handler(t)
@@ -413,8 +413,8 @@ func TestAccOps2_DescribeDBSnapshots_SpecificID_StillWorks(t *testing.T) {
 	assert.Equal(t, "snap-s", resp.Result.Snapshots[0].DBSnapshotIdentifier)
 }
 
-// TestRefinement1_SnapshotCount verifies the SnapshotCount export helper.
-func TestRefinement1_SnapshotCount(t *testing.T) {
+// TestSnapshotCount verifies the SnapshotCount export helper.
+func TestSnapshotCount(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")

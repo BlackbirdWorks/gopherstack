@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_EventSubscription_CRUD(t *testing.T) {
+func TestEventSubscription_CRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -40,7 +40,7 @@ func TestBatch2_EventSubscription_CRUD(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrEventSubscriptionNotFound)
 }
 
-func TestBatch2_EventSubscription_ModifyToggle(t *testing.T) {
+func TestEventSubscription_ModifyToggle(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -62,7 +62,7 @@ func TestBatch2_EventSubscription_ModifyToggle(t *testing.T) {
 	assert.False(t, subs[0].Enabled)
 }
 
-func TestBatch2_EventSubscription_AddRemoveSource(t *testing.T) {
+func TestEventSubscription_AddRemoveSource(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -90,7 +90,7 @@ func TestBatch2_EventSubscription_AddRemoveSource(t *testing.T) {
 	assert.NotContains(t, subs[0].SourceIDs, "db-instance-1")
 }
 
-func TestBatch2_EventSubscription_Duplicate(t *testing.T) {
+func TestEventSubscription_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -102,7 +102,7 @@ func TestBatch2_EventSubscription_Duplicate(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrEventSubscriptionAlreadyExists)
 }
 
-func TestBatch2_EventSubscription_HTTP(t *testing.T) {
+func TestEventSubscription_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -140,7 +140,7 @@ func TestBatch2_EventSubscription_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch2_Concurrent_EventSubscription(t *testing.T) {
+func TestConcurrent_EventSubscription(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -217,8 +217,8 @@ func TestRDS_EventSubscriptions(t *testing.T) {
 	assert.Equal(t, 200, rec.Code)
 }
 
-// TestRefinement1_RemoveSourceIdentifierFromSubscription exercises the new operation.
-func TestRefinement1_RemoveSourceIdentifierFromSubscription(t *testing.T) {
+// TestRemoveSourceIdentifierFromSubscription exercises the new operation.
+func TestRemoveSourceIdentifierFromSubscription(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -302,8 +302,8 @@ func TestRefinement1_RemoveSourceIdentifierFromSubscription(t *testing.T) {
 	}
 }
 
-// TestRefinement1_AddSourceIdentifierToSubscription_DeduplicatesCode verifies idempotent add.
-func TestRefinement1_AddSourceIdentifierToSubscription_DeduplicatesCode(t *testing.T) {
+// TestAddSourceIdentifierToSubscription_DeduplicatesCode verifies idempotent add.
+func TestAddSourceIdentifierToSubscription_DeduplicatesCode(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
@@ -319,8 +319,8 @@ func TestRefinement1_AddSourceIdentifierToSubscription_DeduplicatesCode(t *testi
 	assert.Len(t, sub2.SourceIDs, 1, "duplicate source identifier should not be added twice")
 }
 
-// TestRefinement1_HTTP_RemoveSourceIdentifierFromSubscription tests the HTTP handler.
-func TestRefinement1_HTTP_RemoveSourceIdentifierFromSubscription(t *testing.T) {
+// TestHTTP_RemoveSourceIdentifierFromSubscription tests the HTTP handler.
+func TestHTTP_RemoveSourceIdentifierFromSubscription(t *testing.T) {
 	t.Parallel()
 
 	b := rds.NewInMemoryBackend("000000000000", "us-east-1")

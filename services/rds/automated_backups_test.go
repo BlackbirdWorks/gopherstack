@@ -225,7 +225,7 @@ func TestCreateDBClusterAutomatedBackup_ResourceID(t *testing.T) {
 	assert.Equal(t, "cluster-1", backup.DBClusterIdentifier)
 }
 
-func TestBatch2_InstanceBackup_CreatedWithRetention(t *testing.T) {
+func TestInstanceBackup_CreatedWithRetention(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -248,7 +248,7 @@ func TestBatch2_InstanceBackup_CreatedWithRetention(t *testing.T) {
 	assert.Equal(t, "backup-db", backups[0].DBInstanceIdentifier)
 }
 
-func TestBatch2_InstanceBackup_NoRetentionNoBackup(t *testing.T) {
+func TestInstanceBackup_NoRetentionNoBackup(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -270,7 +270,7 @@ func TestBatch2_InstanceBackup_NoRetentionNoBackup(t *testing.T) {
 	assert.Empty(t, backups)
 }
 
-func TestBatch2_InstanceBackup_Delete(t *testing.T) {
+func TestInstanceBackup_Delete(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -298,7 +298,7 @@ func TestBatch2_InstanceBackup_Delete(t *testing.T) {
 	assert.Empty(t, backupsAfter)
 }
 
-func TestBatch2_InstanceBackup_Replication(t *testing.T) {
+func TestInstanceBackup_Replication(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -314,7 +314,7 @@ func TestBatch2_InstanceBackup_Replication(t *testing.T) {
 	assert.Equal(t, sourceARN, stopped.DBInstanceArn)
 }
 
-func TestBatch2_InstanceBackup_HTTP(t *testing.T) {
+func TestInstanceBackup_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -341,7 +341,7 @@ func TestBatch2_InstanceBackup_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch2_Persistence_ClusterAutomatedBackups(t *testing.T) {
+func TestPersistence_ClusterAutomatedBackups(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()

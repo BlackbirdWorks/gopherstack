@@ -59,7 +59,7 @@ func TestCreateDBSnapshotOptionGroupName(t *testing.T) {
 	assert.Equal(t, "myog", resp.Result.DBSnapshot.OptionGroupName)
 }
 
-func TestBatch2_OptionGroup_ModifyAddRemove(t *testing.T) {
+func TestOptionGroup_ModifyAddRemove(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -80,7 +80,7 @@ func TestBatch2_OptionGroup_ModifyAddRemove(t *testing.T) {
 	assert.Equal(t, "MARIADB_AUDIT_PLUGIN", og.Options[0].OptionName)
 }
 
-func TestBatch2_OptionGroup_Duplicate(t *testing.T) {
+func TestOptionGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -92,7 +92,7 @@ func TestBatch2_OptionGroup_Duplicate(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrOptionGroupAlreadyExists)
 }
 
-func TestBatch2_OptionGroup_DeleteNotFound(t *testing.T) {
+func TestOptionGroup_DeleteNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -102,7 +102,7 @@ func TestBatch2_OptionGroup_DeleteNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrOptionGroupNotFound)
 }
 
-func TestBatch2_OptionGroup_CopyPreservesOptions(t *testing.T) {
+func TestOptionGroup_CopyPreservesOptions(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -122,7 +122,7 @@ func TestBatch2_OptionGroup_CopyPreservesOptions(t *testing.T) {
 	assert.Equal(t, "SSL", groups[0].Options[0].OptionName)
 }
 
-func TestBatch2_OptionGroup_Concurrent(t *testing.T) {
+func TestOptionGroup_Concurrent(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -146,7 +146,7 @@ func TestBatch2_OptionGroup_Concurrent(t *testing.T) {
 	assert.NotEmpty(t, groups[0].Options)
 }
 
-func TestBatch2_OptionGroup_HTTP_CRUD(t *testing.T) {
+func TestOptionGroup_HTTP_CRUD(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()

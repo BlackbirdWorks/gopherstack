@@ -113,7 +113,7 @@ func TestCreateCustomDBEngineVersionDuplicateRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestBatch2_CustomDBEV_CRUD(t *testing.T) {
+func TestCustomDBEV_CRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -133,7 +133,7 @@ func TestBatch2_CustomDBEV_CRUD(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestBatch2_CustomDBEV_ModifyStatus(t *testing.T) {
+func TestCustomDBEV_ModifyStatus(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -150,7 +150,7 @@ func TestBatch2_CustomDBEV_ModifyStatus(t *testing.T) {
 	assert.Equal(t, "inactive-except-restore", updated.Status)
 }
 
-func TestBatch2_CustomDBEV_Duplicate(t *testing.T) {
+func TestCustomDBEV_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -161,7 +161,7 @@ func TestBatch2_CustomDBEV_Duplicate(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestBatch2_CustomDBEV_Concurrent(t *testing.T) {
+func TestCustomDBEV_Concurrent(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -190,7 +190,7 @@ func TestBatch2_CustomDBEV_Concurrent(t *testing.T) {
 	assert.Equal(t, n, successCount)
 }
 
-func TestBatch2_CustomDBEV_HTTP(t *testing.T) {
+func TestCustomDBEV_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -222,7 +222,7 @@ func TestBatch2_CustomDBEV_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestBatch2_OrderableOptions_AllEngines(t *testing.T) {
+func TestOrderableOptions_AllEngines(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -230,7 +230,7 @@ func TestBatch2_OrderableOptions_AllEngines(t *testing.T) {
 	assert.NotEmpty(t, opts)
 }
 
-func TestBatch2_OrderableOptions_FilterByEngine(t *testing.T) {
+func TestOrderableOptions_FilterByEngine(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -241,7 +241,7 @@ func TestBatch2_OrderableOptions_FilterByEngine(t *testing.T) {
 	}
 }
 
-func TestBatch2_OrderableOptions_ContainsExpectedClasses(t *testing.T) {
+func TestOrderableOptions_ContainsExpectedClasses(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -255,7 +255,7 @@ func TestBatch2_OrderableOptions_ContainsExpectedClasses(t *testing.T) {
 	assert.True(t, classSet["db.r5.large"], "expected db.r5.large in orderable classes")
 }
 
-func TestBatch2_OrderableOptions_HTTP(t *testing.T) {
+func TestOrderableOptions_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -269,7 +269,7 @@ func TestBatch2_OrderableOptions_HTTP(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "postgres")
 }
 
-func TestBatch2_Persistence_CustomEngineVersions(t *testing.T) {
+func TestPersistence_CustomEngineVersions(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()

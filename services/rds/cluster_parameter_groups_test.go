@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatch2_ClusterPG_CRUD(t *testing.T) {
+func TestClusterPG_CRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -31,7 +31,7 @@ func TestBatch2_ClusterPG_CRUD(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
 }
 
-func TestBatch2_ClusterPG_ModifyAndDescribe(t *testing.T) {
+func TestClusterPG_ModifyAndDescribe(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -51,7 +51,7 @@ func TestBatch2_ClusterPG_ModifyAndDescribe(t *testing.T) {
 	assert.Equal(t, "binlog_format", got[0].ParameterName)
 }
 
-func TestBatch2_ClusterPG_Reset(t *testing.T) {
+func TestClusterPG_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -73,7 +73,7 @@ func TestBatch2_ClusterPG_Reset(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-func TestBatch2_ClusterPG_Copy(t *testing.T) {
+func TestClusterPG_Copy(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
@@ -94,7 +94,7 @@ func TestBatch2_ClusterPG_Copy(t *testing.T) {
 	assert.Equal(t, "log_min_duration_statement", got[0].ParameterName)
 }
 
-func TestBatch2_ClusterPG_HTTP(t *testing.T) {
+func TestClusterPG_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch2Handler()
@@ -150,7 +150,7 @@ func TestBatch2_ClusterPG_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestAccOps3_CreateDBClusterParameterGroup_UsesClusterFieldName(t *testing.T) {
+func TestCreateDBClusterParameterGroup_UsesClusterFieldName(t *testing.T) {
 	t.Parallel()
 
 	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
@@ -173,7 +173,7 @@ func TestAccOps3_CreateDBClusterParameterGroup_UsesClusterFieldName(t *testing.T
 		"response must not use DBParameterGroupName element for cluster PG")
 }
 
-func TestAccOps3_DescribeDBClusterParameterGroups_UsesClusterFieldName(t *testing.T) {
+func TestDescribeDBClusterParameterGroups_UsesClusterFieldName(t *testing.T) {
 	t.Parallel()
 
 	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
@@ -206,7 +206,7 @@ func TestAccOps3_DescribeDBClusterParameterGroups_UsesClusterFieldName(t *testin
 		"describe response list must not use DBParameterGroup element for cluster PG")
 }
 
-func TestAccOps3_CopyDBClusterParameterGroup_UsesClusterFieldName(t *testing.T) {
+func TestCopyDBClusterParameterGroup_UsesClusterFieldName(t *testing.T) {
 	t.Parallel()
 
 	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
@@ -237,7 +237,7 @@ func TestAccOps3_CopyDBClusterParameterGroup_UsesClusterFieldName(t *testing.T) 
 		"copy response must not use DBParameterGroupName for cluster PG")
 }
 
-func TestAccOps3_DBClusterPG_NonClusterPG_FieldNamesDistinct(t *testing.T) {
+func TestDBClusterPG_NonClusterPG_FieldNamesDistinct(t *testing.T) {
 	t.Parallel()
 
 	h := rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))

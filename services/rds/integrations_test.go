@@ -386,7 +386,7 @@ func TestIntegration_ModifyViaHandler(t *testing.T) {
 	assert.Contains(t, respStr, "updated description")
 }
 
-func TestBatch3_Persistence_IntegrationDataFilter(t *testing.T) {
+func TestPersistence_IntegrationDataFilter(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch3Backend()
