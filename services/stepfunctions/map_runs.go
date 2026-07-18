@@ -77,10 +77,11 @@ func (b *InMemoryBackend) storeMapRun(
 	}
 
 	b.mu.Lock("storeMapRun")
+	defer b.mu.Unlock()
+
 	// Put also inserts mr into the mapRunsByExecution index, replacing the
 	// former manual b.execMapRuns[executionARN] append.
 	b.mapRuns.Put(mr)
-	b.mu.Unlock()
 
 	return mapRunARN
 }

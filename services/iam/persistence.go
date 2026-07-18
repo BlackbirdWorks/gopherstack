@@ -100,75 +100,90 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	normalizeSnapshot(&snap)
 
-	b.mu.Lock("Restore")
+	var (
+		restoreErr      error
+		versionMismatch bool
+	)
 
-	if snap.Version != iamSnapshotVersion {
-		// An incompatible (older/newer/absent) snapshot version must never be
-		// partially decoded as the current shape -- that risks silently
-		// misinterpreting fields. Discard cleanly and start empty instead of
-		// erroring, since this is an expected, recoverable condition (e.g.
-		// upgrading gopherstack across a snapshot-format change), not data
-		// corruption. Mirrors the services/ec2 and services/sqs conversions.
-		logger.Load(ctx).WarnContext(ctx,
-			"iam: discarding incompatible snapshot version, starting empty",
-			"gotVersion", snap.Version, "wantVersion", iamSnapshotVersion)
+	func() {
+		b.mu.Lock("Restore")
+		defer b.mu.Unlock()
 
-		b.registry.ResetAll()
-		b.mu.Unlock()
+		if snap.Version != iamSnapshotVersion {
+			// An incompatible (older/newer/absent) snapshot version must never be
+			// partially decoded as the current shape -- that risks silently
+			// misinterpreting fields. Discard cleanly and start empty instead of
+			// erroring, since this is an expected, recoverable condition (e.g.
+			// upgrading gopherstack across a snapshot-format change), not data
+			// corruption. Mirrors the services/ec2 and services/sqs conversions.
+			logger.Load(ctx).WarnContext(ctx,
+				"iam: discarding incompatible snapshot version, starting empty",
+				"gotVersion", snap.Version, "wantVersion", iamSnapshotVersion)
 
+			b.registry.ResetAll()
+
+			versionMismatch = true
+
+			return
+		}
+
+		if err := b.registry.RestoreAll(snap.Tables); err != nil {
+			restoreErr = fmt.Errorf("iam: restore snapshot tables: %w", err)
+
+			return
+		}
+
+		// userAccessKeys is a secondary index (username -> []AccessKeyID) over
+		// b.accessKeys; it is not itself persisted (see store_setup.go), so it is
+		// always rebuilt fresh from the restored accessKeys table.
+		b.userAccessKeys = make(map[string][]string)
+		for _, ak := range b.accessKeys.All() {
+			b.userAccessKeys[ak.UserName] = append(b.userAccessKeys[ak.UserName], ak.AccessKeyID)
+		}
+
+		b.userPolicies = snap.UserPolicies
+		b.rolePolicies = snap.RolePolicies
+		b.groupPolicies = snap.GroupPolicies
+		b.groupMembers = snap.GroupMembers
+		b.userInlinePolicies = snap.UserInlinePolicies
+		b.roleInlinePolicies = snap.RoleInlinePolicies
+		b.groupInlinePolicies = snap.GroupInlinePolicies
+		b.accountAliases = snap.AccountAliases
+		b.policyVersions = snap.PolicyVersions
+		b.policyVersionCounters = snap.PolicyVersionCounters
+		b.accountID = snap.AccountID
+		b.rebuildIndexesLocked()
+
+		if snap.PolicyByARN != nil {
+			b.policyByARN = snap.PolicyByARN
+		} else {
+			b.policyByARN = make(map[string]string)
+		}
+		if snap.RoleByARN != nil {
+			b.roleByARN = snap.RoleByARN
+		} else {
+			b.roleByARN = make(map[string]string)
+		}
+		if snap.PolicyAttachments != nil {
+			b.policyAttachments = snap.PolicyAttachments
+		} else {
+			b.policyAttachments = make(map[string]policyAttachmentRefs)
+		}
+		if snap.DeletedV1Policies != nil {
+			b.deletedV1Policies = snap.DeletedV1Policies
+		} else {
+			b.deletedV1Policies = make(map[string]bool)
+		}
+		b.passwordPolicy = snap.PasswordPolicy
+	}()
+
+	if restoreErr != nil {
+		return restoreErr
+	}
+
+	if versionMismatch {
 		return nil
 	}
-
-	if err := b.registry.RestoreAll(snap.Tables); err != nil {
-		b.mu.Unlock()
-
-		return fmt.Errorf("iam: restore snapshot tables: %w", err)
-	}
-
-	// userAccessKeys is a secondary index (username -> []AccessKeyID) over
-	// b.accessKeys; it is not itself persisted (see store_setup.go), so it is
-	// always rebuilt fresh from the restored accessKeys table.
-	b.userAccessKeys = make(map[string][]string)
-	for _, ak := range b.accessKeys.All() {
-		b.userAccessKeys[ak.UserName] = append(b.userAccessKeys[ak.UserName], ak.AccessKeyID)
-	}
-
-	b.userPolicies = snap.UserPolicies
-	b.rolePolicies = snap.RolePolicies
-	b.groupPolicies = snap.GroupPolicies
-	b.groupMembers = snap.GroupMembers
-	b.userInlinePolicies = snap.UserInlinePolicies
-	b.roleInlinePolicies = snap.RoleInlinePolicies
-	b.groupInlinePolicies = snap.GroupInlinePolicies
-	b.accountAliases = snap.AccountAliases
-	b.policyVersions = snap.PolicyVersions
-	b.policyVersionCounters = snap.PolicyVersionCounters
-	b.accountID = snap.AccountID
-	b.rebuildIndexesLocked()
-
-	if snap.PolicyByARN != nil {
-		b.policyByARN = snap.PolicyByARN
-	} else {
-		b.policyByARN = make(map[string]string)
-	}
-	if snap.RoleByARN != nil {
-		b.roleByARN = snap.RoleByARN
-	} else {
-		b.roleByARN = make(map[string]string)
-	}
-	if snap.PolicyAttachments != nil {
-		b.policyAttachments = snap.PolicyAttachments
-	} else {
-		b.policyAttachments = make(map[string]policyAttachmentRefs)
-	}
-	if snap.DeletedV1Policies != nil {
-		b.deletedV1Policies = snap.DeletedV1Policies
-	} else {
-		b.deletedV1Policies = make(map[string]bool)
-	}
-	b.passwordPolicy = snap.PasswordPolicy
-
-	b.mu.Unlock()
 
 	// Restore comprehensive state after releasing b.mu (see the matching note
 	// in Snapshot): comprehensiveBackend.restore takes c.mu independently.
