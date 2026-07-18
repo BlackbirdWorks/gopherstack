@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -642,7 +643,7 @@ func (rc *ResourceCreator) createNewServiceResource(
 		return physID, err
 	}
 
-	if physID, handled, err := rc.createPhase5Resource(
+	if physID, handled, err := rc.createExtraResource(
 		ctx, logicalID, resourceType, props, params, physicalIDs,
 	); handled {
 		return physID, err
@@ -1032,7 +1033,7 @@ func (rc *ResourceCreator) createPhase4Resource(
 		return rc.createRDSDBClusterParameterGroup(logicalID, props, params, physicalIDs)
 	default:
 
-		id, handled, err := rc.createPhase5Resource(
+		id, handled, err := rc.createExtraResource(
 			ctx,
 			logicalID,
 			resourceType,
@@ -1394,7 +1395,7 @@ func (rc *ResourceCreator) deleteDataPlatformResource(
 
 		return rc.deleteSchedulerSchedule(ctx, physicalID)
 	default:
-		if handled, err := rc.deletePhase5Resource(ctx, resourceType, physicalID); handled {
+		if handled, err := rc.deleteExtraResource(ctx, resourceType, physicalID); handled {
 			return err
 		}
 
@@ -2178,4 +2179,201 @@ func isCFNExtensibilityType(resourceType string) bool {
 	}
 
 	return strings.HasPrefix(resourceType, "Custom::")
+}
+
+// createExtraResource handles phase-5 resource types added for §K CloudFormation
+// resource-type coverage. It returns handled=false when resourceType is not a phase-5 type
+// so the caller can fall through to the remaining dispatch chain.
+func (rc *ResourceCreator) createExtraResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if physID, handled, err := rc.createExtraLogsResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, true, err
+	}
+
+	if physID, handled, err := rc.createExtraNetworkResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, true, err
+	}
+
+	if id, ok, err := rc.createAppAutoScalingResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	if id, ok := rc.createSecretsManagerSupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, nil
+	}
+
+	if id, ok, err := rc.createSSMSupplementalResource(ctx, logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	if id, ok, err := rc.createDynamoDBSupplementalResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+
+	if id, ok, err := rc.createGlueSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	if id, ok, err := rc.createAppSyncSupplementalResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return id, true, err
+	}
+
+	return rc.createExtraPlatformResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// deleteExtraResource handles deletion for phase-5 resource types.
+func (rc *ResourceCreator) deleteExtraResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
+	if handled, err := rc.deleteExtraLogsResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteExtraNetworkResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteAppAutoScalingResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if rc.deleteSecretsManagerSupplementalResource(resourceType, physicalID) {
+		return true, nil
+	}
+
+	if handled, err := rc.deleteSSMSupplementalResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if rc.deleteDynamoDBSupplementalResource(resourceType, physicalID) {
+		return true, nil
+	}
+
+	if handled, err := rc.deleteGlueSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteAppSyncSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return rc.deleteExtraPlatformResource(ctx, resourceType, physicalID)
+}
+
+func (rc *ResourceCreator) createExtraPlatformResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if physID, handled, err := rc.createExtraAPIGatewayV2Resource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, true, err
+	}
+
+	if physID, handled, err := rc.createExtraMessagingResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, true, err
+	}
+
+	switch resourceType {
+	case resTypeKMSAlias:
+		id, err := rc.createKMSAlias(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case resTypeSSMDocument:
+		id, err := rc.createSSMDocument(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	case "AWS::SecretsManager::ResourcePolicy":
+		id, err := rc.createSecretsManagerResourcePolicy(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	}
+
+	return rc.createCloudFrontResource(logicalID, resourceType, props, params, physicalIDs)
+}
+
+func (rc *ResourceCreator) deleteExtraPlatformResource(
+	ctx context.Context,
+	resourceType, physicalID string,
+) (bool, error) {
+	if handled, err := rc.deleteExtraAPIGatewayV2Resource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteExtraMessagingResource(ctx, resourceType, physicalID); handled {
+		return true, err
+	}
+
+	switch resourceType {
+	case resTypeKMSAlias:
+
+		return true, rc.deleteKMSAlias(ctx, physicalID)
+	case resTypeSSMDocument:
+
+		return true, rc.deleteSSMDocument(ctx, physicalID)
+	case "AWS::SecretsManager::ResourcePolicy":
+
+		return true, rc.deleteSecretsManagerResourcePolicy(ctx, physicalID)
+	}
+
+	return rc.deleteCloudFrontResource(resourceType, physicalID)
+}
+
+// intProp reads an integer-valued property, accepting JSON numbers (float64) and ints.
+func intProp(props map[string]any, key string) int {
+	return int(int64Val(props[key]))
+}
+
+// int64Val converts a JSON-decoded numeric value to int64. CloudFormation templates may carry
+// numbers as float64 (JSON), int, or string. Returns 0 when the value is absent or unparseable.
+func int64Val(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	case json.Number:
+		i, err := n.Int64()
+		if err == nil {
+			return i
+		}
+	}
+
+	return 0
+}
+
+// strSliceProp resolves a property that is expected to be a list of strings (or refs).
+func strSliceProp(v any, params, physicalIDs map[string]string) []string {
+	list, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		if s := resolve(item, params, physicalIDs); s != "" {
+			out = append(out, s)
+		}
+	}
+
+	return out
 }

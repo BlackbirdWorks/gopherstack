@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -717,6 +719,55 @@ func TestNewDynamicRefResolver_RealSecretsManager(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestDynamicRef_ExactLimitNotError verifies a value with exactly the
+// maximum number of dynamic references resolves successfully (off-by-one guard).
+func TestDynamicRef_ExactLimitNotError(t *testing.T) {
+	t.Parallel()
+
+	const maxRefs = 100
+
+	tests := []struct {
+		name    string
+		count   int
+		wantErr bool
+	}{
+		{name: "exactly_at_limit_ok", count: maxRefs, wantErr: false},
+		{name: "over_limit_errors", count: maxRefs + 1, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			params := make(map[string]string, tt.count)
+
+			var value strings.Builder
+			for i := range tt.count {
+				name := "p" + strconv.Itoa(i)
+				params[name] = "v"
+				value.WriteString("{{resolve:ssm:" + name + "}}")
+			}
+
+			tmplBody := `{"AWSTemplateFormatVersion":"2010-09-09",` +
+				`"Resources":{"R":{"Type":"AWS::S3::Bucket","Properties":{"BucketName":` +
+				strconv.Quote(value.String()) + `}}}}`
+
+			tmpl := mustParseTemplate(t, tmplBody)
+			resolver := &stubResolver{params: params}
+
+			err := cloudformation.ResolveDynamicRefsInTemplate(context.Background(), tmpl, resolver)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
 		})
 	}
 }

@@ -672,7 +672,7 @@ func (rc *ResourceCreator) createAPIGatewayV2ApiMapping(
 		return "", fmt.Errorf("create API Gateway V2 API mapping: %w", err)
 	}
 
-	// physID: "<domainName>|<mappingID>" — reuse apigwv2PhysIDSep constant from phase5.
+	// physID: "<domainName>|<mappingID>" — reuse the apigwv2PhysIDSep constant.
 	return domainName + apigwv2PhysIDSep + m.APIMappingID, nil
 }
 
