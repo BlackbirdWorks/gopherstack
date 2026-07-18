@@ -266,12 +266,15 @@ func (h *Handler) writeJSONError(c *echo.Context, statusCode int, code, message 
 
 // Reset clears all handler tag state and delegates to the backend Reset.
 func (h *Handler) Reset() {
-	h.tagsMu.Lock("Reset")
-	for _, entry := range h.tags.All() {
-		entry.Tags.Close()
-	}
-	h.tags.Reset()
-	h.tagsMu.Unlock()
+	func() {
+		h.tagsMu.Lock("Reset")
+		defer h.tagsMu.Unlock()
+
+		for _, entry := range h.tags.All() {
+			entry.Tags.Close()
+		}
+		h.tags.Reset()
+	}()
 
 	h.Backend.Reset()
 }

@@ -68,25 +68,41 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 
 // StartWorker starts the background janitor if configured.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	if h.janitor != nil {
-		h.janitorMu.Lock()
-		if h.janitorDone != nil {
-			h.janitorMu.Unlock()
+	if h.janitor == nil {
+		return nil
+	}
 
-			return nil
+	var (
+		runCtx context.Context
+		done   chan struct{}
+		ready  bool
+	)
+
+	func() {
+		h.janitorMu.Lock()
+		defer h.janitorMu.Unlock()
+
+		if h.janitorDone != nil {
+			return
 		}
 
-		runCtx, cancel := context.WithCancel(ctx)
-		done := make(chan struct{})
+		var cancel context.CancelFunc
+
+		runCtx, cancel = context.WithCancel(ctx)
+		done = make(chan struct{})
 		h.janitorCancel = cancel
 		h.janitorDone = done
-		h.janitorMu.Unlock()
+		ready = true
+	}()
 
-		go func() {
-			defer close(done)
-			h.janitor.Run(runCtx)
-		}()
+	if !ready {
+		return nil
 	}
+
+	go func() {
+		defer close(done)
+		h.janitor.Run(runCtx)
+	}()
 
 	return nil
 }

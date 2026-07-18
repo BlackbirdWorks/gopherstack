@@ -163,22 +163,33 @@ func (b *InMemoryBackend) DeleteTrigger(name string) error {
 // switching to a long-lived "active" monitoring state the way SCHEDULED/CONDITIONAL/
 // EVENT triggers do.
 func (b *InMemoryBackend) StartTrigger(name string) error {
-	b.mu.Lock("StartTrigger")
+	var (
+		found    bool
+		onDemand bool
+		actions  []TriggerAction
+	)
 
-	t, ok := b.triggers.Get(name)
-	if !ok {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("StartTrigger")
+		defer b.mu.Unlock()
 
+		t, ok := b.triggers.Get(name)
+		if !ok {
+			return
+		}
+
+		found = true
+		onDemand = t.Type == triggerTypeOnDemand
+		if !onDemand {
+			t.State = "ACTIVATED"
+		}
+
+		actions = append([]TriggerAction(nil), t.Actions...)
+	}()
+
+	if !found {
 		return ErrNotFound
 	}
-
-	onDemand := t.Type == triggerTypeOnDemand
-	if !onDemand {
-		t.State = "ACTIVATED"
-	}
-
-	actions := append([]TriggerAction(nil), t.Actions...)
-	b.mu.Unlock()
 
 	if onDemand {
 		// Fire outside the trigger lock: StartJobRun/StartCrawler take the same

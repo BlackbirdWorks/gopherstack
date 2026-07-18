@@ -223,17 +223,23 @@ func (b *InMemoryBackend) reconcileLoop(ctx context.Context, stop <-chan struct{
 // exited, guaranteeing no leaked goroutine survives shutdown. It is idempotent and
 // safe to call even when the reconciler was never started.
 func (b *InMemoryBackend) StopReconciler() {
-	b.reconcileMu.Lock()
+	wasOn := func() bool {
+		b.reconcileMu.Lock()
+		defer b.reconcileMu.Unlock()
 
-	if !b.reconcileOn {
-		b.reconcileMu.Unlock()
+		if !b.reconcileOn {
+			return false
+		}
 
+		b.reconcileOn = false
+		close(b.reconcileStop)
+
+		return true
+	}()
+
+	if !wasOn {
 		return
 	}
-
-	b.reconcileOn = false
-	close(b.reconcileStop)
-	b.reconcileMu.Unlock()
 
 	b.reconcileWG.Wait()
 }
