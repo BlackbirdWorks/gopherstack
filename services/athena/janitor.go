@@ -127,9 +127,10 @@ func (j *Janitor) sweepExecutions(cutoff float64) int {
 		return 0
 	}
 
-	swept := 0
-
 	b.mu.Lock("AthenaJanitor-deleteExecutions")
+	defer b.mu.Unlock()
+
+	swept := 0
 
 	for _, id := range candidates {
 		qe, ok := b.queryExecutions.Get(id)
@@ -142,8 +143,6 @@ func (j *Janitor) sweepExecutions(cutoff float64) int {
 
 		swept++
 	}
-
-	b.mu.Unlock()
 
 	return swept
 }
@@ -168,9 +167,10 @@ func (j *Janitor) sweepSessions(cutoff float64) int {
 		return 0
 	}
 
-	swept := 0
-
 	b.mu.Lock("AthenaJanitor-deleteSessions")
+	defer b.mu.Unlock()
+
+	swept := 0
 
 	for _, id := range candidates {
 		s, ok := b.sessions.Get(id)
@@ -182,8 +182,6 @@ func (j *Janitor) sweepSessions(cutoff float64) int {
 
 		swept++
 	}
-
-	b.mu.Unlock()
 
 	return swept
 }
@@ -209,9 +207,10 @@ func (j *Janitor) sweepCalculations(cutoff float64) int {
 		return 0
 	}
 
-	swept := 0
-
 	b.mu.Lock("AthenaJanitor-deleteCalculations")
+	defer b.mu.Unlock()
+
+	swept := 0
 
 	for _, id := range candidates {
 		c, ok := b.calculations.Get(id)
@@ -223,8 +222,6 @@ func (j *Janitor) sweepCalculations(cutoff float64) int {
 
 		swept++
 	}
-
-	b.mu.Unlock()
 
 	return swept
 }

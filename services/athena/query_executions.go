@@ -27,31 +27,41 @@ func (b *InMemoryBackend) StartQueryExecution(
 		workGroup = defaultWorkGroup
 	}
 
-	b.mu.Lock("StartQueryExecution")
+	var id string
 
-	wg, ok := b.workGroups.Get(workGroup)
-	if !ok {
-		b.mu.Unlock()
+	var startErr error
 
-		return "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
+	func() {
+		b.mu.Lock("StartQueryExecution")
+		defer b.mu.Unlock()
+
+		wg, ok := b.workGroups.Get(workGroup)
+		if !ok {
+			startErr = fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
+
+			return
+		}
+
+		if wg.State == "DISABLED" {
+			startErr = fmt.Errorf("%w: workgroup %q is disabled", ErrValidation, workGroup)
+
+			return
+		}
+
+		// EnforceWorkGroupConfiguration: workgroup settings override per-query settings.
+		rc = applyWorkGroupResultConfig(wg, rc)
+
+		reused := b.hasReusableResult(workGroup, query, reuseCfg)
+
+		id = randomID()
+		qe := newQueryExecution(id, query, workGroup, ctx, rc, execParams, reuseCfg, reused)
+
+		b.queryExecutions.Put(qe)
+	}()
+
+	if startErr != nil {
+		return "", startErr
 	}
-
-	if wg.State == "DISABLED" {
-		b.mu.Unlock()
-
-		return "", fmt.Errorf("%w: workgroup %q is disabled", ErrValidation, workGroup)
-	}
-
-	// EnforceWorkGroupConfiguration: workgroup settings override per-query settings.
-	rc = applyWorkGroupResultConfig(wg, rc)
-
-	reused := b.hasReusableResult(workGroup, query, reuseCfg)
-
-	id := randomID()
-	qe := newQueryExecution(id, query, workGroup, ctx, rc, execParams, reuseCfg, reused)
-
-	b.queryExecutions.Put(qe)
-	b.mu.Unlock()
 
 	// Execute the statement outside the write-lock. executeStatement acquires
 	// its own locks: an RLock for SELECT projection and a write-lock for DDL/DML

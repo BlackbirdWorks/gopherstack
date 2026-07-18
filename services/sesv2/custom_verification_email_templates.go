@@ -142,13 +142,14 @@ func (b *InMemoryBackend) SendCustomVerificationEmail(
 	}
 
 	b.mu.Lock("SendCustomVerificationEmail-record")
+	defer b.mu.Unlock()
+
 	b.emails = append(b.emails, email)
 	if len(b.emails) >= emailCompactionHighWater {
 		trimmed := make([]Email, maxRetainedEmails, emailCompactionHighWater)
 		copy(trimmed, b.emails[len(b.emails)-maxRetainedEmails:])
 		b.emails = trimmed
 	}
-	b.mu.Unlock()
 
 	return msgID, nil
 }

@@ -122,17 +122,20 @@ func (b *InMemoryBackend) ListEmailIdentities(
 	nextToken string,
 	pageSize int,
 ) page.Page[*EmailIdentity] {
-	b.mu.RLock("ListEmailIdentities")
+	var out []*EmailIdentity
 
-	snap := b.identities.Snapshot()
-	out := make([]*EmailIdentity, 0, len(snap))
+	func() {
+		b.mu.RLock("ListEmailIdentities")
+		defer b.mu.RUnlock()
 
-	for _, ei := range snap {
-		cp := *ei
-		out = append(out, &cp)
-	}
+		snap := b.identities.Snapshot()
+		out = make([]*EmailIdentity, 0, len(snap))
 
-	b.mu.RUnlock()
+		for _, ei := range snap {
+			cp := *ei
+			out = append(out, &cp)
+		}
+	}()
 
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Identity < out[j].Identity

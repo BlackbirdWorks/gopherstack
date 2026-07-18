@@ -52,9 +52,9 @@ func (b *InMemoryBackend) SendEmail(
 	}
 
 	b.mu.Lock("SendEmail")
-	if err := b.checkFromIdentityLocked(from); err != nil {
-		b.mu.Unlock()
+	defer b.mu.Unlock()
 
+	if err := b.checkFromIdentityLocked(from); err != nil {
 		return "", err
 	}
 	b.emails = append(b.emails, email)
@@ -70,7 +70,6 @@ func (b *InMemoryBackend) SendEmail(
 		copy(trimmed, b.emails[len(b.emails)-maxRetainedEmails:])
 		b.emails = trimmed
 	}
-	b.mu.Unlock()
 
 	return msgID, nil
 }
