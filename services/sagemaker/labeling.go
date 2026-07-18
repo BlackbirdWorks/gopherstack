@@ -285,12 +285,13 @@ func (b *InMemoryBackend) CreateLabelingJob(
 func (b *InMemoryBackend) scheduleLabelingJobCompletion(ctx context.Context, region, name string) {
 	b.runDelayed(ctx, labelingJobStopDelay, func() {
 		b.mu.Lock("scheduleLabelingJobCompletion.toInProgress")
+		defer b.mu.Unlock()
+
 		j, ok := b.labelingJobsStore(region).Get(name)
 		if ok && j.LabelingJobStatus == labelingJobStatusInitializing {
 			j.LabelingJobStatus = labelingJobStatusInProgress
 			j.LastModifiedTime = time.Now()
 		}
-		b.mu.Unlock()
 	})
 
 	b.runDelayed(ctx, labelingJobCompletionDelay, func() {

@@ -82,11 +82,14 @@ func (b *InMemoryBackend) runDelayed(ctx context.Context, delay time.Duration, f
 // in-flight ones to finish, bounded by ctx. It implements the shutdown half of the
 // service.Shutdowner contract (wired through the Handler).
 func (b *InMemoryBackend) Shutdown(ctx context.Context) {
-	b.mu.Lock("Shutdown")
-	if b.lifecycleCancel != nil {
-		b.lifecycleCancel()
-	}
-	b.mu.Unlock()
+	func() {
+		b.mu.Lock("Shutdown")
+		defer b.mu.Unlock()
+
+		if b.lifecycleCancel != nil {
+			b.lifecycleCancel()
+		}
+	}()
 
 	done := make(chan struct{})
 
