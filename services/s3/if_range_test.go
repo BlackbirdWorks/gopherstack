@@ -13,7 +13,7 @@ import (
 // TestParity_GetObject_IfRange verifies If-Range semantics: a matching ETag
 // serves the partial (206) range, while a non-matching If-Range ETag causes the
 // full object (200) to be returned.
-func TestParity_GetObject_IfRange(t *testing.T) {
+func TestGetObject_IfRange(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)

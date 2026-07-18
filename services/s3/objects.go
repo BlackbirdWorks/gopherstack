@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -27,6 +28,233 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
+
+// ErrRestoreDaysNegative is returned when RestoreObject is called with a
+// negative Days value.
+var ErrRestoreDaysNegative = errors.New("restore Days must be non-negative")
+
+// ErrRenameTargetSameAsSource is returned when RenameObject is called with a
+// target key equal to (or empty relative to) the source key.
+var ErrRenameTargetSameAsSource = errors.New("target key must differ from source")
+
+// newStoredObject creates a new StoredObject with its mu initialized.
+func newStoredObject(key string) *StoredObject {
+	return &StoredObject{
+		Key:      key,
+		Versions: make(map[string]*StoredObjectVersion),
+		mu:       lockmetrics.New("s3.object"),
+	}
+}
+
+// ObjectAttributes is the projection of object metadata returned by GetObjectAttributes.
+type ObjectAttributes struct {
+	LastModified time.Time
+	Checksum     map[string]string
+	ETag         string
+	StorageClass string
+	ObjectSize   int64
+}
+
+// GetObjectAttributes returns selected attributes for the latest version of an object.
+// versionID may be empty to select the latest version.
+func (b *InMemoryBackend) GetObjectAttributes(
+	_ context.Context,
+	bucketName, key, versionID string,
+) (*ObjectAttributes, error) {
+	b.mu.RLock("GetObjectAttributes")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	bucket.mu.RLock("GetObjectAttributes")
+	defer bucket.mu.RUnlock()
+
+	obj, ok := bucket.Objects[key]
+	if !ok {
+		return nil, ErrNoSuchKey
+	}
+
+	obj.mu.RLock("GetObjectAttributes")
+	defer obj.mu.RUnlock()
+
+	vid := versionID
+	if vid == "" {
+		vid = obj.LatestVersionID
+	}
+
+	ver, ok := obj.Versions[vid]
+	if !ok || ver.Deleted {
+		return nil, ErrNoSuchKey
+	}
+
+	out := &ObjectAttributes{
+		ETag:         ver.ETag,
+		ObjectSize:   ver.Size,
+		StorageClass: ver.StorageClass,
+		LastModified: ver.LastModified,
+		Checksum:     map[string]string{},
+	}
+
+	if out.StorageClass == "" {
+		out.StorageClass = storageStandard
+	}
+
+	if ver.ChecksumSHA1 != nil {
+		out.Checksum["ChecksumSHA1"] = *ver.ChecksumSHA1
+	}
+	if ver.ChecksumSHA256 != nil {
+		out.Checksum["ChecksumSHA256"] = *ver.ChecksumSHA256
+	}
+	if ver.ChecksumCRC32 != nil {
+		out.Checksum["ChecksumCRC32"] = *ver.ChecksumCRC32
+	}
+	if ver.ChecksumCRC32C != nil {
+		out.Checksum["ChecksumCRC32C"] = *ver.ChecksumCRC32C
+	}
+	if ver.ChecksumCRC64NVME != nil {
+		out.Checksum["ChecksumCRC64NVME"] = *ver.ChecksumCRC64NVME
+	}
+
+	return out, nil
+}
+
+// RestoreObject marks the latest object version as restored for the given duration.
+// AWS returns 202 Accepted and asynchronously restores; we mark the restore as
+// completed immediately and set an expiry, since this is an in-memory mock.
+func (b *InMemoryBackend) RestoreObject(_ context.Context, bucketName, key string, days int) error {
+	if days < 0 {
+		return ErrRestoreDaysNegative
+	}
+	if days == 0 {
+		days = 1
+	}
+
+	b.mu.RLock("RestoreObject")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.RLock("RestoreObject")
+	obj, ok := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
+	if !ok {
+		return ErrNoSuchKey
+	}
+
+	obj.mu.Lock("RestoreObject")
+	defer obj.mu.Unlock()
+
+	ver, ok := obj.Versions[obj.LatestVersionID]
+	if !ok || ver.Deleted {
+		return ErrNoSuchKey
+	}
+
+	ver.OngoingRestore = false
+	ver.RestoreExpiry = time.Now().Add(time.Duration(days) * 24 * time.Hour)
+
+	return nil
+}
+
+// UpdateObjectEncryption updates the SSE algorithm (and optional KMS key id)
+// of the latest version of the named object.
+func (b *InMemoryBackend) UpdateObjectEncryption(
+	_ context.Context,
+	bucketName, key, algorithm, kmsKeyID string,
+) error {
+	b.mu.RLock("UpdateObjectEncryption")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.RLock("UpdateObjectEncryption")
+	obj, ok := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
+	if !ok {
+		return ErrNoSuchKey
+	}
+
+	obj.mu.Lock("UpdateObjectEncryption")
+	defer obj.mu.Unlock()
+
+	ver, ok := obj.Versions[obj.LatestVersionID]
+	if !ok || ver.Deleted {
+		return ErrNoSuchKey
+	}
+
+	ver.SSEAlgorithm = algorithm
+	ver.SSEKMSKeyID = kmsKeyID
+
+	return nil
+}
+
+// RenameObject performs an atomic copy+delete of the source key into a new key.
+// The target key is taken from `targetKey` (relative to the same bucket).
+func (b *InMemoryBackend) RenameObject(
+	_ context.Context,
+	bucketName, sourceKey, targetKey string,
+) error {
+	if targetKey == "" || targetKey == sourceKey {
+		return ErrRenameTargetSameAsSource
+	}
+	if rest, ok := strings.CutPrefix(targetKey, "/"); ok {
+		targetKey = rest
+	}
+
+	b.mu.RLock("RenameObject")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("RenameObject")
+	defer bucket.mu.Unlock()
+
+	srcObj, ok := bucket.Objects[sourceKey]
+	if !ok {
+		return ErrNoSuchKey
+	}
+
+	srcObj.mu.Lock("RenameObject")
+	defer srcObj.mu.Unlock()
+
+	srcVer, ok := srcObj.Versions[srcObj.LatestVersionID]
+	if !ok || srcVer.Deleted {
+		return ErrNoSuchKey
+	}
+
+	// Clone the latest version under the new key.
+	newVersion := *srcVer
+	newVersion.Key = targetKey
+	newVersion.IsLatest = true
+
+	dstObj := newStoredObject(targetKey)
+	dstObj.LatestVersionID = newVersion.VersionID
+	dstObj.Versions[newVersion.VersionID] = &newVersion
+	if existing, exists := bucket.Objects[targetKey]; exists {
+		// If a destination object already exists, replace its latest version.
+		existing.LatestVersionID = newVersion.VersionID
+		existing.Versions[newVersion.VersionID] = &newVersion
+	} else {
+		bucket.Objects[targetKey] = dstObj
+	}
+
+	delete(bucket.Objects, sourceKey)
+
+	return nil
+}
 
 func (b *InMemoryBackend) PutObject(
 	ctx context.Context,

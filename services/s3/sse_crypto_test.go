@@ -279,3 +279,220 @@ func TestSSEC_NoMD5Header_Rejected(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestSSEC_ValidKeyMD5(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "test-sse")
+
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	keyB64 := base64.StdEncoding.EncodeToString(key)
+	md5Sum := md5.Sum(key)
+	keyMD5 := base64.StdEncoding.EncodeToString(md5Sum[:])
+
+	rec := doRequest(handler, http.MethodPut, "/test-sse/myobj",
+		strings.NewReader("hello world"),
+		map[string]string{
+			"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+			"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+			"X-Amz-Server-Side-Encryption-Customer-Key-Md5":   keyMD5,
+		})
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSSEC_BadKeyMD5_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "test-sse-bad")
+
+	key := make([]byte, 32)
+	keyB64 := base64.StdEncoding.EncodeToString(key)
+	wrongMD5 := base64.StdEncoding.EncodeToString(make([]byte, 16))
+
+	rec := doRequest(handler, http.MethodPut, "/test-sse-bad/obj",
+		strings.NewReader("data"),
+		map[string]string{
+			"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+			"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+			"X-Amz-Server-Side-Encryption-Customer-Key-Md5":   wrongMD5,
+		})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSSEC_EchoedOnGet(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "test-sse-echo")
+
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	keyB64 := base64.StdEncoding.EncodeToString(key)
+	md5Sum := md5.Sum(key)
+	keyMD5 := base64.StdEncoding.EncodeToString(md5Sum[:])
+
+	sseHeaders := map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+		"X-Amz-Server-Side-Encryption-Customer-Key-Md5":   keyMD5,
+	}
+
+	putRec := doRequest(handler, http.MethodPut, "/test-sse-echo/obj",
+		strings.NewReader("test data"), sseHeaders)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	getRec := doRequest(handler, http.MethodGet, "/test-sse-echo/obj", nil, sseHeaders)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	assert.Equal(
+		t,
+		"AES256",
+		getRec.Header().Get("X-Amz-Server-Side-Encryption-Customer-Algorithm"),
+	)
+	assert.Equal(t, keyMD5, getRec.Header().Get("X-Amz-Server-Side-Encryption-Customer-Key-Md5"))
+}
+
+func TestSSE_S3Algorithm_EchoedOnPut(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "test-sse-s3")
+
+	rec := doRequest(handler, http.MethodPut, "/test-sse-s3/obj",
+		strings.NewReader("data"),
+		map[string]string{
+			"X-Amz-Server-Side-Encryption": "AES256",
+		})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "AES256", rec.Header().Get("X-Amz-Server-Side-Encryption"))
+}
+
+// ─── CopyObject conditionals ─────────────────────────────────────────────────
+
+func TestSSEC_GetObject_MissingHeaders_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-get-missing")
+	keyB64, keyMD5 := mustPutSSECObject(t, handler, "ssec-get-missing", "obj", "data")
+	_ = keyMD5
+
+	// GET without any SSE-C headers → 400.
+	rec := doRequest(handler, http.MethodGet, "/ssec-get-missing/obj", nil, nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// GET with algorithm only (no key-MD5) → 400.
+	rec = doRequest(handler, http.MethodGet, "/ssec-get-missing/obj", nil, map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSSEC_GetObject_WrongMD5_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-get-wrong")
+	keyB64, _ := mustPutSSECObject(t, handler, "ssec-get-wrong", "obj", "data")
+
+	wrongMD5 := base64.StdEncoding.EncodeToString(make([]byte, 16))
+	rec := doRequest(handler, http.MethodGet, "/ssec-get-wrong/obj", nil, map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+		"X-Amz-Server-Side-Encryption-Customer-Key-Md5":   wrongMD5,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSSEC_GetObject_ValidHeaders_Returns200(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-get-valid")
+	keyB64, keyMD5 := mustPutSSECObject(t, handler, "ssec-get-valid", "obj", "hello")
+
+	rec := doRequest(
+		handler,
+		http.MethodGet,
+		"/ssec-get-valid/obj",
+		nil,
+		ssecHeaders(keyB64, keyMD5),
+	)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// second object with a distinct key name ensures mustPutSSECObject's key param is exercised.
+	key2B64, key2MD5 := mustPutSSECObject(t, handler, "ssec-get-valid", "obj2", "world")
+	rec2 := doRequest(
+		handler,
+		http.MethodGet,
+		"/ssec-get-valid/obj2",
+		nil,
+		ssecHeaders(key2B64, key2MD5),
+	)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+func TestSSEC_HeadObject_MissingHeaders_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-head-missing")
+	keyB64, keyMD5 := mustPutSSECObject(t, handler, "ssec-head-missing", "obj", "data")
+	_ = keyMD5
+
+	rec := doRequest(handler, http.MethodHead, "/ssec-head-missing/obj", nil, nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// algorithm only → 400.
+	rec = doRequest(handler, http.MethodHead, "/ssec-head-missing/obj", nil, map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSSEC_HeadObject_WrongMD5_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-head-wrong")
+	keyB64, _ := mustPutSSECObject(t, handler, "ssec-head-wrong", "obj", "data")
+
+	wrongMD5 := base64.StdEncoding.EncodeToString(make([]byte, 16))
+	rec := doRequest(handler, http.MethodHead, "/ssec-head-wrong/obj", nil, map[string]string{
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+		"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+		"X-Amz-Server-Side-Encryption-Customer-Key-Md5":   wrongMD5,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSSEC_HeadObject_ValidHeaders_Returns200(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-head-valid")
+	keyB64, keyMD5 := mustPutSSECObject(t, handler, "ssec-head-valid", "obj", "hello")
+
+	rec := doRequest(
+		handler,
+		http.MethodHead,
+		"/ssec-head-valid/obj",
+		nil,
+		ssecHeaders(keyB64, keyMD5),
+	)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// ─── CopyObject tagging COPY directive ───────────────────────────────────────

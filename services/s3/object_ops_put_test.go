@@ -14,6 +14,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -205,6 +208,243 @@ func TestUploadPart_ChecksumHandling(t *testing.T) {
 			serveS3Handler(handler, rec, req)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestHandler_ChecksumMismatch_Rejected verifies that PutObject via the HTTP
+// handler returns 400 BadDigest when the supplied checksum does not match the
+// actual content.
+func TestHandler_ChecksumMismatch_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		algo           string
+		checksumHeader string
+	}{
+		{name: "sha256_mismatch", algo: "SHA256", checksumHeader: "X-Amz-Checksum-Sha256"},
+		{name: "crc32_mismatch", algo: "CRC32", checksumHeader: "X-Amz-Checksum-Crc32"},
+		{name: "sha1_mismatch", algo: "SHA1", checksumHeader: "X-Amz-Checksum-Sha1"},
+		{name: "crc32c_mismatch", algo: "CRC32C", checksumHeader: "X-Amz-Checksum-Crc32c"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "bkt")
+
+			body := "test data for checksum"
+			// Compute correct checksum then corrupt it.
+			correct := s3.CalculateChecksum([]byte(body), tt.algo)
+			corrupt := correct[:len(correct)-1] + "X"
+
+			req := httptest.NewRequest(http.MethodPut, "/bkt/key", strings.NewReader(body))
+			req.Header.Set("X-Amz-Checksum-Algorithm", tt.algo)
+			req.Header.Set(tt.checksumHeader, corrupt)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code,
+				"expected 400 BadDigest for corrupted %s checksum", tt.algo)
+			assert.Contains(t, rec.Body.String(), "BadDigest")
+		})
+	}
+}
+
+// TestHandler_ChecksumValid_Accepted verifies that PutObject via the HTTP
+// handler returns 200 when the supplied checksum matches the content.
+func TestHandler_ChecksumValid_Accepted(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		algo           string
+		checksumHeader string
+	}{
+		{name: "sha256_valid", algo: "SHA256", checksumHeader: "X-Amz-Checksum-Sha256"},
+		{name: "crc32_valid", algo: "CRC32", checksumHeader: "X-Amz-Checksum-Crc32"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "bkt")
+
+			body := "valid checksum data"
+			correct := s3.CalculateChecksum([]byte(body), tt.algo)
+
+			req := httptest.NewRequest(http.MethodPut, "/bkt/key", strings.NewReader(body))
+			req.Header.Set("X-Amz-Checksum-Algorithm", tt.algo)
+			req.Header.Set(tt.checksumHeader, correct)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code,
+				"expected 200 for valid %s checksum", tt.algo)
+		})
+	}
+}
+
+// TestPutObject_ChecksumVerification verifies that the backend stores valid
+// checksums and that the HTTP handler layer rejects mismatched ones.
+func TestPutObject_ChecksumVerification(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		algo    string
+		corrupt bool
+		wantErr bool
+	}{
+		{name: "correct_sha256_accepted", algo: "SHA256", corrupt: false, wantErr: false},
+		{name: "correct_crc32_accepted", algo: "CRC32", corrupt: false, wantErr: false},
+		{name: "correct_sha1_accepted", algo: "SHA1", corrupt: false, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := newTestBackend(t)
+			mustCreateBucket(t, backend, "bkt")
+
+			data := []byte("checksum test data")
+			checksum := s3.CalculateChecksum(data, tt.algo)
+
+			var input sdk_s3.PutObjectInput
+			input.Bucket = aws.String("bkt")
+			input.Key = aws.String("key")
+			input.Body = bytes.NewReader(data)
+			input.ChecksumAlgorithm = types.ChecksumAlgorithm(tt.algo)
+
+			switch tt.algo {
+			case "SHA256":
+				input.ChecksumSHA256 = aws.String(checksum)
+			case "CRC32":
+				input.ChecksumCRC32 = aws.String(checksum)
+			case "SHA1":
+				input.ChecksumSHA1 = aws.String(checksum)
+			}
+
+			_, err := backend.PutObject(t.Context(), &input)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			// Verify the checksum is preserved on retrieval.
+			getOut, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+				Bucket: aws.String("bkt"),
+				Key:    aws.String("key"),
+			})
+			require.NoError(t, err)
+
+			switch tt.algo {
+			case "SHA256":
+				assert.Equal(t, checksum, aws.ToString(getOut.ChecksumSHA256))
+			case "CRC32":
+				assert.Equal(t, checksum, aws.ToString(getOut.ChecksumCRC32))
+			case "SHA1":
+				assert.Equal(t, checksum, aws.ToString(getOut.ChecksumSHA1))
+			}
+		})
+	}
+}
+
+func TestCRC64NVME_PutObject_ValidChecksum(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "crc64-bucket")
+
+	data := []byte("test data for crc64nvme")
+	checksum := s3.CalculateCRC64NVME(data)
+
+	rec := doRequest(handler, http.MethodPut, "/crc64-bucket/obj",
+		bytes.NewReader(data),
+		map[string]string{
+			"X-Amz-Checksum-Algorithm": "CRC64NVME",
+			"X-Amz-Checksum-Crc64nvme": checksum,
+		})
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestCRC64NVME_PutObject_InvalidChecksum_Returns400(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "crc64-bad")
+
+	data := []byte("test data")
+	wrongChecksum := base64.StdEncoding.EncodeToString(make([]byte, 8))
+
+	rec := doRequest(handler, http.MethodPut, "/crc64-bad/obj",
+		bytes.NewReader(data),
+		map[string]string{
+			"X-Amz-Checksum-Algorithm": "CRC64NVME",
+			"X-Amz-Checksum-Crc64nvme": wrongChecksum,
+		})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ─── Delete markers with versioning ──────────────────────────────────────────
+
+func TestHandler_PutObject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *s3.InMemoryBackend)
+		name       string
+		bucket     string
+		key        string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:   "put object success",
+			bucket: "bkt",
+			key:    "key",
+			body:   "hello world",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "bkt")
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "put object to non-existent bucket",
+			bucket:     "no-bkt",
+			key:        "key",
+			body:       "data",
+			setup:      func(_ *testing.T, _ *s3.InMemoryBackend) {},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			tt.setup(t, backend)
+
+			req := httptest.NewRequest(
+				http.MethodPut,
+				"/"+tt.bucket+"/"+tt.key,
+				strings.NewReader(tt.body),
+			)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }

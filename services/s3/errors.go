@@ -59,6 +59,9 @@ var (
 	ErrAccessDenied               = errors.New(errAccessDenied)
 	ErrKeyTooLongError            = errors.New("KeyTooLongError")
 	ErrSSECRequired               = errors.New("InvalidRequest")
+	// ErrMalformedXML is returned when an XML request body cannot be decoded.
+	// The error table maps it to HTTP 400 with code "MalformedXML".
+	ErrMalformedXML = errors.New(errMalformedXML)
 )
 
 type s3ErrorInfo struct {

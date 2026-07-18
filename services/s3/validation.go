@@ -2,6 +2,7 @@ package s3
 
 import (
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -16,6 +17,28 @@ const (
 	maxTagKeyLength = 128
 	maxTagValueLen  = 256
 )
+
+// headerExpectedBucketOwner is the request header that asserts bucket ownership.
+const headerExpectedBucketOwner = "X-Amz-Expected-Bucket-Owner"
+
+// mockAccountID is the account ID used by the mock for ownership checks.
+const mockAccountID = "123456789012"
+
+// validateExpectedBucketOwner checks the x-amz-expected-bucket-owner header.
+// Returns ErrAccessDenied (403) when the header is present and does not match
+// the mock account ID.
+func validateExpectedBucketOwner(r *http.Request) error {
+	expected := r.Header.Get(headerExpectedBucketOwner)
+	if expected == "" {
+		return nil
+	}
+
+	if expected != mockAccountID {
+		return ErrAccessDenied
+	}
+
+	return nil
+}
 
 // validateObjectTags enforces AWS's per-object tag-set limits. It returns
 // ErrTooManyTags when more than 10 tags are present and ErrInvalidTag when a key

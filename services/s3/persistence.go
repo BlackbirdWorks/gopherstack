@@ -14,7 +14,7 @@ import (
 
 // s3SnapshotVersion identifies the shape of backendSnapshot's Tables blob
 // (i.e. the set/shape of resources registered on b.registry -- see
-// NewInMemoryBackend in backend_memory.go). It must be bumped whenever a
+// NewInMemoryBackend in store.go). It must be bumped whenever a
 // change there would make an older snapshot unsafe to decode as the current
 // shape. Restore compares this against the persisted value and discards
 // (rather than attempts to partially decode) any mismatch -- see Restore

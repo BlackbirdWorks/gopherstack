@@ -470,3 +470,16 @@ func checkConditionalHeaders(r *http.Request, etag string, lastModified time.Tim
 
 	return 0, true
 }
+
+// handleGetObjectTorrent handles GET /{bucket}/{key}?torrent.
+// As of 2022 AWS S3 itself returns NotImplemented for new buckets and the
+// operation is being phased out. We mirror that behaviour rather than emit
+// an empty/invalid torrent payload that would be parsed as malformed.
+func (h *S3Handler) handleGetObjectTorrent(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	h.setOperation(ctx, "GetObjectTorrent")
+	WriteError(ctx, w, r, ErrNotImplemented)
+}

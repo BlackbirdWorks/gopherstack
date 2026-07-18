@@ -26,6 +26,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+// multipartMinPartSize is the AWS minimum non-last part size for multipart uploads.
+const multipartMinPartSize = 5 * 1024 * 1024
+
 // getUpload returns the multipart upload for uploadID, but only if it belongs
 // to bucketName — mirroring the old b.uploads[bucketName][uploadID] nested-map
 // lookup, which returned nil both when the uploadID was absent and when it

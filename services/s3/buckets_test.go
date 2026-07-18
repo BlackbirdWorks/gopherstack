@@ -1,6 +1,7 @@
 package s3_test
 
 import (
+	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,7 +143,7 @@ func TestGetBucketLocation(t *testing.T) {
 // TestParity_ListDirectoryBuckets verifies that directory buckets (--x-s3 suffix)
 // are returned by ListDirectoryBuckets and excluded from ListBuckets, matching
 // the AWS partition between general-purpose and S3 Express bucket namespaces.
-func TestParity_ListDirectoryBuckets(t *testing.T) {
+func TestListDirectoryBuckets(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -295,4 +296,301 @@ func TestHandler_HeadBucket_NoSuchBucket(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_DeleteBucket_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		bucket     string
+		populate   bool
+		wantStatus int
+	}{
+		{
+			// Async deletion: non-empty buckets are now queued for background deletion.
+			name:       "delete non-empty bucket succeeds and queues async deletion",
+			bucket:     "full-bkt",
+			populate:   true,
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "delete non-existent bucket returns 404",
+			bucket:     "no-bkt",
+			populate:   false,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, backend := newTestHandler(t)
+
+			if tt.populate {
+				mustCreateBucket(t, backend, tt.bucket)
+				mustPutObject(t, backend, tt.bucket, "obj", []byte("data"))
+			}
+
+			req := httptest.NewRequest(http.MethodDelete, "/"+tt.bucket, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateBucket_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		bucket     string
+		body       string
+		preCreate  bool
+		wantStatus int
+	}{
+		{
+			name:       "duplicate bucket returns 409",
+			bucket:     "bkt",
+			preCreate:  true,
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "invalid XML in body creates bucket with default region",
+			bucket:     "new-bkt",
+			body:       "not xml",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, backend := newTestHandler(t)
+
+			if tt.preCreate {
+				mustCreateBucket(t, backend, tt.bucket)
+			}
+
+			var body strings.Reader
+			if tt.body != "" {
+				body = *strings.NewReader(tt.body)
+			}
+
+			req := httptest.NewRequest(http.MethodPut, "/"+tt.bucket, &body)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateBucket_BucketAlreadyOwnedByYou_XMLResponse(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "existing")
+
+	req := httptest.NewRequest(http.MethodPut, "/existing", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/xml")
+
+	var errResp s3.ErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "BucketAlreadyOwnedByYou", errResp.Code)
+	assert.NotEmpty(t, errResp.Message)
+}
+
+func TestHandler_ListBuckets(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*testing.T, *s3.InMemoryBackend)
+		name    string
+		wantLen int
+	}{
+		{
+			name:    "no buckets",
+			setup:   func(_ *testing.T, _ *s3.InMemoryBackend) {},
+			wantLen: 0,
+		},
+		{
+			name: "one bucket",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "test")
+			},
+			wantLen: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			tt.setup(t, backend)
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Header().Get("Content-Type"), "application/xml")
+		})
+	}
+}
+
+func TestHandler_CreateBucket(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *s3.InMemoryBackend)
+		name       string
+		bucket     string
+		wantStatus int
+	}{
+		{
+			name:       "create new bucket",
+			bucket:     "new-bucket",
+			setup:      func(_ *testing.T, _ *s3.InMemoryBackend) {},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "create duplicate bucket",
+			bucket: "existing",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "existing")
+			},
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			tt.setup(t, backend)
+
+			req := httptest.NewRequest(http.MethodPut, "/"+tt.bucket, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_CreateBucket_ReturnsLocation(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/test-bucket", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "/test-bucket", rec.Header().Get("Location"), "Location header should be set")
+}
+
+func TestHandler_DeleteBucket(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *s3.InMemoryBackend)
+		name       string
+		bucket     string
+		wantStatus int
+	}{
+		{
+			name:   "delete empty bucket",
+			bucket: "my-bucket",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "my-bucket")
+			},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "delete non-existent bucket",
+			bucket:     "no-bucket",
+			setup:      func(_ *testing.T, _ *s3.InMemoryBackend) {},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:   "delete non-empty bucket",
+			bucket: "full-bucket",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "full-bucket")
+				mustPutObject(t, b, "full-bucket", "k", []byte("d"))
+			},
+			// Async deletion: non-empty buckets are now queued for background deletion.
+			wantStatus: http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			tt.setup(t, backend)
+
+			req := httptest.NewRequest(http.MethodDelete, "/"+tt.bucket, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_HeadBucket(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *s3.InMemoryBackend)
+		name       string
+		bucket     string
+		wantStatus int
+	}{
+		{
+			name:   "existing bucket",
+			bucket: "my-bucket",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "my-bucket")
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "non-existent bucket",
+			bucket:     "no-bucket",
+			setup:      func(_ *testing.T, _ *s3.InMemoryBackend) {},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			tt.setup(t, backend)
+
+			req := httptest.NewRequest(http.MethodHead, "/"+tt.bucket, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }

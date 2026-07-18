@@ -184,3 +184,57 @@ func (h *S3Handler) getObjectLegalHold(
 
 	httputils.WriteXML(ctx, w, http.StatusOK, lh)
 }
+
+// restoreRequest is the XML body for POST ?restore.
+type restoreRequest struct {
+	XMLName xml.Name `xml:"RestoreRequest"`
+	Days    int      `xml:"Days"`
+}
+
+// handleRestoreObject handles POST /{bucket}/{key}?restore.
+// Reads the XML RestoreRequest body to extract Days, then marks the latest
+// version as restored for that period.
+func (h *S3Handler) handleRestoreObject(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	h.setOperation(ctx, "RestoreObject")
+
+	bucket, key, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" || key == "" {
+		WriteError(ctx, w, r, ErrNoSuchKey)
+
+		return
+	}
+
+	var req restoreRequest
+
+	body, _ := httputils.ReadBody(r)
+	if len(body) > 0 {
+		_ = xml.Unmarshal(body, &req)
+	}
+
+	if err := h.Backend.RestoreObject(ctx, bucket, key, req.Days); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	// AWS fires s3:ObjectRestore:Post when a restore is initiated; downstream
+	// SQS/SNS/Lambda consumers depend on it for archival workflows.
+	if h.notifier != nil {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
+			ctx, bucket,
+		); ncErr == nil && notifXML != "" {
+			go h.notifier.DispatchObjectRestorePost(
+				h.notificationDispatchContext(), bucket, key, notifXML,
+			)
+		}
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+}

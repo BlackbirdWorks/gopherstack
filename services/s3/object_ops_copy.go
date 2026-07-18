@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -202,6 +203,118 @@ func (h *S3Handler) writeCopyResponse(
 		ETag:         etag,
 		LastModified: time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// buildCopyMetadata returns the metadata and content-type to use for the
+// destination object, applying the x-amz-metadata-directive logic.
+// On REPLACE: use metadata from the copy request headers.
+// On COPY (default): preserve source metadata.
+func buildCopyMetadata(
+	r *http.Request,
+	srcMetadata map[string]string,
+	srcContentType *string,
+) (map[string]string, *string) {
+	if r.Header.Get("X-Amz-Metadata-Directive") != "REPLACE" {
+		return maps.Clone(srcMetadata), srcContentType
+	}
+
+	ct := r.Header.Get("Content-Type")
+	var destContentType *string
+	if ct != "" && !strings.Contains(ct, "form-urlencoded") {
+		destContentType = aws.String(ct)
+	} else {
+		destContentType = srcContentType
+	}
+
+	return parseUserMetadata(r.Header), destContentType
+}
+
+// buildCopyTagging returns the tagging string to apply to the destination.
+// On REPLACE: use the x-amz-tagging header from the request.
+// On COPY (default): return empty string so the source tags are preserved by caller.
+func buildCopyTagging(r *http.Request) (string, bool) {
+	directive := r.Header.Get("X-Amz-Tagging-Directive")
+	if directive == "REPLACE" {
+		return r.Header.Get("X-Amz-Tagging"), true
+	}
+
+	return "", false
+}
+
+// copyChangesAttributes reports whether a CopyObject request changes any object
+// attribute. AWS only permits a self-copy (identical source and destination) when
+// at least one attribute changes; otherwise it returns InvalidRequest.
+func copyChangesAttributes(r *http.Request) bool {
+	if strings.EqualFold(r.Header.Get("X-Amz-Metadata-Directive"), "REPLACE") {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Amz-Tagging-Directive"), "REPLACE") {
+		return true
+	}
+
+	for _, hdr := range []string{
+		"X-Amz-Server-Side-Encryption",
+		"X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id",
+		"X-Amz-Server-Side-Encryption-Customer-Algorithm",
+		"X-Amz-Storage-Class",
+		"X-Amz-Website-Redirect-Location",
+	} {
+		if r.Header.Get(hdr) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// handleRenameObject handles PUT /{bucket}/{key}?rename.
+// AWS S3 sends the rename target via the x-amz-rename-source header (the
+// existing source key) and uses the request URL path as the destination key.
+// To match common usage we accept both forms: x-amz-rename-source as source,
+// or X-Amz-Copy-Source for compatibility.
+func (h *S3Handler) handleRenameObject(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	h.setOperation(ctx, "RenameObject")
+
+	bucket, targetKey, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" || targetKey == "" {
+		WriteError(ctx, w, r, ErrNoSuchKey)
+
+		return
+	}
+
+	source := r.Header.Get("X-Amz-Rename-Source")
+	if source == "" {
+		source = r.Header.Get("X-Amz-Copy-Source")
+	}
+
+	source = strings.TrimPrefix(source, "/")
+
+	// "bucket/key" or just "key" forms supported.
+	srcKey := source
+	if rest, hasPrefix := strings.CutPrefix(source, bucket+"/"); hasPrefix {
+		srcKey = rest
+	}
+
+	if srcKey == "" {
+		WriteError(ctx, w, r, ErrNoSuchKey)
+
+		return
+	}
+
+	if err := h.Backend.RenameObject(ctx, bucket, srcKey, targetKey); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 const copySourceMinParts = 2

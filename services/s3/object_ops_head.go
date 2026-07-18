@@ -2,12 +2,15 @@ package s3
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 func (h *S3Handler) headObject(
@@ -141,4 +144,84 @@ func (h *S3Handler) writeHeadObjectResponse(
 	h.dispatchAccessLog(ctx, r, bucketName, "REST.HEAD.OBJECT", key, http.StatusOK, 0)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// objectAttributesResult is the populated XML body for GetObjectAttributes.
+// ObjectSize carries no omitempty: a legitimate 0-byte object must still emit
+// <ObjectSize>0</ObjectSize> so the SDK populates its *int64 field.
+type objectAttributesResult struct {
+	XMLName      xml.Name           `xml:"GetObjectAttributesResult"`
+	Xmlns        string             `xml:"xmlns,attr"`
+	ETag         string             `xml:"ETag,omitempty"`
+	Checksum     *attrsChecksumElem `xml:"Checksum,omitempty"`
+	StorageClass string             `xml:"StorageClass,omitempty"`
+	ObjectSize   int64              `xml:"ObjectSize"`
+}
+
+type attrsChecksumElem struct {
+	ChecksumCRC32     string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C    string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumCRC64NVME string `xml:"ChecksumCRC64NVME,omitempty"`
+	ChecksumSHA1      string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256    string `xml:"ChecksumSHA256,omitempty"`
+}
+
+// handleGetObjectAttributes handles GET /{bucket}/{key}?attributes.
+// The X-Amz-Object-Attributes header lists which attributes the caller wants;
+// we always return the full set we support (ETag, ObjectSize, StorageClass, Checksum).
+func (h *S3Handler) handleGetObjectAttributes(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	h.setOperation(ctx, "GetObjectAttributes")
+
+	bucket, key, ok := h.resolveBucketAndKey(ctx, w, r)
+	if !ok {
+		return
+	}
+	if bucket == "" || key == "" {
+		WriteError(ctx, w, r, ErrNoSuchKey)
+
+		return
+	}
+
+	versionID := r.URL.Query().Get("versionId")
+
+	attrs, err := h.Backend.GetObjectAttributes(ctx, bucket, key, versionID)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	out := objectAttributesResult{
+		Xmlns:        xmlNamespaceS3,
+		ETag:         attrs.ETag,
+		ObjectSize:   attrs.ObjectSize,
+		StorageClass: attrs.StorageClass,
+	}
+
+	if len(attrs.Checksum) > 0 {
+		c := &attrsChecksumElem{
+			ChecksumCRC32:     attrs.Checksum["ChecksumCRC32"],
+			ChecksumCRC32C:    attrs.Checksum["ChecksumCRC32C"],
+			ChecksumCRC64NVME: attrs.Checksum["ChecksumCRC64NVME"],
+			ChecksumSHA1:      attrs.Checksum["ChecksumSHA1"],
+			ChecksumSHA256:    attrs.Checksum["ChecksumSHA256"],
+		}
+		out.Checksum = c
+	}
+
+	if versionID != "" {
+		w.Header().Set("X-Amz-Version-Id", versionID)
+	}
+
+	// AWS returns the object's Last-Modified as an HTTP header (RFC1123), not a
+	// body element, on GetObjectAttributes.
+	if !attrs.LastModified.IsZero() {
+		w.Header().Set("Last-Modified", attrs.LastModified.UTC().Format(http.TimeFormat))
+	}
+
+	httputils.WriteXML(ctx, w, http.StatusOK, out)
 }

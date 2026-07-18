@@ -261,3 +261,82 @@ func (b *InMemoryBackend) GetBucketAbac(_ context.Context, bucketName string) (s
 
 	return bucket.AbacConfig, nil
 }
+
+// PutObjectACL stores the ACL XML/canned-ACL header on the latest object version.
+// versionID may be empty to target the latest version.
+func (b *InMemoryBackend) PutObjectACL(
+	_ context.Context,
+	bucketName, key, versionID, acl string,
+) error {
+	b.mu.RLock("PutObjectACL")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.RLock("PutObjectACL")
+	obj, ok := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
+	if !ok {
+		return ErrNoSuchKey
+	}
+
+	obj.mu.Lock("PutObjectACL")
+	defer obj.mu.Unlock()
+
+	vid := versionID
+	if vid == "" {
+		vid = obj.LatestVersionID
+	}
+
+	ver, ok := obj.Versions[vid]
+	if !ok || ver.Deleted {
+		return ErrNoSuchKey
+	}
+
+	ver.ACL = acl
+
+	return nil
+}
+
+// GetObjectACL returns the persisted ACL XML for the targeted version, or
+// "" when no explicit ACL has been set (caller should synthesise the default
+// owner-FULL_CONTROL grant in that case).
+func (b *InMemoryBackend) GetObjectACL(
+	_ context.Context,
+	bucketName, key, versionID string,
+) (string, error) {
+	b.mu.RLock("GetObjectACL")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetObjectACL")
+	obj, ok := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
+	if !ok {
+		return "", ErrNoSuchKey
+	}
+
+	obj.mu.RLock("GetObjectACL")
+	defer obj.mu.RUnlock()
+
+	vid := versionID
+	if vid == "" {
+		vid = obj.LatestVersionID
+	}
+
+	ver, ok := obj.Versions[vid]
+	if !ok || ver.Deleted {
+		return "", ErrNoSuchKey
+	}
+
+	return ver.ACL, nil
+}
