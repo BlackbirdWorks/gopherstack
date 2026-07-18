@@ -36,6 +36,101 @@ func normalizeDBInstanceDefaults(
 	return engine, instanceClass, allocatedStorage, masterUser
 }
 
+// createDBInstanceLocked validates and inserts a new DB instance under b.mu,
+// returning a copy of the stored instance. Extracted from CreateDBInstance to
+// keep the locked region out of the parent's funlen count; the parent still
+// needs the endpoint afterward to register it with the DNS registrar (which
+// must happen without the lock held).
+func (b *InMemoryBackend) createDBInstanceLocked(
+	id, engine, instanceClass, dbName, masterUser, paramGroupName string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+) (*DBInstance, error) {
+	b.mu.Lock("CreateDBInstance")
+	defer b.mu.Unlock()
+
+	b.reconcileInstancesLocked()
+
+	if _, exists := b.instances.Get(id); exists {
+		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
+	}
+
+	engine, instanceClass, allocatedStorage, masterUser = normalizeDBInstanceDefaults(
+		engine, instanceClass, allocatedStorage, masterUser, b.region, &opts,
+	)
+
+	port := enginePort(engine)
+	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
+
+	vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIDs))
+	for _, sgID := range opts.VpcSecurityGroupIDs {
+		vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{
+			VpcSecurityGroupID: sgID,
+			Status:             subscriptionStatusActive,
+		})
+	}
+
+	inst := &DBInstance{
+		InstanceCreateTime:               time.Now().UTC(),
+		DBInstanceIdentifier:             id,
+		DbiResourceID:                    id,
+		DBInstanceClass:                  instanceClass,
+		DBClusterIdentifier:              opts.DBClusterIdentifier,
+		Engine:                           engine,
+		EngineVersion:                    opts.EngineVersion,
+		DBInstanceStatus:                 instanceStatusCreating,
+		MasterUsername:                   masterUser,
+		DBName:                           dbName,
+		Endpoint:                         endpoint,
+		Port:                             port,
+		AllocatedStorage:                 allocatedStorage,
+		DBParameterGroupName:             paramGroupName,
+		OptionGroupName:                  opts.OptionGroupName,
+		MultiAZ:                          opts.MultiAZ,
+		StorageType:                      opts.StorageType,
+		StorageEncrypted:                 opts.StorageEncrypted,
+		AvailabilityZone:                 opts.AvailabilityZone,
+		BackupRetentionPeriod:            opts.BackupRetentionPeriod,
+		IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
+		DeletionProtection:               opts.DeletionProtection,
+		Iops:                             opts.Iops,
+		StorageThroughput:                opts.StorageThroughput,
+		LicenseModel:                     opts.LicenseModel,
+		MonitoringInterval:               opts.MonitoringInterval,
+		MonitoringRoleArn:                opts.MonitoringRoleArn,
+		PreferredMaintenanceWindow:       opts.PreferredMaintenanceWindow,
+		PreferredBackupWindow:            opts.PreferredBackupWindow,
+		KmsKeyID:                         opts.KmsKeyID,
+		CopyTagsToSnapshot:               opts.CopyTagsToSnapshot,
+		EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
+		VpcSecurityGroups:                vpcSGs,
+		ReadReplicaIdentifiers:           []string{},
+		PubliclyAccessible:               opts.PubliclyAccessible,
+		PerformanceInsightsEnabled:       opts.PerformanceInsightsEnabled,
+		StorageOptimized:                 opts.StorageOptimized,
+		OptimizedWrites:                  opts.OptimizedWrites,
+		EngineLifecycleSupport:           opts.EngineLifecycleSupport,
+	}
+	b.instances.Put(inst)
+	b.publishInstanceEventLocked(id, "DB instance created")
+
+	// If joining a cluster, add this instance to the cluster's member list.
+	if opts.DBClusterIdentifier != "" {
+		if cluster, exists := b.clusters.Get(opts.DBClusterIdentifier); exists {
+			cluster.DBClusterMembers = append(cluster.DBClusterMembers, DBClusterMember{
+				DBInstanceIdentifier: id,
+				IsClusterWriter:      len(cluster.DBClusterMembers) == 0,
+			})
+		}
+	}
+	b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
+	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.scheduleReconcilerLocked()
+	cp := *inst
+
+	return &cp, nil
+}
+
 func (b *InMemoryBackend) CreateDBInstance(
 	id, engine, instanceClass, dbName, masterUser, paramGroupName string,
 	allocatedStorage int,
@@ -51,102 +146,15 @@ func (b *InMemoryBackend) CreateDBInstance(
 		)
 	}
 
-	var (
-		result   *DBInstance
-		endpoint string
-		err      error
+	result, err := b.createDBInstanceLocked(
+		id, engine, instanceClass, dbName, masterUser, paramGroupName, allocatedStorage, opts,
 	)
-
-	func() {
-		b.mu.Lock("CreateDBInstance")
-		defer b.mu.Unlock()
-
-		b.reconcileInstancesLocked()
-
-		if _, exists := b.instances.Get(id); exists {
-			err = fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
-
-			return
-		}
-
-		engine, instanceClass, allocatedStorage, masterUser = normalizeDBInstanceDefaults(
-			engine, instanceClass, allocatedStorage, masterUser, b.region, &opts,
-		)
-
-		port := enginePort(engine)
-		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
-
-		vpcSGs := make([]VpcSecurityGroupMembership, 0, len(opts.VpcSecurityGroupIDs))
-		for _, sgID := range opts.VpcSecurityGroupIDs {
-			vpcSGs = append(vpcSGs, VpcSecurityGroupMembership{VpcSecurityGroupID: sgID, Status: subscriptionStatusActive})
-		}
-
-		inst := &DBInstance{
-			InstanceCreateTime:               time.Now().UTC(),
-			DBInstanceIdentifier:             id,
-			DbiResourceID:                    id,
-			DBInstanceClass:                  instanceClass,
-			DBClusterIdentifier:              opts.DBClusterIdentifier,
-			Engine:                           engine,
-			EngineVersion:                    opts.EngineVersion,
-			DBInstanceStatus:                 instanceStatusCreating,
-			MasterUsername:                   masterUser,
-			DBName:                           dbName,
-			Endpoint:                         endpoint,
-			Port:                             port,
-			AllocatedStorage:                 allocatedStorage,
-			DBParameterGroupName:             paramGroupName,
-			OptionGroupName:                  opts.OptionGroupName,
-			MultiAZ:                          opts.MultiAZ,
-			StorageType:                      opts.StorageType,
-			StorageEncrypted:                 opts.StorageEncrypted,
-			AvailabilityZone:                 opts.AvailabilityZone,
-			BackupRetentionPeriod:            opts.BackupRetentionPeriod,
-			IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
-			DeletionProtection:               opts.DeletionProtection,
-			Iops:                             opts.Iops,
-			StorageThroughput:                opts.StorageThroughput,
-			LicenseModel:                     opts.LicenseModel,
-			MonitoringInterval:               opts.MonitoringInterval,
-			MonitoringRoleArn:                opts.MonitoringRoleArn,
-			PreferredMaintenanceWindow:       opts.PreferredMaintenanceWindow,
-			PreferredBackupWindow:            opts.PreferredBackupWindow,
-			KmsKeyID:                         opts.KmsKeyID,
-			CopyTagsToSnapshot:               opts.CopyTagsToSnapshot,
-			EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
-			VpcSecurityGroups:                vpcSGs,
-			ReadReplicaIdentifiers:           []string{},
-			PubliclyAccessible:               opts.PubliclyAccessible,
-			PerformanceInsightsEnabled:       opts.PerformanceInsightsEnabled,
-			StorageOptimized:                 opts.StorageOptimized,
-			OptimizedWrites:                  opts.OptimizedWrites,
-			EngineLifecycleSupport:           opts.EngineLifecycleSupport,
-		}
-		b.instances.Put(inst)
-		b.publishInstanceEventLocked(id, "DB instance created")
-
-		// If joining a cluster, add this instance to the cluster's member list.
-		if opts.DBClusterIdentifier != "" {
-			if cluster, exists := b.clusters.Get(opts.DBClusterIdentifier); exists {
-				cluster.DBClusterMembers = append(cluster.DBClusterMembers, DBClusterMember{
-					DBInstanceIdentifier: id,
-					IsClusterWriter:      len(cluster.DBClusterMembers) == 0,
-				})
-			}
-		}
-		b.maybeRegisterAutomatedBackup(id, engine, port, allocatedStorage, opts)
-		b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
-		b.scheduleReconcilerLocked()
-		cp := *inst
-		result = &cp
-	}()
-
 	if err != nil {
 		return nil, err
 	}
 
 	if b.dnsRegistrar != nil {
-		b.dnsRegistrar.Register(endpoint)
+		b.dnsRegistrar.Register(result.Endpoint)
 	}
 
 	return result, nil
@@ -161,6 +169,105 @@ func (b *InMemoryBackend) CreateDBInstance(
 // DeleteDBInstanceWithOptions.
 func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	return b.DeleteDBInstanceWithOptions(id, true, "", true)
+}
+
+// validateDeleteDBInstanceLocked checks the SkipFinalSnapshot/
+// FinalDBSnapshotIdentifier contract and the instance's deletion-eligibility
+// state (deletion protection, already-deleting). Caller must hold b.mu for
+// writing. Extracted from deleteDBInstanceLocked to keep its gocognit down.
+func validateDeleteDBInstanceLocked(
+	id string,
+	inst *DBInstance,
+	skipFinalSnapshot bool,
+	finalSnapshotID string,
+) error {
+	if !skipFinalSnapshot && finalSnapshotID == "" {
+		return fmt.Errorf(
+			"%w: FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is specified",
+			ErrInvalidParameterCombination,
+		)
+	}
+	if skipFinalSnapshot && finalSnapshotID != "" {
+		return fmt.Errorf(
+			"%w: the FinalDBSnapshotIdentifier parameter cannot be specified when SkipFinalSnapshot is enabled",
+			ErrInvalidParameterCombination,
+		)
+	}
+
+	if inst.DeletionProtection {
+		return fmt.Errorf(
+			"%w: cannot delete protected DB Instance %s, disable deletion protection first",
+			ErrInvalidDBInstanceState, id,
+		)
+	}
+
+	if inst.DBInstanceStatus == instanceStatusDeleting {
+		return fmt.Errorf("%w: instance %s is already being deleted", ErrInvalidDBInstanceState, id)
+	}
+
+	return nil
+}
+
+// deleteDBInstanceLocked performs the validated delete of instance id under
+// b.mu, returning a copy of the instance as it was immediately before removal.
+// Extracted from DeleteDBInstanceWithOptions to keep the locked region out of
+// the parent's funlen/gocognit count; the parent still needs the endpoint
+// afterward to deregister it with the DNS registrar (which must happen
+// without the lock held).
+func (b *InMemoryBackend) deleteDBInstanceLocked(
+	id string,
+	skipFinalSnapshot bool,
+	finalSnapshotID string,
+	deleteAutomatedBackups bool,
+) (*DBInstance, error) {
+	b.mu.Lock("DeleteDBInstance")
+	defer b.mu.Unlock()
+
+	b.reconcileInstancesLocked()
+
+	// AWS resolves the target instance before validating the
+	// SkipFinalSnapshot/FinalDBSnapshotIdentifier combination: deleting a
+	// nonexistent instance returns DBInstanceNotFoundFault even when the
+	// snapshot parameters are also missing/invalid.
+	inst, exists := b.instances.Get(id)
+	if !exists {
+		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
+	}
+
+	if err := validateDeleteDBInstanceLocked(id, inst, skipFinalSnapshot, finalSnapshotID); err != nil {
+		return nil, err
+	}
+
+	if !skipFinalSnapshot {
+		if _, snapExists := b.snapshots.Get(finalSnapshotID); snapExists {
+			return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, finalSnapshotID)
+		}
+		b.snapshots.Put(b.newManualSnapshotLocked(finalSnapshotID, inst))
+	}
+
+	inst.DBInstanceStatus = instanceStatusDeleting
+	b.publishInstanceEventLocked(id, "DB instance deletion started")
+	cp := *inst
+	b.publishInstanceEventLocked(id, "DB instance deleted")
+
+	// Remove this instance from its source's ReadReplicaIdentifiers.
+	if inst.ReplicaSourceDBInstanceIdentifier != "" {
+		if src, srcExists := b.instances.Get(inst.ReplicaSourceDBInstanceIdentifier); srcExists {
+			src.ReadReplicaIdentifiers = slices.DeleteFunc(src.ReadReplicaIdentifiers, func(s string) bool {
+				return s == id
+			})
+		}
+	}
+
+	b.instances.Delete(id)
+	delete(b.tags, b.rdsARN("db", id))
+	delete(b.instanceRoles, id)
+	delete(b.instanceReadyAt, id)
+	if deleteAutomatedBackups {
+		delete(b.automatedBackups, id)
+	}
+
+	return &cp, nil
 }
 
 // DeleteDBInstanceWithOptions removes the DB instance with the given identifier,
@@ -178,94 +285,7 @@ func (b *InMemoryBackend) DeleteDBInstanceWithOptions(
 	finalSnapshotID string,
 	deleteAutomatedBackups bool,
 ) (*DBInstance, error) {
-	var (
-		result *DBInstance
-		err    error
-	)
-
-	func() {
-		b.mu.Lock("DeleteDBInstance")
-		defer b.mu.Unlock()
-
-		b.reconcileInstancesLocked()
-
-		// AWS resolves the target instance before validating the
-		// SkipFinalSnapshot/FinalDBSnapshotIdentifier combination: deleting a
-		// nonexistent instance returns DBInstanceNotFoundFault even when the
-		// snapshot parameters are also missing/invalid.
-		inst, exists := b.instances.Get(id)
-		if !exists {
-			err = fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
-
-			return
-		}
-
-		if !skipFinalSnapshot && finalSnapshotID == "" {
-			err = fmt.Errorf(
-				"%w: FinalDBSnapshotIdentifier is required unless SkipFinalSnapshot is specified",
-				ErrInvalidParameterCombination,
-			)
-
-			return
-		}
-		if skipFinalSnapshot && finalSnapshotID != "" {
-			err = fmt.Errorf(
-				"%w: the FinalDBSnapshotIdentifier parameter cannot be specified when SkipFinalSnapshot is enabled",
-				ErrInvalidParameterCombination,
-			)
-
-			return
-		}
-
-		if inst.DeletionProtection {
-			err = fmt.Errorf(
-				"%w: cannot delete protected DB Instance %s, disable deletion protection first",
-				ErrInvalidDBInstanceState, id,
-			)
-
-			return
-		}
-
-		if inst.DBInstanceStatus == instanceStatusDeleting {
-			err = fmt.Errorf("%w: instance %s is already being deleted", ErrInvalidDBInstanceState, id)
-
-			return
-		}
-
-		if !skipFinalSnapshot {
-			if _, snapExists := b.snapshots.Get(finalSnapshotID); snapExists {
-				err = fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, finalSnapshotID)
-
-				return
-			}
-			b.snapshots.Put(b.newManualSnapshotLocked(finalSnapshotID, inst))
-		}
-
-		inst.DBInstanceStatus = instanceStatusDeleting
-		b.publishInstanceEventLocked(id, "DB instance deletion started")
-		cp := *inst
-		b.publishInstanceEventLocked(id, "DB instance deleted")
-
-		// Remove this instance from its source's ReadReplicaIdentifiers.
-		if inst.ReplicaSourceDBInstanceIdentifier != "" {
-			if src, srcExists := b.instances.Get(inst.ReplicaSourceDBInstanceIdentifier); srcExists {
-				src.ReadReplicaIdentifiers = slices.DeleteFunc(src.ReadReplicaIdentifiers, func(s string) bool {
-					return s == id
-				})
-			}
-		}
-
-		b.instances.Delete(id)
-		delete(b.tags, b.rdsARN("db", id))
-		delete(b.instanceRoles, id)
-		delete(b.instanceReadyAt, id)
-		if deleteAutomatedBackups {
-			delete(b.automatedBackups, id)
-		}
-
-		result = &cp
-	}()
-
+	result, err := b.deleteDBInstanceLocked(id, skipFinalSnapshot, finalSnapshotID, deleteAutomatedBackups)
 	if err != nil {
 		return nil, err
 	}

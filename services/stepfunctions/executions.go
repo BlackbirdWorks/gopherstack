@@ -241,6 +241,97 @@ func (b *InMemoryBackend) initializeExecutionRecord(smArn, name, execArn, input,
 	return exec
 }
 
+// startedExecution carries the state produced under lock by startExecutionLocked
+// that the caller needs once the lock has been released (the pre-parsed state
+// machine, the integration set to attach to the executor, and the context to
+// run the ASL interpreter goroutine under).
+type startedExecution struct {
+	lambdaInvoker   asl.LambdaInvoker
+	sqsIntegration  asl.SQSIntegration
+	snsIntegration  asl.SNSIntegration
+	ddbIntegration  asl.DynamoDBIntegration
+	ecsIntegration  asl.ECSIntegration
+	glueIntegration asl.GlueIntegration
+	ebIntegration   asl.EventBridgeIntegration
+	ctx             context.Context
+	activityInvoker asl.ActivityInvoker
+	exec            *Execution
+	parsedSM        *asl.StateMachine
+	execArn         string
+}
+
+// startExecutionLocked validates the state machine, registers the new execution
+// record and its cancel function, and returns everything needed to run the ASL
+// interpreter asynchronously. Must be called with b.mu unlocked; it takes the
+// write lock itself.
+func (b *InMemoryBackend) startExecutionLocked(
+	stateMachineArn, name, input string,
+) (*startedExecution, error) {
+	b.mu.Lock("StartExecution")
+	defer b.mu.Unlock()
+
+	// Opportunistically prune finished executions that have aged past the retention
+	// period so the executions/history maps stay bounded when the janitor is off.
+	if b.executions.Len() >= executionPruneSweepThreshold {
+		retention := b.settings.ExecutionRetention
+		if retention == 0 {
+			retention = defaultExecutionRetention
+		}
+
+		b.pruneExecutionsLocked(float64(time.Now().Add(-retention).Unix()))
+	}
+
+	sm, exists := b.stateMachines.Get(stateMachineArn)
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, stateMachineArn)
+	}
+
+	// AWS allows StartExecution (asynchronous execution) on EXPRESS state
+	// machines too -- only StartSyncExecution is restricted to EXPRESS.
+	// See "Asynchronous Express Workflows" in the AWS Step Functions docs.
+	execArn := b.execARN(stateMachineArn, sm.Name, name)
+	if b.executions.Has(execArn) {
+		return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
+	}
+
+	// Parse the definition before inserting any state, so a bad definition never
+	// leaves an orphaned RUNNING execution in the store.
+	definition := sm.Definition
+
+	parsedSM, parseErr := asl.Parse(definition)
+	if parseErr != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
+	}
+
+	const millisPerSecond = 1000.0
+	now := float64(time.Now().UnixMilli()) / millisPerSecond
+	exec := b.initializeExecutionRecord(stateMachineArn, name, execArn, input, definition, now)
+
+	// Register the execution in the SM→executions index and store a cancel fn
+	// so StopExecution and DeleteStateMachine can cancel the goroutine.
+	// The context is derived from b.svcCtx so that all active executions are
+	// also cancelled when the server shuts down.
+
+	//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
+	ctx, cancel := context.WithCancel(b.svcCtx)
+	b.cancelFns[execArn] = cancel
+
+	return &startedExecution{
+		exec:            exec,
+		execArn:         execArn,
+		parsedSM:        parsedSM,
+		lambdaInvoker:   b.lambdaInvoker,
+		sqsIntegration:  b.sqsIntegration,
+		snsIntegration:  b.snsIntegration,
+		ddbIntegration:  b.ddbIntegration,
+		ecsIntegration:  b.ecsIntegration,
+		glueIntegration: b.glueIntegration,
+		ebIntegration:   b.ebIntegration,
+		ctx:             ctx,
+		activityInvoker: b,
+	}, nil
+}
+
 // StartExecution creates an execution and runs the ASL interpreter asynchronously.
 func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*Execution, error) {
 	if len(input) > maxExecutionInputBytes {
@@ -257,113 +348,28 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		}
 	}
 
-	var (
-		exec            *Execution
-		execArn         string
-		parsedSM        *asl.StateMachine
-		lambdaInvoker   asl.LambdaInvoker
-		sqsIntegration  asl.SQSIntegration
-		snsIntegration  asl.SNSIntegration
-		ddbIntegration  asl.DynamoDBIntegration
-		ecsIntegration  asl.ECSIntegration
-		glueIntegration asl.GlueIntegration
-		ebIntegration   asl.EventBridgeIntegration
-		ctx             context.Context
-		cancel          context.CancelFunc
-		activityInvoker asl.ActivityInvoker
-		startErr        error
-	)
-
-	func() {
-		b.mu.Lock("StartExecution")
-		defer b.mu.Unlock()
-
-		// Opportunistically prune finished executions that have aged past the retention
-		// period so the executions/history maps stay bounded when the janitor is off.
-		if b.executions.Len() >= executionPruneSweepThreshold {
-			retention := b.settings.ExecutionRetention
-			if retention == 0 {
-				retention = defaultExecutionRetention
-			}
-
-			b.pruneExecutionsLocked(float64(time.Now().Add(-retention).Unix()))
-		}
-
-		sm, exists := b.stateMachines.Get(stateMachineArn)
-		if !exists {
-			startErr = fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, stateMachineArn)
-
-			return
-		}
-
-		// AWS allows StartExecution (asynchronous execution) on EXPRESS state
-		// machines too -- only StartSyncExecution is restricted to EXPRESS.
-		// See "Asynchronous Express Workflows" in the AWS Step Functions docs.
-		execArn = b.execARN(stateMachineArn, sm.Name, name)
-		if b.executions.Has(execArn) {
-			startErr = fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
-
-			return
-		}
-
-		// Parse the definition before inserting any state, so a bad definition never
-		// leaves an orphaned RUNNING execution in the store.
-		definition := sm.Definition
-
-		var parseErr error
-
-		parsedSM, parseErr = asl.Parse(definition)
-		if parseErr != nil {
-			startErr = fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
-
-			return
-		}
-
-		const millisPerSecond = 1000.0
-		now := float64(time.Now().UnixMilli()) / millisPerSecond
-		exec = b.initializeExecutionRecord(stateMachineArn, name, execArn, input, definition, now)
-
-		lambdaInvoker = b.lambdaInvoker
-		sqsIntegration = b.sqsIntegration
-		snsIntegration = b.snsIntegration
-		ddbIntegration = b.ddbIntegration
-		ecsIntegration = b.ecsIntegration
-		glueIntegration = b.glueIntegration
-		ebIntegration = b.ebIntegration
-
-		// Register the execution in the SM→executions index and store a cancel fn
-		// so StopExecution and DeleteStateMachine can cancel the goroutine.
-		// The context is derived from b.svcCtx so that all active executions are
-		// also cancelled when the server shuts down.
-
-		//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
-		ctx, cancel = context.WithCancel(b.svcCtx)
-		b.cancelFns[execArn] = cancel
-
-		activityInvoker = b
-	}()
-
-	if startErr != nil {
-		return nil, startErr
+	started, err := b.startExecutionLocked(stateMachineArn, name, input)
+	if err != nil {
+		return nil, err
 	}
 
 	// Run the ASL interpreter asynchronously.
 	go b.runParsedExecution(
-		ctx,
-		execArn,
-		parsedSM,
+		started.ctx,
+		started.execArn,
+		started.parsedSM,
 		input,
-		lambdaInvoker,
-		sqsIntegration,
-		snsIntegration,
-		ddbIntegration,
-		ecsIntegration,
-		glueIntegration,
-		ebIntegration,
-		activityInvoker,
+		started.lambdaInvoker,
+		started.sqsIntegration,
+		started.snsIntegration,
+		started.ddbIntegration,
+		started.ecsIntegration,
+		started.glueIntegration,
+		started.ebIntegration,
+		started.activityInvoker,
 	)
 
-	return exec, nil
+	return started.exec, nil
 }
 
 // applyExecutorContext populates the ASL executor's `$$` context object with
@@ -612,136 +618,138 @@ func (b *InMemoryBackend) resetExecutionForRedrive(exec *Execution, executionARN
 	}
 }
 
+// redrivenExecution carries the state produced under lock by redriveExecutionLocked
+// that the caller needs once the lock has been released, mirroring startedExecution.
+type redrivenExecution struct {
+	lambdaInvoker   asl.LambdaInvoker
+	sqsIntegration  asl.SQSIntegration
+	snsIntegration  asl.SNSIntegration
+	ddbIntegration  asl.DynamoDBIntegration
+	ecsIntegration  asl.ECSIntegration
+	glueIntegration asl.GlueIntegration
+	ebIntegration   asl.EventBridgeIntegration
+	ctx             context.Context
+	activityInvoker asl.ActivityInvoker
+	parsedSM        *asl.StateMachine
+	originalInput   string
+}
+
+// redriveExecutionLocked validates the execution is redrivable, resets it to
+// RUNNING, and returns everything needed to run the ASL interpreter
+// asynchronously. Must be called with b.mu unlocked; it takes the write lock
+// itself.
+func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redrivenExecution, error) {
+	b.mu.Lock("RedriveExecution")
+	defer b.mu.Unlock()
+
+	exec, exists := b.executions.Get(executionARN)
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionARN)
+	}
+
+	if exec.Status != statusFailed && exec.Status != statusAborted {
+		return nil, fmt.Errorf(
+			"%w: execution %s is in status %s; only FAILED or ABORTED executions can be redriven",
+			ErrExecutionNotRedrivable,
+			executionARN,
+			exec.Status,
+		)
+	}
+
+	smARN := exec.StateMachineArn
+	originalInput := exec.Input
+
+	sm, smExists := b.stateMachines.Get(smARN)
+	if !smExists {
+		return nil, fmt.Errorf(
+			"%w: state machine %s no longer exists",
+			ErrStateMachineDoesNotExist,
+			smARN,
+		)
+	}
+
+	definition := sm.Definition
+
+	parsedSM, parseErr := asl.Parse(definition)
+	if parseErr != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
+	}
+
+	// Reset the execution to RUNNING.
+	now := float64(time.Now().Unix())
+	b.resetExecutionForRedrive(exec, executionARN, smARN, now)
+
+	// Snapshot the (possibly-updated) definition.
+	b.executionDefinitions[executionARN] = definition
+
+	//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
+	ctx, cancel := context.WithCancel(b.svcCtx)
+	b.cancelFns[executionARN] = cancel
+
+	// No manual "ensure execution is tracked under the SM" step is needed here
+	// (unlike the former smExecutions []string index): exec was already
+	// inserted into the executions table -- and, via the immutable
+	// StateMachineArn field, into the executionsByStateMachine index -- when
+	// the execution was first created, and neither Redrive nor any other path
+	// ever removes it from the table without also deleting it outright.
+	return &redrivenExecution{
+		originalInput:   originalInput,
+		parsedSM:        parsedSM,
+		lambdaInvoker:   b.lambdaInvoker,
+		sqsIntegration:  b.sqsIntegration,
+		snsIntegration:  b.snsIntegration,
+		ddbIntegration:  b.ddbIntegration,
+		ecsIntegration:  b.ecsIntegration,
+		glueIntegration: b.glueIntegration,
+		ebIntegration:   b.ebIntegration,
+		ctx:             ctx,
+		activityInvoker: b,
+	}, nil
+}
+
+// describeExecutionAfterRedrive returns a copy of the execution record for
+// executionARN after RedriveExecution has reset it to RUNNING. Extracted from
+// RedriveExecution to keep the locked region out of the parent's funlen count.
+func (b *InMemoryBackend) describeExecutionAfterRedrive(executionARN string) Execution {
+	b.mu.RLock("RedriveExecution.result")
+	defer b.mu.RUnlock()
+
+	execAfter, _ := b.executions.Get(executionARN)
+
+	// See the comment in DescribeExecution: guard the whole-struct copy
+	// against a concurrent appendHistory write, which b.mu's RLock alone
+	// does not exclude.
+	b.historyMu.RLock()
+	defer b.historyMu.RUnlock()
+
+	return *execAfter
+}
+
 // RedriveExecution re-runs a FAILED or ABORTED execution starting from its last known state.
 // AWS Step Functions re-runs from the last state that was reached before failure.
 // In this implementation we restart the entire execution with the original input (AWS parity for STANDARD executions).
 func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, error) {
-	var (
-		parsedSM        *asl.StateMachine
-		originalInput   string
-		lambdaInvoker   asl.LambdaInvoker
-		sqsIntegration  asl.SQSIntegration
-		snsIntegration  asl.SNSIntegration
-		ddbIntegration  asl.DynamoDBIntegration
-		ecsIntegration  asl.ECSIntegration
-		glueIntegration asl.GlueIntegration
-		ebIntegration   asl.EventBridgeIntegration
-		ctx             context.Context
-		cancel          context.CancelFunc
-		activityInvoker asl.ActivityInvoker
-		redriveErr      error
-	)
-
-	func() {
-		b.mu.Lock("RedriveExecution")
-		defer b.mu.Unlock()
-
-		exec, exists := b.executions.Get(executionARN)
-		if !exists {
-			redriveErr = fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionARN)
-
-			return
-		}
-
-		if exec.Status != statusFailed && exec.Status != statusAborted {
-			redriveErr = fmt.Errorf(
-				"%w: execution %s is in status %s; only FAILED or ABORTED executions can be redriven",
-				ErrExecutionNotRedrivable,
-				executionARN,
-				exec.Status,
-			)
-
-			return
-		}
-
-		smARN := exec.StateMachineArn
-		originalInput = exec.Input
-
-		sm, smExists := b.stateMachines.Get(smARN)
-		if !smExists {
-			redriveErr = fmt.Errorf(
-				"%w: state machine %s no longer exists",
-				ErrStateMachineDoesNotExist,
-				smARN,
-			)
-
-			return
-		}
-
-		definition := sm.Definition
-
-		var parseErr error
-
-		parsedSM, parseErr = asl.Parse(definition)
-		if parseErr != nil {
-			redriveErr = fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
-
-			return
-		}
-
-		// Reset the execution to RUNNING.
-		now := float64(time.Now().Unix())
-		b.resetExecutionForRedrive(exec, executionARN, smARN, now)
-
-		// Snapshot the (possibly-updated) definition.
-		b.executionDefinitions[executionARN] = definition
-
-		lambdaInvoker = b.lambdaInvoker
-		sqsIntegration = b.sqsIntegration
-		snsIntegration = b.snsIntegration
-		ddbIntegration = b.ddbIntegration
-		ecsIntegration = b.ecsIntegration
-		glueIntegration = b.glueIntegration
-		ebIntegration = b.ebIntegration
-
-		//nolint:gosec // cancel is stored in b.cancelFns for StopExecution/DeleteStateMachine
-		ctx, cancel = context.WithCancel(b.svcCtx)
-		b.cancelFns[executionARN] = cancel
-
-		// No manual "ensure execution is tracked under the SM" step is needed here
-		// (unlike the former smExecutions []string index): exec was already
-		// inserted into the executions table -- and, via the immutable
-		// StateMachineArn field, into the executionsByStateMachine index -- when
-		// the execution was first created, and neither Redrive nor any other path
-		// ever removes it from the table without also deleting it outright.
-		activityInvoker = b
-	}()
-
-	if redriveErr != nil {
-		return nil, redriveErr
+	redrive, err := b.redriveExecutionLocked(executionARN)
+	if err != nil {
+		return nil, err
 	}
 
 	go b.runParsedExecution(
-		ctx,
+		redrive.ctx,
 		executionARN,
-		parsedSM,
-		originalInput,
-		lambdaInvoker,
-		sqsIntegration,
-		snsIntegration,
-		ddbIntegration,
-		ecsIntegration,
-		glueIntegration,
-		ebIntegration,
-		activityInvoker,
+		redrive.parsedSM,
+		redrive.originalInput,
+		redrive.lambdaInvoker,
+		redrive.sqsIntegration,
+		redrive.snsIntegration,
+		redrive.ddbIntegration,
+		redrive.ecsIntegration,
+		redrive.glueIntegration,
+		redrive.ebIntegration,
+		redrive.activityInvoker,
 	)
 
-	var cp Execution
-
-	func() {
-		b.mu.RLock("RedriveExecution.result")
-		defer b.mu.RUnlock()
-
-		execAfter, _ := b.executions.Get(executionARN)
-
-		// See the comment in DescribeExecution: guard the whole-struct copy
-		// against a concurrent appendHistory write, which b.mu's RLock alone
-		// does not exclude.
-		b.historyMu.RLock()
-		defer b.historyMu.RUnlock()
-
-		cp = *execAfter
-	}()
+	cp := b.describeExecutionAfterRedrive(executionARN)
 
 	return &cp, nil
 }
