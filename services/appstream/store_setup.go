@@ -29,7 +29,7 @@ package appstream
 // was always looked up by an external imageName key on the plain map it
 // lived in (UpdateImagePermissions/DeleteImagePermissions/
 // DescribeImagePermissions). It gained a real ImageName field for this
-// purpose (see storedImagePermissions in backend_image.go); a plain visible
+// purpose (see storedImagePermissions in images.go); a plain visible
 // json tag is fine there rather than the json:"-" hidden-field + DTO
 // treatment services/codecommit uses for wire-visible API types, because
 // storedImagePermissions is purely internal storage -- DescribeImagePermissions
@@ -42,7 +42,7 @@ package appstream
 // tags (map[string]map[string]string) are many-to-many association/lookup
 // sets with no *T value of their own for store.Table to key on, so all seven
 // remain plain maps -- see the field comments on InMemoryBackend in
-// backend.go and persistence.go's doc comment for the full audit. usageReport
+// store.go and persistence.go's doc comment for the full audit. usageReport
 // is a single scalar record (not a map at all), so it also stays a plain
 // field.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -80,7 +80,7 @@ func themeKeyFn(v *storedTheme) string { return v.StackName }
 // (immediately after b.registry is created -- see NewInMemoryBackend), never
 // on every Reset() -- store.Register panics on a duplicate name, so runtime
 // resets go through b.registry.ResetAll() instead (see
-// InMemoryBackend.Reset in backend.go).
+// InMemoryBackend.Reset in store.go).
 func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)

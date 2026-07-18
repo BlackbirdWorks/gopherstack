@@ -165,7 +165,7 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	require.Len(t, ents, 1)
 
 	// imagePermissions (the table given a real ImageName identity field --
-	// see storedImagePermissions in backend_image.go).
+	// see storedImagePermissions in images.go).
 	perms, err := fresh.DescribeImagePermissions("image1")
 	require.NoError(t, err)
 	require.Len(t, perms, 1)
