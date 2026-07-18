@@ -59,13 +59,16 @@ func (b *InMemoryBackend) DeleteLexicon(name string) error {
 
 // ListLexicons lists lexicons ordered by name.
 func (b *InMemoryBackend) ListLexicons() []*Lexicon {
-	b.mu.RLock()
-	all := b.lexicons.All()
-	out := make([]*Lexicon, 0, len(all))
-	for _, lexicon := range all {
-		out = append(out, cloneLexicon(lexicon))
-	}
-	b.mu.RUnlock()
+	var out []*Lexicon
+	func() {
+		b.mu.RLock()
+		defer b.mu.RUnlock()
+		all := b.lexicons.All()
+		out = make([]*Lexicon, 0, len(all))
+		for _, lexicon := range all {
+			out = append(out, cloneLexicon(lexicon))
+		}
+	}()
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 

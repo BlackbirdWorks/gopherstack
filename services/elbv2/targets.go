@@ -50,10 +50,14 @@ type healthResult struct {
 func (b *InMemoryBackend) reconcileTargetHealth() {
 	now := time.Now()
 
-	b.mu.RLock("reconcileTargetHealth-read")
-	pending := b.collectPendingTargets(now)
-	drained := b.collectDrainedTargets(now)
-	b.mu.RUnlock()
+	var pending []pendingTarget
+	var drained []drainedTarget
+	func() {
+		b.mu.RLock("reconcileTargetHealth-read")
+		defer b.mu.RUnlock()
+		pending = b.collectPendingTargets(now)
+		drained = b.collectDrainedTargets(now)
+	}()
 
 	results := resolveTargetHealth(pending)
 
@@ -62,9 +66,9 @@ func (b *InMemoryBackend) reconcileTargetHealth() {
 	}
 
 	b.mu.Lock("reconcileTargetHealth-write")
+	defer b.mu.Unlock()
 	b.applyHealthResults(results)
 	b.removeDrainedTargets(drained)
-	b.mu.Unlock()
 }
 
 func (b *InMemoryBackend) collectPendingTargets(now time.Time) []pendingTarget {

@@ -42,10 +42,12 @@ func (b *InMemoryBackend) StartSpeechSynthesisTask(
 		Options:            normal,
 	}
 
-	b.mu.Lock()
-	b.tasks.Put(task)
-	b.tags[b.taskARN(id)] = make(map[string]string)
-	b.mu.Unlock()
+	func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.tasks.Put(task)
+		b.tags[b.taskARN(id)] = make(map[string]string)
+	}()
 
 	return cloneTask(task), nil
 }

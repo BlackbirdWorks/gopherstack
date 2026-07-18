@@ -58,8 +58,8 @@ func (b *InMemoryBackend) pendingUntil() time.Time {
 // transitions are instant. It is safe for concurrent use.
 func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
 	b.mu.Lock("SetLifecycleDelay")
+	defer b.mu.Unlock()
 	b.lifecycleDelay = d
-	b.mu.Unlock()
 }
 
 // SetClock overrides the backend clock. Primarily for deterministic tests that
@@ -67,8 +67,8 @@ func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
 // restores time.Now. Safe for concurrent use.
 func (b *InMemoryBackend) SetClock(clock func() time.Time) {
 	b.mu.Lock("SetClock")
+	defer b.mu.Unlock()
 	b.clock = clock
-	b.mu.Unlock()
 }
 
 // overlayStatus returns the observable status for a resource: the transient

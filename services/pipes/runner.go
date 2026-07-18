@@ -160,15 +160,19 @@ func (r *Runner) SetCloudWatchLogsPutter(c PipeCloudWatchLogsPutter) { r.cwLogs 
 func (r *Runner) SetFirehosePutter(f PipeFirehosePutter)             { r.firehose = f }
 
 func (r *Runner) Start(ctx context.Context) {
-	r.doneMu.Lock()
-	if r.started {
-		r.doneMu.Unlock()
-
+	var done chan struct{}
+	func() {
+		r.doneMu.Lock()
+		defer r.doneMu.Unlock()
+		if r.started {
+			return
+		}
+		r.started = true
+		done = r.done
+	}()
+	if done == nil {
 		return
 	}
-	r.started = true
-	done := r.done
-	r.doneMu.Unlock()
 
 	r.wg.Go(func() {
 		r.run(ctx)
@@ -181,14 +185,18 @@ func (r *Runner) Start(ctx context.Context) {
 
 // Wait blocks until all runner goroutines have exited, or ctx expires.
 func (r *Runner) Wait(ctx context.Context) {
-	r.doneMu.RLock()
-	if !r.started {
-		r.doneMu.RUnlock()
-
+	var done chan struct{}
+	func() {
+		r.doneMu.RLock()
+		defer r.doneMu.RUnlock()
+		if !r.started {
+			return
+		}
+		done = r.done
+	}()
+	if done == nil {
 		return
 	}
-	done := r.done
-	r.doneMu.RUnlock()
 
 	select {
 	case <-done:

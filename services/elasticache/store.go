@@ -116,8 +116,8 @@ func buildARN(resource, region, accountID string) string {
 // automatically registered on create and deregistered on delete.
 func (b *InMemoryBackend) SetDNSRegistrar(r DNSRegistrar) {
 	b.mu.Lock("SetDNSRegistrar")
+	defer b.mu.Unlock()
 	b.dnsRegistrar = r
-	b.mu.Unlock()
 }
 
 // Reset closes all miniredis instances, clears all state, and re-initialises default parameter groups.

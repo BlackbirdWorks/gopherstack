@@ -170,10 +170,13 @@ func (b *InMemoryBackend) registerClusterDNSLocked(c *Cluster) {
 func (b *InMemoryBackend) CreateCluster(ctx context.Context, id, engine, nodeType string, port int) (*Cluster, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("CreateCluster.reserve")
-	b.pruneRegionLocked(region)
-	_, exists := b.clustersStore(region).Get(id)
-	b.mu.Unlock()
+	var exists bool
+	func() {
+		b.mu.Lock("CreateCluster.reserve")
+		defer b.mu.Unlock()
+		b.pruneRegionLocked(region)
+		_, exists = b.clustersStore(region).Get(id)
+	}()
 	if exists {
 		return nil, ErrClusterAlreadyExists
 	}
@@ -204,27 +207,33 @@ func (b *InMemoryBackend) CreateClusterWithOptions(
 ) (*Cluster, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.Lock("CreateClusterWithOptions.reserve")
-	b.pruneRegionLocked(region)
-	if _, exists := b.clustersStore(region).Get(id); exists {
-		b.mu.Unlock()
+	var reserveErr error
+	func() {
+		b.mu.Lock("CreateClusterWithOptions.reserve")
+		defer b.mu.Unlock()
+		b.pruneRegionLocked(region)
+		if _, exists := b.clustersStore(region).Get(id); exists {
+			reserveErr = ErrClusterAlreadyExists
 
-		return nil, ErrClusterAlreadyExists
-	}
-	if paramGroupName != "" {
-		pg, ok := b.parameterGroupsStore(region).Get(paramGroupName)
-		if !ok {
-			b.mu.Unlock()
-
-			return nil, ErrParameterGroupNotFound
+			return
 		}
-		if err := validateParamGroupFamily(engine, pg.Family); err != nil {
-			b.mu.Unlock()
+		if paramGroupName != "" {
+			pg, ok := b.parameterGroupsStore(region).Get(paramGroupName)
+			if !ok {
+				reserveErr = ErrParameterGroupNotFound
 
-			return nil, err
+				return
+			}
+			if err := validateParamGroupFamily(engine, pg.Family); err != nil {
+				reserveErr = err
+
+				return
+			}
 		}
+	}()
+	if reserveErr != nil {
+		return nil, reserveErr
 	}
-	b.mu.Unlock()
 
 	eng, err := b.startClusterEngine(port)
 	if err != nil {
