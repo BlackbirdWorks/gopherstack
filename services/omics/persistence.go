@@ -31,7 +31,7 @@ const omicsSnapshotVersion = 1
 // e.g. EMR's Cluster), so no DTO wrapper is needed: b.registry itself -- the
 // same registry the live tables are registered on -- is snapshotted and
 // restored directly. The five left-raw maps (see the InMemoryBackend doc
-// comment in backend.go) are persisted as plain fields alongside Tables.
+// comment in store.go) are persisted as plain fields alongside Tables.
 type backendSnapshot struct {
 	Tables         map[string]json.RawMessage                      `json:"tables"`
 	UploadParts    map[string]map[string][]*ReadSetUploadPart      `json:"uploadParts"`
