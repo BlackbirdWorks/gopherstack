@@ -281,3 +281,50 @@ func TestPersistence_CurrentVersionRoundTripsThroughJSON(t *testing.T) {
 		"tables must carry the policies table under its registered name",
 	)
 }
+
+// TestPersistence_CounterSerialization_NoCollision verifies the PolicyID
+// counter survives a Snapshot -> Restore cycle so a restored backend never
+// reissues a PolicyID that already exists.
+func TestPersistence_CounterSerialization_NoCollision(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "counter_survives_restore"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b1 := dlm.NewInMemoryBackend("000000000000", "us-east-1")
+
+			// Create 2 policies.
+			p1, err := b1.CreateLifecyclePolicy("p1", "arn:aws:iam::000000000000:role/r", "ENABLED", nil, nil)
+			require.NoError(t, err)
+			p2, err := b1.CreateLifecyclePolicy("p2", "arn:aws:iam::000000000000:role/r", "ENABLED", nil, nil)
+			require.NoError(t, err)
+
+			existingIDs := map[string]struct{}{
+				p1.PolicyID: {},
+				p2.PolicyID: {},
+			}
+
+			// Snapshot and restore into fresh backend.
+			snap := b1.Snapshot(context.Background())
+			b2 := dlm.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, b2.Restore(context.Background(), snap))
+
+			// Create a new policy in restored backend — must not collide.
+			p3, err := b2.CreateLifecyclePolicy("p3", "arn:aws:iam::000000000000:role/r", "ENABLED", nil, nil)
+			require.NoError(t, err)
+
+			_, collision := existingIDs[p3.PolicyID]
+			assert.False(t, collision, "new policyID %s collides with existing IDs", p3.PolicyID)
+
+			// New ID must be strictly greater (lexicographically) than existing ones.
+			assert.Greater(t, p3.PolicyID, p2.PolicyID)
+		})
+	}
+}

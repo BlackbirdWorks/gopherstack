@@ -1,6 +1,7 @@
 package dlm_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -64,6 +65,124 @@ func TestBackend_CreateLifecyclePolicy_RequiredFields(t *testing.T) {
 	}
 }
 
+// TestBackend_CreateLifecyclePolicy_DefaultState verifies that an empty
+// State defaults to ENABLED, matching this backend's documented leniency.
+func TestBackend_CreateLifecyclePolicy_DefaultState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		state     string
+		wantState string
+	}{
+		{name: "empty state defaults to ENABLED", state: "", wantState: "ENABLED"},
+		{name: "explicit DISABLED preserved", state: "DISABLED", wantState: "DISABLED"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
+			p, err := b.CreateLifecyclePolicy("desc", "role", tc.state, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantState, p.State)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// UpdateLifecyclePolicy: partial update / nil PolicyDetails
+// ---------------------------------------------------------------------------
+
+// TestBackend_UpdateLifecyclePolicy_PartialUpdate verifies partial update
+// (only some fields set) leaves the other fields untouched.
+func TestBackend_UpdateLifecyclePolicy_PartialUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		updateDesc  string
+		updateRole  string
+		updateState string
+		wantDesc    string
+		wantRole    string
+		wantState   string
+	}{
+		{
+			name:       "update only description",
+			updateDesc: "new description",
+			wantDesc:   "new description",
+			wantRole:   "arn:aws:iam::000000000000:role/original",
+			wantState:  "ENABLED",
+		},
+		{
+			name:        "update only state",
+			updateState: "DISABLED",
+			wantDesc:    "original description",
+			wantRole:    "arn:aws:iam::000000000000:role/original",
+			wantState:   "DISABLED",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
+			p, err := b.CreateLifecyclePolicy(
+				"original description",
+				"arn:aws:iam::000000000000:role/original",
+				"ENABLED",
+				nil,
+				nil,
+			)
+			require.NoError(t, err)
+
+			err = b.UpdateLifecyclePolicy(p.PolicyID, tc.updateDesc, tc.updateRole, tc.updateState, nil)
+			require.NoError(t, err)
+
+			got, err := b.GetLifecyclePolicy(p.PolicyID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantDesc, got.Description)
+			assert.Equal(t, tc.wantRole, got.ExecutionRoleARN)
+			assert.Equal(t, tc.wantState, got.State)
+		})
+	}
+}
+
+// TestBackend_UpdateLifecyclePolicy_NilDetailsPreserved verifies that a nil
+// PolicyDetails on update does not clear the previously stored details.
+func TestBackend_UpdateLifecyclePolicy_NilDetailsPreserved(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "nil_details_does_not_clear"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
+
+			details := map[string]any{"PolicyType": "EBS_SNAPSHOT_MANAGEMENT"}
+			p, err := b.CreateLifecyclePolicy("t", "arn:aws:iam::000000000000:role/r", "ENABLED", nil, details)
+			require.NoError(t, err)
+
+			// Update with nil PolicyDetails — must not clear existing details.
+			require.NoError(t, b.UpdateLifecyclePolicy(p.PolicyID, "new desc", "", "", nil))
+
+			got, err := b.GetLifecyclePolicy(p.PolicyID)
+			require.NoError(t, err)
+			assert.Equal(t, "new desc", got.Description)
+			assert.Equal(t, "EBS_SNAPSHOT_MANAGEMENT", got.PolicyDetails["PolicyType"])
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GetLifecyclePolicies: PolicyType summary field
 // ---------------------------------------------------------------------------
@@ -117,8 +236,58 @@ func TestBackend_GetLifecyclePolicies_PolicyType(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// GetLifecyclePolicies: ResourceTypes / TargetTags / TagsToAdd filters
+// GetLifecyclePolicies: PolicyIDs / ResourceTypes / TargetTags / TagsToAdd
+// filters
 // ---------------------------------------------------------------------------
+
+// TestBackend_GetLifecyclePolicies_MultipleIDFilter verifies the PolicyIDs
+// filter narrows results to just the requested IDs.
+func TestBackend_GetLifecyclePolicies_MultipleIDFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		createN   int
+		filterN   int
+		wantCount int
+	}{
+		{
+			name:      "filter 2 of 3 policies by ID",
+			createN:   3,
+			filterN:   2,
+			wantCount: 2,
+		},
+		{
+			name:      "empty filter returns all",
+			createN:   2,
+			filterN:   0,
+			wantCount: 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
+			var ids []string
+			for i := range tc.createN {
+				p, err := b.CreateLifecyclePolicy(fmt.Sprintf("desc-%d", i), "role", "ENABLED", nil, nil)
+				require.NoError(t, err)
+				ids = append(ids, p.PolicyID)
+			}
+
+			var filter []string
+			if tc.filterN > 0 {
+				filter = ids[:tc.filterN]
+			}
+
+			result, err := b.GetLifecyclePolicies(dlm.PolicyFilter{PolicyIDs: filter})
+			require.NoError(t, err)
+			assert.Len(t, result, tc.wantCount)
+		})
+	}
+}
 
 // TestBackend_GetLifecyclePolicies_ResourceTypesFilter verifies the
 // resourceTypes query filter, previously accepted on the wire but silently
