@@ -60,7 +60,7 @@ func TestPersistence_SnapshotRestoreRoundTrip(t *testing.T) {
 
 				// TagResource writes to a separate resourceARN-keyed map
 				// (b.tags) from the creation-time ta.Tags field -- they are
-				// never merged (see ListTagsForResource in backend.go) -- so
+				// never merged (see ListTagsForResource in tags.go) -- so
 				// ListTagsForResource only ever reflects TagResource calls.
 				tags, err := b.ListTagsForResource(ctx, ta.TrustAnchorArn)
 				require.NoError(t, err)

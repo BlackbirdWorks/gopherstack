@@ -190,6 +190,33 @@ func TestCrl_DuplicateNameRejected(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestImportCrl_EmptyName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		crlName string
+		wantErr bool
+	}{
+		{"empty name returns validation error", "", true},
+		{"non-empty name succeeds", "valid-crl", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			_, err := b.ImportCrl(context.Background(), tt.crlName, []byte("data"), "arn:ta", true, nil)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 // ---- Subject tests ----
 
 func TestSubject_GetNotFound(t *testing.T) {
