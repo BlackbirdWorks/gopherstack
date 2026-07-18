@@ -48,7 +48,7 @@ leaks: {status: clean, note: "Handler owns zero maps/goroutines; all state lives
   1.0 protocol. This package's `handler.go` builds parallel `wire*` structs specifically
   to override the SDK struct's native `*time.Time` marshaling (which would otherwise
   produce an RFC3339 string) — this is correct and required, not incidental duplication.
-  Note: `handler_parity_test.go`'s `TestParity_DescribeStream_CreationRequestDateTime`
+  Note: `handler_streams_test.go`'s `TestHandler_DescribeStream_CreationRequestDateTime`
   has a stale comment claiming the SDK marshals `*time.Time` as RFC3339 "so we verify
   presence rather than format" — the actual wire output IS a float64 via
   `toWireDescribeStreamOutput`; the test still passes because its assertion only checks

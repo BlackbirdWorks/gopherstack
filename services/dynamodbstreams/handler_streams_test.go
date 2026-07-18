@@ -16,9 +16,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 )
 
-// newParityBackend creates an InMemoryDB with a streams-enabled table and returns
+// DescribeStream / ListStreams family: stream metadata, ARN/label accuracy, and
+// shard genealogy.
+
+// newStreamsBackend creates an InMemoryDB with a streams-enabled table and returns
 // the db and the stream ARN.
-func newParityBackend(t *testing.T, tableName string) (*ddbbackend.InMemoryDB, string) {
+func newStreamsBackend(t *testing.T, tableName string) (*ddbbackend.InMemoryDB, string) {
 	t.Helper()
 
 	db := ddbbackend.NewInMemoryDB()
@@ -46,13 +49,127 @@ func newParityBackend(t *testing.T, tableName string) (*ddbbackend.InMemoryDB, s
 	return db, table.StreamARN
 }
 
-// TestParity_StreamARN_RealTimestampLabel verifies that the stream ARN embeds a real
-// ISO 8601 timestamp label rather than a hardcoded placeholder. Real AWS DynamoDB
-// Streams ARNs have the form .../stream/2024-01-15T12:00:00.000.
-func TestParity_StreamARN_RealTimestampLabel(t *testing.T) {
+func TestHandler_DescribeStream_ShardGenealogy(t *testing.T) {
 	t.Parallel()
 
-	_, streamARN := newParityBackend(t, "TimestampTable")
+	db := ddbbackend.NewInMemoryDB()
+	ctx := t.Context()
+
+	_, err := db.CreateTable(ctx, &ddbsdk.CreateTableInput{
+		TableName: aws.String("GenealogyTable"),
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+		},
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+		},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+		StreamSpecification: &ddbtypes.StreamSpecification{
+			StreamEnabled:  aws.Bool(true),
+			StreamViewType: ddbtypes.StreamViewTypeKeysOnly,
+		},
+	})
+	require.NoError(t, err)
+
+	// Write 1001 items to trigger a shard split.
+	for i := range 1001 {
+		_, err = db.PutItem(ctx, &ddbsdk.PutItemInput{
+			TableName: aws.String("GenealogyTable"),
+			Item: map[string]ddbtypes.AttributeValue{
+				"pk": &ddbtypes.AttributeValueMemberS{Value: fmt.Sprintf("key-%d", i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	table, ok := db.GetTable("GenealogyTable")
+	require.True(t, ok)
+
+	handler := dynamodbstreams.NewHandler(db)
+
+	descResp := doRequest(t, handler, "DescribeStream",
+		fmt.Sprintf(`{"StreamArn":"%s"}`, table.StreamARN))
+	require.Equal(t, 200, descResp.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	streamDesc := descOut["StreamDescription"].(map[string]any)
+	shards := streamDesc["Shards"].([]any)
+
+	require.GreaterOrEqual(t, len(shards), 2, "must have at least 2 shards after split")
+
+	shard0 := shards[0].(map[string]any)
+	shard1 := shards[1].(map[string]any)
+
+	// First shard must be closed (has EndingSequenceNumber).
+	snr0 := shard0["SequenceNumberRange"].(map[string]any)
+	assert.NotEmpty(t, snr0["EndingSequenceNumber"],
+		"closed shard must have EndingSequenceNumber in DescribeStream response")
+
+	// Second shard must have ParentShardId pointing to first shard.
+	assert.Equal(t, shard0["ShardId"], shard1["ParentShardId"],
+		"child shard must reference parent via ParentShardId")
+}
+
+func TestHandler_ListStreams_PaginationViaHTTP(t *testing.T) {
+	t.Parallel()
+
+	db := ddbbackend.NewInMemoryDB()
+	ctx := t.Context()
+
+	for i := range 3 {
+		name := fmt.Sprintf("HttpPagTable%d", i)
+		_, err := db.CreateTable(ctx, &ddbsdk.CreateTableInput{
+			TableName: aws.String(name),
+			KeySchema: []ddbtypes.KeySchemaElement{
+				{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+			},
+			AttributeDefinitions: []ddbtypes.AttributeDefinition{
+				{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+			},
+			BillingMode: ddbtypes.BillingModePayPerRequest,
+			StreamSpecification: &ddbtypes.StreamSpecification{
+				StreamEnabled:  aws.Bool(true),
+				StreamViewType: ddbtypes.StreamViewTypeKeysOnly,
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	handler := dynamodbstreams.NewHandler(db)
+
+	// First page: Limit=1.
+	w1 := doRequest(t, handler, "ListStreams", `{"Limit":1}`)
+	require.Equal(t, 200, w1.Code)
+	var out1 map[string]any
+	require.NoError(t, json.Unmarshal(w1.Body.Bytes(), &out1))
+	streams1 := out1["Streams"].([]any)
+	require.Len(t, streams1, 1)
+	lastArn1, ok := out1["LastEvaluatedStreamArn"].(string)
+	require.True(t, ok, "first page must set LastEvaluatedStreamArn")
+
+	// Second page.
+	w2 := doRequest(t, handler, "ListStreams",
+		fmt.Sprintf(`{"Limit":1,"ExclusiveStartStreamArn":"%s"}`, lastArn1))
+	require.Equal(t, 200, w2.Code)
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &out2))
+	streams2 := out2["Streams"].([]any)
+	require.Len(t, streams2, 1)
+
+	// Verify no overlap.
+	arn1 := streams1[0].(map[string]any)["StreamArn"].(string)
+	arn2 := streams2[0].(map[string]any)["StreamArn"].(string)
+	assert.NotEqual(t, arn1, arn2, "pages must not overlap")
+}
+
+// TestHandler_StreamARN_RealTimestampLabel verifies that the stream ARN embeds a real
+// ISO 8601 timestamp label rather than a hardcoded placeholder. Real AWS DynamoDB
+// Streams ARNs have the form .../stream/2024-01-15T12:00:00.000.
+func TestHandler_StreamARN_RealTimestampLabel(t *testing.T) {
+	t.Parallel()
+
+	_, streamARN := newStreamsBackend(t, "TimestampTable")
 
 	const sep = "/stream/"
 	idx := strings.LastIndex(streamARN, sep)
@@ -66,12 +183,12 @@ func TestParity_StreamARN_RealTimestampLabel(t *testing.T) {
 		"stream label must be in ISO 8601 millisecond format")
 }
 
-// TestParity_DescribeStream_StreamLabel verifies that DescribeStream returns a
+// TestHandler_DescribeStream_StreamLabel verifies that DescribeStream returns a
 // StreamLabel that matches the label embedded in the StreamArn.
-func TestParity_DescribeStream_StreamLabel(t *testing.T) {
+func TestHandler_DescribeStream_StreamLabel(t *testing.T) {
 	t.Parallel()
 
-	db, streamARN := newParityBackend(t, "LabelTable")
+	db, streamARN := newStreamsBackend(t, "LabelTable")
 	h := dynamodbstreams.NewHandler(db)
 
 	resp := doRequest(t, h, "DescribeStream", fmt.Sprintf(`{"StreamArn":%q}`, streamARN))
@@ -97,12 +214,12 @@ func TestParity_DescribeStream_StreamLabel(t *testing.T) {
 		"StreamLabel in DescribeStream must match the label embedded in the stream ARN")
 }
 
-// TestParity_DescribeStream_CreationRequestDateTime verifies that DescribeStream
+// TestHandler_DescribeStream_CreationRequestDateTime verifies that DescribeStream
 // returns a non-nil CreationRequestDateTime, matching real AWS behavior.
-func TestParity_DescribeStream_CreationRequestDateTime(t *testing.T) {
+func TestHandler_DescribeStream_CreationRequestDateTime(t *testing.T) {
 	t.Parallel()
 
-	db, streamARN := newParityBackend(t, "CreationDateTable")
+	db, streamARN := newStreamsBackend(t, "CreationDateTable")
 	h := dynamodbstreams.NewHandler(db)
 
 	resp := doRequest(t, h, "DescribeStream", fmt.Sprintf(`{"StreamArn":%q}`, streamARN))
@@ -122,12 +239,12 @@ func TestParity_DescribeStream_CreationRequestDateTime(t *testing.T) {
 	assert.NotNil(t, creationDateTime, "CreationRequestDateTime must not be nil")
 }
 
-// TestParity_ListStreams_StreamLabel verifies that ListStreams returns a StreamLabel
+// TestHandler_ListStreams_StreamLabel verifies that ListStreams returns a StreamLabel
 // that matches the ARN label for each stream entry.
-func TestParity_ListStreams_StreamLabel(t *testing.T) {
+func TestHandler_ListStreams_StreamLabel(t *testing.T) {
 	t.Parallel()
 
-	db, streamARN := newParityBackend(t, "ListLabelTable")
+	db, streamARN := newStreamsBackend(t, "ListLabelTable")
 	h := dynamodbstreams.NewHandler(db)
 
 	resp := doRequest(t, h, "ListStreams", `{"TableName":"ListLabelTable"}`)
@@ -155,59 +272,9 @@ func TestParity_ListStreams_StreamLabel(t *testing.T) {
 		"ListStreams StreamLabel must match the label embedded in the stream ARN")
 }
 
-// TestParity_ErrorNamespace_DynamoDBStreams verifies that error responses use the
-// dynamodbstreams namespace, not the dynamodb namespace. Real AWS uses
-// "com.amazonaws.dynamodbstreams.v20120810#ResourceNotFoundException".
-func TestParity_ErrorNamespace_DynamoDBStreams(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body    string
-		name    string
-		op      string
-		wantErr string
-	}{
-		{
-			name:    "DescribeStream unknown stream",
-			op:      "DescribeStream",
-			body:    `{"StreamArn":"arn:aws:dynamodb:us-east-1:123456789012:table/NoSuch/stream/2024-01-01T00:00:00.000"}`,
-			wantErr: "ResourceNotFoundException",
-		},
-		{
-			name: "GetShardIterator unknown stream",
-			op:   "GetShardIterator",
-			body: `{"StreamArn":"arn:aws:dynamodb:us-east-1:123456789012:table/NoSuch/stream/2024-01-01T00:00:00.000",` +
-				`"ShardId":"shardId-00000000000000000001-00000001","ShardIteratorType":"TRIM_HORIZON"}`,
-			wantErr: "ResourceNotFoundException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			db := ddbbackend.NewInMemoryDB()
-			h := dynamodbstreams.NewHandler(db)
-
-			resp := doRequest(t, h, tt.op, tt.body)
-			assert.Equal(t, 400, resp.Code)
-
-			var errBody map[string]string
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &errBody))
-
-			errType := errBody["__type"]
-			assert.Contains(t, errType, tt.wantErr)
-			assert.Contains(t, errType, "dynamodbstreams",
-				"error __type must use dynamodbstreams namespace, got: %s", errType)
-			assert.NotContains(t, errType, "com.amazonaws.dynamodb.v20120810",
-				"error __type must not use the plain dynamodb namespace for streams errors; got: %s", errType)
-		})
-	}
-}
-
-// TestParity_EnableStreamViaUpdateTable_RealLabel verifies that streams enabled via
+// TestHandler_EnableStreamViaUpdateTable_RealLabel verifies that streams enabled via
 // UpdateTable (not CreateTable) also get a real timestamp label in their ARN.
-func TestParity_EnableStreamViaUpdateTable_RealLabel(t *testing.T) {
+func TestHandler_EnableStreamViaUpdateTable_RealLabel(t *testing.T) {
 	t.Parallel()
 
 	db := ddbbackend.NewInMemoryDB()
@@ -248,12 +315,12 @@ func TestParity_EnableStreamViaUpdateTable_RealLabel(t *testing.T) {
 	assert.Regexp(t, `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$`, label)
 }
 
-// TestParity_DescribeStream_StreamARNConsistency verifies that StreamArn in the
+// TestHandler_DescribeStream_StreamARNConsistency verifies that StreamArn in the
 // DescribeStream response matches the ARN used in the request.
-func TestParity_DescribeStream_StreamARNConsistency(t *testing.T) {
+func TestHandler_DescribeStream_StreamARNConsistency(t *testing.T) {
 	t.Parallel()
 
-	db, streamARN := newParityBackend(t, "ConsistencyTable")
+	db, streamARN := newStreamsBackend(t, "ConsistencyTable")
 	h := dynamodbstreams.NewHandler(db)
 
 	resp := doRequest(t, h, "DescribeStream", fmt.Sprintf(`{"StreamArn":%q}`, streamARN))
