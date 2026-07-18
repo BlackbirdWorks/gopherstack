@@ -177,61 +177,74 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		return nil, fmt.Errorf("%w: DBSnapshotIdentifier is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock("RestoreDBInstanceFromDBSnapshot")
-	b.reconcileInstancesLocked()
+	var (
+		result   *DBInstance
+		endpoint string
+		err      error
+	)
 
-	if _, exists := b.instances.Get(id); exists {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("RestoreDBInstanceFromDBSnapshot")
+		defer b.mu.Unlock()
 
-		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
+		b.reconcileInstancesLocked()
+
+		if _, exists := b.instances.Get(id); exists {
+			err = fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
+
+			return
+		}
+
+		snap, exists := b.snapshots.Get(snapshotID)
+		if !exists {
+			err = fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
+
+			return
+		}
+
+		if opts.StorageType == "" {
+			opts.StorageType = snap.StorageType
+		}
+		if opts.AvailabilityZone == "" {
+			opts.AvailabilityZone = b.region + "a"
+		}
+
+		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
+		port := snap.Port
+		if port == 0 {
+			port = enginePort(snap.Engine)
+		}
+
+		inst := &DBInstance{
+			DBInstanceIdentifier: id,
+			DbiResourceID:        id,
+			Engine:               snap.Engine,
+			EngineVersion:        snap.EngineVersion,
+			DBInstanceStatus:     instanceStatusAvailable,
+			Endpoint:             endpoint,
+			Port:                 port,
+			AllocatedStorage:     snap.AllocatedStorage,
+			StorageType:          opts.StorageType,
+			StorageEncrypted:     snap.StorageEncrypted,
+			AvailabilityZone:     opts.AvailabilityZone,
+			MultiAZ:              opts.MultiAZ,
+			DeletionProtection:   opts.DeletionProtection,
+		}
+		b.instances.Put(inst)
+		b.publishInstanceEventLocked(id, "DB instance restored from snapshot")
+		cp := *inst
+		result = &cp
+	}()
+
+	if err != nil {
+		return nil, err
 	}
-
-	snap, exists := b.snapshots.Get(snapshotID)
-	if !exists {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
-	}
-
-	if opts.StorageType == "" {
-		opts.StorageType = snap.StorageType
-	}
-	if opts.AvailabilityZone == "" {
-		opts.AvailabilityZone = b.region + "a"
-	}
-
-	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
-	port := snap.Port
-	if port == 0 {
-		port = enginePort(snap.Engine)
-	}
-
-	inst := &DBInstance{
-		DBInstanceIdentifier: id,
-		DbiResourceID:        id,
-		Engine:               snap.Engine,
-		EngineVersion:        snap.EngineVersion,
-		DBInstanceStatus:     instanceStatusAvailable,
-		Endpoint:             endpoint,
-		Port:                 port,
-		AllocatedStorage:     snap.AllocatedStorage,
-		StorageType:          opts.StorageType,
-		StorageEncrypted:     snap.StorageEncrypted,
-		AvailabilityZone:     opts.AvailabilityZone,
-		MultiAZ:              opts.MultiAZ,
-		DeletionProtection:   opts.DeletionProtection,
-	}
-	b.instances.Put(inst)
-	b.publishInstanceEventLocked(id, "DB instance restored from snapshot")
-	cp := *inst
-
-	b.mu.Unlock()
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
 	}
 
-	return &cp, nil
+	return result, nil
 }
 
 // DescribeDBSnapshotAttributes returns attributes for a DB snapshot.

@@ -12,17 +12,23 @@ import (
 // FlushAll forces delivery of all buffered records across all streams in all regions.
 // Used by tests and for graceful shutdown.
 func (b *InMemoryBackend) FlushAll(ctx context.Context) {
-	b.mu.RLock("FlushAll")
 	type streamRef struct {
 		region string
 		name   string
 	}
-	all := b.streams.All()
-	refs := make([]streamRef, 0, len(all))
-	for _, s := range all {
-		refs = append(refs, streamRef{region: s.Region, name: s.Name})
-	}
-	b.mu.RUnlock()
+
+	var refs []streamRef
+
+	func() {
+		b.mu.RLock("FlushAll")
+		defer b.mu.RUnlock()
+
+		all := b.streams.All()
+		refs = make([]streamRef, 0, len(all))
+		for _, s := range all {
+			refs = append(refs, streamRef{region: s.Region, name: s.Name})
+		}
+	}()
 
 	for _, ref := range refs {
 		b.flushStream(ctx, ref.region, ref.name)
@@ -44,23 +50,28 @@ func (b *InMemoryBackend) intervalFlusher(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			b.mu.RLock("intervalFlusher")
 			type streamRef struct {
 				region string
 				name   string
 			}
+
 			var refs []streamRef
-			// Only inspect streams flagged as holding buffered records, rather than
-			// scanning every region×stream on each tick.
-			for region, pending := range b.pendingFlush {
-				for name := range pending {
-					s, ok := b.streams.Get(regionKey(region, name))
-					if ok && b.shouldFlushByIntervalLocked(s) {
-						refs = append(refs, streamRef{region: region, name: name})
+
+			func() {
+				b.mu.RLock("intervalFlusher")
+				defer b.mu.RUnlock()
+
+				// Only inspect streams flagged as holding buffered records, rather than
+				// scanning every region×stream on each tick.
+				for region, pending := range b.pendingFlush {
+					for name := range pending {
+						s, ok := b.streams.Get(regionKey(region, name))
+						if ok && b.shouldFlushByIntervalLocked(s) {
+							refs = append(refs, streamRef{region: region, name: name})
+						}
 					}
 				}
-			}
-			b.mu.RUnlock()
+			}()
 
 			for _, ref := range refs {
 				b.flushStream(ctx, ref.region, ref.name)
@@ -418,18 +429,20 @@ func (b *InMemoryBackend) logDeliveryIssue(
 
 // flushStream delivers all buffered records for a stream to S3.
 func (b *InMemoryBackend) flushStream(ctx context.Context, region, streamName string) {
-	b.mu.Lock("flushStream")
+	var snap *flushSnapshot
 
-	s, ok := b.streams.Get(regionKey(region, streamName))
-	if !ok {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("flushStream")
+		defer b.mu.Unlock()
 
-		return
-	}
+		s, ok := b.streams.Get(regionKey(region, streamName))
+		if !ok {
+			return
+		}
 
-	snap := b.extractAllRecordsLocked(s)
-	b.clearPendingFlushLocked(region, streamName)
-	b.mu.Unlock()
+		snap = b.extractAllRecordsLocked(s)
+		b.clearPendingFlushLocked(region, streamName)
+	}()
 
 	if snap != nil {
 		b.deliverSnapshot(ctx, snap, streamName)

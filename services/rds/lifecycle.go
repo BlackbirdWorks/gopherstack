@@ -98,8 +98,9 @@ func (b *InMemoryBackend) Reset() {
 // SetDNSRegistrar wires a DNS server so RDS instance hostnames are auto-registered.
 func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 	b.mu.Lock("SetDNSRegistrar")
+	defer b.mu.Unlock()
+
 	b.dnsRegistrar = dns
-	b.mu.Unlock()
 }
 
 // enginePort returns the default port for the given database engine.

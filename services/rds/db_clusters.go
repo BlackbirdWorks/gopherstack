@@ -492,25 +492,38 @@ func (b *InMemoryBackend) FailoverDBCluster(clusterID, _ string) (*DBCluster, er
 // RebootDBCluster reboots the named Aurora DB cluster.
 // The cluster transitions to "rebooting" status and reverts to "available" after a brief delay.
 func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) {
-	b.mu.Lock("RebootDBCluster")
-	cluster, exists := b.clusters.Get(clusterID)
-	if !exists {
-		b.mu.Unlock()
+	var (
+		result *DBCluster
+		err    error
+	)
 
-		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	func() {
+		b.mu.Lock("RebootDBCluster")
+		defer b.mu.Unlock()
+
+		cluster, exists := b.clusters.Get(clusterID)
+		if !exists {
+			err = fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+
+			return
+		}
+		if cluster.Status != instanceStatusAvailable {
+			err = fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidDBClusterStateFault, clusterID)
+
+			return
+		}
+		cluster.Status = "rebooting"
+		b.clusterReadyAt[clusterID] = time.Now().Add(instanceTransitionDelay)
+		b.scheduleReconcilerLocked()
+		cp := *cluster
+		result = &cp
+	}()
+
+	if err != nil {
+		return nil, err
 	}
-	if cluster.Status != instanceStatusAvailable {
-		b.mu.Unlock()
 
-		return nil, fmt.Errorf("%w: cluster %s is not in available state", ErrInvalidDBClusterStateFault, clusterID)
-	}
-	cluster.Status = "rebooting"
-	b.clusterReadyAt[clusterID] = time.Now().Add(instanceTransitionDelay)
-	b.scheduleReconcilerLocked()
-	cp := *cluster
-	b.mu.Unlock()
-
-	return &cp, nil
+	return result, nil
 }
 
 // publishClusterEventLocked publishes an event for a DB cluster.

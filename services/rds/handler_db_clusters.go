@@ -692,15 +692,16 @@ func (h *Handler) fisFailoverDBClusters(ctx context.Context, targets []string, d
 
 	ids := make([]string, 0, len(targets))
 
-	h.Backend.mu.Lock("FISFailoverDBClusters")
+	func() {
+		h.Backend.mu.Lock("FISFailoverDBClusters")
+		defer h.Backend.mu.Unlock()
 
-	for _, t := range targets {
-		id := rdsIDFromARN(t)
-		ids = append(ids, id)
-		h.Backend.fisFailoverFaults[id] = expiry
-	}
-
-	h.Backend.mu.Unlock()
+		for _, t := range targets {
+			id := rdsIDFromARN(t)
+			ids = append(ids, id)
+			h.Backend.fisFailoverFaults[id] = expiry
+		}
+	}()
 
 	if dur > 0 {
 		// Time-limited: clear after duration or on cancellation.

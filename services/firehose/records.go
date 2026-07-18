@@ -21,35 +21,46 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data
 			ErrRecordTooLarge, len(data), maxRecordBytes)
 	}
 
-	b.mu.Lock("PutRecord")
+	var (
+		snap *flushSnapshot
+		err  error
+	)
 
-	region := getRegionFromContext(ctx, b)
+	func() {
+		b.mu.Lock("PutRecord")
+		defer b.mu.Unlock()
 
-	s, ok := b.streams.Get(regionKey(region, streamName))
-	if !ok {
-		b.mu.Unlock()
+		region := getRegionFromContext(ctx, b)
 
-		return fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
+		s, ok := b.streams.Get(regionKey(region, streamName))
+		if !ok {
+			err = fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
+
+			return
+		}
+
+		if s.DeliveryStreamType != deliveryStreamTypeDirectPut && s.DeliveryStreamType != "" {
+			err = fmt.Errorf("%w: PutRecord not allowed on %s stream; only DirectPut streams accept direct puts",
+				ErrValidation, s.DeliveryStreamType)
+
+			return
+		}
+
+		s.Records = append(s.Records, data)
+		s.bufferSizeBytes += len(data)
+		s.Metrics.TotalRecords++
+		s.Metrics.TotalBytes += int64(len(data))
+		// If backup mode is enabled, also store a copy in backup records.
+		if b.isBackupEnabledLocked(s) {
+			s.BackupRecords = append(s.BackupRecords, data)
+		}
+		snap = b.extractForFlushLocked(s)
+		b.updateFlushWatchLocked(region, streamName, s, snap)
+	}()
+
+	if err != nil {
+		return err
 	}
-
-	if s.DeliveryStreamType != deliveryStreamTypeDirectPut && s.DeliveryStreamType != "" {
-		b.mu.Unlock()
-
-		return fmt.Errorf("%w: PutRecord not allowed on %s stream; only DirectPut streams accept direct puts",
-			ErrValidation, s.DeliveryStreamType)
-	}
-
-	s.Records = append(s.Records, data)
-	s.bufferSizeBytes += len(data)
-	s.Metrics.TotalRecords++
-	s.Metrics.TotalBytes += int64(len(data))
-	// If backup mode is enabled, also store a copy in backup records.
-	if b.isBackupEnabledLocked(s) {
-		s.BackupRecords = append(s.BackupRecords, data)
-	}
-	snap := b.extractForFlushLocked(s)
-	b.updateFlushWatchLocked(region, streamName, s, snap)
-	b.mu.Unlock()
 
 	if snap != nil {
 		b.deliverSnapshot(b.svcCtx, snap, streamName)
@@ -99,38 +110,49 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 			ErrBatchTooLarge, totalBytes, maxBatchBytes)
 	}
 
-	b.mu.Lock("PutRecordBatch")
+	var (
+		snap *flushSnapshot
+		err  error
+	)
 
-	region := getRegionFromContext(ctx, b)
+	func() {
+		b.mu.Lock("PutRecordBatch")
+		defer b.mu.Unlock()
 
-	s, ok := b.streams.Get(regionKey(region, streamName))
-	if !ok {
-		b.mu.Unlock()
+		region := getRegionFromContext(ctx, b)
 
-		return 0, fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
-	}
+		s, ok := b.streams.Get(regionKey(region, streamName))
+		if !ok {
+			err = fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
 
-	if s.DeliveryStreamType != deliveryStreamTypeDirectPut && s.DeliveryStreamType != "" {
-		b.mu.Unlock()
-
-		return 0, fmt.Errorf("%w: PutRecordBatch not allowed on %s stream; only DirectPut streams accept direct puts",
-			ErrValidation, s.DeliveryStreamType)
-	}
-
-	backupEnabled := b.isBackupEnabledLocked(s)
-	for _, rec := range records {
-		s.Records = append(s.Records, rec)
-		s.bufferSizeBytes += len(rec)
-		s.Metrics.TotalRecords++
-		s.Metrics.TotalBytes += int64(len(rec))
-		if backupEnabled {
-			s.BackupRecords = append(s.BackupRecords, rec)
+			return
 		}
-	}
 
-	snap := b.extractForFlushLocked(s)
-	b.updateFlushWatchLocked(region, streamName, s, snap)
-	b.mu.Unlock()
+		if s.DeliveryStreamType != deliveryStreamTypeDirectPut && s.DeliveryStreamType != "" {
+			err = fmt.Errorf("%w: PutRecordBatch not allowed on %s stream; only DirectPut streams accept direct puts",
+				ErrValidation, s.DeliveryStreamType)
+
+			return
+		}
+
+		backupEnabled := b.isBackupEnabledLocked(s)
+		for _, rec := range records {
+			s.Records = append(s.Records, rec)
+			s.bufferSizeBytes += len(rec)
+			s.Metrics.TotalRecords++
+			s.Metrics.TotalBytes += int64(len(rec))
+			if backupEnabled {
+				s.BackupRecords = append(s.BackupRecords, rec)
+			}
+		}
+
+		snap = b.extractForFlushLocked(s)
+		b.updateFlushWatchLocked(region, streamName, s, snap)
+	}()
+
+	if err != nil {
+		return 0, err
+	}
 
 	if snap != nil {
 		b.deliverSnapshot(b.svcCtx, snap, streamName)

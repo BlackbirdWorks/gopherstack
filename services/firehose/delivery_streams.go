@@ -32,64 +32,76 @@ func (b *InMemoryBackend) CreateDeliveryStream(
 		return nil, fmt.Errorf("%w: DeliveryStreamName is required", ErrValidation)
 	}
 
-	b.mu.Lock("CreateDeliveryStream")
+	var (
+		region           string
+		result           *DeliveryStream
+		kinesisStreamARN string
+		shouldPoll       bool
+		err              error
+	)
 
-	region := getRegionFromContext(ctx, b)
+	func() {
+		b.mu.Lock("CreateDeliveryStream")
+		defer b.mu.Unlock()
 
-	if _, ok := b.streams.Get(regionKey(region, input.Name)); ok {
-		b.mu.Unlock()
+		region = getRegionFromContext(ctx, b)
 
-		return nil, fmt.Errorf("%w: stream %s already exists", ErrAlreadyExists, input.Name)
+		if _, ok := b.streams.Get(regionKey(region, input.Name)); ok {
+			err = fmt.Errorf("%w: stream %s already exists", ErrAlreadyExists, input.Name)
+
+			return
+		}
+
+		if input.S3Destination != nil && input.S3Destination.DestinationID == "" {
+			input.S3Destination.DestinationID = "destinationId-000000000001"
+		}
+
+		streamType := input.DeliveryStreamType
+		if streamType == "" {
+			streamType = deliveryStreamTypeDirectPut
+		}
+
+		now := time.Now()
+		streamARN := arn.Build("firehose", region, b.accountID, "deliverystream/"+input.Name)
+		s := &DeliveryStream{
+			Name:                    input.Name,
+			ARN:                     streamARN,
+			DeliveryStreamType:      streamType,
+			VersionID:               "1",
+			Status:                  "ACTIVE",
+			Records:                 [][]byte{},
+			BackupRecords:           [][]byte{},
+			Tags:                    tags.New("firehose." + region + "." + input.Name + ".tags"),
+			AccountID:               b.accountID,
+			Region:                  region,
+			S3Destination:           input.S3Destination,
+			HTTPEndpointDestination: input.HTTPEndpointDestination,
+			RedshiftDestination:     input.RedshiftDestination,
+			OpenSearchDestination:   input.OpenSearchDestination,
+			SplunkDestination:       input.SplunkDestination,
+			Source:                  input.Source,
+			CreateTimestamp:         now,
+			LastUpdateTimestamp:     now,
+			lastFlush:               now,
+		}
+		b.streams.Put(s)
+		b.invalidateNamesCacheLocked(region)
+
+		// Collect Kinesis poller info while holding the lock.
+		shouldPoll = streamType == deliveryStreamTypeKinesisSource &&
+			b.kinesisBackend != nil &&
+			input.Source != nil &&
+			input.Source.KinesisStreamSourceDescription != nil
+		if shouldPoll {
+			kinesisStreamARN = input.Source.KinesisStreamSourceDescription.KinesisStreamARN
+		}
+
+		result = streamCopy(s)
+	}()
+
+	if err != nil {
+		return nil, err
 	}
-
-	if input.S3Destination != nil && input.S3Destination.DestinationID == "" {
-		input.S3Destination.DestinationID = "destinationId-000000000001"
-	}
-
-	streamType := input.DeliveryStreamType
-	if streamType == "" {
-		streamType = deliveryStreamTypeDirectPut
-	}
-
-	now := time.Now()
-	streamARN := arn.Build("firehose", region, b.accountID, "deliverystream/"+input.Name)
-	s := &DeliveryStream{
-		Name:                    input.Name,
-		ARN:                     streamARN,
-		DeliveryStreamType:      streamType,
-		VersionID:               "1",
-		Status:                  "ACTIVE",
-		Records:                 [][]byte{},
-		BackupRecords:           [][]byte{},
-		Tags:                    tags.New("firehose." + region + "." + input.Name + ".tags"),
-		AccountID:               b.accountID,
-		Region:                  region,
-		S3Destination:           input.S3Destination,
-		HTTPEndpointDestination: input.HTTPEndpointDestination,
-		RedshiftDestination:     input.RedshiftDestination,
-		OpenSearchDestination:   input.OpenSearchDestination,
-		SplunkDestination:       input.SplunkDestination,
-		Source:                  input.Source,
-		CreateTimestamp:         now,
-		LastUpdateTimestamp:     now,
-		lastFlush:               now,
-	}
-	b.streams.Put(s)
-	b.invalidateNamesCacheLocked(region)
-
-	// Collect Kinesis poller info while holding the lock.
-	var kinesisStreamARN string
-	shouldPoll := streamType == deliveryStreamTypeKinesisSource &&
-		b.kinesisBackend != nil &&
-		input.Source != nil &&
-		input.Source.KinesisStreamSourceDescription != nil
-	if shouldPoll {
-		kinesisStreamARN = input.Source.KinesisStreamSourceDescription.KinesisStreamARN
-	}
-
-	result := streamCopy(s)
-
-	b.mu.Unlock()
 
 	if shouldPoll {
 		b.launchKinesisPoller(region, input.Name, kinesisStreamARN)
@@ -100,31 +112,41 @@ func (b *InMemoryBackend) CreateDeliveryStream(
 
 // DeleteDeliveryStream deletes a delivery stream.
 func (b *InMemoryBackend) DeleteDeliveryStream(ctx context.Context, name string) error {
-	b.mu.Lock("DeleteDeliveryStream")
+	var (
+		cancel context.CancelFunc
+		err    error
+	)
 
-	region := getRegionFromContext(ctx, b)
+	func() {
+		b.mu.Lock("DeleteDeliveryStream")
+		defer b.mu.Unlock()
 
-	s, ok := b.streams.Get(regionKey(region, name))
-	if !ok {
-		b.mu.Unlock()
+		region := getRegionFromContext(ctx, b)
 
-		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
+		s, ok := b.streams.Get(regionKey(region, name))
+		if !ok {
+			err = fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
+
+			return
+		}
+
+		if s.Tags != nil {
+			s.Tags.Close()
+		}
+
+		b.streams.Delete(regionKey(region, name))
+		b.invalidateNamesCacheLocked(region)
+		b.clearPendingFlushLocked(region, name)
+
+		// Stop Kinesis poller if one is running for this stream.
+		pollers := b.pollerStore(region)
+		cancel = pollers[name]
+		delete(pollers, name)
+	}()
+
+	if err != nil {
+		return err
 	}
-
-	if s.Tags != nil {
-		s.Tags.Close()
-	}
-
-	b.streams.Delete(regionKey(region, name))
-	b.invalidateNamesCacheLocked(region)
-	b.clearPendingFlushLocked(region, name)
-
-	// Stop Kinesis poller if one is running for this stream.
-	pollers := b.pollerStore(region)
-	cancel := pollers[name]
-	delete(pollers, name)
-
-	b.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
@@ -164,15 +186,25 @@ func (b *InMemoryBackend) ListDeliveryStreamsByType(ctx context.Context, streamT
 
 	// Fast path: cached full list, no type filter.
 	if streamType == "" {
-		b.mu.RLock("ListDeliveryStreams")
-		if cached, ok := b.sortedNamesCache[region]; ok {
-			out := make([]string, len(cached))
-			copy(out, cached)
-			b.mu.RUnlock()
+		var (
+			out []string
+			hit bool
+		)
 
+		func() {
+			b.mu.RLock("ListDeliveryStreams")
+			defer b.mu.RUnlock()
+
+			if cached, ok := b.sortedNamesCache[region]; ok {
+				out = make([]string, len(cached))
+				copy(out, cached)
+				hit = true
+			}
+		}()
+
+		if hit {
 			return out
 		}
-		b.mu.RUnlock()
 	}
 
 	b.mu.Lock("ListDeliveryStreams")
