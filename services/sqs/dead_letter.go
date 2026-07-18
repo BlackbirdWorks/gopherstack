@@ -78,6 +78,8 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 	now := time.Now()
 
 	q.mu.Lock()
+	defer q.mu.Unlock()
+
 	var remaining []*Message
 	for _, msg := range q.messages {
 		if !tryRouteToDLQ(q, msg, now) {
@@ -85,7 +87,6 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 		}
 	}
 	q.messages = remaining
-	q.mu.Unlock()
 
 	return nil
 }
@@ -205,12 +206,13 @@ func tryRouteToDLQ(q *Queue, msg *Message, now time.Time) bool {
 		msg.ReceiptHandle = ""
 
 		q.dlq.mu.Lock()
+		defer q.dlq.mu.Unlock()
+
 		q.dlq.messages = append(q.dlq.messages, msg)
 		if now.Before(msg.VisibleAt) {
 			q.dlq.delayedCount++
 		}
 		q.dlq.hasActivity.Store(true)
-		q.dlq.mu.Unlock()
 
 		return true
 	}

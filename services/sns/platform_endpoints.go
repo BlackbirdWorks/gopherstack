@@ -22,74 +22,90 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	platformApplicationArn, token string,
 	attributes map[string]string,
 ) (*PlatformEndpoint, error) {
-	b.mu.Lock("CreatePlatformEndpoint")
+	var (
+		ep      *PlatformEndpoint
+		err     error
+		created bool
+	)
 
-	app, exists := b.platformApplications.Get(platformApplicationArn)
-	if !exists {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("CreatePlatformEndpoint")
+		defer b.mu.Unlock()
 
-		return nil, ErrPlatformApplicationNotFound
-	}
+		app, exists := b.platformApplications.Get(platformApplicationArn)
+		if !exists {
+			err = ErrPlatformApplicationNotFound
 
-	// Dedup: return the existing endpoint when the same token is already registered
-	// under this platform application (mirrors AWS CreatePlatformEndpoint behaviour).
-	for _, ep := range b.platformEndpoints.All() {
-		if ep.PlatformApplicationArn == platformApplicationArn &&
-			ep.Attributes["Token"] == token {
-			b.mu.Unlock()
-
-			return ep, nil
+			return
 		}
+
+		// Dedup: return the existing endpoint when the same token is already registered
+		// under this platform application (mirrors AWS CreatePlatformEndpoint behaviour).
+		for _, existing := range b.platformEndpoints.All() {
+			if existing.PlatformApplicationArn == platformApplicationArn &&
+				existing.Attributes["Token"] == token {
+				ep = existing
+
+				return
+			}
+		}
+
+		// Derive the platform and app name from the platform application ARN.
+		// ARN format: arn:aws:sns:{region}:{accountID}:app/{Platform}/{AppName}
+		parts := strings.Split(app.PlatformApplicationArn, ":")
+		resource := parts[len(parts)-1] // "app/{Platform}/{AppName}"
+		resourceParts := strings.SplitN(resource, "/", platformARNResourceParts)
+
+		if len(resourceParts) != platformARNResourceParts {
+			err = fmt.Errorf(
+				"%w: malformed platform application ARN: %s",
+				ErrInvalidParameter,
+				platformApplicationArn,
+			)
+
+			return
+		}
+
+		platform := resourceParts[1]
+		appName := resourceParts[2]
+
+		appRegion := arnRegion(platformApplicationArn)
+		if appRegion == "" {
+			appRegion = b.region
+		}
+		endpointArn := arn.Build("sns", appRegion, b.accountID,
+			"endpoint/"+platform+"/"+appName+"/"+uuid.New().String())
+
+		// Allocate with room for Token and Enabled (endpointExtraAttrs) beyond caller-supplied attrs.
+		attrs := make(map[string]string, len(attributes)+endpointExtraAttrs)
+		maps.Copy(attrs, attributes)
+		attrs["Token"] = token
+		attrs["Enabled"] = "true"
+
+		newEP := &PlatformEndpoint{
+			EndpointArn:            endpointArn,
+			PlatformApplicationArn: platformApplicationArn,
+			Attributes:             attrs,
+			CreationTimestamp:      time.Now().UTC(),
+		}
+		b.platformEndpoints.Put(newEP)
+
+		ep = newEP
+		created = true
+	}()
+
+	if err != nil {
+		return nil, err
 	}
 
-	// Derive the platform and app name from the platform application ARN.
-	// ARN format: arn:aws:sns:{region}:{accountID}:app/{Platform}/{AppName}
-	parts := strings.Split(app.PlatformApplicationArn, ":")
-	resource := parts[len(parts)-1] // "app/{Platform}/{AppName}"
-	resourceParts := strings.SplitN(resource, "/", platformARNResourceParts)
-
-	if len(resourceParts) != platformARNResourceParts {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf(
-			"%w: malformed platform application ARN: %s",
-			ErrInvalidParameter,
-			platformApplicationArn,
-		)
+	if created {
+		// Fire endpoint-created event to the configured topic (best-effort, non-blocking).
+		b.fireEndpointEvent(platformApplicationArn, "EventEndpointCreated", map[string]string{
+			eventTypeKey:   "EndpointCreated",
+			endpointArnKey: ep.EndpointArn,
+			"Token":        token,
+		})
 	}
-
-	platform := resourceParts[1]
-	appName := resourceParts[2]
-
-	appRegion := arnRegion(platformApplicationArn)
-	if appRegion == "" {
-		appRegion = b.region
-	}
-	endpointArn := arn.Build("sns", appRegion, b.accountID,
-		"endpoint/"+platform+"/"+appName+"/"+uuid.New().String())
-
-	// Allocate with room for Token and Enabled (endpointExtraAttrs) beyond caller-supplied attrs.
-	attrs := make(map[string]string, len(attributes)+endpointExtraAttrs)
-	maps.Copy(attrs, attributes)
-	attrs["Token"] = token
-	attrs["Enabled"] = "true"
-
-	ep := &PlatformEndpoint{
-		EndpointArn:            endpointArn,
-		PlatformApplicationArn: platformApplicationArn,
-		Attributes:             attrs,
-		CreationTimestamp:      time.Now().UTC(),
-	}
-	b.platformEndpoints.Put(ep)
-
-	b.mu.Unlock()
-
-	// Fire endpoint-created event to the configured topic (best-effort, non-blocking).
-	b.fireEndpointEvent(platformApplicationArn, "EventEndpointCreated", map[string]string{
-		eventTypeKey:   "EndpointCreated",
-		endpointArnKey: endpointArn,
-		"Token":        token,
-	})
 
 	return ep, nil
 }
@@ -117,19 +133,29 @@ func (b *InMemoryBackend) SetEndpointAttributes(
 	endpointArn string,
 	attributes map[string]string,
 ) error {
-	b.mu.Lock("SetEndpointAttributes")
+	var (
+		platformAppArn string
+		err            error
+	)
 
-	ep, exists := b.platformEndpoints.Get(endpointArn)
-	if !exists {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("SetEndpointAttributes")
+		defer b.mu.Unlock()
 
-		return ErrEndpointNotFound
+		ep, exists := b.platformEndpoints.Get(endpointArn)
+		if !exists {
+			err = ErrEndpointNotFound
+
+			return
+		}
+
+		maps.Copy(ep.Attributes, attributes)
+		platformAppArn = ep.PlatformApplicationArn
+	}()
+
+	if err != nil {
+		return err
 	}
-
-	maps.Copy(ep.Attributes, attributes)
-	platformAppArn := ep.PlatformApplicationArn
-
-	b.mu.Unlock()
 
 	b.fireEndpointEvent(platformAppArn, "EventEndpointUpdated", map[string]string{
 		eventTypeKey:   "EndpointUpdated",
@@ -173,19 +199,29 @@ func (b *InMemoryBackend) ListEndpointsByPlatformApplication(
 // After deletion, an EventEndpointDeleted event is fired to the platform
 // application's configured event topic, if any.
 func (b *InMemoryBackend) DeleteEndpoint(endpointArn string) error {
-	b.mu.Lock("DeleteEndpoint")
+	var (
+		platformAppArn string
+		err            error
+	)
 
-	ep, exists := b.platformEndpoints.Get(endpointArn)
-	if !exists {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("DeleteEndpoint")
+		defer b.mu.Unlock()
 
-		return ErrEndpointNotFound
+		ep, exists := b.platformEndpoints.Get(endpointArn)
+		if !exists {
+			err = ErrEndpointNotFound
+
+			return
+		}
+
+		platformAppArn = ep.PlatformApplicationArn
+		b.platformEndpoints.Delete(endpointArn)
+	}()
+
+	if err != nil {
+		return err
 	}
-
-	platformAppArn := ep.PlatformApplicationArn
-	b.platformEndpoints.Delete(endpointArn)
-
-	b.mu.Unlock()
 
 	b.fireEndpointEvent(platformAppArn, "EventEndpointDeleted", map[string]string{
 		eventTypeKey:   "EndpointDeleted",
@@ -215,13 +251,17 @@ func (b *InMemoryBackend) sortedEndpoints() []PlatformEndpoint {
 // silently discarded so that endpoint operations always succeed regardless of
 // whether the event topic exists.
 func (b *InMemoryBackend) fireEndpointEvent(appArn, eventAttr string, payload map[string]string) {
-	b.mu.RLock("fireEndpointEvent")
-	app, exists := b.platformApplications.Get(appArn)
 	var topicArn string
-	if exists {
-		topicArn = app.Attributes[eventAttr]
-	}
-	b.mu.RUnlock()
+
+	func() {
+		b.mu.RLock("fireEndpointEvent")
+		defer b.mu.RUnlock()
+
+		app, exists := b.platformApplications.Get(appArn)
+		if exists {
+			topicArn = app.Attributes[eventAttr]
+		}
+	}()
 
 	if topicArn == "" {
 		return

@@ -41,9 +41,14 @@ func moveTaskTableKey(t *moveTaskState) string {
 // none outlives the backend. Safe to call multiple times; cancelling an
 // already-finished task is a no-op.
 func (b *InMemoryBackend) cancelAllMoveTasks() {
-	b.mu.Lock("cancelAllMoveTasks")
-	tasks := b.moveTasks.All()
-	b.mu.Unlock()
+	var tasks []*moveTaskState
+
+	func() {
+		b.mu.Lock("cancelAllMoveTasks")
+		defer b.mu.Unlock()
+
+		tasks = b.moveTasks.All()
+	}()
 
 	for _, task := range tasks {
 		if task.cancel != nil {
@@ -54,10 +59,15 @@ func (b *InMemoryBackend) cancelAllMoveTasks() {
 
 // cancelMoveTaskIfInvolved cancels task if it is active and references queueARN.
 func (b *InMemoryBackend) cancelMoveTaskIfInvolved(task *moveTaskState, queueARN string) {
-	task.mu.Lock()
-	isActive := task.status == MoveTaskStatusRunning || task.status == MoveTaskStatusCancelling
-	involves := task.sourceArn == queueARN || task.destArn == queueARN
-	task.mu.Unlock()
+	var isActive, involves bool
+
+	func() {
+		task.mu.Lock()
+		defer task.mu.Unlock()
+
+		isActive = task.status == MoveTaskStatusRunning || task.status == MoveTaskStatusCancelling
+		involves = task.sourceArn == queueARN || task.destArn == queueARN
+	}()
 
 	if isActive && involves {
 		task.cancel()
@@ -119,83 +129,100 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 		return nil, ErrInvalidMaxMessagesPerSecond
 	}
 
-	b.mu.Lock("StartMessageMoveTask")
-
-	// Check for existing running task on the same source ARN (AWS realism).
-	// We check task status while holding both b.mu and t.mu to ensure the
-	// status snapshot is consistent with the subsequent task insertion.
-	for _, t := range b.moveTasks.All() {
-		if t.sourceArn != input.SourceArn {
-			continue
-		}
-
-		t.mu.Lock()
-		isActive := t.status == MoveTaskStatusRunning || t.status == MoveTaskStatusCancelling
-		t.mu.Unlock()
-
-		if isActive {
-			b.mu.Unlock()
-
-			return nil, ErrMoveTaskAlreadyRunning
-		}
-	}
-
-	// Resolve source queue under the lock to avoid TOCTOU races.
-	srcURL, ok := b.queueURLFromARNLocked(input.SourceArn)
-	if !ok {
-		b.mu.Unlock()
-
-		return nil, ErrQueueNotFound
-	}
-
-	// Resolve destination queue under the same lock.
-	destArn := input.DestinationArn
-
-	var destURL string
-
-	if destArn == "" {
-		destURL, ok = b.findDefaultMoveDestinationLocked(input.SourceArn)
-		if !ok {
-			b.mu.Unlock()
-
-			return nil, ErrQueueNotFound
-		}
-
-		// Derive destination ARN from its URL for task metadata.
-		destName := queueNameFromInput(destURL)
-		destArn = arn.Build("sqs", b.region, b.accountID, destName)
-	} else {
-		destURL, ok = b.queueURLFromARNLocked(destArn)
-		if !ok {
-			b.mu.Unlock()
-
-			return nil, ErrQueueNotFound
-		}
-	}
-
-	// Snapshot queue depth under the lock so the estimate is consistent.
-	srcQueue, _ := b.lookupQueueByURL("", srcURL)
-	totalCount := approximateQueueDepthLocked(srcQueue)
-
-	taskHandle := uuid.New().String()
-
-	ctx, cancel := context.WithCancel(
-		b.svcCtx,
+	var (
+		taskHandle string
+		srcURL     string
+		destURL    string
+		state      *moveTaskState
+		ctx        context.Context
+		startErr   error
 	)
 
-	state := &moveTaskState{
-		cancel:     cancel,
-		taskHandle: taskHandle,
-		sourceArn:  input.SourceArn,
-		destArn:    destArn,
-		status:     MoveTaskStatusRunning,
-		maxPerSec:  input.MaxNumberOfMessagesPerSecond,
-		startedAt:  time.Now().UnixMilli(),
-		totalCount: totalCount,
-	}
+	func() {
+		b.mu.Lock("StartMessageMoveTask")
+		defer b.mu.Unlock()
 
-	b.moveTasks.Put(state)
-	b.mu.Unlock()
+		// Check for existing running task on the same source ARN (AWS realism).
+		// We check task status while holding both b.mu and t.mu to ensure the
+		// status snapshot is consistent with the subsequent task insertion.
+		for _, t := range b.moveTasks.All() {
+			if t.sourceArn != input.SourceArn {
+				continue
+			}
+
+			t.mu.Lock()
+			isActive := t.status == MoveTaskStatusRunning || t.status == MoveTaskStatusCancelling
+			t.mu.Unlock()
+
+			if isActive {
+				startErr = ErrMoveTaskAlreadyRunning
+
+				return
+			}
+		}
+
+		// Resolve source queue under the lock to avoid TOCTOU races.
+		var ok bool
+
+		srcURL, ok = b.queueURLFromARNLocked(input.SourceArn)
+		if !ok {
+			startErr = ErrQueueNotFound
+
+			return
+		}
+
+		// Resolve destination queue under the same lock.
+		destArn := input.DestinationArn
+
+		if destArn == "" {
+			destURL, ok = b.findDefaultMoveDestinationLocked(input.SourceArn)
+			if !ok {
+				startErr = ErrQueueNotFound
+
+				return
+			}
+
+			// Derive destination ARN from its URL for task metadata.
+			destName := queueNameFromInput(destURL)
+			destArn = arn.Build("sqs", b.region, b.accountID, destName)
+		} else {
+			destURL, ok = b.queueURLFromARNLocked(destArn)
+			if !ok {
+				startErr = ErrQueueNotFound
+
+				return
+			}
+		}
+
+		// Snapshot queue depth under the lock so the estimate is consistent.
+		srcQueue, _ := b.lookupQueueByURL("", srcURL)
+		totalCount := approximateQueueDepthLocked(srcQueue)
+
+		taskHandle = uuid.New().String()
+
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithCancel(
+			b.svcCtx,
+		)
+
+		state = &moveTaskState{
+			cancel:     cancel,
+			taskHandle: taskHandle,
+			sourceArn:  input.SourceArn,
+			destArn:    destArn,
+			status:     MoveTaskStatusRunning,
+			maxPerSec:  input.MaxNumberOfMessagesPerSecond,
+			startedAt:  time.Now().UnixMilli(),
+			totalCount: totalCount,
+		}
+
+		b.moveTasks.Put(state)
+	}()
+
+	if startErr != nil {
+		return nil, startErr
+	}
 
 	go b.runMoveTask(ctx, state, srcURL, destURL)
 
@@ -211,6 +238,7 @@ func (b *InMemoryBackend) runMoveTask(
 ) {
 	defer func() {
 		state.mu.Lock()
+		defer state.mu.Unlock()
 
 		switch state.status {
 		case MoveTaskStatusRunning:
@@ -223,8 +251,6 @@ func (b *InMemoryBackend) runMoveTask(
 		case MoveTaskStatusCompleted, MoveTaskStatusCancelled, MoveTaskStatusFailed:
 			// Terminal state already set (e.g. by an error path within the loop).
 		}
-
-		state.mu.Unlock()
 	}()
 
 	// Use a Ticker for MaxNumberOfMessagesPerSecond so the interval accounts for
@@ -264,9 +290,10 @@ func (b *InMemoryBackend) runMoveTask(
 		})
 		if err != nil {
 			state.mu.Lock()
+			defer state.mu.Unlock()
+
 			state.status = MoveTaskStatusFailed
 			state.failureReason = "failed to receive message from source queue: " + err.Error()
-			state.mu.Unlock()
 
 			return
 		}
@@ -296,9 +323,10 @@ func (b *InMemoryBackend) runMoveTask(
 				VisibilityTimeout: 0,
 			})
 			state.mu.Lock()
+			defer state.mu.Unlock()
+
 			state.status = MoveTaskStatusFailed
 			state.failureReason = "failed to send message to destination queue: " + sendErr.Error()
-			state.mu.Unlock()
 
 			return
 		}
@@ -309,9 +337,12 @@ func (b *InMemoryBackend) runMoveTask(
 			ReceiptHandle: msg.ReceiptHandle,
 		})
 
-		state.mu.Lock()
-		state.movedCount++
-		state.mu.Unlock()
+		func() {
+			state.mu.Lock()
+			defer state.mu.Unlock()
+
+			state.movedCount++
+		}()
 	}
 }
 
@@ -321,33 +352,51 @@ func (b *InMemoryBackend) runMoveTask(
 func (b *InMemoryBackend) CancelMessageMoveTask(
 	input *CancelMessageMoveTaskInput,
 ) (*CancelMessageMoveTaskOutput, error) {
-	b.mu.RLock("CancelMessageMoveTask")
-	state, ok := b.moveTasks.Get(input.TaskHandle)
-	b.mu.RUnlock()
+	var (
+		state *moveTaskState
+		ok    bool
+	)
+
+	func() {
+		b.mu.RLock("CancelMessageMoveTask")
+		defer b.mu.RUnlock()
+
+		state, ok = b.moveTasks.Get(input.TaskHandle)
+	}()
 
 	if !ok {
 		return nil, ErrTaskHandleInvalid
 	}
 
-	state.mu.Lock()
+	var (
+		out      *CancelMessageMoveTaskOutput
+		err      error
+		doCancel bool
+	)
 
-	switch state.status {
-	case MoveTaskStatusRunning, MoveTaskStatusCancelling:
-		state.status = MoveTaskStatusCancelling
-		moved := state.movedCount
-		state.mu.Unlock()
+	func() {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+
+		switch state.status {
+		case MoveTaskStatusRunning, MoveTaskStatusCancelling:
+			state.status = MoveTaskStatusCancelling
+			out = &CancelMessageMoveTaskOutput{
+				ApproximateNumberOfMessagesMoved: state.movedCount,
+			}
+			doCancel = true
+		default:
+			// Terminal states (Completed, Cancelled, Failed) cannot be cancelled;
+			// AWS rejects the request rather than treating it as idempotent.
+			err = ErrMoveTaskNotRunning
+		}
+	}()
+
+	if doCancel {
 		state.cancel()
-
-		return &CancelMessageMoveTaskOutput{
-			ApproximateNumberOfMessagesMoved: moved,
-		}, nil
-	default:
-		// Terminal states (Completed, Cancelled, Failed) cannot be cancelled;
-		// AWS rejects the request rather than treating it as idempotent.
-		state.mu.Unlock()
-
-		return nil, ErrMoveTaskNotRunning
 	}
+
+	return out, err
 }
 
 // listMessageMoveTasksDefaultMaxResults is the default number of results returned by
@@ -367,17 +416,18 @@ const listMessageMoveTasksMaxAllowed = 10
 func (b *InMemoryBackend) ListMessageMoveTasks(
 	input *ListMessageMoveTasksInput,
 ) (*ListMessageMoveTasksOutput, error) {
-	b.mu.RLock("ListMessageMoveTasks")
-
 	var tasks []*moveTaskState
 
-	for _, t := range b.moveTasks.All() {
-		if input.SourceArn == "" || t.sourceArn == input.SourceArn {
-			tasks = append(tasks, t)
-		}
-	}
+	func() {
+		b.mu.RLock("ListMessageMoveTasks")
+		defer b.mu.RUnlock()
 
-	b.mu.RUnlock()
+		for _, t := range b.moveTasks.All() {
+			if input.SourceArn == "" || t.sourceArn == input.SourceArn {
+				tasks = append(tasks, t)
+			}
+		}
+	}()
 
 	// Sort descending by startedAt: higher timestamps are newer, so index[0] is the
 	// most recent task. This matches the AWS default of returning the most recent task first.

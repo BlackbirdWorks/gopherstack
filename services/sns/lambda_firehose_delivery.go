@@ -132,12 +132,16 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 
 	sqsSender := b.sqsSender
 
-	b.mu.RLock("lambda-topic-policy")
 	var topicEffectivePolicy string
-	if topic, ok := b.topics.Get(ev.TopicARN); ok {
-		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
-	}
-	b.mu.RUnlock()
+
+	func() {
+		b.mu.RLock("lambda-topic-policy")
+		defer b.mu.RUnlock()
+
+		if topic, ok := b.topics.Get(ev.TopicARN); ok {
+			topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+		}
+	}()
 
 	for _, sub := range ev.Subscriptions {
 		if sub.Protocol != protocolLambda {
@@ -179,12 +183,16 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 
 	sqsSender := b.sqsSender
 
-	b.mu.RLock("firehose-topic-policy")
 	var topicEffectivePolicy string
-	if topic, ok := b.topics.Get(ev.TopicARN); ok {
-		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
-	}
-	b.mu.RUnlock()
+
+	func() {
+		b.mu.RLock("firehose-topic-policy")
+		defer b.mu.RUnlock()
+
+		if topic, ok := b.topics.Get(ev.TopicARN); ok {
+			topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+		}
+	}()
 
 	for _, sub := range ev.Subscriptions {
 		if sub.Protocol != protocolFirehose {
@@ -258,10 +266,15 @@ func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublis
 			continue
 		}
 
-		b.mu.RLock("deliverToApplicationSubscriptions")
-		ep, exists := b.platformEndpoints.Get(sub.Endpoint)
-		enabled := exists && ep.Attributes["Enabled"] != boolFalseStr
-		b.mu.RUnlock()
+		var enabled bool
+
+		func() {
+			b.mu.RLock("deliverToApplicationSubscriptions")
+			defer b.mu.RUnlock()
+
+			ep, exists := b.platformEndpoints.Get(sub.Endpoint)
+			enabled = exists && ep.Attributes["Enabled"] != boolFalseStr
+		}()
 
 		if !enabled {
 			continue
@@ -269,13 +282,16 @@ func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublis
 
 		msgID := uuid.New().String()
 
-		b.mu.Lock("deliverToApplicationSubscriptions-record")
-		b.applicationDeliveries = appendBounded(b.applicationDeliveries, ApplicationDelivery{
-			EndpointARN: sub.Endpoint,
-			Message:     ev.Message,
-			MessageID:   msgID,
-		}, maxRecordedDeliveries)
-		b.mu.Unlock()
+		func() {
+			b.mu.Lock("deliverToApplicationSubscriptions-record")
+			defer b.mu.Unlock()
+
+			b.applicationDeliveries = appendBounded(b.applicationDeliveries, ApplicationDelivery{
+				EndpointARN: sub.Endpoint,
+				Message:     ev.Message,
+				MessageID:   msgID,
+			}, maxRecordedDeliveries)
+		}()
 	}
 }
 

@@ -227,26 +227,37 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(
 		replayFromTime = ts
 	}
 
-	b.mu.Lock("SetSubscriptionAttributes")
+	var (
+		subSnap  Subscription
+		topicArn string
+		setErr   error
+	)
 
-	sub, exists := b.subscriptions.Get(subscriptionArn)
-	if !exists {
-		b.mu.Unlock()
+	func() {
+		b.mu.Lock("SetSubscriptionAttributes")
+		defer b.mu.Unlock()
 
-		return ErrSubscriptionNotFound
+		sub, exists := b.subscriptions.Get(subscriptionArn)
+		if !exists {
+			setErr = ErrSubscriptionNotFound
+
+			return
+		}
+
+		if err := applySubscriptionAttr(sub, attrName, attrValue, parsedPolicy); err != nil {
+			setErr = err
+
+			return
+		}
+
+		// Capture a snapshot for replay (after the attribute is applied so RawMessageDelivery etc. are current).
+		subSnap = *sub
+		topicArn = sub.TopicArn
+	}()
+
+	if setErr != nil {
+		return setErr
 	}
-
-	if err := applySubscriptionAttr(sub, attrName, attrValue, parsedPolicy); err != nil {
-		b.mu.Unlock()
-
-		return err
-	}
-
-	// Capture a snapshot for replay (after the attribute is applied so RawMessageDelivery etc. are current).
-	subSnap := *sub
-	topicArn := sub.TopicArn
-
-	b.mu.Unlock()
 
 	// Trigger asynchronous replay when ReplayPolicy is set to a non-empty value.
 	if attrName == attrReplayPolicy && attrValue != "" && !replayFromTime.IsZero() {

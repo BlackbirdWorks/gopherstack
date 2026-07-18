@@ -72,9 +72,14 @@ func (b *InMemoryBackend) startJanitor() {
 // stopInternalJanitor stops the internal janitor goroutine started by
 // NewInMemoryBackendWithConfig. Safe to call multiple times.
 func (b *InMemoryBackend) stopInternalJanitor() {
-	b.mu.Lock("stopInternalJanitor")
-	ch := b.janitorStop
-	b.mu.Unlock()
+	var ch chan struct{}
+
+	func() {
+		b.mu.Lock("stopInternalJanitor")
+		defer b.mu.Unlock()
+
+		ch = b.janitorStop
+	}()
 
 	if ch == nil {
 		return
@@ -108,70 +113,76 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 	// Only include queues with pending activity (hasActivity flag set) or FIFO
 	// queues (which may have dedup IDs to expire regardless of message count).
 	// This avoids allocating a full-width snapshot when most queues are idle.
-	b.mu.RLock("pruneState.collect")
 	queues := make([]*Queue, 0)
-	b.queues.Range(func(q *Queue) bool {
-		if q.hasActivity.Load() || q.IsFIFO {
-			queues = append(queues, q)
-		}
 
-		return true
-	})
-	b.mu.RUnlock()
+	func() {
+		b.mu.RLock("pruneState.collect")
+		defer b.mu.RUnlock()
+
+		b.queues.Range(func(q *Queue) bool {
+			if q.hasActivity.Load() || q.IsFIFO {
+				queues = append(queues, q)
+			}
+
+			return true
+		})
+	}()
 
 	dedupPruned := 0
 	msgExpired := 0
 
 	for _, q := range queues {
-		q.mu.Lock()
+		func() {
+			q.mu.Lock()
+			defer q.mu.Unlock()
 
-		if q.IsFIFO {
-			before := len(q.DeduplicationIDs)
-			pruneDedup(q, now)
-			dedupPruned += before - len(q.DeduplicationIDs)
-		}
+			if q.IsFIFO {
+				before := len(q.DeduplicationIDs)
+				pruneDedup(q, now)
+				dedupPruned += before - len(q.DeduplicationIDs)
+			}
 
-		before := len(q.messages)
-		// prepareAndPickMessages with maxMessages=0 performs all cleanup (re-queue
-		// expired in-flight, expire retained, drain to DLQ) without picking (#54).
-		prepareAndPickMessages(q, "", 0, 0, now)
-		msgExpired += max(0, before-len(q.messages))
+			before := len(q.messages)
+			// prepareAndPickMessages with maxMessages=0 performs all cleanup (re-queue
+			// expired in-flight, expire retained, drain to DLQ) without picking (#54).
+			prepareAndPickMessages(q, "", 0, 0, now)
+			msgExpired += max(0, before-len(q.messages))
 
-		// When the queue is fully idle, clear hasActivity so subsequent janitor
-		// ticks skip it until new messages arrive.
-		if len(q.messages) == 0 && len(q.inFlightMessages) == 0 &&
-			len(q.DeduplicationIDs) == 0 {
-			q.hasActivity.Store(false)
-		}
-
-		q.mu.Unlock()
+			// When the queue is fully idle, clear hasActivity so subsequent janitor
+			// ticks skip it until new messages arrive.
+			if len(q.messages) == 0 && len(q.inFlightMessages) == 0 &&
+				len(q.DeduplicationIDs) == 0 {
+				q.hasActivity.Store(false)
+			}
+		}()
 	}
 
 	tasksPruned := 0
 	pruneBefore := now.Add(-moveTaskRetentionTTL).UnixMilli()
 
-	b.mu.Lock("pruneState.tasks")
+	func() {
+		b.mu.Lock("pruneState.tasks")
+		defer b.mu.Unlock()
 
-	// Deleting a Table entry mid-Range is safe for the same reason it is safe
-	// for a bare map: Go guarantees a concurrently deleted key is not produced
-	// later in the same range.
-	b.moveTasks.Range(func(task *moveTaskState) bool {
-		task.mu.Lock()
-		isTerminal := task.status == MoveTaskStatusCompleted ||
-			task.status == MoveTaskStatusCancelled ||
-			task.status == MoveTaskStatusFailed
-		isExpired := task.startedAt <= pruneBefore
-		task.mu.Unlock()
+		// Deleting a Table entry mid-Range is safe for the same reason it is safe
+		// for a bare map: Go guarantees a concurrently deleted key is not produced
+		// later in the same range.
+		b.moveTasks.Range(func(task *moveTaskState) bool {
+			task.mu.Lock()
+			isTerminal := task.status == MoveTaskStatusCompleted ||
+				task.status == MoveTaskStatusCancelled ||
+				task.status == MoveTaskStatusFailed
+			isExpired := task.startedAt <= pruneBefore
+			task.mu.Unlock()
 
-		if isTerminal && isExpired {
-			b.moveTasks.Delete(task.taskHandle)
-			tasksPruned++
-		}
+			if isTerminal && isExpired {
+				b.moveTasks.Delete(task.taskHandle)
+				tasksPruned++
+			}
 
-		return true
-	})
-
-	b.mu.Unlock()
+			return true
+		})
+	}()
 
 	totalItems := dedupPruned + msgExpired + tasksPruned
 	telemetry.RecordWorkerItems("sqs", "JanitorSweeper", totalItems)

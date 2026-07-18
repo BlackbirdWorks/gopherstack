@@ -318,9 +318,12 @@ func (h *Handler) Reset() {
 	}
 
 	// Clear FIFO deduplication cache.
-	h.dedup.mu.Lock()
-	h.dedup.entries = make(map[string]time.Time)
-	h.dedup.mu.Unlock()
+	func() {
+		h.dedup.mu.Lock()
+		defer h.dedup.mu.Unlock()
+
+		h.dedup.entries = make(map[string]time.Time)
+	}()
 
 	// Clear FIFO sequence number counters.
 	h.fifoSeqNums.Range(func(k, _ any) bool {

@@ -740,9 +740,14 @@ func (b *InMemoryBackend) DeleteMessageBatch(
 
 	// AWS returns QueueDoesNotExist at the batch level (not per-entry) when the
 	// target queue does not exist.
-	b.mu.RLock("DeleteMessageBatch.queueCheck")
-	_, queueExists := b.lookupQueueByName(input.Region, queueNameFromInput(input.QueueURL))
-	b.mu.RUnlock()
+	var queueExists bool
+
+	func() {
+		b.mu.RLock("DeleteMessageBatch.queueCheck")
+		defer b.mu.RUnlock()
+
+		_, queueExists = b.lookupQueueByName(input.Region, queueNameFromInput(input.QueueURL))
+	}()
 
 	if !queueExists {
 		return nil, ErrQueueNotFound

@@ -73,47 +73,50 @@ func (b *InMemoryBackend) logDeliveryStatus(
 	topicARN, protocol, endpoint, status string,
 	err error,
 ) {
-	b.mu.RLock("logDeliveryStatus")
-	topic, ok := b.topics.Get(topicARN)
-	if !ok {
-		b.mu.RUnlock()
+	var roleArn string
 
-		return
-	}
+	func() {
+		b.mu.RLock("logDeliveryStatus")
+		defer b.mu.RUnlock()
 
-	// Determine the protocol prefix
-	constHTTPPrefix := "HTTP"
-	constHTTPSPrefix := "HTTPS"
-	var prefix string
-	switch protocol {
-	case protocolHTTP, protocolHTTPS:
-		prefix = constHTTPPrefix
-		if protocol == protocolHTTPS {
-			if topic.Attributes["HTTPSSuccessFeedbackRoleArn"] != "" {
-				prefix = constHTTPSPrefix
-			} else {
-				prefix = constHTTPPrefix
-			}
+		topic, ok := b.topics.Get(topicARN)
+		if !ok {
+			return
 		}
-	case protocolLambda:
-		prefix = "Lambda"
-	case protocolFirehose:
-		prefix = "Firehose"
-	case protocolApplication:
-		prefix = "Application"
-	case protocolSQS:
-		prefix = "SQS"
-	default:
-		prefix = constHTTPPrefix
-	}
 
-	roleArnAttr := prefix + "SuccessFeedbackRoleArn"
-	if status == "FAILURE" {
-		roleArnAttr = prefix + "FailureFeedbackRoleArn"
-	}
+		// Determine the protocol prefix
+		constHTTPPrefix := "HTTP"
+		constHTTPSPrefix := "HTTPS"
+		var prefix string
+		switch protocol {
+		case protocolHTTP, protocolHTTPS:
+			prefix = constHTTPPrefix
+			if protocol == protocolHTTPS {
+				if topic.Attributes["HTTPSSuccessFeedbackRoleArn"] != "" {
+					prefix = constHTTPSPrefix
+				} else {
+					prefix = constHTTPPrefix
+				}
+			}
+		case protocolLambda:
+			prefix = "Lambda"
+		case protocolFirehose:
+			prefix = "Firehose"
+		case protocolApplication:
+			prefix = "Application"
+		case protocolSQS:
+			prefix = "SQS"
+		default:
+			prefix = constHTTPPrefix
+		}
 
-	roleArn := topic.Attributes[roleArnAttr]
-	b.mu.RUnlock()
+		roleArnAttr := prefix + "SuccessFeedbackRoleArn"
+		if status == "FAILURE" {
+			roleArnAttr = prefix + "FailureFeedbackRoleArn"
+		}
+
+		roleArn = topic.Attributes[roleArnAttr]
+	}()
 
 	if roleArn == "" {
 		return

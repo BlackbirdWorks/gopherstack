@@ -65,9 +65,14 @@ func (b *InMemoryBackend) SetMetricEmitter(e MetricEmitter) {
 // It reads the emitter under the lock, then calls it without holding the lock
 // to avoid a potential deadlock if the emitter itself takes a lock.
 func (b *InMemoryBackend) emitMetric(name string, value float64) {
-	b.mu.RLock("emitMetric")
-	e := b.metricEmitter
-	b.mu.RUnlock()
+	var e MetricEmitter
+
+	func() {
+		b.mu.RLock("emitMetric")
+		defer b.mu.RUnlock()
+
+		e = b.metricEmitter
+	}()
 
 	if e == nil {
 		return

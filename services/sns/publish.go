@@ -293,41 +293,55 @@ func (b *InMemoryBackend) Publish(
 		return "", err
 	}
 
-	b.mu.RLock("Publish")
+	var (
+		archivePolicy string
+		messageID     string
+		targets       publishTargets
+		client        *http.Client
+		pubErr        error
+	)
 
-	topic, exists := b.topics.Get(topicArn)
-	if !exists {
-		b.mu.RUnlock()
+	func() {
+		b.mu.RLock("Publish")
+		defer b.mu.RUnlock()
 
-		return "", ErrTopicNotFound
+		topic, exists := b.topics.Get(topicArn)
+		if !exists {
+			pubErr = ErrTopicNotFound
+
+			return
+		}
+
+		// Capture whether this topic archives messages (ArchivePolicy present).
+		archivePolicy = topic.Attributes["ArchivePolicy"]
+
+		messageID = uuid.New().String()
+
+		// resolveMsg returns the appropriate message body for a given protocol.
+		resolveMsg := buildMessageResolver(message, parsePerProtocolMessages(message, messageStructure))
+
+		// Build subscription snapshot and collect HTTP deliveries — all under RLock.
+		targets = b.collectPublishTargets(topicArn, subject, resolveMsg, attrs)
+
+		// Annotate HTTP deliveries with messageID, topicARN, and signer for SNS envelope/headers.
+		signer := b.signer
+		for i := range targets.httpDeliveries {
+			targets.httpDeliveries[i].messageID = messageID
+			targets.httpDeliveries[i].topicARN = topicArn
+			targets.httpDeliveries[i].signer = signer
+		}
+
+		// Capture httpClient under the read lock to avoid data races with
+		// concurrent SetHTTPDeliveryClient calls.
+		client = b.httpClient
+
+		// Release the read lock before performing any network I/O so that slow or
+		// unresponsive HTTP endpoints do not block write operations on the backend.
+	}()
+
+	if pubErr != nil {
+		return "", pubErr
 	}
-
-	// Capture whether this topic archives messages (ArchivePolicy present).
-	archivePolicy := topic.Attributes["ArchivePolicy"]
-
-	messageID := uuid.New().String()
-
-	// resolveMsg returns the appropriate message body for a given protocol.
-	resolveMsg := buildMessageResolver(message, parsePerProtocolMessages(message, messageStructure))
-
-	// Build subscription snapshot and collect HTTP deliveries — all under RLock.
-	targets := b.collectPublishTargets(topicArn, subject, resolveMsg, attrs)
-
-	// Annotate HTTP deliveries with messageID, topicARN, and signer for SNS envelope/headers.
-	signer := b.signer
-	for i := range targets.httpDeliveries {
-		targets.httpDeliveries[i].messageID = messageID
-		targets.httpDeliveries[i].topicARN = topicArn
-		targets.httpDeliveries[i].signer = signer
-	}
-
-	// Capture httpClient under the read lock to avoid data races with
-	// concurrent SetHTTPDeliveryClient calls.
-	client := b.httpClient
-
-	// Release the read lock before performing any network I/O so that slow or
-	// unresponsive HTTP endpoints do not block write operations on the backend.
-	b.mu.RUnlock()
 
 	// Archive the message when the topic has an ArchivePolicy (e.g. FIFO topics
 	// with message retention). Archived messages are used for subscription replay.
@@ -387,10 +401,18 @@ func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error
 		)
 	}
 
-	b.mu.RLock("PublishSMS-check")
-	sandboxEntry, _ := b.smsSandbox.Get(phoneNumber)
-	optedOut := b.optedOutPhoneNumbers[phoneNumber]
-	b.mu.RUnlock()
+	var (
+		sandboxEntry *SandboxPhoneNumber
+		optedOut     bool
+	)
+
+	func() {
+		b.mu.RLock("PublishSMS-check")
+		defer b.mu.RUnlock()
+
+		sandboxEntry, _ = b.smsSandbox.Get(phoneNumber)
+		optedOut = b.optedOutPhoneNumbers[phoneNumber]
+	}()
 
 	// Opted-out numbers must not receive SMS regardless of sandbox state.
 	if optedOut {
@@ -414,12 +436,13 @@ func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error
 	msgID := uuid.New().String()
 
 	b.mu.Lock("PublishSMS")
+	defer b.mu.Unlock()
+
 	b.smsDeliveries = appendBounded(b.smsDeliveries, SMSDelivery{
 		PhoneNumber: phoneNumber,
 		Message:     message,
 		MessageID:   msgID,
 	}, maxRecordedDeliveries)
-	b.mu.Unlock()
 
 	return msgID, nil
 }

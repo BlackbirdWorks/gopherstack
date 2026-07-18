@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
@@ -56,27 +57,35 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 	topicArn string,
 	fromTime time.Time,
 ) {
-	b.mu.RLock("replayMessages")
+	var (
+		toReplay             []*ArchivedMessage
+		emitter              events.EventEmitter[*events.SNSPublishedEvent]
+		client               *http.Client
+		signer               *notificationSigner
+		sqsSender            SQSSender
+		topicEffectivePolicy string
+	)
 
-	archive := b.topicMessageArchive[topicArn]
-	var toReplay []*ArchivedMessage
-	for _, msg := range archive {
-		if !msg.Timestamp.Before(fromTime) {
-			toReplay = append(toReplay, msg)
+	func() {
+		b.mu.RLock("replayMessages")
+		defer b.mu.RUnlock()
+
+		archive := b.topicMessageArchive[topicArn]
+		for _, msg := range archive {
+			if !msg.Timestamp.Before(fromTime) {
+				toReplay = append(toReplay, msg)
+			}
 		}
-	}
 
-	emitter := b.emitter
-	client := b.httpClient
-	signer := b.signer
-	sqsSender := b.sqsSender
+		emitter = b.emitter
+		client = b.httpClient
+		signer = b.signer
+		sqsSender = b.sqsSender
 
-	var topicEffectivePolicy string
-	if topic, ok := b.topics.Get(topicArn); ok {
-		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
-	}
-
-	b.mu.RUnlock()
+		if topic, ok := b.topics.Get(topicArn); ok {
+			topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+		}
+	}()
 
 	for _, msg := range toReplay {
 		subSnap := events.SNSSubscriptionSnapshot{
