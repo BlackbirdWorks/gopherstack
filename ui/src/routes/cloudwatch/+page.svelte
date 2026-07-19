@@ -327,47 +327,68 @@
 		}
 	}
 
+	async function loadAlarmsForTab() {
+		const res = await cw.send(new DescribeAlarmsCommand({ MaxRecords: 100 }));
+		alarms = res.MetricAlarms ?? [];
+		if (alarms.length === 0) await loadDemoData();
+	}
+
+	async function loadMetricsForTab() {
+		const res = await cw.send(new ListMetricsCommand({}));
+		metrics = res.Metrics ?? [];
+	}
+
+	async function loadDashboardsForTab() {
+		const res = await cw.send(new ListDashboardsCommand({}));
+		dashboards = res.DashboardEntries ?? [];
+	}
+
+	async function loadStreamsForTab() {
+		const res = await cw.send(new ListMetricStreamsCommand({}));
+		streams = res.Entries ?? [];
+		if (streams.length === 0) {
+			streams = [
+				{ Name: 'demo-stream-firehose', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/demo-stream', State: 'running', OutputFormat: 'json', CreationDate: new Date('2024-01-15') },
+				{ Name: 'demo-stream-ops', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/ops-stream', State: 'stopped', OutputFormat: 'opentelemetry1.0', CreationDate: new Date('2024-03-20') }
+			];
+		}
+	}
+
+	async function loadAnomalyForTab() {
+		const res = await cw.send(new DescribeAnomalyDetectorsCommand({}));
+		anomalyDetectors = res.AnomalyDetectors ?? [];
+		if (anomalyDetectors.length === 0) {
+			anomalyDetectors = [
+				{ SingleMetricAnomalyDetector: { Namespace: 'AWS/EC2', MetricName: 'CPUUtilization', Stat: 'Average' }, StateValue: 'TRAINED' },
+				{ SingleMetricAnomalyDetector: { Namespace: 'AWS/RDS', MetricName: 'DatabaseConnections', Stat: 'Average' }, StateValue: 'PENDING_TRAINING' }
+			];
+		}
+	}
+
+	async function loadFiltersForTab() {
+		const res = await cwLogs.send(new DescribeMetricFiltersCommand({}));
+		metricFilters = res.metricFilters ?? [];
+		if (metricFilters.length === 0) {
+			metricFilters = [
+				{ filterName: 'demo-error-filter', logGroupName: '/aws/lambda/my-function', filterPattern: '[ERROR]', metricTransformations: [{ metricName: 'ErrorCount', metricNamespace: 'CustomApp', metricValue: '1' }] },
+				{ filterName: 'demo-latency-filter', logGroupName: '/aws/apigateway/my-api', filterPattern: '[duration > 1000]', metricTransformations: [{ metricName: 'HighLatency', metricNamespace: 'CustomApp', metricValue: '1' }] }
+			];
+		}
+	}
+
+	const tabDataLoaders: Record<TabId, () => Promise<void>> = {
+		alarms: loadAlarmsForTab,
+		metrics: loadMetricsForTab,
+		dashboards: loadDashboardsForTab,
+		streams: loadStreamsForTab,
+		anomaly: loadAnomalyForTab,
+		filters: loadFiltersForTab
+	};
+
 	async function loadData(tab: TabId = activeTab) {
 		loading = true;
 		try {
-			if (tab === 'alarms') {
-				const res = await cw.send(new DescribeAlarmsCommand({ MaxRecords: 100 }));
-				alarms = res.MetricAlarms ?? [];
-				if (alarms.length === 0) await loadDemoData();
-			} else if (tab === 'metrics') {
-				const res = await cw.send(new ListMetricsCommand({}));
-				metrics = res.Metrics ?? [];
-			} else if (tab === 'dashboards') {
-				const res = await cw.send(new ListDashboardsCommand({}));
-				dashboards = res.DashboardEntries ?? [];
-			} else if (tab === 'streams') {
-				const res = await cw.send(new ListMetricStreamsCommand({}));
-				streams = res.Entries ?? [];
-				if (streams.length === 0) {
-					streams = [
-						{ Name: 'demo-stream-firehose', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/demo-stream', State: 'running', OutputFormat: 'json', CreationDate: new Date('2024-01-15') },
-						{ Name: 'demo-stream-ops', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/ops-stream', State: 'stopped', OutputFormat: 'opentelemetry1.0', CreationDate: new Date('2024-03-20') }
-					];
-				}
-			} else if (tab === 'anomaly') {
-				const res = await cw.send(new DescribeAnomalyDetectorsCommand({}));
-				anomalyDetectors = res.AnomalyDetectors ?? [];
-				if (anomalyDetectors.length === 0) {
-					anomalyDetectors = [
-						{ SingleMetricAnomalyDetector: { Namespace: 'AWS/EC2', MetricName: 'CPUUtilization', Stat: 'Average' }, StateValue: 'TRAINED' },
-						{ SingleMetricAnomalyDetector: { Namespace: 'AWS/RDS', MetricName: 'DatabaseConnections', Stat: 'Average' }, StateValue: 'PENDING_TRAINING' }
-					];
-				}
-			} else if (tab === 'filters') {
-				const res = await cwLogs.send(new DescribeMetricFiltersCommand({}));
-				metricFilters = res.metricFilters ?? [];
-				if (metricFilters.length === 0) {
-					metricFilters = [
-						{ filterName: 'demo-error-filter', logGroupName: '/aws/lambda/my-function', filterPattern: '[ERROR]', metricTransformations: [{ metricName: 'ErrorCount', metricNamespace: 'CustomApp', metricValue: '1' }] },
-						{ filterName: 'demo-latency-filter', logGroupName: '/aws/apigateway/my-api', filterPattern: '[duration > 1000]', metricTransformations: [{ metricName: 'HighLatency', metricNamespace: 'CustomApp', metricValue: '1' }] }
-					];
-				}
-			}
+			await tabDataLoaders[tab]();
 		} catch (err: unknown) {
 			toast.error(`Failed to load ${tab}: ${(err as Error).message}`);
 		} finally {

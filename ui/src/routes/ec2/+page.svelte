@@ -353,39 +353,79 @@ async function loadNatGateways() {
 	}
 }
 
+const tabLoaders: Record<
+	TabName,
+	{ isLoaded: () => boolean; reset: () => void; load: () => Promise<void> }
+> = {
+	instances: { isLoaded: () => instances.length > 0,
+		reset: () => {
+			instances = [];
+		}, load: loadInstances },
+	secgroups: { isLoaded: () => securityGroups.length > 0,
+		reset: () => {
+			securityGroups = [];
+		}, load: loadSecurityGroups },
+	keypairs: { isLoaded: () => keyPairs.length > 0,
+		reset: () => {
+			keyPairs = [];
+		}, load: loadKeyPairs },
+	amis: { isLoaded: () => amis.length > 0,
+		reset: () => {
+			amis = [];
+		}, load: loadAmis },
+	launchtemplates: { isLoaded: () => launchTemplates.length > 0,
+		reset: () => {
+			launchTemplates = [];
+		}, load: loadLaunchTemplates },
+	vpcendpoints: { isLoaded: () => vpcEndpoints.length > 0,
+		reset: () => {
+			vpcEndpoints = [];
+		}, load: loadVpcEndpoints },
+	nacls: { isLoaded: () => networkAcls.length > 0,
+		reset: () => {
+			networkAcls = [];
+		}, load: loadNetworkAcls },
+	vpcs: { isLoaded: () => vpcs.length > 0,
+		reset: () => {
+			vpcs = [];
+			subnets = [];
+		}, load: loadVpcs },
+	volumes: { isLoaded: () => volumes.length > 0,
+		reset: () => {
+			volumes = [];
+		}, load: loadVolumes },
+	snapshots: { isLoaded: () => snapshots.length > 0,
+		reset: () => {
+			snapshots = [];
+		}, load: loadSnapshots },
+	eips: { isLoaded: () => elasticIPs.length > 0,
+		reset: () => {
+			elasticIPs = [];
+		}, load: loadElasticIPs },
+	igws: { isLoaded: () => internetGateways.length > 0,
+		reset: () => {
+			internetGateways = [];
+		}, load: loadInternetGateways },
+	routetables: { isLoaded: () => routeTables.length > 0,
+		reset: () => {
+			routeTables = [];
+		}, load: loadRouteTables },
+	natgateways: { isLoaded: () => natGateways.length > 0,
+		reset: () => {
+			natGateways = [];
+		}, load: loadNatGateways }
+};
+
 async function selectTab(t: TabName) {
 	activeTab = t;
-	if (t === 'instances' && instances.length === 0) await loadInstances();
-	else if (t === 'secgroups' && securityGroups.length === 0) await loadSecurityGroups();
-	else if (t === 'keypairs' && keyPairs.length === 0) await loadKeyPairs();
-	else if (t === 'amis' && amis.length === 0) await loadAmis();
-	else if (t === 'launchtemplates' && launchTemplates.length === 0) await loadLaunchTemplates();
-	else if (t === 'vpcendpoints' && vpcEndpoints.length === 0) await loadVpcEndpoints();
-	else if (t === 'nacls' && networkAcls.length === 0) await loadNetworkAcls();
-	else if (t === 'vpcs' && vpcs.length === 0) await loadVpcs();
-	else if (t === 'volumes' && volumes.length === 0) await loadVolumes();
-	else if (t === 'snapshots' && snapshots.length === 0) await loadSnapshots();
-	else if (t === 'eips' && elasticIPs.length === 0) await loadElasticIPs();
-	else if (t === 'igws' && internetGateways.length === 0) await loadInternetGateways();
-	else if (t === 'routetables' && routeTables.length === 0) await loadRouteTables();
-	else if (t === 'natgateways' && natGateways.length === 0) await loadNatGateways();
+	const entry = tabLoaders[t];
+	if (!entry.isLoaded()) await entry.load();
 }
 
 async function refresh() {
-	if (activeTab === 'instances') { instances = []; await loadInstances(); }
-	else if (activeTab === 'secgroups') { securityGroups = []; await loadSecurityGroups(); }
-	else if (activeTab === 'keypairs') { keyPairs = []; await loadKeyPairs(); }
-	else if (activeTab === 'amis') { amis = []; await loadAmis(); }
-	else if (activeTab === 'launchtemplates') { launchTemplates = []; await loadLaunchTemplates(); }
-	else if (activeTab === 'vpcendpoints') { vpcEndpoints = []; await loadVpcEndpoints(); }
-	else if (activeTab === 'nacls') { networkAcls = []; await loadNetworkAcls(); }
-	else if (activeTab === 'vpcs') { vpcs = []; subnets = []; await loadVpcs(); }
-	else if (activeTab === 'volumes') { volumes = []; await loadVolumes(); }
-	else if (activeTab === 'eips') { elasticIPs = []; await loadElasticIPs(); }
-	else if (activeTab === 'igws') { internetGateways = []; await loadInternetGateways(); }
-	else if (activeTab === 'routetables') { routeTables = []; await loadRouteTables(); }
-	else if (activeTab === 'natgateways') { natGateways = []; await loadNatGateways(); }
-	else { snapshots = []; await loadSnapshots(); }
+	const entry = tabLoaders[activeTab];
+	entry.reset();
+	await entry.load();
 }
 
 function getName(instance: EC2Instance): string {
