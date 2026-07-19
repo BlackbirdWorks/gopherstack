@@ -68,6 +68,7 @@ type InMemoryBackend struct {
 	region             string
 	schedulerOnce      sync.Once
 	schedulerStopOnce  sync.Once
+	schedulerWG        sync.WaitGroup
 }
 
 // SetLambdaInvoker stores the Lambda invoker on the backend. The rotation

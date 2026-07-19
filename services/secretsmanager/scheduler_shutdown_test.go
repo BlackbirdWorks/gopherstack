@@ -1,24 +1,28 @@
 package secretsmanager //nolint:testpackage // existing issue.
 
 import (
-	"runtime"
 	"testing"
 	"time"
 )
 
-// waitForGoroutineCount polls until the goroutine count drops to at most target
-// or the deadline passes, returning the final observed count.
-func waitForGoroutineCount(target int, timeout time.Duration) int {
-	deadline := time.Now().Add(timeout)
-	for {
-		runtime.GC()
+// assertStopsPromptly asserts stop returns within the timeout. StopRotationScheduler
+// joins the scheduler goroutine, so a prompt return proves it exited; if it leaked,
+// the join would block and this reports it. runtime.NumGoroutine() cannot be used:
+// these tests run in parallel, so unrelated tests inflate the process-wide count.
+func assertStopsPromptly(t *testing.T, timeout time.Duration, stop func()) {
+	t.Helper()
 
-		n := runtime.NumGoroutine()
-		if n <= target || time.Now().After(deadline) {
-			return n
-		}
+	stopped := make(chan struct{})
 
-		time.Sleep(time.Millisecond)
+	go func() {
+		defer close(stopped)
+		stop()
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(timeout):
+		t.Fatal("scheduler goroutine did not exit after stop")
 	}
 }
 
@@ -54,25 +58,18 @@ func TestStopRotationScheduler(t *testing.T) {
 
 			b := NewInMemoryBackend()
 
-			baseline := runtime.NumGoroutine()
-
 			if tc.start {
 				b.ensureRotationScheduler()
 				// Give the goroutine a moment to be scheduled.
 				time.Sleep(5 * time.Millisecond)
 			}
 
-			b.StopRotationScheduler()
+			assertStopsPromptly(t, 2*time.Second, b.StopRotationScheduler)
+
 			if tc.stopTwice {
 				// A second stop must not panic (close-of-closed-channel) and
 				// must remain a no-op.
-				b.StopRotationScheduler()
-			}
-
-			// After stopping, the scheduler goroutine must exit so the count
-			// returns to (at most) the baseline observed before starting it.
-			if got := waitForGoroutineCount(baseline, time.Second); got > baseline {
-				t.Fatalf("scheduler goroutine leaked: goroutines=%d baseline=%d", got, baseline)
+				assertStopsPromptly(t, 2*time.Second, b.StopRotationScheduler)
 			}
 
 			// The stop channel must be closed (loop is guaranteed unblocked).
