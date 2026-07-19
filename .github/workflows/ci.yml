@@ -254,7 +254,7 @@ jobs:
           path: bin/gopherstack
           retention-days: 1
 
-  integration:
+  integration-tests:
     runs-on: ubuntu-latest
     needs: [build]
     strategy:
@@ -317,14 +317,27 @@ jobs:
             -coverpkg=./... -coverprofile=integration-${{ matrix.chunk }}-coverage.out -covermode=atomic \
             ./test/integration/...
 
-      - name: Upload Coverage
+      - name: Upload Coverage Artifact
         uses: actions/upload-artifact@v7
         with:
           name: integration-${{ matrix.chunk }}-coverage
           path: integration-${{ matrix.chunk }}-coverage.out
           retention-days: 1
 
-  terraform:
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: integration-${{ matrix.chunk }}-coverage.out
+          fail_ci_if_error: false
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    steps:
+      - run: echo "All integration tests passed"
+
+  terraform-tests:
     runs-on: ubuntu-latest
     needs: [build]
     strategy:
@@ -399,7 +412,13 @@ jobs:
             -run '${{ steps.tests.outputs.pattern }}' \
             -v ./test/terraform/...
 
-  e2e:
+  terraform:
+    runs-on: ubuntu-latest
+    needs: [terraform-tests]
+    steps:
+      - run: echo "All terraform tests passed"
+
+  e2e-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -439,12 +458,25 @@ jobs:
             -coverpkg="$COVERPKGS" -coverprofile=e2e-coverage.out -covermode=atomic \
             ./test/e2e/...
 
-      - name: Upload Coverage
+      - name: Upload Coverage Artifact
         uses: actions/upload-artifact@v7
         with:
           name: e2e-coverage
           path: e2e-coverage.out
           retention-days: 1
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: e2e-coverage.out
+          fail_ci_if_error: false
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [e2e-tests]
+    steps:
+      - run: echo "All e2e tests passed"
 
   ui-test:
     runs-on: ubuntu-latest
