@@ -91,21 +91,89 @@ func TestNormPath(t *testing.T) {
 // TestListPagination_SortedOrder verifies that List operations return
 // results in lexicographic (sorted) order and correctly paginate using the
 // returned marker token.
+// assertPaginationSorted creates tt.itemNames in the backend via tt.createFn
+// (intentionally unsorted creation order), then paginates through tt.listFn
+// using tt.pageSize and verifies every page respects the page size, that all
+// items are returned exactly once, and that the combined results are in
+// lexicographic order.
+func assertPaginationSorted(t *testing.T, tt paginationTestCase) {
+	t.Helper()
+
+	b := iam.NewInMemoryBackend()
+
+	// Create resources in the order given (intentionally unsorted).
+	for _, name := range tt.itemNames {
+		require.NoError(t, tt.createFn(b, name))
+	}
+
+	// Collect all items by paginating.
+	var allNames []string
+	marker := ""
+
+	for {
+		names, next, err := tt.listFn(b, marker, tt.pageSize)
+		require.NoError(t, err)
+
+		if len(names) == 0 && next == "" {
+			break
+		}
+
+		// Each page must have at most pageSize items.
+		assert.LessOrEqual(t, len(names), tt.pageSize,
+			"page must not exceed pageSize=%d", tt.pageSize)
+
+		allNames = append(allNames, names...)
+
+		if next == "" {
+			break
+		}
+
+		marker = next
+	}
+
+	assert.Len(t, allNames, len(tt.itemNames),
+		"paginated result must contain all %d items", len(tt.itemNames))
+
+	// Verify lexicographic sort order across all pages.
+	for i := 1; i < len(allNames); i++ {
+		assert.Less(t, allNames[i-1], allNames[i],
+			"items must be in sorted order: allNames[%d]=%q must be < allNames[%d]=%q",
+			i-1, allNames[i-1], i, allNames[i])
+	}
+}
+
+// listFunc lists a page of resource names starting at marker, capped at pageLimit.
+type listFunc func(b *iam.InMemoryBackend, marker string, pageLimit int) (names []string, next string, err error)
+
+// createFunc creates a single named resource in the backend.
+type createFunc func(b *iam.InMemoryBackend, name string) error
+
+type paginationTestCase struct {
+	listFn    listFunc
+	createFn  createFunc
+	name      string
+	itemNames []string // names to create, must include more items than pageSize
+	pageSize  int
+}
+
 func TestListPagination_SortedOrder(t *testing.T) {
 	t.Parallel()
 
-	type listFunc func(b *iam.InMemoryBackend, marker string, pageLimit int) (names []string, next string, err error)
+	const validTrustPolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+		`"Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	const validPolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+		`"Action":"s3:GetObject","Resource":"*"}]}`
 
-	tests := []struct {
-		listFn    listFunc
-		name      string
-		itemNames []string // names to create, must include more items than pageSize
-		pageSize  int
-	}{
+	tests := []paginationTestCase{
 		{
 			name:      "list_users_sorted_paginated",
 			pageSize:  3,
 			itemNames: []string{"zara", "alice", "mike", "bob", "carol", "dave"},
+			createFn: func(b *iam.InMemoryBackend, name string) error {
+				_, err := b.CreateUser(name, "/", "")
+
+				return err
+			},
 			listFn: func(b *iam.InMemoryBackend, marker string, pageLimit int) ([]string, string, error) {
 				pg, err := b.ListUsers(marker, pageLimit)
 				if err != nil {
@@ -124,6 +192,11 @@ func TestListPagination_SortedOrder(t *testing.T) {
 			name:      "list_roles_sorted_paginated",
 			pageSize:  2,
 			itemNames: []string{"zeta-role", "alpha-role", "beta-role", "gamma-role", "delta-role"},
+			createFn: func(b *iam.InMemoryBackend, name string) error {
+				_, err := b.CreateRole(name, "/", validTrustPolicy, "")
+
+				return err
+			},
 			listFn: func(b *iam.InMemoryBackend, marker string, pageLimit int) ([]string, string, error) {
 				pg, err := b.ListRoles(marker, pageLimit)
 				if err != nil {
@@ -142,6 +215,11 @@ func TestListPagination_SortedOrder(t *testing.T) {
 			name:      "list_groups_sorted_paginated",
 			pageSize:  2,
 			itemNames: []string{"ops", "dev", "qa", "sre", "mgmt"},
+			createFn: func(b *iam.InMemoryBackend, name string) error {
+				_, err := b.CreateGroup(name, "/")
+
+				return err
+			},
 			listFn: func(b *iam.InMemoryBackend, marker string, pageLimit int) ([]string, string, error) {
 				pg, err := b.ListGroups(marker, pageLimit)
 				if err != nil {
@@ -160,6 +238,11 @@ func TestListPagination_SortedOrder(t *testing.T) {
 			name:      "list_policies_sorted_paginated",
 			pageSize:  3,
 			itemNames: []string{"ZPolicy", "APolicy", "MPolicy", "BPolicy", "CPolicy", "DPolicy"},
+			createFn: func(b *iam.InMemoryBackend, name string) error {
+				_, err := b.CreatePolicy(name, "/", validPolicy)
+
+				return err
+			},
 			listFn: func(b *iam.InMemoryBackend, marker string, pageLimit int) ([]string, string, error) {
 				pg, err := b.ListPolicies(marker, pageLimit)
 				if err != nil {
@@ -176,68 +259,10 @@ func TestListPagination_SortedOrder(t *testing.T) {
 		},
 	}
 
-	const validTrustPolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
-		`"Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
-	const validPolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
-		`"Action":"s3:GetObject","Resource":"*"}]}`
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b := iam.NewInMemoryBackend()
-
-			// Create resources in the order given (intentionally unsorted).
-			for _, name := range tt.itemNames {
-				switch tt.name {
-				case "list_users_sorted_paginated":
-					_, err := b.CreateUser(name, "/", "")
-					require.NoError(t, err)
-				case "list_roles_sorted_paginated":
-					_, err := b.CreateRole(name, "/", validTrustPolicy, "")
-					require.NoError(t, err)
-				case "list_groups_sorted_paginated":
-					_, err := b.CreateGroup(name, "/")
-					require.NoError(t, err)
-				case "list_policies_sorted_paginated":
-					_, err := b.CreatePolicy(name, "/", validPolicy)
-					require.NoError(t, err)
-				}
-			}
-
-			// Collect all items by paginating.
-			var allNames []string
-			marker := ""
-
-			for {
-				names, next, err := tt.listFn(b, marker, tt.pageSize)
-				require.NoError(t, err)
-
-				if len(names) == 0 && next == "" {
-					break
-				}
-
-				// Each page must have at most pageSize items.
-				assert.LessOrEqual(t, len(names), tt.pageSize,
-					"page must not exceed pageSize=%d", tt.pageSize)
-
-				allNames = append(allNames, names...)
-
-				if next == "" {
-					break
-				}
-
-				marker = next
-			}
-
-			assert.Len(t, allNames, len(tt.itemNames),
-				"paginated result must contain all %d items", len(tt.itemNames))
-
-			// Verify lexicographic sort order across all pages.
-			for i := 1; i < len(allNames); i++ {
-				assert.Less(t, allNames[i-1], allNames[i],
-					"items must be in sorted order: allNames[%d]=%q must be < allNames[%d]=%q",
-					i-1, allNames[i-1], i, allNames[i])
-			}
+			assertPaginationSorted(t, tt)
 		})
 	}
 }

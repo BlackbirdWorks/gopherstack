@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -63,14 +64,20 @@ func startPurgeContainer(t *testing.T, ttl string) (testcontainers.Container, st
 	return container, "http://localhost:" + mappedPort.Port()
 }
 
-func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
-	t.Parallel()
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
+// purgeClients bundles the per-service SDK clients used by the auto-purge test.
+type purgeClients struct {
+	s3     *s3.Client
+	ddb    *dynamodb.Client
+	sqs    *sqs.Client
+	sns    *sns.Client
+	iam    *iam.Client
+	lambda *lambda.Client
+}
 
-	// 1. Start Gopherstack with 20s TTL
-	_, ep := startPurgeContainer(t, "20s")
+// newPurgeClients builds SDK clients for every service exercised by the
+// auto-purge test, all pointed at the given Gopherstack endpoint.
+func newPurgeClients(t *testing.T, ep string) purgeClients {
+	t.Helper()
 
 	cfg, err := awsconfig.LoadDefaultConfig(
 		t.Context(),
@@ -79,36 +86,63 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(ep)
-		o.UsePathStyle = true
-	})
-	ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
-		o.BaseEndpoint = aws.String(ep)
-	})
-	sqsClient := sqs.NewFromConfig(cfg, func(o *sqs.Options) {
-		o.BaseEndpoint = aws.String(ep)
-	})
-	snsClient := sns.NewFromConfig(cfg, func(o *sns.Options) {
-		o.BaseEndpoint = aws.String(ep)
-	})
-	iamClient := iam.NewFromConfig(cfg, func(o *iam.Options) {
-		o.BaseEndpoint = aws.String(ep)
-	})
-	lambdaClient := lambda.NewFromConfig(cfg, func(o *lambda.Options) {
-		o.BaseEndpoint = aws.String(ep)
-	})
+	return purgeClients{
+		s3: s3.NewFromConfig(cfg, func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(ep)
+			o.UsePathStyle = true
+		}),
+		ddb: dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+			o.BaseEndpoint = aws.String(ep)
+		}),
+		sqs: sqs.NewFromConfig(cfg, func(o *sqs.Options) {
+			o.BaseEndpoint = aws.String(ep)
+		}),
+		sns: sns.NewFromConfig(cfg, func(o *sns.Options) {
+			o.BaseEndpoint = aws.String(ep)
+		}),
+		iam: iam.NewFromConfig(cfg, func(o *iam.Options) {
+			o.BaseEndpoint = aws.String(ep)
+		}),
+		lambda: lambda.NewFromConfig(cfg, func(o *lambda.Options) {
+			o.BaseEndpoint = aws.String(ep)
+		}),
+	}
+}
 
-	ctx := t.Context()
+// purgeResourceNames holds the names of the one-of-each-service resource set
+// created for a given prefix ("old" or "new").
+type purgeResourceNames struct {
+	bucket   string
+	table    string
+	queue    string
+	topic    string
+	user     string
+	function string
+}
 
-	// 2. Create "old" resources
-	bucketOld := "old-bucket"
-	_, err = s3Client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: &bucketOld})
+func purgeNames(prefix string) purgeResourceNames {
+	return purgeResourceNames{
+		bucket:   prefix + "-bucket",
+		table:    prefix + "-table",
+		queue:    prefix + "-queue",
+		topic:    prefix + "-topic",
+		user:     prefix + "-user",
+		function: prefix + "-func",
+	}
+}
+
+// seedPurgeResources creates one S3 bucket, DynamoDB table, SQS queue, SNS
+// topic, IAM user, and Lambda function, all named with the given prefix.
+func seedPurgeResources(t *testing.T, ctx context.Context, c purgeClients, prefix string) purgeResourceNames {
+	t.Helper()
+
+	names := purgeNames(prefix)
+
+	_, err := c.s3.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: &names.bucket})
 	require.NoError(t, err)
 
-	tableOld := "old-table"
-	_, err = ddbClient.CreateTable(ctx, &dynamodb.CreateTableInput{
-		TableName: &tableOld,
+	_, err = c.ddb.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: &names.table,
 		AttributeDefinitions: []ddbtypes.AttributeDefinition{{
 			AttributeName: aws.String("id"),
 			AttributeType: ddbtypes.ScalarAttributeTypeS,
@@ -124,80 +158,34 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	queueOld := "old-queue"
-	_, err = sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: &queueOld})
+	_, err = c.sqs.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: &names.queue})
 	require.NoError(t, err)
 
-	topicOld := "old-topic"
-	_, err = snsClient.CreateTopic(ctx, &sns.CreateTopicInput{Name: &topicOld})
+	_, err = c.sns.CreateTopic(ctx, &sns.CreateTopicInput{Name: &names.topic})
 	require.NoError(t, err)
 
-	userOld := "old-user"
-	_, err = iamClient.CreateUser(ctx, &iam.CreateUserInput{UserName: &userOld})
+	_, err = c.iam.CreateUser(ctx, &iam.CreateUserInput{UserName: &names.user})
 	require.NoError(t, err)
 
-	funcOld := "old-func"
-	_, err = lambdaClient.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: &funcOld,
+	_, err = c.lambda.CreateFunction(ctx, &lambda.CreateFunctionInput{
+		FunctionName: &names.function,
 		Role:         aws.String("arn:aws:iam::000000000000:role/dummy"),
 		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("dummy")},
 		PackageType:  lambdatypes.PackageTypeImage,
 	})
 	require.NoError(t, err)
 
-	// 3. Wait for TTL to pass (20s + buffer)
-	t.Log("Waiting for resources to expire...")
-	time.Sleep(22 * time.Second)
+	return names
+}
 
-	// 4. Create "new" resources
-	bucketNew := "new-bucket"
-	_, err = s3Client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: &bucketNew})
-	require.NoError(t, err)
+// waitForOldBucketPurge polls ListBuckets until bucketOld is no longer present
+// or the deadline is reached (the auto-purge TTL ticker fires every 20s).
+func waitForOldBucketPurge(t *testing.T, ctx context.Context, c *s3.Client, bucketOld string) {
+	t.Helper()
 
-	tableNew := "new-table"
-	_, err = ddbClient.CreateTable(ctx, &dynamodb.CreateTableInput{
-		TableName: &tableNew,
-		AttributeDefinitions: []ddbtypes.AttributeDefinition{{
-			AttributeName: aws.String("id"),
-			AttributeType: ddbtypes.ScalarAttributeTypeS,
-		}},
-		KeySchema: []ddbtypes.KeySchemaElement{{
-			AttributeName: aws.String("id"),
-			KeyType:       ddbtypes.KeyTypeHash,
-		}},
-		ProvisionedThroughput: &ddbtypes.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(1),
-			WriteCapacityUnits: aws.Int64(1),
-		},
-	})
-	require.NoError(t, err)
-
-	queueNew := "new-queue"
-	_, err = sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: &queueNew})
-	require.NoError(t, err)
-
-	topicNew := "new-topic"
-	_, err = snsClient.CreateTopic(ctx, &sns.CreateTopicInput{Name: &topicNew})
-	require.NoError(t, err)
-
-	userNew := "new-user"
-	_, err = iamClient.CreateUser(ctx, &iam.CreateUserInput{UserName: &userNew})
-	require.NoError(t, err)
-
-	funcNew := "new-func"
-	_, err = lambdaClient.CreateFunction(ctx, &lambda.CreateFunctionInput{
-		FunctionName: &funcNew,
-		Role:         aws.String("arn:aws:iam::000000000000:role/dummy"),
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("dummy")},
-		PackageType:  lambdatypes.PackageTypeImage,
-	})
-	require.NoError(t, err)
-
-	// 5. Poll until old S3 bucket is purged or deadline is reached (TTL ticker fires every 20s).
-	t.Log("Waiting for purge cycle...")
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
-		result, listErr := s3Client.ListBuckets(ctx, &s3.ListBucketsInput{})
+		result, listErr := c.ListBuckets(ctx, &s3.ListBucketsInput{})
 		if listErr == nil {
 			found := false
 			for _, b := range result.Buckets {
@@ -213,10 +201,13 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 		}
 		time.Sleep(2 * time.Second)
 	}
+}
 
-	// 6. Verify old are gone, new remain
-	// S3
-	buckets, err := s3Client.ListBuckets(ctx, &s3.ListBucketsInput{})
+// assertS3Purged verifies the old bucket is gone and the new bucket remains.
+func assertS3Purged(t *testing.T, ctx context.Context, c *s3.Client, bucketOld, bucketNew string) {
+	t.Helper()
+
+	buckets, err := c.ListBuckets(ctx, &s3.ListBucketsInput{})
 	require.NoError(t, err)
 	foundOldS3, foundNewS3 := false, false
 	for _, b := range buckets.Buckets {
@@ -229,9 +220,13 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	}
 	assert.False(t, foundOldS3, "old bucket should be purged")
 	assert.True(t, foundNewS3, "new bucket should remain")
+}
 
-	// DynamoDB
-	tables, err := ddbClient.ListTables(ctx, &dynamodb.ListTablesInput{})
+// assertDDBPurged verifies the old table is gone and the new table remains.
+func assertDDBPurged(t *testing.T, ctx context.Context, c *dynamodb.Client, tableOld, tableNew string) {
+	t.Helper()
+
+	tables, err := c.ListTables(ctx, &dynamodb.ListTablesInput{})
 	require.NoError(t, err)
 	foundOldDDB, foundNewDDB := false, false
 	for _, tName := range tables.TableNames {
@@ -244,9 +239,13 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	}
 	assert.False(t, foundOldDDB, "old table should be purged")
 	assert.True(t, foundNewDDB, "new table should remain")
+}
 
-	// SQS
-	queues, err := sqsClient.ListQueues(ctx, &sqs.ListQueuesInput{})
+// assertSQSPurged verifies the old queue is gone and the new queue remains.
+func assertSQSPurged(t *testing.T, ctx context.Context, c *sqs.Client, queueOld, queueNew string) {
+	t.Helper()
+
+	queues, err := c.ListQueues(ctx, &sqs.ListQueuesInput{})
 	require.NoError(t, err)
 	foundOldSQS, foundNewSQS := false, false
 	for _, qURL := range queues.QueueUrls {
@@ -259,9 +258,13 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	}
 	assert.False(t, foundOldSQS, "old queue should be purged")
 	assert.True(t, foundNewSQS, "new queue should remain")
+}
 
-	// SNS
-	snsTopics, err := snsClient.ListTopics(ctx, &sns.ListTopicsInput{})
+// assertSNSPurged verifies the old topic is gone and the new topic remains.
+func assertSNSPurged(t *testing.T, ctx context.Context, c *sns.Client, topicOld, topicNew string) {
+	t.Helper()
+
+	snsTopics, err := c.ListTopics(ctx, &sns.ListTopicsInput{})
 	require.NoError(t, err)
 	foundOldSNS, foundNewSNS := false, false
 	for _, tp := range snsTopics.Topics {
@@ -274,9 +277,13 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	}
 	assert.False(t, foundOldSNS, "old topic should be purged")
 	assert.True(t, foundNewSNS, "new topic should remain")
+}
 
-	// IAM
-	iamUsers, err := iamClient.ListUsers(ctx, &iam.ListUsersInput{})
+// assertIAMPurged verifies the old user is gone and the new user remains.
+func assertIAMPurged(t *testing.T, ctx context.Context, c *iam.Client, userOld, userNew string) {
+	t.Helper()
+
+	iamUsers, err := c.ListUsers(ctx, &iam.ListUsersInput{})
 	require.NoError(t, err)
 	foundOldIAM, foundNewIAM := false, false
 	for _, u := range iamUsers.Users {
@@ -289,9 +296,13 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	}
 	assert.False(t, foundOldIAM, "old user should be purged")
 	assert.True(t, foundNewIAM, "new user should remain")
+}
 
-	// Lambda
-	lambdaFuncs, err := lambdaClient.ListFunctions(ctx, &lambda.ListFunctionsInput{})
+// assertLambdaPurged verifies the old function is gone and the new function remains.
+func assertLambdaPurged(t *testing.T, ctx context.Context, c *lambda.Client, funcOld, funcNew string) {
+	t.Helper()
+
+	lambdaFuncs, err := c.ListFunctions(ctx, &lambda.ListFunctionsInput{})
 	require.NoError(t, err)
 	foundOldLambda, foundNewLambda := false, false
 	for _, f := range lambdaFuncs.Functions {
@@ -304,4 +315,38 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	}
 	assert.False(t, foundOldLambda, "old function should be purged")
 	assert.True(t, foundNewLambda, "new function should remain")
+}
+
+func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// 1. Start Gopherstack with 20s TTL
+	_, ep := startPurgeContainer(t, "20s")
+	clients := newPurgeClients(t, ep)
+	ctx := t.Context()
+
+	// 2. Create "old" resources
+	oldNames := seedPurgeResources(t, ctx, clients, "old")
+
+	// 3. Wait for TTL to pass (20s + buffer)
+	t.Log("Waiting for resources to expire...")
+	time.Sleep(22 * time.Second)
+
+	// 4. Create "new" resources
+	newNames := seedPurgeResources(t, ctx, clients, "new")
+
+	// 5. Poll until old S3 bucket is purged or deadline is reached (TTL ticker fires every 20s).
+	t.Log("Waiting for purge cycle...")
+	waitForOldBucketPurge(t, ctx, clients.s3, oldNames.bucket)
+
+	// 6. Verify old are gone, new remain
+	assertS3Purged(t, ctx, clients.s3, oldNames.bucket, newNames.bucket)
+	assertDDBPurged(t, ctx, clients.ddb, oldNames.table, newNames.table)
+	assertSQSPurged(t, ctx, clients.sqs, oldNames.queue, newNames.queue)
+	assertSNSPurged(t, ctx, clients.sns, oldNames.topic, newNames.topic)
+	assertIAMPurged(t, ctx, clients.iam, oldNames.user, newNames.user)
+	assertLambdaPurged(t, ctx, clients.lambda, oldNames.function, newNames.function)
 }
