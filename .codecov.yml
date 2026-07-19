@@ -1,0 +1,11 @@
+coverage:
+  status:
+    project:
+      default:
+        # Require overall project coverage to not drop by more than 1%
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        # Make patch coverage informational so PRs aren't blocked by minor drops on small diffs
+        informational: true
