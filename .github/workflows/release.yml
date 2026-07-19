@@ -54,13 +54,12 @@ jobs:
             | sort -V | tail -1 || true)
 
           if [ -z "$latest" ]; then
-            # First release under the new scheme: carry the generation across
-            # from the legacy vN.y.z line (v18.0.0 -> v1.18.0).
-            gen=$(git tag --list 'v*' \
-              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-              | sed 's/^v//' | cut -d. -f1 \
-              | sort -n | tail -1)
-            next="v1.${gen}.0"
+            # First release under this scheme. The floor is v1.1.0, never
+            # v1.0.x: proxy.golang.org permanently cached v1.0.1..v1.0.18 and
+            # sum.golang.org recorded their checksums, so reusing any of those
+            # numbers would serve the old cached zip and break verification.
+            # v1.1.0 also sorts above v1.0.18, so it becomes the proxy's latest.
+            next="v1.1.0"
           else
             ver=${latest#v}
             min=$(echo "$ver" | cut -d. -f2)
@@ -71,11 +70,19 @@ jobs:
             esac
           fi
 
-          # Hard guard: never emit a tag the Go module proxy would ignore.
-          case "$next" in
-            v1.*) ;;
-            *) echo "refusing to create non-v1 tag: $next" >&2; exit 1 ;;
-          esac
+          # Hard guards. The tag must be v1.<major>.<minor> with a non-zero
+          # middle number: major >= 2 is invisible to the Go module proxy
+          # (module path has no /vN suffix), and the whole v1.0.x range is
+          # burned in proxy.golang.org / sum.golang.org from earlier releases.
+          if ! echo "$next" | grep -qE '^v1\.[1-9][0-9]*\.[0-9]+$'; then
+            echo "refusing to create tag: $next" >&2
+            echo "expected v1.<major>.<minor> with major >= 1 (v1.0.x is reserved)" >&2
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$next" >/dev/null; then
+            echo "refusing to overwrite existing tag: $next" >&2
+            exit 1
+          fi
 
           echo "next tag: $next (previous: ${latest:-none})"
           echo "new_tag=$next" >> "$GITHUB_OUTPUT"

@@ -695,8 +695,12 @@ major version 2 or higher to carry that suffix in its path. A tag like `v18.0.0`
 invisible to the Go module proxy and pkg.go.dev — staying on the `v1.x.y` line keeps
 `go get` working without rewriting every import across the tree on each release.
 
-Tags from the earlier `v2`–`v18` line remain in the repository for history, but Go tooling
-ignores them.
+`v1.0.x` is reserved and must never be reused. An earlier release line published
+`v1.0.0`–`v1.0.18`, and `proxy.golang.org` caches module versions permanently while
+`sum.golang.org` records their checksums — re-tagging one of those numbers would serve the
+old cached code and break checksum verification for anyone fetching it. Releases therefore
+start at `v1.1.0`, which also sorts above the highest cached version. The release workflow
+enforces both rules and refuses to create a tag that violates them.
 
 ## Profile-Guided Optimization (PGO)
 
