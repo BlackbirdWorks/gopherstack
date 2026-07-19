@@ -344,12 +344,7 @@ func (b *InMemoryBackend) CancelRotateSecret(
 
 func (b *InMemoryBackend) ensureRotationScheduler() {
 	b.schedulerOnce.Do(func() {
-		b.schedulerWG.Add(1)
-
-		go func() {
-			defer b.schedulerWG.Done()
-			b.rotationSchedulerLoop()
-		}()
+		b.schedulerWG.Go(b.rotationSchedulerLoop)
 	})
 }
 
