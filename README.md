@@ -10,215 +10,57 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/blackbirdworks/gopherstack)](https://goreportcard.com/report/github.com/blackbirdworks/gopherstack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It provides high-performance, mock-compatible versions of over 100 AWS services, designed for rapid development, testing, and CI/CD pipelines. It features advanced integration logic such as **Event Source Mappings (ESM)**, **EventBridge Scheduler**, and **EventBridge Pipes**.
+Gopherstack is a lightweight, in-memory AWS cloud stack you can run locally. It emulates
+**150+ AWS service APIs** in a single Go binary — no AWS account, no credentials, no network
+calls — so you can develop and test against realistic AWS behaviour in milliseconds.
+
+Point any AWS SDK, the AWS CLI, Terraform, or the CDK at `http://localhost:8000` and it just
+works. Beyond simple CRUD mocks, Gopherstack implements real cross-service integration:
+**Event Source Mappings**, **EventBridge Scheduler**, **EventBridge Pipes**, **DynamoDB
+Streams → Lambda**, **SNS → SQS fan-out**, and container-backed **Lambda** execution.
 
 > [!TIP]
-> Gopherstack is significantly faster and lighter than LocalStack, making it ideal for unit and integration tests where speed is critical.
+> Gopherstack is significantly faster and lighter than LocalStack, making it ideal for unit
+> and integration tests where speed is critical.
 
 > [!IMPORTANT]
 > **This project is vibe coded.** 🚀 It's built for speed, performance, and developer experience.
 
+---
+
 ## Quick Start
 
-The fastest way to get started is to pull and run the Gopherstack Docker image:
+Pull and run the image:
 
 ```bash
 docker run -p 8000:8000 ghcr.io/blackbirdworks/gopherstack:latest
 ```
 
-Once running, open the built-in web dashboard in your browser:
+Open the built-in web dashboard:
 
 ```
 http://localhost:8000/dashboard
 ```
 
-The dashboard lets you browse and manage DynamoDB tables, S3 buckets, and more — no AWS credentials required. Point any AWS SDK or CLI at `http://localhost:8000` as the endpoint URL and start building.
-
-## Features
-
-### DynamoDB
-- **In-Memory Storage**: Blazing fast in-memory storage for tables and items.
-- **Secondary Indexes**: Full support for Global Secondary Indexes (GSI) and Local Secondary Indexes (LSI).
-- **Rich Querying**: Complex queries with Sort Key conditions, pagination (`Limit`, `ExclusiveStartKey`), and ordering control.
-- **Efficient Scanning**: Flexible table scans with filtering and projection supporting DynamoDB expressions.
-- **Expression Support**: Robust handling of Expression Attribute Values and Names.
-- **Optimized Memory Layout**: Struct field alignment optimized for minimal memory footprint.
-
-### S3
-- **Bucket Management**: Complete lifecycle management for versioned and unversioned buckets.
-- **Object Operations**: Reliable Get, Put, Head, and List operations.
-- **Versioning & Tagging**: First-class support for object versioning and metadata tagging.
-- **Data Integrity**: Automatic checksum calculation supporting CRC32, CRC32C, SHA1, and SHA256.
-- **Compression**: Integrated Gzip compression for efficient memory usage.
-
-### Lambda (Zip and Image packaging)
-
-Gopherstack supports AWS Lambda with both **Zip** (`PackageType: Zip`) and **container image** (`PackageType: Image`) functions.
-
-- **Zip functions**: The uploaded archive is extracted and run on the matching AWS runtime base image, so the standard managed runtimes work without modification — `python3.9`–`python3.13`, `nodejs18.x`/`20.x`/`22.x`, `java11`/`17`/`21`, `dotnet8`/`dotnet9`, `ruby3.2`/`3.3`, and `provided.al2`/`provided.al2023`.
-- **Image functions**: Provide an `ImageUri` (a standard AWS base image or your own custom image).
-
-> **Important:** Both packaging modes require a running Docker (or Podman) daemon to execute invocations. S3-based code delivery and direct Go binary execution on the host are not supported. All other Gopherstack services continue to work without Docker.
-
-- **Supported operations**: `CreateFunction`, `GetFunction`, `ListFunctions`, `DeleteFunction`, `UpdateFunctionCode`, `UpdateFunctionConfiguration`, `Invoke`, `PutFunctionConcurrency`, `GetFunctionConcurrency`
-- **Invocation modes**: `RequestResponse` (synchronous) and `Event` (asynchronous / fire-and-forget)
-- **Lambda Runtime API**: Full implementation of the [Lambda Runtime API](https://docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html) — standard AWS base images work without modification
-- **Warm container pool**: Configurable per-function pool keeps containers warm to reduce cold-start latency
-- **Reserved Concurrency**: Enforces invocation limits for both sync and async calls.
-- **Asynchronous Realism**: Implements AWS-realistic retry semantics and dead-letter queues (via SNS/SQS).
-- **Environment variables**: Passed directly to the container
-- **Requires Docker**: Lambda functions need a running Docker daemon. All other Gopherstack services continue to work without Docker.
-
-#### Lambda CLI examples
+Then point any AWS tooling at the endpoint — no credentials required:
 
 ```bash
-# Create an image-based Lambda function
-aws lambda create-function \
-    --endpoint-url http://localhost:8000 \
-    --function-name my-function \
-    --package-type Image \
-    --code ImageUri=public.ecr.aws/lambda/python:3.12 \
-    --role arn:aws:iam::000000000000:role/my-role
-
-# Invoke synchronously
-aws lambda invoke \
-    --endpoint-url http://localhost:8000 \
-    --function-name my-function \
-    --payload '{"key":"value"}' \
-    response.json
-
-# List functions
-aws lambda list-functions --endpoint-url http://localhost:8000
+aws dynamodb list-tables --endpoint-url http://localhost:8000
+aws s3 mb s3://my-bucket --endpoint-url http://localhost:8000
 ```
 
-#### Lambda configuration
+## Installation
 
-| Flag | Env var | Default | Description |
-|------|---------|---------|-------------|
-| `--lambda-docker-host` | `LAMBDA_DOCKER_HOST` | `172.17.0.1` | Host/IP that Lambda containers use to reach Gopherstack's Runtime API |
-| `--lambda-pool-size` | `LAMBDA_POOL_SIZE` | `3` | Maximum warm containers per function |
-| `--lambda-idle-timeout` | `LAMBDA_IDLE_TIMEOUT` | `10m` | Idle container lifetime before reaping |
-| `--container-runtime` | `CONTAINER_RUNTIME` | `docker` | Container runtime to use: `docker`, `podman`, or `auto` |
-
-#### Using Podman
-
-Gopherstack supports [Podman](https://podman.io/) as a drop-in replacement for Docker via
-Podman's Docker-compatible API socket.
-
-**Rootless Podman setup (Linux):**
+### Docker
 
 ```bash
-# Enable the Podman socket for your user
-systemctl --user enable --now podman.socket
-
-# Point Gopherstack at Podman
-export CONTAINER_RUNTIME=podman
-# Optional: override the socket path
-export CONTAINER_HOST=unix://${XDG_RUNTIME_DIR}/podman/podman.sock
+docker pull ghcr.io/blackbirdworks/gopherstack:latest
+docker run -p 8000:8000 ghcr.io/blackbirdworks/gopherstack:latest
 ```
 
-**Rootless networking note:** In rootless Podman the Docker bridge (`172.17.0.1`) is not
-available.  Use the host's routable IP or `host.containers.internal` instead:
-
-```bash
-export LAMBDA_DOCKER_HOST=host.containers.internal
-```
-
-**Auto-detection:** Set `CONTAINER_RUNTIME=auto` to let Gopherstack probe Docker first,
-then Podman, and use whichever socket is reachable.
-
-
-
-Gopherstack includes a built-in web dashboard for managing DynamoDB tables and S3 buckets.
-
-Access the dashboard at: `http://localhost:8000/dashboard`
-
-Features:
-- **DynamoDB**:
-  - List tables
-  - View table details (keys, indexes, item count)
-  - Query and Scan tables
-  - Create new tables
-- **S3**:
-  - List buckets
-  - File browser with folder support
-  - Upload and Download files
-  - Manage versioning
-  - View object metadata
-
-### Event Source Mappings (ESM)
-Gopherstack supports Event Source Mappings for **DynamoDB Streams**. This allows you to automatically trigger Lambda functions when items are created, modified, or deleted in a DynamoDB table.
-
-- **Automatic Triggering**: Once an ESM is created, Gopherstack manages the polling and invocation automatically.
-- **Realism**: Respects batch size, starting position (`TRIM_HORIZON`, `LATEST`), and state.
-
-### EventBridge Scheduler & Pipes
-- **Scheduler**: Create and manage scheduled tasks that trigger AWS services (Lambda, SQS, SNS, etc.) on a recurring or one-time basis.
-- **Pipes**: Create direct, point-to-point integrations between supported sources (SQS) and targets (Lambda, Step Functions) with optional filtering and enrichment.
-
-### Performance & Scalability
-- **O(1) ARN Indexing**: Tagging and resource lookup across many services use a centralized O(1) ARN index for high-performance operations even with thousands of resources.
-- **Memory Optimization**: Struct field alignment and efficient data structures minimize the memory footprint.
-
-## Supported Services
-
-Gopherstack provides mocks for a vast array of AWS services. Below is the list of currently supported service APIs:
-
-| Category | Supported Services |
-|----------|-------------------|
-| **Core** | DynamoDB, S3, IAM, STS, Lambda, EC2 |
-| **Compute** | Batch, ECR, ECS, EKS, AppSync, Step Functions |
-| **Messaging** | SQS, SNS, EventBridge, EventBridge Pipes, EventBridge Scheduler, MQ, SES, SESv2 |
-| **Storage** | EFS, Backup, Glacier, S3 Control, S3 Tables |
-| **Database** | RDS, Redshift, ElastiCache, MemoryDB, DocDB, Neptune |
-| **Security** | KMS, Secrets Manager, ACM, ACM PCA, Shield, WAFv2, RAM, Verified Permissions |
-| **AI/ML** | Bedrock, Bedrock Runtime, SageMaker, SageMaker Runtime, Textract, Transcribe |
-| **Analytics** | Athena, Kinesis, Kinesis Analytics, Kinesis Analytics v2, Glue, OpenSearch, Elasticsearch, LakeFormation |
-| **IoT** | IoT, IoT Analytics, IoT Data Plane, IoT Wireless |
-| **Management** | SSM, CloudWatch, CloudWatch Logs, CloudFormation, CloudTrail, Config, Resource Groups, Service Discovery |
-| **Dev Tools** | CodeArtifact, CodeBuild, CodeCommit, CodeDeploy, CodePipeline, CodeConnections |
-| **Other** | Amplify, AppConfig, Application Auto Scaling, DMS, FIS, MWAA, Pinpoint, Organizations, Transfer, X-Ray |
-
-*Note: For a full list of supported operations for each service, refer to the [STATUS.md](STATUS.md) file.*
-
-## Usage
-
-### Prerequisites
-- Go 1.26+
-- Docker or Podman (optional, required for Lambda `PackageType: Image` invocations)
-- AWS CLI (optional, for testing)
-
-### Development
-```bash
-# Run all checks (lint + all tests with coverage)
-make all
-
-# Run only unit tests (short mode)
-make test
-
-# Run all tests (unit, integration, and E2E) with combined coverage
-make total-coverage
-
-# Check linting
-make lint
-```
-
-### Integration
-You can use Gopherstack directly in your Go tests by initializing the in-memory backends:
-
-```go
-import "github.com/blackbirdworks/gopherstack/dynamodb"
-
-db := dynamodb.NewInMemoryDB()
-// Use db for your application logic...
-```
-
-## Docker
-
-Gopherstack is available as a lightweight Docker image.
+The API and the dashboard are both served on port `8000`.
 
 ### Docker Compose
-You can run Gopherstack as a service in your `docker-compose.yml`:
 
 ```yaml
 services:
@@ -230,49 +72,21 @@ services:
       - LOG_LEVEL=info
 ```
 
-Run with: `docker compose up -d`
-
-## AWS CLI Examples
-
-Gopherstack is fully compatible with the AWS CLI. Simply provide the `--endpoint-url`.
-
-### DynamoDB
 ```bash
-# Create a table
-aws dynamodb create-table \
-    --endpoint-url http://localhost:8000 \
-    --table-name Users \
-    --attribute-definitions AttributeName=ID,AttributeType=S \
-    --key-schema AttributeName=ID,KeyType=HASH \
-    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
-
-# List tables
-aws dynamodb list-tables --endpoint-url http://localhost:8000
+docker compose up -d
 ```
 
-### S3
-```bash
-# Create a bucket
-aws s3 mb s3://my-bucket --endpoint-url http://localhost:8000
+For Lambda support the container needs access to a container runtime — see
+[docs/docker.md](docs/docker.md).
 
-# Upload a file
-aws s3 cp myfile.txt s3://my-bucket/ --endpoint-url http://localhost:8000
+### Testcontainers (Go)
 
-# List objects
-aws s3 ls s3://my-bucket/ --endpoint-url http://localhost:8000
-```
-
-## Testcontainers Module
-
-Gopherstack ships a reusable [Testcontainers for Go](https://golang.testcontainers.org/) module so you can spin up all AWS mock services in a single call from any Go test suite.
-
-### Installation
+Gopherstack ships a reusable [Testcontainers for Go](https://golang.testcontainers.org/)
+module so you can spin up the whole stack from any Go test suite:
 
 ```bash
 go get github.com/blackbirdworks/gopherstack/modules/gopherstack
 ```
-
-### Usage
 
 ```go
 import (
@@ -328,10 +142,452 @@ container, err := gopherstack.Run(ctx, gopherstack.DefaultImage,
 )
 ```
 
-## Terraform Compatibility
+### As a Go library
 
-Point the AWS provider at Gopherstack by overriding the service endpoints. No
-real credentials are required — any non-empty string works.
+Use the in-memory backends directly, without any HTTP server:
+
+```go
+import "github.com/blackbirdworks/gopherstack/services/dynamodb"
+
+db := dynamodb.NewInMemoryDB()
+// Use db for your application logic…
+```
+
+### From source
+
+```bash
+git clone https://github.com/blackbirdworks/gopherstack.git
+cd gopherstack
+go run .            # serves on :8000
+```
+
+## Features
+
+### Web Dashboard
+
+A built-in UI at `http://localhost:8000/dashboard` for inspecting and managing local state:
+
+- **DynamoDB** — list tables, view details (keys, indexes, item count), run Query and Scan,
+  create tables
+- **S3** — list buckets, browse files with folder support, upload/download, manage
+  versioning, view object metadata
+
+### DynamoDB
+
+- **In-memory storage** — blazing fast tables and items
+- **Secondary indexes** — full Global (GSI) and Local (LSI) secondary index support
+- **Rich querying** — sort-key conditions, pagination (`Limit`, `ExclusiveStartKey`), ordering
+- **Efficient scanning** — filtering and projection with DynamoDB expressions
+- **Expression support** — expression attribute values and names
+- **Streams** — change capture that can drive Lambda via Event Source Mappings
+
+### S3
+
+- **Bucket management** — full lifecycle for versioned and unversioned buckets
+- **Object operations** — Get, Put, Head, List, multipart uploads
+- **Versioning & tagging** — first-class object versioning and metadata tagging
+- **Data integrity** — automatic checksums (CRC32, CRC32C, SHA1, SHA256)
+- **Compression** — integrated gzip compression for efficient memory usage
+
+### Lambda (Zip and Image packaging)
+
+Gopherstack runs real Lambda functions in containers, supporting both **Zip**
+(`PackageType: Zip`) and **container image** (`PackageType: Image`) packaging.
+
+- **Zip functions** — the archive is extracted and run on the matching AWS runtime base
+  image, so standard managed runtimes work unmodified: `python3.9`–`python3.13`,
+  `nodejs18.x`/`20.x`/`22.x`, `java11`/`17`/`21`, `dotnet8`/`dotnet9`, `ruby3.2`/`3.3`, and
+  `provided.al2`/`provided.al2023`
+- **Image functions** — provide an `ImageUri` (an AWS base image or your own)
+- **Lambda Runtime API** — full implementation, so standard AWS base images work as-is
+- **Invocation modes** — `RequestResponse` (sync) and `Event` (async / fire-and-forget)
+- **Warm container pool** — configurable per-function pool to cut cold starts
+- **Reserved concurrency** — enforced for both sync and async calls
+- **Async realism** — AWS-realistic retry semantics and dead-letter queues (via SNS/SQS)
+- **Environment variables** — passed straight through to the container
+
+> [!IMPORTANT]
+> Both packaging modes require a running Docker (or Podman) daemon to execute invocations.
+> S3-based code delivery and direct Go binary execution on the host are not supported.
+> **All other Gopherstack services work without Docker.**
+
+```bash
+# Create an image-based Lambda function
+aws lambda create-function \
+    --endpoint-url http://localhost:8000 \
+    --function-name my-function \
+    --package-type Image \
+    --code ImageUri=public.ecr.aws/lambda/python:3.12 \
+    --role arn:aws:iam::000000000000:role/my-role
+
+# Invoke synchronously
+aws lambda invoke \
+    --endpoint-url http://localhost:8000 \
+    --function-name my-function \
+    --payload '{"key":"value"}' \
+    response.json
+
+# List functions
+aws lambda list-functions --endpoint-url http://localhost:8000
+```
+
+#### Lambda configuration
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--lambda-docker-host` | `LAMBDA_DOCKER_HOST` | `172.17.0.1` | Host/IP that Lambda containers use to reach Gopherstack's Runtime API |
+| `--lambda-pool-size` | `LAMBDA_POOL_SIZE` | `3` | Maximum warm containers per function |
+| `--lambda-idle-timeout` | `LAMBDA_IDLE_TIMEOUT` | `10m` | Idle container lifetime before reaping |
+| `--container-runtime` | `CONTAINER_RUNTIME` | `docker` | Container runtime: `docker`, `podman`, or `auto` |
+
+#### Using Podman
+
+[Podman](https://podman.io/) works as a drop-in replacement for Docker via its
+Docker-compatible API socket.
+
+```bash
+# Enable the Podman socket for your user (rootless, Linux)
+systemctl --user enable --now podman.socket
+
+# Point Gopherstack at Podman
+export CONTAINER_RUNTIME=podman
+
+# Optional: override the socket path
+export CONTAINER_HOST=unix://${XDG_RUNTIME_DIR}/podman/podman.sock
+```
+
+**Rootless networking note:** in rootless Podman the Docker bridge (`172.17.0.1`) is not
+available — use the host's routable IP or `host.containers.internal`:
+
+```bash
+export LAMBDA_DOCKER_HOST=host.containers.internal
+```
+
+Set `CONTAINER_RUNTIME=auto` to probe Docker first, then Podman, and use whichever socket is
+reachable.
+
+### Event Source Mappings (ESM)
+
+Automatically trigger Lambda functions from **DynamoDB Streams** — Gopherstack manages the
+polling and invocation for you once an ESM exists. Respects batch size, starting position
+(`TRIM_HORIZON`, `LATEST`), and enable/disable state.
+
+### EventBridge Scheduler & Pipes
+
+- **Scheduler** — recurring or one-time scheduled tasks that trigger AWS targets (Lambda,
+  SQS, SNS, and more)
+- **Pipes** — point-to-point integrations from sources (SQS) to targets (Lambda, Step
+  Functions) with optional filtering and enrichment
+
+### Performance & Scalability
+
+- **O(1) ARN indexing** — tagging and resource lookup use a centralized ARN index, so
+  operations stay fast with thousands of resources
+- **Memory optimization** — struct field alignment and efficient data structures keep the
+  footprint small
+- **Profile-guided optimization** — the binary ships with a PGO profile captured from real
+  workloads (see [PGO](#profile-guided-optimization-pgo))
+
+## Examples
+
+Complete, runnable examples live in [`examples/`](examples/) — each ships a
+`docker-compose.yml` and a `demo.sh` so you can run it end to end.
+
+| Example | What it demonstrates | Requires |
+|---------|----------------------|----------|
+| [`apigw-websocket-chat`](examples/apigw-websocket-chat) | Real-time chat over API Gateway WebSockets with a Node.js Lambda backend | OpenTofu, Node.js (`wscat`) |
+| [`cognito-api-auth`](examples/cognito-api-auth) | Securing API Gateway with a Cognito User Pool authorizer and JWTs | OpenTofu, Bash |
+| [`ddb-lambda-chain`](examples/ddb-lambda-chain) | 3-table event pipeline where DynamoDB Streams trigger a Go Lambda | Go, Bash |
+| [`ec2-docker`](examples/ec2-docker) | Provisioning EC2 instances and running SSH commands against them | Bash (`ssh`, `dig`) |
+| [`elasticache-valkey`](examples/elasticache-valkey) | ElastiCache Valkey cluster reachable via embedded DNS | Bash (`valkey-cli`/`redis-cli`) |
+| [`eventbridge-sqs`](examples/eventbridge-sqs) | Routing custom EventBridge events to an SQS queue | OpenTofu |
+| [`kinesis-lambda-aggregator`](examples/kinesis-lambda-aggregator) | Kinesis stream invoking a Node.js Lambda that aggregates into DynamoDB | OpenTofu, Bash |
+| [`s3-access-logs`](examples/s3-access-logs) | Configuring S3 server access logging | OpenTofu |
+| [`s3-lambda-processor`](examples/s3-lambda-processor) | S3 uploads triggering a Go Lambda to process the object | OpenTofu, Go, Bash |
+| [`sns-sqs-fanout`](examples/sns-sqs-fanout) | Pub/sub fan-out from SNS to multiple SQS queues | OpenTofu |
+| [`stepfunctions-order-workflow`](examples/stepfunctions-order-workflow) | Order-processing state machine orchestrated by Step Functions | OpenTofu, Bash |
+
+Running one:
+
+```bash
+cd examples/kinesis-lambda-aggregator
+docker compose up -d
+./demo.sh
+```
+
+See [`examples/README.md`](examples/README.md) for prerequisites and teardown.
+
+<!-- BEGIN GENERATED SERVICES -->
+## Services
+
+Every service links to its own page with a coverage breakdown — audited operations, known gaps, deferred items and resource-leak status — generated from that service's `PARITY.md` audit.
+
+**Parity** is the overall grade recorded by that service's most recent audit. **Operations** is the number of API operations audited; a dash means the service is tracked by feature family instead. Run `make docs` to refresh this table.
+
+### Compute
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [App Runner](services/apprunner/README.md) | A | 37 | 4 gaps; 1 deferred |
+| [Auto Scaling](services/autoscaling/README.md) | A | 66 | 7 gaps; 2 deferred |
+| [Batch](services/batch/README.md) | A | 25 | 4 gaps; 4 deferred |
+| [EC2](services/ec2/README.md) | A | — | 6 families; 1 gap; 2 deferred |
+| [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 48 | 5 gaps; 3 deferred |
+| [Lambda](services/lambda/README.md) | B | — | 6 families; 3 deferred |
+
+### Containers
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [ECR](services/ecr/README.md) | B | 58 | 3 gaps; 2 deferred |
+| [ECS](services/ecs/README.md) | A | 65 | 7 gaps; 3 deferred |
+| [EKS](services/eks/README.md) | A | 65 | 5 gaps; 2 deferred |
+
+### Storage
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [Backup](services/backup/README.md) | A | 17 | 4 gaps; 4 deferred |
+| [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | 4 gaps |
+| [EFS](services/efs/README.md) | A | 31 | 4 gaps; 2 deferred |
+| [FSx](services/fsx/README.md) | A | — | 13 families; 3 gaps |
+| [S3](services/s3/README.md) | B | 3 | 2 gaps |
+| [S3 Control](services/s3control/README.md) | A | 34 | 4 gaps; 3 deferred |
+| [S3 Glacier](services/glacier/README.md) | A | 33 | 2 gaps; 2 deferred |
+| [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap; 1 deferred |
+
+### Database
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [DAX](services/dax/README.md) | A | 22 | 3 gaps; 1 deferred |
+| [DocumentDB](services/docdb/README.md) | A | 55 | 4 gaps; 1 deferred |
+| [DynamoDB](services/dynamodb/README.md) | A | — | 7 families; 3 deferred |
+| [DynamoDB Streams](services/dynamodbstreams/README.md) | B | 4 | 2 gaps; 1 deferred |
+| [ElastiCache](services/elasticache/README.md) | B | 75 | 2 gaps; 2 deferred |
+| [MemoryDB](services/memorydb/README.md) | A | 46 | 3 gaps; 3 deferred |
+| [Neptune](services/neptune/README.md) | A | — | 12 families; 6 gaps; 2 deferred |
+| [QLDB](services/qldb/README.md) | Removed | — | removed service |
+| [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
+| [RDS](services/rds/README.md) | B+ | 45 | 5 gaps; 2 deferred |
+| [RDS Data](services/rdsdata/README.md) | A | 6 | 4 gaps; 2 deferred |
+| [Redshift](services/redshift/README.md) | A | 5 | 2 gaps; 17 deferred |
+| [Redshift Data](services/redshiftdata/README.md) | A | 11 | 4 gaps; 1 deferred |
+| [Timestream Query](services/timestreamquery/README.md) | A | 12 | 3 gaps; 1 deferred |
+| [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 4 gaps |
+
+### Networking & Content Delivery
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [API Gateway](services/apigateway/README.md) | A | 123 | 5 gaps; 3 deferred |
+| [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 4 gaps |
+| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 3 gaps; 2 deferred |
+| [App Mesh](services/appmesh/README.md) | A | 38 | 4 gaps; 1 deferred |
+| [Cloud Map](services/servicediscovery/README.md) | A | 30 | 3 gaps; 2 deferred |
+| [CloudFront](services/cloudfront/README.md) | A | 30 | 3 gaps; 3 deferred |
+| [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 2 gaps; 1 deferred |
+| [ELB (Classic)](services/elb/README.md) | A | 29 | 3 gaps; 1 deferred |
+| [ELBv2](services/elbv2/README.md) | A | 51 | 4 gaps; 2 deferred |
+| [Route 53](services/route53/README.md) | A | 67 | 2 gaps; 4 deferred |
+| [Route 53 Resolver](services/route53resolver/README.md) | A | 68 | 2 gaps; 1 deferred |
+| [VPC Lattice](services/vpclattice/README.md) | A | 52 | 5 gaps; 1 deferred |
+
+### Messaging & Integration
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [Amazon MQ](services/mq/README.md) | A | 24 | 4 gaps; 1 deferred |
+| [AppSync](services/appsync/README.md) | A | 75 | 2 gaps; 2 deferred |
+| [EventBridge](services/eventbridge/README.md) | A | 59 | 2 gaps; 3 deferred |
+| [EventBridge Pipes](services/pipes/README.md) | B | 10 | 3 gaps |
+| [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 3 gaps |
+| [Pinpoint](services/pinpoint/README.md) | A | 16 | 3 gaps; 3 deferred |
+| [SES](services/ses/README.md) | A | 71 | 4 gaps; 1 deferred |
+| [SES v2](services/sesv2/README.md) | A | 110 | clean |
+| [SNS](services/sns/README.md) | B | 27 | 3 gaps; 2 deferred |
+| [SQS](services/sqs/README.md) | A | 18 | 3 gaps; 2 deferred |
+| [SWF](services/swf/README.md) | A | 39 | 4 gaps; 1 deferred |
+| [Step Functions](services/stepfunctions/README.md) | A | 35 | 7 gaps; 3 deferred |
+| [WorkMail](services/workmail/README.md) | A | 92 | 6 gaps; 1 deferred |
+
+### Analytics
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [Athena](services/athena/README.md) | A | 15 | 4 gaps; 1 deferred |
+| [Clean Rooms](services/cleanrooms/README.md) | A | — | 14 families; 2 gaps; 1 deferred |
+| [EMR](services/emr/README.md) | A | 61 | clean |
+| [EMR Serverless](services/emrserverless/README.md) | A | 22 | 3 gaps; 1 deferred |
+| [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 2 gaps; 1 deferred |
+| [Glue](services/glue/README.md) | A | 52 | 7 gaps; 10 deferred |
+| [Glue DataBrew](services/databrew/README.md) | A | 45 | 5 gaps; 1 deferred |
+| [Kinesis](services/kinesis/README.md) | A | 39 | 5 gaps; 2 deferred |
+| [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 4 gaps |
+| [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 5 gaps; 1 deferred |
+| [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 3 gaps; 3 deferred |
+| [Lake Formation](services/lakeformation/README.md) | A | 61 | 3 gaps; 1 deferred |
+| [Managed Streaming for Kafka](services/kafka/README.md) | A | 59 | 5 gaps; 2 deferred |
+| [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 13 | 4 gaps; 1 deferred |
+| [OpenSearch](services/opensearch/README.md) | A | 13 | 1 gap; 8 deferred |
+| [QuickSight](services/quicksight/README.md) | A | 65 | 5 gaps; 19 deferred |
+
+### Security
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [ACM](services/acm/README.md) | A | 16 | 3 gaps; 2 deferred |
+| [ACM PCA](services/acmpca/README.md) | A | 23 | 8 gaps; 2 deferred |
+| [Detective](services/detective/README.md) | A | 29 | 4 gaps; 1 deferred |
+| [GuardDuty](services/guardduty/README.md) | A | 51 | 4 gaps; 3 deferred |
+| [Inspector](services/inspector2/README.md) | A | 13 | 4 gaps; 1 deferred |
+| [KMS](services/kms/README.md) | A | 54 | 5 gaps; 2 deferred |
+| [Macie](services/macie2/README.md) | A | 82 | 5 gaps; 2 deferred |
+| [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 3 gaps; 2 deferred |
+| [Security Hub](services/securityhub/README.md) | A | 109 | 5 gaps; 1 deferred |
+| [Shield](services/shield/README.md) | B | 37 | 3 gaps |
+| [Verified Permissions](services/verifiedpermissions/README.md) | A | 30 | 3 gaps; 1 deferred |
+| [WAF](services/waf/README.md) | A | 4 | 2 gaps |
+| [WAFv2](services/wafv2/README.md) | A | 55 | 4 gaps |
+
+### Identity & Access
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 1 deferred |
+| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 44 | 3 gaps; 2 deferred |
+| [Directory Service](services/directoryservice/README.md) | A | 80 | 2 gaps; 3 deferred |
+| [IAM](services/iam/README.md) | A | 2 | 2 gaps |
+| [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 4 gaps; 1 deferred |
+| [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 20 | 1 gap |
+| [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 5 gaps |
+| [Identity Store](services/identitystore/README.md) | B | 19 | 3 gaps; 1 deferred |
+| [STS](services/sts/README.md) | B | 11 | 1 gap; 2 deferred |
+
+### Management & Governance
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [Account](services/account/README.md) | A | 14 | 4 gaps; 1 deferred |
+| [AppConfig](services/appconfig/README.md) | A | 45 | 3 gaps; 1 deferred |
+| [AppConfig Data](services/appconfigdata/README.md) | B | 2 | 2 gaps |
+| [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 3 gaps; 1 deferred |
+| [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 3 gaps; 1 deferred |
+| [CloudFormation](services/cloudformation/README.md) | A | 51 | 4 gaps; 6 deferred |
+| [CloudTrail](services/cloudtrail/README.md) | A | 60 | 5 gaps; 2 deferred |
+| [CloudWatch](services/cloudwatch/README.md) | A | 50 | 1 gap; 3 deferred |
+| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 24 | 3 gaps; 3 deferred |
+| [Config](services/awsconfig/README.md) | A | 97 | 3 gaps; 1 deferred |
+| [Cost Explorer](services/ce/README.md) | A | 23 | 2 gaps; 2 deferred |
+| [Fault Injection Simulator](services/fis/README.md) | A | 26 | 4 gaps; 2 deferred |
+| [OpsWorks](services/opsworks/README.md) | A | 32 | 3 gaps; 2 deferred |
+| [Organizations](services/organizations/README.md) | A | 63 | 3 gaps; 2 deferred |
+| [Resource Access Manager](services/ram/README.md) | A | 37 | 7 gaps; 1 deferred |
+| [Resource Groups](services/resourcegroups/README.md) | A | 23 | 4 gaps |
+| [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 2 gaps; 1 deferred |
+| [Systems Manager](services/ssm/README.md) | B | 45 | 4 gaps; 5 deferred |
+
+### Developer Tools
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [Amplify](services/amplify/README.md) | A | 37 | 6 gaps; 2 deferred |
+| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 5 gaps; 2 deferred |
+| [CodeBuild](services/codebuild/README.md) | B | 60 | 4 gaps; 2 deferred |
+| [CodeCommit](services/codecommit/README.md) | A | 79 | 3 gaps; 2 deferred |
+| [CodeConnections](services/codeconnections/README.md) | A | 27 | 4 gaps; 1 deferred |
+| [CodeDeploy](services/codedeploy/README.md) | A | 47 | 3 gaps; 2 deferred |
+| [CodePipeline](services/codepipeline/README.md) | A | 14 | 4 gaps; 3 deferred |
+| [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 3 gaps; 1 deferred |
+| [Serverless Application Repository](services/serverlessrepo/README.md) | B | 14 | 2 gaps |
+| [X-Ray](services/xray/README.md) | A | 38 | 3 gaps; 1 deferred |
+
+### Machine Learning
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [Bedrock](services/bedrock/README.md) | A | 58 | 6 gaps; 4 deferred |
+| [Bedrock Agent](services/bedrockagent/README.md) | A | 74 | 2 gaps; 2 deferred |
+| [Bedrock Runtime](services/bedrockruntime/README.md) | A | 10 | 2 gaps |
+| [Comprehend](services/comprehend/README.md) | A | 11 | 2 gaps; 2 deferred |
+| [Forecast](services/forecast/README.md) | A | 8 | 3 gaps; 3 deferred |
+| [Personalize](services/personalize/README.md) | A | 74 | 3 gaps; 3 deferred |
+| [Polly](services/polly/README.md) | A | 13 | 8 gaps; 5 deferred |
+| [Rekognition](services/rekognition/README.md) | A | 50 | 4 gaps; 1 deferred |
+| [SageMaker](services/sagemaker/README.md) | A | 22 | 3 gaps; 17 deferred |
+| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 3 gaps |
+| [Textract](services/textract/README.md) | B | 25 | 2 gaps; 1 deferred |
+| [Transcribe](services/transcribe/README.md) | A | 43 | 2 gaps; 1 deferred |
+| [Translate](services/translate/README.md) | A | 19 | 2 gaps |
+
+### Media
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [MediaConvert](services/mediaconvert/README.md) | A | 34 | 3 gaps; 1 deferred |
+| [MediaLive](services/medialive/README.md) | A | — | 6 gaps |
+| [MediaPackage](services/mediapackage/README.md) | A | 19 | 3 gaps; 1 deferred |
+| [MediaStore](services/mediastore/README.md) | B | 21 | 3 gaps |
+| [MediaStore Data](services/mediastoredata/README.md) | B | 5 | 3 gaps; 1 deferred |
+| [MediaTailor](services/mediatailor/README.md) | A | 48 | 4 gaps; 3 deferred |
+
+### IoT
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 2 gaps; 2 deferred |
+| [IoT Core](services/iot/README.md) | B | 30 | 2 gaps; 6 deferred |
+| [IoT Data Plane](services/iotdataplane/README.md) | A | 8 | 3 gaps; 1 deferred |
+| [IoT Wireless](services/iotwireless/README.md) | A | 6 | 4 gaps; 9 deferred |
+
+### Migration & Transfer
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
+| [Database Migration Service](services/dms/README.md) | A | 68 | 4 gaps; 3 deferred |
+| [Transfer Family](services/transfer/README.md) | A | — | 15 families; 2 gaps; 2 deferred |
+
+### Other
+
+| Service | Parity | Operations | Notes |
+|---|---|---|---|
+| [AppStream 2.0](services/appstream/README.md) | A | 32 | 2 deferred |
+| [HealthOmics](services/omics/README.md) | A | — | 25 families; 3 gaps; 2 deferred |
+| [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 4 gaps |
+| [Support](services/support/README.md) | A | 16 | 1 deferred |
+| [WorkSpaces](services/workspaces/README.md) | A | 27 | 2 gaps; 3 deferred |
+<!-- END GENERATED SERVICES -->
+
+## Using Gopherstack
+
+### AWS CLI
+
+Everything works with the standard AWS CLI — just pass `--endpoint-url`:
+
+```bash
+# DynamoDB
+aws dynamodb create-table \
+    --endpoint-url http://localhost:8000 \
+    --table-name Users \
+    --attribute-definitions AttributeName=ID,AttributeType=S \
+    --key-schema AttributeName=ID,KeyType=HASH \
+    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+
+aws dynamodb list-tables --endpoint-url http://localhost:8000
+
+# S3
+aws s3 mb s3://my-bucket --endpoint-url http://localhost:8000
+aws s3 cp myfile.txt s3://my-bucket/ --endpoint-url http://localhost:8000
+aws s3 ls s3://my-bucket/ --endpoint-url http://localhost:8000
+```
+
+Alternatively set `AWS_ENDPOINT_URL=http://localhost:8000` once and drop the flag.
+
+### Terraform / OpenTofu
+
+Point the AWS provider at Gopherstack by overriding the service endpoints. No real
+credentials are needed — any non-empty string works.
 
 ```hcl
 terraform {
@@ -372,31 +628,19 @@ provider "aws" {
 }
 ```
 
-Terraform uses path-style S3 URLs. Set `use_path_style = true` on the S3
-resource or provider if you create `aws_s3_bucket` resources:
-
-```hcl
-resource "aws_s3_bucket" "example" {
-  bucket = "my-bucket"
-
-  # Path-style is required when using Gopherstack
-  force_destroy = true
-}
-```
-
-Start Gopherstack, then run your plan/apply as usual:
+Terraform uses path-style S3 URLs, so set `use_path_style = true` on the S3
+provider/resource when creating `aws_s3_bucket` resources.
 
 ```bash
-docker compose up -d   # or: ./gopherstack --port 8000
+docker compose up -d   # or: go run .
 terraform init
 terraform apply
 ```
 
-## AWS CDK Compatibility
+### AWS CDK
 
-CDK synthesises CloudFormation templates locally and deploys them via the AWS
-SDK. Point the SDK at Gopherstack by setting `AWS_ENDPOINT_URL` (AWS CLI / SDK
-v2 unified endpoint) before running `cdk deploy`.
+CDK synthesises CloudFormation locally and deploys it via the AWS SDK, so pointing the SDK at
+Gopherstack is enough:
 
 ```bash
 export AWS_ENDPOINT_URL=http://localhost:8000
@@ -405,59 +649,61 @@ export AWS_SECRET_ACCESS_KEY=test
 export AWS_DEFAULT_REGION=us-east-1
 export CDK_DEFAULT_ACCOUNT=000000000000
 export CDK_DEFAULT_REGION=us-east-1
+
+docker compose up -d   # start Gopherstack
+cdk bootstrap          # creates the CDKToolkit stack via CloudFormation
+cdk deploy
 ```
 
-Deploy your CDK app:
+`AWS_ENDPOINT_URL` is picked up automatically by the AWS SDK v2 used by the CDK CLI.
+
+## Documentation
+
+- [Quickstart](docs/quickstart.md)
+- [Running with Docker](docs/docker.md)
+- [Migrating from LocalStack](docs/migration.md)
+- [Architecture](docs/architecture/README.md)
+- [Examples](examples/README.md)
+
+## Development
+
+**Prerequisites:** Go 1.26+, Docker or Podman (only for Lambda invocations), AWS CLI
+(optional).
 
 ```bash
-docker compose up -d   # start Gopherstack
-cdk bootstrap          # creates the CDKToolkit stack (uses CloudFormation)
-cdk deploy             # deploy your stack
+make all             # lint + all tests with coverage
+make test            # unit tests (short mode)
+make total-coverage  # unit + integration + E2E with combined coverage
+make lint            # linters
+make docs            # regenerate the service docs from each PARITY.md
+make pgo             # regenerate the PGO profile
 ```
-
-For CDK apps written in TypeScript / Python that configure the SDK explicitly:
-
-```typescript
-// cdk.json or app code — override the endpoint for local development
-const app = new cdk.App();
-const env: cdk.Environment = {
-  account: process.env.CDK_DEFAULT_ACCOUNT ?? "000000000000",
-  region:  process.env.CDK_DEFAULT_REGION  ?? "us-east-1",
-};
-new MyStack(app, "MyStack", { env });
-```
-
-The `AWS_ENDPOINT_URL` environment variable is picked up automatically by the
-AWS SDK v2 used by the CDK CLI.
 
 ## Profile-Guided Optimization (PGO)
 
-The repo root ships `default.pgo`, a CPU profile that Go's [Profile-Guided
-Optimization](https://go.dev/doc/pgo) automatically consumes from the main
-package directory on every `go build` — no extra flags needed. It's captured
-from a representative workload (heavy DynamoDB GSI/LSI and S3 traffic) so the
-compiler can better optimize the real hot paths.
+The repo root ships `default.pgo`, a CPU profile that Go's
+[Profile-Guided Optimization](https://go.dev/doc/pgo) automatically consumes from the main
+package directory on every `go build` — no extra flags. It's captured from a representative
+workload (heavy DynamoDB GSI/LSI and S3 traffic, plus broad multi-service coverage) so the
+compiler can optimize the real hot paths.
 
-To regenerate it:
+Regenerate it with:
 
 ```bash
 make pgo
 ```
 
-This runs `scripts/pgo.sh`, which builds the server and the `cmd/pgoload`
-load generator, runs the server with pprof enabled, captures a CPU profile
-while driving load against it (plus a best-effort integration-test pass for
-breadth), and writes the result to `default.pgo` at the repo root. It
-validates the profile with `go tool pprof` and `go build -pgo=auto` before
-finishing. Knobs (capture duration, load duration/concurrency, etc.) are
-overridable via environment variables — see the header of `scripts/pgo.sh`.
+This runs `scripts/pgo.sh`, which builds the server and the `cmd/pgoload` load generator, runs
+the server with pprof enabled, captures CPU profiles while driving load against it, and writes
+the merged result to `default.pgo`. It validates the profile with `go tool pprof` and
+`go build -pgo=auto` before finishing. Knobs (capture/load duration, concurrency, …) are
+environment variables — see the header of `scripts/pgo.sh`.
 
-**Per-PR:** if your change measurably shifts the server's hot paths, run
-`make pgo` and commit the updated `default.pgo` alongside your change.
+**Per-PR:** if your change measurably shifts the server's hot paths, run `make pgo` and commit
+the updated `default.pgo` alongside it.
 
-**CI:** a weekly workflow (`.github/workflows/pgo.yml`) also runs `make pgo`
-and opens a pull request with the refreshed profile, so `default.pgo` stays
-reasonably current even without manual regeneration.
+**CI:** a weekly workflow (`.github/workflows/pgo.yml`) also runs `make pgo` and opens a pull
+request with a refreshed profile.
 
 ## License
 
