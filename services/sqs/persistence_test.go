@@ -12,17 +12,26 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
-func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
+func runSnapshotTest(t *testing.T, setup func(b *sqs.InMemoryBackend) string, verify func(t *testing.T, b *sqs.InMemoryBackend, id string)) {
+	t.Helper()
 	t.Parallel()
 
-	tests := []struct {
-		setup  func(b *sqs.InMemoryBackend) string
-		verify func(t *testing.T, b *sqs.InMemoryBackend, id string)
-		name   string
-	}{
-		{
-			name: "round_trip_preserves_state",
-			setup: func(b *sqs.InMemoryBackend) string {
+	original := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(original.Close)
+	id := setup(original)
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	t.Cleanup(fresh.Close)
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	verify(t, fresh, id)
+}
+
+func TestInMemoryBackend_SnapshotRestore_RoundTripPreservesState(t *testing.T) {
+	runSnapshotTest(t, func(b *sqs.InMemoryBackend) string {
 				out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "test-queue"})
 				if err != nil {
 					return ""
@@ -30,7 +39,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				return out.QueueURL
 			},
-			verify: func(t *testing.T, b *sqs.InMemoryBackend, id string) {
+			func(t *testing.T, b *sqs.InMemoryBackend, id string) {
 				t.Helper()
 
 				out, err := b.ListQueues(&sqs.ListQueuesInput{})
@@ -38,21 +47,23 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				require.Len(t, out.QueueURLs, 1)
 				assert.Equal(t, id, out.QueueURLs[0])
 			},
-		},
-		{
-			name:  "empty_backend_round_trip",
-			setup: func(_ *sqs.InMemoryBackend) string { return "" },
-			verify: func(t *testing.T, b *sqs.InMemoryBackend, _ string) {
+			)
+}
+
+func TestInMemoryBackend_SnapshotRestore_EmptyBackendRoundTrip(t *testing.T) {
+	runSnapshotTest(t, func(_ *sqs.InMemoryBackend) string { return "" },
+			func(t *testing.T, b *sqs.InMemoryBackend, _ string) {
 				t.Helper()
 
 				out, err := b.ListQueues(&sqs.ListQueuesInput{})
 				require.NoError(t, err)
 				assert.Empty(t, out.QueueURLs)
 			},
-		},
-		{
-			name: "permissions_round_trip",
-			setup: func(b *sqs.InMemoryBackend) string {
+			)
+}
+
+func TestInMemoryBackend_SnapshotRestore_PermissionsRoundTrip(t *testing.T) {
+	runSnapshotTest(t, func(b *sqs.InMemoryBackend) string {
 				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "perm-queue", Endpoint: "localhost"})
 				if err != nil {
 					return ""
@@ -69,7 +80,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				return "AllowSend"
 			},
-			verify: func(t *testing.T, b *sqs.InMemoryBackend, label string) {
+			func(t *testing.T, b *sqs.InMemoryBackend, label string) {
 				t.Helper()
 
 				// Queue and its permissions should survive the round-trip.
@@ -84,15 +95,16 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				})
 				require.NoError(t, removeErr)
 			},
-		},
-		{
-			// Regression guard for the pkgs/store conversion: an in-flight
-			// (received but not yet deleted) message must round-trip through
-			// Snapshot/Restore still invisible, with its original receipt
-			// handle still valid — proving the store.Table-backed queues and
-			// their inline messages/inFlightMessages survive the swap intact.
-			name: "in_flight_message_round_trip",
-			setup: func(b *sqs.InMemoryBackend) string {
+			)
+}
+
+func TestInMemoryBackend_SnapshotRestore_InFlightMessageRoundTrip(t *testing.T) {
+	// Regression guard for the pkgs/store conversion: an in-flight
+	// (received but not yet deleted) message must round-trip through
+	// Snapshot/Restore still invisible, with its original receipt
+	// handle still valid — proving the store.Table-backed queues and
+	// their inline messages/inFlightMessages survive the swap intact.
+	runSnapshotTest(t, func(b *sqs.InMemoryBackend) string {
 				out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "inflight-queue", Endpoint: "localhost"})
 				if err != nil {
 					return ""
@@ -116,7 +128,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				return out.QueueURL + "|" + recvOut.Messages[0].ReceiptHandle
 			},
-			verify: func(t *testing.T, b *sqs.InMemoryBackend, id string) {
+			func(t *testing.T, b *sqs.InMemoryBackend, id string) {
 				t.Helper()
 				require.NotEmpty(t, id)
 
@@ -140,10 +152,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				})
 				require.NoError(t, err, "receipt handle issued before the snapshot must remain valid after restore")
 			},
-		},
-		{
-			name: "fifo_sequence_number_persists_across_restore",
-			setup: func(b *sqs.InMemoryBackend) string {
+			)
+}
+
+func TestInMemoryBackend_SnapshotRestore_FifoSequenceNumberPersists(t *testing.T) {
+	runSnapshotTest(t, func(b *sqs.InMemoryBackend) string {
 				out, err := b.CreateQueue(&sqs.CreateQueueInput{
 					QueueName: "seq-fifo.fifo",
 					Endpoint:  "localhost",
@@ -174,7 +187,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				return out.QueueURL
 			},
-			verify: func(t *testing.T, b *sqs.InMemoryBackend, queueURL string) {
+			func(t *testing.T, b *sqs.InMemoryBackend, queueURL string) {
 				t.Helper()
 				require.NotEmpty(t, queueURL)
 
@@ -207,10 +220,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				assert.Greater(t, sendOut.SequenceNumber, lastSeq,
 					"SequenceNumber must keep increasing across a snapshot/restore round trip")
 			},
-		},
-		{
-			name: "restored_queue_janitor_prunes_retention_expired_message",
-			setup: func(b *sqs.InMemoryBackend) string {
+			)
+}
+
+func TestInMemoryBackend_SnapshotRestore_RestoredQueueJanitor(t *testing.T) {
+	runSnapshotTest(t, func(b *sqs.InMemoryBackend) string {
 				out, err := b.CreateQueue(&sqs.CreateQueueInput{
 					QueueName: "restore-janitor-queue",
 					Endpoint:  "localhost",
@@ -232,7 +246,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				return out.QueueURL
 			},
-			verify: func(t *testing.T, b *sqs.InMemoryBackend, queueURL string) {
+			func(t *testing.T, b *sqs.InMemoryBackend, queueURL string) {
 				t.Helper()
 				require.NotEmpty(t, queueURL)
 
@@ -254,10 +268,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				assert.Equal(t, "0", out.Attributes["ApproximateNumberOfMessages"],
 					"janitor should prune the retention-expired message on a restored queue")
 			},
-		},
-		{
-			name: "completed_move_task_history_round_trip",
-			setup: func(b *sqs.InMemoryBackend) string {
+			)
+}
+
+func TestInMemoryBackend_SnapshotRestore_CompletedMoveTaskHistoryRoundTrip(t *testing.T) {
+	runSnapshotTest(t, func(b *sqs.InMemoryBackend) string {
 				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "hist-dlq", Endpoint: "localhost"})
 				if err != nil {
 					return ""
@@ -294,7 +309,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				return out.TaskHandle
 			},
-			verify: func(t *testing.T, b *sqs.InMemoryBackend, _ string) {
+			func(t *testing.T, b *sqs.InMemoryBackend, _ string) {
 				t.Helper()
 
 				// After restore, the completed task should still be visible.
@@ -310,27 +325,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				// TaskHandle is NOT populated for non-RUNNING tasks per AWS semantics.
 				assert.Empty(t, out.Results[0].TaskHandle)
 			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			original := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			t.Cleanup(original.Close)
-			id := tt.setup(original)
-
-			snap := original.Snapshot(t.Context())
-			require.NotNil(t, snap)
-
-			fresh := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			t.Cleanup(fresh.Close)
-			require.NoError(t, fresh.Restore(t.Context(), snap))
-
-			tt.verify(t, fresh, id)
-		})
-	}
+		)
 }
 
 func TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshotVersion(t *testing.T) {

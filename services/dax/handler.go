@@ -33,7 +33,7 @@ var (
 // DAX binary-protocol data-plane listener (see dataplane_server.go).
 type Handler struct {
 	Backend   StorageBackend
-	dataPlane *dataPlane
+	DataPlane *DataPlane
 }
 
 // NewHandler creates a new DAX handler.
