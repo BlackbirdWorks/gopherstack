@@ -437,6 +437,9 @@ jobs:
       contents: write
       checks: write
       pull-requests: write
+      # Required by the Codecov upload below, which authenticates via OIDC
+      # instead of a CODECOV_TOKEN secret.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -477,13 +480,18 @@ jobs:
           config: .testcoverage.yml
 
       # Uploads the merged unit+integration+e2e profile, so the Codecov badge
-      # matches the coverage reported in the PR comment above. Non-fatal: the
-      # repository does not have to be connected to Codecov for CI to pass.
+      # matches the coverage reported in the PR comment above.
+      #
+      # Authenticates with OIDC rather than a CODECOV_TOKEN secret: nothing to
+      # create, store or rotate. This needs id-token: write, granted on the job
+      # below. Fork PRs cannot mint an OIDC token, but Codecov supports
+      # tokenless uploads for fork PRs to public repos, so they still report.
+      # Non-fatal either way, so a Codecov outage never fails CI.
       - name: Upload coverage to Codecov
         if: always()
         uses: codecov/codecov-action@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           files: ./coverage.out
           fail_ci_if_error: false
 
