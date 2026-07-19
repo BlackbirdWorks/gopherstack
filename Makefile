@@ -1,4 +1,4 @@
-.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo
+.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -184,6 +184,12 @@ bench:
 # Optimization (PGO)" section in README.md for details and knobs.
 pgo:
 	bash scripts/pgo.sh
+
+# Regenerate per-service README.md files from services/<svc>/PARITY.md audit
+# manifests, and the category-grouped service table injected into the root
+# README.md. See cmd/gendocs.
+docs:
+	go run ./cmd/gendocs
 
 demo: ui-build
 	docker compose down
