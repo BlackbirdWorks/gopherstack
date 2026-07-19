@@ -147,6 +147,10 @@ jobs:
 
   unit:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -171,19 +175,41 @@ jobs:
           check-latest: true
           cache: true
 
-      - name: Run Unit Tests
+      - name: Compute package shard for chunk
+        id: pkgs
         run: |
+          TOTAL_CHUNKS=4
+          CHUNK=${{ matrix.chunk }}
+          # -coverpkg stays the full, unfiltered package set on every chunk so
+          # cross-package coverage instrumentation (and the thresholds in
+          # .testcoverage.yml, which are calibrated against it) is unchanged
+          # by sharding. Only the set of packages each chunk *tests* is split.
           COVERPKGS=$(go list ./... | grep -v -E '(test/|/demo$|/modules/|/teststack$)' | tr '\n' ',' | sed 's/,$//')
+          # Round-robin distribute all packages (the same set `./...` would
+          # expand to) across chunks, so every package is tested by exactly
+          # one chunk.
+          ALL_PKGS=$(go list ./...)
+          CHUNK_PKGS=$(echo "$ALL_PKGS" | awk "NR % ${TOTAL_CHUNKS} == ${CHUNK}")
+          COUNT=$(echo "$CHUNK_PKGS" | grep -c .)
+          PKG_ARGS=$(echo "$CHUNK_PKGS" | tr '\n' ' ')
+          {
+            echo "coverpkgs=$COVERPKGS"
+            echo "pkgs=$PKG_ARGS"
+          } >> "$GITHUB_OUTPUT"
+          echo "Running $COUNT packages in chunk $CHUNK of $TOTAL_CHUNKS"
+
+      - name: Run Unit Tests (chunk ${{ matrix.chunk }})
+        run: |
           go tool gotestsum --format pkgname -- \
             -race -shuffle on -short -timeout 5m \
-            -coverpkg="$COVERPKGS" -coverprofile=unit-coverage.out -covermode=atomic \
-            ./...
+            -coverpkg="${{ steps.pkgs.outputs.coverpkgs }}" -coverprofile=unit-${{ matrix.chunk }}-coverage.out -covermode=atomic \
+            ${{ steps.pkgs.outputs.pkgs }}
 
       - name: Upload Coverage
         uses: actions/upload-artifact@v7
         with:
-          name: unit-coverage
-          path: unit-coverage.out
+          name: unit-${{ matrix.chunk }}-coverage
+          path: unit-${{ matrix.chunk }}-coverage.out
           retention-days: 1
 
   build:
@@ -459,14 +485,23 @@ jobs:
 
       - name: Merge Coverage Profiles
         run: |
-          # Merge all coverage files into one
-          echo "mode: atomic" > coverage.out
-          for f in *-coverage.out; do
-            if [ -f "$f" ]; then
-              echo "Merging $f"
-              tail -n +2 "$f" >> coverage.out
-            fi
-          done
+          # Every test job runs with a wide -coverpkg (all instrumented
+          # packages), so each downloaded profile already contains a block
+          # for every package under test -- including ones that job never
+          # exercised. A naive `tail -n +2 ... >> coverage.out` concatenation
+          # therefore duplicates every block once per job (~6x here), which
+          # can blow past downstream tooling's string size limits. covmerge
+          # dedupes on block key and sums counts instead, the same merge
+          # semantics as gocovmerge. See cmd/covmerge for details.
+          shopt -s nullglob
+          files=(*-coverage.out)
+          shopt -u nullglob
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No coverage profiles found to merge" >&2
+            exit 1
+          fi
+          echo "Merging ${#files[@]} coverage profiles: ${files[*]}"
+          go run ./cmd/covmerge -o coverage.out "${files[@]}"
           go tool cover -func=coverage.out | tail -1
 
       - name: Check Coverage Thresholds
@@ -546,11 +581,21 @@ jobs:
                 }
               }
 
-              // 3. Parse coverage.out and calculate stats
-              const coverageData = fs.readFileSync('coverage.out', 'utf8').split('\n');
+              // 3. Parse coverage.out and calculate stats. Read line-by-line
+              // via readline instead of fs.readFileSync(...): coverage.out
+              // is a merged, deduplicated profile but can still legitimately
+              // exceed Node's ~512MB max string length on a large enough
+              // codebase, and readFileSync would throw ERR_STRING_TOO_LONG
+              // trying to materialize it as one string.
+              const readline = require('readline');
               const fileStats = {}; // file -> {covered: 0, total: 0}
 
-              for (const line of coverageData) {
+              const coverageRl = readline.createInterface({
+                input: fs.createReadStream('coverage.out', { encoding: 'utf8' }),
+                crlfDelay: Infinity,
+              });
+
+              for await (const line of coverageRl) {
                 if (!line || line.startsWith('mode:')) continue;
 
                 const [loc, numStmt, hits] = line.split(' ');

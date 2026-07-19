@@ -185,6 +185,130 @@ A built-in UI at `http://localhost:8000/dashboard` for inspecting and managing l
 - **S3** — list buckets, browse files with folder support, upload/download, manage
   versioning, view object metadata
 
+### Configuration
+
+Every setting has a CLI flag and (usually) an equivalent env var; a flag always wins. When
+`--persist` is enabled, values loaded from the persisted config file sit between the two:
+precedence is **defaults < persisted config < env vars / CLI flags**.
+
+#### Server
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--port` | `PORT` | `8000` | HTTP server port. |
+| `--region` | `REGION` | `us-east-1` | Mock AWS region (also honors `AWS_REGION` / `AWS_DEFAULT_REGION`, see below). |
+| `--log-level` | `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, or `error`. |
+| `--data-dir` | `GOPHERSTACK_DATA_DIR` | *(empty)* | Directory for persistence data files. Empty resolves to `~/.gopherstack/data`, or `/data` inside a container. |
+| `--account-id` | `ACCOUNT_ID` | `000000000000` | Mock AWS account ID used in ARNs. |
+| `--persist` | `PERSIST` | `false` | Enable snapshot-based persistence across restarts. |
+| `--demo` | `DEMO` | `false` | Load demo data on startup. |
+| `--enforce-iam` | `GOPHERSTACK_ENFORCE_IAM` | `false` | Evaluate every request against attached IAM policies. |
+| `--tls` | `TLS` | `false` | Serve over HTTPS (self-signed certificate unless `--tls-cert`/`--tls-key` are set). |
+| `--tls-cert` | `TLS_CERT` | *(empty)* | Path to a TLS certificate (PEM). Requires `--tls-key`. |
+| `--tls-key` | `TLS_KEY` | *(empty)* | Path to a TLS private key (PEM). |
+| `--validate-sigv4` | `VALIDATE_SIGV4` | `false` | Cryptographically validate AWS SigV4 request signatures (opt-in). |
+| `--sigv4-secret` | `SIGV4_SECRET` | `test` | Secret access key SigV4 validation signs against (only used with `--validate-sigv4`). |
+| `--dns-addr` | `DNS_ADDR` | *(empty)* | Address for the embedded DNS server (e.g. `:10053`). Empty disables it. |
+| `--dns-resolve-ip` | `DNS_RESOLVE_IP` | `127.0.0.1` | IP address synthetic hostnames resolve to. |
+| `--port-range-start` | `PORT_RANGE_START` | `10000` | Start of the port range used for allocated resource endpoints. |
+| `--port-range-end` | `PORT_RANGE_END` | `10100` | End (exclusive) of that port range. |
+| `--init-script` | `INIT_SCRIPTS` | *(none)* | Shell script(s) to run on startup (repeatable flag / comma-separated env var). |
+| `--init-timeout` | `INIT_TIMEOUT` | `30s` | Per-script timeout for init hooks. |
+| `--s3-bucket` | `S3_BUCKETS` | *(none)* | S3 bucket(s) to create on startup (repeatable flag / comma-separated env var). |
+| `--janitor-timeout` | `JANITOR_TIMEOUT` | `30s` | Per-task timeout for the global janitor loop (TTL sweeps, cleaners). `0` disables it. |
+| `--latency-ms` | `LATENCY_MS` | `0` | Inject random latency `[0,N)` ms per request. `0` disables it. |
+| `--auto-purge-ttl` | `AUTO_PURGE_TTL` | *(disabled)* | If set, automatically reset all services on a timer (e.g. `10m`). |
+| *(none)* | `GOPHERSTACK_PPROF_ADDR` | *(empty)* | Opt-in pprof debug address (e.g. `localhost:6060`) for local profiling / PGO capture. Off unless set; never enable in shared environments. |
+
+#### AWS credentials & region overrides
+
+Gopherstack's own AWS SDK clients read a few standard AWS environment variables, so tooling
+that already exports them (e.g. `awslocal`) works without remapping. These are not flags.
+
+| Env var | Default | Description |
+|---------|---------|-------------|
+| `AWS_DEFAULT_REGION` | *(unset)* | Highest-precedence region override — wins over `AWS_REGION` and `--region`/`REGION`. |
+| `AWS_REGION` | *(unset)* | Region override — wins over `--region`/`REGION` but loses to `AWS_DEFAULT_REGION`. |
+| `AWS_ACCESS_KEY_ID` | `dummy` | Used for Gopherstack's own internal AWS SDK clients. Incoming request credentials are never validated. |
+| `AWS_SECRET_ACCESS_KEY` | `dummy` | Paired with `AWS_ACCESS_KEY_ID` for Gopherstack's internal SDK clients. Incoming request credentials are never validated. |
+
+#### Per-service engine & provider selection
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--elasticache-engine` | `ELASTICACHE_ENGINE` | `embedded` | ElastiCache engine mode: `embedded` (miniredis), `stub`, or `docker`. |
+| `--opensearch-engine` | `OPENSEARCH_ENGINE` | `stub` | OpenSearch engine mode: `stub` (API-only) or `docker`. |
+| `--elasticsearch-engine` | `ELASTICSEARCH_ENGINE` | `stub` | Elasticsearch engine mode: `stub` (API-only) or `docker`. |
+| `--ec2-provider` | `EC2_PROVIDER` | `inmemory` | EC2 compute provider: `inmemory` (stub) or `docker` (launches real containers as instances). |
+| `--ec2-docker-image` | `EC2_DOCKER_IMAGE` | `amazonlinux:2` | Docker image used by the EC2 docker provider. |
+| `--ec2-docker-network` | `EC2_DOCKER_NETWORK` | *(empty)* | Docker network EC2-docker containers attach to. Empty uses the daemon default bridge. |
+| `--ec2-docker-ssh-host-ip` | `EC2_DOCKER_SSH_HOST_IP` | `127.0.0.1` | Host IP that mapped EC2-docker SSH ports bind to. |
+| `--ec2-docker-ssh-port-min` | `EC2_DOCKER_SSH_PORT_MIN` | `0` | Lower bound of the host port range for EC2-docker SSH mapping (`0` = let Docker pick). |
+| `--ec2-docker-ssh-port-max` | `EC2_DOCKER_SSH_PORT_MAX` | `0` | Upper bound of that host port range. |
+
+#### Lambda & containers
+
+The core Lambda/container-runtime flags — `LAMBDA_DOCKER_HOST`, `LAMBDA_POOL_SIZE`,
+`LAMBDA_IDLE_TIMEOUT`, `CONTAINER_RUNTIME` — are documented in [Lambda
+configuration](#lambda-configuration) below. A few more exist:
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--lambda-max-runtimes` | `LAMBDA_MAX_RUNTIMES` | `50` | Maximum number of simultaneous per-function Lambda runtimes. |
+| `--lambda-lambda-keep-containers` | `LAMBDA_KEEP_CONTAINERS` | `false` | If true, keep Lambda containers alive for debugging. |
+| *(none)* | `CONTAINER_HOST` | *(empty)* | Generic container endpoint override (e.g. a Podman socket URL). Takes precedence over runtime auto-detection. |
+| *(none)* | `GOPHERSTACK_ECS_RUNTIME` | *(unset = no-op)* | Set to `docker` to run ECS tasks as real containers. Unset or any other value is a no-op runner. |
+| *(none)* | `GOPHERSTACK_ENABLE_LOCAL_REGISTRY` | `false` (set to `1` to enable) | Run a real embedded Docker Registry v2 backend for ECR instead of the in-memory stub. |
+
+#### Per-service tuning (janitor intervals & TTLs)
+
+Most services expose a background "janitor" tick interval and TTLs for evicting stale data.
+These have CLI flags too (run `gopherstack serve --help` for exact names) but are most
+commonly set via env var:
+
+| Env var | Default | Description |
+|---|---|---|
+| `ATHENA_JANITOR_INTERVAL` | `1m` | Athena janitor tick interval. |
+| `ATHENA_EXECUTION_TTL` | `24h` | TTL for completed Athena query executions. |
+| `BACKUP_JANITOR_INTERVAL` | `1m` | Backup janitor tick interval. |
+| `BACKUP_JOB_TTL` | `24h` | TTL for completed Backup jobs. |
+| `BATCH_JANITOR_INTERVAL` | `1m` | Batch janitor tick interval. |
+| `BATCH_INACTIVE_JOB_DEF_TTL` | `24h` | TTL for inactive Batch job definitions. |
+| `BATCH_COMPLETED_JOB_TTL` | `24h` | TTL for completed or failed Batch jobs. |
+| `CLOUDWATCHLOGS_JANITOR_INTERVAL` | `1m` | CloudWatch Logs janitor tick interval. |
+| `CLOUDWATCHLOGS_MAX_RETENTION_DAYS` | `14` | Global max log retention for groups without an explicit policy. |
+| `CODEBUILD_JANITOR_INTERVAL` | `1m` | CodeBuild janitor tick interval. |
+| `CODEBUILD_BUILD_TTL` | `24h` | TTL for completed CodeBuild builds. |
+| `DYNAMODB_REGION` | `us-east-1` | Default region for DynamoDB (independent of `--region`). |
+| `DYNAMODB_JANITOR_INTERVAL` | `500ms` | DynamoDB janitor tick interval. |
+| `DYNAMODB_TTL_SWEEP_BATCH_SIZE` | `1000` | Max items checked per TTL sweep lock acquisition. |
+| `DYNAMODB_CREATE_DELAY` | `0s` | Simulated CREATING→ACTIVE delay. `0` disables the lifecycle transition. |
+| `DYNAMODB_ENFORCE_THROUGHPUT` | `false` | Enforce provisioned RCU/WCU limits (token bucket per table). |
+| `EC2_JANITOR_INTERVAL` | `1m` | EC2 janitor tick interval. |
+| `EC2_TERMINATED_TTL` | `1h` | TTL for terminated EC2 instances. |
+| `EC2_CANCELLED_SPOT_TTL` | `6h` | TTL for cancelled EC2 spot requests. |
+| `EMR_JANITOR_INTERVAL` | `1m` | EMR janitor tick interval. |
+| `EMR_TERMINATED_TTL` | `1h` | TTL for terminated EMR clusters. |
+| `FIS_JANITOR_INTERVAL` | `1m` | FIS janitor tick interval. |
+| `FIS_EXPERIMENT_TTL` | `24h` | TTL for completed FIS experiments. |
+| `KINESIS_JANITOR_INTERVAL` | `1m` | Kinesis janitor tick interval. |
+| `KMS_JANITOR_INTERVAL` | `1m` | KMS janitor tick interval. |
+| `REDSHIFTDATA_JANITOR_INTERVAL` | `1m` | Redshift Data janitor tick interval. |
+| `REDSHIFTDATA_STATEMENT_TTL` | `24h` | TTL for completed Redshift Data statements. |
+| `S3_REGION` | `us-east-1` | Default region for S3 (independent of `--region`). |
+| `S3_JANITOR_INTERVAL` | `500ms` | S3 janitor tick interval. |
+| `S3_COMPRESSION_MIN_BYTES` | `1024` | Minimum object size for gzip compression. `0` compresses everything. |
+| `SES_JANITOR_INTERVAL` | `1m` | SES janitor tick interval. |
+| `SES_EMAIL_TTL` | `24h` | TTL for stored sent emails. |
+| `SFN_EXECUTION_RETENTION` | `24h` | How long Step Functions execution history is retained. |
+| `SFN_JANITOR_INTERVAL` | `1m` | Step Functions janitor tick interval. |
+| `SFN_TASK_TOKEN_TTL` | `1h` | Max lifetime of an unreceived Step Functions task token. |
+| `SSM_JANITOR_INTERVAL` | `30s` | SSM janitor tick interval. |
+| `SSM_COMMAND_TTL` | `1h` | TTL for SendCommand results (matches AWS's 1h default). |
+| `STS_JANITOR_INTERVAL` | `30s` | STS janitor tick interval. |
+| `XRAY_JANITOR_INTERVAL` | `1m` | X-Ray janitor tick interval. |
+| `XRAY_TRACE_TTL` | `30m` | TTL for stored X-Ray traces. |
+
 ### DynamoDB
 
 - **In-memory storage** — blazing fast tables and items
@@ -251,7 +375,7 @@ aws lambda list-functions --endpoint-url http://localhost:8000
 | `--lambda-docker-host` | `LAMBDA_DOCKER_HOST` | `172.17.0.1` | Host/IP that Lambda containers use to reach Gopherstack's Runtime API |
 | `--lambda-pool-size` | `LAMBDA_POOL_SIZE` | `3` | Maximum warm containers per function |
 | `--lambda-idle-timeout` | `LAMBDA_IDLE_TIMEOUT` | `10m` | Idle container lifetime before reaping |
-| `--container-runtime` | `CONTAINER_RUNTIME` | `docker` | Container runtime: `docker`, `podman`, or `auto` |
+| `--lambda-container-runtime` | `CONTAINER_RUNTIME` | `docker` | Container runtime: `docker`, `podman`, or `auto` |
 
 #### Using Podman
 
