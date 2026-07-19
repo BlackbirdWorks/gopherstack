@@ -4,8 +4,9 @@
 **Parity grade: B** · SDK `aws-sdk-go-v2/service/iot@v1.76.0` · last audited 2026-07-12 (`5256fdde84d37f54adca98c9cf44f1499fbd9bdf`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 30 (30 ok) |
 | Feature families | 14 (8 ok, 1 partial, 5 deferred) |
 | Known gaps | 2 |
@@ -13,10 +14,12 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - DescribeCertificate/ListCertificates response missing ownedBy/previousOwnedBy/generationId/validity/certificateMode fields present in real CertificateDescription (bd: gopherstack-jy57)
 - Several ops (AssociateTargetsWithJob, CancelAuditTask, CancelAuditMitigationActionsTask, AttachSecurityProfile) mutate/read state without validating the referenced resource (job/task/profile) exists, so unknown IDs succeed instead of returning ResourceNotFoundException (bd: gopherstack-ep0r)
 
 ### Deferred
+
 - thing_type (field-by-field wire audit)
 - certificate_provider
 - job_and_jobtemplate
@@ -25,5 +28,6 @@
 - …and 1 more — see PARITY.md
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

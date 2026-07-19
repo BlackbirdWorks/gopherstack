@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/applicationautoscaling@v1.41.12` · last audited 2026-07-13 (`a7e2082d`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 14 (14 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 3 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - DescribeScalingActivities ignores the IncludeNotScaledActivities request flag; gopherstack's mock backend never generates "not scaled" activities (no real metric evaluation loop exists to decide not-to-scale), so there is nothing to surface even if honored. Documented as deferred, not fixed this pass.
 - GetPredictiveScalingForecast returns a flat synthetic capacity/load curve (constant 10.0 per hourly point) rather than any real forecasting simulation. This was true before this audit and is unchanged; only the wire format (epoch vs RFC3339) was fixed.
 - PolicyType/ScalableDimension/ServiceNamespace enum values are accepted permissively (no allowlist validation) rather than validated against the real AWS enum lists. Consistent with this codebase's general emulator philosophy of not over-validating; not treated as a bug.
 
 ### Deferred
+
 - CloudWatch alarm auto-creation for TargetTrackingScaling/StepScaling policies (real AWS creates backing CloudWatch alarms; gopherstack's scalingPolicySummary.Alarms field exists on the wire type but is never populated) -- would require cross-service CloudWatch integration, out of scope for this pass.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

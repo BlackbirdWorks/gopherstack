@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/resourcegroupstaggingapi@v1.31.8` · last audited 2026-07-13 (`0e933737`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 9 (8 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 2 |
@@ -13,12 +14,15 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetComplianceSummary/ListRequiredTags always report zero noncompliant / zero required tags because no tag-policy engine exists anywhere in gopherstack (bd: gopherstack-i710)
 - Cross-service tag wiring (cli.go wireResourceGroupsTagging) only covers dynamodb/sqs/sns/lambda/kms/secretsmanager; ~90 other services with native TagResource support are not registered, so their tags are invisible to GetResources/GetTagKeys/GetTagValues and their ARNs always fail TagResources/UntagResources. Requires editing cli.go (shared file, out of scope for this service-scoped pass) (bd: gopherstack-3xne)
 
 ### Deferred
+
 - Full TagsPerPage/ResourcesPerPage interaction edge cases beyond the cumulative-tag-count cap added this sweep (e.g. exact AWS behavior when a single oversized resource's tag count alone exceeds TagsPerPage across multiple such resources in a row) -- current fix always keeps at least one resource per page, matching the 'never split a resource across pages' rule, but has not been stress-tested against arbitrarily adversarial tag-count distributions
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

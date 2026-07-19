@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/appsync@v1.55.0` · last audited 2026-07-12 (`4bece540`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 75 (72 ok, 3 gap) |
 | Feature families | 13 (11 ok, 1 partial, 1 gap) |
 | Known gaps | 2 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - StartSchemaMerge: wrong path (/v1/apis/{apiId}/schemaMerge instead of the real POST /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations/{associationId}/merge) AND wrong semantics (real op merges one specific source-API association, keyed by associationId, not just apiId) AND wrong response shape (returns {sourceApiSchemaMetadata:[], status} instead of the real {sourceApiAssociationStatus}). Completely unreachable by a real SDK client today; fixing requires backend.StartSchemaMerge signature change to (mergedAPIID, associationID) plus a real per-association merge-status field. Left untouched (not even path-aliased) since a path-only fix would still be broken on the request/response shape. No bd issue filed yet — recommend filing one.
 - StartDataSourceIntrospection / GetDataSourceIntrospection: wrong path (/v1/dataSource-introspections vs the real /v1/datasources/introspections) AND wrong input contract (handler expects {apiId, dataSourceName}; the real StartDataSourceIntrospectionInput only carries an optional rdsDataApiConfig{resourceArn, databaseName} — it is not tied to any existing AppSync API/DataSource at all). GetDataSourceIntrospection's backend comment already documents it as a no-op stub ("always returns a COMPLETED result"). Completely unreachable by a real SDK client today, and even a path-only fix would still fail on the input mismatch. Left untouched (not even path-aliased) — needs a real backend rework (new rdsDataApiConfig-keyed introspection record, no apiId/dataSourceName coupling) before it's worth making reachable. No bd issue filed yet — recommend filing one.
 
 ### Deferred
+
 - ExecuteGraphQL / VTL+JS resolver execution semantics (vtl.go, jseval.go, graphql.go) — route/method verified correct only; the query-execution engine itself was out of scope for this route/wire-shape sweep.
 - CloudTrail-capture chokepoint / pkgs/service integration — not audited (shared/cross-service, out of scope per this task's edit boundary).
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

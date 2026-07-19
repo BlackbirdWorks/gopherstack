@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/scheduler@v1.17.20` · last audited 2026-07-12 (`174b1f53`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 12 (12 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 3 |
@@ -13,11 +14,13 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreateSchedule/CreateScheduleGroup/UpdateSchedule accept ClientToken on the wire but never use it for idempotency; a lost-response retry with the same ClientToken+params returns ConflictException/ResourceNotFoundException instead of AWS's idempotent-replay behavior (return the original result). Name-based uniqueness still prevents true duplicate resources, so this is a narrow edge case, not a data-corruption risk. No idempotency-token pkg exists in pkgs/ to build on; left as a gap rather than a bespoke one-off implementation.
 - GetSchedule/GetScheduleGroup/ListScheduleGroups responses include a "Tags" field that does not exist in the real AWS API shapes (GetScheduleOutput, GetScheduleGroupOutput, ScheduleGroupSummary, ScheduleSummary all lack Tags -- tags are only ever fetched via ListTagsForResource). Harmless (ignored by real SDK deserializers on unknown fields) but non-canonical; left in place to avoid test churn for a field real clients never read.
 - ScheduleSummary.Target in ListSchedules includes RoleArn; the real TargetSummary type only has Arn. Same harmless-extra-field situation as above.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/scheduler.md)
 - [All services](../../README.md#services)

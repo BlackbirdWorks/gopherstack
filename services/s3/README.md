@@ -4,8 +4,9 @@
 **Parity grade: B** · SDK `aws-sdk-go-v2/service/s3` · last audited 2026-07-11 (`a007ec3e`) · protocol REST-XML
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 3 (3 ok) |
 | Feature families | 6 (6 ok) |
 | Known gaps | 2 |
@@ -13,10 +14,12 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - object_lambda dual-lock + no delete-on-bucket-delete (bd: s3 objectLambda follow-up)
 - abandoned multipart uploads have no per-upload TTL (only Abort/Complete/Purge)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/s3.md)
 - [All services](../../README.md#services)

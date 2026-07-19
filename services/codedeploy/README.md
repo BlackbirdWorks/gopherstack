@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/codedeploy@v1.37.0` · last audited 2026-07-12 (`59ab8f6a`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 47 (36 ok, 7 partial, 4 gap) |
 | Feature families | 7 (6 ok, 1 gap) |
 | Known gaps | 3 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - ApplicationRevision family (RegisterApplicationRevision/GetApplicationRevision/ListApplicationRevisions/BatchGetApplicationRevisions) has no backing store: RegisterApplicationRevision only validates the app exists and discards the revision, so ListApplicationRevisions always returns an empty list and GetApplicationRevision just echoes the input back instead of a persisted record. Needs a revisions table (keyed by appName + revision identity) wired into backendSnapshot. (bd: unfiled)
 - Deployment-instance/target family (GetDeploymentInstance, GetDeploymentTarget, ListDeploymentInstances, ListDeploymentTargets, BatchGetDeploymentInstances, BatchGetDeploymentTargets) has no real instance/target participation model: Get* fabricate a single Succeeded record, List* always return empty, Batch* fabricate Succeeded for every requested ID regardless of whether that ID ever existed. This mirrors the deeper gap that CodeDeploy has no concept of EC2/on-premises instances actually executing a deployment (ec2TagFilters/onPremisesInstanceTagFilters on a DeploymentGroup are stored but never resolved against real instances). Fixing this exceeds this pass's ~2000 LOC budget; needs a dedicated instance-participation model, likely coordinated with how services/ec2 exposes instances. (bd: unfiled)
 - ContinueDeployment does not model blue/green wait-state (DeploymentWaitType READY_WAIT/TERMINATION_WAIT); it only validates the deployment exists and no-ops. Low-value to fix without the CreateDeployment lifecycle itself modeling a genuine in-progress/waiting state, since deployments complete synchronously today. (bd: unfiled)
 
 ### Deferred
+
 - Deployment-instance/target family (see gaps) — deferred pending a real instance-participation model
 - ApplicationRevision storage (see gaps) — deferred pending a revisions table
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

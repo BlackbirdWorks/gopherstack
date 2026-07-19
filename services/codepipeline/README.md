@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/codepipeline@v1.48.0` · last audited 2026-07-12 (`0627d5d3`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 14 (11 ok, 2 partial, 1 deferred) |
 | Feature families | 5 (5 ok) |
 | Known gaps | 4 |
@@ -13,16 +14,19 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - RetryStageExecution, RollbackStage, OverrideStageCondition, PutActionRevision, PutApprovalResult validate the pipeline exists but otherwise perform no real state mutation (RetryStageExecution/RollbackStage fabricate a PipelineExecution response that is never persisted to executionsStore, so a subsequent GetPipelineExecution/ListPipelineExecutions will not reflect the retry/rollback). Deep fix requires modeling per-action failure/approval state, which no other part of this backend tracks either (all actions succeed synchronously on Start). Out of scope for this pass; not in the priority family list.
 - ListDeployActionExecutionTargets always returns an empty list -- no deploy-target model exists (documented in source, consistent with ListRuleExecutions' scoped-down design).
 - PutApprovalResult does not update actionStates/GetPipelineState output -- manual-approval actions are not modeled as a distinct action-state machine.
 - UpdatePipeline rejects a version mismatch with ConflictException; real AWS documentation does not clearly specify this as a hard requirement (the input Version field is described as system-managed). Left as-is since it is a defensible, non-obviously-wrong emulator choice and no test/behavior contradicts it; flagged for a future audit to verify against SDK integration tests.
 
 ### Deferred
+
 - RetryStageExecution / RollbackStage / OverrideStageCondition deep state modeling
 - PutActionRevision / PutApprovalResult deep state modeling
 - ListPipelineExecutions / GetPipelineExecution optional-field completeness (StartTime, LastUpdateTime, SourceRevisions, ExecutionMode, ExecutionType, Trigger, ArtifactRevisions, RollbackMetadata, Variables)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

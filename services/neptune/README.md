@@ -4,14 +4,16 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/neptune@v1.44.1` · last audited 2026-07-12 (`087cb59186751418d9d49b88434f13cf214c7609`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Feature families | 12 (12 ok) |
 | Known gaps | 6 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - DBCluster/DBParameterGroup families have no real per-parameter value store: ModifyDBParameterGroup, ModifyDBClusterParameterGroup, ResetDBParameterGroup, ResetDBClusterParameterGroup validate the group exists but never persist parameter key/value changes, and DescribeDBParameters/DescribeDBClusterParameters always return an empty list regardless of what was "set". Real fix needs a parameters map keyed by group name plus family-specific default parameter catalogs.
 - GlobalCluster ModifyGlobalCluster/FailoverGlobalCluster/SwitchoverGlobalCluster are disguised no-ops -- they validate the global cluster exists and return an unchanged clone, but never mutate GlobalClusterMembers/IsWriter or Status the way a real failover/switchover would.
 - PromoteReadReplicaDBCluster is describe-only; it never mutates cluster state (no read-replica/standalone promotion modeled).
@@ -20,9 +22,11 @@
 - DescribeEvents always returns an empty list; there is no event log backing this backend.
 
 ### Deferred
+
 - DBClusterParameterGroup / DBParameterGroup real parameter-value tracking (see gaps)
 - GlobalCluster failover/switchover state semantics (see gaps)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

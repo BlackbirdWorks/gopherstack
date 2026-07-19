@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/databrew@v1.40.0` · last audited 2026-07-13 (`782e2a93`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 45 (43 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 5 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreateDataset/UpdateDataset don't accept PathOptions (S3 wildcard-path dataset config) -- optional field, not commonly exercised, silently ignored if sent (bd: TODO file if prioritized)
 - CreateProfileJob/UpdateProfileJob don't accept Configuration (ProfileConfiguration) or JobSample -- Job struct already has ProfileConfiguration/JobSample fields wired for JSON output but nothing ever populates them; would need threading through CreateJob/UpdateJob signatures (bd: TODO file if prioritized)
 - CreateRecipeJob/UpdateRecipeJob don't accept DataCatalogOutputs/DatabaseOutputs/EncryptionMode/EncryptionKeyArn/LogSubscription/ValidationConfigurations -- Job struct has matching JSON fields but they're never populated (bd: TODO file if prioritized)
@@ -20,8 +22,10 @@
 - StartProjectSession/SendProjectSessionAction (the interactive project-editor session flow) are near-total no-ops beyond echoing Name -- acceptable since these model an interactive editing session tests don't poll for correctness, but flagged for completeness
 
 ### Deferred
+
 - CSV/Excel/Json FormatOptions sub-fields (e.g. Delimiter, HeaderRow, SheetNames) are passed through as map[string]any rather than typed structs -- wire-compatible (arbitrary nested JSON round-trips byte-for-byte) but not validated
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

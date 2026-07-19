@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/waf@v1.30.24` · last audited 2026-07-13 (`d9aee9cb`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 4 (2 ok, 2 partial) |
 | Feature families | 16 (16 ok) |
 | Known gaps | 2 |
@@ -13,9 +14,11 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - WAFNonEmptyEntityException not modeled (DeleteWebACL/DeleteRule/DeleteByteMatchSet/etc. with real AWS reject deletion of an object that still contains children -- e.g. a WebACL that still has Rules, a Rule that still has Predicates, a ByteMatchSet that still has ByteMatchTuples). Only the separate WAFReferencedItemException (deleting an object still referenced BY another object) was fixed this pass; the "still contains children" check is a distinct, real gap left for a follow-up (bd: file on session close).
 - GetSampledRequests/GetRateBasedRuleManagedKeys return empty data (traffic-inspection stub) since gopherstack does not proxy real HTTP requests through WAF rule evaluation -- architectural limitation, not a quick fix.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

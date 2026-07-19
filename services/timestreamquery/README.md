@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/timestreamquery@v1.36.16` · last audited 2026-07-13 (`a98a164d`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 12 (11 ok, 1 partial) |
 | Feature families | 2 (1 ok, 1 deferred) |
 | Known gaps | 3 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - DescribeAccountSettings/UpdateAccountSettings responses include an extra LastUpdatedTime field with no equivalent in the real API shape (DescribeAccountSettingsOutput/UpdateAccountSettingsOutput have no such field). Harmless to real clients (unknown JSON fields are ignored) but should be removed for wire fidelity. Not fixed this pass to avoid churning 3 existing tests that assert on it without a clear behavioral upside. (bd: file follow-up)
 - UpdateAccountSettings QueryCompute.ProvisionedCapacity validation only requires TargetQueryTCU > 0; real AWS documents TCU must be a multiple of 4 (min 4, max 1000). Not enforced. (bd: file follow-up)
 - QueryCompute.ProvisionedCapacity's NotificationConfiguration (SNS alerts on capacity changes, types.AccountSettingsNotificationConfiguration) is not modeled at all -- accepted nowhere, returned nowhere. Scoped out as a distinct sub-feature nobody currently exercises. (bd: file follow-up)
 
 ### Deferred
+
 - Query/CancelQuery against genuinely long-running or multi-page real query execution semantics -- this emulator's Query is synchronous and instantaneous (matches the mock-data-source design already documented in QueryWithOptions), so QueryExecutionException (a real error type for query engine failures) is never returned. Acceptable per the documented deterministic-mock design; revisit only if a real backing data source is added.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/apprunner@v1.40.2` · last audited 2026-07-13 (`911ff167`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 37 (34 ok, 3 partial) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 4 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Service response is missing the required AutoScalingConfigurationSummary and NetworkConfiguration fields (real API always populates both); CreateServiceInput doesn't accept AutoScalingConfigurationArn so no ASG association is ever tracked, and ListServicesForAutoScalingConfiguration / AutoScalingConfigurationSummary.HasAssociatedService are consequently always empty/false. Feature-sized gap, not a disguised no-op (CreateService/DescribeService work correctly for what they do model). File a bd issue for full ASG-association wiring if CreateService's AutoScalingConfigurationArn input becomes a priority.
 - OperationSummary is missing the real API's UpdatedAt field (StartedAt/EndedAt/Id/Type/Status/TargetArn all present and correct).
 - ListAutoScalingConfigurations summary omits HasAssociatedService (tied to the same CreateService gap above).
 - CreateVpcIngressConnection doesn't validate that ServiceArn refers to an existing service, allowing a dangling reference. Left as-is because CreateVpcIngressConnection's documented error set has no ResourceNotFoundException -- adding validation would need a new InvalidRequestException-mapped check, not a NotFound one, to stay wire-correct; low traffic op, deferred.
 
 ### Deferred
+
 - Deep field-by-field audit of HealthCheckConfiguration / EncryptionConfiguration / NetworkConfiguration / CodeRepository sub-shapes (service doesn't implement these request fields at all yet; they're silently accepted-and-ignored on input rather than rejected -- same category as the ASG-association gap above, not a wire-breaking bug).
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

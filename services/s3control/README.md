@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/s3control@v1.68.2` · last audited 2026-07-12 (`8ec3c0f8`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 34 (34 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 4 |
@@ -13,16 +14,19 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetAccessPointPublicAccessBlock/PutAccessPointPublicAccessBlock/DeleteAccessPointPublicAccessBlock are fabricated ops with no real S3 Control API counterpart (confirmed via aws-sdk-go-v2/service/s3control@v1.68.2 -- no such operation exists; PublicAccessBlock is account-level only). Harmless (never reachable by a real SDK client) but non-AWS surface; consider removing in a future pass (bd: file if desired).
 - The synchronous "DELETE /v20180820/mrap/instances/{Name}" route mapped to DeleteMultiRegionAccessPoint does not exist in the real API (only the async POST variant does). Dead code from a real client's perspective; low-risk cleanup deferred.
 - s3control.ErrAlreadyExists (backend.go) wraps a generic "BucketAlreadyExists" code but is never actually returned by any backend method (verified via repo-wide grep) -- unused/dead sentinel, not a live bug, but worth removing or wiring up correctly if AlreadyExists semantics are ever needed for e.g. CreateAccessPoint on a duplicate name.
 - Only a representative sample of response XML shapes were spot-checked against deserializers.go (GetAccessPoint, CreateJob, CreateMultiRegionAccessPoint, GetBucketPolicy/Tagging/Versioning). The remaining ~60 response types were not individually diffed field-by-field against the SDK deserializers this pass -- see deferred.
 
 ### Deferred
+
 - Full field-by-field wire-shape diff of every response XML struct against deserializers.go (this pass prioritized the route-matcher class of bugs and the service-wide error-envelope bug, both of which had 100% blast radius; response-body field audits were sampled, not exhaustive).
 - AccessGrantsInstance / IdentityCenter association flows (state machine correctness beyond basic CRUD).
 - Chaos fault-injection interaction with the newly-fixed routes (ChaosOperations() just echoes GetSupportedOperations(), unaffected by this pass).
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

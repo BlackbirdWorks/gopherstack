@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/ram@v1.36.1` · last audited 2026-07-13 (`8d42b940`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 37 (33 ok, 2 partial, 2 gap) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 7 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - DisassociateResourceShare hard-deletes matching associations from the in-memory slice instead of soft-deleting them (Status=DISASSOCIATED, kept in place) the way DeleteResourceShare does. This means GetResourceShareAssociations(associationStatus=DISASSOCIATED) can never show an entry produced via DisassociateResourceShare (only via DeleteResourceShare). Existing test TestRAM_Backend_DisassociateResourceShare_RemovesFromSlice pins the current (hard-delete) behavior intentionally, and AssociateResourceShare's re-association dedup logic (the `existing` set built from all associations regardless of status) would need a matching status-aware fix to allow re-associating a previously-disassociated entity without producing duplicate rows. Left unfixed this sweep due to blast radius; needs a bd issue to redesign both together.
 - GetResourceShares does not support the permissionArn/permissionVersion request filters that real AWS exposes (filter resource shares by an associated managed permission). Not implemented; would need to reuse the sharePermissions map.
 - DisassociateResourceSharePermission does not enforce AWS's rule that you cannot disassociate the last managed permission associated with a resource type still present in the share's resources. Requires cross-referencing sharePermissions against the resource types of active RESOURCE associations for the share.
@@ -22,8 +24,10 @@
 - permissionSummaryObject/permissionDetailObject emit a resourceRegionScope field that does not exist on the real ResourceSharePermissionSummary/ResourceSharePermissionDetail SDK types (harmless: the restjson1 deserializer ignores unrecognized fields, confirmed by reading deserializers.go). Not removed since it's a no-op field, not a bug.
 
 ### Deferred
+
 - PromoteResourceShareCreatedFromPolicy's featureSet state machine (CREATED_FROM_POLICY -> PROMOTING_TO_STANDARD -> STANDARD) is not modeled; every share created here is already STANDARD so this hasn't caused observed drift, but if CREATED_FROM_POLICY share creation is ever added, this needs revisiting.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

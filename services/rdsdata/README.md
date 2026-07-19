@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/rdsdata@v1.32.19` · last audited 2026-07-13 (`39bbea1`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 6 (6 ok) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 4 |
@@ -13,15 +14,18 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - "SqlParameter.typeHint (DATE/DECIMAL/JSON/TIME/TIMESTAMP/UUID) is now accepted on the wire but does not change bind behavior -- the mock SQLite engine has no distinct DATE/TIMESTAMP/UUID column types to convert strings into, so a DATE-hinted value binds identically to an unhinted string. Only matters if a test asserts on hint-driven type coercion."
 - "Field.arrayValue / ArrayValue union member not modeled. Real AWS itself documents 'Array parameters are not supported' for ExecuteStatementInput.Parameters, and the mock SQL engine (SQLite) never produces array-typed result columns, so this member is unreachable from either direction -- not a functional gap, just an absent struct field."
 - "ColumnMetadata.SchemaName/TableName/IsAutoIncrement/ArrayBaseColumnType are always zero-valued. database/sql's sql.ColumnType (the only introspection the pure-Go modernc.org/sqlite driver exposes) has no origin-table/schema/autoincrement accessor, so there is no real signal to populate them from without a hand-rolled SQL catalog query per column."
 - "generatedFields is always an empty array for both ExecuteStatement and BatchExecuteStatement, even for INSERT into an autoincrement column. This was flagged for audit but the audit brief explicitly scopes 'deterministic mock records acceptable' -- implementing it would need a new backend signature (5th return value) threaded through ~30 test call sites for a feature real Aurora PostgreSQL doesn't support at all. Left as a deliberate simplification, not fixed this pass."
 
 ### Deferred
+
 - "ContinueAfterTimeout / StatementTimeoutException: mock has no real statement execution timeouts to simulate."
 - "ResultSetOptions (decimalReturnType/longReturnType): accepted nowhere on the wire; would only matter if a client round-trips DECIMAL columns, which the mock never emits distinctly from NUMERIC."
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

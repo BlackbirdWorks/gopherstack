@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/bedrockagent@v1.54.0` · last audited 2026-07-12 (`05e127fa13a618837560e0b6a56098937fc1cae4`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 74 (73 ok, 1 partial) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 2 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - "CreateAgentActionGroup ignores the {agentVersion} path parameter and always stores the action group under DRAFT, even if a client (unusually) targets a different version in the URL. Real AWS action groups can only be created against DRAFT anyway, so this is unlikely to be hit by a real client, but a strict client sending a non-DRAFT version would get silently redirected instead of a validation error. Not fixed this sweep (low risk, would need a new exact-match AWS error string to validate against). (bd: TODO — file gopherstack-bedrockagent-actiongroup-version)"
 - "ValidateFlowDefinition always returns zero validation errors regardless of the definition passed — acceptable for a permissive emulator (the op still reads real state and returns the AWS-accurate empty-array shape); not a disguised no-op flag, just an easy target if flow-definition validation logic is ever wanted."
 
 ### Deferred
+
 - "KBDocument/DataSource nested configuration blobs (dataSourceConfiguration, vectorIngestionConfiguration, knowledgeBaseConfiguration, storageConfiguration, actionGroupExecutor, apiSchema, functionSchema, guardrailConfiguration, memoryConfiguration, promptOverrideConfiguration) are passed through as opaque map[string]any/JSON blobs rather than typed + validated against the SDK's nested shape unions. This is consistent with how this service already treats them; deep-shape validation of these blobs was out of scope this sweep."
 - "IngestionJob does not model the `statistics` field AWS returns (documents scanned/indexed/failed counts) — every ingestion job here always indexes 0 documents worth of statistics; not audited for wire-accuracy this sweep."
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

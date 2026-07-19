@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/swf@v1.33.14` · last audited 2026-07-13 (`d9aee9cb`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 39 (37 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 4 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - ContinueAsNewWorkflowExecution decision closes the execution as CONTINUED_AS_NEW but never starts the new run (no fresh WorkflowExecution/RunID, no re-seeded decision task) -- deciders that rely on continue-as-new see the workflow simply end. Bigger feature, out of scope for a bug-fix pass. (bd: TODO -- file follow-up)
 - StartChildWorkflowExecution/SignalExternalWorkflowExecution/RequestCancelExternalWorkflowExecution decisions record an *Initiated history event but never actually start/signal/cancel the target execution, and their wire-level attrs (workflowId, control, input, etc.) still are not parsed into the Decision struct -- only Started/TimerStarted/CancelTimer/RecordMarker/RequestCancelActivityTask attrs were wired this pass. Cross-execution orchestration is a bigger feature. (bd: TODO -- file follow-up)
 - activityQueues/decisionQueues (FIFO pending-task lists) are intentionally NOT part of backendSnapshot (pre-existing, documented design choice in persistence.go/backend.go -- order-sensitive plain maps). A restart loses in-flight pending tasks that haven't been polled yet, while their corresponding history events and active-task records DO survive. Not fixed this pass (would require reworking backendSnapshot's shape); flagged for awareness. (bd: TODO -- file follow-up)
 - openTimers/openChildWorkflowExecutions/openLambdaFunctions in DescribeWorkflowExecution's openCounts are hardcoded to 0 -- consistent with the timer/child-workflow gaps above, not independently fixed.
 
 ### Deferred
+
 - DescribeWorkflowExecution's openCounts.openLambdaFunctions (always 0 -- SWF Lambda task support is out of scope for a JSON-wire-shape/state-mutation audit)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

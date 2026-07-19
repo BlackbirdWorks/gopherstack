@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/workspaces@v1.68.3` · last audited 2026-07-12 (`1b07910674fd`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 27 (25 ok, 2 deferred) |
 | Feature families | 16 (14 ok, 2 deferred) |
 | Known gaps | 2 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreateStandbyWorkspaces never reports FailedStandbyRequests (e.g. for a missing DirectoryId) — always returns an empty failure list even when a standby spec is malformed. Lower priority than the CreateWorkspaces fix since CreateStandbyWorkspaces is a Multi-Region DR feature with much lower call volume. (bd: file follow-up)
 - AssociateIpGroups/DisassociateIpGroups state (directoryIpGroups map) is not persisted across Snapshot/Restore — pre-existing, documented design choice (see backend.go InMemoryBackend field comment), not newly introduced.
 
 ### Deferred
+
 - DescribeImageAssociations / DescribeBundleAssociations
 - ListAvailableManagementCidrRanges
 - DescribeAccountModifications (returns empty list; no modification-history tracking)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

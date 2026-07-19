@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/ses@v1.34.20` · last audited 2026-07-05 (`a40e7cc1`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 71 (70 ok, 1 partial) |
 | Feature families | 8 (8 ok) |
 | Known gaps | 4 |
@@ -13,15 +14,18 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetSendStatistics Bounces/Complaints/Rejects always report 0 — no bounce/complaint event simulation exists in this backend (bd: gopherstack-uve)
 - LimitExceededException never returned — no per-resource count caps modeled (max receipt rules/templates/filters etc.) (bd: gopherstack-ssk)
 - MailFromDomainNotVerifiedException never triggers — SetIdentityMailFromDomain instantly marks Success, consistent with this service's instant-verify convention everywhere else (VerifyEmailIdentity/VerifyDomainIdentity/VerifyDomainDkim all skip the real Pending window too); deliberately not changed to avoid an inconsistent one-off Pending state (bd: gopherstack-nbp)
 - MaxSendRate (per-second) advertised via GetSendQuota but not enforced, only the 24h quota is now enforced (bd: gopherstack-a6y)
 
 ### Deferred
+
 - services/sesv2/ — separate REST-JSON service, out of scope this pass per task constraints (bd: gopherstack-029)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/ses.md)
 - [All services](../../README.md#services)

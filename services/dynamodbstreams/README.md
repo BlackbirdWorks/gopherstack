@@ -4,8 +4,9 @@
 **Parity grade: B** · SDK `aws-sdk-go-v2/service/dynamodbstreams@v1.35.0` · last audited 2026-07-11 (`95ab0584`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 4 (4 ok) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 2 |
@@ -13,12 +14,15 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - DescribeStreamInput.ShardFilter (CHILD_SHARDS filtering) is accepted on the wire but ignored by the backend (services/dynamodb/streams_ops.go DescribeStream never reads input.ShardFilter) -- cross-service, backend lives in services/dynamodb, not editable from this service (bd: file follow-up)
 - services/dynamodb/streams_wire.go duplicates the wire-marshaling helpers in this package's handler.go (toWireDescribeStreamOutput, wireStreamDescription, wireGetRecordsOutput, wireStreamRecord, fromStreamItem, fromStreamAttributeValue) nearly verbatim, used by services/dynamodb/handler.go's own internal stream-passthrough endpoints -- cross-service duplication/reuse opportunity, not editable from this service (bd: file follow-up)
 
 ### Deferred
+
 - none (all 4 routed ops fully audited this pass)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

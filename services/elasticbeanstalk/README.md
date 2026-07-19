@@ -4,14 +4,16 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/elasticbeanstalk@v1.34.0` · last audited 2026-07-12 (`de5340f8`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 48 (46 ok, 2 partial) |
 | Known gaps | 5 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CloneEnvironment is routed/implemented in this service but is NOT a real AWS Elastic Beanstalk API operation (absent from aws-sdk-go-v2/service/elasticbeanstalk@v1.34.0 entirely: no api_op_CloneEnvironment.go, no deserializer). Zero wire-parity risk (unreachable by real SDK clients, since no client can construct this request) but is dead/speculative surface; consider removing or documenting as a gopherstack-only convenience API. Not filed as bd issue this pass -- flagging for triage. (ValidateConfigurationSettings, by contrast, IS a real op -- see ops table.)
 - DescribeConfigurationOptions returns a fixed 3-option catalog regardless of SolutionStackName/PlatformArn/EnvironmentName; real AWS returns hundreds of platform-specific options with real default values. Large scope (needs a per-platform option catalog) -- deferred.
 - DescribeConfigurationSettings omits optional DateCreated/DateUpdated/DeploymentStatus/PlatformArn fields on ConfigurationSettingsDescription. Low traffic; deferred.
@@ -19,10 +21,12 @@
 - CreateApplication real AWS auto-creates a 'Default' ConfigurationTemplate and returns an (empty) Versions list on the ApplicationDescription (confirmed via the official CreateApplication API doc example response); gopherstack does neither. Deferred: touches quota/cascade-delete logic and is lower-traffic than the fixes made this pass.
 
 ### Deferred
+
 - DescribeConfigurationOptions full per-platform option catalog
 - CreateApplication idempotency-on-duplicate-name confirmation
 - CreateApplication auto-provisioned "Default" ConfigurationTemplate + Versions field
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

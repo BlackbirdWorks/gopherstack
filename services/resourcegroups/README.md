@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/resourcegroups@v1.33.22` · last audited 2026-07-13 (`343e1204`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 23 (23 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 4 |
@@ -13,11 +14,13 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - ListGroups Filters only supports 'resource-type', 'configuration-type', 'name-prefix'; real AWS GroupFilterName enum is resource-type|configuration-type|owner|display-name|criticality (no name-prefix). Filtering by owner/display-name/criticality silently matches everything instead of filtering; name-prefix is a gopherstack-only extension. (bd: gopherstack-rg-filters)
 - CreateGroup/UpdateGroup do not accept an Owner input field (real API supports it on both); Owner is therefore always empty in this emulator. CreateGroup also does not accept DisplayName/Criticality at creation time (only settable via a follow-up UpdateGroup). (bd: gopherstack-rg-owner-input)
 - SearchResources/ListGroupResources never populate QueryErrors (CLOUDFORMATION_STACK_* failure reporting) since CloudFormation-stack-based queries are not modeled. ListGroupResourcesOutput also omits the deprecated ResourceIdentifiers field (Resources is populated; most SDKs read Resources).
 - ListGroupResourcesItem/GroupConfigurationItem 'Status' (AWS::EC2::HostManagement pending-membership state) is never populated; only host-management-specific clients would notice.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/mediapackage@v1.39.25` · last audited 2026-07-13 (`78b157192320a51f6c8b8b4ca2b2261d1062587a`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 19 (19 ok) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 3 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - "PackagingConfiguration (CreatePackagingConfiguration/Describe/Delete/List) and Channel LifecyclePolicy (Put/GetChannelLifecyclePolicy) ops implemented in this service do not exist in the real aws-sdk-go-v2/service/mediapackage (Live) API at all -- there are no api_op_*.go files for them in the v1.39.25 SDK module. PackagingConfiguration/PackagingGroup are actually MediaPackage VOD resources, a *different* AWS service (its own SigV4 name and REST surface, historically aws-sdk-go-v2/service/mediapackagevod, not a gopherstack go.mod dependency). Channel lifecycle policies do not exist in either MediaPackage API generation known to this audit. These ops are unreachable by any real aws-sdk-go-v2 mediapackage client -- TestSDKCompleteness does not catch this because it only checks for SDK ops *missing* from GetSupportedOperations, not extras. Recommend: verify against AWS docs whether these are legitimate (e.g. a newer API surface not yet reflected in the SDK) and either (a) move them into a proper mediapackagevod-style service with its own SigV4 gating, or (b) remove them if fictional. Left untouched this pass: out of the audited op families, non-trivial to redo safely within budget, and not going to be exercised by a real client either way. (bd: TODO -- file issue)
 - CreateHarvestJob always sets Status=SUCCEEDED synchronously; real MediaPackage harvest jobs start IN_PROGRESS and transition asynchronously. Low priority: most test suites just assert job existence/S3Destination, not the IN_PROGRESS state transition. (bd: TODO -- file issue if async harvest-job semantics become relevant)
 - CreateHarvestJob does not validate S3Destination/StartTime/EndTime are non-empty (only Id and OriginEndpointId are required-checked), unlike Create{Channel,OriginEndpoint}'s Id validation. Real AWS would 422 on missing required members. Low priority, not exercised by the audited test suites. (bd: TODO -- file issue)
 
 ### Deferred
+
 - Packaging protocol nested config (HlsPackage/DashPackage/CmafPackage/MssPackage/Authorization) is stored and echoed back as an opaque map[string]any -- NOT semantically validated or interpreted (no SPEKE/encryption-contract logic, no ad-marker logic). This closes the 'discards config' bug (values now round-trip through Create/Update/Describe/List) but a client asserting on server-side validation of e.g. required Authorization sub-fields would not get real AWS's validation errors. Next pass: consider modeling the concrete sub-shapes if a consumer needs semantic validation.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/cloudwatchlogs@v1.64.0` · last audited 2026-07-11 (`3884816a`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 24 (24 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 3 |
@@ -13,16 +14,19 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - MetricTransformation.Dimensions is accepted, validated on the wire, and persisted on the MetricFilter, but is never forwarded to the emitted CloudWatch metric: the MetricEmitter interface (backend.go) only carries namespace/name/value/unit, and its real implementation is wired in cli.go's wireCWLogsMetricEmitter, which is out of scope for this pass (SHARED FILE). Extending the interface + cli.go wiring to carry dimensions is a real fix but requires touching cli.go. (bd: gopherstack-b14)
 - GetLogGroupFields always returns the 4 static built-in fields (@message/@timestamp/@ingestionTime/@logStream) and never samples real ingested log content, so it cannot discover custom JSON/space-pattern fields the way real AWS does (percent-of-sampled-events containing each discovered key). Not fixed this pass (a genuine sampling+percentage feature, lower priority than the PutLogEvents/metric-filter fixes actually made). (bd: gopherstack-b14)
 - PutLogEvents does not enforce two documented batch-shape constraints: (1) events in a single request must be in strict chronological order or the whole call should fail; (2) the valid-event timestamp span within one batch cannot exceed 24 hours. Both are documented in the current SDK's PutLogEvents doc comment. Not implemented this pass: doing so safely requires auditing whether existing out-of-order-friendly tests/call sites (this codebase's own appendEvents doc explicitly says "log events may arrive with out-of-order timestamps" ) depend on the current relaxed behavior; higher risk/effort than the fixes made, so deferred rather than rushed. (bd: gopherstack-b14)
 
 ### Deferred
+
 - Insights query language/stages/parser correctness (insights_expr.go, insights_parse.go, insights_parser.go, insights_stages.go, insights_stats.go) -- not re-verified op-by-op against CloudWatch Logs Insights query syntax this pass.
 - Export/Import task lifecycle edge cases, Deliveries, Log Anomaly Detectors, Scheduled Queries, Account Policies, Data Protection/Resource/Index Policies, Transformers, Integrations (handler_completeness.go / backend_completeness.go, ~2100 LOC) -- spot-checked only, not exhaustively audited op-by-op.
 - StartLiveTail streaming transport (intentionally out of scope; validation-only by design).
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/cloudwatchlogs.md)
 - [All services](../../README.md#services)

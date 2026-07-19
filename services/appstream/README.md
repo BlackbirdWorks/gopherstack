@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/appstream@v1.60.3` · last audited 2026-07-12 (`a7d6e20e`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 32 (32 ok) |
 | Feature families | 13 (13 ok) |
 | Known gaps | none |
@@ -13,9 +14,11 @@
 | Resource leaks | clean |
 
 ### Deferred
+
 - CreatedTime/StartTime wire encoding uses .Unix() (whole-second epoch int) instead of pkgs/awstime.Epoch() (fractional-second epoch float). Both are valid JSON numbers the real awsjson1.1 deserializer accepts, and the codebase is internally consistent (13 call sites), so this was left as a style note rather than "fixed" -- revisit only if sub-second CreatedTime ordering becomes a test requirement.
 - DescribeAppLicenseUsage is a deliberate always-empty stub (no license-usage backend state exists to report on); acceptable since it returns a real (empty) shape rather than a fabricated one, but flagged for anyone adding real license-usage tracking.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

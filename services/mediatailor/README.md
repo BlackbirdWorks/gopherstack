@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/mediatailor@v1.59.2` · last audited 2026-07-13 (`024e43bf`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 48 (43 ok, 4 partial, 1 gap) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 4 |
@@ -13,16 +14,19 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - UpdateProgram doesn't implement AdBreaks/ScheduleConfiguration mutation (real op requires ScheduleConfiguration and updates ad breaks; gopherstack's Program type has no AdBreaks/ClipRange/AudienceMedia fields at all). Modeling this properly requires adding AdBreak/ScheduleConfiguration/ClipRange/AudienceMedia types to interfaces.go and wiring them through Create/UpdateProgram - a materially larger feature than this pass's budget covered. (needs bd issue)
 - CreateProgram/DescribeProgram/UpdateProgram/ProgramScheduleEntry omit optional response fields the real API returns: AdBreaks, AudienceMedia, ClipRange, ScheduledStartTime, DurationMillis, CreationTime. Missing optional fields don't break real SDK clients (zero-value on the Go struct), so this is lower severity than the wire-shape bugs fixed this pass, but is a completeness gap. (needs bd issue)
 - SourceLocation/VodSource/LiveSource/PrefetchSchedule Go structs in interfaces.go declare CreationTime/LastModified fields that the backend never populates and the handler never serializes into responses (dead fields). Real DescribeSourceLocation/DescribeVodSource/etc. responses include these. Same completeness-gap severity as the Program fields above. (needs bd issue)
 - ConfigureLogsForChannel/ConfigureLogsForPlaybackConfiguration validate + echo their inputs but don't persist log-delivery config anywhere queryable (no real op reads it back, so this is low-impact, but flagged for completeness).
 
 ### Deferred
+
 - CreateChannel/UpdateChannel Audiences and TimeShiftConfiguration fields (real API supports them; not modeled in gopherstack at all)
 - PutPlaybackConfiguration's many optional sub-configs (AdConditioningConfiguration, AvailSuppression, Bumper, CdnConfiguration, DashConfiguration, ManifestProcessingRules, etc.) - only Name/AdDecisionServerUrl/VideoContentSourceUrl/Tags are modeled
 - ListPrefetchSchedules ScheduleType/StreamId request filters (routing + pagination fixed this pass; filtering by type/stream not implemented)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/fis@v1.37.18` · last audited 2026-07-12 (`f8a54fdb`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 26 (14 ok, 12 other) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 4 |
@@ -13,15 +14,18 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Experiment reports (ExperimentReportConfiguration / ExperimentReport / GetExperiment "experimentReport" + "experimentReportConfiguration" fields) are entirely unimplemented — not in models.go, not in wire DTOs. Real FIS added this feature after the original build-out.
 - Running-experiment ExperimentTarget DTO omits Filters/ResourceTags/SelectionMode (present on the real wire shape as informational metadata alongside the resolved ResourceArns); ExperimentAction DTO omits Description. Both are additive, non-breaking omissions (zero-value on absence), not incorrect on the fields that are present.
 - "startAfter" dependency waiting in executeActionsOrdered is a no-op (topoSortActions already produces a valid topological order, so the loop's `if !completed[dep] { continue }` never actually blocks) — functionally correct today because execution is sequential and single-threaded, but if actions ever run concurrently this would need a real wait/signal, not a comment-only guard.
 - Experiment/action provider quota-vs-lock race: StartExperiment reads experimentCount/leverEngaged under RLock, releases it, then re-locks to write — two concurrent StartExperiment calls could both pass the maxExperiments=1000 check before either writes. Low real-world impact (large headroom, not attacker-adjacent in an emulator), not fixed this sweep.
 
 ### Deferred
+
 - Experiment report configuration / report generation feature surface (see gaps)
 - Built-in action catalog completeness vs the full real AWS FIS action list (gopherstack ships a curated subset across EC2/RDS/ECS/EKS/DynamoDB/Lambda/SSM/network/CloudWatch/Kinesis + the aws:fis:inject-api-*/wait built-ins; real AWS has more actions per service and evolves this list independently of the API shape)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

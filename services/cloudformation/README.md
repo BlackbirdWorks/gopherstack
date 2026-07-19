@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/cloudformation@v1.71.7` · last audited 2026-07-11 (`d6fae6df`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 51 (49 ok, 2 partial) |
 | Feature families | 10 (10 ok) |
 | Known gaps | 4 |
@@ -13,12 +14,14 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Top-level Transform is never parsed (Template struct has no Transform field), so CAPABILITY_AUTO_EXPAND is never required for macro-using templates even though Fn::Transform invocation itself works (bd: gopherstack-urm)
 - changeset_diff.go requiresRecreation() models only a curated subset of AWS resource types' replacement-forcing properties (documented in-code as intentional partial coverage, not a regression) — expanding this table is future work, not tracked separately from gopherstack-e5h
 - DescribeStackSet returns only StackSetId/StackSetName/Status/Description; missing Parameters/Capabilities/Tags/StackSetARN/AdministrationRoleARN/ExecutionRoleName/PermissionModel/OrganizationalUnitIds/AutoDeployment/ManagedExecution/Regions fields that real AWS's DescribeStackSetResult.StackSet returns (bd: gopherstack-e5h)
 - DescribeStackSetOperation always returns OperationNotFoundException even when StackSetName itself doesn't exist (SDK models a distinct StackSetNotFoundException case); low-value edge case, not fixed (bd: gopherstack-e5h)
 
 ### Deferred
+
 - StackSets business-logic depth: SERVICE_MANAGED/OU-based auto-deployment semantics, DetectStackSetDrift's actual per-instance drift diff accuracy, deployment-target math beyond the synthetic per-account-as-OU placeholder — not audited this pass, only wire/error shape was (bd: gopherstack-e5h)
 - Stack Refactor business-logic depth (ListStackRefactorActions' MOVE-only action modeling, real resource-mapping semantics) — not audited this pass, only wire/error shape was (bd: gopherstack-e5h)
 - Generated Templates family — not audited this pass (bd: gopherstack-e5h)
@@ -27,6 +30,7 @@
 - …and 1 more — see PARITY.md
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/cloudformation.md)
 - [All services](../../README.md#services)

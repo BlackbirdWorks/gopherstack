@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/managedblockchain@v1.31.19` · last audited 2026-07-13 (`efd78e54`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 27 (27 ok) |
 | Feature families | 7 (7 ok) |
 | Known gaps | 4 |
@@ -13,11 +14,13 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - List* ops (ListNetworks/ListMembers/ListNodes/ListProposals/ListAccessors/ListInvitations/ListProposalVotes) accept maxResults/nextToken but always return every matching item in one page (NextToken always omitted). Real AWS paginates. Low risk for an emulator (SDK clients that loop on NextToken still terminate correctly since it's never set), but a client asserting a specific page size would see the whole result set. Not filed as a bd issue this pass -- flagging for the next audit to decide whether pkgs/page is worth wiring in.
 - Node.FrameworkAttributes (e.g. Fabric's PeerEndpoint/PeerEventEndpoint, Ethereum's Http/WebSocket endpoints) is not modeled -- GetNode/ListNodes responses omit it entirely. Same for Member.FrameworkAttributes' KmsKeyArn-style fields. A client that reads a node's peer endpoint to actually connect to Fabric will get nothing back. Deferred: modeling this accurately requires deciding what a 'connectable' emulated peer endpoint even means for gopherstack, which is a bigger design question than a wire-shape bug fix.
 - CreateMember ignores req.InvitationId -- every CreateMember call succeeds as if the caller already owns the network (IsOwned: true always), whereas real AWS requires a live invitation for cross-account members. gopherstack has no multi-account model, so this is a reasonable simplification, not flagged as a bug to fix.
 - No artificial service quotas (max members per network, max nodes per member, max networks per account) are enforced, so ResourceLimitExceededException is never returned. Consistent with this emulator's general no-limits style elsewhere; not treated as a bug.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

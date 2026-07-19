@@ -4,20 +4,24 @@
 **Parity grade: B** · SDK `aws-sdk-go-v2/service/textract@v1.41.0` · last audited 2026-07-12 (`7d7a3363`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 25 (25 ok) |
 | Known gaps | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Extraction (used inside LendingResult.Extractions) models LendingDocument and ExpenseDocument variants but not the real SDK's third variant, IdentityDocument. Currently harmless: syntheticLendingResults() never populates it, so no wire divergence is observable today. File a bd issue if lending mock data is ever extended to represent an identity-document extraction inside a loan package.
 - CreateAdapterInput doc comment in the SDK source says only QUERIES is a supported adapter FeatureType, but gopherstack (pre-existing, not touched this pass) accepts FORMS and QUERIES. Low confidence this is a real divergence (SDK doc comments lag); flagging for a future auditor with time to verify against current AWS docs rather than changing behavior speculatively.
 
 ### Deferred
+
 - Full byte-for-byte Block/Geometry/Point field audit beyond the ones cross-checked in wire-shapes above (Block has ~15 optional fields across text-detection/analysis/layout modes) — spot-checked, not exhaustively diffed field-by-field against every BlockType variant's real usage.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

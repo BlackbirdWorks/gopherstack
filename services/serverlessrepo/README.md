@@ -4,8 +4,9 @@
 **Parity grade: B** · SDK `aws-sdk-go-v2/service/serverlessapplicationrepository@v1.30.11` · last audited 2026-07-13 (`07f98c0e`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 14 (14 ok) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 2 |
@@ -13,9 +14,11 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreateCloudFormationChangeSet's TemplateId request field is accepted but not validated against an existing CreateCloudFormationTemplate record (bd: none filed -- low value, no client-visible breakage since gopherstack always succeeds rather than wrongly rejecting)
 - ListApplicationVersions summaries include a non-wire "resourcesSupported" key not present in the real VersionSummary shape; non-breaking (extra JSON fields are ignored by aws-sdk-go-v2's generated deserializer) but inaccurate if something inspects raw JSON. Left unfixed this pass since 3 existing tests assert its presence and no functional benefit accrues from removing it (bd: none filed).
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

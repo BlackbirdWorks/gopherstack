@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/vpclattice@v1.22.2` · last audited 2026-07-12 (`6642a73c`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 52 (52 ok) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 5 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Resource Gateway / ResourceConfiguration / ServiceNetworkResourceAssociation / ServiceNetworkVpcEndpointAssociation / DomainVerification op families are entirely unimplemented (newer VPC Lattice feature set). Already explicitly acknowledged in sdk_completeness_test.go's notImplemented list — not a silent gap, but still real missing surface. Out of scope for this pass (would blow the ~2000 LOC budget); flag for a dedicated future audit pass if these become load-bearing.
 - Service/SNSA/SNVA dnsEntry object omits hostedZoneId (real API returns {domainName, hostedZoneId}); only domainName is populated. Low priority since gopherstack has no Route53 hosted-zone concept to source a realistic value from.
 - GetServiceOutput/GetServiceNetworkVpcAssociationOutput failureCode/failureMessage fields (populated when a resource is stuck in a *_FAILED state) are never set because this backend's Create paths are synchronous and never fail after validation — acceptable since there's no in-progress/failed state machine to represent, but worth knowing if async failure simulation is ever added.
@@ -20,8 +22,10 @@
 - DeleteService/DeleteServiceNetwork/DeleteTargetGroup do not reject deletion when dependent resources exist (e.g. deleting a service with active SNSAs, or a service network with active associations). Real AWS returns a Conflict-style error in some of these cases. Not fixed this pass (behavior-changing, would need new error paths + tests); flag for follow-up bd issue if this proves to matter for negative-path test coverage.
 
 ### Deferred
+
 - Resource Gateway / ResourceConfiguration family (see gaps)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,13 +4,15 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/medialive@v1.97.2` · last audited 2026-07-12 (`066717f8a6524d92673f3364ce570fdcbaefec1a`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - InputDevice request-body parsing (ClaimDevice/UpdateInputDevice/TransferInputDevice) still reads PascalCase keys ("Id"/"TargetCustomerId"/"TargetRegion"/"TransferMessage") that don't match the real lowerCamel request shape -- verified wrong against the SDK serializer, deliberately left alone this pass per the task's InputDevice scope boundary (output-struct casing only). (bd: needs filing)
 - Cluster.ChannelIds / Node.ChannelPlacementGroups are real wire fields gopherstack now emits (matching the real shape) but always as an empty list -- gopherstack doesn't track cluster<->channel or node<->channel-placement-group association. Correctness gap, not a casing gap. (bd: needs filing)
 - CloudWatchAlarmTemplateGroup/EventBridgeRuleTemplateGroup List responses are missing "templateCount" (real Summary-shape field); CloudWatchAlarmTemplate/EventBridgeRuleTemplate Get/Create/Update responses already correctly omit it (verified not present on those shapes). Would need a new backend method to count templates per group. (bd: needs filing)
@@ -19,5 +21,6 @@
 - Deep state/error-code audit of Cluster, Node, SignalMap, Reservation/Offering purchase flow, Batch semantics beyond the wire-casing scope of this pass and sweep 4's fixes above was not re-performed (route matching for all of them was verified correct; op-by-op state-machine correctness beyond what this pass touched was not re-verified).
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

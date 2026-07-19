@@ -4,14 +4,16 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/eks@v1.89.0` · last audited 2026-07-12 (`7c297a53`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 65 (64 ok, 1 gap) |
 | Known gaps | 5 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CancelUpdate op entirely unimplemented (bd: gopherstack-nab, already tracked pre-existing)
 - No List* op implements maxResults/nextToken pagination (ListClusters, ListNodegroups, ListAddons, ListFargateProfiles, ListPodIdentityAssociations, ListIdentityProviderConfigs, ListEksAnywhereSubscriptions, ListUpdates, ListAccessEntries all return the full set in one page) — needs a follow-up bd issue
 - CreateEksAnywhereSubscription does not validate the required 'term' input field
@@ -19,9 +21,11 @@
 - Insight/DescribeInsight content is fabricated/synthetic, not derived from real cluster analysis (pre-existing, inherent emulator limitation)
 
 ### Deferred
+
 - Full field-by-field wire audit of AccessEntry/FargateProfile/PodIdentityAssociation/IdentityProviderConfig response bodies beyond envelope key + top-level shape (route correctness was verified for all of these; deep field audit not done this pass)
 - AWS error-code granularity beyond the three sentinel mappings (ErrNotFound->ResourceNotFoundException, ErrAlreadyExists->ResourceInUseException, ErrValidation->InvalidParameterValueException) — some real AWS EKS error paths return more specific codes (e.g. InvalidRequestException, ClientException) not modeled here
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

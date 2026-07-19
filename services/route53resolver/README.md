@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/route53resolver@v1.42.3` · last audited 2026-07-12 (`22d69640`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 68 (68 ok) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 2 |
@@ -13,12 +14,15 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - ListFirewallDomainLists returns the full FirewallDomainList shape instead of the leaner FirewallDomainListMetadata (extra fields present in real response are Status/DomainCount/CreationTime/ModificationTime/StatusMessage, none of which real AWS includes in this specific list response) -- harmless to SDK clients (unknown-field-tolerant decoders), left as-is; would need a second output struct to be byte-exact
 - ResolverConfig/FirewallConfig output structs include an `Arn` field that the real API type does not have for ResolverConfig's case it's harmless-extra (types.ResolverConfig actually has no Arn) -- not removed, zero functional impact
 
 ### Deferred
+
 - none -- full op surface audited this pass
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

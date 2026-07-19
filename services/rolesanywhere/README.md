@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/rolesanywhere@v1.23.0` · last audited 2026-07-13 (`59739a9e`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 30 (28 ok, 2 partial) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 5 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetSubject/ListSubjects: subjects store is never populated -- there is no CreateSession endpoint in this service (AWS Roles Anywhere's session-vending API is a separate mTLS-authenticated data-plane API, not SigV4/control-plane, and was out of scope for this audit). SubjectDetail's Credentials/InstanceProperties fields are also unmodeled. Would need its own audit pass if CreateSession is ever added to gopherstack.
 - CreateProfile/UpdateProfile ignore the real acceptRoleSessionName field entirely (not modeled in the Profile struct); low impact since it only affects the separate CreateSession data plane, which gopherstack doesn't implement.
 - TrustAnchorDetail/ProfileDetail's createdBy field (AWS account that created the resource) is not populated; cosmetic, single-account emulator.
@@ -20,5 +22,6 @@
 - No tag-count validation (TooManyTagsException) or AccessDeniedException paths -- these are generic AWS exceptions with no evidence they're actually exercised by common client flows against this service; not treated as a stub violation.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

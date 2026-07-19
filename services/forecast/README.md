@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/forecast@v1.42.0` · last audited 2026-07-13 (`987784da`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 8 (8 ok) |
 | Feature families | 7 (7 ok) |
 | Known gaps | 3 |
@@ -13,15 +14,18 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - >- No cross-resource FK/state validation on Create*: CreateForecast accepts any PredictorArn string without checking the predictor exists or is ACTIVE; CreateDatasetImportJob accepts any DatasetArn; CreateForecastExportJob accepts any ForecastArn; etc. Real AWS returns ResourceNotFoundException for a dangling reference (and arguably ResourceInUseException / InvalidInputException for a referenced resource that hasn't reached ACTIVE). NOT fixed this pass: the existing test suite (handler_test.go, parity_a/c_test.go, handler_audit1_test.go) deliberately uses placeholder non-ARN strings like "predictor"/"forecast" as FK values across ~15 test cases, so adding FK validation is a cross-cutting change that would need to rewrite most of the existing test fixtures in the same pass — out of scope for a surgical bug-fix pass. Needs a dedicated pass.
 - >- No enum validation on Domain (CreateDataset/CreateDatasetGroup), DatasetType, DataFrequency, ImportMode, or other AWS-modeled enum fields — any string is accepted where AWS would return InvalidInputException for a value outside the enum. Only resource *names* are validated (charset + 256-char max).
 - >- Delete* never returns ResourceInUseException for a resource that still has dependents (e.g. deleting a DatasetGroup that still has Datasets, or a Predictor that still has Forecasts) — delete always succeeds if the resource exists. DeleteResourceTree is the only op that models the AWS cascade-delete-children behavior; the single-resource Delete* ops do not check for dependents at all.
 
 ### Deferred
+
 - CreateDataset/CreateDatasetGroup Domain and other enum-field validation
 - Cross-resource FK existence/state validation on Create*
 - Delete* ResourceInUseException-on-dependents modeling
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

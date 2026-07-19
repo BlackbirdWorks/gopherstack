@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/memorydb@v1.33.12` · last audited 2026-07-12 (`437393d5`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 46 (46 ok) |
 | Feature families | 5 (5 ok) |
 | Known gaps | 3 |
@@ -13,15 +14,18 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Cluster.Status is always "available" immediately on CreateCluster; real AWS transitions creating -> available. Not fixed (broad behavioral change, no bd issue filed yet).
 - DescribeClusters hand-rolls its own NextToken cursor loop in handler.go instead of using the paginateItems helper (or pkgs/page) every other list op in this file uses. Functionally equivalent, just inconsistent; not fixed (style/dedup only, no wire-visible bug).
 - writeBackendError's HTTP status codes (404/409/400 by category) were left as-is rather than aligned to AWS's uniform 400-for-all-client-faults convention for awsjson1.1 FaultClient errors -- would need re-verification against 59 existing status-code assertions plus live-AWS confirmation before changing; the __type field (which the SDK actually uses to resolve typed errors) is now correct regardless.
 
 ### Deferred
+
 - Byte-for-byte wire audit of nested Shard/Node objects beyond the timestamp field (shardObject/nodeObject in handler.go's buildShards) -- spot-checked only, CreateTime already correct.
 - MultiRegionCluster full lifecycle wire shape beyond the fields already checked (no per-region-cluster nested list verified against real MultiRegionCluster type).
 - DescribeReservedNodesOfferings/PurchaseReservedNodesOffering pricing-field completeness (RecurringCharges shape) beyond the StartTime fix.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

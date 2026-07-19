@@ -26,7 +26,7 @@ type Settings struct {
 	MaxRuntimes int `json:"max_runtimes"      name:"max-runtimes"           env:"LAMBDA_MAX_RUNTIMES"    default:"50"         help:"Maximum number of simultaneous per-function Lambda runtimes."` //nolint:lll,golines // config struct tags are intentionally verbose
 	// KeepContainers determines if Lambda containers should be kept alive after execution.
 	// If true, the containers will not be stopped and removed. Useful for debugging.
-	KeepContainers bool `json:"keep_containers"   name:"lambda-keep-containers" env:"LAMBDA_KEEP_CONTAINERS" default:"false"      help:"If true, keep Lambda containers alive for debugging."` //nolint:lll,golines // config struct tags are intentionally verbose
+	KeepContainers bool `json:"keep_containers"   name:"keep-containers" env:"LAMBDA_KEEP_CONTAINERS" default:"false"      help:"If true, keep Lambda containers alive for debugging."` //nolint:lll,golines // config struct tags are intentionally verbose
 }
 
 const (

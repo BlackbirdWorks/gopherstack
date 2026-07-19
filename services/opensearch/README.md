@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/opensearch@v1.59.0` · last audited 2026-07-12 (`cc66a883`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 13 (12 ok, 1 partial) |
 | Feature families | 8 (8 deferred) |
 | Known gaps | 1 |
@@ -13,9 +14,11 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - domain-level connections/VPC-endpoints/packages/applications/serverless families not wire-verified against SDK this pass -- file follow-up bd issue for next sweep
 
 ### Deferred
+
 - cross_cluster_connections
 - vpc_endpoints
 - packages
@@ -24,6 +27,7 @@
 - …and 3 more — see PARITY.md
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/opensearch.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/batch@v1.61.1` · last audited 2026-07-12 (`01dbe288c7a19e4adc701e870bcee3d4907f6a05`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 25 (24 ok, 1 partial) |
 | Feature families | 4 (4 deferred) |
 | Known gaps | 4 |
@@ -13,17 +14,20 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - DescribeJobs (JobDetail) does not model container/attempts/isCancelled/isTerminated/platformCapabilities/nodeDetails/ecsProperties/eksProperties -- these require simulating job execution details, out of scope for this pass (bd: file follow-up)
 - ConsumableResourceProperty.Quantity is float64 in Go; real API's ConsumableResourceRequirement.Quantity is int64 (Long). Harmless for whole-number quantities (JSON encodes identically) but wrong for fractional input, which real AWS would reject anyway (bd: file follow-up, low priority)
 - JobDefinition has no RetryStrategy field; RegisterJobDefinition doesn't accept/store a default retry strategy even though real AWS Batch supports one at the job-definition level (job-level RetryStrategy via SubmitJob already works) (bd: file follow-up)
 - RegisterJobDefinition's EksProperties parameter is hardcoded nil in the handler (pre-existing, not touched this pass -- see handler.go handleRegisterJobDefinition comment)
 
 ### Deferred
+
 - SchedulingPolicy family (full wire-shape re-verification)
 - ServiceEnvironment family (full wire-shape re-verification)
 - ServiceJob family (full wire-shape re-verification)
 - GetJobQueueSnapshot
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

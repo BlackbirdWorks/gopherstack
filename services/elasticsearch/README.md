@@ -4,20 +4,24 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/elasticsearchservice@v1.39.1` · last audited 2026-07-12 (`59ab8f6a`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 51 (50 ok, 1 partial) |
 | Known gaps | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - "CreatePackage does not require/validate PackageSource (S3Bucket/S3Key), unlike real AWS \ (ValidationException if missing). Backend just ignores it; no client-visible incorrect \ behavior since the field is never read back, but a strict-input test suite would fail. \ Not filed as a bd issue this pass (low traffic op, no observed consumer)."
 - "Domains never transition through a Processing/creating state -- CreateElasticsearchDomain \ returns Processing=false / DomainProcessingStatus=Active immediately. This is a deliberate \ simplification (no artificial async delay) rather than a stub; flagging so a future \ auditor doesn't mistake the always-Active state for a bug in the other direction."
 
 ### Deferred
+
 - "Nested field-by-field wire verification of DescribeElasticsearchDomainConfig's per-option \ Status sub-objects (UpdateVersion, PendingDeletion, CreationDate/UpdateDate epoch fields) \ was skipped -- top-level Options/Status shape confirmed correct against \ types.ElasticsearchDomainConfig, but AWS's per-field OptionStatus also carries \ CreationDate/UpdateDate/UpdateVersion/State/PendingDeletion that gopherstack's \ elasticsearchConfigValue does not emit. Low risk: consumers (Terraform provider, CLI) key \ off Options, not the timestamps."
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)
