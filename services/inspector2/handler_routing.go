@@ -2,6 +2,7 @@ package inspector2
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 )
@@ -10,10 +11,17 @@ import (
 // beyond the core set handled directly in handler.go's handleREST switch.
 // Each operation/path constant is declared alongside its handler in the
 // matching handler_<family>.go file; this table only wires path -> operation
-// -> handler func. classifyExtendedPath is a flat, exhaustive path-to-op
-// mapping across every family (62 ops) -- genuinely a routing table, not
-// logic that decomposes further, so its existing complexity nolints are kept
-// (see the func doc below) rather than split.
+// -> handler func. classifyExtendedPath used to be a flat, exhaustive
+// path-to-op switch across every family (62 ops); it's now a lookup table
+// (see onceExtendedRoutes below) keyed by routeKey, which keeps the mapping
+// just as exhaustive without the complexity of a 160-case switch.
+
+// routeKey identifies a routing case by its exact HTTP method and URL path.
+// Shared by classifyPath (handler.go) and classifyExtendedPath (this file).
+type routeKey struct {
+	method string
+	path   string
+}
 
 // extendedOps returns every operation name handled outside handler.go's core
 // switch (i.e. everything routed through classifyExtendedPath below).
@@ -84,164 +92,113 @@ func extendedOps() []string {
 	}
 }
 
-//nolint:cyclop,gocyclo // exhaustive path-to-operation mapping for all 62 extended ops
-func classifyExtendedPath(method, path string) string { //nolint:gocognit,funlen // existing issue.
-	switch {
-	// Members
-	case method == http.MethodPost && path == pathMembersAssociate:
-		return opAssociateMember
-	case method == http.MethodPost && path == pathMembersDisassociate:
-		return opDisassociateMember
-	case method == http.MethodPost && path == pathMembersGet:
-		return opGetMember
-	case method == http.MethodPost && path == pathMembersList:
-		return opListMembers
+// onceExtendedRoutes lazily builds the method+path -> operation lookup table
+// used by classifyExtendedPath, exactly once.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
+var onceExtendedRoutes = sync.OnceValue(func() map[routeKey]string {
+	return map[routeKey]string{
+		// Members
+		{http.MethodPost, pathMembersAssociate}:    opAssociateMember,
+		{http.MethodPost, pathMembersDisassociate}: opDisassociateMember,
+		{http.MethodPost, pathMembersGet}:          opGetMember,
+		{http.MethodPost, pathMembersList}:         opListMembers,
 
-	// Delegated admin accounts
-	case method == http.MethodPost && path == pathDelegatedAdminEnable:
-		return opEnableDelegatedAdminAccount
-	case method == http.MethodPost && path == pathDelegatedAdminDisable:
-		return opDisableDelegatedAdminAccount
-	case method == http.MethodPost && path == pathDelegatedAdminGet:
-		return opGetDelegatedAdminAccount
-	case method == http.MethodPost && path == pathDelegatedAdminList:
-		return opListDelegatedAdminAccounts
+		// Delegated admin accounts
+		{http.MethodPost, pathDelegatedAdminEnable}:  opEnableDelegatedAdminAccount,
+		{http.MethodPost, pathDelegatedAdminDisable}: opDisableDelegatedAdminAccount,
+		{http.MethodPost, pathDelegatedAdminGet}:     opGetDelegatedAdminAccount,
+		{http.MethodPost, pathDelegatedAdminList}:    opListDelegatedAdminAccounts,
 
-	// Organization configuration
-	case method == http.MethodPost && path == pathOrgConfigDescribe:
-		return opDescribeOrganizationConfiguration
-	case method == http.MethodPost && path == pathOrgConfigUpdate:
-		return opUpdateOrganizationConfiguration
+		// Organization configuration
+		{http.MethodPost, pathOrgConfigDescribe}: opDescribeOrganizationConfiguration,
+		{http.MethodPost, pathOrgConfigUpdate}:   opUpdateOrganizationConfiguration,
 
-	// EC2 Deep Inspection
-	case method == http.MethodPost && path == pathEc2DeepConfigGet:
-		return opGetEc2DeepInspectionConfiguration
-	case method == http.MethodPost && path == pathEc2DeepConfigUpdate:
-		return opUpdateEc2DeepInspectionConfiguration
-	case method == http.MethodPost && path == pathEc2DeepOrgUpdate:
-		return opUpdateOrgEc2DeepInspectionConfiguration
-	case method == http.MethodPost && path == pathEc2MemberBatchGet:
-		return opBatchGetMemberEc2DeepInspectionStatus
-	case method == http.MethodPost && path == pathEc2MemberBatchUpdate:
-		return opBatchUpdateMemberEc2DeepInspectionStatus
+		// EC2 Deep Inspection
+		{http.MethodPost, pathEc2DeepConfigGet}:     opGetEc2DeepInspectionConfiguration,
+		{http.MethodPost, pathEc2DeepConfigUpdate}:  opUpdateEc2DeepInspectionConfiguration,
+		{http.MethodPost, pathEc2DeepOrgUpdate}:     opUpdateOrgEc2DeepInspectionConfiguration,
+		{http.MethodPost, pathEc2MemberBatchGet}:    opBatchGetMemberEc2DeepInspectionStatus,
+		{http.MethodPost, pathEc2MemberBatchUpdate}: opBatchUpdateMemberEc2DeepInspectionStatus,
 
-	// Encryption Key
-	case method == http.MethodGet && path == pathEncryptionKeyGet:
-		return opGetEncryptionKey
-	case method == http.MethodPut && path == pathEncryptionKeyReset:
-		return opResetEncryptionKey
-	case method == http.MethodPut && path == pathEncryptionKeyUpdate:
-		return opUpdateEncryptionKey
+		// Encryption Key
+		{http.MethodGet, pathEncryptionKeyGet}:    opGetEncryptionKey,
+		{http.MethodPut, pathEncryptionKeyReset}:  opResetEncryptionKey,
+		{http.MethodPut, pathEncryptionKeyUpdate}: opUpdateEncryptionKey,
 
-	// CIS Scan Configuration
-	case method == http.MethodPost && path == pathCisScanConfigCreate:
-		return opCreateCisScanConfiguration
-	case method == http.MethodPost && path == pathCisScanConfigDelete:
-		return opDeleteCisScanConfiguration
-	case method == http.MethodPost && path == pathCisScanConfigUpdate:
-		return opUpdateCisScanConfiguration
-	case method == http.MethodPost && path == pathCisScanConfigList:
-		return opListCisScanConfigurations
+		// CIS Scan Configuration
+		{http.MethodPost, pathCisScanConfigCreate}: opCreateCisScanConfiguration,
+		{http.MethodPost, pathCisScanConfigDelete}: opDeleteCisScanConfiguration,
+		{http.MethodPost, pathCisScanConfigUpdate}: opUpdateCisScanConfiguration,
+		{http.MethodPost, pathCisScanConfigList}:   opListCisScanConfigurations,
 
-	// CIS Session
-	case method == http.MethodPut && path == pathCisSessionStart:
-		return opStartCisSession
-	case method == http.MethodPut && path == pathCisSessionStop:
-		return opStopCisSession
-	case method == http.MethodPut && path == pathCisSessionHealthSend:
-		return opSendCisSessionHealth
-	case method == http.MethodPut && path == pathCisSessionTelemetrySend:
-		return opSendCisSessionTelemetry
-	case method == http.MethodPost && path == pathCisScanReportGet:
-		return opGetCisScanReport
-	case method == http.MethodPost && path == pathCisScanResultDetailsGet:
-		return opGetCisScanResultDetails
-	case method == http.MethodPost && path == pathCisScanList:
-		return opListCisScans
-	case method == http.MethodPost && path == pathCisScanResultCheckList:
-		return opListCisScanResultsAggregatedByChecks
-	case method == http.MethodPost && path == pathCisScanResultResourceList:
-		return opListCisScanResultsAggregatedByTargetResource
+		// CIS Session
+		{http.MethodPut, pathCisSessionStart}:            opStartCisSession,
+		{http.MethodPut, pathCisSessionStop}:             opStopCisSession,
+		{http.MethodPut, pathCisSessionHealthSend}:       opSendCisSessionHealth,
+		{http.MethodPut, pathCisSessionTelemetrySend}:    opSendCisSessionTelemetry,
+		{http.MethodPost, pathCisScanReportGet}:          opGetCisScanReport,
+		{http.MethodPost, pathCisScanResultDetailsGet}:   opGetCisScanResultDetails,
+		{http.MethodPost, pathCisScanList}:               opListCisScans,
+		{http.MethodPost, pathCisScanResultCheckList}:    opListCisScanResultsAggregatedByChecks,
+		{http.MethodPost, pathCisScanResultResourceList}: opListCisScanResultsAggregatedByTargetResource,
 
-	// Code Security Integration
-	case method == http.MethodPost && path == pathCodeSecurityIntegrationCreate:
-		return opCreateCodeSecurityIntegration
-	case method == http.MethodPost && path == pathCodeSecurityIntegrationDelete:
-		return opDeleteCodeSecurityIntegration
-	case method == http.MethodPost && path == pathCodeSecurityIntegrationGet:
-		return opGetCodeSecurityIntegration
-	case method == http.MethodPost && path == pathCodeSecurityIntegrationUpdate:
-		return opUpdateCodeSecurityIntegration
-	case method == http.MethodPost && path == pathCodeSecurityIntegrationList:
-		return opListCodeSecurityIntegrations
+		// Code Security Integration
+		{http.MethodPost, pathCodeSecurityIntegrationCreate}: opCreateCodeSecurityIntegration,
+		{http.MethodPost, pathCodeSecurityIntegrationDelete}: opDeleteCodeSecurityIntegration,
+		{http.MethodPost, pathCodeSecurityIntegrationGet}:    opGetCodeSecurityIntegration,
+		{http.MethodPost, pathCodeSecurityIntegrationUpdate}: opUpdateCodeSecurityIntegration,
+		{http.MethodPost, pathCodeSecurityIntegrationList}:   opListCodeSecurityIntegrations,
 
-	// Code Security Scan Configuration
-	case method == http.MethodPost && path == pathCodeSecurityScanConfigCreate:
-		return opCreateCodeSecurityScanConfiguration
-	case method == http.MethodPost && path == pathCodeSecurityScanConfigDelete:
-		return opDeleteCodeSecurityScanConfiguration
-	case method == http.MethodPost && path == pathCodeSecurityScanConfigGet:
-		return opGetCodeSecurityScanConfiguration
-	case method == http.MethodPost && path == pathCodeSecurityScanConfigUpdate:
-		return opUpdateCodeSecurityScanConfiguration
-	case method == http.MethodPost && path == pathCodeSecurityScanConfigList:
-		return opListCodeSecurityScanConfigurations
-	case method == http.MethodPost && path == pathCodeSecurityScanConfigBatchAssoc:
-		return opBatchAssociateCodeSecurityScanConfiguration
-	case method == http.MethodPost && path == pathCodeSecurityScanConfigBatchDisassoc:
-		return opBatchDisassociateCodeSecurityScanConfiguration
-	case method == http.MethodPost && path == pathCodeSecurityScanConfigAssocList:
-		return opListCodeSecurityScanConfigurationAssociations
-	case method == http.MethodPost && path == pathCodeSecurityScanStart:
-		return opStartCodeSecurityScan
-	case method == http.MethodPost && path == pathCodeSecurityScanGet:
-		return opGetCodeSecurityScan
+		// Code Security Scan Configuration
+		{http.MethodPost, pathCodeSecurityScanConfigCreate}:        opCreateCodeSecurityScanConfiguration,
+		{http.MethodPost, pathCodeSecurityScanConfigDelete}:        opDeleteCodeSecurityScanConfiguration,
+		{http.MethodPost, pathCodeSecurityScanConfigGet}:           opGetCodeSecurityScanConfiguration,
+		{http.MethodPost, pathCodeSecurityScanConfigUpdate}:        opUpdateCodeSecurityScanConfiguration,
+		{http.MethodPost, pathCodeSecurityScanConfigList}:          opListCodeSecurityScanConfigurations,
+		{http.MethodPost, pathCodeSecurityScanConfigBatchAssoc}:    opBatchAssociateCodeSecurityScanConfiguration,
+		{http.MethodPost, pathCodeSecurityScanConfigBatchDisassoc}: opBatchDisassociateCodeSecurityScanConfiguration,
+		{http.MethodPost, pathCodeSecurityScanConfigAssocList}:     opListCodeSecurityScanConfigurationAssociations,
+		{http.MethodPost, pathCodeSecurityScanStart}:               opStartCodeSecurityScan,
+		{http.MethodPost, pathCodeSecurityScanGet}:                 opGetCodeSecurityScan,
 
-	// Findings Report
-	case method == http.MethodPost && path == pathReportingCreate:
-		return opCreateFindingsReport
-	case method == http.MethodPost && path == pathReportingCancel:
-		return opCancelFindingsReport
-	case method == http.MethodPost && path == pathReportingStatusGet:
-		return opGetFindingsReportStatus
+		// Findings Report
+		{http.MethodPost, pathReportingCreate}:    opCreateFindingsReport,
+		{http.MethodPost, pathReportingCancel}:    opCancelFindingsReport,
+		{http.MethodPost, pathReportingStatusGet}: opGetFindingsReportStatus,
 
-	// SBOM Export
-	case method == http.MethodPost && path == pathSbomExportCreate:
-		return opCreateSbomExport
-	case method == http.MethodPost && path == pathSbomExportCancel:
-		return opCancelSbomExport
-	case method == http.MethodPost && path == pathSbomExportGet:
-		return opGetSbomExport
+		// SBOM Export
+		{http.MethodPost, pathSbomExportCreate}: opCreateSbomExport,
+		{http.MethodPost, pathSbomExportCancel}: opCancelSbomExport,
+		{http.MethodPost, pathSbomExportGet}:    opGetSbomExport,
 
-	// Coverage
-	case method == http.MethodPost && path == pathCoverageList:
-		return opListCoverage
-	case method == http.MethodPost && path == pathCoverageStatisticsList:
-		return opListCoverageStatistics
+		// Coverage
+		{http.MethodPost, pathCoverageList}:           opListCoverage,
+		{http.MethodPost, pathCoverageStatisticsList}: opListCoverageStatistics,
 
-	// Aggregations / usage / permissions
-	case method == http.MethodPost && path == pathFindingAggregationList:
-		return opListFindingAggregations
-	case method == http.MethodPost && path == pathUsageList:
-		return opListUsageTotals
-	case method == http.MethodPost && path == pathAccountPermissionsList:
-		return opListAccountPermissions
+		// Aggregations / usage / permissions
+		{http.MethodPost, pathFindingAggregationList}: opListFindingAggregations,
+		{http.MethodPost, pathUsageList}:              opListUsageTotals,
+		{http.MethodPost, pathAccountPermissionsList}: opListAccountPermissions,
 
-	// Search
-	case method == http.MethodPost && path == pathVulnerabilitiesSearch:
-		return opSearchVulnerabilities
+		// Search
+		{http.MethodPost, pathVulnerabilitiesSearch}: opSearchVulnerabilities,
 
-	// Batch ops
-	case method == http.MethodPost && path == pathCodeSnippetBatchGet:
-		return opBatchGetCodeSnippet
-	case method == http.MethodPost && path == pathFindingDetailsBatchGet:
-		return opBatchGetFindingDetails
-	case method == http.MethodPost && path == pathFreeTrialInfoBatchGet:
-		return opBatchGetFreeTrialInfo
+		// Batch ops
+		{http.MethodPost, pathCodeSnippetBatchGet}:    opBatchGetCodeSnippet,
+		{http.MethodPost, pathFindingDetailsBatchGet}: opBatchGetFindingDetails,
+		{http.MethodPost, pathFreeTrialInfoBatchGet}:  opBatchGetFreeTrialInfo,
 
-	// Clusters
-	case method == http.MethodPost && path == pathClusterGet:
-		return opGetClustersForImage
+		// Clusters
+		{http.MethodPost, pathClusterGet}: opGetClustersForImage,
+	}
+})
+
+// classifyExtendedPath maps method+path to its extended operation name (one
+// of the 62 ops in extendedOps), or opUnknown if no extended route matches.
+func classifyExtendedPath(method, path string) string {
+	if op, ok := onceExtendedRoutes()[routeKey{method: method, path: path}]; ok {
+		return op
 	}
 
 	return opUnknown
