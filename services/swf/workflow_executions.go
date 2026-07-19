@@ -48,13 +48,23 @@ func (f ExecutionFilter) matchOpen(e *WorkflowExecution) bool {
 	return true
 }
 
-//nolint:gocognit,cyclop // sequential date/filter checks are inherently complex
-func (f ExecutionFilter) matchClosed(
-	e *WorkflowExecution,
-) bool {
+// matchClosed reports whether a non-RUNNING execution satisfies every filter
+// dimension. Each dimension is evaluated by its own predicate; matchClosed
+// short-circuits on the first predicate that fails, in the same order the
+// checks used to appear inline.
+func (f ExecutionFilter) matchClosed(e *WorkflowExecution) bool {
 	if e.Status == statusRunning {
 		return false
 	}
+
+	return f.matchClosedIdentity(e) &&
+		f.matchClosedStatus(e) &&
+		f.matchStartRange(e) &&
+		f.matchCloseRange(e)
+}
+
+// matchClosedIdentity checks the workflow ID/type/tag filter dimensions.
+func (f ExecutionFilter) matchClosedIdentity(e *WorkflowExecution) bool {
 	if f.WorkflowID != "" && e.WorkflowID != f.WorkflowID {
 		return false
 	}
@@ -67,29 +77,45 @@ func (f ExecutionFilter) matchClosed(
 	if f.Tag != "" && !slices.Contains(e.TagList, f.Tag) {
 		return false
 	}
-	if f.CloseStatus != "" && e.CloseStatus != f.CloseStatus {
+
+	return true
+}
+
+// matchClosedStatus checks the CloseStatus filter dimension.
+func (f ExecutionFilter) matchClosedStatus(e *WorkflowExecution) bool {
+	return f.CloseStatus == "" || e.CloseStatus == f.CloseStatus
+}
+
+// matchStartRange checks the OldestDate/LatestDate (start time) filter dimension.
+func (f ExecutionFilter) matchStartRange(e *WorkflowExecution) bool {
+	if f.OldestDate == nil && f.LatestDate == nil {
+		return true
+	}
+	st := time.Unix(int64(e.StartTimestamp), 0)
+	if f.OldestDate != nil && st.Before(*f.OldestDate) {
 		return false
 	}
-	if f.OldestDate != nil || f.LatestDate != nil {
-		st := time.Unix(int64(e.StartTimestamp), 0)
-		if f.OldestDate != nil && st.Before(*f.OldestDate) {
-			return false
-		}
-		if f.LatestDate != nil && st.After(*f.LatestDate) {
-			return false
-		}
+	if f.LatestDate != nil && st.After(*f.LatestDate) {
+		return false
 	}
-	if f.CloseOldestDate != nil || f.CloseLatestDate != nil {
-		if e.CloseTimestamp == 0 {
-			return false
-		}
-		ct := time.Unix(int64(e.CloseTimestamp), 0)
-		if f.CloseOldestDate != nil && ct.Before(*f.CloseOldestDate) {
-			return false
-		}
-		if f.CloseLatestDate != nil && ct.After(*f.CloseLatestDate) {
-			return false
-		}
+
+	return true
+}
+
+// matchCloseRange checks the CloseOldestDate/CloseLatestDate filter dimension.
+func (f ExecutionFilter) matchCloseRange(e *WorkflowExecution) bool {
+	if f.CloseOldestDate == nil && f.CloseLatestDate == nil {
+		return true
+	}
+	if e.CloseTimestamp == 0 {
+		return false
+	}
+	ct := time.Unix(int64(e.CloseTimestamp), 0)
+	if f.CloseOldestDate != nil && ct.Before(*f.CloseOldestDate) {
+		return false
+	}
+	if f.CloseLatestDate != nil && ct.After(*f.CloseLatestDate) {
+		return false
 	}
 
 	return true
@@ -125,26 +151,132 @@ func (b *InMemoryBackend) CountClosedWorkflowExecutions(domain string, filter Ex
 	return count
 }
 
+// validateStartWorkflowExecutionInput validates the parameters of a
+// StartWorkflowExecution request that don't require backend state (no lock
+// needed). Checks run in the exact order callers depend on for which error
+// surfaces first.
+func validateStartWorkflowExecutionInput(input StartWorkflowExecutionInput) error {
+	if input.Domain == "" {
+		return fmt.Errorf("%w: domain is required", ErrValidation)
+	}
+	if input.WorkflowID == "" {
+		return fmt.Errorf("%w: workflowId is required", ErrValidation)
+	}
+	if err := validateChildPolicy(input.ChildPolicy); err != nil {
+		return err
+	}
+	if err := validateDuration(input.ExecutionStartToCloseTimeout); err != nil {
+		return err
+	}
+	if err := validateDuration(input.TaskStartToCloseTimeout); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// startExecutionDefaults holds the effective (post-WorkflowType-defaulting)
+// parameters used to construct a new WorkflowExecution.
+type startExecutionDefaults struct {
+	taskList    string
+	childPolicy string
+	execTimeout string
+	taskTimeout string
+	lambdaRole  string
+}
+
+// resolveExecutionDefaultsLocked applies WorkflowType defaults (when a
+// workflow type is referenced and registered) on top of the caller-supplied
+// input, then falls back to "TERMINATE" for an unset childPolicy. Caller must
+// hold the write lock.
+func (b *InMemoryBackend) resolveExecutionDefaultsLocked(
+	input StartWorkflowExecutionInput,
+) (startExecutionDefaults, error) {
+	d := startExecutionDefaults{
+		taskList:    input.TaskList,
+		childPolicy: input.ChildPolicy,
+		execTimeout: input.ExecutionStartToCloseTimeout,
+		taskTimeout: input.TaskStartToCloseTimeout,
+		lambdaRole:  input.LambdaRole,
+	}
+
+	if input.WorkflowTypeName != "" {
+		wt, err := b.lookupRegisteredWorkflowType(input)
+		if err != nil {
+			return startExecutionDefaults{}, err
+		}
+		d = d.withWorkflowTypeDefaults(wt.Defaults)
+	}
+
+	if d.childPolicy == "" {
+		d.childPolicy = "TERMINATE"
+	}
+
+	return d, nil
+}
+
+// lookupRegisteredWorkflowType looks up the WorkflowType referenced by input
+// and rejects unregistered or deprecated types. Caller must hold at least the
+// read lock.
+func (b *InMemoryBackend) lookupRegisteredWorkflowType(input StartWorkflowExecutionInput) (*WorkflowType, error) {
+	key := input.Domain + ":" + input.WorkflowTypeName + ":" + input.WorkflowTypeVersion
+	wt, ok := b.workflows.Get(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: workflow type %s/%s not found",
+			ErrNotFound, input.WorkflowTypeName, input.WorkflowTypeVersion)
+	}
+	if wt.Status == statusDeprecated {
+		return nil, fmt.Errorf("%w: workflow type %s/%s is deprecated",
+			ErrTypeDeprecated, input.WorkflowTypeName, input.WorkflowTypeVersion)
+	}
+
+	return wt, nil
+}
+
+// withWorkflowTypeDefaults returns a copy of d with any unset (empty-string)
+// fields filled in from the WorkflowType's registered defaults.
+func (d startExecutionDefaults) withWorkflowTypeDefaults(wtd WorkflowTypeDefaults) startExecutionDefaults {
+	if d.taskList == "" {
+		d.taskList = wtd.DefaultTaskList
+	}
+	if d.childPolicy == "" {
+		d.childPolicy = wtd.DefaultChildPolicy
+	}
+	if d.execTimeout == "" {
+		d.execTimeout = wtd.DefaultExecutionStartToCloseTimeout
+	}
+	if d.taskTimeout == "" {
+		d.taskTimeout = wtd.DefaultTaskStartToCloseTimeout
+	}
+	if d.lambdaRole == "" {
+		d.lambdaRole = wtd.DefaultLambdaRole
+	}
+
+	return d
+}
+
+// registerExecutionOrderLocked records key in the LRU execution order (for
+// new keys only) and evicts the oldest execution once the cache reaches
+// maxWorkflowExecutions. Caller must hold the write lock.
+func (b *InMemoryBackend) registerExecutionOrderLocked(key string) {
+	if b.executions.Has(key) {
+		return
+	}
+	b.executionOrder = append(b.executionOrder, key)
+	if len(b.executionOrder) >= maxWorkflowExecutions {
+		oldest := b.executionOrder[0]
+		b.executionOrder = b.executionOrder[1:]
+		b.executions.Delete(oldest)
+		delete(b.history, oldest)
+	}
+}
+
 // StartWorkflowExecution starts a new workflow execution.
 // It validates that the referenced WorkflowType exists and is REGISTERED.
-//
-//nolint:gocognit,cyclop,nestif,funlen // sequential parameter validation is inherently complex
 func (b *InMemoryBackend) StartWorkflowExecution(
 	input StartWorkflowExecutionInput,
 ) (*WorkflowExecution, error) {
-	if input.Domain == "" {
-		return nil, fmt.Errorf("%w: domain is required", ErrValidation)
-	}
-	if input.WorkflowID == "" {
-		return nil, fmt.Errorf("%w: workflowId is required", ErrValidation)
-	}
-	if err := validateChildPolicy(input.ChildPolicy); err != nil {
-		return nil, err
-	}
-	if err := validateDuration(input.ExecutionStartToCloseTimeout); err != nil {
-		return nil, err
-	}
-	if err := validateDuration(input.TaskStartToCloseTimeout); err != nil {
+	if err := validateStartWorkflowExecutionInput(input); err != nil {
 		return nil, err
 	}
 
@@ -155,44 +287,9 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, input.Domain)
 	}
 
-	// Validate workflow type if provided.
-	taskList := input.TaskList
-	childPolicy := input.ChildPolicy
-	execTimeout := input.ExecutionStartToCloseTimeout
-	taskTimeout := input.TaskStartToCloseTimeout
-	lambdaRole := input.LambdaRole
-
-	if input.WorkflowTypeName != "" {
-		key := input.Domain + ":" + input.WorkflowTypeName + ":" + input.WorkflowTypeVersion
-		wt, ok := b.workflows.Get(key)
-		if !ok {
-			return nil, fmt.Errorf("%w: workflow type %s/%s not found",
-				ErrNotFound, input.WorkflowTypeName, input.WorkflowTypeVersion)
-		}
-		if wt.Status == statusDeprecated {
-			return nil, fmt.Errorf("%w: workflow type %s/%s is deprecated",
-				ErrTypeDeprecated, input.WorkflowTypeName, input.WorkflowTypeVersion)
-		}
-		// Apply type defaults when not overridden.
-		if taskList == "" {
-			taskList = wt.Defaults.DefaultTaskList
-		}
-		if childPolicy == "" {
-			childPolicy = wt.Defaults.DefaultChildPolicy
-		}
-		if execTimeout == "" {
-			execTimeout = wt.Defaults.DefaultExecutionStartToCloseTimeout
-		}
-		if taskTimeout == "" {
-			taskTimeout = wt.Defaults.DefaultTaskStartToCloseTimeout
-		}
-		if lambdaRole == "" {
-			lambdaRole = wt.Defaults.DefaultLambdaRole
-		}
-	}
-
-	if childPolicy == "" {
-		childPolicy = "TERMINATE"
+	defaults, err := b.resolveExecutionDefaultsLocked(input)
+	if err != nil {
+		return nil, err
 	}
 
 	runID := input.RunID
@@ -207,15 +304,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 		return nil, fmt.Errorf("%w: %s", ErrWorkflowAlreadyStarted, input.WorkflowID)
 	}
 
-	if !b.executions.Has(key) {
-		b.executionOrder = append(b.executionOrder, key)
-		if len(b.executionOrder) >= maxWorkflowExecutions {
-			oldest := b.executionOrder[0]
-			b.executionOrder = b.executionOrder[1:]
-			b.executions.Delete(oldest)
-			delete(b.history, oldest)
-		}
-	}
+	b.registerExecutionOrderLocked(key)
 
 	now := float64(time.Now().UnixMilli()) / milliDivisor
 	exec := &WorkflowExecution{
@@ -226,13 +315,13 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 		StartTimestamp:               now,
 		WorkflowTypeName:             input.WorkflowTypeName,
 		WorkflowTypeVersion:          input.WorkflowTypeVersion,
-		TaskList:                     taskList,
+		TaskList:                     defaults.taskList,
 		Input:                        input.Input,
 		TagList:                      input.TagList,
-		ChildPolicy:                  childPolicy,
-		LambdaRole:                   lambdaRole,
-		ExecutionStartToCloseTimeout: execTimeout,
-		TaskStartToCloseTimeout:      taskTimeout,
+		ChildPolicy:                  defaults.childPolicy,
+		LambdaRole:                   defaults.lambdaRole,
+		ExecutionStartToCloseTimeout: defaults.execTimeout,
+		TaskStartToCloseTimeout:      defaults.taskTimeout,
 		TaskPriority:                 input.TaskPriority,
 	}
 	b.executions.Put(exec)
@@ -241,15 +330,15 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 	attrs := map[string]any{
 		attrKey: map[string]any{
 			attrInput:     input.Input,
-			"childPolicy": childPolicy,
-			"taskList":    map[string]any{attrName: taskList},
+			"childPolicy": defaults.childPolicy,
+			"taskList":    map[string]any{attrName: defaults.taskList},
 			"workflowType": map[string]any{
 				attrName:  input.WorkflowTypeName,
 				"version": input.WorkflowTypeVersion,
 			},
-			"executionStartToCloseTimeout": execTimeout,
-			"taskStartToCloseTimeout":      taskTimeout,
-			"lambdaRole":                   lambdaRole,
+			"executionStartToCloseTimeout": defaults.execTimeout,
+			"taskStartToCloseTimeout":      defaults.taskTimeout,
+			"lambdaRole":                   defaults.lambdaRole,
 			"tagList":                      input.TagList,
 		},
 	}

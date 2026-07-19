@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/elasticloadbalancing@v1.33.21` · last audited 2026-07-12 (`49e505cb`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 29 (24 ok, 3 partial, 2 other) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 3 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - ApplySecurityGroupsToLoadBalancer / AttachLoadBalancerToSubnets accept any security-group/subnet ID string without validating existence against EC2 state (real AWS returns InvalidSecurityGroup/InvalidSubnet/SubnetNotFound) -- cross-service, out of scope for this pass, needs an EC2 backend lookup hook
 - SetLoadBalancerListenerSSLCertificate / CreateLoadBalancer HTTPS listeners validate SSLCertificateId only by ARN-prefix regex, not cross-service ACM/IAM existence (real AWS returns CertificateNotFound) -- cross-service, out of scope
 - CreateLoadBalancerPolicy has no TooManyPolicies limit (AWS models TooManyPoliciesException for this op per the SDK's op-specific error switch, but no default per-LB policy count limit is documented anywhere gopherstack could source a correct number from; fabricating one risked being wrong, so left unenforced rather than guessed)
 
 ### Deferred
+
 - none — full op-by-op pass completed this round
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

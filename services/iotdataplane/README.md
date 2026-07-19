@@ -4,21 +4,25 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/iotdataplane@v1.32.20` · last audited 2026-07-13 (`57398ee1`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 8 (8 ok) |
 | Known gaps | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Publish with no MQTT broker wired logs a warning and silently drops the message (ErrNoBroker path in backend.go Publish()). This is intentional degradation, not a disguised no-op -- when a broker IS wired (see cli.go startup, out of scope for this service-only pass) the message is delivered for real, retain/qos forwarded. No further work identified without broker wiring changes, which live outside services/iotdataplane/.
 - UnsupportedDocumentEncodingException (real AWS error, modeled for GetThingShadow/DeleteThingShadow/UpdateThingShadow) is never returned -- no Content-Encoding-based validation exists. Left unimplemented: no clear trigger condition was verified against real AWS behavior, and speculative validation risks a wrong-shape fix. Candidate for a future audit pass with real-AWS verification first.
 - maxShadowsPerThing=100 (backend.go) is a soft self-imposed cap, not verified against an authoritative AWS quota number -- left unchanged this pass (low confidence either way, non-blocking).
 
 ### Deferred
+
 - Chaos fault-injection paths (ChaosServiceName/ChaosOperations) -- not part of AWS wire surface, no parity concern.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

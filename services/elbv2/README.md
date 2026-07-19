@@ -4,23 +4,27 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/elasticloadbalancingv2@v1.54.8` · last audited 2026-07-05 (`d118e0d8`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 51 (49 ok, 2 partial) |
 | Known gaps | 4 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - ASG/ECS -> ELBv2 target registration is cross-service: RegisterTargets/DeregisterTargets/DescribeTargetHealth on the ELBv2 side are correct and complete (verified and improved this pass - see ops), but nothing on the ASG/ECS side calls them when instances/tasks scale (bd: gopherstack-18k) - NOT fixed here, out of scope per task instructions (elbv2-only edits)
 - GetTrustStoreCaCertificatesBundle / GetTrustStoreRevocationContent always return an empty Location (no real S3-backed object to point to) - documented simplification, not a hidden stub (the ops correctly validate the trust store/revocation exist and return 400 TrustStoreNotFound/RevocationIdNotFound otherwise)
 - RevocationId is modeled/returned as a string in this mock (echoing the caller-supplied plain content, or a generated "s3-<uuid>" for S3-structured entries); real AWS RevocationId is an int64 assigned by AWS when it parses the uploaded CRL/bundle. Existing tests in this package already encode string-shaped RevocationIds (e.g. "s3://my-bucket/revocations.crl", "1") predating this pass. Reworking this to a real monotonic int64 ID space is a moderate, invasive change (touches the TrustStoreRevocation struct, persistence JSON shape, and ~6 existing tests) for a rarely-exercised feature; deferred rather than rushed. No bd id filed yet - recommend filing one if this is prioritized.
 - The plain (non-S3) `RevocationContents.member.N` request field parsed by parseTrustStoreRevocations does not exist in the real AWS API (RevocationContent is always S3Bucket/S3Key/S3ObjectVersion/RevocationType - verified against types.RevocationContent) - harmless (real clients never send that shape so the branch is simply unreachable in practice), but worth removing in a future cleanup pass
 
 ### Deferred
+
 - RegexValues on rule conditions (a newer AWS feature letting host-header/path-pattern/http-header conditions match by regex instead of exact/wildcard Values) - not implemented at all; SDK-side type exists (RuleCondition.RegexValues []string) but this pass did not add parsing/serialization for it
 - AuthenticateCognitoConfig/AuthenticateOidcConfig were verified for field-name accuracy only, not behaviorally exercised (this emulator does not implement actual OIDC/Cognito redirect flows, matching every other gopherstack service's scope for auth actions)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

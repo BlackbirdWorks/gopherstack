@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/kms@v1.54.0` · last audited 2026-07-12 (`db25aeabef5bf3f7a33c8ed328247641b3ffcc15`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 54 (54 ok) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 5 |
@@ -13,6 +14,7 @@
 | Resource leaks | found |
 
 ### Known gaps
+
 - GrantConstraints has no SourceArn field (real SDK: GrantConstraints.SourceArn); no operation in this mock threads a caller/resource ARN through crypto calls to check against it, and no other service adapter currently supplies one either — deferred, needs cross-cutting request-context plumbing, not a KMS-local fix (bd: gopherstack-w3k)
 - CreateGrantInput has no GrantTokens field (real SDK: authorizes the CreateGrant call itself via an existing not-yet-consistent grant). No IAM/authorization layer exists anywhere in this mock, so this field would currently be a no-op; deferred, consistent with the rest of the codebase's scope
 - GranteeServicePrincipal / RetiringServicePrincipal (AWS-service grantees) not modeled on CreateGrantInput; same no-IAM-layer scope reasoning as above
@@ -20,10 +22,12 @@
 - RESOLVED 2026-07-12: the region-scoped KeyId resolution inconsistency (GetKeyPolicy/PutKeyPolicy/CreateGrant/ListGrants/RevokeGrant/RetireGrant indexed their policiesStore/grantsRegion using the request region instead of an ARN's embedded region). Root cause was two-fold and both fixed at source: (1) these ops discarded the region resolveKeyID returned and re-used getRegion(ctx) -- fixed by adding a shared resolveKeyAndRegion helper (lookupKey now delegates to it too) that returns the key's actual region, and routing all six ops through it; (2) resolveKeyID's resolution cache stored only the resolved UUID and returned the REQUEST region on every cache hit, so even the region resolveKeyID returned was wrong for any ARN resolved more than once -- fixed by caching a {keyID, region} pair (region="" sentinel for aliases means 'derive from request context', so alias behavior is unchanged; ARN caches its own embedded region, which is safe because the region is part of the ARN cache key). Verified by region_scoped_resolution_test.go (cross-region ReplicateKey -> replica-ARN Put/GetKeyPolicy round-trip + full grant lifecycle by ARN, all while ctx defaults to the primary's region).
 
 ### Deferred
+
 - Custom key store cryptographic connection/HSM simulation (ConnectCustomKeyStore is a pure state-machine transition; no CloudHSM cluster or XKS proxy is modeled, matching pre-existing scope)
 - GetKeyLastUsage (not a real AWS KMS operation; left as-is from a prior pass, out of scope for this sweep)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/kms.md)
 - [All services](../../README.md#services)

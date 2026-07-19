@@ -24,15 +24,15 @@ func renderServiceReadme(slug string, doc *ParityDoc, hasGuide bool) string {
 	b.WriteString(genComment)
 	b.WriteString("# " + displayName(slug) + "\n\n")
 	b.WriteString(renderHeaderLine(doc) + "\n\n")
-	b.WriteString("## Coverage\n")
-	b.WriteString("| | |\n|---|---|\n")
+	b.WriteString("## Coverage\n\n")
+	b.WriteString("| Metric | Value |\n| --- | --- |\n")
 	writeCoverageRows(&b, doc)
 	b.WriteString("\n")
 
 	writeKnownGaps(&b, doc.Gaps)
 	writeDeferredSection(&b, doc.Deferred)
 
-	b.WriteString("## More\n")
+	b.WriteString("## More\n\n")
 	b.WriteString("- [Full parity audit](PARITY.md)\n")
 	if hasGuide {
 		b.WriteString("- [Service guide](../../docs/services/" + slug + ".md)\n")
@@ -104,7 +104,7 @@ func writeKnownGaps(b *strings.Builder, gaps []string) {
 		return
 	}
 
-	b.WriteString("### Known gaps\n")
+	b.WriteString("### Known gaps\n\n")
 	for _, g := range gaps {
 		b.WriteString("- " + g + "\n")
 	}
@@ -119,7 +119,7 @@ func writeDeferredSection(b *strings.Builder, deferred []string) {
 		return
 	}
 
-	b.WriteString("### Deferred\n")
+	b.WriteString("### Deferred\n\n")
 
 	limit := len(deferred)
 	truncated := limit > deferredPreviewLimit

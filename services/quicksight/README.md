@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/quicksight@v1.112.0` · last audited 2026-07-12 (`5256fdde`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 65 (59 ok, 6 partial) |
 | Feature families | 19 (19 deferred) |
 | Known gaps | 5 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - UpdateDataSet never triggers/reports a new SPICE ingestion (IngestionArn/IngestionId always omitted from UpdateDataSetOutput, even when import mode or schema effectively changes) -- omission is safe (no fabrication) but incomplete vs real AWS
 - CancelIngestion unconditionally sets IngestionStatus=CANCELLED regardless of current status; real AWS behavior for cancelling an already-terminal ingestion is unverified from SDK doc comments alone
 - DeleteGroup does not clean up groupMembers rows for that group (same class of bug as the DeleteUser ghost-membership issue fixed this pass, but on the group side) -- ListGroupMemberships on a same-named recreated group would resurface stale members
@@ -20,6 +22,7 @@
 - Large swaths of the surface (see families: deferred above) were not audited this pass -- scope was capped to the highest-traffic families named in the audit brief (DataSet, DataSource, Dashboard, Analysis, User/Group, Ingestion, Tags)
 
 ### Deferred
+
 - Folder
 - Template
 - Theme
@@ -28,5 +31,6 @@
 - …and 14 more — see PARITY.md
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

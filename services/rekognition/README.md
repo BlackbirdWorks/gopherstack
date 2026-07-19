@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/rekognition@v1.51.26` · last audited 2026-07-12 (`6642a73c`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 50 (47 ok, 3 partial) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 4 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreateStreamProcessor / DescribeStreamProcessor: Input/Output/Settings/RegionsOfInterest/NotificationChannel/KmsKeyId/DataSharingPreference are accepted by the real API but neither parsed from the request nor stored/returned — file a bd issue if stream-processor-heavy workloads need this
 - UpdateStreamProcessor is an existence-check no-op; none of UpdateStreamProcessorInput's fields (DataSharingPreferenceForUpdate, ParametersToDelete, RegionsOfInterestForUpdate, SettingsForUpdate) are applied
 - CreateProjectVersion drops Tags/OutputConfig/TrainingData/TestingData/FeatureConfig from the request (Custom Labels training config, low-traffic)
 - CreateDataset never rejects a duplicate (ProjectArn, DatasetType) pair (real AWS: ResourceAlreadyExistsException) because datasetARN is always uuid-suffixed
 
 ### Deferred
+
 - Full field-level completeness audit of the async-video Get* response bodies (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections arrays) — always empty; acceptable per the ML-mock exemption but not individually wire-diffed field-by-field this sweep
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/codestarconnections@v1.35.15` · last audited 2026-07-13 (`3f6a5e93`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 27 (26 ok, 1 partial) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 3 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetResourceSyncStatus does not populate optional DesiredState/LatestSuccessfulSync (types.Revision) fields — would require simulating actual git repo content/SHAs, out of scope for this pass (bd: file follow-up)
 - CreateConnection with a HostArn referencing a nonexistent host is accepted without validation (real CreateConnection documents ResourceUnavailableException for a bad host ARN); left unfixed this pass because an existing test (TestAudit2_Connection_HostArnIncludedWhenSet) intentionally exercises an arbitrary un-created HostArn and the real trigger condition (existence vs. malformed-ARN-format) could not be confirmed without live AWS access (bd: file follow-up)
 - CreateConnection/CreateHost duplicate-name rejection (ErrAlreadyExists, InvalidInputException) has no direct confirmation in the real per-op error lists (which show only LimitExceededException/ResourceNotFoundException/ResourceUnavailableException for CreateConnection and only LimitExceededException for CreateHost) — left as-is since the Connection type doc explicitly states "Connection names must be unique in an Amazon Web Services account", and InvalidInputException is the most plausible untyped/common-error bucket; not changed for lack of stronger evidence
 
 ### Deferred
+
 - PullRequestComment field (CreateSyncConfiguration/UpdateSyncConfiguration/SyncConfiguration) — present in current AWS API docs but NOT in the pinned aws-sdk-go-v2@v1.35.15 SDK's types/serializers/deserializers; correctly omitted to match the SDK version actually vendored by this repo
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

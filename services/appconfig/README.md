@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/appconfig@v1.43.11` · last audited 2026-07-12 (`f86ef17b`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 45 (43 ok, 2 partial) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 3 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetExtension/DeleteExtension ignore the real API's optional version_number/version query params (extensions are versioned resources in AWS; this backend only keeps the current version). Fixing requires storing each UpdateExtension call as a new addressable version rather than mutating in place — a larger data-model change than warranted for this pass given Extensions are a lower-traffic family. File a bd issue if multi-version extension addressing is needed.
 - StartDeployment does not validate that ConfigurationVersion refers to an existing HostedConfigurationVersion/label before creating the deployment; real AWS returns ResourceNotFoundException for an unknown version. Low risk (deployment succeeds with an unvalidated version string) but worth a follow-up bd issue.
 - CreateHostedConfigurationVersion ignores the optional Latest-Version-Number request header (an optimistic-concurrency check some clients send); silently accepted rather than validated. Low-traffic corner case.
 
 ### Deferred
+
 - Extension/ExtensionAssociation family only spot-checked (wire shapes for Create/Get/List/Delete verified accurate); the versioning gap above is the one open item.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

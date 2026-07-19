@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/ecs@v1.88.0` · last audited 2026-07-11 (`95dfa093`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 65 (63 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 7 |
@@ -13,6 +14,7 @@
 | Resource leaks | found |
 
 ### Known gaps
+
 - PutClusterCapacityProviders/CreateService/UpdateService/RunTask do not validate that a referenced capacityProviderStrategy name is a real (created or FARGATE/FARGATE_SPOT builtin) capacity provider. AWS rejects unknown providers; this backend accepts any string. Not fixed this sweep to limit blast radius (many call sites, risk of breaking existing tests that use ad-hoc provider names). File follow-up bd issue before next ecs sweep.
 - DescribeCapacityProviders/DescribeContainerInstances/DescribeTaskSets/DescribeExpressGatewayService do not support include=[TAGS] gating (tags are simply never returned by these four; DescribeClusters and DescribeTaskDefinition now/already do). Lower priority: unlike the DescribeClusters gap, no create path lets users set these tags in a way that becomes invisible, since ListTagsForResource still exposes them; it is purely a wire-shape completeness gap.
 - DescribeCapacityProviders still lacks the Cluster filter parameter (when Cluster is specified, AWS returns only capacity providers associated with that cluster). Not fixed this sweep: purely additive/optional-param gap, no client breaks by its absence today, and no test in this repo exercises it. The per-name Failures gap noted in a previous sweep's ledger entry WAS fixed this sweep (see ops table + Notes) — that prior description ("unknown names are silently ok") undersold it: the actual prior behavior was a hard 400 for the *whole* request on any unknown name, a real partial-success/whole-request-failure wire bug, not just a shape simplification.
@@ -22,10 +24,12 @@
 - ECS -> Auto Scaling Group capacity providers are config-only: AutoScalingGroupProvider (ARN, ManagedScaling, ManagedTerminationProtection, ManagedDraining) is stored/echoed but never calls services/autoscaling to validate the ASG exists or to actually scale it in response to managed-scaling target utilization. Cross-service, lives outside services/ecs/ — reported, not fixed.
 
 ### Deferred
+
 - Daemon* operation family (CreateDaemon..UpdateDaemon, 12 ops) — not re-audited this pass; backend_daemon.go (787 LOC) untouched, no evidence found of regressions while auditing adjacent code (persistence/tag/service-deployment map ownership).
 - docker_runner.go / real container lifecycle (vs NoopRunner) — not re-audited this pass.
 - Full ServiceDeployment wire-shape parity (LifecycleStage, SourceServiceRevisions, TargetServiceRevision, Rollback, DeploymentCircuitBreaker, Alarms sub-objects) — the emulator's ServiceDeployment type covers only ServiceDeploymentArn/ClusterArn/ServiceArn/Status/StatusReason/CreatedAt/UpdatedAt. Now correctly populated for every real deployment (this sweep's fix), but the richer blue/green fields are not modeled.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

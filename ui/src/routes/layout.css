@@ -640,6 +640,7 @@
 }
 .theme-arasaka .bg-indigo-600 {
   background-color: var(--color-accent);
+  box-shadow: 0 0 15px rgba(255, 0, 0, 0.4);
 }
 .theme-arasaka .hover\:bg-indigo-700:hover {
   background-color: var(--color-accent-hover);
@@ -650,11 +651,6 @@
 }
 .theme-arasaka .border-indigo-500 {
   border-color: var(--color-accent);
-}
-
-/* Arasaka Glow Effects */
-.theme-arasaka .bg-indigo-600 {
-  box-shadow: 0 0 15px rgba(255, 0, 0, 0.4);
 }
 
 .theme-arasaka input:focus,
@@ -679,7 +675,6 @@
   background-color: rgba(255, 0, 0, 0.1) !important;
   border-left: 3px solid var(--color-accent) !important;
 }
-.theme-arasaka .text-indigo-600,
 .theme-arasaka .text-indigo-700 {
   color: var(--color-accent);
 }

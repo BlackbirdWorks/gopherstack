@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/eventbridge@v1.45.21` · last audited 2026-07-11 (`f615e2f8`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 59 (57 ok, 2 partial) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 2 |
@@ -13,15 +14,18 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Rule.ManagedBy is modeled and echoed on Describe/List, and PutRuleInput even lets a caller set it directly (real AWS's PutRule request has no ManagedBy member at all -- it's a server-populated Describe/List-only field), but NO op (PutRule update, DeleteRule, EnableRule, DisableRule, PutTargets, RemoveTargets) checks it before mutating. Real AWS returns ManagedRuleException for all six when the target rule is AWS-service-managed. Not fixed this sweep: no composition-root code anywhere in this repo ever marks an eventbridge rule as managed, so the missing enforcement is currently unreachable/inert in practice, and building it out (new sentinel error + handleError case + internal seeding helper + a real trigger) is a bigger, more speculative change than the codebase's demonstrated usage patterns justify right now. (bd: gopherstack-ba7)
 - EventBridge rule-target delivery for non-core targets (Step Functions/ECS/Kinesis/CloudWatch Logs/API destinations) is fully implemented in delivery.go's deliverToTarget dispatch, but wireEventBridgeDelivery in cli.go (composition root, out of services/eventbridge/ and explicitly off-limits this sweep) only populates DeliveryTargets.Lambda/SQS/SNS. Rules with those other target types match correctly but never fire in the running app. Already tracked, not re-fixed. (bd: gopherstack-xoe)
 
 ### Deferred
+
 - Archives (CreateArchive/UpdateArchive/DeleteArchive/DescribeArchive/ListArchives), replays (StartReplay/CancelReplay/DescribeReplay/ListReplays), connections (Create/Update/Delete/Describe/List/DeauthorizeConnection), API destinations (Create/Update/Delete/Describe/List), and global endpoints (Create/Update/Delete/Describe/List) -- spot-checked while reading adjacent code (all looked real: proper validation, real state, ARNs via arn-style helpers, persistence-backed), but not re-audited op-by-op line-by-line this pass. No evidence of regressions found.
 - Schema registry (CreateRegistry..GetCodeBindingSource, 17 ops) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; not audited this pass.
 - PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/eventbridge.md)
 - [All services](../../README.md#services)

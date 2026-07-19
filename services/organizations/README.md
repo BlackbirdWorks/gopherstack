@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/organizations@v1.50.4` · last audited 2026-07-12 (`012f98aa`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 63 (63 ok) |
 | Feature families | 5 (4 ok, 1 partial) |
 | Known gaps | 3 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - epochSeconds() in models.go duplicates pkgs/awstime.Epoch (sub-second truncation only, wire-compatible either way) -- should be replaced with awstime.Epoch for pkgs-catalog reuse hygiene (no bd issue filed yet)
 - ListAccountsWithInvalidEffectivePolicy / ListEffectivePolicyValidationErrors don't paginate (MaxResults/NextToken silently accepted-but-ignored in the same way the 6 fixed ops used to be), but both are provably always-empty results given no real policy-schema validation exists, so pagination there is moot until schema validation is implemented (no bd issue filed yet)
 - AWS auto-creates and attaches a default 'FullAWSAccess' SCP to the root when the SERVICE_CONTROL_POLICY policy type is enabled (or org created with ALL features); this backend does not fabricate that default policy, so ListPolicies/ListPoliciesForTarget won't show it. Deep AWS behavior detail, not flagged as broken since no client mutation is silently dropped -- documented here for the next auditor (no bd issue filed yet)
 
 ### Deferred
+
 - CreatePolicy content validation (real AWS validates SCP JSON size limits, e.g. 5120 bytes)
 - Tag validation (reserved 'aws:' key prefix rejection, max-50-tags limit)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

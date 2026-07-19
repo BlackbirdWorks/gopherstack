@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/iam` · last audited 2026-07-11 (`6f19cb90`) · protocol aws-query -> XML
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 2 (1 ok, 1 partial) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 2 |
@@ -13,10 +14,12 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - comprehensiveBackend uses own sync.Mutex alongside coarse lockmetrics.RWMutex — violates one-coarse-lock rule (bd: gopherstack-gjp). Re-examined sweep 4 — deliberate to avoid a nested b.mu lock-order (comp().snapshot()/restore() are documented to run outside any b.mu critical section); fixing requires folding comprehensiveBackend's maps into the main registry/lock, deferred as an architectural change, not a wire/correctness bug.
 - GetAccountAuthorizationDetails: Marker/MaxItems/Filter request params are parsed but ignored — server always returns the full unfiltered/unpaginated dump with IsTruncated=false. Not a wire-shape violation (SDK's built-in paginator terminates correctly against this since Marker is always absent) and never silently drops data, but diverges from documented AWS behavior for large accounts or Filter-scoped calls (bd: gopherstack-gjp).
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/iam.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: B** · SDK `aws-sdk-go-v2/service/sts@v1.44.0` · last audited 2026-07-11 (`eb94f3c3`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 11 (11 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 1 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - JWTPayloadSizeExceededException, OutboundWebIdentityFederationDisabledException, SessionDurationEscalationException are real error types in aws-sdk-go-v2/service/sts/types but the SDK ships no doc comment describing their trigger thresholds/semantics beyond the type name; the emulator does not currently model any of the three (no JWT-tag-payload size cap, no account-level web-identity-federation-disabled flag, no explicit escalation-attempt detection beyond the existing silent 1h role-chain clamp). Not fixed this pass — no reliable spec to implement against without further doc research. (bd: gopherstack-p05, follow-up)
 
 ### Deferred
+
 - SESSION-POLICY EVALUATION: session Policy/PolicyArns are validated for shape/size (MalformedPolicyDocument, PackedPolicyTooLarge) and PackedPolicySize is computed, but the policy document's *content* is not enforced against subsequent API calls (no IAM policy-evaluation engine wired to session credentials). This mirrors the rest of the emulator's authz model and is out of scope for a service-local sts audit.
 - GetWebIdentityToken Tags payload-size cap (JWTPayloadSizeExceededException) — see gaps above.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/sts.md)
 - [All services](../../README.md#services)

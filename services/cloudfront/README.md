@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/cloudfront@v1.60.2` · last audited 2026-07-12 (`a8c6614b`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 30 (30 ok) |
 | Feature families | 9 (9 ok) |
 | Known gaps | 3 |
@@ -13,15 +14,18 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Managed (AWS-provided) cache/origin-request/response-headers policies are not seeded, and List* does not support the Type=managed|custom filter (bd: gopherstack-a9t)
 - DeleteKeyGroup / DeleteCloudFrontOriginAccessIdentity / DeleteOriginAccessControl have no InUse-on-delete guard, unlike the CachePolicy/OriginRequestPolicy/ResponseHeadersPolicy/Function/PublicKey/FLEProfile guards (bd: gopherstack-na4)
 - CreateDistribution (and likely CreateOAI/CreateStreamingDistribution) treat CallerReference reuse as unconditionally idempotent; real AWS returns *AlreadyExists when the reused CallerReference's config content differs (bd: gopherstack-mzx)
 
 ### Deferred
+
 - Distribution status InProgress->Deployed transition timer (currently InProgress persists indefinitely; no test depends on the transition, scope excluded per task's op-by-op priority list)
 - KeyValueStore data-plane (GetKey/PutKeys/ListKeys, separate JSON protocol) -- explicitly out of scope for this REST-XML-focused sweep
 - Full per-op audit of DistributionConfig nested shape correctness (Origins/OriginGroups/CacheBehaviors/ViewerCertificate/Restrictions field-by-field) beyond the Quantity/Items validation and the pre-existing minimal-parse model; RawConfig storage design predates this pass and was not restructured
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

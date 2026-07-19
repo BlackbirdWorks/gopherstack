@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/networkmonitor@v1.14.6` · last audited 2026-07-13 (`05aca6b4`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 12 (12 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 2 |
@@ -13,12 +14,15 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - No service-quota enforcement (e.g. probes-per-monitor, monitors-per-account) -- ServiceQuotaExceededException is defined in the real SDK's types/errors.go but gopherstack's handleError has no branch for it and no quota constants exist. Left unfixed: real AWS default quota values are undocumented in the SDK itself and would need external verification to avoid fabricating a wrong number. (file bd issue if this surface matters for a client under test)
 - updateProbeRequest.tags field (models.go) is accepted on PATCH /monitors/{name}/probes/{probeId} and applied to the probe's tags, but the real UpdateProbeInput has no Tags member at all -- the real SDK client can never send it. Harmless (dead code path from genuine SDK traffic, response still returns current tags via UpdateProbeOutput.Tags) but worth removing in a future cleanup pass for exact wire-contract fidelity.
 
 ### Deferred
+
 - AccessDeniedException / ThrottlingException wiring (likely handled by shared auth/chaos middleware elsewhere in the stack, not service-specific; not audited here since out of scope for services/networkmonitor edits)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

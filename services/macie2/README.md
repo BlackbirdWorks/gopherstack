@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/macie2@v1.51.4` · last audited 2026-07-12 (`82c8a1c8`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 82 (78 ok, 4 partial) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 5 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - ListMembers ignores onlyAssociated/maxResults/nextToken query params; always returns all members in one page regardless of onlyAssociated (real AWS default is onlyAssociated=true, i.e. DISASSOCIATED members hidden by default)
 - ListClassificationJobs ignores filterCriteria and maxResults/nextToken; always returns every job in one page
 - TagResource/UntagResource/ListTagsForResource (isKnownARN) do not recognize classification-job ARNs, so a real client cannot tag a job post-creation via TagResource even though CreateClassificationJob now stores a real jobArn
@@ -20,9 +22,11 @@
 - DescribeOrganizationConfiguration is missing the maxAccountLimitReached field
 
 ### Deferred
+
 - Full field-by-field audit of ClassificationJob's ~20 optional detail fields (bucketCriteria, bucketDefinitions, statistics, userPausedDetails, managedDataIdentifierSelector, etc.) against DescribeClassificationJobOutput
 - Finding struct full field audit against real Finding shape (resourcesAffected, classificationDetails, policyDetails, etc.) -- CreateSampleFindings/GetFindings currently populate only a reduced field set
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

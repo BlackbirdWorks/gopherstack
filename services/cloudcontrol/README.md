@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/cloudcontrol@v1.29.15` · last audited 2026-07-13 (`0689b86e`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 8 (8 ok) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 3 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - cloudcontrol keeps its own generic resource store; it does NOT delegate to the real per-service backend (e.g. AWS::S3::Bucket via CreateResource does not create a row visible to services/s3's ListBuckets, and vice versa). This is explicitly allowed by the task brief (either design is parity-correct) but is a real cross-service gap for any test that mixes CloudControl and native-service calls against the same logical resource. No bd issue filed yet -- flagging for triage.
 - ProgressEvent is still missing ErrorCode, RetryAfter, and HooksRequestToken (all real fields per types.ProgressEvent). Not fixed this pass: backend never produces a FAILED/async-pending terminal state (every op completes synchronously to SUCCESS), so these fields would always be empty/unused today. Worth adding if/when an async FAILED path is implemented.
 - TypeNotFoundException (extension not registered in the CFN registry) is unreachable: this backend has no type registry, so any well-formed TypeName (ns::svc::type) is implicitly accepted. Not fixed -- would require building a registry concept out of scope for this pass.
 
 ### Deferred
+
 - Full errCodeLookup coverage for the remaining documented-but-unreachable exceptions (ThrottlingException, ServiceLimitExceededException, HandlerFailureException, NotStabilizedException, NotUpdatableException, ResourceConflictException, PrivateTypeException, GeneralServiceException, NetworkFailureException, InvalidCredentialsException, HandlerInternalFailureException, ConcurrentOperationException, ClientTokenConflictException). None of these are currently producible by this backend's logic (no chaos-injection wiring specific to cloudcontrol beyond the generic ChaosServiceName/ChaosOperations hooks), so adding dead mapping cases was judged out of scope/gold-plating this pass. Revisit if chaos fault injection or a richer validation model is added.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

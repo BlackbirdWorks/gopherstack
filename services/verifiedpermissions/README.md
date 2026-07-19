@@ -4,21 +4,25 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/verifiedpermissions@v1.31.4` · last audited 2026-07-13 (`b9f40060`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 30 (30 ok) |
 | Known gaps | 3 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetPolicy/ListPolicies/BatchGetPolicy: STATIC policy views don't echo top-level principal/resource parsed from the Cedar statement's scope clause (AWS parses the actual permit/forbid scope; gopherstack only populates principal/resource for TEMPLATE_LINKED policies). Fixing this needs Cedar AST scope introspection via cedar-go, out of scope for this pass.
 - IsAuthorizedWithToken/BatchIsAuthorizedWithToken: principalFromToken always resolves the principal type from the FIRST identity source in the policy store and does not match the token's issuer/aud against a specific identity source, nor verify the JWT signature. Documented simplification of the identity-source-selection logic, not a wire-shape bug.
 - GetPolicyStore/ListPolicyStores: optional CedarVersion field (Cedar v4 FAQ) never populated -- SDK-optional field, no client breakage, low priority.
 
 ### Deferred
+
 - CreatePolicyStore ClientToken idempotency semantics (real AWS treats a retried ClientToken with different params as ConflictException; gopherstack ignores ClientToken entirely)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

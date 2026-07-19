@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/docdb@v1.48.11` · last audited 2026-07-12 (`7d9bd038`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 55 (49 ok, 3 partial, 3 deferred) |
 | Feature families | 8 (7 ok, 1 partial) |
 | Known gaps | 4 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GlobalCluster has no GlobalClusterMembers subresource: CreateGlobalCluster doesn't add the source cluster as a member, DescribeGlobalClusters always reports an empty member list, RemoveFromGlobalCluster is a members-list no-op (bd: file follow-up)
 - DescribeEvents / DescribePendingMaintenanceActions / ApplyPendingMaintenanceAction have no real backing state (always return empty / don't validate the target resource exists) -- this matches the already-audited neptune service's precedent for the same DocDB/Neptune/RDS-family operations, not a new regression
 - xmlDBClusterParameter (DescribeDBClusterParameters / DescribeEngineDefaultClusterParameters) omits the optional ApplyMethod field AWS's Parameter shape carries -- cosmetic, does not break deserialization
 - CopyDBClusterSnapshot doesn't stamp a fresh SnapshotCreateTime on the copy (source snapshot's various fields are copied but not this one) -- cosmetic
 
 ### Deferred
+
 - GlobalCluster member-tracking feature work (see gaps)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

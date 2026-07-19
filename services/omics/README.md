@@ -4,22 +4,26 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/omics@v1.45.0` · last audited 2026-07-12 (`42cff5ce`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Feature families | 25 (25 ok) |
 | Known gaps | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - List* ops (ListRuns, ListWorkflows, ListRunTasks, ListWorkflowVersions, ListBatch, ListRunsInBatch, *ImportJobs) accept optional filter/name/status/type/ids query or body params on real AWS; InMemoryBackend signatures don't take them so filtering silently no-ops (bd: gopherstack-jxc5)
 - DeleteBatch has no terminal-state precondition (real AWS requires PROCESSED/FAILED/CANCELLED/RUNS_DELETED before allowing the batch resource to be deleted) (bd: gopherstack-x7qq)
 - CreateWorkflow/StartRun response envelopes omit optional uuid/configuration/networkingMode/runOutputUri fields (wire-safe since they're pointer-optional on the SDK side, just lower fidelity) (bd: gopherstack-fedo)
 
 ### Deferred
+
 - Field-by-field diff of S3AccessPolicy body shape against the SDK model
 - Field-by-field diff of ReferenceMetadata/ReadSetMetadata optional fields (Md5, file-type sub-objects) against the SDK model
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

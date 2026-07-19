@@ -4,14 +4,16 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/autoscaling@v1.64.2` · last audited 2026-07-12 (`d125027b`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 66 (66 ok) |
 | Known gaps | 7 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - ASG->EC2 real instance provisioning is simulated only (Instance is a fake record, not backed by an ec2 resource) (bd: gopherstack-8sk) - NOT fixed this pass per scope
 - ASG/ECS->ELBv2 target registration is simulated only (TargetGroupARNs/LoadBalancerNames are stored but never actually register targets with elbv2) (bd: gopherstack-18k) - NOT fixed this pass per scope
 - Scheduled actions (Put/BatchPut) now correctly persist StartTime/EndTime/Recurrence, but there is no background scheduler goroutine that actually executes them at the scheduled time/cron - Describe reflects what was requested, but nothing fires it. Filed as gopherstack-6ys for follow-up; deliberately not attempted this pass (a correct cron-parsing+ticker engine is a separate, sizable feature, not a quick wire fix, and getting it wrong risks a new leak class)
@@ -21,9 +23,11 @@
 - CreateAutoScalingGroupInput fields not wired up: AvailabilityZoneDistribution, AvailabilityZoneImpairmentPolicy, CapacityReservationSpecification, DeletionProtection, InstanceLifecyclePolicy, InstanceMaintenancePolicy, SkipZonalShiftValidation (all newer/niche SDK additions); not attempted this pass - deferred, no bd id filed yet (low real-world usage relative to MixedInstancesPolicy/LifecycleHookSpecificationList, which WERE fixed)
 
 ### Deferred
+
 - InstanceRequirements-based MixedInstancesPolicy overrides (attribute-based instance selection) - only InstanceType-based overrides are parsed/returned
 - PredictiveScalingConfiguration (Put/Describe are not in GetSupportedOperations at all - predictive scaling policy *configuration* management, as opposed to GetPredictiveScalingForecast, was out of scope for this pass; confirmed the SDK op list has no separate op for this, it rides inside PutScalingPolicy's PolicyType=PredictiveScaling with a nested config this handler does not parse)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

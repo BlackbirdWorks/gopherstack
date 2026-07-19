@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/glacier@v1.32.4` · last audited 2026-07-12 (`2b6e7cfbeda75dd7c0cf87e417157275792ac5e3`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 33 (33 ok) |
 | Feature families | 4 (2 ok, 2 deferred) |
 | Known gaps | 2 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Select-job type unsupported (bd: file if range/Select support requested)
 - InventoryRetrievalParameters range-filtering unsupported (bd: file if requested)
 
 ### Deferred
+
 - Select jobs (SelectParameters/OutputLocation/CSVInput/CSVOutput)
 - InventoryRetrievalParameters range inventory retrieval
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

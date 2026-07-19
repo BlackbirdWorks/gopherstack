@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/glue@v1.137.2` · last audited 2026-07-12 (`a8c6614b`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 52 (49 ok, 3 partial) |
 | Feature families | 13 (3 ok, 2 partial, 8 deferred) |
 | Known gaps | 7 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CrawlerTarget missing DynamoDBTargets/DeltaTargets/HudiTargets/IcebergTargets/MongoDBTargets (only S3/JDBC/Catalog modeled) (bd: gopherstack-qd3.1)
 - CreateCrawler/UpdateCrawler missing SchemaChangePolicy, RecrawlPolicy, LineageConfiguration, CrawlerSecurityConfiguration, LakeFormationConfiguration (bd: gopherstack-qd3.2)
 - DatabaseInput/Database missing Parameters, LocationUri, CreateTableDefaultPermissions, TargetDatabase (bd: gopherstack-qd3.3)
@@ -22,6 +24,7 @@
 - PutResourcePolicy does not model EnableHybrid (bd: gopherstack-qd4.2)
 
 ### Deferred
+
 - workflows
 - dev endpoints
 - security configurations
@@ -30,5 +33,6 @@
 - …and 5 more — see PARITY.md
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

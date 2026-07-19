@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/sagemaker@v1.236.0` · last audited 2026-07-12 (`32733a415`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 22 (22 ok) |
 | Feature families | 21 (4 ok, 17 deferred) |
 | Known gaps | 3 |
@@ -13,11 +14,13 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Pagination across the service is a hand-rolled integer-offset NextToken (parseNextToken/strconv.Atoi) rather than pkgs/page's opaque-token helper. Functionally correct (AWS clients treat NextToken as opaque) and internally consistent, but is a pkgs-catalog convention deviation across ~15 call sites. Not fixed this pass — refactor is cross-cutting and out of budget for a single-family sweep. (no bd issue filed yet)
 - ProductionVariantSummary.VariantStatus is populated with a single synthetic {Status: "Creating"|"InService"} entry, not a full AWS VariantStatus enum/message model (StatusMessage is always empty, no DeployedImages/CapacityReservationConfig/ManagedInstanceScaling/RoutingConfig fields). Sufficient for status-polling clients; deeper fidelity deferred. (no bd issue filed yet)
 - 9+ families deferred entirely (see families: above) — Domain/App/UserProfile/Space, Pipeline, Experiment/Trial, FeatureStore, ModelPackage, AutoML, Lineage, EdgeDeployment, Labeling, Hub, Cluster, TrainingPlan, MonitoringSchedule/Workteam/CompilationJob — none wire-audited this pass, only spot-checked for stub-vs-real dispatch wiring. Next audit pass should pick 2-3 of these per sweep given the service's size (~47k LOC).
 
 ### Deferred
+
 - processing_transform_job (wire-shape field audit)
 - notebook_instance (wire-shape field audit)
 - hyperparameter_tuning_job
@@ -26,5 +29,6 @@
 - …and 12 more — see PARITY.md
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

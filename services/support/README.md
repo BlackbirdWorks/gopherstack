@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/support@v1.31.23` · last audited 2026-07-13 (`139000b9`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 16 (16 ok) |
 | Feature families | 3 (3 ok) |
 | Known gaps | none |
@@ -13,8 +14,10 @@
 | Resource leaks | clean |
 
 ### Deferred
+
 - integration test suite (test/integration/*_parity_test.go) was not run this pass — only unit tests; see parity-principles.md note 3 that unit tests are not full proof. No SDK client round-trip was exercised.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

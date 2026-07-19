@@ -4,8 +4,9 @@
 **Parity grade: B** · SDK `aws-sdk-go-v2/service/pipes@v1.23.18` · last audited 2026-07-13 (`5d5b2188`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 10 (10 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 3 |
@@ -13,10 +14,12 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreatePipe/UpdatePipe do not validate RoleArn is non-empty, though the real SDK marks it required (validateOpCreatePipeInput/validateOpUpdatePipeInput). Deliberately NOT fixed this pass: a real aws-sdk-go-v2 client client-side-validates RoleArn before ever sending the request (smithy validators.go), so this only matters for non-SDK/raw-HTTP callers, and enforcing it breaks ~340 existing subtests across audit_batch1-4/handler_test/isolation_test/etc. that build CreatePipe/UpdatePipe bodies without RoleArn. Low value / high test-churn tradeoff -- revisit only if a raw-HTTP parity test specifically needs it.
 - Runner (runner.go) only polls SQS sources (isSQSARN gate in pollPipe) -- Kinesis, DynamoDB Streams, MSK, self-managed Kafka, RabbitMQ, and ActiveMQ sources are modeled in CreatePipe/UpdatePipe/DescribePipe wire shapes but a RUNNING pipe with one of those sources never actually polls or forwards events. No control-plane bug (Describe/List still report CurrentState=RUNNING correctly), but a real EXECUTION gap. Cross-service follow-up, not in services/pipes/'s edit scope to fix (would need new source-reader adapters in cli.go plus backend hooks in kinesis/dynamodb/kafka-shaped services).
 - cli.go's wirePipesRunner (cli.go:6592) only wires SQS as source and Lambda+StepFunctions as target/enrichment invokers. SNS, SQS, Kinesis, EventBridge, CloudWatchLogs, and Firehose TARGET invokers (Runner.Set{SNSPublisher,SQSSender,KinesisPutter,EventBridgePutter,CloudWatchLogsPutter,FirehosePutter}) and both DLQ senders (sqsSender/sns for handlePipeFailure) are never set, so a RUNNING SQS-sourced pipe targeting any of those services will poll+enrich correctly but every invokeXTarget call returns ErrTargetInvokerUnwired and the source message is left unconsumed (and DLQ delivery silently fails the same way). Cross-service wiring gap in cli.go, out of services/pipes/'s edit scope; needs adapter structs analogous to pipesSQSReaderAdapter/pipesSFNStarterAdapter for each target service's backend.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

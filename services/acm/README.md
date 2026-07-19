@@ -4,23 +4,27 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/acm@v1.37.21` · last audited 2026-07-13 (`024e43bf`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 16 (16 ok) |
 | Known gaps | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CertificateSummary (ListCertificates) omits optional AWS fields Exported/ExportOption/InUse/ManagedBy/KeyUsages/ExtendedKeyUsages/HasAdditionalSubjectAlternativeNames entirely; not wired to any backend tracking. Deferred as a feature gap, not a wire bug (fields are optional on the real wire too).
 - CertificateDetail omits ManagedBy (AWS: which service, e.g. CLOUDFRONT, manages the cert) — no backend concept of managed-by exists. Feature gap, not audited further this pass.
 - Malformed/garbage ARNs on read ops (Describe/Get/Export/Renew/etc.) return ResourceNotFoundException; real AWS returns InvalidArnException for arns that fail ARN-shape validation before the not-found check. Not fixed this pass (low traffic path, needs ARN-shape validator).
 
 ### Deferred
+
 - CertificateSummary optional-field parity (Exported/ManagedBy/etc., see gaps)
 - InvalidArnException vs ResourceNotFoundException distinction on malformed ARNs
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/acm.md)
 - [All services](../../README.md#services)

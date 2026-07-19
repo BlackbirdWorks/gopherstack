@@ -186,6 +186,69 @@ function copyPresignedUrl() {
 navigator.clipboard.writeText(presignedUrl).then(() => toast.success('URL copied')).catch(() => toast.error('Failed to copy'));
 }
 
+const MAX_TEXT_BYTES = 10240;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+type PreviewKind = 'image' | 'json' | 'text' | 'binary';
+
+// Classify how an object should be previewed, based on its content type and key.
+function classifyPreviewKind(contentType: string, key: string): PreviewKind {
+if (contentType.startsWith('image/')) return 'image';
+if (contentType === 'application/json' || key.endsWith('.json')) return 'json';
+if (contentType.startsWith('text/') || key.endsWith('.txt') || key.endsWith('.log') || key.endsWith('.csv')) return 'text';
+return 'binary';
+}
+
+async function fetchPreviewTextBytes(size: number): Promise<Uint8Array | undefined> {
+const rangeEnd = Math.min(MAX_TEXT_BYTES, size > 0 ? size - 1 : MAX_TEXT_BYTES) - 1;
+const res = await s3.send(new GetObjectCommand({
+Bucket: bucket,
+Key: objectKey,
+Range: `bytes=0-${rangeEnd}`
+}));
+return res.Body?.transformToByteArray();
+}
+
+function setBinaryPreview(size: number) {
+previewType = 'binary';
+previewBinarySize = size;
+}
+
+async function prepareImagePreview(contentType: string, size: number) {
+if (size > MAX_IMAGE_BYTES) {
+setBinaryPreview(size);
+return;
+}
+const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+const bytes = await res.Body?.transformToByteArray();
+if (!bytes) return;
+previewType = 'image';
+previewBlobUrl = URL.createObjectURL(new Blob([bytes], { type: contentType }));
+}
+
+async function prepareJsonPreview(size: number) {
+const bytes = await fetchPreviewTextBytes(size);
+if (!bytes) return;
+const text = new TextDecoder().decode(bytes);
+previewType = 'json';
+try {
+previewContent = JSON.stringify(JSON.parse(text), null, 2);
+} catch {
+previewContent = text;
+}
+}
+
+async function prepareTextPreview(size: number) {
+const bytes = await fetchPreviewTextBytes(size);
+if (!bytes) return;
+const text = new TextDecoder().decode(bytes);
+previewType = 'text';
+previewContent = text;
+if (size > MAX_TEXT_BYTES) {
+previewContent += `\n\n... (truncated, showing first 10KB of ${formatBytes(size)})`;
+}
+}
+
 async function loadPreview() {
 previewLoading = true;
 previewVisible = true;
@@ -193,49 +256,18 @@ if (previewBlobUrl) {
 URL.revokeObjectURL(previewBlobUrl);
 previewBlobUrl = null;
 }
-const MAX_TEXT_BYTES = 10240;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ct = metadata?.ContentType ?? '';
 const size = metadata?.ContentLength ?? 0;
 try {
-if (ct.startsWith('image/')) {
-if (size > MAX_IMAGE_BYTES) {
-previewType = 'binary';
-previewBinarySize = size;
-return;
-}
-const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
-const bytes = await res.Body?.transformToByteArray();
-if (!bytes) return;
-previewType = 'image';
-previewBlobUrl = URL.createObjectURL(new Blob([bytes], { type: ct }));
-} else if (ct === 'application/json' || objectKey.endsWith('.json') || ct.startsWith('text/') || objectKey.endsWith('.txt') || objectKey.endsWith('.log') || objectKey.endsWith('.csv')) {
-const rangeEnd = Math.min(MAX_TEXT_BYTES, size > 0 ? size - 1 : MAX_TEXT_BYTES) - 1;
-const res = await s3.send(new GetObjectCommand({
-Bucket: bucket,
-Key: objectKey,
-Range: `bytes=0-${rangeEnd}`
-}));
-const bytes = await res.Body?.transformToByteArray();
-if (!bytes) return;
-const text = new TextDecoder().decode(bytes);
-if (ct === 'application/json' || objectKey.endsWith('.json')) {
-previewType = 'json';
-try {
-previewContent = JSON.stringify(JSON.parse(text), null, 2);
-} catch {
-previewContent = text;
-}
+const kind = classifyPreviewKind(ct, objectKey);
+if (kind === 'image') {
+await prepareImagePreview(ct, size);
+} else if (kind === 'json') {
+await prepareJsonPreview(size);
+} else if (kind === 'text') {
+await prepareTextPreview(size);
 } else {
-previewType = 'text';
-previewContent = text;
-if (size > MAX_TEXT_BYTES) {
-previewContent += `\n\n... (truncated, showing first 10KB of ${formatBytes(size)})`;
-}
-}
-} else {
-previewType = 'binary';
-previewBinarySize = size;
+setBinaryPreview(size);
 }
 } catch (e) {
 toast.error(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);

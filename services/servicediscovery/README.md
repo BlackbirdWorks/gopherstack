@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/servicediscovery@v1.39.24` · last audited 2026-07-13 (`6bf60b6f`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 30 (30 ok) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 3 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - ListNamespaces/ListServices/ListOperations Filters only implement the most common Name values (TYPE/NAME, NAMESPACE_ID, STATUS/TYPE respectively); HTTP_NAME, RESOURCE_OWNER (cross-account sharing, not emulated at all), NAMESPACE_ID/SERVICE_ID/UPDATE_DATE on ListOperations, and Condition (EQ/IN/BETWEEN/BEGINS_WITH, always treated as EQ-on-first-value) are unimplemented
 - UpdateServiceAttributes has no attribute-count/size quota enforcement (real AWS: ServiceAttributesLimitExceededException); no documented exact limit found in the SDK comments to implement against with confidence
 - GetInstancesHealthStatus/DiscoverInstances never surface HealthStatus=UNKNOWN; real Cloud Map instances backed by an AWS-managed HealthCheckConfig start UNKNOWN until the Route53 health check propagates. Gopherstack has no Route53 health-check subsystem to drive this, so all instances are HEALTHY until explicitly marked UNHEALTHY via UpdateInstanceCustomHealthStatus (which itself requires HealthCheckCustomConfig, now correctly enforced)
 
 ### Deferred
+
 - CreateService (namespaceID, name) uniqueness / ServiceAlreadyExists: current backend allows duplicate (namespaceID, name) pairs with documented last-write-wins semantics for DiscoverInstances/DiscoverInstancesRevision lookup (see serviceNsNameKeyFn / DiscoverInstances comments in backend.go). Real AWS types/errors.go defines ServiceAlreadyExists but its exact trigger condition (name collision vs CreatorRequestId retry) isn't unambiguous from SDK doc comments alone; left as-is to avoid an unverified behavior change on top of an already load-bearing design decision from a prior audit pass
 - Cross-account/shared-namespace support (ResourceOwner, OwnerAccount, ARN-as-Id acceptance for shared services) -- not emulated anywhere in this backend; single-account model throughout
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

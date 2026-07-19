@@ -344,7 +344,7 @@ func (b *InMemoryBackend) CancelRotateSecret(
 
 func (b *InMemoryBackend) ensureRotationScheduler() {
 	b.schedulerOnce.Do(func() {
-		go b.rotationSchedulerLoop()
+		b.schedulerWG.Go(b.rotationSchedulerLoop)
 	})
 }
 
@@ -371,6 +371,11 @@ func (b *InMemoryBackend) StopRotationScheduler() {
 	}
 
 	b.schedulerStopOnce.Do(func() { close(b.schedulerStop) })
+
+	// Join the scheduler goroutine so that, once this returns, the caller
+	// knows it has exited. Safe from deadlock: no caller holds b.mu here, and
+	// the loop only acquires it inside runScheduledRotations.
+	b.schedulerWG.Wait()
 }
 
 func (b *InMemoryBackend) runScheduledRotations(now time.Time) {

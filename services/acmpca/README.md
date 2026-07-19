@@ -4,14 +4,16 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/acmpca@v1.46.10` · last audited 2026-07-13 (`87c87b39`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 23 (22 ok, 1 partial) |
 | Known gaps | 8 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreateCertificateAuthority/IssueCertificate IdempotencyToken is accepted but not deduplicated (no 5-minute idempotency window)
 - ListCertificateAuthorities ResourceOwner filter (SELF vs OTHER_ACCOUNTS) is accepted but ignored — no cross-account CA sharing model exists
 - ListTags does not paginate (MaxResults/NextToken accepted but the full tag set is always returned in one page) — low risk since AWS caps tags at 50 per CA
@@ -22,9 +24,11 @@
 - CA ARNs use a 32-char hex ID (crypto/rand) rather than AWS's UUID-with-dashes format; opaque to SDK clients so functionally harmless, but a client-side regex validating ARN shape against the literal AWS UUID pattern would reject it
 
 ### Deferred
+
 - APIPassthrough / custom X.509 extensions on IssueCertificate (templates) — not implemented, Extensions/ApiPassthrough input silently ignored
 - TemplateArn on IssueCertificate — silently ignored
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

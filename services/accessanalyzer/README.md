@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/accessanalyzer@v1.48.0` · last audited 2026-07-12 (`7d7a3363`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 39 (33 ok, 6 partial) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 4 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetFindingV2/ListFindingsV2 findingDetails ([]types.FindingDetails union) and findingType always empty/absent -- large feature (5 distinct nested detail shapes: ExternalAccessDetails, UnusedIAMRoleDetails, UnusedIAMUserAccessKeyDetails, UnusedIAMUserPasswordDetails, UnusedPermissionDetails) not modeled by InMemoryBackend at all; fabricating one shape would itself be a disguised partial stub, so left as an explicit gap per parity-principles #1 rather than fixed this pass. No bd issue filed yet.
 - ListAccessPreviewFindings returns the v1 Finding shape instead of AccessPreviewFinding (missing changeType/existingFindingId/existingFindingStatus). No bd issue filed yet.
 - UpdateAnalyzer's Configuration (AnalyzerConfiguration union, used for internal/unused-access analyzer settings) is accepted on neither request read nor persisted; response always returns an empty configuration object. Low impact since Configuration is optional on the wire.
 - pathAnalyzedResource ("analyzedResource", camelCase, no hyphen) is dead legacy routing left over from before the real "analyzed-resource" (hyphenated) path was added; RouteMatcher still claims it but parseRESTPath/parseRESTPathAppendixA never resolve an op for it, so it 404s. Harmless (no real SDK client sends this path) but worth deleting in a future cleanup pass.
 
 ### Deferred
+
 - backend.go/backend_appendixa.go internal locking/persistence audited only incidentally (via the findingToJSON accountID threading change); no correctness issues observed, but a dedicated pass wasn't done this round
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

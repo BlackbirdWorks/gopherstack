@@ -4,8 +4,9 @@
 **Parity grade: B** · SDK `aws-sdk-go-v2/service/mediastoredata@v1.29.19` · last audited 2026-07-13 (`669b02ee0e53a5fb8796a317745e41f80638e107`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 5 (4 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 3 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - PutObject's ad-hoc validation error codes (InvalidPathException, InvalidStorageClassException, InvalidContentSHA256Exception) are not part of the real mediastoredata SDK's error model (types/errors.go only defines ContainerNotFoundException, InternalServerError, ObjectNotFoundException, RequestedRangeNotSatisfiableException). A conformant SDK client can never trigger these paths anyway (client-side validators.go rejects nil/empty Path before the request is even sent), so this only affects raw-HTTP/curl-style callers; the SDK itself degrades gracefully to smithy.GenericAPIError on an unrecognized __type. Left as-is (no known correct replacement code exists in the model); not fixed this pass.
 - x-amz-upload-availability STREAMING is stored/echoed but has no real chunked/progressive-download semantics (an object is only ever visible after PutObject fully returns) -- real MediaStore streams partial reads to STREAMING objects while still uploading and ignores Range for such objects mid-upload. Not modeled; would require a bigger feature (partial/chunked PutObject) to emulate faithfully.
 - ContainerNotFoundException (a real modeled error) is never returned by this handler -- mediastoredata has no notion of containers in gopherstack's per-region flat object store (containers are provisioned by the separate mediastore service, not mediastoredata). Deferred: would require cross-referencing services/mediastore's container registry, which is out of scope for a mediastoredata-only pass (cross-service change).
 
 ### Deferred
+
 - cross-service container-existence validation against services/mediastore (see gaps)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

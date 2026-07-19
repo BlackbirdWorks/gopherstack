@@ -4,21 +4,25 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/transfer@v1.69.4` · last audited 2026-07-12 (`1c6af314`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Feature families | 15 (12 ok, 2 partial, 1 deferred) |
 | Known gaps | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreateWebApp does not accept IdentityProviderDetails (required in real AWS) or EndpointDetails/AccessEndpoint/WebAppEndpointPolicy/WebAppUnits at creation; backend WebApp model has no fields for the latter four (bd: gopherstack-h2aa)
 - ImportSshPublicKey does not validate that UserName exists on the server before importing a key; real-AWS behavior unconfirmed (bd: gopherstack-ujj5)
 
 ### Deferred
+
 - SecurityPolicy family: catalog contents not diffed against current real AWS policy names/algorithms this pass
 - StartFileTransfer/StartDirectoryListing/StartRemoteDelete/StartRemoteMove: reviewed for stub-vs-real but not wire-shape-diffed field-by-field against the real Output shapes
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

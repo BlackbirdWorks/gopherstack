@@ -4,22 +4,26 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/apigatewayv2@v1.33.7` · last audited 2026-07-11 (`d6fae6df`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 77 (73 ok, 4 partial) |
 | Known gaps | 3 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - authorizerCache not purged on DeleteAPI; self-heals via TTL, low severity (bd: gopherstack-wmh)
 - RoutingRule Actions/Conditions untyped passthrough instead of AWS union shapes (bd: gopherstack-e81)
 - "Quick-create route/stage immutability not enforced: AWS docs state the $default route key can't be modified and the $default stage can't be modified once quick-created, but this pass only added the apiGatewayManaged flag + the Create/UpdateApi provisioning behavior itself (gopherstack-2tx's original scope) -- it does NOT block UpdateRoute/DeleteRoute/UpdateStage/DeleteStage on a managed route/stage, or DeleteIntegration on a managed integration. Deliberately deferred: the exact AWS error code/message for these rejections isn't verifiable from the Go SDK alone (it's server-side business logic, not encoded in serializers.go), and guessing at unverified error shapes would itself violate the wire-verification principle. Needs a bd issue (not yet filed by this pass)."
 
 ### Deferred
+
 - Portal / PortalProduct / ProductPage / ProductRestEndpointPage families (newer preview feature, not in this pass's declared op list)
 - RoutingRule typed action/condition validation (see gaps)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

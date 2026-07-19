@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/directoryservice@v1.38.20` · last audited 2026-07-12 (`1c6af314f4ed210dbc03be80042c6af2aa07448f`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 80 (80 ok) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 2 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - RegisterCertificate hardcodes CommonName="example.com" instead of parsing CertificateData's X.509 subject; low-impact emulation shortcut, no wire/error divergence (no bd issue filed -- flag if a client asserts on CommonName)
 - StartADAssessment/CreateTrust/ShareDirectory etc. complete synchronously instead of AWS's async in-progress states (e.g. no "Creating"/"Sharing"/"Verifying" transient states observable by a fast poller); acceptable for emulation, but a client that asserts on an intermediate state would diverge (no bd issue filed)
 
 ### Deferred
+
 - RegionType/RegionStatus enum value fidelity for AddRegion/DescribeRegions (values used: "Additional"/"Active" -- not cross-checked against the full RegionType/DirectoryStage enum in aws-sdk-go-v2/service/directoryservice/types/enums.go)
 - TrustState/TrustDirection/TrustType free-form validation (CreateTrust accepts any string for TrustDirection/TrustType rather than validating against the SDK's TrustDirection/TrustType enums)
 - LDAPSType/AuthType/UpdateType free-form validation (same free-string-accepted pattern across LDAPS, ClientAuthentication and UpdateDirectorySetup)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

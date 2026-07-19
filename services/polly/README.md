@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/polly@v1.57.5` · last audited 2026-07-13 (`b0d0cfe0`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 13 (12 ok, 1 partial) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 8 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - TagResource/UntagResource/ListTagsForResource + the /v1/tags/{arn} routes are NOT part of the real Amazon Polly API (confirmed: aws-sdk-go-v2/service/polly has no such api_op_*.go files, and service-2.json's operation list omits them entirely). This is gopherstack-invented functionality, not a wire-shape bug -- no genuine SDK client can reach these routes, so it's harmless, but it is not real AWS surface. Left in place (fully functional, not a stub) rather than removed, since removal is a larger behavioral change outside a parity-bugfix pass. (bd: file follow-up to confirm intentional and document, or remove)
 - Built-in voice catalogue (backend.go builtInVoices) covers ~90 of the real ~112 VoiceId enum values from aws-sdk-go-v2/service/polly/types. Missing IDs include Geraint, Zeina, Hiujin, Tomoko, Zayd, Danielle, Gregory, Jitka, Sabrina, Jasmine, Jihye, Ambre, Beatrice, Florian, Lennart, Lorenzo, Tiffany, Andres, and Arabic (arb) support. Not fabricated data -- a real but incomplete subset. Completing the catalogue is a larger, lower-risk-tolerance change deferred from this pass.
 - PutLexicon does not implement LexiconSizeExceededException, MaxLexemeLengthExceededException, MaxLexiconsNumberExceededException, UnsupportedPlsAlphabetException, or UnsupportedPlsLanguageException -- these require new quota/PLS-schema validation logic (not just error-type remapping of existing checks) and exact AWS quota numbers that were not available to verify confidently in this pass.
@@ -23,6 +25,7 @@
 - StartSpeechSynthesisStream's error taxonomy stays generic InvalidParameterValueException; the real op's documented errors are ValidationException/ServiceQuotaExceededException/ThrottlingException, none of which map cleanly onto today's validation without additional behavioral changes (e.g., real throttling simulation). Deferred.
 
 ### Deferred
+
 - StartSpeechSynthesisStream error taxonomy
 - Lexicon quota/PLS-schema validation (LexiconSizeExceeded, MaxLexemeLength, MaxLexiconsNumber, UnsupportedPlsAlphabet/Language)
 - S3 bucket/key and SNS topic ARN format validation on StartSpeechSynthesisTask
@@ -30,5 +33,6 @@
 - Full VoiceId catalogue completion
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

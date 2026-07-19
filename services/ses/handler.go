@@ -9,13 +9,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
@@ -34,11 +34,9 @@ const (
 
 // Handler is the Echo HTTP handler for SES operations.
 type Handler struct {
-	Backend       StorageBackend
-	janitor       *Janitor
-	janitorCancel context.CancelFunc
-	janitorDone   chan struct{}
-	janitorMu     sync.Mutex
+	Backend    StorageBackend
+	janitor    *Janitor
+	janitorRun worker.SingleRun
 }
 
 // NewHandler creates a new SES handler with the given backend and logger.
@@ -72,57 +70,14 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		return nil
 	}
 
-	runCtx, done, ready := h.startJanitorLocked(ctx)
-	if !ready {
-		return nil
-	}
-
-	go func() {
-		defer close(done)
-		h.janitor.Run(runCtx)
-	}()
+	h.janitorRun.Start(ctx, h.janitor)
 
 	return nil
 }
 
-// startJanitorLocked initializes the janitor's run context and done channel
-// under janitorMu. It returns ready=false without side effects if a janitor
-// run is already active.
-func (h *Handler) startJanitorLocked(ctx context.Context) (context.Context, chan struct{}, bool) {
-	h.janitorMu.Lock()
-	defer h.janitorMu.Unlock()
-
-	if h.janitorDone != nil {
-		return nil, nil, false
-	}
-
-	runCtx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	h.janitorCancel = cancel
-	h.janitorDone = done
-
-	return runCtx, done, true
-}
-
 // Shutdown stops the janitor worker and waits for it to exit.
 func (h *Handler) Shutdown(ctx context.Context) {
-	h.janitorMu.Lock()
-	cancel := h.janitorCancel
-	done := h.janitorDone
-	h.janitorCancel = nil
-	h.janitorDone = nil
-	h.janitorMu.Unlock()
-
-	if cancel == nil || done == nil {
-		return
-	}
-
-	cancel()
-
-	select {
-	case <-done:
-	case <-ctx.Done():
-	}
+	h.janitorRun.Stop(ctx)
 }
 
 // Reset clears all in-memory state. Used by the POST /_gopherstack/reset endpoint.

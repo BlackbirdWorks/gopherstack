@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/firehose@v1.42.11` · last audited 2026-07-11 (`2b2086c9`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 12 (12 ok) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 3 |
@@ -13,16 +14,19 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - > Redshift destination does not model AWS's actual two-hop delivery (Firehose stages records to the S3Configuration bucket, then issues a COPY command referencing CopyCommand against that staged data). This backend instead executes a synthesized INSERT statement directly via the Redshift Data API. Wire shape for CreateDeliveryStream/ UpdateDestination/DescribeDeliveryStream is now correct (S3Configuration and CopyCommand round-trip accurately), but the actual data-movement mechanics diverge behaviorally. Deferred — larger rework than a wire-shape fix, no bd id filed yet.
 - > PutRecord/PutRecordBatch responses omit the optional `Encrypted` boolean field that real AWS returns. Non-breaking (SDK treats it as optional/pointer), noted for completeness only.
 - > CreateDeliveryStream does not validate that at most one destination configuration is supplied per call (UpdateDestination does enforce "exactly one" via applyDestinationUpdate, but Create has no equivalent check). Real AWS rejects a CreateDeliveryStream request naming more than one destination type. Low traffic path; deferred.
 
 ### Deferred
+
 - Redshift real S3-staging + COPY delivery mechanics (see gaps)
 - CreateDeliveryStream multi-destination input validation (see gaps)
 - MSK source ingestion path (present via SourceDescription wire shape; poller behavior not re-verified this pass beyond existing kinesis_source_test.go coverage)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/firehose.md)
 - [All services](../../README.md#services)

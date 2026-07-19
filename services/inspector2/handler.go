@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -212,38 +213,55 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	})
 }
 
-//nolint:cyclop // exhaustive path-to-operation mapping is inherently complex
+// onceCoreRoutes lazily builds the method+path -> operation lookup table for
+// classifyPath's exact-match routes (everything except the /tags/ prefix
+// routes, which vary by method rather than by exact path -- see
+// classifyTagsPath), exactly once.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
+var onceCoreRoutes = sync.OnceValue(func() map[routeKey]string {
+	return map[routeKey]string{
+		{http.MethodPost, pathEnable}:              opEnable,
+		{http.MethodPost, pathDisable}:             opDisable,
+		{http.MethodPost, pathStatusBatchGet}:      opBatchGetAccountStatus,
+		{http.MethodPost, pathFiltersCreate}:       opCreateFilter,
+		{http.MethodPost, pathFiltersUpdate}:       opUpdateFilter,
+		{http.MethodPost, pathFiltersDelete}:       opDeleteFilter,
+		{http.MethodPost, pathFiltersList}:         opListFilters,
+		{http.MethodPost, pathFindingsList}:        opListFindings,
+		{http.MethodPost, pathConfigurationGet}:    opGetConfiguration,
+		{http.MethodPost, pathConfigurationUpdate}: opUpdateConfiguration,
+	}
+})
+
+// classifyPath maps method+path to its core operation name (the routes
+// handled directly by handleREST's switch), falling back to
+// classifyTagsPath for the /tags/ routes, or opUnknown if nothing matches.
 func classifyPath(method, path string) string {
-	switch {
-	case method == http.MethodPost && path == pathEnable:
-		return opEnable
-	case method == http.MethodPost && path == pathDisable:
-		return opDisable
-	case method == http.MethodPost && path == pathStatusBatchGet:
-		return opBatchGetAccountStatus
-	case method == http.MethodPost && path == pathFiltersCreate:
-		return opCreateFilter
-	case method == http.MethodPost && path == pathFiltersUpdate:
-		return opUpdateFilter
-	case method == http.MethodPost && path == pathFiltersDelete:
-		return opDeleteFilter
-	case method == http.MethodPost && path == pathFiltersList:
-		return opListFilters
-	case method == http.MethodPost && path == pathFindingsList:
-		return opListFindings
-	case method == http.MethodPost && path == pathConfigurationGet:
-		return opGetConfiguration
-	case method == http.MethodPost && path == pathConfigurationUpdate:
-		return opUpdateConfiguration
-	case method == http.MethodGet && strings.HasPrefix(path, pathTagsPrefix):
-		return opListTagsForResource
-	case method == http.MethodPost && strings.HasPrefix(path, pathTagsPrefix):
-		return opTagResource
-	case method == http.MethodDelete && strings.HasPrefix(path, pathTagsPrefix):
-		return opUntagResource
+	if op, ok := onceCoreRoutes()[routeKey{method: method, path: path}]; ok {
+		return op
 	}
 
-	return opUnknown
+	return classifyTagsPath(method, path)
+}
+
+// classifyTagsPath handles the /tags/<resource-arn> routes, whose operation
+// is determined by HTTP method rather than by an exact path match.
+func classifyTagsPath(method, path string) string {
+	if !strings.HasPrefix(path, pathTagsPrefix) {
+		return opUnknown
+	}
+
+	switch method {
+	case http.MethodGet:
+		return opListTagsForResource
+	case http.MethodPost:
+		return opTagResource
+	case http.MethodDelete:
+		return opUntagResource
+	default:
+		return opUnknown
+	}
 }
 
 // filterListRequest is the shared shape of the filterCriteria/maxResults/

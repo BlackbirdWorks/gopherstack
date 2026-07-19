@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/mwaa@v1.40.1` · last audited 2026-07-13 (`e15f163e`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 13 (11 ok, 2 partial) |
 | Feature families | 3 (3 ok) |
 | Known gaps | 4 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreateWebLoginToken does not populate AirflowIdentity/IamIdentity (real AWS returns the calling IAM identity's username/ARN). No caller-identity extraction helper exists in pkgs/ or is derivable within services/mwaa alone (STS's assumed-role/session tracking lives in services/sts and is out of this audit's edit scope); populating these with fabricated values would violate the no-fabricated-data rule, so they are left absent rather than invented. Candidate follow-up: a shared pkgs/ helper that derives caller identity from the SigV4 Authorization header, usable by any service that needs it.
 - CreateEnvironment does not enforce NetworkConfiguration as a required field, nor SubnetIds-must-be-exactly-2 / SecurityGroupIds-must-be-1..5 bounds documented for AWS's CreateEnvironment+NetworkConfiguration shapes. Confirmed via docs.aws.amazon.com/mwaa/latest/API/API_CreateEnvironment.html ("NetworkConfiguration ... Required: Yes") and API_NetworkConfiguration.html (SubnetIds "Fixed number: 2", SecurityGroupIds "1-5"). Not fixed this pass: ~10+ existing tests across audit_batch1/2_test.go and backend_test.go construct create requests with 0 or 1 subnet and rely on today's lenient behavior; tightening this needs a coordinated test sweep. gopherstack is a strict superset of valid inputs here (permissive, not incorrect-output), so it was deprioritized behind the Update wire-shape bug (which actively breaks a legitimate real-client call). Tracked for a follow-up bd issue.
 - InvokeRestApi always synthesizes a 200 success with an empty RestApiResponse regardless of the fabricated Path/Method; it never returns RestApiClientException/RestApiServerException (which real AWS returns when the underlying Airflow REST call itself 4xx/5xx's). Faithfully emulating arbitrary Airflow REST API behavior per-path is out of scope for this pass; documented here rather than silently left as a "looks real" trap for the next auditor.
 - MethodNotAllowedException (405) is used for HTTP-verb mismatches on matched MWAA path prefixes (e.g. GET /clitoken/{name}). This exception name is not part of the real MWAA API model, but the code path is unreachable by any conformant aws-sdk-go-v2 client (which always sends the correct verb per operation), so it was left as-is rather than spending fix budget on a case no real client can trigger.
 
 ### Deferred
+
 - Chaos/fault-injection interaction with the new ValidationException mappings (not re-audited this pass; ChaosOperations() surface unchanged).
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

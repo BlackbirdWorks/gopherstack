@@ -4,24 +4,28 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/databasemigrationservice@v1.61.8` · last audited 2026-07-12 (`d13e2307f4f1086d83076beb50c1303761fa8369`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 68 (66 ok, 2 partial) |
 | Known gaps | 4 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - DescribeMetadataModel returns an empty {} instead of the real {Definition, MetadataModelName} shape (low-value SCT-adjacent feature; would require modeling schema-conversion SQL text, not attempted this pass).
 - ReloadReplicationTables / ReloadTables do not validate ReplicationTaskArn exists (would 404 on real AWS); currently accept any ARN silently.
 - CreateEndpoint / ModifyEndpoint do not validate EndpointType (source|target) or EngineName against AWS's enum list; accepts arbitrary strings.
 - ApplyPendingMaintenanceAction accepts ApplyAction/OptInType but never tracks a real pending-maintenance-action list (DescribePendingMaintenanceActions always returns empty), so apply is a true no-op on top of an always-empty list -- self-consistent but not a full emulation.
 
 ### Deferred
+
 - DescribeMetadataModel{Assessments,Children,Conversions,Creations,ExportsAsScript,ExportsToTarget,Imports} -- read paths for metadata-model family verified at a high level (backed by real metadataModelRequests table) but not exhaustively wire-checked field-by-field against types.go.
 - Fleet Advisor Lsa Analysis / SchemaObjectSummary / Schemas describe ops -- static/empty responses, not deep-audited (AWS EOL'd 2026-05-20).
 - DescribeApplicableIndividualAssessments / DescribeReplicationTaskIndividualAssessments / DescribeReplicationTaskAssessmentResults -- always-empty lists; the assessment-run lifecycle (Start/Cancel/Delete/DescribeReplicationTaskAssessmentRuns) is real and persisted, but the *results* of an assessment run are never populated. Low value: assessments are informational pre-migration checks, not stateful resources Terraform/SDKs poll for correctness.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/bedrock@v1.56.0` · last audited 2026-07-12 (`01dbe288`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 58 (57 ok, 1 partial) |
 | Feature families | 5 (3 ok, 2 gap) |
 | Known gaps | 6 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - UseCaseForModelAccess (Get/Put): wrong path, wrong method, and wrong body shape (real op takes raw bytes, not JSON). Needs a small redesign, not a route fix. (bd: file follow-up)
 - EnforcedGuardrailConfiguration (List/Put/Delete): wrong path and a completely different resource model than real AWS (ConfigId-keyed vs this impl's guardrailId+version pairs); DeleteEnforcedGuardrailConfiguration real shape takes a path-param configId, this impl takes a query-param guardrailId. Needs a small redesign, not a route fix. (bd: file follow-up)
 - UpdateMarketplaceModelEndpoint: request body (endpointConfig) is accepted but never parsed/applied — the op only bumps updatedAt. Pre-existing, not touched this pass beyond the route/method fix. (bd: file follow-up)
@@ -21,11 +23,13 @@
 - ARP (AutomatedReasoningPolicy) family was spot-checked, not line-by-line re-verified against serializers.go this pass — scope was the 12 named priority families. Deferred to next audit.
 
 ### Deferred
+
 - AutomatedReasoningPolicy (full wire re-verification)
 - PromptRouter
 - ImportedModel
 - FoundationModelAgreement / FoundationModelAvailability (routing looks consistent, response shapes not deeply verified)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/account@v1 (audited against the public AWS Account` · last audited 2026-07-13 (`cafbb3e2`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 14 (14 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 4 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - Account Management is not wired into cli.go's Provider list (no `&accountbackend.Provider{}` entry, no import) -- the service is unreachable from the running gopherstack server even after this fix. Added services/account/provider.go (matching the workspaces/organizations Provider pattern) so wiring is a one-line cli.go change, but cli.go is out of scope for this sweep (hard constraint: no shared-file edits). Needs a bd issue + a cli.go-touching follow-up PR.
 - AccountId targeting of org member accounts is not modeled: GetAlternateContact/PutAlternateContact/DeleteAlternateContact/GetContactInformation/PutContactInformation/ListRegions/GetRegionOptStatus/EnableRegion/DisableRegion/GetAccountInformation/PutAccountName accept an optional AccountId (as AWS's wire contract requires) but operate on the single InMemoryBackend regardless of its value -- there is no per-member-account backend. GetPrimaryEmail/StartPrimaryEmailUpdate/AcceptPrimaryEmailUpdate validate AccountId is present (matching AWS's required-field contract) but likewise don't scope by it. Consistent with this service having always been a single-account backend; true multi-account modeling is a larger cross-service (Organizations-integration) project.
 - EnableRegion/DisableRegion transition directly to the terminal state (ENABLED/DISABLED) instead of an async ENABLING/DISABLING window that a client would poll GetRegionOptStatus to observe. Real AWS takes minutes-to-hours; gopherstack completes immediately. This also means the documented ConflictException ("enable while DISABLING") can never actually fire here -- the window doesn't exist to race into. Not fixed: adding real async state to a Snapshot/Restore-backed backend risks non-deterministic tests and races under -race for a benefit (exercising a transient status) most callers/waiters don't depend on. Revisit if a bd issue specifically needs the transient states simulated.
 - AccessDeniedException/TooManyRequestsException are wired into writeBackendError's classification table (so a backend error carrying that AWS exception name in its message would map to the correct HTTP status/code) but nothing in this backend's logic currently generates either -- there is no auth/permission model or throttle simulation in this service. Dead-but-correct code path; not a bug, just unexercised.
 
 ### Deferred
+
 - none (every routed op audited this pass)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

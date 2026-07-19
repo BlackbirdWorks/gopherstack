@@ -8,7 +8,6 @@ import (
 	"maps"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -16,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 // ErrUnknownOperation is returned when an unsupported operation is requested.
@@ -32,10 +32,8 @@ type Handler struct {
 	lambdaInvoker LambdaInvoker
 	ops           map[string]smActionFn
 	janitor       *Janitor
-	janitorCancel context.CancelFunc
-	janitorDone   chan struct{}
 	DefaultRegion string
-	janitorMu     sync.Mutex
+	janitorRun    worker.SingleRun
 }
 
 // NewHandler creates a new Secrets Manager handler.
@@ -67,36 +65,9 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		return nil
 	}
 
-	runCtx, done, ready := h.startJanitorLocked(ctx)
-	if !ready {
-		return nil
-	}
-
-	go func() {
-		defer close(done)
-		h.janitor.Run(runCtx)
-	}()
+	h.janitorRun.Start(ctx, h.janitor)
 
 	return nil
-}
-
-// startJanitorLocked initializes the janitor's run context and done channel
-// under janitorMu. It returns ready=false without side effects if a janitor
-// run is already active.
-func (h *Handler) startJanitorLocked(ctx context.Context) (context.Context, chan struct{}, bool) {
-	h.janitorMu.Lock()
-	defer h.janitorMu.Unlock()
-
-	if h.janitorDone != nil {
-		return nil, nil, false
-	}
-
-	runCtx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	h.janitorCancel = cancel
-	h.janitorDone = done
-
-	return runCtx, done, true
 }
 
 // Shutdown stops the janitor worker and the rotation scheduler, waiting for the
@@ -106,23 +77,7 @@ func (h *Handler) Shutdown(ctx context.Context) {
 		b.StopRotationScheduler()
 	}
 
-	h.janitorMu.Lock()
-	cancel := h.janitorCancel
-	done := h.janitorDone
-	h.janitorCancel = nil
-	h.janitorDone = nil
-	h.janitorMu.Unlock()
-
-	if cancel == nil || done == nil {
-		return
-	}
-
-	cancel()
-
-	select {
-	case <-done:
-	case <-ctx.Done():
-	}
+	h.janitorRun.Stop(ctx)
 }
 
 var (

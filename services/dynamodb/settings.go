@@ -11,8 +11,8 @@ type Settings struct {
 	TTLSweepBatchSize int           `json:"ttl_sweep_batch_size" env:"DYNAMODB_TTL_SWEEP_BATCH_SIZE" default:"1000"      help:"Maximum items checked per TTL sweep lock acquisition."` //nolint:lll // Kong struct tag makes this line long
 	// CreateDelay is the simulated CREATING → ACTIVE transition time.
 	// Set to 0 (default) for immediate table activation (no lifecycle transition).
-	CreateDelay time.Duration `json:"create_delay"         env:"DYNAMODB_CREATE_DELAY"         default:"0s"        help:"Simulated CREATING→ACTIVE delay. 0 disables lifecycle."          name:"dynamodb-create-delay"` //nolint:lll,golines // Kong struct tag makes this line long
+	CreateDelay time.Duration `json:"create_delay"         env:"DYNAMODB_CREATE_DELAY"         default:"0s"        help:"Simulated CREATING→ACTIVE delay. 0 disables lifecycle."` //nolint:lll,golines // Kong struct tag makes this line long
 	// EnforceThroughput enables token-bucket throughput throttling per table.
 	// When true, operations that exceed the provisioned RCU/WCU return ProvisionedThroughputExceededException.
-	EnforceThroughput bool `json:"enforce_throughput"   env:"DYNAMODB_ENFORCE_THROUGHPUT"   default:"false"     help:"Enforce provisioned throughput limits (token bucket per table)." name:"dynamodb-enforce-throughput"` //nolint:lll,golines // Kong struct tag makes this line long
+	EnforceThroughput bool `json:"enforce_throughput"   env:"DYNAMODB_ENFORCE_THROUGHPUT"   default:"false"     help:"Enforce provisioned throughput limits (token bucket per table)."` //nolint:lll,golines // Kong struct tag makes this line long
 }

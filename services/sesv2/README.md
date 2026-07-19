@@ -4,13 +4,15 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/sesv2@v1.60.1` · last audited 2026-07-12 (`7c297a53bedf9d9ba2f5af48da992b024774083f`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 110 (100 ok, 5 partial, 5 deferred) |
 | Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

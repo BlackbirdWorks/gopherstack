@@ -146,43 +146,55 @@ func (b *InMemoryBackend) spawnFleetInstancesLocked(
 	fulfilled := 0.0
 
 	for fulfilled < float64(config.TargetCapacity) && spawned < spotFleetMaxInstances {
-		id := "i-" + uuid.New().String()[:17]
-		inst := &Instance{
-			ID:           id,
-			ImageID:      imageID,
-			InstanceType: instanceType,
-			State:        StateRunning,
-			VPCID:        vpcID,
-			SubnetID:     subnetID,
-			LaunchTime:   time.Now().UTC(),
-		}
-		inst.PrivateIP = b.allocPrivateIP()
-
-		eniID := "eni-" + uuid.New().String()[:17]
-		attachID := "eni-attach-" + uuid.New().String()[:8]
-		b.networkInterfaces.Put(&NetworkInterface{
-			ID:              eniID,
-			SubnetID:        subnetID,
-			VPCID:           vpcID,
-			PrivateIP:       inst.PrivateIP,
-			InstanceID:      id,
-			AttachmentID:    attachID,
-			DeviceIndex:     0,
-			Status:          stateInUse,
-			SourceDestCheck: true,
-		})
-		b.instances.Put(inst)
-		b.indexInstanceLocked(inst)
-		eni, _ := b.networkInterfaces.Get(eniID)
-		b.indexENILocked(eniID, eni)
-		b.indexENIByVPCLocked(eniID, eni)
-
-		fleet.InstanceIDs = append(fleet.InstanceIDs, id)
+		b.spawnFleetInstanceLocked(fleet, imageID, instanceType, subnetID, vpcID)
 		fulfilled += weightedCap
 		spawned++
 	}
 
 	return spawned, fulfilled
+}
+
+// spawnFleetInstanceLocked creates a single instance (with a matching primary
+// ENI) for a spot fleet at the given image/instance-type/subnet/VPC, indexes
+// it, and appends its ID to fleet.InstanceIDs. Must be called with b.mu held
+// for writing. Shared by spawnFleetInstancesLocked and scaleFleetUpLocked, the
+// two fleet-scaling paths that spawn instances the same way.
+func (b *InMemoryBackend) spawnFleetInstanceLocked(
+	fleet *SpotFleetRequest,
+	imageID, instanceType, subnetID, vpcID string,
+) {
+	id := "i-" + uuid.New().String()[:17]
+	inst := &Instance{
+		ID:           id,
+		ImageID:      imageID,
+		InstanceType: instanceType,
+		State:        StateRunning,
+		VPCID:        vpcID,
+		SubnetID:     subnetID,
+		LaunchTime:   time.Now().UTC(),
+	}
+	inst.PrivateIP = b.allocPrivateIP()
+
+	eniID := "eni-" + uuid.New().String()[:17]
+	attachID := "eni-attach-" + uuid.New().String()[:8]
+	b.networkInterfaces.Put(&NetworkInterface{
+		ID:              eniID,
+		SubnetID:        subnetID,
+		VPCID:           vpcID,
+		PrivateIP:       inst.PrivateIP,
+		InstanceID:      id,
+		AttachmentID:    attachID,
+		DeviceIndex:     0,
+		Status:          stateInUse,
+		SourceDestCheck: true,
+	})
+	b.instances.Put(inst)
+	b.indexInstanceLocked(inst)
+	eni, _ := b.networkInterfaces.Get(eniID)
+	b.indexENILocked(eniID, eni)
+	b.indexENIByVPCLocked(eniID, eni)
+
+	fleet.InstanceIDs = append(fleet.InstanceIDs, id)
 }
 
 // RequestSpotFleet creates a new Spot Fleet request and fulfills it by
@@ -421,38 +433,7 @@ func (b *InMemoryBackend) scaleFleetUpLocked(
 	}
 
 	for fleet.FulfilledCapacity < float64(newTarget) {
-		id := "i-" + uuid.New().String()[:17]
-		inst := &Instance{
-			ID:           id,
-			ImageID:      imageID,
-			InstanceType: instanceType,
-			State:        StateRunning,
-			VPCID:        vpcID,
-			SubnetID:     subnetID,
-			LaunchTime:   time.Now().UTC(),
-		}
-		inst.PrivateIP = b.allocPrivateIP()
-
-		eniID := "eni-" + uuid.New().String()[:17]
-		attachID := "eni-attach-" + uuid.New().String()[:8]
-		b.networkInterfaces.Put(&NetworkInterface{
-			ID:              eniID,
-			SubnetID:        subnetID,
-			VPCID:           vpcID,
-			PrivateIP:       inst.PrivateIP,
-			InstanceID:      id,
-			AttachmentID:    attachID,
-			DeviceIndex:     0,
-			Status:          stateInUse,
-			SourceDestCheck: true,
-		})
-		b.instances.Put(inst)
-		b.indexInstanceLocked(inst)
-		eni, _ := b.networkInterfaces.Get(eniID)
-		b.indexENILocked(eniID, eni)
-		b.indexENIByVPCLocked(eniID, eni)
-
-		fleet.InstanceIDs = append(fleet.InstanceIDs, id)
+		b.spawnFleetInstanceLocked(fleet, imageID, instanceType, subnetID, vpcID)
 		fleet.FulfilledCapacity += weightedCap
 	}
 }

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/mediaconvert@v1.87.3` · last audited 2026-07-13 (`911ff167`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 34 (31 ok, 3 partial) |
 | Feature families | 6 (6 ok) |
 | Known gaps | 3 |
@@ -13,13 +14,16 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - UpdateJobTemplate/CreateJobTemplate do not model AccelerationSettings, HopDestinations, or StatusUpdateInterval (real API accepts them; gopherstack silently drops them since JobTemplate has no such fields) (bd: TODO -- file at session close)
 - Queue.ServiceOverrides is typed map[string]any in gopherstack vs a real []types.ServiceOverride list on the wire; currently dormant (CreateQueueInput has no serviceOverrides input member in the real API, so the field can never be populated by a real client) but the type would emit the wrong JSON shape (object instead of array) if ever populated internally
 - DescribeEndpoints does not parse its POST JSON body (maxResults/nextToken/mode) and accepts GET as well as POST; functionally harmless today (always returns exactly one synthetic endpoint) but not strictly wire-accurate
 
 ### Deferred
+
 - JobSettings/JobTemplateSettings/PresetSettings deep-structure field-level validation (gopherstack stores these as opaque map[string]any and round-trips them verbatim, which is the established pattern for this service; no validation of e.g. OutputGroups internals was audited)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/appmesh@v1.36.2` · last audited 2026-07-13 (`40f05928`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 38 (38 ok) |
 | Feature families | 6 (6 ok) |
 | Known gaps | 4 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - meshOwner query param (cross-account shared mesh access) is accepted on Describe/Delete/Create/List paths by real AWS but never read by gopherstack's handlers; this backend has no cross-account model at all. Low priority: shared meshes are an advanced, rarely-emulated feature.
 - No server-side name validation (AWS enforces a resourceName regex/length constraint on meshName/virtualNodeName/etc.); invalid names are accepted rather than rejected with BadRequestException. Spec bodies are also passed through as opaque JSON with no schema validation against the real MeshSpec/VirtualNodeSpec/etc. shapes.
 - TooManyTagsException (50-tag-per-resource limit) is not enforced by TagResource.
 - DeleteMesh/DeleteVirtualNode/etc. return the resource with its status left at ACTIVE; real AWS App Mesh's terminal status semantics on delete (whether the returned object flips to a DELETED/INACTIVE MeshStatusCode) were not confirmed against a live account and were left unchanged rather than guessed.
 
 ### Deferred
+
 - CloudTrail-capture / observability integration (pkgs/service middleware chokepoint) was not specifically audited
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

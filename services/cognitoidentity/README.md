@@ -4,20 +4,24 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/cognitoidentity@v1.33.20` · last audited 2026-07-13 (`659c9617`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 23 (23 ok) |
 | Known gaps | 2 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetOpenIdTokenForDeveloperIdentity accepts a PrincipalTags request field (SDK-modeled) but the backend never stores/applies it; our OpenID tokens are synthetic strings, not real JWTs with claims, so there is nowhere to embed the tags. Low priority (niche custom-provider attribute-mapping feature).
 - SetIdentityPoolRoles/GetOpenIdTokenForDeveloperIdentity TokenDuration are accepted/validated but not enforced against issued token lifetime (tokens are opaque synthetic strings, not real expiring JWTs).
 
 ### Deferred
+
 - HTTP status code choice for NotAuthorizedException (403 here) vs AWS's actual per-exception status (SDK error-type resolution is body-driven, not status-code-driven, so this doesn't break aws-sdk-go-v2 clients; only relevant to tooling that inspects raw HTTP status).
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

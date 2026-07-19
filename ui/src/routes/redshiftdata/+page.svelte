@@ -240,11 +240,8 @@
 		}
 	}
 
-	// Execute statement
-	async function executeStatement() {
-		const activeSql = batchMode ? batchSqls.trim() : sqlText.trim();
-		if (!activeSql) return;
-		executing = true;
+	// Reset transient execution/result state before submitting a new statement.
+	function resetExecutionState() {
 		statementStatus = null;
 		statementError = null;
 		resultColumns = [];
@@ -256,37 +253,35 @@
 		showRawJson = false;
 		showResultV2 = false;
 		resultV2Data = null;
+	}
+
+	// Submit the current SQL (batch or single) to Redshift Data API.
+	function sendExecuteRequest(activeSql: string): Promise<{ Id?: string }> {
+		const connectionParams = {
+			Database: database || undefined,
+			WorkgroupName: workgroupName || undefined,
+			ClusterIdentifier: clusterIdentifier || undefined,
+			DbUser: dbUser || undefined,
+			SecretArn: secretArn || undefined,
+			StatementName: statementName || undefined,
+			WithEvent: withEvent
+		};
+		if (batchMode) {
+			const sqls = batchSqls.split(';').map((s) => s.trim()).filter(Boolean);
+			return client.send(new BatchExecuteStatementCommand({ Sqls: sqls, ...connectionParams }));
+		}
+		return client.send(new ExecuteStatementCommand({ Sql: activeSql, ...connectionParams }));
+	}
+
+	// Execute statement
+	async function executeStatement() {
+		const activeSql = batchMode ? batchSqls.trim() : sqlText.trim();
+		if (!activeSql) return;
+		executing = true;
+		resetExecutionState();
 
 		try {
-			let resp: { Id?: string };
-			if (batchMode) {
-				const sqls = batchSqls.split(';').map((s) => s.trim()).filter(Boolean);
-				resp = await client.send(
-					new BatchExecuteStatementCommand({
-						Sqls: sqls,
-						Database: database || undefined,
-						WorkgroupName: workgroupName || undefined,
-						ClusterIdentifier: clusterIdentifier || undefined,
-						DbUser: dbUser || undefined,
-						SecretArn: secretArn || undefined,
-						StatementName: statementName || undefined,
-						WithEvent: withEvent
-					})
-				);
-			} else {
-				resp = await client.send(
-					new ExecuteStatementCommand({
-						Sql: sqlText.trim(),
-						Database: database || undefined,
-						WorkgroupName: workgroupName || undefined,
-						ClusterIdentifier: clusterIdentifier || undefined,
-						DbUser: dbUser || undefined,
-						SecretArn: secretArn || undefined,
-						StatementName: statementName || undefined,
-						WithEvent: withEvent
-					})
-				);
-			}
+			const resp = await sendExecuteRequest(activeSql);
 			currentStatementId = resp.Id ?? null;
 			toast.success('Statement submitted');
 			if (currentStatementId) {

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/kinesis@v1.43.2` · last audited 2026-07-13 (`2b2086c9`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 39 (39 ok) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 5 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - KMSAccessDeniedException / KMS key existence validation for StartStreamEncryption/UpdateMaxRecordSize KeyId: not modeled. Real Kinesis StartStreamEncryption exceptions per the SDK model are InvalidArgumentException/LimitExceededException/ResourceInUseException/ResourceNotFoundException/AccessDeniedException — there is no KMS-specific exception in the Kinesis API itself, and validating a KeyId against the kms service backend would require a cross-service dependency out of scope for this pass (services/kinesis/ only). (bd: gopherstack-ud2)
 - UpdateStreamMode does not reshard when switching PROVISIONED -> ON_DEMAND (or back); AWS auto-adjusts shard count on mode transitions based on throughput history, which this in-memory emulator has no model for. Low priority: consumers of UpdateStreamMode generally re-describe the stream afterward. (bd: gopherstack-ud2)
 - GetShardIterator/SubscribeToShard AT_TIMESTAMP with a zero/omitted Timestamp is not rejected with ValidationException (silently treated as position 0). Minor; no test exercises this AWS edge case. (bd: gopherstack-ud2)
@@ -20,10 +22,12 @@
 - CORRECTED this pass: the previous gap entry claiming resource policies (PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy) are lost across a persistence restart was stale/incorrect. persistence.go's backendSnapshot already has a ResourcePolicies field wired into both Snapshot (line ~60) and Restore (line ~119), and TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip already exercises PutResourcePolicy through an actual snapshot/restore cycle and passes. No code change needed; this was a documentation-only correction.
 
 ### Deferred
+
 - Enhanced fan-out SubscribeToShard real streaming cadence / HTTP2 push semantics beyond the polling emulation already in place
 - Cross-service Lambda event-source-mapping trigger wiring (lives in cli.go per task constraints; not touched)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/kinesis.md)
 - [All services](../../README.md#services)

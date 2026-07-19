@@ -4,21 +4,25 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/ec2` · last audited 2026-07-11 (`f1a54d26`) · protocol ec2-query (AWS query -> XML)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Feature families | 6 (6 ok) |
 | Known gaps | 1 |
 | Deferred items | 2 |
 | Resource leaks | not-fully-audited |
 
 ### Known gaps
+
 - DeleteVpc/DeleteSubnet force-cascade-delete instead of DependencyViolation (tracked: bd gopherstack-b5m; re-confirmed present post-refactor, logic unchanged — still deferred, large blast radius across 16 test files)
 
 ### Deferred
+
 - VPC/RouteTable/IGW/NAT/TGW/VPCEndpoint (batch-4) op-by-op — flagged higher-defect-odds, UNAUDITED
 - EBS snapshot lineage, ENI attach/detach edge cases, pagination internals beyond tags/instances
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/ec2.md)
 - [All services](../../README.md#services)

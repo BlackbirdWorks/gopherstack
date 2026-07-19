@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/codeartifact@v1.38.19` · last audited 2026-07-13 (`f779cb61`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 48 (38 ok, 4 partial, 6 gap) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 5 |
@@ -13,6 +14,7 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - GetAssociatedPackageGroup/ListAssociatedPackages/ListAllowedRepositoriesForGroup/UpdatePackageGroupOriginConfiguration's allowed-repository-list semantics are stubs: package-group pattern matching (glob-style segment matching against format/namespace/package) is never implemented, so groups never match. ListSubPackageGroups uses a prefix heuristic instead of real pattern semantics. Implementing this is a real feature (AWS's pattern-matching algorithm), not a quick wire fix — needs its own pass.
 - DescribePackage / DescribePackageVersion auto-create a stub record when the resource doesn't exist, instead of returning ResourceNotFoundException like real AWS. This is pre-existing, intentionally-documented behavior (not touched this pass to avoid destabilizing a large swath of tests that depend on it) but is a real behavioral divergence from AWS.
 - GetPackageVersionReadme and ListPackageVersionDependencies always return empty — real values require parsing package-format-specific metadata from the uploaded asset (npm package.json readme/dependencies, Maven POM, etc.), which PublishPackageVersion's single-asset-per-call model doesn't capture today.
@@ -20,9 +22,11 @@
 - domain-owner / cross-account query param is accepted by real AWS on nearly every op (for cross-account domain access) but is not read anywhere in this backend; single-account-only is assumed throughout.
 
 ### Deferred
+
 - Full package-group pattern-matching algorithm (see gaps above)
 - isolation_test.go / sdk_completeness_test.go / store_setup.go were read but not modified — no bugs found in a quick pass, not exhaustively re-audited
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/secretsmanager@v1.42.5` · last audited 2026-07-11 (`ff47d82c`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 24 (23 ok, 1 partial) |
 | Feature families | 3 (2 ok, 1 partial) |
 | Known gaps | 3 |
@@ -13,15 +14,18 @@
 | Resource leaks | fixed |
 
 ### Known gaps
+
 - RotateSecret accepts rotation with no RotationLambdaARN ever configured on the secret or in the request (real AWS requires an existing rotation strategy or managed rotation) — kept as-is because dozens of existing tests rely on the lenient no-Lambda immediate-value-regen behavior as a test convenience, and gopherstack does not model AWS managed rotation at all (bd: gopherstack-qqq)
 - RotateSecret with RotateImmediately=false does not invoke the Lambda testSecret probe step or create/remove a transient AWSPENDING version (bd: gopherstack-avt) — re-confirmed 2026-07-11 against the live AWS API reference for RotateSecret, which explicitly documents this exact behavior ("Secrets Manager tests the rotation configuration by running the testSecret step... This test creates an AWSPENDING version of the secret and then removes it"), so the gap description is accurate and still open
 - DescribeSecretOutput/SecretListEntry expose a fabricated OwnerAccountId field not present in the real API (harmless — unknown JSON fields are ignored by real deserializers); managed-external-secret fields (ExternalSecretRotationMetadata/RoleArn, OwningService, Type) are entirely unmodeled, so the "owning-service" ListSecrets/BatchGetSecretValue filter always passes rather than matching a tracked owning service (bd: gopherstack-pct)
 
 ### Deferred
+
 - Managed rotation (AWS-service-owned secrets, e.g. RDS-managed rotation) — out of scope, not modeled at all
 - Cross-account resource-policy principal evaluation beyond the wildcard-principal BlockPublicPolicy heuristic
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [Service guide](../../docs/services/secretsmanager.md)
 - [All services](../../README.md#services)

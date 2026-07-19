@@ -3,7 +3,6 @@ package redshift_test
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"testing"
 	"time"
 
@@ -13,19 +12,26 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/redshift"
 )
 
-// waitForGoroutineCount polls until the goroutine count drops to at most target
-// or the deadline passes, running GC each iteration to reap finished goroutines.
-func waitForGoroutineCount(target int, timeout time.Duration) int {
-	deadline := time.Now().Add(timeout)
-	for {
-		runtime.GC()
+// assertStopsPromptly asserts that stop returns within the timeout. The
+// reconciler's StopReconciler joins its goroutine via the WaitGroup, so a
+// prompt return proves the goroutine exited; if it leaked, Wait would block
+// and this reports it. Counting runtime.NumGoroutine() cannot be used here:
+// these tests run with t.Parallel(), so goroutines started by unrelated tests
+// inflate the process-wide count and produce spurious failures.
+func assertStopsPromptly(t *testing.T, timeout time.Duration, stop func()) {
+	t.Helper()
 
-		n := runtime.NumGoroutine()
-		if n <= target || time.Now().After(deadline) {
-			return n
-		}
+	stopped := make(chan struct{})
 
-		time.Sleep(time.Millisecond)
+	go func() {
+		defer close(stopped)
+		stop()
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(timeout):
+		t.Fatal("reconciler goroutine did not exit after cancel/stop")
 	}
 }
 
@@ -191,13 +197,11 @@ func TestReconciler_ResetClearsTransitions(t *testing.T) {
 
 // TestReconciler_NoGoroutineLeak creates and deletes many clusters under a
 // running reconciler, then asserts a clean, leak-free shutdown: after Stop the
-// goroutine count returns to the pre-start baseline.
+// reconciler goroutine is joined on stop.
 func TestReconciler_NoGoroutineLeak(t *testing.T) {
 	t.Parallel()
 
 	const numClusters = 40
-
-	base := runtime.NumGoroutine()
 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 	redshift.SetClusterActivationDelay(b, 5*time.Millisecond)
@@ -243,17 +247,10 @@ func TestReconciler_NoGoroutineLeak(t *testing.T) {
 	}), "clusters not fully removed")
 
 	b.Reset()
-	b.StopReconciler()
+	assertStopsPromptly(t, 2*time.Second, b.StopReconciler)
 	cancel()
 
 	assert.False(t, redshift.ReconcilerRunning(b))
-
-	// StopReconciler joins the goroutine via its WaitGroup, so after it returns
-	// the reconciler goroutine has exited. Confirm the process goroutine count
-	// returns to (at most) the pre-start baseline — no leak.
-	if got := waitForGoroutineCount(base, 2*time.Second); got > base {
-		t.Fatalf("goroutine leak: goroutines=%d baseline=%d", got, base)
-	}
 }
 
 // TestReconciler_StartStopIdempotent verifies double start/stop is safe.
@@ -280,8 +277,6 @@ func TestReconciler_StartStopIdempotent(t *testing.T) {
 func TestReconciler_ContextCancelStops(t *testing.T) {
 	t.Parallel()
 
-	base := runtime.NumGoroutine()
-
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 	redshift.SetReconcileInterval(b, 5*time.Millisecond)
 
@@ -289,11 +284,7 @@ func TestReconciler_ContextCancelStops(t *testing.T) {
 	b.StartReconciler(ctx)
 
 	cancel()
-	b.StopReconciler()
-
-	if got := waitForGoroutineCount(base, time.Second); got > base {
-		t.Fatalf("goroutine survived context cancel: goroutines=%d baseline=%d", got, base)
-	}
+	assertStopsPromptly(t, 2*time.Second, b.StopReconciler)
 }
 
 // TestClusterLifecycle_CreatingToAvailable verifies the creating→available state machine.

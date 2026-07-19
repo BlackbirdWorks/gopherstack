@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/iotwireless@v1.54.7` · last audited 2026-07-12 (`321bfb06`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 6 (6 ok) |
 | Feature families | 9 (9 ok) |
 | Known gaps | 4 |
@@ -13,12 +14,14 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CreateWirelessDevice/CreateWirelessGateway silently drop the request's LoRaWAN/Sidewalk nested config objects (not in the request struct at all) — devices/gateways round-trip with type-agnostic emulation only, no per-technology config persisted or returned
 - List* ops (ListWirelessDevices, ListWirelessGateways, etc.) always return a full single page with no NextToken; maxResults/nextToken query params are accepted by real AWS but ignored here (not a wrong-data bug — each call returns the complete accurate set — but pagination itself is unimplemented)
 - StartBulkAssociateWirelessDeviceWithMulticastGroup / StartBulkDisassociateWirelessDeviceFromMulticastGroup return 204 without mutating any tracked state (backend has no bulk-task tracking); GetWirelessDevice's multicast group membership is not queryable back out
 - InMemoryBackend uses a raw sync.RWMutex (backend.go) instead of pkgs/lockmetrics.RWMutex, deviating from the project's coarse-instrumented-lock convention (pkgs-catalog.md); functionally correct (one coarse lock at the invariant boundary) but not wired into lock-contention Prometheus metrics. Mechanical, wide (60+ call sites) — deferred as out of scope for a bug-fix pass
 
 ### Deferred
+
 - GatewayTask / GatewayTaskDefinition wire shapes (routes verified reachable; response field completeness not cross-checked field-by-field against types.go)
 - WirelessDeviceImportTask / SingleWirelessDeviceImportTask wire shapes (routes verified reachable; not deep-audited)
 - Position / PositionConfiguration / PositionEstimate / ResourcePosition wire shapes
@@ -27,5 +30,6 @@
 - …and 4 more — see PARITY.md
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

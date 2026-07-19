@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/wafv2@v1.71.2` · last audited 2026-07-12 (`22d69640`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 55 (48 ok, 7 partial) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 4 |
@@ -13,11 +14,13 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - CheckCapacity uses a flat 1 WCU per rule instead of AWS's real per-statement-type capacity cost model (e.g. RateBasedStatement, regex/byte-match cost more). Correct emulation requires porting AWS's published WCU table; deferred as a distinct, larger effort.
 - GetWebACL response omits the optional top-level ApplicationIntegrationURL field (only populated when a web ACL uses AWSManagedRulesATPRuleSet/ACFPRuleSet with client app integration -- niche, rarely asserted by IaC tooling).
 - ListTagsForResource ignores Limit/NextMarker pagination params and always returns the full tag set. Low impact: AWS caps tags at 50/resource (maxTagsPerResource), well under any default page size.
 - GetManagedRuleSet/ListManagedRuleSets don't model Description/LabelNamespace (ManagedRuleSet struct has no such fields). Vendor-only Firewall-Manager API family, not used by Terraform/CDK for the common WAFv2 workflow.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

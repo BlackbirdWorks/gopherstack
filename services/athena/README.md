@@ -4,8 +4,9 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/athena@v1.57.2` · last audited 2026-07-12 (`c4a90472`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 15 (14 ok, 1 partial) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 4 |
@@ -13,14 +14,17 @@
 | Resource leaks | clean |
 
 ### Known gaps
+
 - TagResource/UntagResource/ListTagsForResource do not validate resource existence, and ListTagsForResource ignores MaxResults/NextToken (bd: unfiled — flag for future sweep)
 - CreateDataCatalog/DeleteDataCatalog do not return the optional DataCatalog object the real API (SDK v1.57.2) now includes (bd: unfiled)
 - ListEngineVersions.EngineVersionDescriptor carries a fabricated AuthEngineVersion field not present on the real type (bd: unfiled)
 - Pagination NextToken across WorkGroups/NamedQueries/DataCatalogs/PreparedStatements silently resets to offset 0 on an unrecognized token instead of erroring (bd: unfiled)
 
 ### Deferred
+
 - none — full routed-op surface audited this pass (base + extended dispatch tables, 70 ops total)
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

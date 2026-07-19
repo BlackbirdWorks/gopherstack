@@ -4,18 +4,21 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/fsx@v1.66.2` · last audited 2026-07-12 (`d7ff080e08875e33a7abf232387b6a9ae99408f4`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Feature families | 13 (13 ok) |
 | Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
+
 - FileSystem responses never populate WindowsConfiguration/OntapConfiguration/OpenZFSConfiguration (only LustreConfiguration is modeled), and CreateFileSystem/UpdateFileSystem accept no corresponding nested config input (ThroughputCapacity, PreferredSubnetId, DeploymentType, etc. for Windows/ONTAP/OpenZFS). The existing toFileSystem() doc comment already documents that terraform-provider-aws treats a nil LustreConfiguration as an empty read result for Lustre; the same failure mode likely affects Windows/ONTAP/OpenZFS file systems, which get no config block at all. Out of scope for this pass (requires new request/response surface + per-type required-field validation, not a narrow bug fix) — needs a bd issue for a follow-up pass.
 - Delete*Output shapes (DeleteFileSystem, DeleteVolume) do not include the optional WindowsResponse/LustreResponse/OpenZFSConfiguration finalizer sub-objects (e.g. FinalBackupTags) that real AWS returns when a final backup is requested at delete time. Low traffic; not fixed this pass.
 - No per-file-system-type required-field validation on CreateFileSystem beyond StorageCapacity minimums (e.g. real AWS requires SubnetIds, and requires ThroughputCapacity for Windows/ONTAP/OpenZFS) -- requests missing these are accepted here rather than rejected with ValidationException. Tied to the config-block gap above.
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

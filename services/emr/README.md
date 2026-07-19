@@ -4,13 +4,15 @@
 **Parity grade: A** · SDK `aws-sdk-go-v2/service/emr@v1.57.7` · last audited 2026-07-12 (`d7ff080e`)
 
 ## Coverage
-| | |
-|---|---|
+
+| Metric | Value |
+| --- | --- |
 | Operations audited | 61 (60 ok, 1 partial) |
 | Known gaps | none |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ## More
+
 - [Full parity audit](PARITY.md)
 - [All services](../../README.md#services)

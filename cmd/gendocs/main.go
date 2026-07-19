@@ -57,15 +57,19 @@ func run(ctx context.Context, log *slog.Logger) error {
 	}
 
 	entries := make([]summaryEntry, 0, len(slugs))
+	docs := make([]*ParityDoc, 0, len(slugs))
 	generated := 0
 
 	for _, slug := range slugs {
-		entry, wrote, procErr := processService(slug)
+		entry, doc, wrote, procErr := processService(slug)
 		if procErr != nil {
 			return procErr
 		}
 
 		entries = append(entries, entry)
+		if doc != nil {
+			docs = append(docs, doc)
+		}
 		if wrote {
 			generated++
 		}
@@ -73,6 +77,10 @@ func run(ctx context.Context, log *slog.Logger) error {
 
 	if tableErr := injectServiceTable(rootReadmePath, buildServiceTable(entries)); tableErr != nil {
 		return tableErr
+	}
+
+	if badgeErr := generateBadges(len(slugs), docs); badgeErr != nil {
+		return badgeErr
 	}
 
 	log.InfoContext(ctx, "gendocs complete",
@@ -105,33 +113,34 @@ func discoverServiceSlugs(dir string) ([]string, error) {
 
 // processService handles a single service slug: if it has a PARITY.md, it
 // parses that file, renders and writes services/<svc>/README.md, and returns
-// a table row plus wrote=true. If it has no PARITY.md (qldb, qldbsession),
-// it returns a "Removed" row without touching that service's existing
-// hand-written README.md.
-func processService(slug string) (summaryEntry, bool, error) {
+// a table row, the parsed doc (so the caller can fold it into the badge
+// totals), and wrote=true. If it has no PARITY.md (qldb, qldbsession), it
+// returns a "Removed" row with a nil doc, without touching that service's
+// existing hand-written README.md.
+func processService(slug string) (summaryEntry, *ParityDoc, bool, error) {
 	parityPath := filepath.Join(servicesDirName, slug, parityFileName)
 
 	if _, statErr := os.Stat(parityPath); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return removedSummaryEntry(slug), false, nil
+			return removedSummaryEntry(slug), nil, false, nil
 		}
 
-		return summaryEntry{}, false, fmt.Errorf("stat %s: %w", parityPath, statErr)
+		return summaryEntry{}, nil, false, fmt.Errorf("stat %s: %w", parityPath, statErr)
 	}
 
 	doc, parseErr := ParseParityFile(parityPath)
 	if parseErr != nil {
-		return summaryEntry{}, false, parseErr
+		return summaryEntry{}, nil, false, parseErr
 	}
 
 	readmePath := filepath.Join(servicesDirName, slug, readmeFileName)
 	content := renderServiceReadme(slug, doc, guideExists(slug))
 
 	if writeErr := writeFileAtomic(readmePath, []byte(content)); writeErr != nil {
-		return summaryEntry{}, false, fmt.Errorf("write %s: %w", readmePath, writeErr)
+		return summaryEntry{}, nil, false, fmt.Errorf("write %s: %w", readmePath, writeErr)
 	}
 
-	return newSummaryEntry(slug, doc), true, nil
+	return newSummaryEntry(slug, doc), doc, true, nil
 }
 
 // guideExists reports whether a hand-written docs/services/<svc>.md guide
