@@ -561,43 +561,11 @@ func (h *Handler) handleDescribeDaemonRevisions(
 }
 
 // ----- Daemon container definition / volume conversions -----
-
-type daemonContainerDefinitionInput struct {
-	HealthCheck            *HealthCheck           `json:"healthCheck,omitempty"`
-	LogConfiguration       *LogConfiguration      `json:"logConfiguration,omitempty"`
-	RepositoryCredentials  *RepositoryCredentials `json:"repositoryCredentials,omitempty"`
-	FirelensConfiguration  *FirelensConfiguration `json:"firelensConfiguration,omitempty"`
-	Name                   string                 `json:"name"`
-	Image                  string                 `json:"image"`
-	WorkingDirectory       string                 `json:"workingDirectory,omitempty"`
-	User                   string                 `json:"user,omitempty"`
-	Command                []string               `json:"command,omitempty"`
-	EntryPoint             []string               `json:"entryPoint,omitempty"`
-	Environment            []KeyValuePair         `json:"environment,omitempty"`
-	EnvironmentFiles       []EnvironmentFile      `json:"environmentFiles,omitempty"`
-	Secrets                []SecretReference      `json:"secrets,omitempty"`
-	MountPoints            []MountPoint           `json:"mountPoints,omitempty"`
-	DependsOn              []ContainerDependency  `json:"dependsOn,omitempty"`
-	CPU                    int                    `json:"cpu,omitempty"`
-	Memory                 int                    `json:"memory,omitempty"`
-	MemoryReservation      int                    `json:"memoryReservation,omitempty"`
-	StartTimeout           int                    `json:"startTimeout,omitempty"`
-	StopTimeout            int                    `json:"stopTimeout,omitempty"`
-	Essential              bool                   `json:"essential"`
-	Interactive            bool                   `json:"interactive,omitempty"`
-	PseudoTerminal         bool                   `json:"pseudoTerminal,omitempty"`
-	Privileged             bool                   `json:"privileged,omitempty"`
-	ReadonlyRootFilesystem bool                   `json:"readonlyRootFilesystem,omitempty"`
-}
-
-func toDaemonContainerDefinitions(in []daemonContainerDefinitionInput) []DaemonContainerDefinition {
-	out := make([]DaemonContainerDefinition, 0, len(in))
-	for _, c := range in {
-		out = append(out, DaemonContainerDefinition(c))
-	}
-
-	return out
-}
+//
+// DaemonContainerDefinition (defined in daemon.go) is used directly as the
+// wire type for both the RegisterDaemonTaskDefinition input and the
+// DescribeDaemonTaskDefinition view — its JSON tags already match the shape
+// expected on the wire, so no separate input/view struct is needed here.
 
 type daemonVolumeInput struct {
 	Host *HostVolumeProperties `json:"host,omitempty"`
@@ -616,14 +584,14 @@ func toDaemonVolumes(in []daemonVolumeInput) []DaemonVolume {
 // ----- Handler: RegisterDaemonTaskDefinition -----
 
 type registerDaemonTaskDefinitionInput struct {
-	Family               string                           `json:"family"`
-	CPU                  string                           `json:"cpu,omitempty"`
-	Memory               string                           `json:"memory,omitempty"`
-	ExecutionRoleArn     string                           `json:"executionRoleArn,omitempty"`
-	TaskRoleArn          string                           `json:"taskRoleArn,omitempty"`
-	ContainerDefinitions []daemonContainerDefinitionInput `json:"containerDefinitions"`
-	Volumes              []daemonVolumeInput              `json:"volumes,omitempty"`
-	Tags                 []tagInput                       `json:"tags,omitempty"`
+	Family               string                      `json:"family"`
+	CPU                  string                      `json:"cpu,omitempty"`
+	Memory               string                      `json:"memory,omitempty"`
+	ExecutionRoleArn     string                      `json:"executionRoleArn,omitempty"`
+	TaskRoleArn          string                      `json:"taskRoleArn,omitempty"`
+	ContainerDefinitions []DaemonContainerDefinition `json:"containerDefinitions"`
+	Volumes              []daemonVolumeInput         `json:"volumes,omitempty"`
+	Tags                 []tagInput                  `json:"tags,omitempty"`
 }
 
 type registerDaemonTaskDefinitionOutput struct {
@@ -640,7 +608,7 @@ func (h *Handler) handleRegisterDaemonTaskDefinition(
 		Memory:               in.Memory,
 		ExecutionRoleArn:     in.ExecutionRoleArn,
 		TaskRoleArn:          in.TaskRoleArn,
-		ContainerDefinitions: toDaemonContainerDefinitions(in.ContainerDefinitions),
+		ContainerDefinitions: in.ContainerDefinitions,
 		Volumes:              toDaemonVolumes(in.Volumes),
 		Tags:                 tagsFromInput(in.Tags),
 	})
@@ -658,28 +626,19 @@ type describeDaemonTaskDefinitionInput struct {
 }
 
 type daemonTaskDefinitionView struct {
-	Family                  string                           `json:"family,omitempty"`
-	CPU                     string                           `json:"cpu,omitempty"`
-	DaemonTaskDefinitionArn string                           `json:"daemonTaskDefinitionArn,omitempty"`
-	ExecutionRoleArn        string                           `json:"executionRoleArn,omitempty"`
-	Memory                  string                           `json:"memory,omitempty"`
-	RegisteredBy            string                           `json:"registeredBy,omitempty"`
-	Status                  string                           `json:"status,omitempty"`
-	TaskRoleArn             string                           `json:"taskRoleArn,omitempty"`
-	ContainerDefinitions    []daemonContainerDefinitionInput `json:"containerDefinitions"`
-	Volumes                 []daemonVolumeInput              `json:"volumes,omitempty"`
-	DeleteRequestedAt       float64                          `json:"deleteRequestedAt,omitempty"`
-	RegisteredAt            float64                          `json:"registeredAt,omitempty"`
-	Revision                int                              `json:"revision,omitempty"`
-}
-
-func toDaemonContainerDefinitionViews(in []DaemonContainerDefinition) []daemonContainerDefinitionInput {
-	out := make([]daemonContainerDefinitionInput, 0, len(in))
-	for _, c := range in {
-		out = append(out, daemonContainerDefinitionInput(c))
-	}
-
-	return out
+	Family                  string                      `json:"family,omitempty"`
+	CPU                     string                      `json:"cpu,omitempty"`
+	DaemonTaskDefinitionArn string                      `json:"daemonTaskDefinitionArn,omitempty"`
+	ExecutionRoleArn        string                      `json:"executionRoleArn,omitempty"`
+	Memory                  string                      `json:"memory,omitempty"`
+	RegisteredBy            string                      `json:"registeredBy,omitempty"`
+	Status                  string                      `json:"status,omitempty"`
+	TaskRoleArn             string                      `json:"taskRoleArn,omitempty"`
+	ContainerDefinitions    []DaemonContainerDefinition `json:"containerDefinitions"`
+	Volumes                 []daemonVolumeInput         `json:"volumes,omitempty"`
+	DeleteRequestedAt       float64                     `json:"deleteRequestedAt,omitempty"`
+	RegisteredAt            float64                     `json:"registeredAt,omitempty"`
+	Revision                int                         `json:"revision,omitempty"`
 }
 
 func toDaemonVolumeViews(in []DaemonVolume) []daemonVolumeInput {
@@ -693,7 +652,7 @@ func toDaemonVolumeViews(in []DaemonVolume) []daemonVolumeInput {
 
 func toDaemonTaskDefinitionView(td *DaemonTaskDefinition) *daemonTaskDefinitionView {
 	v := &daemonTaskDefinitionView{
-		ContainerDefinitions:    toDaemonContainerDefinitionViews(td.ContainerDefinitions),
+		ContainerDefinitions:    td.ContainerDefinitions,
 		Volumes:                 toDaemonVolumeViews(td.Volumes),
 		CPU:                     td.CPU,
 		DaemonTaskDefinitionArn: td.DaemonTaskDefinitionArn,

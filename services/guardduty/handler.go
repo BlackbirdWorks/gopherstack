@@ -468,7 +468,7 @@ func parseRESTPath(method, path string) (string, string) { //nolint:cyclop // ex
 			return opSendObjectMalwareScan, ""
 		}
 	case pathOrganization:
-		if method == http.MethodGet && len(parts) == 2 && parts[1] == "statistics" { //nolint:goconst // existing issue.
+		if method == http.MethodGet && len(parts) == 2 && parts[1] == "statistics" {
 			return opGetOrganizationStatistics, ""
 		}
 	}
@@ -599,8 +599,7 @@ func parseDetectorCollection( //nolint:gocognit,gocyclo,cyclop,funlen // existin
 			return opListPublishingDestinations, detectorID
 		}
 	case pathMalwareScans:
-		switch method { //nolint:gocritic // existing issue.
-		case http.MethodPost:
+		if method == http.MethodPost {
 			return opDescribeMalwareScans, detectorID
 		}
 	case pathMalwareScanSettings:
@@ -633,118 +632,125 @@ func parseDetectorCollection( //nolint:gocognit,gocyclo,cyclop,funlen // existin
 	return opUnknown, ""
 }
 
-func parseDetectorItem( //nolint:gocognit,gocyclo,cyclop,funlen // existing issue.
-	method, detectorID, collection, item string,
-) (string, string) {
+// parseItemCRUD routes the common Get/Post(update)/Delete-by-item pattern
+// shared by several detector item collections (filters, IP sets, threat
+// intel sets, publishing destinations, threat/trusted entity sets): the
+// resource is addressed by id (typically detectorID + "/" + item) and only
+// the HTTP verb selects the op.
+func parseItemCRUD(method, id, getOp, updateOp, deleteOp string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return getOp, id
+	case http.MethodPost:
+		return updateOp, id
+	case http.MethodDelete:
+		return deleteOp, id
+	}
+
+	return opUnknown, ""
+}
+
+// parseItemAction matches a single POST action addressed by item, used by the
+// several detector-item routes that support exactly one named action
+// (disassociate, statistics, daysRemaining, ...).
+func parseItemAction(method, detectorID, item, wantItem, op string) (string, string) {
+	if method == http.MethodPost && item == wantItem {
+		return op, detectorID
+	}
+
+	return opUnknown, ""
+}
+
+// parseFindingsItem routes the POST-only findings item actions (get, archive,
+// unarchive, create, statistics, feedback).
+func parseFindingsItem(method, detectorID, item string) (string, string) {
+	if method != http.MethodPost {
+		return opUnknown, ""
+	}
+
+	switch item {
+	case "get":
+		return opGetFindings, detectorID
+	case "archive":
+		return opArchiveFindings, detectorID
+	case "unarchive":
+		return opUnarchiveFindings, detectorID
+	case "create":
+		return opCreateSampleFindings, detectorID
+	case "statistics":
+		return opGetFindingsStatistics, detectorID
+	case "feedback":
+		return opUpdateFindingsFeedback, detectorID
+	}
+
+	return opUnknown, ""
+}
+
+// parseMemberItem routes the POST-only member item actions (get, delete,
+// start, stop, invite, disassociate).
+func parseMemberItem(method, detectorID, item string) (string, string) {
+	if method != http.MethodPost {
+		return opUnknown, ""
+	}
+
+	switch item {
+	case "get":
+		return opGetMembers, detectorID
+	case "delete":
+		return opDeleteMembers, detectorID
+	case "start":
+		return opStartMonitoringMembers, detectorID
+	case "stop":
+		return opStopMonitoringMembers, detectorID
+	case "invite":
+		return opInviteMembers, detectorID
+	case "disassociate":
+		return opDisassociateMembers, detectorID
+	}
+
+	return opUnknown, ""
+}
+
+func parseDetectorItem(method, detectorID, collection, item string) (string, string) {
 	switch collection {
 	case pathFilter:
-		switch method {
-		case http.MethodGet:
-			return opGetFilter, detectorID + "/" + item
-		case http.MethodPost:
-			return opUpdateFilter, detectorID + "/" + item
-		case http.MethodDelete:
-			return opDeleteFilter, detectorID + "/" + item
-		}
+		return parseItemCRUD(method, detectorID+"/"+item, opGetFilter, opUpdateFilter, opDeleteFilter)
 	case pathFindings:
-		if method == http.MethodPost {
-			switch item {
-			case "get":
-				return opGetFindings, detectorID
-			case "archive":
-				return opArchiveFindings, detectorID
-			case "unarchive":
-				return opUnarchiveFindings, detectorID
-			case "create":
-				return opCreateSampleFindings, detectorID
-			case "statistics":
-				return opGetFindingsStatistics, detectorID
-			case "feedback":
-				return opUpdateFindingsFeedback, detectorID
-			}
-		}
+		return parseFindingsItem(method, detectorID, item)
 	case pathIPSet:
-		switch method {
-		case http.MethodGet:
-			return opGetIPSet, detectorID + "/" + item
-		case http.MethodPost:
-			return opUpdateIPSet, detectorID + "/" + item
-		case http.MethodDelete:
-			return opDeleteIPSet, detectorID + "/" + item
-		}
+		return parseItemCRUD(method, detectorID+"/"+item, opGetIPSet, opUpdateIPSet, opDeleteIPSet)
 	case pathThreatIntelSet:
-		switch method {
-		case http.MethodGet:
-			return opGetThreatIntelSet, detectorID + "/" + item
-		case http.MethodPost:
-			return opUpdateThreatIntelSet, detectorID + "/" + item
-		case http.MethodDelete:
-			return opDeleteThreatIntelSet, detectorID + "/" + item
-		}
+		return parseItemCRUD(
+			method, detectorID+"/"+item,
+			opGetThreatIntelSet, opUpdateThreatIntelSet, opDeleteThreatIntelSet,
+		)
 	case pathMember:
-		if method == http.MethodPost {
-			switch item {
-			case "get":
-				return opGetMembers, detectorID
-			case "delete":
-				return opDeleteMembers, detectorID
-			case "start":
-				return opStartMonitoringMembers, detectorID
-			case "stop":
-				return opStopMonitoringMembers, detectorID
-			case "invite":
-				return opInviteMembers, detectorID
-			case "disassociate": //nolint:goconst // existing issue.
-				return opDisassociateMembers, detectorID
-			}
-		}
+		return parseMemberItem(method, detectorID, item)
 	case pathAdministrator:
-		if method == http.MethodPost && item == "disassociate" {
-			return opDisassociateFromAdministratorAccount, detectorID
-		}
+		return parseItemAction(method, detectorID, item, "disassociate", opDisassociateFromAdministratorAccount)
 	case pathMaster:
-		if method == http.MethodPost && item == "disassociate" {
-			return opDisassociateFromMasterAccount, detectorID
-		}
+		return parseItemAction(method, detectorID, item, "disassociate", opDisassociateFromMasterAccount)
 	case pathPublishingDestination:
-		switch method {
-		case http.MethodGet:
-			return opDescribePublishingDestination, detectorID + "/" + item
-		case http.MethodPost:
-			return opUpdatePublishingDestination, detectorID + "/" + item
-		case http.MethodDelete:
-			return opDeletePublishingDestination, detectorID + "/" + item
-		}
+		return parseItemCRUD(
+			method, detectorID+"/"+item,
+			opDescribePublishingDestination, opUpdatePublishingDestination, opDeletePublishingDestination,
+		)
 	case pathThreatEntitySet:
-		switch method {
-		case http.MethodGet:
-			return opGetThreatEntitySet, detectorID + "/" + item
-		case http.MethodPost:
-			return opUpdateThreatEntitySet, detectorID + "/" + item
-		case http.MethodDelete:
-			return opDeleteThreatEntitySet, detectorID + "/" + item
-		}
+		return parseItemCRUD(
+			method, detectorID+"/"+item,
+			opGetThreatEntitySet, opUpdateThreatEntitySet, opDeleteThreatEntitySet,
+		)
 	case pathTrustedEntitySet:
-		switch method {
-		case http.MethodGet:
-			return opGetTrustedEntitySet, detectorID + "/" + item
-		case http.MethodPost:
-			return opUpdateTrustedEntitySet, detectorID + "/" + item
-		case http.MethodDelete:
-			return opDeleteTrustedEntitySet, detectorID + "/" + item
-		}
+		return parseItemCRUD(
+			method, detectorID+"/"+item,
+			opGetTrustedEntitySet, opUpdateTrustedEntitySet, opDeleteTrustedEntitySet,
+		)
 	case pathCoverage:
-		if method == http.MethodPost && item == "statistics" {
-			return opGetCoverageStatistics, detectorID
-		}
+		return parseItemAction(method, detectorID, item, "statistics", opGetCoverageStatistics)
 	case pathUsage:
-		if method == http.MethodPost && item == "statistics" {
-			return opGetUsageStatistics, detectorID
-		}
+		return parseItemAction(method, detectorID, item, "statistics", opGetUsageStatistics)
 	case pathFreeTrial:
-		if method == http.MethodPost && item == "daysRemaining" {
-			return opGetRemainingFreeTrialDays, detectorID
-		}
+		return parseItemAction(method, detectorID, item, "daysRemaining", opGetRemainingFreeTrialDays)
 	}
 
 	return opUnknown, ""

@@ -163,14 +163,35 @@ func assertFullStateRestored(t *testing.T, b *InMemoryBackend, f fullStateFixtur
 
 // assertCoreResourcesRestored checks the store.Table-backed cluster/service/
 // task/container-instance/task-set/capacity-provider/account-setting/
-// express-gateway-service resources.
+// express-gateway-service resources. Split across a handful of per-resource
+// helpers (rather than one large function) to keep each one's cyclomatic
+// complexity down.
 func assertCoreResourcesRestored(t *testing.T, b *InMemoryBackend, f fullStateFixture) {
+	t.Helper()
+
+	assertClusterRestored(t, b)
+	assertServiceRestored(t, b, f)
+	assertTaskRestored(t, b, f)
+	assertContainerInstanceRestored(t, b, f)
+	assertTaskSetRestored(t, b, f)
+	assertCapacityProviderRestored(t, b)
+	assertAccountSettingsRestored(t, b)
+	assertExpressGatewayServiceRestored(t, b, f)
+}
+
+// assertClusterRestored checks the restored cluster.
+func assertClusterRestored(t *testing.T, b *InMemoryBackend) {
 	t.Helper()
 
 	clusters, _, err := b.DescribeClusters([]string{"full-state-cluster"})
 	if err != nil || len(clusters) != 1 {
 		t.Fatalf("DescribeClusters: got %d clusters, err=%v, want 1 cluster", len(clusters), err)
 	}
+}
+
+// assertServiceRestored checks the restored service and its ARN.
+func assertServiceRestored(t *testing.T, b *InMemoryBackend, f fullStateFixture) {
+	t.Helper()
 
 	services, _, err := b.DescribeServices("full-state-cluster", []string{"full-state-svc"})
 	if err != nil || len(services) != 1 {
@@ -179,6 +200,11 @@ func assertCoreResourcesRestored(t *testing.T, b *InMemoryBackend, f fullStateFi
 	if services[0].ServiceArn != f.serviceArn {
 		t.Errorf("restored service ARN = %q, want %q", services[0].ServiceArn, f.serviceArn)
 	}
+}
+
+// assertTaskRestored checks the restored task and its task protection.
+func assertTaskRestored(t *testing.T, b *InMemoryBackend, f fullStateFixture) {
+	t.Helper()
 
 	tasksOut, _, err := b.DescribeTasks("full-state-cluster", []string{f.taskArn})
 	if err != nil || len(tasksOut) != 1 {
@@ -189,26 +215,51 @@ func assertCoreResourcesRestored(t *testing.T, b *InMemoryBackend, f fullStateFi
 	if err != nil || len(protections) != 1 || !protections[0].ProtectionEnabled {
 		t.Fatalf("GetTaskProtection: got %+v, err=%v, want one enabled protection", protections, err)
 	}
+}
+
+// assertContainerInstanceRestored checks the restored container instance.
+func assertContainerInstanceRestored(t *testing.T, b *InMemoryBackend, f fullStateFixture) {
+	t.Helper()
 
 	instances, _, err := b.DescribeContainerInstances("full-state-cluster", []string{f.containerArn})
 	if err != nil || len(instances) != 1 {
 		t.Fatalf("DescribeContainerInstances: got %d instances, err=%v, want 1 instance", len(instances), err)
 	}
+}
+
+// assertTaskSetRestored checks the restored task set.
+func assertTaskSetRestored(t *testing.T, b *InMemoryBackend, f fullStateFixture) {
+	t.Helper()
 
 	taskSets, err := b.DescribeTaskSets("full-state-cluster", "full-state-svc", []string{f.taskSetArn})
 	if err != nil || len(taskSets) != 1 {
 		t.Fatalf("DescribeTaskSets: got %d task sets, err=%v, want 1 task set", len(taskSets), err)
 	}
+}
+
+// assertCapacityProviderRestored checks the restored capacity provider.
+func assertCapacityProviderRestored(t *testing.T, b *InMemoryBackend) {
+	t.Helper()
 
 	caps, _, err := b.DescribeCapacityProviders([]string{"full-state-cp"})
 	if err != nil || len(caps) != 1 {
 		t.Fatalf("DescribeCapacityProviders: got %d providers, err=%v, want 1 provider", len(caps), err)
 	}
+}
+
+// assertAccountSettingsRestored checks the restored account setting.
+func assertAccountSettingsRestored(t *testing.T, b *InMemoryBackend) {
+	t.Helper()
 
 	settings, err := b.ListAccountSettings("containerInsights", "")
 	if err != nil || len(settings) != 1 {
 		t.Fatalf("ListAccountSettings: got %d settings, err=%v, want 1 setting", len(settings), err)
 	}
+}
+
+// assertExpressGatewayServiceRestored checks the restored express gateway service.
+func assertExpressGatewayServiceRestored(t *testing.T, b *InMemoryBackend, f fullStateFixture) {
+	t.Helper()
 
 	egs, err := b.DescribeExpressGatewayService(f.egsArn)
 	if err != nil || egs == nil {
