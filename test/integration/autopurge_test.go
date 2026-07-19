@@ -133,7 +133,7 @@ func purgeNames(prefix string) purgeResourceNames {
 
 // seedPurgeResources creates one S3 bucket, DynamoDB table, SQS queue, SNS
 // topic, IAM user, and Lambda function, all named with the given prefix.
-func seedPurgeResources(t *testing.T, ctx context.Context, c purgeClients, prefix string) purgeResourceNames {
+func seedPurgeResources(ctx context.Context, t *testing.T, c purgeClients, prefix string) purgeResourceNames {
 	t.Helper()
 
 	names := purgeNames(prefix)
@@ -180,7 +180,7 @@ func seedPurgeResources(t *testing.T, ctx context.Context, c purgeClients, prefi
 
 // waitForOldBucketPurge polls ListBuckets until bucketOld is no longer present
 // or the deadline is reached (the auto-purge TTL ticker fires every 20s).
-func waitForOldBucketPurge(t *testing.T, ctx context.Context, c *s3.Client, bucketOld string) {
+func waitForOldBucketPurge(ctx context.Context, t *testing.T, c *s3.Client, bucketOld string) {
 	t.Helper()
 
 	deadline := time.Now().Add(60 * time.Second)
@@ -204,7 +204,7 @@ func waitForOldBucketPurge(t *testing.T, ctx context.Context, c *s3.Client, buck
 }
 
 // assertS3Purged verifies the old bucket is gone and the new bucket remains.
-func assertS3Purged(t *testing.T, ctx context.Context, c *s3.Client, bucketOld, bucketNew string) {
+func assertS3Purged(ctx context.Context, t *testing.T, c *s3.Client, bucketOld, bucketNew string) {
 	t.Helper()
 
 	buckets, err := c.ListBuckets(ctx, &s3.ListBucketsInput{})
@@ -223,7 +223,7 @@ func assertS3Purged(t *testing.T, ctx context.Context, c *s3.Client, bucketOld, 
 }
 
 // assertDDBPurged verifies the old table is gone and the new table remains.
-func assertDDBPurged(t *testing.T, ctx context.Context, c *dynamodb.Client, tableOld, tableNew string) {
+func assertDDBPurged(ctx context.Context, t *testing.T, c *dynamodb.Client, tableOld, tableNew string) {
 	t.Helper()
 
 	tables, err := c.ListTables(ctx, &dynamodb.ListTablesInput{})
@@ -242,7 +242,7 @@ func assertDDBPurged(t *testing.T, ctx context.Context, c *dynamodb.Client, tabl
 }
 
 // assertSQSPurged verifies the old queue is gone and the new queue remains.
-func assertSQSPurged(t *testing.T, ctx context.Context, c *sqs.Client, queueOld, queueNew string) {
+func assertSQSPurged(ctx context.Context, t *testing.T, c *sqs.Client, queueOld, queueNew string) {
 	t.Helper()
 
 	queues, err := c.ListQueues(ctx, &sqs.ListQueuesInput{})
@@ -261,7 +261,7 @@ func assertSQSPurged(t *testing.T, ctx context.Context, c *sqs.Client, queueOld,
 }
 
 // assertSNSPurged verifies the old topic is gone and the new topic remains.
-func assertSNSPurged(t *testing.T, ctx context.Context, c *sns.Client, topicOld, topicNew string) {
+func assertSNSPurged(ctx context.Context, t *testing.T, c *sns.Client, topicOld, topicNew string) {
 	t.Helper()
 
 	snsTopics, err := c.ListTopics(ctx, &sns.ListTopicsInput{})
@@ -280,7 +280,7 @@ func assertSNSPurged(t *testing.T, ctx context.Context, c *sns.Client, topicOld,
 }
 
 // assertIAMPurged verifies the old user is gone and the new user remains.
-func assertIAMPurged(t *testing.T, ctx context.Context, c *iam.Client, userOld, userNew string) {
+func assertIAMPurged(ctx context.Context, t *testing.T, c *iam.Client, userOld, userNew string) {
 	t.Helper()
 
 	iamUsers, err := c.ListUsers(ctx, &iam.ListUsersInput{})
@@ -299,7 +299,7 @@ func assertIAMPurged(t *testing.T, ctx context.Context, c *iam.Client, userOld, 
 }
 
 // assertLambdaPurged verifies the old function is gone and the new function remains.
-func assertLambdaPurged(t *testing.T, ctx context.Context, c *lambda.Client, funcOld, funcNew string) {
+func assertLambdaPurged(ctx context.Context, t *testing.T, c *lambda.Client, funcOld, funcNew string) {
 	t.Helper()
 
 	lambdaFuncs, err := c.ListFunctions(ctx, &lambda.ListFunctionsInput{})
@@ -329,24 +329,24 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	ctx := t.Context()
 
 	// 2. Create "old" resources
-	oldNames := seedPurgeResources(t, ctx, clients, "old")
+	oldNames := seedPurgeResources(ctx, t, clients, "old")
 
 	// 3. Wait for TTL to pass (20s + buffer)
 	t.Log("Waiting for resources to expire...")
 	time.Sleep(22 * time.Second)
 
 	// 4. Create "new" resources
-	newNames := seedPurgeResources(t, ctx, clients, "new")
+	newNames := seedPurgeResources(ctx, t, clients, "new")
 
 	// 5. Poll until old S3 bucket is purged or deadline is reached (TTL ticker fires every 20s).
 	t.Log("Waiting for purge cycle...")
-	waitForOldBucketPurge(t, ctx, clients.s3, oldNames.bucket)
+	waitForOldBucketPurge(ctx, t, clients.s3, oldNames.bucket)
 
 	// 6. Verify old are gone, new remain
-	assertS3Purged(t, ctx, clients.s3, oldNames.bucket, newNames.bucket)
-	assertDDBPurged(t, ctx, clients.ddb, oldNames.table, newNames.table)
-	assertSQSPurged(t, ctx, clients.sqs, oldNames.queue, newNames.queue)
-	assertSNSPurged(t, ctx, clients.sns, oldNames.topic, newNames.topic)
-	assertIAMPurged(t, ctx, clients.iam, oldNames.user, newNames.user)
-	assertLambdaPurged(t, ctx, clients.lambda, oldNames.function, newNames.function)
+	assertS3Purged(ctx, t, clients.s3, oldNames.bucket, newNames.bucket)
+	assertDDBPurged(ctx, t, clients.ddb, oldNames.table, newNames.table)
+	assertSQSPurged(ctx, t, clients.sqs, oldNames.queue, newNames.queue)
+	assertSNSPurged(ctx, t, clients.sns, oldNames.topic, newNames.topic)
+	assertIAMPurged(ctx, t, clients.iam, oldNames.user, newNames.user)
+	assertLambdaPurged(ctx, t, clients.lambda, oldNames.function, newNames.function)
 }
