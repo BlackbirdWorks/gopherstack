@@ -683,6 +683,21 @@ make docs            # regenerate the service docs from each PARITY.md
 make pgo             # regenerate the PGO profile
 ```
 
+## Versioning
+
+Releases are tagged **`v1.<major>.<minor>`** — a major bump moves the middle number, a minor
+bump moves the last one. Releases are cut from the **Release** workflow, which only offers
+those two increments.
+
+The leading `1` is deliberate and stays put. The Go module path is
+`github.com/blackbirdworks/gopherstack` with no `/vN` suffix, and Go requires any module at
+major version 2 or higher to carry that suffix in its path. A tag like `v18.0.0` is therefore
+invisible to the Go module proxy and pkg.go.dev — staying on the `v1.x.y` line keeps
+`go get` working without rewriting every import across the tree on each release.
+
+Tags from the earlier `v2`–`v18` line remain in the repository for history, but Go tooling
+ignores them.
+
 ## Profile-Guided Optimization (PGO)
 
 The repo root ships `default.pgo`, a CPU profile that Go's

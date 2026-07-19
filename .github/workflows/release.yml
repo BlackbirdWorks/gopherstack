@@ -4,12 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       version_bump:
-        description: 'Version bump type'
+        description: 'Which number to increment in v1.<major>.<minor>'
         required: true
-        default: 'patch'
+        default: 'minor'
         type: choice
         options:
-          - patch
           - minor
           - major
   push:
@@ -35,14 +34,61 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Bump version and push tag
+      # Versions stay on the v1.x.y line on purpose: the Go module path is
+      # github.com/blackbirdworks/gopherstack with no /vN suffix, so any tag
+      # at major >= 2 is invisible to the Go module proxy and pkg.go.dev.
+      # The scheme is v1.<major>.<minor> — a major bump moves the middle
+      # number, a minor bump moves the last one.
+      - name: Compute next tag
         id: tag_version
-        uses: anothrNick/github-tag-action@1.75.0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WITH_V: true
-          DEFAULT_BUMP: ${{ github.event.inputs.version_bump }}
-          DRY_RUN: false
+          BUMP: ${{ github.event.inputs.version_bump }}
+        run: |
+          set -euo pipefail
+
+          # Highest tag already on the new scheme (v1.<major>.<minor> with a
+          # non-zero middle number, which excludes the legacy v1.0.x line).
+          latest=$(git tag --list 'v1.*' \
+            | grep -E '^v1\.[0-9]+\.[0-9]+$' \
+            | awk -F. '$2 > 0' \
+            | sort -V | tail -1 || true)
+
+          if [ -z "$latest" ]; then
+            # First release under the new scheme: carry the generation across
+            # from the legacy vN.y.z line (v18.0.0 -> v1.18.0).
+            gen=$(git tag --list 'v*' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sed 's/^v//' | cut -d. -f1 \
+              | sort -n | tail -1)
+            next="v1.${gen}.0"
+          else
+            ver=${latest#v}
+            min=$(echo "$ver" | cut -d. -f2)
+            pat=$(echo "$ver" | cut -d. -f3)
+            case "$BUMP" in
+              major) next="v1.$((min + 1)).0" ;;
+              *)     next="v1.${min}.$((pat + 1))" ;;
+            esac
+          fi
+
+          # Hard guard: never emit a tag the Go module proxy would ignore.
+          case "$next" in
+            v1.*) ;;
+            *) echo "refusing to create non-v1 tag: $next" >&2; exit 1 ;;
+          esac
+
+          echo "next tag: $next (previous: ${latest:-none})"
+          echo "new_tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        env:
+          NEW_TAG: ${{ steps.tag_version.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW_TAG" -m "$NEW_TAG"
+          git push origin "$NEW_TAG"
 
   goreleaser:
     runs-on: ubuntu-latest
