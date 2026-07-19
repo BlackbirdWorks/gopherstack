@@ -216,7 +216,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		ctx = context.WithValue(ctx, regionContextKey{}, region)
 
 		requestWithCtx := c.Request().WithContext(ctx)
-		*c.Request() = *requestWithCtx
+		c.SetRequest(requestWithCtx)
 
 		sw := httputils.NewResponseWriter(c.Response())
 		// Set standard S3 headers for every response for realism and SDK compatibility.
