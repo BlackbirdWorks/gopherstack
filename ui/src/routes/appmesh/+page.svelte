@@ -18,8 +18,10 @@
 
 	const client = getAppMeshClient();
 
+	type TabId = 'meshes' | 'nodes' | 'services' | 'routers' | 'gateways';
+
 	let loading = $state(false);
-	let activeTab = $state<'meshes' | 'nodes' | 'services' | 'routers' | 'gateways'>('meshes');
+	let activeTab = $state<TabId>('meshes');
 	let searchQuery = $state('');
 	let meshesData = $state<MeshRef[]>([]);
 	let nodesData = $state<VirtualNodeRef[]>([]);
@@ -34,45 +36,59 @@
 	const filteredRouters = $derived(routersData.filter((x) => JSON.stringify(x).toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredGateways = $derived(gatewaysData.filter((x) => JSON.stringify(x).toLowerCase().includes(searchQuery.toLowerCase())));
 
+	async function loadMeshesForTab() {
+		const resp = await client.send(new ListMeshesCommand({}));
+		meshesData = resp.meshes ?? [];
+	}
+
+	async function loadNodesForTab() {
+		if (!meshNameFilter) {
+			nodesData = [];
+			return;
+		}
+		const resp = await client.send(new ListVirtualNodesCommand({ meshName: meshNameFilter }));
+		nodesData = resp.virtualNodes ?? [];
+	}
+
+	async function loadServicesForTab() {
+		if (!meshNameFilter) {
+			servicesData = [];
+			return;
+		}
+		const resp = await client.send(new ListVirtualServicesCommand({ meshName: meshNameFilter }));
+		servicesData = resp.virtualServices ?? [];
+	}
+
+	async function loadRoutersForTab() {
+		if (!meshNameFilter) {
+			routersData = [];
+			return;
+		}
+		const resp = await client.send(new ListVirtualRoutersCommand({ meshName: meshNameFilter }));
+		routersData = resp.virtualRouters ?? [];
+	}
+
+	async function loadGatewaysForTab() {
+		if (!meshNameFilter) {
+			gatewaysData = [];
+			return;
+		}
+		const resp = await client.send(new ListVirtualGatewaysCommand({ meshName: meshNameFilter }));
+		gatewaysData = resp.virtualGateways ?? [];
+	}
+
+	const tabDataLoaders: Record<TabId, () => Promise<void>> = {
+		meshes: loadMeshesForTab,
+		nodes: loadNodesForTab,
+		services: loadServicesForTab,
+		routers: loadRoutersForTab,
+		gateways: loadGatewaysForTab
+	};
+
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'meshes') {
-				const resp = await client.send(new ListMeshesCommand({}));
-				meshesData = resp.meshes ?? [];
-			}
-			if (activeTab === 'nodes') {
-				if (meshNameFilter) {
-					const resp = await client.send(new ListVirtualNodesCommand({ meshName: meshNameFilter }));
-					nodesData = resp.virtualNodes ?? [];
-				} else {
-					nodesData = [];
-				}
-			}
-			if (activeTab === 'services') {
-				if (meshNameFilter) {
-					const resp = await client.send(new ListVirtualServicesCommand({ meshName: meshNameFilter }));
-					servicesData = resp.virtualServices ?? [];
-				} else {
-					servicesData = [];
-				}
-			}
-			if (activeTab === 'routers') {
-				if (meshNameFilter) {
-					const resp = await client.send(new ListVirtualRoutersCommand({ meshName: meshNameFilter }));
-					routersData = resp.virtualRouters ?? [];
-				} else {
-					routersData = [];
-				}
-			}
-			if (activeTab === 'gateways') {
-				if (meshNameFilter) {
-					const resp = await client.send(new ListVirtualGatewaysCommand({ meshName: meshNameFilter }));
-					gatewaysData = resp.virtualGateways ?? [];
-				} else {
-					gatewaysData = [];
-				}
-			}
+			await tabDataLoaders[activeTab]();
 		} catch (e) {
 			toast.error('Failed to load AWS App Mesh data: ' + String(e));
 		} finally {

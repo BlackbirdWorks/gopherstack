@@ -68,33 +68,55 @@ export interface ResolvedKeySchema {
   skType: string;
 }
 
-/** Resolve key schema names and types from a table description and optional index. */
-export function resolveKeySchema(
-  desc: TableDescription | null,
-  indexName?: string,
-): ResolvedKeySchema {
-  if (!desc) return { pkName: "", skName: "", pkType: "S", skType: "S" };
-  let keySchema: KeySchemaElement[] = desc.KeySchema ?? [];
-  if (indexName) {
-    const gsi = (desc.GlobalSecondaryIndexes ?? []).find((i) => i.IndexName === indexName);
-    if (gsi) keySchema = gsi.KeySchema ?? [];
-    else {
-      const lsi = (desc.LocalSecondaryIndexes ?? []).find((i) => i.IndexName === indexName);
-      if (lsi) keySchema = lsi.KeySchema ?? [];
-    }
-  }
+/**
+ * Pick the KeySchema to use: the named GSI's, the named LSI's, or (if no
+ * index name is given, or it doesn't match any GSI/LSI) the base table's.
+ */
+function pickKeySchema(desc: TableDescription, indexName?: string): KeySchemaElement[] {
+  const baseKeySchema = desc.KeySchema ?? [];
+  if (!indexName) return baseKeySchema;
+  const gsi = (desc.GlobalSecondaryIndexes ?? []).find((i) => i.IndexName === indexName);
+  if (gsi) return gsi.KeySchema ?? [];
+  const lsi = (desc.LocalSecondaryIndexes ?? []).find((i) => i.IndexName === indexName);
+  if (lsi) return lsi.KeySchema ?? [];
+  return baseKeySchema;
+}
+
+/** Extract the HASH/RANGE attribute names from a KeySchema. */
+function keyNamesFromSchema(keySchema: KeySchemaElement[]): { pkName: string; skName: string } {
   let pkName = "",
     skName = "";
   for (const k of keySchema) {
     if (k.KeyType === "HASH") pkName = k.AttributeName ?? "";
     if (k.KeyType === "RANGE") skName = k.AttributeName ?? "";
   }
+  return { pkName, skName };
+}
+
+/** Look up the attribute types for the given key names, defaulting to "S". */
+function keyTypesFromAttributeDefinitions(
+  desc: TableDescription,
+  pkName: string,
+  skName: string,
+): { pkType: string; skType: string } {
   let pkType = "S",
     skType = "S";
   for (const attr of desc.AttributeDefinitions ?? []) {
     if (attr.AttributeName === pkName) pkType = attr.AttributeType ?? "S";
     if (attr.AttributeName === skName) skType = attr.AttributeType ?? "S";
   }
+  return { pkType, skType };
+}
+
+/** Resolve key schema names and types from a table description and optional index. */
+export function resolveKeySchema(
+  desc: TableDescription | null,
+  indexName?: string,
+): ResolvedKeySchema {
+  if (!desc) return { pkName: "", skName: "", pkType: "S", skType: "S" };
+  const keySchema = pickKeySchema(desc, indexName);
+  const { pkName, skName } = keyNamesFromSchema(keySchema);
+  const { pkType, skType } = keyTypesFromAttributeDefinitions(desc, pkName, skName);
   return { pkName, skName, pkType, skType };
 }
 
