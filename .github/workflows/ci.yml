@@ -476,6 +476,17 @@ jobs:
           profile: coverage.out
           config: .testcoverage.yml
 
+      # Uploads the merged unit+integration+e2e profile, so the Codecov badge
+      # matches the coverage reported in the PR comment above. Non-fatal: the
+      # repository does not have to be connected to Codecov for CI to pass.
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.out
+          fail_ci_if_error: false
+
       - name: Generate Smart Coverage Report
         if: always() && (github.event_name == 'pull_request' || github.event_name == 'workflow_run')
         uses: actions/github-script@v9
@@ -639,3 +650,4 @@ jobs:
                 body: body
               });
             }
+

@@ -9,9 +9,18 @@
 <p align="center">
   <a href="https://github.com/blackbirdworks/gopherstack/actions/workflows/ci.yml"><img src="https://github.com/blackbirdworks/gopherstack/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/blackbirdworks/gopherstack/actions/workflows/release.yml"><img src="https://github.com/blackbirdworks/gopherstack/actions/workflows/release.yml/badge.svg" alt="Release"></a>
-  <a href="https://github.com/blackbirdworks/gopherstack/actions/workflows/main.yml"><img src="https://raw.githubusercontent.com/blackbirdworks/gopherstack/badges/.badges/coverage.svg?v=1" alt="Coverage"></a>
+  <a href="https://codecov.io/gh/BlackbirdWorks/gopherstack"><img src="https://codecov.io/gh/BlackbirdWorks/gopherstack/branch/main/graph/badge.svg" alt="codecov"></a>
+  <a href="https://www.codefactor.io/repository/github/blackbirdworks/gopherstack"><img src="https://www.codefactor.io/repository/github/blackbirdworks/gopherstack/badge" alt="CodeFactor"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/blackbirdworks/gopherstack"><img src="https://api.scorecard.dev/projects/github.com/blackbirdworks/gopherstack/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://pkg.go.dev/github.com/blackbirdworks/gopherstack"><img src="https://pkg.go.dev/badge/github.com/blackbirdworks/gopherstack.svg" alt="Go Reference"></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
+
+<p align="center">
+  <a href="#services"><img src=".badges/operations.svg" alt="AWS operations"></a>
+  <a href="#services"><img src=".badges/services.svg" alt="AWS services"></a>
+  <a href="#services"><img src=".badges/parity.svg" alt="parity"></a>
+  <a href="go.mod"><img src=".badges/go.svg" alt="go"></a>
+  <a href="LICENSE"><img src=".badges/license.svg" alt="license"></a>
 </p>
 
 Gopherstack is a lightweight, in-memory AWS cloud stack you can run locally. It emulates
