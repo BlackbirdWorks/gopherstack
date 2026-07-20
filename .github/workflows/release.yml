@@ -15,10 +15,7 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-  packages: write
-  issues: write
+permissions: read-all
 
 jobs:
   create-tag:
