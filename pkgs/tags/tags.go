@@ -6,6 +6,7 @@ package tags
 
 import (
 	"encoding/json"
+	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
@@ -122,6 +123,31 @@ func (t *Tags) Range(f func(key, value string) bool) {
 type KV struct {
 	Key   string `json:"Key"   xml:"Key"`
 	Value string `json:"Value" xml:"Value"`
+}
+
+// MapFromKV converts a slice of KV to a map.
+func MapFromKV(items []KV) map[string]string {
+	m := make(map[string]string, len(items))
+
+	for _, t := range items {
+		m[t.Key] = t.Value
+	}
+
+	return m
+}
+
+// MapToKV converts a map to a sorted slice of KV.
+func MapToKV(m map[string]string) []KV {
+	items := make([]KV, 0, len(m))
+	for k, v := range m {
+		items = append(items, KV{Key: k, Value: v})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Key < items[j].Key
+	})
+
+	return items
 }
 
 // MarshalJSON implements [json.Marshaler].

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // createRegexPatternSetRequest is the request body for CreateRegexPatternSet.
@@ -15,7 +16,7 @@ type createRegexPatternSetRequest struct {
 	Scope                 string          `json:"Scope"`
 	Description           string          `json:"Description"`
 	RegularExpressionList json.RawMessage `json:"RegularExpressionList"`
-	Tags                  []tagItem       `json:"Tags"`
+	Tags                  []tags.KV       `json:"Tags"`
 }
 
 func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) ([]byte, error) {
@@ -53,7 +54,7 @@ func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) 
 		return nil, validateErr
 	}
 
-	tags := tagsFromItems(req.Tags)
+	tags := tags.MapFromKV(req.Tags)
 	if tagsErr := validateTags(tags); tagsErr != nil {
 		return nil, tagsErr
 	}

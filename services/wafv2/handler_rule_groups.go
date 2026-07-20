@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // checkCapacityRequest is the request body for CheckCapacity.
@@ -41,7 +42,7 @@ type createRuleGroupRequest struct {
 	Description      string           `json:"Description"`
 	VisibilityConfig json.RawMessage  `json:"VisibilityConfig"`
 	Rules            []map[string]any `json:"Rules"`
-	Tags             []tagItem        `json:"Tags"`
+	Tags             []tags.KV        `json:"Tags"`
 	Capacity         int64            `json:"Capacity"`
 }
 
@@ -84,7 +85,7 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	tags := tagsFromItems(req.Tags)
+	tags := tags.MapFromKV(req.Tags)
 	if err := validateTags(tags); err != nil {
 		return nil, err
 	}

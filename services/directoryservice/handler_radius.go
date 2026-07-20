@@ -9,25 +9,27 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+type radiusRequest struct {
+	DirectoryID    string `json:"DirectoryId"`
+	RadiusSettings struct {
+		AuthenticationProtocol string   `json:"AuthenticationProtocol"`
+		DisplayLabel           string   `json:"DisplayLabel"`
+		SharedSecret           string   `json:"SharedSecret"`
+		RadiusServers          []string `json:"RadiusServers"`
+		RadiusPort             int32    `json:"RadiusPort"`
+		RadiusRetries          int32    `json:"RadiusRetries"`
+		RadiusTimeout          int32    `json:"RadiusTimeout"`
+		UseSameUsername        bool     `json:"UseSameUsername"`
+	} `json:"RadiusSettings"`
+}
+
 func (h *Handler) handleEnableRadius(c *echo.Context) error { //nolint:dupl // existing issue.
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
 	}
 
-	var req struct {
-		DirectoryID    string `json:"DirectoryId"`
-		RadiusSettings struct {
-			AuthenticationProtocol string   `json:"AuthenticationProtocol"`
-			DisplayLabel           string   `json:"DisplayLabel"`
-			SharedSecret           string   `json:"SharedSecret"`
-			RadiusServers          []string `json:"RadiusServers"`
-			RadiusPort             int32    `json:"RadiusPort"`
-			RadiusRetries          int32    `json:"RadiusRetries"`
-			RadiusTimeout          int32    `json:"RadiusTimeout"`
-			UseSameUsername        bool     `json:"UseSameUsername"`
-		} `json:"RadiusSettings"`
-	}
+	var req radiusRequest
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
@@ -86,19 +88,7 @@ func (h *Handler) handleUpdateRadius(c *echo.Context) error { //nolint:dupl // e
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
 	}
 
-	var req struct {
-		DirectoryID    string `json:"DirectoryId"`
-		RadiusSettings struct {
-			AuthenticationProtocol string   `json:"AuthenticationProtocol"`
-			DisplayLabel           string   `json:"DisplayLabel"`
-			SharedSecret           string   `json:"SharedSecret"`
-			RadiusServers          []string `json:"RadiusServers"`
-			RadiusPort             int32    `json:"RadiusPort"`
-			RadiusRetries          int32    `json:"RadiusRetries"`
-			RadiusTimeout          int32    `json:"RadiusTimeout"`
-			UseSameUsername        bool     `json:"UseSameUsername"`
-		} `json:"RadiusSettings"`
-	}
+	var req radiusRequest
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))

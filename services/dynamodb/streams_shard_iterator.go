@@ -22,8 +22,8 @@ const (
 	shardIteratorTokenLen = 16
 )
 
-// shardIteratorEntry holds server-side state for an opaque shard iterator token.
-type shardIteratorEntry struct {
+// ShardIteratorEntry holds server-side state for an opaque shard iterator token.
+type ShardIteratorEntry struct {
 	ExpiresAt time.Time
 	TableName string
 	StartSeq  int64
@@ -36,14 +36,14 @@ type shardIteratorEntry struct {
 // ShardIteratorStore maps opaque random tokens to server-side iterator state.
 // It is goroutine-safe.
 type ShardIteratorStore struct {
-	entries map[string]*shardIteratorEntry
+	entries map[string]*ShardIteratorEntry
 	mu      sync.Mutex
 }
 
 // NewShardIteratorStore creates an empty ShardIteratorStore.
 func NewShardIteratorStore() *ShardIteratorStore {
 	return &ShardIteratorStore{
-		entries: make(map[string]*shardIteratorEntry),
+		entries: make(map[string]*ShardIteratorEntry),
 	}
 }
 
@@ -76,7 +76,7 @@ func (s *ShardIteratorStore) PutWithEnd(tableName string, startSeq, endSeq int64
 				}
 			}
 		}
-		s.entries[token] = &shardIteratorEntry{
+		s.entries[token] = &ShardIteratorEntry{
 			TableName: tableName,
 			StartSeq:  startSeq,
 			EndSeq:    endSeq,
@@ -88,7 +88,7 @@ func (s *ShardIteratorStore) PutWithEnd(tableName string, startSeq, endSeq int64
 }
 
 // Get retrieves the entry for a token. Returns nil if the token is unknown.
-func (s *ShardIteratorStore) Get(token string) *shardIteratorEntry {
+func (s *ShardIteratorStore) Get(token string) *ShardIteratorEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

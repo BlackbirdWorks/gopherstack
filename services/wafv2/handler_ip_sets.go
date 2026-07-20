@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // createIPSetRequest is the request body for CreateIPSet.
@@ -15,7 +16,7 @@ type createIPSetRequest struct {
 	Description      string    `json:"Description"`
 	IPAddressVersion string    `json:"IPAddressVersion"`
 	Addresses        []string  `json:"Addresses"`
-	Tags             []tagItem `json:"Tags"`
+	Tags             []tags.KV `json:"Tags"`
 }
 
 func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, error) {
@@ -56,7 +57,7 @@ func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	tags := tagsFromItems(req.Tags)
+	tags := tags.MapFromKV(req.Tags)
 	if err := validateTags(tags); err != nil {
 		return nil, err
 	}
