@@ -139,7 +139,7 @@ resource "aws_iam_policy" "boundary" {
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
-      Action   = ["ec2:*", "s3:*"]
+      Action   = ["ec2:*", "s3:ListBucket"]
       Resource = "*"
     }]
   })

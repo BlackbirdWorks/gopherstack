@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // protectedARNEntry describes an ARN service/resource fragment for Shield-supported resource types.
@@ -51,7 +52,7 @@ func validateProtectedResourceARN(arn string) error {
 type createProtectionRequest struct {
 	Name        string    `json:"Name"`
 	ResourceArn string    `json:"ResourceArn"`
-	Tags        []tagItem `json:"Tags"`
+	Tags        []tags.KV `json:"Tags"`
 }
 
 func (h *Handler) handleCreateProtection(ctx context.Context, body []byte) ([]byte, error) {
@@ -72,7 +73,7 @@ func (h *Handler) handleCreateProtection(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	tags := tagsFromItems(req.Tags)
+	tags := tags.MapFromKV(req.Tags)
 
 	p, err := h.Backend.CreateProtection(req.Name, req.ResourceArn, tags)
 	if err != nil {

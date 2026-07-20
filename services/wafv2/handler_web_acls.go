@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // createWebACLRequest is the request body for CreateWebACL.
@@ -19,7 +20,7 @@ type createWebACLRequest struct {
 	Name                 string           `json:"Name"`
 	Scope                string           `json:"Scope"`
 	Description          string           `json:"Description"`
-	Tags                 []tagItem        `json:"Tags"`
+	Tags                 []tags.KV        `json:"Tags"`
 	TokenDomains         []string         `json:"TokenDomains"`
 	Rules                []map[string]any `json:"Rules"`
 }
@@ -62,7 +63,7 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, err
 	}
 
-	tags := tagsFromItems(req.Tags)
+	tags := tags.MapFromKV(req.Tags)
 	if err := validateTags(tags); err != nil {
 		return nil, err
 	}

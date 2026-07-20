@@ -3,43 +3,14 @@ package shield
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
-
-// tagItem represents a key/value pair for the Tags field in Shield API requests.
-type tagItem struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
-}
-
-func tagsFromItems(items []tagItem) map[string]string {
-	m := make(map[string]string, len(items))
-
-	for _, t := range items {
-		m[t.Key] = t.Value
-	}
-
-	return m
-}
-
-func tagsToItems(tags map[string]string) []tagItem {
-	items := make([]tagItem, 0, len(tags))
-
-	for k, v := range tags {
-		items = append(items, tagItem{Key: k, Value: v})
-	}
-
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Key < items[j].Key
-	})
-
-	return items
-}
 
 // tagResourceRequest is the request body for TagResource.
 type tagResourceRequest struct {
 	ResourceARN string    `json:"ResourceARN"`
-	Tags        []tagItem `json:"Tags"`
+	Tags        []tags.KV `json:"Tags"`
 }
 
 func (h *Handler) handleTagResource(body []byte) error {
@@ -52,7 +23,7 @@ func (h *Handler) handleTagResource(body []byte) error {
 		return fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.TagResource(req.ResourceARN, tagsFromItems(req.Tags)); err != nil {
+	if err := h.Backend.TagResource(req.ResourceARN, tags.MapFromKV(req.Tags)); err != nil {
 		return err
 	}
 
@@ -74,13 +45,13 @@ func (h *Handler) handleListTagsForResource(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	tags, err := h.Backend.ListTagsForResource(req.ResourceARN)
+	tagsMap, err := h.Backend.ListTagsForResource(req.ResourceARN)
 	if err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{
-		"Tags": tagsToItems(tags),
+		"Tags": tags.MapToKV(tagsMap),
 	})
 }
 

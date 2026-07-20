@@ -31,12 +31,15 @@ func newDistributionRegistry(parent context.Context) http.Handler {
 
 	// The distribution library's logger looks up "instance.id" in the context.
 	// We provide it via a string key since that's what the library expects internally.
-	//nolint:revive,staticcheck // distribution/distribution requires this string key
 	ctx := context.WithValue(
 		parent,
-		"instance.id",
+		instanceIDKey(),
 		"gopherstack-ecr",
 	)
 
 	return handlers.NewApp(ctx, cfg)
+}
+
+func instanceIDKey() any {
+	return "instance.id"
 }

@@ -4,42 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
-
-// tagItem represents a key/value pair for Tags fields.
-type tagItem struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
-}
-
-func tagsFromItems(items []tagItem) map[string]string {
-	m := make(map[string]string, len(items))
-
-	for _, t := range items {
-		m[t.Key] = t.Value
-	}
-
-	return m
-}
-func tagsToItems(tags map[string]string) []tagItem {
-	items := make([]tagItem, 0, len(tags))
-
-	for k, v := range tags {
-		items = append(items, tagItem{Key: k, Value: v})
-	}
-
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Key < items[j].Key
-	})
-
-	return items
-}
 
 // tagResourceRequest is the request body for TagResource.
 type tagResourceRequest struct {
 	ResourceARN string    `json:"ResourceARN"`
-	Tags        []tagItem `json:"Tags"`
+	Tags        []tags.KV `json:"Tags"`
 }
 
 func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, error) {
@@ -52,12 +24,12 @@ func (h *Handler) handleTagResource(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	tags := tagsFromItems(req.Tags)
-	if err := validateTags(tags); err != nil {
+	tagsMap := tags.MapFromKV(req.Tags)
+	if err := validateTags(tagsMap); err != nil {
 		return nil, err
 	}
 
-	if err := h.Backend.TagResource(ctx, req.ResourceARN, tags); err != nil {
+	if err := h.Backend.TagResource(ctx, req.ResourceARN, tagsMap); err != nil {
 		return nil, err
 	}
 
@@ -79,7 +51,7 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	tags, err := h.Backend.ListTagsForResource(ctx, req.ResourceARN)
+	tagsRes, err := h.Backend.ListTagsForResource(ctx, req.ResourceARN)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +59,7 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([
 	return json.Marshal(map[string]any{
 		"TagInfoForResource": map[string]any{
 			"ResourceARN": req.ResourceARN,
-			"TagList":     tagsToItems(tags),
+			"TagList":     tags.MapToKV(tagsRes),
 		},
 	})
 }

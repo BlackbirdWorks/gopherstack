@@ -173,6 +173,11 @@ resource "aws_opensearch_domain" "analytics" {
     instance_count = 1
   }
 
+  domain_endpoint_options {
+    enforce_https       = true
+    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
+  }
+
   ebs_options {
     ebs_enabled = true
     volume_type = "gp3"
