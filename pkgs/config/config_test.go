@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -51,6 +52,10 @@ func TestGlobalConfig_ZeroValue(t *testing.T) {
 			name: "zero value struct",
 			cfg:  &config.GlobalConfig{},
 		},
+		{
+			name: "nil struct pointer",
+			cfg:  nil,
+		},
 	}
 
 	for _, tc := range tests {
@@ -61,6 +66,9 @@ func TestGlobalConfig_ZeroValue(t *testing.T) {
 			assert.Empty(t, tc.cfg.GetRegion())
 			assert.Equal(t, 0, tc.cfg.GetLatencyMs())
 			assert.False(t, tc.cfg.IsIAMEnforced())
+			assert.Equal(t, time.Duration(0), tc.cfg.GetJanitorTimeout())
+			assert.Equal(t, time.Duration(0), tc.cfg.GetAutoPurgeTTL())
+			assert.True(t, tc.cfg.GetStartTime().IsZero())
 		})
 	}
 }
@@ -102,12 +110,14 @@ func TestGlobalConfig_Update(t *testing.T) {
 			t.Parallel()
 
 			cfg := &config.GlobalConfig{}
-			cfg.Update(tc.accountID, tc.region, tc.latencyMs, 0, tc.enforceIAM, 0)
+			cfg.Update(tc.accountID, tc.region, tc.latencyMs, time.Minute, tc.enforceIAM, time.Hour)
 
 			assert.Equal(t, tc.wantAccountID, cfg.GetAccountID())
 			assert.Equal(t, tc.wantRegion, cfg.GetRegion())
 			assert.Equal(t, tc.latencyMs, cfg.GetLatencyMs())
 			assert.Equal(t, tc.enforceIAM, cfg.IsIAMEnforced())
+			assert.Equal(t, time.Minute, cfg.GetJanitorTimeout())
+			assert.Equal(t, time.Hour, cfg.GetAutoPurgeTTL())
 		})
 	}
 }
