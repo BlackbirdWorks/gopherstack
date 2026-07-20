@@ -8,7 +8,7 @@ import (
 	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 )
 
-// wireStreamDescription mirrors StreamDescription but with timestamps as float64 epoch seconds.
+// WireStreamDescription mirrors StreamDescription but with timestamps as float64 epoch seconds.
 type WireStreamDescription struct {
 	CreationRequestDateTime *float64                        `json:"CreationRequestDateTime,omitempty"`
 	LastEvaluatedShardID    *string                         `json:"LastEvaluatedShardId,omitempty"`

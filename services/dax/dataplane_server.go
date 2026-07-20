@@ -13,7 +13,7 @@ import (
 // client configured with the cluster endpoint reaches the right port.
 const defaultDataPlaneAddr = ":8111"
 
-// dataPlane bundles the DAX binary-protocol listener with the DynamoDB backend
+// DataPlane bundles the DAX binary-protocol listener with the DynamoDB backend
 // it delegates item operations to. DAX is a write-through cache in front of
 // DynamoDB; for emulation purposes the cache is a pass-through to a real
 // in-memory DynamoDB store.

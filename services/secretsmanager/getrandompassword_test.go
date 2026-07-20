@@ -221,7 +221,6 @@ func checkConstraintNoExcludedCharsBackend(t *testing.T, pw string) {
 	}
 }
 
-
 // TestGetRandomPassword_Backend verifies the GetRandomPassword backend method.
 func TestGetRandomPassword_Backend(t *testing.T) {
 	t.Parallel()
@@ -250,7 +249,7 @@ func TestGetRandomPassword_Backend(t *testing.T) {
 			setup: func(in *secretsmanager.GetRandomPasswordInput) {
 				in.ExcludeNumbers = true
 			},
-			wantLength: 32,
+			wantLength:   32,
 			checkCharsFn: checkConstraintNoDigits,
 		},
 		{
@@ -258,7 +257,7 @@ func TestGetRandomPassword_Backend(t *testing.T) {
 			setup: func(in *secretsmanager.GetRandomPasswordInput) {
 				in.ExcludeUppercase = true
 			},
-			wantLength: 32,
+			wantLength:   32,
 			checkCharsFn: checkConstraintNoUppercase,
 		},
 		{
@@ -266,7 +265,7 @@ func TestGetRandomPassword_Backend(t *testing.T) {
 			setup: func(in *secretsmanager.GetRandomPasswordInput) {
 				in.ExcludeLowercase = true
 			},
-			wantLength: 32,
+			wantLength:   32,
 			checkCharsFn: checkConstraintNoLowercase,
 		},
 		{
@@ -283,7 +282,7 @@ func TestGetRandomPassword_Backend(t *testing.T) {
 			setup: func(in *secretsmanager.GetRandomPasswordInput) {
 				in.ExcludeCharacters = "abc"
 			},
-			wantLength: 32,
+			wantLength:   32,
 			checkCharsFn: checkConstraintNoExcludedCharsBackend,
 		},
 		{
@@ -293,7 +292,7 @@ func TestGetRandomPassword_Backend(t *testing.T) {
 				in.PasswordLength = &l
 				in.RequireEachIncludedType = true
 			},
-			wantLength: 32,
+			wantLength:   32,
 			checkCharsFn: checkConstraintRequiredTypesBackend,
 		},
 		{

@@ -414,6 +414,7 @@ func (b *InMemoryBackend) buildAndStoreUserLocked(
 
 	b.users.Put(user)
 	cp := *user
+
 	return &cp
 }
 
