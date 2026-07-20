@@ -5,8 +5,9 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 func (b *InMemoryBackend) collaborationARN(id string) string {

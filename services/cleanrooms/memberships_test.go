@@ -150,3 +150,30 @@ func TestListMembershipsReturnsSummaryWithIDKeys(t *testing.T) {
 	assert.Contains(t, summary, "collaborationId", "membership summary must have canonical 'collaborationId' key")
 	assert.Equal(t, colID, summary["collaborationId"])
 }
+
+func TestUpdateMembership(t *testing.T) {
+	t.Parallel()
+
+	e := newTestServer(t)
+	doRequest(t, e, "POST", "/collaborations", map[string]any{
+		"name": "up-m-collab", "creatorDisplayName": "Liam",
+		"creatorMemberAbilities": []string{},
+		"members":                []any{}, "queryLogStatus": "DISABLED",
+	})
+	var colResp map[string]any
+	rec := doRequest(t, e, "GET", "/collaborations", nil)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
+	colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
+
+	memReq := doRequest(t, e, "POST", "/memberships", map[string]any{
+		"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
+	})
+	var memResp map[string]any
+	require.NoError(t, json.Unmarshal(memReq.Body.Bytes(), &memResp))
+	memID := memResp["membership"].(map[string]any)["id"].(string)
+
+	upReq := doRequest(t, e, "PATCH", "/memberships/"+memID, map[string]any{
+		"queryLogStatus": "ENABLED",
+	})
+	require.Equal(t, http.StatusOK, upReq.Code)
+}

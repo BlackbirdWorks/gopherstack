@@ -71,3 +71,44 @@ func TestConfiguredTableAnalysisRuleHasConfiguredTableID(t *testing.T) {
 		"analysisRule must have canonical 'configuredTableId' key")
 	assert.Equal(t, ctID, ar["configuredTableId"])
 }
+
+func TestDeleteConfiguredTableAnalysisRule(t *testing.T) {
+	t.Parallel()
+	e := newTestServer(t)
+
+	// Create table
+	rec := doRequest(t, e, "POST", "/configuredTables", map[string]any{
+		"name": "del-rule-table",
+		"tableReference": map[string]any{
+			"glue": map[string]any{"tableName": "t", "databaseName": "d"},
+		},
+		"allowedColumns": []string{"c1"},
+		"analysisMethod": "DIRECT_QUERY",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	id := resp["configuredTable"].(map[string]any)["id"].(string)
+
+	// Create rule
+	ruleRec := doRequest(t, e, "POST", "/configuredTables/"+id+"/analysisRule", map[string]any{
+		"analysisRuleType": "AGGREGATION",
+		"analysisRulePolicy": map[string]any{
+			"v1": map[string]any{
+				"aggregation": map[string]any{
+					"aggregateColumns":  []any{},
+					"joinColumns":       []any{},
+					"dimensionColumns":  []any{},
+					"scalarFunctions":   []any{},
+					"outputConstraints": []any{},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, ruleRec.Code)
+
+	// Delete rule
+	delRec := doRequest(t, e, "DELETE", "/configuredTables/"+id+"/analysisRule/AGGREGATION", nil)
+	require.Equal(t, http.StatusOK, delRec.Code)
+}

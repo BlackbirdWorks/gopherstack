@@ -207,17 +207,23 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	original := cleanrooms.NewInMemoryBackend("111122223333", "us-west-2")
 	seed := seedFullState(t, original)
+	origColTags, _ := original.ListTagsForResource(seed.collab.Arn)
+	origTableTags, _ := original.ListTagsForResource(seed.table.Arn)
+	t.Logf("ORIGINAL COLLAB TAGS: %v", origColTags)
+	t.Logf("ORIGINAL TABLE TAGS: %v", origTableTags)
 
 	snap := original.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
+	t.Logf("SNAP: %s", string(snap))
+
 	fresh := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
+	assertTagsRestored(t, fresh, seed)
 	assertTopLevelRestored(t, fresh, seed)
 	assertMembershipNestedRestored(t, fresh, seed)
 	assertCollaborationNestedRestored(t, fresh, seed)
-	assertTagsRestored(t, fresh, seed)
 }
 
 // assertTopLevelRestored checks the three top-level tables (collaborations,
@@ -245,6 +251,8 @@ func assertTopLevelRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, see
 	gotTable, err := fresh.GetConfiguredTable(seed.table.ConfiguredTableIdentifier)
 	require.NoError(t, err)
 	assert.Equal(t, seed.table.Name, gotTable.Name)
+	t.Logf("SEED TABLE ARN: %q", seed.table.Arn)
+	t.Logf("GOT TABLE ARN: %q", gotTable.Arn)
 
 	gotCTRule, err := fresh.GetConfiguredTableAnalysisRule(seed.table.ConfiguredTableIdentifier, "AGGREGATION")
 	require.NoError(t, err)
@@ -384,4 +392,46 @@ func assertTagsRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed se
 	membershipTags, err := fresh.ListTagsForResource(seed.membership.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "core", membershipTags["team"])
+
+	tableTags, err := fresh.ListTagsForResource(seed.table.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "data-team", tableTags["owner"])
+
+	assocTags, err := fresh.ListTagsForResource(seed.assoc.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "analysis", assocTags["purpose"])
+
+	templateTags, err := fresh.ListTagsForResource(seed.template.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "sql", templateTags["kind"])
+
+	budgetTags, err := fresh.ListTagsForResource(seed.budget.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "test", budgetTags["budget"])
+
+	idMappingTags, err := fresh.ListTagsForResource(seed.idMapping.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "idmapping", idMappingTags["kind"])
+
+	idNSTags, err := fresh.ListTagsForResource(seed.idNamespace.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "idnamespace", idNSTags["kind"])
+
+	camaTags, err := fresh.ListTagsForResource(seed.cama.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "cama", camaTags["kind"])
+}
+
+func TestHandler_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	originalBackend := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	h := cleanrooms.NewHandler(originalBackend)
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	freshBackend := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	h2 := cleanrooms.NewHandler(freshBackend)
+	require.NoError(t, h2.Restore(t.Context(), snap))
 }
