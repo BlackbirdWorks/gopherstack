@@ -123,6 +123,28 @@
 		}
 	}
 
+	function updateHealthCheckState(hc: import('@aws-sdk/client-elastic-load-balancing').HealthCheck | undefined) {
+		if (!hc) return;
+		hcTarget = hc.Target ?? 'HTTP:80/health';
+		hcInterval = hc.Interval ?? 30;
+		hcTimeout = hc.Timeout ?? 5;
+		hcHealthy = hc.HealthyThreshold ?? 2;
+		hcUnhealthy = hc.UnhealthyThreshold ?? 2;
+	}
+
+	function updateAttributeState(attrs: import('@aws-sdk/client-elastic-load-balancing').LoadBalancerAttributes | undefined) {
+		lbAttributes = {
+			CrossZoneLoadBalancing: attrs?.CrossZoneLoadBalancing?.Enabled ?? false,
+			ConnectionDraining: attrs?.ConnectionDraining?.Enabled ?? false,
+			ConnectionDrainingTimeout: attrs?.ConnectionDraining?.Timeout ?? 300,
+			IdleTimeout: attrs?.ConnectionSettings?.IdleTimeout ?? 60
+		};
+		attrCrossZone = lbAttributes.CrossZoneLoadBalancing ?? false;
+		attrDraining = lbAttributes.ConnectionDraining ?? false;
+		attrDrainingTimeout = lbAttributes.ConnectionDrainingTimeout ?? 300;
+		attrIdleTimeout = lbAttributes.IdleTimeout ?? 60;
+	}
+
 	async function loadLBDetails() {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
@@ -130,25 +152,8 @@
 				elb.send(new DescribeLoadBalancerAttributesCommand({ LoadBalancerName: selectedLB.LoadBalancerName })),
 				elb.send(new DescribeLoadBalancerPoliciesCommand({ LoadBalancerName: selectedLB.LoadBalancerName }))
 			]);
-			const attrs = attrOut.LoadBalancerAttributes;
-			lbAttributes = {
-				CrossZoneLoadBalancing: attrs?.CrossZoneLoadBalancing?.Enabled ?? false,
-				ConnectionDraining: attrs?.ConnectionDraining?.Enabled ?? false,
-				ConnectionDrainingTimeout: attrs?.ConnectionDraining?.Timeout ?? 300,
-				IdleTimeout: attrs?.ConnectionSettings?.IdleTimeout ?? 60
-			};
-			attrCrossZone = lbAttributes.CrossZoneLoadBalancing ?? false;
-			attrDraining = lbAttributes.ConnectionDraining ?? false;
-			attrDrainingTimeout = lbAttributes.ConnectionDrainingTimeout ?? 300;
-			attrIdleTimeout = lbAttributes.IdleTimeout ?? 60;
-
-			if (selectedLB?.HealthCheck) {
-				hcTarget = selectedLB.HealthCheck.Target ?? 'HTTP:80/health';
-				hcInterval = selectedLB.HealthCheck.Interval ?? 30;
-				hcTimeout = selectedLB.HealthCheck.Timeout ?? 5;
-				hcHealthy = selectedLB.HealthCheck.HealthyThreshold ?? 2;
-				hcUnhealthy = selectedLB.HealthCheck.UnhealthyThreshold ?? 2;
-			}
+			updateAttributeState(attrOut.LoadBalancerAttributes);
+			updateHealthCheckState(selectedLB?.HealthCheck);
 
 			lbPolicies = polOut.PolicyDescriptions ?? [];
 		} catch (err: unknown) {

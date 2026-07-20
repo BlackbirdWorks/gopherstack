@@ -13,11 +13,11 @@ import (
 // client configured with the cluster endpoint reaches the right port.
 const defaultDataPlaneAddr = ":8111"
 
-// dataPlane bundles the DAX binary-protocol listener with the DynamoDB backend
+// DataPlane bundles the DAX binary-protocol listener with the DynamoDB backend
 // it delegates item operations to. DAX is a write-through cache in front of
 // DynamoDB; for emulation purposes the cache is a pass-through to a real
 // in-memory DynamoDB store.
-type dataPlane struct {
+type DataPlane struct {
 	server  *dataplane.Server
 	backend *dynamodb.InMemoryDB
 	addr    string
@@ -25,14 +25,14 @@ type dataPlane struct {
 
 // newDataPlane constructs a DAX data-plane bound to its own DynamoDB backend.
 // ctx is the process lifecycle context used for the data-plane's logging.
-func newDataPlane(ctx context.Context, addr string, daxBackend StorageBackend) *dataPlane {
+func newDataPlane(ctx context.Context, addr string, daxBackend StorageBackend) *DataPlane {
 	if addr == "" {
 		addr = defaultDataPlaneAddr
 	}
 
 	backend := dynamodb.NewInMemoryDB()
 
-	return &dataPlane{
+	return &DataPlane{
 		server:  dataplane.NewServer(ctx, backend, daxBackend),
 		backend: backend,
 		addr:    addr,
@@ -40,17 +40,17 @@ func newDataPlane(ctx context.Context, addr string, daxBackend StorageBackend) *
 }
 
 // Start binds the listener and begins serving DAX protocol connections.
-func (d *dataPlane) Start() error {
+func (d *DataPlane) Start() error {
 	return d.server.Listen(d.addr)
 }
 
 // Addr returns the bound listener address, or nil if not yet listening.
-func (d *dataPlane) Addr() net.Addr {
+func (d *DataPlane) Addr() net.Addr {
 	return d.server.Addr()
 }
 
 // Stop closes the listener and all active connections.
-func (d *dataPlane) Stop() {
+func (d *DataPlane) Stop() {
 	if d.server != nil {
 		_ = d.server.Close()
 	}
@@ -58,39 +58,39 @@ func (d *dataPlane) Stop() {
 
 // EnableDataPlane attaches a DAX data-plane listener to the handler. It is
 // idempotent. The returned data plane exposes the bound address for tests.
-func (h *Handler) EnableDataPlane(ctx context.Context, addr string) *dataPlane {
-	if h.dataPlane != nil {
-		return h.dataPlane
+func (h *Handler) EnableDataPlane(ctx context.Context, addr string) *DataPlane {
+	if h.DataPlane != nil {
+		return h.DataPlane
 	}
 
-	h.dataPlane = newDataPlane(ctx, addr, h.Backend)
+	h.DataPlane = newDataPlane(ctx, addr, h.Backend)
 
-	return h.dataPlane
+	return h.DataPlane
 }
 
 // StartWorker starts the DAX data-plane listener if one has been enabled. It
 // satisfies service.BackgroundWorker so the listener comes up with the service.
 func (h *Handler) StartWorker(_ context.Context) error {
-	if h.dataPlane == nil {
+	if h.DataPlane == nil {
 		return nil
 	}
 
-	return h.dataPlane.Start()
+	return h.DataPlane.Start()
 }
 
 // Shutdown stops the DAX data-plane listener. It satisfies service.Shutdowner.
 func (h *Handler) Shutdown(_ context.Context) {
-	if h.dataPlane != nil {
-		h.dataPlane.Stop()
+	if h.DataPlane != nil {
+		h.DataPlane.Stop()
 	}
 }
 
 // DataPlaneBackend returns the DynamoDB backend the data plane delegates to,
 // for tests and dashboards. It is nil when the data plane is disabled.
 func (h *Handler) DataPlaneBackend() *dynamodb.InMemoryDB {
-	if h.dataPlane == nil {
+	if h.DataPlane == nil {
 		return nil
 	}
 
-	return h.dataPlane.backend
+	return h.DataPlane.backend
 }

@@ -131,87 +131,108 @@
 		}
 	}
 
+	async function loadSteps() {
+		if (steps.length > 0) return;
+		loadingSteps = true;
+		try {
+			const resp = await emr.send(new ListStepsCommand({ ClusterId: selectedCluster?.Id ?? '' }));
+			steps = resp.Steps ?? [];
+		} catch (e) {
+			toast.error('Failed to load steps: ' + String(e));
+		} finally {
+			loadingSteps = false;
+		}
+	}
+
+	async function loadInstances() {
+		if (instances.length > 0) return;
+		loadingInstances = true;
+		try {
+			const resp = await emr.send(new ListInstancesCommand({ ClusterId: selectedCluster?.Id ?? '' }));
+			instances = resp.Instances ?? [];
+		} catch (e) {
+			toast.error('Failed to load instances: ' + String(e));
+		} finally {
+			loadingInstances = false;
+		}
+	}
+
+	async function loadGroups() {
+		if (instanceGroups.length > 0) return;
+		loadingGroups = true;
+		try {
+			const resp = await emr.send(new ListInstanceGroupsCommand({ ClusterId: selectedCluster?.Id ?? '' }));
+			instanceGroups = resp.InstanceGroups ?? [];
+		} catch (e) {
+			toast.error('Failed to load instance groups: ' + String(e));
+		} finally {
+			loadingGroups = false;
+		}
+	}
+
+	async function loadFleets() {
+		if (instanceFleets.length > 0) return;
+		loadingFleets = true;
+		try {
+			const resp = await emr.send(new ListInstanceFleetsCommand({ ClusterId: selectedCluster?.Id ?? '' }));
+			instanceFleets = resp.InstanceFleets ?? [];
+		} catch (e) {
+			toast.error('Failed to load instance fleets: ' + String(e));
+		} finally {
+			loadingFleets = false;
+		}
+	}
+
+	async function loadBootstrap() {
+		if (bootstrapActions.length > 0) return;
+		loadingBootstrap = true;
+		try {
+			const resp = await emr.send(new ListBootstrapActionsCommand({ ClusterId: selectedCluster?.Id ?? '' }));
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			bootstrapActions = (resp as any).BootstrapActions ?? [];
+		} catch (e) {
+			toast.error('Failed to load bootstrap actions: ' + String(e));
+		} finally {
+			loadingBootstrap = false;
+		}
+	}
+
+	async function loadNotebooks() {
+		if (notebookExecutions.length > 0) return;
+		loadingNotebooks = true;
+		try {
+			const resp = await emr.send(new ListNotebookExecutionsCommand({}));
+			notebookExecutions = resp.NotebookExecutions ?? [];
+		} catch (e) {
+			toast.error('Failed to load notebook executions: ' + String(e));
+		} finally {
+			loadingNotebooks = false;
+		}
+	}
+
+	async function loadStudios() {
+		if (studios.length > 0) return;
+		loadingStudios = true;
+		try {
+			const resp = await emr.send(new ListStudiosCommand({}));
+			studios = resp.Studios ?? [];
+		} catch (e) {
+			toast.error('Failed to load studios: ' + String(e));
+		} finally {
+			loadingStudios = false;
+		}
+	}
+
 	async function handleTabChange(tab: 'overview' | 'steps' | 'instances' | 'instance-groups' | 'modifications' | 'autoscaling' | 'notebooks' | 'studios' | 'bootstrap-actions' | 'instance-fleets') {
 		activeTab = tab;
 		if (!selectedCluster) return;
-		if (tab === 'steps' && steps.length === 0) {
-			loadingSteps = true;
-			try {
-				const resp = await emr.send(new ListStepsCommand({ ClusterId: selectedCluster.Id ?? '' }));
-				steps = resp.Steps ?? [];
-			} catch (e) {
-				toast.error('Failed to load steps: ' + String(e));
-			} finally {
-				loadingSteps = false;
-			}
-		}
-		if (tab === 'instances' && instances.length === 0) {
-			loadingInstances = true;
-			try {
-				const resp = await emr.send(new ListInstancesCommand({ ClusterId: selectedCluster.Id ?? '' }));
-				instances = resp.Instances ?? [];
-			} catch (e) {
-				toast.error('Failed to load instances: ' + String(e));
-			} finally {
-				loadingInstances = false;
-			}
-		}
-		if (tab === 'instance-groups' && instanceGroups.length === 0) {
-			loadingGroups = true;
-			try {
-				const resp = await emr.send(new ListInstanceGroupsCommand({ ClusterId: selectedCluster.Id ?? '' }));
-				instanceGroups = resp.InstanceGroups ?? [];
-			} catch (e) {
-				toast.error('Failed to load instance groups: ' + String(e));
-			} finally {
-				loadingGroups = false;
-			}
-		}
-		if (tab === 'instance-fleets' && instanceFleets.length === 0) {
-			loadingFleets = true;
-			try {
-				const resp = await emr.send(new ListInstanceFleetsCommand({ ClusterId: selectedCluster.Id ?? '' }));
-				instanceFleets = resp.InstanceFleets ?? [];
-			} catch (e) {
-				toast.error('Failed to load instance fleets: ' + String(e));
-			} finally {
-				loadingFleets = false;
-			}
-		}
-		if (tab === 'bootstrap-actions' && bootstrapActions.length === 0) {
-			loadingBootstrap = true;
-			try {
-				const resp = await emr.send(new ListBootstrapActionsCommand({ ClusterId: selectedCluster.Id ?? '' }));
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				bootstrapActions = (resp as any).BootstrapActions ?? [];
-			} catch (e) {
-				toast.error('Failed to load bootstrap actions: ' + String(e));
-			} finally {
-				loadingBootstrap = false;
-			}
-		}
-		if (tab === 'notebooks' && notebookExecutions.length === 0) {
-			loadingNotebooks = true;
-			try {
-				const resp = await emr.send(new ListNotebookExecutionsCommand({}));
-				notebookExecutions = resp.NotebookExecutions ?? [];
-			} catch (e) {
-				toast.error('Failed to load notebook executions: ' + String(e));
-			} finally {
-				loadingNotebooks = false;
-			}
-		}
-		if (tab === 'studios' && studios.length === 0) {
-			loadingStudios = true;
-			try {
-				const resp = await emr.send(new ListStudiosCommand({}));
-				studios = resp.Studios ?? [];
-			} catch (e) {
-				toast.error('Failed to load studios: ' + String(e));
-			} finally {
-				loadingStudios = false;
-			}
-		}
+		if (tab === 'steps') await loadSteps();
+		if (tab === 'instances') await loadInstances();
+		if (tab === 'instance-groups') await loadGroups();
+		if (tab === 'instance-fleets') await loadFleets();
+		if (tab === 'bootstrap-actions') await loadBootstrap();
+		if (tab === 'notebooks') await loadNotebooks();
+		if (tab === 'studios') await loadStudios();
 	}
 
 	async function modifyCluster() {

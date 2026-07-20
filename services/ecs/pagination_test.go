@@ -78,6 +78,10 @@ func TestPaginationCoverage(t *testing.T) {
 		assert.Len(t, body["capacityProviders"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})
+}
+
+func TestPaginationCoverage_ListTaskDefFamilies(t *testing.T) {
+	t.Parallel()
 
 	t.Run("list task definition families page one has next token", func(t *testing.T) {
 		t.Parallel()
@@ -159,6 +163,10 @@ func TestPaginationCoverage(t *testing.T) {
 			assert.NotEmpty(t, body["nextToken"])
 		},
 	)
+}
+
+func TestPaginationCoverage_ListServices(t *testing.T) {
+	t.Parallel()
 
 	t.Run("list services by namespace page one", func(t *testing.T) {
 		t.Parallel()
@@ -285,6 +293,10 @@ func TestPaginationCoverage(t *testing.T) {
 		assert.Len(t, body["serviceArns"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})
+}
+
+func TestPaginationCoverage_ListServiceDeployments(t *testing.T) {
+	t.Parallel()
 
 	t.Run("list service deployments page one", func(t *testing.T) {
 		t.Parallel()
@@ -394,6 +406,10 @@ func TestPaginationCoverage(t *testing.T) {
 		assert.Len(t, body["serviceDeploymentArns"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})
+}
+
+func TestPaginationCoverage_ListAccountSettings(t *testing.T) {
+	t.Parallel()
 
 	t.Run("list account settings page one", func(t *testing.T) {
 		t.Parallel()
@@ -488,6 +504,10 @@ func TestPaginationCoverage(t *testing.T) {
 		assert.Len(t, body["settings"].([]any), 100)
 		assert.NotEmpty(t, body["nextToken"])
 	})
+}
+
+func TestPaginationCoverage_ListAttributes(t *testing.T) {
+	t.Parallel()
 
 	t.Run("list attributes page one", func(t *testing.T) {
 		t.Parallel()

@@ -78,7 +78,7 @@ func TestUnit_StreamsWire_AttributeValueEncoding(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := toWireGetRecordsOutput(tt.input)
+			out, err := ToWireGetRecordsOutput(tt.input)
 
 			if tt.wantErr {
 				require.Error(t, err)

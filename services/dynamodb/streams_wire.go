@@ -8,8 +8,8 @@ import (
 	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 )
 
-// wireStreamDescription mirrors StreamDescription but with timestamps as float64 epoch seconds.
-type wireStreamDescription struct {
+// WireStreamDescription mirrors StreamDescription but with timestamps as float64 epoch seconds.
+type WireStreamDescription struct {
 	CreationRequestDateTime *float64                        `json:"CreationRequestDateTime,omitempty"`
 	LastEvaluatedShardID    *string                         `json:"LastEvaluatedShardId,omitempty"`
 	StreamArn               *string                         `json:"StreamArn,omitempty"`
@@ -21,16 +21,16 @@ type wireStreamDescription struct {
 	Shards                  []streamstypes.Shard            `json:"Shards,omitempty"`
 }
 
-type wireDescribeStreamOutput struct {
-	StreamDescription *wireStreamDescription `json:"StreamDescription,omitempty"`
+type WireDescribeStreamOutput struct {
+	StreamDescription *WireStreamDescription `json:"StreamDescription,omitempty"`
 }
 
-func toWireDescribeStreamOutput(out *dynamodbstreams.DescribeStreamOutput) *wireDescribeStreamOutput {
+func ToWireDescribeStreamOutput(out *dynamodbstreams.DescribeStreamOutput) *WireDescribeStreamOutput {
 	if out == nil || out.StreamDescription == nil {
-		return &wireDescribeStreamOutput{}
+		return &WireDescribeStreamOutput{}
 	}
 	sd := out.StreamDescription
-	wd := &wireStreamDescription{
+	wd := &WireStreamDescription{
 		KeySchema:            sd.KeySchema,
 		LastEvaluatedShardID: sd.LastEvaluatedShardId,
 		Shards:               sd.Shards,
@@ -45,11 +45,11 @@ func toWireDescribeStreamOutput(out *dynamodbstreams.DescribeStreamOutput) *wire
 		wd.CreationRequestDateTime = &epochSecs
 	}
 
-	return &wireDescribeStreamOutput{StreamDescription: wd}
+	return &WireDescribeStreamOutput{StreamDescription: wd}
 }
 
-type wireStreamRecord struct {
-	Dynamodb     *wireStreamRecordData      `json:"dynamodb,omitempty"`
+type WireStreamRecord struct {
+	Dynamodb     *WireStreamRecordData      `json:"dynamodb,omitempty"`
 	UserIdentity *streamstypes.Identity     `json:"userIdentity,omitempty"`
 	EventID      string                     `json:"eventID,omitempty"`
 	EventName    streamstypes.OperationType `json:"eventName,omitempty"`
@@ -58,7 +58,7 @@ type wireStreamRecord struct {
 	AwsRegion    string                     `json:"awsRegion,omitempty"`
 }
 
-type wireStreamRecordData struct {
+type WireStreamRecordData struct {
 	// ApproximateCreationDateTime is Unix epoch seconds (float64) per DynamoDB Streams JSON 1.0 protocol.
 	ApproximateCreationDateTime *float64                    `json:"ApproximateCreationDateTime,omitempty"`
 	Keys                        map[string]any              `json:"Keys,omitempty"`
@@ -69,28 +69,28 @@ type wireStreamRecordData struct {
 	StreamViewType              streamstypes.StreamViewType `json:"StreamViewType,omitempty"`
 }
 
-type wireGetRecordsOutput struct {
+type WireGetRecordsOutput struct {
 	NextShardIterator *string            `json:"NextShardIterator,omitempty"`
-	Records           []wireStreamRecord `json:"Records"`
+	Records           []WireStreamRecord `json:"Records"`
 }
 
-func toWireGetRecordsOutput(out *dynamodbstreams.GetRecordsOutput) (*wireGetRecordsOutput, error) {
+func ToWireGetRecordsOutput(out *dynamodbstreams.GetRecordsOutput) (*WireGetRecordsOutput, error) {
 	if out == nil {
-		return &wireGetRecordsOutput{}, nil
+		return &WireGetRecordsOutput{}, nil
 	}
 
-	records := make([]wireStreamRecord, 0, len(out.Records))
+	records := make([]WireStreamRecord, 0, len(out.Records))
 	for _, rec := range out.Records {
-		var wireData *wireStreamRecordData
+		var wireData *WireStreamRecordData
 		if rec.Dynamodb != nil {
 			var err error
-			wireData, err = toWireStreamRecordData(rec.Dynamodb)
+			wireData, err = ToWireStreamRecordData(rec.Dynamodb)
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		records = append(records, wireStreamRecord{
+		records = append(records, WireStreamRecord{
 			EventID:      aws.ToString(rec.EventID),
 			EventName:    rec.EventName,
 			EventVersion: aws.ToString(rec.EventVersion),
@@ -101,21 +101,21 @@ func toWireGetRecordsOutput(out *dynamodbstreams.GetRecordsOutput) (*wireGetReco
 		})
 	}
 
-	return &wireGetRecordsOutput{
+	return &WireGetRecordsOutput{
 		Records:           records,
 		NextShardIterator: out.NextShardIterator,
 	}, nil
 }
 
-func toWireStreamRecordData(record *streamstypes.StreamRecord) (*wireStreamRecordData, error) {
-	wireData := &wireStreamRecordData{
+func ToWireStreamRecordData(record *streamstypes.StreamRecord) (*WireStreamRecordData, error) {
+	wireData := &WireStreamRecordData{
 		SequenceNumber: record.SequenceNumber,
 		SizeBytes:      record.SizeBytes,
 		StreamViewType: record.StreamViewType,
 	}
 
 	if record.Keys != nil {
-		keys, err := fromStreamItem(record.Keys)
+		keys, err := FromStreamItem(record.Keys)
 		if err != nil {
 			return nil, err
 		}
@@ -123,7 +123,7 @@ func toWireStreamRecordData(record *streamstypes.StreamRecord) (*wireStreamRecor
 	}
 
 	if record.NewImage != nil {
-		newImage, err := fromStreamItem(record.NewImage)
+		newImage, err := FromStreamItem(record.NewImage)
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +131,7 @@ func toWireStreamRecordData(record *streamstypes.StreamRecord) (*wireStreamRecor
 	}
 
 	if record.OldImage != nil {
-		oldImage, err := fromStreamItem(record.OldImage)
+		oldImage, err := FromStreamItem(record.OldImage)
 		if err != nil {
 			return nil, err
 		}
@@ -146,10 +146,10 @@ func toWireStreamRecordData(record *streamstypes.StreamRecord) (*wireStreamRecor
 	return wireData, nil
 }
 
-func fromStreamItem(item map[string]streamstypes.AttributeValue) (map[string]any, error) {
+func FromStreamItem(item map[string]streamstypes.AttributeValue) (map[string]any, error) {
 	out := make(map[string]any, len(item))
 	for key, value := range item {
-		wireValue, err := fromStreamAttributeValue(value)
+		wireValue, err := FromStreamAttributeValue(value)
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +159,7 @@ func fromStreamItem(item map[string]streamstypes.AttributeValue) (map[string]any
 	return out, nil
 }
 
-func fromStreamAttributeValue(av streamstypes.AttributeValue) (map[string]any, error) {
+func FromStreamAttributeValue(av streamstypes.AttributeValue) (map[string]any, error) {
 	switch v := av.(type) {
 	case *streamstypes.AttributeValueMemberS:
 		return map[string]any{"S": v.Value}, nil
@@ -178,7 +178,7 @@ func fromStreamAttributeValue(av streamstypes.AttributeValue) (map[string]any, e
 	case *streamstypes.AttributeValueMemberBS:
 		return map[string]any{"BS": v.Value}, nil
 	case *streamstypes.AttributeValueMemberM:
-		m, err := fromStreamItem(v.Value)
+		m, err := FromStreamItem(v.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +187,7 @@ func fromStreamAttributeValue(av streamstypes.AttributeValue) (map[string]any, e
 	case *streamstypes.AttributeValueMemberL:
 		items := make([]any, 0, len(v.Value))
 		for _, item := range v.Value {
-			wireItem, err := fromStreamAttributeValue(item)
+			wireItem, err := FromStreamAttributeValue(item)
 			if err != nil {
 				return nil, err
 			}

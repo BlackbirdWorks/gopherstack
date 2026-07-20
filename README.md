@@ -11,7 +11,7 @@
   <a href="https://github.com/blackbirdworks/gopherstack/actions/workflows/release.yml"><img src="https://github.com/blackbirdworks/gopherstack/actions/workflows/release.yml/badge.svg" alt="Release"></a>
   <a href="https://codecov.io/gh/BlackbirdWorks/gopherstack"><img src="https://codecov.io/gh/BlackbirdWorks/gopherstack/branch/main/graph/badge.svg" alt="codecov"></a>
   <a href="https://www.codefactor.io/repository/github/blackbirdworks/gopherstack"><img src="https://www.codefactor.io/repository/github/blackbirdworks/gopherstack/badge" alt="CodeFactor"></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/blackbirdworks/gopherstack"><img src="https://api.scorecard.dev/projects/github.com/blackbirdworks/gopherstack/badge" alt="OpenSSF Scorecard"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/BlackbirdWorks/gopherstack"><img src="https://api.scorecard.dev/projects/github.com/BlackbirdWorks/gopherstack/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://pkg.go.dev/github.com/blackbirdworks/gopherstack"><img src="https://pkg.go.dev/badge/github.com/blackbirdworks/gopherstack.svg" alt="Go Reference"></a>
 </p>
 

@@ -146,14 +146,13 @@ func (b *InMemoryBackend) CreateDocument(
 		},
 	}
 
-	return &CreateDocumentOutput{DocumentDescription: doc.toDocumentDescription()}, nil
+	return &CreateDocumentOutput{DocumentDescription: doc.asDocumentDescription()}, nil
 }
 
-// toDocumentDescription converts an internal Document (which carries Content
-// for GetDocument's use) to the wire-accurate DocumentDescription shape
-// returned by CreateDocument/UpdateDocument/DescribeDocument — real AWS never
+// asDocumentDescription converts an internal Document to the wire-accurate DocumentDescription shape
+// returned by CreateDocument/UpdateDocument/DescribeDocument. Real AWS never
 // includes Content in these metadata responses.
-func (d Document) toDocumentDescription() DocumentDescription {
+func (d Document) asDocumentDescription() DocumentDescription {
 	return DocumentDescription{
 		TargetType:        d.TargetType,
 		LatestVersion:     d.LatestVersion,
@@ -270,7 +269,7 @@ func (b *InMemoryBackend) DescribeDocument(
 
 	doc := *docPtr
 
-	description := doc.toDocumentDescription()
+	description := doc.asDocumentDescription()
 
 	// Honor a specific/$LATEST/$DEFAULT DocumentVersion selector: the
 	// per-version fields (DocumentVersion, DocumentFormat, Status) must
@@ -417,7 +416,7 @@ func (b *InMemoryBackend) UpdateDocument(
 		versionStore[input.Name] = vers[len(vers)-maxDocumentVersionCap:]
 	}
 
-	return &UpdateDocumentOutput{DocumentDescription: doc.toDocumentDescription()}, nil
+	return &UpdateDocumentOutput{DocumentDescription: doc.asDocumentDescription()}, nil
 }
 
 // DeleteDocument removes a document and all its versions and permissions.

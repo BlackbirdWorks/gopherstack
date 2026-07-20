@@ -33,32 +33,7 @@ func (b *InMemoryBackend) AdminCreateUser(
 		return nil, fmt.Errorf("hashing password: %w", err)
 	}
 
-	attrs := make(map[string]string, len(userAttributes))
-	maps.Copy(attrs, userAttributes)
-
-	// Simulate email-based temporary password delivery: store the temp password
-	// in a synthetic attribute so integrations can retrieve it without SMTP.
-	if tempPassword != "" {
-		attrs["custom:temporaryPassword"] = tempPassword
-	}
-
-	user := &User{
-		Sub:          uuid.New().String(),
-		Username:     username,
-		UserPoolID:   userPoolID,
-		PasswordHash: string(hash),
-		Status:       UserStatusForceChangePassword,
-		Attributes:   attrs,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-		Enabled:      true,
-	}
-
-	b.users.Put(user)
-
-	cp := *user
-
-	return &cp, nil
+	return b.buildAndStoreUserLocked(userPoolID, username, tempPassword, string(hash), userAttributes), nil
 }
 
 // AdminSetUserPassword sets the password for a user in a pool.
@@ -411,6 +386,13 @@ func (b *InMemoryBackend) AdminCreateUserWithPolicy(
 		return nil, fmt.Errorf("hashing password: %w", err)
 	}
 
+	return b.buildAndStoreUserLocked(userPoolID, username, tempPassword, string(hash), userAttributes), nil
+}
+
+func (b *InMemoryBackend) buildAndStoreUserLocked(
+	userPoolID, username, tempPassword, hash string,
+	userAttributes map[string]string,
+) *User {
 	attrs := make(map[string]string, len(userAttributes))
 	maps.Copy(attrs, userAttributes)
 
@@ -422,7 +404,7 @@ func (b *InMemoryBackend) AdminCreateUserWithPolicy(
 		Sub:          uuid.New().String(),
 		Username:     username,
 		UserPoolID:   userPoolID,
-		PasswordHash: string(hash),
+		PasswordHash: hash,
 		Status:       UserStatusForceChangePassword,
 		Attributes:   attrs,
 		CreatedAt:    time.Now(),
@@ -431,10 +413,9 @@ func (b *InMemoryBackend) AdminCreateUserWithPolicy(
 	}
 
 	b.users.Put(user)
-
 	cp := *user
 
-	return &cp, nil
+	return &cp
 }
 
 // defaultTempPasswordSuffix is appended to ensure temp password meets basic complexity.

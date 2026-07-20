@@ -912,7 +912,7 @@ func handleStreamsGetRecords(
 		return nil, err
 	}
 
-	wireOut, err := toWireGetRecordsOutput(out)
+	wireOut, err := ToWireGetRecordsOutput(out)
 	if err != nil {
 		return nil, err
 	}
@@ -937,7 +937,7 @@ func handleStreamsDescribeStream(
 		return nil, err
 	}
 
-	return toWireDescribeStreamOutput(out), nil
+	return ToWireDescribeStreamOutput(out), nil
 }
 
 // validateTableNameFromBody extracts "TableName" from the JSON body and checks it

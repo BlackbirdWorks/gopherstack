@@ -19,6 +19,60 @@ import (
 // table-driven test).
 // ---------------------------------------------------------------------------
 
+func checkConstraintNoDigits(t *testing.T, pw string) {
+	t.Helper()
+	for _, c := range pw {
+		assert.False(t, c >= '0' && c <= '9', "password must not contain digits")
+	}
+}
+
+func checkConstraintNoUppercase(t *testing.T, pw string) {
+	t.Helper()
+	for _, c := range pw {
+		assert.False(t, c >= 'A' && c <= 'Z', "password must not contain uppercase")
+	}
+}
+
+func checkConstraintNoLowercase(t *testing.T, pw string) {
+	t.Helper()
+	for _, c := range pw {
+		assert.False(t, c >= 'a' && c <= 'z', "password must not contain lowercase")
+	}
+}
+
+func checkConstraintRequiredTypes(t *testing.T, pw string) {
+	t.Helper()
+	hasLower, hasUpper, hasDigit, hasPunct := false, false, false, false
+	for _, c := range pw {
+		switch {
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= '0' && c <= '9':
+			hasDigit = true
+		default:
+			hasPunct = true
+		}
+	}
+	assert.True(t, hasLower, "must include lowercase")
+	assert.True(t, hasUpper, "must include uppercase")
+	assert.True(t, hasDigit, "must include digit")
+	assert.True(t, hasPunct, "must include punctuation")
+}
+
+func checkConstraintNoExcludedChars(t *testing.T, pw string) {
+	t.Helper()
+	for _, c := range pw {
+		assert.NotContains(t, "aeiouAEIOU", string(c), "excluded chars must not appear")
+	}
+}
+
+func checkConstraintNotEmpty(t *testing.T, pw string) {
+	t.Helper()
+	assert.NotEmpty(t, pw)
+}
+
 func TestGetRandomPassword_Constraints(t *testing.T) {
 	t.Parallel()
 
@@ -60,46 +114,28 @@ func TestGetRandomPassword_Constraints(t *testing.T) {
 			input: &secretsmanager.GetRandomPasswordInput{
 				ExcludeNumbers: true,
 			},
-			checkFn: func(t *testing.T, pw string) {
-				t.Helper()
-				for _, c := range pw {
-					assert.False(t, c >= '0' && c <= '9', "password must not contain digits")
-				}
-			},
+			checkFn: checkConstraintNoDigits,
 		},
 		{
 			name: "exclude_punctuation",
 			input: &secretsmanager.GetRandomPasswordInput{
 				ExcludePunctuation: true,
 			},
-			checkFn: func(t *testing.T, pw string) {
-				t.Helper()
-				assert.NotEmpty(t, pw)
-			},
+			checkFn: checkConstraintNotEmpty,
 		},
 		{
 			name: "exclude_uppercase",
 			input: &secretsmanager.GetRandomPasswordInput{
 				ExcludeUppercase: true,
 			},
-			checkFn: func(t *testing.T, pw string) {
-				t.Helper()
-				for _, c := range pw {
-					assert.False(t, c >= 'A' && c <= 'Z', "password must not contain uppercase")
-				}
-			},
+			checkFn: checkConstraintNoUppercase,
 		},
 		{
 			name: "exclude_lowercase",
 			input: &secretsmanager.GetRandomPasswordInput{
 				ExcludeLowercase: true,
 			},
-			checkFn: func(t *testing.T, pw string) {
-				t.Helper()
-				for _, c := range pw {
-					assert.False(t, c >= 'a' && c <= 'z', "password must not contain lowercase")
-				}
-			},
+			checkFn: checkConstraintNoLowercase,
 		},
 		{
 			name: "include_space",
@@ -125,38 +161,14 @@ func TestGetRandomPassword_Constraints(t *testing.T) {
 				PasswordLength:          ptr64(20),
 				RequireEachIncludedType: true,
 			},
-			checkFn: func(t *testing.T, pw string) {
-				t.Helper()
-				hasLower, hasUpper, hasDigit, hasPunct := false, false, false, false
-				for _, c := range pw {
-					switch {
-					case c >= 'a' && c <= 'z':
-						hasLower = true
-					case c >= 'A' && c <= 'Z':
-						hasUpper = true
-					case c >= '0' && c <= '9':
-						hasDigit = true
-					default:
-						hasPunct = true
-					}
-				}
-				assert.True(t, hasLower, "must include lowercase")
-				assert.True(t, hasUpper, "must include uppercase")
-				assert.True(t, hasDigit, "must include digit")
-				assert.True(t, hasPunct, "must include punctuation")
-			},
+			checkFn: checkConstraintRequiredTypes,
 		},
 		{
 			name: "exclude_chars",
 			input: &secretsmanager.GetRandomPasswordInput{
 				ExcludeCharacters: "aeiouAEIOU",
 			},
-			checkFn: func(t *testing.T, pw string) {
-				t.Helper()
-				for _, c := range pw {
-					assert.NotContains(t, "aeiouAEIOU", string(c), "excluded chars must not appear")
-				}
-			},
+			checkFn: checkConstraintNoExcludedChars,
 		},
 	}
 
@@ -190,6 +202,25 @@ func TestGetRandomPassword_Constraints(t *testing.T) {
 // GetRandomPassword backend + HTTP dispatch
 // ---------------------------------------------------------------------------
 
+func checkConstraintRequiredTypesBackend(t *testing.T, pw string) {
+	t.Helper()
+	hasLower := strings.ContainsAny(pw, "abcdefghijklmnopqrstuvwxyz")
+	hasUpper := strings.ContainsAny(pw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	hasDigit := strings.ContainsAny(pw, "0123456789")
+	hasPunct := strings.ContainsAny(pw, "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
+	assert.True(t, hasLower, "password should contain a lowercase letter")
+	assert.True(t, hasUpper, "password should contain an uppercase letter")
+	assert.True(t, hasDigit, "password should contain a digit")
+	assert.True(t, hasPunct, "password should contain a punctuation character")
+}
+
+func checkConstraintNoExcludedCharsBackend(t *testing.T, pw string) {
+	t.Helper()
+	for _, ch := range pw {
+		assert.NotContains(t, "abc", string(ch), "password should not contain excluded chars")
+	}
+}
+
 // TestGetRandomPassword_Backend verifies the GetRandomPassword backend method.
 func TestGetRandomPassword_Backend(t *testing.T) {
 	t.Parallel()
@@ -218,49 +249,24 @@ func TestGetRandomPassword_Backend(t *testing.T) {
 			setup: func(in *secretsmanager.GetRandomPasswordInput) {
 				in.ExcludeNumbers = true
 			},
-			wantLength: 32,
-			checkCharsFn: func(t *testing.T, pw string) {
-				t.Helper()
-				for _, ch := range pw {
-					assert.NotContains(t, "0123456789", string(ch), "password should not contain digits")
-				}
-			},
+			wantLength:   32,
+			checkCharsFn: checkConstraintNoDigits,
 		},
 		{
 			name: "exclude_uppercase",
 			setup: func(in *secretsmanager.GetRandomPasswordInput) {
 				in.ExcludeUppercase = true
 			},
-			wantLength: 32,
-			checkCharsFn: func(t *testing.T, pw string) {
-				t.Helper()
-				for _, ch := range pw {
-					assert.NotContains(
-						t,
-						"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-						string(ch),
-						"password should not contain uppercase",
-					)
-				}
-			},
+			wantLength:   32,
+			checkCharsFn: checkConstraintNoUppercase,
 		},
 		{
 			name: "exclude_lowercase",
 			setup: func(in *secretsmanager.GetRandomPasswordInput) {
 				in.ExcludeLowercase = true
 			},
-			wantLength: 32,
-			checkCharsFn: func(t *testing.T, pw string) {
-				t.Helper()
-				for _, ch := range pw {
-					assert.NotContains(
-						t,
-						"abcdefghijklmnopqrstuvwxyz",
-						string(ch),
-						"password should not contain lowercase",
-					)
-				}
-			},
+			wantLength:   32,
+			checkCharsFn: checkConstraintNoLowercase,
 		},
 		{
 			name: "include_space",
@@ -276,13 +282,8 @@ func TestGetRandomPassword_Backend(t *testing.T) {
 			setup: func(in *secretsmanager.GetRandomPasswordInput) {
 				in.ExcludeCharacters = "abc"
 			},
-			wantLength: 32,
-			checkCharsFn: func(t *testing.T, pw string) {
-				t.Helper()
-				for _, ch := range pw {
-					assert.NotContains(t, "abc", string(ch), "password should not contain excluded chars")
-				}
-			},
+			wantLength:   32,
+			checkCharsFn: checkConstraintNoExcludedCharsBackend,
 		},
 		{
 			name: "require_each_included_type",
@@ -291,18 +292,8 @@ func TestGetRandomPassword_Backend(t *testing.T) {
 				in.PasswordLength = &l
 				in.RequireEachIncludedType = true
 			},
-			wantLength: 32,
-			checkCharsFn: func(t *testing.T, pw string) {
-				t.Helper()
-				hasLower := strings.ContainsAny(pw, "abcdefghijklmnopqrstuvwxyz")
-				hasUpper := strings.ContainsAny(pw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-				hasDigit := strings.ContainsAny(pw, "0123456789")
-				hasPunct := strings.ContainsAny(pw, "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
-				assert.True(t, hasLower, "password should contain a lowercase letter")
-				assert.True(t, hasUpper, "password should contain an uppercase letter")
-				assert.True(t, hasDigit, "password should contain a digit")
-				assert.True(t, hasPunct, "password should contain a punctuation character")
-			},
+			wantLength:   32,
+			checkCharsFn: checkConstraintRequiredTypesBackend,
 		},
 		{
 			name: "require_each_included_type_length_too_short",
