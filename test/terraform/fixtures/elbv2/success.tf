@@ -1,8 +1,9 @@
 resource "aws_lb" "this" {
   name               = "tf-alb-{{.Suffix}}"
   internal           = false
-  load_balancer_type = "application"
-  subnets            = ["subnet-00000001", "subnet-00000002"]
+  load_balancer_type         = "application"
+  subnets                    = ["subnet-00000001", "subnet-00000002"]
+  drop_invalid_header_fields = true
 }
 
 resource "aws_lb_target_group" "this" {

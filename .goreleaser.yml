@@ -76,7 +76,6 @@ signs:
       - "--output-certificate"
       - "${certificate}"
       - "${artifact}"
-    artifacts: checksum
 
 sboms:
   - artifacts: archive
