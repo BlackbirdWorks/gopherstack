@@ -85,7 +85,7 @@ sboms:
       - "packages"
       - "${artifact}"
       - "--output"
-      - "spdx-json=${signature}"
+      - "spdx-json=${document}"
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
