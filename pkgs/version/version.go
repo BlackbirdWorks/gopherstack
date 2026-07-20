@@ -12,7 +12,8 @@ const devVersion = "dev"
 // When built without ldflags (e.g. go run or local dev build) it defaults to "dev".
 var Build = devVersion //nolint:gochecknoglobals // Build information is standard as a global
 
-var readBuildInfo = debug.ReadBuildInfo //nolint:gochecknoglobals // Mocked in tests
+// ReadBuildInfo is the function used to get build info. Exported for tests.
+var ReadBuildInfo = debug.ReadBuildInfo //nolint:gochecknoglobals // Mutable for testing
 
 // Get returns the build version. It uses the ldflags injected version if available,
 // falling back to [debug.BuildInfo] for standard go installations, and finally "dev".
@@ -20,7 +21,7 @@ func Get() string {
 	if Build != devVersion {
 		return Build
 	}
-	if info, ok := readBuildInfo(); ok {
+	if info, ok := ReadBuildInfo(); ok {
 		if info.Main.Version != "" && info.Main.Version != "(devel)" {
 			return info.Main.Version
 		}

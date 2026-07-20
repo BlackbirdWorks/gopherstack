@@ -87,3 +87,43 @@ func TestMedicalVocabularyState_Ready(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "READY")
 }
+
+func TestHTTP_MedicalVocabularyEndpoints(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerWithBackend(t)
+
+	// Create
+	rec := doTranscribeRequest(t, h, "CreateMedicalVocabulary", map[string]any{
+		"VocabularyName":    "med-vocab-test",
+		"LanguageCode":      "en-US",
+		"VocabularyFileUri": "s3://bucket/vocab.txt",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Get
+	getRec := doTranscribeRequest(t, h, "GetMedicalVocabulary", map[string]any{
+		"VocabularyName": "med-vocab-test",
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	assert.Contains(t, getRec.Body.String(), "med-vocab-test")
+
+	// Update
+	upRec := doTranscribeRequest(t, h, "UpdateMedicalVocabulary", map[string]any{
+		"VocabularyName":    "med-vocab-test",
+		"LanguageCode":      "en-US",
+		"VocabularyFileUri": "s3://bucket/vocab2.txt",
+	})
+	require.Equal(t, http.StatusOK, upRec.Code)
+
+	// List
+	listRec := doTranscribeRequest(t, h, "ListMedicalVocabularies", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), "med-vocab-test")
+
+	// Delete
+	delRec := doTranscribeRequest(t, h, "DeleteMedicalVocabulary", map[string]any{
+		"VocabularyName": "med-vocab-test",
+	})
+	require.Equal(t, http.StatusOK, delRec.Code)
+}

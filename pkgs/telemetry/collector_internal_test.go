@@ -1,9 +1,8 @@
-package telemetry_test
+package telemetry
 
 import (
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,9 +11,9 @@ import (
 func TestSetServiceCount(t *testing.T) {
 	t.Parallel()
 
-	telemetry.SetServiceCount(5)
+	SetServiceCount(5)
 
-	result := telemetry.CollectMetrics()
+	result := CollectMetrics()
 	require.NotNil(t, result)
 	assert.Equal(t, 5, result.Runtime.NumServices)
 }
@@ -46,8 +45,8 @@ func TestProcessLockHeldMetrics(t *testing.T) {
 		Metric: []*io_prometheus_client.Metric{metric},
 	}
 
-	candidates := make(map[string]*telemetry.DeadlockInfoTest)
-	telemetry.ProcessLockHeldMetrics(mf, candidates)
+	candidates := make(map[string]*DeadlockInfo)
+	processLockHeldMetrics(mf, candidates)
 
 	require.Len(t, candidates, 1)
 	assert.Equal(t, "TestLock", candidates["TestLock"].Lock)
@@ -79,16 +78,16 @@ func TestProcessLockWaitersMetrics(t *testing.T) {
 		Metric: []*io_prometheus_client.Metric{metric},
 	}
 
-	candidates := map[string]*telemetry.DeadlockInfoTest{
+	candidates := map[string]*DeadlockInfo{
 		"TestLock": {
 			Lock:      "TestLock",
 			Operation: "TestOp",
 			HeldSec:   2.5,
 		},
 	}
-	result := &telemetry.DashboardTest{}
+	result := &Dashboard{}
 
-	telemetry.ProcessLockWaitersMetrics(mf, candidates, result)
+	processLockWaitersMetrics(mf, candidates, result)
 
 	require.Len(t, result.Deadlocks, 1)
 	assert.Equal(t, 3, result.Deadlocks[0].Waiters)
@@ -98,12 +97,12 @@ func TestProcessLockWaitersMetrics(t *testing.T) {
 func TestFillMissingPercentiles(t *testing.T) {
 	t.Parallel()
 
-	p50, p95, p99 := telemetry.FillMissingPercentiles(false, false, false, 0, 0, 0, 100)
+	p50, p95, p99 := fillMissingPercentiles(false, false, false, 0, 0, 0, 100)
 	assert.InDelta(t, 100.0, p50, 0.0001)
 	assert.InDelta(t, 100.0, p95, 0.0001)
 	assert.InDelta(t, 100.0, p99, 0.0001)
 
-	p50, p95, p99 = telemetry.FillMissingPercentiles(true, true, true, 50, 95, 99, 100)
+	p50, p95, p99 = fillMissingPercentiles(true, true, true, 50, 95, 99, 100)
 	assert.InDelta(t, 50.0, p50, 0.0001)
 	assert.InDelta(t, 95.0, p95, 0.0001)
 	assert.InDelta(t, 99.0, p99, 0.0001)
@@ -113,7 +112,7 @@ func TestCalculatePercentilesFromBuckets_Empty(t *testing.T) {
 	t.Parallel()
 
 	h := &io_prometheus_client.Histogram{}
-	p50, p95, p99, maxVal := telemetry.CalculatePercentilesFromBuckets(h, 10)
+	p50, p95, p99, maxVal := calculatePercentilesFromBuckets(h, 10)
 	assert.InDelta(t, 0.0, p50, 0.0001)
 	assert.InDelta(t, 0.0, p95, 0.0001)
 	assert.InDelta(t, 0.0, p99, 0.0001)
@@ -123,7 +122,7 @@ func TestCalculatePercentilesFromBuckets_Empty(t *testing.T) {
 func TestEstimatePercentiles_Empty(t *testing.T) {
 	t.Parallel()
 
-	p50, p95, p99, avg, maxVal := telemetry.EstimatePercentiles(nil)
+	p50, p95, p99, avg, maxVal := estimatePercentiles(nil)
 	assert.InDelta(t, 0.0, p50, 0.0001)
 	assert.InDelta(t, 0.0, p95, 0.0001)
 	assert.InDelta(t, 0.0, p99, 0.0001)

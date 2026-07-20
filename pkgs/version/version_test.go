@@ -4,16 +4,17 @@ import (
 	"runtime/debug"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/version"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/version"
 )
 
 func TestGet(t *testing.T) { //nolint:paralleltest // mutates global variable Build
 	tests := []struct {
-		name      string
-		buildVal  string
-		mockBuild func() (*debug.BuildInfo, bool)
-		want      string
+		name          string
+		buildVal      string
+		mockReadBuild func() (*debug.BuildInfo, bool)
+		want          string
 	}{
 		{
 			name:     "custom build version",
@@ -23,7 +24,7 @@ func TestGet(t *testing.T) { //nolint:paralleltest // mutates global variable Bu
 		{
 			name:     "default dev version no build info",
 			buildVal: "dev",
-			mockBuild: func() (*debug.BuildInfo, bool) {
+			mockReadBuild: func() (*debug.BuildInfo, bool) {
 				return nil, false
 			},
 			want: "dev",
@@ -31,7 +32,7 @@ func TestGet(t *testing.T) { //nolint:paralleltest // mutates global variable Bu
 		{
 			name:     "default dev version with empty build info version",
 			buildVal: "dev",
-			mockBuild: func() (*debug.BuildInfo, bool) {
+			mockReadBuild: func() (*debug.BuildInfo, bool) {
 				return &debug.BuildInfo{Main: debug.Module{Version: ""}}, true
 			},
 			want: "dev",
@@ -39,7 +40,7 @@ func TestGet(t *testing.T) { //nolint:paralleltest // mutates global variable Bu
 		{
 			name:     "default dev version with devel build info version",
 			buildVal: "dev",
-			mockBuild: func() (*debug.BuildInfo, bool) {
+			mockReadBuild: func() (*debug.BuildInfo, bool) {
 				return &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}, true
 			},
 			want: "dev",
@@ -47,7 +48,7 @@ func TestGet(t *testing.T) { //nolint:paralleltest // mutates global variable Bu
 		{
 			name:     "valid build info version",
 			buildVal: "dev",
-			mockBuild: func() (*debug.BuildInfo, bool) {
+			mockReadBuild: func() (*debug.BuildInfo, bool) {
 				return &debug.BuildInfo{Main: debug.Module{Version: "v1.0.0"}}, true
 			},
 			want: "v1.0.0",
@@ -58,17 +59,17 @@ func TestGet(t *testing.T) { //nolint:paralleltest // mutates global variable Bu
 		t.Run(tt.name, func(t *testing.T) {
 			// Restore original after test.
 			originalBuild := version.Build
-			originalReadBuildInfo := *version.MockReadBuildInfo
+			originalReadBuildInfo := version.ReadBuildInfo
 			t.Cleanup(func() {
-				version.Build = originalBuild //nolint:reassign // mock ldflags
-				*version.MockReadBuildInfo = originalReadBuildInfo
+				version.Build = originalBuild                 //nolint:reassign // mock ldflags
+				version.ReadBuildInfo = originalReadBuildInfo //nolint:reassign // mock
 			})
 
 			version.Build = tt.buildVal //nolint:reassign // mock ldflags
-			if tt.mockBuild != nil {
-				*version.MockReadBuildInfo = tt.mockBuild
+			if tt.mockReadBuild != nil {
+				version.ReadBuildInfo = tt.mockReadBuild //nolint:reassign // mock
 			} else {
-				*version.MockReadBuildInfo = func() (*debug.BuildInfo, bool) { return nil, false }
+				version.ReadBuildInfo = func() (*debug.BuildInfo, bool) { return nil, false } //nolint:reassign // mock
 			}
 
 			got := version.Get()
