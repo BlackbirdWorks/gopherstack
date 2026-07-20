@@ -68,3 +68,5 @@ checkpoint.md
 
 # gendocs binary if built at the repo root (go build ./cmd/gendocs)
 /gendocs
+/test/terraform/bin/gopherstack
+/examples/s3-lambda-processor/bootstrap
