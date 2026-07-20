@@ -18,7 +18,6 @@ func runSnapshotTest(
 	verify func(t *testing.T, b *sqs.InMemoryBackend, id string),
 ) {
 	t.Helper()
-	t.Parallel()
 
 	original := sqs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	t.Cleanup(original.Close)
