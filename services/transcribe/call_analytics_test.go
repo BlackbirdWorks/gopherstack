@@ -479,3 +479,64 @@ func TestChannelId_JSONKey(t *testing.T) {
 	assert.True(t, hasID, "ChannelDefinition must use ChannelId (not ChannelID)")
 	assert.False(t, hasWrong, "ChannelID must NOT appear (wrong casing)")
 }
+
+func TestHTTP_ListCallAnalyticsJobs(t *testing.T) {
+	t.Parallel()
+	h := newTestTranscribeHandler(t)
+	rec := doTranscribeRequest(t, h, "StartCallAnalyticsJob", map[string]any{
+		"CallAnalyticsJobName": "list-job",
+		"DataAccessRoleArn":    "arn:aws:iam::123456789012:role/transcribe",
+		"Media":                map[string]any{"MediaFileUri": "s3://bucket/call.mp3"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	listRec := doTranscribeRequest(t, h, "ListCallAnalyticsJobs", map[string]any{})
+	assert.Equal(t, http.StatusOK, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), "list-job")
+}
+
+func TestHTTP_CallAnalyticsCategory(t *testing.T) {
+	t.Parallel()
+	h := newTestTranscribeHandler(t)
+
+	// Create
+	rec := doTranscribeRequest(t, h, "CreateCallAnalyticsCategory", map[string]any{
+		"CategoryName": "test-cat",
+		"Rules": []map[string]any{
+			{
+				"NonTalkTimeFilter": map[string]any{
+					"Threshold": 1000,
+					"AbsoluteTimeRange": map[string]any{
+						"First": 5000,
+					},
+				},
+			},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Get
+	getRec := doTranscribeRequest(t, h, "GetCallAnalyticsCategory", map[string]any{
+		"CategoryName": "test-cat",
+	})
+	assert.Equal(t, http.StatusOK, getRec.Code)
+	assert.Contains(t, getRec.Body.String(), "test-cat")
+
+	// Update
+	upRec := doTranscribeRequest(t, h, "UpdateCallAnalyticsCategory", map[string]any{
+		"CategoryName": "test-cat",
+		"Rules": []map[string]any{
+			{
+				"InterruptionFilter": map[string]any{
+					"Threshold": 2000,
+				},
+			},
+		},
+	})
+	assert.Equal(t, http.StatusOK, upRec.Code)
+
+	// List
+	listRec := doTranscribeRequest(t, h, "ListCallAnalyticsCategories", map[string]any{})
+	assert.Equal(t, http.StatusOK, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), "test-cat")
+}

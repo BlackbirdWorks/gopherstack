@@ -284,3 +284,23 @@ func TestStartMedicalTranscriptionJob_TranscriptURIInStartResponse(t *testing.T)
 	assert.NotEmpty(t, uri, "StartMedicalTranscriptionJob response must include TranscriptFileUri")
 	assert.True(t, strings.HasPrefix(uri, "s3://output-bucket/"), "URI should start with s3://output-bucket/")
 }
+
+func TestHTTP_ListMedicalTranscriptionJobs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestTranscribeHandler(t)
+
+	startRec := doTranscribeRequest(t, h, "StartMedicalTranscriptionJob", map[string]any{
+		"MedicalTranscriptionJobName": "med-list-job",
+		"LanguageCode":                "en-US",
+		"MediaFormat":                 "mp3",
+		"Specialty":                   "PRIMARYCARE",
+		"Type":                        "DICTATION",
+		"Media":                       map[string]any{"MediaFileUri": "s3://input/audio.mp3"},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	listRec := doTranscribeRequest(t, h, "ListMedicalTranscriptionJobs", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), "med-list-job")
+}

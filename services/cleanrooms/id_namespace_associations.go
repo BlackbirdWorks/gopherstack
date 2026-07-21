@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 func (b *InMemoryBackend) idNamespaceAssocARN(membershipID, id string) string {

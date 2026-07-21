@@ -327,3 +327,20 @@ func TestDescribeLanguageModel_TimestampFieldsAreJSONNumbers(t *testing.T) {
 		assert.NoError(t, err, "field %s must decode as a JSON number (epoch seconds), got %s", field, val)
 	}
 }
+
+func TestHTTP_ListLanguageModels(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	h := transcribe.NewHandler(b)
+
+	doTranscribeRequest(t, h, "CreateLanguageModel", map[string]any{
+		"ModelName":     "lm-list",
+		"BaseModelName": "WideBand",
+		"LanguageCode":  "en-US",
+	})
+
+	rec := doTranscribeRequest(t, h, "ListLanguageModels", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "lm-list")
+}

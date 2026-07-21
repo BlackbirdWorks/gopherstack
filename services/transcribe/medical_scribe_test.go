@@ -138,3 +138,20 @@ func TestStartMedicalScribeJob_TagsAndClinicalNotes(t *testing.T) {
 	body := rec.Body.String()
 	assert.Contains(t, body, "scribe-clinical-job")
 }
+
+func TestHTTP_ListMedicalScribeJobs(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerWithBackend(t)
+	rec := doTranscribeRequest(t, h, "StartMedicalScribeJob", map[string]any{
+		"MedicalScribeJobName": "scribe-list-job",
+		"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
+		"DataAccessRoleArn":    "arn:aws:iam::123456789012:role/ScribeRole",
+		"OutputBucketName":     "scribe-output",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	listRec := doTranscribeRequest(t, h, "ListMedicalScribeJobs", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), "scribe-list-job")
+}

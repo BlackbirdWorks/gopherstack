@@ -28,70 +28,71 @@ func roundTripToJSON(t *testing.T, v cbor.Value) []byte {
 func TestCBORToJSON(t *testing.T) {
 	t.Parallel()
 
+	type args struct {
+		input cbor.Value
+	}
+	type wants struct {
+		val any
+		key string
+	}
+
 	tests := []struct {
-		input   cbor.Value
-		wantVal any
-		name    string
-		wantKey string
+		args  args
+		wants wants
+		name  string
 	}{
 		{
-			name:    "string value",
-			input:   cbor.Map{"key": cbor.String("hello")},
-			wantKey: "key",
-			wantVal: "hello",
+			name:  "string value",
+			args:  args{input: cbor.Map{"key": cbor.String("hello")}},
+			wants: wants{key: "key", val: "hello"},
 		},
 		{
-			name:    "uint value",
-			input:   cbor.Map{"n": cbor.Uint(42)},
-			wantKey: "n",
-			wantVal: float64(42),
+			name:  "uint value",
+			args:  args{input: cbor.Map{"n": cbor.Uint(42)}},
+			wants: wants{key: "n", val: float64(42)},
 		},
 		{
-			name:    "negative int",
-			input:   cbor.Map{"n": cbor.NegInt(7)},
-			wantKey: "n",
-			wantVal: float64(-7),
+			name:  "negative int",
+			args:  args{input: cbor.Map{"n": cbor.NegInt(7)}},
+			wants: wants{key: "n", val: float64(-7)},
 		},
 		{
-			name:    "bool true",
-			input:   cbor.Map{"b": cbor.Bool(true)},
-			wantKey: "b",
-			wantVal: true,
+			name:  "bool true",
+			args:  args{input: cbor.Map{"b": cbor.Bool(true)}},
+			wants: wants{key: "b", val: true},
 		},
 		{
-			name:    "bool false",
-			input:   cbor.Map{"b": cbor.Bool(false)},
-			wantKey: "b",
-			wantVal: false,
+			name:  "bool false",
+			args:  args{input: cbor.Map{"b": cbor.Bool(false)}},
+			wants: wants{key: "b", val: false},
 		},
 		{
-			name:    "nil value",
-			input:   cbor.Map{"n": (*cbor.Nil)(nil)},
-			wantKey: "n",
-			wantVal: nil,
+			name:  "nil value",
+			args:  args{input: cbor.Map{"n": (*cbor.Nil)(nil)}},
+			wants: wants{key: "n", val: nil},
 		},
 		{
-			name:    "byte string base64-encoded",
-			input:   cbor.Map{"B": cbor.Slice([]byte("Hello"))},
-			wantKey: "B",
-			wantVal: base64.StdEncoding.EncodeToString([]byte("Hello")),
+			name:  "byte string base64-encoded",
+			args:  args{input: cbor.Map{"B": cbor.Slice([]byte("Hello"))}},
+			wants: wants{key: "B", val: base64.StdEncoding.EncodeToString([]byte("Hello"))},
 		},
 		{
 			name:  "nested map",
-			input: cbor.Map{"Item": cbor.Map{"pk": cbor.Map{"S": cbor.String("row1")}}},
+			args:  args{input: cbor.Map{"Item": cbor.Map{"pk": cbor.Map{"S": cbor.String("row1")}}}},
+			wants: wants{},
 		},
 		{
 			name: "list of strings",
-			input: cbor.Map{"SS": cbor.List{
+			args: args{input: cbor.Map{"SS": cbor.List{
 				cbor.String("a"),
 				cbor.String("b"),
-			}},
+			}}},
+			wants: wants{},
 		},
 		{
-			name:    "float64",
-			input:   cbor.Map{"f": cbor.Float64(3.14)},
-			wantKey: "f",
-			wantVal: 3.14,
+			name:  "float64",
+			args:  args{input: cbor.Map{"f": cbor.Float64(3.14)}},
+			wants: wants{key: "f", val: 3.14},
 		},
 	}
 
@@ -99,9 +100,9 @@ func TestCBORToJSON(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			jsonBytes := roundTripToJSON(t, tc.input)
+			jsonBytes := roundTripToJSON(t, tc.args.input)
 
-			if tc.wantKey == "" {
+			if tc.wants.key == "" {
 				return
 			}
 
@@ -110,12 +111,12 @@ func TestCBORToJSON(t *testing.T) {
 				t.Fatalf("unmarshal result: %v", err)
 			}
 
-			gotVal, ok := got[tc.wantKey]
+			gotVal, ok := got[tc.wants.key]
 			if !ok {
-				t.Fatalf("key %q not found in result %s", tc.wantKey, jsonBytes)
+				t.Fatalf("key %q not found in result %s", tc.wants.key, jsonBytes)
 			}
 
-			if tc.wantVal == nil {
+			if tc.wants.val == nil {
 				if gotVal != nil {
 					t.Errorf("got %v, want nil", gotVal)
 				}
@@ -123,8 +124,8 @@ func TestCBORToJSON(t *testing.T) {
 				return
 			}
 
-			if gotVal != tc.wantVal {
-				t.Errorf("got %v (%T), want %v (%T)", gotVal, gotVal, tc.wantVal, tc.wantVal)
+			if gotVal != tc.wants.val {
+				t.Errorf("got %v (%T), want %v (%T)", gotVal, gotVal, tc.wants.val, tc.wants.val)
 			}
 		})
 	}
@@ -135,36 +136,39 @@ func TestJSONToCBOR(t *testing.T) {
 
 	binaryKeys := map[string]bool{"B": true, "BS": true, "Data": true}
 
-	tests := []struct {
-		name      string
+	type args struct {
 		jsonInput string
 		binaryKey string
-		wantStr   string
-		wantSlice bool
+	}
+	type wants struct {
+		str   string
+		slice bool
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
 	}{
 		{
-			name:      "plain string stays string",
-			jsonInput: `{"S": "hello"}`,
-			binaryKey: "S",
-			wantStr:   "hello",
+			name:  "plain string stays string",
+			args:  args{jsonInput: `{"S": "hello"}`, binaryKey: "S"},
+			wants: wants{str: "hello"},
 		},
 		{
-			name:      "B field decoded to byte string",
-			jsonInput: `{"B": "SGVsbG8="}`,
-			binaryKey: "B",
-			wantSlice: true,
+			name:  "B field decoded to byte string",
+			args:  args{jsonInput: `{"B": "SGVsbG8="}`, binaryKey: "B"},
+			wants: wants{slice: true},
 		},
 		{
-			name:      "Data field decoded to byte string",
-			jsonInput: `{"Data": "SGVsbG8="}`,
-			binaryKey: "Data",
-			wantSlice: true,
+			name:  "Data field decoded to byte string",
+			args:  args{jsonInput: `{"Data": "SGVsbG8="}`, binaryKey: "Data"},
+			wants: wants{slice: true},
 		},
 		{
-			name:      "non-binary key string stays string",
-			jsonInput: `{"N": "123"}`,
-			binaryKey: "N",
-			wantStr:   "123",
+			name:  "non-binary key string stays string",
+			args:  args{jsonInput: `{"N": "123"}`, binaryKey: "N"},
+			wants: wants{str: "123"},
 		},
 	}
 
@@ -172,7 +176,7 @@ func TestJSONToCBOR(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			cborBytes, err := service.JSONToCBOR([]byte(tc.jsonInput), binaryKeys)
+			cborBytes, err := service.JSONToCBOR([]byte(tc.args.jsonInput), binaryKeys)
 			if err != nil {
 				t.Fatalf("JSONToCBOR error: %v", err)
 			}
@@ -187,14 +191,14 @@ func TestJSONToCBOR(t *testing.T) {
 				t.Fatalf("expected cbor.Map, got %T", val)
 			}
 
-			inner, ok := m[tc.binaryKey]
+			inner, ok := m[tc.args.binaryKey]
 			if !ok {
-				t.Fatalf("key %q not found", tc.binaryKey)
+				t.Fatalf("key %q not found", tc.args.binaryKey)
 			}
 
-			if tc.wantSlice {
+			if tc.wants.slice {
 				if _, isSlice := inner.(cbor.Slice); !isSlice {
-					t.Errorf("expected cbor.Slice for key %q, got %T", tc.binaryKey, inner)
+					t.Errorf("expected cbor.Slice for key %q, got %T", tc.args.binaryKey, inner)
 				}
 
 				return
@@ -202,13 +206,13 @@ func TestJSONToCBOR(t *testing.T) {
 
 			s, isStr := inner.(cbor.String)
 			if !isStr {
-				t.Errorf("expected cbor.String for key %q, got %T", tc.binaryKey, inner)
+				t.Errorf("expected cbor.String for key %q, got %T", tc.args.binaryKey, inner)
 
 				return
 			}
 
-			if string(s) != tc.wantStr {
-				t.Errorf("got string %q, want %q", string(s), tc.wantStr)
+			if string(s) != tc.wants.str {
+				t.Errorf("got string %q, want %q", string(s), tc.wants.str)
 			}
 		})
 	}
@@ -219,37 +223,52 @@ func TestCBORRoundTrip(t *testing.T) {
 
 	binaryKeys := map[string]bool{"B": true, "BS": true}
 
-	tests := []struct {
-		name      string
+	type args struct {
 		jsonInput string
+	}
+	type wants struct {
+		jsonInput string
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
 	}{
 		{
-			name:      "simple string attribute",
-			jsonInput: `{"TableName":"t","Item":{"pk":{"S":"hello"}}}`,
+			name:  "simple string attribute",
+			args:  args{jsonInput: `{"TableName":"t","Item":{"pk":{"S":"hello"}}}`},
+			wants: wants{jsonInput: `{"TableName":"t","Item":{"pk":{"S":"hello"}}}`},
 		},
 		{
-			name:      "number attribute",
-			jsonInput: `{"TableName":"t","Item":{"count":{"N":"42"}}}`,
+			name:  "number attribute",
+			args:  args{jsonInput: `{"TableName":"t","Item":{"count":{"N":"42"}}}`},
+			wants: wants{jsonInput: `{"TableName":"t","Item":{"count":{"N":"42"}}}`},
 		},
 		{
-			name:      "bool attribute",
-			jsonInput: `{"TableName":"t","Item":{"active":{"BOOL":true}}}`,
+			name:  "bool attribute",
+			args:  args{jsonInput: `{"TableName":"t","Item":{"active":{"BOOL":true}}}`},
+			wants: wants{jsonInput: `{"TableName":"t","Item":{"active":{"BOOL":true}}}`},
 		},
 		{
-			name:      "null attribute",
-			jsonInput: `{"TableName":"t","Item":{"empty":{"NULL":true}}}`,
+			name:  "null attribute",
+			args:  args{jsonInput: `{"TableName":"t","Item":{"empty":{"NULL":true}}}`},
+			wants: wants{jsonInput: `{"TableName":"t","Item":{"empty":{"NULL":true}}}`},
 		},
 		{
-			name:      "string set",
-			jsonInput: `{"TableName":"t","Item":{"tags":{"SS":["a","b","c"]}}}`,
+			name:  "string set",
+			args:  args{jsonInput: `{"TableName":"t","Item":{"tags":{"SS":["a","b","c"]}}}`},
+			wants: wants{jsonInput: `{"TableName":"t","Item":{"tags":{"SS":["a","b","c"]}}}`},
 		},
 		{
-			name:      "map attribute",
-			jsonInput: `{"TableName":"t","Item":{"meta":{"M":{"key":{"S":"val"}}}}}`,
+			name:  "map attribute",
+			args:  args{jsonInput: `{"TableName":"t","Item":{"meta":{"M":{"key":{"S":"val"}}}}}`},
+			wants: wants{jsonInput: `{"TableName":"t","Item":{"meta":{"M":{"key":{"S":"val"}}}}}`},
 		},
 		{
-			name:      "list attribute",
-			jsonInput: `{"TableName":"t","Item":{"list":{"L":[{"S":"x"},{"N":"1"}]}}}`,
+			name:  "list attribute",
+			args:  args{jsonInput: `{"TableName":"t","Item":{"list":{"L":[{"S":"x"},{"N":"1"}]}}}`},
+			wants: wants{jsonInput: `{"TableName":"t","Item":{"list":{"L":[{"S":"x"},{"N":"1"}]}}}`},
 		},
 	}
 
@@ -258,7 +277,7 @@ func TestCBORRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			// JSON → CBOR → JSON
-			cborBytes, err := service.JSONToCBOR([]byte(tc.jsonInput), binaryKeys)
+			cborBytes, err := service.JSONToCBOR([]byte(tc.args.jsonInput), binaryKeys)
 			if err != nil {
 				t.Fatalf("JSONToCBOR: %v", err)
 			}
@@ -269,7 +288,7 @@ func TestCBORRoundTrip(t *testing.T) {
 			}
 
 			var orig, got map[string]any
-			if e := json.Unmarshal([]byte(tc.jsonInput), &orig); e != nil {
+			if e := json.Unmarshal([]byte(tc.args.jsonInput), &orig); e != nil {
 				t.Fatalf("unmarshal orig: %v", e)
 			}
 			if e := json.Unmarshal(jsonOut, &got); e != nil {
@@ -291,90 +310,146 @@ func TestCBORBinaryRoundTrip(t *testing.T) {
 
 	binaryKeys := map[string]bool{"B": true, "BS": true}
 
-	payload := []byte{0x01, 0x02, 0x03, 0xFF}
-	b64 := base64.StdEncoding.EncodeToString(payload)
+	type args struct {
+		payload []byte
+	}
+	type wants struct {
+		payload []byte
+	}
 
-	// Build CBOR with a byte string for the "B" key.
-	original := cbor.Map{
-		"Item": cbor.Map{
-			"data": cbor.Map{
-				"B": cbor.Slice(payload),
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name: "binary round trip",
+			args: args{
+				payload: []byte{0x01, 0x02, 0x03, 0xFF},
+			},
+			wants: wants{
+				payload: []byte{0x01, 0x02, 0x03, 0xFF},
 			},
 		},
 	}
 
-	cborBytes := cbor.Encode(original)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	// CBOR → JSON
-	jsonBytes, err := service.CBORToJSON(cborBytes)
-	if err != nil {
-		t.Fatalf("CBORToJSON: %v", err)
-	}
+			b64 := base64.StdEncoding.EncodeToString(tc.args.payload)
 
-	var jsonMap map[string]any
-	if err = json.Unmarshal(jsonBytes, &jsonMap); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+			// Build CBOR with a byte string for the "B" key.
+			original := cbor.Map{
+				"Item": cbor.Map{
+					"data": cbor.Map{
+						"B": cbor.Slice(tc.args.payload),
+					},
+				},
+			}
 
-	item := jsonMap["Item"].(map[string]any)
-	dataAttr := item["data"].(map[string]any)
-	gotB64 := dataAttr["B"].(string)
+			cborBytes := cbor.Encode(original)
 
-	if gotB64 != b64 {
-		t.Errorf("CBOR→JSON binary: got base64 %q, want %q", gotB64, b64)
-	}
+			// CBOR → JSON
+			jsonBytes, err := service.CBORToJSON(cborBytes)
+			if err != nil {
+				t.Fatalf("CBORToJSON: %v", err)
+			}
 
-	// JSON → CBOR (round-trip back)
-	cborOut, err := service.JSONToCBOR(jsonBytes, binaryKeys)
-	if err != nil {
-		t.Fatalf("JSONToCBOR: %v", err)
-	}
+			var jsonMap map[string]any
+			if err = json.Unmarshal(jsonBytes, &jsonMap); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
 
-	val, err := cbor.Decode(cborOut)
-	if err != nil {
-		t.Fatalf("cbor.Decode: %v", err)
-	}
+			item := jsonMap["Item"].(map[string]any)
+			dataAttr := item["data"].(map[string]any)
+			gotB64 := dataAttr["B"].(string)
 
-	m := val.(cbor.Map)
-	itemMap := m["Item"].(cbor.Map)
-	dataMap := itemMap["data"].(cbor.Map)
-	bVal := dataMap["B"]
+			if gotB64 != b64 {
+				t.Errorf("CBOR→JSON binary: got base64 %q, want %q", gotB64, b64)
+			}
 
-	sl, ok := bVal.(cbor.Slice)
-	if !ok {
-		t.Fatalf("expected cbor.Slice for B, got %T", bVal)
-	}
+			// JSON → CBOR (round-trip back)
+			cborOut, err := service.JSONToCBOR(jsonBytes, binaryKeys)
+			if err != nil {
+				t.Fatalf("JSONToCBOR: %v", err)
+			}
 
-	if string(sl) != string(payload) {
-		t.Errorf("binary round-trip: got %v, want %v", []byte(sl), payload)
+			val, err := cbor.Decode(cborOut)
+			if err != nil {
+				t.Fatalf("cbor.Decode: %v", err)
+			}
+
+			m := val.(cbor.Map)
+			itemMap := m["Item"].(cbor.Map)
+			dataMap := itemMap["data"].(cbor.Map)
+			bVal := dataMap["B"]
+
+			sl, ok := bVal.(cbor.Slice)
+			if !ok {
+				t.Fatalf("expected cbor.Slice for B, got %T", bVal)
+			}
+
+			if string(sl) != string(tc.wants.payload) {
+				t.Errorf("binary round-trip: got %v, want %v", []byte(sl), tc.wants.payload)
+			}
+		})
 	}
 }
 
 func TestIsCBORRequest(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	type args struct {
 		contentType string
-		want        bool
+	}
+	type wants struct {
+		isCBOR bool
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
 	}{
-		{"application/x-amz-cbor-1.1", true},
-		{"application/x-amz-json-1.0", false},
-		{"application/x-amz-json-1.1", false},
-		{"", false},
-		{"application/x-amz-cbor-1.1; charset=utf-8", true},
+		{
+			name:  "valid cbor",
+			args:  args{contentType: "application/x-amz-cbor-1.1"},
+			wants: wants{isCBOR: true},
+		},
+		{
+			name:  "json 1.0",
+			args:  args{contentType: "application/x-amz-json-1.0"},
+			wants: wants{isCBOR: false},
+		},
+		{
+			name:  "json 1.1",
+			args:  args{contentType: "application/x-amz-json-1.1"},
+			wants: wants{isCBOR: false},
+		},
+		{
+			name:  "empty",
+			args:  args{contentType: ""},
+			wants: wants{isCBOR: false},
+		},
+		{
+			name:  "with charset",
+			args:  args{contentType: "application/x-amz-cbor-1.1; charset=utf-8"},
+			wants: wants{isCBOR: true},
+		},
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.contentType, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			req, _ := http.NewRequest(http.MethodPost, "/", nil)
-			if tc.contentType != "" {
-				req.Header.Set("Content-Type", tc.contentType)
+			if tc.args.contentType != "" {
+				req.Header.Set("Content-Type", tc.args.contentType)
 			}
 
-			if got := service.IsCBORRequest(req); got != tc.want {
-				t.Errorf("IsCBORRequest(%q) = %v, want %v", tc.contentType, got, tc.want)
+			if got := service.IsCBORRequest(req); got != tc.wants.isCBOR {
+				t.Errorf("IsCBORRequest(%q) = %v, want %v", tc.args.contentType, got, tc.wants.isCBOR)
 			}
 		})
 	}

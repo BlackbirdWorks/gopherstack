@@ -5,148 +5,182 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestMembershipHasBothIDKeys verifies that a Membership response
-// includes both "id" (AWS canonical) and "membershipIdentifier" (legacy).
-func TestMembershipHasBothIDKeys(t *testing.T) {
-	t.Parallel()
-
-	e := newTestServer(t)
-	rec := doRequest(t, e, "POST", "/collaborations", map[string]any{
-		"name": "m-collab", "creatorDisplayName": "Bob",
-		"creatorMemberAbilities": []string{"CAN_QUERY"},
-		"members":                []any{}, "queryLogStatus": "DISABLED",
+func createMembership(t *testing.T, e *echo.Echo, colID string, queryLog string) (map[string]any, string) {
+	t.Helper()
+	rec := doRequest(t, e, "POST", "/memberships", map[string]any{
+		"collaborationIdentifier": colID,
+		"queryLogStatus":          queryLog,
+		"memberAbilities":         []string{"CAN_QUERY", "CAN_RECEIVE_RESULTS"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	var colResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-	colID := colResp["collaboration"].(map[string]any)["id"].(string)
-
-	rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-		"collaborationIdentifier": colID,
-		"queryLogStatus":          "DISABLED",
-		"memberAbilities":         []string{"CAN_QUERY", "CAN_RECEIVE_RESULTS"},
-	})
-	require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
-
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 	mem := resp["membership"].(map[string]any)
 
-	id, hasID := mem["id"]
-	legacyID, hasLegacy := mem["membershipIdentifier"]
-	collabID, hasCollabID := mem["collaborationId"]
-	legacyCollabID, hasLegacyCollab := mem["collaborationIdentifier"]
-
-	assert.True(t, hasID, "membership must have 'id' key (AWS canonical)")
-	assert.True(t, hasLegacy, "membership must have 'membershipIdentifier' (backward compat)")
-	assert.True(t, hasCollabID, "membership must have 'collaborationId' key (AWS canonical)")
-	assert.True(t, hasLegacyCollab, "membership must have 'collaborationIdentifier' (backward compat)")
-	assert.Equal(t, id, legacyID)
-	assert.Equal(t, collabID, legacyCollabID)
-	assert.Equal(t, colID, collabID)
-
-	// MemberAbilities must be present and populated
-	abilities, ok := mem["memberAbilities"].([]any)
-	assert.True(t, ok, "memberAbilities must be present")
-	assert.Len(t, abilities, 2)
+	return mem, mem["id"].(string)
 }
 
-// TestMembershipMemberAbilitiesRoundtrip verifies that memberAbilities
-// sent during CreateMembership are returned in the response.
-func TestMembershipMemberAbilitiesRoundtrip(t *testing.T) {
-	t.Parallel()
-
-	e := newTestServer(t)
+func createBaseCollaboration(t *testing.T, e *echo.Echo, name string) string {
+	t.Helper()
 	doRequest(t, e, "POST", "/collaborations", map[string]any{
-		"name": "ab-collab", "creatorDisplayName": "Carol",
+		"name": name, "creatorDisplayName": "User",
 		"creatorMemberAbilities": []string{"CAN_QUERY"},
 		"members":                []any{}, "queryLogStatus": "DISABLED",
 	})
 	var colResp map[string]any
 	rec := doRequest(t, e, "GET", "/collaborations", nil)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-	colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
 
-	rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-		"collaborationIdentifier": colID,
-		"queryLogStatus":          "ENABLED",
-		"memberAbilities":         []string{"CAN_QUERY", "CAN_RECEIVE_RESULTS"},
-	})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-	mem := resp["membership"].(map[string]any)
-
-	abilities, ok := mem["memberAbilities"].([]any)
-	require.True(t, ok, "memberAbilities must be present")
-	assert.Len(t, abilities, 2, "all provided abilities should be returned")
+	return colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
 }
 
-// TestMembershipARNFormat verifies ARN format for memberships.
-func TestMembershipARNFormat(t *testing.T) {
+func TestMemberships_Create(t *testing.T) {
 	t.Parallel()
 
-	e := newTestServer(t)
-	doRequest(t, e, "POST", "/collaborations", map[string]any{
-		"name": "arn-m-collab", "creatorDisplayName": "Hank",
-		"creatorMemberAbilities": []string{},
-		"members":                []any{}, "queryLogStatus": "DISABLED",
-	})
-	var colResp map[string]any
-	rec := doRequest(t, e, "GET", "/collaborations", nil)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-	colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
+	type args struct {
+		queryLogStatus string
+	}
+	type wants struct {
+		status int
+	}
 
-	rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-		"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
-	})
-	require.Equal(t, http.StatusOK, rec2.Code)
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name:  "valid_create_disabled",
+			args:  args{queryLogStatus: "DISABLED"},
+			wants: wants{status: http.StatusOK},
+		},
+		{
+			name:  "valid_create_enabled",
+			args:  args{queryLogStatus: "ENABLED"},
+			wants: wants{status: http.StatusOK},
+		},
+	}
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-	mem := resp["membership"].(map[string]any)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			colID := createBaseCollaboration(t, e, "m-collab")
 
-	arn, ok := mem["arn"].(string)
-	require.True(t, ok)
-	assert.Contains(t, arn, "arn:aws:cleanrooms:")
-	assert.Contains(t, arn, ":membership/")
+			mem, id := createMembership(t, e, colID, tt.args.queryLogStatus)
+
+			legacyID, hasLegacy := mem["membershipIdentifier"]
+			collabID, hasCollabID := mem["collaborationId"]
+			legacyCollabID, hasLegacyCollab := mem["collaborationIdentifier"]
+
+			assert.True(t, hasLegacy, "membership must have 'membershipIdentifier' (backward compat)")
+			assert.True(t, hasCollabID, "membership must have 'collaborationId' key (AWS canonical)")
+			assert.True(t, hasLegacyCollab, "membership must have 'collaborationIdentifier' (backward compat)")
+			assert.Equal(t, id, legacyID)
+			assert.Equal(t, collabID, legacyCollabID)
+			assert.Equal(t, colID, collabID)
+
+			abilities, ok := mem["memberAbilities"].([]any)
+			assert.True(t, ok, "memberAbilities must be present")
+			assert.Len(t, abilities, 2)
+
+			arn, ok := mem["arn"].(string)
+			require.True(t, ok)
+			assert.Contains(t, arn, "arn:aws:cleanrooms:")
+			assert.Contains(t, arn, ":membership/")
+		})
+	}
 }
 
-// TestListMembershipsReturnsSummaryWithIDKeys verifies that
-// ListMemberships responses include the canonical "id" and "collaborationId" keys.
-func TestListMembershipsReturnsSummaryWithIDKeys(t *testing.T) {
+func TestMemberships_List(t *testing.T) {
 	t.Parallel()
 
-	e := newTestServer(t)
-	doRequest(t, e, "POST", "/collaborations", map[string]any{
-		"name": "list-m-collab", "creatorDisplayName": "Liam",
-		"creatorMemberAbilities": []string{},
-		"members":                []any{}, "queryLogStatus": "DISABLED",
-	})
-	var colResp map[string]any
-	rec := doRequest(t, e, "GET", "/collaborations", nil)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-	colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
+	type args struct{}
+	type wants struct {
+		status int
+	}
 
-	doRequest(t, e, "POST", "/memberships", map[string]any{
-		"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
-	})
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name:  "list_all",
+			args:  args{},
+			wants: wants{status: http.StatusOK},
+		},
+	}
 
-	recList := doRequest(t, e, "GET", "/memberships", nil)
-	require.Equal(t, http.StatusOK, recList.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			colID := createBaseCollaboration(t, e, "list-m-collab")
+			createMembership(t, e, colID, "DISABLED")
 
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp))
-	summaries := listResp["membershipSummaries"].([]any)
-	require.Len(t, summaries, 1)
-	summary := summaries[0].(map[string]any)
+			rec := doRequest(t, e, "GET", "/memberships", nil)
+			require.Equal(t, tt.wants.status, rec.Code)
 
-	assert.Contains(t, summary, "id", "membership summary must have canonical 'id' key")
-	assert.Contains(t, summary, "collaborationId", "membership summary must have canonical 'collaborationId' key")
-	assert.Equal(t, colID, summary["collaborationId"])
+			var listResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			summaries := listResp["membershipSummaries"].([]any)
+			require.Len(t, summaries, 1)
+			summary := summaries[0].(map[string]any)
+
+			assert.Contains(t, summary, "id", "membership summary must have canonical 'id' key")
+			assert.Contains(
+				t,
+				summary,
+				"collaborationId",
+				"membership summary must have canonical 'collaborationId' key",
+			)
+			assert.Equal(t, colID, summary["collaborationId"])
+		})
+	}
+}
+
+func TestMemberships_Update(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		body map[string]any
+	}
+	type wants struct {
+		status int
+	}
+
+	tests := []struct {
+		args  args
+		name  string
+		wants wants
+	}{
+		{
+			name: "valid_update",
+			args: args{
+				body: map[string]any{
+					"queryLogStatus": "ENABLED",
+				},
+			},
+			wants: wants{status: http.StatusOK},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			colID := createBaseCollaboration(t, e, "up-m-collab")
+			_, memID := createMembership(t, e, colID, "DISABLED")
+
+			rec := doRequest(t, e, "PATCH", "/memberships/"+memID, tt.args.body)
+			require.Equal(t, tt.wants.status, rec.Code)
+		})
+	}
 }
