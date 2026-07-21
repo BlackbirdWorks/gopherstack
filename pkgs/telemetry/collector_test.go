@@ -10,6 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
+//nolint:paralleltest // Test mutates global state (serviceCount) and cannot run in parallel
 func TestSetServiceCount(t *testing.T) {
 	tests := []struct {
 		name      string
