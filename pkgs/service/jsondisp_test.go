@@ -228,12 +228,31 @@ func TestWrapOp(t *testing.T) {
 		return &handleJSONTestOutput{Greeting: "hi " + in.Name}, nil
 	}
 
-	op := service.WrapOp(greetFn)
+	tests := []struct {
+		name      string
+		inputName string
+		wantGreet string
+	}{
+		{
+			"WrapOp",
+			"there",
+			"hi there",
+		},
+	}
 
-	result, err := op(t.Context(), []byte(`{"name":"there"}`))
-	require.NoError(t, err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	out, ok := result.(*handleJSONTestOutput)
-	require.True(t, ok)
-	require.Equal(t, "hi there", out.Greeting)
+			op := service.WrapOp(greetFn)
+			inputStr := `{"name":"` + tc.inputName + `"}`
+
+			result, err := op(t.Context(), []byte(inputStr))
+			require.NoError(t, err)
+
+			out, ok := result.(*handleJSONTestOutput)
+			require.True(t, ok)
+			require.Equal(t, tc.wantGreet, out.Greeting)
+		})
+	}
 }

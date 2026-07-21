@@ -1,4 +1,4 @@
-package service
+package service_test
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 func TestIsReadOnlyOperation(t *testing.T) {
@@ -30,7 +32,7 @@ func TestIsReadOnlyOperation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, isReadOnlyOperation(tt.op))
+			assert.Equal(t, tt.want, service.IsReadOnlyOperation(tt.op))
 		})
 	}
 }
@@ -52,7 +54,7 @@ func TestIsUnknownOperation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, isUnknownOperation(tt.op))
+			assert.Equal(t, tt.want, service.IsUnknownOperation(tt.op))
 		})
 	}
 }
@@ -82,7 +84,7 @@ func TestExtractAccessKeyID(t *testing.T) {
 			if tt.auth != "" {
 				req.Header.Set("Authorization", tt.auth)
 			}
-			assert.Equal(t, tt.want, extractAccessKeyID(req))
+			assert.Equal(t, tt.want, service.ExtractAccessKeyID(req))
 		})
 	}
 }
@@ -101,7 +103,7 @@ func (d *dummyService) ExtractOperation(_ *echo.Context) string { return d.extra
 func (d *dummyService) ExtractResource(_ *echo.Context) string  { return d.extractResource }
 func (d *dummyService) GetSupportedOperations() []string        { return nil }
 func (d *dummyService) Handler() echo.HandlerFunc               { return nil }
-func (d *dummyService) RouteMatcher() Matcher                   { return nil }
+func (d *dummyService) RouteMatcher() service.Matcher           { return nil }
 func (d *dummyService) MatchPriority() int                      { return 0 }
 
 func TestEventSourceFor(t *testing.T) {
@@ -109,28 +111,40 @@ func TestEventSourceFor(t *testing.T) {
 
 	svc := &dummyService{name: "MyService"}
 
-	t.Run("from_request", func(t *testing.T) {
-		t.Parallel()
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		req.Header.Set(
-			"Authorization",
+	tests := []struct {
+		name string
+		auth string
+		want string
+	}{
+		{
+			"from_request",
 			"AWS4-HMAC-SHA256 Credential=AKID/20130524/us-east-1/s3/aws4_request, Signature=xyz",
-		)
-		assert.Equal(t, "s3.amazonaws.com", eventSourceFor(req, svc))
-	})
+			"s3.amazonaws.com",
+		},
+		{
+			"from_service",
+			"",
+			"myservice.amazonaws.com",
+		},
+	}
 
-	t.Run("from_service", func(t *testing.T) {
-		t.Parallel()
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		assert.Equal(t, "myservice.amazonaws.com", eventSourceFor(req, svc))
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.auth != "" {
+				req.Header.Set("Authorization", tt.auth)
+			}
+			assert.Equal(t, tt.want, service.EventSourceFor(req, svc))
+		})
+	}
 }
 
 type mockRecorder struct {
-	events []CloudTrailEventInput
+	events []service.CloudTrailEventInput
 }
 
-func (m *mockRecorder) RecordManagementEvent(ev CloudTrailEventInput) {
+func (m *mockRecorder) RecordManagementEvent(ev service.CloudTrailEventInput) {
 	m.events = append(m.events, ev)
 }
 
@@ -161,7 +175,7 @@ func TestWrapCloudTrailCapture(t *testing.T) {
 			svc := &dummyService{name: "S3", extractOperation: tt.op, extractResource: "bucket"}
 
 			next := func(_ *echo.Context) error { return nil }
-			handler := wrapCloudTrailCapture(rec, svc, next)
+			handler := service.WrapCloudTrailCapture(rec, svc, next)
 
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)

@@ -9,6 +9,14 @@ import (
 func TestHandlerPromptCRUD(t *testing.T) {
 	t.Parallel()
 
+	type tc struct {
+		body       map[string]any
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}
+
 	h, e := setupHandler(t)
 
 	createBody := map[string]any{
@@ -35,46 +43,114 @@ func TestHandlerPromptCRUD(t *testing.T) {
 		t.Fatal("no id in prompt response")
 	}
 
-	t.Run("get prompt", func(t *testing.T) {
-		t.Parallel()
+	// Create a version
+	rVersion := doRequest(
+		t,
+		h,
+		e,
+		http.MethodPost,
+		"/prompts/"+promptID+"/versions",
+		map[string]any{"description": "v1"},
+	)
+	var verResp map[string]any
+	_ = json.Unmarshal(rVersion.Body.Bytes(), &verResp)
+	verID := verResp["version"].(string)
 
-		h2, e2 := setupHandler(t)
-		r := doRequest(t, h2, e2, http.MethodPost, "/prompts", createBody)
+	cases := []tc{
+		{
+			name:       "ListPrompts",
+			method:     http.MethodGet,
+			path:       "/prompts",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "GetPrompt",
+			method:     http.MethodGet,
+			path:       "/prompts/" + promptID,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "GetPrompt_NotFound",
+			method:     http.MethodGet,
+			path:       "/prompts/notfound",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "UpdatePrompt",
+			method:     http.MethodPut,
+			path:       "/prompts/" + promptID,
+			body:       createBody,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "UpdatePrompt_NotFound",
+			method:     http.MethodPut,
+			path:       "/prompts/notfound",
+			body:       createBody,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "DeletePrompt",
+			method:     http.MethodDelete,
+			path:       "/prompts/" + promptID,
+			wantStatus: http.StatusOK, // deletes return 200 with id
+		},
+		{
+			name:       "DeletePrompt_NotFound",
+			method:     http.MethodDelete,
+			path:       "/prompts/notfound",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "GetPromptVersion",
+			method:     http.MethodGet,
+			path:       "/prompts/" + promptID + "/versions/" + verID,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "DeletePromptVersion",
+			method:     http.MethodDelete,
+			path:       "/prompts/" + promptID + "/versions/" + verID,
+			wantStatus: http.StatusOK, // returns 200 with id and version
+		},
+	}
 
-		var resp map[string]any
-		_ = json.Unmarshal(r.Body.Bytes(), &resp)
-		id := resp["id"].(string)
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		rec2 := doRequest(t, h2, e2, http.MethodGet, "/prompts/"+id, nil)
-		if rec2.Code != http.StatusOK {
-			t.Errorf("got %d want 200", rec2.Code)
-		}
-	})
+			hLocal, eLocal := setupHandler(t)
 
-	t.Run("list prompts", func(t *testing.T) {
-		t.Parallel()
+			rP := doRequest(t, hLocal, eLocal, http.MethodPost, "/prompts", createBody)
+			var pResp map[string]any
+			_ = json.Unmarshal(rP.Body.Bytes(), &pResp)
+			pID := pResp["id"].(string)
 
-		rec2 := doRequest(t, h, e, http.MethodGet, "/prompts", nil)
-		if rec2.Code != http.StatusOK {
-			t.Errorf("got %d want 200", rec2.Code)
-		}
-	})
+			rV := doRequest(
+				t,
+				hLocal,
+				eLocal,
+				http.MethodPost,
+				"/prompts/"+pID+"/versions",
+				map[string]any{"description": "v1"},
+			)
+			var vResp map[string]any
+			_ = json.Unmarshal(rV.Body.Bytes(), &vResp)
+			vID := vResp["version"].(string)
 
-	t.Run("create prompt version", func(t *testing.T) {
-		t.Parallel()
-
-		h2, e2 := setupHandler(t)
-		r := doRequest(t, h2, e2, http.MethodPost, "/prompts", createBody)
-
-		var resp map[string]any
-		_ = json.Unmarshal(r.Body.Bytes(), &resp)
-		id := resp["id"].(string)
-
-		rec2 := doRequest(t, h2, e2, http.MethodPost, "/prompts/"+id+"/versions", map[string]any{
-			"description": "v1",
+			path := tt.path
+			if promptID != "" && pID != "" {
+				switch path {
+				case "/prompts/" + promptID:
+					path = "/prompts/" + pID
+				case "/prompts/" + promptID + "/versions/" + verID:
+					path = "/prompts/" + pID + "/versions/" + vID
+				}
+			}
+			r := doRequest(t, hLocal, eLocal, tt.method, path, tt.body)
+			if r.Code != tt.wantStatus {
+				t.Errorf("got %d want %d", r.Code, tt.wantStatus)
+			}
 		})
-		if rec2.Code != http.StatusCreated {
-			t.Errorf("got %d want 201: %s", rec2.Code, rec2.Body.String())
-		}
-	})
+	}
 }

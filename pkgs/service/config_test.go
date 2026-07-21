@@ -9,48 +9,76 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-func TestAccountRegionFromProvider(t *testing.T) {
-	t.Parallel()
-
-	cfg := config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0)
-	ctx := &service.AppContext{Config: providerStub{cfg: cfg}}
-
-	account, region := service.AccountRegion(ctx)
-	assert.Equal(t, "123456789012", account)
-	assert.Equal(t, "eu-west-1", region)
-}
-
-func TestAccountRegionWithoutProviderReturnsEmpty(t *testing.T) {
-	t.Parallel()
-
-	ctx := &service.AppContext{Config: "not a provider"}
-
-	account, region := service.AccountRegion(ctx)
-	assert.Empty(t, account)
-	assert.Empty(t, region)
-}
-
-func TestAccountRegionOrDefaultFromProvider(t *testing.T) {
-	t.Parallel()
-
-	cfg := config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0)
-	ctx := &service.AppContext{Config: providerStub{cfg: cfg}}
-
-	account, region := service.AccountRegionOrDefault(ctx)
-	assert.Equal(t, "123456789012", account)
-	assert.Equal(t, "eu-west-1", region)
-}
-
-func TestAccountRegionOrDefaultWithoutProviderReturnsDefaults(t *testing.T) {
-	t.Parallel()
-
-	ctx := &service.AppContext{Config: nil}
-
-	account, region := service.AccountRegionOrDefault(ctx)
-	assert.Equal(t, config.DefaultAccountID, account)
-	assert.Equal(t, config.DefaultRegion, region)
-}
-
 type providerStub struct{ cfg *config.GlobalConfig }
 
 func (p providerStub) GetGlobalConfig() *config.GlobalConfig { return p.cfg }
+
+func TestAccountRegion(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0)
+
+	tests := []struct {
+		name        string
+		ctx         *service.AppContext
+		wantAccount string
+		wantRegion  string
+	}{
+		{
+			"FromProvider",
+			&service.AppContext{Config: providerStub{cfg: cfg}},
+			"123456789012",
+			"eu-west-1",
+		},
+		{
+			"WithoutProviderReturnsEmpty",
+			&service.AppContext{Config: "not a provider"},
+			"",
+			"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			account, region := service.AccountRegion(tt.ctx)
+			assert.Equal(t, tt.wantAccount, account)
+			assert.Equal(t, tt.wantRegion, region)
+		})
+	}
+}
+
+func TestAccountRegionOrDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0)
+
+	tests := []struct {
+		name        string
+		ctx         *service.AppContext
+		wantAccount string
+		wantRegion  string
+	}{
+		{
+			"FromProvider",
+			&service.AppContext{Config: providerStub{cfg: cfg}},
+			"123456789012",
+			"eu-west-1",
+		},
+		{
+			"WithoutProviderReturnsDefaults",
+			&service.AppContext{Config: nil},
+			config.DefaultAccountID,
+			config.DefaultRegion,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			account, region := service.AccountRegionOrDefault(tt.ctx)
+			assert.Equal(t, tt.wantAccount, account)
+			assert.Equal(t, tt.wantRegion, region)
+		})
+	}
+}

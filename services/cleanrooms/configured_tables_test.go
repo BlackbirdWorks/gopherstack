@@ -14,28 +14,40 @@ import (
 func TestConfiguredTableHasIDKey(t *testing.T) {
 	t.Parallel()
 
-	e := newTestServer(t)
-	rec := doRequest(t, e, "POST", "/configuredTables", map[string]any{
-		"name":           "id-test-table",
-		"allowedColumns": []string{"col1"},
-		"analysisMethod": "DIRECT_QUERY",
-		"tableReference": map[string]any{"glue": map[string]any{
-			"databaseName": "db", "tableName": "tbl",
-		}},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name string
+	}{
+		{"ConfiguredTableHasIDKey"},
+	}
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	ct := resp["configuredTable"].(map[string]any)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	id, hasID := ct["id"]
-	legacyID, hasLegacy := ct["configuredTableIdentifier"]
+			e := newTestServer(t)
+			rec := doRequest(t, e, "POST", "/configuredTables", map[string]any{
+				"name":           "id-test-table",
+				"allowedColumns": []string{"col1"},
+				"analysisMethod": "DIRECT_QUERY",
+				"tableReference": map[string]any{"glue": map[string]any{
+					"databaseName": "db", "tableName": "tbl",
+				}},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
 
-	assert.True(t, hasID, "configuredTable must have 'id' key (AWS canonical)")
-	assert.True(t, hasLegacy, "configuredTable must have 'configuredTableIdentifier' (backward compat)")
-	assert.Equal(t, id, legacyID)
-	assert.NotEmpty(t, id)
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			ct := resp["configuredTable"].(map[string]any)
+
+			id, hasID := ct["id"]
+			legacyID, hasLegacy := ct["configuredTableIdentifier"]
+
+			assert.True(t, hasID, "configuredTable must have 'id' key (AWS canonical)")
+			assert.True(t, hasLegacy, "configuredTable must have 'configuredTableIdentifier' (backward compat)")
+			assert.Equal(t, id, legacyID)
+			assert.NotEmpty(t, id)
+		})
+	}
 }
 
 // TestConfiguredTableAnalysisRuleHasConfiguredTableID verifies the
@@ -43,72 +55,96 @@ func TestConfiguredTableHasIDKey(t *testing.T) {
 func TestConfiguredTableAnalysisRuleHasConfiguredTableID(t *testing.T) {
 	t.Parallel()
 
-	e := newTestServer(t)
-	rec := doRequest(t, e, "POST", "/configuredTables", map[string]any{
-		"name": "ar-table", "allowedColumns": []string{"col1"},
-		"analysisMethod": "DIRECT_QUERY",
-		"tableReference": map[string]any{"glue": map[string]any{
-			"databaseName": "db", "tableName": "tbl",
-		}},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name string
+	}{
+		{"ConfiguredTableAnalysisRuleHasConfiguredTableID"},
+	}
 
-	var ctResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ctResp))
-	ctID := ctResp["configuredTable"].(map[string]any)["id"].(string)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Create analysis rule
-	rec2 := doRequest(t, e, "POST", "/configuredTables/"+ctID+"/analysisRule", map[string]any{
-		"type":   "LIST",
-		"policy": map[string]any{"v1": map[string]any{"list": map[string]any{}}},
-	})
-	require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
+			e := newTestServer(t)
+			rec := doRequest(t, e, "POST", "/configuredTables", map[string]any{
+				"name": "ar-table", "allowedColumns": []string{"col1"},
+				"analysisMethod": "DIRECT_QUERY",
+				"tableReference": map[string]any{"glue": map[string]any{
+					"databaseName": "db", "tableName": "tbl",
+				}},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-	ar := resp["analysisRule"].(map[string]any)
-	assert.Contains(t, ar, "configuredTableId",
-		"analysisRule must have canonical 'configuredTableId' key")
-	assert.Equal(t, ctID, ar["configuredTableId"])
+			var ctResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ctResp))
+			ctID := ctResp["configuredTable"].(map[string]any)["id"].(string)
+
+			// Create analysis rule
+			rec2 := doRequest(t, e, "POST", "/configuredTables/"+ctID+"/analysisRule", map[string]any{
+				"type":   "LIST",
+				"policy": map[string]any{"v1": map[string]any{"list": map[string]any{}}},
+			})
+			require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			ar := resp["analysisRule"].(map[string]any)
+			assert.Contains(t, ar, "configuredTableId",
+				"analysisRule must have canonical 'configuredTableId' key")
+			assert.Equal(t, ctID, ar["configuredTableId"])
+		})
+	}
 }
 
 func TestDeleteConfiguredTableAnalysisRule(t *testing.T) {
 	t.Parallel()
-	e := newTestServer(t)
 
-	// Create table
-	rec := doRequest(t, e, "POST", "/configuredTables", map[string]any{
-		"name": "del-rule-table",
-		"tableReference": map[string]any{
-			"glue": map[string]any{"tableName": "t", "databaseName": "d"},
-		},
-		"allowedColumns": []string{"c1"},
-		"analysisMethod": "DIRECT_QUERY",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name string
+	}{
+		{"DeleteConfiguredTableAnalysisRule"},
+	}
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	id := resp["configuredTable"].(map[string]any)["id"].(string)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
 
-	// Create rule
-	ruleRec := doRequest(t, e, "POST", "/configuredTables/"+id+"/analysisRule", map[string]any{
-		"analysisRuleType": "AGGREGATION",
-		"analysisRulePolicy": map[string]any{
-			"v1": map[string]any{
-				"aggregation": map[string]any{
-					"aggregateColumns":  []any{},
-					"joinColumns":       []any{},
-					"dimensionColumns":  []any{},
-					"scalarFunctions":   []any{},
-					"outputConstraints": []any{},
+			// Create table
+			rec := doRequest(t, e, "POST", "/configuredTables", map[string]any{
+				"name": "del-rule-table",
+				"tableReference": map[string]any{
+					"glue": map[string]any{"tableName": "t", "databaseName": "d"},
 				},
-			},
-		},
-	})
-	require.Equal(t, http.StatusOK, ruleRec.Code)
+				"allowedColumns": []string{"c1"},
+				"analysisMethod": "DIRECT_QUERY",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
 
-	// Delete rule
-	delRec := doRequest(t, e, "DELETE", "/configuredTables/"+id+"/analysisRule/AGGREGATION", nil)
-	require.Equal(t, http.StatusOK, delRec.Code)
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			id := resp["configuredTable"].(map[string]any)["id"].(string)
+
+			// Create rule
+			ruleRec := doRequest(t, e, "POST", "/configuredTables/"+id+"/analysisRule", map[string]any{
+				"analysisRuleType": "AGGREGATION",
+				"analysisRulePolicy": map[string]any{
+					"v1": map[string]any{
+						"aggregation": map[string]any{
+							"aggregateColumns":  []any{},
+							"joinColumns":       []any{},
+							"dimensionColumns":  []any{},
+							"scalarFunctions":   []any{},
+							"outputConstraints": []any{},
+						},
+					},
+				},
+			})
+			require.Equal(t, http.StatusOK, ruleRec.Code)
+
+			// Delete rule
+			delRec := doRequest(t, e, "DELETE", "/configuredTables/"+id+"/analysisRule/AGGREGATION", nil)
+			require.Equal(t, http.StatusOK, delRec.Code)
+		})
+	}
 }

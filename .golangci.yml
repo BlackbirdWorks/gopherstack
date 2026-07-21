@@ -502,10 +502,6 @@ linters:
       # injectable RNG field, so it must live in the same package.
       - path: 'route53/routing_test.go'
         linters: [ testpackage ]
-      - path: 'pkgs/service/cloudtrail_capture_test.go'
-        linters: [ testpackage ]
-      - path: 'pkgs/service/registry_test.go'
-        linters: [ testpackage ]
       - text: 'should have a package comment'
         linters: [ revive ]
       - text: 'exported \S+ \S+ should have comment( \(or a comment on this block\))? or be unexported'

@@ -15,9 +15,21 @@ import (
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
-	b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	err := b.Restore(t.Context(), []byte("not-valid-json"))
-	require.Error(t, err)
+	tests := []struct {
+		name string
+	}{
+		{"InMemoryBackend_RestoreInvalidData"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+			err := b.Restore(t.Context(), []byte("not-valid-json"))
+			require.Error(t, err)
+		})
+	}
 }
 
 // TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose
@@ -27,16 +39,28 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
-	b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	_, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
-	require.NoError(t, err)
+	tests := []struct {
+		name string
+	}{
+		{"InMemoryBackend_RestoreVersionMismatch"},
+	}
 
-	// A syntactically valid but version-mismatched snapshot.
-	err = b.Restore(t.Context(), []byte(`{"version":999,"tables":{}}`))
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	items, _ := b.ListCollaborations("", "", "")
-	assert.Empty(t, items)
+			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+			_, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
+			require.NoError(t, err)
+
+			// A syntactically valid but version-mismatched snapshot.
+			err = b.Restore(t.Context(), []byte(`{"version":999,"tables":{}}`))
+			require.NoError(t, err)
+
+			items, _ := b.ListCollaborations("", "", "")
+			assert.Empty(t, items)
+		})
+	}
 }
 
 // TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero verifies that a
@@ -49,15 +73,27 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	t.Parallel()
 
-	b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	_, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
-	require.NoError(t, err)
+	tests := []struct {
+		name string
+	}{
+		{"InMemoryBackend_RestoreOldSnapshotDecodesAsZero"},
+	}
 
-	err = b.Restore(t.Context(), []byte(`{"collaborations":{}}`))
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	items, _ := b.ListCollaborations("", "", "")
-	assert.Empty(t, items)
+			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+			_, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
+			require.NoError(t, err)
+
+			err = b.Restore(t.Context(), []byte(`{"collaborations":{}}`))
+			require.NoError(t, err)
+
+			items, _ := b.ListCollaborations("", "", "")
+			assert.Empty(t, items)
+		})
+	}
 }
 
 // seedState is every resource created by
@@ -205,25 +241,37 @@ func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
-	original := cleanrooms.NewInMemoryBackend("111122223333", "us-west-2")
-	seed := seedFullState(t, original)
-	origColTags, _ := original.ListTagsForResource(seed.collab.Arn)
-	origTableTags, _ := original.ListTagsForResource(seed.table.Arn)
-	t.Logf("ORIGINAL COLLAB TAGS: %v", origColTags)
-	t.Logf("ORIGINAL TABLE TAGS: %v", origTableTags)
+	tests := []struct {
+		name string
+	}{
+		{"InMemoryBackend_SnapshotRestore_FullState"},
+	}
 
-	snap := original.Snapshot(t.Context())
-	require.NotNil(t, snap)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	t.Logf("SNAP: %s", string(snap))
+			original := cleanrooms.NewInMemoryBackend("111122223333", "us-west-2")
+			seed := seedFullState(t, original)
+			origColTags, _ := original.ListTagsForResource(seed.collab.Arn)
+			origTableTags, _ := original.ListTagsForResource(seed.table.Arn)
+			t.Logf("ORIGINAL COLLAB TAGS: %v", origColTags)
+			t.Logf("ORIGINAL TABLE TAGS: %v", origTableTags)
 
-	fresh := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	require.NoError(t, fresh.Restore(t.Context(), snap))
+			snap := original.Snapshot(t.Context())
+			require.NotNil(t, snap)
 
-	assertTagsRestored(t, fresh, seed)
-	assertTopLevelRestored(t, fresh, seed)
-	assertMembershipNestedRestored(t, fresh, seed)
-	assertCollaborationNestedRestored(t, fresh, seed)
+			t.Logf("SNAP: %s", string(snap))
+
+			fresh := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			assertTagsRestored(t, fresh, seed)
+			assertTopLevelRestored(t, fresh, seed)
+			assertMembershipNestedRestored(t, fresh, seed)
+			assertCollaborationNestedRestored(t, fresh, seed)
+		})
+	}
 }
 
 // assertTopLevelRestored checks the three top-level tables (collaborations,
@@ -425,13 +473,25 @@ func assertTagsRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed se
 func TestHandler_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
-	originalBackend := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	h := cleanrooms.NewHandler(originalBackend)
+	tests := []struct {
+		name string
+	}{
+		{"Handler_SnapshotRestore"},
+	}
 
-	snap := h.Snapshot(t.Context())
-	require.NotNil(t, snap)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	freshBackend := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-	h2 := cleanrooms.NewHandler(freshBackend)
-	require.NoError(t, h2.Restore(t.Context(), snap))
+			originalBackend := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+			h := cleanrooms.NewHandler(originalBackend)
+
+			snap := h.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			freshBackend := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+			h2 := cleanrooms.NewHandler(freshBackend)
+			require.NoError(t, h2.Restore(t.Context(), snap))
+		})
+	}
 }

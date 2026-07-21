@@ -12,62 +12,102 @@ import (
 
 func TestSchemasBackend(t *testing.T) {
 	t.Parallel()
-	b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 
-	collab, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
-	require.NoError(t, err)
+	tests := []struct {
+		name string
+	}{
+		{"SchemasBackend"},
+	}
 
-	_, _, err = b.BatchGetSchema(collab.CollaborationIdentifier, []string{"test-schema"})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 
-	_, _, err = b.BatchGetSchemaAnalysisRule(collab.CollaborationIdentifier, []string{"test-schema"}, "AGGREGATION")
-	require.NoError(t, err)
+			collab, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
+			require.NoError(t, err)
 
-	// Inject a fake schema using Restore
-	snapJSON := `{"version":1,"tables":{` +
-		`"collaborations":[{"CollaborationIdentifier":"` + collab.CollaborationIdentifier + `"}],` +
-		`"schemas":[{"CollaborationIdentifier":"` + collab.CollaborationIdentifier +
-		`","Name":"test-schema","Type":"TABLE","AnalysisMethod":"DIRECT_QUERY"}],` +
-		`"schemaAnalysisRules":[{"CollaborationIdentifier":"` + collab.CollaborationIdentifier +
-		`","Name":"test-schema","Type":"AGGREGATION"}]}}`
-	err = b.Restore(t.Context(), []byte(snapJSON))
-	require.NoError(t, err)
+			_, _, err = b.BatchGetSchema(collab.CollaborationIdentifier, []string{"test-schema"})
+			require.NoError(t, err)
 
-	// ListSchemas
-	summaries, _, err := b.ListSchemas(collab.CollaborationIdentifier, "", "", "")
-	require.NoError(t, err)
-	require.Len(t, summaries, 1)
+			_, _, err = b.BatchGetSchemaAnalysisRule(
+				collab.CollaborationIdentifier,
+				[]string{"test-schema"},
+				"AGGREGATION",
+			)
+			require.NoError(t, err)
 
-	// BatchGetSchema again
-	schemas, _, err := b.BatchGetSchema(collab.CollaborationIdentifier, []string{"test-schema"})
-	require.NoError(t, err)
-	require.Len(t, schemas, 1)
+			// Inject a fake schema using Restore
+			snapJSON := `{"version":1,"tables":{` +
+				`"collaborations":[{"CollaborationIdentifier":"` + collab.CollaborationIdentifier + `"}],` +
+				`"schemas":[{"CollaborationIdentifier":"` + collab.CollaborationIdentifier +
+				`","Name":"test-schema","Type":"TABLE","AnalysisMethod":"DIRECT_QUERY"}],` +
+				`"schemaAnalysisRules":[{"CollaborationIdentifier":"` + collab.CollaborationIdentifier +
+				`","Name":"test-schema","Type":"AGGREGATION"}]}}`
+			err = b.Restore(t.Context(), []byte(snapJSON))
+			require.NoError(t, err)
 
-	rules, _, err := b.BatchGetSchemaAnalysisRule(
-		collab.CollaborationIdentifier,
-		[]string{"test-schema"},
-		"AGGREGATION",
-	)
-	require.NoError(t, err)
-	require.Len(t, rules, 1)
+			// ListSchemas
+			summaries, _, err := b.ListSchemas(collab.CollaborationIdentifier, "", "", "")
+			require.NoError(t, err)
+			require.Len(t, summaries, 1)
+
+			// BatchGetSchema again
+			schemas, _, err := b.BatchGetSchema(collab.CollaborationIdentifier, []string{"test-schema"})
+			require.NoError(t, err)
+			require.Len(t, schemas, 1)
+
+			rules, _, err := b.BatchGetSchemaAnalysisRule(
+				collab.CollaborationIdentifier,
+				[]string{"test-schema"},
+				"AGGREGATION",
+			)
+			require.NoError(t, err)
+			require.Len(t, rules, 1)
+		})
+	}
 }
 
 func TestStoreBackend(t *testing.T) {
 	t.Parallel()
-	b := cleanrooms.NewInMemoryBackendWithContext(t.Context(), config.DefaultAccountID, config.DefaultRegion)
-	require.NotNil(t, b)
 
-	b.Reset()
+	tests := []struct {
+		name string
+	}{
+		{"StoreBackend"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := cleanrooms.NewInMemoryBackendWithContext(t.Context(), config.DefaultAccountID, config.DefaultRegion)
+			require.NotNil(t, b)
+
+			b.Reset()
+		})
+	}
 }
 
 func TestProvider(t *testing.T) {
 	t.Parallel()
-	p := cleanrooms.Provider{}
-	require.Equal(t, "CleanRooms", p.Name())
-	b, err := p.Init(&service.AppContext{JanitorCtx: t.Context()})
-	require.NoError(t, err)
-	require.NotNil(t, b)
 
-	_, err = p.Init(nil)
-	require.ErrorIs(t, err, cleanrooms.ErrNilAppContext)
+	tests := []struct {
+		name string
+	}{
+		{"Provider"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := cleanrooms.Provider{}
+			require.Equal(t, "CleanRooms", p.Name())
+			b, err := p.Init(&service.AppContext{JanitorCtx: t.Context()})
+			require.NoError(t, err)
+			require.NotNil(t, b)
+
+			_, err = p.Init(nil)
+			require.ErrorIs(t, err, cleanrooms.ErrNilAppContext)
+		})
+	}
 }

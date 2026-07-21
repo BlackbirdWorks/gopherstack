@@ -11,64 +11,88 @@ import (
 
 func TestHTTP_IDNamespaceAssociationEndpoints(t *testing.T) {
 	t.Parallel()
-	e := newTestServer(t)
 
-	// Create Collaboration
-	doRequest(t, e, "POST", "/collaborations", map[string]any{
-		"name": "collab", "creatorDisplayName": "user",
-		"creatorMemberAbilities": []string{"CAN_QUERY"},
-		"members":                []any{}, "queryLogStatus": "DISABLED",
-	})
-	rec := doRequest(t, e, "GET", "/collaborations", nil)
-	var colResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-	colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
+	tests := []struct {
+		name string
+	}{
+		{"HTTP_IDNamespaceAssociationEndpoints"},
+	}
 
-	// Create Membership
-	rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-		"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
-	})
-	var memResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
-	mID := memResp["membership"].(map[string]any)["id"].(string)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
 
-	// Create
-	createRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/idnamespaceassociations", map[string]any{
-		"name": "test-ns",
-		"inputReferenceConfig": map[string]any{
-			"inputReferenceArn":      "arn:aws:cleanrooms:us-east-1:123456789012:membership/" + mID,
-			"manageResourcePolicies": true,
-		},
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
+			// Create Collaboration
+			doRequest(t, e, "POST", "/collaborations", map[string]any{
+				"name": "collab", "creatorDisplayName": "user",
+				"creatorMemberAbilities": []string{"CAN_QUERY"},
+				"members":                []any{}, "queryLogStatus": "DISABLED",
+			})
+			rec := doRequest(t, e, "GET", "/collaborations", nil)
+			var colResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
+			colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
 
-	var createResp map[string]map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	id := createResp["idNamespaceAssociation"]["id"].(string)
+			// Create Membership
+			rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
+				"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
+			})
+			var memResp map[string]any
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
+			mID := memResp["membership"].(map[string]any)["id"].(string)
 
-	// Get
-	getRec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/idnamespaceassociations/"+id, nil)
-	require.Equal(t, http.StatusOK, getRec.Code)
+			// Create
+			createRec := doRequest(
+				t,
+				e,
+				http.MethodPost,
+				"/memberships/"+mID+"/idnamespaceassociations",
+				map[string]any{
+					"name": "test-ns",
+					"inputReferenceConfig": map[string]any{
+						"inputReferenceArn":      "arn:aws:cleanrooms:us-east-1:123456789012:membership/" + mID,
+						"manageResourcePolicies": true,
+					},
+				},
+			)
+			require.Equal(t, http.StatusOK, createRec.Code)
 
-	// List
-	listRec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/idnamespaceassociations", nil)
-	require.Equal(t, http.StatusOK, listRec.Code)
+			var createResp map[string]map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			id := createResp["idNamespaceAssociation"]["id"].(string)
 
-	// Update
-	upRec := doRequest(t, e, http.MethodPatch, "/memberships/"+mID+"/idnamespaceassociations/"+id, map[string]any{
-		"description": "updated desc",
-	})
-	require.Equal(t, http.StatusOK, upRec.Code)
+			// Get
+			getRec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/idnamespaceassociations/"+id, nil)
+			require.Equal(t, http.StatusOK, getRec.Code)
 
-	// GetCollaborationIDNamespaceAssociation
-	gCollab := doRequest(t, e, http.MethodGet, "/collaborations/"+colID+"/idnamespaceassociations/"+id, nil)
-	assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, gCollab.Code)
+			// List
+			listRec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/idnamespaceassociations", nil)
+			require.Equal(t, http.StatusOK, listRec.Code)
 
-	// ListCollaborationIDNamespaceAssociations
-	lCollab := doRequest(t, e, http.MethodGet, "/collaborations/"+colID+"/idnamespaceassociations", nil)
-	assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, lCollab.Code)
+			// Update
+			upRec := doRequest(
+				t,
+				e,
+				http.MethodPatch,
+				"/memberships/"+mID+"/idnamespaceassociations/"+id,
+				map[string]any{
+					"description": "updated desc",
+				},
+			)
+			require.Equal(t, http.StatusOK, upRec.Code)
 
-	// Delete
-	delRec := doRequest(t, e, http.MethodDelete, "/memberships/"+mID+"/idnamespaceassociations/"+id, nil)
-	require.Equal(t, http.StatusOK, delRec.Code)
+			// GetCollaborationIDNamespaceAssociation
+			gCollab := doRequest(t, e, http.MethodGet, "/collaborations/"+colID+"/idnamespaceassociations/"+id, nil)
+			assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, gCollab.Code)
+
+			// ListCollaborationIDNamespaceAssociations
+			lCollab := doRequest(t, e, http.MethodGet, "/collaborations/"+colID+"/idnamespaceassociations", nil)
+			assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, lCollab.Code)
+
+			// Delete
+			delRec := doRequest(t, e, http.MethodDelete, "/memberships/"+mID+"/idnamespaceassociations/"+id, nil)
+			require.Equal(t, http.StatusOK, delRec.Code)
+		})
+	}
 }

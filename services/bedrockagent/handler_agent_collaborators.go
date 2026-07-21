@@ -104,7 +104,7 @@ func (h *Handler) handleListCollaborators(
 }
 
 func classifyCollabPath(method string, segs []string) string {
-	idx := indexOf(segs, "agentcollaborators")
+	idx := indexOf(segs, "collaborators")
 	hasID := len(segs) > idx+1 && segs[idx+1] != ""
 
 	if !hasID {

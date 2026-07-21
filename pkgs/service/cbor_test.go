@@ -291,62 +291,77 @@ func TestCBORBinaryRoundTrip(t *testing.T) {
 
 	binaryKeys := map[string]bool{"B": true, "BS": true}
 
-	payload := []byte{0x01, 0x02, 0x03, 0xFF}
-	b64 := base64.StdEncoding.EncodeToString(payload)
-
-	// Build CBOR with a byte string for the "B" key.
-	original := cbor.Map{
-		"Item": cbor.Map{
-			"data": cbor.Map{
-				"B": cbor.Slice(payload),
-			},
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{
+			"BinaryRoundTrip",
+			[]byte{0x01, 0x02, 0x03, 0xFF},
 		},
 	}
 
-	cborBytes := cbor.Encode(original)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	// CBOR → JSON
-	jsonBytes, err := service.CBORToJSON(cborBytes)
-	if err != nil {
-		t.Fatalf("CBORToJSON: %v", err)
-	}
+			b64 := base64.StdEncoding.EncodeToString(tc.payload)
 
-	var jsonMap map[string]any
-	if err = json.Unmarshal(jsonBytes, &jsonMap); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+			// Build CBOR with a byte string for the "B" key.
+			original := cbor.Map{
+				"Item": cbor.Map{
+					"data": cbor.Map{
+						"B": cbor.Slice(tc.payload),
+					},
+				},
+			}
 
-	item := jsonMap["Item"].(map[string]any)
-	dataAttr := item["data"].(map[string]any)
-	gotB64 := dataAttr["B"].(string)
+			cborBytes := cbor.Encode(original)
 
-	if gotB64 != b64 {
-		t.Errorf("CBOR→JSON binary: got base64 %q, want %q", gotB64, b64)
-	}
+			// CBOR → JSON
+			jsonBytes, err := service.CBORToJSON(cborBytes)
+			if err != nil {
+				t.Fatalf("CBORToJSON: %v", err)
+			}
 
-	// JSON → CBOR (round-trip back)
-	cborOut, err := service.JSONToCBOR(jsonBytes, binaryKeys)
-	if err != nil {
-		t.Fatalf("JSONToCBOR: %v", err)
-	}
+			var jsonMap map[string]any
+			if err = json.Unmarshal(jsonBytes, &jsonMap); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
 
-	val, err := cbor.Decode(cborOut)
-	if err != nil {
-		t.Fatalf("cbor.Decode: %v", err)
-	}
+			item := jsonMap["Item"].(map[string]any)
+			dataAttr := item["data"].(map[string]any)
+			gotB64 := dataAttr["B"].(string)
 
-	m := val.(cbor.Map)
-	itemMap := m["Item"].(cbor.Map)
-	dataMap := itemMap["data"].(cbor.Map)
-	bVal := dataMap["B"]
+			if gotB64 != b64 {
+				t.Errorf("CBOR→JSON binary: got base64 %q, want %q", gotB64, b64)
+			}
 
-	sl, ok := bVal.(cbor.Slice)
-	if !ok {
-		t.Fatalf("expected cbor.Slice for B, got %T", bVal)
-	}
+			// JSON → CBOR (round-trip back)
+			cborOut, err := service.JSONToCBOR(jsonBytes, binaryKeys)
+			if err != nil {
+				t.Fatalf("JSONToCBOR: %v", err)
+			}
 
-	if string(sl) != string(payload) {
-		t.Errorf("binary round-trip: got %v, want %v", []byte(sl), payload)
+			val, err := cbor.Decode(cborOut)
+			if err != nil {
+				t.Fatalf("cbor.Decode: %v", err)
+			}
+
+			m := val.(cbor.Map)
+			itemMap := m["Item"].(cbor.Map)
+			dataMap := itemMap["data"].(cbor.Map)
+			bVal := dataMap["B"]
+
+			sl, ok := bVal.(cbor.Slice)
+			if !ok {
+				t.Fatalf("expected cbor.Slice for B, got %T", bVal)
+			}
+
+			if string(sl) != string(tc.payload) {
+				t.Errorf("binary round-trip: got %v, want %v", []byte(sl), tc.payload)
+			}
+		})
 	}
 }
 

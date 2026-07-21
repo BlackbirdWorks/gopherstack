@@ -12,7 +12,19 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := cleanrooms.NewInMemoryBackend("000000000000", "us-east-1")
-	h := cleanrooms.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &cleanroomssdk.Client{}, h.GetSupportedOperations(), []string{})
+	tests := []struct {
+		name string
+	}{
+		{"SDKCompleteness"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := cleanrooms.NewInMemoryBackend("000000000000", "us-east-1")
+			h := cleanrooms.NewHandler(backend)
+			sdkcheck.CheckCompleteness(t, &cleanroomssdk.Client{}, h.GetSupportedOperations(), []string{})
+		})
+	}
 }
