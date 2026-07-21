@@ -5,61 +5,104 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestHTTP_ProtectedJobEndpoints(t *testing.T) {
+func createProtectedJob(t *testing.T, e *echo.Echo, mID string) string {
+	t.Helper()
+	startRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/protectedJobs", map[string]any{
+		"type": "SQL",
+		"sqlParameters": map[string]any{
+			"queryString":         "SELECT * FROM t",
+			"analysisTemplateArn": "arn:aws:cleanrooms:us-east-1:123456789012:membership/" + mID + "/analysistemplate/at-1",
+		},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+	var startResp map[string]map[string]any
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+
+	return startResp["protectedJob"]["id"].(string)
+}
+
+func TestProtectedJobs_Create(t *testing.T) {
 	t.Parallel()
 
+	type args struct {
+		body map[string]any
+	}
+	type wants struct {
+		status int
+	}
+
 	tests := []struct {
-		name string
+		args  args
+		name  string
+		wants wants
 	}{
-		{"HTTP_ProtectedJobEndpoints"},
+		{
+			name: "valid_create",
+			args: args{
+				body: map[string]any{
+					"type": "SQL",
+					"sqlParameters": map[string]any{
+						"queryString":         "SELECT * FROM t",
+						"analysisTemplateArn": "arn:aws:cleanrooms:us-east-1:123456789012:membership/at-1",
+					},
+				},
+			},
+			wants: wants{status: http.StatusOK},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
 
-			// Create Collaboration
-			doRequest(t, e, "POST", "/collaborations", map[string]any{
-				"name": "collab", "creatorDisplayName": "user",
-				"creatorMemberAbilities": []string{"CAN_QUERY"},
-				"members":                []any{}, "queryLogStatus": "DISABLED",
-			})
-			rec := doRequest(t, e, "GET", "/collaborations", nil)
-			var colResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-			colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
+			rec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/protectedJobs", tt.args.body)
+			require.Equal(t, tt.wants.status, rec.Code)
+		})
+	}
+}
 
-			// Create Membership
-			rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-				"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
-			})
-			var memResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
-			mID := memResp["membership"].(map[string]any)["id"].(string)
+func TestProtectedJobs_Update(t *testing.T) {
+	t.Parallel()
 
-			// Create/Start
-			startRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/protectedJobs", map[string]any{
-				"type": "SQL",
-				"sqlParameters": map[string]any{
-					"queryString":         "SELECT * FROM t",
-					"analysisTemplateArn": "arn:aws:cleanrooms:us-east-1:123456789012:membership/" + mID + "/analysistemplate/at-1",
+	type args struct {
+		body map[string]any
+	}
+	type wants struct {
+		statuses []int
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name: "valid_update",
+			args: args{
+				body: map[string]any{
+					"description": "updated desc",
 				},
-			})
-			require.Equal(t, http.StatusOK, startRec.Code)
+			},
+			wants: wants{statuses: []int{http.StatusOK, http.StatusNotFound}},
+		},
+	}
 
-			var startResp map[string]map[string]any
-			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
-			id := startResp["protectedJob"]["id"].(string)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
+			id := createProtectedJob(t, e, mID)
 
-			upRec := doRequest(t, e, http.MethodPatch, "/memberships/"+mID+"/protectedJobs/"+id, map[string]any{
-				"description": "updated desc",
-			})
-			assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, upRec.Code)
+			rec := doRequest(t, e, http.MethodPatch, "/memberships/"+mID+"/protectedJobs/"+id, tt.args.body)
+			assert.Contains(t, tt.wants.statuses, rec.Code)
 		})
 	}
 }

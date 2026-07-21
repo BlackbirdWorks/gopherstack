@@ -11,54 +11,42 @@ import (
 
 func TestHTTP_PopulateIDMappingTable(t *testing.T) {
 	t.Parallel()
+	e := newTestServer(t)
 
-	tests := []struct {
-		name string
-	}{
-		{"HTTP_PopulateIDMappingTable"},
-	}
+	// Create Collaboration
+	doRequest(t, e, "POST", "/collaborations", map[string]any{
+		"name": "collab", "creatorDisplayName": "user",
+		"creatorMemberAbilities": []string{"CAN_QUERY"},
+		"members":                []any{}, "queryLogStatus": "DISABLED",
+	})
+	rec := doRequest(t, e, "GET", "/collaborations", nil)
+	var colResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
+	colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			e := newTestServer(t)
+	// Create Membership
+	rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
+		"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
+	})
+	var memResp map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
+	mID := memResp["membership"].(map[string]any)["id"].(string)
 
-			// Create Collaboration
-			doRequest(t, e, "POST", "/collaborations", map[string]any{
-				"name": "collab", "creatorDisplayName": "user",
-				"creatorMemberAbilities": []string{"CAN_QUERY"},
-				"members":                []any{}, "queryLogStatus": "DISABLED",
-			})
-			rec := doRequest(t, e, "GET", "/collaborations", nil)
-			var colResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-			colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
+	// Create Table
+	createRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/idmappingtables", map[string]any{
+		"name": "test-table",
+		"inputReferenceConfig": map[string]any{
+			"inputReferenceArn":      "arn:aws:cleanrooms:us-east-1:123456789012:membership/" + mID,
+			"manageResourcePolicies": true,
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
 
-			// Create Membership
-			rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-				"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
-			})
-			var memResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
-			mID := memResp["membership"].(map[string]any)["id"].(string)
+	var createResp map[string]map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	id := createResp["idMappingTable"]["id"].(string)
 
-			// Create Table
-			createRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/idmappingtables", map[string]any{
-				"name": "test-table",
-				"inputReferenceConfig": map[string]any{
-					"inputReferenceArn":      "arn:aws:cleanrooms:us-east-1:123456789012:membership/" + mID,
-					"manageResourcePolicies": true,
-				},
-			})
-			require.Equal(t, http.StatusOK, createRec.Code)
-
-			var createResp map[string]map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-			id := createResp["idMappingTable"]["id"].(string)
-
-			// Populate
-			popRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/idmappingtables/"+id+"/populate", nil)
-			assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, popRec.Code)
-		})
-	}
+	// Populate
+	popRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/idmappingtables/"+id+"/populate", nil)
+	assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, popRec.Code)
 }

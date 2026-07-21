@@ -59,37 +59,45 @@ func invokeService(t *testing.T, entry *service.Entry, base *slog.Logger) {
 func TestRegisterScopesLoggerToService(t *testing.T) {
 	t.Parallel()
 
+	type args struct {
+		svc *loggingService
+	}
+	type wants struct {
+		contains string
+	}
+
 	tests := []struct {
-		name        string
-		serviceName string
-		wantInLog   string
-		priority    int
+		name  string
+		args  args
+		wants wants
 	}{
 		{
-			"ScopesLoggerToService",
-			"WidgetSvc",
-			"service=WidgetSvc",
-			1,
+			name: "scopes logger to service",
+			args: args{
+				svc: &loggingService{name: "WidgetSvc", priority: 1, seen: make(chan context.Context, 1)},
+			},
+			wants: wants{
+				contains: "service=WidgetSvc",
+			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			var buf bytes.Buffer
 			base := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{}))
 
 			reg := service.NewRegistry()
-			svc := &loggingService{name: tt.serviceName, priority: tt.priority, seen: make(chan context.Context, 1)}
-			require.NoError(t, reg.Register(svc))
+			require.NoError(t, reg.Register(tc.args.svc))
 
-			entry := reg.GetByName(tt.serviceName)
+			entry := reg.GetByName(tc.args.svc.name)
 			require.NotNil(t, entry)
 
 			invokeService(t, entry, base)
 
-			assert.Contains(t, buf.String(), tt.wantInLog,
+			assert.Contains(t, buf.String(), tc.wants.contains,
 				"records emitted inside the handler must carry the service tag")
 		})
 	}
@@ -101,32 +109,49 @@ func TestRegisterScopesLoggerToService(t *testing.T) {
 func TestRegisterLoggerScopingIsRequestIsolated(t *testing.T) {
 	t.Parallel()
 
+	type serviceConfig struct {
+		name     string
+		priority int
+	}
+	type args struct {
+		services []serviceConfig
+	}
+	type wants struct{}
+
 	tests := []struct {
-		name string
+		name  string
+		wants wants
+		args  args
 	}{
-		{"LoggerScopingIsRequestIsolated"},
+		{
+			name: "request isolated",
+			args: args{
+				services: []serviceConfig{
+					{name: "Alpha", priority: 2},
+					{name: "Beta", priority: 1},
+				},
+			},
+			wants: wants{},
+		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			reg := service.NewRegistry()
 
-			a := &loggingService{name: "Alpha", priority: 2, seen: make(chan context.Context, 1)}
-			b := &loggingService{name: "Beta", priority: 1, seen: make(chan context.Context, 1)}
-			require.NoError(t, reg.Register(a))
-			require.NoError(t, reg.Register(b))
+			var entries []*service.Entry
+			for _, sc := range tc.args.services {
+				svc := &loggingService{name: sc.name, priority: sc.priority, seen: make(chan context.Context, 1)}
+				require.NoError(t, reg.Register(svc))
+				entry := reg.GetByName(sc.name)
+				require.NotNil(t, entry)
+				entries = append(entries, entry)
+			}
 
-			entryA := reg.GetByName("Alpha")
-			entryB := reg.GetByName("Beta")
-			require.NotNil(t, entryA)
-			require.NotNil(t, entryB)
-
-			// Each request gets its own buffer-backed base logger; assert no bleed.
 			check := func(entry *service.Entry, want, notWant string) {
 				var buf bytes.Buffer
-
 				base := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{}))
 				invokeService(t, entry, base)
 				assert.Contains(t, buf.String(), "service="+want)
@@ -134,11 +159,23 @@ func TestRegisterLoggerScopingIsRequestIsolated(t *testing.T) {
 			}
 
 			var wg sync.WaitGroup
+			for i, e := range entries {
+				want := tc.args.services[i].name
+				notWant := ""
+				for j, sc := range tc.args.services {
+					if i != j {
+						notWant = sc.name
 
-			wg.Add(2)
+						break
+					}
+				}
 
-			go func() { defer wg.Done(); check(entryA, "Alpha", "Beta") }()
-			go func() { defer wg.Done(); check(entryB, "Beta", "Alpha") }()
+				wg.Add(1)
+				go func(entry *service.Entry, w, nw string) {
+					defer wg.Done()
+					check(entry, w, nw)
+				}(e, want, notWant)
+			}
 			wg.Wait()
 		})
 	}

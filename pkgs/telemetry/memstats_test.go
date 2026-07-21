@@ -15,9 +15,22 @@ func TestMemoryStatsMiddleware(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
+		name         string
+		method       string
+		path         string
+		wantContains []string
 	}{
-		{"MemoryStatsMiddleware"},
+		{
+			name:   "returns_memory_stats_in_header",
+			method: http.MethodGet,
+			path:   "/",
+			wantContains: []string{
+				"Alloc=",
+				"TotalAlloc=",
+				"Sys=",
+				"NumGC=",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -29,7 +42,7 @@ func TestMemoryStatsMiddleware(t *testing.T) {
 			})
 
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req := httptest.NewRequest(tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 
@@ -38,10 +51,10 @@ func TestMemoryStatsMiddleware(t *testing.T) {
 
 			stats := rec.Header().Get("X-Gopherstack-Memory-Stats")
 			require.NotEmpty(t, stats)
-			assert.Contains(t, stats, "Alloc=")
-			assert.Contains(t, stats, "TotalAlloc=")
-			assert.Contains(t, stats, "Sys=")
-			assert.Contains(t, stats, "NumGC=")
+
+			for _, want := range tt.wantContains {
+				assert.Contains(t, stats, want)
+			}
 		})
 	}
 }

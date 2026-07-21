@@ -54,9 +54,9 @@ var readOnlyOperationPrefixes = []string{ //nolint:gochecknoglobals // static lo
 	"Test", "Validate", "Preview", "Estimate", "Simulate",
 }
 
-// IsReadOnlyOperation reports whether op looks like a read-only API call based
+// isReadOnlyOperation reports whether op looks like a read-only API call based
 // on its AWS-conventional naming prefix.
-func IsReadOnlyOperation(op string) bool {
+func isReadOnlyOperation(op string) bool {
 	for _, p := range readOnlyOperationPrefixes {
 		if strings.HasPrefix(op, p) {
 			return true
@@ -66,15 +66,15 @@ func IsReadOnlyOperation(op string) bool {
 	return false
 }
 
-// IsUnknownOperation reports whether the observer could not determine a real
+// isUnknownOperation reports whether the observer could not determine a real
 // operation name for the request (services return "Unknown"/"unknown" in that case).
-func IsUnknownOperation(op string) bool {
+func isUnknownOperation(op string) bool {
 	return op == "" || strings.EqualFold(op, "unknown")
 }
 
-// ExtractAccessKeyID extracts the AWS access key ID from the SigV4
+// extractAccessKeyID extracts the AWS access key ID from the SigV4
 // Authorization header's Credential value. Returns "" when absent or malformed.
-func ExtractAccessKeyID(r *http.Request) string {
+func extractAccessKeyID(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if auth == "" || !strings.Contains(auth, "Credential=") {
 		return ""
@@ -95,10 +95,10 @@ func ExtractAccessKeyID(r *http.Request) string {
 	return parts[0]
 }
 
-// EventSourceFor derives the CloudTrail EventSource for a request, e.g.
+// eventSourceFor derives the CloudTrail EventSource for a request, e.g.
 // "s3.amazonaws.com", from the SigV4 signing name. Falls back to the
 // service's registered name when no Authorization header is present.
-func EventSourceFor(r *http.Request, svc Registerable) string {
+func eventSourceFor(r *http.Request, svc Registerable) string {
 	if signingName := httputils.ExtractServiceFromRequest(r); signingName != "" {
 		return signingName + ".amazonaws.com"
 	}
@@ -106,7 +106,7 @@ func EventSourceFor(r *http.Request, svc Registerable) string {
 	return strings.ToLower(svc.Name()) + ".amazonaws.com"
 }
 
-// WrapCloudTrailCapture wraps an already fully-assembled service handler chain
+// wrapCloudTrailCapture wraps an already fully-assembled service handler chain
 // so that, once it returns, a CloudTrail management event is recorded for
 // mutating operations. It is applied as the outermost layer around a single
 // service's handler in Registry.Register, so it observes request/response
@@ -115,22 +115,22 @@ func EventSourceFor(r *http.Request, svc Registerable) string {
 // Registerable/ResourceObserver contract every service already implements)
 // gives accurate operation names across every wire protocol (JSON, query,
 // REST) without any per-service capture code.
-func WrapCloudTrailCapture(rec CloudTrailRecorder, svc Registerable, next echo.HandlerFunc) echo.HandlerFunc {
+func wrapCloudTrailCapture(rec CloudTrailRecorder, svc Registerable, next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		err := next(c)
 
 		op := svc.ExtractOperation(c)
-		if IsUnknownOperation(op) || IsReadOnlyOperation(op) {
+		if isUnknownOperation(op) || isReadOnlyOperation(op) {
 			return err
 		}
 
 		req := c.Request()
-		accessKeyID := ExtractAccessKeyID(req)
+		accessKeyID := extractAccessKeyID(req)
 		username := accessKeyID
 
 		rec.RecordManagementEvent(CloudTrailEventInput{
 			EventName:    op,
-			EventSource:  EventSourceFor(req, svc),
+			EventSource:  eventSourceFor(req, svc),
 			AwsRegion:    httputils.ExtractRegionFromRequest(req, config.DefaultRegion),
 			Username:     username,
 			AccessKeyID:  accessKeyID,

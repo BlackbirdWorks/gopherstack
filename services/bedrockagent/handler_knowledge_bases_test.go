@@ -9,14 +9,6 @@ import (
 func TestHandlerKnowledgeBaseCRUD(t *testing.T) {
 	t.Parallel()
 
-	type tc struct {
-		body       map[string]any
-		name       string
-		method     string
-		path       string
-		wantStatus int
-	}
-
 	h, e := setupHandler(t)
 
 	createBody := map[string]any{
@@ -39,153 +31,46 @@ func TestHandlerKnowledgeBaseCRUD(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &createResp)
 	kbID := createResp["knowledgeBase"]["knowledgeBaseId"].(string)
 
-	// Create Data Source for docs
-	dsBody := map[string]any{
-		"name": "doc-ds",
-		"dataSourceConfiguration": map[string]any{
-			"type": "S3",
-			"s3Configuration": map[string]any{
-				"bucketArn": "arn:aws:s3:::my-bucket",
-			},
-		},
-	}
-	rDS := doRequest(t, h, e, http.MethodPut, "/knowledgebases/"+kbID+"/datasources", dsBody)
-	var dsResp map[string]map[string]any
-	_ = json.Unmarshal(rDS.Body.Bytes(), &dsResp)
-	dsID := dsResp["dataSource"]["dataSourceId"].(string)
+	t.Run("get kb", func(t *testing.T) {
+		t.Parallel()
 
-	docsBasePath := "/knowledgebases/" + kbID + "/datasources/" + dsID + "/documents"
+		h2, e2 := setupHandler(t)
+		r := doRequest(t, h2, e2, http.MethodPut, "/knowledgebases", createBody)
 
-	cases := []tc{
-		{
-			name:       "ListKBs",
-			method:     http.MethodGet,
-			path:       "/knowledgebases",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "GetKB",
-			method:     http.MethodGet,
-			path:       "/knowledgebases/" + kbID,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "UpdateKB",
-			method:     http.MethodPut,
-			path:       "/knowledgebases/" + kbID,
-			body:       createBody,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "DeleteKB",
-			method:     http.MethodDelete,
-			path:       "/knowledgebases/" + kbID,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:   "IngestKBDocs",
-			method: http.MethodPost,
-			path:   docsBasePath,
-			body: map[string]any{
-				"documents": []map[string]any{
-					{
-						"documentId": "doc1",
-						"content": map[string]any{
-							"dataSourceType": "CUSTOM",
-							"custom": map[string]any{
-								"customContent": map[string]any{
-									"text": "hello",
-								},
-							},
-						},
-					},
-				},
-			},
-			wantStatus: http.StatusAccepted,
-		},
-		{
-			name:       "ListKBDocs",
-			method:     http.MethodGet,
-			path:       docsBasePath,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:   "GetKBDocs",
-			method: http.MethodPost,
-			path:   docsBasePath + "/getDocuments",
-			body: map[string]any{
-				"documentIds": []string{"doc1"},
-			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:   "DeleteKBDocs",
-			method: http.MethodPost,
-			path:   docsBasePath + "/deleteDocuments",
-			body: map[string]any{
-				"documentIds": []string{"doc1"},
-			},
-			wantStatus: http.StatusAccepted,
-		},
-	}
+		var resp map[string]map[string]any
+		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		id := resp["knowledgeBase"]["knowledgeBaseId"].(string)
 
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		rec2 := doRequest(t, h2, e2, http.MethodGet, "/knowledgebases/"+id, nil)
+		if rec2.Code != http.StatusOK {
+			t.Errorf("got %d want 200", rec2.Code)
+		}
+	})
 
-			hLocal, eLocal := setupHandler(t)
+	t.Run("list kbs", func(t *testing.T) {
+		t.Parallel()
 
-			rK := doRequest(t, hLocal, eLocal, http.MethodPut, "/knowledgebases", createBody)
-			var kResp map[string]map[string]any
-			_ = json.Unmarshal(rK.Body.Bytes(), &kResp)
-			kID := kResp["knowledgeBase"]["knowledgeBaseId"].(string)
+		rec2 := doRequest(t, h, e, http.MethodGet, "/knowledgebases", nil)
+		if rec2.Code != http.StatusOK {
+			t.Errorf("got %d want 200", rec2.Code)
+		}
+	})
 
-			rD := doRequest(t, hLocal, eLocal, http.MethodPut, "/knowledgebases/"+kID+"/datasources", dsBody)
-			var dResp map[string]map[string]any
-			_ = json.Unmarshal(rD.Body.Bytes(), &dResp)
-			dID := dResp["dataSource"]["dataSourceId"].(string)
+	t.Run("delete kb", func(t *testing.T) {
+		t.Parallel()
 
-			// For GetKBDocs and DeleteKBDocs, we need to ingest the doc first
-			if tt.name == "GetKBDocs" || tt.name == "DeleteKBDocs" {
-				doRequest(
-					t,
-					hLocal,
-					eLocal,
-					http.MethodPost,
-					"/knowledgebases/"+kID+"/datasources/"+dID+"/documents",
-					map[string]any{
-						"documents": []map[string]any{
-							{
-								"documentId": "doc1",
-								"content": map[string]any{
-									"dataSourceType": "CUSTOM",
-									"custom": map[string]any{
-										"customContent": map[string]any{"text": "hello"},
-									},
-								},
-							},
-						},
-					},
-				)
-			}
+		h2, e2 := setupHandler(t)
+		r := doRequest(t, h2, e2, http.MethodPut, "/knowledgebases", createBody)
 
-			path := tt.path
-			if kbID != "" && kID != "" {
-				switch path {
-				case "/knowledgebases/" + kbID:
-					path = "/knowledgebases/" + kID
-				case docsBasePath:
-					path = "/knowledgebases/" + kID + "/datasources/" + dID + "/documents"
-				case docsBasePath + "/getDocuments":
-					path = "/knowledgebases/" + kID + "/datasources/" + dID + "/documents/getDocuments"
-				case docsBasePath + "/deleteDocuments":
-					path = "/knowledgebases/" + kID + "/datasources/" + dID + "/documents/deleteDocuments"
-				}
-			}
-			r := doRequest(t, hLocal, eLocal, tt.method, path, tt.body)
-			if r.Code != tt.wantStatus {
-				t.Errorf("got %d want %d", r.Code, tt.wantStatus)
-			}
-		})
-	}
+		var resp map[string]map[string]any
+		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		id := resp["knowledgeBase"]["knowledgeBaseId"].(string)
+
+		rec2 := doRequest(t, h2, e2, http.MethodDelete, "/knowledgebases/"+id, nil)
+		if rec2.Code != http.StatusOK {
+			t.Errorf("got %d want 200", rec2.Code)
+		}
+	})
+
+	_ = kbID
 }

@@ -10,95 +10,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cleanrooms"
 )
 
-// TestInMemoryBackend_RestoreInvalidData verifies that malformed JSON is
-// reported as an error rather than silently discarded or partially applied.
-func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-	}{
-		{"InMemoryBackend_RestoreInvalidData"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-			err := b.Restore(t.Context(), []byte("not-valid-json"))
-			require.Error(t, err)
-		})
-	}
-}
-
-// TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose
-// version doesn't match the current backend is discarded cleanly rather than
-// partially decoded: the backend resets to empty state and Restore returns
-// no error.
-func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-	}{
-		{"InMemoryBackend_RestoreVersionMismatch"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-			_, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
-			require.NoError(t, err)
-
-			// A syntactically valid but version-mismatched snapshot.
-			err = b.Restore(t.Context(), []byte(`{"version":999,"tables":{}}`))
-			require.NoError(t, err)
-
-			items, _ := b.ListCollaborations("", "", "")
-			assert.Empty(t, items)
-		})
-	}
-}
-
-// TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero verifies that a
-// snapshot with no version field at all decodes with Version == 0, which
-// mismatches cleanroomsSnapshotVersion and is discarded the same way any
-// other incompatible version is -- not partially applied. This also covers
-// the pre-Phase-3.3 on-disk shape (CleanRooms had no persistence at all
-// before this conversion, so there is no legacy shape to actually collide
-// with -- any input lacking "version" hits this same path).
-func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-	}{
-		{"InMemoryBackend_RestoreOldSnapshotDecodesAsZero"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-			_, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
-			require.NoError(t, err)
-
-			err = b.Restore(t.Context(), []byte(`{"collaborations":{}}`))
-			require.NoError(t, err)
-
-			items, _ := b.ListCollaborations("", "", "")
-			assert.Empty(t, items)
-		})
-	}
-}
-
-// seedState is every resource created by
-// TestInMemoryBackend_SnapshotRestore_FullState, kept together so the
-// post-restore assertions can refer back to the original IDs/ARNs.
 type seedState struct {
 	collab      *cleanrooms.Collaboration
 	membership  *cleanrooms.Membership
@@ -116,11 +27,6 @@ type seedState struct {
 	job         *cleanrooms.ProtectedJob
 }
 
-// seedFullState populates one instance of every store.Table-backed resource
-// family the Phase 3.3 conversion touched, plus the tagsByArn raw map (via
-// each Create call's tags argument), so
-// TestInMemoryBackend_SnapshotRestore_FullState can exercise a Snapshot ->
-// Restore round trip across all of them.
 func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
 	t.Helper()
 
@@ -224,65 +130,9 @@ func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
 	}
 }
 
-// TestInMemoryBackend_SnapshotRestore_FullState exercises a Snapshot ->
-// Restore round trip across every store.Table-backed resource family the
-// Phase 3.3 conversion touched -- collaborations and memberships and
-// configuredTables (top-level, no composite key), ctAnalysisRules and
-// ctaAnalysisRules (type-keyed under a single parent), the
-// membershipID-composite-keyed families (ctAssociations,
-// analysisTemplates, privacyBudgetTemplates, idMappingTables,
-// idNamespaceAssociations, camaAssociations, protectedQueries,
-// protectedJobs), and the collaborationID-composite-keyed changeRequests --
-// plus the plain tagsByArn map left unconverted. schemas/schemaAnalysisRules
-// have no Create path anywhere in this backend (a preexisting gap, out of
-// scope for this conversion) and are therefore always empty; the round trip
-// still exercises their registration/restoration, just with no content to
-// assert.
-func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-	}{
-		{"InMemoryBackend_SnapshotRestore_FullState"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			original := cleanrooms.NewInMemoryBackend("111122223333", "us-west-2")
-			seed := seedFullState(t, original)
-			origColTags, _ := original.ListTagsForResource(seed.collab.Arn)
-			origTableTags, _ := original.ListTagsForResource(seed.table.Arn)
-			t.Logf("ORIGINAL COLLAB TAGS: %v", origColTags)
-			t.Logf("ORIGINAL TABLE TAGS: %v", origTableTags)
-
-			snap := original.Snapshot(t.Context())
-			require.NotNil(t, snap)
-
-			t.Logf("SNAP: %s", string(snap))
-
-			fresh := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
-			require.NoError(t, fresh.Restore(t.Context(), snap))
-
-			assertTagsRestored(t, fresh, seed)
-			assertTopLevelRestored(t, fresh, seed)
-			assertMembershipNestedRestored(t, fresh, seed)
-			assertCollaborationNestedRestored(t, fresh, seed)
-		})
-	}
-}
-
-// assertTopLevelRestored checks the three top-level tables (collaborations,
-// memberships, configuredTables) plus the two type-keyed-under-a-parent
-// tables (ctAnalysisRules, ctaAnalysisRules) and the accountID/region
-// scalars.
 func assertTopLevelRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed seedState) {
 	t.Helper()
 
-	// accountID/region surface indirectly through a freshly created resource
-	// (there is no direct accessor).
 	newCollab, err := fresh.CreateCollaboration("collab-2", "", "creator-2", nil, nil, "", nil)
 	require.NoError(t, err)
 	assert.Contains(t, newCollab.Arn, "111122223333")
@@ -299,8 +149,6 @@ func assertTopLevelRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, see
 	gotTable, err := fresh.GetConfiguredTable(seed.table.ConfiguredTableIdentifier)
 	require.NoError(t, err)
 	assert.Equal(t, seed.table.Name, gotTable.Name)
-	t.Logf("SEED TABLE ARN: %q", seed.table.Arn)
-	t.Logf("GOT TABLE ARN: %q", gotTable.Arn)
 
 	gotCTRule, err := fresh.GetConfiguredTableAnalysisRule(seed.table.ConfiguredTableIdentifier, "AGGREGATION")
 	require.NoError(t, err)
@@ -312,20 +160,13 @@ func assertTopLevelRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, see
 	require.NoError(t, err)
 	assert.Equal(t, seed.ctaRule.Type, gotCTARule.Type)
 
-	// DeleteConfiguredTable's ctAnalysisRulesByTable cascade still works
-	// post-restore -- proves the index was rebuilt, not left stale.
 	require.NoError(t, fresh.DeleteConfiguredTable(seed.table.ConfiguredTableIdentifier))
 	_, err = fresh.GetConfiguredTableAnalysisRule(seed.table.ConfiguredTableIdentifier, "AGGREGATION")
 	require.Error(t, err)
 }
 
-// assertMembershipNestedRestored checks every table composite-keyed by
-// membershipID: ctAssociations, analysisTemplates, privacyBudgetTemplates,
-// idMappingTables, idNamespaceAssociations, camaAssociations,
-// protectedQueries, protectedJobs.
 func assertMembershipNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed seedState) {
 	t.Helper()
-
 	membershipID := seed.membership.MembershipIdentifier
 
 	gotAssoc, err := fresh.GetConfiguredTableAssociation(membershipID, seed.assoc.ConfiguredTableAssociationIdentifier)
@@ -357,7 +198,8 @@ func assertMembershipNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBack
 	assert.Len(t, idMappingItems, 1)
 
 	gotIDNamespace, err := fresh.GetIDNamespaceAssociation(
-		membershipID, seed.idNamespace.IDNamespaceAssociationIdentifier,
+		membershipID,
+		seed.idNamespace.IDNamespaceAssociationIdentifier,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, seed.idNamespace.Name, gotIDNamespace.Name)
@@ -366,7 +208,8 @@ func assertMembershipNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBack
 	assert.Len(t, idNamespaceItems, 1)
 
 	gotCama, err := fresh.GetConfiguredAudienceModelAssociation(
-		membershipID, seed.cama.ConfiguredAudienceModelAssociationIdentifier,
+		membershipID,
+		seed.cama.ConfiguredAudienceModelAssociationIdentifier,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, seed.cama.Name, gotCama.Name)
@@ -376,11 +219,8 @@ func assertMembershipNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBack
 
 	gotQuery, err := fresh.GetProtectedQuery(membershipID, seed.query.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "SUBMITTED", seed.query.Status,
-		"StartProtectedQuery's synchronous response is always SUBMITTED")
-	assert.Equal(t, "SUCCESS", gotQuery.Status,
-		"GetProtectedQuery lazily advances a non-terminal query to a terminal status "+
-			"on read, so a restored query does not stay stuck at SUBMITTED forever")
+	assert.Equal(t, "SUBMITTED", seed.query.Status)
+	assert.Equal(t, "SUCCESS", gotQuery.Status)
 	queryItems, _, err := fresh.ListProtectedQueries(membershipID, "", "", "")
 	require.NoError(t, err)
 	assert.Len(t, queryItems, 1)
@@ -388,32 +228,24 @@ func assertMembershipNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBack
 	gotJob, err := fresh.GetProtectedJob(membershipID, seed.job.ID)
 	require.NoError(t, err)
 	assert.Equal(t, seed.job.Type, gotJob.Type)
-	assert.Equal(t, "SUBMITTED", seed.job.Status,
-		"StartProtectedJob's synchronous response is always SUBMITTED")
-	assert.Equal(t, "SUCCESS", gotJob.Status,
-		"GetProtectedJob lazily advances a non-terminal job to a terminal status on read")
+	assert.Equal(t, "SUBMITTED", seed.job.Status)
+	assert.Equal(t, "SUCCESS", gotJob.Status)
 	jobItems, _, err := fresh.ListProtectedJobs(membershipID, "", "", "")
 	require.NoError(t, err)
 	assert.Len(t, jobItems, 1)
 
-	// DeleteConfiguredTableAssociation's ctaAnalysisRulesByAssociation
-	// cascade still works post-restore -- proves the index was rebuilt, not
-	// left stale.
 	err = fresh.DeleteConfiguredTableAssociation(membershipID, seed.assoc.ConfiguredTableAssociationIdentifier)
 	require.NoError(t, err)
 	_, err = fresh.GetConfiguredTableAssociationAnalysisRule(
-		membershipID, seed.assoc.ConfiguredTableAssociationIdentifier, "AGGREGATION",
+		membershipID,
+		seed.assoc.ConfiguredTableAssociationIdentifier,
+		"AGGREGATION",
 	)
 	require.Error(t, err)
 }
 
-// assertCollaborationNestedRestored checks changeRequests (composite-keyed
-// by collaborationID) plus the always-empty schemas/schemaAnalysisRules
-// tables (see the TestInMemoryBackend_SnapshotRestore_FullState doc
-// comment).
 func assertCollaborationNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed seedState) {
 	t.Helper()
-
 	collaborationID := seed.collab.CollaborationIdentifier
 
 	gotChangeReq, err := fresh.GetCollaborationChangeRequest(collaborationID, seed.changeReq.ChangeRequestIdentifier)
@@ -428,8 +260,6 @@ func assertCollaborationNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryB
 	assert.Empty(t, schemaItems)
 }
 
-// assertTagsRestored checks the plain tagsByArn map, populated indirectly by
-// every tagged Create call in seedFullState.
 func assertTagsRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed seedState) {
 	t.Helper()
 
@@ -470,19 +300,121 @@ func assertTagsRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed se
 	assert.Equal(t, "cama", camaTags["kind"])
 }
 
-func TestHandler_SnapshotRestore(t *testing.T) {
+func TestInMemoryBackend_Restore(t *testing.T) {
 	t.Parallel()
 
+	type args struct {
+		snapJSON []byte
+	}
+	type wants struct {
+		err         bool
+		emptyCollab bool
+	}
+
 	tests := []struct {
-		name string
+		name  string
+		args  args
+		wants wants
 	}{
-		{"Handler_SnapshotRestore"},
+		{
+			name:  "Invalid data",
+			args:  args{snapJSON: []byte("not-valid-json")},
+			wants: wants{err: true, emptyCollab: false},
+		},
+		{
+			name:  "Version mismatch",
+			args:  args{snapJSON: []byte(`{"version":999,"tables":{}}`)},
+			wants: wants{err: false, emptyCollab: true},
+		},
+		{
+			name:  "Old snapshot decodes as zero",
+			args:  args{snapJSON: []byte(`{"collaborations":{}}`)},
+			wants: wants{err: false, emptyCollab: true},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+			if tt.wants.emptyCollab {
+				_, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
+				require.NoError(t, err)
+			}
 
+			err := b.Restore(t.Context(), tt.args.snapJSON)
+			if tt.wants.err {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				if tt.wants.emptyCollab {
+					items, _ := b.ListCollaborations("", "", "")
+					assert.Empty(t, items)
+				}
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
+	t.Parallel()
+
+	type args struct{}
+	type wants struct{}
+
+	tests := []struct {
+		args  args
+		wants wants
+		name  string
+	}{
+		{
+			name:  "Full state snapshot restore",
+			args:  args{},
+			wants: wants{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			original := cleanrooms.NewInMemoryBackend("111122223333", "us-west-2")
+			seed := seedFullState(t, original)
+
+			snap := original.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			assertTagsRestored(t, fresh, seed)
+			assertTopLevelRestored(t, fresh, seed)
+			assertMembershipNestedRestored(t, fresh, seed)
+			assertCollaborationNestedRestored(t, fresh, seed)
+		})
+	}
+}
+
+func TestHandler_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	type args struct{}
+	type wants struct{}
+
+	tests := []struct {
+		args  args
+		wants wants
+		name  string
+	}{
+		{
+			name:  "Handler snapshot restore",
+			args:  args{},
+			wants: wants{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			originalBackend := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 			h := cleanrooms.NewHandler(originalBackend)
 

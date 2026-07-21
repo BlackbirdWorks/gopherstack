@@ -13,10 +13,68 @@ import (
 func TestTags_ResourceARNExists(t *testing.T) {
 	t.Parallel()
 
+	type args struct {
+		arn string
+	}
+	type wants struct {
+		err bool
+	}
+
 	tests := []struct {
-		name string
+		name  string
+		args  args
+		wants wants
 	}{
-		{"Tags_ResourceARNExists"},
+		{
+			name:  "collab",
+			args:  args{arn: "collab"},
+			wants: wants{err: false},
+		},
+		{
+			name:  "membership",
+			args:  args{arn: "membership"},
+			wants: wants{err: false},
+		},
+		{
+			name:  "table",
+			args:  args{arn: "table"},
+			wants: wants{err: false},
+		},
+		{
+			name:  "assoc",
+			args:  args{arn: "assoc"},
+			wants: wants{err: false},
+		},
+		{
+			name:  "template",
+			args:  args{arn: "template"},
+			wants: wants{err: false},
+		},
+		{
+			name:  "budget",
+			args:  args{arn: "budget"},
+			wants: wants{err: false},
+		},
+		{
+			name:  "idMapping",
+			args:  args{arn: "idMapping"},
+			wants: wants{err: false},
+		},
+		{
+			name:  "idNamespace",
+			args:  args{arn: "idNamespace"},
+			wants: wants{err: false},
+		},
+		{
+			name:  "cama",
+			args:  args{arn: "cama"},
+			wants: wants{err: false},
+		},
+		{
+			name:  "invalid",
+			args:  args{arn: "arn:aws:cleanrooms:us-east-1:123:invalid/123"},
+			wants: wants{err: true},
+		},
 	}
 
 	for _, tt := range tests {
@@ -25,64 +83,75 @@ func TestTags_ResourceARNExists(t *testing.T) {
 			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 			seed := seedFullState(t, b)
 
-			arns := []string{
-				seed.collab.Arn,
-				seed.membership.Arn,
-				seed.table.Arn,
-				seed.assoc.Arn,
-				seed.template.Arn,
-				seed.budget.Arn,
-				seed.idMapping.Arn,
-				seed.idNamespace.Arn,
-				seed.cama.Arn,
+			arn := tt.args.arn
+			switch arn {
+			case "collab":
+				arn = seed.collab.Arn
+			case "membership":
+				arn = seed.membership.Arn
+			case "table":
+				arn = seed.table.Arn
+			case "assoc":
+				arn = seed.assoc.Arn
+			case "template":
+				arn = seed.template.Arn
+			case "budget":
+				arn = seed.budget.Arn
+			case "idMapping":
+				arn = seed.idMapping.Arn
+			case "idNamespace":
+				arn = seed.idNamespace.Arn
+			case "cama":
+				arn = seed.cama.Arn
 			}
 
-			for _, arn := range arns {
-				// Get existing tags
-				tags, err := b.ListTagsForResource(arn)
-				require.NoError(t, err)
+			if tt.wants.err {
+				_, err := b.ListTagsForResource(arn)
+				require.Error(t, err)
 
-				// Remove all tags
-				var keys []string
-				for k := range tags {
-					keys = append(keys, k)
-				}
-				if len(keys) > 0 {
-					err = b.UntagResource(arn, keys)
-					require.NoError(t, err)
-				}
+				err = b.TagResource(arn, map[string]string{"a": "b"})
+				require.Error(t, err)
 
-				// Now ListTagsForResource should hit resourceARNExists
-				emptyTags, err := b.ListTagsForResource(arn)
-				require.NoError(t, err, "arn: %s", arn)
-				assert.Empty(t, emptyTags)
+				err = b.UntagResource(arn, []string{"a"})
+				require.Error(t, err)
+
+				return
 			}
 
-			// TagResource should work on an empty resource
-			err := b.TagResource(seed.table.Arn, map[string]string{"foo": "bar"})
+			// Get existing tags
+			tags, err := b.ListTagsForResource(arn)
 			require.NoError(t, err)
 
-			tags, err := b.ListTagsForResource(seed.table.Arn)
+			// Remove all tags
+			var keys []string
+			for k := range tags {
+				keys = append(keys, k)
+			}
+			if len(keys) > 0 {
+				err = b.UntagResource(arn, keys)
+				require.NoError(t, err)
+			}
+
+			// Now ListTagsForResource should hit resourceARNExists
+			emptyTags, err := b.ListTagsForResource(arn)
+			require.NoError(t, err, "arn: %s", arn)
+			assert.Empty(t, emptyTags)
+
+			// TagResource should work on an empty resource
+			err = b.TagResource(arn, map[string]string{"foo": "bar"})
+			require.NoError(t, err)
+
+			tags, err = b.ListTagsForResource(arn)
 			require.NoError(t, err)
 			assert.Equal(t, "bar", tags["foo"])
 
 			// UntagResource should work
-			err = b.UntagResource(seed.table.Arn, []string{"foo"})
+			err = b.UntagResource(arn, []string{"foo"})
 			require.NoError(t, err)
 
-			tags, err = b.ListTagsForResource(seed.table.Arn)
+			tags, err = b.ListTagsForResource(arn)
 			require.NoError(t, err)
 			assert.Empty(t, tags)
-
-			// Invalid ARN should return ResourceNotFoundException
-			_, err = b.ListTagsForResource("arn:aws:cleanrooms:us-east-1:123:invalid/123")
-			require.Error(t, err)
-
-			err = b.TagResource("arn:aws:cleanrooms:us-east-1:123:invalid/123", map[string]string{"a": "b"})
-			require.Error(t, err)
-
-			err = b.UntagResource("arn:aws:cleanrooms:us-east-1:123:invalid/123", []string{"a"})
-			require.Error(t, err)
 		})
 	}
 }

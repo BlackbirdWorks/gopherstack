@@ -106,285 +106,141 @@ func TestRecordOperation(t *testing.T) {
 func TestRecordOperation_LatencyAggregation(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"RecordOperation_LatencyAggregation"},
+	latencies := []float64{0.010, 0.015, 0.020, 0.025, 0.030}
+	for _, latency := range latencies {
+		telemetry.RecordOperation("TestUpdateItem", "TestTable2", latency, "success")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	result := telemetry.CollectMetrics()
+	require.NotNil(t, result)
 
-			latencies := []float64{0.010, 0.015, 0.020, 0.025, 0.030}
-			for _, latency := range latencies {
-				telemetry.RecordOperation("TestUpdateItem", "TestTable2", latency, "success")
-			}
+	var updateMetric *telemetry.Summary
+	for i := range result.Operations {
+		if result.Operations[i].Operation == "TestUpdateItem" {
+			updateMetric = &result.Operations[i]
 
-			result := telemetry.CollectMetrics()
-			require.NotNil(t, result)
+			break
+		}
+	}
 
-			var updateMetric *telemetry.Summary
-			for i := range result.Operations {
-				if result.Operations[i].Operation == "TestUpdateItem" {
-					updateMetric = &result.Operations[i]
+	if updateMetric != nil {
+		assert.Equal(t, int64(5), updateMetric.Count, "expected 5 operations")
 
-					break
-				}
-			}
-
-			if updateMetric != nil {
-				assert.Equal(t, int64(5), updateMetric.Count, "expected 5 operations")
-
-				assert.Greater(t, updateMetric.AvgMs, 0.0)
-				assert.Greater(t, updateMetric.MaxMs, 0.0)
-				assert.Greater(t, updateMetric.P99Ms, 0.0)
-				assert.Greater(t, updateMetric.P95Ms, 0.0)
-				assert.Greater(t, updateMetric.P50Ms, 0.0)
-				assert.LessOrEqual(t, updateMetric.P50Ms, updateMetric.MaxMs)
-			}
-		})
+		assert.Greater(t, updateMetric.AvgMs, 0.0)
+		assert.Greater(t, updateMetric.MaxMs, 0.0)
+		assert.Greater(t, updateMetric.P99Ms, 0.0)
+		assert.Greater(t, updateMetric.P95Ms, 0.0)
+		assert.Greater(t, updateMetric.P50Ms, 0.0)
+		assert.LessOrEqual(t, updateMetric.P50Ms, updateMetric.MaxMs)
 	}
 }
 
 func TestCollectMetrics_ValidStructure(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"CollectMetrics_ValidStructure"},
-	}
+	result := telemetry.CollectMetrics()
+	require.NotNil(t, result)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			result := telemetry.CollectMetrics()
-			require.NotNil(t, result)
-
-			assert.NotNil(t, result.Operations)
-			assert.IsType(t, []telemetry.Summary{}, result.Operations)
-		})
-	}
+	assert.NotNil(t, result.Operations)
+	assert.IsType(t, []telemetry.Summary{}, result.Operations)
 }
 
 func TestRecordLockDuration(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"RecordLockDuration"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			telemetry.RecordLockDuration("TestRLock", (50 * time.Millisecond).Seconds())
-			telemetry.RecordLockDuration("TestLock", (100 * time.Millisecond).Seconds())
-		})
-	}
+	telemetry.RecordLockDuration("TestRLock", (50 * time.Millisecond).Seconds())
+	telemetry.RecordLockDuration("TestLock", (100 * time.Millisecond).Seconds())
 }
 
 func TestMetricsPrecision(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"MetricsPrecision"},
+	duration := 0.0001234
+	telemetry.RecordOperation("TestScan", "TestTable3", duration, "success")
+
+	result := telemetry.CollectMetrics()
+	require.NotNil(t, result)
+
+	var scanMetric *telemetry.Summary
+	for i := range result.Operations {
+		if result.Operations[i].Operation == "TestScan" {
+			scanMetric = &result.Operations[i]
+
+			break
+		}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			duration := 0.0001234
-			telemetry.RecordOperation("TestScan", "TestTable3", duration, "success")
-
-			result := telemetry.CollectMetrics()
-			require.NotNil(t, result)
-
-			var scanMetric *telemetry.Summary
-			for i := range result.Operations {
-				if result.Operations[i].Operation == "TestScan" {
-					scanMetric = &result.Operations[i]
-
-					break
-				}
-			}
-
-			if scanMetric != nil {
-				assert.Greater(t, scanMetric.AvgMs, 0.0)
-				assert.Less(t, scanMetric.AvgMs, 1.0, "expected sub-millisecond operation")
-			}
-		})
+	if scanMetric != nil {
+		assert.Greater(t, scanMetric.AvgMs, 0.0)
+		assert.Less(t, scanMetric.AvgMs, 1.0, "expected sub-millisecond operation")
 	}
 }
 
 func TestCollectMetrics_RuntimeMetrics(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"CollectMetrics_RuntimeMetrics"},
-	}
+	result := telemetry.CollectMetrics()
+	require.NotNil(t, result)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	assert.Positive(t, result.Runtime.Goroutines, "expected at least 1 goroutine")
+	assert.GreaterOrEqual(t, result.Runtime.HeapAllocMB, 0.0, "heap allocation should be >= 0")
+	assert.GreaterOrEqual(t, result.Runtime.HeapSysMB, 0.0, "heap sys should be >= 0")
+	assert.GreaterOrEqual(t, result.Runtime.LastGCPause, 0.0, "last GC pause should be >= 0")
+	assert.GreaterOrEqual(t, result.Runtime.TotalAllocMB, 0.0, "total alloc should be >= 0")
 
-			result := telemetry.CollectMetrics()
-			require.NotNil(t, result)
-
-			assert.Positive(t, result.Runtime.Goroutines, "expected at least 1 goroutine")
-			assert.GreaterOrEqual(t, result.Runtime.HeapAllocMB, 0.0, "heap allocation should be >= 0")
-			assert.GreaterOrEqual(t, result.Runtime.HeapSysMB, 0.0, "heap sys should be >= 0")
-			assert.GreaterOrEqual(t, result.Runtime.LastGCPause, 0.0, "last GC pause should be >= 0")
-			assert.GreaterOrEqual(t, result.Runtime.TotalAllocMB, 0.0, "total alloc should be >= 0")
-
-			assert.LessOrEqual(t, result.Runtime.HeapAllocMB, result.Runtime.HeapSysMB,
-				"heap alloc should not exceed heap sys")
-		})
-	}
+	assert.LessOrEqual(t, result.Runtime.HeapAllocMB, result.Runtime.HeapSysMB,
+		"heap alloc should not exceed heap sys")
 }
 
 func TestRecordDeleteQueueDepth(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"RecordDeleteQueueDepth"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			telemetry.RecordDeleteQueueDepth("s3", 5)
-			telemetry.RecordDeleteQueueDepth("dynamodb", 0)
-		})
-	}
+	telemetry.RecordDeleteQueueDepth("s3", 5)
+	telemetry.RecordDeleteQueueDepth("dynamodb", 0)
 }
 
 func TestRecordTTLEvictions(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"RecordTTLEvictions"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			telemetry.RecordTTLEvictions("dynamodb", 10)
-			telemetry.RecordTTLEvictions("dynamodb", 0)
-		})
-	}
+	telemetry.RecordTTLEvictions("dynamodb", 10)
+	telemetry.RecordTTLEvictions("dynamodb", 0)
 }
 
 func TestRecordStreamEvents(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"RecordStreamEvents"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			telemetry.RecordStreamEvents("dynamodb", 3)
-			telemetry.RecordStreamEvents("dynamodb", 0)
-		})
-	}
+	telemetry.RecordStreamEvents("dynamodb", 3)
+	telemetry.RecordStreamEvents("dynamodb", 0)
 }
 
 func TestRecordWorkerTask(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"RecordWorkerTask"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			telemetry.RecordWorkerTask("dynamodb", "TableCleaner", "success")
-			telemetry.RecordWorkerTask("s3", "BucketJanitor", "error")
-		})
-	}
+	telemetry.RecordWorkerTask("dynamodb", "TableCleaner", "success")
+	telemetry.RecordWorkerTask("s3", "BucketJanitor", "error")
 }
 
 func TestRecordWorkerItems(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"RecordWorkerItems"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			telemetry.RecordWorkerItems("dynamodb", "TTLSweeper", 42)
-			telemetry.RecordWorkerItems("dynamodb", "TTLSweeper", 0)
-		})
-	}
+	telemetry.RecordWorkerItems("dynamodb", "TTLSweeper", 42)
+	telemetry.RecordWorkerItems("dynamodb", "TTLSweeper", 0)
 }
 
 func TestRecordWorkerQueueDepth(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"RecordWorkerQueueDepth"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			telemetry.RecordWorkerQueueDepth("s3", "BucketJanitor", 7)
-			telemetry.RecordWorkerQueueDepth("s3", "BucketJanitor", 0)
-		})
-	}
+	telemetry.RecordWorkerQueueDepth("s3", "BucketJanitor", 7)
+	telemetry.RecordWorkerQueueDepth("s3", "BucketJanitor", 0)
 }
 
 func TestGetMetrics(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"GetMetrics"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			result := telemetry.GetMetrics()
-			require.NotNil(t, result)
-			_, ok := result["operations"]
-			assert.True(t, ok, "expected 'operations' key in GetMetrics result")
-		})
-	}
+	result := telemetry.GetMetrics()
+	require.NotNil(t, result)
+	_, ok := result["operations"]
+	assert.True(t, ok, "expected 'operations' key in GetMetrics result")
 }
 
 func TestWrapEchoHandler(t *testing.T) {
@@ -458,48 +314,36 @@ func TestWrapEchoHandler(t *testing.T) {
 func TestWrapEchoHandler_ServiceAttrInContext(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"WrapEchoHandler_ServiceAttrInContext"},
+	const wantService = "TestService"
+
+	ctxCh := make(chan context.Context, 1)
+
+	// inner handler captures the request context so we can inspect the logger.
+	inner := func(c *echo.Context) error {
+		ctxCh <- c.Request().Context()
+
+		return c.String(http.StatusOK, "ok")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	handler := telemetry.WrapEchoHandler(
+		wantService, inner, &mockObserver{operation: "Op", resource: "Res"},
+	)
 
-			const wantService = "TestService"
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
 
-			ctxCh := make(chan context.Context, 1)
+	err := handler(c)
+	require.NoError(t, err)
 
-			// inner handler captures the request context so we can inspect the logger.
-			inner := func(c *echo.Context) error {
-				ctxCh <- c.Request().Context()
+	gotCtx := <-ctxCh
 
-				return c.String(http.StatusOK, "ok")
-			}
-
-			handler := telemetry.WrapEchoHandler(
-				wantService, inner, &mockObserver{operation: "Op", resource: "Res"},
-			)
-
-			e := echo.New()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			rec := httptest.NewRecorder()
-			c := e.NewContext(req, rec)
-
-			err := handler(c)
-			require.NoError(t, err)
-
-			gotCtx := <-ctxCh
-
-			// The logger stored in the request context should be a distinct object
-			// from slog.Default() (the parent), not the same pointer.
-			ctxLogger := pkglogger.Load(gotCtx)
-			require.NotNil(t, ctxLogger)
-			assert.NotSame(t, slog.Default(), ctxLogger, "handler must enrich the ctx logger, not reuse the global one")
-		})
-	}
+	// The logger stored in the request context should be a distinct object
+	// from slog.Default() (the parent), not the same pointer.
+	ctxLogger := pkglogger.Load(gotCtx)
+	require.NotNil(t, ctxLogger)
+	assert.NotSame(t, slog.Default(), ctxLogger, "handler must enrich the ctx logger, not reuse the global one")
 }
 
 func TestLatencyMiddleware(t *testing.T) {
@@ -573,31 +417,19 @@ func TestLatencyMiddleware(t *testing.T) {
 func TestLatencyMiddleware_ContextCancellation(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-	}{
-		{"LatencyMiddleware_ContextCancellation"},
-	}
+	mw := telemetry.LatencyMiddleware(5000) // 5 s max sleep
+	handler := mw(func(c *echo.Context) error { return c.String(http.StatusOK, "ok") })
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	e := echo.New()
+	ctx, cancel := context.WithCancel(t.Context())
 
-			mw := telemetry.LatencyMiddleware(5000) // 5 s max sleep
-			handler := mw(func(c *echo.Context) error { return c.String(http.StatusOK, "ok") })
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
 
-			e := echo.New()
-			ctx, cancel := context.WithCancel(t.Context())
+	// Cancel before the handler can complete its sleep.
+	cancel()
 
-			req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
-			rec := httptest.NewRecorder()
-			c := e.NewContext(req, rec)
-
-			// Cancel before the handler can complete its sleep.
-			cancel()
-
-			err := handler(c)
-			assert.ErrorIs(t, err, context.Canceled)
-		})
-	}
+	err := handler(c)
+	assert.ErrorIs(t, err, context.Canceled)
 }

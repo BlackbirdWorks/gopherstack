@@ -9,9 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/labstack/echo/v5"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/labstack/echo/v5"
 )
 
 func handleErr(c *echo.Context, err error) error {
@@ -107,7 +106,7 @@ func classifyAgentVersionedSubPath(method string, segs []string) string {
 	switch {
 	case containsSeg(segs, "actiongroups"):
 		return classifyActionGroupPath(method, segs)
-	case containsSeg(segs, "collaborators"):
+	case containsSeg(segs, "agentcollaborators"):
 		return classifyCollabPath(method, segs)
 	case containsSeg(segs, "knowledgebases"):
 		return classifyAgentKBPath(method, segs)

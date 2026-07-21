@@ -5,101 +5,69 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestProtectedQueryInitialStatusIsSubmitted verifies that newly started
-// protected queries have status "SUBMITTED" (not "STARTED").
-func TestProtectedQueryInitialStatusIsSubmitted(t *testing.T) {
+func createProtectedQuery(t *testing.T, e *echo.Echo, mID string) string {
+	t.Helper()
+	startRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/protectedQueries", map[string]any{
+		"sqlParameters": map[string]any{
+			"queryString": "SELECT * FROM t",
+		},
+		"resultConfiguration": map[string]any{},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startResp map[string]map[string]any
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+
+	return startResp["protectedQuery"]["id"].(string)
+}
+
+func TestProtectedQueries_Create(t *testing.T) {
 	t.Parallel()
 
+	type args struct {
+		body map[string]any
+	}
+	type wants struct {
+		status int
+	}
+
 	tests := []struct {
-		name string
+		args  args
+		name  string
+		wants wants
 	}{
-		{"ProtectedQueryInitialStatusIsSubmitted"},
+		{
+			name: "valid_create",
+			args: args{
+				body: map[string]any{
+					"sqlParameters":       map[string]any{"queryString": "SELECT 1"},
+					"resultConfiguration": map[string]any{},
+				},
+			},
+			wants: wants{status: http.StatusOK},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
 			e := newTestServer(t)
-			doRequest(t, e, "POST", "/collaborations", map[string]any{
-				"name": "pq-collab", "creatorDisplayName": "Eve",
-				"creatorMemberAbilities": []string{"CAN_QUERY"},
-				"members":                []any{}, "queryLogStatus": "DISABLED",
-			})
-			var colResp map[string]any
-			rec := doRequest(t, e, "GET", "/collaborations", nil)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-			colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
+			_, mID := setupTestEnvironment(t, e)
 
-			rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-				"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
-			})
-			var memResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
-			mID := memResp["membership"].(map[string]any)["id"].(string)
-
-			rec3 := doRequest(t, e, "POST", "/memberships/"+mID+"/protectedQueries", map[string]any{
-				"sqlParameters":       map[string]any{"queryString": "SELECT 1"},
-				"resultConfiguration": map[string]any{},
-			})
-			require.Equal(t, http.StatusOK, rec3.Code, rec3.Body.String())
+			rec := doRequest(t, e, "POST", "/memberships/"+mID+"/protectedQueries", tt.args.body)
+			require.Equal(t, tt.wants.status, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			pq := resp["protectedQuery"].(map[string]any)
 
 			assert.Equal(t, "SUBMITTED", pq["status"],
 				"newly started protected query must have status SUBMITTED, not STARTED")
-		})
-	}
-}
-
-// TestProtectedQueryHasMembershipID verifies the canonical "membershipId" key.
-func TestProtectedQueryHasMembershipID(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-	}{
-		{"ProtectedQueryHasMembershipID"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			e := newTestServer(t)
-			doRequest(t, e, "POST", "/collaborations", map[string]any{
-				"name": "pq2-collab", "creatorDisplayName": "Frank",
-				"creatorMemberAbilities": []string{"CAN_QUERY"},
-				"members":                []any{}, "queryLogStatus": "DISABLED",
-			})
-			var colResp map[string]any
-			rec := doRequest(t, e, "GET", "/collaborations", nil)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-			colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
-
-			rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-				"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
-			})
-			var memResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
-			mID := memResp["membership"].(map[string]any)["id"].(string)
-
-			rec3 := doRequest(t, e, "POST", "/memberships/"+mID+"/protectedQueries", map[string]any{
-				"sqlParameters":       map[string]any{"queryString": "SELECT 1"},
-				"resultConfiguration": map[string]any{},
-			})
-			require.Equal(t, http.StatusOK, rec3.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
-			pq := resp["protectedQuery"].(map[string]any)
-
 			assert.Contains(t, pq, "membershipId", "protectedQuery must have 'membershipId' key (AWS canonical)")
 			assert.Contains(t, pq, "membershipIdentifier", "protectedQuery must have legacy 'membershipIdentifier'")
 			assert.Equal(t, mID, pq["membershipId"])
@@ -108,62 +76,122 @@ func TestProtectedQueryHasMembershipID(t *testing.T) {
 	}
 }
 
-func TestHTTP_ProtectedQueryEndpoints(t *testing.T) {
+func TestProtectedQueries_Get(t *testing.T) {
 	t.Parallel()
 
+	type args struct {
+		setupID bool
+	}
+	type wants struct {
+		status int
+	}
+
 	tests := []struct {
-		name string
+		name  string
+		args  args
+		wants wants
 	}{
-		{"HTTP_ProtectedQueryEndpoints"},
+		{
+			name:  "get_existing",
+			args:  args{setupID: true},
+			wants: wants{status: http.StatusOK},
+		},
+		{
+			name:  "get_missing",
+			args:  args{setupID: false},
+			wants: wants{status: http.StatusNotFound},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
 
-			// Create Collaboration
-			doRequest(t, e, "POST", "/collaborations", map[string]any{
-				"name": "collab", "creatorDisplayName": "user",
-				"creatorMemberAbilities": []string{"CAN_QUERY"},
-				"members":                []any{}, "queryLogStatus": "DISABLED",
-			})
-			rec := doRequest(t, e, "GET", "/collaborations", nil)
-			var colResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-			colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
+			id := "invalid-id"
+			if tt.args.setupID {
+				id = createProtectedQuery(t, e, mID)
+			}
 
-			// Create Membership
-			rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-				"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
-			})
-			var memResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
-			mID := memResp["membership"].(map[string]any)["id"].(string)
+			rec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/protectedQueries/"+id, nil)
+			if tt.args.setupID {
+				require.Equal(t, tt.wants.status, rec.Code)
+			} else {
+				require.NotEqual(t, http.StatusOK, rec.Code)
+			}
+		})
+	}
+}
 
-			// Create/Start
-			startRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/protectedQueries", map[string]any{
-				"sqlParameters": map[string]any{
-					"queryString": "SELECT * FROM t",
+func TestProtectedQueries_List(t *testing.T) {
+	t.Parallel()
+
+	type args struct{}
+	type wants struct {
+		status int
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name:  "list_all",
+			args:  args{},
+			wants: wants{status: http.StatusOK},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
+			createProtectedQuery(t, e, mID)
+
+			rec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/protectedQueries", nil)
+			require.Equal(t, tt.wants.status, rec.Code)
+		})
+	}
+}
+
+func TestProtectedQueries_Update(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		body map[string]any
+	}
+	type wants struct {
+		statuses []int
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name: "valid_update",
+			args: args{
+				body: map[string]any{
+					"targetStatus": "CANCELLED",
 				},
-				"resultConfiguration": map[string]any{},
-			})
-			require.Equal(t, http.StatusOK, startRec.Code)
+			},
+			wants: wants{statuses: []int{http.StatusOK, http.StatusNotFound, http.StatusConflict}},
+		},
+	}
 
-			var startResp map[string]map[string]any
-			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
-			id := startResp["protectedQuery"]["id"].(string)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
+			id := createProtectedQuery(t, e, mID)
 
-			getRec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/protectedQueries/"+id, nil)
-			require.Equal(t, http.StatusOK, getRec.Code)
-
-			listRec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/protectedQueries", nil)
-			require.Equal(t, http.StatusOK, listRec.Code)
-
-			upRec := doRequest(t, e, http.MethodPatch, "/memberships/"+mID+"/protectedQueries/"+id, map[string]any{
-				"targetStatus": "CANCELLED",
-			})
-			assert.Contains(t, []int{http.StatusOK, http.StatusNotFound, http.StatusConflict}, upRec.Code)
+			rec := doRequest(t, e, http.MethodPatch, "/memberships/"+mID+"/protectedQueries/"+id, tt.args.body)
+			assert.Contains(t, tt.wants.statuses, rec.Code)
 		})
 	}
 }

@@ -1,11 +1,9 @@
-package service_test
+package service
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 func TestRegistry_Setters(t *testing.T) {
@@ -13,32 +11,60 @@ func TestRegistry_Setters(t *testing.T) {
 
 	mockRec := &mockRecorder{}
 
+	type args struct {
+		recorder  *mockRecorder
+		latencyMs int
+	}
+	type wants struct {
+		recorder  *mockRecorder
+		latencyMs int
+	}
+
 	tests := []struct {
-		setup    func(*service.Registry)
-		validate func(*testing.T, *service.Registry)
-		name     string
+		name  string
+		wants wants
+		args  args
 	}{
 		{
-			func(r *service.Registry) { r.SetLatencyMs(100) },
-			func(t *testing.T, r *service.Registry) { t.Helper(); assert.Equal(t, 100, r.LatencyMs()) },
-			"LatencyMs",
+			name: "set latency",
+			args: args{
+				latencyMs: 100,
+			},
+			wants: wants{
+				latencyMs: 100,
+			},
 		},
 		{
-			func(r *service.Registry) { r.SetCloudTrailRecorder(mockRec) },
-			func(t *testing.T, r *service.Registry) { t.Helper(); assert.Equal(t, mockRec, r.CloudTrailRecorder()) },
-			"CloudTrailRecorder",
+			name: "set recorder",
+			args: args{
+				recorder: mockRec,
+			},
+			wants: wants{
+				recorder: mockRec,
+			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := service.NewRegistry()
+			r := NewRegistry()
 			assert.NotNil(t, r)
 
-			tt.setup(r)
-			tt.validate(t, r)
+			if tc.args.latencyMs != 0 {
+				r.SetLatencyMs(tc.args.latencyMs)
+			}
+			if tc.args.recorder != nil {
+				r.SetCloudTrailRecorder(tc.args.recorder)
+			}
+
+			if tc.wants.latencyMs != 0 {
+				assert.Equal(t, tc.wants.latencyMs, r.latencyMs)
+			}
+			if tc.wants.recorder != nil {
+				assert.Equal(t, tc.wants.recorder, r.cloudTrailRecorder)
+			}
 		})
 	}
 }

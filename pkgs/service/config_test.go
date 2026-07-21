@@ -16,34 +16,52 @@ func (p providerStub) GetGlobalConfig() *config.GlobalConfig { return p.cfg }
 func TestAccountRegion(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0)
+	type args struct {
+		ctx *service.AppContext
+	}
+	type wants struct {
+		account string
+		region  string
+	}
 
 	tests := []struct {
-		name        string
-		ctx         *service.AppContext
-		wantAccount string
-		wantRegion  string
+		name  string
+		args  args
+		wants wants
 	}{
 		{
-			"FromProvider",
-			&service.AppContext{Config: providerStub{cfg: cfg}},
-			"123456789012",
-			"eu-west-1",
+			name: "from provider",
+			args: args{
+				ctx: &service.AppContext{
+					Config: providerStub{
+						cfg: config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0),
+					},
+				},
+			},
+			wants: wants{
+				account: "123456789012",
+				region:  "eu-west-1",
+			},
 		},
 		{
-			"WithoutProviderReturnsEmpty",
-			&service.AppContext{Config: "not a provider"},
-			"",
-			"",
+			name: "without provider returns empty",
+			args: args{
+				ctx: &service.AppContext{Config: "not a provider"},
+			},
+			wants: wants{
+				account: "",
+				region:  "",
+			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			account, region := service.AccountRegion(tt.ctx)
-			assert.Equal(t, tt.wantAccount, account)
-			assert.Equal(t, tt.wantRegion, region)
+
+			account, region := service.AccountRegion(tc.args.ctx)
+			assert.Equal(t, tc.wants.account, account)
+			assert.Equal(t, tc.wants.region, region)
 		})
 	}
 }
@@ -51,34 +69,52 @@ func TestAccountRegion(t *testing.T) {
 func TestAccountRegionOrDefault(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0)
+	type args struct {
+		ctx *service.AppContext
+	}
+	type wants struct {
+		account string
+		region  string
+	}
 
 	tests := []struct {
-		name        string
-		ctx         *service.AppContext
-		wantAccount string
-		wantRegion  string
+		name  string
+		args  args
+		wants wants
 	}{
 		{
-			"FromProvider",
-			&service.AppContext{Config: providerStub{cfg: cfg}},
-			"123456789012",
-			"eu-west-1",
+			name: "from provider",
+			args: args{
+				ctx: &service.AppContext{
+					Config: providerStub{
+						cfg: config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0),
+					},
+				},
+			},
+			wants: wants{
+				account: "123456789012",
+				region:  "eu-west-1",
+			},
 		},
 		{
-			"WithoutProviderReturnsDefaults",
-			&service.AppContext{Config: nil},
-			config.DefaultAccountID,
-			config.DefaultRegion,
+			name: "without provider returns defaults",
+			args: args{
+				ctx: &service.AppContext{Config: nil},
+			},
+			wants: wants{
+				account: config.DefaultAccountID,
+				region:  config.DefaultRegion,
+			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			account, region := service.AccountRegionOrDefault(tt.ctx)
-			assert.Equal(t, tt.wantAccount, account)
-			assert.Equal(t, tt.wantRegion, region)
+
+			account, region := service.AccountRegionOrDefault(tc.args.ctx)
+			assert.Equal(t, tc.wants.account, account)
+			assert.Equal(t, tc.wants.region, region)
 		})
 	}
 }

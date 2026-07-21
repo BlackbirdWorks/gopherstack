@@ -5,94 +5,282 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestHTTP_IDNamespaceAssociationEndpoints(t *testing.T) {
+func createIDNamespaceAssociation(t *testing.T, e *echo.Echo, mID string) string {
+	t.Helper()
+	createRec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/idnamespaceassociations", map[string]any{
+		"name": "test-ns",
+		"inputReferenceConfig": map[string]any{
+			"inputReferenceArn":      "arn:aws:cleanrooms:us-east-1:123456789012:membership/" + mID,
+			"manageResourcePolicies": true,
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	var createResp map[string]map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	return createResp["idNamespaceAssociation"]["id"].(string)
+}
+
+func TestIDNamespaceAssociations_Create(t *testing.T) {
 	t.Parallel()
 
+	type args struct {
+		body map[string]any
+	}
+	type wants struct {
+		status int
+	}
+
 	tests := []struct {
-		name string
+		args  args
+		name  string
+		wants wants
 	}{
-		{"HTTP_IDNamespaceAssociationEndpoints"},
+		{
+			name: "valid_create",
+			args: args{
+				body: map[string]any{
+					"name": "test-ns",
+					"inputReferenceConfig": map[string]any{
+						"inputReferenceArn":      "arn:aws:cleanrooms:us-east-1:123456789012:membership/",
+						"manageResourcePolicies": true,
+					},
+				},
+			},
+			wants: wants{
+				status: http.StatusOK,
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
 
-			// Create Collaboration
-			doRequest(t, e, "POST", "/collaborations", map[string]any{
-				"name": "collab", "creatorDisplayName": "user",
-				"creatorMemberAbilities": []string{"CAN_QUERY"},
-				"members":                []any{}, "queryLogStatus": "DISABLED",
-			})
-			rec := doRequest(t, e, "GET", "/collaborations", nil)
-			var colResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
-			colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
+			// Fix up ARN with mID
+			body := tt.args.body
+			if config, ok := body["inputReferenceConfig"].(map[string]any); ok {
+				if arn, ok2 := config["inputReferenceArn"].(string); ok2 &&
+					arn == "arn:aws:cleanrooms:us-east-1:123456789012:membership/" {
+					config["inputReferenceArn"] = arn + mID
+				}
+			}
 
-			// Create Membership
-			rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
-				"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
-			})
-			var memResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
-			mID := memResp["membership"].(map[string]any)["id"].(string)
+			rec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/idnamespaceassociations", body)
+			require.Equal(t, tt.wants.status, rec.Code)
+		})
+	}
+}
 
-			// Create
-			createRec := doRequest(
-				t,
-				e,
-				http.MethodPost,
-				"/memberships/"+mID+"/idnamespaceassociations",
-				map[string]any{
-					"name": "test-ns",
-					"inputReferenceConfig": map[string]any{
-						"inputReferenceArn":      "arn:aws:cleanrooms:us-east-1:123456789012:membership/" + mID,
-						"manageResourcePolicies": true,
-					},
-				},
-			)
-			require.Equal(t, http.StatusOK, createRec.Code)
+func TestIDNamespaceAssociations_Get(t *testing.T) {
+	t.Parallel()
 
-			var createResp map[string]map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-			id := createResp["idNamespaceAssociation"]["id"].(string)
+	type args struct {
+		setupID bool
+	}
+	type wants struct {
+		status int
+	}
 
-			// Get
-			getRec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/idnamespaceassociations/"+id, nil)
-			require.Equal(t, http.StatusOK, getRec.Code)
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name: "get_existing",
+			args: args{
+				setupID: true,
+			},
+			wants: wants{
+				status: http.StatusOK,
+			},
+		},
+		{
+			name: "get_missing",
+			args: args{
+				setupID: false,
+			},
+			wants: wants{
+				status: http.StatusNotFound,
+			},
+		},
+	}
 
-			// List
-			listRec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/idnamespaceassociations", nil)
-			require.Equal(t, http.StatusOK, listRec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
 
-			// Update
-			upRec := doRequest(
-				t,
-				e,
-				http.MethodPatch,
-				"/memberships/"+mID+"/idnamespaceassociations/"+id,
-				map[string]any{
+			id := "invalid-id"
+			if tt.args.setupID {
+				id = createIDNamespaceAssociation(t, e, mID)
+			}
+
+			rec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/idnamespaceassociations/"+id, nil)
+			if tt.args.setupID {
+				require.Equal(t, tt.wants.status, rec.Code)
+			} else {
+				require.NotEqual(t, http.StatusOK, rec.Code)
+			}
+		})
+	}
+}
+
+func TestIDNamespaceAssociations_List(t *testing.T) {
+	t.Parallel()
+
+	type args struct{}
+	type wants struct {
+		status int
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name:  "list_all",
+			args:  args{},
+			wants: wants{status: http.StatusOK},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
+			createIDNamespaceAssociation(t, e, mID)
+
+			rec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/idnamespaceassociations", nil)
+			require.Equal(t, tt.wants.status, rec.Code)
+		})
+	}
+}
+
+func TestIDNamespaceAssociations_Update(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		body map[string]any
+	}
+	type wants struct {
+		status int
+	}
+
+	tests := []struct {
+		args  args
+		name  string
+		wants wants
+	}{
+		{
+			name: "valid_update",
+			args: args{
+				body: map[string]any{
 					"description": "updated desc",
 				},
-			)
-			require.Equal(t, http.StatusOK, upRec.Code)
+			},
+			wants: wants{status: http.StatusOK},
+		},
+	}
 
-			// GetCollaborationIDNamespaceAssociation
-			gCollab := doRequest(t, e, http.MethodGet, "/collaborations/"+colID+"/idnamespaceassociations/"+id, nil)
-			assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, gCollab.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
+			id := createIDNamespaceAssociation(t, e, mID)
 
-			// ListCollaborationIDNamespaceAssociations
-			lCollab := doRequest(t, e, http.MethodGet, "/collaborations/"+colID+"/idnamespaceassociations", nil)
-			assert.Contains(t, []int{http.StatusOK, http.StatusNotFound}, lCollab.Code)
+			rec := doRequest(t, e, http.MethodPatch, "/memberships/"+mID+"/idnamespaceassociations/"+id, tt.args.body)
+			require.Equal(t, tt.wants.status, rec.Code)
+		})
+	}
+}
 
-			// Delete
-			delRec := doRequest(t, e, http.MethodDelete, "/memberships/"+mID+"/idnamespaceassociations/"+id, nil)
-			require.Equal(t, http.StatusOK, delRec.Code)
+func TestIDNamespaceAssociations_Delete(t *testing.T) {
+	t.Parallel()
+
+	type args struct{}
+	type wants struct {
+		status int
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name:  "valid_delete",
+			args:  args{},
+			wants: wants{status: http.StatusOK},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			_, mID := setupTestEnvironment(t, e)
+			id := createIDNamespaceAssociation(t, e, mID)
+
+			rec := doRequest(t, e, http.MethodDelete, "/memberships/"+mID+"/idnamespaceassociations/"+id, nil)
+			require.Equal(t, tt.wants.status, rec.Code)
+		})
+	}
+}
+
+func TestCollaborationIDNamespaceAssociations(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		urlSuffix string
+	}
+	type wants struct {
+		statuses []int
+	}
+
+	tests := []struct {
+		name  string
+		args  args
+		wants wants
+	}{
+		{
+			name:  "get",
+			args:  args{urlSuffix: "/idnamespaceassociations/{id}"},
+			wants: wants{statuses: []int{http.StatusOK, http.StatusNotFound}},
+		},
+		{
+			name:  "list",
+			args:  args{urlSuffix: "/idnamespaceassociations"},
+			wants: wants{statuses: []int{http.StatusOK, http.StatusNotFound}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newTestServer(t)
+			colID, mID := setupTestEnvironment(t, e)
+			id := createIDNamespaceAssociation(t, e, mID)
+
+			url := "/collaborations/" + colID + tt.args.urlSuffix
+			if tt.args.urlSuffix == "/idnamespaceassociations/{id}" {
+				url = "/collaborations/" + colID + "/idnamespaceassociations/" + id
+			}
+
+			rec := doRequest(t, e, http.MethodGet, url, nil)
+			assert.Contains(t, tt.wants.statuses, rec.Code)
 		})
 	}
 }

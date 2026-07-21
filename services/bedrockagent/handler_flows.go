@@ -281,8 +281,6 @@ func classifyFlowPath(method, path string) string {
 		return opDeleteFlow
 	case len(segs) == 2 && segs[1] == "prepare":
 		return opPrepareFlow
-	case len(segs) == 1 && segs[0] == "validate-definition":
-		return opValidateFlowDefinition
 	case containsSeg(segs, "versions"):
 		return classifyFlowVersionPath(method, segs)
 	case containsSeg(segs, "aliases"):

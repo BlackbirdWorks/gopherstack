@@ -108,7 +108,7 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 	// state after every other layer has run, mirroring how the telemetry
 	// wrapper's ExtractOperation/ExtractResource calls work.
 	if r.cloudTrailRecorder != nil {
-		h = WrapCloudTrailCapture(r.cloudTrailRecorder, svc, h)
+		h = wrapCloudTrailCapture(r.cloudTrailRecorder, svc, h)
 	}
 
 	// Scope the request logger to this service as the true outermost wrapper
@@ -159,14 +159,4 @@ func (r *Registry) GetByName(name string) *Entry {
 // Count returns the number of registered services.
 func (r *Registry) Count() int {
 	return len(r.services)
-}
-
-// LatencyMs returns the configured latency in milliseconds.
-func (r *Registry) LatencyMs() int {
-	return r.latencyMs
-}
-
-// CloudTrailRecorder returns the configured CloudTrailRecorder.
-func (r *Registry) CloudTrailRecorder() CloudTrailRecorder {
-	return r.cloudTrailRecorder
 }

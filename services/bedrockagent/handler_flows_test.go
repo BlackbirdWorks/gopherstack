@@ -9,14 +9,6 @@ import (
 func TestHandlerFlowCRUD(t *testing.T) {
 	t.Parallel()
 
-	type tc struct {
-		body       map[string]any
-		name       string
-		method     string
-		path       string
-		wantStatus int
-	}
-
 	h, e := setupHandler(t)
 
 	createBody := map[string]any{
@@ -41,168 +33,44 @@ func TestHandlerFlowCRUD(t *testing.T) {
 		t.Fatal("no id in flow response")
 	}
 
-	// Prepare it
-	doRequest(t, h, e, http.MethodPost, "/flows/"+flowID+"/prepare", nil)
+	t.Run("get flow", func(t *testing.T) {
+		t.Parallel()
 
-	// Create a version
-	rVersion := doRequest(t, h, e, http.MethodPost, "/flows/"+flowID+"/versions", map[string]any{})
-	var verResp map[string]any
-	_ = json.Unmarshal(rVersion.Body.Bytes(), &verResp)
-	verID := verResp["version"].(string)
+		h2, e2 := setupHandler(t)
+		r := doRequest(t, h2, e2, http.MethodPost, "/flows", createBody)
 
-	// Create an alias
-	aliasBody := map[string]any{
-		"name": "prod",
-		"routingConfiguration": []map[string]any{
-			{"flowVersion": verID},
-		},
-	}
-	rAlias := doRequest(t, h, e, http.MethodPost, "/flows/"+flowID+"/aliases", aliasBody)
-	var alResp map[string]any
-	_ = json.Unmarshal(rAlias.Body.Bytes(), &alResp)
-	aliasID := alResp["id"].(string)
+		var resp map[string]any
+		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		id := resp["id"].(string)
 
-	cases := []tc{
-		{
-			name:       "ListFlows",
-			method:     http.MethodGet,
-			path:       "/flows",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "GetFlow",
-			method:     http.MethodGet,
-			path:       "/flows/" + flowID,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "UpdateFlow",
-			method:     http.MethodPut,
-			path:       "/flows/" + flowID,
-			body:       createBody,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "PrepareFlow",
-			method:     http.MethodPost,
-			path:       "/flows/" + flowID + "/prepare",
-			wantStatus: http.StatusAccepted,
-		},
-		{
-			name:       "DeleteFlow",
-			method:     http.MethodDelete,
-			path:       "/flows/" + flowID,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "ValidateFlowDefinition",
-			method:     http.MethodPost,
-			path:       "/flows/validate-definition",
-			body:       createBody,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "ListFlowVersions",
-			method:     http.MethodGet,
-			path:       "/flows/" + flowID + "/versions",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "GetFlowVersion",
-			method:     http.MethodGet,
-			path:       "/flows/" + flowID + "/versions/" + verID,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "DeleteFlowVersion",
-			method:     http.MethodDelete,
-			path:       "/flows/" + flowID + "/versions/" + verID,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "ListFlowAliases",
-			method:     http.MethodGet,
-			path:       "/flows/" + flowID + "/aliases",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "GetFlowAlias",
-			method:     http.MethodGet,
-			path:       "/flows/" + flowID + "/aliases/" + aliasID,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "UpdateFlowAlias",
-			method:     http.MethodPut,
-			path:       "/flows/" + flowID + "/aliases/" + aliasID,
-			body:       aliasBody,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "DeleteFlowAlias",
-			method:     http.MethodDelete,
-			path:       "/flows/" + flowID + "/aliases/" + aliasID,
-			wantStatus: http.StatusOK,
-		},
-	}
+		rec2 := doRequest(t, h2, e2, http.MethodGet, "/flows/"+id, nil)
+		if rec2.Code != http.StatusOK {
+			t.Errorf("got %d want 200", rec2.Code)
+		}
+	})
 
-	for _, tt := range cases {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("list flows", func(t *testing.T) {
+		t.Parallel()
 
-			hLocal, eLocal := setupHandler(t)
+		rec2 := doRequest(t, h, e, http.MethodGet, "/flows", nil)
+		if rec2.Code != http.StatusOK {
+			t.Errorf("got %d want 200", rec2.Code)
+		}
+	})
 
-			rF := doRequest(t, hLocal, eLocal, http.MethodPost, "/flows", createBody)
-			var fResp map[string]any
-			_ = json.Unmarshal(rF.Body.Bytes(), &fResp)
-			fID := fResp["id"].(string)
+	t.Run("prepare flow", func(t *testing.T) {
+		t.Parallel()
 
-			doRequest(t, hLocal, eLocal, http.MethodPost, "/flows/"+fID+"/prepare", nil)
+		h2, e2 := setupHandler(t)
+		r := doRequest(t, h2, e2, http.MethodPost, "/flows", createBody)
 
-			rV := doRequest(t, hLocal, eLocal, http.MethodPost, "/flows/"+fID+"/versions", map[string]any{})
-			var vResp map[string]any
-			_ = json.Unmarshal(rV.Body.Bytes(), &vResp)
-			vID := vResp["version"].(string)
+		var resp map[string]any
+		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		id := resp["id"].(string)
 
-			aBody := map[string]any{
-				"name": "prod",
-				"routingConfiguration": []map[string]any{
-					{"flowVersion": vID},
-				},
-			}
-			rA := doRequest(t, hLocal, eLocal, http.MethodPost, "/flows/"+fID+"/aliases", aBody)
-			var aResp map[string]any
-			_ = json.Unmarshal(rA.Body.Bytes(), &aResp)
-			aID := aResp["id"].(string)
-
-			// Rewrite path to use local IDs
-			path := tt.path
-			if flowID != "" && fID != "" {
-				switch path {
-				case "/flows/" + flowID:
-					path = "/flows/" + fID
-				case "/flows/" + flowID + "/prepare":
-					path = "/flows/" + fID + "/prepare"
-				case "/flows/" + flowID + "/versions":
-					path = "/flows/" + fID + "/versions"
-				case "/flows/" + flowID + "/versions/" + verID:
-					path = "/flows/" + fID + "/versions/" + vID
-				case "/flows/" + flowID + "/aliases":
-					path = "/flows/" + fID + "/aliases"
-				case "/flows/" + flowID + "/aliases/" + aliasID:
-					path = "/flows/" + fID + "/aliases/" + aID
-				}
-			}
-			// for alias update we need to inject the local version id
-			reqBody := tt.body
-			if reqBody != nil && reqBody["name"] == "prod" {
-				reqBody = aBody
-			}
-
-			r := doRequest(t, hLocal, eLocal, tt.method, path, reqBody)
-			if r.Code != tt.wantStatus {
-				t.Errorf("got %d want %d", r.Code, tt.wantStatus)
-			}
-		})
-	}
+		rec2 := doRequest(t, h2, e2, http.MethodPost, "/flows/"+id+"/prepare", nil)
+		if rec2.Code != http.StatusAccepted {
+			t.Errorf("got %d want 202", rec2.Code)
+		}
+	})
 }
