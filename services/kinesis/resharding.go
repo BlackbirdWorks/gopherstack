@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"time"
 )
 
 func findOverlappingParents(start, end *big.Int, oldOpenShards []*Shard) (string, string) {
@@ -66,14 +67,7 @@ func (b *InMemoryBackend) UpdateShardCount(
 	}
 
 	// Count only open shards as the current count (AWS semantics).
-	currentCount := 0
-	var oldOpenShards []*Shard
-	for _, s := range stream.Shards {
-		if !s.Closed {
-			currentCount++
-			oldOpenShards = append(oldOpenShards, s)
-		}
-	}
+	currentCount := countOpenShards(stream.Shards)
 	targetCount := input.TargetShardCount
 
 	if targetCount > maxShardsPerStream {
@@ -88,6 +82,41 @@ func (b *InMemoryBackend) UpdateShardCount(
 		return nil, ErrShardCountScaling
 	}
 
+	reshardTo(stream, targetCount)
+
+	return &UpdateShardCountOutput{
+		StreamName:        input.StreamName,
+		CurrentShardCount: currentCount,
+		TargetShardCount:  targetCount,
+	}, nil
+}
+
+// countOpenShards returns the number of non-closed shards in shards.
+func countOpenShards(shards []*Shard) int {
+	count := 0
+	for _, s := range shards {
+		if !s.Closed {
+			count++
+		}
+	}
+
+	return count
+}
+
+// reshardTo replaces stream's open shard set with targetCount new shards
+// spanning the full hash key space, closing every currently open shard and
+// assigning parent/adjacent-parent lineage from hash-range overlap (same
+// math UpdateShardCount uses). Shared by UpdateShardCount and
+// UpdateStreamMode's PROVISIONED->ON_DEMAND auto-scale reshard. Caller must
+// already hold stream.mu.
+func reshardTo(stream *Stream, targetCount int) {
+	var oldOpenShards []*Shard
+	for _, s := range stream.Shards {
+		if !s.Closed {
+			oldOpenShards = append(oldOpenShards, s)
+		}
+	}
+
 	maxHashKey := new(big.Int).Sub(
 		new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),
 		big.NewInt(1),
@@ -99,6 +128,7 @@ func (b *InMemoryBackend) UpdateShardCount(
 
 	// Assign new shard IDs from beyond the existing maximum to avoid collisions.
 	startIdx := nextShardIDIndex(stream.Shards)
+	now := time.Now()
 
 	newShards := make([]*Shard, targetCount)
 	for i := range targetCount {
@@ -122,25 +152,20 @@ func (b *InMemoryBackend) UpdateShardCount(
 			HashKeyRangeEnd:       end.String(),
 			ParentShardID:         pid,
 			AdjacentParentShardID: apid,
+			StartedAt:             now,
 		}
 	}
 
 	// Mark all currently open shards as CLOSED (AWS semantics: old shards
 	// remain visible in DescribeStream/ListShards with CLOSED status).
 	for _, s := range oldOpenShards {
-		s.Closed = true
+		closeShard(s)
 	}
 
 	allShards := make([]*Shard, 0, len(stream.Shards)+targetCount)
 	allShards = append(allShards, stream.Shards...)
 	allShards = append(allShards, newShards...)
 	stream.Shards = allShards
-
-	return &UpdateShardCountOutput{
-		StreamName:        input.StreamName,
-		CurrentShardCount: currentCount,
-		TargetShardCount:  targetCount,
-	}, nil
 }
 
 // nextShardIDIndex returns the numeric index for the next unique shard ID.
@@ -228,11 +253,12 @@ func (b *InMemoryBackend) MergeShards(ctx context.Context, input *MergeShardsInp
 		ID:                mergedID,
 		HashKeyRangeStart: startKey.String(),
 		HashKeyRangeEnd:   endKey.String(),
+		StartedAt:         time.Now(),
 	}
 
 	// Mark parents as closed (keep them in the list)
-	shard1.Closed = true
-	shard2.Closed = true
+	closeShard(shard1)
+	closeShard(shard2)
 
 	merged.ParentShardID = input.ShardToMerge
 	merged.AdjacentParentShardID = input.AdjacentShardToMerge
@@ -299,18 +325,21 @@ func (b *InMemoryBackend) SplitShard(ctx context.Context, input *SplitShardInput
 	}
 
 	shard2ID := fmt.Sprintf("shardId-%012d", shard1Idx+1)
+	now := time.Now()
 	shard1 := &Shard{
 		ID:                shard1ID,
 		HashKeyRangeStart: shard.HashKeyRangeStart,
 		HashKeyRangeEnd:   shard1End.String(),
+		StartedAt:         now,
 	}
 	shard2 := &Shard{
 		ID:                shard2ID,
 		HashKeyRangeStart: input.NewStartingHashKey,
 		HashKeyRangeEnd:   shard.HashKeyRangeEnd,
+		StartedAt:         now,
 	}
 
-	shard.Closed = true
+	closeShard(shard)
 
 	shard1.ParentShardID = input.ShardToSplit
 	shard2.ParentShardID = input.ShardToSplit

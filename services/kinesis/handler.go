@@ -297,29 +297,74 @@ type jsonKinesisError struct {
 // errTypeResourceNotFound is the Kinesis error type string for resource not found errors.
 const errTypeResourceNotFound = "ResourceNotFoundException"
 
-// errorDetails maps an error to its Kinesis JSON error type, message, and HTTP status.
-func errorDetails(err error) (string, string, int) {
+// kmsErrorDetails maps the KMS-specific sentinels StartStreamEncryption can
+// surface (see stream_encryption.go's resolveKMSKey) to their AWS error type,
+// message, and HTTP status. Split out of errorDetails to keep its cyclomatic
+// complexity down; returns ok=false when err doesn't match any of them.
+func kmsErrorDetails(err error) (string, string, int, bool) {
+	switch {
+	case errors.Is(err, ErrKMSNotFound):
+		return "KMSNotFoundException",
+			"The specified KMS key was not found.",
+			http.StatusBadRequest, true
+	case errors.Is(err, ErrKMSDisabled):
+		return "KMSDisabledException",
+			"The specified KMS key is disabled.",
+			http.StatusBadRequest, true
+	case errors.Is(err, ErrKMSInvalidState):
+		return "KMSInvalidStateException",
+			"The specified KMS key is not in a valid state for this operation.",
+			http.StatusBadRequest, true
+	case errors.Is(err, ErrKMSAccessDenied):
+		return "KMSAccessDeniedException",
+			"Access to the specified KMS key is denied.",
+			http.StatusBadRequest, true
+	default:
+		return "", "", 0, false
+	}
+}
+
+// resourceErrorDetails maps the resource-existence/conflict sentinels
+// (streams, consumers, resource policies) to their AWS error type, message,
+// and HTTP status. Split out of errorDetails to keep its cyclomatic
+// complexity down; returns ok=false when err doesn't match any of them.
+func resourceErrorDetails(err error) (string, string, int, bool) {
 	switch {
 	case errors.Is(err, ErrStreamNotFound):
 		return errTypeResourceNotFound,
 			"Stream not found.",
-			http.StatusBadRequest
+			http.StatusBadRequest, true
 	case errors.Is(err, ErrStreamAlreadyExists):
 		return "ResourceInUseException",
 			"A stream with this name already exists.",
-			http.StatusBadRequest
+			http.StatusBadRequest, true
 	case errors.Is(err, ErrConsumerNotFound):
 		return errTypeResourceNotFound,
 			"Consumer not found.",
-			http.StatusBadRequest
+			http.StatusBadRequest, true
 	case errors.Is(err, ErrConsumerAlreadyExists):
 		return "ResourceInUseException",
 			"A consumer with this name already exists.",
-			http.StatusBadRequest
+			http.StatusBadRequest, true
 	case errors.Is(err, ErrResourcePolicyNotFound):
 		return errTypeResourceNotFound,
 			"Resource policy not found.",
-			http.StatusBadRequest
+			http.StatusBadRequest, true
+	default:
+		return "", "", 0, false
+	}
+}
+
+// errorDetails maps an error to its Kinesis JSON error type, message, and HTTP status.
+func errorDetails(err error) (string, string, int) {
+	if errType, message, status, ok := kmsErrorDetails(err); ok {
+		return errType, message, status
+	}
+	if errType, message, status, ok := resourceErrorDetails(err); ok {
+		return errType, message, status
+	}
+
+	switch {
 	case errors.Is(err, ErrProvisionedThroughputExceeded):
 		return "ProvisionedThroughputExceededException",
 			"Rate exceeded for shard.",

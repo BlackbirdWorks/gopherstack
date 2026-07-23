@@ -2637,6 +2637,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SSM → KMS for SecureString encryption with customer-managed keys.
 	wireSSMKMS(byName["SSM"], byName["KMS"])
 
+	// Wire Kinesis → KMS so StartStreamEncryption validates KeyId against real key state.
+	wireKinesisKMS(byName["Kinesis"], byName["KMS"])
+
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["APIGatewayV2"], byName["Lambda"])
 
@@ -3596,6 +3599,56 @@ func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 	}
 
 	return out.Plaintext, nil
+}
+
+// wireKinesisKMS connects the Kinesis backend to the KMS backend so
+// StartStreamEncryption's KeyId is validated against real KMS key state
+// (KMSNotFoundException/KMSDisabledException/KMSInvalidStateException),
+// mirroring wireSSMKMS above.
+func wireKinesisKMS(kinesisReg, kmsReg service.Registerable) {
+	kinesisH, ok := kinesisReg.(*kinesisbackend.Handler)
+	if !ok {
+		return
+	}
+	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	kmsH, ok := kmsReg.(*kmsbackend.Handler)
+	if !ok {
+		return
+	}
+	kmsBk, ok := kmsH.Backend.(*kmsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+	kinesisBk.WithKMSValidator(&kinesisKMSAdapter{backend: kmsBk})
+}
+
+// kinesisKMSAdapter adapts kms.InMemoryBackend to kinesis.KMSKeyValidator.
+type kinesisKMSAdapter struct {
+	backend *kmsbackend.InMemoryBackend
+}
+
+func (a *kinesisKMSAdapter) ValidateKMSKey(ctx context.Context, keyID string) error {
+	out, err := a.backend.DescribeKey(ctx, &kmsbackend.DescribeKeyInput{KeyID: keyID})
+	if err != nil {
+		// ErrKeyNotFound (nonexistent key/alias) and any other DescribeKey
+		// failure (e.g. a malformed KeyId that slipped past kinesis's own
+		// format check) both surface as "key not found" -- kinesis has no
+		// finer-grained sentinel for "KMS backend rejected the lookup".
+		return kinesisbackend.ErrKMSNotFound
+	}
+
+	switch out.KeyMetadata.KeyState {
+	case kmsbackend.KeyStateEnabled:
+		return nil
+	case kmsbackend.KeyStateDisabled:
+		return kinesisbackend.ErrKMSDisabled
+	default:
+		// PendingDeletion, PendingImport, or any other non-Enabled state.
+		return kinesisbackend.ErrKMSInvalidState
+	}
 }
 
 // wireSecretsManagerKMS connects the Secrets Manager backend to the KMS backend

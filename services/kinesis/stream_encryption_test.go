@@ -37,14 +37,14 @@ func TestStartEncryption_ARNSupport(t *testing.T) {
 	rec = doRequest(t, h, "StartStreamEncryption", map[string]any{
 		"StreamARN":      descResp.StreamDescription.StreamARN,
 		"EncryptionType": "KMS",
-		"KeyId":          "arn-key",
+		"KeyId":          "alias/arn-key",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, "StopStreamEncryption", map[string]any{
 		"StreamARN":      descResp.StreamDescription.StreamARN,
 		"EncryptionType": "KMS",
-		"KeyId":          "arn-key",
+		"KeyId":          "alias/arn-key",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -57,10 +57,10 @@ func TestStopEncryption_ResetsFields(t *testing.T) {
 
 	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "stop-enc-stream", "ShardCount": 1})
 	doRequest(t, h, "StartStreamEncryption", map[string]any{
-		"StreamName": "stop-enc-stream", "EncryptionType": "KMS", "KeyId": "k",
+		"StreamName": "stop-enc-stream", "EncryptionType": "KMS", "KeyId": "alias/k",
 	})
 	doRequest(t, h, "StopStreamEncryption", map[string]any{
-		"StreamName": "stop-enc-stream", "EncryptionType": "KMS", "KeyId": "k",
+		"StreamName": "stop-enc-stream", "EncryptionType": "KMS", "KeyId": "alias/k",
 	})
 
 	rec := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "stop-enc-stream"})
@@ -92,7 +92,7 @@ func TestStreamEncryption(t *testing.T) {
 			name:          "kms_encryption_roundtrip",
 			streamName:    "enc-stream-kms",
 			encType:       "KMS",
-			keyID:         "arn:aws:kms:us-east-1:123456789012:key/test-key-id",
+			keyID:         "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
 			wantStartCode: http.StatusOK,
 			wantStopCode:  http.StatusOK,
 		},
@@ -228,4 +228,136 @@ func TestStreamEncryption_StartStop(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "NONE", descOut.EncryptionType)
 	assert.Empty(t, descOut.KeyID)
+}
+
+// TestStartStreamEncryption_KeyIDFormat verifies StartStreamEncryption's
+// required KeyId is validated against the shapes AWS documents (UUID, key
+// ARN, alias ARN, "alias/..." name) even with no KMSKeyValidator wired.
+func TestStartStreamEncryption_KeyIDFormat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		keyID   string
+		wantErr bool
+	}{
+		{name: "uuid", keyID: "12345678-1234-1234-1234-123456789012", wantErr: false},
+		{
+			name:    "key_arn",
+			keyID:   "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+			wantErr: false,
+		},
+		{name: "alias_arn", keyID: "arn:aws:kms:us-east-1:123456789012:alias/MyAliasName", wantErr: false},
+		{name: "alias_name", keyID: "alias/MyAliasName", wantErr: false},
+		{name: "kinesis_owned_alias", keyID: "alias/aws/kinesis", wantErr: false},
+		{name: "empty", keyID: "", wantErr: true},
+		{name: "garbage", keyID: "not-a-real-key-id", wantErr: true},
+		{name: "bare_arn_without_resource", keyID: "arn:aws:kms:us-east-1:123456789012:", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := kinesis.NewInMemoryBackend()
+			streamName := "kmsfmt-" + tt.name
+			require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+				StreamName: streamName,
+			}))
+
+			err := bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
+				StreamName:     streamName,
+				EncryptionType: "KMS",
+				KeyID:          tt.keyID,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, kinesis.ErrInvalidArgument)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// fakeKMSValidator is a test double for kinesis.KMSKeyValidator that returns
+// a scripted error (or nil) for a specific keyID, letting tests exercise the
+// StartStreamEncryption -> KMS cross-service validation path without a real
+// KMS backend (mirrors how cli.go's wireKinesisKMS wires the real one).
+type fakeKMSValidator struct {
+	err   error
+	keyID string
+}
+
+func (f *fakeKMSValidator) ValidateKMSKey(_ context.Context, keyID string) error {
+	if keyID == f.keyID {
+		return f.err
+	}
+
+	return nil
+}
+
+// TestStartStreamEncryption_KMSValidator verifies that when a KMSKeyValidator
+// is wired (WithKMSValidator), StartStreamEncryption surfaces the exact
+// KMS-specific exceptions the real aws-sdk-go-v2/service/kinesis error model
+// declares for StartStreamEncryption (KMSNotFoundException/
+// KMSDisabledException/KMSInvalidStateException).
+func TestStartStreamEncryption_KMSValidator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		validatorErr error
+		wantErr      error
+		name         string
+	}{
+		{name: "key_not_found", validatorErr: kinesis.ErrKMSNotFound, wantErr: kinesis.ErrKMSNotFound},
+		{name: "key_disabled", validatorErr: kinesis.ErrKMSDisabled, wantErr: kinesis.ErrKMSDisabled},
+		{name: "key_invalid_state", validatorErr: kinesis.ErrKMSInvalidState, wantErr: kinesis.ErrKMSInvalidState},
+		{name: "key_valid", validatorErr: nil, wantErr: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := kinesis.NewInMemoryBackend()
+			streamName := "kmsval-" + tt.name
+			require.NoError(t, bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+				StreamName: streamName,
+			}))
+
+			bk.WithKMSValidator(&fakeKMSValidator{keyID: "alias/scripted-key", err: tt.validatorErr})
+
+			err := bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
+				StreamName:     streamName,
+				EncryptionType: "KMS",
+				KeyID:          "alias/scripted-key",
+			})
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestStartStreamEncryption_StreamNotFoundBeforeKeyFormat verifies stream
+// existence is checked before KeyId format/KMS validation, so a nonexistent
+// stream always surfaces ResourceNotFoundException regardless of KeyId shape.
+func TestStartStreamEncryption_StreamNotFoundBeforeKeyFormat(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+
+	err := bk.StartStreamEncryption(context.Background(), &kinesis.StartStreamEncryptionInput{
+		StreamName:     "does-not-exist",
+		EncryptionType: "KMS",
+		KeyID:          "totally-malformed",
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, kinesis.ErrStreamNotFound)
 }

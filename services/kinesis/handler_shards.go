@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type jsonShardFilter struct {
-	ShardID   string  `json:"ShardId"`
-	Type      string  `json:"Type"`
-	Timestamp float64 `json:"Timestamp"`
+	Timestamp *float64 `json:"Timestamp,omitempty"`
+	ShardID   string   `json:"ShardId"`
+	Type      string   `json:"Type"`
 }
 
 type jsonListShardsReq struct {
@@ -78,12 +79,14 @@ func (h *Handler) handleListShards(
 		}
 	}
 
-	var shardFilterType, shardFilterShardID, shardFilterStr string
+	var shardFilterType, shardFilterShardID string
+	var shardFilterTimestamp *time.Time
 	if req.ShardFilter != nil {
 		shardFilterType = req.ShardFilter.Type
 		shardFilterShardID = req.ShardFilter.ShardID
-		if shardFilterType != "AT_SHARD_ID" {
-			shardFilterStr = shardFilterType
+		if req.ShardFilter.Timestamp != nil {
+			ts := time.UnixMilli(int64(*req.ShardFilter.Timestamp * millisPerSecond))
+			shardFilterTimestamp = &ts
 		}
 	}
 	out, err := h.Backend.ListShards(ctx, &ListShardsInput{
@@ -91,9 +94,10 @@ func (h *Handler) handleListShards(
 		NextToken:             backendNextToken,
 		MaxResults:            req.MaxResults,
 		ExclusiveStartShardID: req.ExclusiveStartShardID,
-		ShardFilter:           shardFilterStr,
+		ShardFilter:           shardFilterType,
 		ShardFilterType:       shardFilterType,
 		ShardFilterShardID:    shardFilterShardID,
+		ShardFilterTimestamp:  shardFilterTimestamp,
 	})
 	if err != nil {
 		return nil, err
