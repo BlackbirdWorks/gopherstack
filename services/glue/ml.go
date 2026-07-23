@@ -138,6 +138,16 @@ func cloneMLTransform(m *MLTransform) *MLTransform {
 	cp := *m
 	cp.InputRecordTables = make([]GlueTable, len(m.InputRecordTables))
 	copy(cp.InputRecordTables, m.InputRecordTables)
+	cp.Schema = append([]SchemaColumnEntry(nil), m.Schema...)
+
+	if m.TransformEncryption != nil {
+		te := *m.TransformEncryption
+		if m.TransformEncryption.MLUserDataEncryption != nil {
+			enc := *m.TransformEncryption.MLUserDataEncryption
+			te.MLUserDataEncryption = &enc
+		}
+		cp.TransformEncryption = &te
+	}
 
 	return &cp
 }
@@ -152,20 +162,50 @@ func (b *InMemoryBackend) CreateMLTransform(
 	params MLTransformParameter,
 	tags map[string]string,
 ) (*MLTransform, error) {
+	return b.CreateMLTransformWithOptions(name, description, role, tables, params, tags, MLTransformOptions{})
+}
+
+// CreateMLTransformWithOptions is CreateMLTransform plus the optional
+// creation-time settings CreateMLTransformRequest also supports (GlueVersion/
+// WorkerType/NumberOfWorkers/MaxCapacity/MaxRetries/Timeout/Schema/
+// TransformEncryption), enforcing AWS's documented mutual exclusion between
+// MaxCapacity and WorkerType/NumberOfWorkers.
+func (b *InMemoryBackend) CreateMLTransformWithOptions(
+	name, description, role string,
+	tables []GlueTable,
+	params MLTransformParameter,
+	tags map[string]string,
+	opts MLTransformOptions,
+) (*MLTransform, error) {
+	if opts.MaxCapacity > 0 && (opts.WorkerType != "" || opts.NumberOfWorkers != 0) {
+		return nil, fmt.Errorf(
+			"%w: cannot specify MaxCapacity and WorkerType/NumberOfWorkers together",
+			ErrValidation,
+		)
+	}
+
 	b.mu.Lock("CreateMLTransform")
 	defer b.mu.Unlock()
 
 	id := "transform-" + uuid.NewString()[:8]
 	m := &MLTransform{
-		TransformID:       id,
-		Name:              name,
-		Description:       description,
-		Role:              role,
-		InputRecordTables: tables,
-		Parameters:        params,
-		Status:            "NOT_READY",
-		CreatedOn:         float64(time.Now().Unix()),
-		LastModifiedOn:    float64(time.Now().Unix()),
+		TransformID:         id,
+		Name:                name,
+		Description:         description,
+		Role:                role,
+		InputRecordTables:   tables,
+		Parameters:          params,
+		Status:              "NOT_READY",
+		CreatedOn:           float64(time.Now().Unix()),
+		LastModifiedOn:      float64(time.Now().Unix()),
+		GlueVersion:         opts.GlueVersion,
+		WorkerType:          opts.WorkerType,
+		NumberOfWorkers:     opts.NumberOfWorkers,
+		MaxCapacity:         opts.MaxCapacity,
+		MaxRetries:          opts.MaxRetries,
+		Timeout:             opts.Timeout,
+		Schema:              append([]SchemaColumnEntry(nil), opts.Schema...),
+		TransformEncryption: opts.TransformEncryption,
 	}
 	b.mlTransforms.Put(m)
 	if len(tags) > 0 {
@@ -202,6 +242,13 @@ func (b *InMemoryBackend) GetMLTransforms() []*MLTransform {
 }
 
 func (b *InMemoryBackend) UpdateMLTransform(id string, update MLTransform) error {
+	if update.MaxCapacity > 0 && (update.WorkerType != "" || update.NumberOfWorkers != 0) {
+		return fmt.Errorf(
+			"%w: cannot specify MaxCapacity and WorkerType/NumberOfWorkers together",
+			ErrValidation,
+		)
+	}
+
 	b.mu.Lock("UpdateMLTransform")
 	defer b.mu.Unlock()
 

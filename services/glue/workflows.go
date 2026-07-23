@@ -19,7 +19,7 @@ func (b *InMemoryBackend) StopWorkflowRun(workflowName, runID string) error {
 	}
 	for _, r := range runs {
 		if r.RunID == runID {
-			r.Status = "STOPPING"
+			r.Status = stateStopping
 
 			return nil
 		}
@@ -185,6 +185,7 @@ func (b *InMemoryBackend) UpdateWorkflow(name string, update Workflow) error {
 
 	w.Description = update.Description
 	w.DefaultRunProperties = maps.Clone(update.DefaultRunProperties)
+	w.MaxConcurrentRuns = update.MaxConcurrentRuns
 	w.LastModifiedOn = float64(time.Now().Unix())
 
 	return nil
@@ -210,8 +211,21 @@ func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
 	b.mu.Lock("StartWorkflowRun")
 	defer b.mu.Unlock()
 
-	if !b.workflows.Has(name) {
+	w, ok := b.workflows.Get(name)
+	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if w.MaxConcurrentRuns > 0 {
+		active := 0
+		for _, r := range b.workflowRuns[name] {
+			if r.Status == stateRunning || r.Status == stateStopping {
+				active++
+			}
+		}
+		if active >= w.MaxConcurrentRuns {
+			return nil, ErrConcurrentRunsExceeded
+		}
 	}
 
 	runID := fmt.Sprintf(

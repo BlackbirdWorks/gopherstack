@@ -17,6 +17,13 @@ var ErrNotFound = awserr.New("EntityNotFoundException", awserr.ErrNotFound)
 // ErrAlreadyExists is returned when a resource already exists.
 var ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrAlreadyExists)
 
+// ErrConcurrentRunsExceeded is returned by StartJobRun/StartWorkflowRun when
+// the job/workflow's MaxConcurrentRuns limit is already reached, mirroring
+// AWS's ConcurrentRunsExceededException (confirmed in
+// aws-sdk-go-v2/service/glue/deserializers.go's
+// awsAwsjson11_deserializeOpErrorStartJobRun/StartWorkflowRun error switches).
+var ErrConcurrentRunsExceeded = awserr.New("ConcurrentRunsExceededException", awserr.ErrConflict)
+
 // ErrValidation is returned when input validation fails.
 //
 // Glue's per-operation error models (aws-sdk-go-v2/service/glue deserializers.go)

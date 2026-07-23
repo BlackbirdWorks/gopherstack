@@ -6,18 +6,47 @@ import (
 
 // DatabaseInput is the input for creating or updating a Glue database.
 type DatabaseInput struct {
-	Name        string `json:"Name"`
-	Description string `json:"Description,omitempty"`
+	Parameters                    map[string]string      `json:"Parameters,omitempty"`
+	TargetDatabase                *DatabaseIdentifier    `json:"TargetDatabase,omitempty"`
+	Name                          string                 `json:"Name"`
+	Description                   string                 `json:"Description,omitempty"`
+	LocationURI                   string                 `json:"LocationUri,omitempty"`
+	CreateTableDefaultPermissions []PrincipalPermissions `json:"CreateTableDefaultPermissions,omitempty"`
 }
 
 // Database represents a Glue catalog database.
 type Database struct {
-	Tags        map[string]string `json:"-"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description,omitempty"`
-	CatalogID   string            `json:"CatalogId"`
-	ARN         string            `json:"Arn,omitempty"`
-	CreateTime  float64           `json:"CreateTime,omitempty"`
+	Tags                          map[string]string      `json:"-"`
+	Parameters                    map[string]string      `json:"Parameters,omitempty"`
+	TargetDatabase                *DatabaseIdentifier    `json:"TargetDatabase,omitempty"`
+	Name                          string                 `json:"Name"`
+	Description                   string                 `json:"Description,omitempty"`
+	CatalogID                     string                 `json:"CatalogId"`
+	ARN                           string                 `json:"Arn,omitempty"`
+	LocationURI                   string                 `json:"LocationUri,omitempty"`
+	CreateTableDefaultPermissions []PrincipalPermissions `json:"CreateTableDefaultPermissions,omitempty"`
+	CreateTime                    float64                `json:"CreateTime,omitempty"`
+}
+
+// DatabaseIdentifier identifies a target database for resource-linking,
+// mirroring aws-sdk-go-v2/service/glue/types.DatabaseIdentifier.
+type DatabaseIdentifier struct {
+	CatalogID    string `json:"CatalogId,omitempty"`
+	DatabaseName string `json:"DatabaseName,omitempty"`
+	Region       string `json:"Region,omitempty"`
+}
+
+// PrincipalPermissions grants a set of Lake Formation permissions to a
+// principal, mirroring aws-sdk-go-v2/service/glue/types.PrincipalPermissions.
+type PrincipalPermissions struct {
+	Principal   *DataLakePrincipal `json:"Principal,omitempty"`
+	Permissions []string           `json:"Permissions,omitempty"`
+}
+
+// DataLakePrincipal identifies a Lake Formation principal, mirroring
+// aws-sdk-go-v2/service/glue/types.DataLakePrincipal.
+type DataLakePrincipal struct {
+	DataLakePrincipalIdentifier string `json:"DataLakePrincipalIdentifier,omitempty"`
 }
 
 // Column represents a column in a Glue table.
@@ -86,14 +115,87 @@ type Table struct {
 	UpdateTime        float64           `json:"UpdateTime,omitempty"`
 }
 
-// CrawlerTarget specifies the data stores a crawler scans. AWS supports many
-// target store kinds (S3, JDBC, catalog, DynamoDB, Delta, Hudi, Iceberg,
-// MongoDB); this backend models the three most commonly used ones. Additional
-// kinds are deferred (see PARITY.md).
+// CrawlerTarget specifies the data stores a crawler scans, mirroring
+// aws-sdk-go-v2/service/glue/types.CrawlerTargets (S3, JDBC, catalog,
+// DynamoDB, Delta, Hudi, Iceberg, MongoDB — all eight target kinds).
 type CrawlerTarget struct {
-	S3Targets      []S3Target      `json:"S3Targets,omitempty"`
-	JdbcTargets    []JDBCTarget    `json:"JdbcTargets,omitempty"`
-	CatalogTargets []CatalogTarget `json:"CatalogTargets,omitempty"`
+	S3Targets       []S3Target       `json:"S3Targets,omitempty"`
+	JdbcTargets     []JDBCTarget     `json:"JdbcTargets,omitempty"`
+	CatalogTargets  []CatalogTarget  `json:"CatalogTargets,omitempty"`
+	DynamoDBTargets []DynamoDBTarget `json:"DynamoDBTargets,omitempty"`
+	DeltaTargets    []DeltaTarget    `json:"DeltaTargets,omitempty"`
+	HudiTargets     []HudiTarget     `json:"HudiTargets,omitempty"`
+	IcebergTargets  []IcebergTarget  `json:"IcebergTargets,omitempty"`
+	MongoDBTargets  []MongoDBTarget  `json:"MongoDBTargets,omitempty"`
+}
+
+// DynamoDBTarget is a DynamoDB table crawl target, mirroring
+// aws-sdk-go-v2/service/glue/types.DynamoDBTarget.
+type DynamoDBTarget struct {
+	Path     string  `json:"Path,omitempty"`
+	ScanAll  bool    `json:"ScanAll,omitempty"`
+	ScanRate float64 `json:"ScanRate,omitempty"`
+}
+
+// DeltaTarget is a Delta Lake table crawl target, mirroring
+// aws-sdk-go-v2/service/glue/types.DeltaTarget.
+type DeltaTarget struct {
+	ConnectionName         string   `json:"ConnectionName,omitempty"`
+	DeltaTables            []string `json:"DeltaTables,omitempty"`
+	WriteManifest          bool     `json:"WriteManifest,omitempty"`
+	CreateNativeDeltaTable bool     `json:"CreateNativeDeltaTable,omitempty"`
+}
+
+// HudiTarget is an Apache Hudi table crawl target, mirroring
+// aws-sdk-go-v2/service/glue/types.HudiTarget.
+type HudiTarget struct {
+	ConnectionName        string   `json:"ConnectionName,omitempty"`
+	Paths                 []string `json:"Paths,omitempty"`
+	Exclusions            []string `json:"Exclusions,omitempty"`
+	MaximumTraversalDepth int32    `json:"MaximumTraversalDepth,omitempty"`
+}
+
+// IcebergTarget is an Apache Iceberg table crawl target, mirroring
+// aws-sdk-go-v2/service/glue/types.IcebergTarget.
+type IcebergTarget struct {
+	ConnectionName        string   `json:"ConnectionName,omitempty"`
+	Paths                 []string `json:"Paths,omitempty"`
+	Exclusions            []string `json:"Exclusions,omitempty"`
+	MaximumTraversalDepth int32    `json:"MaximumTraversalDepth,omitempty"`
+}
+
+// MongoDBTarget is a DocumentDB/MongoDB crawl target, mirroring
+// aws-sdk-go-v2/service/glue/types.MongoDBTarget.
+type MongoDBTarget struct {
+	ConnectionName string `json:"ConnectionName,omitempty"`
+	Path           string `json:"Path,omitempty"`
+	ScanAll        bool   `json:"ScanAll,omitempty"`
+}
+
+// SchemaChangePolicy specifies a crawler's update/deletion behavior, mirroring
+// aws-sdk-go-v2/service/glue/types.SchemaChangePolicy.
+type SchemaChangePolicy struct {
+	UpdateBehavior string `json:"UpdateBehavior,omitempty"`
+	DeleteBehavior string `json:"DeleteBehavior,omitempty"`
+}
+
+// RecrawlPolicy specifies a crawler's re-crawl behavior, mirroring
+// aws-sdk-go-v2/service/glue/types.RecrawlPolicy.
+type RecrawlPolicy struct {
+	RecrawlBehavior string `json:"RecrawlBehavior,omitempty"`
+}
+
+// LineageConfiguration specifies a crawler's data-lineage settings, mirroring
+// aws-sdk-go-v2/service/glue/types.LineageConfiguration.
+type LineageConfiguration struct {
+	CrawlerLineageSettings string `json:"CrawlerLineageSettings,omitempty"`
+}
+
+// LakeFormationConfiguration specifies a crawler's Lake Formation settings,
+// mirroring aws-sdk-go-v2/service/glue/types.LakeFormationConfiguration.
+type LakeFormationConfiguration struct {
+	AccountID                   string `json:"AccountId,omitempty"`
+	UseLakeFormationCredentials bool   `json:"UseLakeFormationCredentials,omitempty"`
 }
 
 // S3Target is an S3 path for a crawler.
@@ -119,20 +221,25 @@ type CatalogTarget struct {
 
 // Crawler represents a Glue crawler.
 type Crawler struct {
-	Tags          map[string]string `json:"-"`
-	Schedule      CrawlerSchedule   `json:"Schedule,omitzero"`
-	Name          string            `json:"Name"`
-	Role          string            `json:"Role"`
-	DatabaseName  string            `json:"DatabaseName"`
-	State         string            `json:"State"`
-	ARN           string            `json:"Arn,omitempty"`
-	Description   string            `json:"Description,omitempty"`
-	Configuration string            `json:"Configuration,omitempty"`
-	TablePrefix   string            `json:"TablePrefix,omitempty"`
-	Classifiers   []string          `json:"Classifiers,omitempty"`
-	Targets       CrawlerTarget     `json:"Targets,omitzero"`
-	CreationTime  float64           `json:"CreationTime,omitempty"`
-	LastUpdated   float64           `json:"LastUpdated,omitempty"`
+	Tags                         map[string]string           `json:"-"`
+	LakeFormationConfiguration   *LakeFormationConfiguration `json:"LakeFormationConfiguration,omitempty"`
+	LineageConfiguration         *LineageConfiguration       `json:"LineageConfiguration,omitempty"`
+	RecrawlPolicy                *RecrawlPolicy              `json:"RecrawlPolicy,omitempty"`
+	SchemaChangePolicy           *SchemaChangePolicy         `json:"SchemaChangePolicy,omitempty"`
+	Schedule                     CrawlerSchedule             `json:"Schedule,omitzero"`
+	Configuration                string                      `json:"Configuration,omitempty"`
+	Description                  string                      `json:"Description,omitempty"`
+	ARN                          string                      `json:"Arn,omitempty"`
+	TablePrefix                  string                      `json:"TablePrefix,omitempty"`
+	CrawlerSecurityConfiguration string                      `json:"CrawlerSecurityConfiguration,omitempty"`
+	State                        string                      `json:"State"`
+	DatabaseName                 string                      `json:"DatabaseName"`
+	Role                         string                      `json:"Role"`
+	Name                         string                      `json:"Name"`
+	Targets                      CrawlerTarget               `json:"Targets,omitzero"`
+	Classifiers                  []string                    `json:"Classifiers,omitempty"`
+	CreationTime                 float64                     `json:"CreationTime,omitempty"`
+	LastUpdated                  float64                     `json:"LastUpdated,omitempty"`
 }
 
 // CrawlHistoryEntry records a single crawl run for ListCrawls.
@@ -263,19 +370,39 @@ type TableVersionError struct {
 
 // Connection represents a Glue connection.
 type Connection struct {
-	ConnectionProperties map[string]string `json:"ConnectionProperties,omitempty"`
-	Tags                 map[string]string `json:"-"`
-	Name                 string            `json:"Name"`
-	ConnectionType       string            `json:"ConnectionType,omitempty"`
-	ARN                  string            `json:"Arn,omitempty"`
-	CreationTime         float64           `json:"CreationTime,omitempty"`
-	LastUpdatedTime      float64           `json:"LastUpdatedTime,omitempty"`
+	ConnectionProperties           map[string]string               `json:"ConnectionProperties,omitempty"`
+	Tags                           map[string]string               `json:"-"`
+	PhysicalConnectionRequirements *PhysicalConnectionRequirements `json:"PhysicalConnectionRequirements,omitempty"`
+	Name                           string                          `json:"Name"`
+	ConnectionType                 string                          `json:"ConnectionType,omitempty"`
+	ARN                            string                          `json:"Arn,omitempty"`
+	Description                    string                          `json:"Description,omitempty"`
+	MatchCriteria                  []string                        `json:"MatchCriteria,omitempty"`
+	CreationTime                   float64                         `json:"CreationTime,omitempty"`
+	LastUpdatedTime                float64                         `json:"LastUpdatedTime,omitempty"`
+}
+
+// PhysicalConnectionRequirements specifies the VPC/subnet/security-group
+// requirements needed to make a Glue connection, mirroring
+// aws-sdk-go-v2/service/glue/types.PhysicalConnectionRequirements.
+type PhysicalConnectionRequirements struct {
+	AvailabilityZone    string   `json:"AvailabilityZone,omitempty"`
+	SubnetID            string   `json:"SubnetId,omitempty"`
+	SecurityGroupIDList []string `json:"SecurityGroupIdList,omitempty"`
 }
 
 // Blueprint represents a Glue blueprint.
 type Blueprint struct {
-	Name   string `json:"Name"`
-	Status string `json:"Status,omitempty"`
+	Tags                     map[string]string `json:"-"`
+	Name                     string            `json:"Name"`
+	Status                   string            `json:"Status,omitempty"`
+	BlueprintLocation        string            `json:"BlueprintLocation,omitempty"`
+	BlueprintServiceLocation string            `json:"BlueprintServiceLocation,omitempty"`
+	Description              string            `json:"Description,omitempty"`
+	ParameterSpec            string            `json:"ParameterSpec,omitempty"`
+	ErrorMessage             string            `json:"ErrorMessage,omitempty"`
+	CreatedOn                float64           `json:"CreatedOn,omitempty"`
+	LastModifiedOn           float64           `json:"LastModifiedOn,omitempty"`
 }
 
 // CustomEntityType represents a Glue custom entity type.
@@ -293,9 +420,50 @@ type DataQualityResult struct {
 
 // DevEndpoint represents a Glue development endpoint.
 type DevEndpoint struct {
-	Arguments    map[string]string `json:"Arguments,omitempty"`
-	EndpointName string            `json:"EndpointName"`
-	Status       string            `json:"Status,omitempty"`
+	Arguments                          map[string]string `json:"Arguments,omitempty"`
+	Tags                               map[string]string `json:"-"`
+	ExtraJarsS3Path                    string            `json:"ExtraJarsS3Path,omitempty"`
+	ARN                                string            `json:"-"`
+	EndpointName                       string            `json:"EndpointName"`
+	Status                             string            `json:"Status,omitempty"`
+	RoleArn                            string            `json:"RoleArn,omitempty"`
+	SubnetID                           string            `json:"SubnetId,omitempty"`
+	PublicKey                          string            `json:"PublicKey,omitempty"`
+	WorkerType                         string            `json:"WorkerType,omitempty"`
+	GlueVersion                        string            `json:"GlueVersion,omitempty"`
+	ExtraPythonLibsS3Path              string            `json:"ExtraPythonLibsS3Path,omitempty"`
+	VpcID                              string            `json:"VpcId,omitempty"`
+	SecurityConfiguration              string            `json:"SecurityConfiguration,omitempty"`
+	YarnEndpointAddress                string            `json:"YarnEndpointAddress,omitempty"`
+	LastUpdateStatus                   string            `json:"LastUpdateStatus,omitempty"`
+	AvailabilityZone                   string            `json:"AvailabilityZone,omitempty"`
+	PrivateAddress                     string            `json:"PrivateAddress,omitempty"`
+	PublicAddress                      string            `json:"PublicAddress,omitempty"`
+	FailureReason                      string            `json:"FailureReason,omitempty"`
+	PublicKeys                         []string          `json:"PublicKeys,omitempty"`
+	SecurityGroupIDs                   []string          `json:"SecurityGroupIds,omitempty"`
+	NumberOfWorkers                    int               `json:"NumberOfWorkers,omitempty"`
+	NumberOfNodes                      int               `json:"NumberOfNodes,omitempty"`
+	ZeppelinRemoteSparkInterpreterPort int               `json:"ZeppelinRemoteSparkInterpreterPort,omitempty"`
+	CreatedTimestamp                   float64           `json:"CreatedTimestamp,omitempty"`
+	LastModifiedTimestamp              float64           `json:"LastModifiedTimestamp,omitempty"`
+}
+
+// DevEndpointInput carries the optional CreateDevEndpoint settings beyond
+// EndpointName/RoleArn.
+type DevEndpointInput struct {
+	Arguments             map[string]string
+	SubnetID              string
+	PublicKey             string
+	WorkerType            string
+	GlueVersion           string
+	ExtraPythonLibsS3Path string
+	ExtraJarsS3Path       string
+	SecurityConfiguration string
+	SecurityGroupIDs      []string
+	PublicKeys            []string
+	NumberOfNodes         int
+	NumberOfWorkers       int
 }
 
 // CrawlerSchedule represents the schedule configuration for a crawler.
@@ -306,19 +474,32 @@ type CrawlerSchedule struct {
 
 // JobRun represents a single execution of a Glue job.
 type JobRun struct {
-	Arguments       map[string]string `json:"Arguments,omitempty"`
-	ID              string            `json:"Id"`
-	JobName         string            `json:"JobName"`
-	JobRunState     string            `json:"JobRunState"`
-	ErrorMessage    string            `json:"ErrorMessage,omitempty"`
-	WorkerType      string            `json:"WorkerType,omitempty"`
-	GlueVersion     string            `json:"GlueVersion,omitempty"`
-	StartedOn       float64           `json:"StartedOn,omitempty"`
-	CompletedOn     float64           `json:"CompletedOn,omitempty"`
-	MaxCapacity     float64           `json:"MaxCapacity,omitempty"`
-	ExecutionTime   int               `json:"ExecutionTime,omitempty"`
-	NumberOfWorkers int               `json:"NumberOfWorkers,omitempty"`
-	Timeout         int               `json:"Timeout,omitempty"`
+	Arguments             map[string]string    `json:"Arguments,omitempty"`
+	ID                    string               `json:"Id"`
+	JobName               string               `json:"JobName"`
+	JobRunState           string               `json:"JobRunState"`
+	ErrorMessage          string               `json:"ErrorMessage,omitempty"`
+	WorkerType            string               `json:"WorkerType,omitempty"`
+	GlueVersion           string               `json:"GlueVersion,omitempty"`
+	SecurityConfiguration string               `json:"SecurityConfiguration,omitempty"`
+	StartedOn             float64              `json:"StartedOn,omitempty"`
+	CompletedOn           float64              `json:"CompletedOn,omitempty"`
+	MaxCapacity           float64              `json:"MaxCapacity,omitempty"`
+	ExecutionTime         int                  `json:"ExecutionTime,omitempty"`
+	NumberOfWorkers       int                  `json:"NumberOfWorkers,omitempty"`
+	Timeout               int                  `json:"Timeout,omitempty"`
+	NotificationProperty  NotificationProperty `json:"NotificationProperty,omitzero"`
+}
+
+// StartJobRunOptions carries the optional per-run overrides AWS's
+// StartJobRunRequest supports beyond JobName/Arguments.
+type StartJobRunOptions struct {
+	NotificationProperty  *NotificationProperty
+	WorkerType            string
+	SecurityConfiguration string
+	NumberOfWorkers       int
+	MaxCapacity           float64
+	Timeout               int
 }
 
 // JobBookmark holds the bookmark state for a job run.
@@ -339,13 +520,24 @@ type BatchStopJobRunError struct {
 
 // DataQualityRuleset represents a Glue data quality ruleset.
 type DataQualityRuleset struct {
-	Tags           map[string]string `json:"-"`
-	Name           string            `json:"Name"`
-	Ruleset        string            `json:"Ruleset,omitempty"`
-	Description    string            `json:"Description,omitempty"`
-	ARN            string            `json:"Arn,omitempty"`
-	CreatedOn      float64           `json:"CreatedOn,omitempty"`
-	LastModifiedOn float64           `json:"LastModifiedOn,omitempty"`
+	Tags                             map[string]string       `json:"-"`
+	TargetTable                      *DataQualityTargetTable `json:"TargetTable,omitempty"`
+	Name                             string                  `json:"Name"`
+	Ruleset                          string                  `json:"Ruleset,omitempty"`
+	Description                      string                  `json:"Description,omitempty"`
+	ARN                              string                  `json:"Arn,omitempty"`
+	DataQualitySecurityConfiguration string                  `json:"DataQualitySecurityConfiguration,omitempty"`
+	CreatedOn                        float64                 `json:"CreatedOn,omitempty"`
+	LastModifiedOn                   float64                 `json:"LastModifiedOn,omitempty"`
+}
+
+// DataQualityTargetTable identifies the Glue table a data quality ruleset
+// applies to, mirroring
+// aws-sdk-go-v2/service/glue/types.DataQualityTargetTable.
+type DataQualityTargetTable struct {
+	TableName    string `json:"TableName"`
+	DatabaseName string `json:"DatabaseName"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 // DataQualityEvaluationRun represents a data quality ruleset evaluation run.
@@ -365,11 +557,16 @@ type DataQualityEvaluationRun struct {
 // letting the Glue handler pass through Schedule, Classifiers, Configuration,
 // TablePrefix and Description.
 type CrawlerOptions struct {
-	Description   string
-	Schedule      string // cron expression; empty means on-demand (no schedule)
-	Configuration string
-	TablePrefix   string
-	Classifiers   []string
+	SchemaChangePolicy           *SchemaChangePolicy
+	RecrawlPolicy                *RecrawlPolicy
+	LineageConfiguration         *LineageConfiguration
+	LakeFormationConfiguration   *LakeFormationConfiguration
+	Description                  string
+	Schedule                     string
+	Configuration                string
+	TablePrefix                  string
+	CrawlerSecurityConfiguration string
+	Classifiers                  []string
 }
 
 // UsageProfile represents a Glue usage profile.
@@ -383,19 +580,19 @@ type UsageProfile struct {
 
 // BlueprintRun represents a single execution of a Glue blueprint.
 type BlueprintRun struct {
-	StartedOn     time.Time `json:"StartedOn"`
-	BlueprintName string    `json:"BlueprintName"`
-	RunID         string    `json:"RunId"`
-	WorkflowName  string    `json:"WorkflowName"`
-	State         string    `json:"State"`
+	BlueprintName string  `json:"BlueprintName"`
+	RunID         string  `json:"RunId"`
+	WorkflowName  string  `json:"WorkflowName"`
+	State         string  `json:"State"`
+	StartedOn     float64 `json:"StartedOn,omitempty"`
 }
 
 // DQRuleRecommendationRun represents a data quality rule recommendation run.
 type DQRuleRecommendationRun struct {
-	StartedOn           time.Time `json:"StartedOn"`
-	RecommendationRunID string    `json:"RecommendationRunId"`
-	DataSourceS3Path    string    `json:"DataSourceS3Path,omitempty"`
-	Status              string    `json:"Status"`
+	RecommendationRunID string  `json:"RecommendationRunId"`
+	DataSourceS3Path    string  `json:"DataSourceS3Path,omitempty"`
+	Status              string  `json:"Status"`
+	StartedOn           float64 `json:"StartedOn,omitempty"`
 }
 
 // ColumnStatisticsTaskSettings represents column statistics task settings.
@@ -409,20 +606,20 @@ type ColumnStatisticsTaskSettings struct {
 
 // ColumnStatisticsTaskRun represents a column statistics task run.
 type ColumnStatisticsTaskRun struct {
-	StartedOn                 time.Time `json:"StartedOn"`
-	DatabaseName              string    `json:"DatabaseName"`
-	TableName                 string    `json:"TableName"`
-	ColumnStatisticsTaskRunID string    `json:"ColumnStatisticsTaskRunId"`
-	Status                    string    `json:"Status"`
+	DatabaseName              string  `json:"DatabaseName"`
+	TableName                 string  `json:"TableName"`
+	ColumnStatisticsTaskRunID string  `json:"ColumnStatisticsTaskRunId"`
+	Status                    string  `json:"Status"`
+	StartedOn                 float64 `json:"StartedOn,omitempty"`
 }
 
 // MaterializedViewRefreshRun represents a materialized view refresh task run.
 type MaterializedViewRefreshRun struct {
-	StartedOn    time.Time `json:"StartedOn"`
-	DatabaseName string    `json:"DatabaseName"`
-	TableName    string    `json:"TableName"`
-	TaskRunID    string    `json:"TaskRunId"`
-	Status       string    `json:"Status"`
+	DatabaseName string  `json:"DatabaseName"`
+	TableName    string  `json:"TableName"`
+	TaskRunID    string  `json:"TaskRunId"`
+	Status       string  `json:"Status"`
+	StartedOn    float64 `json:"StartedOn,omitempty"`
 }
 
 // Integration represents a Glue integration.
@@ -511,7 +708,9 @@ type UserDefinedFunction struct {
 	ClassName    string        `json:"ClassName,omitempty"`
 	OwnerName    string        `json:"OwnerName,omitempty"`
 	OwnerType    string        `json:"OwnerType,omitempty"`
-	FunctionARN  string        `json:"FunctionArn,omitempty"`
+	FunctionType string        `json:"FunctionType,omitempty"`
+	CatalogID    string        `json:"CatalogId,omitempty"`
+	FunctionARN  string        `json:"-"`
 	ResourceURIs []ResourceURI `json:"ResourceUris,omitempty"`
 	CreateTime   float64       `json:"CreateTime,omitempty"`
 }
@@ -520,7 +719,15 @@ type UserDefinedFunction struct {
 type EncryptionConfiguration struct {
 	CloudWatchEncryption   *CloudWatchEncryption   `json:"CloudWatchEncryption,omitempty"`
 	JobBookmarksEncryption *JobBookmarksEncryption `json:"JobBookmarksEncryption,omitempty"`
+	DataQualityEncryption  *DataQualityEncryption  `json:"DataQualityEncryption,omitempty"`
 	S3Encryption           []S3EncryptionEntry     `json:"S3Encryption,omitempty"`
+}
+
+// DataQualityEncryption holds Glue Data Quality asset encryption settings,
+// mirroring aws-sdk-go-v2/service/glue/types.DataQualityEncryption.
+type DataQualityEncryption struct {
+	DataQualityEncryptionMode string `json:"DataQualityEncryptionMode,omitempty"`
+	KMSKeyARN                 string `json:"KmsKeyArn,omitempty"`
 }
 
 // S3EncryptionEntry holds per-S3-bucket encryption config.
@@ -644,10 +851,11 @@ type ColumnStatistics struct {
 }
 
 type resourcePolicyEntry struct {
-	Policy     string  `json:"Policy"`
-	Hash       string  `json:"Hash"`
-	CreateTime float64 `json:"CreateTime,omitempty"`
-	UpdateTime float64 `json:"UpdateTime,omitempty"`
+	Policy       string  `json:"Policy"`
+	Hash         string  `json:"Hash"`
+	EnableHybrid string  `json:"EnableHybrid,omitempty"`
+	CreateTime   float64 `json:"CreateTime,omitempty"`
+	UpdateTime   float64 `json:"UpdateTime,omitempty"`
 }
 
 // MLTransformParameter holds transform hyperparameters.
@@ -666,19 +874,59 @@ type GlueTable struct { //nolint:revive // GlueTable is distinct from Table type
 
 // MLTransform represents an AWS Glue ML transform.
 type MLTransform struct {
-	Parameters        MLTransformParameter `json:"Parameters,omitzero"`
-	TransformID       string               `json:"TransformId"`
-	Name              string               `json:"Name"`
-	Description       string               `json:"Description,omitempty"`
-	Role              string               `json:"Role,omitempty"`
-	GlueVersion       string               `json:"GlueVersion,omitempty"`
-	WorkerType        string               `json:"WorkerType,omitempty"`
-	Status            string               `json:"Status"`
-	InputRecordTables []GlueTable          `json:"InputRecordTables,omitempty"`
-	MaxCapacity       float64              `json:"MaxCapacity,omitempty"`
-	CreatedOn         float64              `json:"CreatedOn,omitempty"`
-	LastModifiedOn    float64              `json:"LastModifiedOn,omitempty"`
-	NumberOfWorkers   int32                `json:"NumberOfWorkers,omitempty"`
+	Parameters          MLTransformParameter `json:"Parameters,omitzero"`
+	TransformEncryption *TransformEncryption `json:"TransformEncryption,omitempty"`
+	Schema              []SchemaColumnEntry  `json:"Schema,omitempty"`
+	TransformID         string               `json:"TransformId"`
+	Name                string               `json:"Name"`
+	Description         string               `json:"Description,omitempty"`
+	Role                string               `json:"Role,omitempty"`
+	GlueVersion         string               `json:"GlueVersion,omitempty"`
+	WorkerType          string               `json:"WorkerType,omitempty"`
+	Status              string               `json:"Status"`
+	InputRecordTables   []GlueTable          `json:"InputRecordTables,omitempty"`
+	MaxCapacity         float64              `json:"MaxCapacity,omitempty"`
+	CreatedOn           float64              `json:"CreatedOn,omitempty"`
+	LastModifiedOn      float64              `json:"LastModifiedOn,omitempty"`
+	NumberOfWorkers     int32                `json:"NumberOfWorkers,omitempty"`
+	MaxRetries          int                  `json:"MaxRetries,omitempty"`
+	Timeout             int                  `json:"Timeout,omitempty"`
+	LabelCount          int                  `json:"LabelCount,omitempty"`
+}
+
+// SchemaColumnEntry is a column name/data-type pair describing an MLTransform's
+// input schema, mirroring aws-sdk-go-v2/service/glue/types.SchemaColumn.
+type SchemaColumnEntry struct {
+	Name     string `json:"Name,omitempty"`
+	DataType string `json:"DataType,omitempty"`
+}
+
+// TransformEncryption specifies the encryption settings for an MLTransform's
+// task runs, mirroring aws-sdk-go-v2/service/glue/types.TransformEncryption.
+type TransformEncryption struct {
+	MLUserDataEncryption             *MLUserDataEncryption `json:"MlUserDataEncryption,omitempty"`
+	TaskRunSecurityConfigurationName string                `json:"TaskRunSecurityConfigurationName,omitempty"`
+}
+
+// MLUserDataEncryption specifies the encryption mode applied to an
+// MLTransform's user data, mirroring
+// aws-sdk-go-v2/service/glue/types.MLUserDataEncryption.
+type MLUserDataEncryption struct {
+	MLUserDataEncryptionMode string `json:"MlUserDataEncryptionMode"`
+	KMSKeyID                 string `json:"KmsKeyId,omitempty"`
+}
+
+// MLTransformOptions carries the optional CreateMLTransform settings beyond
+// Name/Description/Role/InputRecordTables/Parameters/Tags.
+type MLTransformOptions struct {
+	TransformEncryption *TransformEncryption
+	GlueVersion         string
+	WorkerType          string
+	Schema              []SchemaColumnEntry
+	MaxCapacity         float64
+	MaxRetries          int
+	Timeout             int
+	NumberOfWorkers     int32
 }
 
 // CatalogEntry represents a named AWS Glue catalog.
@@ -781,9 +1029,12 @@ type CrawlerMetrics struct {
 // TriggerAction represents an action for a Glue trigger. An action fires either a
 // job (JobName) or a crawler (CrawlerName) — real AWS triggers support both.
 type TriggerAction struct {
-	Arguments   map[string]string `json:"Arguments,omitempty"`
-	JobName     string            `json:"JobName,omitempty"`
-	CrawlerName string            `json:"CrawlerName,omitempty"`
+	Arguments             map[string]string     `json:"Arguments,omitempty"`
+	NotificationProperty  *NotificationProperty `json:"NotificationProperty,omitempty"`
+	JobName               string                `json:"JobName,omitempty"`
+	CrawlerName           string                `json:"CrawlerName,omitempty"`
+	SecurityConfiguration string                `json:"SecurityConfiguration,omitempty"`
+	Timeout               int                   `json:"Timeout,omitempty"`
 }
 
 // TriggerPredicate represents a predicate for a conditional trigger.
@@ -795,20 +1046,33 @@ type TriggerPredicate struct {
 // TriggerCondition represents a condition within a trigger predicate.
 type TriggerCondition struct {
 	JobName         string `json:"JobName,omitempty"`
+	CrawlerName     string `json:"CrawlerName,omitempty"`
+	CrawlState      string `json:"CrawlState,omitempty"`
 	LogicalOperator string `json:"LogicalOperator,omitempty"`
 	State           string `json:"State,omitempty"`
 }
 
+// TriggerEventBatchingCondition specifies EventBridge event-batching settings
+// for an EVENT-type trigger, mirroring
+// aws-sdk-go-v2/service/glue/types.EventBatchingCondition.
+type TriggerEventBatchingCondition struct {
+	BatchSize   int `json:"BatchSize"`
+	BatchWindow int `json:"BatchWindow,omitempty"`
+}
+
 // Trigger represents a Glue trigger.
 type Trigger struct {
-	Tags      map[string]string `json:"-"`
-	Predicate *TriggerPredicate `json:"Predicate,omitempty"`
-	ARN       string            `json:"Arn,omitempty"`
-	Name      string            `json:"Name"`
-	Type      string            `json:"Type,omitempty"`
-	State     string            `json:"State,omitempty"`
-	Schedule  string            `json:"Schedule,omitempty"`
-	Actions   []TriggerAction   `json:"Actions,omitempty"`
+	Tags                   map[string]string              `json:"-"`
+	Predicate              *TriggerPredicate              `json:"Predicate,omitempty"`
+	EventBatchingCondition *TriggerEventBatchingCondition `json:"EventBatchingCondition,omitempty"`
+	ARN                    string                         `json:"Arn,omitempty"`
+	Name                   string                         `json:"Name"`
+	Type                   string                         `json:"Type,omitempty"`
+	State                  string                         `json:"State,omitempty"`
+	Schedule               string                         `json:"Schedule,omitempty"`
+	Description            string                         `json:"Description,omitempty"`
+	WorkflowName           string                         `json:"WorkflowName,omitempty"`
+	Actions                []TriggerAction                `json:"Actions,omitempty"`
 	// StartOnCreation mirrors CreateTriggerInput.StartOnCreation: when true, a
 	// SCHEDULED or CONDITIONAL trigger is activated immediately on creation. It is
 	// not part of the Trigger wire shape itself (hence json:"-"), only of the
@@ -825,6 +1089,7 @@ type Workflow struct {
 	ARN                  string            `json:"Arn,omitempty"`
 	CreatedOn            float64           `json:"CreatedOn,omitempty"`
 	LastModifiedOn       float64           `json:"LastModifiedOn,omitempty"`
+	MaxConcurrentRuns    int               `json:"MaxConcurrentRuns,omitempty"`
 }
 
 // WorkflowRun represents a single run of a Glue workflow.

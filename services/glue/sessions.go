@@ -98,7 +98,7 @@ func (b *InMemoryBackend) StopSession(id string) error {
 	if !ok {
 		return fmt.Errorf("session %q not found: %w", id, ErrNotFound)
 	}
-	s.Status = "STOPPING"
+	s.Status = stateStopping
 
 	return nil
 }
