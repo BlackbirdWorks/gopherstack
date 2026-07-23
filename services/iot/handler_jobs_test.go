@@ -38,6 +38,34 @@ func TestJobExecutions(t *testing.T) {
 	}
 }
 
+// TestDescribeJob_WireShape verifies DescribeJob's response matches real AWS
+// IoT: documentSource is a top-level field (not nested inside "job"), and
+// the nested "job" object has no "document"/"documentSource"/"tags" fields
+// at all -- aws-sdk-go-v2/service/iot/types.Job (v1.76.0) has none of the
+// three. A previous version of this backend echoed all three back inside
+// "job", which real AWS never does (document is only retrievable via
+// GetJobDocument).
+func TestDescribeJob_WireShape(t *testing.T) {
+	t.Parallel()
+	h := newIoTHandler(t)
+
+	iotOK(t, h, http.MethodPost, "/jobs/wire-shape-job", map[string]any{
+		"targets":        []any{"arn:aws:iot:us-east-1:000000000000:thing/my-thing"},
+		"document":       `{"action":"update"}`,
+		"documentSource": "s3://bucket/key",
+	})
+
+	out := iotOK(t, h, http.MethodGet, "/jobs/wire-shape-job", nil)
+	assert.Equal(t, "s3://bucket/key", out["documentSource"], "documentSource must be a top-level field")
+
+	job, ok := out["job"].(map[string]any)
+	require.True(t, ok, "expected nested job object, got %v", out["job"])
+	assert.Equal(t, "wire-shape-job", job["jobId"])
+	assert.NotContains(t, job, "document", "real AWS Job has no document field")
+	assert.NotContains(t, job, "documentSource", "real AWS Job has no documentSource field")
+	assert.NotContains(t, job, "tags", "real AWS Job has no tags field")
+}
+
 func TestBackend_DescribeManagedJobTemplate(t *testing.T) {
 	t.Parallel()
 

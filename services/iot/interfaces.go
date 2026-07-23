@@ -304,8 +304,8 @@ type StorageBackend interface {
 
 	// Batch 3: Keys and certs.
 	CreateKeysAndCertificate(setAsActive bool) (*Certificate, string, string, error)
-	TransferCertificate(certID, targetAccount string) error
-	RejectCertificateTransfer(certID string) error
+	TransferCertificate(certID, targetAccount, transferMessage string) error
+	RejectCertificateTransfer(certID, rejectReason string) error
 
 	// Batch 3: Event configurations.
 	DescribeEventConfigurations() *EventConfigurations

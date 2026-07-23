@@ -18,6 +18,14 @@ func TestSecurityProfileTargets(t *testing.T) {
 	profileName := "test-profile"
 	targetARN := "arn:aws:iot:us-east-1:000000000000:thinggroup/my-group"
 
+	// AttachSecurityProfile requires the security profile to already exist
+	// (real AWS IoT returns ResourceNotFoundException otherwise).
+	if _, err := b.CreateSecurityProfile(&iot.CreateSecurityProfileInput{
+		SecurityProfileName: profileName,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	// Attach via backend directly (AttachSecurityProfile already implemented)
 	if err := b.AttachSecurityProfile(&iot.AttachSecurityProfileInput{
 		SecurityProfileName:      profileName,

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 func resolveThingGroupOps(path, method string) string {
@@ -158,7 +160,7 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 			"attributePayload":      map[string]any{keyAttributes: tg.Attributes},
 		},
 		"thingGroupMetadata": map[string]any{
-			keyCreationDate:   tg.CreatedAt,
+			keyCreationDate:   awstime.Epoch(tg.CreatedAt),
 			"parentGroupName": tg.ParentGroupName,
 		},
 	})

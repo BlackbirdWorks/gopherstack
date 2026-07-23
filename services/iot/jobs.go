@@ -9,12 +9,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// AssociateTargetsWithJob associates targets with a continuous job.
+// AssociateTargetsWithJob associates targets with a continuous job. Real AWS
+// IoT returns ResourceNotFoundException for an unknown job ID.
 func (b *InMemoryBackend) AssociateTargetsWithJob(
 	input *AssociateTargetsWithJobInput,
 ) (*AssociateTargetsWithJobOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if !b.jobs.Has(input.JobID) {
+		return nil, fmt.Errorf("job %q not found: %w", input.JobID, ErrResourceNotFound)
+	}
 
 	b.jobTargets[input.JobID] = append(b.jobTargets[input.JobID], input.Targets...)
 
@@ -108,8 +113,19 @@ type TimeoutConfig struct {
 }
 
 // Job represents an IoT job.
+//
+// Tags, Document, and DocumentSource are internal-only (json:"-"): real AWS
+// IoT's Job shape (aws-sdk-go-v2/service/iot/types.Job, verified against
+// awsRestjson1_deserializeDocumentJob in v1.76.0) has none of these three
+// fields -- tags are a separate ListTagsForResource concept, the job
+// document is only returned via GetJobDocument, and documentSource is a
+// top-level DescribeJobOutput field, not part of the nested Job object. They
+// stay on this struct purely as backend storage (Document for
+// GetJobDocument, DocumentSource for the DescribeJobOutput top-level field,
+// Tags for future TagResource wiring) but must never leak into a JSON
+// response that embeds the whole Job struct.
 type Job struct {
-	Tags                       map[string]string           `json:"tags,omitempty"`
+	Tags                       map[string]string           `json:"-"`
 	DocumentParameters         map[string]string           `json:"documentParameters,omitempty"`
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
@@ -117,8 +133,8 @@ type Job struct {
 	JobID                      string                      `json:"jobId"`
 	JobARN                     string                      `json:"jobArn"`
 	Description                string                      `json:"description,omitempty"`
-	Document                   string                      `json:"document,omitempty"`
-	DocumentSource             string                      `json:"documentSource,omitempty"`
+	Document                   string                      `json:"-"`
+	DocumentSource             string                      `json:"-"`
 	JobTemplateARN             string                      `json:"jobTemplateArn,omitempty"`
 	Status                     JobStatus                   `json:"status"`
 	TargetSelection            string                      `json:"targetSelection,omitempty"`
@@ -342,8 +358,13 @@ func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string) error {
 }
 
 // JobTemplate represents an IoT job template.
+//
+// Tags is internal-only (json:"-"): DescribeJobTemplateOutput (verified
+// against awsRestjson1_deserializeOpDocumentDescribeJobTemplateOutput in
+// aws-sdk-go-v2/service/iot@v1.76.0) has no "tags" field -- tags are a
+// separate ListTagsForResource concept.
 type JobTemplate struct {
-	Tags                       map[string]string           `json:"tags,omitempty"`
+	Tags                       map[string]string           `json:"-"`
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
 	TimeoutConfig              *TimeoutConfig              `json:"timeoutConfig,omitempty"`

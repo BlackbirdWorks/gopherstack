@@ -272,12 +272,12 @@ func (h *Handler) handleListProvisioningTemplates(c *echo.Context) error {
 	summaries := make([]map[string]any, len(templates))
 	for i, pt := range templates {
 		summaries[i] = map[string]any{
-			"templateArn":      pt.TemplateARN,
-			keyTemplateName:    pt.TemplateName,
-			keyDescription:     pt.Description,
-			"enabled":          pt.Enabled,
-			"creationDate":     pt.CreationDate,
-			"lastModifiedDate": pt.LastModifiedDate,
+			"templateArn":       pt.TemplateARN,
+			keyTemplateName:     pt.TemplateName,
+			keyDescription:      pt.Description,
+			"enabled":           pt.Enabled,
+			keyCreationDate:     pt.CreationDate,
+			keyLastModifiedDate: pt.LastModifiedDate,
 		}
 	}
 

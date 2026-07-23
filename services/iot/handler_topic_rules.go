@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 func resolveTopicRuleDestinationOps(path, method string) string {
@@ -136,7 +138,7 @@ func (h *Handler) handleGetTopicRule(c *echo.Context) error {
 			keyDescription:     r.Description,
 			"actions":          r.Actions,
 			"ruleDisabled":     !r.Enabled,
-			keyCreatedAt:       r.CreatedAt,
+			keyCreatedAt:       awstime.Epoch(r.CreatedAt),
 		},
 	})
 }
@@ -161,7 +163,7 @@ func (h *Handler) handleListTopicRules(c *echo.Context) error {
 			"ruleArn":      r.ARN,
 			"sql":          r.SQL,
 			"ruleDisabled": !r.Enabled,
-			keyCreatedAt:   r.CreatedAt,
+			keyCreatedAt:   awstime.Epoch(r.CreatedAt),
 		})
 	}
 

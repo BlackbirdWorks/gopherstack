@@ -9,10 +9,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// AttachSecurityProfile attaches a security profile to a target.
+// AttachSecurityProfile attaches a security profile to a target. Real AWS
+// IoT returns ResourceNotFoundException for an unknown security profile name.
 func (b *InMemoryBackend) AttachSecurityProfile(input *AttachSecurityProfileInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if !b.securityProfiles.Has(input.SecurityProfileName) {
+		return fmt.Errorf("security profile %q not found: %w", input.SecurityProfileName, ErrResourceNotFound)
+	}
 
 	b.securityProfileTargets[input.SecurityProfileName] = appendUnique(
 		b.securityProfileTargets[input.SecurityProfileName],

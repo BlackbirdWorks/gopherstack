@@ -109,8 +109,22 @@ func TestDeviceDefender_AuditMitigationTaskLifecycle(t *testing.T) {
 		t.Errorf("expected taskStatus=CANCELED after cancel, got %v", describeAfterCancel)
 	}
 
-	// Cancelling an unknown task ID stays a no-op success (legacy behavior).
-	iotOK(t, h, http.MethodPut, "/audit/mitigationactions/tasks/unknown-task/cancel", nil)
+	// Cancelling an unknown task ID returns ResourceNotFoundException,
+	// matching real AWS IoT (see gopherstack-ep0r: this backend previously
+	// let unknown task IDs succeed as a silent no-op).
+	unknownRec := doRefRequest(t, h, http.MethodPut, "/audit/mitigationactions/tasks/unknown-task/cancel", nil, nil)
+	if unknownRec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 ResourceNotFoundException cancelling unknown task, got %d: %s",
+			unknownRec.Code, unknownRec.Body.String())
+	}
+
+	// Cancelling an already-CANCELED task returns InvalidRequestException
+	// (not in progress).
+	recanceled := doRefRequest(t, h, http.MethodPut, "/audit/mitigationactions/tasks/task-1/cancel", nil, nil)
+	if recanceled.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 InvalidRequestException re-cancelling task-1, got %d: %s",
+			recanceled.Code, recanceled.Body.String())
+	}
 }
 
 // TestDeviceDefender_DetectMitigationTaskLifecycle covers

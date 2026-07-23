@@ -168,8 +168,12 @@ func TestHandler_NewOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body         any
-		headers      map[string]string
+		body    any
+		headers map[string]string
+		// setup pre-seeds backend state the op needs to succeed (e.g. a
+		// referenced job/security-profile/certificate must already exist).
+		// Ops that don't validate a referenced resource leave this nil.
+		setup        func(t *testing.T, b *iot.InMemoryBackend)
 		name         string
 		method       string
 		path         string
@@ -178,10 +182,19 @@ func TestHandler_NewOperations(t *testing.T) {
 		wantStatus   int
 	}{
 		{
-			name:         "AcceptCertificateTransfer",
-			method:       http.MethodPatch,
-			path:         "/accept-certificate-transfer/cert-abc",
-			body:         map[string]any{"setAsActive": true},
+			name:   "AcceptCertificateTransfer",
+			method: http.MethodPatch,
+			// AcceptCertificateTransfer requires the certificate to exist and
+			// be PENDING_TRANSFER (real AWS IoT returns
+			// ResourceNotFoundException/InvalidRequestException otherwise, a
+			// gap this pass fixed -- see gopherstack-ep0r).
+			path: "/accept-certificate-transfer/cert-abc",
+			body: map[string]any{"setAsActive": true},
+			setup: func(t *testing.T, b *iot.InMemoryBackend) {
+				t.Helper()
+				b.AddCertificateInternal(iot.Certificate{CertificateID: "cert-abc", Status: "INACTIVE"})
+				require.NoError(t, b.TransferCertificate("cert-abc", "999999999999", ""))
+			},
 			wantStatus:   http.StatusOK,
 			wantOp:       "AcceptCertificateTransfer",
 			wantResource: "cert-abc",
@@ -230,10 +243,20 @@ func TestHandler_NewOperations(t *testing.T) {
 		{
 			name:   "AssociateTargetsWithJob",
 			method: http.MethodPost,
-			path:   "/jobs/job-42/targets",
+			// AssociateTargetsWithJob requires the job to already exist
+			// (gopherstack-ep0r).
+			path: "/jobs/job-42/targets",
 			body: map[string]any{
 				"targets": []string{"arn:aws:iot:us-east-1:123:thing/t1"},
 				"comment": "test",
+			},
+			setup: func(t *testing.T, b *iot.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateJob(&iot.CreateJobInput{
+					JobID:   "job-42",
+					Targets: []string{"arn:aws:iot:us-east-1:123:thing/t1"},
+				})
+				require.NoError(t, err)
 			},
 			wantStatus:   http.StatusOK,
 			wantOp:       "AssociateTargetsWithJob",
@@ -253,9 +276,16 @@ func TestHandler_NewOperations(t *testing.T) {
 		{
 			name:   "AttachSecurityProfile",
 			method: http.MethodPut,
+			// AttachSecurityProfile requires the security profile to already
+			// exist (gopherstack-ep0r).
 			path: "/security-profiles/sp-1/targets?" +
 				"securityProfileTargetArn=arn:aws:iot:us-east-1:000000000000:all/things",
-			body:         nil,
+			body: nil,
+			setup: func(t *testing.T, b *iot.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateSecurityProfile(&iot.CreateSecurityProfileInput{SecurityProfileName: "sp-1"})
+				require.NoError(t, err)
+			},
 			wantStatus:   http.StatusOK,
 			wantOp:       "AttachSecurityProfile",
 			wantResource: "sp-1",
@@ -273,19 +303,29 @@ func TestHandler_NewOperations(t *testing.T) {
 			wantResource: "my-thing",
 		},
 		{
-			name:         "CancelAuditMitigationActionsTask",
-			method:       http.MethodPut,
-			path:         "/audit/mitigationactions/tasks/task-99/cancel",
-			body:         nil,
+			name:   "CancelAuditMitigationActionsTask",
+			method: http.MethodPut,
+			// CancelAuditMitigationActionsTask requires the task to exist and
+			// be IN_PROGRESS (gopherstack-ep0r).
+			path: "/audit/mitigationactions/tasks/task-99/cancel",
+			body: nil,
+			setup: func(_ *testing.T, b *iot.InMemoryBackend) {
+				b.AddAuditMitigationTaskInternal("task-99", string(iot.JobStatusInProgress))
+			},
 			wantStatus:   http.StatusOK,
 			wantOp:       "CancelAuditMitigationActionsTask",
 			wantResource: "task-99",
 		},
 		{
-			name:         "CancelAuditTask",
-			method:       http.MethodPut,
-			path:         "/audit/tasks/audit-task-1/cancel",
-			body:         nil,
+			name:   "CancelAuditTask",
+			method: http.MethodPut,
+			// CancelAuditTask requires the task to exist and be IN_PROGRESS
+			// (gopherstack-ep0r).
+			path: "/audit/tasks/audit-task-1/cancel",
+			body: nil,
+			setup: func(_ *testing.T, b *iot.InMemoryBackend) {
+				b.AddAuditTaskInternal("audit-task-1", string(iot.JobStatusInProgress))
+			},
 			wantStatus:   http.StatusOK,
 			wantOp:       "CancelAuditTask",
 			wantResource: "audit-task-1",
@@ -299,6 +339,10 @@ func TestHandler_NewOperations(t *testing.T) {
 			e := echo.New()
 			backend := iot.NewInMemoryBackend()
 			handler := iot.NewHandler(backend, nil)
+
+			if tt.setup != nil {
+				tt.setup(t, backend)
+			}
 
 			var reqBody []byte
 			if tt.body != nil {

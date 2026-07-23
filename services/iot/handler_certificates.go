@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 func resolveCertificateOps(path, method string) string {
@@ -181,6 +183,82 @@ func (h *Handler) handleRegisterCertificateWithoutCA(c *echo.Context) error {
 	})
 }
 
+// certificateTransferData builds the DescribeCertificate "transferData"
+// sub-object. Real AWS only populates it once a transfer has been initiated
+// (TransferCertificate) and/or resolved (Accept/RejectCertificateTransfer);
+// this mock omits the field entirely (returns nil) when the certificate has
+// never been part of a transfer, matching the real API's omitted-object
+// behavior for certificates that were never transferred.
+func certificateTransferData(cert *Certificate) map[string]any {
+	if cert.TransferDate.IsZero() && cert.TransferAcceptDate.IsZero() && cert.TransferRejectDate.IsZero() {
+		return nil
+	}
+
+	data := map[string]any{}
+	if !cert.TransferDate.IsZero() {
+		data["transferDate"] = awstime.Epoch(cert.TransferDate)
+		data["transferMessage"] = cert.TransferMessage
+	}
+
+	if !cert.TransferAcceptDate.IsZero() {
+		data["acceptDate"] = awstime.Epoch(cert.TransferAcceptDate)
+	}
+
+	if !cert.TransferRejectDate.IsZero() {
+		data["rejectDate"] = awstime.Epoch(cert.TransferRejectDate)
+		data["rejectReason"] = cert.TransferRejectReason
+	}
+
+	return data
+}
+
+// certificateDescriptionFields builds the full CertificateDescription wire
+// shape returned by DescribeCertificate, field-diffed against
+// aws-sdk-go-v2/service/iot@v1.76.0's CertificateDescription (see
+// gopherstack-jy57: this previously only returned
+// certificateId/certificateArn/status/creationDate/lastModifiedDate/
+// certificatePem, and creationDate/lastModifiedDate were raw time.Time values
+// -- json.Marshal renders those as RFC3339 strings, but the real restjson1
+// deserializer requires a JSON number of epoch seconds).
+func certificateDescriptionFields(cert *Certificate) map[string]any {
+	out := map[string]any{
+		keyCertificateID:    cert.CertificateID,
+		keyCertificateArn:   cert.ARN,
+		keyStatus:           cert.Status,
+		keyCreationDate:     awstime.Epoch(cert.CreatedAt),
+		keyLastModifiedDate: awstime.Epoch(cert.LastModifiedAt),
+		"certificatePem":    cert.PEM,
+		"ownedBy":           cert.OwnedBy,
+		"certificateMode":   cert.CertificateMode,
+		"customerVersion":   cert.CustomerVersion,
+	}
+
+	if cert.CACertificateID != "" {
+		out["caCertificateId"] = cert.CACertificateID
+	}
+
+	if cert.PreviousOwnedBy != "" {
+		out["previousOwnedBy"] = cert.PreviousOwnedBy
+	}
+
+	if cert.GenerationID != "" {
+		out["generationId"] = cert.GenerationID
+	}
+
+	if !cert.ValidityNotBefore.IsZero() || !cert.ValidityNotAfter.IsZero() {
+		out["validity"] = map[string]any{
+			"notBefore": awstime.Epoch(cert.ValidityNotBefore),
+			"notAfter":  awstime.Epoch(cert.ValidityNotAfter),
+		}
+	}
+
+	if td := certificateTransferData(cert); td != nil {
+		out["transferData"] = td
+	}
+
+	return out
+}
+
 func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 	certID := strings.TrimPrefix(c.Request().URL.Path, "/certificates/")
 	cert, err := h.Backend.DescribeCertificate(certID)
@@ -189,14 +267,7 @@ func (h *Handler) handleDescribeCertificate(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"certificateDescription": map[string]any{
-			keyCertificateID:    cert.CertificateID,
-			keyCertificateArn:   cert.ARN,
-			keyStatus:           cert.Status,
-			keyCreationDate:     cert.CreatedAt,
-			keyLastModifiedDate: cert.LastModifiedAt,
-			"certificatePem":    cert.PEM,
-		},
+		"certificateDescription": certificateDescriptionFields(cert),
 	})
 }
 
@@ -205,12 +276,15 @@ func (h *Handler) handleListCertificates(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(certs))
 
 	for _, cert := range certs {
+		// ListCertificates returns the lighter-weight Certificate shape (not
+		// CertificateDescription): certificateArn, certificateId,
+		// certificateMode, creationDate, status -- no lastModifiedDate.
 		out = append(out, map[string]any{
-			keyCertificateID:    cert.CertificateID,
-			keyCertificateArn:   cert.ARN,
-			keyStatus:           cert.Status,
-			keyCreationDate:     cert.CreatedAt,
-			keyLastModifiedDate: cert.LastModifiedAt,
+			keyCertificateID:  cert.CertificateID,
+			keyCertificateArn: cert.ARN,
+			keyStatus:         cert.Status,
+			keyCreationDate:   awstime.Epoch(cert.CreatedAt),
+			"certificateMode": cert.CertificateMode,
 		})
 	}
 
@@ -279,8 +353,8 @@ func (h *Handler) handleDescribeCertificateProvider(c *echo.Context) error {
 		keyCertificateProviderArn:     cp.ARN,
 		"lambdaFunctionArn":           cp.LambdaFunctionARN,
 		"accountDefaultForOperations": cp.AccountDefaultForOperations,
-		keyCreationDate:               cp.CreatedAt,
-		keyLastModifiedDate:           cp.LastModifiedAt,
+		keyCreationDate:               awstime.Epoch(cp.CreatedAt),
+		keyLastModifiedDate:           awstime.Epoch(cp.LastModifiedAt),
 	})
 }
 
@@ -510,12 +584,19 @@ func (h *Handler) handleTransferCertificate(c *echo.Context) error {
 	certID := strings.TrimSuffix(trimmed, "/transfer")
 	targetAccount := c.Request().URL.Query().Get("targetAwsAccount")
 
+	var body struct {
+		TransferMessage string `json:"transferMessage"`
+	}
+	if err := readBody(c, &body); err != nil {
+		return err
+	}
+
 	cert, lookupErr := h.Backend.DescribeCertificate(certID)
 	if lookupErr != nil {
 		return h.handleError(c, lookupErr)
 	}
 
-	if transferErr := h.Backend.TransferCertificate(certID, targetAccount); transferErr != nil {
+	if transferErr := h.Backend.TransferCertificate(certID, targetAccount, body.TransferMessage); transferErr != nil {
 		return respondErr(c, transferErr)
 	}
 
@@ -525,7 +606,15 @@ func (h *Handler) handleTransferCertificate(c *echo.Context) error {
 func (h *Handler) handleRejectCertificateTransfer(c *echo.Context) error {
 	// PATCH /reject-certificate-transfer/{certId}
 	certID := strings.TrimPrefix(c.Request().URL.Path, "/reject-certificate-transfer/")
-	if err := h.Backend.RejectCertificateTransfer(certID); err != nil {
+
+	var body struct {
+		RejectReason string `json:"rejectReason"`
+	}
+	if err := readBody(c, &body); err != nil {
+		return err
+	}
+
+	if err := h.Backend.RejectCertificateTransfer(certID, body.RejectReason); err != nil {
 		return respondErr(c, err)
 	}
 

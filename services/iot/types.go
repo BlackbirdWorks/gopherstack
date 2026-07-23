@@ -276,14 +276,34 @@ type ThingGroup struct {
 }
 
 // Certificate represents an AWS IoT Certificate.
+//
+// The Owned/PreviousOwnedBy/Transfer* fields model the cross-account transfer
+// lifecycle (TransferCertificate/AcceptCertificateTransfer/
+// CancelCertificateTransfer/RejectCertificateTransfer) so DescribeCertificate
+// can surface real ownedBy/previousOwnedBy/transferData, matching the real
+// CertificateDescription shape instead of only tracking pending transfers in
+// a side map.
 type Certificate struct {
-	CreatedAt       time.Time `json:"createdAt"`
-	LastModifiedAt  time.Time `json:"lastModifiedDate"`
-	CertificateID   string    `json:"certificateId"`
-	CACertificateID string    `json:"caCertificateId,omitempty"`
-	ARN             string    `json:"certificateArn"`
-	Status          string    `json:"status"`
-	PEM             string    `json:"certificatePem"`
+	CreatedAt            time.Time `json:"createdAt"`
+	LastModifiedAt       time.Time `json:"lastModifiedDate"`
+	ValidityNotBefore    time.Time `json:"validityNotBefore"`
+	ValidityNotAfter     time.Time `json:"validityNotAfter"`
+	TransferDate         time.Time `json:"transferDate"`
+	TransferAcceptDate   time.Time `json:"transferAcceptDate"`
+	TransferRejectDate   time.Time `json:"transferRejectDate"`
+	CertificateID        string    `json:"certificateId"`
+	CACertificateID      string    `json:"caCertificateId,omitempty"`
+	ARN                  string    `json:"certificateArn"`
+	Status               string    `json:"status"`
+	PEM                  string    `json:"certificatePem"`
+	OwnedBy              string    `json:"ownedBy,omitempty"`
+	PreviousOwnedBy      string    `json:"previousOwnedBy,omitempty"`
+	GenerationID         string    `json:"generationId,omitempty"`
+	CertificateMode      string    `json:"certificateMode,omitempty"`
+	TransferredTo        string    `json:"transferredTo,omitempty"`
+	TransferMessage      string    `json:"transferMessage,omitempty"`
+	TransferRejectReason string    `json:"transferRejectReason,omitempty"`
+	CustomerVersion      int32     `json:"customerVersion,omitempty"`
 }
 
 // PolicyVersion represents a version of an AWS IoT policy.
@@ -291,6 +311,7 @@ type PolicyVersion struct {
 	CreatedAt        time.Time `json:"createDate"`
 	VersionID        string    `json:"versionId"`
 	PolicyDocument   string    `json:"policyDocument"`
+	GenerationID     string    `json:"generationId,omitempty"`
 	IsDefaultVersion bool      `json:"isDefaultVersion"`
 }
 

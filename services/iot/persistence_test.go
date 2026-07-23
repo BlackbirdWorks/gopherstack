@@ -967,9 +967,12 @@ func TestPersistenceWithAssociations(t *testing.T) {
 				ThingName:      "t1",
 				ThingGroupName: "g1",
 			}))
-			require.NoError(t, b1.AcceptCertificateTransfer(&iot.AcceptCertificateTransferInput{
-				CertificateID: "cert-abc",
-			}))
+
+			// A pending certificate transfer (TransferCertificate, not yet
+			// accepted/rejected) must survive Snapshot/Restore.
+			cert, err := b1.RegisterCertificate(&iot.RegisterCertificateInput{Status: "ACTIVE"})
+			require.NoError(t, err)
+			require.NoError(t, b1.TransferCertificate(cert.CertificateID, "999999999999", ""))
 
 			snap := b1.Snapshot(t.Context())
 			require.NotNil(t, snap)

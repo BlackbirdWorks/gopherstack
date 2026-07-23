@@ -188,7 +188,14 @@ func (h *Handler) handleDescribeJob(c *echo.Context) error {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"job": job})
+	// Real DescribeJobOutput duplicates documentSource at the top level in
+	// addition to inside the nested "job" object (verified against
+	// awsRestjson1_deserializeOpDocumentDescribeJobOutput in
+	// aws-sdk-go-v2/service/iot@v1.76.0).
+	return c.JSON(http.StatusOK, map[string]any{
+		"job":            job,
+		"documentSource": job.DocumentSource,
+	})
 }
 
 func (h *Handler) handleListJobs(c *echo.Context) error {

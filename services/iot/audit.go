@@ -10,17 +10,50 @@ import (
 	"github.com/google/uuid"
 )
 
+// AddAuditTaskInternal seeds an audit task status with a caller-chosen ID
+// directly into the backend for testing (mirrors AddThingInternal).
+// StartOnDemandAuditTask always generates a random ID, so tests that need a
+// deterministic task ID use this instead.
+func (b *InMemoryBackend) AddAuditTaskInternal(taskID, status string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.auditTasks[taskID] = status
+}
+
+// AddAuditMitigationTaskInternal seeds an audit mitigation actions task
+// status with a caller-chosen ID directly into the backend for testing
+// (mirrors AddThingInternal). StartAuditMitigationActionsTask always
+// generates a random ID, so tests that need a deterministic task ID use this
+// instead.
+func (b *InMemoryBackend) AddAuditMitigationTaskInternal(taskID, status string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.auditMitigationTasks[taskID] = status
+}
+
 // CancelAuditMitigationActionsTask cancels an audit mitigation actions task.
-// Unknown task IDs still succeed (matching the legacy behavior of this
-// operation) but, when the task is known, its rich AuditMitigationTask record
-// (as returned by DescribeAuditMitigationActionsTask) is transitioned to
+// Real AWS IoT returns ResourceNotFoundException for an unknown task ID and
+// InvalidRequestException if the task is known but not in progress; when the
+// task is known and in progress, its rich AuditMitigationTask record (as
+// returned by DescribeAuditMitigationActionsTask) is transitioned to
 // CANCELED with an end time, keeping the two representations consistent.
 func (b *InMemoryBackend) CancelAuditMitigationActionsTask(input *CancelAuditMitigationActionsTaskInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	status, ok := b.auditMitigationTasks[input.TaskID]
+	if !ok {
+		return fmt.Errorf("%w: audit mitigation actions task %q", ErrResourceNotFound, input.TaskID)
+	}
+
+	if status != string(JobStatusInProgress) {
+		return fmt.Errorf("%w: audit mitigation actions task %q is not in progress", ErrValidation, input.TaskID)
+	}
+
 	b.auditMitigationTasks[input.TaskID] = string(JobStatusCanceled)
-	if t, ok := b.auditMitigationTaskObjects.Get(input.TaskID); ok {
+	if t, found := b.auditMitigationTaskObjects.Get(input.TaskID); found {
 		t.TaskStatus = string(JobStatusCanceled)
 		t.EndTime = float64(time.Now().Unix())
 	}
@@ -28,10 +61,21 @@ func (b *InMemoryBackend) CancelAuditMitigationActionsTask(input *CancelAuditMit
 	return nil
 }
 
-// CancelAuditTask cancels an audit task.
+// CancelAuditTask cancels an in-progress audit task. Real AWS IoT returns
+// ResourceNotFoundException for an unknown task ID and InvalidRequestException
+// if the task is known but not in progress.
 func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	status, ok := b.auditTasks[input.AuditTaskID]
+	if !ok {
+		return fmt.Errorf("%w: audit task %q", ErrResourceNotFound, input.AuditTaskID)
+	}
+
+	if status != string(JobStatusInProgress) {
+		return fmt.Errorf("%w: audit task %q is not in progress", ErrValidation, input.AuditTaskID)
+	}
 
 	b.auditTasks[input.AuditTaskID] = "CANCELED"
 
