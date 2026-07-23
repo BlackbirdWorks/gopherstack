@@ -192,6 +192,40 @@ func TestQuickSight_DataSets(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
+			name:   "UpdateDataSet on SPICE dataset reports new IngestionArn/IngestionId",
+			method: http.MethodPut,
+			path:   accountPath("/data-sets/set-spice-update"),
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
+					"DataSetId": "set-spice-update", "Name": "x", "ImportMode": "SPICE",
+				})
+			},
+			body:     map[string]any{"Name": "renamed", "ImportMode": "SPICE"},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				assert.NotEmpty(t, body["IngestionArn"])
+				assert.NotEmpty(t, body["IngestionId"])
+			},
+		},
+		{
+			name:   "UpdateDataSet on DIRECT_QUERY dataset omits IngestionArn/IngestionId",
+			method: http.MethodPut,
+			path:   accountPath("/data-sets/set-dq-update"),
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
+					"DataSetId": "set-dq-update", "Name": "x", "ImportMode": "DIRECT_QUERY",
+				})
+			},
+			body:     map[string]any{"Name": "renamed", "ImportMode": "DIRECT_QUERY"},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				assert.NotContains(t, body, "IngestionArn")
+				assert.NotContains(t, body, "IngestionId")
+			},
+		},
+		{
 			name:   "ListDataSets returns datasets",
 			method: http.MethodGet,
 			path:   accountPath("/data-sets"),
@@ -304,6 +338,21 @@ func TestQuickSight_Ingestions(t *testing.T) {
 			},
 		},
 		{
+			name:   "CancelIngestion on already-CANCELLED ingestion returns 409",
+			method: http.MethodDelete,
+			path:   accountPath("/data-sets/dset-cancel-twice/ingestions/ing1"),
+			setup: func(h *quicksight.Handler) {
+				createDataSet(h, "dset-cancel-twice")
+				doRequest(t, h, http.MethodPut, accountPath("/data-sets/dset-cancel-twice/ingestions/ing1"), nil)
+				doRequest(t, h, http.MethodDelete, accountPath("/data-sets/dset-cancel-twice/ingestions/ing1"), nil)
+			},
+			wantCode: http.StatusConflict,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				assert.Equal(t, "ConflictException", body["Code"])
+			},
+		},
+		{
 			name:   "ListIngestions returns ingestions for dataset",
 			method: http.MethodGet,
 			path:   accountPath("/data-sets/dset5/ingestions"),
@@ -340,4 +389,52 @@ func TestQuickSight_Ingestions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestQuickSight_CancelIngestion_CompletedAutoIngestion locks the fix for
+// the gap noted in PARITY.md: CancelIngestion used to unconditionally
+// overwrite IngestionStatus to CANCELLED even for an ingestion already in a
+// terminal state. Here the terminal-state ingestion under test is the
+// COMPLETED auto-ingestion CreateDataSet triggers for a SPICE dataset (see
+// TestQuickSight_DataSets/CreateDataSet), which real AWS also would refuse
+// to cancel.
+func TestQuickSight_CancelIngestion_CompletedAutoIngestion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, http.MethodPost, accountPath("/data-sets"), map[string]any{
+		"DataSetId": "dset-completed", "Name": "x", "ImportMode": "SPICE",
+	})
+	require.Equal(t, http.StatusCreated, createRec.Code)
+	createBody := parseBody(t, createRec)
+	ingestionID, ok := createBody["IngestionId"].(string)
+	require.True(t, ok, "CreateDataSet response missing IngestionId for a SPICE dataset")
+	require.NotEmpty(t, ingestionID)
+
+	describeRec := doRequest(
+		t, h, http.MethodGet, accountPath("/data-sets/dset-completed/ingestions/"+ingestionID), nil,
+	)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	describeBody := parseBody(t, describeRec)
+	ing, ok := describeBody["Ingestion"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "COMPLETED", ing["IngestionStatus"])
+
+	cancelRec := doRequest(
+		t, h, http.MethodDelete, accountPath("/data-sets/dset-completed/ingestions/"+ingestionID), nil,
+	)
+	assert.Equal(t, http.StatusConflict, cancelRec.Code)
+	cancelBody := parseBody(t, cancelRec)
+	assert.Equal(t, "ConflictException", cancelBody["Code"])
+
+	// The ingestion's status must remain COMPLETED -- the rejected cancel
+	// must not have mutated it.
+	describeAgainRec := doRequest(
+		t, h, http.MethodGet, accountPath("/data-sets/dset-completed/ingestions/"+ingestionID), nil,
+	)
+	require.Equal(t, http.StatusOK, describeAgainRec.Code)
+	ingAgain, ok := parseBody(t, describeAgainRec)["Ingestion"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "COMPLETED", ingAgain["IngestionStatus"])
 }

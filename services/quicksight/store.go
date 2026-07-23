@@ -48,6 +48,7 @@ const (
 	statusRunning            = "RUNNING"
 	statusCompleted          = "COMPLETED"
 	statusCancelled          = "CANCELLED"
+	statusFailed             = "FAILED"
 
 	defaultMaxResults = 100
 )

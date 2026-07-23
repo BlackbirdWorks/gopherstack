@@ -651,80 +651,100 @@ func answerErrorsToMaps(errs []TopicAnswerError) []map[string]any {
 }
 
 // classifyTopicPaths routes /accounts/{id}/topics/... paths.
-func classifyTopicPaths( //nolint:gocognit,cyclop,funlen // existing issue.
-	method string,
-	segs []string,
-	n int,
-) (string, string) {
-	accountID := seg(segs, segAccountID)
+func classifyTopicPaths(method string, segs []string, n int) (string, string) {
 	switch n {
 	case nSegsAccountRes:
-		switch method {
-		case http.MethodPost:
-			return opCreateTopic, accountID
-		case http.MethodGet:
-			return opListTopics, accountID
-		}
+		return classifyTopicRoot(method, segs)
 	case nSegsAccountResID:
-		id := seg(segs, segResID)
+		return classifyTopicByID(method, segs)
+	case nSegsSubRes:
+		return classifyTopicSubRes(method, segs)
+	case nSegsSubResID:
+		return classifyTopicSubResID(method, segs)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyTopicRoot(method string, segs []string) (string, string) {
+	accountID := seg(segs, segAccountID)
+	switch method {
+	case http.MethodPost:
+		return opCreateTopic, accountID
+	case http.MethodGet:
+		return opListTopics, accountID
+	}
+
+	return opUnknown, ""
+}
+
+func classifyTopicByID(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	switch method {
+	case http.MethodGet:
+		return opDescribeTopic, id
+	case http.MethodPut:
+		return opUpdateTopic, id
+	case http.MethodDelete:
+		return opDeleteTopic, id
+	}
+
+	return opUnknown, ""
+}
+
+func classifyTopicSubRes(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	sub := seg(segs, segSubRes)
+
+	switch sub {
+	case pathSegPermissions:
 		switch method {
 		case http.MethodGet:
-			return opDescribeTopic, id
+			return opDescribeTopicPerms, id
 		case http.MethodPut:
-			return opUpdateTopic, id
+			return opUpdateTopicPerms, id
+		}
+	case pathSegSchedules:
+		if method == http.MethodPost {
+			return opCreateTopicRefreshSchedule, id
+		}
+		if method == http.MethodGet {
+			return opListTopicRefreshSchedules, id
+		}
+	case pathSegReviewedAnswers:
+		if method == http.MethodGet {
+			return opListTopicReviewedAnswers, id
+		}
+	case pathSegBatchCreateReviewed:
+		if method == http.MethodPost {
+			return opBatchCreateTopicAnswers, id
+		}
+	case pathSegBatchDeleteReviewed:
+		if method == http.MethodPost {
+			return opBatchDeleteTopicAnswers, id
+		}
+	}
+
+	return opUnknown, ""
+}
+
+func classifyTopicSubResID(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	sub := seg(segs, segSubRes)
+
+	switch sub {
+	case pathSegSchedules:
+		switch method {
+		case http.MethodGet:
+			return opDescribeTopicRefreshSchedule, id
+		case http.MethodPut:
+			return opUpdateTopicRefreshSchedule, id
 		case http.MethodDelete:
-			return opDeleteTopic, id
+			return opDeleteTopicRefreshSchedule, id
 		}
-	case nSegsSubRes:
-		id := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		switch sub {
-		case pathSegPermissions:
-			switch method {
-			case http.MethodGet:
-				return opDescribeTopicPerms, id
-			case http.MethodPut:
-				return opUpdateTopicPerms, id
-			}
-		case pathSegSchedules:
-			if method == http.MethodPost {
-				return opCreateTopicRefreshSchedule, id
-			}
-			if method == http.MethodGet {
-				return opListTopicRefreshSchedules, id
-			}
-		case pathSegReviewedAnswers:
-			if method == http.MethodGet {
-				return opListTopicReviewedAnswers, id
-			}
-		case pathSegBatchCreateReviewed:
-			if method == http.MethodPost {
-				return opBatchCreateTopicAnswers, id
-			}
-		case pathSegBatchDeleteReviewed:
-			if method == http.MethodPost {
-				return opBatchDeleteTopicAnswers, id
-			}
-		}
-	case nSegsSubResID:
-		id := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		subID := seg(segs, segSubResID)
-		switch sub {
-		case pathSegSchedules:
-			switch method {
-			case http.MethodGet:
-				return opDescribeTopicRefreshSchedule, id
-			case http.MethodPut:
-				return opUpdateTopicRefreshSchedule, id
-			case http.MethodDelete:
-				return opDeleteTopicRefreshSchedule, id
-			}
-		case pathSegRefresh:
-			_ = subID
-			if method == http.MethodGet {
-				return opDescribeTopicRefresh, id
-			}
+	case pathSegRefresh:
+		if method == http.MethodGet {
+			return opDescribeTopicRefresh, id
 		}
 	}
 

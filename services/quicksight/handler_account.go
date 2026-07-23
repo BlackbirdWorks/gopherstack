@@ -3,6 +3,7 @@ package quicksight
 import (
 	"errors"
 	"net/http"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 )
@@ -71,57 +72,46 @@ func isAccountConfigOp(op string) bool {
 	return false
 }
 
-//nolint:cyclop // one flat dispatch table for the whole account/config op cluster
+// accountConfigDispatchTable lazily builds the op-name -> handler-method
+// lookup for the whole account/config op cluster exactly once. A
+// map[string]method lookup (rather than a flat switch) keeps
+// dispatchAccountConfig itself trivially simple regardless of how many
+// account-config ops exist -- mirrors the onceOpTable pattern in
+// services/apigatewayv2/handler.go.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
+var accountConfigDispatchTable = sync.OnceValue(func() map[string]func(*Handler, *echo.Context) error {
+	return map[string]func(*Handler, *echo.Context) error{
+		opDescribeAccountSettings:           (*Handler).handleDescribeAccountSettings,
+		opUpdateAccountSettings:             (*Handler).handleUpdateAccountSettings,
+		opCreateAccountSubscription:         (*Handler).handleCreateAccountSubscription,
+		opDescribeAccountSubscription:       (*Handler).handleDescribeAccountSubscription,
+		opDeleteAccountSubscription:         (*Handler).handleDeleteAccountSubscription,
+		opCreateAccountCustomization:        (*Handler).handleCreateAccountCustomization,
+		opDescribeAccountCustomization:      (*Handler).handleDescribeAccountCustomization,
+		opUpdateAccountCustomization:        (*Handler).handleUpdateAccountCustomization,
+		opDeleteAccountCustomization:        (*Handler).handleDeleteAccountCustomization,
+		opDescribeIpRestriction:             (*Handler).handleDescribeIPRestriction,
+		opUpdateIpRestriction:               (*Handler).handleUpdateIPRestriction,
+		opUpdatePublicSharingSettings:       (*Handler).handleUpdatePublicSharingSettings,
+		opDescribeKeyRegistration:           (*Handler).handleDescribeKeyRegistration,
+		opUpdateKeyRegistration:             (*Handler).handleUpdateKeyRegistration,
+		opDescribeDefaultQBiz:               (*Handler).handleDescribeDefaultQBiz,
+		opUpdateDefaultQBiz:                 (*Handler).handleUpdateDefaultQBiz,
+		opDeleteDefaultQBiz:                 (*Handler).handleDeleteDefaultQBiz,
+		opDescribeQPersonalization:          (*Handler).handleDescribeQPersonalization,
+		opUpdateQPersonalization:            (*Handler).handleUpdateQPersonalization,
+		opDescribeQSearchConfig:             (*Handler).handleDescribeQSearchConfig,
+		opUpdateQSearchConfig:               (*Handler).handleUpdateQSearchConfig,
+		opDescribeDashboardsQAConfiguration: (*Handler).handleDescribeDashboardsQA,
+		opUpdateDashboardsQAConfiguration:   (*Handler).handleUpdateDashboardsQA,
+		opUpdateSPICECapacity:               (*Handler).handleUpdateSPICECapacity,
+	}
+})
+
 func (h *Handler) dispatchAccountConfig(c *echo.Context, op string) error {
-	switch op {
-	case opDescribeAccountSettings:
-		return h.handleDescribeAccountSettings(c)
-	case opUpdateAccountSettings:
-		return h.handleUpdateAccountSettings(c)
-	case opCreateAccountSubscription:
-		return h.handleCreateAccountSubscription(c)
-	case opDescribeAccountSubscription:
-		return h.handleDescribeAccountSubscription(c)
-	case opDeleteAccountSubscription:
-		return h.handleDeleteAccountSubscription(c)
-	case opCreateAccountCustomization:
-		return h.handleCreateAccountCustomization(c)
-	case opDescribeAccountCustomization:
-		return h.handleDescribeAccountCustomization(c)
-	case opUpdateAccountCustomization:
-		return h.handleUpdateAccountCustomization(c)
-	case opDeleteAccountCustomization:
-		return h.handleDeleteAccountCustomization(c)
-	case opDescribeIpRestriction:
-		return h.handleDescribeIPRestriction(c)
-	case opUpdateIpRestriction:
-		return h.handleUpdateIPRestriction(c)
-	case opUpdatePublicSharingSettings:
-		return h.handleUpdatePublicSharingSettings(c)
-	case opDescribeKeyRegistration:
-		return h.handleDescribeKeyRegistration(c)
-	case opUpdateKeyRegistration:
-		return h.handleUpdateKeyRegistration(c)
-	case opDescribeDefaultQBiz:
-		return h.handleDescribeDefaultQBiz(c)
-	case opUpdateDefaultQBiz:
-		return h.handleUpdateDefaultQBiz(c)
-	case opDeleteDefaultQBiz:
-		return h.handleDeleteDefaultQBiz(c)
-	case opDescribeQPersonalization:
-		return h.handleDescribeQPersonalization(c)
-	case opUpdateQPersonalization:
-		return h.handleUpdateQPersonalization(c)
-	case opDescribeQSearchConfig:
-		return h.handleDescribeQSearchConfig(c)
-	case opUpdateQSearchConfig:
-		return h.handleUpdateQSearchConfig(c)
-	case opDescribeDashboardsQAConfiguration:
-		return h.handleDescribeDashboardsQA(c)
-	case opUpdateDashboardsQAConfiguration:
-		return h.handleUpdateDashboardsQA(c)
-	case opUpdateSPICECapacity:
-		return h.handleUpdateSPICECapacity(c)
+	if fn, ok := accountConfigDispatchTable()[op]; ok {
+		return fn(h, c)
 	}
 
 	return writeError(

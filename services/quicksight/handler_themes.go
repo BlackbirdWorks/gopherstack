@@ -442,65 +442,85 @@ func themeAliasToMap(a *ThemeAlias) map[string]any {
 }
 
 // classifyThemePaths routes /accounts/{id}/themes/... paths.
-func classifyThemePaths( //nolint:gocognit,cyclop // existing issue.
-	method string,
-	segs []string,
-	n int,
-) (string, string) {
-	accountID := seg(segs, segAccountID)
+func classifyThemePaths(method string, segs []string, n int) (string, string) {
 	switch n {
 	case nSegsAccountRes:
 		if method == http.MethodGet {
-			return opListThemes, accountID
+			return opListThemes, seg(segs, segAccountID)
 		}
 	case nSegsAccountResID:
-		id := seg(segs, segResID)
-		switch method {
-		case http.MethodPost:
-			return opCreateTheme, id
-		case http.MethodGet:
-			return opDescribeTheme, id
-		case http.MethodPut:
-			return opUpdateTheme, id
-		case http.MethodDelete:
-			return opDeleteTheme, id
-		}
+		return classifyThemeByID(method, segs)
 	case nSegsSubRes:
-		id := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		switch sub {
-		case pathSegPermissions:
-			switch method {
-			case http.MethodGet:
-				return opDescribeThemePerms, id
-			case http.MethodPut:
-				return opUpdateThemePerms, id
-			}
-		case pathSegAliases:
-			if method == http.MethodGet {
-				return opListThemeAliases, id
-			}
-		case pathSegVersions:
-			if method == http.MethodGet {
-				return opListThemeVersions, id
-			}
-		}
+		return classifyThemeSubRes(method, segs)
 	case nSegsSubResID:
-		id := seg(segs, segResID)
-		sub := seg(segs, segSubRes)
-		alias := seg(segs, segSubResID)
-		if sub == pathSegAliases {
-			switch method {
-			case http.MethodPost:
-				return opCreateThemeAlias, alias
-			case http.MethodGet:
-				return opDescribeThemeAlias, alias
-			case http.MethodPut:
-				return opUpdateThemeAlias, alias
-			case http.MethodDelete:
-				return opDeleteThemeAlias, id
-			}
+		return classifyThemeAlias(method, segs)
+	}
+
+	return opUnknown, ""
+}
+
+func classifyThemeByID(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	switch method {
+	case http.MethodPost:
+		return opCreateTheme, id
+	case http.MethodGet:
+		return opDescribeTheme, id
+	case http.MethodPut:
+		return opUpdateTheme, id
+	case http.MethodDelete:
+		return opDeleteTheme, id
+	}
+
+	return opUnknown, ""
+}
+
+func classifyThemeSubRes(method string, segs []string) (string, string) {
+	id := seg(segs, segResID)
+	sub := seg(segs, segSubRes)
+
+	switch sub {
+	case pathSegPermissions:
+		switch method {
+		case http.MethodGet:
+			return opDescribeThemePerms, id
+		case http.MethodPut:
+			return opUpdateThemePerms, id
 		}
+	case pathSegAliases:
+		if method == http.MethodGet {
+			return opListThemeAliases, id
+		}
+	case pathSegVersions:
+		if method == http.MethodGet {
+			return opListThemeVersions, id
+		}
+	}
+
+	return opUnknown, ""
+}
+
+// classifyThemeAlias routes /accounts/{id}/themes/{id}/aliases/{alias}. Every
+// method but DELETE identifies the resource by the alias name itself;
+// DeleteThemeAlias's op-extraction historically used the theme id instead --
+// preserved verbatim here (mirrors classifyTemplateAlias).
+func classifyThemeAlias(method string, segs []string) (string, string) {
+	if seg(segs, segSubRes) != pathSegAliases {
+		return opUnknown, ""
+	}
+
+	id := seg(segs, segResID)
+	alias := seg(segs, segSubResID)
+
+	switch method {
+	case http.MethodPost:
+		return opCreateThemeAlias, alias
+	case http.MethodGet:
+		return opDescribeThemeAlias, alias
+	case http.MethodPut:
+		return opUpdateThemeAlias, alias
+	case http.MethodDelete:
+		return opDeleteThemeAlias, id
 	}
 
 	return opUnknown, ""

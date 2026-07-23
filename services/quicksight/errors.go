@@ -177,4 +177,12 @@ var (
 	ErrDashboardVersionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrSelfUpgradeRequestNotFound is returned when a self-upgrade request does not exist.
 	ErrSelfUpgradeRequestNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrTaggableResourceNotFound is returned by TagResource/UntagResource/
+	// ListTagsForResource when the given ARN doesn't identify a resource
+	// this backend actually holds.
+	ErrTaggableResourceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrIngestionNotCancellable is returned by CancelIngestion when the
+	// target ingestion is already in a terminal state (COMPLETED, FAILED, or
+	// CANCELLED) and so can no longer be cancelled.
+	ErrIngestionNotCancellable = awserr.New(errConflictException, awserr.ErrConflict)
 )

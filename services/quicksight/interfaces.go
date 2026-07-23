@@ -66,7 +66,10 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*DataSet, *Ingestion, error)
 	DescribeDataSet(accountID, dataSetID string) (*DataSet, error)
-	UpdateDataSet(accountID, dataSetID, name, importMode string) (*DataSet, error)
+	// UpdateDataSet returns the updated dataset plus the *Ingestion triggered
+	// as a side effect when the resulting importMode is SPICE (nil for
+	// DIRECT_QUERY), mirroring CreateDataSet's conditional-ingestion contract.
+	UpdateDataSet(accountID, dataSetID, name, importMode string) (*DataSet, *Ingestion, error)
 	DeleteDataSet(accountID, dataSetID string) error
 	ListDataSets(accountID string, maxResults int32, nextToken string) ([]*DataSet, string, error)
 	SearchDataSets(
@@ -148,7 +151,7 @@ type StorageBackend interface {
 
 	// Folders
 	CreateFolder(
-		accountID, folderID, name, folderType, parentFolderArn string,
+		accountID, folderID, name, folderType, parentFolderArn, sharingModel string,
 		permissions []ResourcePermission,
 		tags map[string]string,
 	) (*Folder, error)
