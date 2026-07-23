@@ -45,12 +45,12 @@ func (b *InMemoryBackend) DeleteFileSystemPolicy(ctx context.Context, fileSystem
 // The policy must be valid JSON and no larger than 20 KB.
 func (b *InMemoryBackend) PutFileSystemPolicy(ctx context.Context, fileSystemID, policy string) error {
 	if !json.Valid([]byte(policy)) {
-		return fmt.Errorf("%w: FileSystemPolicy is not valid JSON", ErrValidation)
+		return fmt.Errorf("%w: FileSystemPolicy is not valid JSON", ErrInvalidPolicy)
 	}
 	if len(policy) > maxFileSystemPolicyBytes {
 		return fmt.Errorf(
 			"%w: FileSystemPolicy exceeds maximum size of %d bytes, got %d",
-			ErrValidation,
+			ErrInvalidPolicy,
 			maxFileSystemPolicyBytes,
 			len(policy),
 		)

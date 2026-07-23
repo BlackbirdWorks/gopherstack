@@ -74,6 +74,8 @@ type MountTarget struct {
 	AvailabilityZoneID   string   `json:"availabilityZoneId"`
 	NetworkInterfaceID   string   `json:"networkInterfaceId"`
 	IPAddress            string   `json:"ipAddress"`
+	IPAddressType        string   `json:"ipAddressType,omitempty"`
+	IPv6Address          string   `json:"ipv6Address,omitempty"`
 	LifeCycleState       string   `json:"lifeCycleState"`
 	OwnerID              string   `json:"ownerId"`
 	SecurityGroups       []string `json:"securityGroups,omitempty"`
@@ -105,6 +107,12 @@ type AccessPoint struct {
 }
 
 // ReplicationDestination represents a destination in an EFS replication configuration.
+//
+// LastReplicatedTimestamp is wire-encoded as epoch-seconds (matching the real
+// SDK's types.Destination.LastReplicatedTimestamp *time.Time, which serializes
+// as a JSON number under the restjson1 protocol), stored here as an int64 unix
+// timestamp so a zero value naturally omits via omitempty -- mirroring the
+// ReplicationConfiguration.CreationTime convention below.
 type ReplicationDestination struct {
 	FileSystemID            string `json:"FileSystemId,omitempty"`
 	FileSystemArn           string `json:"FileSystemArn,omitempty"`
@@ -112,8 +120,8 @@ type ReplicationDestination struct {
 	AvailabilityZoneName    string `json:"AvailabilityZoneName,omitempty"`
 	KmsKeyID                string `json:"KmsKeyID,omitempty"`
 	OwnerID                 string `json:"OwnerId,omitempty"`
-	LastReplicatedTimestamp string `json:"LastReplicatedTimestamp,omitempty"`
 	Status                  string `json:"Status,omitempty"`
+	LastReplicatedTimestamp int64  `json:"LastReplicatedTimestamp,omitempty"`
 }
 
 // ReplicationConfiguration represents an EFS replication configuration.
@@ -155,6 +163,8 @@ type CreateMountTargetRequest struct {
 	FileSystemID   string
 	SubnetID       string
 	IPAddress      string
+	IPAddressType  string
+	IPv6Address    string
 	SecurityGroups []string
 }
 

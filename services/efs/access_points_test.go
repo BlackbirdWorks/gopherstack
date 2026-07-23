@@ -234,6 +234,24 @@ func TestDescribeAccessPoints_Pagination(t *testing.T) {
 
 			if tt.wantNext {
 				assert.NotEmpty(t, nextToken)
+
+				// Confirm the second page carries every remaining item (no items
+				// lost at the page boundary) and none of the first page's items.
+				list2, _, err2 := b.DescribeAccessPoints(
+					context.Background(), fs.FileSystemID, "", nextToken, tt.maxItems,
+				)
+				require.NoError(t, err2)
+				assert.Len(t, list2, tt.numAPs-tt.wantFirst)
+
+				seen := make(map[string]bool, tt.numAPs)
+				for _, ap := range list {
+					seen[ap.AccessPointID] = true
+				}
+				for _, ap := range list2 {
+					assert.False(t, seen[ap.AccessPointID], "access point %s duplicated across pages", ap.AccessPointID)
+					seen[ap.AccessPointID] = true
+				}
+				assert.Len(t, seen, tt.numAPs, "union of both pages must equal every created access point")
 			} else {
 				assert.Empty(t, nextToken)
 			}

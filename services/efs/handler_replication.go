@@ -47,8 +47,10 @@ func (h *Handler) handleDeleteReplicationConfiguration(c *echo.Context, fileSyst
 
 func (h *Handler) handleDescribeReplicationConfigurations(c *echo.Context) error {
 	fsID := c.Request().URL.Query().Get(keyFileSystemID)
+	marker := c.Request().URL.Query().Get("NextToken")
+	maxItems := queryInt(c, "MaxResults")
 
-	rcs, err := h.Backend.DescribeReplicationConfigurations(h.contextWithRegion(c), fsID)
+	rcs, nextToken, err := h.Backend.DescribeReplicationConfigurations(h.contextWithRegion(c), fsID, marker, maxItems)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -58,9 +60,14 @@ func (h *Handler) handleDescribeReplicationConfigurations(c *echo.Context) error
 		items = append(items, rcToResponse(rc))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"Replications": items,
-	})
+	}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func rcToResponse(rc *ReplicationConfiguration) map[string]any {

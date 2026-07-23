@@ -44,6 +44,8 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		)
 	}
 
+	creationTime := time.Now().UTC()
+
 	dests := make([]ReplicationDestination, len(destinations))
 	copy(dests, destinations)
 	for i := range dests {
@@ -53,6 +55,10 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		if dests[i].OwnerID == "" {
 			dests[i].OwnerID = b.accountID
 		}
+		// The mock completes the initial sync synchronously, so the destination is
+		// immediately caught up as of creation time. Real AWS leaves this unset until
+		// the first background sync completes, which can take longer.
+		dests[i].LastReplicatedTimestamp = creationTime.Unix()
 		// Assign a destination file-system ID and ARN when not provided by the caller.
 		// Real AWS creates a read-only replica; we record a synthetic ID here.
 		if dests[i].FileSystemID == "" {
@@ -80,7 +86,7 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		SourceFileSystemID:          sourceFileSystemID,
 		SourceFileSystemOwnerID:     b.accountID,
 		SourceFileSystemRegion:      region,
-		CreationTime:                time.Now().UTC().Unix(),
+		CreationTime:                creationTime.Unix(),
 		Destinations:                dests,
 	}
 	b.replicationConfigs.Put(rc)
@@ -129,11 +135,18 @@ func (b *InMemoryBackend) DeleteReplicationConfiguration(
 	return nil
 }
 
-// DescribeReplicationConfigurations returns replication configurations, optionally filtered by file system ID.
+// DescribeReplicationConfigurations returns replication configurations, optionally
+// filtered by file system ID. marker/maxItems apply cursor-based pagination
+// (wire names NextToken/MaxResults) over the unfiltered list, matching the
+// pagination convention used by DescribeFileSystems/DescribeMountTargets/
+// DescribeAccessPoints (see paginate in store.go). A single-ID match (whether by
+// source or destination file system) is never paginated, same as the
+// describeByIDOrFilter convention those ops use.
 func (b *InMemoryBackend) DescribeReplicationConfigurations(
 	ctx context.Context,
-	fileSystemID string,
-) ([]*ReplicationConfiguration, error) {
+	fileSystemID, marker string,
+	maxItems int,
+) ([]*ReplicationConfiguration, string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("DescribeReplicationConfigurations")
@@ -148,7 +161,7 @@ func (b *InMemoryBackend) DescribeReplicationConfigurations(
 			cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
 			copy(cp.Destinations, rc.Destinations)
 
-			return []*ReplicationConfiguration{&cp}, nil
+			return []*ReplicationConfiguration{&cp}, "", nil
 		}
 
 		for _, rc := range regionRCs {
@@ -158,12 +171,12 @@ func (b *InMemoryBackend) DescribeReplicationConfigurations(
 					cp.Destinations = make([]ReplicationDestination, len(rc.Destinations))
 					copy(cp.Destinations, rc.Destinations)
 
-					return []*ReplicationConfiguration{&cp}, nil
+					return []*ReplicationConfiguration{&cp}, "", nil
 				}
 			}
 		}
 
-		return []*ReplicationConfiguration{}, nil
+		return []*ReplicationConfiguration{}, "", nil
 	}
 
 	list := make([]*ReplicationConfiguration, 0, len(regionRCs))
@@ -178,7 +191,9 @@ func (b *InMemoryBackend) DescribeReplicationConfigurations(
 		func(i, j int) bool { return list[i].SourceFileSystemID < list[j].SourceFileSystemID },
 	)
 
-	return list, nil
+	return paginate(list, marker, maxItems, func(rc *ReplicationConfiguration) string {
+		return rc.SourceFileSystemID
+	})
 }
 
 // UpdateFileSystemProtection sets the replication overwrite protection for a file system.

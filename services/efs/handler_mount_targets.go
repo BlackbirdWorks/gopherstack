@@ -11,6 +11,8 @@ type createMountTargetBody struct {
 	FileSystemID   string   `json:"FileSystemId"`
 	SubnetID       string   `json:"SubnetId"`
 	IPAddress      string   `json:"IpAddress"`
+	IPAddressType  string   `json:"IpAddressType"`
+	IPv6Address    string   `json:"Ipv6Address"`
 	SecurityGroups []string `json:"SecurityGroups"`
 }
 
@@ -52,7 +54,7 @@ func (h *Handler) handleDescribeMountTargets(c *echo.Context, mountTargetID stri
 		}
 		fsID := aps[0].FileSystemID
 		marker := c.Request().URL.Query().Get("Marker")
-		maxItems := queryInt(c, "MaxItems", defaultMaxItems)
+		maxItems := queryInt(c, "MaxItems")
 		results, nextMarker, err := h.Backend.DescribeMountTargets(ctx, fsID, "", marker, maxItems)
 		if err != nil {
 			return h.handleError(c, err)
@@ -100,6 +102,9 @@ func mtToResponse(mt *MountTarget) map[string]any {
 	}
 	if len(mt.SecurityGroups) > 0 {
 		resp["SecurityGroups"] = mt.SecurityGroups
+	}
+	if mt.IPv6Address != "" {
+		resp["Ipv6Address"] = mt.IPv6Address
 	}
 
 	return resp
