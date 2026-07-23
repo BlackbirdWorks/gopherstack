@@ -10,7 +10,7 @@ import (
 // --- SMB ---
 
 func (b *InMemoryBackend) CreateLocationSmb(
-	serverHostname, subdirectory, domain, user, password string,
+	serverHostname, subdirectory, domain, user, password, authenticationType string,
 	mountOptions *MountOptions,
 	agentArns []string,
 	tags map[string]string,
@@ -28,12 +28,17 @@ func (b *InMemoryBackend) CreateLocationSmb(
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
 
+	if authenticationType == "" {
+		authenticationType = smbAuthTypeNTLM
+	}
+
 	cfg := &storedSmbConfig{
-		ServerHostname: serverHostname,
-		Domain:         domain,
-		User:           user,
-		Password:       password,
-		AgentArns:      agentArns,
+		ServerHostname:     serverHostname,
+		Domain:             domain,
+		User:               user,
+		Password:           password,
+		AuthenticationType: authenticationType,
+		AgentArns:          agentArns,
 	}
 
 	if mountOptions != nil {
@@ -81,6 +86,7 @@ func (b *InMemoryBackend) DescribeLocationSmb(locationArn string) (*LocationSmb,
 		out.ServerHostname = l.Smb.ServerHostname
 		out.Domain = l.Smb.Domain
 		out.User = l.Smb.User
+		out.AuthenticationType = l.Smb.AuthenticationType
 		out.AgentArns = l.Smb.AgentArns
 
 		if l.Smb.MountOptions != nil {
@@ -92,7 +98,7 @@ func (b *InMemoryBackend) DescribeLocationSmb(locationArn string) (*LocationSmb,
 }
 
 func (b *InMemoryBackend) UpdateLocationSmb(
-	locationArn, subdirectory, domain, user, password string,
+	locationArn, subdirectory, domain, user, password, authenticationType string,
 	mountOptions *MountOptions,
 	agentArns []string,
 ) error {
@@ -124,6 +130,10 @@ func (b *InMemoryBackend) UpdateLocationSmb(
 
 	if password != "" {
 		l.Smb.Password = password
+	}
+
+	if authenticationType != "" {
+		l.Smb.AuthenticationType = authenticationType
 	}
 
 	if mountOptions != nil {

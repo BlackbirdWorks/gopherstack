@@ -146,12 +146,16 @@ type describeLocationFsxOntapInput struct {
 	LocationArn string `json:"LocationArn"`
 }
 
+// describeLocationFsxOntapOutput intentionally has no Subdirectory field: the
+// real DescribeLocationFsxOntapOutput doesn't have one (the path is folded
+// into LocationUri only). It DOES have FsxFilesystemArn, unlike Lustre/
+// OpenZFS/Windows -- confirmed against aws-sdk-go-v2 v1.59.2.
 type describeLocationFsxOntapOutput struct {
 	Protocol                 *fsxProtocolOutput `json:"Protocol,omitempty"`
 	LocationArn              string             `json:"LocationArn"`
 	LocationURI              string             `json:"LocationUri"`
 	StorageVirtualMachineArn string             `json:"StorageVirtualMachineArn,omitempty"`
-	Subdirectory             string             `json:"Subdirectory,omitempty"`
+	FsxFilesystemArn         string             `json:"FsxFilesystemArn,omitempty"`
 	SecurityGroupArns        []string           `json:"SecurityGroupArns,omitempty"`
 	CreationTime             int64              `json:"CreationTime"`
 }
@@ -173,7 +177,7 @@ func (h *Handler) handleDescribeLocationFsxOntap(
 		LocationArn:              l.LocationArn,
 		LocationURI:              l.LocationURI,
 		StorageVirtualMachineArn: l.StorageVirtualMachineArn,
-		Subdirectory:             l.Subdirectory,
+		FsxFilesystemArn:         l.FsxFilesystemArn,
 		SecurityGroupArns:        l.SecurityGroupArns,
 		Protocol:                 fsxProtocolToOutput(l.Protocol),
 		CreationTime:             l.CreationTime.Unix(),

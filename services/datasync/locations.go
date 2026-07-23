@@ -13,6 +13,7 @@ import (
 func (b *InMemoryBackend) CreateLocationS3(
 	subdirectory, s3BucketArn, s3StorageClass string,
 	s3Config S3Config,
+	agentArns []string,
 	tags map[string]string,
 ) (*Location, error) {
 	b.mu.Lock("CreateLocationS3")
@@ -30,7 +31,7 @@ func (b *InMemoryBackend) CreateLocationS3(
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
 
-	storedCfg := &storedS3Config{BucketAccessRoleArn: s3Config.BucketAccessRoleArn}
+	storedCfg := &storedS3Config{BucketAccessRoleArn: s3Config.BucketAccessRoleArn, AgentArns: agentArns}
 
 	l := &storedLocation{
 		LocationArn:    locationArn,

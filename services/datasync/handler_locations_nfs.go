@@ -75,14 +75,17 @@ type nfsOnPremConfigOutput struct {
 	AgentArns []string `json:"AgentArns,omitempty"`
 }
 
+// describeLocationNfsOutput intentionally has no ServerHostname or
+// Subdirectory field: the real DescribeLocationNfsOutput has neither --
+// confirmed against aws-sdk-go-v2 v1.59.2: CreationTime, LocationArn,
+// LocationUri, MountOptions, OnPremConfig only (host and path are folded
+// into LocationUri).
 type describeLocationNfsOutput struct {
-	MountOptions   *mountOptionsOutput    `json:"MountOptions,omitempty"`
-	OnPremConfig   *nfsOnPremConfigOutput `json:"OnPremConfig,omitempty"`
-	LocationArn    string                 `json:"LocationArn"`
-	LocationURI    string                 `json:"LocationUri"`
-	ServerHostname string                 `json:"ServerHostname,omitempty"`
-	Subdirectory   string                 `json:"Subdirectory,omitempty"`
-	CreationTime   int64                  `json:"CreationTime"`
+	MountOptions *mountOptionsOutput    `json:"MountOptions,omitempty"`
+	OnPremConfig *nfsOnPremConfigOutput `json:"OnPremConfig,omitempty"`
+	LocationArn  string                 `json:"LocationArn"`
+	LocationURI  string                 `json:"LocationUri"`
+	CreationTime int64                  `json:"CreationTime"`
 }
 
 func (h *Handler) handleDescribeLocationNfs(
@@ -99,11 +102,9 @@ func (h *Handler) handleDescribeLocationNfs(
 	}
 
 	out := &describeLocationNfsOutput{
-		LocationArn:    l.LocationArn,
-		LocationURI:    l.LocationURI,
-		ServerHostname: l.ServerHostname,
-		Subdirectory:   l.Subdirectory,
-		CreationTime:   l.CreationTime.Unix(),
+		LocationArn:  l.LocationArn,
+		LocationURI:  l.LocationURI,
+		CreationTime: l.CreationTime.Unix(),
 	}
 
 	if l.MountOptions != nil {

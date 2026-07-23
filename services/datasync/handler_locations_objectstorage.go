@@ -52,12 +52,16 @@ type describeLocationObjectStorageInput struct {
 	LocationArn string `json:"LocationArn"`
 }
 
+// describeLocationObjectStorageOutput intentionally has no ServerHostname,
+// BucketName, or Subdirectory field: the real
+// DescribeLocationObjectStorageOutput has none of them -- confirmed against
+// aws-sdk-go-v2 v1.59.2: AccessKey, AgentArns, CmkSecretConfig, CreationTime,
+// CustomSecretConfig, LocationArn, LocationUri, ManagedSecretConfig,
+// ServerCertificate, ServerPort, ServerProtocol (host/bucket/path are folded
+// into LocationUri).
 type describeLocationObjectStorageOutput struct {
 	LocationArn    string   `json:"LocationArn"`
 	LocationURI    string   `json:"LocationUri"`
-	ServerHostname string   `json:"ServerHostname,omitempty"`
-	BucketName     string   `json:"BucketName,omitempty"`
-	Subdirectory   string   `json:"Subdirectory,omitempty"`
 	AccessKey      string   `json:"AccessKey,omitempty"`
 	ServerProtocol string   `json:"ServerProtocol,omitempty"`
 	AgentArns      []string `json:"AgentArns,omitempty"`
@@ -81,9 +85,6 @@ func (h *Handler) handleDescribeLocationObjectStorage(
 	return &describeLocationObjectStorageOutput{
 		LocationArn:    l.LocationArn,
 		LocationURI:    l.LocationURI,
-		ServerHostname: l.ServerHostname,
-		BucketName:     l.BucketName,
-		Subdirectory:   l.Subdirectory,
 		AccessKey:      l.AccessKey,
 		ServerProtocol: l.ServerProtocol,
 		ServerPort:     l.ServerPort,

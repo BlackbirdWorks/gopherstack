@@ -65,6 +65,45 @@ func fromStoredFsxProtocol(sp *storedFsxProtocol) *FsxProtocol {
 	return p
 }
 
+// fsxOntapFilesystemArnFromSVM derives the parent FSx file system ARN from a
+// storage virtual machine ARN, matching the real
+// DescribeLocationFsxOntapOutput.FsxFilesystemArn field (which AWS returns
+// even though CreateLocationFsxOntapInput never accepts a FsxFilesystemArn --
+// only StorageVirtualMachineArn). SVM ARN format (confirmed via AWS's
+// published pattern):
+// arn:aws:fsx:region:account:storage-virtual-machine/fs-xxx/svm-xxx.
+func fsxOntapFilesystemArnFromSVM(svmArn string) string {
+	const svmResourcePrefix = ":storage-virtual-machine/"
+
+	prefix, rest, found := strings.Cut(svmArn, svmResourcePrefix)
+	if !found {
+		return ""
+	}
+
+	fsID, _, ok := strings.Cut(rest, "/")
+	if !ok {
+		return ""
+	}
+
+	return prefix + ":file-system/" + fsID
+}
+
+// fsxOntapURIScheme picks the LocationUri scheme for an FSx ONTAP location
+// based on its configured access protocol. AWS's published LocationUri regex
+// (`^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://...$`) definitively rules out the
+// bare "ontap://" this backend previously emitted. Unlike Lustre/OpenZFS,
+// ONTAP volumes are mounted over an actual NFS-or-SMB protocol choice (see
+// FsxProtocol), matching how FSx Windows reuses "smb://" rather than minting
+// a distinct fsx-prefixed scheme -- so this picks the underlying protocol's
+// own scheme instead of guessing an "fsxn://"-style prefix.
+func fsxOntapURIScheme(p *storedFsxProtocol) string {
+	if p != nil && p.SMB != nil {
+		return "smb://"
+	}
+
+	return "nfs://"
+}
+
 func (b *InMemoryBackend) CreateLocationFsxOntap(
 	storageVirtualMachineArn, subdirectory string,
 	protocol *FsxProtocol,
@@ -78,8 +117,10 @@ func (b *InMemoryBackend) CreateLocationFsxOntap(
 	locationArn := b.locationARN(id)
 	now := time.Now().UTC()
 
+	storedProtocol := toStoredFsxProtocol(protocol)
+
 	sub := strings.TrimPrefix(subdirectory, "/")
-	locationURI := fmt.Sprintf("ontap://%s/%s", storageVirtualMachineArn, sub)
+	locationURI := fmt.Sprintf("%s%s/%s", fsxOntapURIScheme(storedProtocol), storageVirtualMachineArn, sub)
 
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
@@ -93,8 +134,9 @@ func (b *InMemoryBackend) CreateLocationFsxOntap(
 		Tags:         locationTags,
 		FsxOntap: &storedFsxOntapConfig{
 			StorageVirtualMachineArn: storageVirtualMachineArn,
+			FsxFilesystemArn:         fsxOntapFilesystemArnFromSVM(storageVirtualMachineArn),
 			SecurityGroupArns:        securityGroupArns,
-			Protocol:                 toStoredFsxProtocol(protocol),
+			Protocol:                 storedProtocol,
 		},
 	}
 
@@ -121,6 +163,7 @@ func (b *InMemoryBackend) DescribeLocationFsxOntap(locationArn string) (*Locatio
 
 	if l.FsxOntap != nil {
 		out.StorageVirtualMachineArn = l.FsxOntap.StorageVirtualMachineArn
+		out.FsxFilesystemArn = l.FsxOntap.FsxFilesystemArn
 		out.SecurityGroupArns = l.FsxOntap.SecurityGroupArns
 		out.Protocol = fromStoredFsxProtocol(l.FsxOntap.Protocol)
 	}
@@ -139,17 +182,22 @@ func (b *InMemoryBackend) UpdateLocationFsxOntap(locationArn, subdirectory strin
 
 	if subdirectory != "" {
 		l.Subdirectory = subdirectory
+	}
+
+	if protocol != nil && l.FsxOntap != nil {
+		l.FsxOntap.Protocol = toStoredFsxProtocol(protocol)
+	}
+
+	// Recompute LocationURI whenever either the subdirectory or the protocol
+	// (which determines the URI scheme -- see fsxOntapURIScheme) changed.
+	if subdirectory != "" || protocol != nil {
 		svm := ""
 		if l.FsxOntap != nil {
 			svm = l.FsxOntap.StorageVirtualMachineArn
 		}
 
-		sub := strings.TrimPrefix(subdirectory, "/")
-		l.LocationURI = fmt.Sprintf("ontap://%s/%s", svm, sub)
-	}
-
-	if protocol != nil && l.FsxOntap != nil {
-		l.FsxOntap.Protocol = toStoredFsxProtocol(protocol)
+		sub := strings.TrimPrefix(l.Subdirectory, "/")
+		l.LocationURI = fmt.Sprintf("%s%s/%s", fsxOntapURIScheme(l.FsxOntap.Protocol), svm, sub)
 	}
 
 	return nil

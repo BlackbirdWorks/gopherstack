@@ -173,3 +173,41 @@ func TestDataSync_UpdateLocationS3(t *testing.T) {
 		})
 	}
 }
+
+// TestDataSync_LocationS3AgentArns covers the Outposts AgentArns field on
+// CreateLocationS3/DescribeLocationS3Output, and confirms the real wire shape
+// (AgentArns present, S3BucketArn/Subdirectory absent -- see
+// describeLocationS3Output's doc comment).
+func TestDataSync_LocationS3AgentArns(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateLocationS3", map[string]any{
+		"S3BucketArn":  "arn:aws:s3:::outposts-bucket",
+		"Subdirectory": "/data",
+		"S3Config": map[string]any{
+			"BucketAccessRoleArn": "arn:aws:iam::000000000000:role/Role",
+		},
+		"AgentArns": []string{"arn:aws:datasync:us-east-1:000000000000:agent/agent1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	locArn := createResp["LocationArn"].(string)
+
+	rec = doRequest(t, h, "DescribeLocationS3", map[string]any{"LocationArn": locArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	agentArns, ok := descResp["AgentArns"].([]any)
+	require.True(t, ok)
+	require.Len(t, agentArns, 1)
+	assert.Equal(t, "arn:aws:datasync:us-east-1:000000000000:agent/agent1", agentArns[0])
+
+	// Real DescribeLocationS3Output has neither S3BucketArn nor Subdirectory.
+	assert.Nil(t, descResp["S3BucketArn"])
+	assert.Nil(t, descResp["Subdirectory"])
+}
