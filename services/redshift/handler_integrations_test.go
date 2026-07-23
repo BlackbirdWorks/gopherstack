@@ -32,13 +32,31 @@ func TestHandler_CreateIntegration(t *testing.T) {
 			wantContains: []string{"CreateIntegrationResponse", "my-integration", "active"},
 		},
 		{
+			// Real aws-sdk-go-v2 clients send the KMS key as "KMSKeyId" (verified
+			// against CreateIntegrationInput's query-protocol serializer), not
+			// "KmsKeyId" -- this deliberately uses the real casing so the test
+			// actually exercises production request parsing.
 			name: "success_with_kms",
 			body: "Action=CreateIntegration&" +
 				"Version=2012-12-01&IntegrationName=kms-integration" +
 				"&SourceArn=arn:aws:redshift:us-east-1:123:cluster/src" +
-				"&TargetArn=arn:aws:redshift:us-east-1:123:namespace/tgt&KmsKeyId=key123",
+				"&TargetArn=arn:aws:redshift:us-east-1:123:namespace/tgt&KMSKeyId=key123",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"CreateIntegrationResponse", "kms-integration", "key123"},
+		},
+		{
+			// TagList is the real request field name for tags on CreateIntegration
+			// (unlike most other Create* ops in this service, which use "Tags").
+			name: "success_with_tags",
+			body: "Action=CreateIntegration&" +
+				"Version=2012-12-01&IntegrationName=tagged-integration" +
+				"&SourceArn=arn:aws:redshift:us-east-1:123:cluster/src" +
+				"&TargetArn=arn:aws:redshift:us-east-1:123:namespace/tgt" +
+				"&TagList.Tag.1.Key=env&TagList.Tag.1.Value=prod",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"CreateIntegrationResponse", "tagged-integration", "<Key>env</Key>", "<Value>prod</Value>",
+			},
 		},
 		{
 			name: "duplicate",
@@ -243,6 +261,25 @@ func TestHandler_ModifyIntegration(t *testing.T) {
 				"&Description=new-desc",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"ModifyIntegrationResponse", "new-desc"},
+		},
+		{
+			// Real ModifyIntegrationInput also supports renaming via IntegrationName.
+			name: "success_rename",
+			setup: func(t *testing.T, h *redshift.Handler) {
+				t.Helper()
+				postRedshiftForm(
+					t,
+					h,
+					"Action=CreateIntegration&"+
+						"Version=2012-12-01&IntegrationName=rename-integration&SourceArn=arn:src&TargetArn=arn:tgt",
+				)
+			},
+			body: "Action=ModifyIntegration&" +
+				"Version=2012-12-01" +
+				"&IntegrationArn=arn:aws:redshift:us-east-1:000000000000:integration/rename-integration" +
+				"&IntegrationName=renamed-integration",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifyIntegrationResponse", "renamed-integration"},
 		},
 		{
 			name:         "not_found",

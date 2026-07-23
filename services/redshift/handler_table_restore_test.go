@@ -161,3 +161,32 @@ func TestBackend_TableRestoreStatus(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_RestoreTableFromClusterSnapshot_WireIncludesRequestTimeAndSnapshot
+// locks in that RequestTime and SnapshotIdentifier are actually serialized on the
+// response. Before this fix, SnapshotIdentifier was parsed from the request and
+// then silently discarded (never stored on the backend record at all), and
+// RequestTime was computed but never written into any XML response -- both were
+// wire-level data loss bugs a real client relying on TableRestoreStatus would hit.
+func TestHandler_RestoreTableFromClusterSnapshot_WireIncludesRequestTimeAndSnapshot(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=tr-cluster")
+
+	rec := postRedshiftForm(t, h, "Action=RestoreTableFromClusterSnapshot&Version=2012-12-01"+
+		"&ClusterIdentifier=tr-cluster&SnapshotIdentifier=tr-snap"+
+		"&SourceDatabaseName=db1&SourceTableName=t1&TargetDatabaseName=db1&NewTableName=t1_restored")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	body := rec.Body.String()
+	assert.Contains(t, body, "<SnapshotIdentifier>tr-snap</SnapshotIdentifier>")
+	assert.Contains(t, body, "<RequestTime>")
+	assert.Contains(t, body, "<NewTableName>t1_restored</NewTableName>")
+
+	// DescribeTableRestoreStatus must reflect the same data.
+	rec = postRedshiftForm(t, h, "Action=DescribeTableRestoreStatus&Version=2012-12-01&ClusterIdentifier=tr-cluster")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = rec.Body.String()
+	assert.Contains(t, body, "<SnapshotIdentifier>tr-snap</SnapshotIdentifier>")
+	assert.Contains(t, body, "<RequestTime>")
+}

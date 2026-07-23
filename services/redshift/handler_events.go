@@ -157,15 +157,16 @@ func (h *Handler) handleDescribeEventCategories(_ url.Values) (any, error) {
 // ---- EventSubscription XML types ----
 
 type xmlEventSubscription struct {
-	CustSubscriptionID string   `xml:"CustSubscriptionId"`
-	CustomerAwsID      string   `xml:"CustomerAwsId,omitempty"`
-	SnsTopicArn        string   `xml:"SnsTopicArn"`
-	Status             string   `xml:"Status"`
-	SourceType         string   `xml:"SourceType,omitempty"`
-	Severity           string   `xml:"Severity,omitempty"`
-	SourceIDs          []string `xml:"SourceIdsList>SourceId,omitempty"`
-	EventCategories    []string `xml:"EventCategoriesList>EventCategory,omitempty"`
-	Enabled            bool     `xml:"Enabled"`
+	SubscriptionCreationTime string   `xml:"SubscriptionCreationTime,omitempty"`
+	CustSubscriptionID       string   `xml:"CustSubscriptionId"`
+	CustomerAwsID            string   `xml:"CustomerAwsId,omitempty"`
+	SnsTopicArn              string   `xml:"SnsTopicArn"`
+	Status                   string   `xml:"Status"`
+	SourceType               string   `xml:"SourceType,omitempty"`
+	Severity                 string   `xml:"Severity,omitempty"`
+	SourceIDs                []string `xml:"SourceIdsList>SourceId,omitempty"`
+	EventCategories          []string `xml:"EventCategoriesList>EventCategory,omitempty"`
+	Enabled                  bool     `xml:"Enabled"`
 }
 
 type xmlEventSubscriptionList struct {
@@ -173,7 +174,7 @@ type xmlEventSubscriptionList struct {
 }
 
 func eventSubscriptionToXML(sub *EventSubscription) xmlEventSubscription {
-	return xmlEventSubscription{
+	x := xmlEventSubscription{
 		CustSubscriptionID: sub.CustSubscriptionID,
 		CustomerAwsID:      sub.CustomerAwsID,
 		SnsTopicArn:        sub.SnsTopicArn,
@@ -184,6 +185,12 @@ func eventSubscriptionToXML(sub *EventSubscription) xmlEventSubscription {
 		EventCategories:    sub.EventCategories,
 		Enabled:            sub.Enabled,
 	}
+
+	if !sub.SubscriptionCreated.IsZero() {
+		x.SubscriptionCreationTime = sub.SubscriptionCreated.Format(time.RFC3339)
+	}
+
+	return x
 }
 
 // ---- CreateEventSubscription ----

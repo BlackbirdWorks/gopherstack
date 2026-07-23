@@ -147,7 +147,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		CustomerAwsID:       b.accountID,
 		CustSubscriptionID:  subscriptionName,
 		SnsTopicArn:         snsTopicArn,
-		Status:              "active",
+		Status:              endpointStatusActive,
 		SubscriptionCreated: time.Now(),
 		SourceType:          sourceType,
 		SourceIDs:           srcIDs,

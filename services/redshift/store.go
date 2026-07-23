@@ -25,6 +25,7 @@ const (
 	endpointAuthStatusAuthorized = "Authorized"
 	ingressStatusAuthorized      = "authorized"
 	resizeStatusCancelled        = "CANCELLED"
+	resizeStatusSucceeded        = "SUCCEEDED"
 	clusterTypeMultiNode         = "multi-node"
 	clusterTypeSingleNode        = "single-node"
 	defaultNodeType              = "dc2.large"

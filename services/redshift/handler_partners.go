@@ -12,14 +12,14 @@ type addPartnerResponse struct {
 	Xmlns             string   `xml:"xmlns,attr"`
 	ClusterIdentifier string   `xml:"AddPartnerResult>ClusterIdentifier"`
 	DatabaseName      string   `xml:"AddPartnerResult>DatabaseName"`
-	PartnerName       string   `xml:"AddPartnerResult>PartnerIntegrationId"`
+	PartnerName       string   `xml:"AddPartnerResult>PartnerName"`
 }
 
 func (h *Handler) handleAddPartner(vals url.Values) (any, error) {
 	accountID := vals.Get("AccountId")
 	clusterID := vals.Get("ClusterIdentifier")
 	databaseName := vals.Get("DatabaseName")
-	partnerName := vals.Get("PartnerIntegrationId")
+	partnerName := vals.Get("PartnerName")
 
 	if accountID == "" {
 		accountID = h.Backend.AccountID()
@@ -45,14 +45,14 @@ type deletePartnerResponse struct {
 	Xmlns             string   `xml:"xmlns,attr"`
 	ClusterIdentifier string   `xml:"DeletePartnerResult>ClusterIdentifier"`
 	DatabaseName      string   `xml:"DeletePartnerResult>DatabaseName"`
-	PartnerName       string   `xml:"DeletePartnerResult>PartnerIntegrationId"`
+	PartnerName       string   `xml:"DeletePartnerResult>PartnerName"`
 }
 
 func (h *Handler) handleDeletePartner(vals url.Values) (any, error) {
 	accountID := vals.Get("AccountId")
 	clusterID := vals.Get("ClusterIdentifier")
 	databaseName := vals.Get("DatabaseName")
-	partnerName := vals.Get("PartnerIntegrationId")
+	partnerName := vals.Get("PartnerName")
 
 	if accountID == "" {
 		accountID = h.Backend.AccountID()
@@ -75,7 +75,7 @@ func (h *Handler) handleDeletePartner(vals url.Values) (any, error) {
 type xmlPartner struct {
 	ClusterIdentifier string `xml:"ClusterIdentifier"`
 	DatabaseName      string `xml:"DatabaseName"`
-	PartnerName       string `xml:"PartnerIntegrationId"`
+	PartnerName       string `xml:"PartnerName"`
 	Status            string `xml:"Status,omitempty"`
 	StatusMessage     string `xml:"StatusMessage,omitempty"`
 }
@@ -104,7 +104,7 @@ func (h *Handler) handleDescribePartners(vals url.Values) (any, error) {
 	accountID := vals.Get("AccountId")
 	clusterID := vals.Get("ClusterIdentifier")
 	databaseName := vals.Get("DatabaseName")
-	partnerName := vals.Get("PartnerIntegrationId")
+	partnerName := vals.Get("PartnerName")
 
 	if accountID == "" {
 		accountID = h.Backend.AccountID()
@@ -135,14 +135,14 @@ type updatePartnerStatusResponse struct {
 	Xmlns             string   `xml:"xmlns,attr"`
 	ClusterIdentifier string   `xml:"UpdatePartnerStatusResult>ClusterIdentifier"`
 	DatabaseName      string   `xml:"UpdatePartnerStatusResult>DatabaseName"`
-	PartnerName       string   `xml:"UpdatePartnerStatusResult>PartnerIntegrationId"`
+	PartnerName       string   `xml:"UpdatePartnerStatusResult>PartnerName"`
 }
 
 func (h *Handler) handleUpdatePartnerStatus(vals url.Values) (any, error) {
 	accountID := vals.Get("AccountId")
 	clusterID := vals.Get("ClusterIdentifier")
 	databaseName := vals.Get("DatabaseName")
-	partnerName := vals.Get("PartnerIntegrationId")
+	partnerName := vals.Get("PartnerName")
 	status := vals.Get("Status")
 	statusMessage := vals.Get("StatusMessage")
 

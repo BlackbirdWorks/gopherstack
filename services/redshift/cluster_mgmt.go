@@ -144,7 +144,7 @@ func (b *InMemoryBackend) ResumeCluster(id string) (*Cluster, error) {
 func (b *InMemoryBackend) ResizeCluster(
 	id, nodeType, clusterType string,
 	numberOfNodes int,
-	_ bool, // classic is accepted but not used in the in-memory implementation
+	classic bool,
 ) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
@@ -168,6 +168,28 @@ func (b *InMemoryBackend) ResizeCluster(
 
 	if numberOfNodes > 0 {
 		cluster.NumberOfNodes = numberOfNodes
+	}
+
+	// Record the resize as an already-completed activeResizes entry so
+	// DescribeResize can observe it immediately after ResizeCluster returns (real
+	// AWS resize is asynchronous and pollable; this backend applies it
+	// instantly). AllowCancelResize is false since the resize is already
+	// finished by the time this call returns, matching CancelResize's existing
+	// "cannot be cancelled at this stage" rejection for a resize that has
+	// already completed. See PARITY.md gaps history for why this was previously
+	// missing entirely.
+	resizeType := "elastic"
+	if classic {
+		resizeType = "classic"
+	}
+
+	b.activeResizes[id] = &ResizeProgress{
+		TargetNodeType:      cluster.NodeType,
+		TargetClusterType:   cluster.ClusterType,
+		TargetNumberOfNodes: cluster.NumberOfNodes,
+		Status:              resizeStatusSucceeded,
+		ResizeType:          resizeType,
+		AllowCancelResize:   false,
 	}
 
 	cp := cloneCluster(cluster)

@@ -66,7 +66,7 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 
 	return &modifyClusterResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -88,7 +88,7 @@ func (h *Handler) handleRebootCluster(vals url.Values) (any, error) {
 
 	return &rebootClusterResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -110,7 +110,7 @@ func (h *Handler) handlePauseCluster(vals url.Values) (any, error) {
 
 	return &pauseClusterResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -132,7 +132,7 @@ func (h *Handler) handleResumeCluster(vals url.Values) (any, error) {
 
 	return &resumeClusterResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -169,7 +169,7 @@ func (h *Handler) handleResizeCluster(vals url.Values) (any, error) {
 
 	return &resizeClusterResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -191,7 +191,7 @@ func (h *Handler) handleRotateEncryptionKey(vals url.Values) (any, error) {
 
 	return &rotateEncryptionKeyResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -215,7 +215,7 @@ func (h *Handler) handleModifyClusterIamRoles(vals url.Values) (any, error) {
 
 	return &modifyClusterIamRolesResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -239,7 +239,7 @@ func (h *Handler) handleModifyClusterMaintenance(vals url.Values) (any, error) {
 
 	return &modifyClusterMaintenanceResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 
@@ -290,7 +290,7 @@ func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
 
 	return &modifyClusterDBRevisionResponse{
 		Xmlns:  redshiftXMLNS,
-		Result: toXMLCluster(&clusters[0]),
+		Result: h.toXMLCluster(&clusters[0]),
 	}, nil
 }
 
@@ -344,6 +344,6 @@ func (h *Handler) handleFailoverPrimaryCompute(vals url.Values) (any, error) {
 
 	return &failoverPrimaryComputeResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }

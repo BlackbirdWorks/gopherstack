@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -147,6 +148,48 @@ func parseRedshiftTagKeys(vals url.Values) []string {
 }
 
 const maxListItems = 1000
+
+// tagMapToKVList converts a resource's stored tag map into the sorted []svcTags.KV
+// shape used for the wire-level "Tags>Tag" list embedded directly on many Redshift
+// resource responses (e.g. Integration.Tags, HsmClientCertificate.Tags -- see the
+// real SDK's []types.Tag fields). Sorted by key for deterministic serialization.
+func tagMapToKVList(tags map[string]string) []svcTags.KV {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	kvs := make([]svcTags.KV, 0, len(tags))
+	for k, v := range tags {
+		kvs = append(kvs, svcTags.KV{Key: k, Value: v})
+	}
+
+	sort.Slice(kvs, func(i, j int) bool { return kvs[i].Key < kvs[j].Key })
+
+	return kvs
+}
+
+// parseTagListPrefixed extracts a Prefix.Tag.N.Key/Prefix.Tag.N.Value tag list from
+// form values, e.g. prefix="TagList" for CreateIntegration (whose real
+// CreateIntegrationInput field is named TagList, not Tags -- confirmed against
+// aws-sdk-go-v2/service/redshift@v1.62.3/serializers.go
+// awsAwsquery_serializeOpDocumentCreateIntegrationInput). At most maxListItems tags
+// are returned to prevent resource exhaustion.
+func parseTagListPrefixed(vals url.Values, prefix string) map[string]string {
+	tags := make(map[string]string)
+
+	for i := 1; i <= maxListItems; i++ {
+		p := fmt.Sprintf("%s.Tag.%d.", prefix, i)
+		key := vals.Get(p + "Key")
+
+		if key == "" {
+			return tags
+		}
+
+		tags[key] = vals.Get(p + "Value")
+	}
+
+	return tags
+}
 
 // parseStringList extracts a numbered list from form values using the given prefix.
 // e.g. prefix="SnapshotIdentifierList.SnapshotIdentifier." yields elements at indices 1, 2, ...

@@ -368,7 +368,7 @@ func TestBackend_Reset_ClearsNewState(t *testing.T) {
 			name: "reset_clears_scheduled_actions",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateScheduledAction("action-1", "cron(0 12 * * ? *)", "", "", "")
+				_, err := b.CreateScheduledAction("action-1", "cron(0 12 * * ? *)", "", "", nil, nil)
 				require.NoError(t, err)
 				b.Reset()
 				assert.Equal(t, 0, redshift.ScheduledActionCount(b))

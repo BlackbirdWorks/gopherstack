@@ -180,7 +180,7 @@ func (h *Handler) handleRestoreFromClusterSnapshot(vals url.Values) (any, error)
 
 	return &restoreFromClusterSnapshotResponse{
 		Xmlns:   redshiftXMLNS,
-		Cluster: toXMLCluster(cluster),
+		Cluster: h.toXMLCluster(cluster),
 	}, nil
 }
 

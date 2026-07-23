@@ -250,7 +250,7 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
 				_, err := b.CreateScheduledAction(
-					"action-1", "cron(0 12 * * ? *)", "arn:aws:iam::123:role/R", "desc", "",
+					"action-1", "cron(0 12 * * ? *)", "arn:aws:iam::123:role/R", "desc", nil, nil,
 				)
 				require.NoError(t, err)
 				assert.Equal(t, 1, redshift.ScheduledActionCount(b))
@@ -260,7 +260,7 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			name: "delete_decrements_count",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateScheduledAction("action-del", "cron(0 12 * * ? *)", "", "", "")
+				_, err := b.CreateScheduledAction("action-del", "cron(0 12 * * ? *)", "", "", nil, nil)
 				require.NoError(t, err)
 				err = b.DeleteScheduledAction("action-del")
 				require.NoError(t, err)
@@ -271,9 +271,9 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			name: "describe_all_returns_all",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateScheduledAction("a1", "cron(0 12 * * ? *)", "", "", "")
+				_, err := b.CreateScheduledAction("a1", "cron(0 12 * * ? *)", "", "", nil, nil)
 				require.NoError(t, err)
-				_, err = b.CreateScheduledAction("a2", "rate(1 day)", "", "", "")
+				_, err = b.CreateScheduledAction("a2", "rate(1 day)", "", "", nil, nil)
 				require.NoError(t, err)
 				actions, err := b.DescribeScheduledActions("")
 				require.NoError(t, err)
@@ -284,9 +284,9 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			name: "modify_updates_schedule",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateScheduledAction("action-mod", "cron(0 12 * * ? *)", "", "", "")
+				_, err := b.CreateScheduledAction("action-mod", "cron(0 12 * * ? *)", "", "", nil, nil)
 				require.NoError(t, err)
-				updated, err := b.ModifyScheduledAction("action-mod", "rate(1 hour)", "", "")
+				updated, err := b.ModifyScheduledAction("action-mod", "rate(1 hour)", "", "", nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, "rate(1 hour)", updated.Schedule)
 			},
@@ -295,9 +295,9 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			name: "modify_updates_description",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateScheduledAction("action-desc", "cron(0 12 * * ? *)", "", "old desc", "")
+				_, err := b.CreateScheduledAction("action-desc", "cron(0 12 * * ? *)", "", "old desc", nil, nil)
 				require.NoError(t, err)
-				updated, err := b.ModifyScheduledAction("action-desc", "", "", "new desc")
+				updated, err := b.ModifyScheduledAction("action-desc", "", "", "new desc", nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, "new desc", updated.ScheduledActionDescription)
 			},
@@ -306,7 +306,7 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			name: "modify_not_found_returns_error",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				_, err := b.ModifyScheduledAction("nonexistent", "rate(1 day)", "", "")
+				_, err := b.ModifyScheduledAction("nonexistent", "rate(1 day)", "", "", nil, nil)
 				require.Error(t, err)
 				assert.ErrorIs(t, err, redshift.ErrScheduledActionNotFound)
 			},
@@ -315,9 +315,9 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			name: "duplicate_create_returns_error",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateScheduledAction("action-dup", "cron(0 12 * * ? *)", "", "", "")
+				_, err := b.CreateScheduledAction("action-dup", "cron(0 12 * * ? *)", "", "", nil, nil)
 				require.NoError(t, err)
-				_, err = b.CreateScheduledAction("action-dup", "rate(1 day)", "", "", "")
+				_, err = b.CreateScheduledAction("action-dup", "rate(1 day)", "", "", nil, nil)
 				require.Error(t, err)
 				assert.ErrorIs(t, err, redshift.ErrScheduledActionAlreadyExists)
 			},
@@ -335,7 +335,7 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			name: "state_is_active_on_create",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				a, err := b.CreateScheduledAction("action-state", "cron(0 12 * * ? *)", "", "", "")
+				a, err := b.CreateScheduledAction("action-state", "cron(0 12 * * ? *)", "", "", nil, nil)
 				require.NoError(t, err)
 				assert.Equal(t, "ACTIVE", a.State)
 			},
@@ -350,4 +350,56 @@ func TestBackend_ScheduledAction(t *testing.T) {
 			tt.run(t, b)
 		})
 	}
+}
+
+// TestHandler_ScheduledAction_TargetActionRoundTrips locks in that TargetAction --
+// the field that determines what a scheduled action actually does -- survives a
+// real request/response round trip. Before this fix, CreateScheduledAction/
+// ModifyScheduledAction parsed TargetAction as a single flat top-level string (not
+// the nested TargetAction.ResizeCluster.* etc. shape real aws-sdk-go-v2 clients
+// send), and DescribeScheduledActions/CreateScheduledActionResult never serialized
+// TargetAction into the response at all -- it was silently dropped end to end.
+func TestHandler_ScheduledAction_TargetActionRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+
+	rec := postRedshiftForm(t, h, "Action=CreateScheduledAction&Version=2012-12-01"+
+		"&ScheduledActionName=resize-action&Schedule=cron(0+12+*+*+?+*)"+
+		"&TargetAction.ResizeCluster.ClusterIdentifier=my-cluster"+
+		"&TargetAction.ResizeCluster.NodeType=ra3.4xlarge"+
+		"&TargetAction.ResizeCluster.NumberOfNodes=3")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	body := rec.Body.String()
+	assert.Contains(t, body, "<ResizeCluster>")
+	assert.Contains(t, body, "<ClusterIdentifier>my-cluster</ClusterIdentifier>")
+	assert.Contains(t, body, "<NodeType>ra3.4xlarge</NodeType>")
+	assert.Contains(t, body, "<NumberOfNodes>3</NumberOfNodes>")
+
+	// DescribeScheduledActions must also reflect the stored target action.
+	rec = postRedshiftForm(t, h, "Action=DescribeScheduledActions&Version=2012-12-01"+
+		"&ScheduledActionName=resize-action")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = rec.Body.String()
+	assert.Contains(t, body, "<ResizeCluster>")
+	assert.Contains(t, body, "<ClusterIdentifier>my-cluster</ClusterIdentifier>")
+}
+
+// TestHandler_ScheduledAction_Enable locks in that the Enable request parameter
+// (unsupported before this fix -- state was always hardcoded to ACTIVE) actually
+// controls the resulting State.
+func TestHandler_ScheduledAction_Enable(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+
+	rec := postRedshiftForm(t, h, "Action=CreateScheduledAction&Version=2012-12-01"+
+		"&ScheduledActionName=disabled-action&Schedule=cron(0+12+*+*+?+*)&Enable=false")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<State>DISABLED</State>")
+
+	rec = postRedshiftForm(t, h, "Action=ModifyScheduledAction&Version=2012-12-01"+
+		"&ScheduledActionName=disabled-action&Enable=true")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<State>ACTIVE</State>")
 }
