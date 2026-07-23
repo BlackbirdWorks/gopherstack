@@ -3,6 +3,7 @@ package codeartifact
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,42 @@ import (
 )
 
 // --- Package group methods ---
+
+// PackageGroupOriginRestrictionMode's real SDK enum values.
+const (
+	restrictionModeAllow             = "ALLOW"
+	restrictionModeAllowSpecificRepo = "ALLOW_SPECIFIC_REPOSITORIES"
+	restrictionModeBlock             = "BLOCK"
+	restrictionModeInherit           = "INHERIT"
+)
+
+// PackageGroupOriginRestrictionType's real SDK enum values.
+const (
+	restrictionTypeExternalUpstream = "EXTERNAL_UPSTREAM"
+	restrictionTypeInternalUpstream = "INTERNAL_UPSTREAM"
+	restrictionTypePublish          = "PUBLISH"
+)
+
+// validRestrictionTypes are PackageGroupOriginRestrictionType's real SDK
+// enum values.
+//
+//nolint:gochecknoglobals // read-only validation set initialized once at startup
+var validRestrictionTypes = map[string]bool{
+	restrictionTypeExternalUpstream: true,
+	restrictionTypeInternalUpstream: true,
+	restrictionTypePublish:          true,
+}
+
+// validRestrictionModes are PackageGroupOriginRestrictionMode's real SDK
+// enum values.
+//
+//nolint:gochecknoglobals // read-only validation set initialized once at startup
+var validRestrictionModes = map[string]bool{
+	restrictionModeAllow:             true,
+	restrictionModeAllowSpecificRepo: true,
+	restrictionModeBlock:             true,
+	restrictionModeInherit:           true,
+}
 
 // packageGroupKey returns the map key for a package group.
 func packageGroupKey(domainName, pattern string) string {
@@ -25,6 +62,10 @@ func (b *InMemoryBackend) CreatePackageGroup(
 	kv map[string]string,
 ) (*PackageGroup, error) {
 	region := getRegion(ctx, b.region)
+
+	if _, err := parseGroupPattern(pattern); err != nil {
+		return nil, err
+	}
 
 	b.mu.Lock("CreatePackageGroup")
 	defer b.mu.Unlock()
@@ -100,7 +141,15 @@ func (b *InMemoryBackend) DeletePackageGroup(ctx context.Context, domainName, pa
 	return &cp, nil
 }
 
-// GetAssociatedPackageGroup returns the most specific package group associated with a package.
+// GetAssociatedPackageGroup returns the most specific package group whose
+// pattern matches the given package coordinate, per AWS's pattern
+// specificity algorithm (see package_group_pattern.go). Returns (nil, nil)
+// if no group in the domain matches -- not an error per the real API.
+//
+// Scope note: this backend does not auto-create the implicit root group
+// ("/*") that real AWS attaches to every domain, so an empty domain (or one
+// whose groups don't cover the package) returns no match here where real
+// AWS would always find at least the root group -- see PARITY.md's gaps.
 func (b *InMemoryBackend) GetAssociatedPackageGroup(
 	ctx context.Context,
 	domainName, format, namespace, name string,
@@ -114,12 +163,42 @@ func (b *InMemoryBackend) GetAssociatedPackageGroup(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	_ = format
-	_ = namespace
-	_ = name
+	match := bestMatchingGroup(b.packageGroupsByRegion.Get(region), domainName, format, namespace, name)
+	if match == nil {
+		return nil, nil //nolint:nilnil // AWS returns no error when no group matches
+	}
+	cp := *match
 
-	// Return nil if no group matches (not an error per AWS API).
-	return nil, nil //nolint:nilnil // AWS returns no error when no group matches
+	return &cp, nil
+}
+
+// bestMatchingGroup returns the most specific group among entries (scoped
+// to domainName) whose pattern matches the given coordinate, or nil if none
+// match. Malformed patterns (should not occur -- CreatePackageGroup
+// validates on write) are skipped defensively.
+func bestMatchingGroup(entries []*PackageGroup, domainName, format, namespace, name string) *PackageGroup {
+	var best *PackageGroup
+
+	var bestRank int
+
+	for _, pg := range entries {
+		if pg.DomainName != domainName {
+			continue
+		}
+
+		parsed, err := parseGroupPattern(pg.Pattern)
+		if err != nil || !parsed.matches(format, namespace, name) {
+			continue
+		}
+
+		rank := parsed.specificityRank()
+		if best == nil || rank > bestRank {
+			best = pg
+			bestRank = rank
+		}
+	}
+
+	return best
 }
 
 // ListPackageGroups returns all package groups in a domain, optionally filtered by prefix.
@@ -156,7 +235,12 @@ func (b *InMemoryBackend) ListPackageGroups(ctx context.Context, domainName, pre
 	return result, nil
 }
 
-// ListSubPackageGroups returns sub-package groups of a given package group pattern.
+// ListSubPackageGroups returns the direct children of the given package
+// group pattern in the pattern hierarchy (see package_group_pattern.go's
+// isProperSubsetPattern): every OTHER group in the domain whose immediate
+// parent (the most specific proper-superset pattern) is exactly this one.
+// Real AWS returns direct children only, not the full descendant subtree
+// (verified against the ListSubPackageGroups API reference).
 func (b *InMemoryBackend) ListSubPackageGroups(
 	ctx context.Context,
 	domainName, pattern string,
@@ -170,21 +254,37 @@ func (b *InMemoryBackend) ListSubPackageGroups(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	entries := b.packageGroupsByRegion.Get(region)
-	result := make([]*PackageGroup, 0, len(entries))
+	self, err := parseGroupPattern(pattern)
+	if err != nil {
+		return nil, err
+	}
 
-	parentRoot := strings.TrimSuffix(pattern, "*")
+	entries := b.packageGroupsByRegion.Get(region)
+	domainGroups := make([]*PackageGroup, 0, len(entries))
 
 	for _, pg := range entries {
-		if pg.DomainName != domainName {
+		if pg.DomainName == domainName {
+			domainGroups = append(domainGroups, pg)
+		}
+	}
+
+	result := make([]*PackageGroup, 0, len(domainGroups))
+
+	for _, candidate := range domainGroups {
+		if candidate.Pattern == pattern {
 			continue
 		}
 
-		if pg.Pattern == pattern || !strings.HasPrefix(pg.Pattern, parentRoot) {
+		candidateParsed, perr := parseGroupPattern(candidate.Pattern)
+		if perr != nil || !isProperSubsetPattern(candidateParsed, self) {
 			continue
 		}
 
-		cp := *pg
+		if immediateParentPattern(domainGroups, candidate, candidateParsed) != pattern {
+			continue
+		}
+
+		cp := *candidate
 		result = append(result, &cp)
 	}
 
@@ -193,6 +293,47 @@ func (b *InMemoryBackend) ListSubPackageGroups(
 	})
 
 	return result, nil
+}
+
+// immediateParentPattern returns the pattern string of self's immediate
+// parent among candidates (the most specific proper superset of self's
+// pattern, excluding self), or "" if self has no parent within candidates.
+// Callers must have already parsed self's pattern (selfParsed).
+func immediateParentPattern(candidates []*PackageGroup, self *PackageGroup, selfParsed *groupPattern) string {
+	parent := immediateParentGroup(candidates, self, selfParsed)
+	if parent == nil {
+		return ""
+	}
+
+	return parent.Pattern
+}
+
+// immediateParentGroup returns self's immediate parent group among
+// candidates, or nil if none exists. The immediate parent is the most
+// specific (highest specificityRank) OTHER group whose match-space is a
+// proper superset of self's.
+func immediateParentGroup(candidates []*PackageGroup, self *PackageGroup, selfParsed *groupPattern) *PackageGroup {
+	var parent *PackageGroup
+
+	var parentParsed *groupPattern
+
+	for _, candidate := range candidates {
+		if candidate.Pattern == self.Pattern {
+			continue
+		}
+
+		candidateParsed, err := parseGroupPattern(candidate.Pattern)
+		if err != nil || !isProperSubsetPattern(selfParsed, candidateParsed) {
+			continue
+		}
+
+		if parent == nil || candidateParsed.specificityRank() > parentParsed.specificityRank() {
+			parent = candidate
+			parentParsed = candidateParsed
+		}
+	}
+
+	return parent
 }
 
 // UpdatePackageGroup updates description or contact info of a package group.
@@ -225,32 +366,130 @@ func (b *InMemoryBackend) UpdatePackageGroup(
 	return &cp, nil
 }
 
-// UpdatePackageGroupOriginConfiguration is a stub that accepts origin config changes.
+// AllowedRepoOp is one entry of UpdatePackageGroupOriginConfiguration's
+// addAllowedRepositories/removeAllowedRepositories request lists (mirrors
+// aws-sdk-go-v2 types.PackageGroupAllowedRepository).
+type AllowedRepoOp struct {
+	OriginRestrictionType string
+	RepositoryName        string
+}
+
+// UpdatePackageGroupOriginConfiguration updates a package group's per-type
+// restriction mode and/or allowed-repository list. Returns the updated
+// group plus a restrictionType -> {"ADDED"|"REMOVED": [repoNames]} map
+// describing exactly what changed, mirroring the real
+// UpdatePackageGroupOriginConfigurationOutput.AllowedRepositoryUpdates
+// shape (verified against aws-sdk-go-v2 deserializers.go).
 func (b *InMemoryBackend) UpdatePackageGroupOriginConfiguration(
 	ctx context.Context,
 	domainName, pattern string,
-) (*PackageGroup, error) {
+	restrictions map[string]string,
+	addRepos, removeRepos []AllowedRepoOp,
+) (*PackageGroup, map[string]map[string][]string, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("UpdatePackageGroupOriginConfiguration")
-	defer b.mu.RUnlock()
+	b.mu.Lock("UpdatePackageGroupOriginConfiguration")
+	defer b.mu.Unlock()
 
 	key := packageGroupKey(domainName, pattern)
 	pg, ok := b.packageGroups.Get(regionKey(region, key))
-
 	if !ok {
-		return nil, fmt.Errorf("%w: package group %s not found", ErrNotFound, pattern)
+		return nil, nil, fmt.Errorf("%w: package group %s not found in domain %s", ErrNotFound, pattern, domainName)
+	}
+
+	if err := validateOriginConfigInput(restrictions, addRepos, removeRepos); err != nil {
+		return nil, nil, err
+	}
+
+	for _, op := range slices.Concat(addRepos, removeRepos) {
+		if !b.repositories.Has(regionKey(region, repoKey(domainName, op.RepositoryName))) {
+			return nil, nil, fmt.Errorf(
+				"%w: repository %s not found in domain %s", ErrNotFound, op.RepositoryName, domainName,
+			)
+		}
+	}
+
+	if pg.Restrictions == nil {
+		pg.Restrictions = make(map[string]*PackageGroupRestriction, len(validRestrictionTypes))
+	}
+
+	for restrictionType, mode := range restrictions {
+		restrictionFor(pg, restrictionType).Mode = mode
+	}
+
+	updates := make(map[string]map[string][]string)
+
+	for _, op := range addRepos {
+		r := restrictionFor(pg, op.OriginRestrictionType)
+		if !slices.Contains(r.AllowedRepositories, op.RepositoryName) {
+			r.AllowedRepositories = append(r.AllowedRepositories, op.RepositoryName)
+			recordAllowedRepoUpdate(updates, op.OriginRestrictionType, "ADDED", op.RepositoryName)
+		}
+	}
+
+	for _, op := range removeRepos {
+		r := restrictionFor(pg, op.OriginRestrictionType)
+		if idx := slices.Index(r.AllowedRepositories, op.RepositoryName); idx >= 0 {
+			r.AllowedRepositories = slices.Delete(r.AllowedRepositories, idx, idx+1)
+			recordAllowedRepoUpdate(updates, op.OriginRestrictionType, "REMOVED", op.RepositoryName)
+		}
 	}
 
 	cp := *pg
 
-	return &cp, nil
+	return &cp, updates, nil
 }
 
-// ListAllowedRepositoriesForGroup is a stub returning allowed repositories for a package group.
+// validateOriginConfigInput checks restriction-type/mode enum membership
+// across all three UpdatePackageGroupOriginConfiguration input lists.
+func validateOriginConfigInput(restrictions map[string]string, addRepos, removeRepos []AllowedRepoOp) error {
+	for restrictionType, mode := range restrictions {
+		if !validRestrictionTypes[restrictionType] {
+			return fmt.Errorf("%w: invalid origin restriction type %s", ErrValidation, restrictionType)
+		}
+
+		if !validRestrictionModes[mode] {
+			return fmt.Errorf("%w: invalid origin restriction mode %s", ErrValidation, mode)
+		}
+	}
+
+	for _, op := range slices.Concat(addRepos, removeRepos) {
+		if !validRestrictionTypes[op.OriginRestrictionType] {
+			return fmt.Errorf("%w: invalid origin restriction type %s", ErrValidation, op.OriginRestrictionType)
+		}
+	}
+
+	return nil
+}
+
+// restrictionFor returns pg's PackageGroupRestriction for restrictionType,
+// lazily creating it (defaulting Mode to "INHERIT") if absent. Callers must
+// hold b.mu and have already validated restrictionType and initialized
+// pg.Restrictions.
+func restrictionFor(pg *PackageGroup, restrictionType string) *PackageGroupRestriction {
+	r, ok := pg.Restrictions[restrictionType]
+	if !ok {
+		r = &PackageGroupRestriction{Mode: restrictionModeInherit}
+		pg.Restrictions[restrictionType] = r
+	}
+
+	return r
+}
+
+// recordAllowedRepoUpdate appends repoName to updates[restrictionType][action].
+func recordAllowedRepoUpdate(updates map[string]map[string][]string, restrictionType, action, repoName string) {
+	if updates[restrictionType] == nil {
+		updates[restrictionType] = make(map[string][]string)
+	}
+
+	updates[restrictionType][action] = append(updates[restrictionType][action], repoName)
+}
+
+// ListAllowedRepositoriesForGroup returns the allowed-repository list for
+// the given package group and origin restriction type.
 func (b *InMemoryBackend) ListAllowedRepositoriesForGroup(
 	ctx context.Context,
-	domainName, pattern string,
+	domainName, pattern, restrictionType string,
 ) ([]string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -261,12 +500,29 @@ func (b *InMemoryBackend) ListAllowedRepositoriesForGroup(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	_ = pattern
+	if !validRestrictionTypes[restrictionType] {
+		return nil, fmt.Errorf("%w: invalid origin restriction type %s", ErrValidation, restrictionType)
+	}
 
-	return []string{}, nil
+	key := packageGroupKey(domainName, pattern)
+	pg, ok := b.packageGroups.Get(regionKey(region, key))
+	if !ok {
+		return nil, fmt.Errorf("%w: package group %s not found in domain %s", ErrNotFound, pattern, domainName)
+	}
+
+	r, ok := pg.Restrictions[restrictionType]
+	if !ok {
+		return []string{}, nil
+	}
+
+	return slices.Clone(r.AllowedRepositories), nil
 }
 
-// ListAssociatedPackages lists packages associated with a package group.
+// ListAssociatedPackages returns the packages in the domain whose
+// most-specific matching package group (see bestMatchingGroup) is exactly
+// the group identified by pattern. Packages are deduplicated by
+// (format, namespace, name) across every repository in the domain, mirroring
+// how ListPackages dedupes within a single repository.
 func (b *InMemoryBackend) ListAssociatedPackages(ctx context.Context, domainName, pattern string) ([]*Package, error) {
 	region := getRegion(ctx, b.region)
 
@@ -277,7 +533,140 @@ func (b *InMemoryBackend) ListAssociatedPackages(ctx context.Context, domainName
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	_ = pattern
+	if _, err := parseGroupPattern(pattern); err != nil {
+		return nil, err
+	}
 
-	return []*Package{}, nil
+	groups := b.packageGroupsByRegion.Get(region)
+	seen := make(map[string]bool)
+	result := make([]*Package, 0)
+
+	for _, pkg := range b.packagesByRegion.Get(region) {
+		if pkg.DomainName != domainName {
+			continue
+		}
+
+		dedupeKey := pkg.Format + "/" + pkg.Namespace + "/" + pkg.Name
+		if seen[dedupeKey] {
+			continue
+		}
+
+		match := bestMatchingGroup(groups, domainName, pkg.Format, pkg.Namespace, pkg.Name)
+		if match == nil || match.Pattern != pattern {
+			continue
+		}
+
+		seen[dedupeKey] = true
+		cp := *pkg
+		result = append(result, &cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+// EffectiveRestriction is a package group's resolved origin-restriction
+// state for one restriction type, mirroring aws-sdk-go-v2
+// types.PackageGroupOriginRestriction.
+type EffectiveRestriction struct {
+	InheritedFrom     *PackageGroup
+	Mode              string
+	EffectiveMode     string
+	RepositoriesCount int
+}
+
+// PackageGroupOriginInfo bundles a package group's computed origin-control
+// wire data: the resolved EffectiveRestriction for each of the three
+// restriction types, plus its immediate parent in the pattern hierarchy.
+// Handlers use this to build the real PackageGroupDescription/
+// PackageGroupSummary "originConfiguration"/"parent" wire fields.
+type PackageGroupOriginInfo struct {
+	Parent       *PackageGroup
+	Restrictions map[string]EffectiveRestriction
+}
+
+// DescribeOriginInfo computes pg's PackageGroupOriginInfo. Callers pass a
+// group already fetched from this backend (e.g. via DescribePackageGroup);
+// domainName scopes the hierarchy search to sibling groups in the same
+// domain.
+func (b *InMemoryBackend) DescribeOriginInfo(
+	ctx context.Context, domainName string, pg *PackageGroup,
+) (*PackageGroupOriginInfo, error) {
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("DescribeOriginInfo")
+	defer b.mu.RUnlock()
+
+	selfParsed, err := parseGroupPattern(pg.Pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	domainGroups := make([]*PackageGroup, 0)
+
+	for _, g := range b.packageGroupsByRegion.Get(region) {
+		if g.DomainName == domainName {
+			domainGroups = append(domainGroups, g)
+		}
+	}
+
+	info := &PackageGroupOriginInfo{
+		Restrictions: make(map[string]EffectiveRestriction, len(validRestrictionTypes)),
+		Parent:       immediateParentGroup(domainGroups, pg, selfParsed),
+	}
+
+	for rt := range validRestrictionTypes {
+		info.Restrictions[rt] = resolveEffectiveRestriction(domainGroups, pg, rt)
+	}
+
+	return info, nil
+}
+
+// resolveEffectiveRestriction walks self's INHERIT chain (via
+// immediateParentGroup) for restrictionType until it finds an ancestor with
+// a non-INHERIT mode, defaulting to ALLOW if the chain runs out --
+// mirroring real AWS's root-group default of allowing everything.
+func resolveEffectiveRestriction(
+	domainGroups []*PackageGroup, self *PackageGroup, restrictionType string,
+) EffectiveRestriction {
+	ownMode, repoCount := ownRestriction(self, restrictionType)
+	if ownMode != restrictionModeInherit {
+		return EffectiveRestriction{Mode: ownMode, EffectiveMode: ownMode, RepositoriesCount: repoCount}
+	}
+
+	for cur := self; ; {
+		curParsed, err := parseGroupPattern(cur.Pattern)
+		if err != nil {
+			break
+		}
+
+		parent := immediateParentGroup(domainGroups, cur, curParsed)
+		if parent == nil {
+			break
+		}
+
+		if parentMode, _ := ownRestriction(parent, restrictionType); parentMode != restrictionModeInherit {
+			return EffectiveRestriction{
+				Mode: ownMode, EffectiveMode: parentMode, InheritedFrom: parent, RepositoriesCount: repoCount,
+			}
+		}
+
+		cur = parent
+	}
+
+	return EffectiveRestriction{Mode: ownMode, EffectiveMode: restrictionModeAllow, RepositoriesCount: repoCount}
+}
+
+// ownRestriction returns pg's own (non-inherited) mode for restrictionType
+// and its allowed-repository count, defaulting to "INHERIT"/0 when unset.
+func ownRestriction(pg *PackageGroup, restrictionType string) (string, int) {
+	r, ok := pg.Restrictions[restrictionType]
+	if !ok || r.Mode == "" {
+		return restrictionModeInherit, 0
+	}
+
+	return r.Mode, len(r.AllowedRepositories)
 }

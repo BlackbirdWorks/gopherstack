@@ -215,6 +215,119 @@ func TestHandler_GetPackageVersionReadme(t *testing.T) {
 	}
 }
 
+// TestHandler_GetPackageVersionReadme_FromPublishedPackageJSON verifies real (non-stub)
+// readme extraction: publishing an npm "package.json" asset whose content includes a
+// "readme" field makes that text available via GetPackageVersionReadme.
+func TestHandler_GetPackageVersionReadme_FromPublishedPackageJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "pvrm-domain")
+	setupRepo(t, h, "pvrm-domain", "pvrm-repo")
+
+	packageJSON := `{"name":"mypkg","version":"1.0.0","readme":"# My Package\n\nUsage instructions."}`
+	doRawRequest(
+		t, h,
+		"/v1/package/versions/publish?domain=pvrm-domain&repository=pvrm-repo&format=npm&package=mypkg"+
+			"&version=1.0.0&asset=package.json",
+		[]byte(packageJSON),
+	)
+
+	rec := doRequest(
+		t, h, http.MethodGet,
+		"/v1/package/version/readme?domain=pvrm-domain&repository=pvrm-repo&format=npm&package=mypkg&version=1.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "# My Package\n\nUsage instructions.", resp["readme"])
+	assert.Equal(t, "npm", resp["format"])
+	assert.Equal(t, "mypkg", resp["package"])
+	assert.Equal(t, "1.0.0", resp["version"])
+	assert.NotEmpty(t, resp["versionRevision"])
+}
+
+// TestHandler_GetPackageVersionReadme_NoPackageJSON verifies the documented scope
+// limitation: without a published "package.json" asset, readme is empty (not an error) --
+// this backend doesn't unpack full tarballs.
+func TestHandler_GetPackageVersionReadme_NoPackageJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "pvrnp-domain")
+	setupRepo(t, h, "pvrnp-domain", "pvrnp-repo")
+
+	doRawRequest(
+		t, h,
+		"/v1/package/versions/publish?domain=pvrnp-domain&repository=pvrnp-repo&format=npm&package=mypkg"+
+			"&version=1.0.0&asset=mypkg-1.0.0.tgz",
+		[]byte("binary-tarball-content"),
+	)
+
+	rec := doRequest(
+		t, h, http.MethodGet,
+		"/v1/package/version/readme?domain=pvrnp-domain&repository=pvrnp-repo&format=npm&package=mypkg&version=1.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Empty(t, resp["readme"])
+}
+
+// TestHandler_ListPackageVersionDependencies_FromPublishedPackageJSON verifies real
+// (non-stub) dependency extraction across all four npm dependency-type maps.
+func TestHandler_ListPackageVersionDependencies_FromPublishedPackageJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "lpvdm-domain")
+	setupRepo(t, h, "lpvdm-domain", "lpvdm-repo")
+
+	packageJSON := `{
+		"name": "mypkg",
+		"version": "1.0.0",
+		"dependencies": {"lodash": "^4.17.21"},
+		"devDependencies": {"jest": "^29.0.0"},
+		"peerDependencies": {"react": ">=16.0.0"},
+		"optionalDependencies": {"fsevents": "^2.3.0"}
+	}`
+	doRawRequest(
+		t, h,
+		"/v1/package/versions/publish?domain=lpvdm-domain&repository=lpvdm-repo&format=npm&package=mypkg"+
+			"&version=1.0.0&asset=package.json",
+		[]byte(packageJSON),
+	)
+
+	rec := doRequest(
+		t, h, http.MethodGet,
+		"/v1/package/version/dependencies"+
+			"?domain=lpvdm-domain&repository=lpvdm-repo&format=npm&package=mypkg&version=1.0.0",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	deps, _ := resp["dependencies"].([]any)
+	require.Len(t, deps, 4)
+
+	byType := make(map[string]map[string]any, len(deps))
+	for _, d := range deps {
+		dm := d.(map[string]any)
+		byType[dm["dependencyType"].(string)] = dm
+	}
+
+	assert.Equal(t, "lodash", byType["regular"]["package"])
+	assert.Equal(t, "^4.17.21", byType["regular"]["versionRequirement"])
+	assert.Equal(t, "jest", byType["dev"]["package"])
+	assert.Equal(t, "react", byType["peer"]["package"])
+	assert.Equal(t, "fsevents", byType["optional"]["package"])
+}
+
 func TestHandler_ListPackageVersionAssets(t *testing.T) {
 	t.Parallel()
 

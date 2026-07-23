@@ -6,9 +6,12 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codeartifact
 sdk_module: aws-sdk-go-v2/service/codeartifact@v1.38.19   # version audited against
-last_audit_commit: f779cb61                                # HEAD when this manifest was written
-last_audit_date: 2026-07-13
-overall: A            # ~1k genuine fixes found across wire shape, routing, and disguised no-ops
+last_audit_commit: TBD-fill-in-after-commit                # this agent doesn't run git; main thread should set this on commit
+last_audit_date: 2026-07-23
+overall: A            # this pass: real package-group pattern-matching algorithm implemented,
+                      # readme/dependency extraction implemented (npm package.json scope),
+                      # UpdatePackageGroupOriginConfiguration/ListAllowedRepositoriesForGroup made real,
+                      # a domain-delete package-group leak fixed. See ops table + gaps below.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -40,11 +43,11 @@ ops:
   DeletePackageGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — same packageGroup -> package-group"}
   UpdatePackageGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "unaffected: packageGroup is a JSON body field here (matches real wire), the (wrong) query fallback was dead code for real traffic but harmless"}
   ListPackageGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED pagination casing; createdTime was missing from response (real field, was tracked but never serialized) — now added"}
-  ListSubPackageGroups: {wire: ok, errors: ok, state: ok, persist: partial, note: "FIXED route-matcher bug — real path is /v1/package-groups/sub-groups (POST), was /v1/sub-package-groups; FIXED packageGroup -> package-group query param. state: prefix-heuristic sub-group matching, not real AWS pattern-glob semantics (see gaps)"}
-  GetAssociatedPackageGroup: {wire: partial, errors: ok, state: gap, persist: n/a, note: "FIXED route-matcher bug — real path is /v1/get-associated-package-group (GET), was /v1/associated-package-group. state remains a gap: backend always returns no match (see gaps) — response also omits associationType, moot until real matching exists"}
-  ListAssociatedPackages: {wire: partial, errors: ok, state: gap, persist: n/a, note: "FIXED route-matcher bug — real path is /v1/list-associated-packages (GET), was /v1/package-group-associated-packages; FIXED packageGroup -> package-group. state remains a stub (always empty, see gaps)"}
-  ListAllowedRepositoriesForGroup: {wire: ok, errors: ok, state: gap, persist: n/a, note: "FIXED packageGroup -> package-group query param. state remains a stub (always empty, see gaps)"}
-  UpdatePackageGroupOriginConfiguration: {wire: ok, errors: ok, state: gap, persist: partial, note: "FIXED packageGroup -> package-group query param (this op has no body fallback, unlike UpdatePackageGroup, so this was a hard break for real clients). state: does not apply restrictions/allow-list changes from the request body (see gaps)"}
+  ListSubPackageGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — real parent/child hierarchy: a group's children are every OTHER domain group whose immediate (most-specific) proper-superset pattern is exactly this one, computed via package_group_pattern.go's isProperSubsetPattern; replaced the old string-prefix heuristic. Verified direct-children-only against the ListSubPackageGroups API reference (not the full descendant subtree)."}
+  GetAssociatedPackageGroup: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED (this pass) — real most-specific-pattern matching (package_group_pattern.go) replaces the always-nil stub; response now includes associationType. state: only AWS's 'strong match' (exact) half of the algorithm is implemented, not the case-fold/separator-equivalence 'weak match' half, and this backend does not auto-create the implicit root '/*' group every real domain has — see gaps."}
+  ListAssociatedPackages: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED (this pass) — real domain-wide matching: for each package (deduped by format/namespace/name across repos), computes its most-specific matching group and includes it only if that group is the requested pattern. Added pagination (max-results/next-token, kebab) and the associationType field ('STRONG', see GetAssociatedPackageGroup's note on scope). state gap: Preview flag (compute association without creating the group) not read/supported."}
+  ListAllowedRepositoriesForGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — the previously-unread required originRestrictionType query param (camelCase, NOT kebab — verified against serializers.go, an exception to this service's usual kebab-case query convention) is now read/validated and used to look up the real per-restriction-type AllowedRepositories list set via UpdatePackageGroupOriginConfiguration; added pagination. FIXED missing 404: real AWS 404s when the package group doesn't exist, this op never checked."}
+  UpdatePackageGroupOriginConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — request body now real (restrictions map[type]mode, addAllowedRepositories/removeAllowedRepositories []{originRestrictionType,repositoryName}), validated against the real 4-value mode / 3-value type enums; response now returns the real allowedRepositoryUpdates map[type]map[ADDED|REMOVED][]repoName shape (verified against the API reference's response syntax) plus the updated packageGroup with a real originConfiguration.restrictions block (mode/effectiveMode/repositoriesCount/inheritedFrom, resolved by walking the pattern-hierarchy's INHERIT chain up to the nearest explicit ancestor, defaulting to ALLOW at the top like real AWS's root group). FIXED missing repository-existence check on add/remove entries."}
   DescribePackage: {wire: ok, errors: ok, state: partial, persist: ok, note: "auto-creates a stub package on first Describe if absent (pre-existing behavior, not touched this pass — see gaps); now surfaces originConfiguration when set"}
   DeletePackage: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPackages: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED pagination casing"}
@@ -57,25 +60,77 @@ ops:
   DisposePackageVersions: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePackageVersionsStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPackageVersionAsset: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED disguised no-op — always returned empty 200 regardless of asset name/existence; now returns real stored content or 404 for an asset that was never published"}
-  GetPackageVersionReadme: {wire: ok, errors: ok, state: gap, persist: n/a, note: "always empty (see gaps) — real content requires parsing package-format-specific metadata (e.g. npm README field) which PublishPackageVersion's single-asset-per-call model doesn't capture"}
+  GetPackageVersionReadme: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED (this pass) — response is now the real flat shape (format/namespace/package/readme/version/versionRevision, verified against deserializers.go), and readme is populated for real when the caller published an asset literally named package.json whose JSON content has a readme field (npm convention). state gap: without such an asset, still returns empty (this backend doesn't unpack full tarballs/POMs) — see gaps."}
   ListPackageVersionAssets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED disguised no-op — always returned [] regardless of what was published; now lists real stored AssetSummary entries (name/size/hashes)"}
-  ListPackageVersionDependencies: {wire: ok, errors: ok, state: gap, persist: n/a, note: "always empty (see gaps) — real dependency data requires parsing the uploaded package archive (npm package.json, Maven POM, etc.), out of scope for this pass"}
+  ListPackageVersionDependencies: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED (this pass) — response is now the real shape (dependencies[]/format/namespace/package/version, verified against deserializers.go), and dependencies are populated for real from a published package.json's dependencies/devDependencies/peerDependencies/optionalDependencies maps (dependencyType regular/dev/peer/optional per types.PackageDependency's doc comment). state gap: same package.json-only scope as GetPackageVersionReadme — see gaps."}
 families:
   route_matcher: {status: ok, note: "Audited every op's path+method against aws-sdk-go-v2 serializers.go SplitURI/request.Method. Found and fixed 5 path/method bugs: DeleteRepositoryPermissionsPolicy (wrong shared path), GetAssociatedPackageGroup (wrong path), ListAssociatedPackages (wrong path), ListSubPackageGroups (wrong path), PutPackageOriginConfiguration (wrong path — real op has none, shares POST /v1/package). All other op paths/methods verified correct."}
-  query_param_casing: {status: ok, note: "Audited every op's query-string parameter names against aws-sdk-go-v2 serializers.go SetQuery(...) calls. Found and fixed a service-wide pattern: List-op pagination (maxResults/nextToken) and several other params (packageGroup, externalConnection, sourceRepository/destinationRepository) use kebab-case on the wire (max-results, next-token, package-group, external-connection, source-repository, destination-repository) but the handler read camelCase query keys — meaning pagination and several ops were silently broken for any real AWS SDK client (worked only in unit tests that construct query strings by hand). ListDomains is the sole exception: its pagination is JSON-body, not query, distinguishing it from every other List op."}
+  query_param_casing: {status: ok, note: "Audited every op's query-string parameter names against aws-sdk-go-v2 serializers.go SetQuery(...) calls. Found and fixed a service-wide pattern: List-op pagination (maxResults/nextToken) and several other params (packageGroup, externalConnection, sourceRepository/destinationRepository) use kebab-case on the wire (max-results, next-token, package-group, external-connection, source-repository, destination-repository) but the handler read camelCase query keys — meaning pagination and several ops were silently broken for any real AWS SDK client (worked only in unit tests that construct query strings by hand). ListDomains is the sole exception: its pagination is JSON-body, not query, distinguishing it from every other List op. This pass found one more exception: ListAllowedRepositoriesForGroup's originRestrictionType is genuinely camelCase on the wire (verified against serializers.go), unlike every other param in this family."}
+  package_group_pattern_matching: {status: ok, note: "NEW (this pass) — implemented AWS's package-group pattern-matching algorithm (package_group_pattern.go): pattern parsing (format[/namespace[/name]] + $/~/ * suffix), matching, word-boundary prefix matching, and the specificity/subset ordering that defines the group hierarchy (parent/child, most-specific-match). Wired into GetAssociatedPackageGroup, ListAssociatedPackages, ListSubPackageGroups, and UpdatePackageGroupOriginConfiguration's INHERIT-chain resolution. Scope: implements AWS's 'strong match' (exact) half only, not the case-fold/dash-dot-underscore-equivalence 'weak match' half used for dependency-confusion protection, and does not auto-create the implicit root '/*' group — see gaps."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "GetAssociatedPackageGroup/ListAssociatedPackages/ListAllowedRepositoriesForGroup/UpdatePackageGroupOriginConfiguration's allowed-repository-list semantics are stubs: package-group pattern matching (glob-style segment matching against format/namespace/package) is never implemented, so groups never match. ListSubPackageGroups uses a prefix heuristic instead of real pattern semantics. Implementing this is a real feature (AWS's pattern-matching algorithm), not a quick wire fix — needs its own pass."
-  - "DescribePackage / DescribePackageVersion auto-create a stub record when the resource doesn't exist, instead of returning ResourceNotFoundException like real AWS. This is pre-existing, intentionally-documented behavior (not touched this pass to avoid destabilizing a large swath of tests that depend on it) but is a real behavioral divergence from AWS."
-  - "GetPackageVersionReadme and ListPackageVersionDependencies always return empty — real values require parsing package-format-specific metadata from the uploaded asset (npm package.json readme/dependencies, Maven POM, etc.), which PublishPackageVersion's single-asset-per-call model doesn't capture today."
+  - "Package-group 'weak match' (case-folding, dash/dot/underscore-equivalence, confusable-character normalization used for dependency-confusion protection) is not implemented — only the 'strong' (exact) half of AWS's matching algorithm is (see package_group_pattern_matching family note). Every match this backend reports is therefore always associationType STRONG; real AWS's WEAK association type (and its 'block the package even though a broader group would allow it' side effect) never occurs here."
+  - "This backend does not auto-create the implicit root package group ('/*') that real AWS attaches to every domain and forbids deleting. Adding it would change GetAssociatedPackageGroup/ListPackageGroups behavior on a domain with zero explicitly-created groups (several existing tests assert 'no groups yet' -> empty list / no match), so it was deliberately left out this pass rather than rewriting that test surface; flagged for a future pass."
+  - "DescribePackage / DescribePackageVersion auto-create a stub record when the resource doesn't exist, instead of returning ResourceNotFoundException like real AWS. This is pre-existing, intentionally-documented behavior, reconfirmed this pass to be extremely load-bearing test-seeding infrastructure (60+ call sites across handler_package_versions_test.go, handler_package_versions_assets_test.go, persistence_test.go, handler_packages_test.go use GET as a seed operation), so ripping it out remains a large, independently-scoped migration — not touched this pass either. Real behavioral divergence from AWS."
+  - "GetPackageVersionReadme / ListPackageVersionDependencies now parse real content from a published package.json asset (npm convention — see the ops table), but still return empty for any format/publish that doesn't include a standalone package.json asset (e.g. a real npm tarball, a Maven POM, or any non-npm format) — this backend's single-asset-per-call publish model doesn't unpack archives."
   - "GetAuthorizationToken returns a fabricated token string rather than any real credential material; acceptable since nothing validates it downstream, but flagged in case a future op starts checking it."
   - "domain-owner / cross-account query param is accepted by real AWS on nearly every op (for cross-account domain access) but is not read anywhere in this backend; single-account-only is assumed throughout."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - "Full package-group pattern-matching algorithm (see gaps above)"
-  - "isolation_test.go / sdk_completeness_test.go / store_setup.go were read but not modified — no bugs found in a quick pass, not exhaustively re-audited"
-leaks: {status: clean, note: "no goroutines/janitors in this service; store.Table-backed state is snapshot/restored via existing Handler.Snapshot/Restore delegation to InMemoryBackend — unaffected by this pass's changes (new Assets/OriginConfig fields are plain JSON-tagged struct fields, round-trip automatically)"}
+  - "Package-group 'weak match' dependency-confusion-protection semantics (see gaps above)"
+  - "Root package-group auto-creation (see gaps above)"
+  - "store_setup.go was read but not modified — no bugs found, not exhaustively re-audited"
+leaks: {status: clean, note: "FIXED (this pass) — DeleteDomain never cascade-deleted the domain's package groups (ghost store rows) or closed their Tags (a pkgs/tags leak), despite deleting everything else the domain owned; every other resource path (repositories/packages/versions/policies/external-connections) was already covered by pre-existing cascade logic. Re-verified: no goroutines/janitors in this service; store.Table-backed state is snapshot/restored via existing Handler.Snapshot/Restore delegation to InMemoryBackend; new Restrictions/Assets/OriginConfig fields are plain JSON-tagged struct fields and round-trip automatically."}
 ---
 
 ## Notes
+
+### 2026-07-23 pass: package-group pattern matching + readme/dependency extraction + a leak fix
+
+The prior audit (2026-07-13) explicitly deferred the package-group pattern-matching algorithm as
+"a real feature, not a quick wire fix — needs its own pass." That pass happened this round:
+`package_group_pattern.go` implements AWS's documented pattern syntax/matching/hierarchy algorithm
+(see [Package group definition syntax and matching
+behavior](https://docs.aws.amazon.com/codeartifact/latest/ug/package-group-definition-syntax-matching-behavior.html)),
+including the non-obvious parts — word-boundary prefix matching (`~`), the target-position/suffix
+parsing model, and the proper-subset relation that defines "most specific match" and parent/child
+hierarchy. It's covered by its own white-box test file
+(`package_group_pattern_test.go`, `package codeartifact` with a `//nolint:testpackage`, same
+convention as `isolation_test.go`) pinning every documented example pattern plus edge cases. This
+powers real (non-stub) `GetAssociatedPackageGroup`, `ListAssociatedPackages`, `ListSubPackageGroups`,
+and `UpdatePackageGroupOriginConfiguration`'s INHERIT-chain resolution — see the ops table for what
+changed in each. Deliberately NOT implemented: the "weak match" half of the algorithm
+(case-folding/separator-equivalence used for dependency-confusion protection) and the implicit
+root `/*` group every real domain has — both are real, scoped, documented gaps (see `gaps:`), not
+silently dropped.
+
+`GetPackageVersionReadme`/`ListPackageVersionDependencies` also went from permanent stubs to real
+extraction from a published `package.json` asset (npm convention) — see the ops table. This is
+intentionally scoped to that one file name/format rather than attempting to unpack arbitrary
+tarballs/POMs, which is out of reach for this backend's single-asset-per-call publish model.
+
+**Leak found and fixed**: `DeleteDomain`'s cascade-delete never touched package groups — every
+other owned resource (repositories, packages, versions, policies, external connections) was
+cleaned up, but package groups (keyed by `domainName+pattern`, not by repository, so outside the
+existing per-repository cascade loop) were left behind as ghost store rows with their `Tags` never
+`Close()`d. Fixed by adding an explicit package-group cascade loop to `DeleteDomain` (see
+`domains.go`).
+
+**Traps for the next auditor (new this pass)**:
+- `ListAllowedRepositoriesForGroup`'s `originRestrictionType` query param is genuinely camelCase
+  on the wire (verified against `serializers.go`'s `SetQuery("originRestrictionType")`), unlike
+  every other package-group query param in this service (which are kebab-case). Do not "fix" this
+  to kebab-case.
+- The package-group hierarchy (parent/child, effective-mode inheritance) is derived purely from
+  pattern structure (`isProperSubsetPattern`/`specificityRank` in `package_group_pattern.go`), not
+  from any stored parent pointer — a group's parent can change implicitly when a sibling group is
+  created or deleted. This matches real AWS (the hierarchy is defined by pattern specificity, not
+  an explicit tree), but means `DescribeOriginInfo` re-scans the domain's groups on every call
+  rather than caching a parent reference.
+- `DescribePackage`/`DescribePackageVersion`'s auto-create-on-Describe divergence was
+  re-investigated (not just re-asserted) this pass specifically to see if it was now safe to remove
+  — it is not: 60+ existing test call sites across five files rely on `GET .../package/version` as
+  their primary seeding mechanism, not `PublishPackageVersion`. Removing it is real work (rewrite
+  every one of those call sites to publish first) that deserves its own pass, not a footnote in this
+  one.
 
 Protocol: **restjson1**. Timestamps are epoch-seconds JSON numbers (`awstime`-style, hand-rolled
 here via `epochSeconds`), not ISO8601 strings — this was already correct except for the

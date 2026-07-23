@@ -859,10 +859,10 @@ func (h *Handler) buildPackageVersionOps() map[string]func(*echo.Context, []byte
 		opUpdatePackageGroup: func(c *echo.Context, body []byte) error {
 			return h.handleUpdatePackageGroup(c, c.Request().URL.Query().Get(keyDomain), body)
 		},
-		opUpdatePackageGroupOriginConfiguration: func(c *echo.Context, _ []byte) error {
+		opUpdatePackageGroupOriginConfiguration: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()
 
-			return h.handleUpdatePackageGroupOriginConfiguration(c, q.Get(keyDomain), q.Get(keyPackageGroupQuery))
+			return h.handleUpdatePackageGroupOriginConfiguration(c, q.Get(keyDomain), q.Get(keyPackageGroupQuery), body)
 		},
 		opUpdatePackageVersionsStatus: func(c *echo.Context, body []byte) error {
 			q := c.Request().URL.Query()

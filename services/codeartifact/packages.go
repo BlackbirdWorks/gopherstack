@@ -158,11 +158,14 @@ func (b *InMemoryBackend) PutPackageOriginConfiguration(
 		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
 	}
 
+	// AllowPublish/AllowUpstream (types.PackageOriginRestrictions' enums) share
+	// the same "ALLOW" string value as PackageGroupOriginRestrictionMode, so
+	// restrictionModeAllow (declared in package_groups.go) is reused here too.
 	if publish == "" {
-		publish = "ALLOW"
+		publish = restrictionModeAllow
 	}
 	if upstream == "" {
-		upstream = "ALLOW"
+		upstream = restrictionModeAllow
 	}
 
 	key := packageKey(domainName, repoName, format, namespace, name)

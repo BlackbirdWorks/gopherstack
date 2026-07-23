@@ -1,6 +1,7 @@
 package codeartifact
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -14,7 +15,13 @@ type createPackageGroupBody struct {
 	Tags        []map[string]any `json:"tags"`
 }
 
-func packageGroupToMap(pg *PackageGroup) map[string]any {
+// packageGroupToMap builds a PackageGroupDescription/PackageGroupSummary
+// wire object (the two SDK types share an identical field set) -- verified
+// against aws-sdk-go-v2 deserializers.go's
+// awsRestjson1_deserializeDocumentPackageGroupDescription. info may be nil
+// (e.g. when the caller couldn't resolve it), in which case
+// originConfiguration/parent are omitted rather than guessed at.
+func packageGroupToMap(pg *PackageGroup, info *PackageGroupOriginInfo) map[string]any {
 	m := map[string]any{
 		keyArn:         pg.ARN,
 		keyDomainName:  pg.DomainName,
@@ -25,11 +32,67 @@ func packageGroupToMap(pg *PackageGroup) map[string]any {
 	if pg.Description != "" {
 		m["description"] = pg.Description
 	}
+
 	if pg.ContactInfo != "" {
 		m["contactInfo"] = pg.ContactInfo
 	}
 
+	if info == nil {
+		return m
+	}
+
+	if info.Parent != nil {
+		m["parent"] = packageGroupReferenceToMap(info.Parent)
+	}
+
+	restrictions := make(map[string]any, len(info.Restrictions))
+	for restrictionType, r := range info.Restrictions {
+		restrictions[restrictionType] = effectiveRestrictionToMap(r)
+	}
+
+	m["originConfiguration"] = map[string]any{"restrictions": restrictions}
+
 	return m
+}
+
+// packageGroupReferenceToMap builds a PackageGroupReference wire object
+// ({"arn","pattern"}).
+func packageGroupReferenceToMap(pg *PackageGroup) map[string]any {
+	return map[string]any{keyArn: pg.ARN, "pattern": pg.Pattern}
+}
+
+// effectiveRestrictionToMap builds a PackageGroupOriginRestriction wire
+// object ({"effectiveMode","inheritedFrom","mode","repositoriesCount"}).
+func effectiveRestrictionToMap(r EffectiveRestriction) map[string]any {
+	m := map[string]any{
+		"mode":              r.Mode,
+		"effectiveMode":     r.EffectiveMode,
+		"repositoriesCount": r.RepositoriesCount,
+	}
+	if r.InheritedFrom != nil {
+		m["inheritedFrom"] = packageGroupReferenceToMap(r.InheritedFrom)
+	}
+
+	return m
+}
+
+// describeOriginInfo resolves pg's PackageGroupOriginInfo, logging nothing
+// and falling back to nil (basic wire shape, no originConfiguration/parent)
+// on error -- pg's own pattern was already validated when it was created,
+// so failure here should not occur in practice.
+func (h *Handler) describeOriginInfo(ctx context.Context, domainName string, pg *PackageGroup) *PackageGroupOriginInfo {
+	info, err := h.Backend.DescribeOriginInfo(ctx, domainName, pg)
+	if err != nil {
+		return nil
+	}
+
+	return info
+}
+
+// enrichedPackageGroupMap is the common path every package-group response
+// builder uses: resolve pg's origin info and build its full wire map.
+func (h *Handler) enrichedPackageGroupMap(ctx context.Context, domainName string, pg *PackageGroup) map[string]any {
+	return packageGroupToMap(pg, h.describeOriginInfo(ctx, domainName, pg))
 }
 
 func (h *Handler) handleCreatePackageGroup(c *echo.Context, domainName string, body []byte) error {
@@ -62,7 +125,7 @@ func (h *Handler) handleCreatePackageGroup(c *echo.Context, domainName string, b
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyPackageGroup: packageGroupToMap(pg),
+		keyPackageGroup: h.enrichedPackageGroupMap(c.Request().Context(), domainName, pg),
 	})
 }
 
@@ -80,7 +143,7 @@ func (h *Handler) handleDescribePackageGroup(c *echo.Context, domainName, patter
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyPackageGroup: packageGroupToMap(pg),
+		keyPackageGroup: h.enrichedPackageGroupMap(c.Request().Context(), domainName, pg),
 	})
 }
 
@@ -97,8 +160,11 @@ func (h *Handler) handleDeletePackageGroup(c *echo.Context, domainName, pattern 
 		return h.handleError(c, err)
 	}
 
+	// The group is already gone by the time we'd resolve its origin info
+	// (parent/hierarchy lookups only make sense for groups still in the
+	// domain), so DeletePackageGroupOutput's packageGroup is the basic shape.
 	return c.JSON(http.StatusOK, map[string]any{
-		keyPackageGroup: packageGroupToMap(pg),
+		keyPackageGroup: packageGroupToMap(pg, nil),
 	})
 }
 
@@ -122,7 +188,14 @@ func (h *Handler) handleGetAssociatedPackageGroup(c *echo.Context, domainName, f
 		return c.JSON(http.StatusOK, map[string]any{keyPackageGroup: nil})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyPackageGroup: packageGroupToMap(pg)})
+	return c.JSON(http.StatusOK, map[string]any{
+		keyPackageGroup: h.enrichedPackageGroupMap(c.Request().Context(), domainName, pg),
+		// Scope note: this backend only implements AWS's "strong match"
+		// (exact) half of the matching algorithm -- see
+		// package_group_pattern.go's doc comment -- so every real match
+		// reported here is by construction a strong (exact) match.
+		"associationType": "STRONG",
+	})
 }
 
 func (h *Handler) handleListAllowedRepositoriesForGroup(c *echo.Context, domainName, pattern string) error {
@@ -133,12 +206,29 @@ func (h *Handler) handleListAllowedRepositoriesForGroup(c *echo.Context, domainN
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	repos, err := h.Backend.ListAllowedRepositoriesForGroup(c.Request().Context(), domainName, pattern)
+	q := c.Request().URL.Query()
+
+	restrictionType := q.Get("originRestrictionType")
+	if restrictionType == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "originRestrictionType is required"))
+	}
+
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
+
+	all, err := h.Backend.ListAllowedRepositoriesForGroup(c.Request().Context(), domainName, pattern, restrictionType)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"allowedRepositories": repos})
+	page, next := paginateSlice(all, maxResults, nextToken, func(name string) string { return name })
+
+	resp := map[string]any{"allowedRepositories": page}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleListAssociatedPackages(c *echo.Context, domainName, pattern string) error {
@@ -149,17 +239,46 @@ func (h *Handler) handleListAssociatedPackages(c *echo.Context, domainName, patt
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	pkgs, err := h.Backend.ListAssociatedPackages(c.Request().Context(), domainName, pattern)
+	q := c.Request().URL.Query()
+	maxResults := parseMaxResults(q.Get("max-results"))
+	nextToken := q.Get("next-token")
+
+	all, err := h.Backend.ListAssociatedPackages(c.Request().Context(), domainName, pattern)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	items := make([]map[string]any, 0, len(pkgs))
-	for _, pkg := range pkgs {
-		items = append(items, packageToMap(pkg))
+	page, next := paginateSlice(all, maxResults, nextToken, func(pkg *Package) string {
+		return pkg.Format + "/" + pkg.Namespace + "/" + pkg.Name
+	})
+
+	items := make([]map[string]any, 0, len(page))
+	for _, pkg := range page {
+		items = append(items, associatedPackageToMap(pkg))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"packages": items})
+	resp := map[string]any{"packages": items}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// associatedPackageToMap builds an AssociatedPackage wire object -- verified
+// against aws-sdk-go-v2 types.AssociatedPackage
+// ({"associationType","format","namespace","package"}).
+func associatedPackageToMap(pkg *Package) map[string]any {
+	m := map[string]any{
+		"associationType": "STRONG",
+		keyFormat:         pkg.Format,
+		keyPackageKey:     pkg.Name,
+	}
+	if pkg.Namespace != "" {
+		m["namespace"] = pkg.Namespace
+	}
+
+	return m
 }
 
 func (h *Handler) handleListPackageGroups(c *echo.Context, domainName, prefix string) error {
@@ -180,7 +299,7 @@ func (h *Handler) handleListPackageGroups(c *echo.Context, domainName, prefix st
 
 	items := make([]map[string]any, 0, len(page))
 	for _, pg := range page {
-		items = append(items, packageGroupToMap(pg))
+		items = append(items, h.enrichedPackageGroupMap(c.Request().Context(), domainName, pg))
 	}
 
 	resp := map[string]any{"packageGroups": items}
@@ -212,7 +331,7 @@ func (h *Handler) handleListSubPackageGroups(c *echo.Context, domainName, patter
 
 	items := make([]map[string]any, 0, len(page))
 	for _, pg := range page {
-		items = append(items, packageGroupToMap(pg))
+		items = append(items, h.enrichedPackageGroupMap(c.Request().Context(), domainName, pg))
 	}
 
 	resp := map[string]any{"packageGroups": items}
@@ -249,10 +368,38 @@ func (h *Handler) handleUpdatePackageGroup(c *echo.Context, domainName string, b
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"packageGroup": packageGroupToMap(pg)})
+	return c.JSON(http.StatusOK, map[string]any{
+		"packageGroup": h.enrichedPackageGroupMap(c.Request().Context(), domainName, pg),
+	})
 }
 
-func (h *Handler) handleUpdatePackageGroupOriginConfiguration(c *echo.Context, domainName, pattern string) error {
+// updatePackageGroupOriginConfigurationBody is
+// UpdatePackageGroupOriginConfigurationInput's request shape -- verified
+// against the API reference's request syntax
+// (addAllowedRepositories/removeAllowedRepositories/restrictions).
+type updatePackageGroupOriginConfigurationBody struct {
+	Restrictions              map[string]string       `json:"restrictions"`
+	AddAllowedRepositories    []allowedRepositoryBody `json:"addAllowedRepositories"`
+	RemoveAllowedRepositories []allowedRepositoryBody `json:"removeAllowedRepositories"`
+}
+
+type allowedRepositoryBody struct {
+	OriginRestrictionType string `json:"originRestrictionType"`
+	RepositoryName        string `json:"repositoryName"`
+}
+
+func toAllowedRepoOps(body []allowedRepositoryBody) []AllowedRepoOp {
+	ops := make([]AllowedRepoOp, 0, len(body))
+	for _, b := range body {
+		ops = append(ops, AllowedRepoOp(b))
+	}
+
+	return ops
+}
+
+func (h *Handler) handleUpdatePackageGroupOriginConfiguration(
+	c *echo.Context, domainName, pattern string, body []byte,
+) error {
 	if domainName == "" {
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
@@ -260,10 +407,33 @@ func (h *Handler) handleUpdatePackageGroupOriginConfiguration(c *echo.Context, d
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "packageGroup is required"))
 	}
 
-	pg, err := h.Backend.UpdatePackageGroupOriginConfiguration(c.Request().Context(), domainName, pattern)
+	var in updatePackageGroupOriginConfigurationBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		}
+	}
+
+	pg, updates, err := h.Backend.UpdatePackageGroupOriginConfiguration(
+		c.Request().Context(), domainName, pattern,
+		in.Restrictions, toAllowedRepoOps(in.AddAllowedRepositories), toAllowedRepoOps(in.RemoveAllowedRepositories),
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"packageGroup": packageGroupToMap(pg)})
+	updatesAny := make(map[string]any, len(updates))
+	for restrictionType, actions := range updates {
+		actionsAny := make(map[string]any, len(actions))
+		for action, repos := range actions {
+			actionsAny[action] = repos
+		}
+
+		updatesAny[restrictionType] = actionsAny
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"packageGroup":             h.enrichedPackageGroupMap(c.Request().Context(), domainName, pg),
+		"allowedRepositoryUpdates": updatesAny,
+	})
 }

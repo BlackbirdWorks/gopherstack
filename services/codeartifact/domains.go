@@ -85,7 +85,7 @@ func (b *InMemoryBackend) ListDomains(ctx context.Context) []*Domain {
 }
 
 // DeleteDomain deletes a domain by name, cascade-deleting all its repositories,
-// packages, package versions, external connections, policies, and Tags.
+// packages, package versions, package groups, external connections, policies, and Tags.
 func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domain, error) {
 	region := getRegion(ctx, b.region)
 
@@ -101,6 +101,7 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domai
 	repos := slices.Clone(b.repositoriesByRegion.Get(region))
 	pkgs := slices.Clone(b.packagesByRegion.Get(region))
 	pvs := slices.Clone(b.packageVersionsByRegion.Get(region))
+	groups := slices.Clone(b.packageGroupsByRegion.Get(region))
 	externalConnections := b.externalConnectionsStore(region)
 
 	// Cascade: delete all repositories in this domain plus their dependents.
@@ -129,6 +130,19 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domai
 		b.repositoryPolicies.Delete(regionKey(region, key))
 		r.Tags.Close()
 		b.repositories.Delete(regionKey(region, key))
+	}
+
+	// Cascade: delete every package group owned by this domain (ghost rows +
+	// a Tags leak otherwise -- package groups are keyed by
+	// domainName+pattern, not by repository, so they aren't covered by the
+	// repository loop above).
+	for _, pg := range groups {
+		if pg.DomainName != name {
+			continue
+		}
+
+		b.packageGroups.Delete(regionKey(region, packageGroupKey(pg.DomainName, pg.Pattern)))
+		pg.Tags.Close()
 	}
 
 	b.domainPolicies.Delete(regionKey(region, name))
