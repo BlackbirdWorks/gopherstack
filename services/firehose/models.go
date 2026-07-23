@@ -225,6 +225,27 @@ type OpenSearchDestinationDescription struct {
 	DestinationID            string                    `json:"DestinationId,omitempty"`
 }
 
+// ElasticsearchDestinationDescription holds a legacy (pre-OpenSearch-rename) Elasticsearch
+// destination config. AWS still exposes this as a distinct API shape
+// (ElasticsearchDestinationConfiguration/-Update/-Description) alongside the newer
+// AmazonopensearchserviceDestinationConfiguration family; the two are wire-distinct even
+// though the field sets are nearly identical.
+type ElasticsearchDestinationDescription struct {
+	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
+	BufferingHints           *BufferingHints           `json:"BufferingHints,omitempty"`
+	RetryOptions             *RetryOptions             `json:"RetryOptions,omitempty"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions,omitempty"`
+	S3BackupDescription      *S3BackupDescription      `json:"S3BackupDescription,omitempty"`
+	DomainARN                string                    `json:"DomainARN,omitempty"`
+	ClusterEndpoint          string                    `json:"ClusterEndpoint,omitempty"`
+	IndexName                string                    `json:"IndexName,omitempty"`
+	TypeName                 string                    `json:"TypeName,omitempty"`
+	IndexRotationPeriod      string                    `json:"IndexRotationPeriod,omitempty"`
+	S3BackupMode             string                    `json:"S3BackupMode,omitempty"`
+	RoleARN                  string                    `json:"RoleARN,omitempty"`
+	DestinationID            string                    `json:"DestinationId,omitempty"`
+}
+
 // SplunkDestinationDescription holds a Splunk HEC destination config.
 type SplunkDestinationDescription struct {
 	ProcessingConfiguration           *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
@@ -239,6 +260,112 @@ type SplunkDestinationDescription struct {
 	HECAcknowledgmentTimeoutInSeconds int                       `json:"HECAcknowledgmentTimeoutInSeconds,omitempty"`
 }
 
+// CatalogConfiguration describes where destination Apache Iceberg tables are persisted.
+type CatalogConfiguration struct {
+	CatalogARN        string `json:"CatalogARN,omitempty"`
+	WarehouseLocation string `json:"WarehouseLocation,omitempty"`
+}
+
+// PartitionField is a single identity-transform partition column for an Iceberg table.
+type PartitionField struct {
+	SourceName string `json:"SourceName"`
+}
+
+// PartitionSpec holds the partition-spec configuration used by automatic table creation.
+type PartitionSpec struct {
+	Identity []PartitionField `json:"Identity,omitempty"`
+}
+
+// DestinationTableConfiguration configures delivery to a single Apache Iceberg table.
+type DestinationTableConfiguration struct {
+	PartitionSpec           *PartitionSpec `json:"PartitionSpec,omitempty"`
+	DestinationDatabaseName string         `json:"DestinationDatabaseName"`
+	DestinationTableName    string         `json:"DestinationTableName"`
+	S3ErrorOutputPrefix     string         `json:"S3ErrorOutputPrefix,omitempty"`
+	UniqueKeys              []string       `json:"UniqueKeys,omitempty"`
+}
+
+// SchemaEvolutionConfiguration toggles automatic schema evolution for Iceberg delivery.
+type SchemaEvolutionConfiguration struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// TableCreationConfiguration toggles automatic table creation for Iceberg delivery.
+type TableCreationConfiguration struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// IcebergDestinationDescription holds an Apache Iceberg Tables destination config.
+type IcebergDestinationDescription struct {
+	SchemaEvolutionConfiguration      *SchemaEvolutionConfiguration   `json:"SchemaEvolutionConfiguration,omitempty"`
+	CatalogConfiguration              *CatalogConfiguration           `json:"CatalogConfiguration,omitempty"`
+	CloudWatchLoggingOptions          *CloudWatchLoggingOptions       `json:"CloudWatchLoggingOptions,omitempty"`
+	ProcessingConfiguration           *ProcessingConfiguration        `json:"ProcessingConfiguration,omitempty"`
+	RetryOptions                      *RetryOptions                   `json:"RetryOptions,omitempty"`
+	S3Destination                     *S3DestinationDescription       `json:"S3DestinationDescription,omitempty"`
+	BufferingHints                    *BufferingHints                 `json:"BufferingHints,omitempty"`
+	TableCreationConfiguration        *TableCreationConfiguration     `json:"TableCreationConfiguration,omitempty"`
+	RoleARN                           string                          `json:"RoleARN,omitempty"`
+	S3BackupMode                      string                          `json:"S3BackupMode,omitempty"`
+	DestinationID                     string                          `json:"DestinationId,omitempty"`
+	DestinationTableConfigurationList []DestinationTableConfiguration `json:"DestinationTableConfigurationList,omitempty"`
+	AppendOnly                        bool                            `json:"AppendOnly,omitempty"`
+}
+
+// SnowflakeBufferingHints controls when buffered records are delivered to Snowflake.
+type SnowflakeBufferingHints struct {
+	IntervalInSeconds int `json:"IntervalInSeconds,omitempty"`
+	SizeInMBs         int `json:"SizeInMBs,omitempty"`
+}
+
+// SnowflakeRetryOptions holds a retry duration for Snowflake delivery.
+type SnowflakeRetryOptions struct {
+	DurationInSeconds int `json:"DurationInSeconds,omitempty"`
+}
+
+// SecretsManagerConfiguration describes how Firehose accesses secrets for a destination.
+type SecretsManagerConfiguration struct {
+	RoleARN   string `json:"RoleARN,omitempty"`
+	SecretARN string `json:"SecretARN,omitempty"`
+	Enabled   bool   `json:"Enabled"`
+}
+
+// SnowflakeRoleConfiguration optionally configures a Snowflake role.
+type SnowflakeRoleConfiguration struct {
+	SnowflakeRole string `json:"SnowflakeRole,omitempty"`
+	Enabled       bool   `json:"Enabled"`
+}
+
+// SnowflakeVpcConfiguration holds the PrivateLink VPCE ID for private Snowflake connectivity.
+type SnowflakeVpcConfiguration struct {
+	PrivateLinkVpceID string `json:"PrivateLinkVpceId"`
+}
+
+// SnowflakeDestinationDescription holds a Snowflake destination config.
+type SnowflakeDestinationDescription struct {
+	BufferingHints           *SnowflakeBufferingHints  `json:"BufferingHints,omitempty"`
+	CloudWatchLoggingOptions *CloudWatchLoggingOptions `json:"CloudWatchLoggingOptions,omitempty"`
+	ProcessingConfiguration  *ProcessingConfiguration  `json:"ProcessingConfiguration,omitempty"`
+	RetryOptions             *SnowflakeRetryOptions    `json:"RetryOptions,omitempty"`
+	// S3Destination is the required S3 location Snowflake delivery stages through
+	// (wire field "S3DestinationDescription").
+	S3Destination               *S3DestinationDescription    `json:"S3DestinationDescription,omitempty"`
+	SecretsManagerConfiguration *SecretsManagerConfiguration `json:"SecretsManagerConfiguration,omitempty"`
+	SnowflakeRoleConfiguration  *SnowflakeRoleConfiguration  `json:"SnowflakeRoleConfiguration,omitempty"`
+	SnowflakeVpcConfiguration   *SnowflakeVpcConfiguration   `json:"SnowflakeVpcConfiguration,omitempty"`
+	AccountURL                  string                       `json:"AccountUrl,omitempty"`
+	ContentColumnName           string                       `json:"ContentColumnName,omitempty"`
+	DataLoadingOption           string                       `json:"DataLoadingOption,omitempty"`
+	Database                    string                       `json:"Database,omitempty"`
+	MetaDataColumnName          string                       `json:"MetaDataColumnName,omitempty"`
+	RoleARN                     string                       `json:"RoleARN,omitempty"`
+	S3BackupMode                string                       `json:"S3BackupMode,omitempty"`
+	Schema                      string                       `json:"Schema,omitempty"`
+	Table                       string                       `json:"Table,omitempty"`
+	User                        string                       `json:"User,omitempty"`
+	DestinationID               string                       `json:"DestinationId,omitempty"`
+}
+
 // DeliveryMetrics tracks delivery statistics for a stream.
 type DeliveryMetrics struct {
 	TotalRecords  int64 `json:"TotalRecords"`
@@ -248,26 +375,29 @@ type DeliveryMetrics struct {
 
 // DeliveryStream represents a Kinesis Firehose delivery stream.
 type DeliveryStream struct {
-	lastFlush               time.Time
-	CreateTimestamp         time.Time                           `json:"createTimestamp"`
-	LastUpdateTimestamp     time.Time                           `json:"lastUpdateTimestamp"`
-	Tags                    *tags.Tags                          `json:"tags,omitempty"`
-	S3Destination           *S3DestinationDescription           `json:"s3Destination,omitempty"`
-	HTTPEndpointDestination *HTTPEndpointDestinationDescription `json:"httpEndpointDestination,omitempty"`
-	RedshiftDestination     *RedshiftDestinationDescription     `json:"redshiftDestination,omitempty"`
-	OpenSearchDestination   *OpenSearchDestinationDescription   `json:"openSearchDestination,omitempty"`
-	SplunkDestination       *SplunkDestinationDescription       `json:"splunkDestination,omitempty"`
-	Encryption              *EncryptionConfig                   `json:"encryption,omitempty"`
-	Source                  *SourceDescription                  `json:"source,omitempty"`
-	DeliveryStreamType      string                              `json:"deliveryStreamType,omitempty"`
-	Name                    string                              `json:"name"`
-	ARN                     string                              `json:"arn"`
-	VersionID               string                              `json:"versionID,omitempty"`
-	Status                  string                              `json:"status"`
-	AccountID               string                              `json:"accountID"`
-	Region                  string                              `json:"region"`
-	Records                 [][]byte                            `json:"records,omitempty"`
-	BackupRecords           [][]byte                            `json:"backupRecords,omitempty"`
-	Metrics                 DeliveryMetrics                     `json:"metrics"`
-	bufferSizeBytes         int
+	lastFlush                time.Time
+	CreateTimestamp          time.Time                            `json:"createTimestamp"`
+	LastUpdateTimestamp      time.Time                            `json:"lastUpdateTimestamp"`
+	Tags                     *tags.Tags                           `json:"tags,omitempty"`
+	S3Destination            *S3DestinationDescription            `json:"s3Destination,omitempty"`
+	HTTPEndpointDestination  *HTTPEndpointDestinationDescription  `json:"httpEndpointDestination,omitempty"`
+	RedshiftDestination      *RedshiftDestinationDescription      `json:"redshiftDestination,omitempty"`
+	OpenSearchDestination    *OpenSearchDestinationDescription    `json:"openSearchDestination,omitempty"`
+	ElasticsearchDestination *ElasticsearchDestinationDescription `json:"elasticsearchDestination,omitempty"`
+	SplunkDestination        *SplunkDestinationDescription        `json:"splunkDestination,omitempty"`
+	SnowflakeDestination     *SnowflakeDestinationDescription     `json:"snowflakeDestination,omitempty"`
+	IcebergDestination       *IcebergDestinationDescription       `json:"icebergDestination,omitempty"`
+	Encryption               *EncryptionConfig                    `json:"encryption,omitempty"`
+	Source                   *SourceDescription                   `json:"source,omitempty"`
+	DeliveryStreamType       string                               `json:"deliveryStreamType,omitempty"`
+	Name                     string                               `json:"name"`
+	ARN                      string                               `json:"arn"`
+	VersionID                string                               `json:"versionID,omitempty"`
+	Status                   string                               `json:"status"`
+	AccountID                string                               `json:"accountID"`
+	Region                   string                               `json:"region"`
+	Records                  [][]byte                             `json:"records,omitempty"`
+	BackupRecords            [][]byte                             `json:"backupRecords,omitempty"`
+	Metrics                  DeliveryMetrics                      `json:"metrics"`
+	bufferSizeBytes          int
 }

@@ -370,6 +370,50 @@ func TestDataFormatConversion_ValidationRejected(t *testing.T) {
 	}
 }
 
+// TestCreateDeliveryStream_MultipleDestinations_Rejected verifies that CreateDeliveryStream
+// rejects a request naming more than one destination configuration, matching real AWS
+// (which accepts exactly one destination type per call).
+func TestCreateDeliveryStream_MultipleDestinations_Rejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
+		"DeliveryStreamName": "multi-dest-stream",
+		"S3DestinationConfiguration": map[string]any{
+			"BucketARN": "arn:aws:s3:::b1",
+			"RoleARN":   "arn:aws:iam::000000000000:role/r",
+		},
+		"SplunkDestinationConfiguration": map[string]any{
+			"HECEndpoint": "https://splunk.example.com:8088",
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidArgumentException")
+
+	// The rejected stream must not have been created.
+	descRec := doFirehoseRequest(t, h, "DescribeDeliveryStream", map[string]any{
+		"DeliveryStreamName": "multi-dest-stream",
+	})
+	assert.Equal(t, http.StatusNotFound, descRec.Code)
+}
+
+// TestCreateDeliveryStream_SingleDestination_Accepted verifies that a request naming
+// exactly one destination configuration (the S3/ExtendedS3 "family" counts as one slot)
+// is accepted.
+func TestCreateDeliveryStream_SingleDestination_Accepted(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
+		"DeliveryStreamName": "single-dest-stream",
+		"ExtendedS3DestinationConfiguration": map[string]any{
+			"BucketARN": "arn:aws:s3:::b1",
+			"RoleARN":   "arn:aws:iam::000000000000:role/r",
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
 // TestCreateDeliveryStream_WithTags verifies that tags supplied at creation time are
 // attached to the stream.
 func TestCreateDeliveryStream_WithTags(t *testing.T) {
@@ -842,10 +886,10 @@ func TestDescribeDeliveryStream_CoreFields(t *testing.T) {
 func TestDestinationDescribe_AllTypes(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // field order is chosen for readability
-		name          string
+	tests := []struct {
 		createExtra   map[string]any
 		checkDescribe func(t *testing.T, desc map[string]any)
+		name          string
 	}{
 		{
 			name: "s3_destination",
@@ -1002,10 +1046,10 @@ func TestDestinationDescribe_AllTypes(t *testing.T) {
 func TestS3BackupMode_PersistedInDescribe(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // field order is chosen for readability
-		name          string
+	tests := []struct {
 		createExtra   map[string]any
 		checkDescribe func(t *testing.T, desc map[string]any)
+		name          string
 	}{
 		{
 			name: "extended_s3_backup_enabled",

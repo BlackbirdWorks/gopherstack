@@ -36,6 +36,9 @@ type StorageBackend interface {
 	ListDeliveryStreamsByType(ctx context.Context, streamType string) []string
 	PutRecord(ctx context.Context, streamName string, data []byte) error
 	PutRecordBatch(ctx context.Context, streamName string, records [][]byte) (int, error)
+	// IsStreamEncrypted reports whether server-side encryption is currently enabled on the
+	// named stream, used to populate PutRecord/PutRecordBatch's optional Encrypted field.
+	IsStreamEncrypted(ctx context.Context, streamName string) bool
 	UpdateDestination(ctx context.Context, streamName, currentVersionID string, input UpdateDestinationInput) error
 	ListTagsForDeliveryStream(ctx context.Context, name string) (map[string]string, error)
 	TagDeliveryStream(ctx context.Context, name string, kv map[string]string) error

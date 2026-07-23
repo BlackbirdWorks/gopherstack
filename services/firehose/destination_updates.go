@@ -12,11 +12,14 @@ import (
 // UpdateDestinationInput holds the destination update fields for UpdateDestination.
 // Exactly one destination field should be non-nil.
 type UpdateDestinationInput struct {
-	S3Destination           *S3DestinationDescription
-	HTTPEndpointDestination *HTTPEndpointDestinationDescription
-	RedshiftDestination     *RedshiftDestinationDescription
-	OpenSearchDestination   *OpenSearchDestinationDescription
-	SplunkDestination       *SplunkDestinationDescription
+	S3Destination            *S3DestinationDescription
+	HTTPEndpointDestination  *HTTPEndpointDestinationDescription
+	RedshiftDestination      *RedshiftDestinationDescription
+	OpenSearchDestination    *OpenSearchDestinationDescription
+	ElasticsearchDestination *ElasticsearchDestinationDescription
+	SplunkDestination        *SplunkDestinationDescription
+	IcebergDestination       *IcebergDestinationDescription
+	SnowflakeDestination     *SnowflakeDestinationDescription
 }
 
 // applyDestinationUpdate sets the single destination supplied in input and clears every
@@ -37,7 +40,16 @@ func applyDestinationUpdate(s *DeliveryStream, input UpdateDestinationInput) err
 	if input.OpenSearchDestination != nil {
 		provided++
 	}
+	if input.ElasticsearchDestination != nil {
+		provided++
+	}
 	if input.SplunkDestination != nil {
+		provided++
+	}
+	if input.IcebergDestination != nil {
+		provided++
+	}
+	if input.SnowflakeDestination != nil {
 		provided++
 	}
 
@@ -52,45 +64,59 @@ func applyDestinationUpdate(s *DeliveryStream, input UpdateDestinationInput) err
 	s.HTTPEndpointDestination = input.HTTPEndpointDestination
 	s.RedshiftDestination = input.RedshiftDestination
 	s.OpenSearchDestination = input.OpenSearchDestination
+	s.ElasticsearchDestination = input.ElasticsearchDestination
 	s.SplunkDestination = input.SplunkDestination
+	s.IcebergDestination = input.IcebergDestination
+	s.SnowflakeDestination = input.SnowflakeDestination
 
 	setDestinationID(s, destID)
 
 	return nil
 }
 
+// activeDestinationIDField returns a pointer to the DestinationId field of the stream's
+// currently active destination (applyDestinationUpdate/CreateDeliveryStream guarantee at
+// most one destination type is set at a time), or nil when none is configured.
+// Centralizing the per-type lookup here keeps currentDestinationID/setDestinationID from
+// growing an ever-longer branch chain (and its cyclomatic complexity) as destination
+// families are added.
+func activeDestinationIDField(s *DeliveryStream) *string {
+	switch {
+	case s.S3Destination != nil:
+		return &s.S3Destination.DestinationID
+	case s.HTTPEndpointDestination != nil:
+		return &s.HTTPEndpointDestination.DestinationID
+	case s.OpenSearchDestination != nil:
+		return &s.OpenSearchDestination.DestinationID
+	case s.ElasticsearchDestination != nil:
+		return &s.ElasticsearchDestination.DestinationID
+	case s.SplunkDestination != nil:
+		return &s.SplunkDestination.DestinationID
+	case s.RedshiftDestination != nil:
+		return &s.RedshiftDestination.DestinationID
+	case s.IcebergDestination != nil:
+		return &s.IcebergDestination.DestinationID
+	case s.SnowflakeDestination != nil:
+		return &s.SnowflakeDestination.DestinationID
+	default:
+		return nil
+	}
+}
+
 // currentDestinationID returns the DestinationId currently set on the stream's active
 // destination, or the default when none is set.
 func currentDestinationID(s *DeliveryStream) string {
-	switch {
-	case s.S3Destination != nil && s.S3Destination.DestinationID != "":
-		return s.S3Destination.DestinationID
-	case s.HTTPEndpointDestination != nil && s.HTTPEndpointDestination.DestinationID != "":
-		return s.HTTPEndpointDestination.DestinationID
-	case s.OpenSearchDestination != nil && s.OpenSearchDestination.DestinationID != "":
-		return s.OpenSearchDestination.DestinationID
-	case s.SplunkDestination != nil && s.SplunkDestination.DestinationID != "":
-		return s.SplunkDestination.DestinationID
-	case s.RedshiftDestination != nil && s.RedshiftDestination.DestinationID != "":
-		return s.RedshiftDestination.DestinationID
-	default:
-		return "destinationId-000000000001"
+	if f := activeDestinationIDField(s); f != nil && *f != "" {
+		return *f
 	}
+
+	return "destinationId-000000000001"
 }
 
 // setDestinationID stamps destID onto whichever destination is now active on the stream.
 func setDestinationID(s *DeliveryStream, destID string) {
-	switch {
-	case s.S3Destination != nil:
-		s.S3Destination.DestinationID = destID
-	case s.HTTPEndpointDestination != nil:
-		s.HTTPEndpointDestination.DestinationID = destID
-	case s.OpenSearchDestination != nil:
-		s.OpenSearchDestination.DestinationID = destID
-	case s.SplunkDestination != nil:
-		s.SplunkDestination.DestinationID = destID
-	case s.RedshiftDestination != nil:
-		s.RedshiftDestination.DestinationID = destID
+	if f := activeDestinationIDField(s); f != nil {
+		*f = destID
 	}
 }
 
