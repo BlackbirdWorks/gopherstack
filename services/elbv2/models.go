@@ -142,6 +142,11 @@ type Condition struct {
 	// Values holds the condition values (used for host-header, path-pattern,
 	// http-request-method, source-ip).
 	Values []string `json:"values,omitempty"`
+	// RegexValues holds regular expressions to match instead of exact/wildcard
+	// Values. Valid only for host-header, path-pattern, and http-header conditions
+	// (types.RuleCondition.RegexValues / HostHeaderConditionConfig.RegexValues /
+	// PathPatternConditionConfig.RegexValues / HttpHeaderConditionConfig.RegexValues).
+	RegexValues []string `json:"regexValues,omitempty"`
 	// HTTPHeaderName is only set for http-header conditions.
 	HTTPHeaderName string `json:"httpHeaderName,omitempty"`
 	// QueryStringPairs holds key/value pairs for query-string conditions.
@@ -229,10 +234,24 @@ type Rule struct {
 }
 
 // TrustStoreRevocation represents a single revocation entry stored in a trust store.
+// RevocationID is int64 -- verified against aws-sdk-go-v2 types.TrustStoreRevocation /
+// types.DescribeTrustStoreRevocation (RevocationId *int64). AWS assigns this ID itself
+// when it parses the uploaded revocation file; it is never client-supplied.
 type TrustStoreRevocation struct {
-	RevocationID           string `json:"revocationId"`
 	RevocationType         string `json:"revocationType"`
+	RevocationID           int64  `json:"revocationId"`
 	NumberOfRevokedEntries int64  `json:"numberOfRevokedEntries"`
+}
+
+// RevocationContentInput represents a single revocation-file reference submitted to
+// AddTrustStoreRevocations. Mirrors aws-sdk-go-v2 types.RevocationContent exactly --
+// S3Bucket/S3Key/S3ObjectVersion/RevocationType is the only real wire shape; there is
+// no plain/inline revocation-content field on the real API.
+type RevocationContentInput struct {
+	S3Bucket        string `json:"s3Bucket,omitempty"`
+	S3Key           string `json:"s3Key,omitempty"`
+	S3ObjectVersion string `json:"s3ObjectVersion,omitempty"`
+	RevocationType  string `json:"revocationType,omitempty"`
 }
 
 // TrustStore represents an ELBv2 trust store.

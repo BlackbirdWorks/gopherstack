@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -142,32 +143,41 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 	tsArn := createResp.Result.TrustStores.Members[0].TrustStoreArn
 	assert.NotEmpty(t, tsArn)
 
-	// Add revocations.
+	// Add revocations. Real AWS's RevocationContent request shape is always
+	// S3Bucket/S3Key/(S3ObjectVersion)/RevocationType (verified against
+	// aws-sdk-go-v2 types.RevocationContent) -- there is no plain/inline form.
 	revRec := doELBv2(t, h, url.Values{
-		"Action":                      {"AddTrustStoreRevocations"},
-		"Version":                     {"2015-12-01"},
-		"TrustStoreArn":               {tsArn},
-		"RevocationContents.member.1": {"s3://my-bucket/revocations.crl"},
+		"Action":                               {"AddTrustStoreRevocations"},
+		"Version":                              {"2015-12-01"},
+		"TrustStoreArn":                        {tsArn},
+		"RevocationContents.member.1.S3Bucket": {"my-bucket"},
+		"RevocationContents.member.1.S3Key":    {"revocations.crl"},
+		"RevocationContents.member.1.RevocationType": {"CRL"},
 	})
 	assert.Equal(t, http.StatusOK, revRec.Code)
 
 	// AddTrustStoreRevocations must echo back the added revocation info in its
 	// AddTrustStoreRevocationsResult.TrustStoreRevocations list (AWS behaviour) —
-	// this used to be silently dropped (an empty response body).
+	// this used to be silently dropped (an empty response body). RevocationId is
+	// int64 and server-assigned (real AWS never accepts a client-supplied one).
 	var addResp struct {
 		Result struct {
 			TrustStoreRevocations struct {
 				Members []struct {
-					RevocationID  string `xml:"RevocationId"`
-					TrustStoreArn string `xml:"TrustStoreArn"`
+					RevocationType string `xml:"RevocationType"`
+					TrustStoreArn  string `xml:"TrustStoreArn"`
+					RevocationID   int64  `xml:"RevocationId"`
 				} `xml:"member"`
 			} `xml:"TrustStoreRevocations"`
 		} `xml:"AddTrustStoreRevocationsResult"`
 	}
 	require.NoError(t, xml.Unmarshal(revRec.Body.Bytes(), &addResp))
 	require.Len(t, addResp.Result.TrustStoreRevocations.Members, 1)
-	assert.Equal(t, "s3://my-bucket/revocations.crl", addResp.Result.TrustStoreRevocations.Members[0].RevocationID)
+	assert.NotZero(t, addResp.Result.TrustStoreRevocations.Members[0].RevocationID)
+	assert.Equal(t, "CRL", addResp.Result.TrustStoreRevocations.Members[0].RevocationType)
 	assert.Equal(t, tsArn, addResp.Result.TrustStoreRevocations.Members[0].TrustStoreArn)
+
+	addedRevocationID := addResp.Result.TrustStoreRevocations.Members[0].RevocationID
 
 	// Describe trust store associations (expect empty).
 	assocRec := doELBv2(t, h, url.Values{
@@ -201,15 +211,15 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 		Result struct {
 			TrustStoreRevocations struct {
 				Members []struct {
-					RevocationID  string `xml:"RevocationId"`
 					TrustStoreArn string `xml:"TrustStoreArn"`
+					RevocationID  int64  `xml:"RevocationId"`
 				} `xml:"member"`
 			} `xml:"TrustStoreRevocations"`
 		} `xml:"DescribeTrustStoreRevocationsResult"`
 	}
 	require.NoError(t, xml.Unmarshal(revDescRec.Body.Bytes(), &revDescResp))
 	require.Len(t, revDescResp.Result.TrustStoreRevocations.Members, 1)
-	assert.Equal(t, "s3://my-bucket/revocations.crl", revDescResp.Result.TrustStoreRevocations.Members[0].RevocationID)
+	assert.Equal(t, addedRevocationID, revDescResp.Result.TrustStoreRevocations.Members[0].RevocationID)
 	assert.Equal(t, tsArn, revDescResp.Result.TrustStoreRevocations.Members[0].TrustStoreArn)
 
 	// RemoveTrustStoreRevocations — remove the entry we added.
@@ -217,7 +227,7 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 		"Action":                 {"RemoveTrustStoreRevocations"},
 		"Version":                {"2015-12-01"},
 		"TrustStoreArn":          {tsArn},
-		"RevocationIds.member.1": {"s3://my-bucket/revocations.crl"},
+		"RevocationIds.member.1": {strconv.FormatInt(addedRevocationID, 10)},
 	})
 	require.Equal(t, http.StatusOK, revRmRec.Code)
 

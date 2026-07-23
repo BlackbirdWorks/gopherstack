@@ -71,6 +71,15 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			trustStore, err := src.CreateTrustStore("snap-ts", nil)
 			require.NoError(t, err)
 
+			addedBeforeSnapshot, err := src.AddTrustStoreRevocations(
+				trustStore.TrustStoreArn,
+				[]elbv2.RevocationContentInput{
+					{S3Bucket: "my-bucket", S3Key: "revocations.crl", RevocationType: "CRL"},
+				},
+			)
+			require.NoError(t, err)
+			require.Len(t, addedBeforeSnapshot, 1)
+
 			const policyDoc = `{"Version":"2012-10-17"}`
 			require.NoError(t, src.PutResourcePolicy(lb.LoadBalancerArn, policyDoc))
 
@@ -126,6 +135,27 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, trustStores, 1)
 			assert.Equal(t, trustStore.TrustStoreArn, trustStores[0].TrustStoreArn)
+
+			// The revocation added before the snapshot survives with its RevocationId
+			// intact (int64, not re-numbered).
+			revocations, err := dst.DescribeTrustStoreRevocations(trustStore.TrustStoreArn)
+			require.NoError(t, err)
+			require.Len(t, revocations, 1)
+			assert.Equal(t, addedBeforeSnapshot[0].RevocationID, revocations[0].RevocationID)
+
+			// revocationIDCounter (scalar, not store.Table-backed) must also survive
+			// the round-trip: a revocation added post-restore must get a fresh,
+			// strictly-increasing RevocationId rather than colliding with (or
+			// resetting behind) the one assigned before the snapshot.
+			addedAfterRestore, err := dst.AddTrustStoreRevocations(
+				trustStore.TrustStoreArn,
+				[]elbv2.RevocationContentInput{
+					{S3Bucket: "my-bucket", S3Key: "more-revocations.crl", RevocationType: "CRL"},
+				},
+			)
+			require.NoError(t, err)
+			require.Len(t, addedAfterRestore, 1)
+			assert.Greater(t, addedAfterRestore[0].RevocationID, addedBeforeSnapshot[0].RevocationID)
 
 			// resourcePolicies: plain map (value has no identity field), still persisted.
 			gotPolicy, err := dst.GetResourcePolicy(lb.LoadBalancerArn)
