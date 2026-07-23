@@ -12,4 +12,10 @@ var (
 	// ErrInvalidNextToken is returned when a List* NextToken cannot be decoded.
 	// Real Amazon Forecast models InvalidNextTokenException on every List operation.
 	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
+	// ErrResourceInUse is returned when a Delete* operation targets a resource
+	// that is not yet in a deletable state (e.g. still CREATE_PENDING). Real
+	// Amazon Forecast models ResourceInUseException on every Delete operation
+	// (e.g. "You can delete only predictor that have a status of ACTIVE or
+	// CREATE_FAILED", per the DeletePredictor API doc).
+	ErrResourceInUse = awserr.New("ResourceInUseException", awserr.ErrConflict)
 )

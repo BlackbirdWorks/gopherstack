@@ -14,9 +14,10 @@ func TestDatasets_ImportCreateFailure(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
+	datasetARN := createDataset(t, h)
 	_, created := request(t, h, "CreateDatasetImportJob", map[string]any{
 		"DatasetImportJobName": "broken-import",
-		"DatasetArn":           "dataset",
+		"DatasetArn":           datasetARN,
 		"DataSource":           map[string]any{"S3Config": map[string]any{}},
 	})
 	_, described := request(t, h, "DescribeDatasetImportJob", map[string]any{
@@ -99,6 +100,15 @@ func TestDatasetImportJobs_S3Validation(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
+			// The DatasetImportJob's DatasetArn (below) must resolve to a real
+			// Dataset now that CreateDatasetImportJob validates the reference;
+			// this creates one named "sales" so its deterministically-built ARN
+			// matches the literal "dataset/sales" ARN hardcoded in tt.body.
+			request(t, h, "CreateDataset", map[string]any{
+				"DatasetName": "sales", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
+				"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
+			})
+
 			code, created := request(t, h, "CreateDatasetImportJob", tt.body)
 			require.Equal(t, http.StatusOK, code)
 			arn := created["DatasetImportJobArn"].(string)

@@ -92,6 +92,10 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if err := b.validateCreateFieldsLocked(kind, data); err != nil {
+		return nil, err
+	}
+
 	table := b.resources[kind]
 	if table.Has(name) {
 		return nil, fmt.Errorf("%w: %s %q", ErrAlreadyExists, kind, name)
@@ -164,6 +168,10 @@ func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
 		return fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
+	}
+
+	if err := validateDeletableLocked(resource); err != nil {
+		return err
 	}
 
 	b.resources[kind].Delete(resource.Name)

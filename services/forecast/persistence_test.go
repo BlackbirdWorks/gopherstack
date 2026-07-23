@@ -87,7 +87,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	_, ds := request(t, h, "CreateDataset", map[string]any{
 		"DatasetName": "full-dataset", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
-		"DataFrequency": "D",
+		"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
 	})
 	dsARN := ds["DatasetArn"].(string)
 
