@@ -3,6 +3,7 @@ package dms
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -12,6 +13,42 @@ type applyPendingMaintenanceActionInput struct {
 	ReplicationInstanceArn *string `json:"ReplicationInstanceArn"`
 	ApplyAction            *string `json:"ApplyAction"`
 	OptInType              *string `json:"OptInType"`
+}
+
+// validApplyActionsTable lazily builds the ApplyAction lookup table exactly
+// once.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2-style
+var validApplyActionsTable = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"os-upgrade":    true,
+		"system-update": true,
+		"db-upgrade":    true,
+		"os-patch":      true,
+	}
+})
+
+// validApplyActions mirrors the ApplyAction valid-values list documented on
+// ApplyPendingMaintenanceActionInput.ApplyAction in the SDK.
+func validApplyActions(s string) bool {
+	return validApplyActionsTable()[s]
+}
+
+// validOptInTypesTable lazily builds the OptInType lookup table exactly once.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2-style
+var validOptInTypesTable = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"immediate":        true,
+		"next-maintenance": true,
+		"undo-opt-in":      true,
+	}
+})
+
+// validOptInTypes mirrors the OptInType valid-values list documented on
+// ApplyPendingMaintenanceActionInput.OptInType in the SDK.
+func validOptInTypes(s string) bool {
+	return validOptInTypesTable()[s]
 }
 
 type resourcePendingMaintenanceActionsJSON struct {
@@ -29,6 +66,32 @@ func (h *Handler) handleApplyPendingMaintenanceAction(
 	instanceArn := ptrconv.String(in.ReplicationInstanceArn)
 	if instanceArn == "" {
 		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrValidation)
+	}
+
+	applyAction := ptrconv.String(in.ApplyAction)
+	if applyAction == "" {
+		return nil, fmt.Errorf("%w: ApplyAction is required", ErrValidation)
+	}
+
+	if !validApplyActions(applyAction) {
+		return nil, fmt.Errorf(
+			"%w: invalid ApplyAction %q; valid: os-upgrade, system-update, db-upgrade, os-patch",
+			ErrValidation,
+			applyAction,
+		)
+	}
+
+	optInType := ptrconv.String(in.OptInType)
+	if optInType == "" {
+		return nil, fmt.Errorf("%w: OptInType is required", ErrValidation)
+	}
+
+	if !validOptInTypes(optInType) {
+		return nil, fmt.Errorf(
+			"%w: invalid OptInType %q; valid: immediate, next-maintenance, undo-opt-in",
+			ErrValidation,
+			optInType,
+		)
 	}
 
 	ri, err := h.Backend.ApplyPendingMaintenanceAction(

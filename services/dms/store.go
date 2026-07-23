@@ -26,15 +26,26 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 }
 
 const (
-	statusActive         = "active"
-	statusReady          = "ready"
-	statusRunning        = "running"
-	statusStopped        = "stopped"
-	statusAvailable      = "available"
-	statusCancelling     = "cancelling"
-	statusSuccessful     = "successful"
-	statusCreated        = "created"
-	defaultEngineVersion = "3.5.3"
+	statusActive     = "active"
+	statusReady      = "ready"
+	statusRunning    = "running"
+	statusStopped    = "stopped"
+	statusAvailable  = "available"
+	statusCancelling = "cancelling"
+	statusSuccessful = "successful"
+	statusCreated    = "created"
+	statusPassed     = "passed"
+
+	// Engine/endpoint-type names that recur across endpoints.go,
+	// fleet_advisor.go, handler_endpoints.go, and recommendations.go --
+	// named here once to satisfy goconst rather than duplicating literals.
+	engineNameMySQL            = "mysql"
+	engineNameOracle           = "oracle"
+	engineNameSQLServer        = "sqlserver"
+	engineNamePostgres         = "postgres"
+	engineNameAuroraPostgreSQL = "aurora-postgresql"
+	endpointTypeSource         = "source"
+	defaultEngineVersion       = "3.5.3"
 
 	eventCategoryCreation    = "creation"
 	eventCategoryDeletion    = "deletion"

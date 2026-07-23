@@ -280,7 +280,7 @@ func TestHandler_ReplicationTaskCRUD(t *testing.T) {
 
 		srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 			"EndpointIdentifier": "task-src",
-			"EndpointType":       "SOURCE",
+			"EndpointType":       "source",
 			"EngineName":         "mysql",
 		})
 		require.Equal(t, http.StatusOK, srcRec.Code)
@@ -289,7 +289,7 @@ func TestHandler_ReplicationTaskCRUD(t *testing.T) {
 
 		dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 			"EndpointIdentifier": "task-dst",
-			"EndpointType":       "TARGET",
+			"EndpointType":       "target",
 			"EngineName":         "s3",
 		})
 		require.Equal(t, http.StatusOK, dstRec.Code)
@@ -323,6 +323,11 @@ func TestHandler_ReplicationTaskCRUD(t *testing.T) {
 				assert.Equal(t, "my-task", rt["ReplicationTaskIdentifier"])
 				assert.Equal(t, "ready", rt["Status"])
 				assert.NotEmpty(t, rt["ReplicationTaskArn"])
+				// ReplicationTaskCreationDate must be wire-encoded as an
+				// epoch-seconds JSON number (awsjson1.1 unixTimestamp format).
+				creationDate, ok := rt["ReplicationTaskCreationDate"].(float64)
+				require.True(t, ok, "ReplicationTaskCreationDate must be a JSON number")
+				assert.Positive(t, creationDate)
 			},
 		},
 		{
@@ -491,7 +496,7 @@ func TestHandler_DescribeTasksByArn(t *testing.T) {
 
 	srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 		"EndpointIdentifier": "arn-src",
-		"EndpointType":       "SOURCE",
+		"EndpointType":       "source",
 		"EngineName":         "mysql",
 	})
 	require.Equal(t, http.StatusOK, srcRec.Code)
@@ -499,7 +504,7 @@ func TestHandler_DescribeTasksByArn(t *testing.T) {
 
 	dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 		"EndpointIdentifier": "arn-dst",
-		"EndpointType":       "TARGET",
+		"EndpointType":       "target",
 		"EngineName":         "s3",
 	})
 	require.Equal(t, http.StatusOK, dstRec.Code)
@@ -544,7 +549,7 @@ func TestDescribeReplicationTasksPagination(t *testing.T) {
 
 		srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 			"EndpointIdentifier": "pg-src",
-			"EndpointType":       "SOURCE",
+			"EndpointType":       "source",
 			"EngineName":         "mysql",
 		})
 		require.Equal(t, http.StatusOK, srcRec.Code)
@@ -552,7 +557,7 @@ func TestDescribeReplicationTasksPagination(t *testing.T) {
 
 		dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 			"EndpointIdentifier": "pg-dst",
-			"EndpointType":       "TARGET",
+			"EndpointType":       "target",
 			"EngineName":         "s3",
 		})
 		require.Equal(t, http.StatusOK, dstRec.Code)
@@ -628,7 +633,7 @@ func TestDescribeReplicationTasksContinuation(t *testing.T) {
 
 	srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 		"EndpointIdentifier": "cont-src",
-		"EndpointType":       "SOURCE",
+		"EndpointType":       "source",
 		"EngineName":         "mysql",
 	})
 	require.Equal(t, http.StatusOK, srcRec.Code)
@@ -636,7 +641,7 @@ func TestDescribeReplicationTasksContinuation(t *testing.T) {
 
 	dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
 		"EndpointIdentifier": "cont-dst",
-		"EndpointType":       "TARGET",
+		"EndpointType":       "target",
 		"EngineName":         "s3",
 	})
 	require.Equal(t, http.StatusOK, dstRec.Code)

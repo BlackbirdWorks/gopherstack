@@ -194,6 +194,32 @@ func (b *InMemoryBackend) StopReplication(
 	return &cp, nil
 }
 
+// ReloadReplicationTables reloads the target tables of a running DMS
+// Serverless replication with source data. Real AWS only permits this while
+// the replication is RUNNING, otherwise it throws InvalidResourceStateFault.
+func (b *InMemoryBackend) ReloadReplicationTables(ctx context.Context, arnOrID string) (*ReplicationConfig, error) {
+	b.mu.Lock("ReloadReplicationTables")
+	defer b.mu.Unlock()
+
+	rc := b.findReplicationConfig(ctx, arnOrID)
+	if rc == nil {
+		return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, arnOrID)
+	}
+
+	if rc.Status != statusRunning {
+		return nil, fmt.Errorf(
+			"%w: replication for %s must be running to reload tables; current status is %s",
+			ErrInvalidState,
+			arnOrID,
+			rc.Status,
+		)
+	}
+
+	cp := *rc
+
+	return &cp, nil
+}
+
 // DescribeReplications returns DMS Serverless replication runtime state,
 // backed by the replication configs that have had StartReplication called
 // against them at least once. A config that has never been started still
