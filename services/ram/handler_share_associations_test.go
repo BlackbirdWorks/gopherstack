@@ -246,13 +246,6 @@ func TestGetResourceShareAssociations_Filters(t *testing.T) {
 			},
 			wantCount: 2,
 		},
-		{
-			name:            "no type filter returns all",
-			associationType: "",
-			setupPrincipals: []string{"111111111111"},
-			setupResources:  []string{"arn:aws:ec2:us-east-1:123456789012:subnet/sub-1"},
-			wantCount:       2,
-		},
 	}
 
 	for _, tt := range tests {
@@ -271,9 +264,7 @@ func TestGetResourceShareAssociations_Filters(t *testing.T) {
 
 			body := map[string]any{
 				"resourceShareArns": []string{rs.ARN},
-			}
-			if tt.associationType != "" {
-				body["associationType"] = tt.associationType
+				"associationType":   tt.associationType,
 			}
 
 			rec := doRAMRequest(t, h, "/getresourceshareassociations", body)
@@ -286,6 +277,18 @@ func TestGetResourceShareAssociations_Filters(t *testing.T) {
 			assert.Len(t, resp.ResourceShareAssociations, tt.wantCount)
 		})
 	}
+}
+
+// TestGetResourceShareAssociations_RequiresAssociationType verifies that AssociationType
+// -- "This member is required" on the real SDK's GetResourceShareAssociationsInput -- is
+// enforced, rather than silently defaulting to "return every type" as this mock
+// previously did.
+func TestGetResourceShareAssociations_RequiresAssociationType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRAMRequest(t, h, "/getresourceshareassociations", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestAssociationStatusMessage_InResponse(t *testing.T) {
@@ -325,6 +328,52 @@ func TestAssociationStatusMessage_InResponse(t *testing.T) {
 	// statusMessage should NOT appear when empty (omitempty).
 	_, present := raw.ResourceShareAssociations[0]["statusMessage"]
 	assert.False(t, present, "statusMessage should be omitted when empty")
+}
+
+// TestAssociateResourceShare_AutoAssociatesDefaultPermission verifies that AssociateResourceShare
+// (which has no permissionArns parameter in the real API) always auto-attaches the
+// default managed permission for a newly-introduced resource type that isn't covered by
+// an existing permission yet.
+func TestAssociateResourceShare_AutoAssociatesDefaultPermission(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rs, err := h.Backend.CreateResourceShare("auto-assoc-share", false, nil, nil, nil)
+	require.NoError(t, err)
+
+	rec := doRAMRequest(t, h, "/associateresourceshare", map[string]any{
+		"resourceShareArn": rs.ARN,
+		"resourceArns":     []string{"arn:aws:ec2:us-east-1:123456789012:subnet/sub-1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	listRec := doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
+		"resourceShareArn": rs.ARN,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp struct {
+		Permissions []struct {
+			Arn string `json:"arn"`
+		} `json:"permissions"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.Len(t, listResp.Permissions, 1)
+	assert.Equal(t, "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet", listResp.Permissions[0].Arn)
+
+	// Associating a second resource of the same type must not attach a duplicate.
+	rec = doRAMRequest(t, h, "/associateresourceshare", map[string]any{
+		"resourceShareArn": rs.ARN,
+		"resourceArns":     []string{"arn:aws:ec2:us-east-1:123456789012:subnet/sub-2"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	listRec = doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
+		"resourceShareArn": rs.ARN,
+	})
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	assert.Len(t, listResp.Permissions, 1, "adding a second resource of an already-covered type must not duplicate")
 }
 
 // TestRAMPagination_GetResourceShareAssociations covers PRINCIPAL associations.

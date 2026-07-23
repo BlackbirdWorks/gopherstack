@@ -9,26 +9,34 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
-func TestDisassociateResourceShare_RemovesFromSlice(t *testing.T) {
+// TestDisassociateResourceShare_SoftDeletesInPlace verifies that DisassociateResourceShare
+// marks matching rows DISASSOCIATED rather than removing them from the backend's
+// association slice -- the same soft-delete pattern DeleteResourceShare already used, so
+// GetResourceShareAssociations(associationStatus=DISASSOCIATED) can see the history and a
+// later AssociateResourceShare can reactivate the row.
+func TestDisassociateResourceShare_SoftDeletesInPlace(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		initials      []string
-		toDisassoc    []string
-		wantRemaining int
+		name              string
+		initials          []string
+		toDisassoc        []string
+		wantAssociated    int
+		wantDisassociated int
 	}{
 		{
-			name:          "disassociate one of two principals",
-			initials:      []string{"111111111111", "222222222222"},
-			toDisassoc:    []string{"111111111111"},
-			wantRemaining: 1,
+			name:              "disassociate one of two principals",
+			initials:          []string{"111111111111", "222222222222"},
+			toDisassoc:        []string{"111111111111"},
+			wantAssociated:    1,
+			wantDisassociated: 1,
 		},
 		{
-			name:          "disassociate all principals",
-			initials:      []string{"111111111111", "222222222222"},
-			toDisassoc:    []string{"111111111111", "222222222222"},
-			wantRemaining: 0,
+			name:              "disassociate all principals",
+			initials:          []string{"111111111111", "222222222222"},
+			toDisassoc:        []string{"111111111111", "222222222222"},
+			wantAssociated:    0,
+			wantDisassociated: 2,
 		},
 	}
 
@@ -43,10 +51,57 @@ func TestDisassociateResourceShare_RemovesFromSlice(t *testing.T) {
 			_, err = b.DisassociateResourceShare(rs.ARN, tt.toDisassoc, nil)
 			require.NoError(t, err)
 
+			// The row count is unchanged (soft delete): every initial principal still
+			// has a row, split between ASSOCIATED and DISASSOCIATED.
 			assocs := b.GetResourceShareAssociations("PRINCIPAL", []string{rs.ARN})
-			assert.Len(t, assocs, tt.wantRemaining)
+			assert.Len(t, assocs, len(tt.initials))
+			assert.Equal(t, tt.wantAssociated, countByStatus(assocs, "ASSOCIATED"))
+			assert.Equal(t, tt.wantDisassociated, countByStatus(assocs, "DISASSOCIATED"))
 		})
 	}
+}
+
+// TestAssociateResourceShare_ReactivatesDisassociatedEntity verifies that re-associating
+// an entity that was previously disassociated flips its existing row back to ASSOCIATED
+// in place, instead of accumulating a duplicate row.
+func TestAssociateResourceShare_ReactivatesDisassociatedEntity(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	rs, err := b.CreateResourceShare("reactivate-test", true, nil, []string{"111111111111"}, nil)
+	require.NoError(t, err)
+
+	_, err = b.DisassociateResourceShare(rs.ARN, []string{"111111111111"}, nil)
+	require.NoError(t, err)
+
+	assocs := b.GetResourceShareAssociations("PRINCIPAL", []string{rs.ARN})
+	require.Len(t, assocs, 1)
+	assert.Equal(t, "DISASSOCIATED", assocs[0].Status)
+
+	added, err := b.AssociateResourceShare(rs.ARN, []string{"111111111111"}, nil)
+	require.NoError(t, err)
+	require.Len(t, added, 1)
+	assert.Equal(t, "ASSOCIATED", added[0].Status)
+
+	// Still exactly one row for this entity: the prior row was reactivated in place,
+	// not duplicated.
+	assocs = b.GetResourceShareAssociations("PRINCIPAL", []string{rs.ARN})
+	require.Len(t, assocs, 1)
+	assert.Equal(t, "ASSOCIATED", assocs[0].Status)
+	assert.Equal(t, 1, ram.AssociationCount(b))
+}
+
+// countByStatus returns how many associations in assocs have the given status.
+func countByStatus(assocs []*ram.ResourceShareAssociation, status string) int {
+	n := 0
+
+	for _, a := range assocs {
+		if a.Status == status {
+			n++
+		}
+	}
+
+	return n
 }
 
 func TestAssociateResourceShare_Idempotent(t *testing.T) {
