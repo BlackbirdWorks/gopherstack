@@ -314,9 +314,12 @@ func TestHandler_ListNamespaces(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "ns-alpha")
 }
 
-// TestHandler_NamespaceTagsInGetResponse verifies that Tags and CreateDate
-// are included in GetNamespace responses.
-func TestHandler_NamespaceTagsInGetResponse(t *testing.T) {
+// TestHandler_NamespaceTagsViaListTagsForResource verifies that CreateDate is
+// included in GetNamespace responses, and that tags set at creation are
+// retrievable via ListTagsForResource. Real Cloud Map's types.Namespace
+// (GetNamespace) and types.NamespaceSummary (ListNamespaces) both omit Tags --
+// tags are only ever returned by ListTagsForResource.
+func TestHandler_NamespaceTagsViaListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -341,7 +344,7 @@ func TestHandler_NamespaceTagsInGetResponse(t *testing.T) {
 	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
 	nsID := opResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
-	// Get namespace and check tags are present.
+	// GetNamespace has CreateDate but never a Tags field.
 	getRec := doSDRequest(t, h, "GetNamespace", map[string]any{"Id": nsID})
 	require.Equal(t, 200, getRec.Code)
 
@@ -349,18 +352,26 @@ func TestHandler_NamespaceTagsInGetResponse(t *testing.T) {
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
 
 	ns := getResp["Namespace"].(map[string]any)
-	assert.NotNil(t, ns["Tags"], "Tags must be present in GetNamespace response")
 	assert.NotZero(t, ns["CreateDate"], "CreateDate must be present in GetNamespace response")
+	assert.NotContains(t, ns, "Tags", "real GetNamespace never returns a Tags field")
 
-	tags := ns["Tags"].([]any)
+	// Tags are retrievable via ListTagsForResource.
+	tagsRec := doSDRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": ns["Arn"].(string)})
+	require.Equal(t, 200, tagsRec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+
+	tags := tagsResp["Tags"].([]any)
 	assert.Len(t, tags, 2, "expected 2 tags")
 	first := tags[0].(map[string]any)
 	assert.Equal(t, "env", first["Key"])
 	assert.Equal(t, "prod", first["Value"])
 }
 
-// TestHandler_ListNamespacesReturnsTags verifies ListNamespaces includes tags.
-func TestHandler_ListNamespacesReturnsTags(t *testing.T) {
+// TestHandler_ListNamespacesOmitsTags verifies ListNamespaces never returns a
+// Tags field, matching real Cloud Map's types.NamespaceSummary shape.
+func TestHandler_ListNamespacesOmitsTags(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -378,9 +389,7 @@ func TestHandler_ListNamespacesReturnsTags(t *testing.T) {
 
 	nsList := resp["Namespaces"].([]any)
 	require.Len(t, nsList, 1)
-	tags := nsList[0].(map[string]any)["Tags"].([]any)
-	assert.Len(t, tags, 1)
-	assert.Equal(t, "k", tags[0].(map[string]any)["Key"])
+	assert.NotContains(t, nsList[0].(map[string]any), "Tags", "real ListNamespaces never returns a Tags field")
 }
 
 // TestHandler_CreatePrivateDNSNamespaceNoVpc verifies that CreatePrivateDnsNamespace
@@ -554,6 +563,107 @@ func TestListNamespaces_TypeFilter(t *testing.T) {
 			assert.Len(t, nsList, tt.wantLen, "filterType=%s", tt.filterType)
 		})
 	}
+}
+
+// TestListNamespaces_HTTPNameFilter verifies the HTTP_NAME filter, which
+// matches Namespace.Properties.HttpProperties.HttpName (only set for HTTP
+// namespaces) -- DNS namespaces never match any HTTP_NAME value.
+func TestListNamespaces_HTTPNameFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "http-name-ns"})
+	doSDRequest(t, h, "CreatePublicDnsNamespace", map[string]any{"Name": "dns-ns"})
+
+	tests := []struct {
+		condition string
+		name      string
+		value     string
+		wantLen   int
+	}{
+		{name: "eq_matches_http_only", value: "http-name-ns", condition: "EQ", wantLen: 1},
+		{name: "begins_with_matches_http_only", value: "http-name", condition: "BEGINS_WITH", wantLen: 1},
+		{name: "no_match", value: "does-not-exist", condition: "EQ", wantLen: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSDRequest(t, h, "ListNamespaces", map[string]any{
+				"Filters": []map[string]any{
+					{"Name": "HTTP_NAME", "Values": []string{tt.value}, "Condition": tt.condition},
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out["Namespaces"].([]any), tt.wantLen)
+		})
+	}
+}
+
+// TestListNamespaces_ResourceOwnerFilter verifies the RESOURCE_OWNER filter
+// against this backend's single-account model: every namespace is always
+// "SELF", so SELF (or no filter) matches everything and OTHER_ACCOUNTS
+// matches nothing.
+func TestListNamespaces_ResourceOwnerFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "owner-test-ns"})
+
+	tests := []struct {
+		name    string
+		values  []string
+		wantLen int
+	}{
+		{name: "self_matches_all", values: []string{"SELF"}, wantLen: 1},
+		{name: "other_accounts_matches_none", values: []string{"OTHER_ACCOUNTS"}, wantLen: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSDRequest(t, h, "ListNamespaces", map[string]any{
+				"Filters": []map[string]any{
+					{"Name": "RESOURCE_OWNER", "Values": tt.values},
+				},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out["Namespaces"].([]any), tt.wantLen)
+		})
+	}
+}
+
+// TestListNamespaces_NameBeginsWithFilter verifies the BEGINS_WITH condition
+// on the NAME filter.
+func TestListNamespaces_NameBeginsWithFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "prefix-alpha"})
+	doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "prefix-beta"})
+	doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "other-ns"})
+
+	rec := doSDRequest(t, h, "ListNamespaces", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "NAME", "Values": []string{"prefix-"}, "Condition": "BEGINS_WITH"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Len(t, out["Namespaces"].([]any), 2)
 }
 
 // TestHandler_UpdateHttpNamespace tests UpdateHttpNamespace.

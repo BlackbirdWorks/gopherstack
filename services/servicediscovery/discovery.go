@@ -7,9 +7,16 @@ import (
 
 // DiscoverInstances returns discovered instances with full per-instance metadata.
 // Also returns the per-service revision counter.
+//
+// queryParams filters are required matches. optionalParams are opportunistic:
+// per the DiscoverInstancesInput.OptionalParameters doc comment, "If there are
+// instances that match both the filters specified in ... QueryParameters ...
+// and this parameter, all of these instances are returned. Otherwise, the
+// filters are ignored, and only instances that match the filters that are
+// specified in the QueryParameters parameter are returned".
 func (b *InMemoryBackend) DiscoverInstances(
 	namespaceName, serviceName, healthStatus string,
-	queryParams map[string]string,
+	queryParams, optionalParams map[string]string,
 ) ([]DiscoveredInstance, int64, error) {
 	b.mu.RLock("DiscoverInstances")
 	defer b.mu.RUnlock()
@@ -46,6 +53,8 @@ func (b *InMemoryBackend) DiscoverInstances(
 			candidates = append(candidates, inst)
 		}
 	}
+
+	candidates = narrowByOptionalParams(candidates, optionalParams)
 
 	result := b.filterInstancesByHealth(svcID, namespaceName, serviceName, candidates, healthStatus)
 
@@ -138,6 +147,31 @@ func instanceMatchesQueryParams(inst *Instance, queryParams map[string]string) b
 	}
 
 	return true
+}
+
+// narrowByOptionalParams applies DiscoverInstances' OptionalParameters
+// semantics on top of the already-QueryParameters-filtered candidates: if any
+// candidate additionally matches every optionalParams pair, only those
+// "opportunistic" matches are kept; otherwise optionalParams is ignored and
+// candidates is returned unchanged.
+func narrowByOptionalParams(candidates []*Instance, optionalParams map[string]string) []*Instance {
+	if len(optionalParams) == 0 {
+		return candidates
+	}
+
+	narrowed := make([]*Instance, 0, len(candidates))
+
+	for _, inst := range candidates {
+		if instanceMatchesQueryParams(inst, optionalParams) {
+			narrowed = append(narrowed, inst)
+		}
+	}
+
+	if len(narrowed) > 0 {
+		return narrowed
+	}
+
+	return candidates
 }
 
 // DiscoverInstancesRevision returns the current revision for the specified service.

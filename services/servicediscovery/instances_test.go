@@ -83,6 +83,168 @@ func TestHandler_RegisterInstance(t *testing.T) {
 	}
 }
 
+// TestHandler_RegisterInstance_AttributeQuota verifies the RegisterInstance
+// custom-attribute quota documented on RegisterInstanceInput.Attributes: "You
+// can add up to 30 custom attributes. For each key-value pair, the maximum
+// length of the attribute name is 255 characters, and the maximum length of
+// the attribute value is 1,024 characters. The total size of all provided
+// attributes (sum of all keys and values) must not exceed 5,000 characters".
+func TestHandler_RegisterInstance_AttributeQuota(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attrs      func() map[string]string
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "30_attributes_ok",
+			wantStatus: http.StatusOK,
+			attrs: func() map[string]string {
+				m := make(map[string]string, 30)
+				for i := range 30 {
+					m[fmt.Sprintf("k%02d", i)] = "v"
+				}
+
+				return m
+			},
+		},
+		{
+			name:       "31_attributes_rejected",
+			wantStatus: http.StatusBadRequest,
+			attrs: func() map[string]string {
+				m := make(map[string]string, 31)
+				for i := range 31 {
+					m[fmt.Sprintf("k%02d", i)] = "v"
+				}
+
+				return m
+			},
+		},
+		{
+			name:       "key_too_long_rejected",
+			wantStatus: http.StatusBadRequest,
+			attrs: func() map[string]string {
+				return map[string]string{fmt.Sprintf("%0256s", "k"): "v"}
+			},
+		},
+		{
+			name:       "value_too_long_rejected",
+			wantStatus: http.StatusBadRequest,
+			attrs: func() map[string]string {
+				return map[string]string{"k": fmt.Sprintf("%01025s", "v")}
+			},
+		},
+		{
+			name:       "total_size_exceeded_rejected",
+			wantStatus: http.StatusBadRequest,
+			attrs: func() map[string]string {
+				// 6 attributes * (2-char key + 1000-char value) = 6012 > 5000.
+				m := make(map[string]string, 6)
+				for i := range 6 {
+					m[fmt.Sprintf("k%d", i)] = fmt.Sprintf("%01000s", "v")
+				}
+
+				return m
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "attr-quota-svc"})
+			require.Equal(t, http.StatusOK, createRec.Code)
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			svcID := createResp["Service"].(map[string]any)["Id"].(string)
+
+			rec := doSDRequest(t, h, "RegisterInstance", map[string]any{
+				"ServiceId": svcID, "InstanceId": "i-quota", "Attributes": tt.attrs(),
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// TestHandler_RegisterInstance_InitHealthStatus verifies that the
+// AWS_INIT_HEALTH_STATUS attribute seeds an instance's initial custom health
+// status when the service has HealthCheckCustomConfig, per
+// RegisterInstanceInput.Attributes' doc comment: "If the service configuration
+// includes HealthCheckCustomConfig, you can optionally use
+// AWS_INIT_HEALTH_STATUS to specify the initial status of the custom health
+// check, HEALTHY or UNHEALTHY. If you don't specify a value ..., the initial
+// status is HEALTHY".
+func TestHandler_RegisterInstance_InitHealthStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attrs        map[string]string
+		name         string
+		wantStatus   string
+		withCustomHC bool
+	}{
+		{
+			name:         "unhealthy_init_status_honored",
+			withCustomHC: true,
+			attrs:        map[string]string{"AWS_INIT_HEALTH_STATUS": "UNHEALTHY"},
+			wantStatus:   "UNHEALTHY",
+		},
+		{
+			name:         "healthy_init_status_honored",
+			withCustomHC: true,
+			attrs:        map[string]string{"AWS_INIT_HEALTH_STATUS": "HEALTHY"},
+			wantStatus:   "HEALTHY",
+		},
+		{
+			name:         "unspecified_defaults_to_healthy",
+			withCustomHC: true,
+			attrs:        map[string]string{},
+			wantStatus:   "HEALTHY",
+		},
+		{
+			name:         "ignored_without_custom_health_check",
+			withCustomHC: false,
+			attrs:        map[string]string{"AWS_INIT_HEALTH_STATUS": "UNHEALTHY"},
+			wantStatus:   "HEALTHY",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := map[string]any{"Name": "init-health-svc"}
+			if tt.withCustomHC {
+				body["HealthCheckCustomConfig"] = map[string]any{"FailureThreshold": 1}
+			}
+
+			createRec := doSDRequest(t, h, "CreateService", body)
+			require.Equal(t, http.StatusOK, createRec.Code)
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			svcID := createResp["Service"].(map[string]any)["Id"].(string)
+
+			regRec := doSDRequest(t, h, "RegisterInstance", map[string]any{
+				"ServiceId": svcID, "InstanceId": "i-init-health", "Attributes": tt.attrs,
+			})
+			require.Equal(t, http.StatusOK, regRec.Code)
+
+			statusRec := doSDRequest(t, h, "GetInstancesHealthStatus", map[string]any{"ServiceId": svcID})
+			require.Equal(t, http.StatusOK, statusRec.Code)
+			var statusResp map[string]any
+			require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp))
+			statuses := statusResp["Status"].(map[string]any)
+			assert.Equal(t, tt.wantStatus, statuses["i-init-health"])
+		})
+	}
+}
+
 func TestHandler_GetInstance(t *testing.T) {
 	t.Parallel()
 

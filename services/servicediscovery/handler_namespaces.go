@@ -176,6 +176,9 @@ type listNamespacesRequest struct {
 	Filters    []namespaceFilter `json:"Filters"`
 }
 
+// buildNamespacesFilter converts the wire-level filter entries into a
+// ListNamespacesFilter, per NamespaceFilter's documented Name values: TYPE,
+// NAME, HTTP_NAME, RESOURCE_OWNER (types.NamespaceFilter doc comment).
 func buildNamespacesFilter(filters []namespaceFilter) ListNamespacesFilter {
 	f := ListNamespacesFilter{}
 
@@ -184,11 +187,17 @@ func buildNamespacesFilter(filters []namespaceFilter) ListNamespacesFilter {
 			continue
 		}
 
+		fv := FilterValue{Condition: entry.Condition, Values: entry.Values}
+
 		switch entry.Name {
 		case "TYPE":
-			f.Type = entry.Values[0]
+			f.Type = fv
 		case "NAME":
-			f.Name = entry.Values[0]
+			f.Name = fv
+		case "HTTP_NAME":
+			f.HTTPName = fv
+		case "RESOURCE_OWNER":
+			f.ResourceOwner = fv
 		}
 	}
 
@@ -247,7 +256,11 @@ func namespacePropertiesToMap(ns *Namespace) map[string]any {
 	return props
 }
 
-// namespaceToMap converts a Namespace to a JSON-serialisable map including Properties.
+// namespaceToMap converts a Namespace to a JSON-serialisable map including
+// Properties. Tags are intentionally NOT included: real Cloud Map's
+// types.Namespace (returned by GetNamespace) and types.NamespaceSummary
+// (returned by ListNamespaces) both omit Tags -- tags are only retrievable via
+// ListTagsForResource.
 func namespaceToMap(ns *Namespace) map[string]any {
 	m := map[string]any{
 		"Id":           ns.ID,
@@ -255,7 +268,6 @@ func namespaceToMap(ns *Namespace) map[string]any {
 		"Name":         ns.Name,
 		keyType:        ns.Type,
 		"Description":  ns.Description,
-		keyTags:        mapToTagEntries(ns.Tags),
 		keyCreateDate:  awstime.Epoch(ns.CreatedAt),
 		"ServiceCount": ns.ServiceCount,
 	}

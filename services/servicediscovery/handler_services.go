@@ -178,23 +178,37 @@ type listServicesRequest struct {
 	Filters    []serviceFilter `json:"Filters"`
 }
 
+// buildServicesFilter converts the wire-level filter entries into a
+// ListServicesFilter, per ServiceFilter's documented Name values: NAMESPACE_ID
+// and RESOURCE_OWNER (types.ServiceFilter doc comment).
+func buildServicesFilter(filters []serviceFilter) ListServicesFilter {
+	f := ListServicesFilter{}
+
+	for _, entry := range filters {
+		if len(entry.Values) == 0 {
+			continue
+		}
+
+		fv := FilterValue{Condition: entry.Condition, Values: entry.Values}
+
+		switch entry.Name {
+		case "NAMESPACE_ID":
+			f.NamespaceID = fv
+		case "RESOURCE_OWNER":
+			f.ResourceOwner = fv
+		}
+	}
+
+	return f
+}
+
 func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, error) {
 	var req listServicesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	filter := ListServicesFilter{}
-
-	for _, f := range req.Filters {
-		if f.Name == "NAMESPACE_ID" && len(f.Values) > 0 {
-			filter.NamespaceID = f.Values[0]
-
-			break
-		}
-	}
-
-	services := h.Backend.ListServices(filter)
+	services := h.Backend.ListServices(buildServicesFilter(req.Filters))
 
 	maxResults := maxResultsDefault
 	if req.MaxResults != nil && *req.MaxResults > 0 {
@@ -219,7 +233,11 @@ func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, er
 	return json.Marshal(resp)
 }
 
-// serviceToMap converts a Service to a JSON-serialisable map including DNS and health check config.
+// serviceToMap converts a Service to a JSON-serialisable map including DNS and
+// health check config. Tags are intentionally NOT included: real Cloud Map's
+// types.Service (returned by CreateService/GetService) and types.ServiceSummary
+// (returned by ListServices) both omit Tags -- tags are only retrievable via
+// ListTagsForResource.
 func serviceToMap(svc *Service) map[string]any {
 	m := map[string]any{
 		"Id":            svc.ID,
@@ -227,7 +245,6 @@ func serviceToMap(svc *Service) map[string]any {
 		"Name":          svc.Name,
 		keyNamespaceID:  svc.NamespaceID,
 		"Description":   svc.Description,
-		keyTags:         mapToTagEntries(svc.Tags),
 		keyCreateDate:   awstime.Epoch(svc.CreatedAt),
 		"InstanceCount": svc.InstanceCount,
 	}

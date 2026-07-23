@@ -29,6 +29,10 @@ func (h *Handler) handleRegisterInstance(_ context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: InstanceId is required", errInvalidRequest)
 	}
 
+	if err := validateInstanceAttributes(req.Attributes); err != nil {
+		return nil, err
+	}
+
 	opID, err := h.Backend.RegisterInstance(req.ServiceID, req.InstanceID, req.Attributes)
 	if err != nil {
 		return nil, err

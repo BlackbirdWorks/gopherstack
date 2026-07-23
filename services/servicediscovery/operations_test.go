@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	"github.com/stretchr/testify/assert"
@@ -164,6 +167,149 @@ func TestListOperations_Pagination(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestListOperations_SummaryShape verifies that ListOperations returns the
+// lightweight OperationSummary shape (Id + Status only) -- NOT the full
+// Operation shape GetOperation returns. Real Cloud Map's ListOperationsOutput
+// is "Operations []types.OperationSummary", which has only Id and Status
+// (api_op_ListOperations.go); Type/CreateDate/UpdateDate/Targets/ErrorCode/
+// ErrorMessage are GetOperation-only fields.
+func TestListOperations_SummaryShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ns-summary-shape"})
+
+	rec := doSDRequest(t, h, "ListOperations", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	ops := out["Operations"].([]any)
+	require.Len(t, ops, 1)
+
+	op := ops[0].(map[string]any)
+	assert.Equal(t, []string{"Id", "Status"}, sortedKeys(op))
+}
+
+// sortedKeys returns the sorted keys of a map[string]any, for exact-shape assertions.
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	return keys
+}
+
+// TestListOperations_NamespaceAndServiceIDFilters verifies the NAMESPACE_ID
+// and SERVICE_ID filters on ListOperations, which match against an
+// operation's Targets map.
+func TestListOperations_NamespaceAndServiceIDFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	nsID := createNamespaceHelper(t, h, "ns-op-filter")
+
+	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-op-filter", "NamespaceId": nsID})
+	var svcResp map[string]any
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
+
+	doSDRequest(t, h, "RegisterInstance", map[string]any{
+		"ServiceId": svcID, "InstanceId": "op-filter-inst", "Attributes": map[string]string{},
+	})
+
+	nsFilterRec := doSDRequest(t, h, "ListOperations", map[string]any{
+		"Filters": []map[string]any{{"Name": "NAMESPACE_ID", "Values": []string{nsID}}},
+	})
+	require.Equal(t, http.StatusOK, nsFilterRec.Code)
+
+	var nsOut map[string]any
+	require.NoError(t, json.Unmarshal(nsFilterRec.Body.Bytes(), &nsOut))
+	assert.Len(t, nsOut["Operations"].([]any), 1, "only CREATE_NAMESPACE targets this namespace")
+
+	svcFilterRec := doSDRequest(t, h, "ListOperations", map[string]any{
+		"Filters": []map[string]any{{"Name": "SERVICE_ID", "Values": []string{svcID}}},
+	})
+	require.Equal(t, http.StatusOK, svcFilterRec.Code)
+
+	var svcOut map[string]any
+	require.NoError(t, json.Unmarshal(svcFilterRec.Body.Bytes(), &svcOut))
+	assert.Len(t, svcOut["Operations"].([]any), 1, "only REGISTER_INSTANCE targets this service")
+}
+
+// TestListOperations_TypeFilterIN verifies the TYPE filter's documented IN
+// condition (multiple type values, any match returned).
+func TestListOperations_TypeFilterIN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	nsID := createNamespaceHelper(t, h, "ns-type-filter")
+	doSDRequest(t, h, "DeleteNamespace", map[string]any{"Id": nsID})
+
+	rec := doSDRequest(t, h, "ListOperations", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "TYPE", "Values": []string{"CREATE_NAMESPACE", "DELETE_NAMESPACE"}, "Condition": "IN"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Len(t, out["Operations"].([]any), 2)
+}
+
+// TestListOperations_UpdateDateBetweenFilter verifies the UPDATE_DATE filter's
+// documented BETWEEN condition: a [start, end] epoch-seconds range that must
+// bracket UpdateDate.
+func TestListOperations_UpdateDateBetweenFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	before := time.Now().Add(-time.Hour).Unix()
+	doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ns-date-filter"})
+	after := time.Now().Add(time.Hour).Unix()
+
+	inRangeRec := doSDRequest(t, h, "ListOperations", map[string]any{
+		"Filters": []map[string]any{
+			{
+				"Name":      "UPDATE_DATE",
+				"Condition": "BETWEEN",
+				"Values":    []string{strconv.FormatInt(before, 10), strconv.FormatInt(after, 10)},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, inRangeRec.Code)
+
+	var inRangeOut map[string]any
+	require.NoError(t, json.Unmarshal(inRangeRec.Body.Bytes(), &inRangeOut))
+	assert.Len(t, inRangeOut["Operations"].([]any), 1)
+
+	outOfRangeRec := doSDRequest(t, h, "ListOperations", map[string]any{
+		"Filters": []map[string]any{
+			{
+				"Name":      "UPDATE_DATE",
+				"Condition": "BETWEEN",
+				"Values": []string{
+					strconv.FormatInt(after, 10),
+					strconv.FormatInt(after+3600, 10),
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, outOfRangeRec.Code)
+
+	var outOfRangeOut map[string]any
+	require.NoError(t, json.Unmarshal(outOfRangeRec.Body.Bytes(), &outOfRangeOut))
+	assert.Empty(t, outOfRangeOut["Operations"].([]any))
 }
 
 // TestListOperations_StatusFilter verifies the STATUS filter on ListOperations.

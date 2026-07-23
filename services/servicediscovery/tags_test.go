@@ -127,13 +127,15 @@ func TestHandler_TagResource_TooManyTags(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "TooManyTagsException")
 }
 
-// TestMapToTagEntriesSorted verifies that tag entries are sorted deterministically.
+// TestMapToTagEntriesSorted verifies that tag entries are sorted
+// deterministically in ListTagsForResource -- the only op that returns tags
+// (real ListServices/CreateService never include a Tags field).
 func TestMapToTagEntriesSorted(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	doSDRequest(t, h, "CreateService", map[string]any{
+	createRec := doSDRequest(t, h, "CreateService", map[string]any{
 		"Name": "sort-svc",
 		"Tags": []map[string]any{
 			{"Key": "zzz", "Value": "last"},
@@ -141,17 +143,19 @@ func TestMapToTagEntriesSorted(t *testing.T) {
 			{"Key": "mmm", "Value": "middle"},
 		},
 	})
+	require.Equal(t, 200, createRec.Code)
 
-	listRec := doSDRequest(t, h, "ListServices", map[string]any{})
-	require.Equal(t, 200, listRec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	svcARN := createResp["Service"].(map[string]any)["Arn"].(string)
 
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	tagsRec := doSDRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": svcARN})
+	require.Equal(t, 200, tagsRec.Code)
 
-	svcs := listResp["Services"].([]any)
-	require.Len(t, svcs, 1)
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
 
-	tags := svcs[0].(map[string]any)["Tags"].([]any)
+	tags := tagsResp["Tags"].([]any)
 	require.Len(t, tags, 3)
 	assert.Equal(t, "aaa", tags[0].(map[string]any)["Key"])
 	assert.Equal(t, "mmm", tags[1].(map[string]any)["Key"])

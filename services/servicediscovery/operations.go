@@ -29,11 +29,27 @@ func (b *InMemoryBackend) ListOperations(filter ListOperationsFilter) []Operatio
 	result := make([]Operation, 0, len(all))
 
 	for _, op := range all {
-		if filter.Status != "" && op.Status != filter.Status {
+		if !filter.Status.matches(op.Status) {
 			continue
 		}
 
-		if filter.Type != "" && op.Type != filter.Type {
+		if !filter.Type.matches(op.Type) {
+			continue
+		}
+
+		if !filter.NamespaceID.matches(op.Targets[typeNamespace]) {
+			continue
+		}
+
+		if !filter.ServiceID.matches(op.Targets[typeService]) {
+			continue
+		}
+
+		if filter.UpdateDateStart != nil && op.UpdateDate.Before(*filter.UpdateDateStart) {
+			continue
+		}
+
+		if filter.UpdateDateEnd != nil && op.UpdateDate.After(*filter.UpdateDateEnd) {
 			continue
 		}
 
