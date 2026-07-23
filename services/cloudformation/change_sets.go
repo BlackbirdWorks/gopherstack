@@ -16,6 +16,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 	_ context.Context,
 	stackName, changeSetName, templateBody, description string,
 	params []Parameter,
+	capabilities []string,
 ) (*ChangeSet, error) {
 	b.mu.Lock("CreateChangeSet")
 	defer b.mu.Unlock()
@@ -55,6 +56,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 		CreationTime:    time.Now(),
 		TemplateBody:    templateBody,
 		Parameters:      params,
+		Capabilities:    capabilities,
 	}
 
 	cs.Changes = b.computeChanges(templateBody, stack)
@@ -154,10 +156,11 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 	}
 
 	var execErr error
-	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, StackOptions{})
+	opts := StackOptions{Capabilities: cs.Capabilities}
+	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
 	if err != nil {
 		// Stack may not exist yet — create it.
-		_, err = b.CreateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, StackOptions{})
+		_, err = b.CreateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
 		if err != nil {
 			execErr = err
 		}

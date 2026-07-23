@@ -299,7 +299,7 @@ func changeSourceFor(v any) string {
 	if !ok {
 		return changeSourceDirect
 	}
-	if _, has := m["Fn::GetAtt"]; has {
+	if _, has := m[fnGetAtt]; has {
 		return changeSourceResAttr
 	}
 	if ref, has := m["Ref"].(string); has {
@@ -324,7 +324,7 @@ func referencesRuntimeValue(v any) bool {
 	case map[string]any:
 		for k, child := range val {
 			switch k {
-			case "Fn::GetAtt", "Ref", "Fn::Sub", "Fn::ImportValue", "Fn::Select", "Fn::Join":
+			case fnGetAtt, "Ref", "Fn::Sub", "Fn::ImportValue", "Fn::Select", "Fn::Join":
 				return true
 			}
 			if referencesRuntimeValue(child) {

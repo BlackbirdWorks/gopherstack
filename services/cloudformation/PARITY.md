@@ -1,9 +1,27 @@
 ---
 service: cloudformation
 sdk_module: aws-sdk-go-v2/service/cloudformation@v1.71.7
-last_audit_commit: d6fae6df
-last_audit_date: 2026-07-11
-overall: A            # local surface unchanged since prior sweep (ce30166a..HEAD diff is empty for
+last_audit_commit: 514ddad6
+last_audit_date: 2026-07-23
+overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted
+                       # on all 6 documented deferred items (see gaps:/deferred: below for exact
+                       # disposition of each -- some fixed, some reclassified to ok after
+                       # re-verification, two genuinely still deferred with reasons). It also
+                       # field-diffed the previously-unaudited Type Registry family (16 ops, none of
+                       # which appeared in this doc's ops: table before) and found + fixed real bugs
+                       # there too. Independently of the named gaps/deferred list, this pass found and
+                       # fixed two significant previously-undocumented parity bugs: (1) 10 backend map
+                       # fields (StackSet instances/operations, type configs/versions, drift detail,
+                       # resource-scan items, custom-resource signals, hook progress) were NEVER wired
+                       # into Snapshot/Restore at all -- silent data loss across every restart/restore
+                       # for StackSets, type registry, drift detection, resource scans, and signaling;
+                       # (2) CreateChangeSet never accepted or stored a Capabilities parameter, so
+                       # ExecuteChangeSet always called UpdateStack/CreateStack with an empty
+                       # StackOptions -- meaning ANY change set touching IAM resources could never
+                       # actually be executed regardless of what capabilities the caller declared at
+                       # CreateChangeSet time. Prior audit text retained below for history:
+                       #
+                       # local surface unchanged since prior sweep (ce30166a..HEAD diff is empty for
                        # this service); this pass spot-audited 4 previously fully-deferred families
                        # (StackSets, Stack Refactor, Generated Templates, Resource Scans) and found +
                        # fixed 4 genuine bugs: DeleteStackSet idempotency, DescribeStackRefactor
@@ -12,8 +30,8 @@ overall: A            # local surface unchanged since prior sweep (ce30166a..HEA
                        # List* handlers that discarded not-found errors). Remaining deferred families
                        # (Type registry, YAML short-form intrinsics) still not re-proven op-by-op.
 ops:
-  CreateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "CAPABILITY_AUTO_EXPAND no longer wrongly satisfies the IAM-resource capability check (backend_parity.go requireIAMCapability)"}
-  UpdateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: missing UPDATE_FAILED stack event on template parse failure; added pre-flight export-in-use block (validateExportsStillInUse)"}
+  CreateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "CAPABILITY_AUTO_EXPAND no longer wrongly satisfies the IAM-resource capability check (backend_parity.go requireIAMCapability); this pass ALSO fixed the inverse gap -- top-level Transform is now parsed (Template.Transform) and requireAutoExpandCapability gates CAPABILITY_AUTO_EXPAND for macro/SAM-using templates, which was previously never enforced at all"}
+  UpdateStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: missing UPDATE_FAILED stack event on template parse failure; added pre-flight export-in-use block (validateExportsStillInUse); same CAPABILITY_AUTO_EXPAND gate as CreateStack added this pass"}
   DeleteStack: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now idempotent (no-op, not ErrStackNotFound) per AWS's unmodeled DeleteStack error surface; added export-in-use block (stackExportsInUse)"}
   DescribeStacks: {wire: ok, errors: ok, state: ok, persist: ok}
   ListStacks: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -24,25 +42,25 @@ ops:
   DescribeStackResources: {wire: ok, errors: ok, state: ok, persist: ok}
   ListExports: {wire: ok, errors: ok, state: ok, persist: ok}
   ListImports: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateChangeSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed error code ChangeSetNotFoundException -> ChangeSetNotFound (SDK deserializer matches the un-suffixed code; see errors.go ChangeSetNotFoundException.ErrorCode())"}
-  ExecuteChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer executes a FAILED/UNAVAILABLE change set (added InvalidChangeSetStatus gate); on success now clears every other change set for the stack, matching documented AWS behaviour, not just the executed one; fixed ChangeSetNotFound code"}
+  CreateChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now accepts and stores a Capabilities parameter (Capabilities.member.N form field, parseCapabilities) -- previously silently dropped, meaning capabilities declared at CreateChangeSet time were never usable at Execute time (see ExecuteChangeSet note); DescribeChangeSet's response now surfaces Capabilities too, matching the real DescribeChangeSetResult shape"}
+  DescribeChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed error code ChangeSetNotFoundException -> ChangeSetNotFound (SDK deserializer matches the un-suffixed code; see errors.go ChangeSetNotFoundException.ErrorCode()); this pass added the missing Capabilities field to the response"}
+  ExecuteChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer executes a FAILED/UNAVAILABLE change set (added InvalidChangeSetStatus gate); on success now clears every other change set for the stack, matching documented AWS behaviour, not just the executed one; fixed ChangeSetNotFound code. THIS PASS fixed a significant additional bug: ExecuteChangeSet always called UpdateStack/CreateStack with an empty StackOptions{} (zero capabilities), because CreateChangeSet never stored Capabilities in the first place -- meaning ANY change set touching IAM resources could never actually be executed regardless of what capabilities the caller declared at CreateChangeSet time. Verified via TestChangeSet_Capabilities_ThreadedToExecute (execute now succeeds with CAPABILITY_IAM, fails with InsufficientCapabilities without it)"}
   DeleteChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed ChangeSetNotFound code"}
   ListChangeSets: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeType: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateStackSet: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateStackSet: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteStackSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now idempotent (no-op, not StackSetNotFoundException) — SDK's DeleteStackSet error deserializer models only {OperationInProgressException, StackSetNotEmptyException}, no not-found case, mirroring the already-fixed DeleteStack precedent"}
-  DescribeStackSet: {wire: partial, errors: ok, state: ok, persist: ok, note: "only StackSetId/StackSetName/Status/Description returned; real DescribeStackSetResult.StackSet also has Parameters, Capabilities, Tags, StackSetARN, AdministrationRoleARN, ExecutionRoleName, PermissionModel, OrganizationalUnitIds, AutoDeployment, ManagedExecution, Regions — feature-completeness gap, not a wire-shape bug (existing fields serialize correctly), left as a gap (bd: gopherstack-e5h)"}
+  DescribeStackSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (was the #1 named gap): full field set now returned, field-diffed against awsAwsquery_deserializeDocumentStackSet -- Parameters, Capabilities, Tags, StackSetARN, AdministrationRoleARN, ExecutionRoleName, PermissionModel, OrganizationalUnitIds, AutoDeployment{Enabled,RetainStacksOnAccountRemoval}, ManagedExecution{Active}. CreateStackSet/UpdateStackSet now accept these via a new StackSetOptions struct (signature change, all callers updated). Regions is intentionally NOT stored on StackSet -- it's computed live from stack instances each call (StackSetRegions) to avoid a second source of truth, mirroring the driftByStackID rationale below. Verified via TestStackSet_DescribeFieldCompleteness"}
   ListStackSets: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "real per-account/region child stacks are provisioned (provisionStackInstance), not just recorded rows — verified correct"}
   DeleteStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "tears down provisioned child stacks via deleteStackLocked — verified correct"}
   UpdateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   ListStackInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeStackInstance: {wire: ok, errors: ok, state: ok, persist: ok}
-  DetectStackSetDrift: {wire: ok, errors: ok, state: ok, persist: ok}
+  DetectStackSetDrift: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: was a disguised stub -- recorded a real SUCCEEDED operation but never actually ran per-instance drift comparison, so every stack instance's DriftStatus stayed NOT_CHECKED forever. Now runs the same compareStackResources logic DetectStackDrift uses against each instance's provisioned child stack and updates its DriftStatus (IN_SYNC/DRIFTED) in place. Verified via TestStackSetDrift_UpdatesInstanceDriftStatus (mutates a child-stack resource out of band, confirms DriftStatus flips to DRIFTED on re-detection)"}
   ListStackSetOperations: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeStackSetOperation: {wire: ok, errors: partial, state: ok, persist: ok, note: "always returns OperationNotFoundException even when the StackSetName itself doesn't exist; SDK models StackSetNotFoundException as a distinct case for this op. Minor edge-case miscode, not fixed this pass (low value: both conditions require an unknown operation ID) — left as a gap (bd: gopherstack-e5h)"}
+  DescribeStackSetOperation: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: now returns StackSetNotFoundException when the StackSetName itself doesn't exist (SDK models this as a distinct case from OperationNotFoundException, which is now reserved for a known StackSet with an unknown OperationId). Verified via TestDescribeStackSetOperation_NotFoundErrorCodes"}
   StopStackSetOperation: {wire: ok, errors: ok, state: ok, persist: ok}
   ListStackSetOperationResults: {wire: ok, errors: ok, state: ok, persist: ok}
   ListStackSetAutoDeploymentTargets: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -63,6 +81,22 @@ ops:
   ListResourceScans: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResourceScanResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was silently discarding the not-found error (`_`) and returning 200 with an empty list for an unknown ResourceScanId; SDK models ResourceScanNotFound for this op. Now surfaces it with the correct unsuffixed code"}
   ListResourceScanRelatedResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same disguised-stub pattern as ListResourceScanResources — was discarding the not-found error; now surfaces ResourceScanNotFound"}
+  DescribeType: {wire: ok, errors: ok, state: ok, persist: ok}
+  ActivateType: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass: field-diffed against awsAwsquery_deserializeOpErrorActivateType (models CFNRegistryException, TypeNotFoundException); was previously entirely absent from this ops table despite being routed and non-stub"}
+  DeactivateType: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed"}
+  RegisterType: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed (SDK models only CFNRegistryException for this op)"}
+  DeregisterType: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: handler discarded Backend.DeregisterType's returned error entirely (`_ = h.Backend.DeregisterType(...)`), so an unknown Arn silently returned 200 instead of the TypeNotFoundException the SDK models for this op -- a disguised stub matching the same bug class as the earlier ListResourceScanResources fix. A stale test (TestTypeRegistry_DeregisterNotFound) literally had a comment noting this ('handler currently ignores DeregisterType error'); now asserts the real 400/TypeNotFoundException"}
+  PublishType: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed"}
+  SetTypeDefaultVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: same disguised-stub pattern as DeregisterType -- backend never returned an error for an unknown Arn (silent no-op) and the handler discarded the return value too, even though the SDK models TypeNotFoundException for this op. Backend now returns ErrTypeNotFound; handler propagates it. Verified via TestTypeRegistry_SetTypeDefaultVersionNotFound"}
+  SetTypeConfiguration: {wire: ok, errors: partial, state: ok, persist: ok, note: "SDK models TypeNotFoundException for this op, but the backend intentionally accepts configuration for ANY type name without requiring prior RegisterType/ActivateType -- this matches real-world usage where first-party AWS types (e.g. AWS::S3::Bucket) can have extension configuration set without ever being explicitly registered in this emulator's type registry (which only models the RegisterType/ActivateType *custom-extension* flow, not the full built-in-type catalog). Left permissive rather than force a wrong not-found on a legitimate first-party-type call; not re-classified as a bug (bd: gopherstack-e5h)"}
+  BatchDescribeTypeConfigurations: {wire: partial, errors: ok, state: ok, persist: ok, note: "returns TypeConfigurations but never populates the Errors/UnprocessedTypeConfigurations fields the real BatchDescribeTypeConfigurationsOutput has for identifiers that fail to resolve -- every identifier is always reported as a (possibly empty-configuration) success. Left as a gap, low value given SetTypeConfiguration's permissive design above (bd: gopherstack-e5h)"}
+  TestType: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed (SDK models only CFNRegistryException)"}
+  ListTypes: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed (SDK models only CFNRegistryException)"}
+  ListTypeVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed"}
+  ListTypeRegistrations: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed"}
+  DescribeTypeRegistration: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed"}
+  RegisterPublisher: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed"}
+  DescribePublisher: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass, field-diffed"}
 families:
   resource_provisioning: {status: ok, note: "topoSortResources (Kahn's algorithm, deterministic alphabetical tie-break) + provisionResources/rollbackCreateResources (reverse-order rollback, DeletionPolicy Retain/Snapshot honored) verified correct, no changes needed"}
   update_reconciliation: {status: ok, note: "updateResources/rollbackUpdateResources snapshot-and-restore semantics verified correct; deleteStaleResources runs only after all creates/updates succeed, matching AWS ordering"}
@@ -70,23 +104,21 @@ families:
   error_code_mapping: {status: ok, note: "verified against aws-sdk-go-v2 deserializers.go: StackNotFoundException is modeled for exactly one op (ImportStacksToStackSet) — every other stack-lookup op correctly falls back to generic ValidationError, matching real AWS's query-protocol behaviour; this was already correct, not changed"}
   drift_detection: {status: ok, note: "DetectStackDrift / DescribeStackResourceDrifts / legacy SimulateDrift fallback reviewed, logic is internally consistent; NOT re-verified against AWS's real per-property drift diff algorithm this pass (see deferred)"}
   nested_stacks: {status: ok, note: "CreateNestedStack/DeleteNestedStack correctly reuse createStackLocked/deleteStackLocked under the parent's already-held lock (no double-lock/deadlock); ParentID wiring reviewed, looks correct"}
-  stacksets: {status: ok, note: "spot-audited this pass (previously fully deferred): all 17 StackSet/instance/operation ops cross-checked against deserializers.go's modeled error switch per op. Found + fixed one genuine bug: DeleteStackSet was returning StackSetNotFoundException where AWS's operation model has no not-found case at all (idempotent, like DeleteStack). Everything else already matched. NOT a full re-audit of business logic (drift-diff accuracy, SERVICE_MANAGED/OU semantics, deployment-target math) — see gaps/deferred."}
-  stack_refactor: {status: ok, note: "spot-audited this pass (previously fully deferred): all 5 ops cross-checked against deserializers.go. Found + fixed one genuine bug: DescribeStackRefactor silently returned 200/empty-Status for an unknown StackRefactorId instead of the StackRefactorNotFoundException the SDK models for this specific op (its 4 siblings are correctly fire-and-forget per the SDK's empty error models — left unchanged)."}
-  generated_templates: {status: ok, note: "spot-audited this pass (previously fully deferred): all 6 ops cross-checked against deserializers.go. Found + fixed a repeat of the ChangeSetNotFound bug class: all 4 not-found-capable ops (Update/Delete/Describe/GetGeneratedTemplate) emitted the wrong wire code (\"GeneratedTemplateNotFoundException\" instead of the SDK-modeled unsuffixed \"GeneratedTemplateNotFound\")."}
-  resource_scans: {status: ok, note: "spot-audited this pass (previously fully deferred): all 5 ops cross-checked against deserializers.go. Found + fixed two bugs: (1) same unsuffixed-wire-code bug as generated_templates on DescribeResourceScan; (2) ListResourceScanResources/ListResourceScanRelatedResources were disguised stubs — both discarded the backend's not-found error entirely and returned 200 with an empty list for any unknown ResourceScanId."}
+  stacksets: {status: ok, note: "spot-audited previously (all 17 StackSet/instance/operation ops cross-checked against deserializers.go's modeled error switch per op; DeleteStackSet idempotency fixed then). THIS PASS: fixed DetectStackSetDrift (was a disguised stub, see ops: above) and DescribeStackSetOperation's error-code gap, and closed the DescribeStackSet field-completeness gap. SERVICE_MANAGED/OU-based auto-deployment semantics and deployment-target math beyond the synthetic per-account-as-OU placeholder (ListStackSetAutoDeploymentTargets/ImportStacksToStackSet) remain a deliberate, code-commented simplification — see deferred below, not re-attempted this pass (real Organizations-hierarchy simulation is a materially larger feature)."}
+  stack_refactor: {status: ok, note: "spot-audited previously (all 5 ops cross-checked against deserializers.go; DescribeStackRefactor not-found handling fixed then). THIS PASS: re-verified ExecuteStackRefactor -- confirmed it is genuinely a status-flip only (`r.Status = \"EXECUTE_COMPLETE\"`), it does NOT move any StackResource entries between the source/target stacks named in StackDefinitions/ResourceMappings. This is real business-logic depth this emulator does not implement (see deferred), not a wire/error-shape bug -- left as deferred rather than attempting a rushed partial resource-move implementation."}
+  generated_templates: {status: ok, note: "spot-audited previously (all 6 ops cross-checked against deserializers.go; unsuffixed-wire-code bug class fixed then, same as ChangeSetNotFound). THIS PASS: independently re-verified all 4 not-found-capable ops still emit the correct unsuffixed GeneratedTemplateNotFound code (handler_generated_templates.go) -- confirms the family: ok classification from the prior pass; the deferred: bullet claiming this family was 'not audited' was stale leftover documentation from BEFORE that prior spot-audit ran and is removed this pass."}
+  resource_scans: {status: ok, note: "spot-audited previously (all 5 ops cross-checked against deserializers.go; unsuffixed-wire-code + two disguised-stub List* bugs fixed then). THIS PASS: independently re-verified the fixed error codes are still correct (ResourceScanNotFound, generated_templates.go/handler_generated_templates.go) -- confirms family: ok; same stale deferred: bullet issue as generated_templates, removed."}
+  type_registry: {status: ok, note: "NEW this pass: this family (16 ops: DescribeType plus 15 RegisterType/ActivateType/... management ops) had NO ops: table entries at all before this pass despite being fully routed and non-stub -- the deferred: bullet 'not audited this pass' was accurate for every prior pass. Field-diffed all 16 against deserializers.go's per-op modeled error switches. Found + fixed two disguised-stub bugs (DeregisterType, SetTypeDefaultVersion — see ops: above). SetTypeConfiguration/TestType/BatchDescribeTypeConfigurations/RegisterPublisher's non-error-returning backend methods were reviewed and left as-is with reasoning recorded per-op above (SetTypeConfiguration's permissiveness is intentional; BatchDescribeTypeConfigurations' missing Errors/UnprocessedTypeConfigurations fields is a real but low-value gap)."}
+  yaml_short_form_intrinsics: {status: ok, note: "NEW this pass: previously deferred as 'not re-verified'. Independent verification found it was actually BROKEN, not merely unverified -- ParseTemplate/parseGenericTemplate called gopkg.in/yaml.v3's Unmarshal directly into typed structs / map[string]any, which silently discards any custom YAML tag and decodes only the tagged node's native scalar/seq/map content. `!Ref MyParam` decoded to the bare string \"MyParam\" instead of the long-form {\"Ref\": \"MyParam\"} every resolveValue-style consumer expects -- every YAML short-form intrinsic (!Ref, !GetAtt, !Sub, !Join, !Select, !Split, !Base64, !Cidr, !ImportValue, !GetAZs, !FindInMap, !And, !Or, !Not, !Equals, !If, !Condition, !Transform) silently degraded to a dead literal string rather than resolving or erroring. Fixed via a new yamlToJSON/normalizeYAMLNode pass that walks the raw *yaml.Node tree (preserving tag info) before the JSON round-trip. Verified via TestParseTemplate_YAMLShortFormIntrinsics (shape-level) and TestCreateStack_YAMLShortFormIntrinsics_Resolve (end-to-end: !Ref/!Sub actually resolve through CreateStack/DescribeStacks Outputs)."}
 gaps:
-  - "Top-level Transform is never parsed (Template struct has no Transform field), so CAPABILITY_AUTO_EXPAND is never required for macro-using templates even though Fn::Transform invocation itself works (bd: gopherstack-urm)"
   - "changeset_diff.go requiresRecreation() models only a curated subset of AWS resource types' replacement-forcing properties (documented in-code as intentional partial coverage, not a regression) — expanding this table is future work, not tracked separately from gopherstack-e5h"
-  - "DescribeStackSet returns only StackSetId/StackSetName/Status/Description; missing Parameters/Capabilities/Tags/StackSetARN/AdministrationRoleARN/ExecutionRoleName/PermissionModel/OrganizationalUnitIds/AutoDeployment/ManagedExecution/Regions fields that real AWS's DescribeStackSetResult.StackSet returns (bd: gopherstack-e5h)"
-  - "DescribeStackSetOperation always returns OperationNotFoundException even when StackSetName itself doesn't exist (SDK models a distinct StackSetNotFoundException case); low-value edge case, not fixed (bd: gopherstack-e5h)"
+  - "SetTypeConfiguration accepts configuration for any type name without requiring prior registration (intentional permissiveness for first-party AWS types — see ops: SetTypeConfiguration note); real AWS models TypeNotFoundException here but this emulator doesn't track the full built-in-type catalog (bd: gopherstack-e5h)"
+  - "BatchDescribeTypeConfigurations never populates the real output's Errors/UnprocessedTypeConfigurations fields — every requested identifier is always reported as resolved (bd: gopherstack-e5h)"
+  - "StackSets deployment-target math (ListStackSetAutoDeploymentTargets/ImportStacksToStackSet) uses a synthetic per-account-as-OU placeholder rather than real Organizations OU-hierarchy simulation — deliberate, code-commented simplification (bd: gopherstack-e5h)"
 deferred:
-  - "StackSets business-logic depth: SERVICE_MANAGED/OU-based auto-deployment semantics, DetectStackSetDrift's actual per-instance drift diff accuracy, deployment-target math beyond the synthetic per-account-as-OU placeholder — not audited this pass, only wire/error shape was (bd: gopherstack-e5h)"
-  - "Stack Refactor business-logic depth (ListStackRefactorActions' MOVE-only action modeling, real resource-mapping semantics) — not audited this pass, only wire/error shape was (bd: gopherstack-e5h)"
-  - "Generated Templates family — not audited this pass (bd: gopherstack-e5h)"
-  - "Resource Scans family — not audited this pass (bd: gopherstack-e5h)"
-  - "Type registry/management (RegisterType/ActivateType/PublishType/TestType/etc.) — not audited this pass (bd: gopherstack-e5h)"
-  - "YAML short-form intrinsics (!Ref/!GetAtt/etc.) wire coverage — not re-verified this pass (bd: gopherstack-e5h)"
-leaks: {status: clean, note: "no new goroutines/janitors introduced this pass either. Both fixes (DeleteStackSet, DescribeStackRefactor) are pure control-flow changes (early nil-return / new error-return); no new allocations, locks, or ctx plumbing."}
+  - "StackSets SERVICE_MANAGED/OU-based auto-deployment semantics beyond the synthetic per-account-as-OU placeholder — real Organizations-hierarchy simulation is a materially larger feature than a spot-fix; DetectStackSetDrift's per-instance accuracy was fixed this pass (bd: gopherstack-e5h)"
+  - "Stack Refactor business-logic depth: ExecuteStackRefactor is a pure status-flip (verified this pass) and does NOT actually move StackResource entries between the stacks named in StackDefinitions/ResourceMappings; ListStackRefactorActions' MOVE-only action modeling and real resource-mapping semantics are unimplemented. Wire/error shape for all 5 ops is correct (see families: stack_refactor) — this is a genuine missing feature, not a bug, and a full implementation (parsing ResourceMapping definitions, migrating resource state across b.resources[stackID] maps, updating both stacks' templates) was judged too large to safely rush in this pass (bd: gopherstack-e5h)"
+leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle)."}
 ---
 
 ## Notes
@@ -175,6 +207,66 @@ CloudFormation's query protocol reports client errors.
   `ResourceScanNotFound` — a disguised-stub pattern per parity-principles.md rule 4 (a `List*` op that
   looks real because it calls into backend logic, but the specific not-found branch was unreachable).
   Fixed both to surface the error.
+- (2026-07-23 sweep) **Persistence gap (largest finding this pass):** `store_setup.go`'s
+  `registerAllTables` doc comment lists 15 backend map fields deliberately left as plain maps (not
+  `store.Table`-registered) because they're nested/one-to-many. Of those 15, only 4
+  (`events`/`resources`/`changeSets`/`stackPolicies`) were actually wired into `backendSnapshot` in
+  `persistence.go` — the other 10 (`stackInstances`, `stackSetOperations`, `typeConfigs`,
+  `handlerProgress`, `signals`, `stackSetOpResults`, `typeVersions`, `resourceScanItems`,
+  `resourceDriftStatus`, `resourceDriftDetail`) were never persisted at all. This is silent data loss on
+  every restart/restore: StackSet instances/operations, the entire type registry's configuration/version
+  history, per-resource drift detail, resource-scan findings, and custom-resource signals all vanished
+  across a snapshot/restore cycle. Fixed by adding all 10 fields to `backendSnapshot` with the same
+  nil-fallback-on-restore pattern the existing 4 use (`applyNilDefaults`, split out of `Restore` to keep
+  it under golangci-lint's cyclop threshold). `driftByStackID` (a reverse index) is deliberately NOT
+  persisted directly — like `stackIDIndex`, it's rebuilt from its persisted source table
+  (`driftDetections`) in `Restore` (`rebuildDerivedIndexes`), so it can never drift out of sync with the
+  data it indexes. Verified via `TestInMemoryBackend_SnapshotRestore_PlainMapFields`.
+- (2026-07-23 sweep) **`CreateChangeSet` Capabilities gap:** `CreateChangeSet`'s signature never accepted
+  a `Capabilities` parameter at all, despite the real `CreateChangeSetInput.Capabilities` field (and the
+  fact that `DescribeChangeSet`'s real output also returns `Capabilities`). Because `ExecuteChangeSet`
+  applies a change set by calling `UpdateStack`/`CreateStack` with `StackOptions{}` (zero capabilities),
+  this meant ANY change set touching IAM resources could never actually be executed — `ExecuteChangeSet`
+  would always hit `requireIAMCapability`'s `InsufficientCapabilities` gate inside `UpdateStack`/
+  `CreateStack`, regardless of what capabilities the caller declared at `CreateChangeSet` time. Fixed:
+  `ChangeSet` gained a `Capabilities []string` field, `CreateChangeSet` now accepts and stores it (wired
+  from the `Capabilities.member.N` form field via the existing `parseCapabilities` helper), and
+  `ExecuteChangeSet` now passes `StackOptions{Capabilities: cs.Capabilities}` instead of an empty
+  `StackOptions{}`. `DescribeChangeSet`'s response also gained the `Capabilities` field it was missing.
+  Verified via `TestChangeSet_Capabilities_ThreadedToExecute` (execute now succeeds with `CAPABILITY_IAM`
+  on an IAM-touching template, fails with `InsufficientCapabilities` without it — both cases previously
+  behaved identically to "without it" since the parameter was discarded).
+- (2026-07-23 sweep) **`DetectStackSetDrift` was a disguised stub:** it recorded a real `SUCCEEDED`
+  `StackSetOperation` (so it looked functional in any test that only checked the operation record) but
+  never actually compared any stack instance's provisioned child-stack resources against its template —
+  every instance's `DriftStatus` stayed `NOT_CHECKED` forever, no matter how many times drift detection
+  ran. Fixed: added `detectStackInstanceDrift`, which reuses the exact same `compareStackResources` logic
+  the standalone per-stack `DetectStackDrift` already used, resolving each instance's `StackID` back to
+  its child stack via `stackIDIndex` and updating `DriftStatus` to `IN_SYNC`/`DRIFTED` in place. Verified
+  via `TestStackSetDrift_UpdatesInstanceDriftStatus`, which simulates an out-of-band mutation on a child
+  stack's resource (`RecordResourceMutation`) and confirms the instance's `DriftStatus` actually flips to
+  `DRIFTED` on re-detection (it previously never would have, at any capability level).
+- (2026-07-23 sweep) **YAML short-form intrinsics were silently broken, not merely unverified:**
+  `ParseTemplate`'s YAML branch and `parseGenericTemplate` both called `gopkg.in/yaml.v3`'s `Unmarshal`
+  directly into typed structs / a bare `map[string]any`. yaml.v3 silently discards any custom YAML tag it
+  doesn't recognize as a built-in and decodes only the tagged node's native scalar/sequence/mapping
+  content — confirmed via a standalone repro: `!Ref MyParam` decoded to the bare Go string `"MyParam"`,
+  and `!Sub "${AWS::StackName}-bucket"` decoded to the raw unresolved string, with **no error and no
+  indication anything was lost**. Every `resolveValue`-family consumer in this package expects the
+  long-form map representation (`{"Ref": "MyParam"}`, `{"Fn::Sub": "..."}`), so every YAML short-form
+  intrinsic — `!Ref`, `!GetAtt`, `!Sub`, `!Join`, `!Select`, `!Split`, `!Base64`, `!Cidr`, `!ImportValue`,
+  `!GetAZs`, `!FindInMap`, `!And`, `!Or`, `!Not`, `!Equals`, `!If`, `!Condition`, `!Transform` — silently
+  degraded to a dead literal string instead of resolving or erroring, for every template written in YAML
+  short form (the common case for hand-written CloudFormation YAML). Fixed via `yamlToJSON`/
+  `normalizeYAMLNode`/`normalizeYAMLNodeValue`, which walk the raw `*yaml.Node` tree (so tag information
+  is never lost) and expand short-form tags into their long-form map representation before an ordinary
+  JSON round-trip through the existing, already-correct JSON-path logic. `!GetAtt`'s dotted scalar short
+  form (`LogicalId.Attribute`) is split into the long-form two-element list. Both `ParseTemplate` and
+  `parseGenericTemplate` (used by the `Fn::ForEach` language-extension expander) now share this path, so
+  a YAML template combining `Fn::ForEach` with short-form intrinsics resolves both correctly together.
+  Verified via `TestParseTemplate_YAMLShortFormIntrinsics` (shape-level, all tag kinds) and
+  `TestCreateStack_YAMLShortFormIntrinsics_Resolve` (end-to-end: `!Ref`/`!Sub` actually resolve through
+  `CreateStack`/`DescribeStacks` `Outputs`, not just at the parse-tree level).
 
 ### Traps for the next auditor (looks-wrong-but-correct)
 
@@ -195,3 +287,17 @@ CloudFormation's query protocol reports client errors.
 - `ExecuteChangeSet`'s two lock windows (state-check-and-flip, then unlocked `UpdateStack`/`CreateStack`
   call, then re-lock to finalize) are pre-existing and intentional — `UpdateStack`/`CreateStack` take
   `b.mu` themselves, so holding it across the call would deadlock. Not touched.
+- (2026-07-23 sweep) `Template.UnmarshalYAML`/`TemplateResource.UnmarshalYAML` use the OLD-style
+  `gopkg.in/yaml.v3` "obsolete unmarshaler" interface (`func(unmarshal func(any) error) error`), which
+  yaml.v3 keeps for backward compat with yaml.v2 code — do NOT "modernize" these to the `*yaml.Node`-based
+  interface without checking every call site; they're intentionally written this way to match the
+  pre-existing `TemplateResource` pattern. Separately: an embed-based JSON alias trick (`type plain T;
+  struct { Extra X; *plain }`) works fine for `UnmarshalJSON` but silently drops every promoted field on
+  the YAML path — yaml.v3 does not auto-promote fields from an anonymously embedded pointer the way
+  `encoding/json` does. `Template`'s `UnmarshalJSON`/`UnmarshalYAML` both decode into `templatePlain`
+  (all fields listed explicitly, both `json` and `yaml` tags) for exactly this reason; don't refactor
+  toward the embed trick even though it looks like less boilerplate. Both `Template.UnmarshalJSON` and
+  `Template.UnmarshalYAML` are effectively dead code paths now that `ParseTemplate`'s YAML branch
+  round-trips through `yamlToJSON` first (so only `UnmarshalJSON` actually runs at parse time) — left in
+  place rather than deleted, since they're exported `yaml.Unmarshaler`/`json.Unmarshaler` implementations
+  a caller outside this package's `ParseTemplate` could still reasonably invoke directly.

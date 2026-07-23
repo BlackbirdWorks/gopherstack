@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 // ---- Stack Instance StackID assignment (table-driven) ----------------------------
@@ -44,7 +46,7 @@ func TestStackInstance_StackIDAssigned(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.CreateStackSet("inst-test-ss", "test", simpleTemplate)
+			_, err := b.CreateStackSet("inst-test-ss", "test", simpleTemplate, cloudformation.StackSetOptions{})
 			require.NoError(t, err)
 
 			_, err = b.CreateStackInstances(t.Context(), "inst-test-ss", tc.accounts, tc.regions)
@@ -71,7 +73,7 @@ func TestStackInstance_NoDuplicates(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("dedup-ss", "test", simpleTemplate)
+	_, err := b.CreateStackSet("dedup-ss", "test", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
 	_, err = b.CreateStackInstances(t.Context(), "dedup-ss", []string{"111111111111"}, []string{"us-east-1"})
@@ -118,7 +120,7 @@ func TestStackSetOperationResults(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.CreateStackSet("op-results-ss", "test", simpleTemplate)
+			_, err := b.CreateStackSet("op-results-ss", "test", simpleTemplate, cloudformation.StackSetOptions{})
 			require.NoError(t, err)
 
 			_, err = b.CreateStackInstances(t.Context(), "op-results-ss", tc.accounts, tc.regions)
@@ -196,7 +198,7 @@ func TestDescribeStackInstance_Fields(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("field-ss", "test", simpleTemplate)
+	_, err := b.CreateStackSet("field-ss", "test", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 	_, err = b.CreateStackInstances(t.Context(), "field-ss", []string{"123456789012"}, []string{"us-east-1"})
 	require.NoError(t, err)
@@ -219,7 +221,7 @@ func TestListStackSetOperations_SortedByCreationTime(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend()
-	_, err := b.CreateStackSet("sort-ops-ss", "test", simpleTemplate)
+	_, err := b.CreateStackSet("sort-ops-ss", "test", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
 	// Create multiple operations by calling CreateStackInstances multiple times.
@@ -227,7 +229,7 @@ func TestListStackSetOperations_SortedByCreationTime(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.UpdateStackInstances("sort-ops-ss", []string{"111111111111"}, []string{"us-east-1"})
 	require.NoError(t, err)
-	_, err = b.UpdateStackSet("sort-ops-ss", "", simpleTemplate)
+	_, err = b.UpdateStackSet("sort-ops-ss", "", simpleTemplate, cloudformation.StackSetOptions{})
 	require.NoError(t, err)
 
 	opsPage2, err := b.ListStackSetOperations("sort-ops-ss", "")
@@ -278,7 +280,7 @@ func TestDeleteStackInstances_Selective(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := newBackend()
-			_, err := b.CreateStackSet("del-sel-ss", "test", simpleTemplate)
+			_, err := b.CreateStackSet("del-sel-ss", "test", simpleTemplate, cloudformation.StackSetOptions{})
 			require.NoError(t, err)
 
 			_, err = b.CreateStackInstances(t.Context(), "del-sel-ss", tc.createAccounts, tc.createRegions)

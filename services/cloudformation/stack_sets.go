@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/google/uuid"
 )
@@ -21,22 +22,52 @@ const (
 	driftStatusDrifted           = "DRIFTED"
 	driftStatusModified          = "MODIFIED"
 	driftStatusDeleted           = "DELETED"
+	driftStatusNotChecked        = "NOT_CHECKED"
 )
+
+// StackSetOptions holds the optional fields accepted by CreateStackSet and
+// UpdateStackSet beyond name/description/templateBody, mirroring the shape of
+// StackOptions for regular stacks.
+type StackSetOptions struct {
+	AutoDeployment        *AutoDeployment
+	ManagedExecution      *ManagedExecution
+	AdministrationRoleARN string
+	ExecutionRoleName     string
+	PermissionModel       string
+	Capabilities          []string
+	Parameters            []Parameter
+	Tags                  []Tag
+	OrganizationalUnitIDs []string
+}
 
 func (b *InMemoryBackend) CreateStackSet(
 	name, description, templateBody string,
+	opts StackSetOptions,
 ) (*StackSet, error) {
 	b.mu.Lock("CreateStackSet")
 	defer b.mu.Unlock()
 	if b.stackSets.Has(name) {
 		return nil, ErrStackSetAlreadyExists
 	}
+	stackSetID := uuid.New().String()
 	ss := &StackSet{
-		StackSetID:   uuid.New().String(),
+		StackSetID:   stackSetID,
 		StackSetName: name,
 		Description:  description,
 		TemplateBody: templateBody,
 		Status:       "ACTIVE",
+		StackSetARN: arn.Build(
+			"cloudformation", b.region, b.accountID, "stackset/"+name+":"+stackSetID,
+		),
+		AdministrationRoleARN: opts.AdministrationRoleARN,
+		ExecutionRoleName:     opts.ExecutionRoleName,
+		PermissionModel:       opts.PermissionModel,
+		Capabilities:          opts.Capabilities,
+		Parameters:            opts.Parameters,
+		Tags:                  opts.Tags,
+		OrganizationalUnitIDs: opts.OrganizationalUnitIDs,
+		AutoDeployment:        opts.AutoDeployment,
+		ManagedExecution:      opts.ManagedExecution,
 	}
 	b.stackSets.Put(ss)
 
@@ -45,6 +76,7 @@ func (b *InMemoryBackend) CreateStackSet(
 
 func (b *InMemoryBackend) UpdateStackSet(
 	name, description, templateBody string,
+	opts StackSetOptions,
 ) (*StackSet, error) {
 	b.mu.Lock("UpdateStackSet")
 	defer b.mu.Unlock()
@@ -57,6 +89,33 @@ func (b *InMemoryBackend) UpdateStackSet(
 	}
 	if templateBody != "" {
 		ss.TemplateBody = templateBody
+	}
+	if opts.AdministrationRoleARN != "" {
+		ss.AdministrationRoleARN = opts.AdministrationRoleARN
+	}
+	if opts.ExecutionRoleName != "" {
+		ss.ExecutionRoleName = opts.ExecutionRoleName
+	}
+	if opts.PermissionModel != "" {
+		ss.PermissionModel = opts.PermissionModel
+	}
+	if opts.Capabilities != nil {
+		ss.Capabilities = opts.Capabilities
+	}
+	if opts.Parameters != nil {
+		ss.Parameters = opts.Parameters
+	}
+	if opts.Tags != nil {
+		ss.Tags = opts.Tags
+	}
+	if opts.OrganizationalUnitIDs != nil {
+		ss.OrganizationalUnitIDs = opts.OrganizationalUnitIDs
+	}
+	if opts.AutoDeployment != nil {
+		ss.AutoDeployment = opts.AutoDeployment
+	}
+	if opts.ManagedExecution != nil {
+		ss.ManagedExecution = opts.ManagedExecution
 	}
 	b.recordStackSetOperation(name, "UPDATE")
 
@@ -93,6 +152,30 @@ func (b *InMemoryBackend) DescribeStackSet(name string) (*StackSet, error) {
 	return ss, nil
 }
 
+// StackSetRegions returns the deduplicated, sorted list of Amazon Web
+// Services Regions the given StackSet currently has stack instances deployed
+// in, matching real DescribeStackSetResult.StackSet.Regions. This is derived
+// live from b.stackInstances rather than stored on the StackSet record itself
+// -- storing it directly would create a second source of truth that could
+// drift out of sync with the actual instances (same rationale as the
+// driftByStackID reverse index rebuilt in Restore).
+func (b *InMemoryBackend) StackSetRegions(name string) []string {
+	b.mu.RLock("StackSetRegions")
+	defer b.mu.RUnlock()
+
+	seen := make(map[string]bool)
+	var regions []string
+	for _, inst := range b.stackInstances[name] {
+		if !seen[inst.Region] {
+			seen[inst.Region] = true
+			regions = append(regions, inst.Region)
+		}
+	}
+	sort.Strings(regions)
+
+	return regions
+}
+
 func (b *InMemoryBackend) ListStackSets(nextToken string) (page.Page[StackSetSummary], error) {
 	b.mu.RLock("ListStackSets")
 	defer b.mu.RUnlock()
@@ -120,8 +203,43 @@ func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string) (string, erro
 		return "", ErrStackSetNotFound
 	}
 	opID := b.recordStackSetOperation(stackSetName, "DETECT_DRIFT")
+	b.detectStackInstanceDrift(stackSetName)
 
 	return opID, nil
+}
+
+// detectStackInstanceDrift runs real per-resource drift comparison (the same
+// compareStackResources logic DetectStackDrift uses for a standalone stack)
+// against every stack instance's provisioned child stack, updating each
+// instance's DriftStatus in place. Previously DetectStackSetDrift only
+// recorded a SUCCEEDED operation without ever touching instance DriftStatus
+// at all -- a disguised stub (looks real, records a real operation, but the
+// actual per-instance drift diff never ran). Caller must hold b.mu.Lock.
+func (b *InMemoryBackend) detectStackInstanceDrift(stackSetName string) {
+	instances := b.stackInstances[stackSetName]
+	for i := range instances {
+		stackName, ok := b.stackIDIndex[instances[i].StackID]
+		if !ok {
+			instances[i].DriftStatus = driftStatusNotChecked
+
+			continue
+		}
+		stack, ok := b.stacks.Get(stackName)
+		if !ok {
+			instances[i].DriftStatus = driftStatusNotChecked
+
+			continue
+		}
+
+		instances[i].DriftStatus = driftStatusInSync
+		for _, status := range b.compareStackResources(stack) {
+			if status != driftStatusInSync {
+				instances[i].DriftStatus = driftStatusDrifted
+
+				break
+			}
+		}
+	}
 }
 
 // recordStackSetOperation creates a StackSetOperation record and returns its ID.
@@ -224,6 +342,16 @@ func (b *InMemoryBackend) DescribeStackSetOperation(
 ) (*StackSetOperation, error) {
 	b.mu.RLock("DescribeStackSetOperation")
 	defer b.mu.RUnlock()
+
+	// The SDK's DescribeStackSetOperation error model has a distinct
+	// StackSetNotFoundException case (unlike this op's siblings), so an
+	// unknown StackSetName must surface that instead of the generic
+	// OperationNotFoundException used when the StackSet exists but the
+	// operation ID doesn't.
+	if !b.stackSets.Has(stackSetName) {
+		return nil, fmt.Errorf("%w: %s", ErrStackSetNotFound, stackSetName)
+	}
+
 	ops := b.stackSetOperations[stackSetName]
 	if ops == nil {
 		return nil, fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
@@ -336,7 +464,7 @@ func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs [
 			Account:         account,
 			Region:          region,
 			Status:          "CURRENT",
-			DriftStatus:     "NOT_CHECKED",
+			DriftStatus:     driftStatusNotChecked,
 			LastOperationID: opID,
 		})
 	}

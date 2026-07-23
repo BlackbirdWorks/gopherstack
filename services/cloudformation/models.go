@@ -131,6 +131,7 @@ type ChangeSet struct {
 	TemplateBody          string                 `xml:"-"                               json:"templateBody,omitempty"`
 	Parameters            []Parameter            `xml:"-"                               json:"parameters,omitempty"`
 	Changes               []Change               `xml:"-"                               json:"changes,omitempty"`
+	Capabilities          []string               `xml:"-"                               json:"capabilities,omitempty"`
 }
 
 // ChangeSetSummary is a brief summary of a change set.
@@ -237,11 +238,34 @@ type AccountLimit struct {
 
 // StackSet represents a CloudFormation StackSet.
 type StackSet struct {
-	StackSetID   string `xml:"StackSetId"            json:"stackSetID"`
-	StackSetName string `xml:"StackSetName"          json:"stackSetName"`
-	Description  string `xml:"Description,omitempty" json:"description,omitempty"`
-	Status       string `xml:"Status"                json:"status"`
-	TemplateBody string `xml:"-"                     json:"templateBody,omitempty"`
+	AutoDeployment        *AutoDeployment   `xml:"-"                     json:"autoDeployment,omitempty"`
+	ManagedExecution      *ManagedExecution `xml:"-"                     json:"managedExecution,omitempty"`
+	StackSetID            string            `xml:"StackSetId"            json:"stackSetID"`
+	StackSetName          string            `xml:"StackSetName"          json:"stackSetName"`
+	Description           string            `xml:"Description,omitempty" json:"description,omitempty"`
+	Status                string            `xml:"Status"                json:"status"`
+	TemplateBody          string            `xml:"-"                     json:"templateBody,omitempty"`
+	StackSetARN           string            `xml:"-"                     json:"stackSetARN,omitempty"`
+	AdministrationRoleARN string            `xml:"-"                     json:"administrationRoleARN,omitempty"` //nolint:lll // AWS-compatible JSON field name exceeds line limit
+	ExecutionRoleName     string            `xml:"-"                     json:"executionRoleName,omitempty"`
+	PermissionModel       string            `xml:"-"                     json:"permissionModel,omitempty"`
+	Capabilities          []string          `xml:"-"                     json:"capabilities,omitempty"`
+	Parameters            []Parameter       `xml:"-"                     json:"parameters,omitempty"`
+	Tags                  []Tag             `xml:"-"                     json:"tags,omitempty"`
+	OrganizationalUnitIDs []string          `xml:"-"                     json:"organizationalUnitIDs,omitempty"` //nolint:lll // AWS-compatible JSON field name exceeds line limit
+}
+
+// AutoDeployment describes whether a service-managed StackSet automatically
+// deploys to Organizations accounts added to a target organization/OU.
+type AutoDeployment struct {
+	Enabled                      bool `json:"enabled,omitempty"`
+	RetainStacksOnAccountRemoval bool `json:"retainStacksOnAccountRemoval,omitempty"` //nolint:lll // AWS-compatible JSON field name exceeds line limit
+}
+
+// ManagedExecution describes whether StackSets performs non-conflicting
+// operations concurrently for a StackSet.
+type ManagedExecution struct {
+	Active bool `json:"active,omitempty"`
 }
 
 // StackSetSummary is a brief summary of a StackSet.

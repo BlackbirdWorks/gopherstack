@@ -169,6 +169,26 @@ func TestTypeRegistry_DeregisterNotFound(t *testing.T) {
 		"Action": []string{"DeregisterType"},
 		"Arn":    []string{"arn:aws:cloudformation:::type/resource/Unknown::Type::Here"},
 	}.Encode())
-	// handler currently ignores DeregisterType error; just verify no panic
-	assert.GreaterOrEqual(t, rec.Code, 200)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "TypeNotFoundException")
+}
+
+// TestTypeRegistry_SetTypeDefaultVersionNotFound locks in a parity fix:
+// SetTypeDefaultVersion models TypeNotFoundException (verified against
+// aws-sdk-go-v2/service/cloudformation@v1.71.7's
+// awsAwsquery_deserializeOpErrorSetTypeDefaultVersion), but previously silently
+// no-op'd for an unknown Arn instead of returning that error -- a disguised
+// stub (looks real, but the not-found branch was unreachable).
+func TestTypeRegistry_SetTypeDefaultVersionNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	rec := postForm(t, h, url.Values{
+		"Action":    []string{"SetTypeDefaultVersion"},
+		"Arn":       []string{"arn:aws:cloudformation:::type/resource/Unknown::Type::Here"},
+		"VersionId": []string{"00000001"},
+	}.Encode())
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "TypeNotFoundException")
 }

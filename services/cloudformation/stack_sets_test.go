@@ -116,6 +116,66 @@ func TestStackSet_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// TestStackSet_DescribeFieldCompleteness locks in the DescribeStackSetResult.StackSet
+// fields that were previously silently dropped (parity gap: only
+// StackSetId/StackSetName/Status/Description were returned). Field-diffed against
+// aws-sdk-go-v2/service/cloudformation@v1.71.7's
+// awsAwsquery_deserializeDocumentStackSet.
+func TestStackSet_DescribeFieldCompleteness(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	rec := postForm(t, h, url.Values{
+		"Action":       {"CreateStackSet"},
+		"StackSetName": {"field-complete-ss"},
+		"TemplateBody": {
+			`{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`,
+		},
+		"AdministrationRoleARN": {
+			"arn:aws:iam::000000000000:role/AWSCloudFormationStackSetAdministrationRole",
+		},
+		"ExecutionRoleName":                  {"AWSCloudFormationStackSetExecutionRole"},
+		"PermissionModel":                    {"SELF_MANAGED"},
+		"Capabilities.member.1":              {"CAPABILITY_IAM"},
+		"Parameters.member.1.ParameterKey":   {"Env"},
+		"Parameters.member.1.ParameterValue": {"prod"},
+		"Tags.member.1.Key":                  {"Team"},
+		"Tags.member.1.Value":                {"platform"},
+	}.Encode())
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = postForm(t, h, url.Values{
+		"Action":            {"CreateStackInstances"},
+		"StackSetName":      {"field-complete-ss"},
+		"Accounts.member.1": {"000000000000"},
+		"Regions.member.1":  {"us-west-2"},
+	}.Encode())
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = postForm(t, h, url.Values{
+		"Action":       {"DescribeStackSet"},
+		"StackSetName": {"field-complete-ss"},
+	}.Encode())
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.Contains(t, body, "<AdministrationRoleARN>arn:aws:iam::000000000000:role/"+
+		"AWSCloudFormationStackSetAdministrationRole</AdministrationRoleARN>")
+	assert.Equal(
+		t,
+		"AWSCloudFormationStackSetExecutionRole",
+		extractField(body, "ExecutionRoleName"),
+	)
+	assert.Equal(t, "SELF_MANAGED", extractField(body, "PermissionModel"))
+	assert.Contains(t, body, "<Capabilities><member>CAPABILITY_IAM</member></Capabilities>")
+	assert.Contains(t, body, "<ParameterKey>Env</ParameterKey>")
+	assert.Contains(t, body, "<Key>Team</Key>")
+	assert.Contains(t, body, "<Regions><member>us-west-2</member></Regions>")
+	assert.Contains(t, body, "<StackSetARN>arn:aws:cloudformation:")
+	assert.Contains(t, body, "stackset/field-complete-ss:")
+}
+
 func encodeTemplate(_ string) string {
 	// Simple URL encode for the template body in form params.
 	return "AWSTemplateFormatVersion%3D2010-09-09%26Resources%3D%7B%7D"
@@ -361,6 +421,60 @@ func TestDescribeStackSetOperation_Action(t *testing.T) {
 			action := extractField(body, "Action")
 			assert.Equal(t, tt.wantAction, action,
 				"DescribeStackSetOperation must return Action field")
+		})
+	}
+}
+
+// TestDescribeStackSetOperation_NotFoundErrorCodes verifies DescribeStackSetOperation
+// distinguishes its two modeled not-found errors: StackSetNotFoundException when the
+// StackSetName itself doesn't exist, vs OperationNotFoundException when the StackSet
+// exists but the OperationId doesn't. Field-diffed against
+// aws-sdk-go-v2/service/cloudformation@v1.71.7's
+// awsAwsquery_deserializeOpErrorDescribeStackSetOperation, which models both cases.
+func TestDescribeStackSetOperation_NotFoundErrorCodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		stackSetName   string
+		wantErrorCode  string
+		createStackSet bool
+	}{
+		{
+			name:          "unknown_stack_set_name",
+			stackSetName:  "does-not-exist-ss",
+			wantErrorCode: "StackSetNotFoundException",
+		},
+		{
+			name:           "known_stack_set_unknown_operation",
+			stackSetName:   "known-ss-unknown-op",
+			createStackSet: true,
+			wantErrorCode:  "OperationNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			if tt.createStackSet {
+				rec := postForm(t, h, url.Values{
+					"Action":       {"CreateStackSet"},
+					"StackSetName": {tt.stackSetName},
+					"TemplateBody": {`{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`},
+				}.Encode())
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := postForm(t, h, url.Values{
+				"Action":       {"DescribeStackSetOperation"},
+				"StackSetName": {tt.stackSetName},
+				"OperationId":  {"nonexistent-op"},
+			}.Encode())
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantErrorCode)
 		})
 	}
 }

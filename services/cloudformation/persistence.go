@@ -29,14 +29,24 @@ const cfnSnapshotVersion = 1
 // comment on registerAllTables) and are persisted exactly as before the
 // conversion.
 type backendSnapshot struct {
-	Tables        map[string]json.RawMessage           `json:"tables"`
-	Events        map[string][]StackEvent              `json:"events"`
-	Resources     map[string]map[string]*StackResource `json:"resources"`
-	ChangeSets    map[string]map[string]*ChangeSet     `json:"changeSets"`
-	StackPolicies map[string]string                    `json:"stackPolicies"`
-	AccountID     string                               `json:"accountID"`
-	Region        string                               `json:"region"`
-	Version       int                                  `json:"version"`
+	Tables              map[string]json.RawMessage                      `json:"tables"`
+	Events              map[string][]StackEvent                         `json:"events"`
+	Resources           map[string]map[string]*StackResource            `json:"resources"`
+	ChangeSets          map[string]map[string]*ChangeSet                `json:"changeSets"`
+	StackPolicies       map[string]string                               `json:"stackPolicies"`
+	StackInstances      map[string][]StackInstance                      `json:"stackInstances"`
+	StackSetOperations  map[string]map[string]*StackSetOperation        `json:"stackSetOperations"`
+	TypeConfigs         map[string]string                               `json:"typeConfigs"`
+	HandlerProgress     map[string]string                               `json:"handlerProgress"`
+	Signals             map[string][]SignalRecord                       `json:"signals"`
+	StackSetOpResults   map[string]map[string][]StackSetOperationResult `json:"stackSetOpResults"`
+	TypeVersions        map[string][]*RegisteredTypeVersion             `json:"typeVersions"`
+	ResourceScanItems   map[string][]ScannedResource                    `json:"resourceScanItems"`
+	ResourceDriftStatus map[string]map[string]string                    `json:"resourceDriftStatus"`
+	ResourceDriftDetail map[string]map[string]StackResourceDrift        `json:"resourceDriftDetail"`
+	AccountID           string                                          `json:"accountID"`
+	Region              string                                          `json:"region"`
+	Version             int                                             `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -57,14 +67,24 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:       cfnSnapshotVersion,
-		Tables:        tables,
-		Events:        b.events,
-		Resources:     b.resources,
-		ChangeSets:    b.changeSets,
-		StackPolicies: b.stackPolicies,
-		AccountID:     b.accountID,
-		Region:        b.region,
+		Version:             cfnSnapshotVersion,
+		Tables:              tables,
+		Events:              b.events,
+		Resources:           b.resources,
+		ChangeSets:          b.changeSets,
+		StackPolicies:       b.stackPolicies,
+		StackInstances:      b.stackInstances,
+		StackSetOperations:  b.stackSetOperations,
+		TypeConfigs:         b.typeConfigs,
+		HandlerProgress:     b.handlerProgress,
+		Signals:             b.signals,
+		StackSetOpResults:   b.stackSetOpResults,
+		TypeVersions:        b.typeVersions,
+		ResourceScanItems:   b.resourceScanItems,
+		ResourceDriftStatus: b.resourceDriftStatus,
+		ResourceDriftDetail: b.resourceDriftDetail,
+		AccountID:           b.accountID,
+		Region:              b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "cloudformation", snap)
@@ -102,36 +122,100 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("cloudformation: restore snapshot tables: %w", err)
 	}
 
+	snap.applyNilDefaults()
+	b.assignSnapshotFields(snap)
+	b.rebuildDerivedIndexes()
+
+	return nil
+}
+
+// applyNilDefaults replaces every nil map/slice field on snap with an empty
+// instance, so a snapshot written before one of these fields existed (or a
+// hand-crafted/partial one) restores to empty collections rather than nil
+// maps that panic on write. Split out of Restore to keep its cyclomatic
+// complexity down -- this is a flat sequence of independent nil-checks, not
+// branching logic.
+func (snap *backendSnapshot) applyNilDefaults() {
 	if snap.Events == nil {
 		snap.Events = make(map[string][]StackEvent)
 	}
-
 	if snap.Resources == nil {
 		snap.Resources = make(map[string]map[string]*StackResource)
 	}
-
 	if snap.ChangeSets == nil {
 		snap.ChangeSets = make(map[string]map[string]*ChangeSet)
 	}
-
 	if snap.StackPolicies == nil {
 		snap.StackPolicies = make(map[string]string)
 	}
+	if snap.StackInstances == nil {
+		snap.StackInstances = make(map[string][]StackInstance)
+	}
+	if snap.StackSetOperations == nil {
+		snap.StackSetOperations = make(map[string]map[string]*StackSetOperation)
+	}
+	if snap.TypeConfigs == nil {
+		snap.TypeConfigs = make(map[string]string)
+	}
+	if snap.HandlerProgress == nil {
+		snap.HandlerProgress = make(map[string]string)
+	}
+	if snap.Signals == nil {
+		snap.Signals = make(map[string][]SignalRecord)
+	}
+	if snap.StackSetOpResults == nil {
+		snap.StackSetOpResults = make(map[string]map[string][]StackSetOperationResult)
+	}
+	if snap.TypeVersions == nil {
+		snap.TypeVersions = make(map[string][]*RegisteredTypeVersion)
+	}
+	if snap.ResourceScanItems == nil {
+		snap.ResourceScanItems = make(map[string][]ScannedResource)
+	}
+	if snap.ResourceDriftStatus == nil {
+		snap.ResourceDriftStatus = make(map[string]map[string]string)
+	}
+	if snap.ResourceDriftDetail == nil {
+		snap.ResourceDriftDetail = make(map[string]map[string]StackResourceDrift)
+	}
+}
 
+// assignSnapshotFields copies every backendSnapshot field onto the backend.
+// Caller must hold b.mu.Lock. Split out of Restore purely for readability --
+// this is a flat, branch-free sequence of assignments.
+func (b *InMemoryBackend) assignSnapshotFields(snap backendSnapshot) {
 	b.events = snap.Events
 	b.resources = snap.Resources
 	b.changeSets = snap.ChangeSets
 	b.stackPolicies = snap.StackPolicies
+	b.stackInstances = snap.StackInstances
+	b.stackSetOperations = snap.StackSetOperations
+	b.typeConfigs = snap.TypeConfigs
+	b.handlerProgress = snap.HandlerProgress
+	b.signals = snap.Signals
+	b.stackSetOpResults = snap.StackSetOpResults
+	b.typeVersions = snap.TypeVersions
+	b.resourceScanItems = snap.ResourceScanItems
+	b.resourceDriftStatus = snap.ResourceDriftStatus
+	b.resourceDriftDetail = snap.ResourceDriftDetail
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+}
 
-	// Rebuild the stackIDIndex from the restored stacks.
+// rebuildDerivedIndexes recomputes every index that is intentionally NOT
+// persisted directly because it would be a second source of truth for data
+// already covered by a persisted table (stackIDIndex from b.stacks,
+// driftByStackID from b.driftDetections). Caller must hold b.mu.Lock.
+func (b *InMemoryBackend) rebuildDerivedIndexes() {
 	b.stackIDIndex = make(map[string]string, b.stacks.Len())
 	for _, stack := range b.stacks.All() {
 		b.stackIDIndex[stack.StackID] = stack.StackName
 	}
 
-	return nil
+	b.driftByStackID = make(map[string][]string)
+	for _, dd := range b.driftDetections.All() {
+		b.driftByStackID[dd.StackID] = append(b.driftByStackID[dd.StackID], dd.StackDriftDetectionID)
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
