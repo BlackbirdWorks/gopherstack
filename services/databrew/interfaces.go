@@ -21,6 +21,7 @@ type StorageBackend interface {
 		input DatasetInput,
 		formatOpts DatasetFormatOptions,
 		tags map[string]string,
+		pathOptions *PathOptions,
 	) (*Dataset, error)
 	DescribeDataset(ctx context.Context, name string) (*Dataset, error)
 	ListDatasets(ctx context.Context, maxResults int, nextToken string) ([]*Dataset, string)
@@ -29,6 +30,7 @@ type StorageBackend interface {
 		name, format string,
 		input DatasetInput,
 		formatOpts DatasetFormatOptions,
+		pathOptions *PathOptions,
 	) error
 	DeleteDataset(ctx context.Context, name string) error
 
@@ -39,11 +41,14 @@ type StorageBackend interface {
 		steps []RecipeStep,
 		tags map[string]string,
 	) (*Recipe, error)
-	DescribeRecipe(ctx context.Context, name string) (*Recipe, error)
-	ListRecipes(ctx context.Context, maxResults int, nextToken string) ([]*Recipe, string)
+	DescribeRecipe(ctx context.Context, name, version string) (*Recipe, error)
+	ListRecipes(ctx context.Context, maxResults int, nextToken, versionFilter string) ([]*Recipe, string)
+	ListRecipeVersions(ctx context.Context, name string, maxResults int, nextToken string) ([]*Recipe, string, error)
 	PublishRecipe(ctx context.Context, name, description string) error
 	UpdateRecipe(ctx context.Context, name, description string, steps []RecipeStep) error
 	DeleteRecipe(ctx context.Context, name string) error
+	DeleteRecipeVersion(ctx context.Context, name, version string) error
+	BatchDeleteRecipeVersion(ctx context.Context, name string, versions []string) ([]RecipeVersionErrorDetail, error)
 
 	// Project operations.
 	CreateProject(
@@ -54,7 +59,7 @@ type StorageBackend interface {
 	) (*Project, error)
 	DescribeProject(ctx context.Context, name string) (*Project, error)
 	ListProjects(ctx context.Context, maxResults int, nextToken string) ([]*Project, string)
-	UpdateProject(ctx context.Context, name, datasetName, roleArn string, sample Sample) error
+	UpdateProject(ctx context.Context, name, roleArn string, sample Sample) error
 	DeleteProject(ctx context.Context, name string) error
 
 	// Job operations.
@@ -63,6 +68,7 @@ type StorageBackend interface {
 		name, jobType, datasetName, projectName, recipeName, roleArn string,
 		outputs []Output,
 		tags map[string]string,
+		extra JobExtras,
 	) (*Job, error)
 	DescribeJob(ctx context.Context, name string) (*Job, error)
 	ListJobs(ctx context.Context, maxResults int, nextToken, datasetName, projectName string) ([]*Job, string)
@@ -71,6 +77,7 @@ type StorageBackend interface {
 		name, roleArn string,
 		outputs []Output,
 		maxCapacity, maxRetries, timeout int,
+		extra JobExtras,
 	) error
 	DeleteJob(ctx context.Context, name string) error
 	StartJobRun(ctx context.Context, jobName string) (*JobRun, error)

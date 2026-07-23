@@ -45,6 +45,15 @@ type InMemoryBackend struct {
 	// it), and store.Table/store.Index do not preserve insertion order — see
 	// pkgs/store's package doc and .claude/memories on this rollout.
 	jobRuns map[string]map[string][]*JobRun
+	// recipeVersions holds one map[recipeName][]*Recipe (published version
+	// snapshots, oldest first) per region, for the same reason jobRuns is a
+	// plain map: PublishRecipe APPENDS a new numbered snapshot, and
+	// ListRecipeVersions/DescribeRecipe(RecipeVersion=LATEST_PUBLISHED) need
+	// the highest (most recently appended) entry -- an order-sensitive
+	// operation store.Table/store.Index can't express. The "recipes" table
+	// itself (b.recipes) holds only the LATEST_WORKING draft, one row per
+	// recipe name; see recipes.go.
+	recipeVersions map[string]map[string][]*Recipe
 	// registry is the lifecycle registry for every *store.Table this backend
 	// owns; Reset/Snapshot/Restore drive it via ResetAll/SnapshotAll/RestoreAll
 	// instead of hand-written per-map boilerplate. See store_setup.go.
@@ -79,19 +88,20 @@ func NewInMemoryBackendWithContext(
 	ctx, cancel := context.WithCancel(svcCtx)
 
 	return &InMemoryBackend{
-		registry:      store.NewRegistry(),
-		datasets:      make(map[string]*store.Table[Dataset]),
-		recipes:       make(map[string]*store.Table[Recipe]),
-		projects:      make(map[string]*store.Table[Project]),
-		jobs:          make(map[string]*store.Table[Job]),
-		jobRuns:       make(map[string]map[string][]*JobRun),
-		rulesets:      make(map[string]*store.Table[Ruleset]),
-		schedules:     make(map[string]*store.Table[Schedule]),
-		mu:            lockmetrics.New("databrew"),
-		accountID:     accountID,
-		defaultRegion: region,
-		svcCtx:        ctx,
-		cancel:        cancel,
+		registry:       store.NewRegistry(),
+		datasets:       make(map[string]*store.Table[Dataset]),
+		recipes:        make(map[string]*store.Table[Recipe]),
+		projects:       make(map[string]*store.Table[Project]),
+		jobs:           make(map[string]*store.Table[Job]),
+		jobRuns:        make(map[string]map[string][]*JobRun),
+		recipeVersions: make(map[string]map[string][]*Recipe),
+		rulesets:       make(map[string]*store.Table[Ruleset]),
+		schedules:      make(map[string]*store.Table[Schedule]),
+		mu:             lockmetrics.New("databrew"),
+		accountID:      accountID,
+		defaultRegion:  region,
+		svcCtx:         ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -103,6 +113,16 @@ func (b *InMemoryBackend) jobRunsStore(region string) map[string][]*JobRun {
 	}
 
 	return b.jobRuns[region]
+}
+
+// recipeVersionsStore returns the per-region recipeName -> published version
+// snapshots map, lazily creating it. Callers must hold b.mu.
+func (b *InMemoryBackend) recipeVersionsStore(region string) map[string][]*Recipe {
+	if b.recipeVersions[region] == nil {
+		b.recipeVersions[region] = make(map[string][]*Recipe)
+	}
+
+	return b.recipeVersions[region]
 }
 
 // runDelayed schedules fn to run after delay on a tracked goroutine. The
@@ -148,4 +168,5 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 	b.registry.ResetAll()
 	b.jobRuns = make(map[string]map[string][]*JobRun)
+	b.recipeVersions = make(map[string]map[string][]*Recipe)
 }

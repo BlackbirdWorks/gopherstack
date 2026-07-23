@@ -32,6 +32,7 @@ func TestCreateJob_Success(t *testing.T) {
 		"arn:aws:iam::123456789012:role/Role",
 		outputs,
 		nil,
+		databrew.JobExtras{},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-job", j.Name)
@@ -43,16 +44,16 @@ func TestCreateJob_Success(t *testing.T) {
 func TestCreateJob_EmptyName(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.Error(t, err)
 }
 
 func TestCreateJob_Duplicate(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
-	_, err = b.CreateJob(context.Background(), "j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err = b.CreateJob(context.Background(), "j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.Error(t, err)
 }
 
@@ -69,6 +70,7 @@ func TestDescribeJob_Success(t *testing.T) {
 		"",
 		nil,
 		map[string]string{"x": "y"},
+		databrew.JobExtras{},
 	)
 	require.NoError(t, err)
 	j, err := b.DescribeJob(context.Background(), "j1")
@@ -87,9 +89,9 @@ func TestDescribeJob_NotFound(t *testing.T) {
 func TestListJobs(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "j1", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "j1", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
-	_, err = b.CreateJob(context.Background(), "j2", "RECIPE", "ds", "", "r", "", nil, nil)
+	_, err = b.CreateJob(context.Background(), "j2", "RECIPE", "ds", "", "r", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	list, _ := b.ListJobs(context.Background(), 100, "", "", "")
 	assert.Len(t, list, 2)
@@ -108,10 +110,11 @@ func TestUpdateJob_Success(t *testing.T) {
 		"old-role",
 		nil,
 		nil,
+		databrew.JobExtras{},
 	)
 	require.NoError(t, err)
 	outputs := []databrew.Output{{Location: databrew.S3Location{Bucket: "b"}}}
-	err = b.UpdateJob(context.Background(), "upd-j", "new-role", outputs, 5, 2, 60)
+	err = b.UpdateJob(context.Background(), "upd-j", "new-role", outputs, 5, 2, 60, databrew.JobExtras{})
 	require.NoError(t, err)
 	j, err := b.DescribeJob(context.Background(), "upd-j")
 	require.NoError(t, err)
@@ -124,14 +127,14 @@ func TestUpdateJob_Success(t *testing.T) {
 func TestUpdateJob_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	err := b.UpdateJob(context.Background(), "no-such", "", nil, 0, 0, 0)
+	err := b.UpdateJob(context.Background(), "no-such", "", nil, 0, 0, 0, databrew.JobExtras{})
 	require.Error(t, err)
 }
 
 func TestDeleteJob_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "del-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "del-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	err = b.DeleteJob(context.Background(), "del-j")
 	require.NoError(t, err)
@@ -151,7 +154,7 @@ func TestDeleteJob_NotFound(t *testing.T) {
 func TestStartJobRun_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "run-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "run-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	run, err := b.StartJobRun(context.Background(), "run-j")
 	require.NoError(t, err)
@@ -163,7 +166,7 @@ func TestStartJobRun_Success(t *testing.T) {
 func TestStartJobRun_TransitionsToSucceeded(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "run-j2", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "run-j2", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	_, err = b.StartJobRun(context.Background(), "run-j2")
 	require.NoError(t, err)
@@ -186,7 +189,7 @@ func TestStartJobRun_JobNotFound(t *testing.T) {
 func TestListJobRuns_Empty(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "empty-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "empty-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	runs, _, err := b.ListJobRuns(context.Background(), "empty-j", 100, "")
 	require.NoError(t, err)
@@ -203,7 +206,7 @@ func TestListJobRuns_JobNotFound(t *testing.T) {
 func TestListJobRuns_MultipleRuns(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "multi-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "multi-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	_, err = b.StartJobRun(context.Background(), "multi-j")
 	require.NoError(t, err)
@@ -217,7 +220,7 @@ func TestListJobRuns_MultipleRuns(t *testing.T) {
 func TestListJobRuns_Pagination(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "pag-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "pag-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	for range 5 {
 		_, err = b.StartJobRun(context.Background(), "pag-j")
@@ -236,7 +239,7 @@ func TestListJobRuns_Pagination(t *testing.T) {
 func TestStopJobRun_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "stop-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "stop-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	run, err := b.StartJobRun(context.Background(), "stop-j")
 	require.NoError(t, err)
@@ -248,7 +251,7 @@ func TestStopJobRun_Success(t *testing.T) {
 func TestStopJobRun_AlreadySucceeded(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "stop-j2", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "stop-j2", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	run, err := b.StartJobRun(context.Background(), "stop-j2")
 	require.NoError(t, err)
@@ -274,7 +277,7 @@ func TestStopJobRun_NotFound_NoRuns(t *testing.T) {
 func TestStopJobRun_RunIDNotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "stop-j3", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "stop-j3", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	_, err = b.StartJobRun(context.Background(), "stop-j3")
 	require.NoError(t, err)
@@ -285,7 +288,7 @@ func TestStopJobRun_RunIDNotFound(t *testing.T) {
 func TestDescribeJobRun_Success(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "desc-j", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "desc-j", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	run, err := b.StartJobRun(context.Background(), "desc-j")
 	require.NoError(t, err)
@@ -305,7 +308,7 @@ func TestDescribeJobRun_NotFound_NoRuns(t *testing.T) {
 func TestDescribeJobRun_RunIDNotFound(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
-	_, err := b.CreateJob(context.Background(), "desc-j2", "PROFILE", "ds", "", "", "", nil, nil)
+	_, err := b.CreateJob(context.Background(), "desc-j2", "PROFILE", "ds", "", "", "", nil, nil, databrew.JobExtras{})
 	require.NoError(t, err)
 	_, err = b.StartJobRun(context.Background(), "desc-j2")
 	require.NoError(t, err)
@@ -593,4 +596,140 @@ func TestJobRunIdField_RoundTrip(t *testing.T) {
 	var stopResp map[string]any
 	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
 	assert.Equal(t, runID, stopResp["RunId"])
+}
+
+// ---- Job extras: ProfileConfiguration/JobSample/ValidationConfigurations,
+// DataCatalogOutputs/DatabaseOutputs/Encryption*/LogSubscription ----
+
+// TestCreateJob_ProfileExtras verifies CreateJob threads ProfileConfiguration,
+// JobSample, and ValidationConfigurations through to the stored Job -- these
+// fields previously had matching JSON tags on the Job entity but nothing
+// ever populated them (see PARITY.md gaps).
+func TestCreateJob_ProfileExtras(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	extra := databrew.JobExtras{
+		ProfileConfiguration: map[string]any{"DatasetStatisticsConfiguration": map[string]any{}},
+		JobSample:            map[string]any{"Mode": "FULL_DATASET"},
+		ValidationConfigurations: []map[string]any{
+			{"RulesetArn": "arn:aws:databrew:us-east-1:123456789012:ruleset/r1"},
+		},
+	}
+	j, err := b.CreateJob(
+		context.Background(), "profile-extras-j", "PROFILE", "ds", "", "", "", nil, nil, extra,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "FULL_DATASET", j.JobSample["Mode"])
+	assert.NotNil(t, j.ProfileConfiguration)
+	require.Len(t, j.ValidationConfigurations, 1)
+
+	described, err := b.DescribeJob(context.Background(), "profile-extras-j")
+	require.NoError(t, err)
+	assert.Equal(t, "FULL_DATASET", described.JobSample["Mode"])
+}
+
+// TestCreateJob_RecipeExtras verifies CreateJob threads
+// DataCatalogOutputs/DatabaseOutputs/EncryptionMode/EncryptionKeyArn/
+// LogSubscription through to the stored Job.
+func TestCreateJob_RecipeExtras(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	extra := databrew.JobExtras{
+		EncryptionMode:     "SSE-KMS",
+		EncryptionKeyArn:   "arn:aws:kms:us-east-1:123456789012:key/abc",
+		LogSubscription:    "ENABLE",
+		DataCatalogOutputs: []map[string]any{{"DatabaseName": "db1", "TableName": "t1"}},
+		DatabaseOutputs:    []map[string]any{{"GlueConnectionName": "conn1"}},
+	}
+	j, err := b.CreateJob(
+		context.Background(), "recipe-extras-j", "RECIPE", "ds", "", "r", "", nil, nil, extra,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "SSE-KMS", j.EncryptionMode)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/abc", j.EncryptionKeyArn)
+	assert.Equal(t, "ENABLE", j.LogSubscription)
+	require.Len(t, j.DataCatalogOutputs, 1)
+	require.Len(t, j.DatabaseOutputs, 1)
+	assert.Equal(t, "db1", j.DataCatalogOutputs[0]["DatabaseName"])
+}
+
+// TestUpdateJob_Extras verifies UpdateJob overwrites extras fields when
+// provided and leaves them unchanged when omitted (zero-valued JobExtras).
+func TestUpdateJob_Extras(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	_, err := b.CreateJob(
+		context.Background(), "upd-extras-j", "RECIPE", "ds", "", "r", "", nil, nil,
+		databrew.JobExtras{EncryptionMode: "SSE-S3"},
+	)
+	require.NoError(t, err)
+
+	err = b.UpdateJob(
+		context.Background(), "upd-extras-j", "", nil, 0, 0, 0,
+		databrew.JobExtras{EncryptionKeyArn: "arn:aws:kms:us-east-1:123456789012:key/xyz"},
+	)
+	require.NoError(t, err)
+
+	j, err := b.DescribeJob(context.Background(), "upd-extras-j")
+	require.NoError(t, err)
+	assert.Equal(t, "SSE-S3", j.EncryptionMode, "unset extras field on Update must not clobber the existing value")
+	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/xyz", j.EncryptionKeyArn)
+}
+
+// TestHandlerCreateProfileJob_Extras verifies the profile-job extras wire
+// shape round-trips through the HTTP handler layer.
+func TestHandlerCreateProfileJob_Extras(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/datasets", map[string]any{
+		"Name":  "pj-extras-ds",
+		"Input": map[string]any{"S3InputDefinition": map[string]any{"Bucket": "b"}},
+	})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/profileJobs", map[string]any{
+		"Name":        "pj-extras",
+		"DatasetName": "pj-extras-ds",
+		"RoleArn":     "arn:aws:iam::123456789012:role/r",
+		"Configuration": map[string]any{
+			"ProfileColumns": []any{map[string]any{"Name": "col1"}},
+		},
+		"JobSample": map[string]any{"Mode": "CUSTOM_ROWS", "Size": 100},
+	})
+
+	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/jobs/pj-extras", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var job map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &job))
+	jobSample, ok := job["JobSample"].(map[string]any)
+	require.True(t, ok, "JobSample must round-trip as an object")
+	assert.Equal(t, "CUSTOM_ROWS", jobSample["Mode"])
+	assert.NotNil(t, job["ProfileConfiguration"])
+}
+
+// TestHandlerCreateRecipeJob_Extras verifies the recipe-job extras wire
+// shape (DataCatalogOutputs/EncryptionMode/LogSubscription) round-trips
+// through the HTTP handler layer.
+func TestHandlerCreateRecipeJob_Extras(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "rj-extras-r"})
+	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipeJobs", map[string]any{
+		"Name":            "rj-extras",
+		"RecipeReference": map[string]any{"Name": "rj-extras-r"},
+		"RoleArn":         "arn:aws:iam::123456789012:role/r",
+		"EncryptionMode":  "SSE-KMS",
+		"LogSubscription": "ENABLE",
+		"DataCatalogOutputs": []any{
+			map[string]any{"DatabaseName": "db1", "TableName": "t1"},
+		},
+	})
+
+	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/jobs/rj-extras", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var job map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &job))
+	assert.Equal(t, "SSE-KMS", job["EncryptionMode"])
+	assert.Equal(t, "ENABLE", job["LogSubscription"])
+	outputs, ok := job["DataCatalogOutputs"].([]any)
+	require.True(t, ok)
+	require.Len(t, outputs, 1)
 }

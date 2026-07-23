@@ -43,11 +43,12 @@ const databrewSnapshotVersion = 1
 // directly here, nested the same way it is held on InMemoryBackend
 // (region -> job name -> run history).
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage      `json:"tables"`
-	JobRuns   map[string]map[string][]*JobRun `json:"jobRuns"`
-	AccountID string                          `json:"accountID"`
-	Region    string                          `json:"region"`
-	Version   int                             `json:"version"`
+	Tables         map[string]json.RawMessage      `json:"tables"`
+	JobRuns        map[string]map[string][]*JobRun `json:"jobRuns"`
+	RecipeVersions map[string]map[string][]*Recipe `json:"recipeVersions"`
+	AccountID      string                          `json:"accountID"`
+	Region         string                          `json:"region"`
+	Version        int                             `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON. It implements
@@ -68,11 +69,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:   databrewSnapshotVersion,
-		Tables:    tables,
-		JobRuns:   b.jobRuns,
-		AccountID: b.accountID,
-		Region:    b.defaultRegion,
+		Version:        databrewSnapshotVersion,
+		Tables:         tables,
+		JobRuns:        b.jobRuns,
+		RecipeVersions: b.recipeVersions,
+		AccountID:      b.accountID,
+		Region:         b.defaultRegion,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "databrew", snap)
@@ -136,6 +138,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.jobRuns = make(map[string]map[string][]*JobRun)
+		b.recipeVersions = make(map[string]map[string][]*Recipe)
 
 		return nil
 	}
@@ -153,6 +156,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.jobRuns = snap.JobRuns
 	if b.jobRuns == nil {
 		b.jobRuns = make(map[string]map[string][]*JobRun)
+	}
+
+	b.recipeVersions = snap.RecipeVersions
+	if b.recipeVersions == nil {
+		b.recipeVersions = make(map[string]map[string][]*Recipe)
 	}
 
 	b.accountID = snap.AccountID

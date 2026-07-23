@@ -18,6 +18,7 @@ func (b *InMemoryBackend) CreateDataset(
 	input DatasetInput,
 	formatOpts DatasetFormatOptions,
 	tags map[string]string,
+	pathOptions *PathOptions,
 ) (*Dataset, error) {
 	b.mu.Lock("CreateDataset")
 	defer b.mu.Unlock()
@@ -38,6 +39,7 @@ func (b *InMemoryBackend) CreateDataset(
 	ds := &Dataset{
 		Name: name, Arn: b.datasetARN(region, name), Format: format,
 		Input: input, FormatOptions: formatOpts, Tags: maps.Clone(tags),
+		PathOptions: pathOptions, AccountID: b.accountID,
 		Source: source, CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate: float64(time.Now().Unix()),
 	}
@@ -88,6 +90,7 @@ func (b *InMemoryBackend) UpdateDataset(
 	name, format string,
 	input DatasetInput,
 	formatOpts DatasetFormatOptions,
+	pathOptions *PathOptions,
 ) error {
 	b.mu.Lock("UpdateDataset")
 	defer b.mu.Unlock()
@@ -99,6 +102,7 @@ func (b *InMemoryBackend) UpdateDataset(
 	ds.Format = format
 	ds.Input = input
 	ds.FormatOptions = formatOpts
+	ds.PathOptions = pathOptions
 	ds.LastModifiedDate = float64(time.Now().Unix())
 
 	return nil

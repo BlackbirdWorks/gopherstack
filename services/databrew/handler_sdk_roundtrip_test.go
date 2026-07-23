@@ -176,12 +176,27 @@ func Test_SDKRoundTrip_ListRecipeVersions_BarePath(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// ListRecipeVersions excludes LATEST_WORKING (see its doc comment:
+	// "Lists the versions of a particular DataBrew recipe, except for
+	// LATEST_WORKING") -- an unpublished recipe has no published versions.
 	out, err := client.ListRecipeVersions(t.Context(), &databrewsdk.ListRecipeVersionsInput{
 		Name: aws.String("rv-recipe"),
 	})
 	require.NoError(t, err, "ListRecipeVersions over bare /recipeVersions path")
+	require.Empty(t, out.Recipes)
+
+	_, err = client.PublishRecipe(t.Context(), &databrewsdk.PublishRecipeInput{
+		Name: aws.String("rv-recipe"),
+	})
+	require.NoError(t, err)
+
+	out, err = client.ListRecipeVersions(t.Context(), &databrewsdk.ListRecipeVersionsInput{
+		Name: aws.String("rv-recipe"),
+	})
+	require.NoError(t, err)
 	require.Len(t, out.Recipes, 1)
 	require.Equal(t, "rv-recipe", aws.ToString(out.Recipes[0].Name))
+	require.Equal(t, "1.0", aws.ToString(out.Recipes[0].RecipeVersion))
 }
 
 // Test_SDKRoundTrip_BatchDeleteRecipeVersion_RealPath proves
