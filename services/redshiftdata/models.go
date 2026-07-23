@@ -145,22 +145,28 @@ type SubStatementData struct {
 
 // Statement represents an AWS Redshift Data API SQL statement.
 type Statement struct {
-	CreatedAt         time.Time          `json:"createdAt"`
-	UpdatedAt         time.Time          `json:"updatedAt"`
-	Database          string             `json:"database"`
-	ID                string             `json:"id"`
-	ClusterIdentifier string             `json:"clusterIdentifier"`
-	WorkgroupName     string             `json:"workgroupName"`
-	QueryString       string             `json:"queryString"`
-	DBUser            string             `json:"dbUser"`
-	SecretARN         string             `json:"secretARN"`
-	StatementName     string             `json:"statementName"`
-	ResultFormat      string             `json:"resultFormat"`
-	Status            string             `json:"status"`
-	Error             string             `json:"error"`
-	QueryStrings      []string           `json:"queryStrings"`
-	Parameters        []SQLParameter     `json:"parameters,omitempty"`
-	SubStatements     []SubStatementData `json:"subStatements,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+	Database          string    `json:"database"`
+	ID                string    `json:"id"`
+	ClusterIdentifier string    `json:"clusterIdentifier"`
+	WorkgroupName     string    `json:"workgroupName"`
+	QueryString       string    `json:"queryString"`
+	DBUser            string    `json:"dbUser"`
+	SecretARN         string    `json:"secretARN"`
+	StatementName     string    `json:"statementName"`
+	ResultFormat      string    `json:"resultFormat"`
+	// SessionID is the session identifier echoed back from the ExecuteStatement/
+	// BatchExecuteStatement request that created this statement (StatementData.SessionId
+	// / DescribeStatementOutput.SessionId in the real API). Empty when the caller did
+	// not supply one -- this mock does not mint new session ids on the caller's behalf,
+	// it only threads through what was provided (see handleExecuteStatement).
+	SessionID     string             `json:"sessionID,omitempty"`
+	Status        string             `json:"status"`
+	Error         string             `json:"error"`
+	QueryStrings  []string           `json:"queryStrings"`
+	Parameters    []SQLParameter     `json:"parameters,omitempty"`
+	SubStatements []SubStatementData `json:"subStatements,omitempty"`
 	// DurationMs is the total wall-clock execution time in milliseconds. Populated
 	// when the statement reaches a terminal state (FINISHED / FAILED / ABORTED).
 	DurationMs       int64 `json:"durationMs"`

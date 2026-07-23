@@ -16,6 +16,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 	sql, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
 	withEvent bool, resultFormat string,
 	parameters []SQLParameter,
+	sessionID string,
 ) (*Statement, error) {
 	if sql == "" {
 		return nil, fmt.Errorf("%w: Sql is required", ErrValidation)
@@ -49,6 +50,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 		StatementName:     statementName,
 		ResultFormat:      resultFormat,
 		Parameters:        parameters,
+		SessionID:         sessionID,
 		Status:            statusFinished,
 		HasResultSet:      hasResultSet,
 		IsBatchStatement:  false,
@@ -72,6 +74,8 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	ctx context.Context,
 	sqls []string, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
 	withEvent bool, resultFormat string,
+	parameters []SQLParameter,
+	sessionID string,
 ) (*Statement, error) {
 	if len(sqls) == 0 {
 		return nil, fmt.Errorf("%w: Sqls is required", ErrValidation)
@@ -124,6 +128,8 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		SecretARN:         secretARN,
 		StatementName:     statementName,
 		ResultFormat:      resultFormat,
+		Parameters:        parameters,
+		SessionID:         sessionID,
 		Status:            statusFinished,
 		HasResultSet:      false,
 		IsBatchStatement:  true,

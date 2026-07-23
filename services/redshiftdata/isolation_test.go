@@ -26,14 +26,14 @@ func TestRedshiftDataStatementRegionIsolation(t *testing.T) {
 
 	// Create a statement in us-east-1.
 	eastStmt, err := backend.ExecuteStatement(
-		ctxEast, "SELECT 1", "cluster-a", "", "east-db", "", "", "", false, "", nil,
+		ctxEast, "SELECT 1", "cluster-a", "", "east-db", "", "", "", false, "", nil, "",
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, eastStmt.ID)
 
 	// Create a statement with the same SQL in us-west-2.
 	westStmt, err := backend.ExecuteStatement(
-		ctxWest, "SELECT 1", "cluster-b", "", "west-db", "", "", "", false, "", nil,
+		ctxWest, "SELECT 1", "cluster-b", "", "west-db", "", "", "", false, "", nil, "",
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, westStmt.ID)
@@ -84,11 +84,13 @@ func TestRedshiftDataBatchStatementRegionIsolation(t *testing.T) {
 	ctxWest := ctxRegion("us-west-2")
 
 	_, err := backend.BatchExecuteStatement(
-		ctxEast, []string{"SELECT 1", "SELECT 2"}, "", "", "east-db", "", "", "", false, "",
+		ctxEast, []string{"SELECT 1", "SELECT 2"}, "", "", "east-db", "", "", "", false, "", nil, "",
 	)
 	require.NoError(t, err)
 
-	_, err = backend.BatchExecuteStatement(ctxWest, []string{"SELECT 3"}, "", "", "west-db", "", "", "", false, "")
+	_, err = backend.BatchExecuteStatement(
+		ctxWest, []string{"SELECT 3"}, "", "", "west-db", "", "", "", false, "", nil, "",
+	)
 	require.NoError(t, err)
 
 	eastList, _, err := backend.ListStatements(ctxEast, ListStatementsFilter{Status: "ALL"})

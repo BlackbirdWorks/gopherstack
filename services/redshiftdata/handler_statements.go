@@ -7,18 +7,30 @@ import (
 	"time"
 )
 
+// handleExecuteStatement handles ExecuteStatement.
+//
+// ClientToken and SessionKeepAliveSeconds are accepted on the wire for
+// request-shape parity (the real ExecuteStatementInput carries both) but are
+// not used to change backend behavior: ClientToken idempotency and session
+// keep-alive/expiry both require modeling request retries and time-bounded
+// session lifetimes this in-memory mock does not have, and there is no clean
+// way to verify the exact undocumented AWS semantics without a live cluster
+// (same reasoning as rdsdata's typeHint gap).
 func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		SQL               string         `json:"Sql"`
-		ClusterIdentifier string         `json:"ClusterIdentifier"`
-		WorkgroupName     string         `json:"WorkgroupName"`
-		Database          string         `json:"Database"`
-		DBUser            string         `json:"DbUser"`
-		SecretArn         string         `json:"SecretArn"`
-		StatementName     string         `json:"StatementName"`
-		ResultFormat      string         `json:"ResultFormat"`
-		Parameters        []SQLParameter `json:"Parameters"`
-		WithEvent         bool           `json:"WithEvent"`
+		StatementName           string         `json:"StatementName"`
+		ClusterIdentifier       string         `json:"ClusterIdentifier"`
+		WorkgroupName           string         `json:"WorkgroupName"`
+		Database                string         `json:"Database"`
+		DBUser                  string         `json:"DbUser"`
+		SecretArn               string         `json:"SecretArn"`
+		SQL                     string         `json:"Sql"`
+		ResultFormat            string         `json:"ResultFormat"`
+		SessionID               string         `json:"SessionId"`
+		ClientToken             string         `json:"ClientToken"`
+		Parameters              []SQLParameter `json:"Parameters"`
+		SessionKeepAliveSeconds int32          `json:"SessionKeepAliveSeconds"`
+		WithEvent               bool           `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -30,12 +42,13 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		req.SQL, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
 		req.WithEvent, req.ResultFormat, req.Parameters,
+		req.SessionID,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"Id":                stmt.ID,
 		"ClusterIdentifier": stmt.ClusterIdentifier,
 		"WorkgroupName":     stmt.WorkgroupName,
@@ -43,20 +56,33 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		"DbUser":            stmt.DBUser,
 		"SecretArn":         stmt.SecretARN,
 		keyCreatedAt:        epochSeconds(stmt.CreatedAt),
-	})
+	}
+
+	if stmt.SessionID != "" {
+		resp["SessionId"] = stmt.SessionID
+	}
+
+	return json.Marshal(resp)
 }
 
+// handleBatchExecuteStatement handles BatchExecuteStatement. See
+// handleExecuteStatement for why ClientToken/SessionKeepAliveSeconds are
+// accepted on the wire but not behaviorally significant.
 func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ClusterIdentifier string   `json:"ClusterIdentifier"`
-		WorkgroupName     string   `json:"WorkgroupName"`
-		Database          string   `json:"Database"`
-		DBUser            string   `json:"DbUser"`
-		SecretArn         string   `json:"SecretArn"`
-		StatementName     string   `json:"StatementName"`
-		ResultFormat      string   `json:"ResultFormat"`
-		Sqls              []string `json:"Sqls"`
-		WithEvent         bool     `json:"WithEvent"`
+		ResultFormat            string         `json:"ResultFormat"`
+		WorkgroupName           string         `json:"WorkgroupName"`
+		Database                string         `json:"Database"`
+		DBUser                  string         `json:"DbUser"`
+		SecretArn               string         `json:"SecretArn"`
+		StatementName           string         `json:"StatementName"`
+		ClusterIdentifier       string         `json:"ClusterIdentifier"`
+		SessionID               string         `json:"SessionId"`
+		ClientToken             string         `json:"ClientToken"`
+		Sqls                    []string       `json:"Sqls"`
+		Parameters              []SQLParameter `json:"Parameters"`
+		SessionKeepAliveSeconds int32          `json:"SessionKeepAliveSeconds"`
+		WithEvent               bool           `json:"WithEvent"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -67,13 +93,14 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		ctx,
 		req.Sqls, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
-		req.WithEvent, req.ResultFormat,
+		req.WithEvent, req.ResultFormat, req.Parameters,
+		req.SessionID,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		"Id":                stmt.ID,
 		"ClusterIdentifier": stmt.ClusterIdentifier,
 		"WorkgroupName":     stmt.WorkgroupName,
@@ -81,7 +108,13 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		"DbUser":            stmt.DBUser,
 		"SecretArn":         stmt.SecretARN,
 		keyCreatedAt:        epochSeconds(stmt.CreatedAt),
-	})
+	}
+
+	if stmt.SessionID != "" {
+		resp["SessionId"] = stmt.SessionID
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]byte, error) {
@@ -346,6 +379,18 @@ func statementToListItem(stmt *Statement) map[string]any {
 		item["DbUser"] = stmt.DBUser
 	}
 
+	if stmt.SessionID != "" {
+		item["SessionId"] = stmt.SessionID
+	}
+
+	if len(stmt.QueryStrings) > 0 {
+		item["QueryStrings"] = stmt.QueryStrings
+	}
+
+	if len(stmt.Parameters) > 0 {
+		item["QueryParameters"] = stmt.Parameters
+	}
+
 	return item
 }
 
@@ -390,6 +435,10 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 		resp["SecretArn"] = stmt.SecretARN
 	}
 
+	if stmt.SessionID != "" {
+		resp["SessionId"] = stmt.SessionID
+	}
+
 	if stmt.StatementName != "" {
 		resp["StatementName"] = stmt.StatementName
 	}
@@ -400,6 +449,10 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 
 	if len(stmt.QueryStrings) > 0 {
 		resp["QueryStrings"] = stmt.QueryStrings
+	}
+
+	if len(stmt.Parameters) > 0 {
+		resp["QueryParameters"] = stmt.Parameters
 	}
 
 	if len(stmt.SubStatements) > 0 {
