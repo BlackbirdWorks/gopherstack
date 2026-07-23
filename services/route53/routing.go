@@ -6,6 +6,7 @@ import (
 	"math"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -237,6 +238,8 @@ const (
 	routingGeo
 	routingFailover
 	routingMultiValue
+	routingGeoProximity
+	routingCIDR
 )
 
 func classifyRouting(candidates []*ResourceRecordSet) routingKind {
@@ -248,6 +251,10 @@ func classifyRouting(candidates []*ResourceRecordSet) routingKind {
 			return routingLatency
 		case rrs.GeoLocation != nil:
 			return routingGeo
+		case rrs.GeoProximityLocation != nil:
+			return routingGeoProximity
+		case rrs.CidrRoutingConfig != nil:
+			return routingCIDR
 		case rrs.Failover != "":
 			return routingFailover
 		case rrs.MultiValueAnswer:
@@ -466,4 +473,170 @@ func selectFailover(healthy []*ResourceRecordSet) *ResourceRecordSet {
 	}
 
 	return healthy[0]
+}
+
+// biasDivisor converts a GeoProximityLocation.Bias percentage (-99..99) into
+// the fractional distance-scaling factor used by selectGeoProximity.
+const biasDivisor = 100.0
+
+// geoProximityCoord resolves a GeoProximityLocation to a geographic
+// coordinate: Coordinates wins when set (parsed as decimal lat/lon, already
+// range-validated at ChangeResourceRecordSets time), otherwise AWSRegion is
+// looked up in awsRegionCoords. LocalZoneGroup has no published lat/lon
+// table (AWS does not document Local Zone coordinates), so it resolves to
+// "unknown" like an unrecognised AWSRegion. The bool result reports whether
+// a coordinate could be resolved at all.
+func geoProximityCoord(loc *GeoProximityLocation) (regionCoord, bool) {
+	if loc == nil {
+		return regionCoord{}, false
+	}
+
+	if loc.Coordinates != nil {
+		lat, latErr := strconv.ParseFloat(loc.Coordinates.Latitude, 64)
+		lon, lonErr := strconv.ParseFloat(loc.Coordinates.Longitude, 64)
+		if latErr == nil && lonErr == nil {
+			return regionCoord{lat: lat, lon: lon}, true
+		}
+	}
+
+	if loc.AWSRegion != "" {
+		if c, ok := awsRegionCoords[loc.AWSRegion]; ok {
+			return c, true
+		}
+	}
+
+	return regionCoord{}, false
+}
+
+// selectGeoProximity picks the healthy candidate with the smallest
+// bias-adjusted geographic distance to the client. AWS documents Bias (a
+// percentage in [-99, 99]) as expanding (positive) or shrinking (negative) a
+// resource's effective service area without publishing the exact geometry;
+// this approximates that documented direction by scaling the great-circle
+// distance by (1 - bias/100), so a higher bias makes a resource "closer" and
+// more likely to win, matching the qualitative AWS behavior. Candidates whose
+// location can't be resolved to a coordinate (see geoProximityCoord) sort
+// last rather than being excluded, since Route 53 still answers from them
+// when they're the only healthy candidate.
+func selectGeoProximity(candidates []*ResourceRecordSet, qctx DNSQueryContext) *ResourceRecordSet {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	candidates = sortBySetIdentifier(candidates)
+
+	clientCoord, ok := awsRegionCoords[qctx.ClientRegion]
+	if !ok {
+		clientCoord = awsRegionCoords[defaultRegion]
+	}
+
+	var best *ResourceRecordSet
+	bestDist := math.MaxFloat64
+
+	for _, rrs := range candidates {
+		dist := math.MaxFloat64
+
+		if coord, known := geoProximityCoord(rrs.GeoProximityLocation); known {
+			dist = haversineKm(clientCoord, coord)
+			if rrs.GeoProximityLocation != nil {
+				dist *= 1 - float64(rrs.GeoProximityLocation.Bias)/biasDivisor
+			}
+		}
+
+		if dist < bestDist {
+			bestDist = dist
+			best = rrs
+		}
+	}
+
+	if best == nil {
+		return candidates[0]
+	}
+
+	return best
+}
+
+// cidrLocationDefault is the reserved CIDR collection location name Route 53
+// treats as the catch-all: it matches a resolver IP that no other location's
+// CIDR blocks contain.
+const cidrLocationDefault = "*"
+
+// cidrBlockLongestPrefix returns the longest prefix length among blocks that
+// contains ip, and whether any block matched at all. AWS CIDR routing
+// resolves an IP that falls within multiple CIDR blocks by specificity —
+// the same longest-prefix-match rule IP routing tables use.
+func cidrBlockLongestPrefix(blocks []string, ip net.IP) (int, bool) {
+	best := -1
+
+	for _, cidr := range blocks {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil || !network.Contains(ip) {
+			continue
+		}
+
+		if prefixLen, _ := network.Mask.Size(); prefixLen > best {
+			best = prefixLen
+		}
+	}
+
+	return best, best >= 0
+}
+
+// cidrCandidateMatch resolves a single CIDR-routed candidate's best matching
+// prefix length against ip, or reports that it isn't a specific-location
+// candidate at all (nil cfg, the reserved default location, an unresolvable
+// collection, or a nil ip). Caller must hold at least a read lock.
+func (b *InMemoryBackend) cidrCandidateMatch(rrs *ResourceRecordSet, ip net.IP) (int, bool) {
+	cfg := rrs.CidrRoutingConfig
+	if cfg == nil || cfg.LocationName == cidrLocationDefault || ip == nil {
+		return -1, false
+	}
+
+	col, ok := b.cidrCollections.Get(cfg.CollectionID)
+	if !ok {
+		return -1, false
+	}
+
+	return cidrBlockLongestPrefix(col.Locations[cfg.LocationName], ip)
+}
+
+// selectCIDR picks the healthy candidate whose CIDR collection location
+// contains the query's resolver IP, preferring the most specific (longest
+// prefix) match across every candidate the way IP routing tables do — real
+// Route 53 CIDR routing resolves overlapping locations by specificity. The
+// reserved "*" default location matches only when no other location's CIDR
+// blocks contain the resolver IP. The caller must hold at least a read lock.
+func (b *InMemoryBackend) selectCIDR(candidates []*ResourceRecordSet, qctx DNSQueryContext) *ResourceRecordSet {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	ip := net.ParseIP(qctx.ResolverIP)
+
+	var (
+		best         *ResourceRecordSet
+		bestPrefix   = -1
+		defaultMatch *ResourceRecordSet
+	)
+
+	for _, rrs := range sortBySetIdentifier(candidates) {
+		if cfg := rrs.CidrRoutingConfig; cfg != nil && cfg.LocationName == cidrLocationDefault {
+			if defaultMatch == nil {
+				defaultMatch = rrs
+			}
+
+			continue
+		}
+
+		if prefixLen, matched := b.cidrCandidateMatch(rrs, ip); matched && prefixLen > bestPrefix {
+			bestPrefix = prefixLen
+			best = rrs
+		}
+	}
+
+	if best != nil {
+		return best
+	}
+
+	return defaultMatch
 }

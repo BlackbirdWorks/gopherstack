@@ -128,7 +128,9 @@ func TestEnableDNSSEC_RequiresActiveKSK(t *testing.T) {
 	assert.Contains(t, err.Error(), "KeySigningKeyWithActiveStatusNotFound")
 
 	// Create inactive KSK — should still fail.
-	_, err = b.CreateKeySigningKey(hz.ID, "ref", "my-ksk", "arn:aws:kms:us-east-1:123:key/abc", "INACTIVE")
+	_, err = b.CreateKeySigningKey(
+		hz.ID, "ref", "my-ksk", "arn:aws:kms:us-east-1:123456789012:key/test-ksk", "INACTIVE",
+	)
 	require.NoError(t, err)
 
 	err = b.EnableHostedZoneDNSSEC(hz.ID)

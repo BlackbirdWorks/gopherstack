@@ -152,7 +152,9 @@ func TestKeySigningKeyCount(t *testing.T) {
 			require.NoError(t, err)
 
 			for _, name := range tt.kskNames {
-				_, err = b.CreateKeySigningKey(hz.ID, "caller-"+name, name, "arn:kms:test", "")
+				_, err = b.CreateKeySigningKey(
+					hz.ID, "caller-"+name, name, "arn:aws:kms:us-east-1:123456789012:key/test-ksk", "",
+				)
 				require.NoError(t, err)
 			}
 
@@ -192,14 +194,18 @@ func TestDuplicateKSK(t *testing.T) {
 			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
 			require.NoError(t, err)
 
-			_, err = b.CreateKeySigningKey(hz.ID, "caller-1", tt.kskName, "arn:kms:test", "")
+			_, err = b.CreateKeySigningKey(
+				hz.ID, "caller-1", tt.kskName, "arn:aws:kms:us-east-1:123456789012:key/test-ksk", "",
+			)
 			require.NoError(t, err)
 
 			if !tt.second {
 				return
 			}
 
-			_, err = b.CreateKeySigningKey(hz.ID, "caller-2", tt.kskName, "arn:kms:test", "")
+			_, err = b.CreateKeySigningKey(
+				hz.ID, "caller-2", tt.kskName, "arn:aws:kms:us-east-1:123456789012:key/test-ksk", "",
+			)
 			if tt.wantErr {
 				require.Error(t, err)
 				// Real Route 53 returns KeySigningKeyAlreadyExists (409) for a
@@ -245,7 +251,9 @@ func TestDeleteZone_CascadesKSK(t *testing.T) {
 			hz, err := b.CreateHostedZone("example.com", "ref-1", "", false, "")
 			require.NoError(t, err)
 
-			_, err = b.CreateKeySigningKey(hz.ID, "caller-1", "key1", "arn:kms:test", "")
+			_, err = b.CreateKeySigningKey(
+				hz.ID, "caller-1", "key1", "arn:aws:kms:us-east-1:123456789012:key/test-ksk", "",
+			)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantKSKCount, route53.KeySigningKeyCount(b))
@@ -439,6 +447,29 @@ func TestRoute53_CreateKeySigningKey(t *testing.T) {
 </CreateKeySigningKeyRequest>`,
 			wantCode: http.StatusNotFound,
 		},
+		{
+			// Real AWS: KeyManagementServiceArn must be a well-formed KMS
+			// customer managed key ARN or CreateKeySigningKey returns
+			// InvalidKMSArn (400), confirmed against the CreateKeySigningKey
+			// API reference's Errors section.
+			name: "create_ksk_invalid_kms_arn",
+			setup: func(h *route53.Handler) string {
+				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+				require.Equal(t, http.StatusCreated, rec.Code)
+
+				return extractZoneID(t, rec.Body.String())
+			},
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<CreateKeySigningKeyRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <HostedZoneId>PLACEHOLDER</HostedZoneId>
+  <CallerReference>ksk-ref-4</CallerReference>
+  <Name>mykey</Name>
+  <KeyManagementServiceArn>not-a-kms-arn</KeyManagementServiceArn>
+  <Status>INACTIVE</Status>
+</CreateKeySigningKeyRequest>`,
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidKMSArn"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -495,6 +526,7 @@ func TestRoute53_ActivateKeySigningKey(t *testing.T) {
   <HostedZoneId>` + zoneID + `</HostedZoneId>
   <CallerReference>ksk-ref-activate</CallerReference>
   <Name>testkey</Name>
+  <KeyManagementServiceArn>arn:aws:kms:us-east-1:123456789012:key/test-ksk</KeyManagementServiceArn>
   <Status>INACTIVE</Status>
 </CreateKeySigningKeyRequest>`
 			kskRec := send(t, h, http.MethodPost, "/2013-04-01/keysigningkey", kskBody)

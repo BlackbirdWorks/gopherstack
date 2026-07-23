@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -184,41 +185,46 @@ func isValidCharacterStrings(value string) bool {
 	return !inString && !escaped
 }
 
-// validateRoutingPolicy enforces AWS mutual-exclusion rules for routing policies.
-//
-//nolint:cyclop // AWS has many mutually exclusive routing policy combinations to check
-func validateRoutingPolicy(rrs ResourceRecordSet) error {
-	policyCount := 0
+// countRoutingPolicies returns how many of the mutually exclusive
+// routing-policy fields are set on rrs.
+func countRoutingPolicies(rrs ResourceRecordSet) int {
+	count := 0
 	// Weight is a pointer: nil means omitted (no weighted routing), non-nil means
 	// the caller explicitly set a weight (including Weight=0, which stops traffic).
 	if rrs.Weight != nil {
-		policyCount++
+		count++
 	}
 
 	if rrs.Region != "" {
-		policyCount++
+		count++
 	}
 
 	if rrs.GeoLocation != nil {
-		policyCount++
+		count++
 	}
 
 	if rrs.Failover != "" {
-		policyCount++
+		count++
 	}
 
 	if rrs.MultiValueAnswer {
-		policyCount++
+		count++
 	}
 
 	if rrs.GeoProximityLocation != nil {
-		policyCount++
+		count++
 	}
 
 	if rrs.CidrRoutingConfig != nil {
-		policyCount++
+		count++
 	}
 
+	return count
+}
+
+// validateRoutingPolicyCardinality enforces AWS's "at most one routing
+// policy per ResourceRecordSet" rule and the SetIdentifier pairing it implies.
+func validateRoutingPolicyCardinality(policyCount int, setIdentifier string) error {
 	if policyCount > 1 {
 		return fmt.Errorf(
 			"%w: only one routing policy may be set per ResourceRecordSet",
@@ -226,20 +232,27 @@ func validateRoutingPolicy(rrs ResourceRecordSet) error {
 		)
 	}
 
-	if policyCount == 1 && rrs.SetIdentifier == "" {
+	if policyCount == 1 && setIdentifier == "" {
 		return fmt.Errorf(
 			"%w: SetIdentifier is required when a routing policy is specified",
 			ErrInvalidInput,
 		)
 	}
 
-	if policyCount == 0 && rrs.SetIdentifier != "" {
+	if policyCount == 0 && setIdentifier != "" {
 		return fmt.Errorf(
 			"%w: SetIdentifier is not allowed without a routing policy",
 			ErrInvalidInput,
 		)
 	}
 
+	return nil
+}
+
+// validateRoutingPolicyFields validates the per-field constraints of the
+// routing-policy fields that carry a value beyond simple presence
+// (Failover's enum, Weight's range).
+func validateRoutingPolicyFields(rrs ResourceRecordSet) error {
 	if rrs.Failover != "" && rrs.Failover != FailoverPrimary && rrs.Failover != FailoverSecondary {
 		return fmt.Errorf("%w: Failover must be PRIMARY or SECONDARY", ErrInvalidInput)
 	}
@@ -248,11 +261,20 @@ func validateRoutingPolicy(rrs ResourceRecordSet) error {
 		return fmt.Errorf("%w: Weight must be in range [0, 255]", ErrInvalidInput)
 	}
 
-	if err := validateGeoProximityLocation(rrs.GeoProximityLocation); err != nil {
+	return nil
+}
+
+// validateRoutingPolicy enforces AWS mutual-exclusion rules for routing policies.
+func validateRoutingPolicy(rrs ResourceRecordSet) error {
+	if err := validateRoutingPolicyCardinality(countRoutingPolicies(rrs), rrs.SetIdentifier); err != nil {
 		return err
 	}
 
-	return nil
+	if err := validateRoutingPolicyFields(rrs); err != nil {
+		return err
+	}
+
+	return validateGeoProximityLocation(rrs.GeoProximityLocation)
 }
 
 // geoProximityLocationFieldCount counts how many of the three mutually exclusive
@@ -341,27 +363,42 @@ func validateGeoProximityLocation(gpl *GeoProximityLocation) error {
 	return nil
 }
 
-// validateChange validates a single change against current zone state.
-//
-//nolint:gocognit,cyclop // complex by necessity: enforces all AWS record mutation constraints
-func validateChange(zd *zoneData, ch Change) error {
-	rrs := ch.ResourceRecordSet
-
+// validateChangeType checks the record type is one AWS Route 53 accepts.
+func validateChangeType(rrs ResourceRecordSet) error {
 	if !validRecordTypes[rrs.Type] {
 		return fmt.Errorf("%w: unsupported record type %q", ErrInvalidAction, rrs.Type)
 	}
 
-	if rrs.AliasTarget == nil {
-		if rrs.TTL <= 0 {
-			return fmt.Errorf("%w: TTL must be > 0 for non-alias records", ErrInvalidAction)
-		}
+	return nil
+}
 
-		if rrs.TTL > maxTTL {
-			return fmt.Errorf("%w: TTL exceeds maximum value %d", ErrInvalidAction, maxTTL)
-		}
+// validateChangeTTL enforces AWS's TTL rules: required and range-checked for
+// non-alias records; alias records must omit TTL entirely.
+func validateChangeTTL(rrs ResourceRecordSet) error {
+	if rrs.AliasTarget != nil {
+		return nil
 	}
 
-	if rrs.Type == recordTypeCNAME && rrs.Name == zd.zone.Name {
+	if rrs.TTL <= 0 {
+		return fmt.Errorf("%w: TTL must be > 0 for non-alias records", ErrInvalidAction)
+	}
+
+	if rrs.TTL > maxTTL {
+		return fmt.Errorf("%w: TTL exceeds maximum value %d", ErrInvalidAction, maxTTL)
+	}
+
+	return nil
+}
+
+// validateChangeCNAME enforces AWS's CNAME placement rules: not permitted at
+// the zone apex, and not permitted to coexist with any other record type at
+// the same name.
+func validateChangeCNAME(zd *zoneData, rrs ResourceRecordSet) error {
+	if rrs.Type != recordTypeCNAME {
+		return nil
+	}
+
+	if rrs.Name == zd.zone.Name {
 		return fmt.Errorf(
 			"%w: CNAME record not permitted at zone apex %s",
 			ErrInvalidAction,
@@ -369,35 +406,48 @@ func validateChange(zd *zoneData, ch Change) error {
 		)
 	}
 
-	if rrs.Type == recordTypeCNAME {
-		key := recordSetKey(rrs.Name, rrs.Type, "")
-		for existKey, existRRS := range zd.records {
-			if existKey == key {
-				continue
-			}
-			existName := strings.ToLower(strings.TrimSuffix(existRRS.Name, "."))
-			rrsName := strings.ToLower(strings.TrimSuffix(rrs.Name, "."))
-			if existName == rrsName && existRRS.Type != recordTypeCNAME {
-				return fmt.Errorf(
-					"%w: CNAME cannot coexist with other types at name %s",
-					ErrInvalidAction, rrs.Name,
-				)
-			}
+	key := recordSetKey(rrs.Name, rrs.Type, "")
+	rrsName := strings.ToLower(strings.TrimSuffix(rrs.Name, "."))
+
+	for existKey, existRRS := range zd.records {
+		if existKey == key {
+			continue
+		}
+
+		existName := strings.ToLower(strings.TrimSuffix(existRRS.Name, "."))
+		if existName == rrsName && existRRS.Type != recordTypeCNAME {
+			return fmt.Errorf(
+				"%w: CNAME cannot coexist with other types at name %s",
+				ErrInvalidAction, rrs.Name,
+			)
 		}
 	}
 
+	return nil
+}
+
+// validateChangeRecordValues validates every resource-record value against
+// its type's AWS wire-format rules.
+func validateChangeRecordValues(rrs ResourceRecordSet) error {
 	for _, rr := range rrs.Records {
 		if err := validateRecordValue(rrs.Type, rr.Value); err != nil {
 			return fmt.Errorf("%w: %s", ErrInvalidAction, err.Error())
 		}
 	}
 
-	if err := validateRoutingPolicy(rrs); err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidAction, err.Error())
-	}
+	return nil
+}
 
-	if ch.Action == ChangeActionDelete {
-		key := recordSetKey(rrs.Name, rrs.Type, rrs.SetIdentifier)
+// validateChangeActionState enforces the action-specific state checks: a
+// DELETE must target an existing record set whose values exactly match, and
+// a CREATE must not collide with an existing record set. UPSERT has no state
+// precondition (create-or-replace unconditionally), matching AWS.
+func validateChangeActionState(zd *zoneData, ch Change) error {
+	rrs := ch.ResourceRecordSet
+	key := recordSetKey(rrs.Name, rrs.Type, rrs.SetIdentifier)
+
+	switch ch.Action {
+	case ChangeActionDelete:
 		existing, exists := zd.records[key]
 		if !exists {
 			return fmt.Errorf(
@@ -412,13 +462,8 @@ func validateChange(zd *zoneData, ch Change) error {
 		// record set (TTL and all resource record values, or the AliasTarget).
 		// If they do not match, Route 53 returns InvalidChangeBatch rather than
 		// silently deleting the record.
-		if err := deleteValuesMatch(existing, &rrs); err != nil {
-			return err
-		}
-	}
-
-	if ch.Action == ChangeActionCreate {
-		key := recordSetKey(rrs.Name, rrs.Type, rrs.SetIdentifier)
+		return deleteValuesMatch(existing, &rrs)
+	case ChangeActionCreate:
 		if _, exists := zd.records[key]; exists {
 			return fmt.Errorf(
 				"%w: record set %s %s already exists",
@@ -427,9 +472,39 @@ func validateChange(zd *zoneData, ch Change) error {
 				rrs.Type,
 			)
 		}
+	case ChangeActionUpsert:
+		// No state precondition: AWS's UPSERT creates or replaces the record
+		// set unconditionally, regardless of whether it already exists.
 	}
 
 	return nil
+}
+
+// validateChange validates a single change against current zone state.
+func validateChange(zd *zoneData, ch Change) error {
+	rrs := ch.ResourceRecordSet
+
+	if err := validateChangeType(rrs); err != nil {
+		return err
+	}
+
+	if err := validateChangeTTL(rrs); err != nil {
+		return err
+	}
+
+	if err := validateChangeCNAME(zd, rrs); err != nil {
+		return err
+	}
+
+	if err := validateChangeRecordValues(rrs); err != nil {
+		return err
+	}
+
+	if err := validateRoutingPolicy(rrs); err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidAction, err.Error())
+	}
+
+	return validateChangeActionState(zd, ch)
 }
 
 // deleteValuesMatch enforces AWS's DELETE exact-match rule. When deleting a
@@ -669,7 +744,80 @@ func (b *InMemoryBackend) GetChange(changeID string) (*ChangeInfo, error) {
 // starting after the given (startName, startType, startIdentifier) tuple, up to maxItems.
 // Pass empty strings and 0 to get the first page.
 //
-//nolint:gocognit,cyclop // pagination + multi-field sort + filtering inherently complex
+// sortRecordSets orders record sets the way AWS ListResourceRecordSets does —
+// by Name, then Type, then SetIdentifier — the same lexicographic order
+// seekRecordSetStart's pagination cursor walks below.
+func sortRecordSets(all []ResourceRecordSet) {
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].Name != all[j].Name {
+			return all[i].Name < all[j].Name
+		}
+
+		if all[i].Type != all[j].Type {
+			return all[i].Type < all[j].Type
+		}
+
+		return all[i].SetIdentifier < all[j].SetIdentifier
+	})
+}
+
+// seekRecordSetStart returns the index of the first record set at or after
+// the (startName, startType, startIdentifier) pagination cursor within a
+// slice already sorted by sortRecordSets. An empty startName means "from the
+// beginning" (index 0).
+func seekRecordSetStart(all []ResourceRecordSet, startName, startType, startIdentifier string) int {
+	if startName == "" {
+		return 0
+	}
+
+	startName = normaliseName(startName)
+
+	start := 0
+	for start < len(all) {
+		r := all[start]
+		if r.Name > startName {
+			break
+		}
+
+		if r.Name == startName && (startType == "" || r.Type >= startType) {
+			if startType == "" || r.Type > startType || startIdentifier == "" ||
+				r.SetIdentifier >= startIdentifier {
+				break
+			}
+		}
+
+		start++
+	}
+
+	return start
+}
+
+// paginateRecordSets truncates an already-sorted-and-seeked slice to maxItems
+// (clamped to route53DefaultMaxItems when unset or out of range), filling in
+// the Next* pagination cursor fields when more records remain.
+func paginateRecordSets(all []ResourceRecordSet, maxItems int) RRSetPage {
+	if maxItems <= 0 || maxItems > route53DefaultMaxItems {
+		maxItems = route53DefaultMaxItems
+	}
+
+	if len(all) <= maxItems {
+		return RRSetPage{Records: all}
+	}
+
+	next := all[maxItems]
+
+	return RRSetPage{
+		Records:        all[:maxItems],
+		IsTruncated:    true,
+		NextName:       next.Name,
+		NextType:       next.Type,
+		NextIdentifier: next.SetIdentifier,
+	}
+}
+
+// ListResourceRecordSets returns a page of the hosted zone's record sets,
+// ordered by Name/Type/SetIdentifier, starting from an optional pagination
+// cursor.
 func (b *InMemoryBackend) ListResourceRecordSets(
 	zoneID, startName, startType, startIdentifier string,
 	maxItems int,
@@ -692,56 +840,11 @@ func (b *InMemoryBackend) ListResourceRecordSets(
 		all = append(all, cp)
 	}
 
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].Name != all[j].Name {
-			return all[i].Name < all[j].Name
-		}
+	sortRecordSets(all)
 
-		if all[i].Type != all[j].Type {
-			return all[i].Type < all[j].Type
-		}
+	start := seekRecordSetStart(all, startName, startType, startIdentifier)
 
-		return all[i].SetIdentifier < all[j].SetIdentifier
-	})
-
-	// Seek to start position.
-	start := 0
-	if startName != "" {
-		startName = normaliseName(startName)
-		for start < len(all) {
-			r := all[start]
-			if r.Name > startName {
-				break
-			}
-			if r.Name == startName && (startType == "" || r.Type >= startType) {
-				if startType == "" || r.Type > startType || startIdentifier == "" ||
-					r.SetIdentifier >= startIdentifier {
-					break
-				}
-			}
-			start++
-		}
-	}
-
-	all = all[start:]
-
-	if maxItems <= 0 || maxItems > route53DefaultMaxItems {
-		maxItems = route53DefaultMaxItems
-	}
-
-	var pg RRSetPage
-	if len(all) > maxItems {
-		pg.Records = all[:maxItems]
-		pg.IsTruncated = true
-		next := all[maxItems]
-		pg.NextName = next.Name
-		pg.NextType = next.Type
-		pg.NextIdentifier = next.SetIdentifier
-	} else {
-		pg.Records = all
-	}
-
-	return pg, nil
+	return paginateRecordSets(all[start:], maxItems), nil
 }
 
 // recordValues returns the literal resource-record values of a record set
@@ -828,10 +931,53 @@ func (b *InMemoryBackend) collectRoutingCandidates(
 	return candidates
 }
 
-// selectAnswer applies the routing policy shared by the candidate record sets
-// and returns the resolved answer values for the winning record(s). Health
-// checks are consulted so unhealthy records are excluded. The caller must hold
-// at least a read lock.
+// singleAnswerSelector picks the single winning record set for a routing
+// policy from its health-filtered candidates, or nil when nothing should
+// answer (e.g. no geolocation match). It takes the backend so selectors that
+// need extra state (routingCIDR's CIDR collection lookup) can use it; the
+// others simply ignore it.
+type singleAnswerSelector func(
+	b *InMemoryBackend, healthy []*ResourceRecordSet, qctx DNSQueryContext,
+) *ResourceRecordSet
+
+// singleAnswerSelectors maps every routing kind that resolves to one winning
+// record set to its selection function. routingMultiValue and routingSimple
+// are deliberately absent — selectAnswer handles both before ever consulting
+// this table, since neither fits the "one selector function" shape
+// (routingMultiValue returns several values, not one winning record set;
+// routingSimple has no selection algorithm beyond "the only candidate").
+//
+//nolint:gochecknoglobals // read-only dispatch table built once, lazily, via sync.OnceValue
+var singleAnswerSelectors = sync.OnceValue(newSingleAnswerSelectors)
+
+//nolint:exhaustive // routingMultiValue/routingSimple are handled directly by selectAnswer, see doc comment above
+func newSingleAnswerSelectors() map[routingKind]singleAnswerSelector {
+	return map[routingKind]singleAnswerSelector{
+		routingWeighted: func(_ *InMemoryBackend, healthy []*ResourceRecordSet, qctx DNSQueryContext) *ResourceRecordSet {
+			return selectWeighted(healthy, qctx)
+		},
+		routingLatency: func(_ *InMemoryBackend, healthy []*ResourceRecordSet, qctx DNSQueryContext) *ResourceRecordSet {
+			return selectLatency(healthy, qctx)
+		},
+		routingGeo: func(_ *InMemoryBackend, healthy []*ResourceRecordSet, qctx DNSQueryContext) *ResourceRecordSet {
+			return selectGeo(healthy, qctx)
+		},
+		routingGeoProximity: func(_ *InMemoryBackend, healthy []*ResourceRecordSet, qctx DNSQueryContext) *ResourceRecordSet {
+			return selectGeoProximity(healthy, qctx)
+		},
+		routingCIDR: func(b *InMemoryBackend, healthy []*ResourceRecordSet, qctx DNSQueryContext) *ResourceRecordSet {
+			return b.selectCIDR(healthy, qctx)
+		},
+		routingFailover: func(_ *InMemoryBackend, healthy []*ResourceRecordSet, _ DNSQueryContext) *ResourceRecordSet {
+			return selectFailover(healthy)
+		},
+	}
+}
+
+// selectAnswer applies the routing policy shared by the candidate record
+// sets and returns the resolved answer values for the winning record(s).
+// Health checks are consulted so unhealthy records are excluded. The caller
+// must hold at least a read lock.
 func (b *InMemoryBackend) selectAnswer(
 	zd *zoneData,
 	candidates []*ResourceRecordSet,
@@ -841,34 +987,31 @@ func (b *InMemoryBackend) selectAnswer(
 	kind := classifyRouting(candidates)
 	healthy := b.filterHealthy(candidates)
 
-	switch kind {
-	case routingMultiValue:
+	if kind == routingMultiValue {
 		return b.multiValueAnswer(zd, healthy, depth)
-	case routingWeighted:
-		if chosen := selectWeighted(healthy, qctx); chosen != nil {
-			return b.rrsValues(zd, chosen, depth)
-		}
-	case routingLatency:
-		if chosen := selectLatency(healthy, qctx); chosen != nil {
-			return b.rrsValues(zd, chosen, depth)
-		}
-	case routingGeo:
-		if chosen := selectGeo(healthy, qctx); chosen != nil {
-			return b.rrsValues(zd, chosen, depth)
-		}
-	case routingFailover:
-		if chosen := selectFailover(healthy); chosen != nil {
-			return b.rrsValues(zd, chosen, depth)
-		}
-	case routingSimple:
-		if len(healthy) > 0 {
-			sortBySetIdentifier(healthy)
-
-			return b.rrsValues(zd, healthy[0], depth)
-		}
 	}
 
-	return []string{}
+	if kind == routingSimple {
+		if len(healthy) == 0 {
+			return []string{}
+		}
+
+		sortBySetIdentifier(healthy)
+
+		return b.rrsValues(zd, healthy[0], depth)
+	}
+
+	selector, ok := singleAnswerSelectors()[kind]
+	if !ok {
+		return []string{}
+	}
+
+	chosen := selector(b, healthy, qctx)
+	if chosen == nil {
+		return []string{}
+	}
+
+	return b.rrsValues(zd, chosen, depth)
 }
 
 // multiValueAnswer returns the values of up to maxMultiValueRecords healthy

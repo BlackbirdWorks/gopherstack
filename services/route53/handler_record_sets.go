@@ -140,7 +140,82 @@ type xmlChangeResourceRecordSetsRequest struct {
 	ChangeBatch xmlChangeBatch `xml:"ChangeBatch"`
 }
 
-//nolint:funlen // handles full ChangeResourceRecordSets request including validation and response
+// toBackendResourceRecordSet converts a wire xmlResourceRecordSetChange into
+// the backend's ResourceRecordSet, expanding each optional nested element.
+// It structurally mirrors toXMLResourceRecordSet's field-by-field mapping in
+// the opposite direction (wire -> backend vs. backend -> wire); the two
+// operate over distinct type pairs, so unifying them would need generics or
+// reflection for no real gain over two straightforward, independently
+// readable conversions.
+//
+//nolint:dupl // structurally-mirrored wire<->backend conversion pair, see doc comment
+func toBackendResourceRecordSet(x xmlResourceRecordSetChange) ResourceRecordSet {
+	records := make([]ResourceRecord, len(x.ResourceRecords))
+	for i, rr := range x.ResourceRecords {
+		records[i] = ResourceRecord(rr)
+	}
+
+	rrs := ResourceRecordSet{
+		Name:             x.Name,
+		Type:             x.Type,
+		TTL:              x.TTL,
+		Records:          records,
+		SetIdentifier:    x.SetIdentifier,
+		Failover:         FailoverPolicy(x.Failover),
+		Region:           x.Region,
+		HealthCheckID:    x.HealthCheckID,
+		Weight:           x.Weight,
+		MultiValueAnswer: x.MultiValueAnswer,
+	}
+
+	if x.AliasTarget != nil {
+		rrs.AliasTarget = &AliasTarget{
+			HostedZoneID:         x.AliasTarget.HostedZoneID,
+			DNSName:              x.AliasTarget.DNSName,
+			EvaluateTargetHealth: x.AliasTarget.EvaluateTargetHealth,
+		}
+	}
+
+	if x.GeoLocation != nil {
+		rrs.GeoLocation = &GeoLocation{
+			ContinentCode:   x.GeoLocation.ContinentCode,
+			CountryCode:     x.GeoLocation.CountryCode,
+			SubdivisionCode: x.GeoLocation.SubdivisionCode,
+		}
+	}
+
+	if x.GeoProximityLocation != nil {
+		rrs.GeoProximityLocation = &GeoProximityLocation{
+			AWSRegion:      x.GeoProximityLocation.AWSRegion,
+			LocalZoneGroup: x.GeoProximityLocation.LocalZoneGroup,
+			Bias:           x.GeoProximityLocation.Bias,
+		}
+		if x.GeoProximityLocation.Coordinates != nil {
+			rrs.GeoProximityLocation.Coordinates = &GeoProximityCoordinates{
+				Latitude:  x.GeoProximityLocation.Coordinates.Latitude,
+				Longitude: x.GeoProximityLocation.Coordinates.Longitude,
+			}
+		}
+	}
+
+	if x.CidrRoutingConfig != nil {
+		rrs.CidrRoutingConfig = &CidrRoutingConfig{
+			CollectionID: x.CidrRoutingConfig.CollectionID,
+			LocationName: x.CidrRoutingConfig.LocationName,
+		}
+	}
+
+	return rrs
+}
+
+// toBackendChange converts a wire xmlChange into the backend's Change.
+func toBackendChange(ch xmlChange) Change {
+	return Change{
+		Action:            ChangeAction(strings.ToUpper(ch.Action)),
+		ResourceRecordSet: toBackendResourceRecordSet(ch.ResourceRecordSet),
+	}
+}
+
 func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 	ctx := c.Request().Context()
 	zoneID := extractZoneID(c.Request().URL.Path)
@@ -162,69 +237,7 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 
 	changes := make([]Change, 0, len(req.ChangeBatch.Changes))
 	for _, ch := range req.ChangeBatch.Changes {
-		records := make([]ResourceRecord, len(ch.ResourceRecordSet.ResourceRecords))
-		for i, rr := range ch.ResourceRecordSet.ResourceRecords {
-			records[i] = ResourceRecord(rr)
-		}
-
-		rrs := ResourceRecordSet{
-			Name:             ch.ResourceRecordSet.Name,
-			Type:             ch.ResourceRecordSet.Type,
-			TTL:              ch.ResourceRecordSet.TTL,
-			Records:          records,
-			SetIdentifier:    ch.ResourceRecordSet.SetIdentifier,
-			Failover:         FailoverPolicy(ch.ResourceRecordSet.Failover),
-			Region:           ch.ResourceRecordSet.Region,
-			HealthCheckID:    ch.ResourceRecordSet.HealthCheckID,
-			Weight:           ch.ResourceRecordSet.Weight,
-			MultiValueAnswer: ch.ResourceRecordSet.MultiValueAnswer,
-		}
-
-		if ch.ResourceRecordSet.AliasTarget != nil {
-			at := ch.ResourceRecordSet.AliasTarget
-			rrs.AliasTarget = &AliasTarget{
-				HostedZoneID:         at.HostedZoneID,
-				DNSName:              at.DNSName,
-				EvaluateTargetHealth: at.EvaluateTargetHealth,
-			}
-		}
-
-		if ch.ResourceRecordSet.GeoLocation != nil {
-			gl := ch.ResourceRecordSet.GeoLocation
-			rrs.GeoLocation = &GeoLocation{
-				ContinentCode:   gl.ContinentCode,
-				CountryCode:     gl.CountryCode,
-				SubdivisionCode: gl.SubdivisionCode,
-			}
-		}
-
-		if ch.ResourceRecordSet.GeoProximityLocation != nil {
-			gpl := ch.ResourceRecordSet.GeoProximityLocation
-			rrs.GeoProximityLocation = &GeoProximityLocation{
-				AWSRegion:      gpl.AWSRegion,
-				LocalZoneGroup: gpl.LocalZoneGroup,
-				Bias:           gpl.Bias,
-			}
-			if gpl.Coordinates != nil {
-				rrs.GeoProximityLocation.Coordinates = &GeoProximityCoordinates{
-					Latitude:  gpl.Coordinates.Latitude,
-					Longitude: gpl.Coordinates.Longitude,
-				}
-			}
-		}
-
-		if ch.ResourceRecordSet.CidrRoutingConfig != nil {
-			crc := ch.ResourceRecordSet.CidrRoutingConfig
-			rrs.CidrRoutingConfig = &CidrRoutingConfig{
-				CollectionID: crc.CollectionID,
-				LocationName: crc.LocationName,
-			}
-		}
-
-		changes = append(changes, Change{
-			Action:            ChangeAction(strings.ToUpper(ch.Action)),
-			ResourceRecordSet: rrs,
-		})
+		changes = append(changes, toBackendChange(ch))
 	}
 
 	changeID, err := h.Backend.ChangeResourceRecordSets(zoneID, changes)
@@ -296,7 +309,12 @@ func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, resp)
 }
 
-// toXMLResourceRecordSet converts a ResourceRecordSet to its XML representation.
+// toXMLResourceRecordSet converts a ResourceRecordSet to its XML
+// representation. See toBackendResourceRecordSet's doc comment for why this
+// structurally-mirrored pair carries a dupl exception instead of being
+// unified.
+//
+//nolint:dupl // structurally-mirrored wire<->backend conversion pair, see toBackendResourceRecordSet
 func toXMLResourceRecordSet(rrs ResourceRecordSet) xmlResourceRecordSet {
 	xmlRecs := make([]xmlResourceRecord, len(rrs.Records))
 	for j, rr := range rrs.Records {

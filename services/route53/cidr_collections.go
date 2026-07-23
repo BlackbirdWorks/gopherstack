@@ -56,6 +56,69 @@ func copyLocations(m map[string][]string) map[string][]string {
 	return out
 }
 
+// CIDR collection change actions, per ChangeCidrCollection's wire contract.
+const (
+	cidrCollectionActionPut            = "PUT"
+	cidrCollectionActionDeleteIfExists = "DELETE_IF_EXISTS"
+)
+
+// applyCidrCollectionPut adds any CIDR blocks in ch.CidrList not already
+// present at ch.LocationName, deduplicating against the existing set.
+func applyCidrCollectionPut(col *CidrCollection, ch CidrCollectionChange) {
+	existing := col.Locations[ch.LocationName]
+	cidrSet := make(map[string]bool, len(existing))
+
+	for _, c := range existing {
+		cidrSet[c] = true
+	}
+
+	for _, c := range ch.CidrList {
+		if !cidrSet[c] {
+			existing = append(existing, c)
+			cidrSet[c] = true
+		}
+	}
+
+	col.Locations[ch.LocationName] = existing
+}
+
+// applyCidrCollectionDeleteIfExists removes any CIDR blocks in ch.CidrList
+// from ch.LocationName, dropping the location entirely once it's emptied.
+func applyCidrCollectionDeleteIfExists(col *CidrCollection, ch CidrCollectionChange) {
+	existing := col.Locations[ch.LocationName]
+	remove := make(map[string]bool, len(ch.CidrList))
+
+	for _, c := range ch.CidrList {
+		remove[c] = true
+	}
+
+	kept := existing[:0:0]
+	for _, c := range existing {
+		if !remove[c] {
+			kept = append(kept, c)
+		}
+	}
+
+	if len(kept) == 0 {
+		delete(col.Locations, ch.LocationName)
+	} else {
+		col.Locations[ch.LocationName] = kept
+	}
+}
+
+// applyCidrCollectionChange dispatches a single change to its action handler.
+// Unrecognized actions are silently ignored, matching the pre-decomposition
+// switch's default (the wire layer is responsible for rejecting unknown
+// Action values before reaching the backend).
+func applyCidrCollectionChange(col *CidrCollection, ch CidrCollectionChange) {
+	switch ch.Action {
+	case cidrCollectionActionPut:
+		applyCidrCollectionPut(col, ch)
+	case cidrCollectionActionDeleteIfExists:
+		applyCidrCollectionDeleteIfExists(col, ch)
+	}
+}
+
 // ChangeCidrCollection applies PUT/DELETE_IF_EXISTS changes to a CIDR
 // collection's locations. expectedVersion is the caller-supplied
 // CollectionVersion, or nil when the request omitted it (the field is
@@ -63,8 +126,6 @@ func copyLocations(m map[string][]string) map[string][]string {
 // current Version or the change is rejected with
 // ErrCidrCollectionVersionMismatch — AWS's optimistic-concurrency guard
 // against overwriting an intervening update.
-//
-//nolint:gocognit // validates and applies multiple change actions with per-action branching
 func (b *InMemoryBackend) ChangeCidrCollection(
 	collectionID string,
 	changes []CidrCollectionChange,
@@ -95,43 +156,7 @@ func (b *InMemoryBackend) ChangeCidrCollection(
 	}
 
 	for _, ch := range changes {
-		switch ch.Action {
-		case "PUT":
-			existing := col.Locations[ch.LocationName]
-			cidrSet := make(map[string]bool, len(existing))
-			for _, c := range existing {
-				cidrSet[c] = true
-			}
-
-			for _, c := range ch.CidrList {
-				if !cidrSet[c] {
-					existing = append(existing, c)
-					cidrSet[c] = true
-				}
-			}
-
-			col.Locations[ch.LocationName] = existing
-
-		case "DELETE_IF_EXISTS":
-			existing := col.Locations[ch.LocationName]
-			remove := make(map[string]bool, len(ch.CidrList))
-			for _, c := range ch.CidrList {
-				remove[c] = true
-			}
-
-			kept := existing[:0:0]
-			for _, c := range existing {
-				if !remove[c] {
-					kept = append(kept, c)
-				}
-			}
-
-			if len(kept) == 0 {
-				delete(col.Locations, ch.LocationName)
-			} else {
-				col.Locations[ch.LocationName] = kept
-			}
-		}
+		applyCidrCollectionChange(col, ch)
 	}
 
 	col.Version++

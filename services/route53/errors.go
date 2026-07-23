@@ -89,4 +89,25 @@ var (
 	// called on a delegation set that is still associated with one or more
 	// hosted zones (AWS: DelegationSetInUse, 400).
 	ErrDelegationSetInUse = errors.New("DelegationSetInUse")
+	// ErrHostedZoneNotFoundForDelegationSet is returned by
+	// CreateReusableDelegationSet when its optional HostedZoneId parameter
+	// names a zone that doesn't exist. AWS uses a distinct wire code here —
+	// "HostedZoneNotFound" — from the "NoSuchHostedZone" code every other
+	// Route 53 hosted-zone-lookup op returns; confirmed against the
+	// CreateReusableDelegationSet API reference's Errors section.
+	ErrHostedZoneNotFoundForDelegationSet = errors.New("HostedZoneNotFound")
+	// ErrDelegationSetAlreadyReusable is returned when
+	// CreateReusableDelegationSet's HostedZoneId parameter names a zone
+	// whose delegation set has already been extracted into a reusable
+	// delegation set (AWS: DelegationSetAlreadyReusable, 400).
+	ErrDelegationSetAlreadyReusable = errors.New("DelegationSetAlreadyReusable")
+	// ErrDelegationSetAlreadyCreated is returned when
+	// CreateReusableDelegationSet is called with a CallerReference that was
+	// already used to create a reusable delegation set (AWS:
+	// DelegationSetAlreadyCreated, 400).
+	ErrDelegationSetAlreadyCreated = errors.New("DelegationSetAlreadyCreated")
+	// ErrInvalidKMSArn is returned by CreateKeySigningKey when
+	// KeyManagementServiceArn is not a well-formed KMS customer managed key
+	// ARN (AWS: InvalidKMSArn, 400).
+	ErrInvalidKMSArn = errors.New("InvalidKMSArn")
 )
