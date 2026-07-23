@@ -3,6 +3,7 @@ package workspaces
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -35,15 +36,46 @@ func (h *Handler) handleDescribeAccount(
 	}, nil
 }
 
+// accountModificationResp mirrors the real AccountModification shape;
+// StartTime is a wire-format epoch-seconds number.
+type accountModificationResp struct {
+	ModificationState                   string  `json:"ModificationState,omitempty"`
+	DedicatedTenancySupport             string  `json:"DedicatedTenancySupport,omitempty"`
+	DedicatedTenancyManagementCidrRange string  `json:"DedicatedTenancyManagementCidrRange,omitempty"`
+	StartTime                           float64 `json:"StartTime,omitempty"`
+}
+
+type describeAccountModificationsInput struct {
+	NextToken string `json:"NextToken"`
+}
+
 type describeAccountModificationsOutput struct {
-	NextToken            string `json:"NextToken,omitempty"`
-	AccountModifications []any  `json:"AccountModifications"`
+	NextToken            string                    `json:"NextToken,omitempty"`
+	AccountModifications []accountModificationResp `json:"AccountModifications"`
 }
 
 func (h *Handler) handleDescribeAccountModifications(
-	_ context.Context, _ *emptyOutput,
+	_ context.Context, req *describeAccountModificationsInput,
 ) (*describeAccountModificationsOutput, error) {
-	return &describeAccountModificationsOutput{AccountModifications: []any{}}, nil
+	mods, nextToken, err := h.Backend.DescribeAccountModifications(req.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]accountModificationResp, 0, len(mods))
+	for _, m := range mods {
+		items = append(items, accountModificationResp{
+			ModificationState:                   m.ModificationState,
+			DedicatedTenancySupport:             m.DedicatedTenancySupport,
+			DedicatedTenancyManagementCidrRange: m.DedicatedTenancyManagementCidrRange,
+			StartTime:                           awstime.Epoch(m.StartTime),
+		})
+	}
+
+	return &describeAccountModificationsOutput{
+		AccountModifications: items,
+		NextToken:            nextToken,
+	}, nil
 }
 
 type modifyAccountInput struct {
@@ -72,9 +104,17 @@ type listAvailableManagementCidrRangesOutput struct {
 }
 
 func (h *Handler) handleListAvailableManagementCidrRanges(
-	_ context.Context, _ *listAvailableManagementCidrRangesInput,
+	_ context.Context, req *listAvailableManagementCidrRangesInput,
 ) (*listAvailableManagementCidrRangesOutput, error) {
+	ranges, nextToken, err := h.Backend.ListAvailableManagementCidrRanges(
+		req.ManagementCidrRangeConstraint, req.MaxResults, req.NextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &listAvailableManagementCidrRangesOutput{
-		ManagementCidrRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
+		ManagementCidrRanges: ranges,
+		NextToken:            nextToken,
 	}, nil
 }

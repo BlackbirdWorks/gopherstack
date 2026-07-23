@@ -5,10 +5,36 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
+
+// associatedResourceTypeApplication is the only real enum value for both
+// ImageAssociatedResourceType and BundleAssociatedResourceType (verified
+// against the SDK's types.ImageAssociatedResourceType /
+// types.BundleAssociatedResourceType, which each carry a single "APPLICATION"
+// value) -- the WorkSpaces Application Manager feature only associates
+// applications with images/bundles.
+const associatedResourceTypeApplication = "APPLICATION"
+
+// validateAssociatedResourceTypes validates the required AssociatedResourceTypes
+// field shared by DescribeImageAssociations/DescribeBundleAssociations.
+func validateAssociatedResourceTypes(types []string) error {
+	if len(types) == 0 {
+		return awserr.New("AssociatedResourceTypes is required", awserr.ErrInvalidParameter)
+	}
+
+	for _, t := range types {
+		if t != associatedResourceTypeApplication {
+			return awserr.Newf(
+				"invalid AssociatedResourceType %q", awserr.ErrInvalidParameter, t)
+		}
+	}
+
+	return nil
+}
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
@@ -56,6 +82,7 @@ func (b *InMemoryBackend) Reset() {
 	b.clientProperties = make(map[string]storedClientProps)
 	b.appAssociations = make(map[string]map[string]struct{})
 	b.accountConfig = storedAccountConfig{}
+	b.accountModifications = nil
 	b.counter = 0
 }
 

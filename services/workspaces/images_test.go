@@ -43,13 +43,19 @@ func TestWorkspaceImageCRUD(t *testing.T) { //nolint:paralleltest // existing is
 			},
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
-				var out map[string]string
+				// Created is a wire-format epoch-seconds number (not a
+				// string), so decode into map[string]any rather than
+				// map[string]string.
+				var out map[string]any
 				decodeJSON(t, body, &out)
 				if out["ImageId"] == "" {
 					t.Fatal("expected ImageId")
 				}
 				if out["State"] != "AVAILABLE" {
-					t.Fatalf("expected AVAILABLE state, got %s", out["State"])
+					t.Fatalf("expected AVAILABLE state, got %v", out["State"])
+				}
+				if created, ok := out["Created"].(float64); !ok || created <= 0 {
+					t.Fatalf("expected positive numeric Created, got %v", out["Created"])
 				}
 			},
 		},

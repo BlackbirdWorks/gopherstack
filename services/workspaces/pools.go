@@ -5,13 +5,23 @@ import (
 	"time"
 )
 
+// poolsRunningModeAlwaysOn is the default running mode for a newly created
+// pool when the caller doesn't specify RunningMode (real CreateWorkspacesPoolInput
+// makes RunningMode optional).
+const poolsRunningModeAlwaysOn = "ALWAYS_ON"
+
 // CreateWorkspacesPool creates a new workspace pool.
 func (b *InMemoryBackend) CreateWorkspacesPool(
-	poolName, bundleID, directoryID, description string,
+	poolName, bundleID, directoryID, description, runningMode string,
+	desiredUserSessions int32,
 	tags map[string]string,
 ) (*storedPool, error) {
 	b.mu.Lock("CreateWorkspacesPool")
 	defer b.mu.Unlock()
+
+	if runningMode == "" {
+		runningMode = poolsRunningModeAlwaysOn
+	}
 
 	id := b.nextID("wsp-")
 	arn := fmt.Sprintf(
@@ -20,15 +30,17 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 	)
 
 	pool := &storedPool{
-		PoolID:      id,
-		PoolArn:     arn,
-		PoolName:    poolName,
-		BundleID:    bundleID,
-		DirectoryID: directoryID,
-		Description: description,
-		State:       "RUNNING",
-		CreatedAt:   time.Now().UTC(),
-		Tags:        cloneTags(tags),
+		PoolID:              id,
+		PoolArn:             arn,
+		PoolName:            poolName,
+		BundleID:            bundleID,
+		DirectoryID:         directoryID,
+		Description:         description,
+		State:               "RUNNING",
+		RunningMode:         runningMode,
+		DesiredUserSessions: desiredUserSessions,
+		CreatedAt:           time.Now().UTC(),
+		Tags:                cloneTags(tags),
 	}
 	b.pools.Put(pool)
 
@@ -105,9 +117,12 @@ func (b *InMemoryBackend) TerminateWorkspacesPool(poolID string) error {
 	return nil
 }
 
-// UpdateWorkspacesPool updates pool fields.
+// UpdateWorkspacesPool updates pool fields. Fields left at their zero value
+// (empty string / zero int) are left unchanged, matching the real API's
+// "only specified fields are updated" partial-update semantics.
 func (b *InMemoryBackend) UpdateWorkspacesPool(
-	poolID, description, bundleID, directoryID string,
+	poolID, description, bundleID, directoryID, runningMode string,
+	desiredUserSessions int32,
 ) (*storedPool, error) {
 	b.mu.Lock("UpdateWorkspacesPool")
 	defer b.mu.Unlock()
@@ -127,6 +142,14 @@ func (b *InMemoryBackend) UpdateWorkspacesPool(
 
 	if directoryID != "" {
 		p.DirectoryID = directoryID
+	}
+
+	if runningMode != "" {
+		p.RunningMode = runningMode
+	}
+
+	if desiredUserSessions != 0 {
+		p.DesiredUserSessions = desiredUserSessions
 	}
 
 	cp := *p

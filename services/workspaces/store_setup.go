@@ -21,16 +21,19 @@ package workspaces
 // under a parent, so no secondary store.Index is needed either.
 //
 // Left as plain maps (not store.Table-backed) -- see the field comments on
-// InMemoryBackend in backend.go for the full audit of which stayed persisted
-// and which were (and remain) ephemeral:
-//   - tags (map[string]map[string]string): values are plain maps, not *T.
-//   - directoryIpGroups (map[string]map[string]struct{}),
-//     imagePermissions (map[string]map[string]bool),
-//     appAssociations (map[string]map[string]struct{}): same reason, and
-//     also weren't persisted pre-Phase-3.3.
+// InMemoryBackend in backend.go for the full audit of which are persisted
+// (directly in backendSnapshot, not via b.registry) and which remain
+// ephemeral:
+//   - tags (map[string]map[string]string) and directoryIpGroups
+//     (map[string]map[string]struct{}) are persisted directly in
+//     backendSnapshot (see persistence.go); values are plain maps, not *T,
+//     so store.Table does not apply.
+//   - imagePermissions (map[string]map[string]bool) and appAssociations
+//     (map[string]map[string]struct{}) remain unpersisted -- ephemeral, same
+//     "not *T" reason.
 //   - clientProperties (map[string]storedClientProps): values are not
 //     pointers, and storedClientProps carries no identity field of its own
-//     to key a store.Table by.
+//     to key a store.Table by; also unpersisted.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func workspaceKeyFn(v *storedWorkspace) string { return v.WorkspaceID }
