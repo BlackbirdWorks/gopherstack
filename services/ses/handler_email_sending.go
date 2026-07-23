@@ -22,6 +22,7 @@ func (h *Handler) handleSendEmail(vals url.Values, reqID string) (any, error) {
 		ConfigurationSetName: vals.Get("ConfigurationSetName"),
 		Tags:                 parseSESTags(vals, "Tags"),
 		ReturnPath:           vals.Get("ReturnPath"),
+		ReturnPathArn:        vals.Get("ReturnPathArn"),
 		SourceArn:            vals.Get("SourceArn"),
 	})
 	if err != nil {
@@ -39,6 +40,7 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 	rawData := vals.Get("RawMessage.Data")
 	source := vals.Get("Source")
 	returnPath := vals.Get("ReturnPath")
+	returnPathArn := vals.Get("ReturnPathArn")
 	sourceArn := vals.Get("SourceArn")
 	configSetName := vals.Get("ConfigurationSetName")
 	tags := parseSESTags(vals, "Tags")
@@ -72,6 +74,7 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 		ConfigurationSetName: configSetName,
 		Tags:                 tags,
 		ReturnPath:           returnPath,
+		ReturnPathArn:        returnPathArn,
 		SourceArn:            sourceArn,
 	})
 	if sendErr != nil {
@@ -97,6 +100,7 @@ func (h *Handler) handleSendTemplatedEmail(vals url.Values, reqID string) (any, 
 		ConfigurationSetName: vals.Get("ConfigurationSetName"),
 		Tags:                 parseSESTags(vals, "Tags"),
 		ReturnPath:           vals.Get("ReturnPath"),
+		ReturnPathArn:        vals.Get("ReturnPathArn"),
 		SourceArn:            vals.Get("SourceArn"),
 	})
 	if err != nil {
@@ -167,15 +171,47 @@ func parseBouncedRecipients(vals url.Values, prefix string) []string {
 }
 
 func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (any, error) {
-	source := vals.Get("Source")
-	template := vals.Get("Template")
-	defaultTemplateData := vals.Get("DefaultTemplateData")
-	configSetName := vals.Get("ConfigurationSetName")
-	returnPath := vals.Get("ReturnPath")
-	sourceArn := vals.Get("SourceArn")
-	replyTo := parseSESMemberList(vals, "ReplyToAddresses")
+	in := SendBulkTemplatedEmailInput{
+		Source:               vals.Get("Source"),
+		TemplateName:         vals.Get("Template"),
+		DefaultTemplateData:  vals.Get("DefaultTemplateData"),
+		ConfigurationSetName: vals.Get("ConfigurationSetName"),
+		ReturnPath:           vals.Get("ReturnPath"),
+		ReturnPathArn:        vals.Get("ReturnPathArn"),
+		SourceArn:            vals.Get("SourceArn"),
+		ReplyTo:              parseSESMemberList(vals, "ReplyToAddresses"),
+		DefaultTags:          parseSESTags(vals, "DefaultTags"),
+		Destinations:         parseBulkEmailDestinations(vals),
+	}
 
-	// Collect per-destination data.
+	// AWS SES rejects SendBulkTemplatedEmail with more than 50 destinations.
+	const maxBulkDestinations = 50
+	if len(in.Destinations) > maxBulkDestinations {
+		return nil, fmt.Errorf("%w: too many destinations: %d (max %d)",
+			ErrInvalidParameter, len(in.Destinations), maxBulkDestinations)
+	}
+
+	msgIDs, err := h.Backend.SendBulkTemplatedEmail(in)
+	if err != nil {
+		return nil, err
+	}
+
+	statuses := make([]xmlBulkEmailDestStatus, 0, len(msgIDs))
+	for _, id := range msgIDs {
+		statuses = append(statuses, xmlBulkEmailDestStatus{MessageID: id, Status: identityStatusSuccess})
+	}
+
+	return &sendBulkTemplatedEmailResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+		Result:    sendBulkTemplatedEmailResult{Status: xmlBulkStatusList{Members: statuses}},
+	}, nil
+}
+
+// parseBulkEmailDestinations parses the "Destinations.member.N.*" form values
+// into a slice of BulkEmailDestination, including each destination's
+// ReplacementTags.member.M.{Name,Value} tag overrides.
+func parseBulkEmailDestinations(vals url.Values) []BulkEmailDestination {
 	var destinations []BulkEmailDestination
 
 	for i := 1; ; i++ {
@@ -193,33 +229,11 @@ func (h *Handler) handleSendBulkTemplatedEmail(vals url.Values, reqID string) (a
 			Cc:                      cc,
 			Bcc:                     bcc,
 			ReplacementTemplateData: vals.Get(prefix + ".ReplacementTemplateData"),
+			ReplacementTags:         parseSESTags(vals, prefix+".ReplacementTags"),
 		})
 	}
 
-	// AWS SES rejects SendBulkTemplatedEmail with more than 50 destinations.
-	const maxBulkDestinations = 50
-	if len(destinations) > maxBulkDestinations {
-		return nil, fmt.Errorf("%w: too many destinations: %d (max %d)",
-			ErrInvalidParameter, len(destinations), maxBulkDestinations)
-	}
-
-	msgIDs, err := h.Backend.SendBulkTemplatedEmail(
-		source, template, defaultTemplateData, configSetName, returnPath, sourceArn, replyTo, destinations,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	statuses := make([]xmlBulkEmailDestStatus, 0, len(msgIDs))
-	for _, id := range msgIDs {
-		statuses = append(statuses, xmlBulkEmailDestStatus{MessageID: id, Status: identityStatusSuccess})
-	}
-
-	return &sendBulkTemplatedEmailResponse{
-		Xmlns:     sesXMLNS,
-		RequestID: reqID,
-		Result:    sendBulkTemplatedEmailResult{Status: xmlBulkStatusList{Members: statuses}},
-	}, nil
+	return destinations
 }
 
 type sendBounceResponse struct {

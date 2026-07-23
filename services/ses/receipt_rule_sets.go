@@ -129,6 +129,12 @@ func (b *InMemoryBackend) DescribeReceiptRuleSet(name string) (ReceiptRuleSet, e
 }
 
 // DeleteReceiptRuleSet removes a receipt rule set and its rules.
+// Matching real AWS SES ("The currently active rule set cannot be deleted."),
+// deleting the currently active rule set is rejected with
+// ErrReceiptRuleSetActive (wire code CannotDelete) rather than silently
+// clearing the active pointer; the caller must first call
+// SetActiveReceiptRuleSet with a different name (or "") before the delete
+// will succeed.
 func (b *InMemoryBackend) DeleteReceiptRuleSet(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return fmt.Errorf("%w: RuleSetName is required", ErrInvalidParameter)
@@ -138,10 +144,10 @@ func (b *InMemoryBackend) DeleteReceiptRuleSet(name string) error {
 	if !b.receiptRuleSets.Has(name) {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, name)
 	}
-	b.receiptRuleSets.Delete(name)
 	if b.activeRuleSet == name {
-		b.activeRuleSet = ""
+		return fmt.Errorf("%w: %s is the currently active rule set", ErrReceiptRuleSetActive, name)
 	}
+	b.receiptRuleSets.Delete(name)
 
 	return nil
 }
