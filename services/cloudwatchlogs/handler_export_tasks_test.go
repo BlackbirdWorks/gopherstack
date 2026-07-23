@@ -36,6 +36,79 @@ func TestHandler_ExportTask_CancelRoundTrip(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// TestHandler_DescribeExportTasks_WireShape locks the AWS wire shape for
+// ExportTask (aws-sdk-go-v2 types.ExportTask): Status is a nested
+// {code, message} object (types.ExportTaskStatus) and the creation/completion
+// timestamps live under a nested executionInfo object
+// (types.ExportTaskExecutionInfo), not as flat top-level fields. A real SDK
+// client's generated deserializer only reads status.code/status.message and
+// executionInfo.creationTime/executionInfo.completionTime -- it would see nil
+// for all four if this handler emitted the flat internal-model shape.
+func TestHandler_DescribeExportTasks_WireShape(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	cloudwatchlogs.AddExportTaskInternal(backend, cloudwatchlogs.ExportTask{
+		TaskID:         "t1",
+		TaskName:       "my-task",
+		LogGroupName:   "/grp",
+		Destination:    "my-bucket",
+		Status:         "COMPLETED",
+		StatusMessage:  "Completed successfully. Exported 3 log events.",
+		From:           1000,
+		To:             2000,
+		CreationTime:   1700000000000,
+		CompletionTime: 1700000005000,
+	})
+
+	rec := doLogsRequest(t, h, e, "DescribeExportTasks", `{}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		ExportTasks []struct {
+			Status *struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"status"`
+			ExecutionInfo *struct {
+				CreationTime   int64 `json:"creationTime"`
+				CompletionTime int64 `json:"completionTime"`
+			} `json:"executionInfo"`
+			TaskID string `json:"taskId"`
+		} `json:"exportTasks"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.ExportTasks, 1)
+
+	task := out.ExportTasks[0]
+	assert.Equal(t, "t1", task.TaskID)
+	require.NotNil(t, task.Status, "status must be a nested object, not a flat string")
+	assert.Equal(t, "COMPLETED", task.Status.Code)
+	assert.Equal(t, "Completed successfully. Exported 3 log events.", task.Status.Message)
+	require.NotNil(t, task.ExecutionInfo, "executionInfo must be a nested object")
+	assert.Equal(t, int64(1700000000000), task.ExecutionInfo.CreationTime)
+	assert.Equal(t, int64(1700000005000), task.ExecutionInfo.CompletionTime)
+
+	// The raw JSON must not carry the old flat keys at the top level of an
+	// export task entry.
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	rawTasks, ok := raw["exportTasks"].([]any)
+	require.True(t, ok)
+	require.Len(t, rawTasks, 1)
+	rawTask, ok := rawTasks[0].(map[string]any)
+	require.True(t, ok)
+	_, hasFlatStatusMessage := rawTask["statusMessage"]
+	assert.False(t, hasFlatStatusMessage, "statusMessage must not appear flat on the export task")
+	_, hasFlatCreationTime := rawTask["creationTime"]
+	assert.False(t, hasFlatCreationTime, "creationTime must not appear flat on the export task")
+	_, hasFlatCompletionTime := rawTask["completionTime"]
+	assert.False(t, hasFlatCompletionTime, "completionTime must not appear flat on the export task")
+}
+
 func TestHandler_ImportTask_CancelRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -69,6 +142,48 @@ func TestHandler_ImportTask_CancelRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cancelOut))
 	assert.Equal(t, importID, cancelOut["importId"])
 	assert.Equal(t, "CANCELLED", cancelOut["importStatus"])
+}
+
+// TestHandler_DescribeImportTasks_WireShape locks the AWS wire key for an
+// import task's status field: aws-sdk-go-v2 types.Import.ImportStatus
+// serializes to "importStatus", not "status" (unlike, say, ExportTask's
+// nested status object -- Import's status is a bare string, just under a
+// different key name than this backend's internal ImportTask.Status Go field
+// name might suggest). ImportRoleArn is also asserted absent: it is not a
+// field on the real Import describe/list type at all.
+func TestHandler_DescribeImportTasks_WireShape(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	cloudwatchlogs.AddImportTaskInternal(backend, cloudwatchlogs.ImportTask{
+		ImportID:             "i1",
+		ImportSourceArn:      "arn:aws:cloudtrail:us-east-1:123:eventdatastore/abc",
+		ImportRoleArn:        "arn:aws:iam::123:role/my-role",
+		ImportDestinationArn: "arn:aws:logs:us-east-1:123:log-group:/aws/import",
+		Status:               "IN_PROGRESS",
+		CreationTime:         1700000000000,
+		LastUpdatedTime:      1700000001000,
+	})
+
+	rec := doLogsRequest(t, h, e, "DescribeImportTasks", `{}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	tasks, ok := raw["importTasks"].([]any)
+	require.True(t, ok)
+	require.Len(t, tasks, 1)
+	task, ok := tasks[0].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, "IN_PROGRESS", task["importStatus"], "wire key must be importStatus, not status")
+	_, hasStatus := task["status"]
+	assert.False(t, hasStatus, "bare \"status\" key must not appear on an import task")
+	_, hasImportRoleArn := task["importRoleArn"]
+	assert.False(t, hasImportRoleArn, "importRoleArn is not part of the real Import describe/list shape")
 }
 
 func TestHandler_CancelExportTask_StateValidation(t *testing.T) {
@@ -140,8 +255,11 @@ func TestHandler_CancelImportTask_StateValidation(t *testing.T) {
 		wantCode   int
 	}{
 		{
-			name:       "cancel_active_succeeds",
-			seedStatus: "ACTIVE",
+			// aws-sdk-go-v2 types.ImportStatus's in-progress member is
+			// IN_PROGRESS, not ACTIVE (that value belongs to a different
+			// enum, IntegrationStatus).
+			name:       "cancel_in_progress_succeeds",
+			seedStatus: "IN_PROGRESS",
 			wantCode:   http.StatusOK,
 		},
 		{
@@ -150,8 +268,10 @@ func TestHandler_CancelImportTask_StateValidation(t *testing.T) {
 			wantCode:   http.StatusBadRequest,
 		},
 		{
-			name:       "cancel_succeeded_task_fails",
-			seedStatus: "SUCCEEDED",
+			// aws-sdk-go-v2 types.ImportStatus's terminal-success member is
+			// COMPLETED, not SUCCEEDED.
+			name:       "cancel_completed_task_fails",
+			seedStatus: "COMPLETED",
 			wantCode:   http.StatusBadRequest,
 		},
 		{

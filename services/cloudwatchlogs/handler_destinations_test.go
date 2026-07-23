@@ -133,6 +133,51 @@ func TestHandler_Destination(t *testing.T) {
 	}
 }
 
+// TestHandler_Destination_WireShapeIncludesCreationTimeAndAccessPolicy locks
+// the full aws-sdk-go-v2 types.Destination wire shape: accessPolicy and
+// creationTime are real top-level fields (alongside arn/destinationName/
+// roleArn/targetArn) that a previous version of this handler silently
+// dropped from PutDestination and DescribeDestinations responses.
+func TestHandler_Destination_WireShapeIncludesCreationTimeAndAccessPolicy(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+
+	putRec := doLogsRequest(t, h, e, "PutDestination",
+		`{"destinationName":"my-dest","targetArn":"arn:aws:kinesis:::stream/s","roleArn":"arn:aws:iam:::role/r"}`)
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	var putOut map[string]any
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	putDest, ok := putOut["destination"].(map[string]any)
+	require.True(t, ok)
+	ct, hasCreationTime := putDest["creationTime"]
+	assert.True(t, hasCreationTime, "PutDestination response must include creationTime")
+	assert.Greater(t, ct, float64(0))
+	_, hasAccessPolicy := putDest["accessPolicy"]
+	assert.True(t, hasAccessPolicy, "PutDestination response must include accessPolicy")
+
+	policyRec := doLogsRequest(t, h, e, "PutDestinationPolicy",
+		`{"destinationName":"my-dest","accessPolicy":"{\"Statement\":[]}"}`)
+	require.Equal(t, http.StatusOK, policyRec.Code)
+
+	describeRec := doLogsRequest(t, h, e, "DescribeDestinations", `{}`)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	var describeOut map[string]any
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut))
+	dests, ok := describeOut["destinations"].([]any)
+	require.True(t, ok)
+	require.Len(t, dests, 1)
+	dest, ok := dests[0].(map[string]any)
+	require.True(t, ok)
+	_, hasCreationTime = dest["creationTime"]
+	assert.True(t, hasCreationTime, "DescribeDestinations entries must include creationTime")
+	accessPolicy, ok := dest["accessPolicy"].(string)
+	require.True(t, ok)
+	assert.JSONEq(t, `{"Statement":[]}`, accessPolicy)
+}
+
 func TestHandler_DestinationResponseShape(t *testing.T) {
 	t.Parallel()
 

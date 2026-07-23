@@ -88,7 +88,7 @@ func exportTaskKeyFn(t *ExportTask) string                   { return t.TaskID }
 func importTaskKeyFn(t *ImportTask) string                   { return t.ImportID }
 func deliveryKeyFn(d *Delivery) string                       { return d.ID }
 func logAnomalyDetectorKeyFn(d *LogAnomalyDetector) string   { return d.AnomalyDetectorArn }
-func scheduledQueryKeyFn(q *ScheduledQuery) string           { return q.Arn }
+func scheduledQueryKeyFn(q *ScheduledQuery) string           { return q.ScheduledQueryArn }
 func queryDefinitionKeyFn(q *QueryDefinition) string         { return q.QueryDefinitionID }
 func resourcePolicyKeyFn(p *ResourcePolicy) string           { return p.PolicyName }
 func deliveryDestinationKeyFn(d *DeliveryDestination) string { return d.Name }

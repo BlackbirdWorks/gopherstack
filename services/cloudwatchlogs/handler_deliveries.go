@@ -99,12 +99,38 @@ func (h *Handler) handleDeleteDelivery(ctx context.Context, b []byte) (any, erro
 }
 
 type putDeliveryDestinationInputFull struct {
-	Name         string            `json:"name"`
-	OutputFormat string            `json:"outputFormat,omitempty"`
-	Tags         map[string]string `json:"tags,omitempty"`
-	Config       struct {
+	Name                    string            `json:"name"`
+	OutputFormat            string            `json:"outputFormat,omitempty"`
+	DeliveryDestinationType string            `json:"deliveryDestinationType,omitempty"`
+	Tags                    map[string]string `json:"tags,omitempty"`
+	Config                  struct {
 		DestinationResourceArn string `json:"destinationResourceArn"`
 	} `json:"deliveryDestinationConfiguration"`
+}
+
+// deliveryDestinationWireShape maps a DeliveryDestination to the AWS wire
+// shape (aws-sdk-go-v2 types.DeliveryDestination): the target resource ARN is
+// nested under deliveryDestinationConfiguration.destinationResourceArn (not a
+// flat string), deliveryDestinationType is a top-level sibling of that
+// object, and policy is deliberately excluded (it belongs to the separate
+// GetDeliveryDestinationPolicy operation, not this type).
+func deliveryDestinationWireShape(d *DeliveryDestination) map[string]any {
+	shape := map[string]any{
+		keyName:        d.Name,
+		keyArn:         d.Arn,
+		"outputFormat": d.OutputFormat,
+		"deliveryDestinationConfiguration": map[string]any{
+			"destinationResourceArn": d.TargetArn,
+		},
+	}
+	if d.DeliveryDestinationType != "" {
+		shape["deliveryDestinationType"] = d.DeliveryDestinationType
+	}
+	if len(d.Tags) > 0 {
+		shape["tags"] = d.Tags
+	}
+
+	return shape
 }
 
 func (h *Handler) handlePutDeliveryDestination(
@@ -117,16 +143,14 @@ func (h *Handler) handlePutDeliveryDestination(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		dest, err := b.PutDeliveryDestination(in.Name, in.Config.DestinationResourceArn, in.OutputFormat, in.Tags)
+		dest, err := b.PutDeliveryDestination(
+			in.Name, in.Config.DestinationResourceArn, in.OutputFormat, in.DeliveryDestinationType, in.Tags,
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		return map[string]any{keyDeliveryDestination: map[string]any{
-			keyName:        dest.Name,
-			keyArn:         dest.Arn,
-			"outputFormat": dest.OutputFormat,
-		}}, nil
+		return map[string]any{keyDeliveryDestination: deliveryDestinationWireShape(dest)}, nil
 	}
 
 	return map[string]any{keyDeliveryDestination: map[string]any{}}, nil
@@ -151,11 +175,7 @@ func (h *Handler) handleGetDeliveryDestination(
 			return nil, err
 		}
 
-		return map[string]any{keyDeliveryDestination: map[string]any{
-			keyName:        dest.Name,
-			keyArn:         dest.Arn,
-			"outputFormat": dest.OutputFormat,
-		}}, nil
+		return map[string]any{keyDeliveryDestination: deliveryDestinationWireShape(dest)}, nil
 	}
 
 	return map[string]any{keyDeliveryDestination: map[string]any{}}, nil
@@ -168,8 +188,8 @@ func (h *Handler) handleDescribeDeliveryDestinations(
 	if b := cwlBackend(h); b != nil {
 		dests := b.DescribeDeliveryDestinations()
 		out := make([]map[string]any, 0, len(dests))
-		for _, d := range dests {
-			out = append(out, map[string]any{keyName: d.Name, keyArn: d.Arn})
+		for i := range dests {
+			out = append(out, deliveryDestinationWireShape(&dests[i]))
 		}
 
 		return map[string]any{"deliveryDestinations": out}, nil
@@ -273,10 +293,36 @@ func (h *Handler) handleDeleteDeliveryDestinationPolicy(
 }
 
 type putDeliverySourceInput struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	Name         string            `json:"name"`
-	LogType      string            `json:"logType,omitempty"`
-	ResourceArns []string          `json:"resourceArns,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Name        string            `json:"name"`
+	LogType     string            `json:"logType,omitempty"`
+	ResourceArn string            `json:"resourceArn,omitempty"`
+}
+
+// deliverySourceWireShape maps a DeliverySource to the AWS wire shape
+// (aws-sdk-go-v2 types.DeliverySource): name, arn, logType, resourceArns
+// (array), service (server-derived, see serviceFromARN), and tags. A
+// previous version of these handlers returned only name/arn, silently
+// dropping every other field from Put/Get/DescribeDeliverySource responses.
+func deliverySourceWireShape(s *DeliverySource) map[string]any {
+	shape := map[string]any{
+		keyName: s.Name,
+		keyArn:  s.Arn,
+	}
+	if s.LogType != "" {
+		shape["logType"] = s.LogType
+	}
+	if s.Service != "" {
+		shape["service"] = s.Service
+	}
+	if len(s.ResourceArns) > 0 {
+		shape["resourceArns"] = s.ResourceArns
+	}
+	if len(s.Tags) > 0 {
+		shape["tags"] = s.Tags
+	}
+
+	return shape
 }
 
 func (h *Handler) handlePutDeliverySource(
@@ -288,16 +334,18 @@ func (h *Handler) handlePutDeliverySource(
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
+	var resourceArns []string
+	if in.ResourceArn != "" {
+		resourceArns = []string{in.ResourceArn}
+	}
+
 	if b := cwlBackend(h); b != nil {
-		src, err := b.PutDeliverySource(in.Name, in.LogType, in.ResourceArns, in.Tags)
+		src, err := b.PutDeliverySource(in.Name, in.LogType, resourceArns, in.Tags)
 		if err != nil {
 			return nil, err
 		}
 
-		return map[string]any{keyDeliverySource: map[string]any{
-			keyName: src.Name,
-			keyArn:  src.Arn,
-		}}, nil
+		return map[string]any{keyDeliverySource: deliverySourceWireShape(src)}, nil
 	}
 
 	return map[string]any{keyDeliverySource: map[string]any{}}, nil
@@ -322,10 +370,7 @@ func (h *Handler) handleGetDeliverySource(
 			return nil, err
 		}
 
-		return map[string]any{keyDeliverySource: map[string]any{
-			keyName: src.Name,
-			keyArn:  src.Arn,
-		}}, nil
+		return map[string]any{keyDeliverySource: deliverySourceWireShape(src)}, nil
 	}
 
 	return map[string]any{keyDeliverySource: map[string]any{}}, nil
@@ -338,8 +383,8 @@ func (h *Handler) handleDescribeDeliverySources(
 	if b := cwlBackend(h); b != nil {
 		srcs := b.DescribeDeliverySources()
 		out := make([]map[string]any, 0, len(srcs))
-		for _, s := range srcs {
-			out = append(out, map[string]any{keyName: s.Name, keyArn: s.Arn})
+		for i := range srcs {
+			out = append(out, deliverySourceWireShape(&srcs[i]))
 		}
 
 		return map[string]any{"deliverySources": out}, nil

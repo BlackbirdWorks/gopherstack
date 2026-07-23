@@ -59,7 +59,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	queryARN := arn.Build("logs", b.region, b.accountID, "scheduled-query:"+id)
 
 	sq := &ScheduledQuery{
-		Arn:                queryARN,
+		ScheduledQueryArn:  queryARN,
 		Name:               name,
 		QueryString:        queryString,
 		ScheduleExpression: scheduleExpression,

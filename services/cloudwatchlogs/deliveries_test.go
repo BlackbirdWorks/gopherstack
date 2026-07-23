@@ -136,7 +136,7 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			name: "put_get_describe_delete",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				dest, err := b.PutDeliveryDestination("my-dest", "arn:aws:s3:::my-bucket", "JSON", nil)
+				dest, err := b.PutDeliveryDestination("my-dest", "arn:aws:s3:::my-bucket", "JSON", "S3", nil)
 				require.NoError(t, err)
 				assert.Equal(t, "my-dest", dest.Name)
 				assert.NotEmpty(t, dest.Arn)
@@ -161,9 +161,9 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			name: "put_updates_existing",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliveryDestination("dest1", "arn:aws:s3:::old", "JSON", nil)
+				_, err := b.PutDeliveryDestination("dest1", "arn:aws:s3:::old", "JSON", "S3", nil)
 				require.NoError(t, err)
-				_, err = b.PutDeliveryDestination("dest1", "arn:aws:s3:::new", "TEXT", nil)
+				_, err = b.PutDeliveryDestination("dest1", "arn:aws:s3:::new", "TEXT", "S3", nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -194,7 +194,7 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			name: "policy_put_get_delete",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliveryDestination("policy-dest", "arn:aws:s3:::bucket", "JSON", nil)
+				_, err := b.PutDeliveryDestination("policy-dest", "arn:aws:s3:::bucket", "JSON", "S3", nil)
 				require.NoError(t, err)
 				err = b.PutDeliveryDestinationPolicy("policy-dest", `{"Statement":[]}`)
 				require.NoError(t, err)
@@ -225,7 +225,7 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			name: "put_empty_name_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliveryDestination("", "arn:aws:s3:::b", "JSON", nil)
+				_, err := b.PutDeliveryDestination("", "arn:aws:s3:::b", "JSON", "S3", nil)
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
 			},
 		},
@@ -233,9 +233,9 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 			name: "describe_sorted_by_name",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutDeliveryDestination("z-dest", "arn:aws:s3:::z", "JSON", nil)
+				_, err := b.PutDeliveryDestination("z-dest", "arn:aws:s3:::z", "JSON", "S3", nil)
 				require.NoError(t, err)
-				_, err = b.PutDeliveryDestination("a-dest", "arn:aws:s3:::a", "JSON", nil)
+				_, err = b.PutDeliveryDestination("a-dest", "arn:aws:s3:::a", "JSON", "S3", nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -244,6 +244,38 @@ func TestDeliveryDestination_CRUD(t *testing.T) {
 				require.Len(t, dests, 2)
 				assert.Equal(t, "a-dest", dests[0].Name)
 				assert.Equal(t, "z-dest", dests[1].Name)
+			},
+		},
+		{
+			// aws-sdk-go-v2 types.DeliveryDestinationType's only members are
+			// S3/CWL/FH/XRAY.
+			name: "invalid_destination_type_errors",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutDeliveryDestination("bad-type-dest", "arn:aws:s3:::b", "JSON", "GCS", nil)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+			},
+		},
+		{
+			name: "destination_type_persisted_and_updatable",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				dest, err := b.PutDeliveryDestination("typed-dest", "arn:aws:firehose:::stream/s", "JSON", "FH", nil)
+				require.NoError(t, err)
+				assert.Equal(t, "FH", dest.DeliveryDestinationType)
+
+				// An empty destinationType on update leaves the stored value
+				// unchanged rather than clearing it, matching how
+				// PutDeliveryDestination treats other optional fields.
+				dest, err = b.PutDeliveryDestination("typed-dest", "arn:aws:firehose:::stream/s2", "JSON", "", nil)
+				require.NoError(t, err)
+				assert.Equal(t, "FH", dest.DeliveryDestinationType)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				got, err := b.GetDeliveryDestination("typed-dest")
+				require.NoError(t, err)
+				assert.Equal(t, "FH", got.DeliveryDestinationType)
 			},
 		},
 	}
@@ -291,6 +323,7 @@ func TestDeliverySource_CRUD(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "APPLICATION_LOGS", got.LogType)
 				assert.Len(t, got.ResourceArns, 1)
+				assert.Equal(t, "ec2", got.Service, "service must be derived from the resource ARN")
 
 				srcs := b.DescribeDeliverySources()
 				require.Len(t, srcs, 1)
