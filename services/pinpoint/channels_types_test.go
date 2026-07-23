@@ -245,6 +245,13 @@ func TestChannel_SMS_ShortCode(t *testing.T) {
 	assert.Equal(t, true, ch["Enabled"])
 }
 
+// TestSMSChannel_PerTypeFields locks SMSChannelRequest's real wire shape:
+// only Enabled/SenderId/ShortCode are request fields (confirmed against
+// aws-sdk-go-v2/service/pinpoint/types.SMSChannelRequest).
+// PromotionalMessagesPerSecond/TransactionalMessagesPerSecond exist only on
+// SMSChannelResponse (AWS-computed account throughput) and must NOT be
+// settable via PUT -- a prior pass had invented request-side support for
+// them; removed.
 func TestSMSChannel_PerTypeFields(t *testing.T) {
 	t.Parallel()
 
@@ -254,23 +261,17 @@ func TestSMSChannel_PerTypeFields(t *testing.T) {
 		wantSenderID  string
 		wantShortCode string
 		wantEnabled   bool
-		wantPromoRate int
-		wantTransRate int
 	}{
 		{
 			name: "sms_full_fields",
 			body: map[string]any{
-				"Enabled":                        true,
-				"SenderId":                       "MYBRAND",
-				"ShortCode":                      "55555",
-				"PromotionalMessagesPerSecond":   10,
-				"TransactionalMessagesPerSecond": 20,
+				"Enabled":   true,
+				"SenderId":  "MYBRAND",
+				"ShortCode": "55555",
 			},
 			wantEnabled:   true,
 			wantSenderID:  "MYBRAND",
 			wantShortCode: "55555",
-			wantPromoRate: 10,
-			wantTransRate: 20,
 		},
 		{
 			name: "sms_sender_only",
@@ -306,6 +307,8 @@ func TestSMSChannel_PerTypeFields(t *testing.T) {
 			require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
 
 			assert.Equal(t, tc.wantEnabled, putResp["Enabled"])
+			assert.NotContains(t, putResp, "PromotionalMessagesPerSecond")
+			assert.NotContains(t, putResp, "TransactionalMessagesPerSecond")
 
 			if tc.wantSenderID != "" {
 				assert.Equal(t, tc.wantSenderID, putResp["SenderId"])
@@ -313,14 +316,6 @@ func TestSMSChannel_PerTypeFields(t *testing.T) {
 
 			if tc.wantShortCode != "" {
 				assert.Equal(t, tc.wantShortCode, putResp["ShortCode"])
-			}
-
-			if tc.wantPromoRate > 0 {
-				assert.EqualValues(t, tc.wantPromoRate, putResp["PromotionalMessagesPerSecond"])
-			}
-
-			if tc.wantTransRate > 0 {
-				assert.EqualValues(t, tc.wantTransRate, putResp["TransactionalMessagesPerSecond"])
 			}
 
 			// GET must round-trip the same values.
@@ -341,16 +336,6 @@ func TestSMSChannel_PerTypeFields(t *testing.T) {
 			if tc.wantShortCode != "" {
 				assert.Equal(t, tc.wantShortCode, getResp["ShortCode"],
 					"GET must persist ShortCode")
-			}
-
-			if tc.wantPromoRate > 0 {
-				assert.EqualValues(t, tc.wantPromoRate, getResp["PromotionalMessagesPerSecond"],
-					"GET must persist PromotionalMessagesPerSecond")
-			}
-
-			if tc.wantTransRate > 0 {
-				assert.EqualValues(t, tc.wantTransRate, getResp["TransactionalMessagesPerSecond"],
-					"GET must persist TransactionalMessagesPerSecond")
 			}
 		})
 	}
@@ -443,6 +428,9 @@ func TestAPNSChannel_PerTypeFields(t *testing.T) {
 	assert.Equal(t, true, resp["HasCredential"])
 }
 
+// TestEmailChannel_PerTypeFields also covers OrchestrationSendingRoleArn,
+// field-diffed against EmailChannelRequest/EmailChannelResponse
+// (aws-sdk-go-v2/service/pinpoint/types) -- a prior pass omitted it entirely.
 func TestEmailChannel_PerTypeFields(t *testing.T) {
 	t.Parallel()
 
@@ -452,11 +440,12 @@ func TestEmailChannel_PerTypeFields(t *testing.T) {
 	putRec := doPinpointRequest(t, h, http.MethodPut,
 		"/v1/apps/"+appID+"/channels/email",
 		map[string]any{
-			"Enabled":          true,
-			"FromAddress":      "noreply@example.com",
-			"Identity":         "arn:aws:ses:us-east-1:123456789012:identity/example.com",
-			"RoleArn":          "arn:aws:iam::123456789012:role/email-role",
-			"ConfigurationSet": "my-config-set",
+			"Enabled":                     true,
+			"FromAddress":                 "noreply@example.com",
+			"Identity":                    "arn:aws:ses:us-east-1:123456789012:identity/example.com",
+			"RoleArn":                     "arn:aws:iam::123456789012:role/email-role",
+			"ConfigurationSet":            "my-config-set",
+			"OrchestrationSendingRoleArn": "arn:aws:iam::123456789012:role/orchestration-role",
 		})
 	require.Equal(t, http.StatusOK, putRec.Code)
 
@@ -467,6 +456,7 @@ func TestEmailChannel_PerTypeFields(t *testing.T) {
 	assert.Equal(t, "arn:aws:ses:us-east-1:123456789012:identity/example.com", resp["Identity"])
 	assert.Equal(t, "arn:aws:iam::123456789012:role/email-role", resp["RoleArn"])
 	assert.Equal(t, "my-config-set", resp["ConfigurationSet"])
+	assert.Equal(t, "arn:aws:iam::123456789012:role/orchestration-role", resp["OrchestrationSendingRoleArn"])
 	assert.Equal(t, true, resp["HasCredential"])
 
 	// GET must round-trip.
@@ -479,6 +469,8 @@ func TestEmailChannel_PerTypeFields(t *testing.T) {
 
 	assert.Equal(t, "noreply@example.com", getResp["FromAddress"])
 	assert.Equal(t, "my-config-set", getResp["ConfigurationSet"])
+	assert.Equal(t, "arn:aws:iam::123456789012:role/orchestration-role", getResp["OrchestrationSendingRoleArn"],
+		"GET must persist OrchestrationSendingRoleArn")
 }
 
 func TestBaiduChannel_PerTypeFields(t *testing.T) {

@@ -170,6 +170,7 @@ func parseEmailChannelExtra(body []byte) (bool, map[string]any) {
 	for k, v := range map[string]string{
 		"FromAddress": req.FromAddress, "Identity": req.Identity,
 		"RoleArn": req.RoleArn, "ConfigurationSet": req.ConfigurationSet,
+		"OrchestrationSendingRoleArn": req.OrchestrationSendingRoleArn,
 	} {
 		if v != "" {
 			extra[k] = v
@@ -193,14 +194,6 @@ func parseSMSChannelExtra(body []byte) (bool, map[string]any) {
 
 	if req.ShortCode != "" {
 		extra["ShortCode"] = req.ShortCode
-	}
-
-	if req.PromotionalMessagesPerSecond > 0 {
-		extra["PromotionalMessagesPerSecond"] = req.PromotionalMessagesPerSecond
-	}
-
-	if req.TransactionalMessagesPerSecond > 0 {
-		extra["TransactionalMessagesPerSecond"] = req.TransactionalMessagesPerSecond
 	}
 
 	return req.Enabled, extra

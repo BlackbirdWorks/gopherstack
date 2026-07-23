@@ -291,13 +291,13 @@ func (b *InMemoryBackend) GetCampaignVersion(
 		}
 	}
 
-	// Fall back to current campaign if version not found in history.
-	c, ok := b.campaigns.Get(campaignID)
-	if !ok || c.ApplicationID != appID {
-		return nil, ErrAppNotFound
-	}
-
-	return cloneCampaign(c), nil
+	// AWS's GetCampaignVersion resource docs list 404 NotFoundException as
+	// the documented response when "the specified resource was not found" --
+	// a requested version number that isn't in this campaign's history is
+	// exactly that case, so it must 404 rather than silently substitute the
+	// current campaign (which would return a Version the caller didn't ask
+	// for under the version they did ask for).
+	return nil, ErrAppNotFound
 }
 
 // GetCampaignVersions returns all stored versions of a campaign.

@@ -137,11 +137,12 @@ func TestSnapshotRestoreARNIndexIntegrity(t *testing.T) {
 
 // TestSnapshotRestore_FullStateRoundTrip exercises a Snapshot->Restore round
 // trip across every store.Table the Phase 3.3 datalayer conversion produced,
-// covering both the persisted resource kinds (apps, campaigns, segments, the
-// four templates, export/import jobs, journeys, recommenders) and the
-// resource kinds that were never part of a persisted snapshot before the
-// conversion (voice templates, endpoints, event streams, channels) to confirm
-// the persisted/non-persisted split was preserved exactly.
+// covering every persisted resource kind: apps, campaigns, segments, the
+// five templates (including voice), export/import jobs, journeys,
+// recommenders, endpoints, event streams, and channels. Voice
+// templates/endpoints/event streams/channels were historically excluded from
+// the snapshot (a real parity gap, since AWS Pinpoint has no such
+// distinction) -- this test now locks that they DO survive a restart.
 func TestSnapshotRestore_FullStateRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -187,7 +188,7 @@ func TestSnapshotRestore_FullStateRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Resource kinds that have never been part of a persisted snapshot.
+	// Resource kinds that were historically excluded from the snapshot.
 	require.NoError(t, pinpoint.CreateVoiceTemplateForTest(b, region, accountID, "voice-t1", "hello"))
 	require.NoError(t, pinpoint.UpdateEndpointForTest(b, app.ID, "endpoint-1", "user@example.com"))
 	streamARN := "arn:aws:kinesis:us-east-1:123456789012:stream/x"
@@ -215,19 +216,22 @@ func TestSnapshotRestore_FullStateRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, pinpoint.ImportJobCount(b2))
 	assert.Equal(t, 1, pinpoint.RecommenderCount(b2))
 
-	// Non-persisted resource kinds must NOT survive: this is the historical
-	// behaviour, not a regression, and the round trip must preserve it.
-	_, err = b2.GetVoiceTemplate("voice-t1")
-	require.ErrorIs(t, err, pinpoint.ErrAppNotFound)
+	// Voice templates/endpoints/event streams/channels must now survive a
+	// restart -- these are store.Table-backed the same as every other
+	// resource kind, and excluding them from the snapshot was a parity gap,
+	// not intentional AWS-accurate behaviour.
+	voiceTmpl, err := b2.GetVoiceTemplate("voice-t1")
+	require.NoError(t, err)
+	assert.Equal(t, "hello", voiceTmpl.Body)
 
-	_, err = b2.GetEndpoint(app.ID, "endpoint-1")
-	require.ErrorIs(t, err, pinpoint.ErrAppNotFound)
+	endpoint, err := b2.GetEndpoint(app.ID, "endpoint-1")
+	require.NoError(t, err)
+	assert.Equal(t, "user@example.com", endpoint.Address)
 
-	_, err = b2.GetEventStream(app.ID)
-	require.ErrorIs(t, err, pinpoint.ErrAppNotFound)
+	stream, err := b2.GetEventStream(app.ID)
+	require.NoError(t, err)
+	assert.Equal(t, streamARN, stream.DestinationStreamArn)
 
-	// GetChannel synthesises a disabled default when no channel is stored,
-	// which is what a never-persisted channel must look like post-restore.
 	ch := b2.GetChannel(app.ID, "EMAIL")
-	assert.False(t, ch.Enabled)
+	assert.True(t, ch.Enabled)
 }
