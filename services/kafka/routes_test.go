@@ -376,7 +376,7 @@ func TestDescribeTopicPartitionsRealPath(t *testing.T) {
 	encodedCluster := url.PathEscape(clusterArn)
 
 	createRec := doKafkaRequest(t, h, http.MethodPost, "/v1/clusters/"+encodedCluster+"/topics",
-		map[string]any{"topicName": "orders", "replicationFactor": 1, "numPartitions": 3})
+		map[string]any{"topicName": "orders", "replicationFactor": 1, "partitionCount": 3})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	rec := doKafkaRequest(t, h, http.MethodGet,
@@ -392,21 +392,17 @@ func TestUpdateReplicationInfoStripsSuffix(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-
-	createRec := doKafkaRequest(t, h, http.MethodPost, "/replication/v1/replicators", map[string]any{
-		"replicatorName":          "route-fix-replicator",
-		"serviceExecutionRoleArn": "arn:aws:iam::000000000000:role/r",
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	replicatorArn, _ := createResp["replicatorArn"].(string)
-	require.NotEmpty(t, replicatorArn)
+	replicatorArn, currentVersion, sourceArn, targetArn := createTestReplicatorWithTopology(
+		t, h, "route-fix-replicator",
+	)
 
 	rec := doKafkaRequest(t, h, http.MethodPut,
 		"/replication/v1/replicators/"+url.PathEscape(replicatorArn)+"/replication-info",
-		map[string]any{"description": "updated"})
+		map[string]any{
+			"currentVersion":        currentVersion,
+			"sourceKafkaClusterArn": sourceArn,
+			"targetKafkaClusterArn": targetArn,
+		})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any

@@ -175,7 +175,7 @@ func TestVpcConnectionsLifecycleViaBackend(t *testing.T) {
 	clusterArn := createTestClusterOneBroker(t, h, "vpc-cluster")
 
 	// CreateVpcConnection
-	conn, err := be.CreateVpcConnection(context.Background(), clusterArn, "vpc-abc", "PLAINTEXT", nil)
+	conn, err := be.CreateVpcConnection(context.Background(), clusterArn, "vpc-abc", "PLAINTEXT", nil, nil, nil)
 	require.NoError(t, err)
 	connArn := conn.VpcConnectionArn
 
@@ -216,9 +216,12 @@ func TestVpcConnection_Lifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	vpcConnArn, _ := createResp["vpcConnectionArn"].(string)
 	require.NotEmpty(t, vpcConnArn)
-	assert.Equal(t, clusterArn, createResp["targetClusterArn"])
+	// Real CreateVpcConnectionOutput has no targetClusterArn field (unlike
+	// DescribeVpcConnectionOutput) -- it's absent from the response here.
+	assert.NotContains(t, createResp, "targetClusterArn")
 	assert.Equal(t, "vpc-abc123", createResp["vpcId"])
 	assert.NotEmpty(t, createResp["state"])
+	assert.NotEmpty(t, createResp["creationTime"])
 
 	encodedVpc := url.PathEscape(vpcConnArn)
 
@@ -273,8 +276,18 @@ func TestVpcConnection_ListClientVpcConnections(t *testing.T) {
 
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	conns, _ := listResp["vpcConnections"].([]any)
-	assert.Len(t, conns, 2, "should list both VPC connections for this cluster")
+	// Real ListClientVpcConnectionsOutput carries its array under the
+	// distinct "clientVpcConnections" key (not "vpcConnections", which is
+	// ListVpcConnections' key -- a different operation with a different
+	// element shape, see clientVpcConnectionOutput).
+	conns, _ := listResp["clientVpcConnections"].([]any)
+	require.Len(t, conns, 2, "should list both VPC connections for this cluster")
+
+	first, ok := conns[0].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, first["vpcConnectionArn"])
+	assert.NotContains(t, first, "targetClusterArn", "ClientVpcConnection has no targetClusterArn field")
+	assert.NotContains(t, first, "vpcId", "ClientVpcConnection has no vpcId field")
 }
 
 func TestVpcConnection_RejectClientVpcConnection(t *testing.T) {

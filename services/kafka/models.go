@@ -63,6 +63,17 @@ const (
 )
 
 const (
+	// TopicStateActive indicates a topic ready for use.
+	TopicStateActive = "ACTIVE"
+	// TopicStateCreating indicates a topic being created.
+	TopicStateCreating = "CREATING"
+	// TopicStateUpdating indicates a topic undergoing a configuration update.
+	TopicStateUpdating = "UPDATING"
+	// TopicStateDeleting indicates a topic being removed.
+	TopicStateDeleting = "DELETING"
+)
+
+const (
 	// EncryptionInTransitTLS requires TLS for all client-broker traffic.
 	EncryptionInTransitTLS = "TLS"
 	// EncryptionInTransitTLSPlaintext allows both TLS and plaintext.
@@ -372,23 +383,107 @@ type ScramSecretError struct {
 	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
-// Replicator represents an MSK replicator.
-type Replicator struct {
-	Tags                    map[string]string `json:"-"`
-	ReplicatorArn           string            `json:"replicatorArn"`
-	ReplicatorName          string            `json:"replicatorName"`
-	Description             string            `json:"description,omitempty"`
-	ServiceExecutionRoleArn string            `json:"serviceExecutionRoleArn"`
-	ReplicatorState         string            `json:"replicatorState"`
+// ClusterConfig describes one MSK cluster referenced by a replicator's
+// kafkaClusters list (the Create/Describe "source or target" side), mirroring
+// aws-sdk-go-v2/service/kafka/types.KafkaCluster's amazonMskCluster+vpcConfig shape.
+// Alias is never set on the persisted record -- it is resolved fresh on every
+// read (see InMemoryBackend.clusterAliasForArn) to mirror types.
+// KafkaClusterDescription.KafkaClusterAlias, which real MSK derives from the
+// referenced cluster's current name rather than storing it at creation time.
+type ClusterConfig struct {
+	MskClusterArn    string   `json:"mskClusterArn"`
+	Alias            string   `json:"-"`
+	SubnetIDs        []string `json:"subnetIds,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIds,omitempty"`
 }
 
-// Topic represents an MSK topic on a cluster.
+// TopicReplicationConfig mirrors types.TopicReplication /
+// types.TopicReplicationUpdate: the topic-replication half of a
+// ReplicationInfo entry.
+type TopicReplicationConfig struct {
+	StartingPositionType            string   `json:"startingPositionType,omitempty"`
+	TopicNameConfigurationType      string   `json:"topicNameConfigurationType,omitempty"`
+	TopicsToExclude                 []string `json:"topicsToExclude,omitempty"`
+	TopicsToReplicate               []string `json:"topicsToReplicate,omitempty"`
+	CopyAccessControlListsForTopics bool     `json:"copyAccessControlListsForTopics"`
+	CopyTopicConfigurations         bool     `json:"copyTopicConfigurations"`
+	DetectAndCopyNewTopics          bool     `json:"detectAndCopyNewTopics"`
+}
+
+// ConsumerGroupReplicationConfig mirrors types.ConsumerGroupReplication /
+// types.ConsumerGroupReplicationUpdate.
+type ConsumerGroupReplicationConfig struct {
+	ConsumerGroupsToExclude         []string `json:"consumerGroupsToExclude,omitempty"`
+	ConsumerGroupsToReplicate       []string `json:"consumerGroupsToReplicate,omitempty"`
+	DetectAndCopyNewConsumerGroups  bool     `json:"detectAndCopyNewConsumerGroups"`
+	SynchroniseConsumerGroupOffsets bool     `json:"synchroniseConsumerGroupOffsets"`
+}
+
+// ReplicationInfoConfig mirrors types.ReplicationInfo: one source-cluster to
+// target-cluster replication flow within a replicator. SourceAlias/
+// TargetAlias are resolved fresh on every read, like ClusterConfig.Alias.
+type ReplicationInfoConfig struct {
+	SourceKafkaClusterArn    string                         `json:"sourceKafkaClusterArn"`
+	TargetKafkaClusterArn    string                         `json:"targetKafkaClusterArn"`
+	TargetCompressionType    string                         `json:"targetCompressionType,omitempty"`
+	SourceAlias              string                         `json:"-"`
+	TargetAlias              string                         `json:"-"`
+	TopicReplication         TopicReplicationConfig         `json:"topicReplication"`
+	ConsumerGroupReplication ConsumerGroupReplicationConfig `json:"consumerGroupReplication"`
+}
+
+// Replicator represents an MSK replicator.
+type Replicator struct {
+	Tags                    map[string]string       `json:"-"`
+	ReplicatorArn           string                  `json:"replicatorArn"`
+	ReplicatorName          string                  `json:"replicatorName"`
+	Description             string                  `json:"description,omitempty"`
+	ServiceExecutionRoleArn string                  `json:"serviceExecutionRoleArn"`
+	ReplicatorState         string                  `json:"replicatorState"`
+	CurrentVersion          string                  `json:"currentVersion,omitempty"`
+	CreationTime            string                  `json:"creationTime,omitempty"`
+	StateInfoCode           string                  `json:"stateInfoCode,omitempty"`
+	StateInfoMessage        string                  `json:"stateInfoMessage,omitempty"`
+	KafkaClusters           []ClusterConfig         `json:"kafkaClusters,omitempty"`
+	ReplicationInfoList     []ReplicationInfoConfig `json:"replicationInfoList,omitempty"`
+}
+
+// Topic represents an MSK topic on a cluster. ClusterArn is persisted (it is
+// load-bearing for the primary key -- see topicKey/topicKeyFn -- and the
+// topicsByCluster index, both of which are rebuilt from this field on
+// Restore) but is NOT part of the real wire response; handlers must build a
+// dedicated DTO for DescribeTopic/CreateTopic/UpdateTopic responses (see
+// describeTopicOutputFrom in handler_topics.go) rather than marshaling a
+// *Topic directly, or ClusterArn would leak into the API response.
 type Topic struct {
-	ConfigEntries     map[string]string `json:"configEntries,omitempty"`
-	TopicName         string            `json:"topicName"`
-	ClusterArn        string            `json:"clusterArn"`
-	ReplicationFactor int32             `json:"replicationFactor"`
-	NumPartitions     int32             `json:"numPartitions"`
+	ClusterArn        string `json:"clusterArn"`
+	Configs           string `json:"configs,omitempty"`
+	Status            string `json:"status"`
+	TopicArn          string `json:"topicArn"`
+	TopicName         string `json:"topicName"`
+	PartitionCount    int32  `json:"partitionCount"`
+	ReplicationFactor int32  `json:"replicationFactor"`
+}
+
+// TopicInfo is the per-topic summary element returned by ListTopics, matching
+// aws-sdk-go-v2/service/kafka/types.TopicInfo. It is a distinct (smaller)
+// shape from Topic/DescribeTopicOutput: no configs/status, plus
+// outOfSyncReplicaCount.
+type TopicInfo struct {
+	TopicArn              string `json:"topicArn"`
+	TopicName             string `json:"topicName"`
+	PartitionCount        int32  `json:"partitionCount"`
+	ReplicationFactor     int32  `json:"replicationFactor"`
+	OutOfSyncReplicaCount int32  `json:"outOfSyncReplicaCount"`
+}
+
+// TopicPartitionInfo is the per-partition element returned by
+// DescribeTopicPartitions, matching types.TopicPartitionInfo.
+type TopicPartitionInfo struct {
+	Isr       []int32 `json:"isr"`
+	Replicas  []int32 `json:"replicas"`
+	Partition int32   `json:"partition"`
+	Leader    int32   `json:"leader"`
 }
 
 // VpcConnection represents an MSK VPC connection.
@@ -399,6 +494,9 @@ type VpcConnection struct {
 	VpcID            string            `json:"vpcId"`
 	Authentication   string            `json:"authentication,omitempty"`
 	State            string            `json:"state"`
+	CreationTime     string            `json:"creationTime,omitempty"`
+	SubnetIDs        []string          `json:"subnetIds,omitempty"`
+	SecurityGroupIDs []string          `json:"securityGroupIds,omitempty"`
 }
 
 // ClusterOperation represents an MSK cluster operation.

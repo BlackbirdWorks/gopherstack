@@ -3,16 +3,35 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
+	"strings"
 )
 
-// CreateTopic creates a topic on an MSK cluster.
+// topicARN builds the ARN for a topic on clusterArn, reusing the cluster's own
+// "<name>/<uuid>" resource path segment the way real MSK topic ARNs do:
+// arn:{partition}:kafka:{region}:{account}:topic/{clusterName}/{clusterUUID}/{topicName}.
+func topicARN(clusterArn, topicName string) string {
+	const clusterMarker = ":cluster/"
+
+	prefix, clusterPath, ok := strings.Cut(clusterArn, clusterMarker)
+	if !ok {
+		// Malformed/test ARN without the usual "cluster/" resource marker:
+		// fall back to appending a topic resource segment directly.
+		return clusterArn + "/topic/" + topicName
+	}
+
+	return prefix + ":topic/" + clusterPath + "/" + topicName
+}
+
+// CreateTopic creates a topic on an MSK cluster. Real MSK creates topics
+// synchronously from the caller's perspective (no polling protocol is exposed
+// for topic creation the way Cluster CREATING->ACTIVE is), so the topic is
+// ACTIVE immediately.
 func (b *InMemoryBackend) CreateTopic(
 	_ context.Context,
 	clusterArn, topicName string,
-	replicationFactor, numPartitions int32,
-	configEntries map[string]string,
+	replicationFactor, partitionCount int32,
+	configs string,
 ) (*Topic, error) {
 	if topicName == "" {
 		return nil, fmt.Errorf("topicName is required: %w", ErrValidation)
@@ -31,11 +50,13 @@ func (b *InMemoryBackend) CreateTopic(
 	}
 
 	topic := &Topic{
-		TopicName:         topicName,
 		ClusterArn:        clusterArn,
+		TopicArn:          topicARN(clusterArn, topicName),
+		TopicName:         topicName,
+		Status:            TopicStateActive,
 		ReplicationFactor: replicationFactor,
-		NumPartitions:     numPartitions,
-		ConfigEntries:     nonNilMapCopy(configEntries),
+		PartitionCount:    partitionCount,
+		Configs:           configs,
 	}
 	b.topics.Put(topic)
 
@@ -71,13 +92,54 @@ func (b *InMemoryBackend) DescribeTopic(_ context.Context, clusterArn, topicName
 	return cloneTopic(t), nil
 }
 
-// DescribeTopicPartitions retrieves a topic's partition count.
-func (b *InMemoryBackend) DescribeTopicPartitions(ctx context.Context, clusterArn, topicName string) (*Topic, error) {
-	return b.DescribeTopic(ctx, clusterArn, topicName)
+// DescribeTopicPartitions synthesizes per-partition placement info for a
+// topic: for partition i, the leader/replica set is a round-robin assignment
+// over the owning cluster's broker IDs (1..NumberOfBrokerNodes), with the
+// full replica set reported in-sync (this in-memory emulator has no real
+// broker/ISR state to diverge from). Returns ErrNotFound if the cluster or
+// topic doesn't exist.
+func (b *InMemoryBackend) DescribeTopicPartitions(
+	_ context.Context, clusterArn, topicName string,
+) ([]*TopicPartitionInfo, error) {
+	b.mu.RLock("DescribeTopicPartitions")
+	defer b.mu.RUnlock()
+
+	c, ok := b.clusters.Get(clusterArn)
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	t, ok := b.topics.Get(topicKey(clusterArn, topicName))
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	numBrokers := max(c.NumberOfBrokerNodes, 1)
+	replicaCount := min(max(t.ReplicationFactor, 1), numBrokers)
+
+	partitions := make([]*TopicPartitionInfo, 0, t.PartitionCount)
+	for i := range t.PartitionCount {
+		leader := i%numBrokers + 1
+		replicas := make([]int32, replicaCount)
+		for r := range replicaCount {
+			replicas[r] = (leader-1+r)%numBrokers + 1
+		}
+
+		partitions = append(partitions, &TopicPartitionInfo{
+			Partition: i,
+			Leader:    leader,
+			Replicas:  replicas,
+			Isr:       append([]int32(nil), replicas...),
+		})
+	}
+
+	return partitions, nil
 }
 
-// ListTopics returns all topics for a cluster sorted by topic name.
-func (b *InMemoryBackend) ListTopics(_ context.Context, clusterArn string) ([]*Topic, error) {
+// ListTopics returns topics for a cluster sorted by topic name, optionally
+// filtered to those whose name starts with nameFilter (matching real MSK's
+// topicNameFilter query parameter; an empty nameFilter matches everything).
+func (b *InMemoryBackend) ListTopics(_ context.Context, clusterArn, nameFilter string) ([]*Topic, error) {
 	b.mu.RLock("ListTopics")
 	defer b.mu.RUnlock()
 
@@ -89,6 +151,10 @@ func (b *InMemoryBackend) ListTopics(_ context.Context, clusterArn string) ([]*T
 	out := make([]*Topic, 0, len(topics))
 
 	for _, t := range topics {
+		if nameFilter != "" && !strings.HasPrefix(t.TopicName, nameFilter) {
+			continue
+		}
+
 		out = append(out, cloneTopic(t))
 	}
 
@@ -106,12 +172,12 @@ func (b *InMemoryBackend) ListTopics(_ context.Context, clusterArn string) ([]*T
 	return out, nil
 }
 
-// UpdateTopic updates a topic's config entries and/or partition count.
+// UpdateTopic updates a topic's configs and/or partition count.
 func (b *InMemoryBackend) UpdateTopic(
 	_ context.Context,
 	clusterArn, topicName string,
-	numPartitions int32,
-	configEntries map[string]string,
+	partitionCount int32,
+	configs string,
 ) (*Topic, error) {
 	b.mu.Lock("UpdateTopic")
 	defer b.mu.Unlock()
@@ -121,12 +187,12 @@ func (b *InMemoryBackend) UpdateTopic(
 		return nil, ErrNotFound
 	}
 
-	if numPartitions > 0 {
-		t.NumPartitions = numPartitions
+	if partitionCount > 0 {
+		t.PartitionCount = partitionCount
 	}
 
-	if configEntries != nil {
-		maps.Copy(t.ConfigEntries, configEntries)
+	if configs != "" {
+		t.Configs = configs
 	}
 
 	return cloneTopic(t), nil
@@ -138,11 +204,12 @@ func (b *InMemoryBackend) AddTopicInternal(clusterArn, topicName string) *Topic 
 	defer b.mu.Unlock()
 
 	topic := &Topic{
-		TopicName:         topicName,
 		ClusterArn:        clusterArn,
+		TopicArn:          topicARN(clusterArn, topicName),
+		TopicName:         topicName,
+		Status:            TopicStateActive,
 		ReplicationFactor: defaultReplicationFactor,
-		NumPartitions:     defaultPartitionCount,
-		ConfigEntries:     make(map[string]string),
+		PartitionCount:    defaultPartitionCount,
 	}
 	b.topics.Put(topic)
 
@@ -152,10 +219,12 @@ func (b *InMemoryBackend) AddTopicInternal(clusterArn, topicName string) *Topic 
 // cloneTopic creates a deep copy of a Topic.
 func cloneTopic(t *Topic) *Topic {
 	return &Topic{
-		TopicName:         t.TopicName,
 		ClusterArn:        t.ClusterArn,
+		TopicArn:          t.TopicArn,
+		TopicName:         t.TopicName,
+		Status:            t.Status,
 		ReplicationFactor: t.ReplicationFactor,
-		NumPartitions:     t.NumPartitions,
-		ConfigEntries:     nonNilMapCopy(t.ConfigEntries),
+		PartitionCount:    t.PartitionCount,
+		Configs:           t.Configs,
 	}
 }

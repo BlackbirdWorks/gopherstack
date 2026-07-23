@@ -4,12 +4,21 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
+	"time"
 )
 
-// CreateReplicator creates a new MSK replicator.
+// CreateReplicator creates a new MSK replicator. Real aws-sdk-go-v2 clients
+// always populate kafkaClusters/replicationInfoList (the SDK's client-side
+// input-validation middleware rejects a CreateReplicatorInput missing either
+// before the request is even sent), so both are accepted and fully persisted
+// here but not hard-required server-side -- a nil/empty slice from a
+// non-SDK caller is stored as-is rather than rejected.
 func (b *InMemoryBackend) CreateReplicator(
 	ctx context.Context,
 	name, description, serviceExecutionRoleArn string,
+	kafkaClusters []ClusterConfig,
+	replicationInfoList []ReplicationInfoConfig,
 	tags map[string]string,
 ) (*Replicator, error) {
 	if name == "" {
@@ -34,11 +43,35 @@ func (b *InMemoryBackend) CreateReplicator(
 		Description:             description,
 		ServiceExecutionRoleArn: serviceExecutionRoleArn,
 		ReplicatorState:         ReplicatorStateRunning,
+		CurrentVersion:          nextVersionToken(),
+		CreationTime:            time.Now().UTC().Format(time.RFC3339),
 		Tags:                    nonNilTagsCopy(tags),
+		KafkaClusters:           cloneKafkaClusterConfigs(kafkaClusters),
+		ReplicationInfoList:     cloneReplicationInfoConfigs(replicationInfoList),
 	}
 	b.replicators.Put(replicator)
 
-	return cloneReplicator(replicator), nil
+	return b.describeReplicatorLocked(replicator), nil
+}
+
+// describeReplicatorLocked clones r and resolves KafkaClusterAlias /
+// SourceKafkaClusterAlias / TargetKafkaClusterAlias fresh from the current
+// cluster table, mirroring how real MSK derives KafkaClusterDescription /
+// ReplicationInfoDescription aliases at read time rather than storing them.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) describeReplicatorLocked(r *Replicator) *Replicator {
+	out := cloneReplicator(r)
+
+	for i := range out.KafkaClusters {
+		out.KafkaClusters[i].Alias = b.clusterAliasForArn(out.KafkaClusters[i].MskClusterArn)
+	}
+
+	for i := range out.ReplicationInfoList {
+		out.ReplicationInfoList[i].SourceAlias = b.clusterAliasForArn(out.ReplicationInfoList[i].SourceKafkaClusterArn)
+		out.ReplicationInfoList[i].TargetAlias = b.clusterAliasForArn(out.ReplicationInfoList[i].TargetKafkaClusterArn)
+	}
+
+	return out
 }
 
 // DeleteReplicator deletes a replicator by ARN.
@@ -63,7 +96,7 @@ func (b *InMemoryBackend) DescribeReplicator(_ context.Context, replicatorArn st
 		return nil, ErrNotFound
 	}
 
-	return cloneReplicator(r), nil
+	return b.describeReplicatorLocked(r), nil
 }
 
 // ListReplicators returns all replicators in the request's region sorted by name.
@@ -76,7 +109,7 @@ func (b *InMemoryBackend) ListReplicators(ctx context.Context) []*Replicator {
 	replicators := b.replicatorsByRegion.Get(region)
 	out := make([]*Replicator, 0, len(replicators))
 	for _, r := range replicators {
-		out = append(out, cloneReplicator(r))
+		out = append(out, b.describeReplicatorLocked(r))
 	}
 
 	slices.SortFunc(out, func(a, b *Replicator) int {
@@ -93,10 +126,31 @@ func (b *InMemoryBackend) ListReplicators(ctx context.Context) []*Replicator {
 	return out
 }
 
-// UpdateReplicationInfo updates the replicator description.
+// clusterAliasForArn returns the KafkaClusterAlias real MSK derives for a
+// kafkaClusters entry: the actual name of the referenced MSK cluster, looked
+// up by ARN. If the cluster doesn't exist in this backend (e.g. cross-account/
+// already-deleted), it falls back to the last "/"-delimited resource segment
+// of the ARN so a value is always returned. Caller must hold b.mu.
+func (b *InMemoryBackend) clusterAliasForArn(mskClusterArn string) string {
+	if c, ok := b.clusters.Get(mskClusterArn); ok {
+		return c.ClusterName
+	}
+
+	if idx := strings.LastIndex(mskClusterArn, "/"); idx != -1 && idx+1 < len(mskClusterArn) {
+		return mskClusterArn[idx+1:]
+	}
+
+	return mskClusterArn
+}
+
+// UpdateReplicationInfo updates the topic/consumer-group replication settings
+// for one source->target flow of a replicator, enforcing the same
+// optimistic-lock CurrentVersion contract as the cluster Update* operations.
 func (b *InMemoryBackend) UpdateReplicationInfo(
 	_ context.Context,
-	replicatorArn, description string,
+	replicatorArn, currentVersion, sourceKafkaClusterArn, targetKafkaClusterArn string,
+	topicReplication *TopicReplicationConfig,
+	consumerGroupReplication *ConsumerGroupReplicationConfig,
 ) (*Replicator, error) {
 	b.mu.Lock("UpdateReplicationInfo")
 	defer b.mu.Unlock()
@@ -106,9 +160,31 @@ func (b *InMemoryBackend) UpdateReplicationInfo(
 		return nil, ErrNotFound
 	}
 
-	r.Description = description
+	if currentVersion == "" || currentVersion != r.CurrentVersion {
+		return nil, fmt.Errorf(
+			"the specified replicator version is not current: %w", ErrValidation,
+		)
+	}
 
-	return cloneReplicator(r), nil
+	idx := slices.IndexFunc(r.ReplicationInfoList, func(ri ReplicationInfoConfig) bool {
+		return ri.SourceKafkaClusterArn == sourceKafkaClusterArn &&
+			ri.TargetKafkaClusterArn == targetKafkaClusterArn
+	})
+	if idx == -1 {
+		return nil, ErrNotFound
+	}
+
+	if topicReplication != nil {
+		r.ReplicationInfoList[idx].TopicReplication = *topicReplication
+	}
+
+	if consumerGroupReplication != nil {
+		r.ReplicationInfoList[idx].ConsumerGroupReplication = *consumerGroupReplication
+	}
+
+	r.CurrentVersion = nextVersionToken()
+
+	return b.describeReplicatorLocked(r), nil
 }
 
 // AddReplicatorInternal creates a replicator directly for testing purposes.
@@ -121,6 +197,8 @@ func (b *InMemoryBackend) AddReplicatorInternal(name string) *Replicator {
 		ReplicatorArn:   replicatorArn,
 		ReplicatorName:  name,
 		ReplicatorState: ReplicatorStateRunning,
+		CurrentVersion:  nextVersionToken(),
+		CreationTime:    time.Now().UTC().Format(time.RFC3339),
 		Tags:            make(map[string]string),
 	}
 	b.replicators.Put(replicator)
@@ -136,6 +214,70 @@ func cloneReplicator(r *Replicator) *Replicator {
 		Description:             r.Description,
 		ServiceExecutionRoleArn: r.ServiceExecutionRoleArn,
 		ReplicatorState:         r.ReplicatorState,
+		CurrentVersion:          r.CurrentVersion,
+		CreationTime:            r.CreationTime,
+		StateInfoCode:           r.StateInfoCode,
+		StateInfoMessage:        r.StateInfoMessage,
 		Tags:                    nonNilTagsCopy(r.Tags),
+		KafkaClusters:           cloneKafkaClusterConfigs(r.KafkaClusters),
+		ReplicationInfoList:     cloneReplicationInfoConfigs(r.ReplicationInfoList),
 	}
+}
+
+// cloneKafkaClusterConfigs deep-copies a []ClusterConfig.
+func cloneKafkaClusterConfigs(src []ClusterConfig) []ClusterConfig {
+	if src == nil {
+		return nil
+	}
+
+	out := make([]ClusterConfig, len(src))
+	for i, kc := range src {
+		out[i] = ClusterConfig{
+			MskClusterArn:    kc.MskClusterArn,
+			Alias:            kc.Alias,
+			SubnetIDs:        append([]string(nil), kc.SubnetIDs...),
+			SecurityGroupIDs: append([]string(nil), kc.SecurityGroupIDs...),
+		}
+	}
+
+	return out
+}
+
+// cloneReplicationInfoConfigs deep-copies a []ReplicationInfoConfig.
+func cloneReplicationInfoConfigs(src []ReplicationInfoConfig) []ReplicationInfoConfig {
+	if src == nil {
+		return nil
+	}
+
+	out := make([]ReplicationInfoConfig, len(src))
+	for i, ri := range src {
+		out[i] = ReplicationInfoConfig{
+			SourceKafkaClusterArn: ri.SourceKafkaClusterArn,
+			TargetKafkaClusterArn: ri.TargetKafkaClusterArn,
+			TargetCompressionType: ri.TargetCompressionType,
+			SourceAlias:           ri.SourceAlias,
+			TargetAlias:           ri.TargetAlias,
+			TopicReplication: TopicReplicationConfig{
+				TopicsToReplicate:               append([]string(nil), ri.TopicReplication.TopicsToReplicate...),
+				TopicsToExclude:                 append([]string(nil), ri.TopicReplication.TopicsToExclude...),
+				CopyAccessControlListsForTopics: ri.TopicReplication.CopyAccessControlListsForTopics,
+				CopyTopicConfigurations:         ri.TopicReplication.CopyTopicConfigurations,
+				DetectAndCopyNewTopics:          ri.TopicReplication.DetectAndCopyNewTopics,
+				StartingPositionType:            ri.TopicReplication.StartingPositionType,
+				TopicNameConfigurationType:      ri.TopicReplication.TopicNameConfigurationType,
+			},
+			ConsumerGroupReplication: ConsumerGroupReplicationConfig{
+				ConsumerGroupsToReplicate: append(
+					[]string(nil), ri.ConsumerGroupReplication.ConsumerGroupsToReplicate...,
+				),
+				ConsumerGroupsToExclude: append(
+					[]string(nil), ri.ConsumerGroupReplication.ConsumerGroupsToExclude...,
+				),
+				DetectAndCopyNewConsumerGroups:  ri.ConsumerGroupReplication.DetectAndCopyNewConsumerGroups,
+				SynchroniseConsumerGroupOffsets: ri.ConsumerGroupReplication.SynchroniseConsumerGroupOffsets,
+			},
+		}
+	}
+
+	return out
 }

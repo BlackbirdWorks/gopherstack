@@ -196,78 +196,125 @@ func TestListReplicatorsPagination(t *testing.T) {
 // Pagination: ListTopics
 // ----------------------------------------
 
-func TestUpdateReplicationInfo(t *testing.T) {
-	t.Parallel()
+// createTestReplicatorWithTopology creates a replicator with one kafkaClusters
+// entry and one source->target replicationInfoList entry via the HTTP API,
+// returning its ARN, currentVersion, source ARN, and target ARN so callers
+// can drive a real UpdateReplicationInfo call against it.
+func createTestReplicatorWithTopology(
+	t *testing.T, h *kafka.Handler, name string,
+) (string, string, string, string) {
+	t.Helper()
 
-	h := newTestHandler(t)
+	sourceArn := "arn:aws:kafka:us-east-1:000000000000:cluster/source/abc"
+	targetArn := "arn:aws:kafka:us-east-1:000000000000:cluster/target/def"
 
-	// Create a replicator.
 	rec := doKafkaRequest(t, h, http.MethodPost, "/replication/v1/replicators",
 		map[string]any{
-			"replicatorName":          "test-replicator-update",
+			"replicatorName":          name,
 			"serviceExecutionRoleArn": "arn:aws:iam::000000000000:role/test-role",
 			"kafkaClusters": []map[string]any{
 				{
-					"amazonMskCluster": map[string]any{
-						"mskClusterArn": "arn:aws:kafka:us-east-1:000000000000:cluster/test/abc",
-					},
+					"amazonMskCluster": map[string]any{"mskClusterArn": sourceArn},
 					"vpcConfig": map[string]any{
 						"subnetIds":        []string{"subnet-1"},
 						"securityGroupIds": []string{"sg-1"},
 					},
 				},
+				{
+					"amazonMskCluster": map[string]any{"mskClusterArn": targetArn},
+					"vpcConfig": map[string]any{
+						"subnetIds":        []string{"subnet-2"},
+						"securityGroupIds": []string{"sg-2"},
+					},
+				},
 			},
-			"replicationInfoList": []map[string]any{},
+			"replicationInfoList": []map[string]any{
+				{
+					"sourceKafkaClusterArn": sourceArn,
+					"targetKafkaClusterArn": targetArn,
+					"targetCompressionType": "NONE",
+					"topicReplication": map[string]any{
+						"topicsToReplicate":               []string{".*"},
+						"copyAccessControlListsForTopics": true,
+						"copyTopicConfigurations":         true,
+						"detectAndCopyNewTopics":          true,
+					},
+					"consumerGroupReplication": map[string]any{
+						"consumerGroupsToReplicate":       []string{".*"},
+						"detectAndCopyNewConsumerGroups":  true,
+						"synchroniseConsumerGroupOffsets": true,
+					},
+				},
+			},
 		})
+	require.Equal(t, http.StatusOK, rec.Code, "create replicator: %s", rec.Body.String())
 
-	if rec.Code < 200 || rec.Code >= 300 {
-		t.Skipf("replicator creation returned %d, skipping", rec.Code)
-	}
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	resp := decodeJSONResponse(t, rec)
 	replicatorArn, _ := resp["replicatorArn"].(string)
-	if replicatorArn == "" {
-		t.Skip("replicator creation did not return ARN")
-	}
+	require.NotEmpty(t, replicatorArn)
 
+	descRec := doKafkaRequest(t, h, http.MethodGet, "/replication/v1/replicators/"+url.PathEscape(replicatorArn), nil)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	descResp := decodeJSONResponse(t, descRec)
+	currentVersion, _ := descResp["currentVersion"].(string)
+	require.NotEmpty(t, currentVersion)
+
+	return replicatorArn, currentVersion, sourceArn, targetArn
+}
+
+func TestUpdateReplicationInfo(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	replicatorArn, currentVersion, sourceArn, targetArn := createTestReplicatorWithTopology(
+		t, h, "test-replicator-update",
+	)
 	encoded := url.PathEscape(replicatorArn)
 
-	// UpdateReplicationInfo.
-	rec = doKafkaRequest(t, h, http.MethodPut, "/replication/v1/replicators/"+encoded+"/replication-info",
+	rec := doKafkaRequest(t, h, http.MethodPut, "/replication/v1/replicators/"+encoded+"/replication-info",
 		map[string]any{
-			"currentVersion":           "1",
-			"sourceKafkaClusterArn":    "arn:aws:kafka:us-east-1:000000000000:cluster/source/abc",
-			"targetKafkaClusterArn":    "arn:aws:kafka:us-east-1:000000000000:cluster/target/def",
-			"topicReplication":         map[string]any{"replicateSourceTopicTags": false},
-			"consumerGroupReplication": map[string]any{"synchroniseConsumerGroupOffsets": false},
+			"currentVersion":        currentVersion,
+			"sourceKafkaClusterArn": sourceArn,
+			"targetKafkaClusterArn": targetArn,
+			"topicReplication": map[string]any{
+				"topicsToReplicate":               []string{"orders.*"},
+				"copyAccessControlListsForTopics": false,
+				"copyTopicConfigurations":         false,
+				"detectAndCopyNewTopics":          false,
+			},
+			"consumerGroupReplication": map[string]any{
+				"consumerGroupsToReplicate":       []string{"orders-.*"},
+				"detectAndCopyNewConsumerGroups":  false,
+				"synchroniseConsumerGroupOffsets": false,
+			},
 		})
-	assert.Positive(t, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	resp := decodeJSONResponse(t, rec)
+	assert.Equal(t, replicatorArn, resp["replicatorArn"])
+	assert.NotEmpty(t, resp["replicatorState"])
+
+	// The update must actually persist: DescribeReplicator reflects the new
+	// topic/consumer-group replication settings on the matching flow.
+	descRec := doKafkaRequest(t, h, http.MethodGet, "/replication/v1/replicators/"+encoded, nil)
+	require.Equal(t, http.StatusOK, descRec.Code)
+	descResp := decodeJSONResponse(t, descRec)
+	flows := descResp["replicationInfoList"].([]any)
+	require.Len(t, flows, 1)
+	flow := flows[0].(map[string]any)
+	topicReplication := flow["topicReplication"].(map[string]any)
+	topicsToReplicate := topicReplication["topicsToReplicate"].([]any)
+	require.Len(t, topicsToReplicate, 1)
+	assert.Equal(t, "orders.*", topicsToReplicate[0])
 }
 
 func TestReplicator_UpdateReplicationInfo(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-
-	// Create a replicator.
-	createRec := doKafkaRequest(
-		t,
-		h,
-		http.MethodPost,
-		"/replication/v1/replicators",
-		map[string]any{
-			"replicatorName":          "my-replicator",
-			"serviceExecutionRoleArn": "arn:aws:iam::000000000000:role/my-role",
-			"description":             "original description",
-		},
+	replicatorArn, currentVersion, sourceArn, targetArn := createTestReplicatorWithTopology(
+		t, h, "my-replicator",
 	)
-	require.Equal(t, http.StatusOK, createRec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	replicatorArn, _ := createResp["replicatorArn"].(string)
-	require.NotEmpty(t, replicatorArn)
 	encodedArn := url.PathEscape(replicatorArn)
 
 	// UpdateReplicationInfo. Real path suffixes the replicator ARN with
@@ -275,13 +322,62 @@ func TestReplicator_UpdateReplicationInfo(t *testing.T) {
 	// GET sibling and is not a valid PUT target.
 	updateRec := doKafkaRequest(t, h, http.MethodPut,
 		"/replication/v1/replicators/"+encodedArn+"/replication-info",
-		map[string]any{"description": "updated description"})
-	require.Equal(t, http.StatusOK, updateRec.Code)
+		map[string]any{
+			"currentVersion":        currentVersion,
+			"sourceKafkaClusterArn": sourceArn,
+			"targetKafkaClusterArn": targetArn,
+			"topicReplication": map[string]any{
+				"topicsToReplicate":               []string{".*"},
+				"copyAccessControlListsForTopics": true,
+				"copyTopicConfigurations":         true,
+				"detectAndCopyNewTopics":          true,
+			},
+			"consumerGroupReplication": map[string]any{
+				"consumerGroupsToReplicate":       []string{".*"},
+				"detectAndCopyNewConsumerGroups":  true,
+				"synchroniseConsumerGroupOffsets": true,
+			},
+		})
+	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
 
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
 	assert.Equal(t, replicatorArn, updateResp["replicatorArn"])
 	assert.NotEmpty(t, updateResp["replicatorState"])
+}
+
+func TestReplicator_UpdateReplicationInfo_WrongVersionRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	replicatorArn, _, sourceArn, targetArn := createTestReplicatorWithTopology(t, h, "wrong-version-repl")
+	encodedArn := url.PathEscape(replicatorArn)
+
+	rec := doKafkaRequest(t, h, http.MethodPut,
+		"/replication/v1/replicators/"+encodedArn+"/replication-info",
+		map[string]any{
+			"currentVersion":        "STALE_VERSION",
+			"sourceKafkaClusterArn": sourceArn,
+			"targetKafkaClusterArn": targetArn,
+		})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestReplicator_UpdateReplicationInfo_UnknownFlowNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	replicatorArn, currentVersion, _, _ := createTestReplicatorWithTopology(t, h, "unknown-flow-repl")
+	encodedArn := url.PathEscape(replicatorArn)
+
+	rec := doKafkaRequest(t, h, http.MethodPut,
+		"/replication/v1/replicators/"+encodedArn+"/replication-info",
+		map[string]any{
+			"currentVersion":        currentVersion,
+			"sourceKafkaClusterArn": "arn:aws:kafka:us-east-1:000000000000:cluster/no-such-source/abc",
+			"targetKafkaClusterArn": "arn:aws:kafka:us-east-1:000000000000:cluster/no-such-target/def",
+		})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestReplicator_UpdateReplicationInfo_NotFound(t *testing.T) {

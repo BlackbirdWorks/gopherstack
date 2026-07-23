@@ -9,18 +9,22 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// createTopicInput mirrors aws-sdk-go-v2/service/kafka's CreateTopicInput
+// wire body: partitionCount/replicationFactor/topicName (required) plus an
+// optional opaque Base64 "configs" string.
 type createTopicInput struct {
-	ConfigEntries     map[string]string `json:"configEntries,omitempty"`
-	TopicName         string            `json:"topicName"`
-	ReplicationFactor int32             `json:"replicationFactor"`
-	NumPartitions     int32             `json:"numPartitions"`
+	TopicName         string `json:"topicName"`
+	Configs           string `json:"configs,omitempty"`
+	ReplicationFactor int32  `json:"replicationFactor"`
+	PartitionCount    int32  `json:"partitionCount"`
 }
 
+// createTopicOutput mirrors CreateTopicOutput: status/topicArn/topicName only
+// (no partitionCount/configs echoed back).
 type createTopicOutput struct {
-	ConfigEntries     map[string]string `json:"configEntries,omitempty"`
-	TopicName         string            `json:"topicName"`
-	ReplicationFactor int32             `json:"replicationFactor"`
-	NumPartitions     int32             `json:"numPartitions"`
+	Status    string `json:"status"`
+	TopicArn  string `json:"topicArn"`
+	TopicName string `json:"topicName"`
 }
 
 func (h *Handler) handleCreateTopic(
@@ -43,24 +47,23 @@ func (h *Handler) handleCreateTopic(
 		clusterArn,
 		in.TopicName,
 		in.ReplicationFactor,
-		in.NumPartitions,
-		in.ConfigEntries,
+		in.PartitionCount,
+		in.Configs,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, createTopicOutput{
-		TopicName:         topic.TopicName,
-		ReplicationFactor: topic.ReplicationFactor,
-		NumPartitions:     topic.NumPartitions,
-		ConfigEntries:     topic.ConfigEntries,
+		Status:    topic.Status,
+		TopicArn:  topic.TopicArn,
+		TopicName: topic.TopicName,
 	})
 }
 
 func (h *Handler) handleDeleteTopic(ctx context.Context, c *echo.Context, resource string) error {
-	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
-	if len(parts) != topicKeySeparatorParts {
+	clusterArn, topicName, ok := splitTopicResource(resource)
+	if !ok {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -68,8 +71,6 @@ func (h *Handler) handleDeleteTopic(ctx context.Context, c *echo.Context, resour
 			"invalid resource: missing topic name",
 		)
 	}
-
-	clusterArn, topicName := parts[0], parts[1]
 
 	if err := h.Backend.DeleteTopic(ctx, clusterArn, topicName); err != nil {
 		return h.writeBackendError(c, err)
@@ -78,19 +79,74 @@ func (h *Handler) handleDeleteTopic(ctx context.Context, c *echo.Context, resour
 	return c.NoContent(http.StatusOK)
 }
 
-type listTopicsOutput struct {
-	NextToken string   `json:"nextToken,omitempty"`
-	Topics    []*Topic `json:"topics"`
+// splitTopicResource splits the handler's internal "clusterArn|topicName"
+// resource key (see topicKeySeparator) into its two parts.
+func splitTopicResource(resource string) (string, string, bool) {
+	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
+	if len(parts) != topicKeySeparatorParts {
+		return "", "", false
+	}
+
+	return parts[0], parts[1], true
 }
 
+// topicInfoOutput mirrors types.TopicInfo, the ListTopics element shape,
+// which is a distinct (smaller) shape from Topic/DescribeTopicOutput.
+type topicInfoOutput struct {
+	TopicArn              string `json:"topicArn"`
+	TopicName             string `json:"topicName"`
+	PartitionCount        int32  `json:"partitionCount"`
+	ReplicationFactor     int32  `json:"replicationFactor"`
+	OutOfSyncReplicaCount int32  `json:"outOfSyncReplicaCount"`
+}
+
+type listTopicsOutput struct {
+	NextToken string            `json:"nextToken,omitempty"`
+	Topics    []topicInfoOutput `json:"topics"`
+}
+
+// updateTopicInput mirrors UpdateTopicInput: an optional new partitionCount
+// and/or configs.
 type updateTopicInput struct {
-	ConfigEntries map[string]string `json:"configEntries,omitempty"`
-	NumPartitions int32             `json:"numPartitions"`
+	Configs        string `json:"configs,omitempty"`
+	PartitionCount int32  `json:"partitionCount"`
+}
+
+// updateTopicOutput mirrors UpdateTopicOutput: status/topicArn/topicName only.
+type updateTopicOutput struct {
+	Status    string `json:"status"`
+	TopicArn  string `json:"topicArn"`
+	TopicName string `json:"topicName"`
+}
+
+// describeTopicOutput mirrors DescribeTopicOutput exactly: configs/
+// partitionCount/replicationFactor/status/topicArn/topicName. Built
+// explicitly (rather than marshaling *Topic directly) so the internal-only
+// ClusterArn field -- load-bearing for persistence, see the Topic doc comment
+// in models.go -- never leaks into the API response.
+type describeTopicOutput struct {
+	Configs           string `json:"configs,omitempty"`
+	Status            string `json:"status"`
+	TopicArn          string `json:"topicArn"`
+	TopicName         string `json:"topicName"`
+	PartitionCount    int32  `json:"partitionCount"`
+	ReplicationFactor int32  `json:"replicationFactor"`
+}
+
+func describeTopicOutputFrom(t *Topic) describeTopicOutput {
+	return describeTopicOutput{
+		Configs:           t.Configs,
+		Status:            t.Status,
+		TopicArn:          t.TopicArn,
+		TopicName:         t.TopicName,
+		PartitionCount:    t.PartitionCount,
+		ReplicationFactor: t.ReplicationFactor,
+	}
 }
 
 func (h *Handler) handleDescribeTopic(ctx context.Context, c *echo.Context, resource string) error {
-	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
-	if len(parts) != topicKeySeparatorParts {
+	clusterArn, topicName, ok := splitTopicResource(resource)
+	if !ok {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -99,12 +155,25 @@ func (h *Handler) handleDescribeTopic(ctx context.Context, c *echo.Context, reso
 		)
 	}
 
-	topic, err := h.Backend.DescribeTopic(ctx, parts[0], parts[1])
+	topic, err := h.Backend.DescribeTopic(ctx, clusterArn, topicName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, topic)
+	return c.JSON(http.StatusOK, describeTopicOutputFrom(topic))
+}
+
+// topicPartitionInfoOutput mirrors types.TopicPartitionInfo.
+type topicPartitionInfoOutput struct {
+	Isr       []int32 `json:"isr"`
+	Replicas  []int32 `json:"replicas"`
+	Partition int32   `json:"partition"`
+	Leader    int32   `json:"leader"`
+}
+
+type describeTopicPartitionsOutput struct {
+	NextToken  string                     `json:"nextToken,omitempty"`
+	Partitions []topicPartitionInfoOutput `json:"partitions"`
 }
 
 func (h *Handler) handleDescribeTopicPartitions(
@@ -112,8 +181,8 @@ func (h *Handler) handleDescribeTopicPartitions(
 	c *echo.Context,
 	resource string,
 ) error {
-	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
-	if len(parts) != topicKeySeparatorParts {
+	clusterArn, topicName, ok := splitTopicResource(resource)
+	if !ok {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -122,16 +191,41 @@ func (h *Handler) handleDescribeTopicPartitions(
 		)
 	}
 
-	topic, err := h.Backend.DescribeTopicPartitions(ctx, parts[0], parts[1])
+	all, err := h.Backend.DescribeTopicPartitions(ctx, clusterArn, topicName)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, topic)
+	token := c.Request().URL.Query().Get("nextToken")
+	offset := decodeKafkaPageToken(token)
+	offset = min(offset, len(all))
+
+	page := all[offset:]
+	pageSize := kafkaPageSize(c)
+
+	var nextToken string
+	if len(page) > pageSize {
+		page = page[:pageSize]
+		nextToken = encodeKafkaPageToken(offset + pageSize)
+	}
+
+	out := make([]topicPartitionInfoOutput, len(page))
+	for i, p := range page {
+		out[i] = topicPartitionInfoOutput{
+			Partition: p.Partition,
+			Leader:    p.Leader,
+			Replicas:  p.Replicas,
+			Isr:       p.Isr,
+		}
+	}
+
+	return c.JSON(http.StatusOK, describeTopicPartitionsOutput{Partitions: out, NextToken: nextToken})
 }
 
 func (h *Handler) handleListTopics(ctx context.Context, c *echo.Context, clusterArn string) error {
-	all, err := h.Backend.ListTopics(ctx, clusterArn)
+	nameFilter := c.Request().URL.Query().Get("topicNameFilter")
+
+	all, err := h.Backend.ListTopics(ctx, clusterArn, nameFilter)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -151,7 +245,17 @@ func (h *Handler) handleListTopics(ctx context.Context, c *echo.Context, cluster
 		nextToken = encodeKafkaPageToken(offset + pageSize)
 	}
 
-	return c.JSON(http.StatusOK, listTopicsOutput{Topics: page, NextToken: nextToken})
+	out := make([]topicInfoOutput, len(page))
+	for i, t := range page {
+		out[i] = topicInfoOutput{
+			TopicArn:          t.TopicArn,
+			TopicName:         t.TopicName,
+			PartitionCount:    t.PartitionCount,
+			ReplicationFactor: t.ReplicationFactor,
+		}
+	}
+
+	return c.JSON(http.StatusOK, listTopicsOutput{Topics: out, NextToken: nextToken})
 }
 
 func (h *Handler) handleUpdateTopic(
@@ -160,8 +264,8 @@ func (h *Handler) handleUpdateTopic(
 	resource string,
 	body []byte,
 ) error {
-	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
-	if len(parts) != topicKeySeparatorParts {
+	clusterArn, topicName, ok := splitTopicResource(resource)
+	if !ok {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -180,10 +284,14 @@ func (h *Handler) handleUpdateTopic(
 		)
 	}
 
-	topic, err := h.Backend.UpdateTopic(ctx, parts[0], parts[1], in.NumPartitions, in.ConfigEntries)
+	topic, err := h.Backend.UpdateTopic(ctx, clusterArn, topicName, in.PartitionCount, in.Configs)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, topic)
+	return c.JSON(http.StatusOK, updateTopicOutput{
+		Status:    topic.Status,
+		TopicArn:  topic.TopicArn,
+		TopicName: topic.TopicName,
+	})
 }

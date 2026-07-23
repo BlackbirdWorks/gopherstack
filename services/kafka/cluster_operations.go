@@ -31,11 +31,18 @@ func (b *InMemoryBackend) ListClusterOperationsV2(ctx context.Context, clusterAr
 	return b.ListClusterOperations(ctx, clusterArn)
 }
 
-// newClusterOperationLocked creates and stores a cluster operation.
+// newClusterOperationLocked creates and stores a cluster operation, and bumps
+// the owning cluster's CurrentVersion so the next update's optimistic-lock
+// check must supply the newly minted token (real MSK advances CurrentVersion
+// on every successful mutating operation; see nextVersionToken).
 // MUST be called with b.mu write lock held.
 func (b *InMemoryBackend) newClusterOperationLocked(
 	region, clusterArn, operationType string, source, target *MutableClusterInfo,
 ) *ClusterOperation {
+	if c, ok := b.clusters.Get(clusterArn); ok {
+		c.CurrentVersion = nextVersionToken()
+	}
+
 	clusterOperationArn := b.clusterOperationARN(region, clusterArn)
 	op := &ClusterOperation{
 		ClusterOperationArn: clusterOperationArn,

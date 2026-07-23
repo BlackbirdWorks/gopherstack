@@ -50,7 +50,7 @@ func TestCreateVpcConnection(t *testing.T) {
 			b := newTestBackend(t)
 			clusterArn := tt.setup(b)
 
-			conn, err := b.CreateVpcConnection(context.Background(), clusterArn, "vpc-12345", "SASL_IAM", nil)
+			conn, err := b.CreateVpcConnection(context.Background(), clusterArn, "vpc-12345", "SASL_IAM", nil, nil, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -86,7 +86,9 @@ func TestDeleteVpcConnection(t *testing.T) {
 					nil,
 					nil,
 				)
-				conn, _ := b.CreateVpcConnection(context.Background(), c.ClusterArn, "vpc-12345", "SASL_IAM", nil)
+				conn, _ := b.CreateVpcConnection(
+					context.Background(), c.ClusterArn, "vpc-12345", "SASL_IAM", nil, nil, nil,
+				)
 
 				return conn.VpcConnectionArn
 			},
