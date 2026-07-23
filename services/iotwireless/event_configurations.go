@@ -9,7 +9,7 @@ import (
 // GetEventConfigurationByResourceTypes returns the account-wide default event
 // configuration. Returns an empty (zero-value) document if never configured.
 func (b *InMemoryBackend) GetEventConfigurationByResourceTypes() *EventConfigDoc {
-	b.mu.RLock()
+	b.mu.RLock("GetEventConfigurationByResourceTypes")
 	defer b.mu.RUnlock()
 
 	if b.eventConfigDefault == nil {
@@ -24,7 +24,7 @@ func (b *InMemoryBackend) GetEventConfigurationByResourceTypes() *EventConfigDoc
 // UpdateEventConfigurationByResourceTypes replaces the account-wide default
 // event configuration.
 func (b *InMemoryBackend) UpdateEventConfigurationByResourceTypes(doc *EventConfigDoc) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateEventConfigurationByResourceTypes")
 	defer b.mu.Unlock()
 
 	cp := *doc
@@ -34,7 +34,7 @@ func (b *InMemoryBackend) UpdateEventConfigurationByResourceTypes(doc *EventConf
 // GetResourceEventConfiguration returns the stored event configuration for a
 // specific resource identifier, if any.
 func (b *InMemoryBackend) GetResourceEventConfiguration(identifier string) (*ResourceEventConfigEntry, bool) {
-	b.mu.RLock()
+	b.mu.RLock("GetResourceEventConfiguration")
 	defer b.mu.RUnlock()
 
 	e, ok := b.resourceEventConfigs.Get(identifier)
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) GetResourceEventConfiguration(identifier string) (*Res
 func (b *InMemoryBackend) UpdateResourceEventConfiguration(
 	identifier, identifierType, partnerType string, doc *EventConfigDoc,
 ) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateResourceEventConfiguration")
 	defer b.mu.Unlock()
 
 	b.resourceEventConfigs.Put(&ResourceEventConfigEntry{
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) UpdateResourceEventConfiguration(
 // against the stored IdentifierType, e.g. "WirelessDevice" matches
 // "WirelessDeviceId").
 func (b *InMemoryBackend) ListEventConfigurations(resourceType string) []*ResourceEventConfigEntry {
-	b.mu.RLock()
+	b.mu.RLock("ListEventConfigurations")
 	defer b.mu.RUnlock()
 
 	all := b.resourceEventConfigs.All()

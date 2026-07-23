@@ -18,7 +18,7 @@ func countScoped[T any](all []*T, accountID, region string, scope func(*T) (stri
 // DeviceCount returns the number of wireless devices in the backend for the given account and region.
 // Intended for test assertions only.
 func DeviceCount(b *InMemoryBackend, accountID, region string) int {
-	b.mu.RLock()
+	b.mu.RLock("DeviceCount")
 	defer b.mu.RUnlock()
 
 	return countScoped(b.devices.All(), accountID, region, func(v *WirelessDevice) (string, string) {
@@ -29,7 +29,7 @@ func DeviceCount(b *InMemoryBackend, accountID, region string) int {
 // GatewayCount returns the number of wireless gateways in the backend for the given account and region.
 // Intended for test assertions only.
 func GatewayCount(b *InMemoryBackend, accountID, region string) int {
-	b.mu.RLock()
+	b.mu.RLock("GatewayCount")
 	defer b.mu.RUnlock()
 
 	return countScoped(b.gateways.All(), accountID, region, func(v *WirelessGateway) (string, string) {
@@ -40,7 +40,7 @@ func GatewayCount(b *InMemoryBackend, accountID, region string) int {
 // ServiceProfileCount returns the number of service profiles in the backend for the given account and region.
 // Intended for test assertions only.
 func ServiceProfileCount(b *InMemoryBackend, accountID, region string) int {
-	b.mu.RLock()
+	b.mu.RLock("ServiceProfileCount")
 	defer b.mu.RUnlock()
 
 	return countScoped(b.serviceProfiles.All(), accountID, region, func(v *ServiceProfile) (string, string) {
@@ -51,7 +51,7 @@ func ServiceProfileCount(b *InMemoryBackend, accountID, region string) int {
 // DestinationCount returns the number of destinations in the backend for the given account and region.
 // Intended for test assertions only.
 func DestinationCount(b *InMemoryBackend, accountID, region string) int {
-	b.mu.RLock()
+	b.mu.RLock("DestinationCount")
 	defer b.mu.RUnlock()
 
 	return countScoped(b.destinations.All(), accountID, region, func(v *Destination) (string, string) {
@@ -62,7 +62,7 @@ func DestinationCount(b *InMemoryBackend, accountID, region string) int {
 // DeviceProfileCount returns the number of device profiles in the backend for the given account and region.
 // Intended for test assertions only.
 func DeviceProfileCount(b *InMemoryBackend, accountID, region string) int {
-	b.mu.RLock()
+	b.mu.RLock("DeviceProfileCount")
 	defer b.mu.RUnlock()
 
 	return countScoped(b.deviceProfiles.All(), accountID, region, func(v *DeviceProfile) (string, string) {
@@ -73,7 +73,7 @@ func DeviceProfileCount(b *InMemoryBackend, accountID, region string) int {
 // FuotaTaskCount returns the number of FUOTA tasks in the backend for the given account and region.
 // Intended for test assertions only.
 func FuotaTaskCount(b *InMemoryBackend, accountID, region string) int {
-	b.mu.RLock()
+	b.mu.RLock("FuotaTaskCount")
 	defer b.mu.RUnlock()
 
 	return countScoped(b.fuotaTasks.All(), accountID, region, func(v *FuotaTask) (string, string) {
@@ -84,7 +84,7 @@ func FuotaTaskCount(b *InMemoryBackend, accountID, region string) int {
 // MulticastGroupCount returns the number of multicast groups in the backend for the given account and region.
 // Intended for test assertions only.
 func MulticastGroupCount(b *InMemoryBackend, accountID, region string) int {
-	b.mu.RLock()
+	b.mu.RLock("MulticastGroupCount")
 	defer b.mu.RUnlock()
 
 	return countScoped(b.multicastGroups.All(), accountID, region, func(v *MulticastGroup) (string, string) {
@@ -95,7 +95,7 @@ func MulticastGroupCount(b *InMemoryBackend, accountID, region string) int {
 // NetworkAnalyzerConfigCount returns the number of network analyzer configs in the backend.
 // Intended for test assertions only.
 func NetworkAnalyzerConfigCount(b *InMemoryBackend, accountID, region string) int {
-	b.mu.RLock()
+	b.mu.RLock("NetworkAnalyzerConfigCount")
 	defer b.mu.RUnlock()
 
 	return countScoped(
@@ -107,7 +107,7 @@ func NetworkAnalyzerConfigCount(b *InMemoryBackend, accountID, region string) in
 // ImportTaskCount returns the number of import tasks in the backend.
 // Intended for test assertions only.
 func ImportTaskCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ImportTaskCount")
 	defer b.mu.RUnlock()
 
 	return b.importTasks.Len()

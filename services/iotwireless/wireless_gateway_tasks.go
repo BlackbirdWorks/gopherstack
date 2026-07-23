@@ -2,6 +2,7 @@ package iotwireless
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -10,6 +11,7 @@ import (
 
 // GatewayTask represents a wireless gateway task.
 type GatewayTask struct {
+	CreatedAt         time.Time
 	WirelessGatewayID string
 	TaskDefID         string
 	Status            string
@@ -17,6 +19,7 @@ type GatewayTask struct {
 
 // GatewayTaskDefinition represents a wireless gateway task definition.
 type GatewayTaskDefinition struct {
+	Update          map[string]any
 	ID              string
 	ARN             string
 	Name            string
@@ -27,13 +30,14 @@ type GatewayTaskDefinition struct {
 func (b *InMemoryBackend) CreateWirelessGatewayTask(
 	gatewayID, taskDefID string,
 ) (*GatewayTask, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateWirelessGatewayTask")
 	defer b.mu.Unlock()
 
 	task := &GatewayTask{
 		WirelessGatewayID: gatewayID,
 		TaskDefID:         taskDefID,
 		Status:            "PENDING",
+		CreatedAt:         time.Now(),
 	}
 
 	b.gatewayTasks.Put(task)
@@ -43,7 +47,7 @@ func (b *InMemoryBackend) CreateWirelessGatewayTask(
 
 // GetWirelessGatewayTask returns the task for a wireless gateway.
 func (b *InMemoryBackend) GetWirelessGatewayTask(gatewayID string) (*GatewayTask, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetWirelessGatewayTask")
 	defer b.mu.RUnlock()
 
 	task, ok := b.gatewayTasks.Get(gatewayID)
@@ -58,7 +62,7 @@ func (b *InMemoryBackend) GetWirelessGatewayTask(gatewayID string) (*GatewayTask
 
 // DeleteWirelessGatewayTask removes the task for a wireless gateway.
 func (b *InMemoryBackend) DeleteWirelessGatewayTask(gatewayID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteWirelessGatewayTask")
 	defer b.mu.Unlock()
 
 	if !b.gatewayTasks.Delete(gatewayID) {
@@ -72,8 +76,9 @@ func (b *InMemoryBackend) DeleteWirelessGatewayTask(gatewayID string) error {
 func (b *InMemoryBackend) CreateWirelessGatewayTaskDefinition(
 	accountID, region, name string,
 	autoCreateTasks bool,
+	update map[string]any,
 ) (*GatewayTaskDefinition, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateWirelessGatewayTaskDefinition")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
@@ -84,6 +89,7 @@ func (b *InMemoryBackend) CreateWirelessGatewayTaskDefinition(
 		ARN:             arn,
 		Name:            name,
 		AutoCreateTasks: autoCreateTasks,
+		Update:          update,
 	}
 
 	b.gatewayTaskDefs.Put(def)
@@ -95,7 +101,7 @@ func (b *InMemoryBackend) CreateWirelessGatewayTaskDefinition(
 func (b *InMemoryBackend) GetWirelessGatewayTaskDefinition(
 	id string,
 ) (*GatewayTaskDefinition, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetWirelessGatewayTaskDefinition")
 	defer b.mu.RUnlock()
 
 	def, ok := b.gatewayTaskDefs.Get(id)
@@ -110,7 +116,7 @@ func (b *InMemoryBackend) GetWirelessGatewayTaskDefinition(
 
 // ListWirelessGatewayTaskDefinitions returns all gateway task definitions.
 func (b *InMemoryBackend) ListWirelessGatewayTaskDefinitions() []*GatewayTaskDefinition {
-	b.mu.RLock()
+	b.mu.RLock("ListWirelessGatewayTaskDefinitions")
 	defer b.mu.RUnlock()
 
 	all := b.gatewayTaskDefs.All()
@@ -126,7 +132,7 @@ func (b *InMemoryBackend) ListWirelessGatewayTaskDefinitions() []*GatewayTaskDef
 
 // DeleteWirelessGatewayTaskDefinition removes a gateway task definition.
 func (b *InMemoryBackend) DeleteWirelessGatewayTaskDefinition(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteWirelessGatewayTaskDefinition")
 	defer b.mu.Unlock()
 
 	if !b.gatewayTaskDefs.Delete(id) {

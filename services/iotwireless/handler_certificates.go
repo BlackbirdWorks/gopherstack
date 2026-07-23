@@ -3,6 +3,7 @@ package iotwireless
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
@@ -16,11 +17,16 @@ type associateWirelessGatewayWithCertificateResponse struct {
 }
 
 type getWirelessDeviceImportTaskResponse struct {
-	Arn                            string `json:"Arn"`
-	ID                             string `json:"Id"`
-	DestinationName                string `json:"DestinationName"`
-	Status                         string `json:"Status"`
-	StatusReason                   string `json:"StatusReason"`
+	Arn             string `json:"Arn"`
+	ID              string `json:"Id"`
+	DestinationName string `json:"DestinationName"`
+	Status          string `json:"Status"`
+	StatusReason    string `json:"StatusReason"`
+	// CreationTime is an ISODateTimeString, not an epoch-seconds number --
+	// confirmed against awsRestjson1_deserializeOpDocumentGetWirelessDeviceImportTaskOutput,
+	// which parses it with smithytime.ParseDateTime (a string), unlike the
+	// epoch-seconds CreatedAt fields on FuotaTask/MulticastGroup.
+	CreationTime                   string `json:"CreationTime,omitempty"`
 	InitializedImportedDeviceCount int64  `json:"InitializedImportedDeviceCount"`
 	PendingImportedDeviceCount     int64  `json:"PendingImportedDeviceCount"`
 	OnboardedImportedDeviceCount   int64  `json:"OnboardedImportedDeviceCount"`
@@ -129,13 +135,11 @@ func (h *Handler) startSingleWirelessDeviceImportTask(c *echo.Context) error {
 	})
 }
 
-func (h *Handler) getWirelessDeviceImportTask(c *echo.Context, id string) error {
-	task, err := h.Backend.GetWirelessDeviceImportTask(id)
-	if err != nil {
-		return handleError(c, err)
-	}
-
-	return writeJSON(c, http.StatusOK, getWirelessDeviceImportTaskResponse{
+// importTaskEntryFrom builds the wire response shape from a backend
+// WirelessDeviceImportTask, formatting CreationTime as an ISO8601 string
+// (see the field's doc comment on getWirelessDeviceImportTaskResponse).
+func importTaskEntryFrom(task *WirelessDeviceImportTask) getWirelessDeviceImportTaskResponse {
+	entry := getWirelessDeviceImportTaskResponse{
 		Arn:                            task.ARN,
 		ID:                             task.ID,
 		DestinationName:                task.DestinationName,
@@ -145,7 +149,21 @@ func (h *Handler) getWirelessDeviceImportTask(c *echo.Context, id string) error 
 		PendingImportedDeviceCount:     task.PendingImportedDeviceCount,
 		OnboardedImportedDeviceCount:   task.OnboardedImportedDeviceCount,
 		FailedImportedDeviceCount:      task.FailedImportedDeviceCount,
-	})
+	}
+	if !task.CreatedAt.IsZero() {
+		entry.CreationTime = task.CreatedAt.UTC().Format(time.RFC3339)
+	}
+
+	return entry
+}
+
+func (h *Handler) getWirelessDeviceImportTask(c *echo.Context, id string) error {
+	task, err := h.Backend.GetWirelessDeviceImportTask(id)
+	if err != nil {
+		return handleError(c, err)
+	}
+
+	return writeJSON(c, http.StatusOK, importTaskEntryFrom(task))
 }
 
 func (h *Handler) deleteWirelessDeviceImportTask(c *echo.Context, id string) error {
@@ -177,25 +195,17 @@ func (h *Handler) updateWirelessDeviceImportTask(c *echo.Context, id string) err
 
 func (h *Handler) listWirelessDeviceImportTasks(c *echo.Context) error {
 	tasks := h.Backend.ListWirelessDeviceImportTasks()
+	pg, next := paginateQuery(c, tasks)
 
-	entries := make([]getWirelessDeviceImportTaskResponse, 0, len(tasks))
+	entries := make([]getWirelessDeviceImportTaskResponse, 0, len(pg))
 
-	for _, task := range tasks {
-		entries = append(entries, getWirelessDeviceImportTaskResponse{
-			Arn:                            task.ARN,
-			ID:                             task.ID,
-			DestinationName:                task.DestinationName,
-			Status:                         task.Status,
-			StatusReason:                   task.StatusReason,
-			InitializedImportedDeviceCount: task.InitializedImportedDeviceCount,
-			PendingImportedDeviceCount:     task.PendingImportedDeviceCount,
-			OnboardedImportedDeviceCount:   task.OnboardedImportedDeviceCount,
-			FailedImportedDeviceCount:      task.FailedImportedDeviceCount,
-		})
+	for _, task := range pg {
+		entries = append(entries, importTaskEntryFrom(task))
 	}
 
 	return writeJSON(c, http.StatusOK, listWirelessDeviceImportTasksResponse{
 		WirelessDeviceImportTaskList: entries,
+		NextToken:                    next,
 	})
 }
 

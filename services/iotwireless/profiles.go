@@ -22,11 +22,14 @@ func deviceProfileARN(region, accountID, id string) string {
 	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("DeviceProfile/%s", id))
 }
 
-// copyDeviceProfile returns a shallow copy of dp with an independent Tags map.
+// copyDeviceProfile returns a shallow copy of dp with independent Tags,
+// LoRaWAN, and Sidewalk maps.
 func copyDeviceProfile(dp *DeviceProfile) *DeviceProfile {
 	cp := *dp
 	cp.Tags = make(map[string]string, len(dp.Tags))
 	maps.Copy(cp.Tags, dp.Tags)
+	cp.LoRaWAN = copyAnyMap(dp.LoRaWAN)
+	cp.Sidewalk = copyAnyMap(dp.Sidewalk)
 
 	return &cp
 }
@@ -34,9 +37,10 @@ func copyDeviceProfile(dp *DeviceProfile) *DeviceProfile {
 // CreateDeviceProfile creates a new device profile.
 func (b *InMemoryBackend) CreateDeviceProfile(
 	accountID, region, name string,
+	loRaWAN, sidewalk map[string]any,
 	tags map[string]string,
 ) (*DeviceProfile, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDeviceProfile")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
@@ -46,6 +50,8 @@ func (b *InMemoryBackend) CreateDeviceProfile(
 		ID:        id,
 		ARN:       arn,
 		Name:      name,
+		LoRaWAN:   loRaWAN,
+		Sidewalk:  sidewalk,
 		Tags:      newTagsCopy(tags),
 		CreatedAt: time.Now(),
 		AccountID: accountID,
@@ -60,7 +66,7 @@ func (b *InMemoryBackend) CreateDeviceProfile(
 
 // GetDeviceProfile returns a device profile by ID.
 func (b *InMemoryBackend) GetDeviceProfile(accountID, region, id string) (*DeviceProfile, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetDeviceProfile")
 	defer b.mu.RUnlock()
 
 	dp, ok := b.deviceProfiles.Get(compositeKey(accountID, region, id))
@@ -74,7 +80,7 @@ func (b *InMemoryBackend) GetDeviceProfile(accountID, region, id string) (*Devic
 // ListDeviceProfiles returns all device profiles for the given account and region,
 // sorted by name for deterministic output.
 func (b *InMemoryBackend) ListDeviceProfiles(accountID, region string) []*DeviceProfile {
-	b.mu.RLock()
+	b.mu.RLock("ListDeviceProfiles")
 	defer b.mu.RUnlock()
 
 	all := b.deviceProfiles.All()
@@ -95,7 +101,7 @@ func (b *InMemoryBackend) ListDeviceProfiles(accountID, region string) []*Device
 
 // DeleteDeviceProfile deletes a device profile by ID.
 func (b *InMemoryBackend) DeleteDeviceProfile(accountID, region, id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDeviceProfile")
 	defer b.mu.Unlock()
 
 	key := compositeKey(accountID, region, id)
@@ -114,7 +120,7 @@ func (b *InMemoryBackend) DeleteDeviceProfile(accountID, region, id string) erro
 // AddDeviceProfileInternal inserts a DeviceProfile directly into the backend, bypassing ID generation.
 // Intended for test setup only.
 func (b *InMemoryBackend) AddDeviceProfileInternal(accountID, region string, dp *DeviceProfile) {
-	b.mu.Lock()
+	b.mu.Lock("AddDeviceProfileInternal")
 	defer b.mu.Unlock()
 
 	cp := copyDeviceProfile(dp)
@@ -128,11 +134,13 @@ func serviceProfileARN(region, accountID, id string) string {
 	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("ServiceProfile/%s", id))
 }
 
-// copyServiceProfile returns a shallow copy of sp with an independent Tags map.
+// copyServiceProfile returns a shallow copy of sp with independent Tags and
+// LoRaWAN maps.
 func copyServiceProfile(sp *ServiceProfile) *ServiceProfile {
 	cp := *sp
 	cp.Tags = make(map[string]string, len(sp.Tags))
 	maps.Copy(cp.Tags, sp.Tags)
+	cp.LoRaWAN = copyAnyMap(sp.LoRaWAN)
 
 	return &cp
 }
@@ -140,9 +148,10 @@ func copyServiceProfile(sp *ServiceProfile) *ServiceProfile {
 // CreateServiceProfile creates a new service profile.
 func (b *InMemoryBackend) CreateServiceProfile(
 	accountID, region, name string,
+	loRaWAN map[string]any,
 	tags map[string]string,
 ) (*ServiceProfile, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateServiceProfile")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
@@ -152,6 +161,7 @@ func (b *InMemoryBackend) CreateServiceProfile(
 		ID:        id,
 		ARN:       arn,
 		Name:      name,
+		LoRaWAN:   loRaWAN,
 		Tags:      newTagsCopy(tags),
 		CreatedAt: time.Now(),
 		AccountID: accountID,
@@ -166,7 +176,7 @@ func (b *InMemoryBackend) CreateServiceProfile(
 
 // GetServiceProfile returns a service profile by ID.
 func (b *InMemoryBackend) GetServiceProfile(accountID, region, id string) (*ServiceProfile, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetServiceProfile")
 	defer b.mu.RUnlock()
 
 	sp, ok := b.serviceProfiles.Get(compositeKey(accountID, region, id))
@@ -180,7 +190,7 @@ func (b *InMemoryBackend) GetServiceProfile(accountID, region, id string) (*Serv
 // ListServiceProfiles returns all service profiles for the given account and region,
 // sorted by name for deterministic output.
 func (b *InMemoryBackend) ListServiceProfiles(accountID, region string) []*ServiceProfile {
-	b.mu.RLock()
+	b.mu.RLock("ListServiceProfiles")
 	defer b.mu.RUnlock()
 
 	all := b.serviceProfiles.All()
@@ -201,7 +211,7 @@ func (b *InMemoryBackend) ListServiceProfiles(accountID, region string) []*Servi
 
 // DeleteServiceProfile deletes a service profile.
 func (b *InMemoryBackend) DeleteServiceProfile(accountID, region, id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteServiceProfile")
 	defer b.mu.Unlock()
 
 	key := compositeKey(accountID, region, id)
@@ -220,7 +230,7 @@ func (b *InMemoryBackend) DeleteServiceProfile(accountID, region, id string) err
 // AddServiceProfileInternal inserts a ServiceProfile directly into the backend, bypassing ID generation.
 // Intended for test setup only.
 func (b *InMemoryBackend) AddServiceProfileInternal(accountID, region string, sp *ServiceProfile) {
-	b.mu.Lock()
+	b.mu.Lock("AddServiceProfileInternal")
 	defer b.mu.Unlock()
 
 	cp := copyServiceProfile(sp)

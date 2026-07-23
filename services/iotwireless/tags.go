@@ -4,7 +4,7 @@ import "maps"
 
 // TagResource adds or updates tags on a resource identified by ARN.
 func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	if _, ok := b.resourceTags[arn]; !ok {
@@ -19,7 +19,7 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 // UntagResource removes tags from a resource identified by ARN.
 // If all tags are removed the empty map entry is cleaned up to prevent memory leaks.
 func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	if _, ok := b.resourceTags[arn]; !ok {
@@ -39,7 +39,7 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 
 // ListTagsForResource returns all tags for a resource identified by ARN.
 func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	tags, ok := b.resourceTags[arn]

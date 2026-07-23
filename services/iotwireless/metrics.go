@@ -4,7 +4,7 @@ package iotwireless
 // aggregation status. Defaults to "Enabled" (AWS's documented default) when
 // never explicitly configured.
 func (b *InMemoryBackend) GetMetricConfigurationStatus() string {
-	b.mu.RLock()
+	b.mu.RLock("GetMetricConfigurationStatus")
 	defer b.mu.RUnlock()
 
 	if b.metricConfigStatus == "" {
@@ -17,7 +17,7 @@ func (b *InMemoryBackend) GetMetricConfigurationStatus() string {
 // UpdateMetricConfigurationStatus sets the account's summary metric
 // aggregation status.
 func (b *InMemoryBackend) UpdateMetricConfigurationStatus(status string) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateMetricConfigurationStatus")
 	defer b.mu.Unlock()
 
 	b.metricConfigStatus = status

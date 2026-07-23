@@ -42,10 +42,8 @@ func TestInMemoryBackend_NetworkAnalyzerConfig_CRUD(t *testing.T) {
 			b := iotwireless.NewInMemoryBackend()
 
 			nc, err := b.CreateNetworkAnalyzerConfig(
-				testAccountID, testRegion,
-				tt.configName, tt.description,
-				tt.wirelessDevices, tt.wirelessGateways,
-				nil,
+				testAccountID, testRegion, tt.configName, tt.description,
+				tt.wirelessDevices, tt.wirelessGateways, nil, nil, nil,
 			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.configName, nc.Name)
@@ -61,9 +59,8 @@ func TestInMemoryBackend_NetworkAnalyzerConfig_CRUD(t *testing.T) {
 
 			// Update.
 			err = b.UpdateNetworkAnalyzerConfig(
-				testAccountID, testRegion,
-				tt.configName, "updated desc",
-				[]string{"new-dev"}, []string{"new-gw"},
+				testAccountID, testRegion, tt.configName, "updated desc",
+				[]string{"new-dev"}, []string{"new-gw"}, nil,
 			)
 			require.NoError(t, err)
 
@@ -88,7 +85,7 @@ func TestInMemoryBackend_Reset_ClearsNetworkAnalyzerConfigs(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	_, err := b.CreateNetworkAnalyzerConfig(testAccountID, testRegion, "nc1", "", nil, nil, nil)
+	_, err := b.CreateNetworkAnalyzerConfig(testAccountID, testRegion, "nc1", "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	b.Reset()

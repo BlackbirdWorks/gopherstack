@@ -16,21 +16,25 @@ func wirelessDeviceARN(region, accountID, id string) string {
 	return arn.Build("iotwireless", region, accountID, fmt.Sprintf("WirelessDevice/%s", id))
 }
 
-// copyWirelessDevice returns a shallow copy of d with an independent Tags map.
+// copyWirelessDevice returns a shallow copy of d with independent Tags,
+// LoRaWAN, and Sidewalk maps.
 func copyWirelessDevice(d *WirelessDevice) *WirelessDevice {
 	cp := *d
 	cp.Tags = make(map[string]string, len(d.Tags))
 	maps.Copy(cp.Tags, d.Tags)
+	cp.LoRaWAN = copyAnyMap(d.LoRaWAN)
+	cp.Sidewalk = copyAnyMap(d.Sidewalk)
 
 	return &cp
 }
 
 // CreateWirelessDevice creates a new wireless device.
 func (b *InMemoryBackend) CreateWirelessDevice(
-	accountID, region, name, devType, destinationName, description string,
+	accountID, region, name, devType, destinationName, description, positioning string,
+	loRaWAN, sidewalk map[string]any,
 	tags map[string]string,
 ) (*WirelessDevice, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateWirelessDevice")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
@@ -43,6 +47,9 @@ func (b *InMemoryBackend) CreateWirelessDevice(
 		Type:            devType,
 		DestinationName: destinationName,
 		Description:     description,
+		Positioning:     positioning,
+		LoRaWAN:         loRaWAN,
+		Sidewalk:        sidewalk,
 		Tags:            newTagsCopy(tags),
 		CreatedAt:       time.Now(),
 		AccountID:       accountID,
@@ -57,7 +64,7 @@ func (b *InMemoryBackend) CreateWirelessDevice(
 
 // GetWirelessDevice returns a wireless device by ID.
 func (b *InMemoryBackend) GetWirelessDevice(accountID, region, id string) (*WirelessDevice, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetWirelessDevice")
 	defer b.mu.RUnlock()
 
 	d, ok := b.devices.Get(compositeKey(accountID, region, id))
@@ -71,7 +78,7 @@ func (b *InMemoryBackend) GetWirelessDevice(accountID, region, id string) (*Wire
 // ListWirelessDevices returns all wireless devices for the given account and region,
 // sorted by name for deterministic output.
 func (b *InMemoryBackend) ListWirelessDevices(accountID, region string) []*WirelessDevice {
-	b.mu.RLock()
+	b.mu.RLock("ListWirelessDevices")
 	defer b.mu.RUnlock()
 
 	all := b.devices.All()
@@ -92,7 +99,7 @@ func (b *InMemoryBackend) ListWirelessDevices(accountID, region string) []*Wirel
 
 // DeleteWirelessDevice deletes a wireless device.
 func (b *InMemoryBackend) DeleteWirelessDevice(accountID, region, id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteWirelessDevice")
 	defer b.mu.Unlock()
 
 	key := compositeKey(accountID, region, id)
@@ -103,6 +110,17 @@ func (b *InMemoryBackend) DeleteWirelessDevice(accountID, region, id string) err
 	}
 
 	delete(b.resourceTags, d.ARN)
+	delete(b.wirelessDeviceThings, id)
+	delete(b.queuedMessages, id)
+
+	for _, members := range b.multicastGroupDevices {
+		delete(members, id)
+	}
+
+	for _, members := range b.fuotaTaskDevices {
+		delete(members, id)
+	}
+
 	b.devices.Delete(key)
 
 	return nil
@@ -113,7 +131,7 @@ func (b *InMemoryBackend) DeleteWirelessDevice(accountID, region, id string) err
 func (b *InMemoryBackend) AssociateWirelessDeviceWithThing(
 	accountID, region, wirelessDeviceID, thingArn string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("AssociateWirelessDeviceWithThing")
 	defer b.mu.Unlock()
 
 	if !b.devices.Has(compositeKey(accountID, region, wirelessDeviceID)) {
@@ -129,7 +147,7 @@ func (b *InMemoryBackend) AssociateWirelessDeviceWithThing(
 // a wireless device, or "" if AssociateWirelessDeviceWithThing was never
 // called (or the association was since cleared).
 func (b *InMemoryBackend) GetWirelessDeviceThingArn(wirelessDeviceID string) string {
-	b.mu.RLock()
+	b.mu.RLock("GetWirelessDeviceThingArn")
 	defer b.mu.RUnlock()
 
 	return b.wirelessDeviceThings[wirelessDeviceID]
@@ -138,7 +156,7 @@ func (b *InMemoryBackend) GetWirelessDeviceThingArn(wirelessDeviceID string) str
 // AddWirelessDeviceInternal inserts a WirelessDevice directly into the backend, bypassing ID generation.
 // Intended for test setup only.
 func (b *InMemoryBackend) AddWirelessDeviceInternal(accountID, region string, d *WirelessDevice) {
-	b.mu.Lock()
+	b.mu.Lock("AddWirelessDeviceInternal")
 	defer b.mu.Unlock()
 
 	cp := copyWirelessDevice(d)
@@ -149,10 +167,17 @@ func (b *InMemoryBackend) AddWirelessDeviceInternal(accountID, region string, d 
 }
 
 // UpdateWirelessDevice updates mutable fields on an existing wireless device.
+// loRaWAN/sidewalk are merged key-by-key into the stored configuration
+// (rather than wholesale replaced), matching real AWS's UpdateWirelessDevice
+// semantics of updating only the LoRaWAN/Sidewalk sub-fields the client
+// actually supplied (e.g. LoRaWANUpdateDevice only carries DeviceProfileId/
+// ServiceProfileId/ABP/FPorts -- not DevEui -- so a full replace would
+// silently drop DevEui that CreateWirelessDevice originally stored).
 func (b *InMemoryBackend) UpdateWirelessDevice(
-	accountID, region, id, name, description, destinationName string,
+	accountID, region, id, name, description, destinationName, positioning string,
+	loRaWAN, sidewalk map[string]any,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateWirelessDevice")
 	defer b.mu.Unlock()
 
 	d, ok := b.devices.Get(compositeKey(accountID, region, id))
@@ -170,6 +195,13 @@ func (b *InMemoryBackend) UpdateWirelessDevice(
 		d.DestinationName = destinationName
 	}
 
+	if positioning != "" {
+		d.Positioning = positioning
+	}
+
+	d.LoRaWAN = mergeAnyMap(d.LoRaWAN, loRaWAN)
+	d.Sidewalk = mergeAnyMap(d.Sidewalk, sidewalk)
+
 	return nil
 }
 
@@ -177,7 +209,7 @@ func (b *InMemoryBackend) UpdateWirelessDevice(
 func (b *InMemoryBackend) DisassociateWirelessDeviceFromThing(
 	accountID, region, wirelessDeviceID string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("DisassociateWirelessDeviceFromThing")
 	defer b.mu.Unlock()
 
 	if !b.devices.Has(compositeKey(accountID, region, wirelessDeviceID)) {
@@ -193,7 +225,7 @@ func (b *InMemoryBackend) DisassociateWirelessDeviceFromThing(
 
 // ListQueuedMessages returns queued messages for a wireless device.
 func (b *InMemoryBackend) ListQueuedMessages(wirelessDeviceID string) []QueuedMessage {
-	b.mu.RLock()
+	b.mu.RLock("ListQueuedMessages")
 	defer b.mu.RUnlock()
 
 	msgs, ok := b.queuedMessages[wirelessDeviceID]
@@ -209,7 +241,7 @@ func (b *InMemoryBackend) ListQueuedMessages(wirelessDeviceID string) []QueuedMe
 
 // DeleteQueuedMessages clears the message queue for a wireless device.
 func (b *InMemoryBackend) DeleteQueuedMessages(wirelessDeviceID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteQueuedMessages")
 	defer b.mu.Unlock()
 
 	delete(b.queuedMessages, wirelessDeviceID)
@@ -221,7 +253,7 @@ func (b *InMemoryBackend) DeleteQueuedMessages(wirelessDeviceID string) error {
 // queue, so that a subsequent ListQueuedMessages reflects messages sent via
 // SendDataToWirelessDevice.
 func (b *InMemoryBackend) EnqueueMessage(wirelessDeviceID string, msg QueuedMessage) {
-	b.mu.Lock()
+	b.mu.Lock("EnqueueMessage")
 	defer b.mu.Unlock()
 
 	b.queuedMessages[wirelessDeviceID] = append(b.queuedMessages[wirelessDeviceID], msg)

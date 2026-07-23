@@ -18,7 +18,7 @@ func iotCertificateARN(accountID, region, certID string) string {
 func (b *InMemoryBackend) AssociateWirelessGatewayWithCertificate(
 	accountID, region, gatewayID, iotCertificateID string,
 ) (string, error) {
-	b.mu.Lock()
+	b.mu.Lock("AssociateWirelessGatewayWithCertificate")
 	defer b.mu.Unlock()
 
 	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {
@@ -35,7 +35,7 @@ func (b *InMemoryBackend) AssociateWirelessGatewayWithCertificate(
 func (b *InMemoryBackend) DisassociateWirelessGatewayFromCertificate(
 	accountID, region, gatewayID string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("DisassociateWirelessGatewayFromCertificate")
 	defer b.mu.Unlock()
 
 	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {
@@ -51,7 +51,7 @@ func (b *InMemoryBackend) DisassociateWirelessGatewayFromCertificate(
 func (b *InMemoryBackend) GetWirelessGatewayCertificate(
 	accountID, region, gatewayID string,
 ) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetWirelessGatewayCertificate")
 	defer b.mu.RUnlock()
 
 	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {
@@ -96,7 +96,7 @@ func copySingleImportTask(t *SingleWirelessDeviceImportTask) *SingleWirelessDevi
 func (b *InMemoryBackend) StartWirelessDeviceImportTask(
 	accountID, region, destinationName string,
 ) (*WirelessDeviceImportTask, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartWirelessDeviceImportTask")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
@@ -119,7 +119,7 @@ func (b *InMemoryBackend) StartWirelessDeviceImportTask(
 func (b *InMemoryBackend) StartSingleWirelessDeviceImportTask(
 	accountID, region, destinationName string,
 ) (*SingleWirelessDeviceImportTask, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartSingleWirelessDeviceImportTask")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) StartSingleWirelessDeviceImportTask(
 
 // GetWirelessDeviceImportTask returns a wireless device import task by ID.
 func (b *InMemoryBackend) GetWirelessDeviceImportTask(id string) (*WirelessDeviceImportTask, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetWirelessDeviceImportTask")
 	defer b.mu.RUnlock()
 
 	task, ok := b.importTasks.Get(id)
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) GetWirelessDeviceImportTask(id string) (*WirelessDevic
 
 // DeleteWirelessDeviceImportTask removes a wireless device import task.
 func (b *InMemoryBackend) DeleteWirelessDeviceImportTask(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteWirelessDeviceImportTask")
 	defer b.mu.Unlock()
 
 	if !b.importTasks.Delete(id) {
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) DeleteWirelessDeviceImportTask(id string) error {
 
 // UpdateWirelessDeviceImportTask updates the destination name of a wireless device import task.
 func (b *InMemoryBackend) UpdateWirelessDeviceImportTask(id, destinationName string) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateWirelessDeviceImportTask")
 	defer b.mu.Unlock()
 
 	task, ok := b.importTasks.Get(id)
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) UpdateWirelessDeviceImportTask(id, destinationName str
 
 // ListWirelessDeviceImportTasks returns all wireless device import tasks.
 func (b *InMemoryBackend) ListWirelessDeviceImportTasks() []*WirelessDeviceImportTask {
-	b.mu.RLock()
+	b.mu.RLock("ListWirelessDeviceImportTasks")
 	defer b.mu.RUnlock()
 
 	all := b.importTasks.All()

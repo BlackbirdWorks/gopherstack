@@ -15,28 +15,34 @@ type createNetworkAnalyzerConfigurationResponse struct {
 }
 
 type getNetworkAnalyzerConfigurationResponse struct {
-	Arn              string   `json:"Arn"`
-	Name             string   `json:"Name"`
-	Description      string   `json:"Description"`
-	WirelessDevices  []string `json:"WirelessDevices"`
-	WirelessGateways []string `json:"WirelessGateways"`
+	TraceContent     map[string]any `json:"TraceContent,omitempty"`
+	Arn              string         `json:"Arn"`
+	Name             string         `json:"Name"`
+	Description      string         `json:"Description"`
+	WirelessDevices  []string       `json:"WirelessDevices"`
+	WirelessGateways []string       `json:"WirelessGateways"`
+	MulticastGroups  []string       `json:"MulticastGroups"`
+}
+
+type networkAnalyzerConfigListEntry struct {
+	Arn  string `json:"Arn"`
+	Name string `json:"Name"`
 }
 
 type listNetworkAnalyzerConfigurationsResponse struct {
-	NextToken                        string `json:"NextToken"`
-	NetworkAnalyzerConfigurationList []struct {
-		Arn  string `json:"Arn"`
-		Name string `json:"Name"`
-	} `json:"NetworkAnalyzerConfigurationList"`
+	NextToken                        string                           `json:"NextToken"`
+	NetworkAnalyzerConfigurationList []networkAnalyzerConfigListEntry `json:"NetworkAnalyzerConfigurationList"`
 }
 
 func (h *Handler) createNetworkAnalyzerConfiguration(c *echo.Context) error {
 	var req struct {
-		Description      string    `json:"Description"`
-		Name             string    `json:"Name"`
-		WirelessDevices  []string  `json:"WirelessDevices"`
-		WirelessGateways []string  `json:"WirelessGateways"`
-		Tags             []tags.KV `json:"Tags"`
+		TraceContent     map[string]any `json:"TraceContent,omitempty"`
+		Description      string         `json:"Description"`
+		Name             string         `json:"Name"`
+		WirelessDevices  []string       `json:"WirelessDevices"`
+		WirelessGateways []string       `json:"WirelessGateways"`
+		MulticastGroups  []string       `json:"MulticastGroups"`
+		Tags             []tags.KV      `json:"Tags"`
 	}
 
 	body := readStubBody(c)
@@ -45,7 +51,8 @@ func (h *Handler) createNetworkAnalyzerConfiguration(c *echo.Context) error {
 	nc, err := h.Backend.CreateNetworkAnalyzerConfig(
 		h.AccountID, h.DefaultRegion,
 		req.Name, req.Description,
-		req.WirelessDevices, req.WirelessGateways,
+		req.WirelessDevices, req.WirelessGateways, req.MulticastGroups,
+		req.TraceContent,
 		tagKVsToMap(req.Tags),
 	)
 	if err != nil {
@@ -70,26 +77,24 @@ func (h *Handler) getNetworkAnalyzerConfiguration(c *echo.Context, name string) 
 		Description:      nc.Description,
 		WirelessDevices:  nc.WirelessDevices,
 		WirelessGateways: nc.WirelessGateways,
+		MulticastGroups:  nc.MulticastGroups,
+		TraceContent:     nc.TraceContent,
 	})
 }
 
 func (h *Handler) listNetworkAnalyzerConfigurations(c *echo.Context) error {
 	configs := h.Backend.ListNetworkAnalyzerConfigs(h.AccountID, h.DefaultRegion)
+	pg, next := paginateQuery(c, configs)
 
-	entries := make([]struct {
-		Arn  string `json:"Arn"`
-		Name string `json:"Name"`
-	}, 0, len(configs))
+	entries := make([]networkAnalyzerConfigListEntry, 0, len(pg))
 
-	for _, nc := range configs {
-		entries = append(entries, struct {
-			Arn  string `json:"Arn"`
-			Name string `json:"Name"`
-		}{Arn: nc.ARN, Name: nc.Name})
+	for _, nc := range pg {
+		entries = append(entries, networkAnalyzerConfigListEntry{Arn: nc.ARN, Name: nc.Name})
 	}
 
 	return writeJSON(c, http.StatusOK, listNetworkAnalyzerConfigurationsResponse{
 		NetworkAnalyzerConfigurationList: entries,
+		NextToken:                        next,
 	})
 }
 
@@ -105,9 +110,10 @@ func (h *Handler) deleteNetworkAnalyzerConfiguration(c *echo.Context, name strin
 
 func (h *Handler) updateNetworkAnalyzerConfiguration(c *echo.Context, name string) error {
 	var req struct {
-		Description      string   `json:"Description"`
-		WirelessDevices  []string `json:"WirelessDevices"`
-		WirelessGateways []string `json:"WirelessGateways"`
+		TraceContent     map[string]any `json:"TraceContent,omitempty"`
+		Description      string         `json:"Description"`
+		WirelessDevices  []string       `json:"WirelessDevices"`
+		WirelessGateways []string       `json:"WirelessGateways"`
 	}
 
 	body := readStubBody(c)
@@ -116,6 +122,7 @@ func (h *Handler) updateNetworkAnalyzerConfiguration(c *echo.Context, name strin
 	if err := h.Backend.UpdateNetworkAnalyzerConfig(
 		h.AccountID, h.DefaultRegion, name,
 		req.Description, req.WirelessDevices, req.WirelessGateways,
+		req.TraceContent,
 	); err != nil {
 		return handleError(c, err)
 	}

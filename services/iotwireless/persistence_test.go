@@ -21,7 +21,18 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *iotwireless.InMemoryBackend) string {
-				d, err := b.CreateWirelessDevice(testAccountID, testRegion, "dev-1", "LoRaWAN", "", "", nil)
+				d, err := b.CreateWirelessDevice(
+					testAccountID,
+					testRegion,
+					"dev-1",
+					"LoRaWAN",
+					"",
+					"",
+					"",
+					nil,
+					nil,
+					nil,
+				)
 				require.NoError(t, err)
 
 				return d.ID
@@ -77,7 +88,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	backend := iotwireless.NewInMemoryBackend()
 	h := iotwireless.NewHandler(backend)
 
-	_, err := backend.CreateWirelessGateway(testAccountID, testRegion, "gw-delegate", "", nil)
+	_, err := backend.CreateWirelessGateway(testAccountID, testRegion, "gw-delegate", "", nil, nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(t.Context())
@@ -111,14 +122,23 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	original := iotwireless.NewInMemoryBackend()
 
 	dev, err := original.CreateWirelessDevice(
-		testAccountID, testRegion, "dev-1", "LoRaWAN", "dest-1", "a device", map[string]string{"k": "v"},
+		testAccountID,
+		testRegion,
+		"dev-1",
+		"LoRaWAN",
+		"dest-1",
+		"a device",
+		"",
+		nil,
+		nil,
+		map[string]string{"k": "v"},
 	)
 	require.NoError(t, err)
 
-	gw, err := original.CreateWirelessGateway(testAccountID, testRegion, "gw-1", "a gateway", nil)
+	gw, err := original.CreateWirelessGateway(testAccountID, testRegion, "gw-1", "a gateway", nil, nil)
 	require.NoError(t, err)
 
-	sp, err := original.CreateServiceProfile(testAccountID, testRegion, "sp-1", nil)
+	sp, err := original.CreateServiceProfile(testAccountID, testRegion, "sp-1", nil, nil)
 	require.NoError(t, err)
 
 	dest, err := original.CreateDestination(
@@ -126,17 +146,38 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	dp, err := original.CreateDeviceProfile(testAccountID, testRegion, "dp-1", nil)
+	dp, err := original.CreateDeviceProfile(testAccountID, testRegion, "dp-1", nil, nil, nil)
 	require.NoError(t, err)
 
-	ft, err := original.CreateFuotaTask(testAccountID, testRegion, "ft-1", "a fuota task", "image", "role", nil)
+	ft, err := original.CreateFuotaTask(
+		testAccountID,
+		testRegion,
+		"ft-1",
+		"a fuota task",
+		"image",
+		"role",
+		"",
+		0,
+		0,
+		0,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	mg, err := original.CreateMulticastGroup(testAccountID, testRegion, "mg-1", "a multicast group", nil)
+	mg, err := original.CreateMulticastGroup(testAccountID, testRegion, "mg-1", "a multicast group", nil, nil)
 	require.NoError(t, err)
 
 	nc, err := original.CreateNetworkAnalyzerConfig(
-		testAccountID, testRegion, "nc-1", "a config", []string{dev.ID}, []string{gw.ID}, nil,
+		testAccountID,
+		testRegion,
+		"nc-1",
+		"a config",
+		[]string{dev.ID},
+		[]string{gw.ID},
+		nil,
+		nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -150,7 +191,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, original.AssociateWirelessGatewayWithThing(testAccountID, testRegion, gw.ID, "gw-thing-arn"))
 	require.NoError(t, original.StartMulticastGroupSession(mg.ID))
-	require.NoError(t, original.UpdateLogLevelsByResourceTypes("DEBUG"))
+	require.NoError(t, original.UpdateLogLevelsByResourceTypes(iotwireless.LogLevelsConfig{DefaultLogLevel: "DEBUG"}))
 	require.NoError(t, original.PutResourceLogLevel(dev.ID, "ERROR"))
 	require.NoError(t, original.UpdatePosition(dev.ID, map[string]any{"latitude": 1.5}))
 	original.EnqueueMessage(dev.ID, iotwireless.QueuedMessage{MessageID: "msg-1", PayloadBase64: "cGF5bG9hZA=="})
@@ -171,7 +212,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.CreateWirelessGatewayTask(gw.ID, "taskdef-1")
 	require.NoError(t, err)
 
-	taskDef, err := original.CreateWirelessGatewayTaskDefinition(testAccountID, testRegion, "taskdef-1", true)
+	taskDef, err := original.CreateWirelessGatewayTaskDefinition(testAccountID, testRegion, "taskdef-1", true, nil)
 	require.NoError(t, err)
 
 	_, err = original.StartWirelessDeviceImportTask(testAccountID, testRegion, dest.Name)
@@ -272,7 +313,7 @@ func verifyRestoredAssociations(
 	require.NoError(t, err)
 	assert.Equal(t, "cert-1", certID)
 
-	assert.Equal(t, "DEBUG", fresh.GetLogLevelsByResourceTypes())
+	assert.Equal(t, "DEBUG", fresh.GetLogLevelsByResourceTypes().DefaultLogLevel)
 	assert.Equal(t, "ERROR", fresh.GetResourceLogLevel(dev.ID))
 
 	pos := fresh.GetPosition(dev.ID)
@@ -340,6 +381,9 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 		"LoRaWAN",
 		"dest-snap",
 		"desc",
+		"",
+		nil,
+		nil,
 		map[string]string{"env": "test"},
 	)
 	require.NoError(t, err)
@@ -349,16 +393,12 @@ func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
 		testRegion,
 		"gw-snap",
 		"gateway",
+		nil,
 		map[string]string{"tier": "free"},
 	)
 	require.NoError(t, err)
 
-	sp, err := bk.CreateServiceProfile(
-		testAccountID,
-		testRegion,
-		"sp-snap",
-		map[string]string{"role": "iot"},
-	)
+	sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp-snap", nil, map[string]string{"role": "iot"})
 	require.NoError(t, err)
 
 	dest, err := bk.CreateDestination(
@@ -415,7 +455,7 @@ func TestInMemoryBackend_PersistenceSnapshotRestore_OperationalState(t *testing.
 
 	bk := iotwireless.NewInMemoryBackend()
 
-	def, err := bk.CreateWirelessGatewayTaskDefinition("123456789012", "us-east-1", "taskdef-snap", true)
+	def, err := bk.CreateWirelessGatewayTaskDefinition("123456789012", "us-east-1", "taskdef-snap", true, nil)
 	require.NoError(t, err)
 
 	task, err := bk.CreateWirelessGatewayTask("gw-snap", def.ID)
@@ -498,11 +538,12 @@ func TestInMemoryBackend_Snapshot_IncludesMulticastGroups(t *testing.T) {
 		testRegion,
 		"mg-snap-1",
 		"desc1",
+		nil,
 		map[string]string{"env": "test"},
 	)
 	require.NoError(t, err)
 
-	mg2, err := b.CreateMulticastGroup(testAccountID, testRegion, "mg-snap-2", "desc2", nil)
+	mg2, err := b.CreateMulticastGroup(testAccountID, testRegion, "mg-snap-2", "desc2", nil, nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
@@ -528,10 +569,14 @@ func TestInMemoryBackend_Snapshot_IncludesNetworkAnalyzerConfigs(t *testing.T) {
 	b := iotwireless.NewInMemoryBackend()
 
 	nc, err := b.CreateNetworkAnalyzerConfig(
-		testAccountID, testRegion,
-		"nc-snap-1", "my network analyzer",
+		testAccountID,
+		testRegion,
+		"nc-snap-1",
+		"my network analyzer",
 		[]string{"dev-1", "dev-2"},
 		[]string{"gw-1"},
+		nil,
+		nil,
 		map[string]string{"env": "prod"},
 	)
 	require.NoError(t, err)
@@ -577,7 +622,7 @@ func TestInMemoryBackend_Snapshot_IncludesLogLevels(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	require.NoError(t, b.UpdateLogLevelsByResourceTypes("ERROR"))
+	require.NoError(t, b.UpdateLogLevelsByResourceTypes(iotwireless.LogLevelsConfig{DefaultLogLevel: "ERROR"}))
 	require.NoError(t, b.PutResourceLogLevel("res-001", "DEBUG"))
 
 	snap := b.Snapshot(t.Context())
@@ -586,7 +631,7 @@ func TestInMemoryBackend_Snapshot_IncludesLogLevels(t *testing.T) {
 	b2 := iotwireless.NewInMemoryBackend()
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
-	assert.Equal(t, "ERROR", b2.GetLogLevelsByResourceTypes())
+	assert.Equal(t, "ERROR", b2.GetLogLevelsByResourceTypes().DefaultLogLevel)
 	assert.Equal(t, "DEBUG", b2.GetResourceLogLevel("res-001"))
 }
 
@@ -597,17 +642,26 @@ func TestInMemoryBackend_SnapshotRestore_FullRoundTrip(t *testing.T) {
 
 	// Populate a variety of resource types.
 	dev, err := b.CreateWirelessDevice(
-		testAccountID, testRegion, "snap-dev", "LoRaWAN", "dest", "desc", map[string]string{"k": "v"},
+		testAccountID,
+		testRegion,
+		"snap-dev",
+		"LoRaWAN",
+		"dest",
+		"desc",
+		"",
+		nil,
+		nil,
+		map[string]string{"k": "v"},
 	)
 	require.NoError(t, err)
 
-	gw, err := b.CreateWirelessGateway(testAccountID, testRegion, "snap-gw", "a gateway", nil)
+	gw, err := b.CreateWirelessGateway(testAccountID, testRegion, "snap-gw", "a gateway", nil, nil)
 	require.NoError(t, err)
 
-	mg, err := b.CreateMulticastGroup(testAccountID, testRegion, "snap-mg", "", nil)
+	mg, err := b.CreateMulticastGroup(testAccountID, testRegion, "snap-mg", "", nil, nil)
 	require.NoError(t, err)
 
-	nc, err := b.CreateNetworkAnalyzerConfig(testAccountID, testRegion, "snap-nc", "", nil, nil, nil)
+	nc, err := b.CreateNetworkAnalyzerConfig(testAccountID, testRegion, "snap-nc", "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	it, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, "snap-dest")
@@ -648,10 +702,30 @@ func TestInMemoryBackend_PersistenceRoundTrip(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	dp, err := b.CreateDeviceProfile(testAccountID, testRegion, "dp-persist", map[string]string{"env": "test"})
+	dp, err := b.CreateDeviceProfile(
+		testAccountID,
+		testRegion,
+		"dp-persist",
+		nil,
+		nil,
+		map[string]string{"env": "test"},
+	)
 	require.NoError(t, err)
 
-	ft, err := b.CreateFuotaTask(testAccountID, testRegion, "ft-persist", "desc", "s3://bucket/fw.bin", "arn:role", nil)
+	ft, err := b.CreateFuotaTask(
+		testAccountID,
+		testRegion,
+		"ft-persist",
+		"desc",
+		"s3://bucket/fw.bin",
+		"arn:role",
+		"",
+		0,
+		0,
+		0,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())

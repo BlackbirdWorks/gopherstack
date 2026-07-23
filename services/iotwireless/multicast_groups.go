@@ -20,6 +20,7 @@ func copyMulticastGroup(mg *MulticastGroup) *MulticastGroup {
 	cp := *mg
 	cp.Tags = make(map[string]string, len(mg.Tags))
 	maps.Copy(cp.Tags, mg.Tags)
+	cp.LoRaWAN = copyAnyMap(mg.LoRaWAN)
 
 	return &cp
 }
@@ -27,9 +28,10 @@ func copyMulticastGroup(mg *MulticastGroup) *MulticastGroup {
 // CreateMulticastGroup creates a new multicast group.
 func (b *InMemoryBackend) CreateMulticastGroup(
 	accountID, region, name, description string,
+	loRaWAN map[string]any,
 	tags map[string]string,
 ) (*MulticastGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateMulticastGroup")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
@@ -41,6 +43,7 @@ func (b *InMemoryBackend) CreateMulticastGroup(
 		Name:        name,
 		Description: description,
 		Status:      "Pending",
+		LoRaWAN:     loRaWAN,
 		Tags:        newTagsCopy(tags),
 		CreatedAt:   time.Now(),
 		AccountID:   accountID,
@@ -55,7 +58,7 @@ func (b *InMemoryBackend) CreateMulticastGroup(
 
 // GetMulticastGroup returns a multicast group by ID.
 func (b *InMemoryBackend) GetMulticastGroup(accountID, region, id string) (*MulticastGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetMulticastGroup")
 	defer b.mu.RUnlock()
 
 	mg, ok := b.multicastGroups.Get(compositeKey(accountID, region, id))
@@ -69,7 +72,7 @@ func (b *InMemoryBackend) GetMulticastGroup(accountID, region, id string) (*Mult
 // ListMulticastGroups returns all multicast groups for the given account and region,
 // sorted by name for deterministic output.
 func (b *InMemoryBackend) ListMulticastGroups(accountID, region string) []*MulticastGroup {
-	b.mu.RLock()
+	b.mu.RLock("ListMulticastGroups")
 	defer b.mu.RUnlock()
 
 	all := b.multicastGroups.All()
@@ -88,9 +91,11 @@ func (b *InMemoryBackend) ListMulticastGroups(accountID, region string) []*Multi
 	return result
 }
 
-// DeleteMulticastGroup deletes a multicast group by ID.
+// DeleteMulticastGroup deletes a multicast group by ID, cascading the
+// cleanup to its wireless-device association set so no ghost entry survives
+// the group's deletion.
 func (b *InMemoryBackend) DeleteMulticastGroup(accountID, region, id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteMulticastGroup")
 	defer b.mu.Unlock()
 
 	key := compositeKey(accountID, region, id)
@@ -101,6 +106,12 @@ func (b *InMemoryBackend) DeleteMulticastGroup(accountID, region, id string) err
 	}
 
 	delete(b.resourceTags, mg.ARN)
+	delete(b.multicastGroupDevices, id)
+
+	for _, members := range b.fuotaTaskMulticast {
+		delete(members, id)
+	}
+
 	b.multicastGroups.Delete(key)
 
 	return nil
@@ -108,7 +119,7 @@ func (b *InMemoryBackend) DeleteMulticastGroup(accountID, region, id string) err
 
 // UpdateMulticastGroup updates mutable fields on an existing multicast group.
 func (b *InMemoryBackend) UpdateMulticastGroup(accountID, region, id, name, description string) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateMulticastGroup")
 	defer b.mu.Unlock()
 
 	mg, ok := b.multicastGroups.Get(compositeKey(accountID, region, id))
@@ -125,20 +136,33 @@ func (b *InMemoryBackend) UpdateMulticastGroup(accountID, region, id, name, desc
 	return nil
 }
 
-// AssociateWirelessDeviceWithMulticastGroup records the association of a wireless device with a multicast group.
+// AssociateWirelessDeviceWithMulticastGroup records the association of a
+// wireless device with a multicast group. A multicast group can have many
+// associated devices, so this adds to a per-group set rather than
+// overwriting a single slot.
 func (b *InMemoryBackend) AssociateWirelessDeviceWithMulticastGroup(multicastGroupID, wirelessDeviceID string) error {
-	b.mu.Lock()
+	b.mu.Lock("AssociateWirelessDeviceWithMulticastGroup")
 	defer b.mu.Unlock()
 
-	b.multicastGroupDevices[multicastGroupID] = wirelessDeviceID
+	b.addMulticastGroupDeviceLocked(multicastGroupID, wirelessDeviceID)
 
 	return nil
+}
+
+// addMulticastGroupDeviceLocked adds wirelessDeviceID to multicastGroupID's
+// association set. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) addMulticastGroupDeviceLocked(multicastGroupID, wirelessDeviceID string) {
+	if b.multicastGroupDevices[multicastGroupID] == nil {
+		b.multicastGroupDevices[multicastGroupID] = make(map[string]bool)
+	}
+
+	b.multicastGroupDevices[multicastGroupID][wirelessDeviceID] = true
 }
 
 // CancelMulticastGroupSession marks the multicast group session as cancelled.
 // If no session is active, the call is a no-op (idempotent).
 func (b *InMemoryBackend) CancelMulticastGroupSession(multicastGroupID string) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelMulticastGroupSession")
 	defer b.mu.Unlock()
 
 	delete(b.multicastGroupSessions, multicastGroupID)
@@ -147,11 +171,72 @@ func (b *InMemoryBackend) CancelMulticastGroupSession(multicastGroupID string) e
 	return nil
 }
 
-// DisassociateWirelessDeviceFromMulticastGroup removes a device from a multicast group.
+// DisassociateWirelessDeviceFromMulticastGroup removes a single device from
+// a multicast group's association set. wirelessDeviceID is the
+// {WirelessDeviceId} path segment of DELETE
+// /multicast-groups/{Id}/wireless-devices/{WirelessDeviceId}; an empty value
+// (e.g. from a caller that can't recover it) falls back to clearing every
+// device associated with the group, preserving the prior behavior.
 func (b *InMemoryBackend) DisassociateWirelessDeviceFromMulticastGroup(
-	multicastGroupID string,
+	multicastGroupID, wirelessDeviceID string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("DisassociateWirelessDeviceFromMulticastGroup")
+	defer b.mu.Unlock()
+
+	if wirelessDeviceID == "" {
+		delete(b.multicastGroupDevices, multicastGroupID)
+
+		return nil
+	}
+
+	delete(b.multicastGroupDevices[multicastGroupID], wirelessDeviceID)
+
+	return nil
+}
+
+// ListMulticastGroupDeviceIDs returns the IDs of wireless devices currently
+// associated with a multicast group, sorted for deterministic output.
+func (b *InMemoryBackend) ListMulticastGroupDeviceIDs(multicastGroupID string) []string {
+	b.mu.RLock("ListMulticastGroupDeviceIDs")
+	defer b.mu.RUnlock()
+
+	ids := make([]string, 0, len(b.multicastGroupDevices[multicastGroupID]))
+	for id := range b.multicastGroupDevices[multicastGroupID] {
+		ids = append(ids, id)
+	}
+
+	slices.Sort(ids)
+
+	return ids
+}
+
+// StartBulkAssociateWirelessDeviceWithMulticastGroup associates every
+// wireless device in the account/region with the multicast group. Real AWS
+// filters candidates by the request's QueryString search expression against
+// device attributes; this backend has no query-expression evaluator, so it
+// emulates the "all qualifying devices" semantics by associating the full
+// device corpus, matching this package's existing convention for List* ops
+// that accept-but-can't-honor a narrowing filter (see PARITY.md gaps).
+func (b *InMemoryBackend) StartBulkAssociateWirelessDeviceWithMulticastGroup(
+	accountID, region, multicastGroupID string,
+) error {
+	b.mu.Lock("StartBulkAssociateWirelessDeviceWithMulticastGroup")
+	defer b.mu.Unlock()
+
+	for _, d := range b.devices.All() {
+		if d.AccountID == accountID && d.Region == region {
+			b.addMulticastGroupDeviceLocked(multicastGroupID, d.ID)
+		}
+	}
+
+	return nil
+}
+
+// StartBulkDisassociateWirelessDeviceFromMulticastGroup disassociates every
+// wireless device in the account/region from the multicast group -- the
+// bulk-disassociate counterpart of StartBulkAssociateWirelessDeviceWithMulticastGroup.
+func (b *InMemoryBackend) StartBulkDisassociateWirelessDeviceFromMulticastGroup(multicastGroupID string) error {
+	b.mu.Lock("StartBulkDisassociateWirelessDeviceFromMulticastGroup")
 	defer b.mu.Unlock()
 
 	delete(b.multicastGroupDevices, multicastGroupID)
@@ -162,7 +247,7 @@ func (b *InMemoryBackend) DisassociateWirelessDeviceFromMulticastGroup(
 // StartMulticastGroupSession marks a multicast group session as active,
 // recording its start time so GetMulticastGroupSession can report it back.
 func (b *InMemoryBackend) StartMulticastGroupSession(multicastGroupID string) error {
-	b.mu.Lock()
+	b.mu.Lock("StartMulticastGroupSession")
 	defer b.mu.Unlock()
 
 	b.multicastGroupSessions[multicastGroupID] = true
@@ -176,7 +261,7 @@ func (b *InMemoryBackend) StartMulticastGroupSession(multicastGroupID string) er
 // started (or it has since been cancelled), matching real AWS's
 // ResourceNotFoundException for a group with no active session.
 func (b *InMemoryBackend) GetMulticastGroupSession(multicastGroupID string) (time.Time, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetMulticastGroupSession")
 	defer b.mu.RUnlock()
 
 	if !b.multicastGroupSessions[multicastGroupID] {

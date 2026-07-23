@@ -15,7 +15,7 @@ func TestInMemoryBackend_CertificateARN_UsesRegion(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	gw, err := b.CreateWirelessGateway(testAccountID, testRegion, "gw-cert", "", nil)
+	gw, err := b.CreateWirelessGateway(testAccountID, testRegion, "gw-cert", "", nil, nil)
 	require.NoError(t, err)
 
 	certARN, err := b.AssociateWirelessGatewayWithCertificate(testAccountID, testRegion, gw.ID, "cert-abc")

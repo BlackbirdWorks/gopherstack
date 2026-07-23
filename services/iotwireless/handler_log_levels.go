@@ -7,37 +7,61 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// getResourceLogLevelResponse mirrors GetResourceLogLevelOutput, which
+// carries only LogLevel -- not ResourceType/ResourceId (those are request
+// parameters, not response fields).
 type getResourceLogLevelResponse struct {
-	LogLevel     string `json:"LogLevel"`
-	ResourceType string `json:"ResourceType"`
-	ResourceID   string `json:"ResourceId"`
+	LogLevel string `json:"LogLevel"`
 }
 
 type getLogLevelsByResourceTypesResponse struct {
-	DefaultLogLevel           string     `json:"DefaultLogLevel"`
-	WirelessGatewayLogOptions []struct{} `json:"WirelessGatewayLogOptions"`
-	WirelessDeviceLogOptions  []struct{} `json:"WirelessDeviceLogOptions"`
+	DefaultLogLevel           string           `json:"DefaultLogLevel"`
+	FuotaTaskLogOptions       []map[string]any `json:"FuotaTaskLogOptions"`
+	WirelessDeviceLogOptions  []map[string]any `json:"WirelessDeviceLogOptions"`
+	WirelessGatewayLogOptions []map[string]any `json:"WirelessGatewayLogOptions"`
+}
+
+// nonNilList returns v unchanged if non-nil, or an empty (never null) slice
+// otherwise -- real AWS always returns an array for these list fields, never
+// a JSON null.
+func nonNilList(v []map[string]any) []map[string]any {
+	if v == nil {
+		return []map[string]any{}
+	}
+
+	return v
 }
 
 func (h *Handler) getLogLevelsByResourceTypes(c *echo.Context) error {
-	level := h.Backend.GetLogLevelsByResourceTypes()
+	cfg := h.Backend.GetLogLevelsByResourceTypes()
 
 	return writeJSON(c, http.StatusOK, getLogLevelsByResourceTypesResponse{
-		DefaultLogLevel:           level,
-		WirelessGatewayLogOptions: []struct{}{},
-		WirelessDeviceLogOptions:  []struct{}{},
+		DefaultLogLevel:           cfg.DefaultLogLevel,
+		FuotaTaskLogOptions:       nonNilList(cfg.FuotaTaskLogOptions),
+		WirelessDeviceLogOptions:  nonNilList(cfg.WirelessDeviceLogOptions),
+		WirelessGatewayLogOptions: nonNilList(cfg.WirelessGatewayLogOptions),
 	})
 }
 
 func (h *Handler) updateLogLevelsByResourceTypes(c *echo.Context) error {
 	var req struct {
-		DefaultLogLevel string `json:"DefaultLogLevel"`
+		DefaultLogLevel           string           `json:"DefaultLogLevel"`
+		FuotaTaskLogOptions       []map[string]any `json:"FuotaTaskLogOptions"`
+		WirelessDeviceLogOptions  []map[string]any `json:"WirelessDeviceLogOptions"`
+		WirelessGatewayLogOptions []map[string]any `json:"WirelessGatewayLogOptions"`
 	}
 
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	if err := h.Backend.UpdateLogLevelsByResourceTypes(req.DefaultLogLevel); err != nil {
+	cfg := LogLevelsConfig{
+		DefaultLogLevel:           req.DefaultLogLevel,
+		FuotaTaskLogOptions:       req.FuotaTaskLogOptions,
+		WirelessDeviceLogOptions:  req.WirelessDeviceLogOptions,
+		WirelessGatewayLogOptions: req.WirelessGatewayLogOptions,
+	}
+
+	if err := h.Backend.UpdateLogLevelsByResourceTypes(cfg); err != nil {
 		return handleError(c, err)
 	}
 
@@ -60,8 +84,7 @@ func (h *Handler) getResourceLogLevel(c *echo.Context, id string) error {
 	level := h.Backend.GetResourceLogLevel(id)
 
 	return writeJSON(c, http.StatusOK, getResourceLogLevelResponse{
-		LogLevel:   level,
-		ResourceID: id,
+		LogLevel: level,
 	})
 }
 

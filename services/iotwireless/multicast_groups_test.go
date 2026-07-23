@@ -15,7 +15,7 @@ func TestInMemoryBackend_MulticastGroup_SortedList(t *testing.T) {
 	b := iotwireless.NewInMemoryBackend()
 
 	for _, name := range []string{"mg-z", "mg-a", "mg-m"} {
-		_, err := b.CreateMulticastGroup(testAccountID, testRegion, name, "", nil)
+		_, err := b.CreateMulticastGroup(testAccountID, testRegion, name, "", nil, nil)
 		require.NoError(t, err)
 	}
 
@@ -31,7 +31,7 @@ func TestInMemoryBackend_Reset_ClearsMulticastGroups(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	_, err := b.CreateMulticastGroup(testAccountID, testRegion, "mg1", "", nil)
+	_, err := b.CreateMulticastGroup(testAccountID, testRegion, "mg1", "", nil, nil)
 	require.NoError(t, err)
 
 	b.Reset()

@@ -38,33 +38,33 @@ package iotwireless
 // metricConfigStatus aren't maps at all.
 import (
 	"maps"
-	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // InMemoryBackend is the in-memory backend for IoT Wireless.
 type InMemoryBackend struct {
-	wirelessGatewayCerts       map[string]string
-	wirelessGatewayThings      map[string]string
+	resourceTags               map[string]map[string]string
+	wirelessDeviceThings       map[string]string
 	serviceProfiles            *store.Table[ServiceProfile]
 	destinations               *store.Table[Destination]
 	deviceProfiles             *store.Table[DeviceProfile]
 	fuotaTasks                 *store.Table[FuotaTask]
 	multicastGroups            *store.Table[MulticastGroup]
 	networkAnalyzerConfigs     *store.Table[NetworkAnalyzerConfig]
-	devices                    *store.Table[WirelessDevice]
+	wirelessGatewayCerts       map[string]string
 	partnerAccounts            map[string]string
-	fuotaTaskMulticast         map[string]string
-	fuotaTaskDevices           map[string]string
-	multicastGroupDevices      map[string]string
+	fuotaTaskMulticast         map[string]map[string]bool
+	fuotaTaskDevices           map[string]map[string]bool
+	multicastGroupDevices      map[string]map[string]bool
 	multicastGroupSessions     map[string]bool
+	wirelessGatewayThings      map[string]string
 	gateways                   *store.Table[WirelessGateway]
+	devices                    *store.Table[WirelessDevice]
 	multicastGroupSessionStart map[string]time.Time
-	resourceTags               map[string]map[string]string
-	wirelessDeviceThings       map[string]string
-	logLevels                  map[string]string
+	logLevelsConfig            *LogLevelsConfig
 	resourceLogLevels          map[string]string
 	gatewayTasks               *store.Table[GatewayTask]
 	gatewayTaskDefs            *store.Table[GatewayTaskDefinition]
@@ -76,8 +76,8 @@ type InMemoryBackend struct {
 	resourceEventConfigs       *store.Table[ResourceEventConfigEntry]
 	eventConfigDefault         *EventConfigDoc
 	registry                   *store.Registry
+	mu                         *lockmetrics.RWMutex
 	metricConfigStatus         string
-	mu                         sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory IoT Wireless backend.
@@ -85,19 +85,19 @@ func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		resourceTags:               make(map[string]map[string]string),
 		partnerAccounts:            make(map[string]string),
-		fuotaTaskMulticast:         make(map[string]string),
-		fuotaTaskDevices:           make(map[string]string),
-		multicastGroupDevices:      make(map[string]string),
+		fuotaTaskMulticast:         make(map[string]map[string]bool),
+		fuotaTaskDevices:           make(map[string]map[string]bool),
+		multicastGroupDevices:      make(map[string]map[string]bool),
 		multicastGroupSessions:     make(map[string]bool),
 		multicastGroupSessionStart: make(map[string]time.Time),
 		wirelessDeviceThings:       make(map[string]string),
 		wirelessGatewayCerts:       make(map[string]string),
 		wirelessGatewayThings:      make(map[string]string),
-		logLevels:                  make(map[string]string),
 		resourceLogLevels:          make(map[string]string),
 		positions:                  make(map[string]map[string]any),
 		queuedMessages:             make(map[string][]QueuedMessage),
 		registry:                   store.NewRegistry(),
+		mu:                         lockmetrics.New("iotwireless"),
 	}
 
 	registerAllTables(b)
@@ -107,22 +107,22 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // Reset clears all in-memory state, returning the backend to a pristine condition.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.resetTablesLocked()
 
 	b.resourceTags = make(map[string]map[string]string)
 	b.partnerAccounts = make(map[string]string)
-	b.fuotaTaskMulticast = make(map[string]string)
-	b.fuotaTaskDevices = make(map[string]string)
-	b.multicastGroupDevices = make(map[string]string)
+	b.fuotaTaskMulticast = make(map[string]map[string]bool)
+	b.fuotaTaskDevices = make(map[string]map[string]bool)
+	b.multicastGroupDevices = make(map[string]map[string]bool)
 	b.multicastGroupSessions = make(map[string]bool)
 	b.multicastGroupSessionStart = make(map[string]time.Time)
 	b.wirelessDeviceThings = make(map[string]string)
 	b.wirelessGatewayCerts = make(map[string]string)
 	b.wirelessGatewayThings = make(map[string]string)
-	b.logLevels = make(map[string]string)
+	b.logLevelsConfig = nil
 	b.resourceLogLevels = make(map[string]string)
 	b.positions = make(map[string]map[string]any)
 	b.queuedMessages = make(map[string][]QueuedMessage)
@@ -137,6 +137,42 @@ func newTagsCopy(tags map[string]string) map[string]string {
 	maps.Copy(cp, tags)
 
 	return cp
+}
+
+// copyAnyMap returns a shallow copy of an opaque JSON-object field (LoRaWAN,
+// Sidewalk, TraceContent, Update, ...), or nil for nil input. These fields
+// hold whatever nested configuration object a client submitted verbatim
+// (see the WirelessDevice.LoRaWAN doc comment in models.go); a shallow
+// top-level copy is enough to prevent callers from mutating the backend's
+// stored map through a returned reference, matching the isolation newTagsCopy
+// provides for Tags.
+func copyAnyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+
+	cp := make(map[string]any, len(m))
+	maps.Copy(cp, m)
+
+	return cp
+}
+
+// mergeAnyMap merges update key-by-key into a copy of existing, matching the
+// partial-update semantics real AWS Update* operations use for nested
+// LoRaWAN/Sidewalk configuration objects (only the sub-fields present in the
+// update request change; unset sub-fields keep their prior value). Returns
+// nil if both inputs are empty, so an untouched resource doesn't grow an
+// empty non-nil map.
+func mergeAnyMap(existing, update map[string]any) map[string]any {
+	if len(update) == 0 {
+		return existing
+	}
+
+	merged := make(map[string]any, len(existing)+len(update))
+	maps.Copy(merged, existing)
+	maps.Copy(merged, update)
+
+	return merged
 }
 
 // storeResourceTagsLocked initialises the resource tag entry for the given ARN.
