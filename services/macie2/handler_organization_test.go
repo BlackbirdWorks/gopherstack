@@ -85,3 +85,25 @@ func TestOrgAdmin(t *testing.T) {
 		})
 	}
 }
+
+// TestDescribeOrganizationConfigurationWireShape locks the real
+// DescribeOrganizationConfigurationOutput shape: exactly autoEnable and
+// maxAccountLimitReached. Earlier versions of this backend also emitted
+// dataSources/features keys that don't exist anywhere in the real API.
+func TestDescribeOrganizationConfigurationWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodGet, "/admin/configuration", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.Contains(t, resp, "autoEnable")
+	assert.Contains(t, resp, "maxAccountLimitReached")
+	assert.NotContains(t, resp, "dataSources")
+	assert.NotContains(t, resp, "features")
+	assert.Len(t, resp, 2, "DescribeOrganizationConfigurationOutput has exactly two fields")
+}

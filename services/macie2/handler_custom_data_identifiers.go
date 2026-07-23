@@ -95,6 +95,7 @@ func (h *Handler) handleCreateCustomDataID(body []byte) (any, int, error) {
 		Regex                string            `json:"regex"`
 		IgnoreWords          []string          `json:"ignoreWords"`
 		Keywords             []string          `json:"keywords"`
+		SeverityLevels       []SeverityLevel   `json:"severityLevels"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -107,7 +108,7 @@ func (h *Handler) handleCreateCustomDataID(body []byte) (any, int, error) {
 
 	id, err := h.Backend.CreateCustomDataIdentifier(
 		req.Name, req.Description, req.Regex,
-		req.IgnoreWords, req.Keywords, req.MaximumMatchDistance,
+		req.IgnoreWords, req.Keywords, req.SeverityLevels, req.MaximumMatchDistance,
 		req.Tags,
 	)
 	if err != nil {

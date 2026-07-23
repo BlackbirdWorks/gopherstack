@@ -212,3 +212,230 @@ func TestClassificationConfig(t *testing.T) {
 		})
 	}
 }
+
+// createTestJob creates a classification job of the given name/jobType and
+// returns (jobId, jobArn).
+func createTestJob(t *testing.T, h *macie2.Handler, name, jobType string) (string, string) {
+	t.Helper()
+
+	body := map[string]any{
+		"name":    name,
+		"jobType": jobType,
+		"s3JobDefinition": map[string]any{
+			"bucketDefinitions": []any{},
+		},
+	}
+	if jobType == "SCHEDULED" {
+		body["scheduleFrequency"] = map[string]any{"dailySchedule": map[string]any{}}
+	}
+
+	rec := doRequest(t, h, http.MethodPost, "/jobs", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	return resp["jobId"], resp["jobArn"]
+}
+
+// TestListClassificationJobsFilterAndPagination locks the ListClassificationJobs
+// gap fix: filterCriteria (includes/excludes, EQ/NE) and maxResults/nextToken
+// must actually filter and page results instead of always returning every job
+// in one page.
+func TestListClassificationJobsFilterAndPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	oneTimeID, _ := createTestJob(t, h, "job-one-time", "ONE_TIME")
+	_, _ = createTestJob(t, h, "job-scheduled", "SCHEDULED")
+
+	t.Run("includes EQ jobType filters to matching jobs", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, http.MethodPost, "/jobs/list", map[string]any{
+			"filterCriteria": map[string]any{
+				"includes": []any{
+					map[string]any{"key": "jobType", "comparator": "EQ", "values": []any{"ONE_TIME"}},
+				},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		items, ok := resp["items"].([]any)
+		require.True(t, ok)
+		require.Len(t, items, 1)
+
+		item, ok := items[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, oneTimeID, item["jobId"])
+	})
+
+	t.Run("excludes NE jobStatus excludes matching jobs", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, http.MethodPost, "/jobs/list", map[string]any{
+			"filterCriteria": map[string]any{
+				"excludes": []any{
+					map[string]any{"key": "jobStatus", "comparator": "NE", "values": []any{"IDLE"}},
+				},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		items, ok := resp["items"].([]any)
+		require.True(t, ok)
+
+		// excludes: jobStatus NE IDLE means "exclude anything whose status
+		// isn't IDLE" -- only the SCHEDULED (IDLE) job should survive.
+		require.Len(t, items, 1)
+		item, ok := items[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "IDLE", item["jobStatus"])
+	})
+
+	t.Run("maxResults paginates and nextToken advances", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doRequest(t, h, http.MethodPost, "/jobs/list", map[string]any{"maxResults": 1})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		items, ok := resp["items"].([]any)
+		require.True(t, ok)
+		require.Len(t, items, 1)
+		require.NotEmpty(t, resp["nextToken"])
+
+		rec2 := doRequest(t, h, http.MethodPost, "/jobs/list", map[string]any{
+			"maxResults": 1,
+			"nextToken":  resp["nextToken"],
+		})
+		require.Equal(t, http.StatusOK, rec2.Code)
+
+		var resp2 map[string]any
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		items2, ok := resp2["items"].([]any)
+		require.True(t, ok)
+		require.Len(t, items2, 1)
+		assert.Empty(t, resp2["nextToken"])
+	})
+}
+
+// TestClassificationJobUserPausedDetails locks that UpdateClassificationJob
+// populates userPausedDetails only while jobStatus is USER_PAUSED, and clears
+// it again on any other transition (real DescribeClassificationJobOutput
+// only carries userPausedDetails in that one state).
+func TestClassificationJobUserPausedDetails(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	jobID, _ := createTestJob(t, h, "pausable-job", "ONE_TIME")
+
+	rec := doRequest(t, h, http.MethodPatch, "/jobs/"+jobID, map[string]any{"jobStatus": "USER_PAUSED"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/jobs/"+jobID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var paused map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &paused))
+	details, ok := paused["userPausedDetails"].(map[string]any)
+	require.True(t, ok, "userPausedDetails must be present while USER_PAUSED")
+	assert.NotEmpty(t, details["jobPausedAt"])
+	assert.NotEmpty(t, details["jobExpiresAt"])
+
+	rec = doRequest(t, h, http.MethodPatch, "/jobs/"+jobID, map[string]any{"jobStatus": "RUNNING"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/jobs/"+jobID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resumed map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resumed))
+	assert.Nil(t, resumed["userPausedDetails"], "userPausedDetails must clear once no longer USER_PAUSED")
+}
+
+// TestClassificationJobTagging locks the tags gap fix: TagResource/
+// ListTagsForResource/UntagResource must recognize classification-job ARNs
+// (isKnownARN), not just allow-list/custom-data-identifier/findings-filter.
+func TestClassificationJobTagging(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	_, jobArn := createTestJob(t, h, "taggable-job", "ONE_TIME")
+
+	rec := doRequest(t, h, http.MethodPost, "/tags/"+jobArn, map[string]any{
+		"tags": map[string]string{"env": "test"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/tags/"+jobArn, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	tags, ok := resp["tags"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "test", tags["env"])
+}
+
+// TestClassificationJobCreateFieldsRoundTrip locks the deferred
+// ClassificationJob field audit: allowListIds/customDataIdentifierIds/
+// managedDataIdentifierIds/managedDataIdentifierSelector must round-trip
+// through Create -> Describe, and lastRunErrorStatus/statistics must be
+// populated (DescribeClassificationJobOutput carries them once a job has
+// started, which every job here does immediately on creation).
+func TestClassificationJobCreateFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/jobs", map[string]any{
+		"name":    "full-field-job",
+		"jobType": "ONE_TIME",
+		"s3JobDefinition": map[string]any{
+			"bucketDefinitions": []any{},
+		},
+		"allowListIds":                  []string{"allow-1"},
+		"customDataIdentifierIds":       []string{"cdi-1"},
+		"managedDataIdentifierIds":      []string{"EMAIL_ADDRESS"},
+		"managedDataIdentifierSelector": "INCLUDE",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	rec = doRequest(t, h, http.MethodGet, "/jobs/"+created["jobId"], nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var desc map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+
+	allowListIDs, ok := desc["allowListIds"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"allow-1"}, allowListIDs)
+
+	cdiIDs, ok := desc["customDataIdentifierIds"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"cdi-1"}, cdiIDs)
+
+	mdiIDs, ok := desc["managedDataIdentifierIds"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"EMAIL_ADDRESS"}, mdiIDs)
+
+	assert.Equal(t, "INCLUDE", desc["managedDataIdentifierSelector"])
+
+	lastRunErrorStatus, ok := desc["lastRunErrorStatus"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "NONE", lastRunErrorStatus["code"])
+
+	stats, ok := desc["statistics"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, stats, "numberOfRuns")
+}

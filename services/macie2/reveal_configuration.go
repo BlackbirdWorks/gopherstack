@@ -39,7 +39,7 @@ func (b *InMemoryBackend) GetSensitiveDataOccurrences(findingID string) (map[str
 		return nil, ErrFindingNotFound
 	}
 
-	if finding.Category != categorySensitiveData {
+	if finding.Category != categoryClassification {
 		return nil, awserr.New("UnprocessableEntityException", awserr.ErrInvalidParameter)
 	}
 
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) GetSensitiveDataOccurrencesAvailability(findingID stri
 		return "", nil, ErrFindingNotFound
 	}
 
-	if finding.Category != categorySensitiveData {
+	if finding.Category != categoryClassification {
 		return "UNAVAILABLE", []string{"INVALID_CLASSIFICATION_RESULT"}, nil
 	}
 

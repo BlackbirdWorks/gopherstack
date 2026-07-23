@@ -131,15 +131,19 @@ func (h *Handler) dispatchClassificationExportConfigOps(op string, body []byte) 
 
 func (h *Handler) handleCreateClassificationJob(body []byte) (any, int, error) {
 	var req struct {
-		Tags               map[string]string `json:"tags"`
-		S3JobDefinition    map[string]any    `json:"s3JobDefinition"`
-		ScheduleFrequency  map[string]any    `json:"scheduleFrequency"`
-		ClientToken        string            `json:"clientToken"`
-		Description        string            `json:"description"`
-		JobType            string            `json:"jobType"`
-		Name               string            `json:"name"`
-		SamplingPercentage int32             `json:"samplingPercentage"`
-		InitialRun         bool              `json:"initialRun"`
+		Tags                          map[string]string `json:"tags"`
+		S3JobDefinition               map[string]any    `json:"s3JobDefinition"`
+		ScheduleFrequency             map[string]any    `json:"scheduleFrequency"`
+		ClientToken                   string            `json:"clientToken"`
+		Description                   string            `json:"description"`
+		JobType                       string            `json:"jobType"`
+		Name                          string            `json:"name"`
+		ManagedDataIdentifierSelector string            `json:"managedDataIdentifierSelector"`
+		AllowListIDs                  []string          `json:"allowListIds"`
+		CustomDataIdentifierIDs       []string          `json:"customDataIdentifierIds"`
+		ManagedDataIdentifierIDs      []string          `json:"managedDataIdentifierIds"`
+		SamplingPercentage            int32             `json:"samplingPercentage"`
+		InitialRun                    bool              `json:"initialRun"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -152,8 +156,10 @@ func (h *Handler) handleCreateClassificationJob(body []byte) (any, int, error) {
 
 	id, jobArn, err := h.Backend.CreateClassificationJob(
 		req.Name, req.Description, req.JobType, req.ClientToken,
-		req.S3JobDefinition, req.ScheduleFrequency, req.Tags,
-		req.SamplingPercentage, req.InitialRun,
+		req.S3JobDefinition, req.ScheduleFrequency,
+		req.AllowListIDs, req.CustomDataIdentifierIDs, req.ManagedDataIdentifierIDs,
+		req.ManagedDataIdentifierSelector,
+		req.Tags, req.SamplingPercentage, req.InitialRun,
 	)
 	if err != nil {
 		return nil, http.StatusInternalServerError, err

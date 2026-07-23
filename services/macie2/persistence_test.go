@@ -26,7 +26,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := macie2.NewInMemoryBackend("111111111111", "us-east-1")
-	_, err := b.CreateCustomDataIdentifier("cdi1", "", "foo", nil, nil, nil, nil)
+	_, err := b.CreateCustomDataIdentifier("cdi1", "", "foo", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	// A syntactically valid but version-less/mismatched snapshot.
@@ -41,7 +41,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 
 	backend1 := macie2.NewInMemoryBackend("111111111111", "us-east-1")
 	h := macie2.NewHandler(backend1)
-	_, err := backend1.CreateCustomDataIdentifier("cdi1", "", "foo", nil, nil, nil, nil)
+	_, err := backend1.CreateCustomDataIdentifier("cdi1", "", "foo", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(t.Context())
@@ -108,7 +108,7 @@ func seedFullState(t *testing.T, original *macie2.InMemoryBackend) restoredIDs {
 	require.NoError(t, original.TagResource(allowList.Arn, map[string]string{"k": "v"}))
 
 	cdiID, err := original.CreateCustomDataIdentifier(
-		"cdi1", "desc", "foo", []string{"ignore"}, []string{"keyword"}, nil, nil,
+		"cdi1", "desc", "foo", []string{"ignore"}, []string{"keyword"}, nil, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -128,7 +128,7 @@ func seedFullState(t *testing.T, original *macie2.InMemoryBackend) restoredIDs {
 	})
 
 	jobID, _, err := original.CreateClassificationJob(
-		"job1", "desc", "ONE_TIME", "token1", nil, nil, nil, 100, true,
+		"job1", "desc", "ONE_TIME", "token1", nil, nil, nil, nil, nil, "", nil, 100, true,
 	)
 	require.NoError(t, err)
 

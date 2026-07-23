@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -244,33 +245,34 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// routedPathPrefixes lists every top-level path segment RouteMatcher
+// recognizes as belonging to Macie2, one entry per pathXxx constant. Kept as
+// a table (rather than a long ||-chain) so RouteMatcher stays a flat loop
+// regardless of how many route families this service grows to cover.
+var routedPathPrefixes = []string{ //nolint:gochecknoglobals // static route table, apigatewayv2 style.
+	pathMacie, pathAllowLists, pathCustomDataIDs, pathFindingsFilter, pathFindings,
+	pathJobs, pathMembers, pathInvitations, pathAdministrator, pathMaster, pathAdmin,
+	pathAutomatedDiscovery, pathDatasources, pathClassExportCfg, pathClassScopes,
+	pathFindingsPubCfg, pathResourceProf, pathRevealCfg, pathUsage, pathManagedDataIDs,
+	pathTemplates,
+}
+
 // RouteMatcher returns a function that matches Macie2 requests by path prefix.
-func (h *Handler) RouteMatcher() service.Matcher { //nolint:cyclop // existing issue.
+func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/"+pathMacie) ||
-			strings.HasPrefix(path, "/"+pathAllowLists) ||
-			strings.HasPrefix(path, "/"+pathCustomDataIDs) ||
-			strings.HasPrefix(path, "/"+pathFindingsFilter) ||
-			strings.HasPrefix(path, "/"+pathFindings) ||
-			strings.HasPrefix(path, "/"+pathTags+"/arn:aws:macie2:") ||
-			strings.HasPrefix(path, "/"+pathJobs) ||
-			strings.HasPrefix(path, "/"+pathMembers) ||
-			strings.HasPrefix(path, "/"+pathInvitations) ||
-			strings.HasPrefix(path, "/"+pathAdministrator) ||
-			strings.HasPrefix(path, "/"+pathMaster) ||
-			strings.HasPrefix(path, "/"+pathAdmin) ||
-			strings.HasPrefix(path, "/"+pathAutomatedDiscovery) ||
-			strings.HasPrefix(path, "/"+pathDatasources) ||
-			strings.HasPrefix(path, "/"+pathClassExportCfg) ||
-			strings.HasPrefix(path, "/"+pathClassScopes) ||
-			strings.HasPrefix(path, "/"+pathFindingsPubCfg) ||
-			strings.HasPrefix(path, "/"+pathResourceProf) ||
-			strings.HasPrefix(path, "/"+pathRevealCfg) ||
-			strings.HasPrefix(path, "/"+pathUsage) ||
-			strings.HasPrefix(path, "/"+pathManagedDataIDs) ||
-			strings.HasPrefix(path, "/"+pathTemplates)
+		if strings.HasPrefix(path, "/"+pathTags+"/arn:aws:macie2:") {
+			return true
+		}
+
+		for _, prefix := range routedPathPrefixes {
+			if strings.HasPrefix(path, "/"+prefix) {
+				return true
+			}
+		}
+
+		return false
 	}
 }
 
@@ -334,149 +336,107 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	return c.JSONBlob(statusCode, data)
 }
 
-func (h *Handler) dispatch( //nolint:cyclop // existing issue.
+// opFamilyDispatcher tries to handle op against one op family. ok is false
+// when op doesn't belong to that family, signaling dispatch to try the next
+// one in the table.
+type opFamilyDispatcher func() (result any, code int, ok bool, err error)
+
+// opFamilyDispatchers returns every op-family dispatcher, tried in order
+// against a fixed (op, path, query, body) request -- replacing what used to
+// be a long chain of `if result, code, ok, err := h.dispatchXxx(...); ok`
+// checks in dispatch. Kept as a table so dispatch itself stays a flat loop
+// regardless of how many op families this service grows to cover.
+func (h *Handler) opFamilyDispatchers(op, path, query string, body []byte) []opFamilyDispatcher {
+	return []opFamilyDispatcher{
+		func() (any, int, bool, error) { return h.dispatchSessionOps(op, body) },
+		func() (any, int, bool, error) { return h.dispatchAllowListOps(op, path, query, body) },
+		func() (any, int, bool, error) { return h.dispatchCustomDataIDOps(op, path, body) },
+		func() (any, int, bool, error) { return h.dispatchFindingsFilterOps(op, path, query, body) },
+		func() (any, int, bool, error) { return h.dispatchFindingOps(op, body) },
+		func() (any, int, bool, error) { return h.dispatchFindingRevealOps(op, path) },
+		func() (any, int, bool, error) { return h.dispatchClassificationJobOps(op, path, body) },
+		func() (any, int, bool, error) { return h.dispatchMemberOps(op, path, query, body) },
+		func() (any, int, bool, error) { return h.dispatchInvitationOps(op, body) },
+		func() (any, int, bool, error) { return h.dispatchAdministratorOps(op) },
+		func() (any, int, bool, error) { return h.dispatchOrganizationOps(op, query, body) },
+		func() (any, int, bool, error) { return h.dispatchAutomatedDiscoveryOps(op, body) },
+		func() (any, int, bool, error) { return h.dispatchBucketOps(op, body) },
+		func() (any, int, bool, error) { return h.dispatchClassificationExportConfigOps(op, body) },
+		func() (any, int, bool, error) { return h.dispatchFindingsPublicationConfigOps(op, body) },
+		func() (any, int, bool, error) { return h.dispatchScopeOps(op, path, body) },
+		func() (any, int, bool, error) { return h.dispatchResourceProfileOps(op, query, body) },
+		func() (any, int, bool, error) { return h.dispatchRevealOps(op, body) },
+		func() (any, int, bool, error) { return h.dispatchSensitivityTemplateOps(op, path, body) },
+		func() (any, int, bool, error) { return h.dispatchUsageOps(op, query, body) },
+	}
+}
+
+func (h *Handler) dispatch(
 	_ context.Context,
 	op, path, query string,
 	body []byte,
 ) (any, int, error) {
-	if result, code, ok, err := h.dispatchSessionOps(op, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchAllowListOps(op, path, query, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchCustomDataIDOps(op, path, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchFindingsFilterOps(op, path, query, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchFindingOps(op, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchFindingRevealOps(op, path); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchClassificationJobOps(op, path, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchMemberOps(op, path, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchInvitationOps(op, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchAdministratorOps(op); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchOrganizationOps(op, query, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchAutomatedDiscoveryOps(op, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchBucketOps(op, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchClassificationExportConfigOps(op, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchFindingsPublicationConfigOps(op, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchScopeOps(op, path, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchResourceProfileOps(op, query, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchRevealOps(op, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchSensitivityTemplateOps(op, path, body); ok {
-		return result, code, err
-	}
-
-	if result, code, ok, err := h.dispatchUsageOps(op, query, body); ok {
-		return result, code, err
+	for _, tryFamily := range h.opFamilyDispatchers(op, path, query, body) {
+		if result, code, ok, err := tryFamily(); ok {
+			return result, code, err
+		}
 	}
 
 	return h.dispatchTagOps(op, path, query, body)
 }
 
+// pathParser maps (method, pathParts) → (operation, resource) for one
+// top-level path segment. Every parseXxxPath function in this package has
+// this exact signature.
+type pathParser func(method string, parts []string) (string, string)
+
+// pathParsers is the (lazily built, then memoized) table from top-level path
+// segment to its parser, replacing what used to be a 20+ case switch in
+// parseRESTPath -- kept as a sync.OnceValue-backed map (apigatewayv2 style)
+// so parseRESTPath itself stays a flat lookup regardless of how many route
+// families this service grows to cover.
+//
+//nolint:gochecknoglobals // static route table, apigatewayv2 style.
+var pathParsers = sync.OnceValue(func() map[string]pathParser {
+	return map[string]pathParser{
+		pathMacie:              parseMaciePath,
+		pathAllowLists:         parseAllowListPath,
+		pathCustomDataIDs:      parseCustomDataIDPath,
+		pathFindingsFilter:     parseFindingsFilterPath,
+		pathFindings:           parseFindingsPath,
+		pathTags:               parseTagPath,
+		pathJobs:               parseJobPath,
+		pathMembers:            parseMembersPath,
+		pathInvitations:        parseInvitationsPath,
+		pathAdministrator:      parseAdministratorPath,
+		pathMaster:             parseMasterPath,
+		pathAdmin:              parseAdminPath,
+		pathAutomatedDiscovery: parseAutomatedDiscoveryPath,
+		pathDatasources:        parseDatasourcesPath,
+		pathClassExportCfg:     parseClassExportCfgPath,
+		pathClassScopes:        parseClassScopesPath,
+		pathFindingsPubCfg:     parseFindingsPubCfgPath,
+		pathResourceProf:       parseResourceProfilesPath,
+		pathRevealCfg:          parseRevealCfgPath,
+		pathUsage:              parseUsagePath,
+		pathManagedDataIDs:     parseManagedDataIDsPath,
+		pathTemplates:          parseTemplatesPath,
+	}
+})
+
 // parseRESTPath maps (method, path) → (operation, resource).
-func parseRESTPath(method, path string) (string, string) { //nolint:cyclop // existing issue.
+func parseRESTPath(method, path string) (string, string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) == 0 {
 		return opUnknown, ""
 	}
 
-	switch parts[0] {
-	case pathMacie:
-		return parseMaciePath(method, parts)
-	case pathAllowLists:
-		return parseAllowListPath(method, parts)
-	case pathCustomDataIDs:
-		return parseCustomDataIDPath(method, parts)
-	case pathFindingsFilter:
-		return parseFindingsFilterPath(method, parts)
-	case pathFindings:
-		return parseFindingsPath(method, parts)
-	case pathTags:
-		return parseTagPath(method, parts)
-	case pathJobs:
-		return parseJobPath(method, parts)
-	case pathMembers:
-		return parseMembersPath(method, parts)
-	case pathInvitations:
-		return parseInvitationsPath(method, parts)
-	case pathAdministrator:
-		return parseAdministratorPath(method, parts)
-	case pathMaster:
-		return parseMasterPath(method, parts)
-	case pathAdmin:
-		return parseAdminPath(method, parts)
-	case pathAutomatedDiscovery:
-		return parseAutomatedDiscoveryPath(method, parts)
-	case pathDatasources:
-		return parseDatasourcesPath(method, parts)
-	case pathClassExportCfg:
-		return parseClassExportCfgPath(method, parts)
-	case pathClassScopes:
-		return parseClassScopesPath(method, parts)
-	case pathFindingsPubCfg:
-		return parseFindingsPubCfgPath(method, parts)
-	case pathResourceProf:
-		return parseResourceProfilesPath(method, parts)
-	case pathRevealCfg:
-		return parseRevealCfgPath(method, parts)
-	case pathUsage:
-		return parseUsagePath(method, parts)
-	case pathManagedDataIDs:
-		return parseManagedDataIDsPath(method, parts)
-	case pathTemplates:
-		return parseTemplatesPath(method, parts)
+	parser, ok := pathParsers()[parts[0]]
+	if !ok {
+		return opUnknown, ""
 	}
 
-	return opUnknown, ""
+	return parser(method, parts)
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
