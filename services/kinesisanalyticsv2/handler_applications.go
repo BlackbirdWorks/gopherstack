@@ -21,17 +21,92 @@ type sqlApplicationConfigInput struct {
 	ReferenceDataSources []*refDataSourceConfig `json:"ReferenceDataSources,omitempty"`
 }
 
+// s3ContentLocationInput mirrors real AWS's S3ContentLocation request shape.
+type s3ContentLocationInput struct {
+	BucketARN     string `json:"BucketARN"`
+	FileKey       string `json:"FileKey"`
+	ObjectVersion string `json:"ObjectVersion,omitempty"`
+}
+
+// codeContentInput mirrors real AWS's CodeContent request shape. Exactly one
+// of TextContent/ZipFileContent/S3ContentLocation is expected to be set.
+type codeContentInput struct {
+	S3ContentLocation *s3ContentLocationInput `json:"S3ContentLocation,omitempty"`
+	TextContent       string                  `json:"TextContent,omitempty"`
+	ZipFileContent    []byte                  `json:"ZipFileContent,omitempty"`
+}
+
+// applicationCodeConfigInput mirrors real AWS's ApplicationCodeConfiguration request shape.
+type applicationCodeConfigInput struct {
+	CodeContent     *codeContentInput `json:"CodeContent,omitempty"`
+	CodeContentType string            `json:"CodeContentType"`
+}
+
+// checkpointConfigInput mirrors real AWS's CheckpointConfiguration request shape.
+type checkpointConfigInput struct {
+	CheckpointingEnabled       *bool  `json:"CheckpointingEnabled,omitempty"`
+	CheckpointInterval         *int64 `json:"CheckpointInterval,omitempty"`
+	MinPauseBetweenCheckpoints *int64 `json:"MinPauseBetweenCheckpoints,omitempty"`
+	ConfigurationType          string `json:"ConfigurationType"`
+}
+
+// monitoringConfigInput mirrors real AWS's MonitoringConfiguration request shape.
+type monitoringConfigInput struct {
+	ConfigurationType string `json:"ConfigurationType"`
+	LogLevel          string `json:"LogLevel,omitempty"`
+	MetricsLevel      string `json:"MetricsLevel,omitempty"`
+}
+
+// parallelismConfigInput mirrors real AWS's ParallelismConfiguration request shape.
+type parallelismConfigInput struct {
+	AutoScalingEnabled *bool  `json:"AutoScalingEnabled,omitempty"`
+	Parallelism        *int32 `json:"Parallelism,omitempty"`
+	ParallelismPerKPU  *int32 `json:"ParallelismPerKPU,omitempty"`
+	ConfigurationType  string `json:"ConfigurationType"`
+}
+
+// flinkApplicationConfigInput mirrors real AWS's FlinkApplicationConfiguration request shape.
+type flinkApplicationConfigInput struct {
+	CheckpointConfiguration  *checkpointConfigInput  `json:"CheckpointConfiguration,omitempty"`
+	MonitoringConfiguration  *monitoringConfigInput  `json:"MonitoringConfiguration,omitempty"`
+	ParallelismConfiguration *parallelismConfigInput `json:"ParallelismConfiguration,omitempty"`
+}
+
+// environmentPropertiesInput mirrors real AWS's EnvironmentProperties request shape.
+type environmentPropertiesInput struct {
+	PropertyGroups []PropertyGroup `json:"PropertyGroups"`
+}
+
+// snapshotConfigInput mirrors real AWS's ApplicationSnapshotConfiguration request shape.
+type snapshotConfigInput struct {
+	SnapshotsEnabled bool `json:"SnapshotsEnabled"`
+}
+
+// systemRollbackConfigInput mirrors real AWS's ApplicationSystemRollbackConfiguration request shape.
+type systemRollbackConfigInput struct {
+	RollbackEnabled bool `json:"RollbackEnabled"`
+}
+
+// encryptionConfigInput mirrors real AWS's ApplicationEncryptionConfiguration request shape.
+type encryptionConfigInput struct {
+	KeyType string `json:"KeyType"`
+	KeyID   string `json:"KeyId,omitempty"`
+}
+
 // applicationConfigurationInput mirrors real AWS's ApplicationConfiguration
-// request shape. Only the SQL-application and VPC portions are modeled --
-// gopherstack's Application has no state for application code artifacts or
-// Flink runtime settings, so ApplicationCodeConfiguration,
-// FlinkApplicationConfiguration, EnvironmentProperties,
-// ApplicationSnapshotConfiguration, ApplicationSystemRollbackConfiguration,
-// ApplicationEncryptionConfiguration, and ZeppelinApplicationConfiguration
-// are accepted (to avoid rejecting well-formed requests) but not modeled.
+// request shape. ZeppelinApplicationConfiguration (Studio-notebook-only:
+// Glue Data Catalog + Maven/S3 custom artifacts + deploy-as-application) is
+// accepted (to avoid rejecting well-formed requests) but not modeled -- see
+// PARITY.md.
 type applicationConfigurationInput struct {
-	SQLApplicationConfiguration *sqlApplicationConfigInput `json:"SqlApplicationConfiguration,omitempty"` //nolint:lll,tagliatelle // AWS API name
-	VpcConfigurations           []*vpcConfigInput          `json:"VpcConfigurations,omitempty"`
+	SQLApplicationConfiguration            *sqlApplicationConfigInput   `json:"SqlApplicationConfiguration,omitempty"`            //nolint:lll,tagliatelle // AWS API name
+	ApplicationCodeConfiguration           *applicationCodeConfigInput  `json:"ApplicationCodeConfiguration,omitempty"`           //nolint:lll // AWS API name
+	FlinkApplicationConfiguration          *flinkApplicationConfigInput `json:"FlinkApplicationConfiguration,omitempty"`          //nolint:lll // AWS API name
+	EnvironmentProperties                  *environmentPropertiesInput  `json:"EnvironmentProperties,omitempty"`                  //nolint:lll // AWS API name
+	ApplicationSnapshotConfiguration       *snapshotConfigInput         `json:"ApplicationSnapshotConfiguration,omitempty"`       //nolint:lll // AWS API name
+	ApplicationSystemRollbackConfiguration *systemRollbackConfigInput   `json:"ApplicationSystemRollbackConfiguration,omitempty"` //nolint:lll // AWS API name
+	ApplicationEncryptionConfiguration     *encryptionConfigInput       `json:"ApplicationEncryptionConfiguration,omitempty"`     //nolint:lll // AWS API name
+	VpcConfigurations                      []*vpcConfigInput            `json:"VpcConfigurations,omitempty"`
 }
 
 type createApplicationInput struct {
@@ -46,24 +121,46 @@ type createApplicationInput struct {
 }
 
 type applicationDetailOutput struct {
-	ApplicationConfigurationDescription *appConfigDesc                `json:"ApplicationConfigurationDescription,omitempty"` //nolint:lll // AWS API name
-	ApplicationMode                     string                        `json:"ApplicationMode,omitempty"`
-	ApplicationStatus                   string                        `json:"ApplicationStatus"`
-	RuntimeEnvironment                  string                        `json:"RuntimeEnvironment"`
-	ServiceExecutionRole                string                        `json:"ServiceExecutionRole,omitempty"`
-	ApplicationDescription              string                        `json:"ApplicationDescription,omitempty"`
-	ApplicationARN                      string                        `json:"ApplicationARN"`
-	ApplicationName                     string                        `json:"ApplicationName"`
-	Tags                                []Tag                         `json:"Tags,omitempty"`
-	CloudWatchLoggingOptionDescriptions []CloudWatchLoggingOptionDesc `json:"CloudWatchLoggingOptionDescriptions,omitempty"` //nolint:lll // AWS API name
-	VpcConfigurationDescriptions        []VpcConfigurationDescription `json:"VpcConfigurationDescriptions,omitempty"`
-	ApplicationVersionID                int64                         `json:"ApplicationVersionId"`
-	CreateTimestamp                     float64                       `json:"CreateTimestamp"`
+	ApplicationConfigurationDescription            *appConfigDesc                `json:"ApplicationConfigurationDescription,omitempty"`            //nolint:lll // AWS API name
+	ApplicationMaintenanceConfigurationDescription *maintenanceConfigDescription `json:"ApplicationMaintenanceConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+	ApplicationVersionUpdatedFrom                  *int64                        `json:"ApplicationVersionUpdatedFrom,omitempty"`                  //nolint:lll // AWS API name
+	ApplicationVersionRolledBackTo                 *int64                        `json:"ApplicationVersionRolledBackTo,omitempty"`                 //nolint:lll // AWS API name
+	ApplicationVersionRolledBackFrom               *int64                        `json:"ApplicationVersionRolledBackFrom,omitempty"`               //nolint:lll // AWS API name
+	ApplicationName                                string                        `json:"ApplicationName"`
+	RuntimeEnvironment                             string                        `json:"RuntimeEnvironment"`
+	ApplicationARN                                 string                        `json:"ApplicationARN"`
+	ServiceExecutionRole                           string                        `json:"ServiceExecutionRole,omitempty"`
+	ConditionalToken                               string                        `json:"ConditionalToken,omitempty"`
+	ApplicationDescription                         string                        `json:"ApplicationDescription,omitempty"`
+	ApplicationMode                                string                        `json:"ApplicationMode,omitempty"`
+	ApplicationStatus                              string                        `json:"ApplicationStatus"`
+	Tags                                           []Tag                         `json:"Tags,omitempty"`
+	CloudWatchLoggingOptionDescriptions            []CloudWatchLoggingOptionDesc `json:"CloudWatchLoggingOptionDescriptions,omitempty"` //nolint:lll // AWS API name
+	ApplicationVersionID                           int64                         `json:"ApplicationVersionId"`
+	ApplicationVersionCreateTimestamp              float64                       `json:"ApplicationVersionCreateTimestamp,omitempty"` //nolint:lll // AWS API name
+	LastUpdateTimestamp                            float64                       `json:"LastUpdateTimestamp,omitempty"`
+	CreateTimestamp                                float64                       `json:"CreateTimestamp"`
 }
 
-// appConfigDesc holds the SQL-based application configuration.
+// appConfigDesc mirrors real AWS's ApplicationConfigurationDescription. Only
+// ZeppelinApplicationConfigurationDescription (Studio-notebook-only: Glue
+// Data Catalog + Maven/S3 custom artifacts + deploy-as-application) is
+// omitted -- see PARITY.md.
 type appConfigDesc struct {
-	SQLApplicationConfigurationDescription *sqlAppConfigDesc `json:"SqlApplicationConfigurationDescription,omitempty"` //nolint:lll,tagliatelle // AWS API name
+	SQLApplicationConfigurationDescription            *sqlAppConfigDesc                    `json:"SqlApplicationConfigurationDescription,omitempty"`            //nolint:lll,tagliatelle // AWS API name
+	ApplicationCodeConfigurationDescription           *ApplicationCodeConfigDesc           `json:"ApplicationCodeConfigurationDescription,omitempty"`           //nolint:lll // AWS API name
+	FlinkApplicationConfigurationDescription          *FlinkApplicationConfigDesc          `json:"FlinkApplicationConfigurationDescription,omitempty"`          //nolint:lll // AWS API name
+	EnvironmentPropertyDescriptions                   *environmentPropertyDescOutput       `json:"EnvironmentPropertyDescriptions,omitempty"`                   //nolint:lll // AWS API name
+	ApplicationSnapshotConfigurationDescription       *ApplicationSnapshotConfigDesc       `json:"ApplicationSnapshotConfigurationDescription,omitempty"`       //nolint:lll // AWS API name
+	ApplicationSystemRollbackConfigurationDescription *ApplicationSystemRollbackConfigDesc `json:"ApplicationSystemRollbackConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+	ApplicationEncryptionConfigurationDescription     *ApplicationEncryptionConfigDesc     `json:"ApplicationEncryptionConfigurationDescription,omitempty"`     //nolint:lll // AWS API name
+	RunConfigurationDescription                       *RunConfigDesc                       `json:"RunConfigurationDescription,omitempty"`                       //nolint:lll // AWS API name
+	VpcConfigurationDescriptions                      []VpcConfigurationDescription        `json:"VpcConfigurationDescriptions,omitempty"`                      //nolint:lll // AWS API name
+}
+
+// environmentPropertyDescOutput mirrors real AWS's EnvironmentPropertyDescriptions.
+type environmentPropertyDescOutput struct {
+	PropertyGroupDescriptions []PropertyGroup `json:"PropertyGroupDescriptions"`
 }
 
 // sqlAppConfigDesc holds inputs, outputs, and reference data sources.
@@ -94,21 +191,14 @@ type listApplicationsOutput struct {
 	ApplicationSummaries []applicationSummary `json:"ApplicationSummaries"`
 }
 
-type updateApplicationInput struct {
-	ApplicationName             string `json:"ApplicationName"`
-	ServiceExecutionRoleUpdate  string `json:"ServiceExecutionRoleUpdate,omitempty"`
-	ApplicationDescription      string `json:"ApplicationDescription,omitempty"`
-	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId"`
-}
-
-type updateApplicationOutput struct {
-	OperationID       string                  `json:"OperationId,omitempty"`
-	ApplicationDetail applicationDetailOutput `json:"ApplicationDetail"`
-}
-
 type deleteApplicationInput struct {
 	ApplicationName string      `json:"ApplicationName"`
 	CreateTimestamp json.Number `json:"CreateTimestamp,omitempty"`
+}
+
+type startApplicationInput struct {
+	RunConfiguration *runConfigurationInput `json:"RunConfiguration,omitempty"`
+	ApplicationName  string                 `json:"ApplicationName"`
 }
 
 type startStopApplicationInput struct {
@@ -194,11 +284,9 @@ func (h *Handler) handleCreateApplication(ctx context.Context, c *echo.Context, 
 	// dropped. This intentionally does not go through the Add* backend
 	// methods: those each bump ApplicationVersionId, but real AWS keeps a
 	// freshly created application (even with inline config) at version 1.
-	inputs, outputs, refs, vpcs, cwlOpts := buildInitialConfig(&in)
-	if len(inputs) > 0 || len(outputs) > 0 || len(refs) > 0 || len(vpcs) > 0 || len(cwlOpts) > 0 {
-		if seedErr := h.Backend.SeedApplicationConfiguration(
-			ctx, in.ApplicationName, inputs, outputs, refs, vpcs, cwlOpts,
-		); seedErr != nil {
+	cfg := buildInitialConfig(&in)
+	if !cfg.IsEmpty() {
+		if seedErr := h.Backend.SeedApplicationConfiguration(ctx, in.ApplicationName, cfg); seedErr != nil {
 			return h.handleError(c, seedErr)
 		}
 
@@ -213,58 +301,165 @@ func (h *Handler) handleCreateApplication(ctx context.Context, c *echo.Context, 
 	})
 }
 
-// buildInitialConfig extracts the inline SQL/VPC/CloudWatch-logging
-// configuration from a CreateApplicationInput, converting each entry with
-// the same buildInputDescription/buildOutputDescription/
-// buildRefDataSourceDescription/buildVpcConfigDescription helpers the
-// Add* handlers use, so the two paths always produce identical shapes.
-func buildInitialConfig(in *createApplicationInput) (
-	[]InputDescription,
-	[]OutputDescription,
-	[]ReferenceDataSourceDescription,
-	[]VpcConfigurationDescription,
-	[]CloudWatchLoggingOptionDesc,
-) {
-	var (
-		inputs  []InputDescription
-		outputs []OutputDescription
-		refs    []ReferenceDataSourceDescription
-		vpcs    []VpcConfigurationDescription
-		cwlOpts []CloudWatchLoggingOptionDesc
-	)
+// buildInitialConfig extracts the inline configuration from a
+// CreateApplicationInput, converting each entry with the same
+// buildInputDescription/buildOutputDescription/buildRefDataSourceDescription/
+// buildVpcConfigDescription helpers the Add* handlers use, so the two paths
+// always produce identical shapes.
+func buildInitialConfig(in *createApplicationInput) SeedConfig {
+	var cfg SeedConfig
 
-	if in.ApplicationConfiguration != nil {
-		if sql := in.ApplicationConfiguration.SQLApplicationConfiguration; sql != nil {
-			for _, i := range sql.Inputs {
-				inputs = append(inputs, buildInputDescription(i))
-			}
-
-			for _, o := range sql.Outputs {
-				outputs = append(outputs, buildOutputDescription(o))
-			}
-
-			for _, r := range sql.ReferenceDataSources {
-				refs = append(refs, buildRefDataSourceDescription(r))
-			}
+	if ac := in.ApplicationConfiguration; ac != nil {
+		if sql := ac.SQLApplicationConfiguration; sql != nil {
+			cfg.Inputs, cfg.Outputs, cfg.ReferenceDataSources = buildSQLSeedConfig(sql)
 		}
 
-		for _, v := range in.ApplicationConfiguration.VpcConfigurations {
-			vpcs = append(vpcs, buildVpcConfigDescription(v))
+		for _, v := range ac.VpcConfigurations {
+			cfg.VpcConfigs = append(cfg.VpcConfigs, buildVpcConfigDescription(v))
 		}
+
+		cfg.CodeConfig = buildCodeConfigDesc(ac.ApplicationCodeConfiguration)
+		cfg.FlinkConfig = buildFlinkConfigDesc(ac.FlinkApplicationConfiguration)
+		cfg.EnvironmentPropertyGroups = buildEnvironmentPropertyGroups(ac.EnvironmentProperties)
+		cfg.SnapshotsEnabled = buildSnapshotsEnabled(ac.ApplicationSnapshotConfiguration)
+		cfg.RollbackEnabled = buildRollbackEnabled(ac.ApplicationSystemRollbackConfiguration)
+		cfg.EncryptionConfig = buildEncryptionConfigDesc(ac.ApplicationEncryptionConfiguration)
 	}
 
-	if len(in.CloudWatchLoggingOptions) > 0 {
-		cwlOpts = make([]CloudWatchLoggingOptionDesc, 0, len(in.CloudWatchLoggingOptions))
+	cfg.CWLOptions = buildCWLOptions(in.CloudWatchLoggingOptions)
+
+	return cfg
+}
+
+// buildSQLSeedConfig converts SqlApplicationConfiguration's
+// Inputs/Outputs/ReferenceDataSources to the corresponding Description types.
+func buildSQLSeedConfig(
+	sql *sqlApplicationConfigInput,
+) ([]InputDescription, []OutputDescription, []ReferenceDataSourceDescription) {
+	inputs := make([]InputDescription, 0, len(sql.Inputs))
+	outputs := make([]OutputDescription, 0, len(sql.Outputs))
+	refs := make([]ReferenceDataSourceDescription, 0, len(sql.ReferenceDataSources))
+
+	for _, i := range sql.Inputs {
+		inputs = append(inputs, buildInputDescription(i))
 	}
 
-	for _, c := range in.CloudWatchLoggingOptions {
-		cwlOpts = append(cwlOpts, CloudWatchLoggingOptionDesc{
-			LogStreamARN: c.LogStreamARN,
-			RoleARN:      c.RoleARN,
+	for _, o := range sql.Outputs {
+		outputs = append(outputs, buildOutputDescription(o))
+	}
+
+	for _, r := range sql.ReferenceDataSources {
+		refs = append(refs, buildRefDataSourceDescription(r))
+	}
+
+	return inputs, outputs, refs
+}
+
+func buildCWLOptions(in []*cwlOptionInput) []CloudWatchLoggingOptionDesc {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]CloudWatchLoggingOptionDesc, 0, len(in))
+	for _, c := range in {
+		out = append(out, CloudWatchLoggingOptionDesc{LogStreamARN: c.LogStreamARN, RoleARN: c.RoleARN})
+	}
+
+	return out
+}
+
+func buildCodeConfigDesc(in *applicationCodeConfigInput) *ApplicationCodeConfigDesc {
+	if in == nil {
+		return nil
+	}
+
+	desc := &ApplicationCodeConfigDesc{CodeContentType: in.CodeContentType}
+
+	if cc := in.CodeContent; cc != nil {
+		var bucket, key, ver string
+		if cc.S3ContentLocation != nil {
+			bucket = cc.S3ContentLocation.BucketARN
+			key = cc.S3ContentLocation.FileKey
+			ver = cc.S3ContentLocation.ObjectVersion
+		}
+
+		desc.CodeContentDescription = buildCodeContentDescription(cc.TextContent, cc.ZipFileContent, bucket, key, ver)
+	}
+
+	return desc
+}
+
+func buildFlinkConfigDesc(in *flinkApplicationConfigInput) *FlinkApplicationConfigDesc {
+	if in == nil {
+		return nil
+	}
+
+	desc := &FlinkApplicationConfigDesc{}
+
+	if c := in.CheckpointConfiguration; c != nil {
+		desc.CheckpointConfigurationDescription = applyCheckpointDefaults(&CheckpointConfigDesc{
+			ConfigurationType:          c.ConfigurationType,
+			CheckpointingEnabled:       c.CheckpointingEnabled,
+			CheckpointInterval:         c.CheckpointInterval,
+			MinPauseBetweenCheckpoints: c.MinPauseBetweenCheckpoints,
 		})
 	}
 
-	return inputs, outputs, refs, vpcs, cwlOpts
+	if m := in.MonitoringConfiguration; m != nil {
+		desc.MonitoringConfigurationDescription = &MonitoringConfigDesc{
+			ConfigurationType: m.ConfigurationType,
+			LogLevel:          m.LogLevel,
+			MetricsLevel:      m.MetricsLevel,
+		}
+	}
+
+	if p := in.ParallelismConfiguration; p != nil {
+		desc.ParallelismConfigurationDescription = &ParallelismConfigDesc{
+			ConfigurationType:  p.ConfigurationType,
+			AutoScalingEnabled: p.AutoScalingEnabled,
+			Parallelism:        p.Parallelism,
+			ParallelismPerKPU:  p.ParallelismPerKPU,
+			CurrentParallelism: p.Parallelism,
+		}
+	}
+
+	return desc
+}
+
+func buildEnvironmentPropertyGroups(in *environmentPropertiesInput) []PropertyGroup {
+	if in == nil {
+		return nil
+	}
+
+	return in.PropertyGroups
+}
+
+func buildSnapshotsEnabled(in *snapshotConfigInput) *bool {
+	if in == nil {
+		return nil
+	}
+
+	v := in.SnapshotsEnabled
+
+	return &v
+}
+
+func buildRollbackEnabled(in *systemRollbackConfigInput) *bool {
+	if in == nil {
+		return nil
+	}
+
+	v := in.RollbackEnabled
+
+	return &v
+}
+
+func buildEncryptionConfigDesc(in *encryptionConfigInput) *ApplicationEncryptionConfigDesc {
+	if in == nil {
+		return nil
+	}
+
+	return &ApplicationEncryptionConfigDesc{KeyType: in.KeyType, KeyID: in.KeyID}
 }
 
 func (h *Handler) handleDescribeApplication(ctx context.Context, c *echo.Context, body []byte) error {
@@ -299,27 +494,24 @@ func (h *Handler) handleListApplications(ctx context.Context, c *echo.Context, b
 	return c.JSON(http.StatusOK, listApplicationsOutput{ApplicationSummaries: summaries, NextToken: outToken})
 }
 
-func (h *Handler) handleUpdateApplication(ctx context.Context, c *echo.Context, body []byte) error {
-	var in updateApplicationInput
-	if err := json.Unmarshal(body, &in); err != nil {
-		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+// deleteTimestampSeconds converts deleteApplicationInput's CreateTimestamp
+// json.Number (present only when the caller supplies it -- real AWS's
+// DeleteApplicationInput.CreateTimestamp is a required safety check retrieved
+// from a prior DescribeApplication) into the epoch-seconds *float64
+// DeleteApplication validates against. Returns nil (skip the check) when the
+// field is absent or unparseable, matching the pre-existing "leniency, never
+// causes a false accept/reject" note in PARITY.md.
+func deleteTimestampSeconds(n json.Number) *float64 {
+	if n == "" {
+		return nil
 	}
 
-	app, opID, err := h.Backend.UpdateApplication(
-		ctx,
-		in.ApplicationName,
-		in.CurrentApplicationVersionID,
-		in.ServiceExecutionRoleUpdate,
-		in.ApplicationDescription,
-	)
+	f, err := n.Float64()
 	if err != nil {
-		return h.handleError(c, err)
+		return nil
 	}
 
-	return c.JSON(http.StatusOK, updateApplicationOutput{
-		ApplicationDetail: toDetailOutput(app),
-		OperationID:       opID,
-	})
+	return &f
 }
 
 func (h *Handler) handleDeleteApplication(ctx context.Context, c *echo.Context, body []byte) error {
@@ -328,7 +520,8 @@ func (h *Handler) handleDeleteApplication(ctx context.Context, c *echo.Context, 
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.DeleteApplication(ctx, in.ApplicationName); err != nil {
+	ts := deleteTimestampSeconds(in.CreateTimestamp)
+	if err := h.Backend.DeleteApplication(ctx, in.ApplicationName, ts); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -336,12 +529,12 @@ func (h *Handler) handleDeleteApplication(ctx context.Context, c *echo.Context, 
 }
 
 func (h *Handler) handleStartApplication(ctx context.Context, c *echo.Context, body []byte) error {
-	var in startStopApplicationInput
+	var in startApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	opID, err := h.Backend.StartApplication(ctx, in.ApplicationName)
+	opID, err := h.Backend.StartApplication(ctx, in.ApplicationName, toRunConfigInput(in.RunConfiguration))
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -407,36 +600,96 @@ func (h *Handler) handleDiscoverInputSchema(ctx context.Context, c *echo.Context
 // toDetailOutput converts an Application to an API detail output.
 func toDetailOutput(app *Application) applicationDetailOutput {
 	out := applicationDetailOutput{
-		ApplicationARN:         app.ApplicationARN,
-		ApplicationName:        app.ApplicationName,
-		ApplicationStatus:      app.ApplicationStatus,
-		RuntimeEnvironment:     app.RuntimeEnvironment,
-		ServiceExecutionRole:   app.ServiceExecutionRole,
-		ApplicationDescription: app.ApplicationDescription,
-		ApplicationMode:        app.ApplicationMode,
-		ApplicationVersionID:   app.ApplicationVersionID,
-		Tags:                   app.Tags,
-		CreateTimestamp:        awstime.Epoch(app.CreatedAt),
+		ApplicationARN:                      app.ApplicationARN,
+		ApplicationName:                     app.ApplicationName,
+		ApplicationStatus:                   app.ApplicationStatus,
+		RuntimeEnvironment:                  app.RuntimeEnvironment,
+		ServiceExecutionRole:                app.ServiceExecutionRole,
+		ApplicationDescription:              app.ApplicationDescription,
+		ApplicationMode:                     app.ApplicationMode,
+		ApplicationVersionID:                app.ApplicationVersionID,
+		Tags:                                app.Tags,
+		CreateTimestamp:                     awstime.Epoch(app.CreatedAt),
+		LastUpdateTimestamp:                 awstime.Epoch(app.LastUpdateTimestamp),
+		ApplicationVersionCreateTimestamp:   awstime.Epoch(app.ApplicationVersionCreateTimestamp),
+		ApplicationVersionRolledBackFrom:    app.ApplicationVersionRolledBackFrom,
+		ApplicationVersionRolledBackTo:      app.ApplicationVersionRolledBackTo,
+		ApplicationVersionUpdatedFrom:       app.ApplicationVersionUpdatedFrom,
+		ConditionalToken:                    conditionalToken(app),
+		ApplicationConfigurationDescription: buildAppConfigDescOutput(app),
 	}
 
 	if len(app.CloudWatchLoggingOptionDescs) > 0 {
 		out.CloudWatchLoggingOptionDescriptions = app.CloudWatchLoggingOptionDescs
 	}
 
-	if len(app.VpcConfigurationDescriptions) > 0 {
-		out.VpcConfigurationDescriptions = app.VpcConfigurationDescriptions
-	}
-
-	if len(app.InputDescriptions) > 0 || len(app.OutputDescriptions) > 0 ||
-		len(app.ReferenceDataSourceDescriptions) > 0 {
-		out.ApplicationConfigurationDescription = &appConfigDesc{
-			SQLApplicationConfigurationDescription: &sqlAppConfigDesc{
-				InputDescriptions:               app.InputDescriptions,
-				OutputDescriptions:              app.OutputDescriptions,
-				ReferenceDataSourceDescriptions: app.ReferenceDataSourceDescriptions,
-			},
+	if app.MaintenanceWindowStartTime != "" {
+		out.ApplicationMaintenanceConfigurationDescription = &maintenanceConfigDescription{
+			ApplicationMaintenanceWindowStartTime: app.MaintenanceWindowStartTime,
 		}
 	}
 
 	return out
+}
+
+// buildAppConfigDescOutput builds ApplicationConfigurationDescription,
+// returning nil when the application carries none of its sub-fields --
+// matches the pre-existing convention of omitting the whole envelope for a
+// bare application with no configuration at all.
+func buildAppConfigDescOutput(app *Application) *appConfigDesc {
+	hasSQL := len(app.InputDescriptions) > 0 || len(app.OutputDescriptions) > 0 ||
+		len(app.ReferenceDataSourceDescriptions) > 0
+	hasAny := hasSQL || len(app.VpcConfigurationDescriptions) > 0 || app.CodeConfig != nil ||
+		app.FlinkConfig != nil || len(app.EnvironmentPropertyGroups) > 0 ||
+		app.SnapshotsEnabled != nil || app.RollbackEnabled != nil || app.EncryptionConfig != nil ||
+		app.RunConfig != nil
+
+	if !hasAny {
+		return nil
+	}
+
+	desc := &appConfigDesc{
+		ApplicationCodeConfigurationDescription:           app.CodeConfig,
+		FlinkApplicationConfigurationDescription:          app.FlinkConfig,
+		ApplicationSnapshotConfigurationDescription:       buildSnapshotConfigDescOutput(app.SnapshotsEnabled),
+		ApplicationSystemRollbackConfigurationDescription: buildRollbackConfigDescOutput(app.RollbackEnabled),
+		ApplicationEncryptionConfigurationDescription:     app.EncryptionConfig,
+		RunConfigurationDescription:                       app.RunConfig,
+	}
+
+	if hasSQL {
+		desc.SQLApplicationConfigurationDescription = &sqlAppConfigDesc{
+			InputDescriptions:               app.InputDescriptions,
+			OutputDescriptions:              app.OutputDescriptions,
+			ReferenceDataSourceDescriptions: app.ReferenceDataSourceDescriptions,
+		}
+	}
+
+	if len(app.VpcConfigurationDescriptions) > 0 {
+		desc.VpcConfigurationDescriptions = app.VpcConfigurationDescriptions
+	}
+
+	if len(app.EnvironmentPropertyGroups) > 0 {
+		desc.EnvironmentPropertyDescriptions = &environmentPropertyDescOutput{
+			PropertyGroupDescriptions: app.EnvironmentPropertyGroups,
+		}
+	}
+
+	return desc
+}
+
+func buildSnapshotConfigDescOutput(v *bool) *ApplicationSnapshotConfigDesc {
+	if v == nil {
+		return nil
+	}
+
+	return &ApplicationSnapshotConfigDesc{SnapshotsEnabled: *v}
+}
+
+func buildRollbackConfigDescOutput(v *bool) *ApplicationSystemRollbackConfigDesc {
+	if v == nil {
+		return nil
+	}
+
+	return &ApplicationSystemRollbackConfigDesc{RollbackEnabled: *v}
 }

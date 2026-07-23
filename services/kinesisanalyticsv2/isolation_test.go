@@ -57,7 +57,7 @@ func TestKinesisAnalyticsV2ApplicationRegionIsolation(t *testing.T) {
 	assert.NotNil(t, got)
 
 	// 5. Deleting in us-east-1 leaves us-west-2 intact.
-	require.NoError(t, backend.DeleteApplication(ctxEast, "shared"))
+	require.NoError(t, backend.DeleteApplication(ctxEast, "shared", nil))
 
 	eastApps, _ = backend.ListApplications(ctxEast, "")
 	assert.Empty(t, eastApps)
@@ -90,7 +90,7 @@ func TestKinesisAnalyticsV2SnapshotRegionIsolation(t *testing.T) {
 	_, err = backend.CreateApplication(ctxWest, "snap-app", "FLINK-1_18", "", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = backend.StartApplication(ctxEast, "snap-app")
+	_, err = backend.StartApplication(ctxEast, "snap-app", nil)
 	require.NoError(t, err)
 
 	// Create snapshot on east app only.

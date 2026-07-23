@@ -43,7 +43,7 @@ func TestDeleteApplication_ReleasesVersionsAndOperations(t *testing.T) {
 				"versions map must have an entry per app before delete")
 
 			for _, name := range tc.appNames {
-				require.NoError(t, b.DeleteApplication(ctx, name))
+				require.NoError(t, b.DeleteApplication(ctx, name, nil))
 			}
 
 			require.Equal(t, 0, kinesisanalyticsv2.ApplicationCount(b),

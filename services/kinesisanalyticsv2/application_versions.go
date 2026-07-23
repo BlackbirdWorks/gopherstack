@@ -3,6 +3,7 @@ package kinesisanalyticsv2
 import (
 	"context"
 	"strconv"
+	"time"
 )
 
 // DescribeApplicationOperation returns a single operation by ID.
@@ -157,8 +158,15 @@ func (b *InMemoryBackend) RollbackApplication(
 	}
 
 	// Roll back to the second-to-last stored version.
+	rolledFrom := app.ApplicationVersionID
+	rolledTo := vers[len(vers)-2].ApplicationVersionID
 	prev := appCopy(vers[len(vers)-2])
 	prev.ApplicationVersionID = app.ApplicationVersionID + 1
+	prev.ApplicationVersionCreateTimestamp = time.Now().UTC()
+	prev.LastUpdateTimestamp = prev.ApplicationVersionCreateTimestamp
+	prev.ApplicationVersionUpdatedFrom = &rolledFrom
+	prev.ApplicationVersionRolledBackFrom = &rolledFrom
+	prev.ApplicationVersionRolledBackTo = &rolledTo
 	b.applications.Put(prev)
 	b.versions[region][name] = append(b.versions[region][name], appCopy(prev))
 

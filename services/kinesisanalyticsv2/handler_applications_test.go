@@ -199,7 +199,11 @@ func TestKAV2_CreateApplication_InlineConfiguration(t *testing.T) {
 	assert.Len(t, sqlConfig["OutputDescriptions"], 1)
 	assert.Len(t, sqlConfig["ReferenceDataSourceDescriptions"], 1)
 
-	assert.Len(t, detail["VpcConfigurationDescriptions"], 1)
+	// VpcConfigurationDescriptions lives inside
+	// ApplicationConfigurationDescription in real AWS's ApplicationDetail
+	// shape, not at the top level (there is no top-level
+	// ApplicationDetail.VpcConfigurationDescriptions field) -- see appConfigDesc.
+	assert.Len(t, appConfig["VpcConfigurationDescriptions"], 1)
 	assert.Len(t, detail["CloudWatchLoggingOptionDescriptions"], 1)
 }
 

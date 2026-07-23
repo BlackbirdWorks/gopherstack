@@ -106,7 +106,7 @@ func TestBackend_ApplicationAndSnapshotCounts(t *testing.T) {
 
 	assert.Equal(t, 1, kinesisanalyticsv2.ApplicationCount(b))
 
-	_, err = b.StartApplication(ctx, "count-app")
+	_, err = b.StartApplication(ctx, "count-app", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateApplicationSnapshot(ctx, "count-app", "snap-1")

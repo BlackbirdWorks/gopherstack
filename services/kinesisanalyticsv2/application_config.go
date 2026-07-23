@@ -2,11 +2,15 @@ package kinesisanalyticsv2
 
 import "context"
 
-// AddApplicationCloudWatchLoggingOption adds a CloudWatch logging option to an application.
+// AddApplicationCloudWatchLoggingOption adds a CloudWatch logging option to
+// an application, returning the OperationID of the recorded
+// AddApplicationCloudWatchLoggingOption operation (see recordOperation) --
+// real AWS's AddApplicationCloudWatchLoggingOptionOutput carries an
+// OperationId field, unlike most other Add*/Delete* config ops.
 func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 	ctx context.Context,
 	name string, currentVersionID int64, logStreamARN, roleARN string,
-) error {
+) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("AddApplicationCloudWatchLoggingOption")
@@ -14,11 +18,11 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 
 	app, ok := b.findApplication(region, name)
 	if !ok {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
-		return err
+		return "", err
 	}
 
 	defer b.snapshotVersion(region, name, app)
@@ -32,7 +36,7 @@ func (b *InMemoryBackend) AddApplicationCloudWatchLoggingOption(
 		},
 	)
 
-	return nil
+	return b.recordOperation(region, name, "AddApplicationCloudWatchLoggingOption"), nil
 }
 
 // AddApplicationInput adds an input configuration to an application.
@@ -160,11 +164,15 @@ func (b *InMemoryBackend) AddApplicationReferenceDataSource(
 	return nil
 }
 
-// AddApplicationVpcConfiguration adds a VPC configuration to an application.
+// AddApplicationVpcConfiguration adds a VPC configuration to an application,
+// returning the OperationID of the recorded AddApplicationVpcConfiguration
+// operation (see recordOperation) -- real AWS's
+// AddApplicationVpcConfigurationOutput carries an OperationId field, unlike
+// most other Add*/Delete* config ops.
 func (b *InMemoryBackend) AddApplicationVpcConfiguration(
 	ctx context.Context,
 	name string, currentVersionID int64, vpc VpcConfigurationDescription,
-) error {
+) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("AddApplicationVpcConfiguration")
@@ -172,11 +180,11 @@ func (b *InMemoryBackend) AddApplicationVpcConfiguration(
 
 	app, ok := b.findApplication(region, name)
 	if !ok {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
-		return err
+		return "", err
 	}
 
 	defer b.snapshotVersion(region, name, app)
@@ -193,14 +201,18 @@ func (b *InMemoryBackend) AddApplicationVpcConfiguration(
 
 	app.VpcConfigurationDescriptions = append(app.VpcConfigurationDescriptions, vpc)
 
-	return nil
+	return b.recordOperation(region, name, "AddApplicationVpcConfiguration"), nil
 }
 
-// DeleteApplicationCloudWatchLoggingOption removes a CloudWatch logging option from an application.
+// DeleteApplicationCloudWatchLoggingOption removes a CloudWatch logging
+// option from an application, returning the OperationID of the recorded
+// DeleteApplicationCloudWatchLoggingOption operation (see recordOperation)
+// -- real AWS's DeleteApplicationCloudWatchLoggingOptionOutput carries an
+// OperationId field, unlike most other Add*/Delete* config ops.
 func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 	ctx context.Context,
 	name string, currentVersionID int64, loggingOptionID string,
-) error {
+) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("DeleteApplicationCloudWatchLoggingOption")
@@ -208,7 +220,7 @@ func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 
 	app, ok := b.findApplication(region, name)
 	if !ok {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 
 	// Find before bumping to avoid a phantom version increment on NotFound.
@@ -223,11 +235,11 @@ func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 	}
 
 	if idx < 0 {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
-		return err
+		return "", err
 	}
 
 	defer b.snapshotVersion(region, name, app)
@@ -237,7 +249,7 @@ func (b *InMemoryBackend) DeleteApplicationCloudWatchLoggingOption(
 		app.CloudWatchLoggingOptionDescs[idx+1:]...,
 	)
 
-	return nil
+	return b.recordOperation(region, name, "DeleteApplicationCloudWatchLoggingOption"), nil
 }
 
 // DeleteApplicationInputProcessingConfiguration removes the processing config from an input.
@@ -368,11 +380,15 @@ func (b *InMemoryBackend) DeleteApplicationReferenceDataSource(
 	return nil
 }
 
-// DeleteApplicationVpcConfiguration removes a VPC configuration from an application.
+// DeleteApplicationVpcConfiguration removes a VPC configuration from an
+// application, returning the OperationID of the recorded
+// DeleteApplicationVpcConfiguration operation (see recordOperation) -- real
+// AWS's DeleteApplicationVpcConfigurationOutput carries an OperationId
+// field, unlike most other Add*/Delete* config ops.
 func (b *InMemoryBackend) DeleteApplicationVpcConfiguration(
 	ctx context.Context,
 	name string, currentVersionID int64, vpcConfigurationID string,
-) error {
+) (string, error) {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("DeleteApplicationVpcConfiguration")
@@ -380,7 +396,7 @@ func (b *InMemoryBackend) DeleteApplicationVpcConfiguration(
 
 	app, ok := b.findApplication(region, name)
 	if !ok {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 
 	idx := -1
@@ -394,11 +410,11 @@ func (b *InMemoryBackend) DeleteApplicationVpcConfiguration(
 	}
 
 	if idx < 0 {
-		return ErrNotFound
+		return "", ErrNotFound
 	}
 
 	if err := checkAndBumpVersion(app, currentVersionID); err != nil {
-		return err
+		return "", err
 	}
 
 	defer b.snapshotVersion(region, name, app)
@@ -408,5 +424,5 @@ func (b *InMemoryBackend) DeleteApplicationVpcConfiguration(
 		app.VpcConfigurationDescriptions[idx+1:]...,
 	)
 
-	return nil
+	return b.recordOperation(region, name, "DeleteApplicationVpcConfiguration"), nil
 }

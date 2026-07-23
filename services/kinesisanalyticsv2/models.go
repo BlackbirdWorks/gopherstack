@@ -95,6 +95,104 @@ type VpcConfigurationDescription struct {
 	SecurityGroupIDs   []string `json:"SecurityGroupIds"`
 }
 
+// S3CodeLocationDesc describes the S3 location of application code.
+type S3CodeLocationDesc struct {
+	BucketARN     string `json:"BucketARN"`
+	FileKey       string `json:"FileKey"`
+	ObjectVersion string `json:"ObjectVersion,omitempty"`
+}
+
+// CodeContentDescription describes the location and content of application code.
+type CodeContentDescription struct {
+	S3ApplicationCodeLocationDescription *S3CodeLocationDesc `json:"S3ApplicationCodeLocationDescription,omitempty"` //nolint:lll // AWS API name
+	TextContent                          string              `json:"TextContent,omitempty"`
+	CodeMD5                              string              `json:"CodeMD5,omitempty"`
+	CodeSize                             int64               `json:"CodeSize,omitempty"`
+}
+
+// ApplicationCodeConfigDesc describes an application's code configuration.
+type ApplicationCodeConfigDesc struct {
+	CodeContentDescription *CodeContentDescription `json:"CodeContentDescription,omitempty"`
+	CodeContentType        string                  `json:"CodeContentType"`
+}
+
+// CheckpointConfigDesc describes a Flink application's checkpointing configuration.
+type CheckpointConfigDesc struct {
+	CheckpointingEnabled       *bool  `json:"CheckpointingEnabled,omitempty"`
+	CheckpointInterval         *int64 `json:"CheckpointInterval,omitempty"`
+	MinPauseBetweenCheckpoints *int64 `json:"MinPauseBetweenCheckpoints,omitempty"`
+	ConfigurationType          string `json:"ConfigurationType"`
+}
+
+// MonitoringConfigDesc describes a Flink application's CloudWatch logging configuration.
+type MonitoringConfigDesc struct {
+	ConfigurationType string `json:"ConfigurationType"`
+	LogLevel          string `json:"LogLevel,omitempty"`
+	MetricsLevel      string `json:"MetricsLevel,omitempty"`
+}
+
+// ParallelismConfigDesc describes a Flink application's parallelism configuration.
+type ParallelismConfigDesc struct {
+	AutoScalingEnabled *bool  `json:"AutoScalingEnabled,omitempty"`
+	Parallelism        *int32 `json:"Parallelism,omitempty"`
+	ParallelismPerKPU  *int32 `json:"ParallelismPerKPU,omitempty"`
+	CurrentParallelism *int32 `json:"CurrentParallelism,omitempty"`
+	ConfigurationType  string `json:"ConfigurationType"`
+}
+
+// FlinkApplicationConfigDesc describes a Flink application's runtime configuration.
+type FlinkApplicationConfigDesc struct {
+	CheckpointConfigurationDescription  *CheckpointConfigDesc  `json:"CheckpointConfigurationDescription,omitempty"`  //nolint:lll // AWS API name
+	MonitoringConfigurationDescription  *MonitoringConfigDesc  `json:"MonitoringConfigurationDescription,omitempty"`  //nolint:lll // AWS API name
+	ParallelismConfigurationDescription *ParallelismConfigDesc `json:"ParallelismConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+}
+
+// PropertyGroup is a key-value execution property group (shared shape for
+// both the request PropertyGroups and the response
+// PropertyGroupDescriptions -- real AWS uses the identical PropertyGroup
+// type on both sides).
+type PropertyGroup struct {
+	PropertyMap     map[string]string `json:"PropertyMap"`
+	PropertyGroupID string            `json:"PropertyGroupId"`
+}
+
+// ApplicationSnapshotConfigDesc describes whether snapshots are enabled.
+type ApplicationSnapshotConfigDesc struct {
+	SnapshotsEnabled bool `json:"SnapshotsEnabled"`
+}
+
+// ApplicationSystemRollbackConfigDesc describes whether system rollback is enabled.
+type ApplicationSystemRollbackConfigDesc struct {
+	RollbackEnabled bool `json:"RollbackEnabled"`
+}
+
+// ApplicationEncryptionConfigDesc describes the encryption-at-rest configuration.
+type ApplicationEncryptionConfigDesc struct {
+	KeyType string `json:"KeyType"`
+	KeyID   string `json:"KeyId,omitempty"`
+}
+
+// ApplicationRestoreConfig describes how a restarting application restores
+// state (shared shape for RunConfiguration's request field and
+// RunConfigurationDescription's response field -- real AWS uses the
+// identical ApplicationRestoreConfiguration type on both sides).
+type ApplicationRestoreConfig struct {
+	ApplicationRestoreType string `json:"ApplicationRestoreType"`
+	SnapshotName           string `json:"SnapshotName,omitempty"`
+}
+
+// FlinkRunConfig describes Flink-specific starting parameters (shared shape,
+// same rationale as ApplicationRestoreConfig).
+type FlinkRunConfig struct {
+	AllowNonRestoredState *bool `json:"AllowNonRestoredState,omitempty"`
+}
+
+// RunConfigDesc describes an application's starting parameters.
+type RunConfigDesc struct {
+	ApplicationRestoreConfigurationDescription *ApplicationRestoreConfig `json:"ApplicationRestoreConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+	FlinkRunConfigurationDescription           *FlinkRunConfig           `json:"FlinkRunConfigurationDescription,omitempty"`           //nolint:lll // AWS API name
+}
+
 const (
 	// ApplicationStatusReady indicates a running application that is ready.
 	ApplicationStatusReady = "READY"
@@ -143,30 +241,35 @@ type Tag struct {
 
 // Application represents a Kinesis Data Analytics v2 application.
 type Application struct {
-	CreatedAt                  time.Time `json:"-"`
-	ApplicationARN             string    `json:"ApplicationARN"`
-	ApplicationName            string    `json:"ApplicationName"`
-	ApplicationStatus          string    `json:"ApplicationStatus"`
-	RuntimeEnvironment         string    `json:"RuntimeEnvironment"`
-	ServiceExecutionRole       string    `json:"ServiceExecutionRole,omitempty"`
-	ApplicationDescription     string    `json:"ApplicationDescription,omitempty"`
-	ApplicationMode            string    `json:"ApplicationMode,omitempty"`
-	MaintenanceWindowStartTime string    `json:"MaintenanceWindowStartTime,omitempty"`
-	// Region is the owning region, used only to derive the store.Table
-	// composite key (region#name) and the byRegion index -- ApplicationName
-	// alone is only unique within a region, matching the pre-Phase-3.3
-	// nested map[region]map[name]*Application layout. Never serialized on the
-	// wire: handler.go always builds a dedicated response DTO
-	// (applicationDetailOutput/applicationSummary), never marshals Application
-	// directly.
-	Region                          string                           `json:"-"`
-	Tags                            []Tag                            `json:"-"`
-	CloudWatchLoggingOptionDescs    []CloudWatchLoggingOptionDesc    `json:"-"`
-	InputDescriptions               []InputDescription               `json:"-"`
-	OutputDescriptions              []OutputDescription              `json:"-"`
-	ReferenceDataSourceDescriptions []ReferenceDataSourceDescription `json:"-"`
-	VpcConfigurationDescriptions    []VpcConfigurationDescription    `json:"-"`
-	ApplicationVersionID            int64                            `json:"ApplicationVersionId"`
+	LastUpdateTimestamp               time.Time `json:"-"`
+	CreatedAt                         time.Time `json:"-"`
+	ApplicationVersionCreateTimestamp time.Time `json:"-"`
+	RunConfig                         *RunConfigDesc
+	EncryptionConfig                  *ApplicationEncryptionConfigDesc
+	RollbackEnabled                   *bool
+	SnapshotsEnabled                  *bool
+	FlinkConfig                       *FlinkApplicationConfigDesc
+	CodeConfig                        *ApplicationCodeConfigDesc
+	ApplicationVersionRolledBackTo    *int64
+	ApplicationVersionRolledBackFrom  *int64
+	ApplicationVersionUpdatedFrom     *int64
+	ApplicationMode                   string                        `json:"ApplicationMode,omitempty"`
+	ApplicationStatus                 string                        `json:"ApplicationStatus"`
+	ApplicationARN                    string                        `json:"ApplicationARN"`
+	ApplicationName                   string                        `json:"ApplicationName"`
+	RuntimeEnvironment                string                        `json:"RuntimeEnvironment"`
+	ServiceExecutionRole              string                        `json:"ServiceExecutionRole,omitempty"`
+	ApplicationDescription            string                        `json:"ApplicationDescription,omitempty"`
+	Region                            string                        `json:"-"`
+	MaintenanceWindowStartTime        string                        `json:"MaintenanceWindowStartTime,omitempty"`
+	Tags                              []Tag                         `json:"-"`
+	CloudWatchLoggingOptionDescs      []CloudWatchLoggingOptionDesc `json:"-"`
+	EnvironmentPropertyGroups         []PropertyGroup
+	InputDescriptions                 []InputDescription               `json:"-"`
+	OutputDescriptions                []OutputDescription              `json:"-"`
+	VpcConfigurationDescriptions      []VpcConfigurationDescription    `json:"-"`
+	ReferenceDataSourceDescriptions   []ReferenceDataSourceDescription `json:"-"`
+	ApplicationVersionID              int64                            `json:"ApplicationVersionId"`
 }
 
 // Snapshot represents an application snapshot.
@@ -243,6 +346,16 @@ func copyCWLOptions(src []CloudWatchLoggingOptionDesc) []CloudWatchLoggingOption
 	return out
 }
 
+// copyPropertyGroups returns a shallow copy of the property group slice
+// (matching the copy* siblings' convention of not deep-cloning nested
+// pointers/maps within each element -- see copyInputDescs).
+func copyPropertyGroups(src []PropertyGroup) []PropertyGroup {
+	out := make([]PropertyGroup, len(src))
+	copy(out, src)
+
+	return out
+}
+
 // copyInputDescs returns a deep copy of the input description slice.
 func copyInputDescs(src []InputDescription) []InputDescription {
 	out := make([]InputDescription, len(src))
@@ -304,6 +417,7 @@ func appCopy(src *Application) *Application {
 	cp.OutputDescriptions = copyOutputDescs(src.OutputDescriptions)
 	cp.ReferenceDataSourceDescriptions = copyRefDataSources(src.ReferenceDataSourceDescriptions)
 	cp.VpcConfigurationDescriptions = copyVpcConfigs(src.VpcConfigurationDescriptions)
+	cp.EnvironmentPropertyGroups = copyPropertyGroups(src.EnvironmentPropertyGroups)
 
 	return &cp
 }
