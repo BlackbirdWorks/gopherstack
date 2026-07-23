@@ -107,6 +107,11 @@ func (b *InMemoryBackend) CreateApplicationVersionWithParams(
 			DateUpdated:     nowISO8601(),
 			region:          region,
 		})
+		// Auto-creation goes through the same underlying "create application"
+		// state transition as CreateApplication, so it carries the same
+		// auto-provisioned Default configuration template -- see
+		// defaultConfigTemplateName.
+		b.createDefaultConfigurationTemplate(region, appName)
 	}
 
 	status := appVersionStatusUnprocessed

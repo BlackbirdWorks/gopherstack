@@ -166,8 +166,9 @@ func verifyFullState(t *testing.T, b *elasticbeanstalk.InMemoryBackend) {
 	versions := b.DescribeApplicationVersions(ctx, "full-app", nil)
 	require.Len(t, versions, 1)
 
+	// 2 = the auto-created "Default" template plus the explicit full-tmpl.
 	templates := b.DescribeConfigurationTemplates(ctx, "full-app")
-	require.Len(t, templates, 1)
+	require.Len(t, templates, 2)
 
 	platforms := b.ListPlatformVersions(ctx)
 	require.Len(t, platforms, 1)

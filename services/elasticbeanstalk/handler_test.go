@@ -156,6 +156,26 @@ func TestHandler_UnknownAction(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestHandler_CloneEnvironment_NotSupported locks that CloneEnvironment --
+// a fabricated action that was never part of the real AWS Elastic
+// Beanstalk API (no api_op_CloneEnvironment.go/deserializer exists in
+// aws-sdk-go-v2/service/elasticbeanstalk) -- is not routed. Real SDK
+// clients can never construct this request, so it must 400 like any other
+// unrecognized action rather than be served by a gopherstack-invented
+// handler; this guards against the fabricated op being reintroduced.
+func TestHandler_CloneEnvironment_NotSupported(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	assert.NotContains(t, h.GetSupportedOperations(), "CloneEnvironment")
+
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=CloneEnvironment"+
+		"&SourceEnvironmentName=src&EnvironmentName=dst")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "UnknownOperationException")
+}
+
 func TestHandler_MissingAction(t *testing.T) {
 	t.Parallel()
 
@@ -278,7 +298,10 @@ func TestHandler_CountHelpers_TrackResourceCreation(t *testing.T) {
 
 	postEBForm(t, h,
 		"Version=2010-12-01&Action=CreateConfigurationTemplate&ApplicationName=a1&TemplateName=tmpl1")
-	assert.Equal(t, 1, h.Backend.ConfigTemplateCount())
+	// 3 = the "Default" template AWS auto-creates for each of a1 and a2
+	// (CreateApplication: "creates an application that has one configuration
+	// template named default") plus the explicit tmpl1 created above.
+	assert.Equal(t, 3, h.Backend.ConfigTemplateCount())
 
 	postEBForm(t, h,
 		"Version=2010-12-01&Action=CreatePlatformVersion&PlatformName=MyPlatform&PlatformVersion=1.0")
@@ -312,7 +335,8 @@ func TestHandler_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, h2.Backend.ApplicationCount())
 	assert.Equal(t, 1, h2.Backend.EnvironmentCount())
 	assert.Equal(t, 1, h2.Backend.AppVersionCount())
-	assert.Equal(t, 1, h2.Backend.ConfigTemplateCount())
+	// 2 = the auto-created "Default" template plus the explicit tmpl1.
+	assert.Equal(t, 2, h2.Backend.ConfigTemplateCount())
 	assert.Equal(t, 1, h2.Backend.PlatformVersionCount())
 
 	// Verify ARN indexes are rebuilt for tag lookup.

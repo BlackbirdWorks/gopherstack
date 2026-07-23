@@ -15,12 +15,72 @@ type configurationOptionSettingType struct {
 	Value      string `xml:"Value"`
 }
 
+// configurationSettingsDescType mirrors AWS's ConfigurationSettingsDescription
+// shape (aws-sdk-go-v2/service/elasticbeanstalk/types), which real AWS reuses
+// verbatim for three distinct wire responses: DescribeConfigurationSettings's
+// ConfigurationSettings list members, CreateConfigurationTemplateOutput, and
+// UpdateConfigurationTemplateOutput -- see toConfigurationSettingsDesc and
+// toEnvironmentConfigurationSettingsDesc below.
 type configurationSettingsDescType struct {
 	ApplicationName   string                           `xml:"ApplicationName"`
 	EnvironmentName   string                           `xml:"EnvironmentName,omitempty"`
 	TemplateName      string                           `xml:"TemplateName,omitempty"`
 	SolutionStackName string                           `xml:"SolutionStackName"`
+	PlatformArn       string                           `xml:"PlatformArn,omitempty"`
+	DeploymentStatus  string                           `xml:"DeploymentStatus,omitempty"`
+	DateCreated       string                           `xml:"DateCreated,omitempty"`
+	DateUpdated       string                           `xml:"DateUpdated,omitempty"`
+	Description       string                           `xml:"Description,omitempty"`
 	OptionSettings    []configurationOptionSettingType `xml:"OptionSettings>member"`
+}
+
+// toOptionSettingsXML converts stored OptionSetting values to their XML wire shape.
+func toOptionSettingsXML(settings []OptionSetting) []configurationOptionSettingType {
+	out := make([]configurationOptionSettingType, 0, len(settings))
+
+	for _, setting := range settings {
+		out = append(out, configurationOptionSettingType{
+			Namespace: setting.Namespace, OptionName: setting.OptionName, Value: setting.Value,
+		})
+	}
+
+	return out
+}
+
+// toConfigurationSettingsDesc builds the ConfigurationSettingsDescription
+// shape for a configuration template. DeploymentStatus is intentionally left
+// empty: real AWS documents it as null "if this configuration is not
+// associated with a running environment", which is always true for a
+// template.
+func toConfigurationSettingsDesc(tmpl *ConfigurationTemplate) configurationSettingsDescType {
+	return configurationSettingsDescType{
+		ApplicationName:   tmpl.ApplicationName,
+		TemplateName:      tmpl.TemplateName,
+		Description:       tmpl.Description,
+		DateCreated:       tmpl.DateCreated,
+		DateUpdated:       tmpl.DateUpdated,
+		SolutionStackName: tmpl.SolutionStackName,
+		PlatformArn:       tmpl.PlatformArn,
+		OptionSettings:    toOptionSettingsXML(tmpl.OptionSettings),
+	}
+}
+
+// toEnvironmentConfigurationSettingsDesc builds the
+// ConfigurationSettingsDescription shape for an environment's live
+// configuration set. DeploymentStatus is always "deployed": this backend
+// applies environment updates synchronously (see PARITY.md), so there is
+// never an in-flight "pending"/"failed" configuration set to observe.
+func toEnvironmentConfigurationSettingsDesc(env *Environment) configurationSettingsDescType {
+	return configurationSettingsDescType{
+		ApplicationName:   env.ApplicationName,
+		EnvironmentName:   env.EnvironmentName,
+		SolutionStackName: env.SolutionStackName,
+		PlatformArn:       env.PlatformARN,
+		DeploymentStatus:  configDeploymentStatusDeployed,
+		DateCreated:       env.DateCreated,
+		DateUpdated:       env.DateUpdated,
+		OptionSettings:    toOptionSettingsXML(env.OptionSettings),
+	}
 }
 
 type describeConfigurationSettingsResult struct {
@@ -49,33 +109,14 @@ func (h *Handler) handleDescribeConfigurationSettings(ctx context.Context, vals 
 		envs := h.Backend.DescribeEnvironments(ctx, appName, []string{envName}, nil)
 
 		if len(envs) > 0 {
-			env := envs[0]
-			optionSettings := make([]configurationOptionSettingType, 0, len(env.OptionSettings))
-
-			for _, setting := range env.OptionSettings {
-				optionSettings = append(optionSettings, configurationOptionSettingType{
-					Namespace: setting.Namespace, OptionName: setting.OptionName, Value: setting.Value,
-				})
-			}
-
-			settings = append(settings, configurationSettingsDescType{
-				ApplicationName:   env.ApplicationName,
-				EnvironmentName:   env.EnvironmentName,
-				SolutionStackName: env.SolutionStackName,
-				OptionSettings:    optionSettings,
-			})
+			settings = append(settings, toEnvironmentConfigurationSettingsDesc(envs[0]))
 		}
 	} else if templateName != "" {
 		templates := h.Backend.DescribeConfigurationTemplates(ctx, appName)
 
 		for _, tmpl := range templates {
 			if tmpl.TemplateName == templateName {
-				settings = append(settings, configurationSettingsDescType{
-					ApplicationName:   tmpl.ApplicationName,
-					TemplateName:      tmpl.TemplateName,
-					SolutionStackName: tmpl.SolutionStackName,
-					OptionSettings:    make([]configurationOptionSettingType, 0),
-				})
+				settings = append(settings, toConfigurationSettingsDesc(tmpl))
 
 				break
 			}
@@ -91,29 +132,12 @@ func (h *Handler) handleDescribeConfigurationSettings(ctx context.Context, vals 
 	}, nil
 }
 
-// configurationTemplateDescType is used in XML responses for configuration templates.
-type configurationTemplateDescType struct {
-	ApplicationName   string `xml:"ApplicationName"`
-	TemplateName      string `xml:"TemplateName"`
-	SolutionStackName string `xml:"SolutionStackName,omitempty"`
-	Description       string `xml:"Description,omitempty"`
-}
-
-func toConfigTemplateDesc(tmpl *ConfigurationTemplate) configurationTemplateDescType {
-	return configurationTemplateDescType{
-		ApplicationName:   tmpl.ApplicationName,
-		TemplateName:      tmpl.TemplateName,
-		SolutionStackName: tmpl.SolutionStackName,
-		Description:       tmpl.Description,
-	}
-}
-
 // createConfigurationTemplateResponse is the XML response for CreateConfigurationTemplate.
 type createConfigurationTemplateResponse struct {
 	XMLName                           xml.Name                      `xml:"CreateConfigurationTemplateResponse"`
 	Xmlns                             string                        `xml:"xmlns,attr"`
-	CreateConfigurationTemplateResult configurationTemplateDescType `xml:"CreateConfigurationTemplateResult"`
 	ResponseMetadata                  responseMetadata              `xml:"ResponseMetadata"`
+	CreateConfigurationTemplateResult configurationSettingsDescType `xml:"CreateConfigurationTemplateResult"`
 }
 
 // handleCreateConfigurationTemplate creates a new configuration template.
@@ -130,15 +154,18 @@ func (h *Handler) handleCreateConfigurationTemplate(ctx context.Context, vals ur
 
 	description := vals.Get("Description")
 	solutionStack := vals.Get("SolutionStackName")
+	platformArn := vals.Get("PlatformArn")
 	tags := parseTagList(vals, "Tags.member")
+	optionSettings := parseOptionSettings(vals, "OptionSettings.member")
 
-	tmpl, err := h.Backend.CreateConfigurationTemplate(
+	tmpl, err := h.Backend.CreateConfigurationTemplateWithParams(
 		ctx,
 		appName,
 		templateName,
 		description,
 		solutionStack,
 		tags,
+		ConfigurationTemplateParams{PlatformArn: platformArn, OptionSettings: optionSettings},
 	)
 	if err != nil {
 		return nil, err
@@ -146,7 +173,7 @@ func (h *Handler) handleCreateConfigurationTemplate(ctx context.Context, vals ur
 
 	return &createConfigurationTemplateResponse{
 		Xmlns:                             ebXMLNS,
-		CreateConfigurationTemplateResult: toConfigTemplateDesc(tmpl),
+		CreateConfigurationTemplateResult: toConfigurationSettingsDesc(tmpl),
 		ResponseMetadata:                  responseMetadata{RequestID: "eb-create-config-tmpl"},
 	}, nil
 }
@@ -209,13 +236,22 @@ func (h *Handler) handleDeleteEnvironmentConfiguration(ctx context.Context, vals
 
 // describeConfigurationOptionsResponse is the XML response for DescribeConfigurationOptions.
 type configurationOptionDescription struct {
-	Namespace string `xml:"Namespace"`
-	Name      string `xml:"Name"`
-	ValueType string `xml:"ValueType"`
+	MaxLength      *int32   `xml:"MaxLength,omitempty"`
+	MinValue       *int32   `xml:"MinValue,omitempty"`
+	MaxValue       *int32   `xml:"MaxValue,omitempty"`
+	Namespace      string   `xml:"Namespace"`
+	Name           string   `xml:"Name"`
+	DefaultValue   string   `xml:"DefaultValue,omitempty"`
+	ChangeSeverity string   `xml:"ChangeSeverity,omitempty"`
+	ValueType      string   `xml:"ValueType"`
+	ValueOptions   []string `xml:"ValueOptions>member,omitempty"`
+	UserDefined    bool     `xml:"UserDefined"`
 }
 
 type describeConfigurationOptionsResult struct {
-	Options []configurationOptionDescription `xml:"Options>member"`
+	SolutionStackName string                           `xml:"SolutionStackName,omitempty"`
+	PlatformArn       string                           `xml:"PlatformArn,omitempty"`
+	Options           []configurationOptionDescription `xml:"Options>member"`
 }
 
 type describeConfigurationOptionsResponse struct {
@@ -225,27 +261,72 @@ type describeConfigurationOptionsResponse struct {
 	DescribeConfigurationOptionsResult describeConfigurationOptionsResult `xml:"DescribeConfigurationOptionsResult"`
 }
 
-func (h *Handler) handleDescribeConfigurationOptions(_ context.Context, _ url.Values) (any, error) {
+// resolveConfigurationOptionsPlatform determines the SolutionStackName/PlatformArn
+// to echo back on a DescribeConfigurationOptions response, resolving from an
+// explicit request parameter first and falling back to the referenced
+// environment or configuration template, matching the request's own
+// resolution order (ApplicationName+EnvironmentName or
+// ApplicationName+TemplateName -- see DescribeConfigurationOptionsInput).
+func (h *Handler) resolveConfigurationOptionsPlatform(ctx context.Context, vals url.Values) (string, string) {
+	if ss := vals.Get("SolutionStackName"); ss != "" {
+		return ss, vals.Get("PlatformArn")
+	}
+
+	if pa := vals.Get("PlatformArn"); pa != "" {
+		return "", pa
+	}
+
+	appName := vals.Get("ApplicationName")
+
+	if envName := vals.Get("EnvironmentName"); envName != "" {
+		if envs := h.Backend.DescribeEnvironments(ctx, appName, []string{envName}, nil); len(envs) > 0 {
+			return envs[0].SolutionStackName, envs[0].PlatformARN
+		}
+	}
+
+	if templateName := vals.Get("TemplateName"); templateName != "" {
+		for _, tmpl := range h.Backend.DescribeConfigurationTemplates(ctx, appName) {
+			if tmpl.TemplateName == templateName {
+				return tmpl.SolutionStackName, tmpl.PlatformArn
+			}
+		}
+	}
+
+	return "", ""
+}
+
+// handleDescribeConfigurationOptions returns the configuration option catalog,
+// optionally restricted to the options named in the request's Options
+// parameter (see filterConfigurationOptions/configurationOptionsCatalog in
+// configuration_options.go).
+func (h *Handler) handleDescribeConfigurationOptions(ctx context.Context, vals url.Values) (any, error) {
+	filters := parseOptionSettings(vals, "Options.member")
+	entries := filterConfigurationOptions(filters)
+
+	options := make([]configurationOptionDescription, 0, len(entries))
+
+	for _, e := range entries {
+		options = append(options, configurationOptionDescription{
+			Namespace:      e.Namespace,
+			Name:           e.Name,
+			DefaultValue:   e.DefaultValue,
+			ChangeSeverity: e.ChangeSeverity,
+			ValueType:      e.ValueType,
+			ValueOptions:   e.ValueOptions,
+			MaxLength:      e.MaxLength,
+			MinValue:       e.MinValue,
+			MaxValue:       e.MaxValue,
+		})
+	}
+
+	solutionStackName, platformArn := h.resolveConfigurationOptionsPlatform(ctx, vals)
+
 	return &describeConfigurationOptionsResponse{
 		Xmlns: ebXMLNS,
 		DescribeConfigurationOptionsResult: describeConfigurationOptionsResult{
-			Options: []configurationOptionDescription{
-				{
-					Namespace: nsAutoScalingASG,
-					Name:      "MinSize",
-					ValueType: optionValueTypeScalar,
-				},
-				{
-					Namespace: nsAutoScalingASG,
-					Name:      "MaxSize",
-					ValueType: optionValueTypeScalar,
-				},
-				{
-					Namespace: "aws:elasticbeanstalk:environment",
-					Name:      "EnvironmentType",
-					ValueType: optionValueTypeScalar,
-				},
-			},
+			Options:           options,
+			SolutionStackName: solutionStackName,
+			PlatformArn:       platformArn,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-describe-config-options"},
 	}, nil
@@ -255,8 +336,8 @@ func (h *Handler) handleDescribeConfigurationOptions(_ context.Context, _ url.Va
 type updateConfigurationTemplateResponse struct {
 	XMLName                           xml.Name                      `xml:"UpdateConfigurationTemplateResponse"`
 	Xmlns                             string                        `xml:"xmlns,attr"`
-	UpdateConfigurationTemplateResult configurationTemplateDescType `xml:"UpdateConfigurationTemplateResult"`
 	ResponseMetadata                  responseMetadata              `xml:"ResponseMetadata"`
+	UpdateConfigurationTemplateResult configurationSettingsDescType `xml:"UpdateConfigurationTemplateResult"`
 }
 
 func (h *Handler) handleUpdateConfigurationTemplate(ctx context.Context, vals url.Values) (any, error) {
@@ -270,16 +351,20 @@ func (h *Handler) handleUpdateConfigurationTemplate(ctx context.Context, vals ur
 		return nil, fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
 	}
 
-	description := vals.Get("Description")
+	params := UpdateConfigurationTemplateParams{
+		Description:     vals.Get("Description"),
+		OptionSettings:  parseOptionSettings(vals, "OptionSettings.member"),
+		OptionsToRemove: parseOptionSettings(vals, "OptionsToRemove.member"),
+	}
 
-	tmpl, err := h.Backend.UpdateConfigurationTemplate(ctx, appName, templateName, description)
+	tmpl, err := h.Backend.UpdateConfigurationTemplateWithParams(ctx, appName, templateName, params)
 	if err != nil {
 		return nil, err
 	}
 
 	return &updateConfigurationTemplateResponse{
 		Xmlns:                             ebXMLNS,
-		UpdateConfigurationTemplateResult: toConfigTemplateDesc(tmpl),
+		UpdateConfigurationTemplateResult: toConfigurationSettingsDesc(tmpl),
 		ResponseMetadata:                  responseMetadata{RequestID: "eb-update-config-tmpl"},
 	}, nil
 }
@@ -307,22 +392,22 @@ type validateConfigurationSettingsResponse struct {
 //
 //nolint:gochecknoglobals // package-level constant set
 var knownNamespaces = map[string]bool{
-	nsAutoScalingASG:                              true,
-	"aws:autoscaling:launchconfiguration":         true,
-	"aws:autoscaling:trigger":                     true,
-	"aws:ec2:vpc":                                 true,
-	"aws:elasticbeanstalk:application":            true,
-	"aws:elasticbeanstalk:cloudwatch:logs":        true,
-	"aws:elasticbeanstalk:environment":            true,
-	"aws:elasticbeanstalk:environment:proxy":      true,
-	"aws:elasticbeanstalk:healthreporting:system": true,
-	"aws:elasticbeanstalk:managedactions":         true,
-	"aws:elasticbeanstalk:monitoring":             true,
-	"aws:elasticbeanstalk:sns:topics":             true,
-	"aws:elasticbeanstalk:xray":                   true,
-	"aws:elb:loadbalancer":                        true,
-	"aws:elbv2:loadbalancer":                      true,
-	"aws:rds:dbinstance":                          true,
+	nsAutoScalingASG:          true,
+	nsAutoScalingLaunchConfig: true,
+	nsAutoScalingTrigger:      true,
+	nsEC2VPC:                  true,
+	nsEBApplication:           true,
+	nsEBCloudWatchLogs:        true,
+	nsEBEnvironment:           true,
+	nsEBEnvironmentProxy:      true,
+	nsEBHealthReportingSystem: true,
+	nsEBManagedActions:        true,
+	nsEBMonitoring:            true,
+	nsEBSNSTopics:             true,
+	nsEBXRay:                  true,
+	nsELBLoadBalancer:         true,
+	nsELBv2LoadBalancer:       true,
+	nsRDSDBInstance:           true,
 }
 
 func (h *Handler) handleValidateConfigurationSettings(_ context.Context, vals url.Values) (any, error) {

@@ -114,20 +114,20 @@ func (h *Handler) handleCreateEnvironment(ctx context.Context, vals url.Values) 
 	tierVersion := vals.Get("Tier.Version")
 
 	// Parse load balancer type from OptionSettings (improvement #14)
-	lbType := parseOptionSetting(vals, "aws:elasticbeanstalk:environment", "LoadBalancerType")
+	lbType := parseOptionSetting(vals, nsEBEnvironment, "LoadBalancerType")
 
 	// Parse VPC config from OptionSettings (improvement #15)
-	vpcID := parseOptionSetting(vals, "aws:ec2:vpc", "VPCId")
-	subnets := parseOptionSetting(vals, "aws:ec2:vpc", "Subnets")
+	vpcID := parseOptionSetting(vals, nsEC2VPC, "VPCId")
+	subnets := parseOptionSetting(vals, nsEC2VPC, "Subnets")
 
 	// Parse instance profile from OptionSettings (improvement #16)
-	instanceProfile := parseOptionSetting(vals, "aws:autoscaling:launchconfiguration", "IamInstanceProfile")
+	instanceProfile := parseOptionSetting(vals, nsAutoScalingLaunchConfig, "IamInstanceProfile")
 	if err := ValidateInstanceProfileARN(instanceProfile); err != nil {
 		return nil, err
 	}
 
 	// Parse custom AMI from OptionSettings (improvement #5)
-	customAMI := parseOptionSetting(vals, "aws:autoscaling:launchconfiguration", "ImageId")
+	customAMI := parseOptionSetting(vals, nsAutoScalingLaunchConfig, "ImageId")
 
 	params := CreateEnvironmentParams{
 		TierType:         tierType,
@@ -492,54 +492,6 @@ func (h *Handler) handleComposeEnvironments(ctx context.Context, vals url.Values
 		Xmlns:                     ebXMLNS,
 		ComposeEnvironmentsResult: composeEnvironmentsResult{Environments: members},
 		ResponseMetadata:          responseMetadata{RequestID: "eb-compose-envs"},
-	}, nil
-}
-
-// cloneEnvironmentResponse is the XML response for CloneEnvironment (improvement #9).
-type cloneEnvironmentResponse struct {
-	XMLName                xml.Name            `xml:"CloneEnvironmentResponse"`
-	Xmlns                  string              `xml:"xmlns,attr"`
-	CloneEnvironmentResult environmentDescType `xml:"CloneEnvironmentResult"`
-	ResponseMetadata       responseMetadata    `xml:"ResponseMetadata"`
-}
-
-// handleCloneEnvironment clones an existing environment into a new environment.
-func (h *Handler) handleCloneEnvironment(ctx context.Context, vals url.Values) (any, error) {
-	srcEnvName := vals.Get("SourceEnvironmentName")
-	if srcEnvName == "" {
-		return nil, fmt.Errorf("%w: SourceEnvironmentName is required", ErrInvalidParameter)
-	}
-
-	newEnvName := vals.Get("EnvironmentName")
-	if newEnvName == "" {
-		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
-	}
-
-	appName := vals.Get("ApplicationName")
-
-	// Resolve app name from the source environment if not provided.
-	if appName == "" {
-		envs := h.Backend.DescribeEnvironments(ctx, "", []string{srcEnvName}, nil)
-		if len(envs) == 1 {
-			appName = envs[0].ApplicationName
-		} else {
-			return nil, fmt.Errorf(
-				"%w: source environment %s not found or ambiguous; specify ApplicationName",
-				ErrNotFound,
-				srcEnvName,
-			)
-		}
-	}
-
-	env, err := h.Backend.CloneEnvironment(ctx, appName, srcEnvName, newEnvName)
-	if err != nil {
-		return nil, err
-	}
-
-	return &cloneEnvironmentResponse{
-		Xmlns:                  ebXMLNS,
-		CloneEnvironmentResult: toEnvironmentDesc(env),
-		ResponseMetadata:       responseMetadata{RequestID: "eb-clone-env"},
 	}, nil
 }
 

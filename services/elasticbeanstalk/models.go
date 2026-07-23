@@ -27,6 +27,19 @@ const (
 	eventSeverityInfo = "INFO"
 	// maxEventsPerRegion caps the events slice to prevent unbounded growth.
 	maxEventsPerRegion = 1000
+	// defaultConfigTemplateName is the configuration template AWS auto-creates
+	// alongside every new application (see CreateApplication's documented
+	// behavior: "Creates an application that has one configuration template
+	// named default"; the API's own example response renders it capitalized
+	// as "Default" -- see
+	// https://docs.aws.amazon.com/elasticbeanstalk/latest/api/API_CreateApplication.html).
+	defaultConfigTemplateName = "Default"
+	// configDeploymentStatusDeployed is the ConfigurationSettingsDescription
+	// DeploymentStatus value used for a configuration set currently attached
+	// to a running environment; this backend applies environment updates
+	// synchronously, so an environment's live configuration set is always
+	// "deployed" and never observed in "pending"/"failed" transition states.
+	configDeploymentStatusDeployed = "deployed"
 )
 
 // Application represents an Elastic Beanstalk application.
@@ -121,10 +134,9 @@ type ConfigurationTemplate struct {
 	DateCreated       string            `json:"dateCreated,omitempty"`
 	DateUpdated       string            `json:"dateUpdated,omitempty"`
 	SolutionStackName string            `json:"solutionStackName,omitempty"`
-	// region is the store.Table composite-key qualifier (see regionKey in
-	// store.go); unexported, carried through persistence via regionalDTO
-	// (see persistence.go).
-	region string
+	PlatformArn       string            `json:"platformArn,omitempty"`
+	region            string
+	OptionSettings    []OptionSetting `json:"optionSettings,omitempty"`
 }
 
 // PlatformVersion represents an Elastic Beanstalk platform version.
@@ -204,6 +216,7 @@ func cloneApplicationVersion(ver *ApplicationVersion) *ApplicationVersion {
 func cloneConfigurationTemplate(tmpl *ConfigurationTemplate) *ConfigurationTemplate {
 	cp := *tmpl
 	cp.Tags = copyTags(tmpl.Tags)
+	cp.OptionSettings = slices.Clone(tmpl.OptionSettings)
 
 	return &cp
 }

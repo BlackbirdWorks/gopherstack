@@ -3,6 +3,7 @@ package elasticbeanstalk
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -51,16 +52,51 @@ func (b *InMemoryBackend) configTemplateByARN(region, resourceARN string) (*Conf
 
 // --- ConfigurationTemplate operations ---
 
+// ConfigurationTemplateParams holds optional CreateConfigurationTemplate properties
+// beyond the application/template name, description and solution stack.
+type ConfigurationTemplateParams struct {
+	// PlatformArn is the ARN of a custom platform to base the template on.
+	// Real AWS documents PlatformArn and SolutionStackName as mutually
+	// exclusive -- see CreateConfigurationTemplateInput.
+	PlatformArn string
+	// OptionSettings overrides option values obtained from the solution
+	// stack/platform for this template.
+	OptionSettings []OptionSetting
+}
+
 // CreateConfigurationTemplate creates a new configuration template for an application.
 func (b *InMemoryBackend) CreateConfigurationTemplate(
 	ctx context.Context,
 	appName, templateName, description, solutionStack string,
 	tags map[string]string,
 ) (*ConfigurationTemplate, error) {
+	return b.CreateConfigurationTemplateWithParams(
+		ctx, appName, templateName, description, solutionStack, tags, ConfigurationTemplateParams{},
+	)
+}
+
+// CreateConfigurationTemplateWithParams creates a new configuration template,
+// additionally accepting PlatformArn and OptionSettings (improvement:
+// these were previously accepted on the wire but silently dropped, so a
+// template's OptionSettings could never be set at creation time or read back
+// via DescribeConfigurationSettings).
+func (b *InMemoryBackend) CreateConfigurationTemplateWithParams(
+	ctx context.Context,
+	appName, templateName, description, solutionStack string,
+	tags map[string]string,
+	params ConfigurationTemplateParams,
+) (*ConfigurationTemplate, error) {
 	b.mu.Lock("CreateConfigurationTemplate")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+
+	if solutionStack != "" && params.PlatformArn != "" {
+		return nil, fmt.Errorf(
+			"%w: the parameters SolutionStackName and PlatformArn are mutually exclusive",
+			ErrInvalidParameter,
+		)
+	}
 
 	if _, ok := b.configTemplateGet(region, appName, templateName); ok {
 		return nil, fmt.Errorf(
@@ -77,12 +113,29 @@ func (b *InMemoryBackend) CreateConfigurationTemplate(
 		DateCreated:       nowISO8601(),
 		DateUpdated:       nowISO8601(),
 		SolutionStackName: solutionStack,
+		PlatformArn:       params.PlatformArn,
+		OptionSettings:    slices.Clone(params.OptionSettings),
 		Tags:              copyTags(tags),
 		region:            region,
 	}
 	b.configTemplatePut(tmpl)
 
 	return cloneConfigurationTemplate(tmpl), nil
+}
+
+// createDefaultConfigurationTemplate seeds the "Default" configuration
+// template that real AWS auto-creates alongside every new application (see
+// defaultConfigTemplateName). Caller must hold b.mu.Lock.
+func (b *InMemoryBackend) createDefaultConfigurationTemplate(region, appName string) {
+	now := nowISO8601()
+	b.configTemplatePut(&ConfigurationTemplate{
+		ApplicationName: appName,
+		TemplateName:    defaultConfigTemplateName,
+		DateCreated:     now,
+		DateUpdated:     now,
+		Tags:            map[string]string{},
+		region:          region,
+	})
 }
 
 // DescribeConfigurationTemplates returns all configuration templates for an application (improvement #17).
@@ -134,6 +187,30 @@ func (b *InMemoryBackend) UpdateConfigurationTemplate(
 	ctx context.Context,
 	appName, templateName, description string,
 ) (*ConfigurationTemplate, error) {
+	return b.UpdateConfigurationTemplateWithParams(ctx, appName, templateName, UpdateConfigurationTemplateParams{
+		Description: description,
+	})
+}
+
+// UpdateConfigurationTemplateParams holds the mutable fields accepted by
+// UpdateConfigurationTemplate (real AWS's UpdateConfigurationTemplateInput:
+// Description, OptionSettings, OptionsToRemove -- unlike UpdateEnvironment,
+// there is no SolutionStackName/PlatformArn/TemplateName swap support).
+type UpdateConfigurationTemplateParams struct {
+	Description     string
+	OptionSettings  []OptionSetting
+	OptionsToRemove []OptionSetting
+}
+
+// UpdateConfigurationTemplateWithParams updates a configuration template's
+// description and/or option settings (improvement: OptionSettings/
+// OptionsToRemove were previously accepted on the wire but silently
+// dropped -- see CreateConfigurationTemplateWithParams).
+func (b *InMemoryBackend) UpdateConfigurationTemplateWithParams(
+	ctx context.Context,
+	appName, templateName string,
+	params UpdateConfigurationTemplateParams,
+) (*ConfigurationTemplate, error) {
 	b.mu.Lock("UpdateConfigurationTemplate")
 	defer b.mu.Unlock()
 
@@ -144,7 +221,8 @@ func (b *InMemoryBackend) UpdateConfigurationTemplate(
 		return nil, fmt.Errorf("%w: configuration template %s not found", ErrNotFound, templateName)
 	}
 
-	tmpl.Description = description
+	tmpl.Description = params.Description
+	tmpl.OptionSettings = updateOptionSettings(tmpl.OptionSettings, params.OptionSettings, params.OptionsToRemove)
 	tmpl.DateUpdated = nowISO8601()
 
 	return cloneConfigurationTemplate(tmpl), nil

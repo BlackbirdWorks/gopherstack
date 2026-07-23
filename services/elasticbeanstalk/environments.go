@@ -358,64 +358,6 @@ func (b *InMemoryBackend) TerminateEnvironment(ctx context.Context, appName, env
 	return out, nil
 }
 
-// CloneEnvironment creates a new environment by copying an existing one (improvement #9).
-func (b *InMemoryBackend) CloneEnvironment(
-	ctx context.Context,
-	srcAppName, srcEnvName, newEnvName string,
-) (*Environment, error) {
-	b.mu.Lock("CloneEnvironment")
-	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
-
-	src, ok := b.environmentGet(region, srcAppName, srcEnvName)
-	if !ok {
-		return nil, fmt.Errorf("%w: source environment %s not found", ErrNotFound, srcEnvName)
-	}
-
-	if _, exists := b.environmentGet(region, srcAppName, newEnvName); exists {
-		return nil, fmt.Errorf("%w: environment %s already exists", ErrAlreadyExists, newEnvName)
-	}
-
-	envID := b.nextEnvID(region)
-	envARN := arn.Build("elasticbeanstalk", region, b.accountID, "environment/"+srcAppName+"/"+newEnvName)
-	cname := newEnvName + "." + region + ".elasticbeanstalk.com"
-
-	env := &Environment{
-		ApplicationName:   srcAppName,
-		EnvironmentName:   newEnvName,
-		EnvironmentID:     envID,
-		EnvironmentARN:    envARN,
-		SolutionStackName: src.SolutionStackName,
-		Description:       src.Description,
-		Status:            envStatusReady,
-		Health:            envHealthGreen,
-		Tier:              src.Tier,
-		TierType:          src.TierType,
-		TierName:          src.TierName,
-		TierVersion:       src.TierVersion,
-		CNAME:             cname,
-		CNAMEPrefix:       newEnvName,
-		LoadBalancerType:  src.LoadBalancerType,
-		VPCID:             src.VPCID,
-		Subnets:           src.Subnets,
-		InstanceProfile:   src.InstanceProfile,
-		CustomAMI:         src.CustomAMI,
-		OptionSettings:    slices.Clone(src.OptionSettings),
-		PlatformARN:       src.PlatformARN,
-		TemplateName:      src.TemplateName,
-		VersionLabel:      src.VersionLabel,
-		OperationsRole:    src.OperationsRole,
-		DateCreated:       nowISO8601(),
-		DateUpdated:       nowISO8601(),
-		Region:            region,
-		Tags:              copyTags(src.Tags),
-	}
-	b.environmentPut(env)
-
-	return cloneEnvironment(env), nil
-}
-
 // AbortEnvironmentUpdate aborts an in-progress environment configuration update.
 // This is a no-op in the in-memory backend since updates complete instantly.
 func (b *InMemoryBackend) AbortEnvironmentUpdate(_ context.Context, _ string) error {
