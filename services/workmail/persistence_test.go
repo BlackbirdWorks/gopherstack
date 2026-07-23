@@ -34,7 +34,9 @@ func newFullyPopulatedBackend(t *testing.T) (*workmail.InMemoryBackend, string) 
 	require.NoError(t, err)
 	orgID := org.OrgID
 
-	user, err := b.CreateUser(orgID, "alice", "Alice A", "pw", "USER")
+	user, err := b.CreateUser(orgID, "alice", workmail.CreateUserParams{
+		DisplayName: "Alice A", Password: "pw", Role: "USER",
+	})
 	require.NoError(t, err)
 	require.NoError(t, b.RegisterToWorkMail(orgID, user.UserID, "alice@acme.com"))
 	require.NoError(t, b.UpdateMailboxQuota(orgID, user.UserID, 12345))
@@ -51,7 +53,9 @@ func newFullyPopulatedBackend(t *testing.T) (*workmail.InMemoryBackend, string) 
 	require.NoError(t, b.PutMailboxPermissions(orgID, user.UserID, group.GroupID, []string{"FULL_ACCESS"}))
 	require.NoError(t, b.RegisterMailDomain(orgID, "extra.acme.com"))
 
-	_, err = b.PutAccessControlRule(orgID, "allow-all", "ALLOW", "desc", nil, nil, nil, nil, nil, nil)
+	_, err = b.PutAccessControlRule(orgID, workmail.PutAccessControlRuleParams{
+		Name: "allow-all", Effect: "ALLOW", Description: "desc",
+	})
 	require.NoError(t, err)
 
 	role, err := b.CreateImpersonationRole(orgID, "impersonator", "FULL_ACCESS", "desc", nil)
@@ -115,15 +119,15 @@ func fetchRestoredIDs(t *testing.T, fresh *workmail.InMemoryBackend) restoredIDs
 	require.Len(t, orgs, 1)
 	orgID := orgs[0].OrgID
 
-	users, _, err := fresh.ListUsers(orgID, 0, "")
+	users, _, err := fresh.ListUsers(orgID, nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, users, 1)
 
-	groups, _, err := fresh.ListGroups(orgID, 0, "")
+	groups, _, err := fresh.ListGroups(orgID, nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 
-	resources, _, err := fresh.ListResources(orgID, 0, "")
+	resources, _, err := fresh.ListResources(orgID, nil, 0, "")
 	require.NoError(t, err)
 	require.Len(t, resources, 1)
 

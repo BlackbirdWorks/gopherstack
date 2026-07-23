@@ -309,3 +309,65 @@ func TestListAccessControlRules_Timestamps(t *testing.T) {
 	assert.NotZero(t, dateCreated, "DateCreated should be non-zero")
 	assert.NotZero(t, dateModified, "DateModified should be non-zero")
 }
+
+// TestAccessControlRule_ImpersonationRoleIDs locks
+// ImpersonationRoleIds/NotImpersonationRoleIds on AccessControlRule
+// (PutAccessControlRule's request, ListAccessControlRules' response, and
+// GetAccessControlEffect's ImpersonationRoleId condition matching) --
+// previously accepted on PutAccessControlRule's wire shape but neither
+// stored, echoed back by ListAccessControlRules, nor evaluated by
+// GetAccessControlEffect.
+func TestAccessControlRule_ImpersonationRoleIDs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	orgID := createTestOrg(t, h, "acr-impersonation-org")
+
+	rec := doOp(t, h, "PutAccessControlRule", fmt.Sprintf(`{
+		"OrganizationId":%q,"Name":"deny-role-x","Effect":"DENY",
+		"ImpersonationRoleIds":["role-x"],"NotImpersonationRoleIds":["role-y"]
+	}`, orgID))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doOp(t, h, "ListAccessControlRules", fmt.Sprintf(`{"OrganizationId":%q}`, orgID))
+	require.Equal(t, http.StatusOK, rec.Code)
+	m := decodeJSON(t, rec)
+	rules, _ := m["Rules"].([]any)
+	require.Len(t, rules, 1)
+	rule := rules[0].(map[string]any)
+	ids, _ := rule["ImpersonationRoleIds"].([]any)
+	notIDs, _ := rule["NotImpersonationRoleIds"].([]any)
+	assert.Equal(t, []any{"role-x"}, ids)
+	assert.Equal(t, []any{"role-y"}, notIDs)
+
+	tests := []struct {
+		name                string
+		impersonationRoleID string
+		wantEffect          string
+		wantMatched         bool
+	}{
+		{name: "matching_role_denied", impersonationRoleID: "role-x", wantEffect: "DENY", wantMatched: true},
+		{name: "other_role_allowed", impersonationRoleID: "role-z", wantEffect: "ALLOW", wantMatched: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			aceRec := doOp(t, h, "GetAccessControlEffect", fmt.Sprintf(
+				`{"OrganizationId":%q,"IpAddress":"1.2.3.4","Action":"EWS","ImpersonationRoleId":%q}`,
+				orgID, tc.impersonationRoleID,
+			))
+			require.Equal(t, http.StatusOK, aceRec.Code)
+
+			aceBody := decodeJSON(t, aceRec)
+			assert.Equal(t, tc.wantEffect, aceBody["Effect"])
+			matched, _ := aceBody["MatchedRules"].([]any)
+			if tc.wantMatched {
+				assert.NotEmpty(t, matched)
+			} else {
+				assert.Empty(t, matched)
+			}
+		})
+	}
+}

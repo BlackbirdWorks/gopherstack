@@ -178,3 +178,52 @@ func TestCreateResource_Validation(t *testing.T) {
 		})
 	}
 }
+
+// TestListResources_Filters locks the ListResourcesInput.Filters wire
+// behavior (NamePrefix/PrimaryEmailPrefix/State): previously accepted on the
+// wire but silently ignored, so a real client's prefix/state search would
+// have gotten back the full unfiltered page.
+func TestListResources_Filters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	orgID := createTestOrg(t, h, "listresources-filter-org")
+
+	createTestResource(t, h, orgID, "room-north", "ROOM")
+	southID := createTestResource(t, h, orgID, "room-south", "ROOM")
+	require.Equal(t, http.StatusOK, doOp(t, h, "RegisterToWorkMail", fmt.Sprintf(
+		`{"OrganizationId":%q,"EntityId":%q,"Email":"room-south@filter.example"}`, orgID, southID,
+	)).Code)
+	createTestResource(t, h, orgID, "projector-1", "EQUIPMENT")
+
+	tests := []struct {
+		filters   string
+		name      string
+		wantNames []string
+	}{
+		{name: "name_prefix", filters: `{"NamePrefix":"room-"}`, wantNames: []string{"room-north", "room-south"}},
+		{name: "email_prefix", filters: `{"PrimaryEmailPrefix":"room-south@"}`, wantNames: []string{"room-south"}},
+		{name: "state_enabled", filters: `{"State":"ENABLED"}`, wantNames: []string{"room-south"}},
+		{
+			name: "state_disabled", filters: `{"State":"DISABLED"}`,
+			wantNames: []string{"room-north", "projector-1"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doOp(t, h, "ListResources", fmt.Sprintf(`{"OrganizationId":%q,"Filters":%s}`, orgID, tc.filters))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			m := decodeJSON(t, rec)
+			resources, _ := m["Resources"].([]any)
+			gotNames := make([]string, 0, len(resources))
+			for _, r := range resources {
+				gotNames = append(gotNames, r.(map[string]any)["Name"].(string))
+			}
+			assert.ElementsMatch(t, tc.wantNames, gotNames)
+		})
+	}
+}

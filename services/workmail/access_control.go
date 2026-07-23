@@ -13,10 +13,7 @@ import (
 
 // PutAccessControlRule creates or updates an access control rule.
 func (b *InMemoryBackend) PutAccessControlRule(
-	orgID, name, effect, description string,
-	ipRanges, notIPRanges []string,
-	actions, notActions []string,
-	userIDs, notUserIDs []string,
+	orgID string, params PutAccessControlRuleParams,
 ) (*AccessControlRule, error) {
 	b.mu.Lock("PutAccessControlRule")
 	defer b.mu.Unlock()
@@ -26,21 +23,23 @@ func (b *InMemoryBackend) PutAccessControlRule(
 	}
 
 	now := time.Now().UTC()
-	existing, _ := b.accessRules.Get(orgKey(orgID, name))
+	existing, _ := b.accessRules.Get(orgKey(orgID, params.Name))
 
 	rule := &AccessControlRule{
-		DateCreated:  now,
-		DateModified: now,
-		Name:         name,
-		Effect:       effect,
-		Description:  description,
-		IPRanges:     ipRanges,
-		NotIPRanges:  notIPRanges,
-		Actions:      actions,
-		NotActions:   notActions,
-		UserIDs:      userIDs,
-		NotUserIDs:   notUserIDs,
-		orgID:        orgID,
+		DateCreated:             now,
+		DateModified:            now,
+		Name:                    params.Name,
+		Effect:                  params.Effect,
+		Description:             params.Description,
+		IPRanges:                params.IPRanges,
+		NotIPRanges:             params.NotIPRanges,
+		Actions:                 params.Actions,
+		NotActions:              params.NotActions,
+		UserIDs:                 params.UserIDs,
+		NotUserIDs:              params.NotUserIDs,
+		ImpersonationRoleIDs:    params.ImpersonationRoleIDs,
+		NotImpersonationRoleIDs: params.NotImpersonationRoleIDs,
+		orgID:                   orgID,
 	}
 	if existing != nil {
 		rule.DateCreated = existing.DateCreated
@@ -68,7 +67,7 @@ func (b *InMemoryBackend) DeleteAccessControlRule(orgID, name string) error {
 
 // GetAccessControlEffect evaluates access control rules.
 func (b *InMemoryBackend) GetAccessControlEffect(
-	orgID, ipAddr, action, userID string,
+	orgID, ipAddr, action, userID, impersonationRoleID string,
 ) (string, []string, error) {
 	b.mu.RLock("GetAccessControlEffect")
 	defer b.mu.RUnlock()
@@ -86,7 +85,7 @@ func (b *InMemoryBackend) GetAccessControlEffect(
 	})
 
 	for _, rule := range rules {
-		if !ruleMatchesRequest(rule, ipAddr, action, userID) {
+		if !ruleMatchesRequest(rule, ipAddr, action, userID, impersonationRoleID) {
 			continue
 		}
 
@@ -97,7 +96,15 @@ func (b *InMemoryBackend) GetAccessControlEffect(
 }
 
 // ruleMatchesRequest returns true when ALL non-empty condition lists match.
-func ruleMatchesRequest(rule *AccessControlRule, ipAddr, action, userID string) bool {
+// Split into matchesIPAndAction/matchesUserAndImpersonation to stay under
+// the per-function cyclomatic-complexity budget.
+func ruleMatchesRequest(rule *AccessControlRule, ipAddr, action, userID, impersonationRoleID string) bool {
+	return matchesIPAndAction(rule, ipAddr, action) && matchesUserAndImpersonation(rule, userID, impersonationRoleID)
+}
+
+// matchesIPAndAction checks the IpRanges/NotIpRanges and Actions/NotActions
+// condition pairs.
+func matchesIPAndAction(rule *AccessControlRule, ipAddr, action string) bool {
 	if len(rule.IPRanges) > 0 && !matchesCIDRList(ipAddr, rule.IPRanges) {
 		return false
 	}
@@ -110,10 +117,23 @@ func ruleMatchesRequest(rule *AccessControlRule, ipAddr, action, userID string) 
 	if len(rule.NotActions) > 0 && slices.Contains(rule.NotActions, action) {
 		return false
 	}
+
+	return true
+}
+
+// matchesUserAndImpersonation checks the UserIds/NotUserIds and
+// ImpersonationRoleIds/NotImpersonationRoleIds condition pairs.
+func matchesUserAndImpersonation(rule *AccessControlRule, userID, impersonationRoleID string) bool {
 	if len(rule.UserIDs) > 0 && !slices.Contains(rule.UserIDs, userID) {
 		return false
 	}
 	if len(rule.NotUserIDs) > 0 && slices.Contains(rule.NotUserIDs, userID) {
+		return false
+	}
+	if len(rule.ImpersonationRoleIDs) > 0 && !slices.Contains(rule.ImpersonationRoleIDs, impersonationRoleID) {
+		return false
+	}
+	if len(rule.NotImpersonationRoleIDs) > 0 && slices.Contains(rule.NotImpersonationRoleIDs, impersonationRoleID) {
 		return false
 	}
 

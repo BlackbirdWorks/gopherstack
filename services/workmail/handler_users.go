@@ -7,11 +7,15 @@ import (
 // ---- Users ----
 
 type createUserReq struct {
-	OrganizationID string `json:"OrganizationId"`
-	Name           string `json:"Name"`
-	DisplayName    string `json:"DisplayName"`
-	Password       string `json:"Password"`
-	Role           string `json:"Role"`
+	OrganizationID              string `json:"OrganizationId"`
+	Name                        string `json:"Name"`
+	DisplayName                 string `json:"DisplayName"`
+	Password                    string `json:"Password"`
+	Role                        string `json:"Role"`
+	FirstName                   string `json:"FirstName"`
+	LastName                    string `json:"LastName"`
+	IdentityProviderUserID      string `json:"IdentityProviderUserId"`
+	HiddenFromGlobalAddressList bool   `json:"HiddenFromGlobalAddressList"`
 }
 
 type createUserResp struct {
@@ -23,7 +27,15 @@ func (h *Handler) handleCreateUser(_ context.Context, req *createUserReq) (*crea
 	if role == "" {
 		role = roleUser
 	}
-	u, err := h.Backend.CreateUser(req.OrganizationID, req.Name, req.DisplayName, req.Password, role)
+	u, err := h.Backend.CreateUser(req.OrganizationID, req.Name, CreateUserParams{
+		DisplayName:                 req.DisplayName,
+		Password:                    req.Password,
+		Role:                        role,
+		FirstName:                   req.FirstName,
+		LastName:                    req.LastName,
+		IdentityProviderUserID:      req.IdentityProviderUserID,
+		HiddenFromGlobalAddressList: req.HiddenFromGlobalAddressList,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -37,16 +49,31 @@ type describeUserReq struct {
 }
 
 type describeUserResp struct {
-	UserID       string `json:"UserId"`
-	Name         string `json:"Name"`
-	Email        string `json:"Email,omitempty"`
-	DisplayName  string `json:"DisplayName,omitempty"`
-	FirstName    string `json:"FirstName,omitempty"`
-	LastName     string `json:"LastName,omitempty"`
-	State        string `json:"State"`
-	UserRole     string `json:"UserRole"`
-	EnabledDate  int64  `json:"EnabledDate,omitempty"`
-	DisabledDate int64  `json:"DisabledDate,omitempty"`
+	UserID                          string `json:"UserId"`
+	Name                            string `json:"Name"`
+	Email                           string `json:"Email,omitempty"`
+	DisplayName                     string `json:"DisplayName,omitempty"`
+	FirstName                       string `json:"FirstName,omitempty"`
+	LastName                        string `json:"LastName,omitempty"`
+	State                           string `json:"State"`
+	UserRole                        string `json:"UserRole"`
+	City                            string `json:"City,omitempty"`
+	Company                         string `json:"Company,omitempty"`
+	Country                         string `json:"Country,omitempty"`
+	Department                      string `json:"Department,omitempty"`
+	Initials                        string `json:"Initials,omitempty"`
+	JobTitle                        string `json:"JobTitle,omitempty"`
+	Office                          string `json:"Office,omitempty"`
+	Street                          string `json:"Street,omitempty"`
+	Telephone                       string `json:"Telephone,omitempty"`
+	ZipCode                         string `json:"ZipCode,omitempty"`
+	IdentityProviderIdentityStoreID string `json:"IdentityProviderIdentityStoreId,omitempty"`
+	IdentityProviderUserID          string `json:"IdentityProviderUserId,omitempty"`
+	EnabledDate                     int64  `json:"EnabledDate,omitempty"`
+	DisabledDate                    int64  `json:"DisabledDate,omitempty"`
+	MailboxProvisionedDate          int64  `json:"MailboxProvisionedDate,omitempty"`
+	MailboxDeprovisionedDate        int64  `json:"MailboxDeprovisionedDate,omitempty"`
+	HiddenFromGlobalAddressList     bool   `json:"HiddenFromGlobalAddressList"`
 }
 
 func (h *Handler) handleDescribeUser(_ context.Context, req *describeUserReq) (*describeUserResp, error) {
@@ -56,14 +83,27 @@ func (h *Handler) handleDescribeUser(_ context.Context, req *describeUserReq) (*
 	}
 
 	resp := &describeUserResp{
-		UserID:      u.UserID,
-		Name:        u.Name,
-		Email:       u.Email,
-		DisplayName: u.DisplayName,
-		FirstName:   u.FirstName,
-		LastName:    u.LastName,
-		State:       u.State,
-		UserRole:    u.Role,
+		UserID:                          u.UserID,
+		Name:                            u.Name,
+		Email:                           u.Email,
+		DisplayName:                     u.DisplayName,
+		FirstName:                       u.FirstName,
+		LastName:                        u.LastName,
+		State:                           u.State,
+		UserRole:                        u.Role,
+		City:                            u.City,
+		Company:                         u.Company,
+		Country:                         u.Country,
+		Department:                      u.Department,
+		Initials:                        u.Initials,
+		JobTitle:                        u.JobTitle,
+		Office:                          u.Office,
+		Street:                          u.Street,
+		Telephone:                       u.Telephone,
+		ZipCode:                         u.ZipCode,
+		IdentityProviderIdentityStoreID: u.IdentityProviderIdentityStoreID,
+		IdentityProviderUserID:          u.IdentityProviderUserID,
+		HiddenFromGlobalAddressList:     u.HiddenFromGlobalAddressList,
 	}
 	if !u.EnabledDate.IsZero() {
 		resp.EnabledDate = u.EnabledDate.Unix()
@@ -71,24 +111,58 @@ func (h *Handler) handleDescribeUser(_ context.Context, req *describeUserReq) (*
 	if !u.DisabledDate.IsZero() {
 		resp.DisabledDate = u.DisabledDate.Unix()
 	}
+	if !u.MailboxProvisionedDate.IsZero() {
+		resp.MailboxProvisionedDate = u.MailboxProvisionedDate.Unix()
+	}
+	if !u.MailboxDeprovisionedDate.IsZero() {
+		resp.MailboxDeprovisionedDate = u.MailboxDeprovisionedDate.Unix()
+	}
 
 	return resp, nil
 }
 
 type updateUserReq struct {
-	OrganizationID string `json:"OrganizationId"`
-	UserID         string `json:"UserId"`
-	DisplayName    string `json:"DisplayName"`
-	FirstName      string `json:"FirstName"`
-	LastName       string `json:"LastName"`
+	HiddenFromGlobalAddressList *bool  `json:"HiddenFromGlobalAddressList"`
+	Department                  string `json:"Department"`
+	JobTitle                    string `json:"JobTitle"`
+	FirstName                   string `json:"FirstName"`
+	LastName                    string `json:"LastName"`
+	City                        string `json:"City"`
+	Company                     string `json:"Company"`
+	Country                     string `json:"Country"`
+	OrganizationID              string `json:"OrganizationId"`
+	DisplayName                 string `json:"DisplayName"`
+	Office                      string `json:"Office"`
+	Initials                    string `json:"Initials"`
+	Street                      string `json:"Street"`
+	Telephone                   string `json:"Telephone"`
+	ZipCode                     string `json:"ZipCode"`
+	IdentityProviderUserID      string `json:"IdentityProviderUserId"`
+	Role                        string `json:"Role"`
+	UserID                      string `json:"UserId"`
 }
 
 type emptyResp struct{}
 
 func (h *Handler) handleUpdateUser(_ context.Context, req *updateUserReq) (*emptyResp, error) {
-	if err := h.Backend.UpdateUser(
-		req.OrganizationID, req.UserID, req.DisplayName, req.FirstName, req.LastName,
-	); err != nil {
+	if err := h.Backend.UpdateUser(req.OrganizationID, req.UserID, UpdateUserParams{
+		DisplayName:                 req.DisplayName,
+		FirstName:                   req.FirstName,
+		LastName:                    req.LastName,
+		City:                        req.City,
+		Company:                     req.Company,
+		Country:                     req.Country,
+		Department:                  req.Department,
+		Initials:                    req.Initials,
+		JobTitle:                    req.JobTitle,
+		Office:                      req.Office,
+		Street:                      req.Street,
+		Telephone:                   req.Telephone,
+		ZipCode:                     req.ZipCode,
+		IdentityProviderUserID:      req.IdentityProviderUserID,
+		Role:                        req.Role,
+		HiddenFromGlobalAddressList: req.HiddenFromGlobalAddressList,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -108,10 +182,21 @@ func (h *Handler) handleDeleteUser(_ context.Context, req *deleteUserReq) (*empt
 	return &emptyResp{}, nil
 }
 
+// listUsersFiltersReq mirrors aws-sdk-go-v2/service/workmail/types.
+// ListUsersFilters, the ListUsersInput.Filters wire shape.
+type listUsersFiltersReq struct {
+	DisplayNamePrefix            string `json:"DisplayNamePrefix"`
+	PrimaryEmailPrefix           string `json:"PrimaryEmailPrefix"`
+	State                        string `json:"State"`
+	UsernamePrefix               string `json:"UsernamePrefix"`
+	IdentityProviderUserIDPrefix string `json:"IdentityProviderUserIdPrefix"`
+}
+
 type listUsersReq struct {
-	OrganizationID string `json:"OrganizationId"`
-	NextToken      string `json:"NextToken"`
-	MaxResults     int32  `json:"MaxResults"`
+	Filters        *listUsersFiltersReq `json:"Filters"`
+	OrganizationID string               `json:"OrganizationId"`
+	NextToken      string               `json:"NextToken"`
+	MaxResults     int32                `json:"MaxResults"`
 }
 
 type userSummaryResp struct {
@@ -129,7 +214,18 @@ type listUsersResp struct {
 }
 
 func (h *Handler) handleListUsers(_ context.Context, req *listUsersReq) (*listUsersResp, error) {
-	users, next, err := h.Backend.ListUsers(req.OrganizationID, req.MaxResults, req.NextToken)
+	var filter *UserFilter
+	if req.Filters != nil {
+		filter = &UserFilter{
+			DisplayNamePrefix:            req.Filters.DisplayNamePrefix,
+			PrimaryEmailPrefix:           req.Filters.PrimaryEmailPrefix,
+			State:                        req.Filters.State,
+			UsernamePrefix:               req.Filters.UsernamePrefix,
+			IdentityProviderUserIDPrefix: req.Filters.IdentityProviderUserIDPrefix,
+		}
+	}
+
+	users, next, err := h.Backend.ListUsers(req.OrganizationID, filter, req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
