@@ -134,23 +134,65 @@ func (b *InMemoryBackend) GetEvaluationJob(jobARN string) (*EvaluationJob, error
 	return &cp, nil
 }
 
-// ListEvaluationJobs returns all evaluation jobs.
-func (b *InMemoryBackend) ListEvaluationJobs() []*EvaluationJob {
+// ListEvaluationJobs returns evaluation jobs matching the given filters, sorted
+// and paginated. in may be nil, matching an unfiltered ListEvaluationJobs call.
+// Structurally similar to ListModelInvocationJobs (same filter/sort/paginate
+// shape) but over a distinct resource type and filter set; see
+// matchesEvaluationJobFilter.
+//
+//nolint:dupl // see doc comment above.
+func (b *InMemoryBackend) ListEvaluationJobs(in *ListEvaluationJobsInput) ([]*EvaluationJob, string) {
 	b.mu.RLock("ListEvaluationJobs")
 	defer b.mu.RUnlock()
 
 	jobs := make([]*EvaluationJob, 0, b.evaluationJobs.Len())
 	for _, j := range b.evaluationJobs.All() {
+		if !matchesEvaluationJobFilter(j, in) {
+			continue
+		}
+
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
 		jobs = append(jobs, &cp)
 	}
 
+	descending := in != nil && in.SortOrder == "Descending"
 	sort.Slice(jobs, func(i, k int) bool {
+		if descending {
+			return jobs[i].CreationTime.After(jobs[k].CreationTime)
+		}
+
 		return jobs[i].CreationTime.Before(jobs[k].CreationTime)
 	})
 
-	return jobs
+	nextToken := ""
+	if in != nil {
+		jobs, nextToken = paginateBedrockSlice(jobs, in.NextToken)
+	}
+
+	return jobs, nextToken
+}
+
+// matchesEvaluationJobFilter reports whether an evaluation job satisfies the
+// list filters (statusEquals, nameContains, creationTimeAfter/Before).
+func matchesEvaluationJobFilter(j *EvaluationJob, in *ListEvaluationJobsInput) bool {
+	if in == nil {
+		return true
+	}
+	if in.StatusEquals != "" && j.Status != in.StatusEquals {
+		return false
+	}
+	if in.NameContains != "" && !containsIgnoreCase(j.JobName, in.NameContains) {
+		return false
+	}
+	if in.CreationTimeAfter != nil && !j.CreationTime.After(*in.CreationTimeAfter) {
+		return false
+	}
+	if in.CreationTimeBefore != nil && !j.CreationTime.Before(*in.CreationTimeBefore) {
+		return false
+	}
+
+	return true
 }
 
 // StopEvaluationJob marks an evaluation job as stopped.

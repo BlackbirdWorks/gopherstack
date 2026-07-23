@@ -52,20 +52,44 @@ func TestHandler_CreateFoundationModelAgreement(t *testing.T) { //nolint:paralle
 	}
 }
 
-func TestAccuracy_FoundationModelAgreement_ListOffersEmpty(t *testing.T) {
+// TestAccuracy_FoundationModelAgreementOffers_ListRequiresModelID locks in the
+// parity fix: ListFoundationModelAgreementOffers is a per-model catalog lookup
+// keyed by a required "{modelId}" path parameter (real AWS path:
+// "/list-foundation-model-agreement-offers/{modelId}"), NOT a list of
+// already-created agreements -- gopherstack previously served it from
+// "/foundation-model-agreement-offers" (no modelId) and returned whatever
+// agreements the account had created via CreateFoundationModelAgreement, a
+// different resource entirely.
+func TestAccuracy_FoundationModelAgreementOffers_ListRequiresModelID(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/foundation-model-agreement-offers", nil)
+
+	rec := doRequest(t, h, http.MethodGet,
+		"/list-foundation-model-agreement-offers/amazon.titan-text-express-v1", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	offers, _ := out["modelAgreementOffers"].([]any)
-	// Initially no agreements — list should be empty or nil.
-	assert.Empty(t, offers)
+	assert.Equal(t, "amazon.titan-text-express-v1", out["modelId"])
+
+	offers, _ := out["offers"].([]any)
+	require.Len(t, offers, 1)
+
+	offer := offers[0].(map[string]any)
+	assert.NotEmpty(t, offer["offerToken"])
+	assert.NotEmpty(t, offer["offerId"])
+	assert.NotEmpty(t, offer["termDetails"])
+
+	// The previous invented path must no longer route.
+	recOld := doRequest(t, h, http.MethodGet, "/foundation-model-agreement-offers", nil)
+	assert.Equal(t, http.StatusNotFound, recOld.Code)
 }
 
+// TestAccuracy_FoundationModelAgreement_CreateAndDelete locks in the parity
+// fix for DeleteFoundationModelAgreement: real AWS uses POST
+// "/delete-foundation-model-agreement" with modelId in the JSON body, not
+// DELETE with modelId as a path suffix.
 func TestAccuracy_FoundationModelAgreement_CreateAndDelete(t *testing.T) {
 	t.Parallel()
 
@@ -90,146 +114,57 @@ func TestAccuracy_FoundationModelAgreement_CreateAndDelete(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Delete agreement.
-			recDel := doRequest(t, h, http.MethodDelete,
-				"/delete-foundation-model-agreement/"+url.PathEscape(tt.modelID), nil)
-			assert.Equal(t, http.StatusNoContent, recDel.Code)
+			recDel := doRequest(t, h, http.MethodPost,
+				"/delete-foundation-model-agreement", map[string]any{"modelId": tt.modelID})
+			assert.Equal(t, http.StatusOK, recDel.Code)
 
 			// Delete again — not found.
-			recDel2 := doRequest(t, h, http.MethodDelete,
-				"/delete-foundation-model-agreement/"+url.PathEscape(tt.modelID), nil)
+			recDel2 := doRequest(t, h, http.MethodPost,
+				"/delete-foundation-model-agreement", map[string]any{"modelId": tt.modelID})
 			assert.Equal(t, http.StatusNotFound, recDel2.Code)
+
+			// The previous invented DELETE-with-path-suffix route must no longer work.
+			recOldPath := doRequest(t, h, http.MethodDelete,
+				"/delete-foundation-model-agreement/"+url.PathEscape(tt.modelID), nil)
+			assert.Equal(t, http.StatusNotFound, recOldPath.Code)
 		})
 	}
 }
 
-func TestAccuracy_UseCaseForModelAccess_PutAndGet(t *testing.T) {
+// TestAccuracy_FoundationModelAgreement_DeleteMissingModelIDRejected locks in
+// that a body without modelId is a ValidationException, not a silent no-op
+// (gopherstack's old DELETE-path-param version treated an empty ID as a
+// successful no-op).
+func TestAccuracy_FoundationModelAgreement_DeleteMissingModelIDRejected(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name        string
-		useCaseType string
-		description string
-	}{
-		{
-			name:        "business use case",
-			useCaseType: "BUSINESS",
-			description: "Using models for customer support",
-		},
-		{
-			name:        "research use case",
-			useCaseType: "RESEARCH",
-			description: "Academic research on LLMs",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			recPut := doRequest(
-				t, h, http.MethodPut, "/usecase-for-model-access",
-				map[string]any{
-					"useCaseType":        tt.useCaseType,
-					"useCaseDescription": tt.description,
-				},
-			)
-			assert.Equal(t, http.StatusNoContent, recPut.Code)
-
-			recGet := doRequest(t, h, http.MethodGet, "/usecase-for-model-access", nil)
-			require.Equal(t, http.StatusOK, recGet.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
-			assert.Equal(t, tt.useCaseType, out["useCaseType"])
-			assert.Equal(t, tt.description, out["useCaseDescription"])
-		})
-	}
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/delete-foundation-model-agreement", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestAccuracy_UseCaseForModelAccess_TypeAndDescriptionRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		useCaseType string
-		desc        string
-		name        string
-	}{
-		{name: "research use case", useCaseType: "RESEARCH", desc: "academic research"},
-		{name: "commercial use case", useCaseType: "COMMERCIAL", desc: "production service"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			putRec := doRequest(t, h, http.MethodPut, "/usecase-for-model-access",
-				map[string]any{
-					"useCaseType":        tt.useCaseType,
-					"useCaseDescription": tt.desc,
-				})
-			require.Equal(t, http.StatusNoContent, putRec.Code)
-
-			getRec := doRequest(t, h, http.MethodGet, "/usecase-for-model-access", nil)
-			require.Equal(t, http.StatusOK, getRec.Code)
-
-			var out map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
-			assert.Equal(t, tt.useCaseType, out["useCaseType"])
-			assert.Equal(t, tt.desc, out["useCaseDescription"])
-		})
-	}
-}
-
-func TestHandler_FoundationModelAgreement_ListAndDelete(t *testing.T) {
+// TestHandler_GetFoundationModelAvailability locks in the full real-shape
+// response: authorizationStatus, entitlementAvailability, modelId, and
+// regionAvailability are all required GetFoundationModelAvailabilityOutput
+// fields alongside agreementAvailability -- gopherstack previously returned
+// only agreementAvailability, silently zero-valuing the rest for any client
+// that inspects them.
+func TestHandler_GetFoundationModelAvailability(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// List before any agreements
-	rec := doRequest(t, h, http.MethodGet, "/foundation-model-agreement-offers", nil)
+	rec := doRequest(t, h, http.MethodGet, "/foundation-model-availability/amazon.titan-text-express-v1", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
 	mustUnmarshal(t, rec, &out)
-	assert.Empty(t, out["modelAgreementOffers"])
 
-	// Create an agreement
-	doRequest(t, h, http.MethodPost, "/create-foundation-model-agreement",
-		map[string]any{"modelId": "amazon.titan-text-express-v1"})
+	assert.Equal(t, "amazon.titan-text-express-v1", out["modelId"])
+	assert.NotEmpty(t, out["authorizationStatus"])
+	assert.NotEmpty(t, out["entitlementAvailability"])
+	assert.NotEmpty(t, out["regionAvailability"])
 
-	// List now has one
-	rec2 := doRequest(t, h, http.MethodGet, "/foundation-model-agreement-offers", nil)
-	var out2 map[string]any
-	mustUnmarshal(t, rec2, &out2)
-	assert.Len(t, out2["modelAgreementOffers"], 1)
-}
-
-func TestHandler_UseCaseForModelAccess(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Get default
-	rec := doRequest(t, h, http.MethodGet, "/usecase-for-model-access", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out map[string]any
-	mustUnmarshal(t, rec, &out)
-	assert.Empty(t, out["useCaseType"])
-
-	// Put
-	rec2 := doRequest(t, h, http.MethodPut, "/usecase-for-model-access",
-		map[string]any{"useCaseType": "RESEARCH", "useCaseDescription": "ML research"})
-	assert.Equal(t, http.StatusNoContent, rec2.Code)
-
-	// Get after put
-	rec3 := doRequest(t, h, http.MethodGet, "/usecase-for-model-access", nil)
-	var out3 map[string]any
-	mustUnmarshal(t, rec3, &out3)
-	assert.Equal(t, "RESEARCH", out3["useCaseType"])
-	assert.Equal(t, "ML research", out3["useCaseDescription"])
+	agreementAvailability := out["agreementAvailability"].(map[string]any)
+	assert.Equal(t, "AVAILABLE", agreementAvailability["status"])
 }

@@ -408,9 +408,9 @@ func TestAccuracy_ARP_UpdateDescriptionReflected(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	policyARN := out["policyArn"].(string)
 
-	// Update description (ARP update uses PUT)
+	// Update description (real AWS: UpdateAutomatedReasoningPolicy uses PATCH)
 	updateRec := doRequest(
-		t, h, http.MethodPut,
+		t, h, http.MethodPatch,
 		"/automated-reasoning-policies/"+policyARN,
 		map[string]any{"description": "updated description"},
 	)
@@ -543,7 +543,7 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 
 	// Update annotations (needs URL-encoded ARN)
 	updateRec := doRequest(
-		t, h, http.MethodPut,
+		t, h, http.MethodPatch,
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/annotations",
 		map[string]any{"annotations": []map[string]any{
 			{"key": "env", "value": "prod"},
@@ -601,7 +601,7 @@ func TestHandler_UpdateAutomatedReasoningPolicy(t *testing.T) {
 	mustUnmarshal(t, rec, &created)
 	policyARN := created["policyArn"].(string)
 
-	rec2 := doRequest(t, h, http.MethodPut, "/automated-reasoning-policies/"+url.PathEscape(policyARN),
+	rec2 := doRequest(t, h, http.MethodPatch, "/automated-reasoning-policies/"+url.PathEscape(policyARN),
 		map[string]any{"description": "new-desc"})
 	assert.Equal(t, http.StatusOK, rec2.Code)
 }
@@ -724,7 +724,7 @@ func TestHandler_GetListDeleteARPTestCase(t *testing.T) {
 	assert.Len(t, listOut["testCases"], 1)
 
 	// Update
-	recUpd := doRequest(t, h, http.MethodPut,
+	recUpd := doRequest(t, h, http.MethodPatch,
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
 	assert.Equal(t, http.StatusOK, recUpd.Code)
 
@@ -737,4 +737,55 @@ func TestHandler_GetListDeleteARPTestCase(t *testing.T) {
 	recGet2 := doRequest(t, h, http.MethodGet,
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
 	assert.Equal(t, http.StatusNotFound, recGet2.Code)
+}
+
+// TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod locks in the parity fix for
+// three ARP update ops that real AWS routes on PATCH: UpdateAutomatedReasoningPolicy,
+// UpdateAutomatedReasoningPolicyTestCase, and UpdateAutomatedReasoningPolicyAnnotations.
+// gopherstack previously routed all three on PUT, making them 100% unreachable
+// by real SDK clients (which always send PATCH for these ops).
+func TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies",
+		map[string]any{"name": "put-rejected-policy"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	policyARN := out["policyArn"].(string)
+
+	tcRec := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+	require.Equal(t, http.StatusCreated, tcRec.Code)
+
+	var tcOut map[string]any
+	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tcOut))
+	tcID := tcOut["testCaseId"].(string)
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "UpdateAutomatedReasoningPolicy", path: "/automated-reasoning-policies/" + url.PathEscape(policyARN)},
+		{
+			name: "UpdateAutomatedReasoningPolicyTestCase",
+			path: "/automated-reasoning-policies/" + url.PathEscape(policyARN) + "/test-cases/" + tcID,
+		},
+		{
+			name: "UpdateAutomatedReasoningPolicyAnnotations",
+			path: "/automated-reasoning-policies/" + url.PathEscape(policyARN) + "/annotations",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			putRec := doRequest(t, h, http.MethodPut, tt.path, map[string]any{"description": "x"})
+			assert.Equal(t, http.StatusNotFound, putRec.Code)
+		})
+	}
 }

@@ -2,7 +2,6 @@ package bedrock
 
 import (
 	"fmt"
-	"sort"
 )
 
 // CreateFoundationModelAgreement creates a foundation model access agreement.
@@ -25,22 +24,32 @@ func (b *InMemoryBackend) CreateFoundationModelAgreement(
 	return &cp, nil
 }
 
-// ListFoundationModelAgreementOffers returns all foundation model agreements.
-func (b *InMemoryBackend) ListFoundationModelAgreementOffers() []*FoundationModelAgreement {
+// ListFoundationModelAgreementOffers returns the catalog of agreement offers
+// available for modelID.
+//
+// Real AWS: this is a catalog lookup ("what offers exist for this model")
+// keyed by a required modelId PATH parameter -- it has nothing to do with
+// agreements a caller has already created via CreateFoundationModelAgreement.
+// gopherstack previously implemented this as "list every agreement this
+// account has created," a different resource entirely (and returned only
+// {modelId} per entry, missing the required offerToken/termDetails fields).
+// Since gopherstack does not model a real per-model offer catalog, this
+// returns one deterministic, wire-shape-valid offer per known model ID.
+func (b *InMemoryBackend) ListFoundationModelAgreementOffers(modelID string) []*FoundationModelAgreementOffer {
 	b.mu.RLock("ListFoundationModelAgreementOffers")
 	defer b.mu.RUnlock()
 
-	agreements := make([]*FoundationModelAgreement, 0, b.foundationModelAgreements.Len())
-	for _, a := range b.foundationModelAgreements.All() {
-		cp := *a
-		agreements = append(agreements, &cp)
+	if modelID == "" {
+		return nil
 	}
 
-	sort.Slice(agreements, func(i, k int) bool {
-		return agreements[i].ModelID < agreements[k].ModelID
-	})
-
-	return agreements
+	return []*FoundationModelAgreementOffer{
+		{
+			OfferToken:   "offer-token-" + modelID,
+			OfferID:      "offer-id-" + modelID,
+			LegalTermURL: "https://aws.amazon.com/bedrock/model-terms/" + modelID,
+		},
+	}
 }
 
 // DeleteFoundationModelAgreement removes an agreement by model ID.
@@ -55,24 +64,4 @@ func (b *InMemoryBackend) DeleteFoundationModelAgreement(modelID string) error {
 	b.foundationModelAgreements.Delete(modelID)
 
 	return nil
-}
-
-// GetUseCaseForModelAccess returns the current use case configuration.
-func (b *InMemoryBackend) GetUseCaseForModelAccess() map[string]any {
-	b.mu.RLock("GetUseCaseForModelAccess")
-	defer b.mu.RUnlock()
-
-	return map[string]any{
-		"useCaseType":        b.useCaseType,
-		"useCaseDescription": b.useCaseDescription,
-	}
-}
-
-// PutUseCaseForModelAccess stores the use case configuration.
-func (b *InMemoryBackend) PutUseCaseForModelAccess(useCaseType, description string) {
-	b.mu.Lock("PutUseCaseForModelAccess")
-	defer b.mu.Unlock()
-
-	b.useCaseType = useCaseType
-	b.useCaseDescription = description
 }

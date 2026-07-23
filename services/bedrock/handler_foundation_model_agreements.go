@@ -4,43 +4,41 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
 )
 
 // routeStubFoundationModelOps handles foundation model availability and agreement operations.
-func (h *Handler) routeStubFoundationModelOps(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeStubFoundationModelOps(c *echo.Context, path, method string, body []byte) (bool, error) {
 	switch {
 	case strings.HasPrefix(path, foundationModelAvailPath+"/") && method == http.MethodGet:
-		return true, c.JSON(http.StatusOK,
-			map[string]any{"agreementAvailability": map[string]string{keyStatus: "AVAILABLE"}})
-	case path == foundationModelAgreementsPath && method == http.MethodGet:
-		return true, h.handleListFoundationModelAgreementOffers(c)
-	case strings.HasPrefix(path, "/delete-foundation-model-agreement") && method == http.MethodDelete:
-		modelID := strings.TrimPrefix(path, "/delete-foundation-model-agreement/")
+		modelID := decodePath(strings.TrimPrefix(path, foundationModelAvailPath+"/"))
 
-		return true, h.handleDeleteFoundationModelAgreement(c, modelID)
+		return true, h.handleGetFoundationModelAvailability(c, modelID)
+	case strings.HasPrefix(path, foundationModelAgreementOffersPath+"/") && method == http.MethodGet:
+		modelID := decodePath(strings.TrimPrefix(path, foundationModelAgreementOffersPath+"/"))
+
+		return true, h.handleListFoundationModelAgreementOffers(c, modelID)
+	case path == deleteFoundationModelAgreementPath && method == http.MethodPost:
+		return true, h.handleDeleteFoundationModelAgreement(c, body)
 	}
 
 	return false, nil
 }
 
-// routeStubAccessOps handles use case for model access and enforced guardrail operations.
-func (h *Handler) routeStubAccessOps(c *echo.Context, path, method string) (bool, error) {
-	switch {
-	case path == useCaseForModelAccessPath && method == http.MethodGet:
-		return true, h.handleGetUseCaseForModelAccess(c)
-	case path == useCaseForModelAccessPath && method == http.MethodPut:
-		return true, h.handlePutUseCaseForModelAccess(c)
-	case path == enforcedGuardrailsPath && method == http.MethodGet:
-		return true, h.handleListEnforcedGuardrailsConfiguration(c)
-	case path == enforcedGuardrailsPath && method == http.MethodPut:
-		return true, h.handlePutEnforcedGuardrailConfiguration(c)
-	case path == enforcedGuardrailsPath && method == http.MethodDelete:
-		return true, h.handleDeleteEnforcedGuardrailConfiguration(c)
-	}
-
-	return false, nil
+// handleGetFoundationModelAvailability returns the full GetFoundationModelAvailabilityOutput
+// shape: agreementAvailability{status,errorMessage}, authorizationStatus,
+// entitlementAvailability, modelId, and regionAvailability are ALL required
+// response fields on the real SDK type -- gopherstack previously returned only
+// agreementAvailability, silently zero-valuing the other four for any real
+// client that inspects them.
+func (h *Handler) handleGetFoundationModelAvailability(c *echo.Context, modelID string) error {
+	return c.JSON(http.StatusOK, map[string]any{
+		"modelId":                 modelID,
+		"agreementAvailability":   map[string]string{keyStatus: statusAvailable},
+		"authorizationStatus":     "AUTHORIZED",
+		"entitlementAvailability": statusAvailable,
+		"regionAvailability":      statusAvailable,
+	})
 }
 
 type createFoundationModelAgreementInput struct {
@@ -69,52 +67,46 @@ func (h *Handler) handleCreateFoundationModelAgreement(c *echo.Context, body []b
 	return c.JSON(http.StatusOK, createFoundationModelAgreementOutput{ModelID: agreement.ModelID})
 }
 
-func (h *Handler) handleListFoundationModelAgreementOffers(c *echo.Context) error {
-	agreements := h.Backend.ListFoundationModelAgreementOffers()
-	offers := make([]map[string]any, 0, len(agreements))
-
-	for _, a := range agreements {
-		offers = append(offers, map[string]any{"modelId": a.ModelID})
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"modelAgreementOffers": offers})
-}
-
-func (h *Handler) handleDeleteFoundationModelAgreement(c *echo.Context, modelID string) error {
+func (h *Handler) handleListFoundationModelAgreementOffers(c *echo.Context, modelID string) error {
 	if modelID == "" {
-		return c.NoContent(http.StatusNoContent)
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "modelId is required"))
 	}
 
-	if err := h.Backend.DeleteFoundationModelAgreement(modelID); err != nil {
-		return h.writeError(c, err)
+	offers := h.Backend.ListFoundationModelAgreementOffers(modelID)
+	wire := make([]map[string]any, 0, len(offers))
+
+	for _, o := range offers {
+		wire = append(wire, map[string]any{
+			"offerToken": o.OfferToken,
+			"offerId":    o.OfferID,
+			"termDetails": map[string]any{
+				"legalTerm":             map[string]any{"url": o.LegalTermURL},
+				"supportTerm":           map[string]any{},
+				"usageBasedPricingTerm": map[string]any{"rateCard": []any{}},
+			},
+		})
 	}
 
-	return c.NoContent(http.StatusNoContent)
+	return c.JSON(http.StatusOK, map[string]any{"modelId": modelID, "offers": wire})
 }
 
-type putUseCaseInput struct {
-	UseCaseType        string `json:"useCaseType"`
-	UseCaseDescription string `json:"useCaseDescription"`
+type deleteFoundationModelAgreementInput struct {
+	ModelID string `json:"modelId"`
 }
 
-func (h *Handler) handleGetUseCaseForModelAccess(c *echo.Context) error {
-	result := h.Backend.GetUseCaseForModelAccess()
-
-	return c.JSON(http.StatusOK, result)
-}
-
-func (h *Handler) handlePutUseCaseForModelAccess(c *echo.Context) error {
-	body, err := httputils.ReadBody(c.Request())
+func (h *Handler) handleDeleteFoundationModelAgreement(c *echo.Context, body []byte) error {
+	in, err := parseBody[deleteFoundationModelAgreementInput](body)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
-	}
-
-	in, parseErr := parseBody[putUseCaseInput](body)
-	if parseErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	h.Backend.PutUseCaseForModelAccess(in.UseCaseType, in.UseCaseDescription)
+	if in.ModelID == "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "modelId is required"))
+	}
 
-	return c.NoContent(http.StatusNoContent)
+	if opErr := h.Backend.DeleteFoundationModelAgreement(in.ModelID); opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.NoContent(http.StatusOK)
 }

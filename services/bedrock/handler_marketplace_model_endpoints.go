@@ -67,7 +67,7 @@ func (h *Handler) routeMarketplaceEndpoint(
 		return false, nil
 	}
 
-	return h.routeMarketplaceEndpointSub(c, path, method)
+	return h.routeMarketplaceEndpointSub(c, path, method, body)
 }
 
 func (h *Handler) routeMarketplaceEndpointRoot(
@@ -86,7 +86,7 @@ func (h *Handler) routeMarketplaceEndpointRoot(
 // routeMarketplaceEndpointSub routes /marketplace-model/endpoints/{id}[/registration].
 // AWS reuses the SAME "/registration" suffix for both Register (POST) and Deregister
 // (DELETE) — there is no "/deregistration" path — and Update uses PATCH, not PUT.
-func (h *Handler) routeMarketplaceEndpointSub(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeMarketplaceEndpointSub(c *echo.Context, path, method string, body []byte) (bool, error) {
 	rest := strings.TrimPrefix(path, marketplaceEndpointsPrefix+"/")
 	isReg := strings.HasSuffix(path, "/registration")
 
@@ -102,7 +102,7 @@ func (h *Handler) routeMarketplaceEndpointSub(c *echo.Context, path, method stri
 	case method == http.MethodGet && !isReg:
 		return true, h.handleGetMarketplaceModelEndpoint(c, decodePath(rest))
 	case method == http.MethodPatch && !isReg:
-		return true, h.handleUpdateMarketplaceModelEndpoint(c, decodePath(rest))
+		return true, h.handleUpdateMarketplaceModelEndpoint(c, decodePath(rest), body)
 	case method == http.MethodDelete && !isReg:
 		return true, h.handleDeleteMarketplaceModelEndpoint(c, decodePath(rest))
 	default:
@@ -110,10 +110,56 @@ func (h *Handler) routeMarketplaceEndpointSub(c *echo.Context, path, method stri
 	}
 }
 
+// endpointConfigWire is the wire shape of the real EndpointConfig union, whose
+// sole member today is "sageMaker" (types.EndpointConfigMemberSageMaker).
+type endpointConfigWire struct {
+	SageMaker *sageMakerEndpointConfigWire `json:"sageMaker,omitempty"`
+}
+
+type sageMakerEndpointConfigWire struct {
+	ExecutionRole        string `json:"executionRole"`
+	InstanceType         string `json:"instanceType"`
+	KmsEncryptionKey     string `json:"kmsEncryptionKey,omitempty"`
+	InitialInstanceCount int32  `json:"initialInstanceCount"`
+}
+
+func endpointConfigFromWire(w *endpointConfigWire) *SageMakerEndpointConfig {
+	if w == nil || w.SageMaker == nil {
+		return nil
+	}
+
+	return &SageMakerEndpointConfig{
+		ExecutionRole:        w.SageMaker.ExecutionRole,
+		InitialInstanceCount: w.SageMaker.InitialInstanceCount,
+		InstanceType:         w.SageMaker.InstanceType,
+		KmsEncryptionKey:     w.SageMaker.KmsEncryptionKey,
+	}
+}
+
+func endpointConfigToWire(cfg *SageMakerEndpointConfig) *endpointConfigWire {
+	if cfg == nil {
+		return nil
+	}
+
+	return &endpointConfigWire{
+		SageMaker: &sageMakerEndpointConfigWire{
+			ExecutionRole:        cfg.ExecutionRole,
+			InitialInstanceCount: cfg.InitialInstanceCount,
+			InstanceType:         cfg.InstanceType,
+			KmsEncryptionKey:     cfg.KmsEncryptionKey,
+		},
+	}
+}
+
 type createMarketplaceModelEndpointInput struct {
-	EndpointName          string `json:"endpointName"`
-	ModelSourceIdentifier string `json:"modelSourceIdentifier"`
-	Tags                  []Tag  `json:"tags,omitempty"`
+	EndpointConfig        *endpointConfigWire `json:"endpointConfig,omitempty"`
+	EndpointName          string              `json:"endpointName"`
+	ModelSourceIdentifier string              `json:"modelSourceIdentifier"`
+	Tags                  []Tag               `json:"tags,omitempty"`
+}
+
+type updateMarketplaceModelEndpointInput struct {
+	EndpointConfig *endpointConfigWire `json:"endpointConfig,omitempty"`
 }
 
 type createMarketplaceModelEndpointOutput struct {
@@ -121,12 +167,13 @@ type createMarketplaceModelEndpointOutput struct {
 }
 
 type marketplaceEndpointOutput struct {
-	CreatedAt             string `json:"createdAt"`
-	UpdatedAt             string `json:"updatedAt"`
-	EndpointArn           string `json:"endpointArn"`
-	EndpointName          string `json:"endpointName"`
-	ModelSourceIdentifier string `json:"modelSourceIdentifier"`
-	Status                string `json:"status"`
+	EndpointConfig        *endpointConfigWire `json:"endpointConfig,omitempty"`
+	CreatedAt             string              `json:"createdAt"`
+	UpdatedAt             string              `json:"updatedAt"`
+	EndpointArn           string              `json:"endpointArn"`
+	EndpointName          string              `json:"endpointName"`
+	ModelSourceIdentifier string              `json:"modelSourceIdentifier"`
+	Status                string              `json:"status"`
 }
 
 func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpointOutput {
@@ -135,6 +182,7 @@ func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpoi
 		EndpointName:          ep.EndpointName,
 		ModelSourceIdentifier: ep.ModelSourceID,
 		Status:                ep.Status,
+		EndpointConfig:        endpointConfigToWire(ep.EndpointConfig),
 		CreatedAt:             ep.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:             ep.UpdatedAt.Format(time.RFC3339),
 	}
@@ -152,6 +200,7 @@ func (h *Handler) handleCreateMarketplaceModelEndpoint(c *echo.Context, body []b
 	ep, opErr := h.Backend.CreateMarketplaceModelEndpoint(
 		in.EndpointName,
 		in.ModelSourceIdentifier,
+		endpointConfigFromWire(in.EndpointConfig),
 		in.Tags,
 	)
 	if opErr != nil {
@@ -200,8 +249,13 @@ func (h *Handler) handleDeleteMarketplaceModelEndpoint(c *echo.Context, id strin
 	return c.NoContent(http.StatusOK)
 }
 
-func (h *Handler) handleUpdateMarketplaceModelEndpoint(c *echo.Context, id string) error {
-	ep, err := h.Backend.UpdateMarketplaceModelEndpoint(id)
+func (h *Handler) handleUpdateMarketplaceModelEndpoint(c *echo.Context, id string, body []byte) error {
+	in, parseErr := parseBody[updateMarketplaceModelEndpointInput](body)
+	if parseErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	ep, err := h.Backend.UpdateMarketplaceModelEndpoint(id, endpointConfigFromWire(in.EndpointConfig))
 	if err != nil {
 		return h.writeError(c, err)
 	}

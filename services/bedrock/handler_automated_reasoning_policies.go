@@ -139,7 +139,8 @@ func (h *Handler) routeARPTestCaseItem(c *echo.Context, path, method string) (bo
 		return true, h.handleGetARPTestResult(c, path)
 	case isARPTestCaseSubPath(path) && method == http.MethodGet:
 		return true, h.handleGetARPTestCase(c, path)
-	case isARPTestCaseSubPath(path) && method == http.MethodPut:
+	// UpdateAutomatedReasoningPolicyTestCase uses PATCH in the real SDK, not PUT.
+	case isARPTestCaseSubPath(path) && method == http.MethodPatch:
 		return true, h.handleUpdateARPTestCase(c, path)
 	case isARPTestCaseSubPath(path) && method == http.MethodDelete:
 		return true, h.handleDeleteARPTestCase(c, path)
@@ -160,7 +161,8 @@ func (h *Handler) routeARPVersionAnnotation(
 		return true, h.handleExportARPVersion(c, path)
 	case isARPAnnotationsPath(path) && method == http.MethodGet:
 		return true, h.handleGetARPAnnotations(c, path)
-	case isARPAnnotationsPath(path) && method == http.MethodPut:
+	// UpdateAutomatedReasoningPolicyAnnotations uses PATCH in the real SDK, not PUT.
+	case isARPAnnotationsPath(path) && method == http.MethodPatch:
 		return true, h.handleUpdateARPAnnotations(c, path)
 	case isARPNextScenarioPath(path) && method == http.MethodGet:
 		return true, h.handleGetARPNextScenario(c, path)
@@ -183,7 +185,8 @@ func (h *Handler) routeARPSingleItem(
 	switch method {
 	case http.MethodGet:
 		return true, h.handleGetAutomatedReasoningPolicy(c, policyARN)
-	case http.MethodPut:
+	// UpdateAutomatedReasoningPolicy uses PATCH in the real SDK, not PUT.
+	case http.MethodPatch:
 		return true, h.handleUpdateAutomatedReasoningPolicy(c, policyARN, body)
 	case http.MethodDelete:
 		return true, h.handleDeleteAutomatedReasoningPolicy(c, policyARN)

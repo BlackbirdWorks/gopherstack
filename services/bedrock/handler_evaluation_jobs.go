@@ -154,8 +154,40 @@ func (h *Handler) handleGetEvaluationJob(c *echo.Context, jobARN string) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
+// parseListEvaluationJobsQuery builds the backend filter/sort/pagination input
+// from the real ListEvaluationJobs query-string bindings (nameContains,
+// statusEquals, creationTimeAfter/Before, sortBy, sortOrder, nextToken).
+// Previously ListEvaluationJobs took no params at all and returned the full
+// unbounded table on every call -- no pagination, and every filter silently
+// ignored.
+func parseListEvaluationJobsQuery(c *echo.Context) *ListEvaluationJobsInput {
+	q := c.Request().URL.Query()
+
+	in := &ListEvaluationJobsInput{
+		StatusEquals: q.Get("statusEquals"),
+		NameContains: q.Get("nameContains"),
+		SortBy:       q.Get("sortBy"),
+		SortOrder:    q.Get("sortOrder"),
+		NextToken:    q.Get("nextToken"),
+	}
+
+	if v := q.Get("creationTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeAfter = &t
+		}
+	}
+
+	if v := q.Get("creationTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeBefore = &t
+		}
+	}
+
+	return in
+}
+
 func (h *Handler) handleListEvaluationJobs(c *echo.Context) error {
-	jobs := h.Backend.ListEvaluationJobs()
+	jobs, outToken := h.Backend.ListEvaluationJobs(parseListEvaluationJobsQuery(c))
 	summaries := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
@@ -168,7 +200,12 @@ func (h *Handler) handleListEvaluationJobs(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"jobSummaries": summaries})
+	resp := map[string]any{"jobSummaries": summaries}
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleStopEvaluationJob(c *echo.Context, jobARN string) error {
