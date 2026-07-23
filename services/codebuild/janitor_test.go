@@ -163,8 +163,8 @@ func TestDeleteProject_CleanupBuilds(t *testing.T) {
 }
 
 // TestJanitor_SweepCleansARNIndex verifies that sweeping builds also removes
-// their entries from the buildARNIndex so tag operations on evicted builds
-// return ErrNotFound instead of looking up a deleted resource.
+// their entries from the buildARNIndex so ARN-based lookups on evicted builds
+// report the build as not found instead of resolving a deleted resource.
 func TestJanitor_SweepCleansARNIndex(t *testing.T) {
 	t.Parallel()
 
@@ -197,9 +197,10 @@ func TestJanitor_SweepCleansARNIndex(t *testing.T) {
 	assert.Equal(t, 0, backend.BuildARNIndexSize(), "ARN index should be empty after sweep")
 	assert.Equal(t, 0, backend.BuildsByProjectSize("proj"), "project index should be empty after sweep")
 
-	// Tag op on the evicted build's ARN must return ErrNotFound.
-	err = backend.TagResource(build.Arn, map[string]string{"key": "val"})
-	require.ErrorIs(t, err, codebuild.ErrNotFound)
+	// An ARN-based lookup for the evicted build must report it as not found.
+	found, notFound := backend.BatchGetBuilds([]string{build.Arn})
+	assert.Empty(t, found, "evicted build must not resolve by ARN")
+	assert.Equal(t, []string{build.Arn}, notFound)
 }
 
 // TestJanitor_AdvanceInProgressBuilds verifies that the janitor transitions

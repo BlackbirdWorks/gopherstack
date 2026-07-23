@@ -116,31 +116,42 @@ func (b *InMemoryBackend) DeleteReport(arnStr string) error {
 	return nil
 }
 
-// ListReports returns all report ARNs in sorted order.
-func (b *InMemoryBackend) ListReports() []string {
+// ListReports returns all report ARNs in sorted order, optionally filtered by
+// status (empty statusFilter returns every report).
+func (b *InMemoryBackend) ListReports(statusFilter string) []string {
 	b.mu.RLock("ListReports")
 	defer b.mu.RUnlock()
 
 	items := b.reports.Snapshot()
-	arns := make([]string, len(items))
+	arns := make([]string, 0, len(items))
 
-	for i, r := range items {
-		arns[i] = r.Arn
+	for _, r := range items {
+		if statusFilter != "" && r.Status != statusFilter {
+			continue
+		}
+
+		arns = append(arns, r.Arn)
 	}
 
 	return arns
 }
 
-// ListReportsForReportGroup returns all report ARNs for the given report group ARN.
-func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn string) []string {
+// ListReportsForReportGroup returns all report ARNs for the given report
+// group ARN, optionally filtered by status (empty statusFilter returns every
+// report in the group).
+func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn, statusFilter string) []string {
 	b.mu.RLock("ListReportsForReportGroup")
 	defer b.mu.RUnlock()
 
 	group := b.reportsByGroup.Get(reportGroupArn)
-	arns := make([]string, len(group))
+	arns := make([]string, 0, len(group))
 
-	for i, r := range group {
-		arns[i] = r.Arn
+	for _, r := range group {
+		if statusFilter != "" && r.Status != statusFilter {
+			continue
+		}
+
+		arns = append(arns, r.Arn)
 	}
 
 	sort.Strings(arns)
@@ -184,19 +195,32 @@ func (b *InMemoryBackend) UpdateReportGroup(arnStr string, exportConfig *ReportE
 	return &out, nil
 }
 
-// ListReportGroups returns all report group ARNs in sorted order.
+// ListReportGroups returns all report group ARNs ordered by name, ascending.
 func (b *InMemoryBackend) ListReportGroups() []string {
-	b.mu.RLock("ListReportGroups")
+	return b.ListReportGroupsSortedBy("")
+}
+
+// ListReportGroupsSortedBy returns all report group ARNs ordered per sortBy
+// (CREATED_TIME|LAST_MODIFIED_TIME|NAME; any other value, including "",
+// defaults to NAME), always ascending. Callers apply sortOrder/pagination on
+// top via [paginateIDs].
+func (b *InMemoryBackend) ListReportGroupsSortedBy(sortBy string) []string {
+	b.mu.RLock("ListReportGroupsSortedBy")
 	defer b.mu.RUnlock()
 
-	items := b.reportGroups.All()
-	arns := make([]string, 0, len(items))
+	items := b.reportGroups.Snapshot() // NAME-ascending by construction
 
-	for _, rg := range items {
-		arns = append(arns, rg.Arn)
+	switch sortBy {
+	case sortByCreatedTime:
+		sort.SliceStable(items, func(i, j int) bool { return items[i].Created < items[j].Created })
+	case sortByLastModifiedTime:
+		sort.SliceStable(items, func(i, j int) bool { return items[i].LastModified < items[j].LastModified })
 	}
 
-	sort.Strings(arns)
+	arns := make([]string, len(items))
+	for i, rg := range items {
+		arns[i] = rg.Arn
+	}
 
 	return arns
 }

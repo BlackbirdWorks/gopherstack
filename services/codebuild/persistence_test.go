@@ -56,7 +56,7 @@ func newPersistenceTestBackend(t *testing.T) *codebuild.InMemoryBackend {
 	_, err = b.StartCommandExecution(sb.ID, "echo hi", "SHELL")
 	require.NoError(t, err)
 
-	_, err = b.CreateWebhook(proj.Name, "main", "GITHUB", nil)
+	_, err = b.CreateWebhook(proj.Name, "main", "GITHUB", nil, codebuild.WebhookConfig{})
 	require.NoError(t, err)
 
 	_, err = b.ImportSourceCredentials("PERSONAL_ACCESS_TOKEN", "GITHUB", "tok")
@@ -127,12 +127,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "rg1", reportGroups[0].Name)
 
 	// reports table + reportsByGroup index.
-	reportArns := fresh.ListReportsForReportGroup(rgArn)
+	reportArns := fresh.ListReportsForReportGroup(rgArn, "")
 	require.Len(t, reportArns, 1)
 	assert.Equal(t, "arn:aws:codebuild:us-east-1:000000000000:report/rg1:r1", reportArns[0])
 
 	// buildBatches table + buildBatchesByARN + buildBatchesByProject indexes.
-	batchIDs, err := fresh.ListBuildBatchesForProject("proj1")
+	batchIDs, err := fresh.ListBuildBatchesForProject("proj1", "")
 	require.NoError(t, err)
 	require.Len(t, batchIDs, 1)
 
@@ -152,7 +152,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "echo hi", ces[0].Command)
 
 	// webhooks table (keyed directly by projectName, no secondary index).
-	_, err = fresh.CreateWebhook("proj1", "main", "GITHUB", nil)
+	_, err = fresh.CreateWebhook("proj1", "main", "GITHUB", nil, codebuild.WebhookConfig{})
 	require.ErrorIs(t, err, codebuild.ErrAlreadyExists, "webhook must already exist after restore")
 
 	// sourceCredentials table.

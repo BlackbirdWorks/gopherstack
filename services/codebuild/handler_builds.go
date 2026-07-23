@@ -95,10 +95,13 @@ func (h *Handler) handleStopBuild(
 
 type listBuildsForProjectInput struct {
 	ProjectName string `json:"projectName"`
+	NextToken   string `json:"nextToken"`
+	SortOrder   string `json:"sortOrder"`
 }
 
 type listBuildsForProjectOutput struct {
-	IDs []string `json:"ids"`
+	NextToken string   `json:"nextToken,omitempty"`
+	IDs       []string `json:"ids"`
 }
 
 func (h *Handler) handleListBuildsForProject(
@@ -114,17 +117,33 @@ func (h *Handler) handleListBuildsForProject(
 		return nil, err
 	}
 
-	return &listBuildsForProjectOutput{IDs: ids}, nil
+	pg, err := paginateIDs(ids, in.NextToken, in.SortOrder, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listBuildsForProjectOutput{IDs: pg.Data, NextToken: pg.Next}, nil
 }
 
-type listBuildsInput struct{}
+type listBuildsInput struct {
+	NextToken string `json:"nextToken"`
+	SortOrder string `json:"sortOrder"`
+}
 
 type listBuildsOutput struct {
-	IDs []string `json:"ids"`
+	NextToken string   `json:"nextToken,omitempty"`
+	IDs       []string `json:"ids"`
 }
 
-func (h *Handler) handleListBuilds(_ context.Context, _ *listBuildsInput) (*listBuildsOutput, error) {
-	return &listBuildsOutput{IDs: h.Backend.ListBuilds()}, nil
+func (h *Handler) handleListBuilds(_ context.Context, in *listBuildsInput) (*listBuildsOutput, error) {
+	ids := h.Backend.ListBuilds()
+
+	pg, err := paginateIDs(ids, in.NextToken, in.SortOrder, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listBuildsOutput{IDs: pg.Data, NextToken: pg.Next}, nil
 }
 
 type batchDeleteBuildsInput struct {

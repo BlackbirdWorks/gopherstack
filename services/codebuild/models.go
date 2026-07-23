@@ -137,20 +137,21 @@ type Project struct {
 	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
 	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
 	Webhook                 *Webhook               `json:"webhook,omitempty"`
-	Name                    string                 `json:"name"`
+	ResourceAccessRole      string                 `json:"resourceAccessRole,omitempty"`
 	Description             string                 `json:"description,omitempty"`
 	ServiceRole             string                 `json:"serviceRole,omitempty"`
 	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
 	Arn                     string                 `json:"arn"`
 	Visibility              string                 `json:"projectVisibility,omitempty"`
 	PublicProjectAlias      string                 `json:"publicProjectAlias,omitempty"`
-	ResourceAccessRole      string                 `json:"resourceAccessRole,omitempty"`
+	Name                    string                 `json:"name"`
+	SourceVersion           string                 `json:"sourceVersion,omitempty"`
 	Artifacts               ProjectArtifacts       `json:"artifacts"`
 	Source                  ProjectSource          `json:"source"`
-	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
 	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions,omitempty"`
 	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts,omitempty"`
 	SecondarySources        []ProjectSource        `json:"secondarySources,omitempty"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
 	Environment             ProjectEnvironment     `json:"environment"`
 	Created                 float64                `json:"created,omitempty"`
 	LastModified            float64                `json:"lastModified,omitempty"`
@@ -312,14 +313,35 @@ type WebhookFilter struct {
 	ExcludeMatchedPattern bool   `json:"excludeMatchedPattern,omitempty"`
 }
 
+// PullRequestBuildPolicy defines comment-based approval requirements for
+// triggering builds on pull requests.
+type PullRequestBuildPolicy struct {
+	RequiresCommentApproval string   `json:"requiresCommentApproval"`
+	ApproverRoles           []string `json:"approverRoles,omitempty"`
+}
+
+// ScopeConfiguration is the scope configuration for a global or organization webhook.
+type ScopeConfiguration struct {
+	Name   string `json:"name"`
+	Domain string `json:"domain,omitempty"`
+	Scope  string `json:"scope"`
+}
+
 // Webhook represents an in-memory AWS CodeBuild webhook.
 type Webhook struct {
-	ProjectName  string            `json:"projectName"`
-	URL          string            `json:"url,omitempty"`
-	BranchFilter string            `json:"branchFilter,omitempty"`
-	BuildType    string            `json:"buildType,omitempty"`
-	PayloadURL   string            `json:"payloadUrl,omitempty"`
-	FilterGroups [][]WebhookFilter `json:"filterGroups,omitempty"`
+	ManualCreation         *bool                   `json:"manualCreation,omitempty"`
+	PullRequestBuildPolicy *PullRequestBuildPolicy `json:"pullRequestBuildPolicy,omitempty"`
+	ScopeConfiguration     *ScopeConfiguration     `json:"scopeConfiguration,omitempty"`
+	ProjectName            string                  `json:"projectName"`
+	URL                    string                  `json:"url,omitempty"`
+	BranchFilter           string                  `json:"branchFilter,omitempty"`
+	BuildType              string                  `json:"buildType,omitempty"`
+	PayloadURL             string                  `json:"payloadUrl,omitempty"`
+	Secret                 string                  `json:"secret,omitempty"`
+	Status                 string                  `json:"status,omitempty"`
+	StatusMessage          string                  `json:"statusMessage,omitempty"`
+	FilterGroups           [][]WebhookFilter       `json:"filterGroups,omitempty"`
+	LastModifiedSecret     float64                 `json:"lastModifiedSecret,omitempty"`
 }
 
 // SourceCredentials represents imported source credentials.

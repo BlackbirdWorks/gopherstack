@@ -26,22 +26,38 @@ func (h *Handler) handleBatchGetSandboxes(
 	}, nil
 }
 
-type listSandboxesInput struct{}
-
-type listSandboxesOutput struct {
-	IDs []string `json:"ids"`
+type listSandboxesInput struct {
+	NextToken  string `json:"nextToken"`
+	SortOrder  string `json:"sortOrder"`
+	MaxResults int32  `json:"maxResults"`
 }
 
-func (h *Handler) handleListSandboxes(_ context.Context, _ *listSandboxesInput) (*listSandboxesOutput, error) {
-	return &listSandboxesOutput{IDs: h.Backend.ListSandboxes()}, nil
+type listSandboxesOutput struct {
+	NextToken string   `json:"nextToken,omitempty"`
+	IDs       []string `json:"ids"`
+}
+
+func (h *Handler) handleListSandboxes(_ context.Context, in *listSandboxesInput) (*listSandboxesOutput, error) {
+	ids := h.Backend.ListSandboxes()
+
+	pg, err := paginateIDs(ids, in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listSandboxesOutput{IDs: pg.Data, NextToken: pg.Next}, nil
 }
 
 type listSandboxesForProjectInput struct {
 	ProjectName string `json:"projectName"`
+	NextToken   string `json:"nextToken"`
+	SortOrder   string `json:"sortOrder"`
+	MaxResults  int32  `json:"maxResults"`
 }
 
 type listSandboxesForProjectOutput struct {
-	IDs []string `json:"ids"`
+	NextToken string   `json:"nextToken,omitempty"`
+	IDs       []string `json:"ids"`
 }
 
 func (h *Handler) handleListSandboxesForProject(
@@ -57,7 +73,12 @@ func (h *Handler) handleListSandboxesForProject(
 		return nil, err
 	}
 
-	return &listSandboxesForProjectOutput{IDs: ids}, nil
+	pg, err := paginateIDs(ids, in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listSandboxesForProjectOutput{IDs: pg.Data, NextToken: pg.Next}, nil
 }
 
 type startSandboxInput struct {

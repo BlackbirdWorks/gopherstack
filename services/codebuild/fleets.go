@@ -72,19 +72,32 @@ func (b *InMemoryBackend) BatchGetFleets(names []string) ([]*Fleet, []string) {
 	return found, notFound
 }
 
-// ListFleets returns all fleet ARNs in sorted order.
+// ListFleets returns all fleet ARNs ordered by fleet name, ascending.
 func (b *InMemoryBackend) ListFleets() []string {
-	b.mu.RLock("ListFleets")
+	return b.ListFleetsSortedBy("")
+}
+
+// ListFleetsSortedBy returns all fleet ARNs ordered per sortBy
+// (CREATED_TIME|LAST_MODIFIED_TIME|NAME; any other value, including "",
+// defaults to NAME), always ascending. Callers apply sortOrder/pagination on
+// top via [paginateIDs].
+func (b *InMemoryBackend) ListFleetsSortedBy(sortBy string) []string {
+	b.mu.RLock("ListFleetsSortedBy")
 	defer b.mu.RUnlock()
 
-	items := b.fleets.All()
-	arns := make([]string, 0, len(items))
+	items := b.fleets.Snapshot() // NAME-ascending by construction
 
-	for _, f := range items {
-		arns = append(arns, f.Arn)
+	switch sortBy {
+	case sortByCreatedTime:
+		sort.SliceStable(items, func(i, j int) bool { return items[i].Created < items[j].Created })
+	case sortByLastModifiedTime:
+		sort.SliceStable(items, func(i, j int) bool { return items[i].LastModified < items[j].LastModified })
 	}
 
-	sort.Strings(arns)
+	arns := make([]string, len(items))
+	for i, f := range items {
+		arns[i] = f.Arn
+	}
 
 	return arns
 }

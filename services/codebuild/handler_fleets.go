@@ -72,14 +72,27 @@ func (h *Handler) handleDeleteFleet(_ context.Context, in *deleteFleetInput) (*d
 	return &deleteFleetOutput{}, nil
 }
 
-type listFleetsInput struct{}
-
-type listFleetsOutput struct {
-	Fleets []string `json:"fleets"`
+type listFleetsInput struct {
+	NextToken  string `json:"nextToken"`
+	SortBy     string `json:"sortBy"`
+	SortOrder  string `json:"sortOrder"`
+	MaxResults int32  `json:"maxResults"`
 }
 
-func (h *Handler) handleListFleets(_ context.Context, _ *listFleetsInput) (*listFleetsOutput, error) {
-	return &listFleetsOutput{Fleets: h.Backend.ListFleets()}, nil
+type listFleetsOutput struct {
+	NextToken string   `json:"nextToken,omitempty"`
+	Fleets    []string `json:"fleets"`
+}
+
+func (h *Handler) handleListFleets(_ context.Context, in *listFleetsInput) (*listFleetsOutput, error) {
+	arns := h.Backend.ListFleetsSortedBy(in.SortBy)
+
+	pg, err := paginateIDs(arns, in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listFleetsOutput{Fleets: pg.Data, NextToken: pg.Next}, nil
 }
 
 type updateFleetInput struct {

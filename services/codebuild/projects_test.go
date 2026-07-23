@@ -208,6 +208,52 @@ func TestHandler_UpdateProject(t *testing.T) {
 	}
 }
 
+// TestHandler_Project_SourceVersion verifies the top-level Project.sourceVersion
+// field (distinct from secondarySourceVersions) round-trips through
+// CreateProject/UpdateProject, matching real AWS's Project shape where
+// sourceVersion pins the default version of the primary source when no
+// build-level override is supplied.
+func TestHandler_Project_SourceVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateProject", map[string]any{
+		"name":          "src-version-proj",
+		"source":        map[string]any{"type": "GITHUB", "location": "https://github.com/example/repo"},
+		"artifacts":     map[string]any{"type": "NO_ARTIFACTS"},
+		"sourceVersion": "refs/heads/main",
+		"environment": map[string]any{
+			"type":        "LINUX_CONTAINER",
+			"image":       "aws/codebuild/standard:5.0",
+			"computeType": "BUILD_GENERAL1_SMALL",
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut struct {
+		Project struct {
+			SourceVersion string `json:"sourceVersion"`
+		} `json:"project"`
+	}
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	assert.Equal(t, "refs/heads/main", createOut.Project.SourceVersion)
+
+	updateRec := doRequest(t, h, "UpdateProject", map[string]any{
+		"name":          "src-version-proj",
+		"sourceVersion": "pr/42",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updateOut struct {
+		Project struct {
+			SourceVersion string `json:"sourceVersion"`
+		} `json:"project"`
+	}
+	require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&updateOut))
+	assert.Equal(t, "pr/42", updateOut.Project.SourceVersion, "UpdateProject must overwrite sourceVersion")
+}
+
 func TestHandler_DeleteProject(t *testing.T) {
 	t.Parallel()
 
