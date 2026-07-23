@@ -399,6 +399,49 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 }
 
+// ---------------------------------------------------------------------------
+// CreateDataset rejects a duplicate (ProjectArn, DatasetType) pair with
+// ResourceAlreadyExistsException. Previously datasetARN was always
+// uuid-suffixed, so this check never fired -- see PARITY.md gaps.
+// ---------------------------------------------------------------------------
+
+func TestCreateDataset_DuplicateProjectAndType_Rejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "dup-ds-proj"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var projResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	projARN := projResp["ProjectArn"].(string)
+
+	rec = doRequest(t, h, "CreateDataset", map[string]any{
+		"ProjectArn":  projARN,
+		"DatasetType": "TRAIN",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Same project + same DatasetType again -> rejected.
+	rec = doRequest(t, h, "CreateDataset", map[string]any{
+		"ProjectArn":  projARN,
+		"DatasetType": "TRAIN",
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "ResourceAlreadyExistsException", errResp["__type"])
+
+	// Same project, different DatasetType -> allowed.
+	rec = doRequest(t, h, "CreateDataset", map[string]any{
+		"ProjectArn":  projARN,
+		"DatasetType": "TEST",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestDataset_MissingProjectArn(t *testing.T) { //nolint:paralleltest // existing issue.
 	h := newTestHandler(t)
 

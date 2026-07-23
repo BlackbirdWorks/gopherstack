@@ -30,9 +30,13 @@ func (b *InMemoryBackend) streamProcessorARN(name string) string {
 	return arn.Build("rekognition", b.region, b.accountID, fmt.Sprintf("streamprocessor/%s", name))
 }
 
-// CreateStreamProcessor creates a new stream processor.
+// CreateStreamProcessor creates a new stream processor. params carries the
+// AWS-modeled fields beyond Name/RoleArn/Tags (Input/Output/Settings/
+// NotificationChannel/DataSharingPreference/RegionsOfInterest/KmsKeyId) —
+// all stored verbatim and returned unchanged by DescribeStreamProcessor.
 func (b *InMemoryBackend) CreateStreamProcessor(
 	name, roleARN string,
+	params CreateStreamProcessorParams,
 	tags map[string]string,
 ) (*StreamProcessor, error) {
 	if err := validateStreamProcessorName(name); err != nil {
@@ -54,13 +58,22 @@ func (b *InMemoryBackend) CreateStreamProcessor(
 	maps.Copy(tagsCopy, tags)
 
 	arn := b.streamProcessorARN(name)
+	now := time.Now()
 	p := &storedStreamProcessor{
-		Name:               name,
-		StreamProcessorARN: arn,
-		RoleARN:            roleARN,
-		Status:             processorStopped,
-		CreationTimestamp:  time.Now(),
-		Tags:               tagsCopy,
+		Name:                  name,
+		StreamProcessorARN:    arn,
+		RoleARN:               roleARN,
+		Status:                processorStopped,
+		CreationTimestamp:     now,
+		LastUpdateTimestamp:   now,
+		Tags:                  tagsCopy,
+		KmsKeyID:              params.KmsKeyID,
+		Input:                 params.Input,
+		Output:                params.Output,
+		Settings:              params.Settings,
+		RegionsOfInterest:     params.RegionsOfInterest,
+		NotificationChannel:   params.NotificationChannel,
+		DataSharingPreference: params.DataSharingPreference,
 	}
 	b.streamProcessors.Put(p)
 
@@ -143,14 +156,67 @@ func (b *InMemoryBackend) StopStreamProcessor(name string) error {
 	return nil
 }
 
-// UpdateStreamProcessor updates a stream processor (no-op for metadata).
-func (b *InMemoryBackend) UpdateStreamProcessor(name string) error {
+// UpdateStreamProcessor applies UpdateStreamProcessorInput's update-only
+// fields (DataSharingPreferenceForUpdate, ParametersToDelete,
+// RegionsOfInterestForUpdate, SettingsForUpdate.ConnectedHomeForUpdate) to a
+// stored stream processor. ParametersToDelete is applied last, so a delete
+// always wins over a same-request set (matching AWS's documented behavior).
+func (b *InMemoryBackend) UpdateStreamProcessor(name string, params UpdateStreamProcessorParams) error {
 	b.mu.Lock("UpdateStreamProcessor")
 	defer b.mu.Unlock()
 
-	if !b.streamProcessors.Has(name) {
+	p, exists := b.streamProcessors.Get(name)
+	if !exists {
 		return ErrStreamProcessorNotFound
 	}
 
+	applyStreamProcessorUpdate(p, params)
+	p.LastUpdateTimestamp = time.Now()
+
 	return nil
+}
+
+// applyStreamProcessorUpdate mutates p in place per params. Split out of
+// UpdateStreamProcessor to keep that method's cyclomatic complexity low.
+func applyStreamProcessorUpdate(p *storedStreamProcessor, params UpdateStreamProcessorParams) {
+	if params.DataSharingPreference != nil {
+		p.DataSharingPreference = params.DataSharingPreference
+	}
+
+	if params.RegionsOfInterest != nil {
+		p.RegionsOfInterest = params.RegionsOfInterest
+	}
+
+	if params.ConnectedHomeLabels != nil || params.ConnectedHomeMinConfidence != nil {
+		applyConnectedHomeUpdate(p, params)
+	}
+
+	for _, param := range params.ParametersToDelete {
+		switch param {
+		case "RegionsOfInterest":
+			p.RegionsOfInterest = nil
+		case "ConnectedHomeMinConfidence":
+			if p.Settings != nil {
+				p.Settings.ConnectedHomeMinConfidence = nil
+			}
+		}
+	}
+}
+
+// applyConnectedHomeUpdate merges ConnectedHomeForUpdate's Labels/
+// MinConfidence into p.Settings.ConnectedHome, creating Settings if the
+// stream processor didn't have any yet (matches a label-detection processor
+// being updated for the first time).
+func applyConnectedHomeUpdate(p *storedStreamProcessor, params UpdateStreamProcessorParams) {
+	if p.Settings == nil {
+		p.Settings = &StreamProcessorSettings{}
+	}
+
+	if params.ConnectedHomeLabels != nil {
+		p.Settings.ConnectedHomeLabels = params.ConnectedHomeLabels
+	}
+
+	if params.ConnectedHomeMinConfidence != nil {
+		p.Settings.ConnectedHomeMinConfidence = params.ConnectedHomeMinConfidence
+	}
 }

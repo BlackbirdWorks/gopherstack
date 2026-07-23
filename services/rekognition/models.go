@@ -47,15 +47,25 @@ func (f *storedFace) toFace() *Face {
 	}
 }
 
-// storedStreamProcessor holds a stream processor with all fields.
-// CreationTimestamp is first: time.Time's non-pointer prefix reduces GC pointer bytes.
+// storedStreamProcessor holds a stream processor with all fields. Field
+// order is fieldalignment-optimal (see `fieldalignment -fix`), not
+// meaningful otherwise.
 type storedStreamProcessor struct {
-	CreationTimestamp  time.Time         `json:"creationTimestamp"`
-	Tags               map[string]string `json:"tags"`
-	Name               string            `json:"name"`
-	StreamProcessorARN string            `json:"streamProcessorArn"`
-	RoleARN            string            `json:"roleArn"`
-	Status             string            `json:"status"`
+	LastUpdateTimestamp   time.Time                             `json:"lastUpdateTimestamp"`
+	CreationTimestamp     time.Time                             `json:"creationTimestamp"`
+	Input                 *StreamProcessorInput                 `json:"input,omitempty"`
+	Tags                  map[string]string                     `json:"tags"`
+	DataSharingPreference *StreamProcessorDataSharingPreference `json:"dataSharingPreference,omitempty"`
+	NotificationChannel   *StreamProcessorNotificationChannel   `json:"notificationChannel,omitempty"`
+	Settings              *StreamProcessorSettings              `json:"settings,omitempty"`
+	Output                *StreamProcessorOutput                `json:"output,omitempty"`
+	Name                  string                                `json:"name"`
+	KmsKeyID              string                                `json:"kmsKeyId"`
+	StatusMessage         string                                `json:"statusMessage"`
+	Status                string                                `json:"status"`
+	RoleARN               string                                `json:"roleArn"`
+	StreamProcessorARN    string                                `json:"streamProcessorArn"`
+	RegionsOfInterest     []RegionOfInterest                    `json:"regionsOfInterest,omitempty"`
 }
 
 func (p *storedStreamProcessor) toStreamProcessor() *StreamProcessor {
@@ -63,12 +73,21 @@ func (p *storedStreamProcessor) toStreamProcessor() *StreamProcessor {
 	maps.Copy(tags, p.Tags)
 
 	return &StreamProcessor{
-		Name:               p.Name,
-		StreamProcessorARN: p.StreamProcessorARN,
-		RoleARN:            p.RoleARN,
-		Status:             p.Status,
-		CreationTimestamp:  p.CreationTimestamp,
-		Tags:               tags,
+		Name:                  p.Name,
+		StreamProcessorARN:    p.StreamProcessorARN,
+		RoleARN:               p.RoleARN,
+		Status:                p.Status,
+		StatusMessage:         p.StatusMessage,
+		KmsKeyID:              p.KmsKeyID,
+		CreationTimestamp:     p.CreationTimestamp,
+		LastUpdateTimestamp:   p.LastUpdateTimestamp,
+		Tags:                  tags,
+		Input:                 p.Input,
+		Output:                p.Output,
+		Settings:              p.Settings,
+		RegionsOfInterest:     p.RegionsOfInterest,
+		NotificationChannel:   p.NotificationChannel,
+		DataSharingPreference: p.DataSharingPreference,
 	}
 }
 
@@ -89,24 +108,37 @@ func (p *storedProject) toProject() *Project {
 
 // storedProjectVersion holds a model version within a project.
 type storedProjectVersion struct {
-	CreationTimestamp time.Time `json:"creationTimestamp"`
-	ProjectVersionARN string    `json:"projectVersionArn"`
-	ProjectARN        string    `json:"projectArn"`
-	VersionName       string    `json:"versionName"`
-	Status            string    `json:"status"`
-	StatusMessage     string    `json:"statusMessage"`
-	MinInferenceUnits int32     `json:"minInferenceUnits"`
+	CreationTimestamp       time.Time         `json:"creationTimestamp"`
+	Tags                    map[string]string `json:"tags"`
+	ProjectVersionARN       string            `json:"projectVersionArn"`
+	ProjectARN              string            `json:"projectArn"`
+	VersionName             string            `json:"versionName"`
+	Status                  string            `json:"status"`
+	StatusMessage           string            `json:"statusMessage"`
+	OutputConfigS3Bucket    string            `json:"outputConfigS3Bucket,omitempty"`
+	OutputConfigS3KeyPrefix string            `json:"outputConfigS3KeyPrefix,omitempty"`
+	KmsKeyID                string            `json:"kmsKeyId,omitempty"`
+	VersionDescription      string            `json:"versionDescription,omitempty"`
+	MinInferenceUnits       int32             `json:"minInferenceUnits"`
 }
 
 func (v *storedProjectVersion) toProjectVersion() *ProjectVersion {
+	tags := make(map[string]string, len(v.Tags))
+	maps.Copy(tags, v.Tags)
+
 	return &ProjectVersion{
-		CreationTimestamp: v.CreationTimestamp,
-		ProjectVersionARN: v.ProjectVersionARN,
-		ProjectARN:        v.ProjectARN,
-		VersionName:       v.VersionName,
-		Status:            v.Status,
-		StatusMessage:     v.StatusMessage,
-		MinInferenceUnits: v.MinInferenceUnits,
+		CreationTimestamp:       v.CreationTimestamp,
+		Tags:                    tags,
+		ProjectVersionARN:       v.ProjectVersionARN,
+		ProjectARN:              v.ProjectARN,
+		VersionName:             v.VersionName,
+		Status:                  v.Status,
+		StatusMessage:           v.StatusMessage,
+		OutputConfigS3Bucket:    v.OutputConfigS3Bucket,
+		OutputConfigS3KeyPrefix: v.OutputConfigS3KeyPrefix,
+		KmsKeyID:                v.KmsKeyID,
+		VersionDescription:      v.VersionDescription,
+		MinInferenceUnits:       v.MinInferenceUnits,
 	}
 }
 

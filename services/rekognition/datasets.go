@@ -18,13 +18,33 @@ func (b *InMemoryBackend) datasetARN(projectARN, datasetType string) string {
 // Datasets
 // =============================================================================
 
-// CreateDataset creates a new dataset.
+// CreateDataset creates a new dataset. Real AWS rejects a second dataset of
+// the same DatasetType for a project with ResourceAlreadyExistsException;
+// datasetARN is always uuid-suffixed (so two datasets of the same type never
+// collide on table key), so that check must be done explicitly here via a
+// scan for an existing (ProjectARN, DatasetType) pair.
 func (b *InMemoryBackend) CreateDataset(projectARN, datasetType string) (*Dataset, error) {
 	b.mu.Lock("CreateDataset")
 	defer b.mu.Unlock()
 
 	if !b.projects.Has(projectARN) {
 		return nil, ErrProjectNotFound
+	}
+
+	var duplicate bool
+
+	b.datasets.Range(func(d *storedDataset) bool {
+		if d.ProjectARN == projectARN && d.DatasetType == datasetType {
+			duplicate = true
+
+			return false
+		}
+
+		return true
+	})
+
+	if duplicate {
+		return nil, ErrDatasetAlreadyExists
 	}
 
 	arn := b.datasetARN(projectARN, datasetType)
