@@ -74,7 +74,6 @@ type InMemoryBackend struct {
 	bucketTagging                map[string]TagSet
 	bucketLifecycle              map[string]string
 	bucketVersioning             map[string]string
-	mrapPolicies                 map[string]string
 	mrapRoutes                   map[string]string
 	// batch2 additions
 	bucketReplication     map[string]string            // accountID:bucketName → replication config XML
@@ -106,7 +105,6 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		bucketTagging:                make(map[string]TagSet),
 		bucketLifecycle:              make(map[string]string),
 		bucketVersioning:             make(map[string]string),
-		mrapPolicies:                 make(map[string]string),
 		mrapRoutes:                   make(map[string]string),
 		bucketReplication:            make(map[string]string),
 		storageLensConfigs:           make(map[string]string),
@@ -145,7 +143,6 @@ func (b *InMemoryBackend) Reset() {
 	b.bucketTagging = make(map[string]TagSet)
 	b.bucketLifecycle = make(map[string]string)
 	b.bucketVersioning = make(map[string]string)
-	b.mrapPolicies = make(map[string]string)
 	b.mrapRoutes = make(map[string]string)
 	b.bucketReplication = make(map[string]string)
 	b.storageLensConfigs = make(map[string]string)

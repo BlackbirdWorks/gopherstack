@@ -551,7 +551,12 @@ func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := s3control.NewHandler(s3control.NewInMemoryBackend())
-	assert.Equal(t, 100, s3control.HandlerOpsLen(h))
+	// Was 100 before the fabricated GetAccessPointPublicAccessBlock /
+	// PutAccessPointPublicAccessBlock / DeleteAccessPointPublicAccessBlock
+	// ops were deleted (see handler_access_points_config_test.go's
+	// TestNoFabricatedAccessPointPublicAccessBlockRoute) -- those three
+	// operations do not exist in aws-sdk-go-v2/service/s3control.
+	assert.Equal(t, 97, s3control.HandlerOpsLen(h))
 }
 
 func TestProvider_NilAppContext(t *testing.T) {

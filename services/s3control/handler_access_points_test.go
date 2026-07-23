@@ -45,7 +45,10 @@ func TestBackend_AccessPoint_CRUD(t *testing.T) {
 			ap, err := b.GetAccessPoint("acct1", "myap")
 
 			if tt.wantErr {
-				require.Error(t, err)
+				// AWS error code must be NoSuchAccessPoint, not the
+				// unrelated NoSuchPublicAccessBlockConfiguration sentinel
+				// this used to wrongly share.
+				require.ErrorContains(t, err, "NoSuchAccessPoint")
 
 				return
 			}
@@ -87,7 +90,7 @@ func TestBackend_DeleteAccessPoint(t *testing.T) {
 			err := b.DeleteAccessPoint("acct1", "myap")
 
 			if tt.wantErr {
-				require.Error(t, err)
+				require.ErrorContains(t, err, "NoSuchAccessPoint")
 
 				return
 			}
@@ -96,6 +99,43 @@ func TestBackend_DeleteAccessPoint(t *testing.T) {
 			assert.Equal(t, 0, s3control.AccessPointCount(b))
 		})
 	}
+}
+
+// TestBackend_DeleteAccessPoint_CascadeCleansState locks in the
+// ghost-map-row fix: DeleteAccessPoint previously only cleaned
+// accessPointPolicies, leaving the access point's scope, per-AP
+// PublicAccessBlock, and generic resource tags behind forever. A
+// delete/recreate cycle under the same name would otherwise silently
+// resurrect the deleted access point's stale scope/PAB/tags.
+func TestBackend_DeleteAccessPoint_CascadeCleansState(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	ap := b.CreateAccessPoint("acct1", "cascade-ap", "mybucket")
+	require.NoError(t, b.PutAccessPointPolicy("acct1", "cascade-ap", `{"p":1}`))
+	require.NoError(t, b.PutAccessPointScope("acct1", "cascade-ap", "<Scope/>"))
+	require.NoError(t, b.PutAccessPointPublicAccessBlock("acct1", "cascade-ap", s3control.PublicAccessBlock{
+		BlockPublicAcls: true,
+	}))
+	b.TagResource(ap.AccessPointArn, map[string]string{"env": "test"})
+
+	require.NoError(t, b.DeleteAccessPoint("acct1", "cascade-ap"))
+
+	// Recreate under the identical name/ARN and confirm none of the
+	// deleted access point's state leaked forward.
+	b.CreateAccessPoint("acct1", "cascade-ap", "mybucket")
+
+	_, err := b.GetAccessPointPolicy("acct1", "cascade-ap")
+	require.Error(t, err, "policy must not survive delete")
+
+	scope, err := b.GetAccessPointScope("acct1", "cascade-ap")
+	require.NoError(t, err)
+	assert.Empty(t, scope, "scope must not survive delete")
+
+	_, err = b.GetAccessPointPublicAccessBlock("acct1", "cascade-ap")
+	require.Error(t, err, "per-AP PublicAccessBlock must not survive delete")
+
+	assert.Empty(t, b.ListTagsForResource(ap.AccessPointArn), "tags must not survive delete")
 }
 
 func TestBackend_ListAccessPoints(t *testing.T) {

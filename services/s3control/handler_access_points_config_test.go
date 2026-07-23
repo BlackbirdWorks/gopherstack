@@ -106,76 +106,40 @@ func TestAccessPointPublicAccessBlock_MissingAP(t *testing.T) {
 	}
 }
 
-func TestHandler_AccessPointPublicAccessBlock(t *testing.T) {
+// TestHandler_GetAccessPoint_IncludesPublicAccessBlockConfiguration locks in
+// the real wire shape: aws-sdk-go-v2's GetAccessPointOutput carries
+// PublicAccessBlockConfiguration inline (there is no standalone
+// GetAccessPointPublicAccessBlock operation -- see the doc comment on
+// dispatchAccessPointSubResourceOps in handler_access_points.go for the
+// fabricated three-operation family this replaced). A client that creates an
+// access point with a PublicAccessBlockConfiguration must see it echoed back
+// on GetAccessPoint.
+func TestHandler_GetAccessPoint_IncludesPublicAccessBlockConfiguration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		setup      func(h *s3control.Handler)
 		name       string
-		method     string
-		body       string
 		wantBody   string
-		wantStatus int
+		wantAbsent string
 	}{
 		{
-			name:   "put_pab",
-			method: http.MethodPut,
-			body: `<PutAccessPointPublicAccessBlockRequest>
-<PublicAccessBlockConfiguration>
-<BlockPublicAcls>true</BlockPublicAcls>
-<IgnorePublicAcls>false</IgnorePublicAcls>
-<BlockPublicPolicy>true</BlockPublicPolicy>
-<RestrictPublicBuckets>false</RestrictPublicBuckets>
-</PublicAccessBlockConfiguration>
-</PutAccessPointPublicAccessBlockRequest>`,
-			wantStatus: http.StatusOK,
-			setup: func(h *s3control.Handler) {
-				h.Backend.CreateAccessPoint("000000000000", "my-ap", "my-bucket")
-			},
-		},
-		{
-			name:   "put_pab_missing_ap",
-			method: http.MethodPut,
-			body: `<PutAccessPointPublicAccessBlockRequest>` +
-				`<PublicAccessBlockConfiguration>` +
-				`<BlockPublicAcls>true</BlockPublicAcls>` +
-				`</PublicAccessBlockConfiguration>` +
-				`</PutAccessPointPublicAccessBlockRequest>`,
-			wantStatus: http.StatusNotFound,
-			setup:      func(_ *s3control.Handler) {},
-		},
-		{
-			name:       "get_pab_not_set",
-			method:     http.MethodGet,
-			wantStatus: http.StatusNotFound,
-			setup: func(h *s3control.Handler) {
-				h.Backend.CreateAccessPoint("000000000000", "my-ap", "my-bucket")
-			},
-		},
-		{
-			name:       "get_pab_after_put",
-			method:     http.MethodGet,
-			wantStatus: http.StatusOK,
-			wantBody:   "GetAccessPointPublicAccessBlockResult",
+			name: "pab_set_via_create",
 			setup: func(h *s3control.Handler) {
 				h.Backend.CreateAccessPoint("000000000000", "my-ap", "my-bucket")
 				_ = h.Backend.PutAccessPointPublicAccessBlock(
 					"000000000000", "my-ap",
-					s3control.PublicAccessBlock{BlockPublicAcls: true},
+					s3control.PublicAccessBlock{BlockPublicAcls: true, RestrictPublicBuckets: true},
 				)
 			},
+			wantBody: "PublicAccessBlockConfiguration",
 		},
 		{
-			name:       "delete_pab",
-			method:     http.MethodDelete,
-			wantStatus: http.StatusNoContent,
+			name: "pab_not_set",
 			setup: func(h *s3control.Handler) {
 				h.Backend.CreateAccessPoint("000000000000", "my-ap", "my-bucket")
-				_ = h.Backend.PutAccessPointPublicAccessBlock(
-					"000000000000", "my-ap",
-					s3control.PublicAccessBlock{BlockPublicAcls: true},
-				)
 			},
+			wantAbsent: "PublicAccessBlockConfiguration",
 		},
 	}
 
@@ -186,19 +150,44 @@ func TestHandler_AccessPointPublicAccessBlock(t *testing.T) {
 			h := s3control.NewHandler(s3control.NewInMemoryBackend())
 			tt.setup(h)
 
-			rec := doS3ControlNewOpRequest(
-				t, h, tt.method,
-				"/v20180820/accesspoint/my-ap/publicAccessBlock",
-				"000000000000",
-				tt.body,
-			)
+			rec := doS3ControlNewOpRequest(t, h, http.MethodGet,
+				"/v20180820/accesspoint/my-ap", "000000000000", "")
 
-			assert.Equal(t, tt.wantStatus, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
+			body := rec.Body.String()
+
 			if tt.wantBody != "" {
-				assert.Contains(t, rec.Body.String(), tt.wantBody)
+				assert.Contains(t, body, tt.wantBody)
+				assert.Contains(t, body, "<BlockPublicAcls>true</BlockPublicAcls>")
+			}
+
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, body, tt.wantAbsent)
 			}
 		})
 	}
+}
+
+// TestNoFabricatedAccessPointPublicAccessBlockRoute locks in the op-deletion
+// fix: the standalone GetAccessPointPublicAccessBlock /
+// PutAccessPointPublicAccessBlock / DeleteAccessPointPublicAccessBlock REST
+// operations do not exist in aws-sdk-go-v2/service/s3control and must never
+// be routable, since a fabricated route pollutes GetSupportedOperations()
+// with operation names no real SDK client can ever construct.
+func TestNoFabricatedAccessPointPublicAccessBlockRoute(t *testing.T) {
+	t.Parallel()
+
+	h := s3control.NewHandler(s3control.NewInMemoryBackend())
+	h.Backend.CreateAccessPoint("000000000000", "my-ap", "my-bucket")
+
+	rec := doS3ControlNewOpRequest(t, h, http.MethodGet,
+		"/v20180820/accesspoint/my-ap/publicAccessBlock", "000000000000", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	ops := h.GetSupportedOperations()
+	assert.NotContains(t, ops, "GetAccessPointPublicAccessBlock")
+	assert.NotContains(t, ops, "PutAccessPointPublicAccessBlock")
+	assert.NotContains(t, ops, "DeleteAccessPointPublicAccessBlock")
 }
 
 // ---- AccessPoint VPC config tests ----

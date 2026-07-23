@@ -71,6 +71,34 @@ func TestObjectLambdaAP(t *testing.T) {
 		a := b2.CreateAccessPointForObjectLambda("000000000000", "del-olap")
 		require.NoError(t, b2.DeleteAccessPointForObjectLambda("000000000000", a.Name))
 	})
+
+	// TestObjectLambdaAP/delete_OLAP_cascade_cleans_state locks in the
+	// ghost-map-row fix: DeleteAccessPointForObjectLambda previously only
+	// removed the OLAP row itself, leaving its policy, configuration, and
+	// generic resource tags behind forever -- resurfacing on a
+	// delete/recreate cycle under the same name.
+	t.Run("delete OLAP cascade cleans state", func(t *testing.T) {
+		t.Parallel()
+		b2 := s3control.NewInMemoryBackend()
+		a := b2.CreateAccessPointForObjectLambda("000000000000", "cascade-olap")
+		require.NoError(t, b2.PutAccessPointPolicyForObjectLambda("000000000000", a.Name, `{"p":1}`))
+		require.NoError(t, b2.PutAccessPointConfigurationForObjectLambda("000000000000", a.Name, "<Config/>"))
+		b2.TagResource(a.ObjectLambdaAccessPointArn, map[string]string{"env": "test"})
+
+		require.NoError(t, b2.DeleteAccessPointForObjectLambda("000000000000", a.Name))
+
+		b2.CreateAccessPointForObjectLambda("000000000000", a.Name)
+
+		policy, err := b2.GetAccessPointPolicyForObjectLambda("000000000000", a.Name)
+		require.NoError(t, err)
+		assert.Empty(t, policy, "policy must not survive delete")
+
+		cfg, err := b2.GetAccessPointConfigurationForObjectLambda("000000000000", a.Name)
+		require.NoError(t, err)
+		assert.Empty(t, cfg, "config must not survive delete")
+
+		assert.Empty(t, b2.ListTagsForResource(a.ObjectLambdaAccessPointArn), "tags must not survive delete")
+	})
 }
 
 func TestHTTP_ListAccessPointsForObjectLambda(t *testing.T) {

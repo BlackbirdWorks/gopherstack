@@ -145,7 +145,11 @@ type StorageBackend interface {
 	// AccessPoint VPC configuration
 	SetAccessPointVpcConfig(accountID, name, vpcID, bucketAccountID string) error
 
-	// AccessPoint per-AP public access block
+	// AccessPoint per-AP public access block. NOT separate AWS operations --
+	// aws-sdk-go-v2/service/s3control has no Get/Put/DeleteAccessPoint
+	// PublicAccessBlock ops. These back the PublicAccessBlockConfiguration
+	// field that travels inline on CreateAccessPoint/GetAccessPoint instead
+	// (see handler_access_points.go); do not route them as standalone ops.
 	GetAccessPointPublicAccessBlock(accountID, name string) (*PublicAccessBlock, error)
 	PutAccessPointPublicAccessBlock(accountID, name string, cfg PublicAccessBlock) error
 	DeleteAccessPointPublicAccessBlock(accountID, name string) error

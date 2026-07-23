@@ -51,7 +51,7 @@ func (b *InMemoryBackend) UpdateJobDetails(
 
 	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: %s", errJobNotFound, jobID)
 	}
 
 	job.Description = description
@@ -70,7 +70,7 @@ func (b *InMemoryBackend) GetJob(accountID, jobID string) (*BatchJob, error) {
 
 	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: %s", errJobNotFound, jobID)
 	}
 
 	cp := *job
@@ -102,7 +102,7 @@ func (b *InMemoryBackend) UpdateJobPriority(accountID, jobID string, priority in
 
 	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: %s", errJobNotFound, jobID)
 	}
 
 	job.Priority = priority
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) UpdateJobStatus(accountID, jobID, status string) (*Bat
 
 	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: %s", errJobNotFound, jobID)
 	}
 
 	job.Status = status

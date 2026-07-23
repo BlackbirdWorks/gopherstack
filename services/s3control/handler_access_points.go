@@ -122,7 +122,18 @@ func (h *Handler) dispatchAccessPointBasicOps(c *echo.Context, path, method stri
 	return false, nil
 }
 
-// dispatchAccessPointSubResourceOps handles access point policy, status, scope, and PAB dispatch.
+// dispatchAccessPointSubResourceOps handles access point policy, status, and scope dispatch.
+//
+// NOTE: there is deliberately no "/publicAccessBlock" sub-resource route here.
+// aws-sdk-go-v2/service/s3control has no GetAccessPointPublicAccessBlock /
+// PutAccessPointPublicAccessBlock / DeleteAccessPointPublicAccessBlock
+// operations -- PublicAccessBlockConfiguration is account-level only
+// (GetPublicAccessBlock/PutPublicAccessBlock/DeletePublicAccessBlock) except
+// for the inline PublicAccessBlockConfiguration field real AWS embeds
+// directly in CreateAccessPointInput/GetAccessPointOutput. A prior pass had
+// invented three standalone REST operations for this; they were deleted
+// (see errors.go / access_points.go for the surviving internal storage
+// methods that back the inline field on Create/GetAccessPoint instead).
 func (h *Handler) dispatchAccessPointSubResourceOps(c *echo.Context, path, method string) (bool, error) {
 	if isPrefixSuffix(pathAccessPointPrefix, path, "/policy") {
 		return h.dispatchAccessPointPolicyMethod(c, method)
@@ -134,10 +145,6 @@ func (h *Handler) dispatchAccessPointSubResourceOps(c *echo.Context, path, metho
 
 	if isPrefixSuffix(pathAccessPointPrefix, path, "/scope") {
 		return h.dispatchAccessPointScopeMethod(c, method)
-	}
-
-	if isPrefixSuffix(pathAccessPointPrefix, path, "/publicAccessBlock") {
-		return h.dispatchAccessPointPABMethod(c, method)
 	}
 
 	return false, nil
@@ -164,19 +171,6 @@ func (h *Handler) dispatchAccessPointScopeMethod(c *echo.Context, method string)
 		return true, h.handlePutAccessPointScope(c)
 	case http.MethodDelete:
 		return true, h.handleDeleteAccessPointScope(c)
-	}
-
-	return false, nil
-}
-
-func (h *Handler) dispatchAccessPointPABMethod(c *echo.Context, method string) (bool, error) {
-	switch method {
-	case http.MethodGet:
-		return true, h.handleGetAccessPointPublicAccessBlock(c)
-	case http.MethodPut:
-		return true, h.handlePutAccessPointPublicAccessBlock(c)
-	case http.MethodDelete:
-		return true, h.handleDeleteAccessPointPublicAccessBlock(c)
 	}
 
 	return false, nil
@@ -262,17 +256,23 @@ type getAccessPointVpcConfigXML struct {
 }
 
 type getAccessPointResponseXML struct {
-	XMLName          xml.Name                    `xml:"GetAccessPointResult"`
-	Name             string                      `xml:"Name"`
-	Bucket           string                      `xml:"Bucket"`
-	NetworkOrigin    string                      `xml:"NetworkOrigin"`
-	AccessPointArn   string                      `xml:"AccessPointArn,omitempty"`
-	Alias            string                      `xml:"Alias,omitempty"`
-	BucketAccountID  string                      `xml:"BucketAccountId,omitempty"`
-	VpcConfiguration *getAccessPointVpcConfigXML `xml:"VpcConfiguration,omitempty"`
-	CreationDate     string                      `xml:"CreationDate,omitempty"`
+	XMLName                        xml.Name                    `xml:"GetAccessPointResult"`
+	Name                           string                      `xml:"Name"`
+	Bucket                         string                      `xml:"Bucket"`
+	NetworkOrigin                  string                      `xml:"NetworkOrigin"`
+	AccessPointArn                 string                      `xml:"AccessPointArn,omitempty"`
+	Alias                          string                      `xml:"Alias,omitempty"`
+	BucketAccountID                string                      `xml:"BucketAccountId,omitempty"`
+	VpcConfiguration               *getAccessPointVpcConfigXML `xml:"VpcConfiguration,omitempty"`
+	PublicAccessBlockConfiguration *apPublicAccessBlockXML     `xml:"PublicAccessBlockConfiguration,omitempty"`
+	CreationDate                   string                      `xml:"CreationDate,omitempty"`
 }
 
+// handleGetAccessPoint serves GetAccessPoint. Per aws-sdk-go-v2's
+// GetAccessPointOutput, PublicAccessBlockConfiguration travels inline in
+// this response -- it is NOT a separate operation (see the doc comment on
+// dispatchAccessPointSubResourceOps for the fabricated standalone ops this
+// replaced).
 func (h *Handler) handleGetAccessPoint(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimPrefix(c.Request().URL.Path, pathAccessPointPrefix)
@@ -294,6 +294,15 @@ func (h *Handler) handleGetAccessPoint(c *echo.Context) error {
 
 	if ap.VpcID != "" {
 		resp.VpcConfiguration = &getAccessPointVpcConfigXML{VpcID: ap.VpcID}
+	}
+
+	if pab, pabErr := h.Backend.GetAccessPointPublicAccessBlock(accountID, name); pabErr == nil {
+		resp.PublicAccessBlockConfiguration = &apPublicAccessBlockXML{
+			BlockPublicAcls:       pab.BlockPublicAcls,
+			IgnorePublicAcls:      pab.IgnorePublicAcls,
+			BlockPublicPolicy:     pab.BlockPublicPolicy,
+			RestrictPublicBuckets: pab.RestrictPublicBuckets,
+		}
 	}
 
 	return writeXML(c, resp)
@@ -516,85 +525,4 @@ func (h *Handler) handleListAccessPointsForDirectoryBuckets(c *echo.Context) err
 		NextToken    string   `xml:"NextToken,omitempty"`
 		AccessPoints []apItem `xml:"AccessPointList>AccessPoint"`
 	}{AccessPoints: page, NextToken: tok})
-}
-
-// ---- Per-AccessPoint PublicAccessBlock ----
-
-type apPABConfigXML struct {
-	XMLName               xml.Name `xml:"PublicAccessBlockConfiguration"`
-	BlockPublicAcls       bool     `xml:"BlockPublicAcls"`
-	IgnorePublicAcls      bool     `xml:"IgnorePublicAcls"`
-	BlockPublicPolicy     bool     `xml:"BlockPublicPolicy"`
-	RestrictPublicBuckets bool     `xml:"RestrictPublicBuckets"`
-}
-
-type putAPPABRequestXML struct {
-	XMLName                        xml.Name       `xml:"PutAccessPointPublicAccessBlockRequest"`
-	PublicAccessBlockConfiguration apPABConfigXML `xml:"PublicAccessBlockConfiguration"`
-}
-
-type getAPPABResponseXML struct {
-	XMLName                        xml.Name       `xml:"GetAccessPointPublicAccessBlockResult"`
-	PublicAccessBlockConfiguration apPABConfigXML `xml:"PublicAccessBlockConfiguration"`
-}
-
-func apNameFromPath(path string) string {
-	// /v20180820/accesspoint/{name}/publicAccessBlock → name
-	trimmed := strings.TrimPrefix(path, pathAccessPointPrefix)
-
-	return strings.TrimSuffix(trimmed, "/publicAccessBlock")
-}
-
-func (h *Handler) handleGetAccessPointPublicAccessBlock(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
-	name := apNameFromPath(c.Request().URL.Path)
-
-	pab, err := h.Backend.GetAccessPointPublicAccessBlock(accountID, name)
-	if err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return writeXML(c, getAPPABResponseXML{
-		PublicAccessBlockConfiguration: apPABConfigXML{
-			BlockPublicAcls:       pab.BlockPublicAcls,
-			IgnorePublicAcls:      pab.IgnorePublicAcls,
-			BlockPublicPolicy:     pab.BlockPublicPolicy,
-			RestrictPublicBuckets: pab.RestrictPublicBuckets,
-		},
-	})
-}
-
-func (h *Handler) handlePutAccessPointPublicAccessBlock(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
-	name := apNameFromPath(c.Request().URL.Path)
-
-	var body putAPPABRequestXML
-	if err := decodeXML(c, &body); err != nil {
-		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
-	}
-
-	cfg := PublicAccessBlock{
-		AccountID:             accountID,
-		BlockPublicAcls:       body.PublicAccessBlockConfiguration.BlockPublicAcls,
-		IgnorePublicAcls:      body.PublicAccessBlockConfiguration.IgnorePublicAcls,
-		BlockPublicPolicy:     body.PublicAccessBlockConfiguration.BlockPublicPolicy,
-		RestrictPublicBuckets: body.PublicAccessBlockConfiguration.RestrictPublicBuckets,
-	}
-
-	if err := h.Backend.PutAccessPointPublicAccessBlock(accountID, name, cfg); err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.NoContent(http.StatusOK)
-}
-
-func (h *Handler) handleDeleteAccessPointPublicAccessBlock(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
-	name := apNameFromPath(c.Request().URL.Path)
-
-	if err := h.Backend.DeleteAccessPointPublicAccessBlock(accountID, name); err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.NoContent(http.StatusNoContent)
 }

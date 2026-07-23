@@ -19,7 +19,21 @@ import (
 // format had no version field at all, so an old snapshot decodes with
 // Version == 0, which is guaranteed to mismatch s3controlSnapshotVersion and
 // is discarded the same way any other incompatible snapshot is.
-const s3controlSnapshotVersion = 1
+//
+// Bumped 1 -> 2: LEAK/PERSISTENCE-GAP FIX -- the "batch1 additions" raw maps
+// (see store.go's field doc comment) were never wired into backendSnapshot
+// at all: accessPointScopes, objectLambdaAPPolicies, objectLambdaAPConfigs,
+// bucketPolicies, bucketTagging, bucketLifecycle, bucketVersioning,
+// mrapRoutes, accessGrantsInstancePolicies, jobTags. Only the "batch2"
+// fields (bucketReplication, storageLensConfigs, storageLensConfigTags,
+// resourceTags, accessPointPolicies) were ever round-tripped. A
+// Snapshot/Restore cycle (e.g. a service restart with persistence enabled)
+// silently dropped every one of those ten fields -- access point scopes,
+// Object Lambda AP policies/configs, Outposts bucket policy/tagging/
+// lifecycle/versioning, MRAP routes, Access Grants instance resource
+// policies, and job tags all vanished on restore even though the owning
+// resources themselves survived.
+const s3controlSnapshotVersion = 2
 
 // mrapRequestSnapshot and accessPointPABSnapshot are DTOs used only for
 // Snapshot/Restore of the "dirty" tables -- see store_setup.go's file doc
@@ -75,8 +89,21 @@ type backendSnapshot struct {
 	StorageLensConfigTags map[string]TagSet            `json:"storageLensConfigTags"`
 	ResourceTags          map[string]map[string]string `json:"resourceTags"`
 	AccessPointPolicies   map[string]string            `json:"accessPointPolicies"`
-	Version               int                          `json:"version"`
-	NextID                int64                        `json:"nextID"`
+	// batch1 additions -- previously declared on InMemoryBackend but never
+	// wired into the snapshot at all (see s3controlSnapshotVersion's doc
+	// comment for the version-2 bump this fixes).
+	AccessPointScopes            map[string]string `json:"accessPointScopes"`
+	ObjectLambdaAPPolicies       map[string]string `json:"objectLambdaAPPolicies"`
+	ObjectLambdaAPConfigs        map[string]string `json:"objectLambdaAPConfigs"`
+	BucketPolicies               map[string]string `json:"bucketPolicies"`
+	BucketTagging                map[string]TagSet `json:"bucketTagging"`
+	BucketLifecycle              map[string]string `json:"bucketLifecycle"`
+	BucketVersioning             map[string]string `json:"bucketVersioning"`
+	MRAPRoutes                   map[string]string `json:"mrapRoutes"`
+	AccessGrantsInstancePolicies map[string]string `json:"accessGrantsInstancePolicies"`
+	JobTags                      map[string]TagSet `json:"jobTags"`
+	Version                      int               `json:"version"`
+	NextID                       int64             `json:"nextID"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -112,14 +139,24 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	maps.Copy(tables, dirtyTables)
 
 	snap := backendSnapshot{
-		Version:               s3controlSnapshotVersion,
-		Tables:                tables,
-		BucketReplication:     cloneMapStr(b.bucketReplication),
-		StorageLensConfigs:    cloneMapStr(b.storageLensConfigs),
-		StorageLensConfigTags: cloneMapTagSet(b.storageLensConfigTags),
-		ResourceTags:          cloneMapResourceTags(b.resourceTags),
-		AccessPointPolicies:   cloneMapStr(b.accessPointPolicies),
-		NextID:                b.nextID,
+		Version:                      s3controlSnapshotVersion,
+		Tables:                       tables,
+		BucketReplication:            cloneMapStr(b.bucketReplication),
+		StorageLensConfigs:           cloneMapStr(b.storageLensConfigs),
+		StorageLensConfigTags:        cloneMapTagSet(b.storageLensConfigTags),
+		ResourceTags:                 cloneMapResourceTags(b.resourceTags),
+		AccessPointPolicies:          cloneMapStr(b.accessPointPolicies),
+		AccessPointScopes:            cloneMapStr(b.accessPointScopes),
+		ObjectLambdaAPPolicies:       cloneMapStr(b.objectLambdaAPPolicies),
+		ObjectLambdaAPConfigs:        cloneMapStr(b.objectLambdaAPConfigs),
+		BucketPolicies:               cloneMapStr(b.bucketPolicies),
+		BucketTagging:                cloneMapTagSet(b.bucketTagging),
+		BucketLifecycle:              cloneMapStr(b.bucketLifecycle),
+		BucketVersioning:             cloneMapStr(b.bucketVersioning),
+		MRAPRoutes:                   cloneMapStr(b.mrapRoutes),
+		AccessGrantsInstancePolicies: cloneMapStr(b.accessGrantsInstancePolicies),
+		JobTags:                      cloneMapTagSet(b.jobTags),
+		NextID:                       b.nextID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -161,7 +198,19 @@ func cloneMapResourceTags(m map[string]map[string]string) map[string]map[string]
 	return out
 }
 
+// ensureNonNilMaps guards every raw (non-*T) map field against decoding as
+// nil (an absent/empty JSON object decodes to a nil Go map), so callers can
+// assign these fields straight onto InMemoryBackend without a nil check at
+// every call site. Split into two batches (see backendSnapshot's field doc
+// comments) purely to keep each function under the cyclop complexity
+// budget -- there is no behavioral grouping significance to the split.
 func ensureNonNilMaps(snap *backendSnapshot) {
+	ensureNonNilMapsBatch2(snap)
+	ensureNonNilMapsBatch1(snap)
+}
+
+// ensureNonNilMapsBatch2 covers the original "batch2 additions" fields.
+func ensureNonNilMapsBatch2(snap *backendSnapshot) {
 	if snap.BucketReplication == nil {
 		snap.BucketReplication = make(map[string]string)
 	}
@@ -180,6 +229,50 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.AccessPointPolicies == nil {
 		snap.AccessPointPolicies = make(map[string]string)
+	}
+}
+
+// ensureNonNilMapsBatch1 covers the "batch1 additions" fields added by the
+// version-2 persistence-gap fix (see s3controlSnapshotVersion's doc comment).
+func ensureNonNilMapsBatch1(snap *backendSnapshot) {
+	if snap.AccessPointScopes == nil {
+		snap.AccessPointScopes = make(map[string]string)
+	}
+
+	if snap.ObjectLambdaAPPolicies == nil {
+		snap.ObjectLambdaAPPolicies = make(map[string]string)
+	}
+
+	if snap.ObjectLambdaAPConfigs == nil {
+		snap.ObjectLambdaAPConfigs = make(map[string]string)
+	}
+
+	if snap.BucketPolicies == nil {
+		snap.BucketPolicies = make(map[string]string)
+	}
+
+	if snap.BucketTagging == nil {
+		snap.BucketTagging = make(map[string]TagSet)
+	}
+
+	if snap.BucketLifecycle == nil {
+		snap.BucketLifecycle = make(map[string]string)
+	}
+
+	if snap.BucketVersioning == nil {
+		snap.BucketVersioning = make(map[string]string)
+	}
+
+	if snap.MRAPRoutes == nil {
+		snap.MRAPRoutes = make(map[string]string)
+	}
+
+	if snap.AccessGrantsInstancePolicies == nil {
+		snap.AccessGrantsInstancePolicies = make(map[string]string)
+	}
+
+	if snap.JobTags == nil {
+		snap.JobTags = make(map[string]TagSet)
 	}
 }
 
@@ -212,6 +305,16 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.storageLensConfigTags = make(map[string]TagSet)
 		b.resourceTags = make(map[string]map[string]string)
 		b.accessPointPolicies = make(map[string]string)
+		b.accessPointScopes = make(map[string]string)
+		b.objectLambdaAPPolicies = make(map[string]string)
+		b.objectLambdaAPConfigs = make(map[string]string)
+		b.bucketPolicies = make(map[string]string)
+		b.bucketTagging = make(map[string]TagSet)
+		b.bucketLifecycle = make(map[string]string)
+		b.bucketVersioning = make(map[string]string)
+		b.mrapRoutes = make(map[string]string)
+		b.accessGrantsInstancePolicies = make(map[string]string)
+		b.jobTags = make(map[string]TagSet)
 		b.nextID = 0
 
 		return nil
@@ -232,6 +335,16 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.storageLensConfigTags = snap.StorageLensConfigTags
 	b.resourceTags = snap.ResourceTags
 	b.accessPointPolicies = snap.AccessPointPolicies
+	b.accessPointScopes = snap.AccessPointScopes
+	b.objectLambdaAPPolicies = snap.ObjectLambdaAPPolicies
+	b.objectLambdaAPConfigs = snap.ObjectLambdaAPConfigs
+	b.bucketPolicies = snap.BucketPolicies
+	b.bucketTagging = snap.BucketTagging
+	b.bucketLifecycle = snap.BucketLifecycle
+	b.bucketVersioning = snap.BucketVersioning
+	b.mrapRoutes = snap.MRAPRoutes
+	b.accessGrantsInstancePolicies = snap.AccessGrantsInstancePolicies
+	b.jobTags = snap.JobTags
 	b.nextID = snap.NextID
 
 	return nil
