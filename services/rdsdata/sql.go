@@ -16,7 +16,7 @@ func (b *InMemoryBackend) ExecuteSQL(
 
 	// Execute for real so the deprecated entry point still mutates state; the
 	// reported update count reflects the engine result when available.
-	_, _, updated, err := b.engine.execute(ctx, region, resourceARN, sqlStatements, "", nil)
+	_, _, updated, _, err := b.engine.execute(ctx, region, resourceARN, sqlStatements, "", nil)
 	if err != nil {
 		return []SQLStatementResult{{NumberOfRecordsUpdated: 0}}, nil
 	}

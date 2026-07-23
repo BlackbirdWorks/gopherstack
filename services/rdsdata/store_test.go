@@ -37,7 +37,7 @@ func TestBackend_Reset(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, _, _, err = b.ExecuteStatement(
+	_, _, _, _, err = b.ExecuteStatement(
 		context.Background(),
 		"arn:aws:rds:us-east-1:000000000000:cluster:test",
 		"SELECT 1",
@@ -87,7 +87,7 @@ func TestBackend_ExecutedStatementCount(t *testing.T) {
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 	assert.Equal(t, 0, rdsdata.ExecutedStatementCount(b))
 
-	_, _, _, err := b.ExecuteStatement(context.Background(), "arn", "SELECT 1", "")
+	_, _, _, _, err := b.ExecuteStatement(context.Background(), "arn", "SELECT 1", "")
 	require.NoError(t, err)
 	assert.Equal(t, 1, rdsdata.ExecutedStatementCount(b))
 }
@@ -148,7 +148,7 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, _, _, err = b.ExecuteStatement(
+	_, _, _, _, err = b.ExecuteStatement(
 		context.Background(),
 		"arn:aws:rds:us-east-1:000000000000:cluster:test",
 		"SELECT 42",

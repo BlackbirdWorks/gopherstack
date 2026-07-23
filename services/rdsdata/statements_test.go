@@ -398,6 +398,183 @@ func TestHandler_ExecuteStatement_SQLParameterTypeHint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// TestHandler_ExecuteStatement_ArrayParameterRejected verifies that a
+// parameter whose value is an arrayValue is rejected as a BadRequestException,
+// matching real AWS's documented "Array parameters are not supported".
+func TestHandler_ExecuteStatement_ArrayParameterRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
+		"resourceArn": stmtResourceARN,
+		"secretArn":   stmtSecretARN,
+		"sql":         "SELECT :vals",
+		"parameters": []any{
+			map[string]any{
+				"name":  "vals",
+				"value": map[string]any{"arrayValue": map[string]any{"stringValues": []any{"a", "b"}}},
+			},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "BadRequestException", resp["__type"])
+}
+
+// TestHandler_ExecuteStatement_ResultSetOptions_LongReturnType verifies that
+// resultSetOptions.longReturnType shapes an INTEGER-affinity result column:
+// default LONG keeps longValue, STRING renders it as stringValue.
+func TestHandler_ExecuteStatement_ResultSetOptions_LongReturnType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantValue      any
+		name           string
+		longReturnType string
+		wantKey        string
+	}{
+		{name: "default_stays_long", longReturnType: "", wantKey: "longValue", wantValue: float64(7)},
+		{name: "explicit_long", longReturnType: "LONG", wantKey: "longValue", wantValue: float64(7)},
+		{name: "string_override", longReturnType: "STRING", wantKey: "stringValue", wantValue: "7"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			arn := "arn:aws:rds:us-east-1:000000000000:cluster:rso-long-" + tt.name
+
+			create := doRDSDataRequest(t, h, "/Execute", map[string]any{
+				"resourceArn": arn, "secretArn": stmtSecretARN,
+				"sql": "CREATE TABLE n (v INTEGER)",
+			})
+			require.Equal(t, http.StatusOK, create.Code)
+			insert := doRDSDataRequest(t, h, "/Execute", map[string]any{
+				"resourceArn": arn, "secretArn": stmtSecretARN,
+				"sql": "INSERT INTO n (v) VALUES (7)",
+			})
+			require.Equal(t, http.StatusOK, insert.Code)
+
+			body := map[string]any{
+				"resourceArn": arn, "secretArn": stmtSecretARN,
+				"sql": "SELECT v FROM n",
+			}
+			if tt.longReturnType != "" {
+				body["resultSetOptions"] = map[string]any{"longReturnType": tt.longReturnType}
+			}
+
+			rec := doRDSDataRequest(t, h, "/Execute", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			records := resp["records"].([]any)
+			require.Len(t, records, 1)
+			row := records[0].([]any)[0].(map[string]any)
+
+			require.Contains(t, row, tt.wantKey)
+			assert.Equal(t, tt.wantValue, row[tt.wantKey])
+		})
+	}
+}
+
+// TestHandler_ExecuteStatement_ResultSetOptions_DecimalReturnType verifies
+// that resultSetOptions.decimalReturnType shapes a NUMERIC-affinity result
+// column: default STRING renders it as stringValue, DOUBLE_OR_LONG converts
+// it back to a numeric field.
+func TestHandler_ExecuteStatement_ResultSetOptions_DecimalReturnType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		decimalReturnType string
+		wantKey           string
+	}{
+		{name: "default_is_string", decimalReturnType: "", wantKey: "stringValue"},
+		{name: "explicit_string", decimalReturnType: "STRING", wantKey: "stringValue"},
+		{name: "double_or_long", decimalReturnType: "DOUBLE_OR_LONG", wantKey: "longValue"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			arn := "arn:aws:rds:us-east-1:000000000000:cluster:rso-decimal-" + tt.name
+
+			create := doRDSDataRequest(t, h, "/Execute", map[string]any{
+				"resourceArn": arn, "secretArn": stmtSecretARN,
+				"sql": "CREATE TABLE amt (v NUMERIC)",
+			})
+			require.Equal(t, http.StatusOK, create.Code)
+			insert := doRDSDataRequest(t, h, "/Execute", map[string]any{
+				"resourceArn": arn, "secretArn": stmtSecretARN,
+				"sql": "INSERT INTO amt (v) VALUES (42)",
+			})
+			require.Equal(t, http.StatusOK, insert.Code)
+
+			body := map[string]any{
+				"resourceArn": arn, "secretArn": stmtSecretARN,
+				"sql": "SELECT v FROM amt",
+			}
+			if tt.decimalReturnType != "" {
+				body["resultSetOptions"] = map[string]any{"decimalReturnType": tt.decimalReturnType}
+			}
+
+			rec := doRDSDataRequest(t, h, "/Execute", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			records := resp["records"].([]any)
+			require.Len(t, records, 1)
+			row := records[0].([]any)[0].(map[string]any)
+
+			require.Contains(t, row, tt.wantKey)
+		})
+	}
+}
+
+// TestHandler_ExecuteStatement_ResultSetOptions_InvalidEnum verifies that an
+// unrecognized resultSetOptions value is rejected as a BadRequestException,
+// matching real AWS enum validation.
+func TestHandler_ExecuteStatement_ResultSetOptions_InvalidEnum(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		options map[string]any
+		name    string
+	}{
+		{name: "bad_decimal", options: map[string]any{"decimalReturnType": "BOGUS"}},
+		{name: "bad_long", options: map[string]any{"longReturnType": "BOGUS"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
+				"resourceArn":      stmtResourceARN,
+				"secretArn":        stmtSecretARN,
+				"sql":              "SELECT 1",
+				"resultSetOptions": tt.options,
+			})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, "BadRequestException", resp["__type"])
+		})
+	}
+}
+
 func TestHandler_BatchExecuteStatement(t *testing.T) {
 	t.Parallel()
 
@@ -504,6 +681,31 @@ func TestHandler_BatchExecuteStatement_EmptyParamSets(t *testing.T) {
 	assert.NotNil(t, results, "updateResults must not be null")
 }
 
+// TestHandler_BatchExecuteStatement_ArrayParameterRejected verifies that an
+// arrayValue anywhere in parameterSets is rejected as a BadRequestException,
+// matching real AWS's documented "Array parameters are not supported".
+func TestHandler_BatchExecuteStatement_ArrayParameterRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRDSDataRequest(t, h, "/BatchExecute", map[string]any{
+		"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+		"secretArn":   "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
+		"sql":         "INSERT INTO test VALUES (:val)",
+		"parameterSets": []any{
+			[]any{map[string]any{
+				"name":  "val",
+				"value": map[string]any{"arrayValue": map[string]any{"longValues": []any{1, 2}}},
+			}},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "BadRequestException", resp["__type"])
+}
+
 // TestHandler_BatchExecuteStatement_TracksStatement verifies batch statements are recorded.
 func TestHandler_BatchExecuteStatement_TracksStatement(t *testing.T) {
 	t.Parallel()
@@ -606,7 +808,7 @@ func TestBackend_ListExecutedStatements(t *testing.T) {
 
 	b := rdsdata.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, _, _, err := b.ExecuteStatement(
+	_, _, _, _, err := b.ExecuteStatement(
 		context.Background(),
 		"arn:aws:rds:us-east-1:000000000000:cluster:test",
 		"SELECT 1",

@@ -91,11 +91,11 @@ func seedPersistRegion(
 	require.NoError(t, err)
 
 	create := "CREATE TABLE " + table + " (id INTEGER)"
-	_, _, _, err = b.ExecuteStatement(ctx, arn, create, "")
+	_, _, _, _, err = b.ExecuteStatement(ctx, arn, create, "")
 	require.NoError(t, err)
 
 	insert := "INSERT INTO " + table + " (id) VALUES (1)"
-	_, _, _, err = b.ExecuteStatement(ctx, arn, insert, "")
+	_, _, _, _, err = b.ExecuteStatement(ctx, arn, insert, "")
 	require.NoError(t, err)
 
 	return regionPersistSeed{
@@ -173,7 +173,7 @@ func Test_SnapshotRestore_FullState(t *testing.T) {
 	// The engine replay must have rebuilt each region's table from the
 	// restored, order-preserved statement log: a SELECT against the table
 	// created during seeding must see the row inserted right after it.
-	records, _, _, err := restored.ExecuteStatement(ctxEast, eastSeed.arn, "SELECT id FROM "+eastSeed.table, "")
+	records, _, _, _, err := restored.ExecuteStatement(ctxEast, eastSeed.arn, "SELECT id FROM "+eastSeed.table, "")
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	require.NotNil(t, records[0][0].LongValue)
