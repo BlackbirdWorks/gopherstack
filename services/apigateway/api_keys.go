@@ -21,6 +21,11 @@ func (b *InMemoryBackend) CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 		}
 	}
 
+	stageKeys, err := b.resolveStageKeysLocked(input.StageKeys)
+	if err != nil {
+		return nil, err
+	}
+
 	now := unixEpochTime{time.Now()}
 	id := randomID(apiIDLength)
 
@@ -38,6 +43,7 @@ func (b *InMemoryBackend) CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 		Description:     input.Description,
 		Value:           value,
 		CustomerID:      input.CustomerID,
+		StageKeys:       stageKeys,
 		Enabled:         input.Enabled,
 		Tags:            backendTags,
 		CreatedDate:     now,
@@ -49,6 +55,35 @@ func (b *InMemoryBackend) CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 	cp := *key
 
 	return &cp, nil
+}
+
+// formatAPIKeyStageKey renders a REST API/stage pair in the
+// "{restApiId}/{stageName}" wire format AWS uses for ApiKey.StageKeys
+// (types.ApiKey.StageKeys / CreateApiKeyOutput.StageKeys are []string, unlike
+// CreateApiKeyInput.StageKeys which is []types.StageKey -- a typed object).
+func formatAPIKeyStageKey(restAPIID, stageName string) string {
+	return restAPIID + "/" + stageName
+}
+
+// resolveStageKeysLocked validates and formats CreateApiKeyInput.StageKeys
+// (DEPRECATED FOR USAGE PLANS per the SDK's doc comment, but still a real,
+// wire-modeled field -- see APIKey.StageKeys's doc comment). Each referenced
+// REST API stage must already exist. Callers must hold b.mu.
+func (b *InMemoryBackend) resolveStageKeysLocked(in []StageKeyInput) ([]string, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+
+	out := make([]string, 0, len(in))
+	for _, sk := range in {
+		if !b.stages.Has(stageKey(sk.RestAPIID, sk.StageName)) {
+			return nil, fmt.Errorf("%w: stage %s not found on REST API %s",
+				ErrStageNotFound, sk.StageName, sk.RestAPIID)
+		}
+		out = append(out, formatAPIKeyStageKey(sk.RestAPIID, sk.StageName))
+	}
+
+	return out, nil
 }
 
 // GetAPIKey retrieves an API key by ID.
@@ -130,6 +165,9 @@ func (b *InMemoryBackend) UpdateAPIKey(id string, input UpdateAPIKeyInput) (*API
 	}
 	if input.Enabled != nil {
 		key.Enabled = *input.Enabled
+	}
+	if input.StageKeys != nil {
+		key.StageKeys = input.StageKeys
 	}
 	key.LastUpdatedDate = unixEpochTime{time.Now()}
 	cp := *key

@@ -96,21 +96,22 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 
 	now := unixEpochTime{time.Now()}
 	stage := &Stage{
-		StageName:           input.StageName,
-		RestAPIID:           input.RestAPIID,
-		DeploymentID:        input.DeploymentID,
-		Description:         input.Description,
-		Variables:           variables,
-		CreatedDate:         now,
-		LastUpdatedDate:     now,
-		CanarySettings:      input.CanarySettings,
-		AccessLogSettings:   input.AccessLogSettings,
-		MethodSettings:      input.MethodSettings,
-		TracingEnabled:      input.TracingEnabled,
-		ClientCertificateID: input.ClientCertificateID,
-		CacheClusterEnabled: input.CacheClusterEnabled,
-		CacheClusterSize:    input.CacheClusterSize,
-		CacheClusterStatus:  cacheClusterStatusFor(input.CacheClusterEnabled),
+		StageName:            input.StageName,
+		RestAPIID:            input.RestAPIID,
+		DeploymentID:         input.DeploymentID,
+		Description:          input.Description,
+		Variables:            variables,
+		CreatedDate:          now,
+		LastUpdatedDate:      now,
+		CanarySettings:       input.CanarySettings,
+		AccessLogSettings:    input.AccessLogSettings,
+		MethodSettings:       input.MethodSettings,
+		TracingEnabled:       input.TracingEnabled,
+		ClientCertificateID:  input.ClientCertificateID,
+		CacheClusterEnabled:  input.CacheClusterEnabled,
+		CacheClusterSize:     input.CacheClusterSize,
+		CacheClusterStatus:   cacheClusterStatusFor(input.CacheClusterEnabled),
+		DocumentationVersion: input.DocumentationVersion,
 	}
 	b.stages.Put(stage)
 
@@ -161,6 +162,9 @@ func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateS
 	if input.CacheClusterSize != "" {
 		stage.CacheClusterSize = input.CacheClusterSize
 	}
+	if input.DocumentationVersion != "" {
+		stage.DocumentationVersion = input.DocumentationVersion
+	}
 	stage.LastUpdatedDate = unixEpochTime{time.Now()}
 	cp := *stage
 
@@ -171,7 +175,7 @@ func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateS
 // ("AVAILABLE"/"NOT_AVAILABLE") from whether the stage's cache cluster is enabled.
 func cacheClusterStatusFor(enabled bool) string {
 	if enabled {
-		return "AVAILABLE"
+		return statusAvailable
 	}
 
 	return "NOT_AVAILABLE"

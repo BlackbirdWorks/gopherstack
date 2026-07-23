@@ -113,8 +113,10 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 	if input.AuthorizerCredentials != "" {
 		auth.AuthorizerCredentials = input.AuthorizerCredentials
 	}
-	if input.IdentitySource != "" {
-		auth.IdentitySource = input.IdentitySource
+	// IdentitySource is a *string so an explicit PATCH "remove" (a pointer to
+	// "") is distinguishable from the field being absent from this PATCH.
+	if input.IdentitySource != nil {
+		auth.IdentitySource = *input.IdentitySource
 	}
 	if input.IdentityValidationExpression != "" {
 		auth.IdentityValidationExpression = input.IdentityValidationExpression

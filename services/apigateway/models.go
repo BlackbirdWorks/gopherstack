@@ -53,17 +53,21 @@ type EndpointConfiguration struct {
 
 // RestAPI represents an API Gateway REST API.
 type RestAPI struct {
-	CreatedDate            unixEpochTime          `json:"createdDate"`
-	EndpointConfiguration  *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
-	Tags                   *tags.Tags             `json:"tags,omitempty"`
-	ID                     string                 `json:"id"`
-	Name                   string                 `json:"name"`
-	Description            string                 `json:"description,omitempty"`
-	Policy                 string                 `json:"policy,omitempty"`
-	APIKeySource           string                 `json:"apiKeySource,omitempty"`
-	RootResourceID         string                 `json:"rootResourceId,omitempty"`
-	BinaryMediaTypes       []string               `json:"binaryMediaTypes,omitempty"`
-	MinimumCompressionSize int                    `json:"minimumCompressionSize,omitempty"`
+	CreatedDate               unixEpochTime          `json:"createdDate"`
+	EndpointConfiguration     *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
+	Tags                      *tags.Tags             `json:"tags,omitempty"`
+	Policy                    string                 `json:"policy,omitempty"`
+	Name                      string                 `json:"name"`
+	Description               string                 `json:"description,omitempty"`
+	ID                        string                 `json:"id"`
+	APIKeySource              string                 `json:"apiKeySource,omitempty"`
+	RootResourceID            string                 `json:"rootResourceId,omitempty"`
+	APIStatus                 string                 `json:"apiStatus,omitempty"`
+	APIStatusMessage          string                 `json:"apiStatusMessage,omitempty"`
+	EndpointAccessMode        string                 `json:"endpointAccessMode,omitempty"`
+	BinaryMediaTypes          []string               `json:"binaryMediaTypes,omitempty"`
+	MinimumCompressionSize    int                    `json:"minimumCompressionSize,omitempty"`
+	DisableExecuteAPIEndpoint bool                   `json:"disableExecuteApiEndpoint,omitempty"`
 }
 
 // CorsConfiguration holds CORS settings for a resource.
@@ -150,14 +154,16 @@ type AccessLogSettings struct {
 
 // MethodSetting holds per-method CloudWatch logging and throttling settings.
 type MethodSetting struct {
-	LoggingLevel                        string  `json:"loggingLevel,omitempty"`
-	ThrottlingRateLimit                 float64 `json:"throttlingRateLimit,omitempty"`
-	ThrottlingBurstLimit                int     `json:"throttlingBurstLimit,omitempty"`
-	CacheTTLInSeconds                   int     `json:"cacheTtlInSeconds,omitempty"`
-	DataTraceEnabled                    bool    `json:"dataTraceEnabled,omitempty"`
-	MetricsEnabled                      bool    `json:"metricsEnabled,omitempty"`
-	CachingEnabled                      bool    `json:"cachingEnabled,omitempty"`
-	RequireAuthorizationForCacheControl bool    `json:"requireAuthorizationForCacheControl,omitempty"`
+	LoggingLevel                           string  `json:"loggingLevel,omitempty"`
+	UnauthorizedCacheControlHeaderStrategy string  `json:"unauthorizedCacheControlHeaderStrategy,omitempty"`
+	ThrottlingRateLimit                    float64 `json:"throttlingRateLimit,omitempty"`
+	ThrottlingBurstLimit                   int     `json:"throttlingBurstLimit,omitempty"`
+	CacheTTLInSeconds                      int     `json:"cacheTtlInSeconds,omitempty"`
+	DataTraceEnabled                       bool    `json:"dataTraceEnabled,omitempty"`
+	MetricsEnabled                         bool    `json:"metricsEnabled,omitempty"`
+	CachingEnabled                         bool    `json:"cachingEnabled,omitempty"`
+	CacheDataEncrypted                     bool    `json:"cacheDataEncrypted,omitempty"`
+	RequireAuthorizationForCacheControl    bool    `json:"requireAuthorizationForCacheControl,omitempty"`
 }
 
 // Stage represents a deployment stage.
@@ -180,9 +186,12 @@ type Stage struct {
 	// (AVAILABLE/NOT_AVAILABLE/...), derived from CacheClusterEnabled.
 	CacheClusterStatus string `json:"cacheClusterStatus,omitempty"`
 	// InvokeURL is the invoke URL for this stage (non-AWS field used by gopherstack UI).
-	InvokeURL           string `json:"invokeUrl,omitempty"`
-	TracingEnabled      bool   `json:"tracingEnabled,omitempty"`
-	CacheClusterEnabled bool   `json:"cacheClusterEnabled,omitempty"`
+	InvokeURL string `json:"invokeUrl,omitempty"`
+	// DocumentationVersion associates this stage with a snapshot of API
+	// documentation (types.Stage.DocumentationVersion in the SDK).
+	DocumentationVersion string `json:"documentationVersion,omitempty"`
+	TracingEnabled       bool   `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled  bool   `json:"cacheClusterEnabled,omitempty"`
 }
 
 // Deployment represents a REST API deployment.
@@ -268,13 +277,16 @@ type CreateAuthorizerInput struct {
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
-// UpdateAuthorizerInput is the input for UpdateAuthorizer (patch operations).
+// UpdateAuthorizerInput is the input for UpdateAuthorizer. IdentitySource is
+// a *string (see updateAuthorizerInput's doc comment in handler_authorizers.go)
+// so an explicit PATCH "remove" of "/identitySource" (AWS-documented as
+// supported) can be told apart from the field being absent from the PATCH.
 type UpdateAuthorizerInput struct {
+	IdentitySource               *string  `json:"identitySource,omitempty"`
 	Name                         string   `json:"name,omitempty"`
 	Type                         string   `json:"type,omitempty"`
 	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
 	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
-	IdentitySource               string   `json:"identitySource,omitempty"`
 	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
@@ -344,17 +356,31 @@ type APIKey struct {
 	// CustomerID is an AWS Marketplace customer identifier, when integrating
 	// with the AWS SaaS Marketplace (types.ApiKey.CustomerId in the SDK).
 	CustomerID string `json:"customerId,omitempty"`
-	Enabled    bool   `json:"enabled"`
+	// StageKeys lists the "{restApiId}/{stageName}" stage associations for
+	// this API key (types.ApiKey.StageKeys / types.CreateApiKeyOutput.StageKeys
+	// in the SDK -- deprecated in favor of usage plans, but still a real,
+	// settable field: CreateApiKeyInput.StageKeys and UpdateApiKey's
+	// "/stages" add/remove PATCH path both still work against it).
+	StageKeys []string `json:"stageKeys,omitempty"`
+	Enabled   bool     `json:"enabled"`
+}
+
+// StageKeyInput identifies a REST API stage to associate with an API key at
+// creation time (types.StageKey in the SDK).
+type StageKeyInput struct {
+	RestAPIID string `json:"restApiId,omitempty"`
+	StageName string `json:"stageName,omitempty"`
 }
 
 // CreateAPIKeyInput is the input for CreateAPIKey.
 type CreateAPIKeyInput struct {
-	Tags        *tags.Tags `json:"tags,omitempty"`
-	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
-	Value       string     `json:"value,omitempty"`
-	CustomerID  string     `json:"customerId,omitempty"`
-	Enabled     bool       `json:"enabled"`
+	Tags        *tags.Tags      `json:"tags,omitempty"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Value       string          `json:"value,omitempty"`
+	CustomerID  string          `json:"customerId,omitempty"`
+	StageKeys   []StageKeyInput `json:"stageKeys,omitempty"`
+	Enabled     bool            `json:"enabled"`
 }
 
 // BasePathMapping maps a base path on a custom domain to an API stage.
@@ -474,18 +500,19 @@ type CreateModelInput struct {
 
 // CreateStageInput is the input for the standalone CreateStage operation.
 type CreateStageInput struct {
-	CanarySettings      *CanarySettings          `json:"canarySettings,omitempty"`
-	AccessLogSettings   *AccessLogSettings       `json:"accessLogSettings,omitempty"`
-	MethodSettings      map[string]MethodSetting `json:"methodSettings,omitempty"`
-	Variables           map[string]string        `json:"variables,omitempty"`
-	RestAPIID           string                   `json:"restApiId"`
-	StageName           string                   `json:"stageName"`
-	DeploymentID        string                   `json:"deploymentId"`
-	Description         string                   `json:"description,omitempty"`
-	ClientCertificateID string                   `json:"clientCertificateId,omitempty"`
-	CacheClusterSize    string                   `json:"cacheClusterSize,omitempty"`
-	TracingEnabled      bool                     `json:"tracingEnabled,omitempty"`
-	CacheClusterEnabled bool                     `json:"cacheClusterEnabled,omitempty"`
+	CanarySettings       *CanarySettings          `json:"canarySettings,omitempty"`
+	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
+	MethodSettings       map[string]MethodSetting `json:"methodSettings,omitempty"`
+	Variables            map[string]string        `json:"variables,omitempty"`
+	RestAPIID            string                   `json:"restApiId"`
+	StageName            string                   `json:"stageName"`
+	DeploymentID         string                   `json:"deploymentId"`
+	Description          string                   `json:"description,omitempty"`
+	ClientCertificateID  string                   `json:"clientCertificateId,omitempty"`
+	CacheClusterSize     string                   `json:"cacheClusterSize,omitempty"`
+	DocumentationVersion string                   `json:"documentationVersion,omitempty"`
+	TracingEnabled       bool                     `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled  bool                     `json:"cacheClusterEnabled,omitempty"`
 }
 
 // ThrottleSettings controls request rate limiting for a usage plan.
@@ -548,6 +575,9 @@ type UpdateAPIKeyInput struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	CustomerID  string `json:"customerId,omitempty"`
+	// StageKeys is the flattened result of PATCH "/stages" add/remove ops
+	// (see patch.go's applyAPIKeyPatchOp), each formatted "{restApiId}/{stageName}".
+	StageKeys []string `json:"stageKeys,omitempty"`
 }
 
 // UpdateModelInput is the input for UpdateModel.
@@ -558,16 +588,17 @@ type UpdateModelInput struct {
 
 // UpdateStageInput is the input for UpdateStage.
 type UpdateStageInput struct {
-	CanarySettings      *CanarySettings          `json:"canarySettings,omitempty"`
-	AccessLogSettings   *AccessLogSettings       `json:"accessLogSettings,omitempty"`
-	TracingEnabled      *bool                    `json:"tracingEnabled,omitempty"`
-	CacheClusterEnabled *bool                    `json:"cacheClusterEnabled,omitempty"`
-	MethodSettings      map[string]MethodSetting `json:"methodSettings,omitempty"`
-	Variables           map[string]string        `json:"variables,omitempty"`
-	DeploymentID        string                   `json:"deploymentId,omitempty"`
-	Description         string                   `json:"description,omitempty"`
-	ClientCertificateID string                   `json:"clientCertificateId,omitempty"`
-	CacheClusterSize    string                   `json:"cacheClusterSize,omitempty"`
+	CanarySettings       *CanarySettings          `json:"canarySettings,omitempty"`
+	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
+	TracingEnabled       *bool                    `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled  *bool                    `json:"cacheClusterEnabled,omitempty"`
+	MethodSettings       map[string]MethodSetting `json:"methodSettings,omitempty"`
+	Variables            map[string]string        `json:"variables,omitempty"`
+	DeploymentID         string                   `json:"deploymentId,omitempty"`
+	Description          string                   `json:"description,omitempty"`
+	ClientCertificateID  string                   `json:"clientCertificateId,omitempty"`
+	CacheClusterSize     string                   `json:"cacheClusterSize,omitempty"`
+	DocumentationVersion string                   `json:"documentationVersion,omitempty"`
 }
 
 // Account represents the API Gateway account settings.
@@ -580,25 +611,36 @@ type Account struct {
 
 // CreateRestAPIInput is the input for CreateRestApi.
 type CreateRestAPIInput struct {
-	EndpointConfiguration  *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
-	Tags                   *tags.Tags             `json:"tags,omitempty"`
-	Name                   string                 `json:"name"`
-	Description            string                 `json:"description,omitempty"`
-	Policy                 string                 `json:"policy,omitempty"`
-	APIKeySource           string                 `json:"apiKeySource,omitempty"`
-	BinaryMediaTypes       []string               `json:"binaryMediaTypes,omitempty"`
-	MinimumCompressionSize int                    `json:"minimumCompressionSize,omitempty"`
+	EndpointConfiguration     *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
+	Tags                      *tags.Tags             `json:"tags,omitempty"`
+	Name                      string                 `json:"name"`
+	Description               string                 `json:"description,omitempty"`
+	Policy                    string                 `json:"policy,omitempty"`
+	APIKeySource              string                 `json:"apiKeySource,omitempty"`
+	EndpointAccessMode        string                 `json:"endpointAccessMode,omitempty"`
+	BinaryMediaTypes          []string               `json:"binaryMediaTypes,omitempty"`
+	MinimumCompressionSize    int                    `json:"minimumCompressionSize,omitempty"`
+	DisableExecuteAPIEndpoint bool                   `json:"disableExecuteApiEndpoint,omitempty"`
 }
 
-// UpdateRestAPIInput is the input for UpdateRestApi.
+// UpdateRestAPIInput is the input for UpdateRestApi. Description is a
+// *string (rather than the plain string every other UpdateRestAPIInput field
+// uses) because UpdateRestApi's PATCH is the only Update* op in this service
+// where a bare top-level scalar's "remove" op is both AWS-documented as
+// supported (patch-operations.html: UpdateRestApi "/description" row) and
+// implemented here (see patch.go's removableTopLevelScalar) — a plain string
+// can't distinguish "explicitly cleared to empty" from "not provided in this
+// PATCH at all", which a zero-value merge check would otherwise silently drop.
 type UpdateRestAPIInput struct {
-	EndpointConfiguration  *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
-	MinimumCompressionSize *int                   `json:"minimumCompressionSize,omitempty"`
-	Name                   string                 `json:"name,omitempty"`
-	Description            string                 `json:"description,omitempty"`
-	Policy                 string                 `json:"policy,omitempty"`
-	APIKeySource           string                 `json:"apiKeySource,omitempty"`
-	BinaryMediaTypes       []string               `json:"binaryMediaTypes,omitempty"`
+	EndpointConfiguration     *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
+	MinimumCompressionSize    *int                   `json:"minimumCompressionSize,omitempty"`
+	Description               *string                `json:"description,omitempty"`
+	DisableExecuteAPIEndpoint *bool                  `json:"disableExecuteApiEndpoint,omitempty"`
+	Name                      string                 `json:"name,omitempty"`
+	Policy                    string                 `json:"policy,omitempty"`
+	APIKeySource              string                 `json:"apiKeySource,omitempty"`
+	EndpointAccessMode        string                 `json:"endpointAccessMode,omitempty"`
+	BinaryMediaTypes          []string               `json:"binaryMediaTypes,omitempty"`
 }
 
 // UpdateDeploymentInput is the input for UpdateDeployment.

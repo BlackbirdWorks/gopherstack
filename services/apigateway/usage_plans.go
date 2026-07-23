@@ -214,7 +214,9 @@ func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePla
 		p.APIStages = input.APIStages
 	}
 
-	return p, nil
+	cp := *p
+
+	return &cp, nil
 }
 
 // EnforceUsagePlan applies usage-plan quota and throttle limits for an API key on the

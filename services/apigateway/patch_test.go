@@ -542,3 +542,232 @@ func Test_ApplyStructuredPatch_TopLevelReplaceStillWorks(t *testing.T) {
 		})
 	}
 }
+
+// Test_ApplyStructuredPatch_RestAPIDescriptionRemove proves that PATCH
+// "remove" on the top-level scalar "/description" actually clears the field,
+// which AWS documents as supported (patch-operations.html: UpdateRestApi
+// "/description" row lists op:remove). Before UpdateRestAPIInput.Description
+// became a *string, "remove" was indistinguishable from "not provided in
+// this PATCH at all" and silently no-op'd.
+func Test_ApplyStructuredPatch_RestAPIDescriptionRemove(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	api, err := h.Backend.CreateRestAPI(apigateway.CreateRestAPIInput{
+		Name:        "desc-remove-api",
+		Description: "original description",
+	})
+	require.NoError(t, err)
+
+	rec := restRequest(t, h, http.MethodPatch, fmt.Sprintf("/restapis/%s", api.ID),
+		`[{"op":"remove","path":"/description"}]`)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err := h.Backend.GetRestAPI(api.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.Description, "explicit remove must clear the field")
+	assert.Equal(t, "desc-remove-api", got.Name, "unrelated field untouched")
+}
+
+// Test_ApplyStructuredPatch_RestAPIEndpointFields exercises the two RestApi
+// fields absent from gopherstack's RestAPI struct until this sweep:
+// "/disableExecuteApiEndpoint" (a bool needing wire-string coercion, like
+// tracingEnabled) and "/endpointAccessMode" (a plain string enum). Both are
+// documented as replace-only PATCH paths (patch-operations.html).
+func Test_ApplyStructuredPatch_RestAPIEndpointFields(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	api, err := h.Backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "endpoint-fields-api"})
+	require.NoError(t, err)
+	require.False(t, api.DisableExecuteAPIEndpoint, "precondition: defaults to false")
+	require.Equal(t, "AVAILABLE", api.APIStatus, "gopherstack creates RestApis synchronously")
+
+	rec := restRequest(t, h, http.MethodPatch, fmt.Sprintf("/restapis/%s", api.ID),
+		`[{"op":"replace","path":"/disableExecuteApiEndpoint","value":"true"},`+
+			`{"op":"replace","path":"/endpointAccessMode","value":"STRICT"}]`)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err := h.Backend.GetRestAPI(api.ID)
+	require.NoError(t, err)
+	assert.True(t, got.DisableExecuteAPIEndpoint, "string wire value must coerce to bool")
+	assert.Equal(t, "STRICT", got.EndpointAccessMode)
+}
+
+// Test_ApplyStructuredPatch_AuthorizerIdentitySourceRemove is the second
+// concrete instance (alongside RestApi's "/description") of a top-level
+// scalar PATCH "remove" that AWS documents as supported
+// (patch-operations.html: UpdateAuthorizer "/identitySource" row).
+func Test_ApplyStructuredPatch_AuthorizerIdentitySourceRemove(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	api, err := h.Backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "authz-remove-api"})
+	require.NoError(t, err)
+
+	auth, err := h.Backend.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
+		Name:           "my-auth",
+		Type:           "TOKEN",
+		AuthorizerURI:  "arn:aws:apigateway:us-east-1:lambda:path/functions/f/invocations",
+		IdentitySource: "method.request.header.Authorization",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, auth.IdentitySource, "precondition")
+
+	rec := restRequest(t, h, http.MethodPatch, fmt.Sprintf("/restapis/%s/authorizers/%s", api.ID, auth.ID),
+		`[{"op":"remove","path":"/identitySource"}]`)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err := h.Backend.GetAuthorizer(api.ID, auth.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.IdentitySource, "explicit remove must clear the field")
+	assert.Equal(t, "my-auth", got.Name, "unrelated field untouched")
+}
+
+// Test_ApplyStructuredPatch_StageDocumentationVersion exercises the
+// top-level "/documentationVersion" field (types.Stage.DocumentationVersion
+// in the SDK), absent from gopherstack's Stage struct until this sweep.
+func Test_ApplyStructuredPatch_StageDocumentationVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	apiID, stageName := setupStage(t, h, nil, nil)
+
+	rec := restRequest(t, h, http.MethodPatch, fmt.Sprintf("/restapis/%s/stages/%s", apiID, stageName),
+		`[{"op":"replace","path":"/documentationVersion","value":"1.0.0"}]`)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	stage, err := h.Backend.GetStage(apiID, stageName)
+	require.NoError(t, err)
+	assert.Equal(t, "1.0.0", stage.DocumentationVersion)
+}
+
+// Test_ApplyStructuredPatch_StageCanaryStageVariableOverrides exercises
+// "/canarySettings/stageVariableOverrides", AWS's one documented
+// canarySettings path with no per-key wildcard row (unlike "/variables",
+// which supports "/variables/{name}") -- so, per the AWS "UpdateStage"
+// patch-operations reference, its Value is a JSON string whose CONTENTS are
+// themselves a JSON-encoded {name: value} object, replacing the whole map at
+// once rather than merging one key.
+func Test_ApplyStructuredPatch_StageCanaryStageVariableOverrides(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	apiID, stageName := setupStage(t, h, nil, &apigateway.CanarySettings{
+		DeploymentID:   "canary-depl",
+		PercentTraffic: 10,
+	})
+
+	// PatchOperation.Value is always a JSON string on the wire; here that
+	// string's own contents are a JSON object, so the value is
+	// double-encoded: `"{\"apiKey\":\"canary-value\"}"`.
+	body := `[{"op":"replace","path":"/canarySettings/stageVariableOverrides",` +
+		`"value":"{\"apiKey\":\"canary-value\",\"other\":\"x\"}"}]`
+	rec := restRequest(t, h, http.MethodPatch, fmt.Sprintf("/restapis/%s/stages/%s", apiID, stageName), body)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	stage, err := h.Backend.GetStage(apiID, stageName)
+	require.NoError(t, err)
+	require.NotNil(t, stage.CanarySettings)
+	wantOverrides := map[string]string{"apiKey": "canary-value", "other": "x"}
+	assert.Equal(t, wantOverrides, stage.CanarySettings.StageVariableOverrides)
+	assert.Equal(t, "canary-depl", stage.CanarySettings.DeploymentID, "sibling canary field untouched")
+	assert.InDelta(t, 10.0, stage.CanarySettings.PercentTraffic, 0.001, "sibling canary field untouched")
+}
+
+// Test_ApplyStructuredPatch_StageMethodSettingsCachingFields exercises the
+// two MethodSetting fields entirely absent from gopherstack's struct until
+// this sweep: "caching/dataEncrypted" (bool) and
+// "caching/unauthorizedCacheControlHeaderStrategy" (string enum), both
+// addressed the same per-route way as every other method-settings property.
+func Test_ApplyStructuredPatch_StageMethodSettingsCachingFields(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	apiID, stageName := setupStage(t, h, nil, nil)
+
+	body := `[
+		{"op":"replace","path":"/~1pets/GET/caching/dataEncrypted","value":"true"},
+		{"op":"replace","path":"/~1pets/GET/caching/unauthorizedCacheControlHeaderStrategy","value":"FAIL_WITH_403"}
+	]`
+	rec := restRequest(t, h, http.MethodPatch, fmt.Sprintf("/restapis/%s/stages/%s", apiID, stageName), body)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	stage, err := h.Backend.GetStage(apiID, stageName)
+	require.NoError(t, err)
+	require.Contains(t, stage.MethodSettings, "/pets/GET")
+	ms := stage.MethodSettings["/pets/GET"]
+	assert.True(t, ms.CacheDataEncrypted)
+	assert.Equal(t, "FAIL_WITH_403", ms.UnauthorizedCacheControlHeaderStrategy)
+}
+
+// Test_ApplyStructuredPatch_UsagePlanPerRouteThrottle exercises
+// "/apiStages/{restApiId}:{stage}/throttle/{resourcePath}/{httpMethod}[/rateLimit|burstLimit]",
+// the per-route throttle override path within one usage-plan API stage
+// (distinct from the whole-apiStage "/apiStages" membership path already
+// covered by Test_ApplyStructuredPatch_UsagePlanAPIStages).
+func Test_ApplyStructuredPatch_UsagePlanPerRouteThrottle(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	plan, err := h.Backend.CreateUsagePlan(apigateway.CreateUsagePlanInput{
+		Name:      "route-throttle-plan",
+		APIStages: []apigateway.APIStageAssociation{{RestAPIID: "api1", Stage: "prod"}},
+	})
+	require.NoError(t, err)
+
+	setBody := `[
+		{"op":"replace","path":"/apiStages/api1:prod/throttle/~1items/GET/rateLimit","value":"10.5"},
+		{"op":"replace","path":"/apiStages/api1:prod/throttle/~1items/GET/burstLimit","value":"20"}
+	]`
+	rec := restRequest(t, h, http.MethodPatch, fmt.Sprintf("/usageplans/%s", plan.ID), setBody)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err := h.Backend.GetUsagePlan(plan.ID)
+	require.NoError(t, err)
+	require.Len(t, got.APIStages, 1)
+	require.NotNil(t, got.APIStages[0].Throttle)
+	require.Contains(t, got.APIStages[0].Throttle, "GET /items")
+	assert.InDelta(t, 10.5, got.APIStages[0].Throttle["GET /items"].RateLimit, 0.001)
+	assert.Equal(t, 20, got.APIStages[0].Throttle["GET /items"].BurstLimit)
+
+	removeBody := `[{"op":"remove","path":"/apiStages/api1:prod/throttle/~1items/GET"}]`
+	rec = restRequest(t, h, http.MethodPatch, fmt.Sprintf("/usageplans/%s", plan.ID), removeBody)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err = h.Backend.GetUsagePlan(plan.ID)
+	require.NoError(t, err)
+	require.Len(t, got.APIStages, 1)
+	assert.NotContains(t, got.APIStages[0].Throttle, "GET /items", "remove drops the whole per-route entry")
+}
+
+// Test_ApplyStructuredPatch_APIKeyStages exercises UpdateApiKey's "/stages"
+// add/remove (AWS "DEPRECATED FOR USAGE PLANS" but still real and
+// wire-modeled), where Value is "{restApiId}/{stageName}" -- distinct from
+// UsagePlan's "{restApiId}:{stage}" apiStages membership value format (":"
+// not "/").
+func Test_ApplyStructuredPatch_APIKeyStages(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	apiID, stageName := setupStage(t, h, nil, nil)
+	key, err := h.Backend.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "stage-patch-key", Enabled: true})
+	require.NoError(t, err)
+
+	stageValue := apiID + "/" + stageName
+	addBody := fmt.Sprintf(`[{"op":"add","path":"/stages","value":%q}]`, stageValue)
+	rec := restRequest(t, h, http.MethodPatch, "/apikeys/"+key.ID, addBody)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err := h.Backend.GetAPIKey(key.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{stageValue}, got.StageKeys)
+
+	removeBody := fmt.Sprintf(`[{"op":"remove","path":"/stages","value":%q}]`, stageValue)
+	rec = restRequest(t, h, http.MethodPatch, "/apikeys/"+key.ID, removeBody)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err = h.Backend.GetAPIKey(key.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.StageKeys)
+}

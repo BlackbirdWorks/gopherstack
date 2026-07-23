@@ -373,3 +373,54 @@ func TestBackend_GetAPIKeyByValue_MultipleKeys(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, k2.ID, got2.ID)
 }
+
+// TestBackend_CreateAPIKey_StageKeys exercises CreateApiKeyInput.StageKeys
+// (types.CreateApiKeyInput.StageKeys is []types.StageKey -- typed
+// restApiId/stageName objects, unlike the resulting APIKey.StageKeys, which
+// mirrors CreateApiKeyOutput.StageKeys' []string "{restApiId}/{stageName}"
+// wire format). AWS's SDK doc comment marks this field "DEPRECATED FOR USAGE
+// PLANS" but it remains a real, settable field.
+func TestBackend_CreateAPIKey_StageKeys(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid stage keys are resolved and formatted", func(t *testing.T) {
+		t.Parallel()
+
+		b := apigateway.NewInMemoryBackend()
+		api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "stagekeys-api"})
+		require.NoError(t, err)
+		depl, err := b.CreateDeployment(api.ID, "", "v1")
+		require.NoError(t, err)
+		_, err = b.CreateStage(apigateway.CreateStageInput{
+			RestAPIID: api.ID, StageName: "prod", DeploymentID: depl.ID,
+		})
+		require.NoError(t, err)
+
+		key, err := b.CreateAPIKey(apigateway.CreateAPIKeyInput{
+			Name: "stagekeys-key",
+			StageKeys: []apigateway.StageKeyInput{
+				{RestAPIID: api.ID, StageName: "prod"},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{api.ID + "/prod"}, key.StageKeys)
+
+		got, err := b.GetAPIKey(key.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{api.ID + "/prod"}, got.StageKeys, "GetApiKey returns the same stageKeys")
+	})
+
+	t.Run("referencing a nonexistent stage is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		b := apigateway.NewInMemoryBackend()
+		_, err := b.CreateAPIKey(apigateway.CreateAPIKeyInput{
+			Name: "bad-stagekeys-key",
+			StageKeys: []apigateway.StageKeyInput{
+				{RestAPIID: "nonexistent-api", StageName: "prod"},
+			},
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, apigateway.ErrStageNotFound)
+	})
+}
