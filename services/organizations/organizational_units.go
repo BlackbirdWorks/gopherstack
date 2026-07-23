@@ -58,6 +58,10 @@ func (b *InMemoryBackend) CreateOrganizationalUnit(
 		}
 	}
 
+	if err := validateNewTags(nil, tags); err != nil {
+		return nil, err
+	}
+
 	ouID := newOUID(b.root.ID)
 	ou := &OrganizationalUnit{
 		ID:       ouID,

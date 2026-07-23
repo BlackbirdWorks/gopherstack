@@ -139,6 +139,35 @@ var (
 		"ConstraintViolationException: cannot disable policy type while policies of that type are attached",
 		awserr.ErrConflict,
 	)
+	// ErrMalformedPolicyDocument is returned when a policy's Content is not valid JSON.
+	ErrMalformedPolicyDocument = awserr.New(
+		"MalformedPolicyDocumentException: policy content is not valid JSON",
+		awserr.ErrInvalidParameter,
+	)
+	// ErrPolicyContentLimitExceeded is returned when a policy's Content exceeds the
+	// maximum document size for its policy type.
+	ErrPolicyContentLimitExceeded = awserr.New(
+		"ConstraintViolationException: POLICY_CONTENT_LIMIT_EXCEEDED",
+		awserr.ErrConflict,
+	)
+	// ErrTagLimitExceeded is returned when tagging a resource would exceed the
+	// maximum of 50 tags per resource.
+	ErrTagLimitExceeded = awserr.New(
+		"ConstraintViolationException: MAX_TAG_LIMIT_EXCEEDED",
+		awserr.ErrConflict,
+	)
+	// ErrInvalidSystemTags is returned when a caller-supplied tag key uses the
+	// "aws:" prefix reserved for system tags.
+	ErrInvalidSystemTags = awserr.New(
+		"InvalidInputException: INVALID_SYSTEM_TAGS_PARAMETER",
+		awserr.ErrInvalidParameter,
+	)
+	// ErrDuplicateTagKey is returned when the same tag key appears more than once
+	// in a single request's tag list.
+	ErrDuplicateTagKey = awserr.New(
+		"InvalidInputException: DUPLICATE_TAG_KEY",
+		awserr.ErrInvalidParameter,
+	)
 )
 
 // Ensure errors are used somewhere to satisfy linter.

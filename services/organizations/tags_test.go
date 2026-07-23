@@ -386,6 +386,177 @@ func TestHandler_TagOperations(t *testing.T) {
 	}
 }
 
+// TestTagResource_ReservedPrefixRejected verifies that tag keys starting with
+// the reserved "aws:" prefix (case-insensitive) are rejected with
+// InvalidInputException(INVALID_SYSTEM_TAGS_PARAMETER), matching real AWS.
+func TestTagResource_ReservedPrefixRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{name: "lowercase", key: "aws:cloudformation:stack-name"},
+		{name: "uppercase", key: "AWS:reserved"},
+		{name: "mixed_case", key: "Aws:Reserved"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, rootID := newOrgBackend(t)
+
+			err := b.TagResource(rootID, []organizations.Tag{{Key: tt.key, Value: "v"}})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "INVALID_SYSTEM_TAGS_PARAMETER")
+		})
+	}
+}
+
+// TestTagResource_DuplicateKeyRejected verifies that a single TagResource call
+// with the same key twice is rejected with InvalidInputException(DUPLICATE_TAG_KEY).
+func TestTagResource_DuplicateKeyRejected(t *testing.T) {
+	t.Parallel()
+
+	b, rootID := newOrgBackend(t)
+
+	err := b.TagResource(rootID, []organizations.Tag{
+		{Key: "env", Value: "prod"},
+		{Key: "env", Value: "staging"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DUPLICATE_TAG_KEY")
+}
+
+// TestTagResource_MaxTagLimitExceeded verifies the 50-tags-per-resource cap.
+func TestTagResource_MaxTagLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	b, rootID := newOrgBackend(t)
+
+	over := make([]organizations.Tag, 51)
+	for i := range over {
+		over[i] = organizations.Tag{Key: "k" + string(rune('a'+i%26)) + string(rune('0'+i/26)), Value: "v"}
+	}
+
+	err := b.TagResource(rootID, over)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MAX_TAG_LIMIT_EXCEEDED")
+
+	// Exactly 50 in one call succeeds.
+	err = b.TagResource(rootID, over[:50])
+	require.NoError(t, err)
+
+	listed, err := b.ListTagsForResource(rootID)
+	require.NoError(t, err)
+	assert.Len(t, listed, 50)
+}
+
+// TestTagResource_MaxTagLimitExceeded_AcrossCalls verifies that the 50-tag cap
+// is enforced against the merged (existing + new) tag set, not just the tags
+// in a single call.
+func TestTagResource_MaxTagLimitExceeded_AcrossCalls(t *testing.T) {
+	t.Parallel()
+
+	b, rootID := newOrgBackend(t)
+
+	first := make([]organizations.Tag, 49)
+	for i := range first {
+		first[i] = organizations.Tag{Key: "k" + string(rune('a'+i%26)) + string(rune('0'+i/26)), Value: "v"}
+	}
+
+	require.NoError(t, b.TagResource(rootID, first))
+
+	// Adding 2 more distinct keys pushes the total to 51 -- must be rejected,
+	// and neither new tag should have been applied.
+	err := b.TagResource(rootID, []organizations.Tag{
+		{Key: "extra1", Value: "v"},
+		{Key: "extra2", Value: "v"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MAX_TAG_LIMIT_EXCEEDED")
+
+	listed, err := b.ListTagsForResource(rootID)
+	require.NoError(t, err)
+	assert.Len(t, listed, 49, "rejected TagResource call must not partially apply tags")
+}
+
+// TestCreateAccount_ReservedTagPrefixRejected verifies CreateAccount validates
+// its Tags parameter before creating the account -- an invalid tag list must
+// leave no account behind, matching AWS's atomic "the entire request fails" note.
+func TestCreateAccount_ReservedTagPrefixRejected(t *testing.T) {
+	t.Parallel()
+
+	b, _ := newOrgBackend(t)
+
+	before, err := b.ListAccounts()
+	require.NoError(t, err)
+
+	_, err = b.CreateAccount("bad-tags", "bad-tags@example.com", "", "",
+		[]organizations.Tag{{Key: "aws:reserved", Value: "v"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "INVALID_SYSTEM_TAGS_PARAMETER")
+
+	after, err := b.ListAccounts()
+	require.NoError(t, err)
+	assert.Len(t, after, len(before), "no new account must be created when Tags validation fails")
+}
+
+// TestCreateOrganizationalUnit_DuplicateTagKeyRejected verifies
+// CreateOrganizationalUnit validates its Tags parameter and creates no OU on
+// failure.
+func TestCreateOrganizationalUnit_DuplicateTagKeyRejected(t *testing.T) {
+	t.Parallel()
+
+	b, rootID := newOrgBackend(t)
+
+	_, err := b.CreateOrganizationalUnit(rootID, "bad-ou", []organizations.Tag{
+		{Key: "dup", Value: "1"},
+		{Key: "dup", Value: "2"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DUPLICATE_TAG_KEY")
+
+	ous, err := b.ListOrganizationalUnitsForParent(rootID)
+	require.NoError(t, err)
+	assert.Empty(t, ous, "OU must not be created when Tags validation fails")
+}
+
+// TestCreatePolicy_ReservedTagPrefixRejected verifies CreatePolicy validates
+// its Tags parameter and creates no policy on failure.
+func TestCreatePolicy_ReservedTagPrefixRejected(t *testing.T) {
+	t.Parallel()
+
+	b, _ := newOrgBackend(t)
+
+	_, err := b.CreatePolicy("bad", "", `{}`, "SERVICE_CONTROL_POLICY",
+		[]organizations.Tag{{Key: "aws:reserved", Value: "v"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "INVALID_SYSTEM_TAGS_PARAMETER")
+
+	policies, err := b.ListPolicies("SERVICE_CONTROL_POLICY")
+	require.NoError(t, err)
+	assert.Empty(t, policies, "policy must not be created when Tags validation fails")
+}
+
+// TestTagResource_ReservedPrefix_ViaHandler verifies the HTTP wire error.
+func TestTagResource_ReservedPrefix_ViaHandler(t *testing.T) {
+	t.Parallel()
+
+	h, rootID := newHandlerWithOrg(t)
+
+	rec := doRequest(t, h, "TagResource", map[string]any{
+		"ResourceId": rootID,
+		"Tags":       []map[string]string{{"Key": "aws:reserved", "Value": "v"}},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]string
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	assert.Equal(t, "InvalidInputException", errResp["__type"])
+}
+
 // TestListTagsForResource_Sorted verifies sorted output by key.
 func TestListTagsForResource_Sorted(t *testing.T) {
 	t.Parallel()
