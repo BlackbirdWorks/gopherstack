@@ -417,10 +417,10 @@ func TestFISResolvedTargetsARNs(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				ResolvedTargets []struct { //nolint:govet // field order matches JSON for readability
+				ResolvedTargets []struct {
 					TargetName           string   `json:"targetName"`
-					TargetResourcesCount int      `json:"targetResourcesCount"`
 					ResolvedArns         []string `json:"resolvedArns"`
+					TargetResourcesCount int      `json:"targetResourcesCount"`
 				} `json:"resolvedTargets"`
 			}
 

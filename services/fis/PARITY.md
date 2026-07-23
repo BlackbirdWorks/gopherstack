@@ -2,116 +2,170 @@
 service: fis
 sdk_module: aws-sdk-go-v2/service/fis@v1.37.18   # version audited against
 last_audit_commit: f8a54fdb                       # HEAD when this manifest was written
-last_audit_date: 2026-07-12
+last_audit_date: 2026-07-23
 overall: A            # genuine wire/error-code fixes found and applied
 ops:
-  CreateExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: experimentReportConfiguration now accepted + persisted}
+  GetExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: experimentReportConfiguration now returned}
+  UpdateExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: experimentReportConfiguration now accepted (wholesale replace) + persisted}
   DeleteExperimentTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: cascades target-account-configs + idempotency-token entries}
   ListExperimentTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartExperiment: {wire: ok, errors: ok, state: ok, persist: ok, note: real async goroutine lifecycle; see Notes}
-  GetExperiment: {wire: ok, errors: ok, state: ok, persist: ok}
-  StopExperiment: {wire: ok, errors: ok (fixed), state: ok, persist: ok, note: 'was wrongly 409 ConflictException on not-running; StopExperiment has no ConflictException case in the SDK — fixed to 400 ValidationException'}
+  StartExperiment: {wire: ok (fixed), errors: ok, state: ok (fixed), persist: ok, note: 'experimentOptions.actionsMode (run-all/skip-all) now accepted; template/lever/quota check-and-insert race fixed; see Notes'}
+  GetExperiment: {wire: ok (fixed), errors: ok, state: ok (fixed), persist: ok, note: 'experimentReport/experimentReportConfiguration now returned; ExperimentTarget now carries filters/resourceTags/selectionMode; ExperimentAction now carries description; see Notes'}
+  StopExperiment: {wire: ok, errors: ok, state: ok, persist: ok, note: 'was wrongly 409 ConflictException on not-running; StopExperiment has no ConflictException case in the SDK — fixed to 400 ValidationException (prior sweep); this sweep confirmed no regression'}
   ListExperiments: {wire: ok, errors: ok, state: ok, persist: ok, note: experimentTemplateId/status query filters applied before pagination}
   ListExperimentResolvedTargets: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetAction: {wire: ok, errors: ok (fixed), state: ok, persist: n/a (built-in + provider-derived catalog)}
+  GetAction: {wire: ok, errors: ok, state: ok, persist: n/a (built-in + provider-derived catalog)}
   ListActions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetTargetResourceType: {wire: ok, errors: ok (fixed), state: ok, persist: n/a}
+  GetTargetResourceType: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListTargetResourceTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetSafetyLever: {wire: ok, errors: ok (fixed), state: ok, persist: ok}
-  UpdateSafetyLeverState: {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource: {wire: ok, errors: ok (fixed), state: ok, persist: ok, note: 50-tag quota + aws:-prefix rejection enforced}
+  GetSafetyLever: {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: 'removed gopherstack-invented "tags" field from the wire response — types.SafetyLever has no tags field in the real SDK; see Notes'}
+  UpdateSafetyLeverState: {wire: ok (fixed), errors: ok, state: ok, persist: ok, note: 'same "tags" field removal as GetSafetyLever'}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: 50-tag quota + aws:-prefix rejection enforced; safety-lever tag storage retained internally (see Notes)}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTagsForResource: {wire: ok, errors: ok (fixed), state: ok, persist: n/a}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
   CreateTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteTargetAccountConfiguration: {wire: ok, errors: ok (fixed), state: ok, persist: ok}
-  GetTargetAccountConfiguration: {wire: ok, errors: ok (fixed), state: ok, persist: ok}
-  UpdateTargetAccountConfiguration: {wire: ok, errors: ok (fixed), state: ok, persist: ok}
-  ListTargetAccountConfigurations: {wire: ok, errors: ok (fixed), state: ok, persist: ok}
-  GetExperimentTargetAccountConfiguration: {wire: ok, errors: ok (fixed), state: ok, persist: n/a (derived from template's target-account-configs)}
-  ListExperimentTargetAccountConfigurations: {wire: ok, errors: ok (fixed), state: ok, persist: n/a}
+  DeleteTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTargetAccountConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetExperimentTargetAccountConfiguration: {wire: ok, errors: ok, state: ok, persist: n/a (derived from template's target-account-configs)}
+  ListExperimentTargetAccountConfigurations: {wire: ok, errors: ok, state: ok, persist: n/a}
 families:
   route_matcher: {status: ok, note: 'RouteMatcher/parseFISPath path+method map verified 1:1 against every serializers.go SplitURI+request.Method in the pinned SDK; all 25 ops match exactly (an extra non-AWS POST /experiments/{id}/stop alias is additive and does not collide with any real route)'}
-  experiment_lifecycle: {status: ok, note: 'real background goroutine state machine: pending→initiating→running→completing/stopping→completed/stopped/failed; StopExperiment cancels via context; snapshot/restore cancels in-flight goroutines and marks non-terminal experiments failed (no stuck-pending disguised no-op)'}
-  error_taxonomy: {status: fixed, note: 'see Notes — this was the main defect class found this sweep'}
+  experiment_lifecycle: {status: ok (fixed), note: 'real background goroutine state machine: pending→initiating→running→completed/stopped/cancelled/failed — matches types.ExperimentStatus exactly. A prior revision had invented a "completing" status/action-status pair not present in the real SDK enum; removed this sweep (see Notes). "cancelled" (real enum value, previously never emitted) is now used when StopExperiment interrupts an experiment before it reaches "running". actionsMode skip-all is now a real dry-run mode (all actions → "skipped", no fault rules/external calls). StopExperiment cancels via context; snapshot/restore cancels in-flight goroutines and marks non-terminal experiments failed (no stuck-pending disguised no-op)'}
+  experiment_reports: {status: ok, note: 'ExperimentTemplateReportConfiguration (create/update/get on templates) and ExperimentReportConfiguration/ExperimentReport (on running experiments, inherited from the template at StartExperiment time) implemented end-to-end this sweep — see Notes. Was entirely unimplemented before (gaps/deferred item).'}
+  error_taxonomy: {status: ok, note: 'four exception shapes (ValidationException/ResourceNotFoundException/ConflictException/ServiceQuotaExceededException@402) verified against deserializers.go this sweep; no regressions'}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - Experiment reports (ExperimentReportConfiguration / ExperimentReport / GetExperiment "experimentReport" + "experimentReportConfiguration" fields) are entirely unimplemented — not in models.go, not in wire DTOs. Real FIS added this feature after the original build-out.
-  - Running-experiment ExperimentTarget DTO omits Filters/ResourceTags/SelectionMode (present on the real wire shape as informational metadata alongside the resolved ResourceArns); ExperimentAction DTO omits Description. Both are additive, non-breaking omissions (zero-value on absence), not incorrect on the fields that are present.
-  - "startAfter" dependency waiting in executeActionsOrdered is a no-op (topoSortActions already produces a valid topological order, so the loop's `if !completed[dep] { continue }` never actually blocks) — functionally correct today because execution is sequential and single-threaded, but if actions ever run concurrently this would need a real wait/signal, not a comment-only guard.
-  - Experiment/action provider quota-vs-lock race: StartExperiment reads experimentCount/leverEngaged under RLock, releases it, then re-locks to write — two concurrent StartExperiment calls could both pass the maxExperiments=1000 check before either writes. Low real-world impact (large headroom, not attacker-adjacent in an emulator), not fixed this sweep.
+  - Experiment report generation is synchronous/immediate (terminal state computed the instant the owning experiment reaches a terminal status) rather than modeling the real async pending→running→completed/failed report lifecycle with its own timing. There is no real S3/CloudWatch backend to wait on in this emulator, so this is a reasonable simplification, not a wire-shape defect — the four modeled ExperimentReportStatus values pending/completed/cancelled/failed are all reachable (in the exact wire shape), "running" is skipped over.
+  - CloudWatch dashboard snapshot capture (ExperimentReportConfigurationDataSources.CloudWatchDashboards) is accepted, validated, and echoed back on both the template and the running experiment's report configuration, but does not influence report generation (gopherstack has no real CloudWatch dashboard rendering to snapshot) — only the S3 output destination affects the generated ExperimentReportS3Report.
 deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - Experiment report configuration / report generation feature surface (see gaps)
   - Built-in action catalog completeness vs the full real AWS FIS action list (gopherstack ships a curated subset across EC2/RDS/ECS/EKS/DynamoDB/Lambda/SSM/network/CloudWatch/Kinesis + the aws:fis:inject-api-*/wait built-ins; real AWS has more actions per service and evolves this list independently of the API shape)
-leaks: {status: clean, note: 'Restore() cancels in-flight experiment goroutines before replacing state; Shutdown() (service.Shutdowner) cancels all running experiments; janitor sweeps terminal experiments past TTL under the coarse lock with a pre-snapshotted slice so Delete-while-iterating is safe'}
+leaks: {status: clean, note: 'Restore() cancels in-flight experiment goroutines before replacing state; Shutdown() (service.Shutdowner) cancels all running experiments; janitor sweeps terminal experiments (completed/stopped/failed/cancelled) past TTL under the coarse lock with a pre-snapshotted slice so Delete-while-iterating is safe. No new goroutines/tickers were introduced for report generation — it is computed synchronously inside the same locked critical section that already finalizes the experiment''s terminal status (cleanupActions / markExperimentFailed), so there is nothing new to leak or drain on Shutdown.'}
 ---
 
 ## Notes
 
-**Error taxonomy was the main defect class this sweep.** FIS's actual API model
-(cross-checked against `aws-sdk-go-v2/service/fis@v1.37.18`'s `deserializers.go` and
-`types/errors.go`, plus `aws-sdk-go@v1.55.5`'s `api-2.json` for HTTP status codes)
-defines **exactly four** exception shapes for the *entire service*, and every
-operation's generated per-op error deserializer only recognizes a subset of these by
-`__type` string match — anything else falls through to `smithy.GenericAPIError`,
-which breaks `errors.As(err, &types.ResourceNotFoundException{})`-style typed
-handling in real SDK client code:
+**Experiment reports were entirely unimplemented before this sweep** (a
+previously-listed gap). Added end-to-end:
 
-- `ValidationException` — HTTP 400
-- `ResourceNotFoundException` — HTTP 404 (the **only** not-found shape; there is no
-  `ExperimentTemplateNotFoundException` / `ExperimentNotFoundException` /
-  `ActionNotFoundException` / `TargetResourceTypeNotFoundException` /
-  `SafetyLeverNotFoundException` / `TargetAccountConfigurationNotFoundException` in
-  the real model — FIS collapses every not-found case onto one shape)
-- `ConflictException` — HTTP 409 (only declared for `CreateExperimentTemplate`,
-  `CreateTargetAccountConfiguration`, `StartExperiment`, `UpdateSafetyLeverState` —
-  **not** `StopExperiment`)
-- `ServiceQuotaExceededException` — HTTP **402** (Payment Required — an unusual but
-  confirmed choice per the model; not 429)
+- `ExperimentTemplateReportConfiguration` (`dataSources.cloudWatchDashboards[].dashboardIdentifier`,
+  `outputs.s3Configuration.{bucketName,prefix}`, `preExperimentDuration`,
+  `postExperimentDuration`) on `CreateExperimentTemplate` / `UpdateExperimentTemplate`
+  (input, wholesale-replace semantics on update) / `GetExperimentTemplate` /
+  `ListExperimentTemplates` (output), field-diffed against
+  `types.ExperimentTemplateReportConfiguration` and its `*Input` create/update
+  counterparts, plus `deserializers.go`'s
+  `awsRestjson1_deserializeDocumentExperimentTemplateReportConfiguration`.
+- `ExperimentReportConfiguration` (identical shape, inherited from the template at
+  `StartExperiment` time) and `ExperimentReport` (`s3Reports[].{arn,reportType}`,
+  `state.{status,reason,error.code}`) on `GetExperiment` / `StartExperiment` output,
+  field-diffed against `types.ExperimentReportConfiguration` / `types.ExperimentReport`
+  / `types.ExperimentReportState` / `types.ExperimentReportError` and
+  `deserializers.go`'s `awsRestjson1_deserializeDocumentExperimentReport*` family.
+- Duration fields are validated as ISO 8601 durations (reusing the existing
+  `isValidISODuration` used for action durations) — invalid values are rejected
+  with `ValidationException` on create/update.
+- Report generation: when an experiment inherits a report configuration and reaches
+  a terminal status, the report's terminal state is computed synchronously in the
+  same locked section that finalizes the experiment (`cleanupActions` /
+  `markExperimentFailed`) — `completed` with one `ExperimentReportS3Report`
+  (`reportType: "experiment-report"`, an `arn:aws:s3:::bucket/prefix/{expID}/report.json`
+  ARN) when an S3 output destination is configured; `failed` with
+  `error.code: "MissingReportOutputConfiguration"` when it is not; `cancelled` when
+  the owning experiment itself was cancelled before it ever started running.
+  `ExperimentReportS3Report.ReportType` and `ExperimentReportError.Code` are
+  free-form strings in the real SDK model (no fixed enum), so these values label
+  the artifact/failure without inventing a modeled enum member.
 
-Before this sweep, `handler.go`'s `exceptionTypeFor`/`writeBackendError` fabricated
-six non-existent per-resource `*NotFoundException` type names, a non-existent
-`TooManyTagsException`, sent `ConflictException`/409 for `StopExperiment` on a
-non-running experiment (unrecognized by that op's real deserializer), and used HTTP
-429 instead of 402 for the experiment-count quota. Consolidated into a single
-`classifyError` returning `{exceptionType, httpStatus}` so the two concerns can't
-drift apart again.
+**A fabricated "completing" experiment/action status has been removed.** The real
+`types.ExperimentStatus` enum is exactly `pending, initiating, running, completed,
+stopping, stopped, failed, cancelled` — there is no `completing` value.
+`types.ExperimentActionStatus` is exactly `pending, initiating, running, completed,
+cancelled, stopping, stopped, failed, skipped` — same story. A prior gopherstack
+revision invented `"completing"` as an extra broadcast state between `running` and
+`completed` on both the experiment and every one of its actions; a real SDK client
+polling `experiment.State.Status` could observe a status value that AWS FIS itself
+never produces. `runExperiment` now transitions directly `running` → `completed`
+(still pausing for `lifecycleDelay` internally so polling has a window to observe
+`running`, just without broadcasting a fake intermediate label). The real
+`"cancelled"` value — present in the enum but never reachable in gopherstack before
+this sweep — is now emitted when `StopExperiment` interrupts an experiment still in
+`pending`/`initiating` (before it reaches `running`), matching the real semantic
+distinction between "cancelled before it started" and "stopped while running".
 
-**`ExperimentStatusError` wire field names were wrong and the field was dead code.**
-The real `types.ExperimentError` shape serializes as `{"code", "location",
-"accountId"}`; gopherstack emitted `{"exceptionName", "accountId"}` — a real SDK
-client reading `experiment.State.Error.Code` would always see `nil` since the
-deserializer silently drops unknown JSON keys. Worse, nothing in `backend.go` ever
-populated `Status.Error` in the first place (only `Reason` was set on failure), so the
-field was unreachable in both directions. Fixed: renamed to `Code`/`Location` to
-match the wire shape, and `markExperimentFailed` now populates
-`Code: "ActionExecutionFailed"` + `Location: <failing action name>` +
-`AccountID` when an external action provider fails.
+**`SafetyLever`'s wire response had a gopherstack-invented `"tags"` field.** The real
+`types.SafetyLever` (confirmed via `deserializers.go`'s
+`awsRestjson1_deserializeDocumentSafetyLever`) has exactly three fields: `arn`, `id`,
+`state` — no `tags`. `GetSafetyLever` / `UpdateSafetyLeverState` were emitting a
+`"tags"` key that no real AWS FIS response ever contains. Removed from
+`safetyLeverDTO` / `toSafetyLeverDTO`. The safety lever's tags are still stored
+internally (`SafetyLever.Tags`, an implementation detail used as the backing map
+for the generic `TagResource`/`UntagResource`/`ListTagsForResource` operations
+against its ARN, exactly as any other taggable FIS resource) — only the two direct
+safety-lever response DTOs were leaking it onto the wire.
 
-**`toUnix` was a local reimplementation of `pkgs/awstime.Epoch`** (byte-for-byte
-identical formula, `UnixNano()/1e9`) minus the zero-time guard — `pkgs/awstime.Epoch`
-returns `0` for a zero `time.Time`, `toUnix` would have returned a large negative
-number. No live code path passes a zero `time.Time` to it today (all CreationTime/
-StartTime fields are set from `time.Now()` at construction), so this was latent
-rather than currently user-visible, but it duplicated a pkg the memory doc explicitly
-calls out. Now delegates to `awstime.Epoch`.
+**`StartExperiment` gained `experimentOptions.actionsMode` (real field, previously
+entirely absent).** `types.StartExperimentExperimentOptionsInput.ActionsMode` is a
+real enum (`run-all` / `skip-all`, confirmed via `serializers.go`'s
+`"actionsMode"` key and `enums.go`'s `ActionsMode` type) controlling whether an
+experiment actually injects faults or only dry-run-validates its configuration.
+gopherstack previously accepted no `experimentOptions` on `StartExperiment` at all.
+Now: an invalid value is rejected with `ValidationException`; omitted defaults to
+`run-all`; `skip-all` runs the full pending→initiating→running→completed lifecycle
+(so stop conditions/targets/permissions can still be validated) but skips every
+fault-rule application and every external action-provider call, setting every
+action to `skipped` instead of `running`/`completed`. The resolved mode is echoed
+back on `Experiment.ExperimentOptions.ActionsMode`.
 
-**Duplicate `status`/`state` JSON keys are intentional and harmless, not a bug.** The
-real wire shape only has a top-level `"state"` key on `Experiment`/`ExperimentAction`
-(confirmed via `deserializers.go`'s `case "state":` in
-`awsRestjson1_deserializeDocumentExperiment`/`...ExperimentAction`); gopherstack's
-DTOs also emit an identical `"status"` key alongside it. Real SDK deserializers
-silently ignore unrecognized keys (`default: _, _ = key, value` in every generated
-`deserializeDocument*` function), so this doesn't break real clients — left as-is
-rather than removed, since some non-SDK/raw-HTTP consumers in this codebase may read
-`"status"`.
+**Running-experiment `ExperimentTarget` / `ExperimentAction` were missing fields
+present on the real wire shape** (previously-listed gap, now fixed).
+`types.ExperimentTarget` has `filters`, `resourceTags`, and `selectionMode` in
+addition to `parameters`/`resourceArns`/`resourceType` (confirmed via
+`deserializers.go`'s `awsRestjson1_deserializeDocumentExperimentTarget`);
+`types.ExperimentAction` has `description` in addition to `actionId`/`parameters`/
+`targets`/`startTime`/`endTime`/`state` (confirmed via
+`awsRestjson1_deserializeDocumentExperimentAction`). Both are now carried through
+from the owning template's target/action definitions when an experiment starts.
 
-**Route matcher verified op-by-op.** `RouteMatcher`/`parseFISPath` were checked
-against every `httpbinding.SplitURI(...)` + `request.Method = "..."` pair across all
-25 operations in `serializers.go` — every path prefix, HTTP verb, and nested
-sub-resource segment (`/experimentTemplates/{id}/targetAccountConfigurations/{accountId}`,
-`/experiments/{id}/resolvedTargets`, `/safetyLevers/{id}/state`, `/tags/{resourceArn}`)
-matches exactly. `parseFISSafetyLeverPath`/`parseFISTemplateSubPath` only inspect
-`segs[1]` for the ID and ignore trailing segments like `/state`, which is
-intentionally permissive (matches the real 3-segment `UpdateSafetyLeverState` path
-without needing an exact-length check) rather than a bug.
+**A dead `startAfter` dependency-wait loop was removed from `executeActionsOrdered`.**
+The loop's body (`if !completed[dep] { continue }`) had no effect on control flow —
+`continue` inside the innermost `for` loop just advances to the next dependency
+check, never affecting the outer action-execution loop. `topoSortActions` already
+guarantees every action appears after all of its `startAfter` dependencies, so no
+separate wait was ever needed; removed along with the now-write-only `completed`
+map, rather than leaving dead code that misleadingly suggested real dependency
+gating.
+
+**`cleanupActions` was unconditionally clobbering the structured
+`ExperimentStatusError` that `markExperimentFailed` had just set**, one call later
+in the same code path. `runExperiment` called `markExperimentFailed` (setting
+`Status: failed`, `Reason`, and the structured `Error{Code,Location,AccountID}`)
+and then immediately called `cleanupActions(..., statusFailed, ...)`, which
+unconditionally overwrote `exp.Status = ExperimentStatus{Status: expStatus}` —
+discarding the `Reason` and `Error` that were only just set. This meant a real SDK
+client reading `experiment.State.Error` on any provider-failure path would always
+see `nil`, and `experiment.State.Reason` would always be empty, regardless of what
+`markExperimentFailed` computed. Fixed: the failure path now calls a new
+`releaseFaultRulesAndCancel` (fault-rule cleanup + context cancel only) instead of
+`cleanupActions` after `markExperimentFailed`, so the structured error survives.
+Covered by a new regression assertion in
+`TestFISHandler_ExperimentFails_WhenActionProviderFails`.
+
+**`StartExperiment`'s lever/quota/template-lookup checks and the experiment
+insert had a TOCTOU race.** The checks (`safetyLever.State.Status`,
+`experiments.Len() >= maxExperiments`, template lookup) were read under an
+`RLock`, released, and then a separate `Lock` was taken to insert the new
+experiment — two concurrent `StartExperiment` calls could both observe
+`experimentCount < maxExperiments` before either had written, allowing the count to
+exceed `maxExperiments`. Fixed: the checks and the `Put` now happen inside one
+critical section under a single write lock.
+
+**Duplicate `status`/`state` JSON keys are intentional and harmless, not a bug**
+(unchanged from the prior sweep's finding — see `deserializers.go`'s
+`case "state":` in `awsRestjson1_deserializeDocumentExperiment`; unrecognized keys
+are silently ignored by every generated deserializer, so gopherstack's additional
+`"status"` key does not break real clients).
+
+**Route matcher** (unchanged from the prior sweep — still verified 1:1 against
+every `serializers.go` `SplitURI`/`request.Method` pair across all 25 operations).

@@ -14,18 +14,19 @@ import (
 
 // ExperimentTemplate is the in-memory representation of a FIS experiment template.
 type ExperimentTemplate struct {
-	CreationTime      time.Time                            `json:"creationTime"`
-	LastUpdateTime    time.Time                            `json:"lastUpdateTime"`
-	Tags              map[string]string                    `json:"tags"`
-	Targets           map[string]ExperimentTemplateTarget  `json:"targets"`
-	Actions           map[string]ExperimentTemplateAction  `json:"actions"`
-	LogConfiguration  *ExperimentTemplateLogConfiguration  `json:"logConfiguration"`
-	ExperimentOptions *ExperimentTemplateExperimentOptions `json:"experimentOptions"`
-	ID                string                               `json:"id"`
-	Arn               string                               `json:"arn"`
-	Description       string                               `json:"description"`
-	RoleArn           string                               `json:"roleArn"`
-	StopConditions    []ExperimentTemplateStopCondition    `json:"stopConditions"`
+	CreationTime                  time.Time                              `json:"creationTime"`
+	LastUpdateTime                time.Time                              `json:"lastUpdateTime"`
+	Tags                          map[string]string                      `json:"tags"`
+	Targets                       map[string]ExperimentTemplateTarget    `json:"targets"`
+	Actions                       map[string]ExperimentTemplateAction    `json:"actions"`
+	LogConfiguration              *ExperimentTemplateLogConfiguration    `json:"logConfiguration"`
+	ExperimentOptions             *ExperimentTemplateExperimentOptions   `json:"experimentOptions"`
+	ExperimentReportConfiguration *ExperimentTemplateReportConfiguration `json:"experimentReportConfiguration"`
+	ID                            string                                 `json:"id"`
+	Arn                           string                                 `json:"arn"`
+	Description                   string                                 `json:"description"`
+	RoleArn                       string                                 `json:"roleArn"`
+	StopConditions                []ExperimentTemplateStopCondition      `json:"stopConditions"`
 }
 
 // ExperimentTemplateTarget defines how resources are selected for a fault action.
@@ -83,28 +84,66 @@ type ExperimentTemplateExperimentOptions struct {
 	EmptyTargetResolutionMode string `json:"emptyTargetResolutionMode"`
 }
 
+// ExperimentTemplateReportConfiguration describes the experiment report generation
+// settings for an experiment template: which CloudWatch dashboards to snapshot,
+// where to write the generated report, and how much time around the experiment's
+// start/end to include in the report's data sources.
+type ExperimentTemplateReportConfiguration struct {
+	DataSources            *ExperimentTemplateReportConfigurationDataSources `json:"dataSources"`
+	Outputs                *ExperimentTemplateReportConfigurationOutputs     `json:"outputs"`
+	PreExperimentDuration  string                                            `json:"preExperimentDuration"`
+	PostExperimentDuration string                                            `json:"postExperimentDuration"`
+}
+
+// ExperimentTemplateReportConfigurationDataSources lists the data sources for an
+// experiment report.
+type ExperimentTemplateReportConfigurationDataSources struct {
+	CloudWatchDashboards []ExperimentTemplateReportConfigurationCloudWatchDashboard `json:"cloudWatchDashboards"`
+}
+
+// ExperimentTemplateReportConfigurationCloudWatchDashboard identifies a CloudWatch
+// dashboard whose widgets are captured as snapshot graphs in the experiment report.
+type ExperimentTemplateReportConfigurationCloudWatchDashboard struct {
+	DashboardIdentifier string `json:"dashboardIdentifier"`
+}
+
+// ExperimentTemplateReportConfigurationOutputs holds the output destinations for
+// an experiment report.
+type ExperimentTemplateReportConfigurationOutputs struct {
+	S3Configuration *ExperimentTemplateReportConfigurationOutputsS3Configuration `json:"s3Configuration"`
+}
+
+// ExperimentTemplateReportConfigurationOutputsS3Configuration is the S3
+// destination for a generated experiment report.
+type ExperimentTemplateReportConfigurationOutputsS3Configuration struct {
+	BucketName string `json:"bucketName"`
+	Prefix     string `json:"prefix"`
+}
+
 // ----------------------------------------
 // Experiment models
 // ----------------------------------------
 
 // Experiment is the in-memory representation of a running FIS experiment.
 type Experiment struct {
-	CreationTime                     time.Time                    `json:"creationTime"`
-	StartTime                        time.Time                    `json:"startTime"`
-	ExperimentOptions                *ExperimentExperimentOptions `json:"experimentOptions"`
-	Targets                          map[string]ExperimentTarget  `json:"targets"`
-	Actions                          map[string]ExperimentAction  `json:"actions"`
-	LogConfiguration                 *ExperimentLogConfiguration  `json:"logConfiguration"`
-	Tags                             map[string]string            `json:"tags"`
-	EndTime                          *time.Time                   `json:"endTime"`
-	cancel                           context.CancelFunc           `json:"-"`
-	Status                           ExperimentStatus             `json:"status"`
-	ExperimentTemplateID             string                       `json:"experimentTemplateID"`
-	RoleArn                          string                       `json:"roleArn"`
-	ID                               string                       `json:"id"`
-	Arn                              string                       `json:"arn"`
-	StopConditions                   []ExperimentStopCondition    `json:"stopConditions"`
-	TargetAccountConfigurationsCount int                          `json:"targetAccountConfigurationsCount,omitempty"`
+	CreationTime                     time.Time                      `json:"creationTime"`
+	StartTime                        time.Time                      `json:"startTime"`
+	ExperimentOptions                *ExperimentExperimentOptions   `json:"experimentOptions"`
+	ExperimentReportConfiguration    *ExperimentReportConfiguration `json:"experimentReportConfiguration"`
+	ExperimentReport                 *ExperimentReport              `json:"experimentReport"`
+	Targets                          map[string]ExperimentTarget    `json:"targets"`
+	Actions                          map[string]ExperimentAction    `json:"actions"`
+	LogConfiguration                 *ExperimentLogConfiguration    `json:"logConfiguration"`
+	Tags                             map[string]string              `json:"tags"`
+	EndTime                          *time.Time                     `json:"endTime"`
+	cancel                           context.CancelFunc             `json:"-"`
+	Status                           ExperimentStatus               `json:"status"`
+	ExperimentTemplateID             string                         `json:"experimentTemplateID"`
+	RoleArn                          string                         `json:"roleArn"`
+	ID                               string                         `json:"id"`
+	Arn                              string                         `json:"arn"`
+	StopConditions                   []ExperimentStopCondition      `json:"stopConditions"`
+	TargetAccountConfigurationsCount int                            `json:"targetAccountConfigurationsCount,omitempty"`
 }
 
 // ExperimentStatus holds the status string, an optional human-readable reason, and structured error info.
@@ -124,21 +163,28 @@ type ExperimentStatusError struct {
 	AccountID string `json:"accountId,omitempty"`
 }
 
-// ExperimentTarget holds resolved resource ARNs for a target group.
+// ExperimentTarget holds resolved resource ARNs for a target group. Filters,
+// ResourceTags, and SelectionMode mirror the target's original template
+// definition and are carried through as informational metadata alongside the
+// resolved ResourceArns, matching the real AWS FIS wire shape (types.ExperimentTarget).
 type ExperimentTarget struct {
-	Parameters   map[string]string `json:"parameters"`
-	ResourceType string            `json:"resourceType"`
-	ResourceArns []string          `json:"resourceArns"`
+	Parameters    map[string]string                `json:"parameters"`
+	ResourceTags  map[string]string                `json:"resourceTags"`
+	Filters       []ExperimentTemplateTargetFilter `json:"filters"`
+	ResourceType  string                           `json:"resourceType"`
+	SelectionMode string                           `json:"selectionMode"`
+	ResourceArns  []string                         `json:"resourceArns"`
 }
 
 // ExperimentAction tracks the state of an individual experiment action.
 type ExperimentAction struct {
-	Parameters map[string]string      `json:"parameters"`
-	Targets    map[string]string      `json:"targets"`
-	StartTime  *time.Time             `json:"startTime"`
-	EndTime    *time.Time             `json:"endTime"`
-	Status     ExperimentActionStatus `json:"status"`
-	ActionID   string                 `json:"actionID"`
+	Parameters  map[string]string      `json:"parameters"`
+	Targets     map[string]string      `json:"targets"`
+	StartTime   *time.Time             `json:"startTime"`
+	EndTime     *time.Time             `json:"endTime"`
+	Status      ExperimentActionStatus `json:"status"`
+	ActionID    string                 `json:"actionID"`
+	Description string                 `json:"description"`
 }
 
 // ExperimentActionStatus holds the status and reason for a single action.
@@ -171,10 +217,77 @@ type ExperimentS3Configuration struct {
 	Prefix     string `json:"prefix"`
 }
 
-// ExperimentExperimentOptions controls account and target resolution behaviour.
+// ExperimentExperimentOptions controls account and target resolution behaviour,
+// plus the resolved actions mode ("run-all" or "skip-all") the experiment was
+// started with.
 type ExperimentExperimentOptions struct {
 	AccountTargeting          string `json:"accountTargeting"`
 	EmptyTargetResolutionMode string `json:"emptyTargetResolutionMode"`
+	ActionsMode               string `json:"actionsMode"`
+}
+
+// ExperimentReportConfiguration describes the report generation settings
+// resolved for a running experiment (copied from its template at StartExperiment
+// time). Shape mirrors ExperimentTemplateReportConfiguration; kept as a distinct
+// Go type to match the real AWS FIS SDK's ExperimentTemplateReportConfiguration /
+// ExperimentReportConfiguration split.
+type ExperimentReportConfiguration struct {
+	DataSources            *ExperimentReportConfigurationDataSources `json:"dataSources"`
+	Outputs                *ExperimentReportConfigurationOutputs     `json:"outputs"`
+	PreExperimentDuration  string                                    `json:"preExperimentDuration"`
+	PostExperimentDuration string                                    `json:"postExperimentDuration"`
+}
+
+// ExperimentReportConfigurationDataSources lists the data sources for an
+// experiment report.
+type ExperimentReportConfigurationDataSources struct {
+	CloudWatchDashboards []ExperimentReportConfigurationCloudWatchDashboard `json:"cloudWatchDashboards"`
+}
+
+// ExperimentReportConfigurationCloudWatchDashboard identifies a CloudWatch
+// dashboard whose widgets are captured as snapshot graphs in the experiment report.
+type ExperimentReportConfigurationCloudWatchDashboard struct {
+	DashboardIdentifier string `json:"dashboardIdentifier"`
+}
+
+// ExperimentReportConfigurationOutputs holds the output destinations for an
+// experiment report.
+type ExperimentReportConfigurationOutputs struct {
+	S3Configuration *ExperimentReportConfigurationOutputsS3Configuration `json:"s3Configuration"`
+}
+
+// ExperimentReportConfigurationOutputsS3Configuration is the S3 destination for
+// a generated experiment report.
+type ExperimentReportConfigurationOutputsS3Configuration struct {
+	BucketName string `json:"bucketName"`
+	Prefix     string `json:"prefix"`
+}
+
+// ExperimentReport describes the generated report for an experiment: its state
+// (pending/running/completed/cancelled/failed) and, once completed, the S3
+// objects holding the generated artifacts.
+type ExperimentReport struct {
+	State     *ExperimentReportState     `json:"state"`
+	S3Reports []ExperimentReportS3Report `json:"s3Reports"`
+}
+
+// ExperimentReportS3Report identifies a single generated report artifact in S3.
+type ExperimentReportS3Report struct {
+	Arn        string `json:"arn"`
+	ReportType string `json:"reportType"`
+}
+
+// ExperimentReportState holds the status, optional human-readable reason, and
+// structured error info for experiment report generation.
+type ExperimentReportState struct {
+	Error  *ExperimentReportError `json:"error,omitempty"`
+	Status string                 `json:"status"`
+	Reason string                 `json:"reason,omitempty"`
+}
+
+// ExperimentReportError holds the error code when experiment report generation fails.
+type ExperimentReportError struct {
+	Code string `json:"code,omitempty"`
 }
 
 // ----------------------------------------
@@ -221,33 +334,43 @@ type TargetResourceTypeParameter struct {
 
 // createExperimentTemplateRequest is the JSON body for POST /experimentTemplates.
 type createExperimentTemplateRequest struct {
-	Tags              map[string]string                       `json:"tags"`
-	Targets           map[string]experimentTemplateTargetDTO  `json:"targets"`
-	Actions           map[string]experimentTemplateActionDTO  `json:"actions"`
-	LogConfiguration  *experimentTemplateLogConfigurationDTO  `json:"logConfiguration"`
-	ExperimentOptions *experimentTemplateExperimentOptionsDTO `json:"experimentOptions"`
-	ClientToken       string                                  `json:"clientToken"`
-	Description       string                                  `json:"description"`
-	RoleArn           string                                  `json:"roleArn"`
-	StopConditions    []experimentTemplateStopConditionDTO    `json:"stopConditions"`
+	Tags                          map[string]string                       `json:"tags"`
+	Targets                       map[string]experimentTemplateTargetDTO  `json:"targets"`
+	Actions                       map[string]experimentTemplateActionDTO  `json:"actions"`
+	LogConfiguration              *experimentTemplateLogConfigurationDTO  `json:"logConfiguration"`
+	ExperimentOptions             *experimentTemplateExperimentOptionsDTO `json:"experimentOptions"`
+	ExperimentReportConfiguration *experimentTemplateReportConfigDTO      `json:"experimentReportConfiguration"`
+	ClientToken                   string                                  `json:"clientToken"`
+	Description                   string                                  `json:"description"`
+	RoleArn                       string                                  `json:"roleArn"`
+	StopConditions                []experimentTemplateStopConditionDTO    `json:"stopConditions"`
 }
 
 // updateExperimentTemplateRequest is the JSON body for PATCH /experimentTemplates/{id}.
 type updateExperimentTemplateRequest struct {
-	Targets           map[string]experimentTemplateTargetDTO  `json:"targets"`
-	Actions           map[string]experimentTemplateActionDTO  `json:"actions"`
-	LogConfiguration  *experimentTemplateLogConfigurationDTO  `json:"logConfiguration"`
-	ExperimentOptions *experimentTemplateExperimentOptionsDTO `json:"experimentOptions"`
-	Description       string                                  `json:"description"`
-	RoleArn           string                                  `json:"roleArn"`
-	StopConditions    []experimentTemplateStopConditionDTO    `json:"stopConditions"`
+	Targets                       map[string]experimentTemplateTargetDTO  `json:"targets"`
+	Actions                       map[string]experimentTemplateActionDTO  `json:"actions"`
+	LogConfiguration              *experimentTemplateLogConfigurationDTO  `json:"logConfiguration"`
+	ExperimentOptions             *experimentTemplateExperimentOptionsDTO `json:"experimentOptions"`
+	ExperimentReportConfiguration *experimentTemplateReportConfigDTO      `json:"experimentReportConfiguration"`
+	Description                   string                                  `json:"description"`
+	RoleArn                       string                                  `json:"roleArn"`
+	StopConditions                []experimentTemplateStopConditionDTO    `json:"stopConditions"`
+}
+
+// startExperimentExperimentOptionsDTO is the JSON representation of StartExperiment's
+// experimentOptions input: the actions mode ("run-all" or "skip-all") to run the
+// experiment with.
+type startExperimentExperimentOptionsDTO struct {
+	ActionsMode string `json:"actionsMode,omitempty"`
 }
 
 // startExperimentRequest is the JSON body for POST /experiments.
 type startExperimentRequest struct {
-	Tags                 map[string]string `json:"tags"`
-	ClientToken          string            `json:"clientToken"`
-	ExperimentTemplateID string            `json:"experimentTemplateId"`
+	Tags                 map[string]string                    `json:"tags"`
+	ExperimentOptions    *startExperimentExperimentOptionsDTO `json:"experimentOptions,omitempty"`
+	ClientToken          string                               `json:"clientToken"`
+	ExperimentTemplateID string                               `json:"experimentTemplateId"`
 }
 
 // experimentTemplateTargetDTO is the JSON representation of a template target.
@@ -305,6 +428,37 @@ type experimentTemplateExperimentOptionsDTO struct {
 	EmptyTargetResolutionMode string `json:"emptyTargetResolutionMode,omitempty"`
 }
 
+// experimentTemplateReportConfigDTO is the JSON representation of an
+// experiment template's report configuration, shared by the create/update
+// request bodies and the template response DTO (identical wire shape).
+type experimentTemplateReportConfigDTO struct {
+	DataSources            *experimentTemplateReportDataSourcesDTO `json:"dataSources,omitempty"`
+	Outputs                *experimentTemplateReportOutputsDTO     `json:"outputs,omitempty"`
+	PreExperimentDuration  string                                  `json:"preExperimentDuration,omitempty"`
+	PostExperimentDuration string                                  `json:"postExperimentDuration,omitempty"`
+}
+
+// experimentTemplateReportDataSourcesDTO holds the report's data sources.
+type experimentTemplateReportDataSourcesDTO struct {
+	CloudWatchDashboards []experimentTemplateReportDashboardDTO `json:"cloudWatchDashboards,omitempty"`
+}
+
+// experimentTemplateReportDashboardDTO identifies a CloudWatch dashboard.
+type experimentTemplateReportDashboardDTO struct {
+	DashboardIdentifier string `json:"dashboardIdentifier,omitempty"`
+}
+
+// experimentTemplateReportOutputsDTO holds the report's output destinations.
+type experimentTemplateReportOutputsDTO struct {
+	S3Configuration *experimentTemplateReportOutputsS3DTO `json:"s3Configuration,omitempty"`
+}
+
+// experimentTemplateReportOutputsS3DTO is the S3 destination for a report.
+type experimentTemplateReportOutputsS3DTO struct {
+	BucketName string `json:"bucketName"`
+	Prefix     string `json:"prefix,omitempty"`
+}
+
 // experimentTemplateResponseDTO is the outer envelope for experiment-template responses.
 type experimentTemplateResponseDTO struct {
 	ExperimentTemplate experimentTemplateDTO `json:"experimentTemplate"`
@@ -318,18 +472,19 @@ type listExperimentTemplatesResponseDTO struct {
 
 // experimentTemplateDTO is the JSON representation of an experiment template.
 type experimentTemplateDTO struct {
-	Tags              map[string]string                       `json:"tags"`
-	Targets           map[string]experimentTemplateTargetDTO  `json:"targets"`
-	Actions           map[string]experimentTemplateActionDTO  `json:"actions"`
-	LogConfiguration  *experimentTemplateLogConfigurationDTO  `json:"logConfiguration,omitempty"`
-	ExperimentOptions *experimentTemplateExperimentOptionsDTO `json:"experimentOptions,omitempty"`
-	ID                string                                  `json:"id"`
-	Arn               string                                  `json:"arn"`
-	Description       string                                  `json:"description,omitempty"`
-	RoleArn           string                                  `json:"roleArn,omitempty"`
-	StopConditions    []experimentTemplateStopConditionDTO    `json:"stopConditions"`
-	CreationTime      float64                                 `json:"creationTime"`
-	LastUpdateTime    float64                                 `json:"lastUpdateTime"`
+	Tags                          map[string]string                       `json:"tags"`
+	Targets                       map[string]experimentTemplateTargetDTO  `json:"targets"`
+	Actions                       map[string]experimentTemplateActionDTO  `json:"actions"`
+	LogConfiguration              *experimentTemplateLogConfigurationDTO  `json:"logConfiguration,omitempty"`
+	ExperimentOptions             *experimentTemplateExperimentOptionsDTO `json:"experimentOptions,omitempty"`
+	ExperimentReportConfiguration *experimentTemplateReportConfigDTO      `json:"experimentReportConfiguration,omitempty"`
+	ID                            string                                  `json:"id"`
+	Arn                           string                                  `json:"arn"`
+	Description                   string                                  `json:"description,omitempty"`
+	RoleArn                       string                                  `json:"roleArn,omitempty"`
+	StopConditions                []experimentTemplateStopConditionDTO    `json:"stopConditions"`
+	CreationTime                  float64                                 `json:"creationTime"`
+	LastUpdateTime                float64                                 `json:"lastUpdateTime"`
 }
 
 // experimentResponseDTO is the outer envelope for experiment responses.
@@ -345,22 +500,24 @@ type listExperimentsResponseDTO struct {
 
 // experimentDTO is the JSON representation of a running experiment.
 type experimentDTO struct {
-	ExperimentOptions                *experimentExperimentOptionsDTO `json:"experimentOptions,omitempty"`
-	Targets                          map[string]experimentTargetDTO  `json:"targets"`
-	Actions                          map[string]experimentActionDTO  `json:"actions"`
-	LogConfiguration                 *experimentLogConfigurationDTO  `json:"logConfiguration,omitempty"`
-	Tags                             map[string]string               `json:"tags"`
-	EndTime                          *float64                        `json:"endTime,omitempty"`
-	State                            experimentStatusDTO             `json:"state"`
-	Status                           experimentStatusDTO             `json:"status"`
-	Arn                              string                          `json:"arn"`
-	ExperimentTemplateID             string                          `json:"experimentTemplateId"`
-	RoleArn                          string                          `json:"roleArn,omitempty"`
-	ID                               string                          `json:"id"`
-	StopConditions                   []experimentStopConditionDTO    `json:"stopConditions"`
-	CreationTime                     float64                         `json:"creationTime"`
-	StartTime                        float64                         `json:"startTime"`
-	TargetAccountConfigurationsCount int                             `json:"targetAccountConfigurationsCount,omitempty"`
+	ExperimentOptions                *experimentExperimentOptionsDTO   `json:"experimentOptions,omitempty"`
+	ExperimentReportConfiguration    *experimentReportConfigurationDTO `json:"experimentReportConfiguration,omitempty"`
+	ExperimentReport                 *experimentReportDTO              `json:"experimentReport,omitempty"`
+	Targets                          map[string]experimentTargetDTO    `json:"targets"`
+	Actions                          map[string]experimentActionDTO    `json:"actions"`
+	LogConfiguration                 *experimentLogConfigurationDTO    `json:"logConfiguration,omitempty"`
+	Tags                             map[string]string                 `json:"tags"`
+	EndTime                          *float64                          `json:"endTime,omitempty"`
+	State                            experimentStatusDTO               `json:"state"`
+	Status                           experimentStatusDTO               `json:"status"`
+	Arn                              string                            `json:"arn"`
+	ExperimentTemplateID             string                            `json:"experimentTemplateId"`
+	RoleArn                          string                            `json:"roleArn,omitempty"`
+	ID                               string                            `json:"id"`
+	StopConditions                   []experimentStopConditionDTO      `json:"stopConditions"`
+	CreationTime                     float64                           `json:"creationTime"`
+	StartTime                        float64                           `json:"startTime"`
+	TargetAccountConfigurationsCount int                               `json:"targetAccountConfigurationsCount,omitempty"`
 }
 
 // experimentStatusDTO is the JSON representation of an experiment status.
@@ -379,22 +536,28 @@ type experimentStatusErrorDTO struct {
 	AccountID string `json:"accountId,omitempty"`
 }
 
-// experimentTargetDTO is the JSON representation of a resolved target.
+// experimentTargetDTO is the JSON representation of a resolved target. Filters,
+// ResourceTags, and SelectionMode mirror the real AWS FIS wire shape
+// (types.ExperimentTarget), carried through from the owning template's target.
 type experimentTargetDTO struct {
-	Parameters   map[string]string `json:"parameters,omitempty"`
-	ResourceType string            `json:"resourceType"`
-	ResourceArns []string          `json:"resourceArns,omitempty"`
+	Parameters    map[string]string                   `json:"parameters,omitempty"`
+	ResourceTags  map[string]string                   `json:"resourceTags,omitempty"`
+	Filters       []experimentTemplateTargetFilterDTO `json:"filters,omitempty"`
+	ResourceType  string                              `json:"resourceType"`
+	SelectionMode string                              `json:"selectionMode,omitempty"`
+	ResourceArns  []string                            `json:"resourceArns,omitempty"`
 }
 
 // experimentActionDTO is the JSON representation of a running experiment action.
 type experimentActionDTO struct {
-	Parameters map[string]string          `json:"parameters,omitempty"`
-	Targets    map[string]string          `json:"targets,omitempty"`
-	State      *experimentActionStatusDTO `json:"state,omitempty"`
-	Status     *experimentActionStatusDTO `json:"status,omitempty"`
-	StartTime  *float64                   `json:"startTime,omitempty"`
-	EndTime    *float64                   `json:"endTime,omitempty"`
-	ActionID   string                     `json:"actionId"`
+	Parameters  map[string]string          `json:"parameters,omitempty"`
+	Targets     map[string]string          `json:"targets,omitempty"`
+	State       *experimentActionStatusDTO `json:"state,omitempty"`
+	Status      *experimentActionStatusDTO `json:"status,omitempty"`
+	StartTime   *float64                   `json:"startTime,omitempty"`
+	EndTime     *float64                   `json:"endTime,omitempty"`
+	ActionID    string                     `json:"actionId"`
+	Description string                     `json:"description,omitempty"`
 }
 
 // experimentActionStatusDTO is the JSON representation of an action status.
@@ -427,10 +590,67 @@ type experimentS3ConfigurationDTO struct {
 	Prefix     string `json:"prefix,omitempty"`
 }
 
-// experimentExperimentOptionsDTO holds account targeting and resolution options.
+// experimentExperimentOptionsDTO holds account targeting and resolution options,
+// plus the resolved actions mode the experiment was started with.
 type experimentExperimentOptionsDTO struct {
 	AccountTargeting          string `json:"accountTargeting,omitempty"`
 	EmptyTargetResolutionMode string `json:"emptyTargetResolutionMode,omitempty"`
+	ActionsMode               string `json:"actionsMode,omitempty"`
+}
+
+// experimentReportConfigurationDTO is the JSON representation of a running
+// experiment's report configuration.
+type experimentReportConfigurationDTO struct {
+	DataSources            *experimentReportConfigurationDataSourcesDTO `json:"dataSources,omitempty"`
+	Outputs                *experimentReportConfigurationOutputsDTO     `json:"outputs,omitempty"`
+	PreExperimentDuration  string                                       `json:"preExperimentDuration,omitempty"`
+	PostExperimentDuration string                                       `json:"postExperimentDuration,omitempty"`
+}
+
+// experimentReportConfigurationDataSourcesDTO holds the report's data sources.
+type experimentReportConfigurationDataSourcesDTO struct {
+	CloudWatchDashboards []experimentReportConfigurationCloudWatchDashboardDTO `json:"cloudWatchDashboards,omitempty"`
+}
+
+// experimentReportConfigurationCloudWatchDashboardDTO identifies a CloudWatch dashboard.
+type experimentReportConfigurationCloudWatchDashboardDTO struct {
+	DashboardIdentifier string `json:"dashboardIdentifier,omitempty"`
+}
+
+// experimentReportConfigurationOutputsDTO holds the report's output destinations.
+type experimentReportConfigurationOutputsDTO struct {
+	S3Configuration *experimentReportConfigurationOutputsS3ConfigurationDTO `json:"s3Configuration,omitempty"`
+}
+
+// experimentReportConfigurationOutputsS3ConfigurationDTO is the S3 destination for a report.
+type experimentReportConfigurationOutputsS3ConfigurationDTO struct {
+	BucketName string `json:"bucketName"`
+	Prefix     string `json:"prefix,omitempty"`
+}
+
+// experimentReportDTO is the JSON representation of a running experiment's
+// generated report.
+type experimentReportDTO struct {
+	State     *experimentReportStateDTO     `json:"state,omitempty"`
+	S3Reports []experimentReportS3ReportDTO `json:"s3Reports,omitempty"`
+}
+
+// experimentReportS3ReportDTO identifies a single generated report artifact in S3.
+type experimentReportS3ReportDTO struct {
+	Arn        string `json:"arn,omitempty"`
+	ReportType string `json:"reportType,omitempty"`
+}
+
+// experimentReportStateDTO is the JSON representation of experiment report generation state.
+type experimentReportStateDTO struct {
+	Error  *experimentReportErrorDTO `json:"error,omitempty"`
+	Status string                    `json:"status"`
+	Reason string                    `json:"reason,omitempty"`
+}
+
+// experimentReportErrorDTO holds the error code when experiment report generation fails.
+type experimentReportErrorDTO struct {
+	Code string `json:"code,omitempty"`
 }
 
 // listActionsResponseDTO is the outer envelope for list actions responses.
@@ -626,9 +846,13 @@ type safetyLeverResponseDTO struct {
 	SafetyLever safetyLeverDTO `json:"safetyLever"`
 }
 
-// safetyLeverDTO is the JSON representation of a safety lever.
+// safetyLeverDTO is the JSON representation of a safety lever. The real AWS FIS
+// wire shape (types.SafetyLever) has no "tags" field -- GetSafetyLever /
+// UpdateSafetyLeverState never surface tags directly, even though a safety
+// lever's ARN can still be tagged via the generic TagResource / UntagResource /
+// ListTagsForResource operations (see tags.go). A gopherstack-invented "tags"
+// field used to leak onto this response; deliberately absent here now.
 type safetyLeverDTO struct {
-	Tags  map[string]string   `json:"tags,omitempty"`
 	State safetyLeverStateDTO `json:"state"`
 	ID    string              `json:"id"`
 	Arn   string              `json:"arn"`

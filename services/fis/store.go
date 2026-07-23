@@ -23,27 +23,50 @@ const (
 // Status constants
 // ----------------------------------------
 
+// Experiment status values. These match types.ExperimentStatus's enum exactly
+// (pending, initiating, running, completed, stopping, stopped, failed,
+// cancelled) -- there is deliberately no "completing" value: an earlier
+// gopherstack revision invented one that does not exist in the real AWS FIS
+// SDK model, and it has been removed (see runExperiment).
 const (
 	statusPending    = "pending"
 	statusInitiating = "initiating"
 	statusRunning    = "running"
-	statusCompleting = "completing"
 	statusStopping   = "stopping"
 	statusStopped    = "stopped"
 	statusCompleted  = "completed"
+	statusCancelled  = "cancelled"
 	statusFailed     = "failed"
 )
 
+// Action status values, matching types.ExperimentActionStatus's enum exactly
+// (pending, initiating, running, completed, cancelled, stopping, stopped,
+// failed, skipped). As with the experiment-level status above, there is no
+// "completing" value.
 const (
 	actionStatusPending    = "pending"
 	actionStatusInitiating = "initiating"
 	actionStatusRunning    = "running"
-	actionStatusCompleting = "completing"
 	actionStatusCompleted  = "completed"
 	actionStatusStopped    = "stopped"
 	actionStatusFailed     = "failed"
 	actionStatusCancelled  = "cancelled"
 	actionStatusSkipped    = "skipped"
+)
+
+// Experiment report status values, matching types.ExperimentReportStatus's enum
+// exactly (pending, running, completed, cancelled, failed).
+const (
+	experimentReportStatusPending   = "pending"
+	experimentReportStatusCompleted = "completed"
+	experimentReportStatusCancelled = "cancelled"
+	experimentReportStatusFailed    = "failed"
+)
+
+// Actions mode values, matching types.ActionsMode's enum exactly.
+const (
+	actionsModeRunAll  = "run-all"
+	actionsModeSkipAll = "skip-all"
 )
 
 // ----------------------------------------

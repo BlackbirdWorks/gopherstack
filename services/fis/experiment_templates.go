@@ -63,6 +63,10 @@ func validateTemplate(input *createExperimentTemplateRequest) error {
 		return err
 	}
 
+	if err := validateReportConfiguration(input.ExperimentReportConfiguration); err != nil {
+		return err
+	}
+
 	if len(input.Tags) > maxTagsPerResource {
 		return fmt.Errorf(
 			"%w: tags must have at most %d entries; got %d",
@@ -106,6 +110,34 @@ func validateUpdateTemplate(input *updateExperimentTemplateRequest) error {
 		if err := validateActions(input.Actions, input.Targets); err != nil {
 			return err
 		}
+	}
+
+	if err := validateReportConfiguration(input.ExperimentReportConfiguration); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateReportConfiguration checks that an experiment report configuration's
+// duration fields, when present, are syntactically valid ISO 8601 durations.
+func validateReportConfiguration(cfg *experimentTemplateReportConfigDTO) error {
+	if cfg == nil {
+		return nil
+	}
+
+	if cfg.PreExperimentDuration != "" && !isValidISODuration(cfg.PreExperimentDuration) {
+		return fmt.Errorf(
+			"%w: experimentReportConfiguration.preExperimentDuration %q is not a valid ISO 8601 duration",
+			ErrValidation, cfg.PreExperimentDuration,
+		)
+	}
+
+	if cfg.PostExperimentDuration != "" && !isValidISODuration(cfg.PostExperimentDuration) {
+		return fmt.Errorf(
+			"%w: experimentReportConfiguration.postExperimentDuration %q is not a valid ISO 8601 duration",
+			ErrValidation, cfg.PostExperimentDuration,
+		)
 	}
 
 	return nil
@@ -381,6 +413,10 @@ func (b *InMemoryBackend) CreateExperimentTemplate(
 		}
 	}
 
+	if input.ExperimentReportConfiguration != nil {
+		tpl.ExperimentReportConfiguration = convertReportConfigDTO(input.ExperimentReportConfiguration)
+	}
+
 	b.mu.Lock("CreateExperimentTemplate")
 	defer b.mu.Unlock()
 
@@ -454,6 +490,10 @@ func (b *InMemoryBackend) UpdateExperimentTemplate(
 			AccountTargeting:          input.ExperimentOptions.AccountTargeting,
 			EmptyTargetResolutionMode: input.ExperimentOptions.EmptyTargetResolutionMode,
 		}
+	}
+
+	if input.ExperimentReportConfiguration != nil {
+		tpl.ExperimentReportConfiguration = convertReportConfigDTO(input.ExperimentReportConfiguration)
 	}
 
 	tpl.LastUpdateTime = time.Now()
@@ -576,7 +616,76 @@ func cloneTemplate(tpl *ExperimentTemplate) *ExperimentTemplate {
 		cp.ExperimentOptions = &opt
 	}
 
+	cp.ExperimentReportConfiguration = cloneExperimentTemplateReportConfig(tpl.ExperimentReportConfiguration)
+
 	return &cp
+}
+
+// cloneExperimentTemplateReportConfig deep-copies a template's report configuration.
+func cloneExperimentTemplateReportConfig(
+	cfg *ExperimentTemplateReportConfiguration,
+) *ExperimentTemplateReportConfiguration {
+	if cfg == nil {
+		return nil
+	}
+
+	cp := *cfg
+
+	if cfg.DataSources != nil {
+		ds := *cfg.DataSources
+		ds.CloudWatchDashboards = append(
+			[]ExperimentTemplateReportConfigurationCloudWatchDashboard(nil),
+			cfg.DataSources.CloudWatchDashboards...,
+		)
+		cp.DataSources = &ds
+	}
+
+	if cfg.Outputs != nil {
+		out := *cfg.Outputs
+		if cfg.Outputs.S3Configuration != nil {
+			s3 := *cfg.Outputs.S3Configuration
+			out.S3Configuration = &s3
+		}
+		cp.Outputs = &out
+	}
+
+	return &cp
+}
+
+// convertReportConfigDTO converts a request DTO's report configuration into the
+// domain type stored on an ExperimentTemplate.
+func convertReportConfigDTO(dto *experimentTemplateReportConfigDTO) *ExperimentTemplateReportConfiguration {
+	if dto == nil {
+		return nil
+	}
+
+	cfg := &ExperimentTemplateReportConfiguration{
+		PreExperimentDuration:  dto.PreExperimentDuration,
+		PostExperimentDuration: dto.PostExperimentDuration,
+	}
+
+	if dto.DataSources != nil {
+		dashboards := make(
+			[]ExperimentTemplateReportConfigurationCloudWatchDashboard,
+			len(dto.DataSources.CloudWatchDashboards),
+		)
+		for i, d := range dto.DataSources.CloudWatchDashboards {
+			dashboards[i] = ExperimentTemplateReportConfigurationCloudWatchDashboard(d)
+		}
+
+		cfg.DataSources = &ExperimentTemplateReportConfigurationDataSources{CloudWatchDashboards: dashboards}
+	}
+
+	if dto.Outputs != nil && dto.Outputs.S3Configuration != nil {
+		cfg.Outputs = &ExperimentTemplateReportConfigurationOutputs{
+			S3Configuration: &ExperimentTemplateReportConfigurationOutputsS3Configuration{
+				BucketName: dto.Outputs.S3Configuration.BucketName,
+				Prefix:     dto.Outputs.S3Configuration.Prefix,
+			},
+		}
+	}
+
+	return cfg
 }
 
 func convertTargetDTOs(in map[string]experimentTemplateTargetDTO) map[string]ExperimentTemplateTarget {
