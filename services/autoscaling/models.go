@@ -210,41 +210,95 @@ type MixedInstancesPolicy struct {
 	InstancesDistribution InstancesDistribution        `json:"InstancesDistribution"`
 }
 
+// AvailabilityZoneDistribution controls how launch failures are handled across AZs.
+type AvailabilityZoneDistribution struct {
+	// CapacityDistributionStrategy is "balanced-only" or "balanced-best-effort".
+	CapacityDistributionStrategy string `json:"CapacityDistributionStrategy,omitempty"`
+}
+
+// AvailabilityZoneImpairmentPolicy controls instance replacement behavior during a zonal shift.
+type AvailabilityZoneImpairmentPolicy struct {
+	// ImpairedZoneHealthCheckBehavior is "ReplaceUnhealthy" or "IgnoreUnhealthy".
+	ImpairedZoneHealthCheckBehavior string `json:"ImpairedZoneHealthCheckBehavior,omitempty"`
+	ZonalShiftEnabled               bool   `json:"ZonalShiftEnabled,omitempty"`
+}
+
+// CapacityReservationTarget identifies specific Capacity Reservations or resource groups to target.
+type CapacityReservationTarget struct {
+	CapacityReservationIDs               []string `json:"CapacityReservationIds,omitempty"`
+	CapacityReservationResourceGroupARNs []string `json:"CapacityReservationResourceGroupArns,omitempty"`
+}
+
+// CapacityReservationSpecification controls how the group uses EC2 Capacity Reservations.
+type CapacityReservationSpecification struct {
+	CapacityReservationTarget *CapacityReservationTarget `json:"CapacityReservationTarget,omitempty"`
+	// CapacityReservationPreference is one of "capacity-reservations-only",
+	// "capacity-reservations-first", "none", or "default".
+	CapacityReservationPreference string `json:"CapacityReservationPreference,omitempty"`
+}
+
+// RetentionTriggers defines the failure conditions that move an instance to a
+// Retained state instead of terminating it.
+type RetentionTriggers struct {
+	// TerminateHookAbandon is "retain" or "terminate".
+	TerminateHookAbandon string `json:"TerminateHookAbandon,omitempty"`
+}
+
+// InstanceLifecyclePolicy controls instance retention behavior on lifecycle transitions.
+type InstanceLifecyclePolicy struct {
+	RetentionTriggers *RetentionTriggers `json:"RetentionTriggers,omitempty"`
+}
+
+// InstanceMaintenancePolicy bounds the in-service/healthy percentage window
+// used when replacing instances. Pointers distinguish "unset" from the valid
+// value 0 (and the AWS "-1 clears a previously set value" sentinel).
+type InstanceMaintenancePolicy struct {
+	MinHealthyPercentage *int32 `json:"MinHealthyPercentage,omitempty"`
+	MaxHealthyPercentage *int32 `json:"MaxHealthyPercentage,omitempty"`
+}
+
 // AutoScalingGroup represents an EC2 Auto Scaling group.
 //
 //nolint:revive // AutoScalingGroup is the canonical AWS type name; renaming to Group would break convention.
 type AutoScalingGroup struct {
-	CreatedTime                      time.Time                    `json:"CreatedTime"`
-	LastScalingActivity              time.Time                    `json:"LastScalingActivity,omitzero"`
-	AutoScalingGroupName             string                       `json:"AutoScalingGroupName"`
-	Status                           string                       `json:"Status,omitempty"`
-	HealthCheckType                  string                       `json:"HealthCheckType"`
-	LaunchConfigurationName          string                       `json:"LaunchConfigurationName,omitempty"`
-	AutoScalingGroupARN              string                       `json:"AutoScalingGroupARN"`
-	VPCZoneIdentifier                string                       `json:"VPCZoneIdentifier,omitempty"`
-	PlacementGroup                   string                       `json:"PlacementGroup,omitempty"`
-	Context                          string                       `json:"Context,omitempty"`
-	DesiredCapacityType              string                       `json:"DesiredCapacityType,omitempty"`
-	LaunchTemplate                   *LaunchTemplateSpecification `json:"LaunchTemplate,omitempty"`
-	MixedInstancesPolicy             *MixedInstancesPolicy        `json:"MixedInstancesPolicy,omitempty"`
-	LoadBalancerNames                []string                     `json:"LoadBalancerNames,omitempty"`
-	TargetGroupARNs                  []string                     `json:"TargetGroupARNs,omitempty"`
-	TrafficSources                   []TrafficSource              `json:"TrafficSources,omitempty"`
-	AvailabilityZones                []string                     `json:"AvailabilityZones,omitempty"`
-	Instances                        []Instance                   `json:"Instances,omitempty"`
-	Tags                             []Tag                        `json:"Tags,omitempty"`
-	SuspendedProcesses               []string                     `json:"SuspendedProcesses,omitempty"`
-	EnabledMetrics                   []string                     `json:"EnabledMetrics,omitempty"`
-	TerminationPolicies              []string                     `json:"TerminationPolicies,omitempty"`
-	MinSize                          int32                        `json:"MinSize"`
-	MaxSize                          int32                        `json:"MaxSize"`
-	DesiredCapacity                  int32                        `json:"DesiredCapacity"`
-	DefaultCooldown                  int32                        `json:"DefaultCooldown"`
-	HealthCheckGracePeriod           int32                        `json:"HealthCheckGracePeriod"`
-	MaxInstanceLifetime              int32                        `json:"MaxInstanceLifetime,omitempty"`
-	DefaultInstanceWarmup            int32                        `json:"DefaultInstanceWarmup,omitempty"`
-	NewInstancesProtectedFromScaleIn bool                         `json:"NewInstancesProtectedFromScaleIn,omitempty"`
-	CapacityRebalance                bool                         `json:"CapacityRebalance,omitempty"`
+	LastScalingActivity              time.Time                         `json:"LastScalingActivity,omitzero"`
+	CreatedTime                      time.Time                         `json:"CreatedTime"`
+	LaunchTemplate                   *LaunchTemplateSpecification      `json:"LaunchTemplate,omitempty"`
+	InstanceMaintenancePolicy        *InstanceMaintenancePolicy        `json:"InstanceMaintenancePolicy,omitempty"`
+	InstanceLifecyclePolicy          *InstanceLifecyclePolicy          `json:"InstanceLifecyclePolicy,omitempty"`
+	CapacityReservationSpecification *CapacityReservationSpecification `json:"CapacityReservationSpecification,omitempty"`
+	AvailabilityZoneImpairmentPolicy *AvailabilityZoneImpairmentPolicy `json:"AvailabilityZoneImpairmentPolicy,omitempty"`
+	AvailabilityZoneDistribution     *AvailabilityZoneDistribution     `json:"AvailabilityZoneDistribution,omitempty"`
+	MixedInstancesPolicy             *MixedInstancesPolicy             `json:"MixedInstancesPolicy,omitempty"`
+	DeletionProtection               string                            `json:"DeletionProtection,omitempty"`
+	VPCZoneIdentifier                string                            `json:"VPCZoneIdentifier,omitempty"`
+	Context                          string                            `json:"Context,omitempty"`
+	PlacementGroup                   string                            `json:"PlacementGroup,omitempty"`
+	AutoScalingGroupName             string                            `json:"AutoScalingGroupName"`
+	Status                           string                            `json:"Status,omitempty"`
+	HealthCheckType                  string                            `json:"HealthCheckType"`
+	LaunchConfigurationName          string                            `json:"LaunchConfigurationName,omitempty"`
+	DesiredCapacityType              string                            `json:"DesiredCapacityType,omitempty"`
+	AutoScalingGroupARN              string                            `json:"AutoScalingGroupARN"`
+	Instances                        []Instance                        `json:"Instances,omitempty"`
+	EnabledMetrics                   []string                          `json:"EnabledMetrics,omitempty"`
+	TerminationPolicies              []string                          `json:"TerminationPolicies,omitempty"`
+	SuspendedProcesses               []string                          `json:"SuspendedProcesses,omitempty"`
+	Tags                             []Tag                             `json:"Tags,omitempty"`
+	AvailabilityZones                []string                          `json:"AvailabilityZones,omitempty"`
+	TrafficSources                   []TrafficSource                   `json:"TrafficSources,omitempty"`
+	TargetGroupARNs                  []string                          `json:"TargetGroupARNs,omitempty"`
+	LoadBalancerNames                []string                          `json:"LoadBalancerNames,omitempty"`
+	MinSize                          int32                             `json:"MinSize"`
+	MaxSize                          int32                             `json:"MaxSize"`
+	DesiredCapacity                  int32                             `json:"DesiredCapacity"`
+	DefaultCooldown                  int32                             `json:"DefaultCooldown"`
+	HealthCheckGracePeriod           int32                             `json:"HealthCheckGracePeriod"`
+	MaxInstanceLifetime              int32                             `json:"MaxInstanceLifetime,omitempty"`
+	DefaultInstanceWarmup            int32                             `json:"DefaultInstanceWarmup,omitempty"`
+	NewInstancesProtectedFromScaleIn bool                              `json:"NewInstancesProtectedFromScaleIn,omitempty"`
+	CapacityRebalance                bool                              `json:"CapacityRebalance,omitempty"`
+	SkipZonalShiftValidation         bool                              `json:"SkipZonalShiftValidation,omitempty"`
 }
 
 // EbsBlockDevice describes an EBS volume configuration in a block device mapping.
@@ -326,8 +380,15 @@ type ResourceTag struct {
 
 // ScheduledAction represents a scheduled scaling action for an Auto Scaling group.
 type ScheduledAction struct {
-	StartTime            time.Time `json:"StartTime,omitzero"`
-	EndTime              time.Time `json:"EndTime,omitzero"`
+	StartTime time.Time `json:"StartTime,omitzero"`
+	EndTime   time.Time `json:"EndTime,omitzero"`
+	// LastExecutedTime records when the background scheduler last applied this
+	// action's capacity change. For a one-time action (empty Recurrence) it
+	// gates against re-firing; for a recurring action it is the baseline
+	// NextAfter is computed from. Internal bookkeeping only -- AWS's real
+	// ScheduledUpdateGroupAction wire shape has no equivalent field, so this is
+	// deliberately not projected onto the DescribeScheduledActions XML response.
+	LastExecutedTime     time.Time `json:"LastExecutedTime,omitzero"`
 	DesiredCapacity      *int32    `json:"DesiredCapacity,omitempty"`
 	MinSize              *int32    `json:"MinSize,omitempty"`
 	MaxSize              *int32    `json:"MaxSize,omitempty"`
@@ -441,6 +502,11 @@ type InstanceDetails struct {
 type CreateAutoScalingGroupInput struct {
 	MixedInstancesPolicy             *MixedInstancesPolicy
 	LaunchTemplate                   *LaunchTemplateSpecification
+	AvailabilityZoneDistribution     *AvailabilityZoneDistribution
+	AvailabilityZoneImpairmentPolicy *AvailabilityZoneImpairmentPolicy
+	CapacityReservationSpecification *CapacityReservationSpecification
+	InstanceLifecyclePolicy          *InstanceLifecyclePolicy
+	InstanceMaintenancePolicy        *InstanceMaintenancePolicy
 	AutoScalingGroupName             string
 	LaunchConfigurationName          string
 	HealthCheckType                  string
@@ -448,6 +514,7 @@ type CreateAutoScalingGroupInput struct {
 	PlacementGroup                   string
 	Context                          string
 	DesiredCapacityType              string
+	DeletionProtection               string
 	LoadBalancerNames                []string
 	TargetGroupARNs                  []string
 	TerminationPolicies              []string
@@ -464,6 +531,7 @@ type CreateAutoScalingGroupInput struct {
 	DesiredCapacity                  int32
 	NewInstancesProtectedFromScaleIn bool
 	CapacityRebalance                bool
+	SkipZonalShiftValidation         bool
 }
 
 // UpdateAutoScalingGroupInput holds the input for UpdateAutoScalingGroup.
@@ -477,7 +545,13 @@ type UpdateAutoScalingGroupInput struct {
 	DefaultInstanceWarmup            *int32
 	NewInstancesProtectedFromScaleIn *bool
 	CapacityRebalance                *bool
+	SkipZonalShiftValidation         *bool
 	MixedInstancesPolicy             *MixedInstancesPolicy
+	AvailabilityZoneDistribution     *AvailabilityZoneDistribution
+	AvailabilityZoneImpairmentPolicy *AvailabilityZoneImpairmentPolicy
+	CapacityReservationSpecification *CapacityReservationSpecification
+	InstanceLifecyclePolicy          *InstanceLifecyclePolicy
+	InstanceMaintenancePolicy        *InstanceMaintenancePolicy
 	MinSize                          *int32
 	LaunchConfigurationName          string
 	VPCZoneIdentifier                string
@@ -486,6 +560,7 @@ type UpdateAutoScalingGroupInput struct {
 	DesiredCapacityType              string
 	HealthCheckType                  string
 	AutoScalingGroupName             string
+	DeletionProtection               string
 	AvailabilityZones                []string
 	TerminationPolicies              []string
 }

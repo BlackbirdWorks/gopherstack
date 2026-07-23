@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
 const (
@@ -31,14 +32,34 @@ const (
 type Handler struct {
 	Backend       StorageBackend
 	dispatchTable map[string]func(url.Values) (any, error)
+	scheduler     *ScheduledActionScheduler
+	schedulerRun  worker.SingleRun
 }
 
-// NewHandler creates a new Autoscaling handler.
+// NewHandler creates a new Autoscaling handler. If backend is an
+// *InMemoryBackend, a ScheduledActionScheduler is attached automatically (see
+// StartWorker/Shutdown) so PutScheduledUpdateGroupAction/
+// BatchPutScheduledUpdateGroupAction actions actually fire at their scheduled
+// time instead of only being reflected by DescribeScheduledActions.
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{Backend: backend}
 	h.dispatchTable = h.buildDispatchTable()
 
+	if mem, ok := backend.(*InMemoryBackend); ok {
+		h.scheduler = NewScheduledActionScheduler(mem, 0)
+	}
+
 	return h
+}
+
+// StartWorker starts the scheduled-action scheduler as a background worker.
+// Implements service.BackgroundWorker.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.scheduler != nil {
+		h.schedulerRun.Start(ctx, h.scheduler)
+	}
+
+	return nil
 }
 
 func (h *Handler) buildDispatchTable() map[string]func(url.Values) (any, error) {
@@ -113,14 +134,23 @@ func (h *Handler) buildDispatchTable() map[string]func(url.Values) (any, error) 
 	}
 }
 
-// Shutdown stops the backend's in-flight lifecycle-hook timers so no timer
-// goroutine outlives the service. Invoked on server shutdown via
-// service.Shutdowner.
-func (h *Handler) Shutdown(_ context.Context) {
+// Shutdown stops the scheduled-action scheduler and the backend's in-flight
+// lifecycle-hook timers so no goroutine outlives the service. Invoked on
+// server shutdown via service.Shutdowner.
+func (h *Handler) Shutdown(ctx context.Context) {
+	h.schedulerRun.Stop(ctx)
+
 	if c, ok := h.Backend.(interface{ Close() }); ok {
 		c.Close()
 	}
 }
+
+// Ensure Handler implements service.BackgroundWorker and service.Shutdowner at
+// compile time.
+var (
+	_ service.BackgroundWorker = (*Handler)(nil)
+	_ service.Shutdowner       = (*Handler)(nil)
+)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Autoscaling" }
@@ -341,6 +371,7 @@ func autoscalingErrorCode(opErr error) string {
 		{ErrInstanceNotFound, errValidationError},
 		{ErrWarmPoolNotFound, errValidationError},
 		{ErrPolicyNotFound, errValidationError},
+		{ErrDeletionProtected, "ResourceInUse"},
 	}
 
 	for _, m := range mappings {

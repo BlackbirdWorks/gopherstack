@@ -221,9 +221,48 @@ type deleteLaunchConfigurationResponse struct {
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
+// parseEbsBlockDevice parses the BlockDeviceMappings.member.<i>.Ebs.* form
+// values, returning nil if no Ebs sub-fields were specified for member i.
+func parseEbsBlockDevice(vals url.Values, i int) *EbsBlockDevice {
+	prefix := fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.", i)
+
+	snapshotID := vals.Get(prefix + "SnapshotId")
+	volumeType := vals.Get(prefix + "VolumeType")
+	kmsKeyID := vals.Get(prefix + "KmsKeyId")
+	volumeSize := vals.Get(prefix + "VolumeSize")
+
+	if snapshotID == "" && volumeType == "" && kmsKeyID == "" && volumeSize == "" {
+		return nil
+	}
+
+	ebs := &EbsBlockDevice{
+		SnapshotID:          snapshotID,
+		VolumeType:          volumeType,
+		KmsKeyID:            kmsKeyID,
+		DeleteOnTermination: vals.Get(prefix+"DeleteOnTermination") != "false",
+		Encrypted:           vals.Get(prefix+"Encrypted") == formValueTrue,
+	}
+
+	if n, parseErr := parseIntVal(volumeSize); parseErr == nil {
+		ebs.VolumeSize = n
+	}
+
+	if v := vals.Get(prefix + "Iops"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil {
+			ebs.Iops = n
+		}
+	}
+
+	if v := vals.Get(prefix + "Throughput"); v != "" {
+		if n, parseErr := parseIntVal(v); parseErr == nil {
+			ebs.Throughput = n
+		}
+	}
+
+	return ebs
+}
+
 // parseBlockDeviceMappings parses BlockDeviceMappings from form values.
-//
-//nolint:gocognit,nestif // Too complex to refactor given time constraints
 func parseBlockDeviceMappings(vals url.Values) []BlockDeviceMapping {
 	result := make([]BlockDeviceMapping, 0)
 
@@ -235,52 +274,12 @@ func parseBlockDeviceMappings(vals url.Values) []BlockDeviceMapping {
 			break
 		}
 
-		bdm := BlockDeviceMapping{
+		result = append(result, BlockDeviceMapping{
 			DeviceName:  deviceName,
 			VirtualName: vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.VirtualName", i)),
 			NoDevice:    vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.NoDevice", i)),
-		}
-
-		snapshotID := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.SnapshotId", i))
-		volumeType := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.VolumeType", i))
-		kmsKeyID := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.KmsKeyId", i))
-
-		if snapshotID != "" || volumeType != "" || kmsKeyID != "" ||
-			vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.VolumeSize", i)) != "" {
-			ebs := &EbsBlockDevice{
-				SnapshotID: snapshotID,
-				VolumeType: volumeType,
-				KmsKeyID:   kmsKeyID,
-				DeleteOnTermination: vals.Get(
-					fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.DeleteOnTermination", i),
-				) != "false",
-				Encrypted: vals.Get(
-					fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.Encrypted", i),
-				) == formValueTrue,
-			}
-
-			if v := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.VolumeSize", i)); v != "" {
-				if n, parseErr := parseIntVal(v); parseErr == nil {
-					ebs.VolumeSize = n
-				}
-			}
-
-			if v := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.Iops", i)); v != "" {
-				if n, parseErr := parseIntVal(v); parseErr == nil {
-					ebs.Iops = n
-				}
-			}
-
-			if v := vals.Get(fmt.Sprintf("BlockDeviceMappings.member.%d.Ebs.Throughput", i)); v != "" {
-				if n, parseErr := parseIntVal(v); parseErr == nil {
-					ebs.Throughput = n
-				}
-			}
-
-			bdm.Ebs = ebs
-		}
-
-		result = append(result, bdm)
+			Ebs:         parseEbsBlockDevice(vals, i),
+		})
 	}
 
 	return result

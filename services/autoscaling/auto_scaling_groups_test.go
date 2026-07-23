@@ -506,3 +506,191 @@ func TestInMemoryBackend_VPCZoneIdentifier(t *testing.T) {
 		})
 	}
 }
+
+// TestInMemoryBackend_DeletionProtection locks the gating behavior added to
+// DeleteAutoScalingGroup: prevent-all-deletion blocks every delete regardless
+// of ForceDelete, prevent-force-deletion only blocks a ForceDelete=true
+// attempt, and none/"" behaves exactly as before this feature existed.
+func TestInMemoryBackend_DeletionProtection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		deletionProtection string
+		forceDelete        bool
+		wantErr            bool
+	}{
+		{
+			name:               "none_allows_delete",
+			deletionProtection: "none",
+			wantErr:            false,
+		},
+		{
+			name:               "unset_allows_delete",
+			deletionProtection: "",
+			wantErr:            false,
+		},
+		{
+			name:               "prevent_all_deletion_blocks_plain_delete",
+			deletionProtection: "prevent-all-deletion",
+			forceDelete:        false,
+			wantErr:            true,
+		},
+		{
+			name:               "prevent_all_deletion_blocks_force_delete",
+			deletionProtection: "prevent-all-deletion",
+			forceDelete:        true,
+			wantErr:            true,
+		},
+		{
+			name:               "prevent_force_deletion_blocks_force_delete",
+			deletionProtection: "prevent-force-deletion",
+			forceDelete:        true,
+			wantErr:            true,
+		},
+		{
+			name:               "prevent_force_deletion_allows_plain_delete",
+			deletionProtection: "prevent-force-deletion",
+			forceDelete:        false,
+			wantErr:            false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := autoscaling.NewInMemoryBackend()
+			_, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+				AutoScalingGroupName: "dp-asg",
+				MinSize:              0,
+				MaxSize:              1,
+				DeletionProtection:   tt.deletionProtection,
+			})
+			require.NoError(t, err)
+
+			delErr := b.DeleteAutoScalingGroup("dp-asg", tt.forceDelete)
+			if tt.wantErr {
+				require.Error(t, delErr)
+				require.ErrorIs(t, delErr, autoscaling.ErrDeletionProtected)
+
+				groups, describeErr := b.DescribeAutoScalingGroups([]string{"dp-asg"})
+				require.NoError(t, describeErr)
+				assert.Len(t, groups, 1, "group must still exist after a blocked delete")
+
+				return
+			}
+
+			require.NoError(t, delErr)
+
+			_, describeErr := b.DescribeAutoScalingGroups([]string{"dp-asg"})
+			require.Error(t, describeErr, "group must be gone after an allowed delete")
+		})
+	}
+}
+
+// TestInMemoryBackend_DeletionProtectionInvalidValue locks that
+// CreateAutoScalingGroup/UpdateAutoScalingGroup reject a DeletionProtection
+// value outside the real AWS enum instead of silently accepting it (which
+// would leave DeleteAutoScalingGroup's gating switch unable to ever match it).
+func TestInMemoryBackend_DeletionProtectionInvalidValue(t *testing.T) {
+	t.Parallel()
+
+	b := autoscaling.NewInMemoryBackend()
+
+	_, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+		AutoScalingGroupName: "bad-dp-asg",
+		MinSize:              0,
+		MaxSize:              1,
+		DeletionProtection:   "not-a-real-value",
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, autoscaling.ErrInvalidParameter)
+
+	_, err = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+		AutoScalingGroupName: "ok-dp-asg",
+		MinSize:              0,
+		MaxSize:              1,
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateAutoScalingGroup(autoscaling.UpdateAutoScalingGroupInput{
+		AutoScalingGroupName: "ok-dp-asg",
+		DeletionProtection:   "not-a-real-value",
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, autoscaling.ErrInvalidParameter)
+}
+
+// TestInMemoryBackend_NewGroupPolicyFields locks that the seven previously
+// unwired CreateAutoScalingGroupInput/UpdateAutoScalingGroupInput fields
+// (AvailabilityZoneDistribution, AvailabilityZoneImpairmentPolicy,
+// CapacityReservationSpecification, DeletionProtection,
+// InstanceLifecyclePolicy, InstanceMaintenancePolicy,
+// SkipZonalShiftValidation) are actually stored and echoed back, on both
+// Create and Update.
+func TestInMemoryBackend_NewGroupPolicyFields(t *testing.T) {
+	t.Parallel()
+
+	minHealthy := int32(50)
+	maxHealthy := int32(150)
+
+	b := autoscaling.NewInMemoryBackend()
+	g, err := b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+		AutoScalingGroupName: "policy-fields-asg",
+		MinSize:              1,
+		MaxSize:              3,
+		AvailabilityZoneDistribution: &autoscaling.AvailabilityZoneDistribution{
+			CapacityDistributionStrategy: "balanced-best-effort",
+		},
+		AvailabilityZoneImpairmentPolicy: &autoscaling.AvailabilityZoneImpairmentPolicy{
+			ImpairedZoneHealthCheckBehavior: "ReplaceUnhealthy",
+			ZonalShiftEnabled:               true,
+		},
+		CapacityReservationSpecification: &autoscaling.CapacityReservationSpecification{
+			CapacityReservationPreference: "capacity-reservations-first",
+		},
+		DeletionProtection: "prevent-force-deletion",
+		InstanceLifecyclePolicy: &autoscaling.InstanceLifecyclePolicy{
+			RetentionTriggers: &autoscaling.RetentionTriggers{TerminateHookAbandon: "retain"},
+		},
+		InstanceMaintenancePolicy: &autoscaling.InstanceMaintenancePolicy{
+			MinHealthyPercentage: &minHealthy,
+			MaxHealthyPercentage: &maxHealthy,
+		},
+		SkipZonalShiftValidation: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, g.AvailabilityZoneDistribution)
+	assert.Equal(t, "balanced-best-effort", g.AvailabilityZoneDistribution.CapacityDistributionStrategy)
+	require.NotNil(t, g.AvailabilityZoneImpairmentPolicy)
+	assert.Equal(t, "ReplaceUnhealthy", g.AvailabilityZoneImpairmentPolicy.ImpairedZoneHealthCheckBehavior)
+	assert.True(t, g.AvailabilityZoneImpairmentPolicy.ZonalShiftEnabled)
+	require.NotNil(t, g.CapacityReservationSpecification)
+	assert.Equal(t, "capacity-reservations-first", g.CapacityReservationSpecification.CapacityReservationPreference)
+	assert.Equal(t, "prevent-force-deletion", g.DeletionProtection)
+	require.NotNil(t, g.InstanceLifecyclePolicy)
+	require.NotNil(t, g.InstanceLifecyclePolicy.RetentionTriggers)
+	assert.Equal(t, "retain", g.InstanceLifecyclePolicy.RetentionTriggers.TerminateHookAbandon)
+	require.NotNil(t, g.InstanceMaintenancePolicy)
+	require.NotNil(t, g.InstanceMaintenancePolicy.MinHealthyPercentage)
+	assert.Equal(t, minHealthy, *g.InstanceMaintenancePolicy.MinHealthyPercentage)
+	require.NotNil(t, g.InstanceMaintenancePolicy.MaxHealthyPercentage)
+	assert.Equal(t, maxHealthy, *g.InstanceMaintenancePolicy.MaxHealthyPercentage)
+
+	// Update: each pointer-struct field is all-or-nothing, matching AWS's
+	// opaque-nested-object replace semantics.
+	updated, err := b.UpdateAutoScalingGroup(autoscaling.UpdateAutoScalingGroupInput{
+		AutoScalingGroupName: "policy-fields-asg",
+		AvailabilityZoneDistribution: &autoscaling.AvailabilityZoneDistribution{
+			CapacityDistributionStrategy: "balanced-only",
+		},
+		DeletionProtection: "none",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "balanced-only", updated.AvailabilityZoneDistribution.CapacityDistributionStrategy)
+	assert.Equal(t, "none", updated.DeletionProtection)
+	// Fields not present in the update request are untouched.
+	require.NotNil(t, updated.InstanceLifecyclePolicy)
+	assert.Equal(t, "retain", updated.InstanceLifecyclePolicy.RetentionTriggers.TerminateHookAbandon)
+}
