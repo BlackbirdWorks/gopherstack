@@ -720,3 +720,64 @@ func TestDescribeContainerInstances_FailureSemantics(t *testing.T) {
 		assert.Empty(t, failures)
 	})
 }
+
+// TestDescribeContainerInstances_TagsRequireInclude proves that
+// DescribeContainerInstances only returns tags when Include=["TAGS"] is
+// specified, matching real AWS's DescribeContainerInstancesInput.Include
+// gating. Previously the wire shape had no tags field at all, so tags
+// applied via TagResource were invisible on Describe regardless of Include.
+func TestDescribeContainerInstances_TagsRequireInclude(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "ci-tags-cluster"})
+	ciResp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
+		"cluster":       "ci-tags-cluster",
+		"ec2InstanceId": "i-tags-1234",
+	})
+	require.Equal(t, http.StatusOK, ciResp.Code)
+
+	var ciOut map[string]any
+	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
+	ciArn := ciOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
+
+	tagResp := doECSRequest(t, h, "TagResource", map[string]any{
+		"resourceArn": ciArn,
+		"tags":        []map[string]any{{"key": "env", "value": "prod"}},
+	})
+	require.Equal(t, http.StatusOK, tagResp.Code)
+
+	t.Run("without include", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doECSRequest(t, h, "DescribeContainerInstances", map[string]any{
+			"cluster":            "ci-tags-cluster",
+			"containerInstances": []string{ciArn},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		ci := resp["containerInstances"].([]any)[0].(map[string]any)
+		assert.Nil(t, ci["tags"])
+	})
+
+	t.Run("with include TAGS", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doECSRequest(t, h, "DescribeContainerInstances", map[string]any{
+			"cluster":            "ci-tags-cluster",
+			"containerInstances": []string{ciArn},
+			"include":            []string{"TAGS"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		ci := resp["containerInstances"].([]any)[0].(map[string]any)
+		tags := ci["tags"].([]any)
+		require.Len(t, tags, 1)
+		assert.Equal(t, "env", tags[0].(map[string]any)["key"])
+	})
+}

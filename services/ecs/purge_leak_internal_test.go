@@ -151,3 +151,205 @@ func TestPurge_RevisionCutoff(t *testing.T) {
 		t.Errorf("taskDefByArn size after purge = %d, want 2", got)
 	}
 }
+
+// TestDeleteDaemon_CleansRevisionsAndDeployments proves that DeleteDaemon
+// removes the daemonRevisions and daemonDeployments rows that
+// CreateDaemon/UpdateDaemon created for it. Previously DeleteDaemon only
+// removed the daemons table entry -- daemonRevisions and daemonDeployments
+// were never touched, so every daemon revision and deployment ever created
+// leaked forever, even after the owning daemon (and eventually its cluster)
+// was deleted.
+func TestDeleteDaemon_CleansRevisionsAndDeployments(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	if _, err := b.CreateCluster(CreateClusterInput{ClusterName: "dd-cluster"}); err != nil {
+		t.Fatalf("CreateCluster: %v", err)
+	}
+
+	tdArn, err := b.RegisterDaemonTaskDefinition(RegisterDaemonTaskDefinitionInput{
+		Family: "dd-family",
+		ContainerDefinitions: []DaemonContainerDefinition{
+			{Name: "agent", Image: "example/agent:latest", Essential: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RegisterDaemonTaskDefinition: %v", err)
+	}
+
+	d, err := b.CreateDaemon(CreateDaemonInput{
+		DaemonName:              "dd1",
+		ClusterArn:              "dd-cluster",
+		DaemonTaskDefinitionArn: tdArn.DaemonTaskDefinitionArn,
+		CapacityProviderArns:    []string{"arn:aws:ecs:us-east-1:000000000000:capacity-provider/cp1"},
+	})
+	if err != nil {
+		t.Fatalf("CreateDaemon: %v", err)
+	}
+
+	// A second UpdateDaemon call creates a second revision + deployment.
+	_, err = b.UpdateDaemon(UpdateDaemonInput{
+		DaemonArn:               d.DaemonArn,
+		DaemonTaskDefinitionArn: tdArn.DaemonTaskDefinitionArn,
+		CapacityProviderArns:    []string{"arn:aws:ecs:us-east-1:000000000000:capacity-provider/cp1"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateDaemon: %v", err)
+	}
+
+	b.mu.RLock("precheck")
+	revCount := b.daemonRevisions.Len()
+	depCount := b.daemonDeployments.Len()
+	b.mu.RUnlock()
+
+	if revCount == 0 || depCount == 0 {
+		t.Fatalf("expected non-zero daemonRevisions/daemonDeployments before delete, got %d/%d", revCount, depCount)
+	}
+
+	if _, err = b.DeleteDaemon(d.DaemonArn); err != nil {
+		t.Fatalf("DeleteDaemon: %v", err)
+	}
+
+	b.mu.RLock("postcheck")
+	defer b.mu.RUnlock()
+
+	if got := b.daemonRevisions.Len(); got != 0 {
+		t.Errorf("daemonRevisions after DeleteDaemon = %d, want 0", got)
+	}
+	if got := b.daemonDeployments.Len(); got != 0 {
+		t.Errorf("daemonDeployments after DeleteDaemon = %d, want 0", got)
+	}
+}
+
+// TestPurgeCluster_CleansDaemonRevisionsAndDeployments proves that purging a
+// cluster (which cascades to every daemon it owns) also removes their
+// daemonRevisions rows. Previously the cleanup code deleted from
+// daemonRevisions by DaemonArn, but that table is keyed by
+// DaemonRevisionArn, so the delete never matched anything -- a real, silent,
+// permanently-leaking bug preserved verbatim through a prior mechanical
+// refactor (see the removed NOTE comment in purge.go).
+func TestPurgeCluster_CleansDaemonRevisionsAndDeployments(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	if _, err := b.CreateCluster(CreateClusterInput{ClusterName: "pd-cluster"}); err != nil {
+		t.Fatalf("CreateCluster: %v", err)
+	}
+
+	tdArn, err := b.RegisterDaemonTaskDefinition(RegisterDaemonTaskDefinitionInput{
+		Family: "pd-family",
+		ContainerDefinitions: []DaemonContainerDefinition{
+			{Name: "agent", Image: "example/agent:latest", Essential: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RegisterDaemonTaskDefinition: %v", err)
+	}
+
+	if _, err = b.CreateDaemon(CreateDaemonInput{
+		DaemonName:              "pd1",
+		ClusterArn:              "pd-cluster",
+		DaemonTaskDefinitionArn: tdArn.DaemonTaskDefinitionArn,
+		CapacityProviderArns:    []string{"arn:aws:ecs:us-east-1:000000000000:capacity-provider/cp1"},
+	}); err != nil {
+		t.Fatalf("CreateDaemon: %v", err)
+	}
+
+	b.mu.RLock("precheck")
+	revCount := b.daemonRevisions.Len()
+	b.mu.RUnlock()
+
+	if revCount == 0 {
+		t.Fatalf("expected non-zero daemonRevisions before purge, got %d", revCount)
+	}
+
+	b.Purge(t.Context(), time.Now().Add(time.Hour))
+
+	b.mu.RLock("postcheck")
+	defer b.mu.RUnlock()
+
+	if got := b.daemonRevisions.Len(); got != 0 {
+		t.Errorf("daemonRevisions after Purge = %d, want 0", got)
+	}
+	if got := b.daemonDeployments.Len(); got != 0 {
+		t.Errorf("daemonDeployments after Purge = %d, want 0", got)
+	}
+}
+
+// TestDeleteResource_CleansGhostResourceTags proves that deleting a cluster,
+// service, container instance, task set, or express gateway service also
+// removes its resourceTags side-map entry. Previously TagResource-applied
+// tags on these resources were never cleaned up on delete: for
+// deterministic-ARN resources (clusters, services, container instances,
+// express gateway services -- their ARN is derived from name, not a random
+// ID) a delete+recreate cycle with the same name would resurrect stale
+// tags; for random-ID resources (task sets) the resourceTags map grew by one
+// permanent row per resource ever created and deleted.
+func TestDeleteResource_CleansGhostResourceTags(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cluster", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+
+		cluster, err := b.CreateCluster(CreateClusterInput{
+			ClusterName: "tag-ghost-cluster",
+			Tags:        []Tag{{Key: "k", Value: "v"}},
+		})
+		if err != nil {
+			t.Fatalf("CreateCluster: %v", err)
+		}
+
+		if _, err = b.DeleteCluster("tag-ghost-cluster"); err != nil {
+			t.Fatalf("DeleteCluster: %v", err)
+		}
+
+		b.mu.RLock("check")
+		_, ghost := b.resourceTags[cluster.ClusterArn]
+		b.mu.RUnlock()
+
+		if ghost {
+			t.Errorf("resourceTags still has an entry for deleted cluster %s", cluster.ClusterArn)
+		}
+	})
+
+	t.Run("service", func(t *testing.T) {
+		t.Parallel()
+
+		b := newTestBackend()
+		tdArn := registerSimpleTaskDef(t, b, "tag-ghost-app", "nginx")
+
+		if _, err := b.CreateCluster(CreateClusterInput{ClusterName: "tag-ghost-svc-cluster"}); err != nil {
+			t.Fatalf("CreateCluster: %v", err)
+		}
+
+		svc, err := b.CreateService(CreateServiceInput{
+			ServiceName:    "tag-ghost-svc",
+			Cluster:        "tag-ghost-svc-cluster",
+			TaskDefinition: tdArn,
+			DesiredCount:   1,
+		})
+		if err != nil {
+			t.Fatalf("CreateService: %v", err)
+		}
+
+		if err = b.TagResource(svc.ServiceArn, []Tag{{Key: "k", Value: "v"}}); err != nil {
+			t.Fatalf("TagResource: %v", err)
+		}
+
+		if _, err = b.DeleteService("tag-ghost-svc-cluster", "tag-ghost-svc"); err != nil {
+			t.Fatalf("DeleteService: %v", err)
+		}
+
+		b.mu.RLock("check")
+		_, ghost := b.resourceTags[svc.ServiceArn]
+		b.mu.RUnlock()
+
+		if ghost {
+			t.Errorf("resourceTags still has an entry for deleted service %s", svc.ServiceArn)
+		}
+	})
+}

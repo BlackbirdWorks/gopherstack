@@ -612,7 +612,7 @@ func TestCapacityProvider_DeepCopy_Tags(t *testing.T) {
 				cp.Tags[0].Value = "mutated"
 			}
 
-			cps, _, err := b.DescribeCapacityProviders([]string{"deep-copy-test"})
+			cps, _, err := b.DescribeCapacityProviders([]string{"deep-copy-test"}, "")
 			require.NoError(t, err)
 			require.Len(t, cps, 1)
 
@@ -670,4 +670,107 @@ func TestDescribeCapacityProviders_Sorted(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDescribeCapacityProviders_TagsRequireInclude proves that
+// DescribeCapacityProviders only returns tags when Include=["TAGS"] is
+// specified, matching real AWS's DescribeCapacityProvidersInput.Include
+// gating. Previously tags were always returned regardless of Include.
+func TestDescribeCapacityProviders_TagsRequireInclude(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCapacityProvider", map[string]any{
+		"name": "tagged-cp",
+		"tags": []map[string]any{{"key": "env", "value": "prod"}},
+	})
+
+	t.Run("without include", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{
+			"capacityProviders": []string{"tagged-cp"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		cp := resp["capacityProviders"].([]any)[0].(map[string]any)
+		assert.Nil(t, cp["tags"])
+	})
+
+	t.Run("with include TAGS", func(t *testing.T) {
+		t.Parallel()
+
+		rec := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{
+			"capacityProviders": []string{"tagged-cp"},
+			"include":           []string{"TAGS"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		cp := resp["capacityProviders"].([]any)[0].(map[string]any)
+		tags := cp["tags"].([]any)
+		require.Len(t, tags, 1)
+		assert.Equal(t, "env", tags[0].(map[string]any)["key"])
+	})
+}
+
+// TestDescribeCapacityProviders_ClusterFilter proves that the Cluster
+// filter parameter restricts results to capacity providers associated with
+// that cluster (via CreateCluster/PutClusterCapacityProviders), matching
+// real AWS's documented DescribeCapacityProvidersInput.Cluster behavior.
+// Previously this parameter was entirely unsupported.
+func TestDescribeCapacityProviders_ClusterFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": "cp-in-cluster"})
+	doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": "cp-not-in-cluster"})
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{
+		"clusterName":       "cp-filter-cluster",
+		"capacityProviders": []string{"cp-in-cluster", "FARGATE"},
+	})
+
+	rec := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{
+		"cluster": "cp-filter-cluster",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	cps := resp["capacityProviders"].([]any)
+	require.Len(t, cps, 2)
+
+	names := make(map[string]bool)
+	for _, cp := range cps {
+		names[cp.(map[string]any)["name"].(string)] = true
+	}
+	assert.True(t, names["cp-in-cluster"])
+	assert.True(t, names["FARGATE"])
+	assert.False(t, names["cp-not-in-cluster"])
+}
+
+// TestDescribeCapacityProviders_ClusterFilter_UnknownCluster proves that an
+// unknown cluster name yields an empty result rather than an error, matching
+// AWS's filter-parameter semantics (as opposed to the hard-404 semantics of
+// naming an unknown cluster directly in DescribeClusters).
+func TestDescribeCapacityProviders_ClusterFilter_UnknownCluster(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{
+		"cluster": "no-such-cluster",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	cps := resp["capacityProviders"].([]any)
+	assert.Empty(t, cps)
 }

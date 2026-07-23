@@ -172,6 +172,7 @@ func (b *InMemoryBackend) daemonsInClusterLocked(clusterName string) []*Daemon {
 func (b *InMemoryBackend) deleteServicesForClusterLocked(clusterName string) {
 	for _, s := range b.servicesInClusterLocked(clusterName) {
 		b.services.Delete(servicesKeyFn(s))
+		b.deleteResourceTagsLocked(s.ServiceArn)
 	}
 }
 
@@ -187,6 +188,7 @@ func (b *InMemoryBackend) deleteTasksForClusterLocked(clusterName string) {
 func (b *InMemoryBackend) deleteContainerInstancesForClusterLocked(clusterName string) {
 	for _, ci := range b.containerInstancesInClusterLocked(clusterName) {
 		b.containerInstances.Delete(containerInstancesKeyFn(ci))
+		b.deleteResourceTagsLocked(ci.ContainerInstanceArn)
 	}
 }
 
@@ -194,5 +196,6 @@ func (b *InMemoryBackend) deleteContainerInstancesForClusterLocked(clusterName s
 func (b *InMemoryBackend) deleteTaskSetsForServiceLocked(serviceArn string) {
 	for _, ts := range b.taskSetsForServiceLocked(serviceArn) {
 		b.taskSets.Delete(taskSetsKeyFn(ts))
+		b.deleteResourceTagsLocked(ts.TaskSetArn)
 	}
 }

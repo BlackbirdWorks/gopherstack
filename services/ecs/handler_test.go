@@ -839,7 +839,7 @@ func TestBackend_NonNilEmptySlices(t *testing.T) {
 			t.Parallel()
 
 			b := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-			cps, _, err := b.DescribeCapacityProviders(nil)
+			cps, _, err := b.DescribeCapacityProviders(nil, "")
 			require.NoError(t, err)
 			assert.NotNil(t, cps)
 			assert.Empty(t, cps)

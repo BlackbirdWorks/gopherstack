@@ -384,7 +384,32 @@ func (b *InMemoryBackend) DeleteDaemon(daemonArn string) (*Daemon, error) {
 		b.daemons.Delete(scopedKey(clusterName, daemonName))
 	}
 
+	b.deleteDaemonAncillaryLocked(daemonArn)
+
 	return &out, nil
+}
+
+// deleteDaemonAncillaryLocked removes daemonRevisions and daemonDeployments
+// rows belonging to daemonArn. Both tables are keyed by their own ARN (not
+// DaemonArn), so matching entries must be found by scanning and filtering on
+// the .DaemonArn field. Previously DeleteDaemon never called this at all
+// (only the daemons table entry itself was removed), permanently leaking one
+// daemonRevisions row per UpdateDaemon call and one daemonDeployments row per
+// deployment ever made against the deleted daemon. Shared with
+// purgeDaemonsLocked (purge.go), which deletes daemons in bulk when their
+// owning cluster is deleted/purged. Must be called with the write lock held.
+func (b *InMemoryBackend) deleteDaemonAncillaryLocked(daemonArn string) {
+	for _, rev := range b.daemonRevisions.All() {
+		if rev.DaemonArn == daemonArn {
+			b.daemonRevisions.Delete(rev.DaemonRevisionArn)
+		}
+	}
+
+	for _, dep := range b.daemonDeployments.All() {
+		if dep.DaemonArn == daemonArn {
+			b.daemonDeployments.Delete(dep.DaemonDeploymentArn)
+		}
+	}
 }
 
 // DescribeDaemon returns the full detail of a daemon.

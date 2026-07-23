@@ -41,6 +41,10 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, input.Service)
 	}
 
+	if err := b.validateCapacityProviderStrategyLocked(input.CapacityProviderStrategy); err != nil {
+		return nil, err
+	}
+
 	td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
 	if err != nil {
 		return nil, err
@@ -78,22 +82,27 @@ func (b *InMemoryBackend) CreateTaskSet(input CreateTaskSetInput) (*TaskSet, err
 			b.accountID,
 			fmt.Sprintf("cluster/%s", clusterName),
 		),
-		TaskDefinition:       td.TaskDefinitionArn,
-		Status:               statusActive,
-		ExternalID:           input.ExternalID,
-		PlatformVersion:      platformVersion,
-		LaunchType:           launchType,
-		Scale:                scale,
-		StabilityStatus:      "STEADY_STATE",
-		StabilityStatusAt:    now,
-		CreatedAt:            now,
-		UpdatedAt:            now,
-		LoadBalancers:        input.LoadBalancers,
-		ServiceRegistries:    input.ServiceRegistries,
-		NetworkConfiguration: input.NetworkConfiguration,
+		TaskDefinition:           td.TaskDefinitionArn,
+		Status:                   statusActive,
+		ExternalID:               input.ExternalID,
+		PlatformVersion:          platformVersion,
+		LaunchType:               launchType,
+		Scale:                    scale,
+		StabilityStatus:          "STEADY_STATE",
+		StabilityStatusAt:        now,
+		CreatedAt:                now,
+		UpdatedAt:                now,
+		LoadBalancers:            input.LoadBalancers,
+		ServiceRegistries:        input.ServiceRegistries,
+		NetworkConfiguration:     input.NetworkConfiguration,
+		CapacityProviderStrategy: input.CapacityProviderStrategy,
 	}
 
 	b.taskSets.Put(ts)
+
+	if len(input.Tags) > 0 {
+		b.setResourceTagsLocked(taskSetArn, input.Tags)
+	}
 
 	cp := *ts
 
@@ -124,6 +133,7 @@ func (b *InMemoryBackend) DeleteTaskSet(cluster, service, taskSet string) (*Task
 	}
 
 	b.taskSets.Delete(scopedKey(svc.ServiceArn, taskSet))
+	b.deleteResourceTagsLocked(ts.TaskSetArn)
 
 	cp := *ts
 

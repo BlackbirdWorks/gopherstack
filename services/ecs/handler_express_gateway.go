@@ -1,6 +1,14 @@
 package ecs
 
-import "context"
+import (
+	"context"
+	"strings"
+)
+
+// describeExpressGatewayIncludeTags is the AWS-defined `include` value that
+// requests resource tags be returned alongside the Express service (see also
+// describeClusterIncludeTags for the equivalent DescribeClusters option).
+const describeExpressGatewayIncludeTags = "TAGS"
 
 // ----- Handler: UpdateExpressGatewayService -----
 
@@ -118,7 +126,8 @@ func (h *Handler) handleDeleteExpressGatewayService(
 // ----- Handler: DescribeExpressGatewayService -----
 
 type describeExpressGatewayServiceInput struct {
-	ServiceArn string `json:"serviceArn"`
+	ServiceArn string   `json:"serviceArn"`
+	Include    []string `json:"include,omitempty"`
 }
 
 type describeExpressGatewayServiceOutput struct {
@@ -134,5 +143,21 @@ func (h *Handler) handleDescribeExpressGatewayService(
 		return nil, err
 	}
 
-	return &describeExpressGatewayServiceOutput{Service: toExpressGatewayServiceView(*svc)}, nil
+	view := toExpressGatewayServiceView(*svc)
+
+	wantTags := false
+
+	for _, opt := range in.Include {
+		if strings.EqualFold(opt, describeExpressGatewayIncludeTags) {
+			wantTags = true
+
+			break
+		}
+	}
+
+	if !wantTags {
+		view.Tags = nil
+	}
+
+	return &describeExpressGatewayServiceOutput{Service: view}, nil
 }

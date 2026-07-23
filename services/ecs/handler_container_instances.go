@@ -2,9 +2,18 @@ package ecs
 
 import (
 	"context"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// describeContainerInstanceIncludeTags is the AWS-defined `include` value
+// that requests resource tags be returned alongside each ContainerInstance
+// (see also describeClusterIncludeTags for the equivalent DescribeClusters
+// option). AWS's other documented value for this parameter,
+// CONTAINER_INSTANCE_HEALTH, is not modeled by this backend (no health-check
+// state is tracked for container instances).
+const describeContainerInstanceIncludeTags = "TAGS"
 
 // ----- Container instance handlers -----
 
@@ -54,6 +63,7 @@ func (h *Handler) handleDeregisterContainerInstance(
 type describeContainerInstancesInput struct {
 	Cluster            string   `json:"cluster,omitempty"`
 	ContainerInstances []string `json:"containerInstances"`
+	Include            []string `json:"include,omitempty"`
 }
 
 type describeContainerInstancesOutput struct {
@@ -70,9 +80,30 @@ func (h *Handler) handleDescribeContainerInstances(
 		return nil, err
 	}
 
+	wantTags := false
+
+	for _, opt := range in.Include {
+		if strings.EqualFold(opt, describeContainerInstanceIncludeTags) {
+			wantTags = true
+
+			break
+		}
+	}
+
 	views := make([]containerInstanceView, 0, len(cis))
 	for _, ci := range cis {
-		views = append(views, toContainerInstanceView(ci))
+		v := toContainerInstanceView(ci)
+
+		if wantTags {
+			tags, terr := h.Backend.ListTagsForResource(ci.ContainerInstanceArn)
+			if terr != nil {
+				return nil, terr
+			}
+
+			v.Tags = tags
+		}
+
+		views = append(views, v)
 	}
 
 	failViews := make([]failureView, 0, len(failures))
@@ -153,6 +184,7 @@ type containerInstanceView struct {
 	ClusterArn           string  `json:"clusterArn"`
 	Status               string  `json:"status"`
 	AgentUpdateStatus    string  `json:"agentUpdateStatus,omitempty"`
+	Tags                 []Tag   `json:"tags,omitempty"`
 	RegisteredAt         float64 `json:"registeredAt"`
 	Version              int64   `json:"version"`
 	RunningTasksCount    int     `json:"runningTasksCount"`

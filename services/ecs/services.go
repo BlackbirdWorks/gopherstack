@@ -133,6 +133,10 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: %s", ErrServiceAlreadyExists, input.ServiceName)
 	}
 
+	if err := b.validateCapacityProviderStrategyLocked(input.CapacityProviderStrategy); err != nil {
+		return nil, err
+	}
+
 	td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
 	if err != nil {
 		return nil, err
@@ -411,6 +415,12 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, input.Service)
 	}
 
+	if len(input.CapacityProviderStrategy) > 0 {
+		if err := b.validateCapacityProviderStrategyLocked(input.CapacityProviderStrategy); err != nil {
+			return nil, err
+		}
+	}
+
 	if input.DesiredCount != nil {
 		svc.DesiredCount = *input.DesiredCount
 	}
@@ -479,6 +489,7 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string) (*Service, 
 	b.deleteTaskSetsForServiceLocked(svc.ServiceArn)
 	delete(b.serviceIndex, svcRef{cluster: clusterName, name: key})
 	b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
+	b.deleteResourceTagsLocked(svc.ServiceArn)
 
 	cp := *svc
 

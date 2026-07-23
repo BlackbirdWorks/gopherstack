@@ -46,6 +46,10 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, name)
 	}
 
+	if err := b.validateCapacityProviderStrategyLocked(input.DefaultCapacityProviderStrategy); err != nil {
+		return nil, err
+	}
+
 	cluster := &Cluster{
 		CreatedAt:                       time.Now(),
 		ClusterArn:                      arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", name)),
@@ -174,6 +178,7 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		}
 
 		b.clusters.Delete(key)
+		b.deleteResourceTagsLocked(c.ClusterArn)
 		b.deleteServicesForClusterLocked(key)
 		b.deleteTasksForClusterLocked(key)
 		b.deleteContainerInstancesForClusterLocked(key)
@@ -233,6 +238,10 @@ func (b *InMemoryBackend) PutClusterCapacityProviders(
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
+	if err := b.validateCapacityProviderStrategyLocked(defaultCapacityProviderStrategy); err != nil {
+		return nil, err
+	}
+
 	c.CapacityProviders = capacityProviders
 	c.DefaultCapacityProviderStrategy = defaultCapacityProviderStrategy
 
@@ -273,6 +282,12 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
+	}
+
+	if input.DefaultCapacityProviderStrategy != nil {
+		if err := b.validateCapacityProviderStrategyLocked(input.DefaultCapacityProviderStrategy); err != nil {
+			return nil, err
+		}
 	}
 
 	if input.CapacityProviders != nil {

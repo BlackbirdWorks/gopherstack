@@ -1,20 +1,30 @@
 package ecs
 
-import "context"
+import (
+	"context"
+	"strings"
+)
+
+// describeTaskSetIncludeTags is the AWS-defined `include` value that requests
+// resource tags be returned alongside each TaskSet (see also
+// describeClusterIncludeTags for the equivalent DescribeClusters option).
+const describeTaskSetIncludeTags = "TAGS"
 
 // ----- Task set handlers -----
 
 type createTaskSetInput struct {
-	NetworkConfiguration *networkConfigurationInput `json:"networkConfiguration,omitempty"`
-	Scale                *taskSetScale              `json:"scale,omitempty"`
-	Cluster              string                     `json:"cluster,omitempty"`
-	Service              string                     `json:"service"`
-	TaskDefinition       string                     `json:"taskDefinition"`
-	ExternalID           string                     `json:"externalId,omitempty"`
-	PlatformVersion      string                     `json:"platformVersion,omitempty"`
-	LaunchType           string                     `json:"launchType,omitempty"`
-	LoadBalancers        []loadBalancerInput        `json:"loadBalancers,omitempty"`
-	ServiceRegistries    []serviceRegistryInput     `json:"serviceRegistries,omitempty"`
+	NetworkConfiguration     *networkConfigurationInput `json:"networkConfiguration,omitempty"`
+	Scale                    *taskSetScale              `json:"scale,omitempty"`
+	Cluster                  string                     `json:"cluster,omitempty"`
+	Service                  string                     `json:"service"`
+	TaskDefinition           string                     `json:"taskDefinition"`
+	ExternalID               string                     `json:"externalId,omitempty"`
+	PlatformVersion          string                     `json:"platformVersion,omitempty"`
+	LaunchType               string                     `json:"launchType,omitempty"`
+	LoadBalancers            []loadBalancerInput        `json:"loadBalancers,omitempty"`
+	ServiceRegistries        []serviceRegistryInput     `json:"serviceRegistries,omitempty"`
+	CapacityProviderStrategy []cpStrategyItemInput      `json:"capacityProviderStrategy,omitempty"`
+	Tags                     []tagInput                 `json:"tags,omitempty"`
 }
 
 type createTaskSetOutput struct {
@@ -30,23 +40,37 @@ func (h *Handler) handleCreateTaskSet(
 		scale = &TaskSetScale{Unit: in.Scale.Unit, Value: in.Scale.Value}
 	}
 
+	tags := make([]Tag, 0, len(in.Tags))
+	for _, t := range in.Tags {
+		tags = append(tags, Tag(t))
+	}
+
 	ts, err := h.Backend.CreateTaskSet(CreateTaskSetInput{
-		Cluster:              in.Cluster,
-		Service:              in.Service,
-		TaskDefinition:       in.TaskDefinition,
-		ExternalID:           in.ExternalID,
-		PlatformVersion:      in.PlatformVersion,
-		LaunchType:           in.LaunchType,
-		Scale:                scale,
-		LoadBalancers:        toLoadBalancers(in.LoadBalancers),
-		ServiceRegistries:    toServiceRegistries(in.ServiceRegistries),
-		NetworkConfiguration: toNetworkConfiguration(in.NetworkConfiguration),
+		Cluster:                  in.Cluster,
+		Service:                  in.Service,
+		TaskDefinition:           in.TaskDefinition,
+		ExternalID:               in.ExternalID,
+		PlatformVersion:          in.PlatformVersion,
+		LaunchType:               in.LaunchType,
+		Scale:                    scale,
+		LoadBalancers:            toLoadBalancers(in.LoadBalancers),
+		ServiceRegistries:        toServiceRegistries(in.ServiceRegistries),
+		NetworkConfiguration:     toNetworkConfiguration(in.NetworkConfiguration),
+		CapacityProviderStrategy: toCPStrategyItems(in.CapacityProviderStrategy),
+		Tags:                     tags,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &createTaskSetOutput{TaskSet: toTaskSetView(*ts)}, nil
+	view := toTaskSetView(*ts)
+	// CreateTaskSet has no `include` gating (unlike DescribeTaskSets): the
+	// tags just supplied are echoed back on the created resource.
+	if len(tags) > 0 {
+		view.Tags = tags
+	}
+
+	return &createTaskSetOutput{TaskSet: view}, nil
 }
 
 type deleteTaskSetInput struct {
@@ -75,6 +99,7 @@ type describeTaskSetsInput struct {
 	Cluster  string   `json:"cluster,omitempty"`
 	Service  string   `json:"service"`
 	TaskSets []string `json:"taskSets,omitempty"`
+	Include  []string `json:"include,omitempty"`
 }
 
 type describeTaskSetsOutput struct {
@@ -90,9 +115,30 @@ func (h *Handler) handleDescribeTaskSets(
 		return nil, err
 	}
 
+	wantTags := false
+
+	for _, opt := range in.Include {
+		if strings.EqualFold(opt, describeTaskSetIncludeTags) {
+			wantTags = true
+
+			break
+		}
+	}
+
 	views := make([]taskSetView, 0, len(sets))
 	for _, ts := range sets {
-		views = append(views, toTaskSetView(ts))
+		v := toTaskSetView(ts)
+
+		if wantTags {
+			tags, terr := h.Backend.ListTagsForResource(ts.TaskSetArn)
+			if terr != nil {
+				return nil, terr
+			}
+
+			v.Tags = tags
+		}
+
+		views = append(views, v)
 	}
 
 	return &describeTaskSetsOutput{TaskSets: views}, nil
@@ -154,23 +200,25 @@ type taskSetScale struct {
 }
 
 type taskSetView struct {
-	NetworkConfiguration *networkConfigurationView `json:"networkConfiguration,omitempty"`
-	TaskSetArn           string                    `json:"taskSetArn"`
-	ID                   string                    `json:"id"`
-	ServiceArn           string                    `json:"serviceArn"`
-	ClusterArn           string                    `json:"clusterArn"`
-	TaskDefinition       string                    `json:"taskDefinition"`
-	Status               string                    `json:"status"`
-	ExternalID           string                    `json:"externalId,omitempty"`
-	PlatformVersion      string                    `json:"platformVersion,omitempty"`
-	LaunchType           string                    `json:"launchType,omitempty"`
-	StabilityStatus      string                    `json:"stabilityStatus,omitempty"`
-	Scale                taskSetScale              `json:"scale"`
-	LoadBalancers        []loadBalancerView        `json:"loadBalancers,omitempty"`
-	ServiceRegistries    []serviceRegistryView     `json:"serviceRegistries,omitempty"`
-	CreatedAt            float64                   `json:"createdAt"`
-	UpdatedAt            float64                   `json:"updatedAt"`
-	StabilityStatusAt    float64                   `json:"stabilityStatusAt"`
+	NetworkConfiguration     *networkConfigurationView `json:"networkConfiguration,omitempty"`
+	TaskSetArn               string                    `json:"taskSetArn"`
+	ID                       string                    `json:"id"`
+	ServiceArn               string                    `json:"serviceArn"`
+	ClusterArn               string                    `json:"clusterArn"`
+	TaskDefinition           string                    `json:"taskDefinition"`
+	Status                   string                    `json:"status"`
+	ExternalID               string                    `json:"externalId,omitempty"`
+	PlatformVersion          string                    `json:"platformVersion,omitempty"`
+	LaunchType               string                    `json:"launchType,omitempty"`
+	StabilityStatus          string                    `json:"stabilityStatus,omitempty"`
+	Scale                    taskSetScale              `json:"scale"`
+	LoadBalancers            []loadBalancerView        `json:"loadBalancers,omitempty"`
+	ServiceRegistries        []serviceRegistryView     `json:"serviceRegistries,omitempty"`
+	CapacityProviderStrategy []cpStrategyItemInput     `json:"capacityProviderStrategy,omitempty"`
+	Tags                     []Tag                     `json:"tags,omitempty"`
+	CreatedAt                float64                   `json:"createdAt"`
+	UpdatedAt                float64                   `json:"updatedAt"`
+	StabilityStatusAt        float64                   `json:"stabilityStatusAt"`
 }
 
 func toTaskSetView(ts TaskSet) taskSetView {
@@ -198,6 +246,10 @@ func toTaskSetView(ts TaskSet) taskSetView {
 
 	for _, sr := range ts.ServiceRegistries {
 		v.ServiceRegistries = append(v.ServiceRegistries, serviceRegistryView(sr))
+	}
+
+	for _, cps := range ts.CapacityProviderStrategy {
+		v.CapacityProviderStrategy = append(v.CapacityProviderStrategy, cpStrategyItemInput(cps))
 	}
 
 	return v

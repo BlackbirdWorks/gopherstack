@@ -22,19 +22,20 @@ type taskOverrideInput struct {
 }
 
 type runTaskInput struct {
-	Overrides            *taskOverrideInput         `json:"overrides,omitempty"`
-	NetworkConfiguration *networkConfigurationInput `json:"networkConfiguration,omitempty"`
-	Cluster              string                     `json:"cluster,omitempty"`
-	TaskDefinition       string                     `json:"taskDefinition"`
-	LaunchType           string                     `json:"launchType,omitempty"`
-	Group                string                     `json:"group,omitempty"`
-	StartedBy            string                     `json:"startedBy,omitempty"`
-	PlatformVersion      string                     `json:"platformVersion,omitempty"`
-	PropagateTags        string                     `json:"propagateTags,omitempty"`
-	Tags                 []Tag                      `json:"tags,omitempty"`
-	Count                int                        `json:"count,omitempty"`
-	EnableECSManagedTags bool                       `json:"enableECSManagedTags,omitempty"`
-	EnableExecuteCommand bool                       `json:"enableExecuteCommand,omitempty"`
+	Overrides                *taskOverrideInput         `json:"overrides,omitempty"`
+	NetworkConfiguration     *networkConfigurationInput `json:"networkConfiguration,omitempty"`
+	Cluster                  string                     `json:"cluster,omitempty"`
+	TaskDefinition           string                     `json:"taskDefinition"`
+	LaunchType               string                     `json:"launchType,omitempty"`
+	Group                    string                     `json:"group,omitempty"`
+	StartedBy                string                     `json:"startedBy,omitempty"`
+	PlatformVersion          string                     `json:"platformVersion,omitempty"`
+	PropagateTags            string                     `json:"propagateTags,omitempty"`
+	Tags                     []Tag                      `json:"tags,omitempty"`
+	CapacityProviderStrategy []cpStrategyItemInput      `json:"capacityProviderStrategy,omitempty"`
+	Count                    int                        `json:"count,omitempty"`
+	EnableECSManagedTags     bool                       `json:"enableECSManagedTags,omitempty"`
+	EnableExecuteCommand     bool                       `json:"enableExecuteCommand,omitempty"`
 }
 
 type runTaskOutput struct {
@@ -43,19 +44,20 @@ type runTaskOutput struct {
 
 func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOutput, error) {
 	tasks, err := h.Backend.RunTask(RunTaskInput{
-		Cluster:              in.Cluster,
-		TaskDefinition:       in.TaskDefinition,
-		Count:                in.Count,
-		LaunchType:           in.LaunchType,
-		Group:                in.Group,
-		StartedBy:            in.StartedBy,
-		PlatformVersion:      in.PlatformVersion,
-		PropagateTags:        in.PropagateTags,
-		EnableECSManagedTags: in.EnableECSManagedTags,
-		Tags:                 in.Tags,
-		Overrides:            toTaskOverride(in.Overrides),
-		NetworkConfiguration: toNetworkConfiguration(in.NetworkConfiguration),
-		EnableExecuteCommand: in.EnableExecuteCommand,
+		Cluster:                  in.Cluster,
+		TaskDefinition:           in.TaskDefinition,
+		Count:                    in.Count,
+		LaunchType:               in.LaunchType,
+		Group:                    in.Group,
+		StartedBy:                in.StartedBy,
+		PlatformVersion:          in.PlatformVersion,
+		PropagateTags:            in.PropagateTags,
+		EnableECSManagedTags:     in.EnableECSManagedTags,
+		Tags:                     in.Tags,
+		CapacityProviderStrategy: toCPStrategyItems(in.CapacityProviderStrategy),
+		Overrides:                toTaskOverride(in.Overrides),
+		NetworkConfiguration:     toNetworkConfiguration(in.NetworkConfiguration),
+		EnableExecuteCommand:     in.EnableExecuteCommand,
 	})
 	if err != nil {
 		return nil, err
@@ -427,6 +429,7 @@ type taskView struct {
 	PlatformFamily       string                    `json:"platformFamily,omitempty"`
 	RuntimeID            string                    `json:"runtimeId,omitempty"`
 	PropagateTags        string                    `json:"propagateTags,omitempty"`
+	CapacityProviderName string                    `json:"capacityProviderName,omitempty"`
 	Attachments          []taskAttachmentView      `json:"attachments,omitempty"`
 	Containers           []containerView           `json:"containers,omitempty"`
 	Tags                 []Tag                     `json:"tags,omitempty"`
@@ -453,6 +456,7 @@ func toTaskView(t Task) taskView {
 		PlatformFamily:       t.PlatformFamily,
 		RuntimeID:            t.RuntimeID,
 		PropagateTags:        t.PropagateTags,
+		CapacityProviderName: t.CapacityProviderName,
 		Tags:                 t.Tags,
 		Overrides:            toTaskOverrideView(t.Overrides),
 		NetworkConfiguration: toNetworkConfigurationView(t.NetworkConfiguration),

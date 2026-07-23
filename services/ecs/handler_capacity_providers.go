@@ -3,9 +3,15 @@ package ecs
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// describeCapacityProviderIncludeTags is the AWS-defined `include` value that
+// requests resource tags be returned alongside each CapacityProvider (see also
+// describeClusterIncludeTags for the equivalent DescribeClusters option).
+const describeCapacityProviderIncludeTags = "TAGS"
 
 // ----- Capacity provider view types -----
 
@@ -182,7 +188,9 @@ func (h *Handler) handleDeleteCapacityProvider(
 
 type describeCapacityProvidersInput struct {
 	NextToken         string   `json:"nextToken,omitempty"`
+	Cluster           string   `json:"cluster,omitempty"`
 	CapacityProviders []string `json:"capacityProviders,omitempty"`
+	Include           []string `json:"include,omitempty"`
 	MaxResults        int      `json:"maxResults,omitempty"`
 }
 
@@ -196,14 +204,30 @@ func (h *Handler) handleDescribeCapacityProviders(
 	_ context.Context,
 	in *describeCapacityProvidersInput,
 ) (*describeCapacityProvidersOutput, error) {
-	providers, failures, err := h.Backend.DescribeCapacityProviders(in.CapacityProviders)
+	providers, failures, err := h.Backend.DescribeCapacityProviders(in.CapacityProviders, in.Cluster)
 	if err != nil {
 		return nil, err
 	}
 
+	wantTags := false
+
+	for _, opt := range in.Include {
+		if strings.EqualFold(opt, describeCapacityProviderIncludeTags) {
+			wantTags = true
+
+			break
+		}
+	}
+
 	views := make([]capacityProviderView, 0, len(providers))
 	for _, cp := range providers {
-		views = append(views, toCapacityProviderView(cp))
+		v := toCapacityProviderView(cp)
+
+		if !wantTags {
+			v.Tags = nil
+		}
+
+		views = append(views, v)
 	}
 
 	sort.Slice(views, func(i, j int) bool { return views[i].Name < views[j].Name })
