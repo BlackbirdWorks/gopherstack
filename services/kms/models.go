@@ -387,7 +387,7 @@ func UnixTimeFloat(t time.Time) float64 {
 	return float64(t.UnixNano()) / nanoToSeconds
 }
 
-// GrantConstraints holds the encryption context constraints for a grant.
+// GrantConstraints holds the constraints for a grant.
 // When set, cryptographic operations using this grant's token must supply
 // an encryption context that satisfies the constraint.
 type GrantConstraints struct {
@@ -397,20 +397,43 @@ type GrantConstraints struct {
 	// EncryptionContextSubset requires the caller's encryption context to
 	// contain at least all key-value pairs present in this map.
 	EncryptionContextSubset map[string]string `json:"EncryptionContextSubset,omitempty"`
+	// SourceArn restricts grant use to requests made on behalf of the named
+	// AWS resource (effectively the aws:SourceArn condition key). This mock
+	// has no cross-service request-context plumbing to carry a "made on
+	// behalf of" resource ARN through crypto calls, so the constraint is
+	// stored and round-tripped (CreateGrant -> ListGrants/ListRetirableGrants)
+	// for wire parity but is NOT enforced -- consistent with the scope
+	// boundary already documented for grant-token authorization elsewhere in
+	// this package (see isValidGrantOperation's doc and CreateGrantInput.
+	// GrantTokens below).
+	SourceArn string `json:"SourceArn,omitempty"`
 }
 
 // Grant represents a KMS key grant.
 type Grant struct {
-	// Constraints holds optional encryption context constraints for the grant.
+	// Constraints holds optional constraints for the grant.
 	Constraints *GrantConstraints `json:"Constraints,omitempty"`
 	// GrantID is the unique identifier for the grant.
 	GrantID string `json:"GrantId"`
 	// KeyID is the ID of the KMS key.
 	KeyID string `json:"KeyId"`
-	// GranteePrincipal is the principal that receives the grant.
-	GranteePrincipal string `json:"GranteePrincipal"`
-	// RetiringPrincipal is the principal that can retire the grant.
+	// GranteePrincipal is the principal that receives the grant. Mutually
+	// exclusive with GranteeServicePrincipal; exactly one must be set.
+	GranteePrincipal string `json:"GranteePrincipal,omitempty"`
+	// GranteeServicePrincipal is the AWS service principal that receives the
+	// grant. Mutually exclusive with GranteePrincipal; exactly one must be
+	// set. No AWS-service-principal simulation exists in this mock (no
+	// IAM/authorization layer at all -- see CreateGrantInput.GrantTokens), so
+	// this is stored/round-tripped for wire parity, matching real AWS's
+	// GrantListEntry shape, without any behavioral effect.
+	GranteeServicePrincipal string `json:"GranteeServicePrincipal,omitempty"`
+	// RetiringPrincipal is the principal that can retire the grant. Mutually
+	// exclusive with RetiringServicePrincipal.
 	RetiringPrincipal string `json:"RetiringPrincipal,omitempty"`
+	// RetiringServicePrincipal is the AWS service principal that can retire
+	// the grant. Mutually exclusive with RetiringPrincipal. Same no-IAM-layer
+	// scope boundary as GranteeServicePrincipal.
+	RetiringServicePrincipal string `json:"RetiringServicePrincipal,omitempty"`
 	// GrantToken is a token that can be used to identify this grant.
 	GrantToken string `json:"GrantToken"`
 	// TokenIssuedAt records when the grant token was issued, enabling expiry checks.
@@ -421,16 +444,26 @@ type Grant struct {
 	Operations []string `json:"Operations"`
 	// CreationDate is the Unix timestamp when the grant was created.
 	CreationDate float64 `json:"CreationDate"`
+	// IssuingAccount is the AWS account ID under which the grant was issued.
+	IssuingAccount string `json:"IssuingAccount,omitempty"`
 }
 
 // CreateGrantInput is the request payload for CreateGrant.
 type CreateGrantInput struct {
-	Constraints       *GrantConstraints `json:"Constraints,omitempty"`
-	KeyID             string            `json:"KeyId"`
-	GranteePrincipal  string            `json:"GranteePrincipal"`
-	RetiringPrincipal string            `json:"RetiringPrincipal,omitempty"`
-	Name              string            `json:"Name,omitempty"`
-	Operations        []string          `json:"Operations"`
+	Constraints              *GrantConstraints `json:"Constraints,omitempty"`
+	KeyID                    string            `json:"KeyId"`
+	GranteePrincipal         string            `json:"GranteePrincipal,omitempty"`
+	GranteeServicePrincipal  string            `json:"GranteeServicePrincipal,omitempty"`
+	RetiringPrincipal        string            `json:"RetiringPrincipal,omitempty"`
+	RetiringServicePrincipal string            `json:"RetiringServicePrincipal,omitempty"`
+	Name                     string            `json:"Name,omitempty"`
+	Operations               []string          `json:"Operations"`
+	// GrantTokens authorizes the CreateGrant call itself via an existing,
+	// not-yet-eventually-consistent grant. There is no IAM/authorization
+	// layer anywhere in this mock, so this field is accepted for wire parity
+	// and otherwise a no-op -- the same documented scope boundary as
+	// CreateKeyInput/ReplicateKeyInput's BypassPolicyLockoutSafetyCheck.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
 }
 
 // CreateGrantOutput is the response payload for CreateGrant.

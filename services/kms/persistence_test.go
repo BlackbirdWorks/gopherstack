@@ -112,11 +112,19 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 		AliasName: "alias/full-state", TargetKeyID: symKeyID,
 	}))
 
-	// Grant.
+	// Grant, with a SourceArn constraint -- added alongside GranteeServicePrincipal/
+	// RetiringServicePrincipal/IssuingAccount as real aws-sdk-go-v2/service/kms@v1.54.0
+	// GrantConstraints/GrantListEntry fields; must survive Snapshot/Restore like every
+	// other field on Grant (this exact codebase's PARITY.md previously found a real
+	// persistence gap where fields applied outside InMemoryBackend's own state were
+	// silently dropped across a restart -- see handlerSnapshot in persistence.go).
+	const grantSourceArn = "arn:aws:cloudtrail:us-east-1:000000000000:trail/full-state-trail"
+
 	grantOut, err := orig.CreateGrant(ctx, &kms.CreateGrantInput{
 		KeyID:            symKeyID,
 		GranteePrincipal: "arn:aws:iam::000000000000:role/test",
 		Operations:       []string{"Encrypt", "Decrypt"},
+		Constraints:      &kms.GrantConstraints{SourceArn: grantSourceArn},
 	})
 	require.NoError(t, err)
 
@@ -169,6 +177,17 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 		KeyID: symKeyID, Plaintext: []byte("via grant"), GrantTokens: []string{grantOut.GrantToken},
 	})
 	require.NoError(t, err)
+
+	// Grant's SourceArn constraint and IssuingAccount persisted (not just the
+	// token/indexes checked above) -- these are plain fields on the Grant struct
+	// with no dedicated snapshot plumbing, so a regression here would mean the
+	// generic store.Table JSON round trip silently dropped them.
+	grantListOut, err := fresh.ListGrants(ctx, &kms.ListGrantsInput{KeyID: symKeyID, GrantID: grantOut.GrantID})
+	require.NoError(t, err)
+	require.Len(t, grantListOut.Grants, 1)
+	require.NotNil(t, grantListOut.Grants[0].Constraints)
+	assert.Equal(t, grantSourceArn, grantListOut.Grants[0].Constraints.SourceArn)
+	assert.Equal(t, kms.MockAccountID, grantListOut.Grants[0].IssuingAccount)
 
 	// Key policy persisted.
 	polOut, err := fresh.GetKeyPolicy(ctx, &kms.GetKeyPolicyInput{KeyID: symKeyID})

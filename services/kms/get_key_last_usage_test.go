@@ -184,3 +184,61 @@ func TestGetKeyLastUsage_Via_Handler(t *testing.T) {
 		})
 	}
 }
+
+// TestGetKeyLastUsage_RejectsAliasKeyID verifies that GetKeyLastUsage rejects
+// alias-form KeyId values -- even a bare alias name or alias ARN that
+// resolves to a real, existing key -- with a ValidationException. Per the
+// real aws-sdk-go-v2/service/kms@v1.54.0 GetKeyLastUsageInput doc comment:
+// "Specify the key ID or key ARN of the KMS key... Alias names are not
+// supported." This is a field-level constraint most other KeyId-accepting
+// KMS operations (DescribeKey, Encrypt, Sign, ...) do NOT share -- those
+// accept alias/ARN/bare-ID interchangeably via resolveKeyID.
+func TestGetKeyLastUsage_RejectsAliasKeyID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		keyID func(aliasName, aliasARN string) string
+		name  string
+	}{
+		{name: "bare alias name", keyID: func(aliasName, _ string) string { return aliasName }},
+		{name: "alias ARN", keyID: func(_, aliasARN string) string { return aliasARN }},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			b := kms.NewInMemoryBackend()
+
+			out, err := b.CreateKey(ctx, &kms.CreateKeyInput{})
+			require.NoError(t, err)
+			keyID := out.KeyMetadata.KeyID
+
+			aliasName := "alias/get-key-last-usage-reject-test"
+			require.NoError(t, b.CreateAlias(ctx, &kms.CreateAliasInput{
+				AliasName:   aliasName,
+				TargetKeyID: keyID,
+			}))
+
+			listOut, err := b.ListAliases(ctx, &kms.ListAliasesInput{})
+			require.NoError(t, err)
+
+			var aliasARN string
+
+			for _, a := range listOut.Aliases {
+				if a.AliasName == aliasName {
+					aliasARN = a.AliasArn
+				}
+			}
+
+			require.NotEmpty(t, aliasARN, "test setup: alias ARN must be discoverable via ListAliases")
+
+			_, err = b.GetKeyLastUsage(ctx, &kms.GetKeyLastUsageInput{
+				KeyID: tc.keyID(aliasName, aliasARN),
+			})
+			require.Error(t, err, "GetKeyLastUsage must reject alias-form KeyId even when it resolves to a real key")
+			assert.ErrorIs(t, err, kms.ErrValidation)
+		})
+	}
+}

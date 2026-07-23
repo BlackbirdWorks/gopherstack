@@ -70,6 +70,7 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 		if len(taskTimeout) > 0 {
 			j.TaskTimeout = taskTimeout[0]
 		}
+		j.OnKeyPurged = h.purgeTags
 		h.janitor = j
 	}
 

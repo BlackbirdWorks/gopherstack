@@ -69,8 +69,20 @@ func (h *expiryHeap) Pop() any {
 // scheduled deletion date and purges the associated key material.
 type Janitor struct {
 	Backend *InMemoryBackend
+	// OnKeyPurged, if set, is invoked synchronously at the end of purgeKey after
+	// the key's backend-owned state has been removed. It lets a caller (see
+	// Handler.WithJanitor) cascade-clean side state that lives outside
+	// InMemoryBackend entirely -- specifically Handler.tags, a side map keyed
+	// by KeyID that the janitor has no access to itself. Without this hook, a
+	// permanently-deleted key's tag collection (and the lockmetrics/Prometheus
+	// registration it owns) would never be released, since KMS key IDs are
+	// UUIDs that are never reused and Handler.tags has no other cleanup path.
+	// Called with the backend write lock held: implementations must not call
+	// back into any InMemoryBackend method.
+	OnKeyPurged func(region, keyID string)
 	// heap is the priority queue of pending expiry events.
-	heap     expiryHeap
+	heap expiryHeap
+	// Interval is the time between janitor sweeps.
 	Interval time.Duration
 	// TaskTimeout bounds each individual janitor task. When non-zero, each task
 	// runs with a child context that expires after this duration, preventing a
@@ -241,6 +253,10 @@ func (j *Janitor) purgeKey(region, keyID string) {
 	j.Backend.keysStore(region).Delete(keyID)
 	delete(j.Backend.policiesStore(region), keyID)
 	j.Backend.lastUsage.Delete(region + ":" + keyID)
+
+	if j.OnKeyPurged != nil {
+		j.OnKeyPurged(region, keyID)
+	}
 }
 
 // shouldExpireMaterial reports whether the key's imported material should be expired.
