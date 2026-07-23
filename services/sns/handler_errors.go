@@ -53,7 +53,11 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrOptedOut):
 		log.WarnContext(ctx, "SNS phone number opted out", "error", err)
 	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
+		status = http.StatusForbidden
 		log.WarnContext(ctx, "SNS permission label error", "error", err)
+	case errors.Is(err, ErrSubscriptionLimitExceeded), errors.Is(err, ErrFilterPolicyLimitExceeded):
+		status = http.StatusForbidden
+		log.WarnContext(ctx, "SNS limit exceeded", "error", err)
 	default:
 		status = http.StatusInternalServerError
 		log.ErrorContext(ctx, "SNS internal error", "error", err)
@@ -83,6 +87,10 @@ func errorCode(err error) string {
 		return "OptedOut"
 	case errors.Is(err, ErrPermissionLabelExists), errors.Is(err, ErrPermissionLabelNotFound):
 		return "AuthorizationError"
+	case errors.Is(err, ErrSubscriptionLimitExceeded):
+		return "SubscriptionLimitExceeded"
+	case errors.Is(err, ErrFilterPolicyLimitExceeded):
+		return "FilterPolicyLimitExceeded"
 	default:
 		return "InternalError"
 	}

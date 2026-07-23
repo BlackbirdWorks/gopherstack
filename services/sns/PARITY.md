@@ -1,8 +1,8 @@
 ---
 service: sns
 sdk_module: aws-sdk-go-v2/service/sns@v1.41.0
-last_audit_commit: 3d4de4f9
-last_audit_date: 2026-07-11
+last_audit_commit: 2f721bd8a
+last_audit_date: 2026-07-23
 overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -12,7 +12,7 @@ ops:
   ListTopics: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTopicAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "computed attrs (Owner/TopicArn/EffectiveDeliveryPolicy/SubscriptionsConfirmed|Pending|Deleted) correct"}
   SetTopicAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  Subscribe: {wire: ok, errors: ok, state: ok, persist: ok, note: "all 9 protocols; pending-confirmation literal 'pending confirmation'; firehose requires SubscriptionRoleArn; dedup on existing confirmed sub"}
+  Subscribe: {wire: ok, errors: ok, state: ok, persist: ok, note: "all 9 protocols; pending-confirmation literal 'pending confirmation'; firehose requires SubscriptionRoleArn; dedup on existing confirmed sub; fixed this pass: FilterPolicy 5-key cap, FilterPolicyLimitExceeded (200/topic, 10,000/account), SubscriptionLimitExceeded (12,500,000/topic, test-overridable) were all previously unenforced"}
   ConfirmSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
   Unsubscribe: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -33,8 +33,8 @@ ops:
   SetEndpointAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   ListEndpointsByPlatformApplication: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  AddPermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "stored on Topic.Permissions, travels with topic snapshot"}
-  RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok}
+  AddPermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "stored on Topic.Permissions, travels with topic snapshot; fixed this pass: AuthorizationError now returns HTTP 403 (was 400 — handleBackendError had no 403 bucket at all)"}
+  RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: AuthorizationError (label not found) now returns HTTP 403, see AddPermission"}
   GetSMSSandboxAccountStatus/CreateSMSSandboxPhoneNumber/DeleteSMSSandboxPhoneNumber/ListSMSSandboxPhoneNumbers/VerifySMSSandboxPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok}
   CheckIfPhoneNumberIsOptedOut/ListPhoneNumbersOptedOut/OptInPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: ErrOptedOut sentinel text was the unrelated copy-pasted string 'KMSOptInRequired'"}
   GetSMSAttributes/SetSMSAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -42,14 +42,14 @@ ops:
   ListOriginationNumbers: {wire: ok, errors: ok, state: ok, persist: ok, note: "AWS has no public create API; empty by default, SeedOriginationNumber for tests"}
   TagResource/UntagResource/ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed"}
 families:
-  filter_policy_matching: {status: ok, note: "prefix/suffix/equals-ignore-case/anything-but(+nested)/exists/numeric(6 ops)/wildcard/cidr/$or, MessageBody vs MessageAttributes scope, String.Array expansion, 150-condition cap, 256KiB size cap — read in full, no gaps found"}
+  filter_policy_matching: {status: ok, note: "prefix/suffix/equals-ignore-case/anything-but(+nested)/exists/numeric(6 ops)/wildcard/cidr/$or, MessageBody vs MessageAttributes scope, String.Array expansion, 150-condition cap, 256KiB size cap, 5-key-per-policy cap (fixed this pass, was unenforced), FilterPolicyLimitExceeded 200/topic+10,000/account quota (fixed this pass, was unenforced and the error sentinel/code did not exist at all) — field-diffed against docs.aws.amazon.com/sns/latest/dg/subscription-filter-policy-constraints.html and API_Subscribe.html Errors table"}
   fifo_topics: {status: ok, note: "MessageGroupId required, ContentBasedDeduplication (SHA-256 body digest) vs explicit MessageDeduplicationId mutually exclusive, 5-min dedup window with bounded+swept map, 20-digit zero-padded monotonic SequenceNumber per topic, PublishBatch per-entry dedup"}
   delivery_lambda_firehose_sms_application: {status: ok, note: "fixed this pass: (1) Lambda envelope now carries the real per-publish Timestamp/Signature/SigningCertURL/UnsubscribeURL instead of a fabricated random-UUID signature and empty cert/unsub URLs; (2) Firehose now respects RawMessageDelivery (envelopes as JSON when false, matching AWS default, previously always sent the bare message); DLQ redrive on failure now forwards the same body that was attempted"}
   replay_policy_archive: {status: ok, note: "fixed this pass: replay previously only reached HTTP/HTTPS (direct call) and SQS (via the publish emitter) — Lambda/Firehose/SMS/Application subscriptions with a ReplayPolicy silently replayed nothing. Now fans out through the same per-protocol delivery functions Publish uses. NOT investigated: real AWS restricts archive/replay to FIFO topics + SQS/Lambda/Firehose only; this backend allows ArchivePolicy on standard topics and replays to HTTP/email/sms/application too (see gaps)"}
   http_https_delivery: {status: ok, note: "RSA-2048 self-signed cert + SignatureVersion=2 SHA256 signing, retry via DeliveryPolicy/EffectiveDeliveryPolicy, DLQ redrive, concurrency-capped worker semaphore, ctx-cancel on shutdown"}
-  error_codes: {status: ok, note: "NotFound/TopicAlreadyExists/PlatformApplicationAlreadyExists/InvalidParameter/EndpointDisabled/OptedOut/AuthorizationError(permission label) all map to correct AWS code strings; 400 vs 500 split verified in handleBackendError"}
+  error_codes: {status: ok, note: "NotFound/TopicAlreadyExists/PlatformApplicationAlreadyExists/InvalidParameter/EndpointDisabled/OptedOut/AuthorizationError(permission label)/SubscriptionLimitExceeded/FilterPolicyLimitExceeded all map to correct AWS code strings; fixed this pass: handleBackendError previously only split 400-vs-500 (per the prior audit's own 'verified' note) with NO 403 bucket at all, so AuthorizationError/SubscriptionLimitExceeded/FilterPolicyLimitExceeded (all documented HTTP 403 in the SNS API errors tables) were silently returning 400; EndpointDisabled correctly stays 400 (confirmed against API_Publish.html, not 403 despite being permission-adjacent)"}
 gaps:
-  - "ArchivePolicy/ReplayPolicy are accepted on any topic and fan out to any protocol (HTTP/email/sms/application); real AWS restricts message archiving/replay to FIFO topics with SQS/Lambda/Firehose subscribers only. Not fixed this pass — no doc access to confirm the exact restriction text/error code, and existing tests exercise HTTP replay deliberately. (bd: gopherstack-bz6)"
+  - "ArchivePolicy/ReplayPolicy are accepted on any topic and fan out to any protocol (HTTP/email/sms/application). CONFIRMED this pass (docs.aws.amazon.com/sns/latest/dg/fifo-message-archiving-replay.html, message-archiving-and-replay-topic-owner.html): real AWS message archiving/replay is restricted to FIFO topics only (standard topics get Firehose-based archiving via a different mechanism, not ArchivePolicy/ReplayPolicy). Still not fixed this pass — rejecting ArchivePolicy/ReplayPolicy on non-FIFO topics or non-SQS/Lambda/Firehose protocols would require rewriting the existing archive_test.go/delivery_test.go coverage that deliberately exercises HTTP replay on standard topics; deferring the behavior change + test rewrite to a dedicated follow-up rather than doing it as a drive-by in this pass. (bd: gopherstack-bz6)"
   - "Subscribe does not validate that an 'sqs' protocol endpoint is a well-formed SQS queue ARN (any string is accepted); AWS rejects malformed endpoint ARNs per-protocol. Low value — SDK-driven callers always pass valid ARNs. (bd: gopherstack-bz6)"
   - "SignatureVersion topic/subscription attribute is accepted and stored (isKnownTopicAttribute) but delivery always signs with SHA-256 (AWS 'SignatureVersion 2'); a topic explicitly set to SignatureVersion=1 should sign with SHA-1 instead. Not fixed — no consumer in this codebase verifies signatures, so behavior is unobservable, and getting this wrong is worse than leaving it (bd: gopherstack-bz6)"
 deferred:
@@ -62,6 +62,57 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 
 Freeform notes for the next auditor — AWS-behavior specifics worth remembering, and
 "looks-wrong-but-correct" traps.
+
+### 2026-07-23 re-audit (parity-5)
+Between `3d4de4f9` and this pass, `services/sns/` had only a mechanical file/test
+reorg (`backend.go`/`accuracy*_test.go`/etc. split into per-op-family files, e.g.
+`refactor: idiomatic file/test reorg` #2385) — diffed and confirmed no behavior
+change, `buildActions()` still routes all 42 real SDK ops 1:1. SDK module pinned
+at `v1.41.0` (unchanged). This pass field-diffed against live AWS documentation
+(`docs.aws.amazon.com/sns/latest/api/API_Subscribe.html`,
+`.../dg/subscription-filter-policy-constraints.html`, `.../api/API_Publish.html`,
+`.../api/CommonErrors.html`) rather than relying on the prior ledger's "ok"
+classifications, and found four real, previously-unenforced gaps, all fixed:
+1. **`AuthorizationError` (and by extension `SubscriptionLimitExceeded`/
+   `FilterPolicyLimitExceeded`) were returning HTTP 400, not 403.**
+   `handleBackendError` had exactly two status buckets — the default 400 and an
+   explicit 500 for unmapped errors — with no 403 path at all, despite the prior
+   ledger's own note claiming "400 vs 500 split verified". Every AWS SNS error
+   table (Subscribe, Publish, ...) documents `AuthorizationError` as HTTP 403.
+   Fixed by adding a `http.StatusForbidden` case in `handleBackendError`.
+   `EndpointDisabled` was re-confirmed to correctly stay 400 (verified against
+   `API_Publish.html` — it is NOT 403 despite being permission-adjacent).
+2. **`FilterPolicyLimitExceeded` did not exist at all** — no sentinel error, no
+   quota enforcement. Real AWS SNS caps filter-policy-bearing subscriptions at
+   200/topic and 10,000/account (both adjustable) and returns this exact error
+   code (HTTP 403) when exceeded (documented on `Subscribe`'s Errors table).
+   Added `ErrFilterPolicyLimitExceeded`, `maxFilterPoliciesPerTopic`,
+   `maxFilterPoliciesPerAccount`, and `checkFilterPolicyQuotaLocked` (called from
+   both `Subscribe` and `SetSubscriptionAttributes`, with self-exclusion so
+   updating a subscription's own existing filter policy in place doesn't
+   double-count).
+3. **`SubscriptionLimitExceeded` did not exist at all.** Real AWS caps
+   subscriptions at 12,500,000/topic (fixed quota) and returns this error (HTTP
+   403, "the customer already owns the maximum allowed number of
+   subscriptions") when exceeded. Added `ErrSubscriptionLimitExceeded` and a
+   `subscriptionLimitPerTopic` backend field (defaults to the real 12.5M quota,
+   overridable via `SetSubscriptionLimitPerTopicForTest` so tests don't need to
+   create millions of subscriptions to exercise the path).
+4. **FilterPolicy's "maximum of five keys" constraint was completely
+   unenforced** — `parseFilterPolicy` checked size (256 KiB) and total
+   combination/condition count (150) but never the AWS-documented 5-key-per-policy
+   cap. Added a `len(rawPolicy) > maxFilterPolicyKeys` check. Note: this backend
+   does not parse genuinely nested MessageBody filter policies (pre-existing,
+   documented gap — "Nesting depth ... not yet enforced"), so the 5-key check
+   uses top-level key count for both scopes; AWS's real leaf-key counting for
+   nested payload-based policies is not replicated. The check is also applied
+   recursively to each `$or` sub-policy object (each is parsed via the same
+   `parseFilterPolicy` path) — this is a reasonable but NOT doc-confirmed
+   interpretation of how the 5-key cap composes with `$or`; flagging for the
+   next auditor rather than asserting certainty.
+All four fixes are covered by new tests in `subscription_limits_test.go` and
+`permissions_test.go`. Gates (build/vet/`-race` test/gofmt/golangci-lint) pass
+clean with zero issues; no banned nolints introduced.
 
 ### 2026-07-11 re-audit (parity-4)
 No code changes made — no genuine bugs found. `services/sns/` had zero commits between

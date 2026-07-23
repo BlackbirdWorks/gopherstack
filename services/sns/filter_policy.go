@@ -24,6 +24,14 @@ import (
 // across all keys in a single FilterPolicy (≈150 in production).
 const maxFilterPolicyConditions = 150
 
+// maxFilterPolicyKeys is the AWS SNS cap on the number of keys a single
+// FilterPolicy may declare (5, per "Filter policy constraints" in the SNS
+// developer guide). For MessageAttributes scope this is the number of
+// top-level keys; this backend does not yet parse genuinely nested
+// MessageBody policies (see the nesting-depth note above), so the same
+// top-level count is used as the best available approximation for both scopes.
+const maxFilterPolicyKeys = 5
+
 func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 	if filterPolicy == "" {
 		return parsedFilterPolicy{}, nil
@@ -42,6 +50,13 @@ func parseFilterPolicy(filterPolicy string) (parsedFilterPolicy, error) {
 			"%w: FilterPolicy is not valid JSON: %s",
 			ErrInvalidParameter,
 			err.Error(),
+		)
+	}
+
+	if len(rawPolicy) > maxFilterPolicyKeys {
+		return nil, fmt.Errorf(
+			"%w: FilterPolicy exceeds %d keys",
+			ErrInvalidParameter, maxFilterPolicyKeys,
 		)
 	}
 

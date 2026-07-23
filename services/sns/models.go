@@ -657,6 +657,12 @@ type InMemoryBackend struct {
 	deliveryWg            sync.WaitGroup
 	closing               atomic.Bool
 	smsSandboxEnabled     bool
+	// subscriptionLimitPerTopic is the effective SubscriptionLimitExceeded
+	// threshold for Subscribe on a single topic. Defaults to
+	// defaultMaxSubscriptionsPerTopic (AWS's real 12,500,000 quota); overridable
+	// via SetSubscriptionLimitPerTopicForTest so tests can exercise the limit
+	// without creating millions of subscriptions.
+	subscriptionLimitPerTopic int
 }
 
 // httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.

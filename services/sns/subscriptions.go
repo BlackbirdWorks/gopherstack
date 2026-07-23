@@ -57,13 +57,25 @@ func (b *InMemoryBackend) Subscribe(
 		return nil, ErrTopicNotFound
 	}
 
+	topicSubs := b.subscriptionsByTopic.Get(topicArn)
+
 	// Dedup: return the existing subscription ARN when protocol+endpoint already
 	// has a confirmed subscription on this topic (matches AWS behaviour).
-	for _, existing := range b.subscriptionsByTopic.Get(topicArn) {
+	for _, existing := range topicSubs {
 		if !existing.PendingConfirmation &&
 			existing.Protocol == protocol &&
 			existing.Endpoint == endpoint {
 			return existing, nil
+		}
+	}
+
+	if len(topicSubs) >= b.subscriptionLimitPerTopic {
+		return nil, ErrSubscriptionLimitExceeded
+	}
+
+	if filterPolicy != "" {
+		if err := b.checkFilterPolicyQuotaLocked("", topicSubs); err != nil {
+			return nil, err
 		}
 	}
 
@@ -97,6 +109,53 @@ func (b *InMemoryBackend) Subscribe(
 	b.subscriptions.Put(sub)
 
 	return sub, nil
+}
+
+// checkFilterPolicyQuotaLocked enforces the AWS SNS FilterPolicyLimitExceeded
+// quotas (maxFilterPoliciesPerTopic, maxFilterPoliciesPerAccount) for a
+// subscription that is about to be given a non-empty FilterPolicy. topicSubs
+// is the caller's already-fetched index lookup for the subscription's topic
+// (reused to avoid a second index scan). excludeArn is the ARN of the
+// subscription being created/updated (empty for a brand-new Subscribe call)
+// so that updating an existing filter policy in place does not double-count
+// against the quota. Must be called with b.mu held.
+func (b *InMemoryBackend) checkFilterPolicyQuotaLocked(
+	excludeArn string,
+	topicSubs []*Subscription,
+) error {
+	topicCount := 0
+
+	for _, s := range topicSubs {
+		if s.FilterPolicy != "" && s.SubscriptionArn != excludeArn {
+			topicCount++
+		}
+	}
+
+	if topicCount+1 > maxFilterPoliciesPerTopic {
+		return fmt.Errorf(
+			"%w: topic already has %d filter policies (limit %d)",
+			ErrFilterPolicyLimitExceeded, topicCount, maxFilterPoliciesPerTopic,
+		)
+	}
+
+	acctCount := 0
+
+	b.subscriptions.Range(func(s *Subscription) bool {
+		if s.FilterPolicy != "" && s.SubscriptionArn != excludeArn {
+			acctCount++
+		}
+
+		return true
+	})
+
+	if acctCount+1 > maxFilterPoliciesPerAccount {
+		return fmt.Errorf(
+			"%w: account already has %d filter policies (limit %d)",
+			ErrFilterPolicyLimitExceeded, acctCount, maxFilterPoliciesPerAccount,
+		)
+	}
+
+	return nil
 }
 
 // Unsubscribe removes a subscription by ARN.
@@ -269,6 +328,13 @@ func (b *InMemoryBackend) setSubscriptionAttributesLocked(
 	sub, exists := b.subscriptions.Get(subscriptionArn)
 	if !exists {
 		return Subscription{}, "", ErrSubscriptionNotFound
+	}
+
+	if attrName == attrFilterPolicy && attrValue != "" {
+		topicSubs := b.subscriptionsByTopic.Get(sub.TopicArn)
+		if err := b.checkFilterPolicyQuotaLocked(subscriptionArn, topicSubs); err != nil {
+			return Subscription{}, "", err
+		}
 	}
 
 	if err := applySubscriptionAttr(sub, attrName, attrValue, parsedPolicy); err != nil {
