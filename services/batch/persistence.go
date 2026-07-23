@@ -147,7 +147,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	for _, v := range b.serviceJobs.Snapshot() {
-		dtos.serviceJobs.Put(&regionalDTO[ServiceJob]{Region: v.region, ID: v.ServiceJobID, Value: v})
+		dtos.serviceJobs.Put(&regionalDTO[ServiceJob]{Region: v.region, ID: v.JobID, Value: v})
 	}
 
 	tables, err := dtos.registry.SnapshotAll()

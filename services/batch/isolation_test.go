@@ -69,10 +69,10 @@ func TestBatchJobRegionIsolation(t *testing.T) {
 	ctxWest := ctxRegion("us-west-2")
 
 	// Same-named queue in each region.
-	_, err := backend.CreateJobQueue(ctxEast, "queue1", 1, "ENABLED", nil, nil, "", nil)
+	_, err := backend.CreateJobQueue(ctxEast, "queue1", 1, "ENABLED", nil, nil, "", nil, "", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateJobQueue(ctxWest, "queue1", 1, "ENABLED", nil, nil, "", nil)
+	_, err = backend.CreateJobQueue(ctxWest, "queue1", 1, "ENABLED", nil, nil, "", nil, "", nil)
 	require.NoError(t, err)
 
 	// Same-named job definition in each region.
@@ -91,6 +91,7 @@ func TestBatchJobRegionIsolation(t *testing.T) {
 		nil,
 		nil,
 		false,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -109,6 +110,7 @@ func TestBatchJobRegionIsolation(t *testing.T) {
 		nil,
 		nil,
 		false,
+		nil,
 	)
 	require.NoError(t, err)
 

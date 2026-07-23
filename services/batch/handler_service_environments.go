@@ -12,6 +12,7 @@ type createServiceEnvironmentInput struct {
 	ServiceEnvironmentName string            `json:"serviceEnvironmentName"`
 	ServiceEnvironmentType string            `json:"serviceEnvironmentType"`
 	State                  string            `json:"state"`
+	CapacityLimits         []CapacityLimit   `json:"capacityLimits"`
 }
 
 type createServiceEnvironmentOutput struct {
@@ -23,19 +24,12 @@ func (h *Handler) handleCreateServiceEnvironment(
 	ctx context.Context,
 	in *createServiceEnvironmentInput,
 ) (*createServiceEnvironmentOutput, error) {
-	if in.ServiceEnvironmentName == "" {
-		return nil, fmt.Errorf("%w: serviceEnvironmentName is required", ErrValidation)
-	}
-
-	if in.ServiceEnvironmentType == "" {
-		return nil, fmt.Errorf("%w: serviceEnvironmentType is required", ErrValidation)
-	}
-
 	se, err := h.Backend.CreateServiceEnvironment(
 		ctx,
 		in.ServiceEnvironmentName,
 		in.ServiceEnvironmentType,
 		in.State,
+		in.CapacityLimits,
 		in.Tags,
 	)
 	if err != nil {
@@ -70,10 +64,13 @@ func (h *Handler) handleDeleteServiceEnvironment(
 // --- DescribeServiceEnvironments handler ---
 
 type describeServiceEnvironmentsInput struct {
+	MaxResults          *int32   `json:"maxResults,omitempty"`
+	NextToken           *string  `json:"nextToken,omitempty"`
 	ServiceEnvironments []string `json:"serviceEnvironments"`
 }
 
 type describeServiceEnvironmentsOutput struct {
+	NextToken           *string               `json:"nextToken,omitempty"`
 	ServiceEnvironments []*ServiceEnvironment `json:"serviceEnvironments"`
 }
 
@@ -81,16 +78,32 @@ func (h *Handler) handleDescribeServiceEnvironments(
 	ctx context.Context,
 	in *describeServiceEnvironmentsInput,
 ) (*describeServiceEnvironmentsOutput, error) {
-	list := h.Backend.DescribeServiceEnvironments(ctx, in.ServiceEnvironments)
+	var maxResults int32
+	if in.MaxResults != nil {
+		maxResults = *in.MaxResults
+	}
 
-	return &describeServiceEnvironmentsOutput{ServiceEnvironments: list}, nil
+	var nextToken string
+	if in.NextToken != nil {
+		nextToken = *in.NextToken
+	}
+
+	list, outToken := h.Backend.DescribeServiceEnvironments(ctx, in.ServiceEnvironments, maxResults, nextToken)
+
+	out := &describeServiceEnvironmentsOutput{ServiceEnvironments: list}
+	if outToken != "" {
+		out.NextToken = &outToken
+	}
+
+	return out, nil
 }
 
 // --- UpdateServiceEnvironment handler ---
 
 type updateServiceEnvironmentInput struct {
-	ServiceEnvironment string `json:"serviceEnvironment"`
-	State              string `json:"state"`
+	ServiceEnvironment string          `json:"serviceEnvironment"`
+	State              string          `json:"state"`
+	CapacityLimits     []CapacityLimit `json:"capacityLimits,omitempty"`
 }
 
 type updateServiceEnvironmentOutput struct {
@@ -106,7 +119,7 @@ func (h *Handler) handleUpdateServiceEnvironment(
 		return nil, fmt.Errorf("%w: serviceEnvironment is required", ErrValidation)
 	}
 
-	se, err := h.Backend.UpdateServiceEnvironment(ctx, in.ServiceEnvironment, in.State)
+	se, err := h.Backend.UpdateServiceEnvironment(ctx, in.ServiceEnvironment, in.State, in.CapacityLimits)
 	if err != nil {
 		return nil, err
 	}

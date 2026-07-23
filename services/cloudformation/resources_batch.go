@@ -115,6 +115,8 @@ func (rc *ResourceCreator) createBatchJobQueue(
 		nil,
 		"",
 		nil,
+		"",
+		nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create Batch job queue %s: %w", name, err)
@@ -131,7 +133,7 @@ func (rc *ResourceCreator) deleteBatchJobQueue(ctx context.Context, arnOrName st
 	// AWS requires DISABLED state before deletion.
 	disabled := "DISABLED"
 	if _, err := rc.backends.Batch.Backend.UpdateJobQueue(
-		ctx, arnOrName, nil, disabled, nil, nil,
+		ctx, arnOrName, nil, disabled, nil, nil, nil,
 	); err != nil {
 		return fmt.Errorf("disable Batch job queue %s: %w", arnOrName, err)
 	}
@@ -174,6 +176,7 @@ func (rc *ResourceCreator) createBatchJobDefinition(
 		nil,
 		nil,
 		false,
+		nil,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create Batch job definition %s: %w", name, err)

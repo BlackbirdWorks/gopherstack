@@ -31,6 +31,7 @@ func TestHandler_ServiceEnvironment_CRUD(t *testing.T) {
 				rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
 					"serviceEnvironmentName": "my-senv",
 					"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+					"capacityLimits":         []map[string]any{{"capacityUnit": "NUM_INSTANCES", "maxCapacity": 10}},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
@@ -50,6 +51,7 @@ func TestHandler_ServiceEnvironment_CRUD(t *testing.T) {
 			rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
 				"serviceEnvironmentName": "my-senv",
 				"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+				"capacityLimits":         []map[string]any{{"capacityUnit": "NUM_INSTANCES", "maxCapacity": 10}},
 				"state":                  "ENABLED",
 			})
 
@@ -103,6 +105,7 @@ func TestHandler_ServiceEnvironment_Delete(t *testing.T) {
 			rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
 				"serviceEnvironmentName": tt.createEnv,
 				"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+				"capacityLimits":         []map[string]any{{"capacityUnit": "NUM_INSTANCES", "maxCapacity": 10}},
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -129,6 +132,7 @@ func TestHandler_ServiceEnvironment_DefaultState(t *testing.T) {
 	rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
 		"serviceEnvironmentName": "default-state-senv",
 		"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+		"capacityLimits":         []map[string]any{{"capacityUnit": "NUM_INSTANCES", "maxCapacity": 10}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -168,6 +172,7 @@ func TestBatch_DescribeServiceEnvironments(t *testing.T) {
 				rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
 					"serviceEnvironmentName": n,
 					"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+					"capacityLimits":         []map[string]any{{"capacityUnit": "NUM_INSTANCES", "maxCapacity": 10}},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -231,6 +236,7 @@ func TestBatch_UpdateServiceEnvironment(t *testing.T) {
 				rec := post(t, h, "/v1/createserviceenvironment", map[string]any{
 					"serviceEnvironmentName": tt.envName,
 					"serviceEnvironmentType": "SAGEMAKER_TRAINING",
+					"capacityLimits":         []map[string]any{{"capacityUnit": "NUM_INSTANCES", "maxCapacity": 10}},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}

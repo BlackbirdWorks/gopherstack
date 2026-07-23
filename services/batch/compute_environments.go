@@ -225,10 +225,16 @@ func cloneComputeResources(cr *ComputeResources) *ComputeResources {
 	return &clone
 }
 
+// cloneComputeEnvironmentWithTags returns a tag-cloned copy of ce.
+func cloneComputeEnvironmentWithTags(ce *ComputeEnvironment) *ComputeEnvironment {
+	cp := *ce
+	cp.Tags = tagsCloneOrEmpty(ce.Tags)
+
+	return &cp
+}
+
 // DescribeComputeEnvironments returns compute environments, optionally filtered by names/ARNs.
 // When names is empty, results are paginated via maxResults/nextToken.
-//
-//nolint:dupl // Boilerplate pagination logic is similar to DescribeJobQueues
 func (b *InMemoryBackend) DescribeComputeEnvironments(
 	ctx context.Context,
 	names []string,
@@ -240,35 +246,17 @@ func (b *InMemoryBackend) DescribeComputeEnvironments(
 	b.mu.RLock("DescribeComputeEnvironments")
 	defer b.mu.RUnlock()
 
-	if len(names) > 0 {
-		list := make([]*ComputeEnvironment, 0, len(names))
-
-		for _, nameOrARN := range names {
-			if ce, ok := b.lookupCEByNameOrARN(region, nameOrARN); ok {
-				cp := *ce
-				cp.Tags = tagsCloneOrEmpty(ce.Tags)
-				list = append(list, &cp)
-			}
-		}
-
-		return list, ""
-	}
-
-	sortedKeys := sortedNames(b.computeEnvironmentsByRegion.Get(region), func(ce *ComputeEnvironment) string {
-		return ce.ComputeEnvironmentName
-	})
-
-	keys, next := paginateMapKeys(sortedKeys, nextToken, maxResults)
-	out := make([]*ComputeEnvironment, 0, len(keys))
-
-	for _, k := range keys {
-		ce, _ := b.computeEnvironments.Get(regionKey(region, k))
-		cp := *ce
-		cp.Tags = tagsCloneOrEmpty(cp.Tags)
-		out = append(out, &cp)
-	}
-
-	return out, next
+	return describeResourcesPaginated(
+		names, maxResults, nextToken,
+		func(nameOrARN string) (*ComputeEnvironment, bool) { return b.lookupCEByNameOrARN(region, nameOrARN) },
+		func() []string {
+			return sortedNames(b.computeEnvironmentsByRegion.Get(region), func(ce *ComputeEnvironment) string {
+				return ce.ComputeEnvironmentName
+			})
+		},
+		func(key string) (*ComputeEnvironment, bool) { return b.computeEnvironments.Get(regionKey(region, key)) },
+		cloneComputeEnvironmentWithTags,
+	)
 }
 
 // UpdateComputeEnvironment updates the state, service role, compute resources, and/or update policy.

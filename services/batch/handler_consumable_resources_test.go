@@ -309,7 +309,7 @@ func TestBatch_ListConsumableResources(t *testing.T) {
 			var out map[string]any
 			mustUnmarshal(t, rec, &out)
 
-			items, _ := out["consumableResourceSummaryList"].([]any)
+			items, _ := out["consumableResources"].([]any)
 			assert.Len(t, items, tt.wantCount)
 
 			if tt.wantCount > 1 {
@@ -443,4 +443,61 @@ func TestHandler_ListJobsByConsumableResource(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_ListJobsByConsumableResource_WireShape verifies the response
+// matches aws-sdk-go-v2/service/batch/types.
+// ListJobsByConsumableResourceSummary exactly: jobQueueArn (not jobQueue),
+// jobStatus (not status), and quantity (the requested amount of the queried
+// resource, extracted from the job's consumableResourceProperties) -- a
+// narrower shape than the full Job this op previously (incorrectly)
+// returned wholesale.
+func TestHandler_ListJobsByConsumableResource_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": "ce-crl-wire", "type": "MANAGED", "state": "ENABLED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createjobqueue", map[string]any{
+		"jobQueueName": "q-crl-wire", "priority": 1, "state": "ENABLED",
+		"computeEnvironmentOrder": []map[string]any{{"computeEnvironment": "ce-crl-wire", "order": 1}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+		"jobDefinitionName": "jd-crl-wire", "type": "container",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/submitjob", map[string]any{
+		"jobName": "job-crl-wire", "jobQueue": "q-crl-wire", "jobDefinition": "jd-crl-wire",
+		"consumableResourcePropertiesOverride": map[string]any{
+			"consumableResourceList": []map[string]any{
+				{"consumableResource": "gpu-pool", "quantity": 4},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/listjobsbyconsumableresource", map[string]any{
+		"consumableResource": "gpu-pool",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	jobs := out["jobs"].([]any)
+	require.Len(t, jobs, 1)
+
+	job := jobs[0].(map[string]any)
+	assert.Contains(t, job, "jobQueueArn")
+	assert.NotContains(t, job, "jobQueue", "field must be jobQueueArn, not jobQueue")
+	assert.Contains(t, job, "jobStatus")
+	assert.NotContains(t, job, "status", "field must be jobStatus, not status")
+	assert.InEpsilon(t, float64(4), job["quantity"].(float64), 0.001)
+	assert.Equal(t, "job-crl-wire", job["jobName"])
 }
