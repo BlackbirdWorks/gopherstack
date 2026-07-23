@@ -112,3 +112,57 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/reservations/"+reservationID, nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// TestReservations_RenewalSettings locks in a fix for a gap where
+// gopherstack didn't track "renewalSettings" at all (a real field on
+// DescribeReservationOutput/Reservation -- verified against
+// aws-sdk-go-v2/service/medialive's Reservation/RenewalSettings types):
+// PurchaseOffering/UpdateReservation silently discarded any renewalSettings
+// a caller sent, and it was never echoed back.
+func TestReservations_RenewalSettings(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/prod/offerings/87654321/purchase", map[string]any{
+		"name":  "renewal-reservation",
+		"count": 1.0,
+		"renewalSettings": map[string]any{
+			"automaticRenewal": "ENABLED",
+			"renewalCount":     3.0,
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	purchased := decodeBody(t, rec.Body.Bytes())["reservation"].(map[string]any)
+	reservationID := purchased["reservationId"].(string)
+
+	rs := purchased["renewalSettings"].(map[string]any)
+	assert.Equal(t, "ENABLED", rs["automaticRenewal"])
+	assert.InDelta(t, float64(3), rs["renewalCount"], 0)
+
+	// Describe echoes the same renewalSettings back.
+	rec = doRequest(t, h, http.MethodGet, "/prod/reservations/"+reservationID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	described := decodeBody(t, rec.Body.Bytes())
+	rs = described["renewalSettings"].(map[string]any)
+	assert.Equal(t, "ENABLED", rs["automaticRenewal"])
+
+	// Update with a new renewalSettings object overwrites it.
+	rec = doRequest(t, h, http.MethodPut, "/prod/reservations/"+reservationID, map[string]any{
+		"renewalSettings": map[string]any{"automaticRenewal": "DISABLED"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	updated := decodeBody(t, rec.Body.Bytes())["reservation"].(map[string]any)
+	rs = updated["renewalSettings"].(map[string]any)
+	assert.Equal(t, "DISABLED", rs["automaticRenewal"])
+
+	// A reservation purchased without renewalSettings omits the key
+	// entirely, matching a real never-configured reservation.
+	rec = doRequest(t, h, http.MethodPost, "/prod/offerings/87654321/purchase", map[string]any{
+		"name": "no-renewal",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	noRenewal := decodeBody(t, rec.Body.Bytes())["reservation"].(map[string]any)
+	_, hasRenewal := noRenewal["renewalSettings"]
+	assert.False(t, hasRenewal)
+}

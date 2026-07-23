@@ -104,6 +104,7 @@ func (b *InMemoryBackend) DeleteNetwork(networkID string) (*Network, error) {
 	n.State = networkStateDeleting
 	out := n.toNetwork()
 	b.networks.Delete(networkID)
+	delete(b.tags, n.ARN)
 
 	return out, nil
 }

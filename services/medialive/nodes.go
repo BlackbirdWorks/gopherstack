@@ -2,6 +2,7 @@ package medialive
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -48,7 +49,31 @@ func (b *InMemoryBackend) CreateNode(
 
 	c.Nodes[id] = n
 
-	return n.toNode(), nil
+	return n.toNode(b.channelPlacementGroupIDsForNode(clusterID, id)), nil
+}
+
+// channelPlacementGroupIDsForNode returns the sorted set of
+// ChannelPlacementGroup IDs (within clusterID) whose Nodes list contains
+// nodeID. Caller must already hold b.mu (Lock or RLock) -- see the real
+// DescribeNodeOutput's "channelPlacementGroups" field, a live association
+// gopherstack derives from ChannelPlacementGroup.Nodes rather than
+// persisting redundantly.
+func (b *InMemoryBackend) channelPlacementGroupIDsForNode(clusterID, nodeID string) []string {
+	ids := []string{}
+
+	for _, g := range b.channelPlacementGroups.All() {
+		if g.ClusterID != clusterID {
+			continue
+		}
+
+		if slices.Contains(g.Nodes, nodeID) {
+			ids = append(ids, g.ID)
+		}
+	}
+
+	sort.Strings(ids)
+
+	return ids
 }
 
 // DescribeNode returns a Node by cluster ID and node ID.
@@ -66,7 +91,7 @@ func (b *InMemoryBackend) DescribeNode(clusterID, nodeID string) (*Node, error) 
 		return nil, fmt.Errorf("%w: node %s not found", ErrNotFound, nodeID)
 	}
 
-	return n.toNode(), nil
+	return n.toNode(b.channelPlacementGroupIDsForNode(clusterID, nodeID)), nil
 }
 
 // UpdateNode updates a Node's mutable fields.
@@ -92,7 +117,7 @@ func (b *InMemoryBackend) UpdateNode(clusterID, nodeID, name, role string) (*Nod
 		n.Role = role
 	}
 
-	return n.toNode(), nil
+	return n.toNode(b.channelPlacementGroupIDsForNode(clusterID, nodeID)), nil
 }
 
 // UpdateNodeState updates the state of a Node.
@@ -114,7 +139,7 @@ func (b *InMemoryBackend) UpdateNodeState(clusterID, nodeID, state string) (*Nod
 		n.State = state
 	}
 
-	return n.toNode(), nil
+	return n.toNode(b.channelPlacementGroupIDsForNode(clusterID, nodeID)), nil
 }
 
 // DeleteNode removes a Node from a Cluster.
@@ -132,13 +157,19 @@ func (b *InMemoryBackend) DeleteNode(clusterID, nodeID string) (*Node, error) {
 		return nil, fmt.Errorf("%w: node %s not found", ErrNotFound, nodeID)
 	}
 
+	cpgIDs := b.channelPlacementGroupIDsForNode(clusterID, nodeID)
 	delete(c.Nodes, nodeID)
+	delete(b.tags, n.ARN)
 
-	return n.toNode(), nil
+	return n.toNode(cpgIDs), nil
 }
 
 // paginateNodes returns a sorted, paginated node-summary slice from a cluster.
-func paginateNodes(c *storedCluster, maxResults int, nextToken string) ([]*NodeSummary, string) {
+func (b *InMemoryBackend) paginateNodes(
+	c *storedCluster,
+	maxResults int,
+	nextToken string,
+) ([]*NodeSummary, string) {
 	nodes := make([]*storedNode, 0, len(c.Nodes))
 	for _, n := range c.Nodes {
 		nodes = append(nodes, n)
@@ -150,7 +181,7 @@ func paginateNodes(c *storedCluster, maxResults int, nextToken string) ([]*NodeS
 
 	out := make([]*NodeSummary, 0, len(pg.Data))
 	for _, n := range pg.Data {
-		out = append(out, n.toSummary())
+		out = append(out, n.toSummary(b.channelPlacementGroupIDsForNode(c.ID, n.ID)))
 	}
 
 	return out, pg.Next
@@ -170,7 +201,7 @@ func (b *InMemoryBackend) ListNodes(
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
-	summaries, next := paginateNodes(c, maxResults, nextToken)
+	summaries, next := b.paginateNodes(c, maxResults, nextToken)
 
 	return summaries, next, nil
 }

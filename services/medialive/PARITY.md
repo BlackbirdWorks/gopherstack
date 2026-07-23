@@ -1,8 +1,27 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.97.2   # version audited against
-last_audit_commit: 066717f8a6524d92673f3364ce570fdcbaefec1a
-last_audit_date: 2026-07-12
-overall: A            # Parity sweep 4: the wire-shape casing bug (PascalCase-vs-lowerCamel)
+last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119
+last_audit_date: 2026-07-23
+overall: A            # Parity sweep 5: closed every concrete gap sweep 4 left open (InputDevice
+                       # request-body casing, Cluster.ChannelIds/Node.ChannelPlacementGroups/
+                       # ChannelPlacementGroup.Channels derivation, CW/EB TemplateGroup
+                       # templateCount, EventBridgeRuleTemplate eventTargetCount, Reservation
+                       # renewalSettings) and independently field-diffed two families the prior
+                       # sweep did NOT audit deeply enough to catch: Cluster was missing
+                       # "networkSettings" entirely (a real CreateClusterInput/
+                       # DescribeClusterOutput field), and Channel was missing
+                       # "anywhereSettings" entirely (the field needed to derive the
+                       # channelIds/channels/channelPlacementGroups associations above from
+                       # something real instead of a hardcoded empty list). Also found and
+                       # fixed two leaks: b.tags[ARN] rows were never removed on delete for
+                       # every resource family outside the Channel/Input/InputSecurityGroup/
+                       # Multiplex/InputDevice fast path (Cluster/Node/SignalMap/
+                       # CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/
+                       # Reservation/Network/SdiSource/ChannelPlacementGroup), and
+                       # DeleteCluster never cascade-deleted its ChannelPlacementGroups (a
+                       # separate top-level table, unlike Nodes which are embedded in
+                       # storedCluster and vanish automatically). Prior sweep 4's wire-shape
+                       # casing bug (PascalCase-vs-lowerCamel)
                        # that was fixed for Channel/Multiplex/MultiplexProgram/Tags in the
                        # prior pass is now fixed for EVERY remaining family in this service
                        # -- Cluster, Node, ChannelPlacementGroup, SignalMap,
@@ -53,6 +72,26 @@ families:
       wireID/wireName/wireState) into a single lowerCamel set now that
       every family in the service uses the same casing -- see "Notes"
       below.
+      SWEEP 5: independently field-diffed CreateChannelInput/
+      UpdateChannelInput/ChannelSummary against the SDK and found Channel
+      had NO "anywhereSettings" field at all (types.AnywhereSettings /
+      types.DescribeAnywhereSettings: clusterId/channelPlacementGroupId) --
+      CreateChannel/UpdateChannel silently dropped a caller's
+      anywhereSettings, and this was the root cause blocking
+      Cluster.channelIds/ChannelPlacementGroup.channels/Node.
+      channelPlacementGroups from ever being anything but a hardcoded empty
+      list (see those families below). Added Channel.AnywhereSettings
+      (ClusterID/ChannelPlacementGroupID), wired into Create/UpdateChannel
+      request parsing (with ClusterID existence validation -> 400 on an
+      unknown cluster, matching AWS's reference-validation behavior) and
+      Describe/Create/Update/List output ("anywhereSettings" omitted
+      entirely when unset, matching a non-Anywhere Channel). The full
+      EncoderSettings/Destinations/InputAttachments/InputSpecification/Vpc/
+      Maintenance/ChannelEngineVersion/LogLevel/CdiInputSpecification/
+      InferenceSettings/LinkedChannelSettings/ChannelSecurityGroups surface
+      (dozens of real CreateChannelInput/UpdateChannelInput fields, several
+      of them deeply nested codec-settings unions) remains OUT OF SCOPE --
+      see "gaps" below.
   Input:
     status: ok
     note: >
@@ -111,6 +150,20 @@ families:
       "targetRegion"/"transferMessage"; tracked as a residual gap below).
       Route/method matching for all InputDevice sub-actions verified
       correct in the prior pass.
+      SWEEP 5: FIXED the residual request-body casing gap noted above.
+      handleClaimDevice now reads "id" (was "Id" -- verified against
+      awsRestjson1_serializeOpDocumentClaimDeviceInput, which sends only
+      "id"); ClaimDevice silently no-oped on every real caller before this
+      fix. handleTransferInputDevice now reads "targetCustomerId"/
+      "targetRegion"/"transferMessage" (was "TargetCustomerId"/
+      "TargetRegion"/"TransferMessage" -- verified against
+      awsRestjson1_serializeOpDocumentTransferInputDeviceInput). Re-checked
+      UpdateInputDevice's request body: it already read "name" correctly
+      (the PARITY.md gap note bundling it in with ClaimDevice/
+      TransferInputDevice was imprecise -- UpdateInputDeviceInput's other
+      real fields, availabilityZone/hdDeviceSettings/uhdDeviceSettings,
+      remain unhandled, consistent with this service's existing
+      minimal-model approach for deeply nested device-settings objects).
   Cluster:
     status: ok
     note: >
@@ -134,6 +187,23 @@ families:
       "AlertMessage"/"SetTime"/"ClearedTime" -- none of which exist on the
       real ClusterAlert shape); rewritten to the real field names (id/
       alertType/message/state/setTimestamp).
+      SWEEP 5: independently field-diffed DescribeClusterOutput/
+      CreateClusterInput/UpdateClusterInput against the SDK deserializer/
+      serializers and found TWO more real gaps sweep 4 missed. (1)
+      "networkSettings" (types.ClusterNetworkSettings: defaultRoute +
+      interfaceMappings[].logicalInterfaceName/networkId) was not tracked
+      AT ALL -- CreateCluster/UpdateCluster silently discarded a caller's
+      networkSettings. Added Cluster.NetworkSettings, wired into
+      Create/UpdateCluster (UpdateCluster only overwrites it when the
+      caller includes the key, matching UpdateClusterInput's "include this
+      parameter only if you want to change it" semantics) and
+      Describe/Create/Update/List output ("networkSettings" omitted
+      entirely when never configured, matching a real Cluster). (2)
+      "channelIds" is now a REAL derived value (sorted Channel IDs whose
+      AnywhereSettings.ClusterID matches this cluster -- see Channel's
+      sweep-5 note above) instead of the hardcoded `[]string{}` sweep 4
+      left in place; the residual gap this closes is listed as fixed
+      below.
   Node:
     status: ok
     note: >
@@ -148,6 +218,13 @@ families:
       real field is lowerCamel), handleUpdateNodeState read "State" (should
       be "state"). ListNodes summary map and wrapper ("Nodes" -> "nodes")
       fixed too.
+      SWEEP 5: "channelPlacementGroups" is now a REAL derived value (sorted
+      ChannelPlacementGroup IDs, within this node's cluster, whose Nodes
+      list contains this node's ID) instead of the hardcoded `[]string{}`
+      sweep 4 left in place. Also fixed a leak: DeleteNode never removed
+      the node's b.tags[ARN] entry (Node isn't in taggableResourceTags'
+      fast path, so its tags live in the legacy per-ARN store) -- ghost
+      row left behind on every delete. Fixed by clearing it in DeleteNode.
   ChannelPlacementGroup:
     status: ok
     note: >
@@ -159,6 +236,22 @@ families:
       never had one). Request-body parsing fixed: handleCreate/
       UpdateChannelPlacementGroup read "Nodes" (should be "nodes"). List
       wrapper ("ChannelPlacementGroups" -> "channelPlacementGroups") fixed.
+      SWEEP 5: "channels" is now a REAL derived value (sorted Channel IDs
+      whose AnywhereSettings.ChannelPlacementGroupID matches this group)
+      instead of a `Channels []string` struct field that was always
+      initialized to `[]string{}` and never updated on channel attach --
+      removed the dead persisted field entirely, replaced with a live
+      derivation (channelIDsForPlacementGroup). Also fixed two leaks: (1)
+      DeleteChannelPlacementGroup never removed the group's b.tags[ARN]
+      entry (same class of bug as Node, above); (2) DeleteCluster never
+      cascade-deleted its ChannelPlacementGroups at all -- unlike Nodes
+      (embedded directly in storedCluster.Nodes, removed automatically
+      with their parent), ChannelPlacementGroup lives in its own top-level
+      table keyed by "clusterID/groupID", so nothing removed it (or its
+      tags) when the owning Cluster was deleted; every cluster
+      create+delete cycle with a placement group left a permanently
+      orphaned row. Fixed via cascadeDeleteChannelPlacementGroups, called
+      from DeleteCluster.
   SignalMap:
     status: ok
     note: >
@@ -179,6 +272,12 @@ families:
       the real CreateSignalMapInput/StartUpdateSignalMapInput serializers
       use lowerCamel). ListSignalMaps wrapper ("SignalMaps" ->
       "signalMaps") fixed.
+      SWEEP 5: fixed a leak -- DeleteSignalMap never removed the signal
+      map's b.tags[ARN] entry (SignalMap isn't in taggableResourceTags'
+      fast path). Same fix applied to every other family below outside
+      that fast path (Reservation, Network, SdiSource,
+      CloudWatchAlarmTemplate(Group), EventBridgeRuleTemplate(Group)) --
+      noted once here, not repeated per family below.
   CloudWatchAlarmTemplateGroup:
     status: ok
     note: >
@@ -192,6 +291,17 @@ families:
       backend method to count templates per group). List wrapper
       ("CloudWatchAlarmTemplateGroups" -> "cloudWatchAlarmTemplateGroups")
       fixed.
+      SWEEP 5: FIXED the templateCount gap. Added
+      CloudWatchAlarmTemplateGroupSummary (embeds
+      CloudWatchAlarmTemplateGroup + TemplateCount int32),
+      countCWAlarmTemplatesForGroup (live count, O(n) scan of
+      cwAlarmTemplates filtered by GroupID), and
+      toCWAlarmTemplateGroupSummaryOutput (Get/Create/Update still use
+      toCWAlarmTemplateGroupOutput, which correctly has no templateCount
+      key; only List's handler now calls the Summary variant).
+      ListCloudWatchAlarmTemplateGroups' return type changed from
+      []*CloudWatchAlarmTemplateGroup to
+      []*CloudWatchAlarmTemplateGroupSummary.
   CloudWatchAlarmTemplate:
     status: ok
     note: >
@@ -218,6 +328,11 @@ families:
       "createdAt"/"modifiedAt". List wrapper
       ("EventBridgeRuleTemplateGroups" -> "eventBridgeRuleTemplateGroups")
       fixed.
+      SWEEP 5: FIXED the templateCount gap, same shape as
+      CloudWatchAlarmTemplateGroup above -- added
+      EventBridgeRuleTemplateGroupSummary, countEBRuleTemplatesForGroup,
+      toEBRuleTemplateGroupSummaryOutput; List's return type changed to
+      []*EventBridgeRuleTemplateGroupSummary.
   EventBridgeRuleTemplate:
     status: ok
     note: >
@@ -234,6 +349,14 @@ families:
       "EventTargets" (PascalCase) -- all silently ignored caller input
       before this fix. List wrapper ("EventBridgeRuleTemplates" ->
       "eventBridgeRuleTemplates") fixed.
+      SWEEP 5: FIXED the eventTargetCount gap. Added
+      EventBridgeRuleTemplateSummary (embeds EventBridgeRuleTemplate +
+      EventTargetCount int32), toEBRuleTemplateSummaryOutput (emits
+      "eventTargetCount", omits "eventTargets" entirely -- matching the
+      real Summary shape, which has no eventTargets field at all).
+      Get/Create/Update still return the full eventTargets array via
+      toEBRuleTemplateOutput, unchanged. List's return type changed to
+      []*EventBridgeRuleTemplateSummary.
   Offering:
     status: ok
     note: >
@@ -260,6 +383,16 @@ families:
       added: the real "renewalSettings" field (gopherstack's Reservation
       model doesn't track renewal settings at all; tracked as a residual
       gap below since it's a new field, not a casing fix).
+      SWEEP 5: FIXED the renewalSettings gap. Added
+      Reservation.RenewalSettings (AutomaticRenewal/RenewalCount, wire keys
+      "renewalSettings.automaticRenewal"/"renewalSettings.renewalCount" --
+      verified against awsRestjson1_serializeDocumentRenewalSettings),
+      wired into PurchaseOffering/UpdateReservation request parsing
+      (UpdateReservation only overwrites it when the caller includes the
+      key) and Describe/Purchase/Update/List output ("renewalSettings"
+      omitted entirely when never configured, matching a real
+      never-configured Reservation). Also fixed a leak: DeleteReservation
+      never removed the reservation's b.tags[ARN] entry.
   Network:
     status: ok
     note: >
@@ -344,36 +477,41 @@ families:
     note: See Offering and Reservation above.
 
 # Families out of scope this pass (nothing left deferred at the family
-# level -- every family named in the sweep-4 task is now `ok`). Remaining
-# work is residual, sub-family gaps, listed below.
+# level -- every family named in sweep 4/5 is `ok`). Remaining work is
+# residual, sub-family gaps, listed below.
 deferred: []
 
+# All 5 concrete gaps sweep 4 left open are now CLOSED (see the per-family
+# SWEEP 5 notes above for exactly what changed and how each was verified
+# against the SDK). What's left below is either newly-discovered-and-closed
+# (kept here only as a paper trail) or genuinely out of scope for this pass.
 gaps:
-  - InputDevice request-body parsing (ClaimDevice/UpdateInputDevice/TransferInputDevice)
-    still reads PascalCase keys ("Id"/"TargetCustomerId"/"TargetRegion"/"TransferMessage")
-    that don't match the real lowerCamel request shape -- verified wrong against the SDK
-    serializer, deliberately left alone this pass per the task's InputDevice scope boundary
-    (output-struct casing only). (bd: needs filing)
-  - Cluster.ChannelIds / Node.ChannelPlacementGroups are real wire fields gopherstack now
-    emits (matching the real shape) but always as an empty list -- gopherstack doesn't track
-    cluster<->channel or node<->channel-placement-group association. Correctness gap, not a
-    casing gap. (bd: needs filing)
-  - CloudWatchAlarmTemplateGroup/EventBridgeRuleTemplateGroup List responses are missing
-    "templateCount" (real Summary-shape field); CloudWatchAlarmTemplate/EventBridgeRuleTemplate
-    Get/Create/Update responses already correctly omit it (verified not present on those
-    shapes). Would need a new backend method to count templates per group. (bd: needs filing)
-  - EventBridgeRuleTemplate List response returns the full "eventTargets" array per item
-    instead of the real Summary shape's "eventTargetCount" integer. (bd: needs filing)
-  - Reservation model doesn't track "renewalSettings" (a real field on
-    DescribeReservationOutput/Reservation) at all -- PurchaseOffering/UpdateReservation accept
-    but discard any renewalSettings the caller sends. New-field gap, not a casing gap. (bd:
-    needs filing)
+  - Channel does not model EncoderSettings/Destinations/InputAttachments/InputSpecification/
+    Vpc/Maintenance/ChannelEngineVersion/LogLevel/CdiInputSpecification/InferenceSettings/
+    LinkedChannelSettings/ChannelSecurityGroups -- real CreateChannelInput/UpdateChannelInput
+    fields (verified against the SDK: CreateChannelInput has 17 top-level members, gopherstack
+    only handles name/channelClass/roleArn/tags/anywhereSettings -- 5 of them). EncoderSettings
+    alone fans out into dozens of codec-specific nested union types (H264Settings/H265Settings/
+    Av1Settings/AacSettings/output-group variants/etc totaling thousands of lines in the SDK's
+    own type definitions) that would need hand-modeling to represent faithfully; a caller
+    setting any of these fields today gets a 201/200 response but the value is silently
+    dropped, never echoed back by Describe/List. This is a genuine, large gap for "true AWS
+    parity" on Channel specifically -- NOT closed this pass; flagging explicitly rather than
+    claiming Channel is fully field-diffed. (bd: needs filing -- likely its own multi-session
+    effort, not a single-pass fix)
   - Deep state/error-code audit of Cluster, Node, SignalMap, Reservation/Offering purchase
-    flow, Batch semantics beyond the wire-casing scope of this pass and sweep 4's fixes above
-    was not re-performed (route matching for all of them was verified correct; op-by-op
-    state-machine correctness beyond what this pass touched was not re-verified).
+    flow, Batch semantics beyond the wire-casing scope of sweep 4 and the association/
+    leak/new-field fixes sweep 5 made was not re-performed (route matching for all of them was
+    verified correct in sweep 4; op-by-op state-machine correctness beyond what these two
+    passes touched was not re-verified).
+  - ChannelPlacementGroup's own AnywhereSettings-derived "channels" association is now
+    correctly wired (sweep 5), but gopherstack does not validate that a Channel's
+    anywhereSettings.channelPlacementGroupId actually exists (only clusterId is checked,
+    returning 400 for an unknown cluster) -- an unknown channelPlacementGroupId is silently
+    accepted and stored, just never appears in any group's "channels" list. Minor
+    correctness gap, not a casing gap. (bd: needs filing)
 
-leaks: {status: clean, note: "No goroutines/janitors in this service. No new persisted maps added this pass -- CreatedAt/ModifiedAt/Region are plain fields on existing per-resource structs, garbage-collected with their owning resource on Delete same as every other field."}
+leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 
 ---
 
@@ -434,3 +572,33 @@ each `*ARN(id string) string` builder in backend.go appends
 `"<resourceType>:<id>"` as the ARN's resource segment. `taggableResourceTags`
 does an O(n) linear scan of each candidate table's `.All()` comparing `.ARN`
 fields directly.
+
+**Derived-association pattern (sweep 5)**: Cluster.ChannelIds,
+ChannelPlacementGroup.Channels, and Node.ChannelPlacementGroups are computed
+live at read time (Create/Describe/Update/Delete/List), never persisted --
+same pattern as PipelinesRunningCount/ProgramCount above. Each is an O(n)
+scan of the relevant table filtered by a foreign-key-style field
+(Channel.AnywhereSettings.ClusterID/ChannelPlacementGroupID,
+ChannelPlacementGroup.Nodes), sorted for deterministic output. The three
+helpers -- `channelIDsForCluster`, `channelIDsForPlacementGroup`,
+`channelPlacementGroupIDsForNode` -- all require the caller to already hold
+`b.mu` (Lock or RLock); none of them takes the lock themselves, since every
+call site is already inside a locked backend method.
+
+**AnywhereSettings / NetworkSettings wire shape (sweep 5)**: both are
+optional nested objects that a real, non-Anywhere Channel/never-configured
+Cluster omits entirely from its JSON response (verified against the SDK
+deserializer: `*types.AnywhereSettings`/`*types.ClusterNetworkSettings`, nil
+until configured) -- NOT emitted as `{}` or with empty-string/zero-value
+subfields. `ChannelAnywhereSettings.hasAnywhereSettings()` and
+`ClusterNetworkSettings.hasNetworkSettings()` gate this: the output-struct
+pointer is nil (`omitempty`) unless at least one subfield is non-zero.
+UpdateChannel/UpdateCluster/UpdateReservation all follow the same
+"has-the-key-at-all" convention for their respective optional nested
+objects (anywhereSettings/networkSettings/renewalSettings): the handler's
+`extractX` function returns `(zeroValue, false)` when the request body
+omits the key entirely, and the backend method only overwrites the stored
+value when the second return is `true` -- an explicit `{}` in the request
+body IS treated as "change it to empty", only a fully-omitted key preserves
+the existing value. This mirrors each field's real Update*Input doc comment
+("include this parameter only if you want to change it").

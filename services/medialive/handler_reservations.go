@@ -66,8 +66,9 @@ func (h *Handler) handlePurchaseOffering(
 	if v, ok := body["count"].(float64); ok {
 		count = int32(v)
 	}
+	renewalSettings, _ := extractRenewalSettings(body)
 	tags := extractTags(body)
-	r, err := h.Backend.PurchaseOffering(offeringID, name, count, tags)
+	r, err := h.Backend.PurchaseOffering(offeringID, name, count, renewalSettings, tags)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -77,13 +78,43 @@ func (h *Handler) handlePurchaseOffering(
 
 // --- Reservation handlers ---
 
+// extractRenewalSettings parses the "renewalSettings" request-body object
+// shared by PurchaseOfferingInput/UpdateReservationInput (lowerCamel
+// "automaticRenewal"/"renewalCount" -- verified against
+// awsRestjson1_serializeDocumentRenewalSettings). The second return reports
+// whether the key was present, so UpdateReservation can distinguish
+// "omitted" (leave unchanged) from an explicit object.
+func extractRenewalSettings(body map[string]any) (RenewalSettings, bool) {
+	raw, ok := body["renewalSettings"].(map[string]any)
+	if !ok {
+		return RenewalSettings{}, false
+	}
+
+	automaticRenewal, _ := raw["automaticRenewal"].(string)
+
+	var renewalCount int32
+	if v, hasCount := raw["renewalCount"].(float64); hasCount {
+		renewalCount = int32(v)
+	}
+
+	return RenewalSettings{AutomaticRenewal: automaticRenewal, RenewalCount: renewalCount}, true
+}
+
+func toRenewalSettingsOutput(rs RenewalSettings) map[string]any {
+	if !rs.hasRenewalSettings() {
+		return nil
+	}
+
+	return map[string]any{"automaticRenewal": rs.AutomaticRenewal, "renewalCount": rs.RenewalCount}
+}
+
 func toReservationOutput(r *Reservation) map[string]any {
 	tags := r.Tags
 	if tags == nil {
 		tags = map[string]string{}
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		keyArn: r.Arn, "reservationId": r.ReservationID, keyName: r.Name,
 		"offeringId": r.OfferingID, "offeringDescription": r.OfferingDescription,
 		"offeringType": r.OfferingType, "currencyCode": r.CurrencyCode,
@@ -101,6 +132,11 @@ func toReservationOutput(r *Reservation) map[string]any {
 		},
 		keyTags: tags,
 	}
+	if rs := toRenewalSettingsOutput(r.RenewalSettings); rs != nil {
+		out["renewalSettings"] = rs
+	}
+
+	return out
 }
 
 func (h *Handler) handleListReservations(c *echo.Context) error {
@@ -144,7 +180,8 @@ func (h *Handler) handleUpdateReservation(
 	body map[string]any,
 ) error {
 	name, _ := body["name"].(string)
-	r, err := h.Backend.UpdateReservation(reservationID, name)
+	renewalSettings, hasRenewalSettings := extractRenewalSettings(body)
+	r, err := h.Backend.UpdateReservation(reservationID, name, renewalSettings, hasRenewalSettings)
 	if err != nil {
 		return respondErr(c, err)
 	}

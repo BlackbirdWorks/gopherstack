@@ -153,25 +153,61 @@ func splitClusterNode(resource string) (string, string) {
 
 // --- Cluster handlers ---
 
+// interfaceMappingOutput mirrors types.InterfaceMapping's wire shape
+// (lowerCamel "logicalInterfaceName"/"networkId").
+type interfaceMappingOutput struct {
+	LogicalInterfaceName string `json:"logicalInterfaceName"`
+	NetworkID            string `json:"networkId"`
+}
+
+// clusterNetworkSettingsOutput mirrors types.ClusterNetworkSettings.
+type clusterNetworkSettingsOutput struct {
+	DefaultRoute      string                   `json:"defaultRoute,omitempty"`
+	InterfaceMappings []interfaceMappingOutput `json:"interfaceMappings,omitempty"`
+}
+
+func toClusterNetworkSettingsOutput(ns ClusterNetworkSettings) *clusterNetworkSettingsOutput {
+	if !ns.hasNetworkSettings() {
+		return nil
+	}
+
+	mappings := make([]interfaceMappingOutput, 0, len(ns.InterfaceMappings))
+	for _, m := range ns.InterfaceMappings {
+		mappings = append(mappings, interfaceMappingOutput(m))
+	}
+
+	return &clusterNetworkSettingsOutput{
+		DefaultRoute:      ns.DefaultRoute,
+		InterfaceMappings: mappings,
+	}
+}
+
 // clusterOutput mirrors DescribeClusterOutput/CreateClusterOutput/
 // UpdateClusterOutput exactly. The real API has NO "tags" field on this
 // shape (verified against aws-sdk-go-v2/service/medialive@v1.97.2's
 // awsRestjson1_deserializeOpDocumentDescribeClusterOutput) even though
 // CreateClusterInput accepts tags -- tags for a Cluster only surface via
-// ListTagsForResource. It does have "channelIds", which gopherstack
-// doesn't track per-cluster; emitted as an empty list (derived, matches
-// AWS's zero-value shape for a cluster with no channels assigned).
+// ListTagsForResource. "channelIds" is derived live from Channel.
+// AnywhereSettings.ClusterID (see channelIDsForCluster); "networkSettings"
+// is omitted entirely (nil, matching a real never-configured Cluster) until
+// the caller sets one via Create/UpdateCluster.
 type clusterOutput struct {
-	Arn             string   `json:"arn"`
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	ClusterType     string   `json:"clusterType"`
-	InstanceRoleArn string   `json:"instanceRoleArn"`
-	State           string   `json:"state"`
-	ChannelIDs      []string `json:"channelIds"`
+	NetworkSettings *clusterNetworkSettingsOutput `json:"networkSettings,omitempty"`
+	Arn             string                        `json:"arn"`
+	ID              string                        `json:"id"`
+	Name            string                        `json:"name"`
+	ClusterType     string                        `json:"clusterType"`
+	InstanceRoleArn string                        `json:"instanceRoleArn"`
+	State           string                        `json:"state"`
+	ChannelIDs      []string                      `json:"channelIds"`
 }
 
 func toClusterOutput(c *Cluster) clusterOutput {
+	channelIDs := c.ChannelIDs
+	if channelIDs == nil {
+		channelIDs = []string{}
+	}
+
 	return clusterOutput{
 		Arn:             c.ARN,
 		ID:              c.ID,
@@ -179,17 +215,62 @@ func toClusterOutput(c *Cluster) clusterOutput {
 		ClusterType:     c.ClusterType,
 		InstanceRoleArn: c.InstanceRoleArn,
 		State:           c.State,
-		ChannelIDs:      []string{},
+		ChannelIDs:      channelIDs,
+		NetworkSettings: toClusterNetworkSettingsOutput(c.NetworkSettings),
 	}
+}
+
+// extractInterfaceMappings parses a raw "interfaceMappings" array
+// (lowerCamel "logicalInterfaceName"/"networkId" per item -- verified
+// against types.InterfaceMapping's serializer).
+func extractInterfaceMappings(raw []any) []InterfaceMapping {
+	mappings := make([]InterfaceMapping, 0, len(raw))
+
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		name, _ := m["logicalInterfaceName"].(string)
+		networkID, _ := m["networkId"].(string)
+		mappings = append(mappings, InterfaceMapping{
+			LogicalInterfaceName: name,
+			NetworkID:            networkID,
+		})
+	}
+
+	return mappings
+}
+
+// extractClusterNetworkSettings parses the "networkSettings" request-body
+// object shared by CreateClusterInput/UpdateClusterInput. The second return
+// reports whether the key was present at all, so UpdateCluster can
+// distinguish "omitted" (leave unchanged) from an explicit empty object.
+func extractClusterNetworkSettings(body map[string]any) (ClusterNetworkSettings, bool) {
+	raw, ok := body["networkSettings"].(map[string]any)
+	if !ok {
+		return ClusterNetworkSettings{}, false
+	}
+
+	defaultRoute, _ := raw["defaultRoute"].(string)
+
+	var mappings []InterfaceMapping
+	if rawMappings, hasMappings := raw["interfaceMappings"].([]any); hasMappings {
+		mappings = extractInterfaceMappings(rawMappings)
+	}
+
+	return ClusterNetworkSettings{DefaultRoute: defaultRoute, InterfaceMappings: mappings}, true
 }
 
 func (h *Handler) handleCreateCluster(c *echo.Context, body map[string]any) error {
 	name, _ := body["name"].(string)
 	clusterType, _ := body["clusterType"].(string)
 	instanceRoleArn, _ := body["instanceRoleArn"].(string)
+	networkSettings, _ := extractClusterNetworkSettings(body)
 	tags := extractTags(body)
 
-	cl, err := h.Backend.CreateCluster(name, clusterType, instanceRoleArn, tags)
+	cl, err := h.Backend.CreateCluster(name, clusterType, instanceRoleArn, networkSettings, tags)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -212,8 +293,9 @@ func (h *Handler) handleUpdateCluster(
 	body map[string]any,
 ) error {
 	name, _ := body["name"].(string)
+	networkSettings, hasNetworkSettings := extractClusterNetworkSettings(body)
 
-	cl, err := h.Backend.UpdateCluster(clusterID, name)
+	cl, err := h.Backend.UpdateCluster(clusterID, name, networkSettings, hasNetworkSettings)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -238,15 +320,25 @@ func (h *Handler) handleListClusters(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		out = append(out, map[string]any{
+		channelIDs := s.ChannelIDs
+		if channelIDs == nil {
+			channelIDs = []string{}
+		}
+
+		item := map[string]any{
 			keyArn:            s.ARN,
 			keyID:             s.ID,
 			keyName:           s.Name,
 			keyState:          s.State,
 			"clusterType":     s.ClusterType,
 			"instanceRoleArn": s.InstanceRoleArn,
-			"channelIds":      []string{},
-		})
+			"channelIds":      channelIDs,
+		}
+		if ns := toClusterNetworkSettingsOutput(s.NetworkSettings); ns != nil {
+			item["networkSettings"] = ns
+		}
+
+		out = append(out, item)
 	}
 
 	resp := map[string]any{"clusters": out}
