@@ -3,7 +3,6 @@ package polly
 import (
 	"sync"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -37,11 +36,15 @@ const (
 	maxSpeechTextLen  = 3000
 	maxSpeechSSMLLen  = 6000
 	maxTaskTextLen    = 100000
+	maxTaskSSMLLen    = 200000
 	maxLexiconNameLen = 20
 	maxLexiconNames   = 5
-	maxTagCount       = 50
-	maxTagKeyLen      = 128
-	maxTagValueLen    = 256
+
+	// Pronunciation lexicon quotas, per
+	// https://docs.aws.amazon.com/polly/latest/dg/limits.html#limits-lexicons.
+	maxLexiconSize          = 40000 // characters per lexicon
+	maxLexemeReplacementLen = 100   // characters per <phoneme>/<alias> replacement
+	maxLexiconsPerAccount   = 100   // lexicons per account
 
 	// Speech-mark synthetic timing: roughly 80ms per character.
 	msPerCharacter = 80
@@ -63,14 +66,11 @@ const (
 // InMemoryBackend stores Polly resources safely for concurrent requests.
 //
 // lexicons and tasks are *store.Table[T]-backed (see store_setup.go and
-// pkgs/store's package doc); tags remains a plain map since its values are
-// map[string]string, not *T, so there is nothing for store.Table to key on.
-// voices is the static built-in voice catalogue, not a mutable resource
-// collection.
+// pkgs/store's package doc). voices is the static built-in voice catalogue,
+// not a mutable resource collection.
 type InMemoryBackend struct {
 	lexicons  *store.Table[Lexicon]
 	tasks     *store.Table[SpeechSynthesisTask]
-	tags      map[string]map[string]string
 	registry  *store.Registry
 	accountID string
 	region    string
@@ -87,7 +87,6 @@ func NewInMemoryBackend() *InMemoryBackend {
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:  store.NewRegistry(),
-		tags:      make(map[string]map[string]string),
 		voices:    builtInVoices(),
 		accountID: accountID,
 		region:    region,
@@ -106,12 +105,4 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
-	b.tags = make(map[string]map[string]string)
 }
-
-func (b *InMemoryBackend) taskARN(id string) string {
-	return arn.Build("polly", b.region, b.accountID, "synthesis-task/"+id)
-}
-
-// TaskARN returns resource ARN for tags on created task.
-func (b *InMemoryBackend) TaskARN(taskID string) string { return b.taskARN(taskID) }

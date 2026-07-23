@@ -2,7 +2,10 @@ package polly
 
 import (
 	"encoding/binary"
+	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 	"strings"
@@ -66,6 +69,9 @@ func (b *InMemoryBackend) validateOptions(options SynthesisOptions) (SynthesisOp
 		)
 	}
 	if err := validateSpeechMarks(options); err != nil {
+		return options, err
+	}
+	if err := validateSSML(options.TextType, options.Text); err != nil {
 		return options, err
 	}
 
@@ -153,6 +159,47 @@ func validateSpeechMarks(options SynthesisOptions) error {
 	}
 	if len(options.SpeechMarkTypes) == 0 && options.OutputFormat == outputFormatJSON {
 		return fmt.Errorf("%w: json OutputFormat requires SpeechMarkTypes", ErrValidation)
+	}
+
+	return nil
+}
+
+// validateSSML checks that text is well-formed XML wrapped in a <speak> root
+// element when textType is "ssml" -- AWS rejects malformed or unwrapped SSML
+// with InvalidSsmlException. Plain-text input (textType != "ssml") is never
+// checked here.
+func validateSSML(textType, text string) error {
+	if textType != textTypeSSML {
+		return nil
+	}
+
+	decoder := xml.NewDecoder(strings.NewReader(text))
+	depth, root := 0, ""
+	for {
+		tok, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidSsml, err)
+		}
+
+		switch elem := tok.(type) {
+		case xml.StartElement:
+			if depth == 0 {
+				root = elem.Name.Local
+			}
+			depth++
+		case xml.EndElement:
+			depth--
+		}
+	}
+
+	if depth != 0 {
+		return fmt.Errorf("%w: unbalanced SSML element tags", ErrInvalidSsml)
+	}
+	if root != "speak" {
+		return fmt.Errorf("%w: SSML text must be wrapped in a <speak> root element", ErrInvalidSsml)
 	}
 
 	return nil

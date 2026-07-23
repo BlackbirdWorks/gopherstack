@@ -48,14 +48,18 @@ func matchesVoice(voice Voice, filter DescribeVoicesFilter) bool {
 
 // Language name constants used in the built-in voice catalogue.
 const (
+	langArabic          = "Arabic"
+	langArabicGulf      = "Arabic (Gulf)"
 	langAustrEnglish    = "Australian English"
 	langBelgDutch       = "Belgian Dutch"
 	langBelgFrench      = "Belgian French"
 	langBrazPortuguese  = "Brazilian Portuguese"
 	langBritEnglish     = "British English"
 	langCanadFrench     = "Canadian French"
+	langCantonese       = "Chinese (Cantonese)"
 	langCastilSpanish   = "Castilian Spanish"
 	langChinaMandarin   = "Chinese Mandarin"
+	langCzech           = "Czech"
 	langDanish          = "Danish"
 	langDutch           = "Dutch"
 	langEuropPortuguese = "European Portuguese"
@@ -71,24 +75,31 @@ const (
 	langNZEnglish       = "New Zealand English"
 	langPolish          = "Polish"
 	langRussian         = "Russian"
+	langSingEnglish     = "Singaporean English"
 	langSwedish         = "Swedish"
+	langSwissGerman     = "Swiss German"
 	langTurkish         = "Turkish"
 	langUSEnglish       = "US English"
 	langUSSpanish       = "US Spanish"
+	langWelshEnglish    = "Welsh English"
 	langZAEnglish       = "South African English"
 )
 
 // Language code constants used in the built-in voice catalogue.
 const (
+	lcArabic          = "arb"
+	lcArabicGulf      = "ar-AE"
 	lcAustrEnglish    = "en-AU"
 	lcBelgDutch       = "nl-BE"
 	lcBelgFrench      = "fr-BE"
 	lcBrazPortuguese  = "pt-BR"
 	lcBritEnglish     = "en-GB"
 	lcCanadFrench     = "fr-CA"
+	lcCantonese       = "yue-CN"
 	lcCastilSpanish   = "es-ES"
 	lcCatalan         = "ca-ES"
 	lcChinaMandarin   = "cmn-CN"
+	lcCzech           = "cs-CZ"
 	lcDanish          = "da-DK"
 	lcDutch           = "nl-NL"
 	lcEuropPortuguese = "pt-PT"
@@ -109,15 +120,30 @@ const (
 	lcPolish          = "pl-PL"
 	lcRomanian        = "ro-RO"
 	lcRussian         = "ru-RU"
+	lcSingEnglish     = "en-SG"
 	lcSwedish         = "sv-SE"
+	lcSwissGerman     = "de-CH"
 	lcTurkish         = "tr-TR"
 	lcUSSpanish       = "es-US"
 	lcWelsh           = "cy-GB"
+	lcWelshEnglish    = "en-GB-WLS"
 	lcZAEnglish       = "en-ZA"
 )
 
-const builtInVoicesCap = 90
+const builtInVoicesCap = 106
 
+// builtInVoices returns the full built-in voice catalogue, field-diffed
+// against the "Available voices" table at
+// https://docs.aws.amazon.com/polly/latest/dg/voicelist.html and against the
+// VoiceId enum in aws-sdk-go-v2/service/polly/types (pinned SDK version, see
+// PARITY.md). Every VoiceId enum value present in the pinned SDK is
+// represented here with its real Gender/LanguageCode/SupportedEngines.
+//
+// Three voices documented on that page (Patrick, Alba, Raúl) are NOT part of
+// the VoiceId enum in the pinned aws-sdk-go-v2/service/polly@v1.57.5 module
+// (a newer, unreleased-at-pin-time AWS addition) and are intentionally
+// omitted -- adding them would let this backend accept a VoiceId no real
+// client built against this SDK version could ever send or receive.
 func builtInVoices() []Voice {
 	voices := make([]Voice, 0, builtInVoicesCap)
 	voices = append(voices, builtInVoicesEnglishUS()...)
@@ -126,6 +152,7 @@ func builtInVoices() []Voice {
 	voices = append(voices, builtInVoicesFrenchPortuguese()...)
 	voices = append(voices, builtInVoicesSpanishItalian()...)
 	voices = append(voices, builtInVoicesOther()...)
+	voices = append(voices, builtInVoicesArabic()...)
 
 	return voices
 }
@@ -138,6 +165,16 @@ func builtInVoicesEnglishUS() []Voice {
 
 	return []Voice{
 		{
+			ID: "Danielle", Name: "Danielle", Gender: genderFemale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{neu, lng, gen},
+		},
+		{
+			ID: "Gregory", Name: "Gregory", Gender: genderMale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{neu, lng},
+		},
+		{
 			ID: "Ivy", Name: "Ivy", Gender: genderFemale,
 			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
 			SupportedEngines: []string{std, neu},
@@ -145,7 +182,7 @@ func builtInVoicesEnglishUS() []Voice {
 		{
 			ID: "Joanna", Name: "Joanna", Gender: genderFemale,
 			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
-			SupportedEngines: []string{std, neu, lng, gen},
+			SupportedEngines: []string{std, neu, gen},
 		},
 		{
 			ID: "Kendra", Name: "Kendra", Gender: genderFemale,
@@ -165,7 +202,12 @@ func builtInVoicesEnglishUS() []Voice {
 		{
 			ID: "Ruth", Name: "Ruth", Gender: genderFemale,
 			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
-			SupportedEngines: []string{lng, gen},
+			SupportedEngines: []string{neu, lng, gen},
+		},
+		{
+			ID: "Tiffany", Name: "Tiffany", Gender: genderFemale,
+			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
+			SupportedEngines: []string{gen},
 		},
 		{
 			ID: "Joey", Name: "Joey", Gender: genderMale,
@@ -175,22 +217,22 @@ func builtInVoicesEnglishUS() []Voice {
 		{
 			ID: "Justin", Name: "Justin", Gender: genderMale,
 			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
-			SupportedEngines: []string{std, neu},
+			SupportedEngines: []string{neu},
 		},
 		{
 			ID: "Kevin", Name: "Kevin", Gender: genderMale,
 			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{std, neu},
 		},
 		{
 			ID: "Matthew", Name: "Matthew", Gender: genderMale,
 			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
-			SupportedEngines: []string{std, neu, lng, gen},
+			SupportedEngines: []string{neu, gen},
 		},
 		{
 			ID: "Stephen", Name: "Stephen", Gender: genderMale,
 			LanguageCode: defaultLanguageCode, LanguageName: langUSEnglish,
-			SupportedEngines: []string{lng, gen},
+			SupportedEngines: []string{neu, gen},
 		},
 	}
 }
@@ -210,7 +252,7 @@ func builtInVoicesEnglishGlobal() []Voice {
 		{
 			ID: "Olivia", Name: "Olivia", Gender: genderFemale,
 			LanguageCode: lcAustrEnglish, LanguageName: langAustrEnglish,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 		{
 			ID: "Russell", Name: "Russell", Gender: genderMale,
@@ -231,12 +273,18 @@ func builtInVoicesEnglishGlobal() []Voice {
 		{
 			ID: "Brian", Name: "Brian", Gender: genderMale,
 			LanguageCode: lcBritEnglish, LanguageName: langBritEnglish,
-			SupportedEngines: []string{std, neu},
+			SupportedEngines: []string{std, neu, gen},
 		},
 		{
 			ID: "Arthur", Name: "Arthur", Gender: genderMale,
 			LanguageCode: lcBritEnglish, LanguageName: langBritEnglish,
 			SupportedEngines: []string{neu},
+		},
+		// English (Welsh) -- en-GB-WLS, distinct from the Welsh (cy-GB) language below.
+		{
+			ID: "Geraint", Name: "Geraint", Gender: genderMale,
+			LanguageCode: lcWelshEnglish, LanguageName: langWelshEnglish,
+			SupportedEngines: []string{std},
 		},
 		// English (IN)
 		{
@@ -249,7 +297,7 @@ func builtInVoicesEnglishGlobal() []Voice {
 			ID: "Kajal", Name: "Kajal", Gender: genderFemale,
 			LanguageCode: lcIndianEnglish, LanguageName: langIndianEnglish,
 			AdditionalLanguageCodes: []string{lcHindi},
-			SupportedEngines:        []string{neu},
+			SupportedEngines:        []string{neu, gen},
 		},
 		{
 			ID: "Raveena", Name: "Raveena", Gender: genderFemale,
@@ -260,19 +308,25 @@ func builtInVoicesEnglishGlobal() []Voice {
 		{
 			ID: "Niamh", Name: "Niamh", Gender: genderFemale,
 			LanguageCode: lcIrEnglish, LanguageName: langIrEnglish,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 		// English (NZ)
 		{
 			ID: "Aria", Name: "Aria", Gender: genderFemale,
 			LanguageCode: lcNZEnglish, LanguageName: langNZEnglish,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
+		},
+		// English (SG)
+		{
+			ID: "Jasmine", Name: "Jasmine", Gender: genderFemale,
+			LanguageCode: lcSingEnglish, LanguageName: langSingEnglish,
+			SupportedEngines: []string{neu, gen},
 		},
 		// English (ZA)
 		{
 			ID: "Ayanda", Name: "Ayanda", Gender: genderFemale,
 			LanguageCode: lcZAEnglish, LanguageName: langZAEnglish,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 		// Welsh
 		{
@@ -283,7 +337,16 @@ func builtInVoicesEnglishGlobal() []Voice {
 	}
 }
 
+// builtInVoicesGermanic covers the Nordic languages (Danish, Icelandic,
+// Norwegian, Swedish, Finnish) plus Dutch and German, split across two
+// sub-functions to keep each under the funlen limit.
 func builtInVoicesGermanic() []Voice {
+	voices := builtInVoicesNordic()
+
+	return append(voices, builtInVoicesDutchGerman()...)
+}
+
+func builtInVoicesNordic() []Voice {
 	std := defaultEngine
 	neu := engineNeural
 
@@ -304,59 +367,10 @@ func builtInVoicesGermanic() []Voice {
 			LanguageCode: lcDanish, LanguageName: langDanish,
 			SupportedEngines: []string{neu},
 		},
-		// Dutch (NL)
-		{
-			ID: "Lotte", Name: "Lotte", Gender: genderFemale,
-			LanguageCode: lcDutch, LanguageName: langDutch,
-			SupportedEngines: []string{std, neu},
-		},
-		{
-			ID: "Ruben", Name: "Ruben", Gender: genderMale,
-			LanguageCode: lcDutch, LanguageName: langDutch,
-			SupportedEngines: []string{std},
-		},
-		{
-			ID: "Laura", Name: "Laura", Gender: genderFemale,
-			LanguageCode: lcDutch, LanguageName: langDutch,
-			SupportedEngines: []string{neu},
-		},
-		// Dutch (BE)
-		{
-			ID: "Lisa", Name: "Lisa", Gender: genderFemale,
-			LanguageCode: lcBelgDutch, LanguageName: langBelgDutch,
-			SupportedEngines: []string{neu},
-		},
 		// Finnish
 		{
 			ID: "Suvi", Name: "Suvi", Gender: genderFemale,
 			LanguageCode: lcFinnish, LanguageName: "Finnish",
-			SupportedEngines: []string{neu},
-		},
-		// German (AT)
-		{
-			ID: "Hannah", Name: "Hannah", Gender: genderFemale,
-			LanguageCode: lcAustrGerman, LanguageName: "Austrian German",
-			SupportedEngines: []string{neu},
-		},
-		// German (DE)
-		{
-			ID: "Marlene", Name: "Marlene", Gender: genderFemale,
-			LanguageCode: lcGerman, LanguageName: langGerman,
-			SupportedEngines: []string{std},
-		},
-		{
-			ID: "Vicki", Name: "Vicki", Gender: genderFemale,
-			LanguageCode: lcGerman, LanguageName: langGerman,
-			SupportedEngines: []string{std, neu},
-		},
-		{
-			ID: "Hans", Name: "Hans", Gender: genderMale,
-			LanguageCode: lcGerman, LanguageName: langGerman,
-			SupportedEngines: []string{std},
-		},
-		{
-			ID: "Daniel", Name: "Daniel", Gender: genderMale,
-			LanguageCode: lcGerman, LanguageName: langGerman,
 			SupportedEngines: []string{neu},
 		},
 		// Icelandic
@@ -395,16 +409,86 @@ func builtInVoicesGermanic() []Voice {
 	}
 }
 
+func builtInVoicesDutchGerman() []Voice {
+	std := defaultEngine
+	neu := engineNeural
+	gen := engineGenerative
+
+	return []Voice{
+		// Dutch (NL)
+		{
+			ID: "Laura", Name: "Laura", Gender: genderFemale,
+			LanguageCode: lcDutch, LanguageName: langDutch,
+			SupportedEngines: []string{neu, gen},
+		},
+		{
+			ID: "Lotte", Name: "Lotte", Gender: genderFemale,
+			LanguageCode: lcDutch, LanguageName: langDutch,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Ruben", Name: "Ruben", Gender: genderMale,
+			LanguageCode: lcDutch, LanguageName: langDutch,
+			SupportedEngines: []string{std},
+		},
+		// Dutch (BE)
+		{
+			ID: "Lisa", Name: "Lisa", Gender: genderFemale,
+			LanguageCode: lcBelgDutch, LanguageName: langBelgDutch,
+			SupportedEngines: []string{neu, gen},
+		},
+		// German (AT)
+		{
+			ID: "Hannah", Name: "Hannah", Gender: genderFemale,
+			LanguageCode: lcAustrGerman, LanguageName: "Austrian German",
+			SupportedEngines: []string{neu, gen},
+		},
+		// German (CH)
+		{
+			ID: "Sabrina", Name: "Sabrina", Gender: genderFemale,
+			LanguageCode: lcSwissGerman, LanguageName: langSwissGerman,
+			SupportedEngines: []string{neu, gen},
+		},
+		// German (DE)
+		{
+			ID: "Marlene", Name: "Marlene", Gender: genderFemale,
+			LanguageCode: lcGerman, LanguageName: langGerman,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Vicki", Name: "Vicki", Gender: genderFemale,
+			LanguageCode: lcGerman, LanguageName: langGerman,
+			SupportedEngines: []string{std, neu, gen},
+		},
+		{
+			ID: "Hans", Name: "Hans", Gender: genderMale,
+			LanguageCode: lcGerman, LanguageName: langGerman,
+			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Daniel", Name: "Daniel", Gender: genderMale,
+			LanguageCode: lcGerman, LanguageName: langGerman,
+			SupportedEngines: []string{neu, gen},
+		},
+		{
+			ID: "Lennart", Name: "Lennart", Gender: genderMale,
+			LanguageCode: lcGerman, LanguageName: langGerman,
+			SupportedEngines: []string{gen},
+		},
+	}
+}
+
 func builtInVoicesFrenchPortuguese() []Voice {
 	std := defaultEngine
 	neu := engineNeural
+	gen := engineGenerative
 
 	return []Voice{
 		// French (BE)
 		{
 			ID: "Isabelle", Name: "Isabelle", Gender: genderFemale,
 			LanguageCode: lcBelgFrench, LanguageName: langBelgFrench,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 		// French (CA)
 		{
@@ -415,18 +499,28 @@ func builtInVoicesFrenchPortuguese() []Voice {
 		{
 			ID: "Gabrielle", Name: "Gabrielle", Gender: genderFemale,
 			LanguageCode: lcCanadFrench, LanguageName: langCanadFrench,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 		{
 			ID: "Liam", Name: "Liam", Gender: genderMale,
 			LanguageCode: lcCanadFrench, LanguageName: langCanadFrench,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 		// French (FR)
+		{
+			ID: "Ambre", Name: "Ambre", Gender: genderFemale,
+			LanguageCode: lcFrench, LanguageName: langFrench,
+			SupportedEngines: []string{gen},
+		},
 		{
 			ID: "Celine", Name: "Céline", Gender: genderFemale,
 			LanguageCode: lcFrench, LanguageName: langFrench,
 			SupportedEngines: []string{std},
+		},
+		{
+			ID: "Florian", Name: "Florian", Gender: genderMale,
+			LanguageCode: lcFrench, LanguageName: langFrench,
+			SupportedEngines: []string{gen},
 		},
 		{
 			ID: "Lea", Name: "Léa", Gender: genderFemale,
@@ -441,13 +535,13 @@ func builtInVoicesFrenchPortuguese() []Voice {
 		{
 			ID: "Remi", Name: "Rémi", Gender: genderMale,
 			LanguageCode: lcFrench, LanguageName: langFrench,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 		// Portuguese (BR)
 		{
 			ID: "Camila", Name: "Camila", Gender: genderFemale,
 			LanguageCode: lcBrazPortuguese, LanguageName: langBrazPortuguese,
-			SupportedEngines: []string{std, neu},
+			SupportedEngines: []string{std, neu, gen},
 		},
 		{
 			ID: "Vitoria", Name: "Vitória", Gender: genderFemale,
@@ -487,9 +581,15 @@ func builtInVoicesFrenchPortuguese() []Voice {
 func builtInVoicesSpanishItalian() []Voice {
 	std := defaultEngine
 	neu := engineNeural
+	gen := engineGenerative
 
 	return []Voice{
 		// Italian
+		{
+			ID: "Beatrice", Name: "Beatrice", Gender: genderFemale,
+			LanguageCode: lcItalian, LanguageName: langItalian,
+			SupportedEngines: []string{gen},
+		},
 		{
 			ID: "Carla", Name: "Carla", Gender: genderFemale,
 			LanguageCode: lcItalian, LanguageName: langItalian,
@@ -498,7 +598,12 @@ func builtInVoicesSpanishItalian() []Voice {
 		{
 			ID: "Bianca", Name: "Bianca", Gender: genderFemale,
 			LanguageCode: lcItalian, LanguageName: langItalian,
-			SupportedEngines: []string{std, neu},
+			SupportedEngines: []string{std, neu, gen},
+		},
+		{
+			ID: "Lorenzo", Name: "Lorenzo", Gender: genderMale,
+			LanguageCode: lcItalian, LanguageName: langItalian,
+			SupportedEngines: []string{gen},
 		},
 		{
 			ID: "Giorgio", Name: "Giorgio", Gender: genderMale,
@@ -519,7 +624,7 @@ func builtInVoicesSpanishItalian() []Voice {
 		{
 			ID: "Lucia", Name: "Lucia", Gender: genderFemale,
 			LanguageCode: lcCastilSpanish, LanguageName: langCastilSpanish,
-			SupportedEngines: []string{std, neu},
+			SupportedEngines: []string{std, neu, gen},
 		},
 		{
 			ID: "Enrique", Name: "Enrique", Gender: genderMale,
@@ -529,19 +634,24 @@ func builtInVoicesSpanishItalian() []Voice {
 		{
 			ID: "Sergio", Name: "Sergio", Gender: genderMale,
 			LanguageCode: lcCastilSpanish, LanguageName: langCastilSpanish,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 		// Spanish (MX)
 		{
 			ID: "Mia", Name: "Mia", Gender: genderFemale,
 			LanguageCode: lcMexSpanish, LanguageName: langMexSpanish,
-			SupportedEngines: []string{std, neu},
+			SupportedEngines: []string{std, neu, gen},
+		},
+		{
+			ID: "Andres", Name: "Andrés", Gender: genderMale,
+			LanguageCode: lcMexSpanish, LanguageName: langMexSpanish,
+			SupportedEngines: []string{neu, gen},
 		},
 		// Spanish (US)
 		{
 			ID: "Lupe", Name: "Lupe", Gender: genderFemale,
 			LanguageCode: lcUSSpanish, LanguageName: langUSSpanish,
-			SupportedEngines: []string{std, neu},
+			SupportedEngines: []string{std, neu, gen},
 		},
 		{
 			ID: "Penelope", Name: "Penélope", Gender: genderFemale,
@@ -556,20 +666,36 @@ func builtInVoicesSpanishItalian() []Voice {
 		{
 			ID: "Pedro", Name: "Pedro", Gender: genderMale,
 			LanguageCode: lcUSSpanish, LanguageName: langUSSpanish,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 	}
 }
 
+// builtInVoicesOther covers the remaining language families (East Asian and
+// Eastern European) not grouped elsewhere, split across two sub-functions to
+// keep each under the funlen limit.
 func builtInVoicesOther() []Voice {
+	voices := builtInVoicesEastAsian()
+
+	return append(voices, builtInVoicesEasternEuropean()...)
+}
+
+func builtInVoicesEastAsian() []Voice {
 	std := defaultEngine
 	neu := engineNeural
+	gen := engineGenerative
 
 	return []Voice{
 		// Catalan
 		{
 			ID: "Arlet", Name: "Arlet", Gender: genderFemale,
 			LanguageCode: lcCatalan, LanguageName: "Catalan",
+			SupportedEngines: []string{neu},
+		},
+		// Chinese (Cantonese)
+		{
+			ID: "Hiujin", Name: "Hiujin", Gender: genderFemale,
+			LanguageCode: lcCantonese, LanguageName: langCantonese,
 			SupportedEngines: []string{neu},
 		},
 		// Chinese Mandarin
@@ -590,6 +716,11 @@ func builtInVoicesOther() []Voice {
 			SupportedEngines: []string{neu},
 		},
 		{
+			ID: "Tomoko", Name: "Tomoko", Gender: genderFemale,
+			LanguageCode: lcJapanese, LanguageName: langJapanese,
+			SupportedEngines: []string{neu},
+		},
+		{
 			ID: "Takumi", Name: "Takumi", Gender: genderMale,
 			LanguageCode: lcJapanese, LanguageName: langJapanese,
 			SupportedEngines: []string{std, neu},
@@ -598,7 +729,27 @@ func builtInVoicesOther() []Voice {
 		{
 			ID: "Seoyeon", Name: "Seoyeon", Gender: genderFemale,
 			LanguageCode: lcKorean, LanguageName: langKorean,
-			SupportedEngines: []string{std, neu},
+			SupportedEngines: []string{std, neu, gen},
+		},
+		{
+			ID: "Jihye", Name: "Jihye", Gender: genderFemale,
+			LanguageCode: lcKorean, LanguageName: langKorean,
+			SupportedEngines: []string{neu},
+		},
+	}
+}
+
+func builtInVoicesEasternEuropean() []Voice {
+	std := defaultEngine
+	neu := engineNeural
+	gen := engineGenerative
+
+	return []Voice{
+		// Czech
+		{
+			ID: "Jitka", Name: "Jitka", Gender: genderFemale,
+			LanguageCode: lcCzech, LanguageName: langCzech,
+			SupportedEngines: []string{neu},
 		},
 		// Polish
 		{
@@ -614,7 +765,7 @@ func builtInVoicesOther() []Voice {
 		{
 			ID: "Ola", Name: "Ola", Gender: genderFemale,
 			LanguageCode: lcPolish, LanguageName: langPolish,
-			SupportedEngines: []string{neu},
+			SupportedEngines: []string{neu, gen},
 		},
 		{
 			ID: "Jacek", Name: "Jacek", Gender: genderMale,
@@ -647,6 +798,34 @@ func builtInVoicesOther() []Voice {
 			ID: "Burcu", Name: "Burcu", Gender: genderFemale,
 			LanguageCode: lcTurkish, LanguageName: langTurkish,
 			SupportedEngines: []string{neu},
+		},
+	}
+}
+
+// builtInVoicesArabic covers Modern Standard Arabic (Zeina, standard-only)
+// and the two fully bilingual Gulf Arabic voices (Hala, Zayd), which speak
+// both ar-AE and arb per
+// https://docs.aws.amazon.com/polly/latest/dg/bilingual-voices.html.
+func builtInVoicesArabic() []Voice {
+	neu := engineNeural
+
+	return []Voice{
+		{
+			ID: "Zeina", Name: "Zeina", Gender: genderFemale,
+			LanguageCode: lcArabic, LanguageName: langArabic,
+			SupportedEngines: []string{defaultEngine},
+		},
+		{
+			ID: "Hala", Name: "Hala", Gender: genderFemale,
+			LanguageCode: lcArabicGulf, LanguageName: langArabicGulf,
+			AdditionalLanguageCodes: []string{lcArabic},
+			SupportedEngines:        []string{neu},
+		},
+		{
+			ID: "Zayd", Name: "Zayd", Gender: genderMale,
+			LanguageCode: lcArabicGulf, LanguageName: langArabicGulf,
+			AdditionalLanguageCodes: []string{lcArabic},
+			SupportedEngines:        []string{neu},
 		},
 	}
 }

@@ -11,10 +11,6 @@ package polly
 // are "clean" tables, registered directly on b.registry, with persistence.go
 // driving them through b.registry.SnapshotAll() / RestoreAll().
 //
-// Left as a plain map (not store.Table-backed): tags (map[string]map[string]string)
-// -- its values are plain map[string]string, not *T, so there is nothing for
-// store.Table to key on. See persistence.go for how it is persisted directly.
-//
 // voices ([]Voice) is the static built-in voice catalogue, not a resource
 // map, and is left untouched by this refactor.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"

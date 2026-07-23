@@ -2,6 +2,7 @@ package polly
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +18,14 @@ func (b *InMemoryBackend) PutLexicon(name, content string) error {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	// A new lexicon (not an overwrite of an existing name) counts against the
+	// per-account lexicon quota; overwriting an existing lexicon never does.
+	if !b.lexicons.Has(name) && b.lexicons.Len() >= maxLexiconsPerAccount {
+		return fmt.Errorf(
+			"%w: account already has the maximum of %d lexicons", ErrMaxLexiconsNumberExceeded, maxLexiconsPerAccount,
+		)
+	}
 
 	b.lexicons.Put(&Lexicon{
 		Name:         name,
@@ -82,8 +91,103 @@ func validateLexicon(name, content string) error {
 	if content == "" || !strings.Contains(content, "<lexicon") {
 		return fmt.Errorf("%w: Content must be PLS lexicon XML", ErrInvalidLexicon)
 	}
+	if len(content) > maxLexiconSize {
+		return fmt.Errorf(
+			"%w: lexicon Content exceeds maximum size of %d characters", ErrLexiconSizeExceeded, maxLexiconSize,
+		)
+	}
+
+	alphabet := lexiconAttribute(content, "alphabet", "ipa")
+	if alphabet != "ipa" && alphabet != "x-sampa" {
+		return fmt.Errorf("%w: alphabet %q must be ipa or x-sampa", ErrUnsupportedPlsAlphabet, alphabet)
+	}
+
+	language := lexiconAttribute(content, "xml:lang", defaultLanguageCode)
+	if !slices.Contains(validPollyLanguageCodes(), language) {
+		return fmt.Errorf("%w: xml:lang %q is not a supported Polly language code", ErrUnsupportedPlsLanguage, language)
+	}
+
+	if oversized, tag := oversizedLexemeReplacement(content); oversized {
+		return fmt.Errorf(
+			"%w: <%s> replacement exceeds maximum length of %d characters",
+			ErrMaxLexemeLengthExceeded, tag, maxLexemeReplacementLen,
+		)
+	}
 
 	return nil
+}
+
+// oversizedLexemeReplacement scans content for <phoneme>/<alias> lexeme
+// replacements (AWS: "up to 100 characters for each <phoneme> or <alias>
+// replacement in a lexicon") and reports the first one exceeding the limit.
+// Self-closing tags (<phoneme .../>) carry no inline replacement text and are
+// skipped.
+func oversizedLexemeReplacement(content string) (bool, string) {
+	for _, tag := range []string{"phoneme", "alias"} {
+		if lexemeReplacementTooLong(content, tag) {
+			return true, tag
+		}
+	}
+
+	return false, ""
+}
+
+func lexemeReplacementTooLong(content, tag string) bool {
+	openTag, closeTag := "<"+tag, "</"+tag+">"
+	pos := 0
+
+	for {
+		idx := strings.Index(content[pos:], openTag)
+		if idx < 0 {
+			return false
+		}
+		open := pos + idx
+
+		nextEnd := open + len(openTag)
+		if nextEnd < len(content) && content[nextEnd] != '>' && content[nextEnd] != ' ' && content[nextEnd] != '/' {
+			// Not an exact tag match (e.g. a hypothetical "<phonemeX"); keep scanning.
+			pos = open + len(openTag)
+
+			continue
+		}
+
+		closeAngle := strings.IndexByte(content[open:], '>')
+		if closeAngle < 0 {
+			return false
+		}
+		tagEnd := open + closeAngle
+
+		if content[tagEnd-1] == '/' {
+			// Self-closing: <phoneme ph="..."/> has no inline replacement text.
+			pos = tagEnd + 1
+
+			continue
+		}
+
+		bodyStart := tagEnd + 1
+		bodyLen := strings.Index(content[bodyStart:], closeTag)
+		if bodyLen < 0 {
+			return false
+		}
+		if bodyLen > maxLexemeReplacementLen {
+			return true
+		}
+		pos = bodyStart + bodyLen + len(closeTag)
+	}
+}
+
+// validPollyLanguageCodes returns every LanguageCode enum value from
+// aws-sdk-go-v2/service/polly/types (pinned SDK version, see PARITY.md),
+// used to validate a lexicon's xml:lang attribute.
+func validPollyLanguageCodes() []string {
+	return []string{
+		"arb", "cmn-CN", "cy-GB", "da-DK", "de-DE", "en-AU", "en-GB", "en-GB-WLS",
+		"en-IN", "en-US", "es-ES", "es-MX", "es-US", "fr-CA", "fr-FR", "is-IS",
+		"it-IT", "ja-JP", "hi-IN", "ko-KR", "nb-NO", "nl-NL", "pl-PL", "pt-BR",
+		"pt-PT", "ro-RO", "ru-RU", "sv-SE", "tr-TR", "en-NZ", "en-ZA", "ca-ES",
+		"de-AT", "yue-CN", "ar-AE", "fi-FI", "en-IE", "nl-BE", "fr-BE", "cs-CZ",
+		"de-CH", "en-SG",
+	}
 }
 
 func validLexiconName(name string) bool {
