@@ -1,12 +1,14 @@
 package cloudtrail_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/cloudtrail"
 )
 
@@ -200,7 +202,10 @@ func TestCloudTrailQueryLifecycle(t *testing.T) {
 	}
 }
 
-// TestDescribeQueryCreationTime verifies DescribeQuery returns CreationTime.
+// TestDescribeQueryCreationTime verifies DescribeQuery returns CreationTime
+// nested inside QueryStatistics (QueryStatisticsForDescribeQuery), matching
+// the real DescribeQueryOutput shape -- which has no top-level CreationTime
+// field at all.
 func TestDescribeQueryCreationTime(t *testing.T) {
 	t.Parallel()
 
@@ -223,7 +228,12 @@ func TestDescribeQueryCreationTime(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	resp := parseCloudTrailResp(t, descRec)
-	assert.NotNil(t, resp["CreationTime"], "DescribeQuery must return CreationTime")
+	_, hasTopLevel := resp["CreationTime"]
+	assert.False(t, hasTopLevel, "DescribeQueryOutput has no top-level CreationTime field")
+
+	stats, ok := resp["QueryStatistics"].(map[string]any)
+	require.True(t, ok, "DescribeQuery must return QueryStatistics")
+	assert.NotNil(t, stats["CreationTime"], "QueryStatistics.CreationTime must be present")
 }
 
 // TestGetQueryResultsQueryStatistics verifies GetQueryResults returns QueryStatistics.
@@ -256,4 +266,95 @@ func TestGetQueryResultsQueryStatistics(t *testing.T) {
 	require.True(t, ok, "QueryStatistics must be an object")
 	_, hasTRC := statsMap["TotalResultsCount"]
 	assert.True(t, hasTRC, "QueryStatistics must contain TotalResultsCount")
+}
+
+// TestListQueries_NextTokenPagination verifies ListQueries honors
+// NextToken/MaxResults pagination (previously always returned every query
+// in one page) and filters by EventDataStore.
+func TestListQueries_NextTokenPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+
+	edsRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{"Name": "list-queries-eds"})
+	require.Equal(t, http.StatusOK, edsRec.Code)
+	edsARN, _ := parseCloudTrailResp(t, edsRec)["EventDataStoreArn"].(string)
+
+	for i := range 3 {
+		rec := doCloudTrailOp(t, h, "StartQuery", map[string]any{
+			"QueryStatement": fmt.Sprintf("SELECT * FROM %s WHERE eventName = 'Op%d'", edsARN, i),
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doCloudTrailOp(t, h, "ListQueries", map[string]any{"EventDataStore": edsARN, "MaxResults": 2})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseCloudTrailResp(t, rec)
+	queries, ok := resp["Queries"].([]any)
+	require.True(t, ok)
+	require.Len(t, queries, 2)
+	nextToken, _ := resp["NextToken"].(string)
+	require.NotEmpty(t, nextToken)
+
+	rec = doCloudTrailOp(t, h, "ListQueries", map[string]any{"EventDataStore": edsARN, "NextToken": nextToken})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseCloudTrailResp(t, rec)
+	queries, ok = resp["Queries"].([]any)
+	require.True(t, ok)
+	assert.Len(t, queries, 1)
+
+	// A non-matching EventDataStore filter must exclude all three queries.
+	rec = doCloudTrailOp(t, h, "ListQueries", map[string]any{"EventDataStore": "eds-does-not-exist"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseCloudTrailResp(t, rec)
+	queries, ok = resp["Queries"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, queries)
+}
+
+// TestGetQueryResults_RealRowsAndPagination verifies GetQueryResults
+// executes the query for real (rows reflect recorded events, not an
+// unconditional empty list) and paginates via NextToken/MaxQueryResults.
+func TestGetQueryResults_RealRowsAndPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+	h.Backend.RecordManagementEvent(service.CloudTrailEventInput{EventName: "Op1", EventSource: "svc.amazonaws.com"})
+	h.Backend.RecordManagementEvent(service.CloudTrailEventInput{EventName: "Op2", EventSource: "svc.amazonaws.com"})
+
+	edsRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{"Name": "gqr-rows-eds"})
+	require.Equal(t, http.StatusOK, edsRec.Code)
+	edsARN, _ := parseCloudTrailResp(t, edsRec)["EventDataStoreArn"].(string)
+
+	startRec := doCloudTrailOp(t, h, "StartQuery", map[string]any{
+		"QueryStatement": "SELECT * FROM " + edsARN,
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+	queryID, _ := parseCloudTrailResp(t, startRec)["QueryId"].(string)
+	require.NotEmpty(t, queryID)
+
+	getRec := doCloudTrailOp(t, h, "GetQueryResults", map[string]any{
+		"QueryId": queryID, "MaxQueryResults": 1,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	resp := parseCloudTrailResp(t, getRec)
+
+	rows, ok := resp["QueryResultRows"].([]any)
+	require.True(t, ok)
+	require.Len(t, rows, 1, "MaxQueryResults=1 must cap the page to one row")
+
+	stats := resp["QueryStatistics"].(map[string]any)
+	assert.EqualValues(t, 2, stats["TotalResultsCount"], "both recorded events must have matched SELECT * FROM <eds>")
+
+	nextToken, _ := resp["NextToken"].(string)
+	require.NotEmpty(t, nextToken)
+
+	getRec2 := doCloudTrailOp(t, h, "GetQueryResults", map[string]any{
+		"QueryId": queryID, "NextToken": nextToken,
+	})
+	require.Equal(t, http.StatusOK, getRec2.Code)
+	resp2 := parseCloudTrailResp(t, getRec2)
+	rows2, ok := resp2["QueryResultRows"].([]any)
+	require.True(t, ok)
+	assert.Len(t, rows2, 1, "the second page must contain the remaining row")
 }

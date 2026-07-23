@@ -14,6 +14,7 @@ type lookupEventsBody struct {
 	StartTime        *int64            `json:"StartTime"`
 	EndTime          *int64            `json:"EndTime"`
 	NextToken        string            `json:"NextToken"`
+	EventCategory    string            `json:"EventCategory"`
 	LookupAttributes []LookupAttribute `json:"LookupAttributes"`
 	MaxResults       int32             `json:"MaxResults"`
 }
@@ -33,6 +34,7 @@ func (h *Handler) handleLookupEvents(c *echo.Context, body []byte) error {
 		LookupAttributes: in.LookupAttributes,
 		MaxResults:       in.MaxResults,
 		NextToken:        in.NextToken,
+		EventCategory:    in.EventCategory,
 	}
 	if in.StartTime != nil {
 		t := time.Unix(*in.StartTime, 0).UTC()

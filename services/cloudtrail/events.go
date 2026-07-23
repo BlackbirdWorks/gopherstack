@@ -3,13 +3,20 @@ package cloudtrail
 import (
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
+// eventCategoryManagement is the EventCategory value for every event this
+// backend records (it never synthesizes Insight-category events).
+const eventCategoryManagement = "Management"
+
 // RecordEvent stores a management/data event so it can later be returned by
-// LookupEvents. The event is assigned an EventID and EventTime if not already set.
+// LookupEvents. The event is assigned an EventID, EventTime, and EventCategory
+// if not already set (every event this backend records is a management-plane
+// API call; it never synthesizes Insight events).
 func (b *InMemoryBackend) RecordEvent(ev Event) {
 	b.mu.Lock("RecordEvent")
 	defer b.mu.Unlock()
@@ -20,6 +27,10 @@ func (b *InMemoryBackend) RecordEvent(ev Event) {
 
 	if ev.EventTime.IsZero() {
 		ev.EventTime = time.Now().UTC()
+	}
+
+	if ev.EventCategory == "" {
+		ev.EventCategory = eventCategoryManagement
 	}
 
 	b.events = append(b.events, ev)
@@ -61,14 +72,27 @@ func lookupAttrMatch(ev Event, attr LookupAttribute) bool {
 	}
 }
 
-// eventMatchesFilters reports whether an event passes the time range and all
-// lookup attributes (AWS ANDs multiple attributes together).
+// eventMatchesFilters reports whether an event passes the time range, event
+// category, and all lookup attributes (AWS ANDs multiple attributes together).
 func eventMatchesFilters(ev Event, input LookupEventsInput) bool {
 	if input.StartTime != nil && ev.EventTime.Before(*input.StartTime) {
 		return false
 	}
 
 	if input.EndTime != nil && ev.EventTime.After(*input.EndTime) {
+		return false
+	}
+
+	// AWS: "If you do not specify an event category, events of [the Insight]
+	// category are not returned in the response." I.e. omitting EventCategory
+	// returns only Management events; passing "insight" returns only Insight
+	// events. This backend never synthesizes Insight events, so requesting
+	// "insight" always yields zero matches -- a real, not fabricated, filter.
+	wantCategory := input.EventCategory
+	if wantCategory == "" {
+		wantCategory = eventCategoryManagement
+	}
+	if !strings.EqualFold(ev.EventCategory, wantCategory) {
 		return false
 	}
 

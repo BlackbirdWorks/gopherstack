@@ -1,6 +1,7 @@
 package cloudtrail_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -158,4 +159,38 @@ func TestCloudTrailChannelLifecycle(t *testing.T) {
 	// DeleteChannel.
 	rec = doCloudTrailOp(t, h, "DeleteChannel", map[string]any{"Channel": channelARN})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestListChannels_NextTokenPagination verifies ListChannels honors
+// NextToken/MaxResults pagination (previously always returned every channel
+// in one page).
+func TestListChannels_NextTokenPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+
+	for i := range 3 {
+		rec := doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+			"Name":   fmt.Sprintf("channel-%d", i),
+			"Source": "custom-source",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doCloudTrailOp(t, h, "ListChannels", map[string]any{"MaxResults": 2})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseCloudTrailResp(t, rec)
+	channels, ok := resp["Channels"].([]any)
+	require.True(t, ok)
+	assert.Len(t, channels, 2)
+	nextToken, _ := resp["NextToken"].(string)
+	require.NotEmpty(t, nextToken, "a partial page must return a NextToken")
+
+	rec = doCloudTrailOp(t, h, "ListChannels", map[string]any{"NextToken": nextToken})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseCloudTrailResp(t, rec)
+	channels, ok = resp["Channels"].([]any)
+	require.True(t, ok)
+	assert.Len(t, channels, 1, "the second page must contain the remaining channel")
+	assert.Nil(t, resp["NextToken"], "no further pages left")
 }

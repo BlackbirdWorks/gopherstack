@@ -80,6 +80,9 @@ func (b *InMemoryBackend) Reset() {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// AccountID returns the AWS account ID this backend is configured for.
+func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
 // findByNameOrARNLocked looks up a trail by name or ARN without locking.
 func (b *InMemoryBackend) findByNameOrARNLocked(nameOrARN string) *Trail {
 	if t, ok := b.trails.Get(nameOrARN); ok {

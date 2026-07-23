@@ -272,8 +272,10 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errResp("DashboardNotFoundException", err.Error()))
 	case errors.Is(err, ErrEventDataStoreNotFound):
 		return c.JSON(http.StatusNotFound, errResp("EventDataStoreNotFoundException", err.Error()))
-	case errors.Is(err, ErrQueryNotFound):
-		return c.JSON(http.StatusNotFound, errResp("InactiveQueryException", err.Error()))
+	case errors.Is(err, ErrQueryIDNotFound):
+		return c.JSON(http.StatusNotFound, errResp("QueryIdNotFoundException", err.Error()))
+	case errors.Is(err, ErrQueryInactive):
+		return c.JSON(http.StatusBadRequest, errResp("InactiveQueryException", err.Error()))
 	case errors.Is(err, ErrTerminationProtected):
 		return c.JSON(http.StatusConflict, errResp("EventDataStoreTerminationProtectedException", err.Error()))
 	case errors.Is(err, ErrInsightNotEnabled):
