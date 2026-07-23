@@ -163,14 +163,14 @@ func TestCreateVaultCreatorRequestIdIdempotency(t *testing.T) {
 			name:           "different_creator_request_id_conflicts",
 			firstRequest:   `{"CreatorRequestId":"req-aaa"}`,
 			secondRequest:  `{"CreatorRequestId":"req-bbb"}`,
-			wantSecondCode: http.StatusConflict,
+			wantSecondCode: http.StatusBadRequest,
 			wantSameArn:    false,
 		},
 		{
 			name:           "no_creator_request_id_conflicts",
 			firstRequest:   `{}`,
 			secondRequest:  `{}`,
-			wantSecondCode: http.StatusConflict,
+			wantSecondCode: http.StatusBadRequest,
 			wantSameArn:    false,
 		},
 	}
@@ -298,6 +298,57 @@ func TestListBackupVaultsEncryptionKeyArn(t *testing.T) {
 	}
 }
 
+// TestDescribeBackupVaultMpaAndEncryptionKeyType covers the previously
+// missing DescribeBackupVault fields MpaApprovalTeamArn and
+// EncryptionKeyType.
+func TestDescribeBackupVaultMpaAndEncryptionKeyType(t *testing.T) {
+	t.Parallel()
+
+	t.Run("encrypted vault reports CUSTOMER_MANAGED_KMS_KEY", func(t *testing.T) {
+		t.Parallel()
+		h := newTestBackupHandler()
+		doREST(t, h, http.MethodPut, "/backup-vaults/enc-vault", map[string]any{
+			"EncryptionKeyArn": "arn:aws:kms:us-east-1:123456789012:key/test-key",
+		})
+
+		rec := doREST(t, h, http.MethodGet, "/backup-vaults/enc-vault", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseResp(t, rec)
+		assert.Equal(t, "CUSTOMER_MANAGED_KMS_KEY", resp["EncryptionKeyType"])
+	})
+
+	t.Run("unencrypted vault reports AWS_OWNED_KMS_KEY", func(t *testing.T) {
+		t.Parallel()
+		h := newTestBackupHandler()
+		doREST(t, h, http.MethodPut, "/backup-vaults/plain-vault", nil)
+
+		rec := doREST(t, h, http.MethodGet, "/backup-vaults/plain-vault", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseResp(t, rec)
+		assert.Equal(t, "AWS_OWNED_KMS_KEY", resp["EncryptionKeyType"])
+	})
+
+	t.Run("associated MPA approval team ARN is surfaced", func(t *testing.T) {
+		t.Parallel()
+		h := newTestBackupHandler()
+		doREST(t, h, http.MethodPut, "/backup-vaults/mpa-vault", nil)
+
+		beforeRec := doREST(t, h, http.MethodGet, "/backup-vaults/mpa-vault", nil)
+		before := parseResp(t, beforeRec)
+		_, present := before["MpaApprovalTeamArn"]
+		assert.False(t, present, "MpaApprovalTeamArn should be absent before association")
+
+		doREST(t, h, http.MethodPut, "/backup-vaults/mpa-vault/mpaApprovalTeam", map[string]any{
+			"MpaApprovalTeamArn": "arn:aws:mpa:us-east-1:123456789012:approval-team/team-1",
+		})
+
+		afterRec := doREST(t, h, http.MethodGet, "/backup-vaults/mpa-vault", nil)
+		require.Equal(t, http.StatusOK, afterRec.Code)
+		after := parseResp(t, afterRec)
+		assert.Equal(t, "arn:aws:mpa:us-east-1:123456789012:approval-team/team-1", after["MpaApprovalTeamArn"])
+	})
+}
+
 // ---- 8. RestoreTestingPlan StartWindowHours round-trip ----
 
 // TestBackupVaultCRUD exercises CreateBackupVault, DescribeBackupVault,
@@ -340,7 +391,7 @@ func TestBackupVaultCRUD(t *testing.T) {
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodGet, "/backup-vaults/missing", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -365,7 +416,7 @@ func TestBackupVaultCRUD(t *testing.T) {
 				rec := doREST(t, h, http.MethodDelete, "/backup-vaults/del-vault", nil)
 				assert.Equal(t, http.StatusOK, rec.Code)
 				rec2 := doREST(t, h, http.MethodGet, "/backup-vaults/del-vault", nil)
-				assert.Equal(t, http.StatusNotFound, rec2.Code)
+				assert.Equal(t, http.StatusBadRequest, rec2.Code)
 			},
 		},
 		{
@@ -374,7 +425,7 @@ func TestBackupVaultCRUD(t *testing.T) {
 				t.Helper()
 				doREST(t, h, http.MethodPut, "/backup-vaults/dup-vault", nil)
 				rec := doREST(t, h, http.MethodPut, "/backup-vaults/dup-vault", nil)
-				assert.Equal(t, http.StatusConflict, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -405,7 +456,7 @@ func TestAssociateBackupVaultMpaApprovalTeam(t *testing.T) {
 				rec := doREST(t, h, http.MethodPut, "/backup-vaults/my-vault/mpaApprovalTeam", map[string]any{
 					"MpaApprovalTeamArn": "arn:aws:mpa:us-east-1:123456789012:approval-team/my-team",
 				})
-				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Equal(t, http.StatusNoContent, rec.Code)
 			},
 		},
 		{
@@ -415,7 +466,7 @@ func TestAssociateBackupVaultMpaApprovalTeam(t *testing.T) {
 				rec := doREST(t, h, http.MethodPut, "/backup-vaults/missing/mpaApprovalTeam", map[string]any{
 					"MpaApprovalTeamArn": "arn:aws:mpa:us-east-1:123:approval-team/t",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -476,7 +527,7 @@ func TestCreateLogicallyAirGappedBackupVault(t *testing.T) {
 					"MinRetentionDays": 7,
 					"MaxRetentionDays": 30,
 				})
-				assert.Equal(t, http.StatusConflict, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -503,6 +554,10 @@ func TestCreateRestoreAccessBackupVault(t *testing.T) {
 			name: "success",
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
+				doREST(t, h, http.MethodPut, "/logically-air-gapped-backup-vaults/source-vault", map[string]any{
+					"MinRetentionDays": 1,
+					"MaxRetentionDays": 30,
+				})
 				rec := doREST(t, h, http.MethodPut, "/restore-access-backup-vaults", map[string]any{
 					"SourceBackupVaultArn": "arn:aws:backup:us-east-1:123456789012:backup-vault:source-vault",
 					"BackupVaultName":      "restore-access-vault",
@@ -533,6 +588,90 @@ func TestCreateRestoreAccessBackupVault(t *testing.T) {
 			tt.ops(t, h)
 		})
 	}
+}
+
+// TestListRestoreAccessBackupVaults exercises the real nested route
+// GET /logically-air-gapped-backup-vaults/{name}/restore-access-backup-vaults.
+func TestListRestoreAccessBackupVaults(t *testing.T) {
+	t.Parallel()
+
+	t.Run("lists vaults scoped to the source vault", func(t *testing.T) {
+		t.Parallel()
+		h := newTestBackupHandler()
+		doREST(t, h, http.MethodPut, "/logically-air-gapped-backup-vaults/list-src", map[string]any{
+			"MinRetentionDays": 1, "MaxRetentionDays": 30,
+		})
+		doREST(t, h, http.MethodPut, "/restore-access-backup-vaults", map[string]any{
+			"SourceBackupVaultArn": "arn:aws:backup:us-east-1:123456789012:backup-vault:list-src",
+			"BackupVaultName":      "list-rav",
+		})
+
+		rec := doREST(t, h, http.MethodGet,
+			"/logically-air-gapped-backup-vaults/list-src/restore-access-backup-vaults", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp := parseResp(t, rec)
+		items, ok := resp["RestoreAccessBackupVaults"].([]any)
+		require.True(t, ok)
+		require.Len(t, items, 1)
+		entry, ok := items[0].(map[string]any)
+		require.True(t, ok)
+		assert.Contains(t, entry["RestoreAccessBackupVaultArn"], "list-rav")
+	})
+
+	t.Run("unknown source vault is not found", func(t *testing.T) {
+		t.Parallel()
+		h := newTestBackupHandler()
+		rec := doREST(t, h, http.MethodGet,
+			"/logically-air-gapped-backup-vaults/ghost/restore-access-backup-vaults", nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ResourceNotFoundException")
+	})
+}
+
+// TestRevokeRestoreAccessBackupVault exercises the real nested route
+// DELETE /logically-air-gapped-backup-vaults/{name}/restore-access-backup-vaults/{arn}.
+func TestRevokeRestoreAccessBackupVault(t *testing.T) {
+	t.Parallel()
+
+	t.Run("revokes and removes from subsequent list", func(t *testing.T) {
+		t.Parallel()
+		h := newTestBackupHandler()
+		doREST(t, h, http.MethodPut, "/logically-air-gapped-backup-vaults/revoke-src", map[string]any{
+			"MinRetentionDays": 1, "MaxRetentionDays": 30,
+		})
+		createRec := doREST(t, h, http.MethodPut, "/restore-access-backup-vaults", map[string]any{
+			"SourceBackupVaultArn": "arn:aws:backup:us-east-1:123456789012:backup-vault:revoke-src",
+			"BackupVaultName":      "revoke-rav",
+		})
+		created := parseResp(t, createRec)
+		ravArn, ok := created["RestoreAccessBackupVaultArn"].(string)
+		require.True(t, ok)
+		require.NotEmpty(t, ravArn)
+
+		rec := doREST(t, h, http.MethodDelete,
+			"/logically-air-gapped-backup-vaults/revoke-src/restore-access-backup-vaults/"+ravArn, nil)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		listRec := doREST(t, h, http.MethodGet,
+			"/logically-air-gapped-backup-vaults/revoke-src/restore-access-backup-vaults", nil)
+		listResp := parseResp(t, listRec)
+		items, ok := listResp["RestoreAccessBackupVaults"].([]any)
+		require.True(t, ok)
+		assert.Empty(t, items)
+	})
+
+	t.Run("unknown ARN is not found", func(t *testing.T) {
+		t.Parallel()
+		h := newTestBackupHandler()
+		doREST(t, h, http.MethodPut, "/logically-air-gapped-backup-vaults/revoke-src2", map[string]any{
+			"MinRetentionDays": 1, "MaxRetentionDays": 30,
+		})
+		rec := doREST(t, h, http.MethodDelete,
+			"/logically-air-gapped-backup-vaults/revoke-src2/restore-access-backup-vaults/"+
+				"arn:aws:backup:us-east-1:123456789012:restore-access-backup-vault:ghost", nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "ResourceNotFoundException")
+	})
 }
 
 // TestBackupVaultValidation covers vault name validation.

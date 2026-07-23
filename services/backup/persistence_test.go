@@ -133,7 +133,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	_, err = original.CreateFramework("persist-fw", "test framework", nil)
 	require.NoError(t, err)
 
-	_, err = original.CreateLegalHold("hold title", "hold description")
+	_, err = original.CreateLegalHold("hold title", "hold description", nil)
 	require.NoError(t, err)
 
 	_, err = original.CreateReportPlan("persist-rp", "test report", nil, nil)
@@ -142,7 +142,14 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	_, err = original.CreateRestoreTestingPlan("persist-rtp", "cron(0 12 * * ? *)", 0)
 	require.NoError(t, err)
 
-	_, err = original.CreateRestoreTestingSelection("persist-rtp", "persist-sel", "EC2")
+	_, err = original.CreateRestoreTestingSelection(
+		"persist-rtp",
+		"persist-sel",
+		backup.RestoreTestingSelectionInput{
+			ProtectedResourceType: "EC2",
+			IAMRoleArn:            "arn:aws:iam::123456789012:role/restore-role",
+		},
+	)
 	require.NoError(t, err)
 
 	_, err = original.CreateLogicallyAirGappedBackupVault("persist-air", "", 1, 30, nil)
@@ -166,9 +173,9 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Create a restore access vault.
+	// Create a restore access vault, sourced from the air-gapped vault created above.
 	_, err = original.CreateRestoreAccessBackupVault(
-		"arn:aws:backup:us-east-1:123456789012:backup-vault:src",
+		"arn:aws:backup:us-east-1:123456789012:backup-vault:persist-air",
 		"persist-rav",
 		"",
 		nil,
@@ -196,7 +203,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	require.ErrorIs(t, err, backup.ErrAlreadyExists)
 
 	// Verify legal holds are restored.
-	_, err = restored.CreateLegalHold("new title", "desc")
+	_, err = restored.CreateLegalHold("new title", "desc", nil)
 	require.NoError(t, err)
 
 	// Verify report plans.
@@ -207,7 +214,14 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	_, err = restored.CreateRestoreTestingPlan("persist-rtp", "", 0)
 	require.ErrorIs(t, err, backup.ErrAlreadyExists)
 
-	_, err = restored.CreateRestoreTestingSelection("persist-rtp", "persist-sel", "EC2")
+	_, err = restored.CreateRestoreTestingSelection(
+		"persist-rtp",
+		"persist-sel",
+		backup.RestoreTestingSelectionInput{
+			ProtectedResourceType: "EC2",
+			IAMRoleArn:            "arn:aws:iam::123456789012:role/restore-role",
+		},
+	)
 	require.ErrorIs(t, err, backup.ErrAlreadyExists)
 
 	// Verify the restore testing selection's own fields (not just the

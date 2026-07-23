@@ -74,30 +74,95 @@ func (b *InMemoryBackend) ListCopyJobSummaries() []map[string]any {
 	return summaries
 }
 
-// StartCopyJob creates a new copy job.
+// StartCopyJob creates a copy job that copies a recovery point from a
+// source vault to a destination vault, and materializes the resulting
+// recovery point in the destination vault (previously a disguised no-op:
+// the job record was created but nothing was ever actually copied, so
+// DescribeRecoveryPoint against the destination vault could never see it).
+//
+// sourceVaultName is a NAME (StartCopyJobInput.SourceBackupVaultName on the
+// real wire); destVaultArn is an ARN (StartCopyJobInput.DestinationBackupVaultArn) --
+// this asymmetry matches AWS exactly, it is not a typo.
 func (b *InMemoryBackend) StartCopyJob(
-	recoveryPointArn, sourceVaultArn, destVaultArn, iamRoleArn string,
-) *CopyJob {
+	recoveryPointArn, sourceVaultName, destVaultArn, iamRoleArn string,
+) (*CopyJob, error) {
 	b.mu.Lock("StartCopyJob")
 	defer b.mu.Unlock()
 
+	if recoveryPointArn == "" {
+		return nil, fmt.Errorf("%w: RecoveryPointArn is required", ErrValidation)
+	}
+	if sourceVaultName == "" {
+		return nil, fmt.Errorf("%w: SourceBackupVaultName is required", ErrValidation)
+	}
+	if destVaultArn == "" {
+		return nil, fmt.Errorf("%w: DestinationBackupVaultArn is required", ErrValidation)
+	}
+	if iamRoleArn == "" {
+		return nil, fmt.Errorf("%w: IamRoleArn is required", ErrValidation)
+	}
+
+	sourceVault, ok := b.vaults.Get(sourceVaultName)
+	if !ok {
+		return nil, fmt.Errorf("%w: source vault %s not found", ErrNotFound, sourceVaultName)
+	}
+
+	destVaultName, ok := b.vaultARNIndex[destVaultArn]
+	if !ok {
+		return nil, fmt.Errorf("%w: destination vault %s not found", ErrNotFound, destVaultArn)
+	}
+	destVault, _ := b.vaults.Get(destVaultName)
+
+	// Best-effort: copy resource metadata from the source recovery point
+	// when this backend actually tracks it (recoveryPoints is VOLATILE, so
+	// a test/client may reasonably StartCopyJob against an ARN it never
+	// registered through this emulator's own Backup APIs).
+	var resourceArn, resourceType string
+	if srcRP, found := b.recoveryPoints.Get(recoveryPointKey(sourceVaultName, recoveryPointArn)); found {
+		resourceArn = srcRP.ResourceArn
+		resourceType = srcRP.ResourceType
+	}
+
 	now := time.Now().UTC()
-	done := now
+	copyJobID := "copy-job-" + uuid.New().String()[:8]
+	destRPArn := "arn:aws:backup:" + b.region + ":" + b.accountID + ":recovery-point:" + copyJobID
+
 	job := &CopyJob{
-		CopyJobID:                 "copy-job-" + uuid.New().String()[:8],
-		SourceBackupVaultArn:      sourceVaultArn,
-		DestinationBackupVaultArn: destVaultArn,
-		ResourceArn:               recoveryPointArn,
-		IAMRoleArn:                iamRoleArn,
-		State:                     statusCompleted,
-		AccountID:                 b.accountID,
-		Region:                    b.region,
-		CreationDate:              now,
-		CompletionDate:            &done,
+		CopyJobID:                   copyJobID,
+		SourceBackupVaultArn:        sourceVault.BackupVaultArn,
+		DestinationBackupVaultArn:   destVaultArn,
+		DestinationRecoveryPointArn: destRPArn,
+		ResourceArn:                 resourceArn,
+		ResourceType:                resourceType,
+		IAMRoleArn:                  iamRoleArn,
+		State:                       statusCompleted,
+		AccountID:                   b.accountID,
+		Region:                      b.region,
+		CreationDate:                now,
+		CompletionDate:              &now,
 	}
 	b.copyJobs.Put(job)
 
-	return job
+	if destVault != nil {
+		destRP := &RecoveryPoint{
+			RecoveryPointArn:     destRPArn,
+			BackupVaultName:      destVaultName,
+			BackupVaultArn:       destVault.BackupVaultArn,
+			ResourceArn:          resourceArn,
+			ResourceType:         resourceType,
+			IAMRoleArn:           iamRoleArn,
+			Status:               statusCompleted,
+			SourceBackupVaultArn: sourceVault.BackupVaultArn,
+			CreationDate:         now,
+			CompletionDate:       &now,
+			IsEncrypted:          destVault.EncryptionKeyArn != "",
+			EncryptionKeyArn:     destVault.EncryptionKeyArn,
+		}
+		b.recoveryPoints.Put(destRP)
+		destVault.NumberOfRecoveryPoints++
+	}
+
+	return job, nil
 }
 
 // ---- Backup plan operations ----

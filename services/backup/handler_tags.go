@@ -14,7 +14,7 @@ type tagResourceBody struct {
 func (h *Handler) handleTagResource(c *echo.Context, resourceArn string, body []byte) error {
 	var in tagResourceBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	if in.Tags == nil {
@@ -47,7 +47,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string, body 
 	if resourceArn == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "ResourceArn is required"),
+			errResp("MissingParameterValueException", "ResourceArn is required"),
 		)
 	}
 
@@ -56,7 +56,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string, body 
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}

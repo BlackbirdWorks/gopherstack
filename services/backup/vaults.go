@@ -124,7 +124,7 @@ func (b *InMemoryBackend) DeleteBackupVault(name string) error {
 
 	if v.NumberOfRecoveryPoints > 0 {
 		return fmt.Errorf("%w: vault %s has %d recovery points; delete them first",
-			ErrValidation, name, v.NumberOfRecoveryPoints)
+			ErrInvalidRequest, name, v.NumberOfRecoveryPoints)
 	}
 
 	delete(b.vaultARNIndex, v.BackupVaultArn)
@@ -152,6 +152,18 @@ func (b *InMemoryBackend) AssociateBackupVaultMpaApprovalTeam(
 	b.mpaApprovals[vaultName] = mpaApprovalTeamArn
 
 	return nil
+}
+
+// GetVaultMpaApprovalTeamArn returns the MPA approval team ARN associated
+// with vaultName (via AssociateBackupVaultMpaApprovalTeam), and false if none
+// is associated. Surfaced by DescribeBackupVault's MpaApprovalTeamArn field.
+func (b *InMemoryBackend) GetVaultMpaApprovalTeamArn(vaultName string) (string, bool) {
+	b.mu.RLock("GetVaultMpaApprovalTeamArn")
+	defer b.mu.RUnlock()
+
+	teamArn, ok := b.mpaApprovals[vaultName]
+
+	return teamArn, ok
 }
 
 // CreateLogicallyAirGappedBackupVault creates a logically air-gapped backup vault.
@@ -207,6 +219,12 @@ func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
 }
 
 // CreateRestoreAccessBackupVault creates a restore access backup vault.
+// sourceVaultArn must resolve to an existing backup vault (real AWS: the
+// SOURCE of a restore access vault is always a logically air-gapped vault) --
+// ListRestoreAccessBackupVaults and RevokeRestoreAccessBackupVault both key
+// off that source vault's NAME (see their real nested
+// /logically-air-gapped-backup-vaults/{BackupVaultName}/... paths), so the
+// name is resolved and stored here rather than re-derived from the ARN later.
 func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
 	sourceVaultArn, vaultName string,
 	_ /* creatorRequestID */ string,
@@ -214,6 +232,17 @@ func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
 ) (*RestoreAccessVault, error) {
 	b.mu.Lock("CreateRestoreAccessBackupVault")
 	defer b.mu.Unlock()
+
+	if sourceVaultArn == "" {
+		return nil, fmt.Errorf("%w: SourceBackupVaultArn is required", ErrValidation)
+	}
+
+	sourceName, ok := b.vaultARNIndex[sourceVaultArn]
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: source backup vault %s not found", ErrNotFound, sourceVaultArn,
+		)
+	}
 
 	if vaultName == "" {
 		vaultName = uuid.NewString()
@@ -232,6 +261,7 @@ func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
 		RestoreAccessBackupVaultName: vaultName,
 		RestoreAccessBackupVaultArn:  vaultARN,
 		SourceBackupVaultArn:         sourceVaultArn,
+		SourceBackupVaultName:        sourceName,
 		VaultState:                   statusCreating,
 		CreationDate:                 time.Now().UTC(),
 	}
@@ -241,14 +271,24 @@ func (b *InMemoryBackend) CreateRestoreAccessBackupVault(
 	return &cp, nil
 }
 
-// ListRestoreAccessBackupVaults returns all restore access vaults.
-func (b *InMemoryBackend) ListRestoreAccessBackupVaults() []*RestoreAccessVault {
+// ListRestoreAccessBackupVaults returns the restore access vaults created
+// from the given source vault name. Real AWS addresses this op as
+// GET /logically-air-gapped-backup-vaults/{BackupVaultName}/restore-access-backup-vaults,
+// i.e. always scoped to one source vault -- there is no "list all" op.
+func (b *InMemoryBackend) ListRestoreAccessBackupVaults(vaultName string) ([]*RestoreAccessVault, error) {
 	b.mu.RLock("ListRestoreAccessBackupVaults")
 	defer b.mu.RUnlock()
+
+	if !b.vaults.Has(vaultName) {
+		return nil, fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
+	}
 
 	all := b.restoreAccessVaults.All()
 	out := make([]*RestoreAccessVault, 0, len(all))
 	for _, v := range all {
+		if v.SourceBackupVaultName != vaultName {
+			continue
+		}
 		cp := *v
 		out = append(out, &cp)
 	}
@@ -256,17 +296,33 @@ func (b *InMemoryBackend) ListRestoreAccessBackupVaults() []*RestoreAccessVault 
 		return out[i].RestoreAccessBackupVaultName < out[j].RestoreAccessBackupVaultName
 	})
 
-	return out
+	return out, nil
 }
 
-// RevokeRestoreAccessBackupVault removes a restore access vault.
-func (b *InMemoryBackend) RevokeRestoreAccessBackupVault(vaultName string) error {
+// RevokeRestoreAccessBackupVault removes a restore access vault, scoped to
+// the given source vault name (real AWS: DELETE
+// /logically-air-gapped-backup-vaults/{BackupVaultName}/restore-access-backup-vaults/{RestoreAccessBackupVaultArn} --
+// a restore access vault not sourced from vaultName is reported not-found,
+// matching AWS's per-source-vault addressing).
+func (b *InMemoryBackend) RevokeRestoreAccessBackupVault(vaultName, restoreAccessVaultArn string) error {
 	b.mu.Lock("RevokeRestoreAccessBackupVault")
 	defer b.mu.Unlock()
 
-	b.restoreAccessVaults.Delete(vaultName)
+	for _, v := range b.restoreAccessVaults.All() {
+		if v.RestoreAccessBackupVaultArn != restoreAccessVaultArn {
+			continue
+		}
+		if v.SourceBackupVaultName != vaultName {
+			break
+		}
+		b.restoreAccessVaults.Delete(v.RestoreAccessBackupVaultName)
 
-	return nil
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: restore access vault %s not found", ErrNotFound, restoreAccessVaultArn,
+	)
 }
 
 // ---- MPA Approvals ----
@@ -347,7 +403,7 @@ func (b *InMemoryBackend) DeleteBackupVaultChecked(name string) error {
 	if v.NumberOfRecoveryPoints > 0 {
 		return fmt.Errorf(
 			"%w: vault %s has %d recovery points; delete them first",
-			ErrValidation, name, v.NumberOfRecoveryPoints,
+			ErrInvalidRequest, name, v.NumberOfRecoveryPoints,
 		)
 	}
 
@@ -356,7 +412,7 @@ func (b *InMemoryBackend) DeleteBackupVaultChecked(name string) error {
 		if cfg.LockDate != nil && time.Now().UTC().After(*cfg.LockDate) {
 			return fmt.Errorf(
 				"%w: vault %s is locked and cannot be deleted",
-				ErrValidation, name,
+				ErrInvalidRequest, name,
 			)
 		}
 	}

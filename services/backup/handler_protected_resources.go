@@ -16,7 +16,7 @@ func (h *Handler) dispatchProtectedResourceOps(
 		pr, err := h.Backend.DescribeProtectedResource(route.resource)
 		if err != nil {
 			return true, c.JSON(
-				http.StatusNotFound,
+				http.StatusBadRequest,
 				errResp("ResourceNotFoundException", err.Error()),
 			)
 		}

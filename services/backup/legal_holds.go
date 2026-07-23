@@ -24,20 +24,26 @@ func (b *InMemoryBackend) CancelLegalHold(legalHoldID string) error {
 	return nil
 }
 
-// CreateLegalHold creates a legal hold.
-func (b *InMemoryBackend) CreateLegalHold(title, description string) (*LegalHold, error) {
+// CreateLegalHold creates a legal hold. sel (RecoveryPointSelection) is
+// stored on the hold and is what ListRecoveryPointsByLegalHold filters
+// against; a nil or all-empty selection covers every recovery point.
+func (b *InMemoryBackend) CreateLegalHold(
+	title, description string,
+	sel *RecoveryPointSelection,
+) (*LegalHold, error) {
 	b.mu.Lock("CreateLegalHold")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
 	lhARN := arn.Build("backup", b.region, b.accountID, "legal-hold:"+id)
 	lh := &LegalHold{
-		LegalHoldID:  id,
-		LegalHoldArn: lhARN,
-		Title:        title,
-		Description:  description,
-		Status:       statusActive,
-		CreationDate: time.Now().UTC(),
+		LegalHoldID:            id,
+		LegalHoldArn:           lhARN,
+		Title:                  title,
+		Description:            description,
+		Status:                 statusActive,
+		CreationDate:           time.Now().UTC(),
+		RecoveryPointSelection: sel,
 	}
 	b.legalHolds.Put(lh)
 	cp := *lh

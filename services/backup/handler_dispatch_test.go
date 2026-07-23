@@ -304,7 +304,7 @@ func TestBackupErrorPaths(t *testing.T) {
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodGet, "/tags/arn:aws:backup:us-east-1:123:backup-vault:nope", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -312,7 +312,7 @@ func TestBackupErrorPaths(t *testing.T) {
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodDelete, "/backup/plans/missing-id", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -322,7 +322,7 @@ func TestBackupErrorPaths(t *testing.T) {
 				rec := doREST(t, h, http.MethodPost, "/backup/plans/missing-id", map[string]any{
 					"BackupPlan": map[string]any{"BackupPlanName": "n", "Rules": []any{}},
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

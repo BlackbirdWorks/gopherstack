@@ -275,7 +275,7 @@ func TestRecoveryPointHandlers(t *testing.T) {
 					"/backup-vaults/nfvault/recovery-points/arn:aws:backup:us-east-1:123456789012:recovery-point:nonexistent",
 					nil,
 				)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -306,7 +306,7 @@ func TestRecoveryPointHandlers(t *testing.T) {
 				// Verify deleted
 				rec2 := doREST(t, h, http.MethodGet,
 					fmt.Sprintf("/backup-vaults/delvault/recovery-points/%s", rpArn), nil)
-				assert.Equal(t, http.StatusNotFound, rec2.Code)
+				assert.Equal(t, http.StatusBadRequest, rec2.Code)
 			},
 		},
 		{

@@ -14,7 +14,7 @@ func TestLegalHold(t *testing.T) {
 	t.Parallel()
 	b := backup.NewInMemoryBackend("000000000000", "us-east-1")
 
-	lh, _ := b.CreateLegalHold("test hold", "test description")
+	lh, _ := b.CreateLegalHold("test hold", "test description", nil)
 	assert.NotEmpty(t, lh.LegalHoldID)
 
 	found, err := b.GetLegalHold(lh.LegalHoldID)
@@ -53,7 +53,7 @@ func TestCancelLegalHold(t *testing.T) {
 				assert.Equal(t, "ACTIVE", resp["Status"])
 
 				cancelRec := doREST(t, h, http.MethodDelete, "/legal-holds/"+legalHoldID, nil)
-				assert.Equal(t, http.StatusOK, cancelRec.Code)
+				assert.Equal(t, http.StatusCreated, cancelRec.Code)
 			},
 		},
 		{
@@ -61,7 +61,7 @@ func TestCancelLegalHold(t *testing.T) {
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodDelete, "/legal-holds/nonexistent-id", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -93,4 +93,49 @@ func TestCancelLegalHold(t *testing.T) {
 			tt.ops(t, h)
 		})
 	}
+}
+
+// TestCreateLegalHold_RecoveryPointSelection exercises the real wire shape
+// for RecoveryPointSelection and confirms ListRecoveryPointsByLegalHold
+// actually filters by it end to end (through the HTTP layer, not just the
+// backend method).
+func TestCreateLegalHold_RecoveryPointSelection(t *testing.T) {
+	t.Parallel()
+
+	h, b := newHandlerAndBackend()
+	mustVault(t, b, "sel-vault-a")
+	mustVault(t, b, "sel-vault-b")
+	mustRP(t, b, "sel-vault-a", "arn:aws:backup:::rp/a1", "arn:aws:ec2:::instance/i-a1", "EC2")
+	mustRP(t, b, "sel-vault-b", "arn:aws:backup:::rp/b1", "arn:aws:ec2:::instance/i-b1", "EC2")
+
+	createRec := doREST(t, h, http.MethodPost, "/legal-holds", map[string]any{
+		"Title":       "vault-scoped hold",
+		"Description": "covers sel-vault-a only",
+		"RecoveryPointSelection": map[string]any{
+			"VaultNames": []string{"sel-vault-a"},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	created := parseResp(t, createRec)
+	legalHoldID, ok := created["LegalHoldId"].(string)
+	require.True(t, ok)
+
+	getRec := doREST(t, h, http.MethodGet, "/legal-holds/"+legalHoldID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+	got := parseResp(t, getRec)
+	sel, ok := got["RecoveryPointSelection"].(map[string]any)
+	require.True(t, ok)
+	vaultNames, ok := sel["VaultNames"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"sel-vault-a"}, vaultNames)
+
+	listRec := doREST(t, h, http.MethodGet, "/legal-holds/"+legalHoldID+"/recovery-points", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	listResp := parseResp(t, listRec)
+	items, ok := listResp["RecoveryPoints"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	entry, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "sel-vault-a", entry["BackupVaultName"])
 }

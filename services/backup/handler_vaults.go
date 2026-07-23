@@ -3,6 +3,7 @@ package backup
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -17,7 +18,7 @@ func (h *Handler) handleCreateBackupVault(c *echo.Context, name string, body []b
 	if name == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -26,7 +27,7 @@ func (h *Handler) handleCreateBackupVault(c *echo.Context, name string, body []b
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
@@ -69,6 +70,17 @@ func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error 
 	}
 	setOptionalStr(resp, "EncryptionKeyArn", v.EncryptionKeyArn)
 	setOptionalStr(resp, "CreatorRequestId", v.CreatorRequestID)
+	// EncryptionKeyType has no dedicated backend field -- it is fully
+	// determined by whether an EncryptionKeyArn was supplied, matching AWS's
+	// two valid values (CUSTOMER_MANAGED_KMS_KEY / AWS_OWNED_KMS_KEY).
+	if v.EncryptionKeyArn != "" {
+		resp["EncryptionKeyType"] = "CUSTOMER_MANAGED_KMS_KEY"
+	} else {
+		resp["EncryptionKeyType"] = "AWS_OWNED_KMS_KEY"
+	}
+	if teamArn, ok := h.Backend.GetVaultMpaApprovalTeamArn(name); ok {
+		resp["MpaApprovalTeamArn"] = teamArn
+	}
 	if v.Tags != nil {
 		if t := v.Tags.Clone(); len(t) > 0 {
 			resp["Tags"] = t
@@ -158,7 +170,7 @@ func (h *Handler) handleAssociateBackupVaultMpaApprovalTeam(
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -167,7 +179,7 @@ func (h *Handler) handleAssociateBackupVaultMpaApprovalTeam(
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
@@ -176,7 +188,8 @@ func (h *Handler) handleAssociateBackupVaultMpaApprovalTeam(
 		return h.handleError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	// Real AWS: responseCode 204.
+	return c.NoContent(http.StatusNoContent)
 }
 
 type createLogicallyAirGappedBody struct {
@@ -194,7 +207,7 @@ func (h *Handler) handleCreateLogicallyAirGappedBackupVault(
 	if name == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -203,7 +216,7 @@ func (h *Handler) handleCreateLogicallyAirGappedBackupVault(
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
@@ -235,13 +248,13 @@ type createRestoreAccessVaultBody struct {
 func (h *Handler) handleCreateRestoreAccessBackupVault(c *echo.Context, body []byte) error {
 	var in createRestoreAccessVaultBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	if in.SourceBackupVaultArn == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "SourceBackupVaultArn is required"),
+			errResp("MissingParameterValueException", "SourceBackupVaultArn is required"),
 		)
 	}
 
@@ -261,28 +274,44 @@ func (h *Handler) handleCreateRestoreAccessBackupVault(c *echo.Context, body []b
 }
 
 // dispatchRestoreAccessVaultOps handles restore-access-vault and MPA
-// approval team operations.
+// approval team operations. ListRestoreAccessBackupVaults/
+// RevokeRestoreAccessBackupVault are always scoped to a source vault name
+// (see parseRestoreAccessVaultSubRoute) -- there is no real "list/revoke
+// across all vaults" op.
 func (h *Handler) dispatchRestoreAccessVaultOps(c *echo.Context, route backupRoute) (bool, error) {
 	switch route.operation {
 	case opListRestoreAccessBackupVaults:
-		vaults := h.Backend.ListRestoreAccessBackupVaults()
+		vaults, err := h.Backend.ListRestoreAccessBackupVaults(route.resource)
+		if err != nil {
+			return true, h.handleError(c, err)
+		}
 		items := make([]map[string]any, 0, len(vaults))
 		for _, v := range vaults {
 			items = append(items, map[string]any{
-				"RestoreAccessBackupVaultName": v.RestoreAccessBackupVaultName,
-				"RestoreAccessBackupVaultArn":  v.RestoreAccessBackupVaultArn,
-				keyVaultState:                  v.VaultState,
+				"RestoreAccessBackupVaultArn": v.RestoreAccessBackupVaultArn,
+				keyCreationDate:               epochSeconds(v.CreationDate),
+				keyVaultState:                 v.VaultState,
 			})
 		}
 
 		return true, c.JSON(http.StatusOK, map[string]any{"RestoreAccessBackupVaults": items})
 	case opRevokeRestoreAccessBackupVault:
-		_ = h.Backend.RevokeRestoreAccessBackupVault(route.resource)
+		vaultName, restoreAccessArn, ok := strings.Cut(route.resource, "|")
+		if !ok {
+			return true, c.JSON(
+				http.StatusBadRequest,
+				errResp("InvalidParameterValueException", "invalid resource path"),
+			)
+		}
+		if err := h.Backend.RevokeRestoreAccessBackupVault(vaultName, restoreAccessArn); err != nil {
+			return true, h.handleError(c, err)
+		}
 
-		return true, c.NoContent(http.StatusNoContent)
+		return true, c.NoContent(http.StatusOK)
 	case opDisassociateBackupVaultMpaApprovalTeam:
 		_ = h.Backend.DisassociateBackupVaultMpaApprovalTeam(route.resource)
 
+		// Real AWS: responseCode 204 (same as AssociateBackupVaultMpaApprovalTeam).
 		return true, c.NoContent(http.StatusNoContent)
 	}
 

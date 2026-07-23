@@ -37,12 +37,22 @@ func (b *InMemoryBackend) CreateRestoreTestingPlan(
 	return &cp, nil
 }
 
-// CreateRestoreTestingSelection creates a selection within a restore testing plan.
+// CreateRestoreTestingSelection creates a selection within a restore
+// testing plan. IAMRoleArn and ProtectedResourceType are required by the
+// real RestoreTestingSelectionForCreate shape.
 func (b *InMemoryBackend) CreateRestoreTestingSelection(
-	planName, selectionName, protectedResourceType string,
+	planName, selectionName string,
+	in RestoreTestingSelectionInput,
 ) (*RestoreTestingSelection, error) {
 	b.mu.Lock("CreateRestoreTestingSelection")
 	defer b.mu.Unlock()
+
+	if in.IAMRoleArn == "" {
+		return nil, fmt.Errorf("%w: IamRoleArn is required", ErrValidation)
+	}
+	if in.ProtectedResourceType == "" {
+		return nil, fmt.Errorf("%w: ProtectedResourceType is required", ErrValidation)
+	}
 
 	rtp, found := b.restoreTestingPlans.Get(planName)
 	if !found {
@@ -61,7 +71,12 @@ func (b *InMemoryBackend) CreateRestoreTestingSelection(
 		RestoreTestingPlanName:      planName,
 		RestoreTestingSelectionName: selectionName,
 		RestoreTestingPlanArn:       rtp.RestoreTestingPlanArn,
-		ProtectedResourceType:       protectedResourceType,
+		ProtectedResourceType:       in.ProtectedResourceType,
+		IAMRoleArn:                  in.IAMRoleArn,
+		ProtectedResourceArns:       in.ProtectedResourceArns,
+		ProtectedResourceConditions: in.ProtectedResourceConditions,
+		RestoreMetadataOverrides:    in.RestoreMetadataOverrides,
+		ValidationWindowHours:       in.ValidationWindowHours,
 		CreationTime:                time.Now().UTC(),
 	}
 	b.restoreTestingSelections.Put(sel)
@@ -214,8 +229,15 @@ func (b *InMemoryBackend) ListRestoreTestingSelections(
 }
 
 // UpdateRestoreTestingSelection updates a restore testing selection.
+// RestoreTestingSelectionForUpdate has no required fields beyond identity,
+// so every field here is set from in verbatim (a full-replace PUT, matching
+// how PutBackupVaultAccessPolicy/PutBackupVaultLockConfiguration etc. treat
+// their bodies elsewhere in this service) -- ProtectedResourceType itself
+// is immutable on Update per the real API, so it is intentionally not
+// touched here.
 func (b *InMemoryBackend) UpdateRestoreTestingSelection(
-	planName, selectionName, protectedResourceType string,
+	planName, selectionName string,
+	in RestoreTestingSelectionInput,
 ) (*RestoreTestingSelection, error) {
 	b.mu.Lock("UpdateRestoreTestingSelection")
 	defer b.mu.Unlock()
@@ -233,7 +255,11 @@ func (b *InMemoryBackend) UpdateRestoreTestingSelection(
 		)
 	}
 
-	sel.ProtectedResourceType = protectedResourceType
+	sel.IAMRoleArn = in.IAMRoleArn
+	sel.ProtectedResourceArns = in.ProtectedResourceArns
+	sel.ProtectedResourceConditions = in.ProtectedResourceConditions
+	sel.RestoreMetadataOverrides = in.RestoreMetadataOverrides
+	sel.ValidationWindowHours = in.ValidationWindowHours
 	cp := *sel
 
 	return &cp, nil

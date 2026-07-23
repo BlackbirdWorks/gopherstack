@@ -19,7 +19,7 @@ func (h *Handler) handlePutBackupVaultAccessPolicy(
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -28,7 +28,7 @@ func (h *Handler) handlePutBackupVaultAccessPolicy(
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
@@ -44,7 +44,7 @@ func (h *Handler) handleGetBackupVaultAccessPolicy(c *echo.Context, vaultName st
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -69,7 +69,7 @@ func (h *Handler) handleDeleteBackupVaultAccessPolicy(c *echo.Context, vaultName
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -94,7 +94,7 @@ func (h *Handler) handlePutBackupVaultLockConfiguration(
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -103,7 +103,7 @@ func (h *Handler) handlePutBackupVaultLockConfiguration(
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
@@ -128,7 +128,7 @@ func (h *Handler) handleDeleteBackupVaultLockConfiguration(
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -152,7 +152,7 @@ func (h *Handler) handlePutBackupVaultNotifications(
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -161,7 +161,7 @@ func (h *Handler) handlePutBackupVaultNotifications(
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid request body"),
+				errResp("InvalidParameterValueException", "invalid request body"),
 			)
 		}
 	}
@@ -182,7 +182,7 @@ func (h *Handler) handleGetBackupVaultNotifications(c *echo.Context, vaultName s
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 
@@ -208,7 +208,7 @@ func (h *Handler) handleDeleteBackupVaultNotifications(c *echo.Context, vaultNam
 	if vaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
-			errResp("ValidationException", "BackupVaultName is required"),
+			errResp("MissingParameterValueException", "BackupVaultName is required"),
 		)
 	}
 

@@ -133,7 +133,7 @@ func TestBackupJobCRUD(t *testing.T) {
 					"ResourceArn":     "arn:aws:ec2:us-east-1:123456789012:instance/i-abc",
 					"IamRoleArn":      "arn:aws:iam::123456789012:role/role",
 				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -141,7 +141,7 @@ func TestBackupJobCRUD(t *testing.T) {
 			ops: func(t *testing.T, h *backup.Handler) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodGet, "/backup-jobs/no-such-job", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}

@@ -17,14 +17,14 @@ type createBackupPlanBody struct {
 func (h *Handler) handleCreateBackupPlan(c *echo.Context, body []byte) error {
 	var in createBackupPlanBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	if in.BackupPlan.BackupPlanName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
 			errResp(
-				"ValidationException",
+				"MissingParameterValueException",
 				fmt.Sprintf("%s: BackupPlanName is required", errInvalidRequest),
 			),
 		)
@@ -124,7 +124,7 @@ type updateBackupPlanBody struct {
 func (h *Handler) handleUpdateBackupPlan(c *echo.Context, id string, body []byte) error {
 	var in updateBackupPlanBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	p, err := h.Backend.UpdateBackupPlanValidated(
@@ -277,14 +277,17 @@ func (h *Handler) dispatchPlanTemplateCatalogOps(
 			BackupPlanTemplateJSON string `json:"BackupPlanTemplateJson"`
 		}
 		if err := json.Unmarshal(body, &reqBody); err != nil {
-			return true, c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+			return true, c.JSON(
+				http.StatusBadRequest,
+				errResp("InvalidParameterValueException", "invalid request body"),
+			)
 		}
 
 		var doc backupPlanBodyDoc
 		if err := json.Unmarshal([]byte(reqBody.BackupPlanTemplateJSON), &doc); err != nil {
 			return true, c.JSON(
 				http.StatusBadRequest,
-				errResp("ValidationException", "invalid BackupPlanTemplateJson"),
+				errResp("InvalidParameterValueException", "invalid BackupPlanTemplateJson"),
 			)
 		}
 
@@ -301,7 +304,7 @@ func (h *Handler) dispatchPlanTemplateCatalogOps(
 		tmpl, ok := lookupBuiltinBackupPlanTemplate(route.resource)
 		if !ok {
 			return true, c.JSON(
-				http.StatusNotFound,
+				http.StatusBadRequest,
 				errResp("ResourceNotFoundException", "Backup plan template with ID "+route.resource+" not found"),
 			)
 		}

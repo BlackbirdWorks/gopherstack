@@ -18,14 +18,14 @@ type startBackupJobBody struct {
 func (h *Handler) handleStartBackupJob(c *echo.Context, body []byte) error {
 	var in startBackupJobBody
 	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
 	if in.BackupVaultName == "" {
 		return c.JSON(
 			http.StatusBadRequest,
 			errResp(
-				"ValidationException",
+				"MissingParameterValueException",
 				fmt.Sprintf("%s: BackupVaultName is required", errInvalidRequest),
 			),
 		)
@@ -64,7 +64,7 @@ func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 	setOptionalStr(resp, "ResourceArn", j.ResourceArn)
 	setOptionalStr(resp, "ResourceType", j.ResourceType)
 	setOptionalStr(resp, "IamRoleArn", j.IAMRoleArn)
-	setOptionalStr(resp, "AccountId", j.AccountID)
+	setOptionalStr(resp, keyAccountID, j.AccountID)
 	setOptionalStr(resp, "RecoveryPointArn", j.RecoveryPointArn)
 	setOptionalStr(resp, "PercentDone", j.PercentDone)
 	setOptionalStr(resp, "MessageCategory", j.MessageCategory)
@@ -129,7 +129,7 @@ func (h *Handler) handleListBackupJobs(c *echo.Context) error {
 		setOptionalStr(item, "ResourceArn", j.ResourceArn)
 		setOptionalStr(item, "ResourceType", j.ResourceType)
 		setOptionalStr(item, "IamRoleArn", j.IAMRoleArn)
-		setOptionalStr(item, "AccountId", j.AccountID)
+		setOptionalStr(item, keyAccountID, j.AccountID)
 		setOptionalStr(item, "ParentJobId", j.ParentJobID)
 		setOptionalStr(item, "RecoveryPointArn", j.RecoveryPointArn)
 		setOptionalStr(item, "MessageCategory", j.MessageCategory)
@@ -165,7 +165,7 @@ func (h *Handler) dispatchBackupJobSummaryOps(c *echo.Context, route backupRoute
 		return true, c.JSON(http.StatusOK, map[string]any{"BackupJobSummaries": summaries})
 	case opStopBackupJob:
 		if err := h.Backend.StopBackupJob(route.resource); err != nil {
-			return true, c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
+			return true, c.JSON(http.StatusBadRequest, errResp("ResourceNotFoundException", err.Error()))
 		}
 
 		return true, c.NoContent(http.StatusNoContent)

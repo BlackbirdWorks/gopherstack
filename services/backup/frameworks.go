@@ -81,8 +81,14 @@ func (b *InMemoryBackend) ListFrameworks() []*Framework {
 	return list
 }
 
-// UpdateFramework updates a framework's description.
-func (b *InMemoryBackend) UpdateFramework(name, description string) (*Framework, error) {
+// UpdateFramework updates a framework's description and, when controls is
+// non-nil, replaces its FrameworkControls (a nil controls means "leave
+// existing controls unchanged", matching AWS's optional UpdateFrameworkInput
+// .FrameworkControls -- an explicit empty slice clears them).
+func (b *InMemoryBackend) UpdateFramework(
+	name, description string,
+	controls *[]FrameworkControl,
+) (*Framework, error) {
 	b.mu.Lock("UpdateFramework")
 	defer b.mu.Unlock()
 
@@ -92,6 +98,9 @@ func (b *InMemoryBackend) UpdateFramework(name, description string) (*Framework,
 	}
 
 	f.FrameworkDescription = description
+	if controls != nil {
+		f.FrameworkControls = *controls
+	}
 	cp := *f
 
 	return &cp, nil
