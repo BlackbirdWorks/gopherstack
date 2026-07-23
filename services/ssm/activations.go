@@ -121,12 +121,13 @@ func (b *InMemoryBackend) CreateResourceDataSync(
 		return nil, ErrResourceDataSyncExists
 	}
 
+	now := UnixTimeFloat(time.Now())
 	syncs.Put(&ResourceDataSync{
 		SyncName:        syncName,
 		SyncType:        input.SyncType,
 		LastStatus:      "InProgress",
-		SyncCreatedTime: time.Now().UTC(),
-		LastSyncTime:    time.Now().UTC(),
+		SyncCreatedTime: now,
+		LastSyncTime:    now,
 	})
 
 	return &CreateResourceDataSyncOutput{}, nil
@@ -191,7 +192,7 @@ func (b *InMemoryBackend) UpdateResourceDataSync(
 	}
 
 	if sync, exists := b.resourceDataSyncsStore(region).Get(input.SyncName); exists {
-		sync.LastSyncTime = time.Now().UTC()
+		sync.LastSyncTime = UnixTimeFloat(time.Now())
 	}
 
 	return &UpdateResourceDataSyncOutput{}, nil

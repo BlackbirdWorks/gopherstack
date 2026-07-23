@@ -75,6 +75,51 @@ func Test_GetDocument_DefaultVersionSelector(t *testing.T) {
 	}
 }
 
+// Test_UpdateDocument_VersionCapNeverEvictsPinnedDefault locks in the fix for
+// bd gopherstack-1hg: the version-cap eviction that trims documentVersions
+// down to MaxDocumentVersionCap entries on each UpdateDocument must never
+// evict the version currently pinned as DefaultVersion, even when it is the
+// oldest entry — otherwise a caller that later requests the (explicit or
+// omitted) $DEFAULT selector gets ErrInvalidDocumentVersion instead of the
+// pinned content, silently orphaning the pointer.
+func Test_UpdateDocument_VersionCapNeverEvictsPinnedDefault(t *testing.T) {
+	t.Parallel()
+
+	b := ssm.NewInMemoryBackend()
+	ctx := context.Background()
+
+	_, err := b.CreateDocument(ctx, &ssm.CreateDocumentInput{Name: "Doc", Content: `{"v":1}`})
+	require.NoError(t, err)
+
+	// Pin the default to version 1 -- the oldest version, and the one that
+	// would be evicted first under a naive FIFO trim.
+	_, err = b.UpdateDocumentDefaultVersion(ctx, &ssm.UpdateDocumentDefaultVersionInput{
+		Name: "Doc", DocumentVersion: "1",
+	})
+	require.NoError(t, err)
+
+	// Push well past the version cap so a naive FIFO trim would have evicted
+	// version 1 many times over.
+	for i := range ssm.MaxDocumentVersionCap + 50 {
+		_, err = b.UpdateDocument(ctx, &ssm.UpdateDocumentInput{
+			Name: "Doc", Content: `{"v":"bump-` + string(rune('a'+i%26)) + `"}`,
+		})
+		require.NoError(t, err)
+	}
+
+	// The store may retain one entry beyond the cap to protect the pinned
+	// default -- that is the accepted tradeoff, never orphaning $DEFAULT.
+	assert.LessOrEqual(t, b.DocumentVersionCount("Doc"), ssm.MaxDocumentVersionCap+1)
+
+	out, err := b.GetDocument(ctx, &ssm.GetDocumentInput{Name: "Doc", DocumentVersion: "$DEFAULT"})
+	require.NoError(t, err, "$DEFAULT must still resolve after heavy version churn")
+	assert.Equal(t, `{"v":1}`, out.Content)
+
+	desc, err := b.DescribeDocument(ctx, &ssm.DescribeDocumentInput{Name: "Doc", DocumentVersion: "$DEFAULT"})
+	require.NoError(t, err)
+	assert.Equal(t, "1", desc.Document.DocumentVersion)
+}
+
 // Test_DescribeDocument_OmitsContentAndHonorsVersionSelector verifies two
 // wire-shape facts about DescribeDocument that CreateDocument/UpdateDocument
 // share: (1) real AWS's DocumentDescription response never includes the

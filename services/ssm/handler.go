@@ -320,6 +320,8 @@ func classifySSMErrorExtended(reqErr error) (string, int) {
 	switch {
 	case errors.Is(reqErr, ErrCloudConnectorNotFound):
 		return "ResourceNotFoundException", statusCode
+	case errors.Is(reqErr, ErrAccessRequestNotFound):
+		return "ResourceNotFoundException", statusCode
 	case errors.Is(reqErr, ErrActivationNotFound):
 		return "ActivationNotFound", statusCode
 	case errors.Is(reqErr, ErrAssociationNotFound):

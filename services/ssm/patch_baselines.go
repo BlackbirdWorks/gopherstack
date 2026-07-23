@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,15 +44,21 @@ func (b *InMemoryBackend) CreatePatchBaseline(
 	now := UnixTimeFloat(time.Now())
 
 	bl := PatchBaseline{
-		BaselineID:                     baselineID,
-		Name:                           input.Name,
-		Description:                    input.Description,
-		OperatingSystem:                os,
-		ApprovedPatches:                input.ApprovedPatches,
-		RejectedPatches:                input.RejectedPatches,
-		ApprovedPatchesComplianceLevel: input.ApprovedPatchesComplianceLevel,
-		CreatedDate:                    now,
-		ModifiedDate:                   now,
+		BaselineID:                               baselineID,
+		Name:                                     input.Name,
+		Description:                              input.Description,
+		OperatingSystem:                          os,
+		ApprovedPatches:                          input.ApprovedPatches,
+		RejectedPatches:                          input.RejectedPatches,
+		ApprovedPatchesComplianceLevel:           input.ApprovedPatchesComplianceLevel,
+		AvailableSecurityUpdatesComplianceStatus: input.AvailableSecurityUpdatesComplianceStatus,
+		RejectedPatchesAction:                    input.RejectedPatchesAction,
+		ApprovalRules:                            input.ApprovalRules,
+		GlobalFilters:                            input.GlobalFilters,
+		Sources:                                  input.Sources,
+		ApprovedPatchesEnableNonSecurity:         input.ApprovedPatchesEnableNonSecurity,
+		CreatedDate:                              now,
+		ModifiedDate:                             now,
 	}
 
 	b.patchBaselinesStore(region).Put(&bl)
@@ -201,7 +209,30 @@ func (b *InMemoryBackend) GetPatchBaseline(
 		return nil, ErrPatchBaselineNotFound
 	}
 
-	return &GetPatchBaselineOutput{PatchBaseline: *bl}, nil
+	return &GetPatchBaselineOutput{
+		PatchBaseline: *bl,
+		PatchGroups:   b.patchGroupsForBaselineLocked(region, input.BaselineID),
+	}, nil
+}
+
+// patchGroupsForBaselineLocked returns the sorted list of patch groups
+// currently registered with baselineID, derived from the reverse
+// patchGroup->baselineID mapping (RegisterPatchBaselineForPatchGroup /
+// RegisterDefaultPatchBaseline). Matches real AWS's GetPatchBaselineOutput
+// .PatchGroups field, which was previously entirely unpopulated. Must be
+// called with b.mu held (read or write).
+func (b *InMemoryBackend) patchGroupsForBaselineLocked(region, baselineID string) []string {
+	var groups []string
+
+	for group, id := range b.patchGroupToBaselineStore(region) {
+		if id == baselineID && group != "default" && !strings.HasPrefix(group, "default-") {
+			groups = append(groups, group)
+		}
+	}
+
+	sort.Strings(groups)
+
+	return groups
 }
 
 // RegisterPatchBaselineForPatchGroup associates a baseline with a patch group.
@@ -263,6 +294,30 @@ func (b *InMemoryBackend) UpdatePatchBaseline(
 
 	if input.ApprovedPatchesComplianceLevel != "" {
 		bl.ApprovedPatchesComplianceLevel = input.ApprovedPatchesComplianceLevel
+	}
+
+	if input.AvailableSecurityUpdatesComplianceStatus != "" {
+		bl.AvailableSecurityUpdatesComplianceStatus = input.AvailableSecurityUpdatesComplianceStatus
+	}
+
+	if input.RejectedPatchesAction != "" {
+		bl.RejectedPatchesAction = input.RejectedPatchesAction
+	}
+
+	if input.ApprovalRules != nil {
+		bl.ApprovalRules = input.ApprovalRules
+	}
+
+	if input.GlobalFilters != nil {
+		bl.GlobalFilters = input.GlobalFilters
+	}
+
+	if len(input.Sources) > 0 {
+		bl.Sources = input.Sources
+	}
+
+	if input.ApprovedPatchesEnableNonSecurity {
+		bl.ApprovedPatchesEnableNonSecurity = input.ApprovedPatchesEnableNonSecurity
 	}
 
 	bl.ModifiedDate = UnixTimeFloat(timeNow())

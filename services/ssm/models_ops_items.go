@@ -49,6 +49,7 @@ type OpsItemSummary struct {
 	Status      string  `json:"Status"`
 	Source      string  `json:"Source"`
 	CreatedTime float64 `json:"CreatedTime"`
+	Priority    int32   `json:"Priority,omitempty"`
 }
 
 // GetOpsItemInput is the request payload for GetOpsItem.
@@ -86,6 +87,7 @@ type ListOpsMetadataOutput struct{}
 // UpdateOpsItemInput is the request payload for UpdateOpsItem.
 type UpdateOpsItemInput struct {
 	OperationalData map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
+	Priority        *int32                      `json:"Priority,omitempty"`
 	OpsItemID       string                      `json:"OpsItemId"`
 	Title           string                      `json:"Title,omitempty"`
 	Description     string                      `json:"Description,omitempty"`
@@ -125,6 +127,7 @@ type OpsItem struct {
 	Category         string                      `json:"Category,omitempty"`
 	CreatedTime      float64                     `json:"CreatedTime"`
 	LastModifiedTime float64                     `json:"LastModifiedTime"`
+	Priority         int32                       `json:"Priority,omitempty"`
 }
 
 // OpsItemRelatedItem represents an item related to an OpsItem.
@@ -145,6 +148,7 @@ type CreateOpsItemInput struct {
 	Category        string                      `json:"Category,omitempty"`
 	OperationalData map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
 	Tags            []Tag                       `json:"Tags,omitempty"`
+	Priority        int32                       `json:"Priority,omitempty"`
 }
 
 // CreateOpsItemOutput is the response payload for CreateOpsItem.

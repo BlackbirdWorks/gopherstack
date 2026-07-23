@@ -366,6 +366,43 @@ func TestBackendOps_UpdateOpsItem(t *testing.T) {
 	assert.Equal(t, "updated-title", getOut.OpsItem.Title)
 	assert.Equal(t, "Resolved", getOut.OpsItem.Status)
 }
+
+// TestOpsItem_PriorityRoundTrip locks in the Priority field (confirmed
+// against aws-sdk-go-v2/service/ssm@v1.71.0's api_op_CreateOpsItem.go/
+// api_op_UpdateOpsItem.go -- "the importance of this OpsItem in relation to
+// other OpsItems"), which was previously entirely absent from
+// CreateOpsItemInput/UpdateOpsItemInput/OpsItem/OpsItemSummary and silently
+// discarded even when a client sent it.
+func TestOpsItem_PriorityRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	ctx := context.TODO()
+
+	created, err := b.CreateOpsItem(ctx, &ssm.CreateOpsItemInput{
+		Title: "prioritized", Source: "test", Priority: 1,
+	})
+	require.NoError(t, err)
+
+	got, err := b.GetOpsItem(ctx, &ssm.GetOpsItemInput{OpsItemID: created.OpsItemID})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, got.OpsItem.Priority)
+
+	described, err := b.DescribeOpsItems(ctx, &ssm.DescribeOpsItemsInput{})
+	require.NoError(t, err)
+	require.Len(t, described.OpsItemSummaries, 1)
+	assert.EqualValues(t, 1, described.OpsItemSummaries[0].Priority)
+
+	newPriority := int32(5)
+	_, err = b.UpdateOpsItem(ctx, &ssm.UpdateOpsItemInput{
+		OpsItemID: created.OpsItemID, Priority: &newPriority,
+	})
+	require.NoError(t, err)
+
+	got, err = b.GetOpsItem(ctx, &ssm.GetOpsItemInput{OpsItemID: created.OpsItemID})
+	require.NoError(t, err)
+	assert.EqualValues(t, 5, got.OpsItem.Priority)
+}
 func TestBackendOps_DisassociateOpsItemRelatedItem(t *testing.T) {
 	t.Parallel()
 

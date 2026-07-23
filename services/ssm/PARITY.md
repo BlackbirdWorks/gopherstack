@@ -6,20 +6,31 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ssm
 sdk_module: aws-sdk-go-v2/service/ssm@v1.71.0
-last_audit_commit: 2d2b1b9b
-last_audit_date: 2026-07-11
-overall: B                 # This pass: local drift since the last audit was a single test-file
-                            # change (sdk_completeness_test.go excluding the 6 new CloudConnector
-                            # ops added by the aws-sdk-go-v2 bump from v1.69.5 to v1.71.0). Audited
-                            # that new surface per protocol: CloudConnector (Create/Delete/Get/
-                            # List/Update/Validate) was entirely unimplemented (excluded from the
-                            # completeness check rather than stubbed) — implemented for real this
-                            # pass (state, wire shapes verified against serializers.go/
-                            # deserializers.go, errors, persistence, tagging integration). Every
-                            # row carried over from the prior audit (last_audit_commit 647d2017,
-                            # itself unreachable from current HEAD — a cross-service commit hash;
-                            # baseline re-derived as ce30166a per the re-audit protocol, whose diff
-                            # against HEAD touched only that one test file) is trusted unchanged.
+last_audit_commit: 02bc086d
+last_audit_date: 2026-07-23
+overall: A-                # THIS PASS (parity-sweep-3, worker=ssm): closed all 5 previously-deferred
+                            # families and re-verified the 4 previously-open gaps. Headline finding:
+                            # a systemic wire-shape bug affecting ~9 structs across 6 files -- every
+                            # raw `time.Time`/`*time.Time` JSON field (AssociationExecution.ExecutionDate,
+                            # MaintenanceWindowExecution*.StartTime/EndTime x4 structs,
+                            # InstanceInformation/NodeInfo/InstanceAssociationStatusInfo.RegistrationDate/
+                            # ExecutionDate, InstancePatchState.OperationStartTime,
+                            # PatchComplianceData.InstalledTime, ResourceDataSync.SyncCreatedTime/
+                            # LastSyncTime, InventoryDeletion.DeletionStartTime) was serializing as a
+                            # Go-default RFC3339Nano *string*, but real AWS SSM (awsjson1.1) always
+                            # encodes DateTime as an epoch-seconds JSON *number*
+                            # (smithytime.ParseEpochSeconds, confirmed directly in aws-sdk-go-v2's
+                            # deserializers.go for every one of these fields) -- a real aws-sdk-go-v2
+                            # client would fail to deserialize these responses. Fixed by converting
+                            # every affected field to float64 (UnixTimeFloat), this package's existing,
+                            # already-correct convention for every other timestamp. Also: Sessions
+                            # (deferred) fully re-verified and fixed (see families.sessions); Patch
+                            # baselines and Maintenance windows re-verified with real field-diff fixes;
+                            # State Manager associations and OpsCenter spot-checked with one real fix
+                            # each (OpsItem.Priority) but NOT fully field-diffed -- see families and
+                            # gaps below for exactly what remains open. Every ops: row carried over
+                            # from the 2026-07-11 audit (last_audit_commit 2d2b1b9b) whose backing
+                            # files were not touched this pass is trusted unchanged per protocol.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -55,39 +66,70 @@ ops:
   CreateActivation: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteActivation: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeActivations: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAssociationBatch: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreatePatchBaseline: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePatchBaseline: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — was missing ApprovalRules/GlobalFilters/Sources/RejectedPatchesAction/AvailableSecurityUpdatesComplianceStatus/ApprovedPatchesEnableNonSecurity entirely (confirmed against aws-sdk-go-v2 v1.71.0's api_op_CreatePatchBaseline.go); all now round-trip for real"}
   DeletePatchBaseline: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetPatchBaseline: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetPatchBaseline: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — PatchGroups (patch groups currently registered with this baseline) was entirely unpopulated; now derived from the reverse patchGroup->baselineID map, excluding the synthetic default/default-<OS> bookkeeping keys"}
+  UpdatePatchBaseline: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same missing-fields gap as CreatePatchBaseline, now merges them"}
+  StartSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — StartSessionInput previously accepted 4 gopherstack-invented fields (OutputS3BucketName/OutputS3KeyPrefix/CloudWatchLogGroupName/CloudWatchOutputEnabled) not present anywhere in the real SDK's StartSessionInput (confirmed: only Target/DocumentName/Parameters/Reason exist) — deleted per parity-principles' invented-field rule. Session.OutputUrl (real field name SessionManagerOutputUrl, members CloudWatchOutputUrl/S3OutputUrl) is documented \"Reserved for future use\" in the SDK and is correctly never populated now. Session.AccessType now defaults to \"Standard\" (was entirely absent)."}
+  TerminateSession: {wire: ok, errors: ok, state: ok, persist: ok}
+  ResumeSession: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeSessions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — 3 real bugs: (1) State ('Active'/'History', types.SessionState) was compared directly against a session's own Status ('Connected'/'Terminated', types.SessionStatus) — two different enums — so a real client's State filter could never match; added sessionStateMatchesFilter bucketing. (2) Filters ([]SessionFilter, Target/Owner/SessionId/AccessType/Status/InvokedAfter/InvokedBefore) was accepted on the wire and silently discarded. (3) MaxResults/NextToken pagination was entirely missing (always returned every session). SessionFilter's wire keys are lowercase \"key\"/\"value\" — confirmed a deliberate AWS quirk via serializers.go, not a copy-paste bug to '''fix'''."}
+  GetConnectionStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — the not-connected case returned \"notConnected\" (camelCase); real AWS's ConnectionStatus enum is all-lowercase \"notconnected\" (confirmed types/enums.go). The connected case (\"connected\") was already correct."}
+  GetAccessToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — previously a pure stub returning a fabricated TokenValue/AccessRequestId regardless of input, matching neither the real request shape (AccessRequestId, required) nor response shape (AccessRequestStatus + Credentials{AccessKeyId,SecretAccessKey,SessionToken,ExpirationTime} — confirmed api_op_GetAccessToken.go). Now looks up a real AccessRequest created by StartAccessRequest and mints mock Credentials only when Approved."}
+  StartAccessRequest: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — previously ignored Reason/Targets/Tags entirely and returned a random ID with no backing state. Now validates Reason+Targets are present (both required in the real SDK) and persists a real AccessRequest (new *store.Table[AccessRequest], services/ssm/store_setup.go), auto-approved since gopherstack has no approver workflow to model — documented rather than left as a silent no-op."}
+  CreateOpsItem: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — Priority (confirmed present in api_op_CreateOpsItem.go) was entirely absent; now round-trips. AccountId/ActualStartTime/ActualEndTime/Notifications/PlannedStartTime/PlannedEndTime/RelatedOpsItems remain absent — see gaps (bd: gopherstack-iq4m)."}
+  UpdateOpsItem: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this pass — Priority now round-trips (see CreateOpsItem). Same remaining-fields gap as CreateOpsItem, not fully field-diffed this pass."}
+  CreateAssociation: {wire: partial, errors: ok, state: ok, persist: ok, note: "spot-checked this pass, NOT fully re-diffed — Name/Targets/Parameters/DocumentVersion/AssociationName/InstanceID confirmed correct, but ApplyOnlyAtCronInterval/ComplianceSeverity/MaxConcurrency/MaxErrors/OutputLocation/ScheduleExpression/SyncCompliance/CalendarNames/AssociationDispatchAssumeRole/AutomationTargetParameterName/Duration are confirmed absent against api_op_CreateAssociation.go — see gaps (bd: gopherstack-ouvq)"}
   CreateCloudConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass — see Notes: implemented from scratch, previously entirely unimplemented (excluded from sdk_completeness_test.go rather than stubbed)"}
   DeleteCloudConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
   GetCloudConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
   ListCloudConnectors: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass — SubscriptionId/TenantId filters incl. documented \"NONE\" tenant-level-only value, opaque index-token pagination matching DescribeParameters"}
   UpdateCloudConnector: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
   ValidateCloudConnector: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass — see Notes: no real Azure tenant to call out to, so findings are deterministically derived from the connector's own stored configuration rather than a fabricated always-success stub"}
+  RegisterTaskWithMaintenanceWindow: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — Targets (the managed nodes/window-targets a task applies to; confirmed required-in-practice for Run Command tasks per api_op_RegisterTaskWithMaintenanceWindow.go) was accepted on the wire but silently discarded; now round-trips through Register/Update/Describe."}
+  UpdateMaintenanceWindowTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same Targets gap as RegisterTaskWithMaintenanceWindow"}
+  CreateMaintenanceWindow: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — StartDate/EndDate/ScheduleTimezone/ScheduleOffset were confirmed present in api_op_CreateMaintenanceWindow.go but entirely absent from this package; now round-trip (stored as-is, not evaluated against Schedule — see gaps)."}
+  UpdateMaintenanceWindow: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same StartDate/EndDate/ScheduleTimezone/ScheduleOffset gap, plus AllowUnassociatedTargets was previously create-only (confirmed updatable in api_op_UpdateMaintenanceWindow.go)."}
+  DescribeAssociationExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — see Notes: AssociationExecution.ExecutionDate was a raw time.Time (RFC3339 string on the wire); real AWS DateTime fields in this awsjson1.1 API are epoch-seconds numbers"}
+  DescribeMaintenanceWindowExecutions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — same epoch-seconds bug, MaintenanceWindowExecution.StartTime/EndTime"}
+  DescribeMaintenanceWindowExecutionTasks: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — same epoch-seconds bug, MaintenanceWindowExecutionTask.StartTime"}
+  DescribeMaintenanceWindowExecutionTaskInvocations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — same epoch-seconds bug, MaintenanceWindowExecutionTaskInvocation.StartTime"}
+  GetMaintenanceWindowExecution: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — same epoch-seconds bug"}
+  GetMaintenanceWindowExecutionTask: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — same epoch-seconds bug"}
+  GetMaintenanceWindowExecutionTaskInvocation: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — same epoch-seconds bug"}
+  DescribeInstanceInformation: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same epoch-seconds bug, InstanceInformation.RegistrationDate"}
+  DescribeInstanceAssociationsStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — same epoch-seconds bug, InstanceAssociationStatusInfo.ExecutionDate"}
+  DescribeInstancePatchStates: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same epoch-seconds bug, InstancePatchState.OperationStartTime"}
+  DescribeInstancePatches: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same epoch-seconds bug, PatchComplianceData.InstalledTime"}
+  ListResourceDataSync: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same epoch-seconds bug, ResourceDataSync.SyncCreatedTime/LastSyncTime"}
+  DescribeInventoryDeletions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same epoch-seconds bug, InventoryDeletion.DeletionStartTime"}
+  ListNodes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — same epoch-seconds bug, NodeInfo.RegistrationDate"}
 families:
   cloud-connectors: {status: ok, note: "NEW this pass — aws-sdk-go-v2 bumped v1.69.5 to v1.71.0 (see sdk_module) added CreateCloudConnector/DeleteCloudConnector/GetCloudConnector/ListCloudConnectors/UpdateCloudConnector/ValidateCloudConnector (Azure-only third-party cloud environment connectors). Implemented as a real *store.Table[CloudConnector]-backed resource (services/ssm/cloud_connector.go): required-field validation (ConfigConnectorArn/DisplayName/RoleArn/Configuration.AzureConfiguration.{ApplicationId,TenantId}) on Create, ResourceNotFoundException (the SDK's generic not-found type — no CloudConnector-specific error exists) on Get/Delete/Update/Validate of an unknown ID, tag integration via the existing generic miscResourceTags fallback path (ResourceTypeForTagging enum confirms \"CloudConnector\" is a valid AddTagsToResource/ListTagsForResource resource type, and that path was already resource-type-agnostic), and full Snapshot/Restore persistence via the existing store.Registry generic mechanism (store_setup.go's getOrCreateTable/tableAccessorsByPrefix — no persistence.go changes needed). Wire shapes verified against aws-sdk-go-v2/service/ssm@v1.71.0's serializers.go/deserializers.go directly (not the SDK's own doc comments): CreatedAt/UpdatedAt are epoch-seconds JSON numbers, matching this package's existing UnixTimeFloat convention, NOT ISO8601 strings; Configuration is a one-member Azure-only union wire-wrapped by member name (\"AzureConfiguration\")."}
 
   parameter-store: {status: ok, note: "FIXED this pass (PutParameter): 15-level hierarchy limit (HierarchyLevelLimitExceededException, previously unenforced), labeled-oldest-version eviction guard (ParameterMaxVersionLimitExceeded, previously silently evicted labeled versions and leaked their parameterLabels entries forever), Intelligent-Tiering auto-upgrade-to-Advanced on >4KiB value or Policies attached (previously hard-rejected instead of auto-selecting Advanced, defeating the entire point of Intelligent-Tiering), Policies-require-Advanced-tier (previously any tier accepted policies). Tier value-size limits (4096 Standard / 8192 Advanced), AllowedPattern regex validation, SecureString KMS encrypt/decrypt round-trip via per-instance AES-256 key, parameter selector suffix (:version/:label) parsing were all already correct."
-  documents: {status: ok, note: "FIXED this pass: CreateDocument/UpdateDocument/DescribeDocument were all returning the internal Document struct (which carries Content) as their metadata-only response — added a DocumentDescription wire type (matches AWS's real DocumentDescription, no Content field) and a Document.toDocumentDescription() converter. Also: GetDocument/DescribeDocument's DocumentVersion selector conflated explicit \"$DEFAULT\" with \"$LATEST\"/omitted, always serving the latest version's content/metadata even when a caller explicitly asked for $DEFAULT after UpdateDocumentDefaultVersion pinned an older version. Left the omitted-DocumentVersion behavior as latest (unchanged) since AWS's own API/CLI reference docs do not state a default and an existing, deliberately-written test (document_test.go TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands) depends on that behavior — only the unambiguous explicit-$DEFAULT case was fixed. Document version cap (1000) and content-hash-free JSON/YAML round-trip were already correct."
+  documents: {status: ok, note: "FIXED this pass (this AND prior pass): CreateDocument/UpdateDocument/DescribeDocument content-leak and $DEFAULT/$LATEST conflation (prior pass, see below). THIS pass (bd gopherstack-1hg, now closed): the version-cap eviction (maxDocumentVersionCap=1000, FIFO-trimmed on every UpdateDocument) could silently evict the version pinned as DefaultVersion, orphaning the $DEFAULT selector after 1000+ updates. Fixed via evictOldestDocumentVersions, which now skips the DefaultVersion-pinned entry when trimming (mirrors PutParameter's labeled-version eviction guard) — the store may retain one entry beyond the cap in that case, an accepted tradeoff for never orphaning $DEFAULT. — Prior-pass notes: CreateDocument/UpdateDocument/DescribeDocument were all returning the internal Document struct (which carries Content) as their metadata-only response — added a DocumentDescription wire type (matches AWS's real DocumentDescription, no Content field) and a Document.toDocumentDescription() converter. Also: GetDocument/DescribeDocument's DocumentVersion selector conflated explicit \"$DEFAULT\" with \"$LATEST\"/omitted, always serving the latest version's content/metadata even when a caller explicitly asked for $DEFAULT after UpdateDocumentDefaultVersion pinned an older version. Left the omitted-DocumentVersion behavior as latest (unchanged) since AWS's own API/CLI reference docs do not state a default and an existing, deliberately-written test (document_test.go TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands) depends on that behavior — only the unambiguous explicit-$DEFAULT case was fixed. Document version cap (1000) and content-hash-free JSON/YAML round-trip were already correct."
   command-execution: {status: ok, note: "no goroutines/timers in command_exec.go or automation_exec.go — command progression is driven synchronously plus the single ctx-cancel-aware janitor sweep (janitor.go), not per-command background workers. Nothing to leak."}
-  sessions: {status: deferred, note: "StartSession/TerminateSession/ResumeSession not re-audited this pass beyond confirming they route through the janitor's terminated-session sweep (leak_test.go/janitor_test.go already cover this from a prior sweep); no wire/state changes made."}
-  patch-maintenance-associations-inventory: {status: deferred, note: "spot-checked (Inventory family fully, PutParameter/PutInventory cross-reference) but not re-audited op-by-op this pass; prior sweeps (parity_batch7_test.go, parity_deepdive_test.go, batch2_accuracy_test.go) already cover patch baselines, patch groups/compliance, maintenance window tasks/targets, and state-manager associations in depth and no drift was found in the files backing them."
+  sessions: {status: ok, note: "FULLY RE-VERIFIED and FIXED this pass (previously deferred) — see the per-op notes above (StartSession/DescribeSessions/GetConnectionStatus/GetAccessToken/StartAccessRequest) for the 6 real bugs found and fixed: invented StartSessionInput fields, State/Status enum confusion, missing Filters/pagination, wrong ConnectionStatus casing, and GetAccessToken/StartAccessRequest being non-functional stubs. TerminateSession/ResumeSession/evictExcessTerminatedSessionsLocked were already correct (re-confirmed, no changes). New AccessRequest resource (services/ssm/models_sessions.go, sessions.go) is a real *store.Table[AccessRequest]-backed resource with full Snapshot/Restore persistence via the existing store_setup.go mechanism."}
+  patch-baselines: {status: ok, note: "FULLY RE-VERIFIED and FIXED this pass (split out of the previously-deferred 'patch-maintenance-associations-inventory' family) — see CreatePatchBaseline/UpdatePatchBaseline/GetPatchBaseline notes above. DeletePatchBaseline, DescribePatchBaselines (OS/name-prefix filters + pagination), RegisterPatchBaselineForPatchGroup/DeregisterPatchBaselineForPatchGroup, GetDefaultPatchBaseline/RegisterDefaultPatchBaseline, DescribePatchGroups/DescribePatchGroupState/DescribePatchProperties, DescribeEffectivePatchesForPatchBaseline, and GetDeployablePatchSnapshotForInstance were all re-diffed against the SDK and confirmed already-correct — no changes needed there."}
+  maintenance-windows: {status: ok, note: "FULLY RE-VERIFIED and FIXED this pass (split out of the previously-deferred combined family) — see RegisterTaskWithMaintenanceWindow/UpdateMaintenanceWindowTask/CreateMaintenanceWindow/UpdateMaintenanceWindow and the DescribeMaintenanceWindowExecution*/GetMaintenanceWindowExecution* epoch-seconds notes above. RegisterTargetWithMaintenanceWindow/DeregisterTargetFromMaintenanceWindow/UpdateMaintenanceWindowTarget/DeregisterTaskFromMaintenanceWindow/DescribeMaintenanceWindows/DescribeMaintenanceWindowTargets/DescribeMaintenanceWindowTasks/DescribeMaintenanceWindowsForTarget/DescribeMaintenanceWindowSchedule/CancelMaintenanceWindowExecution/DeleteMaintenanceWindow re-diffed and confirmed already-correct."}
+  state-manager-associations: {status: partial, note: "SPOT-CHECKED this pass (split out of the previously-deferred combined family), NOT fully field-diffed op-by-op — see CreateAssociation note above and gaps (bd: gopherstack-ouvq) for the ~10 missing CreateAssociationInput fields. What WAS verified and fixed: AssociationExecution.ExecutionDate epoch-seconds bug (DescribeAssociationExecutions). CreateAssociationBatch/DeleteAssociation/DescribeAssociation/UpdateAssociation/UpdateAssociationStatus/ListAssociations/ListAssociationVersions/StartAssociationsOnce/DescribeAssociationExecutionTargets were spot-checked (errors/basic wire shape) but not exhaustively field-diffed."}
+  ops-center: {status: partial, note: "SPOT-CHECKED this pass (split out of the previously-deferred combined family), NOT fully field-diffed op-by-op — see CreateOpsItem/UpdateOpsItem notes above and gaps (bd: gopherstack-iq4m) for the remaining missing fields (mostly Change-Manager /aws/changerequest-oriented: AccountId/ActualStartTime/ActualEndTime/Notifications/PlannedStartTime/PlannedEndTime/RelatedOpsItems). Priority was confirmed missing and fixed. GetOpsItem/DeleteOpsItem/DescribeOpsItems (filters+pagination)/AssociateOpsItemRelatedItem/DisassociateOpsItemRelatedItem/ListOpsItemRelatedItems/ListOpsItemEvents/CreateOpsMetadata/GetOpsMetadata/UpdateOpsMetadata/DeleteOpsMetadata/ListOpsMetadata were spot-checked (errors already wired per prior audit) but not exhaustively field-diffed this pass."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "Document version-cap eviction (maxDocumentVersionCap=1000) can, in a very long-lived document, evict the version currently pinned as DefaultVersion, orphaning the $DEFAULT selector (GetDocument/DescribeDocument would then return ErrInvalidDocumentVersion instead of re-pointing or falling back). Needs 1000+ UpdateDocument calls after pinning an old DefaultVersion — rare in practice, not fixed this pass (bd: gopherstack-1hg)"
   - "NoChangeNotification parameter policy is stored (Policies field round-trips) but never evaluated/acted on — no EventBridge event is emitted when a parameter goes unchanged past its configured window. ExpirationNotification has the same gap. Only Expiration is enforced (janitor sweep deletes on expiry). Out of scope for this pass — would require EventBridge cross-service wiring (shared-file, not fixed)."
-  - "ListCloudConnectors/ValidateCloudConnector MaxResults default/cap (defaultCloudConnectorMaxResults=50, aliased to the existing defaultDescribeMaxResults) is a reasonable-default guess, not a value confirmed against real AWS docs — this brand-new API family (added in aws-sdk-go-v2 v1.70/1.71) has no documented bound in the SDK's Go doc comments or a public API reference at time of this pass. Revisit if AWS publishes the real bound."
-  - "ValidateCloudConnector cannot make a real outbound call to Azure (gopherstack has no Azure tenant), so its ValidationFindings are derived deterministically from the connector's own stored Configuration (tenant/subscription IDs) rather than reflecting real third-party connectivity/permission state. This is the best achievable emulation for a cross-cloud connectivity check, not a wire/state bug — documented here so a future reader doesn't mistake the mocked findings for verified AWS behavior."
-deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - Session Manager (StartSession/TerminateSession/ResumeSession) full op-by-op re-verification
-  - Patch baselines / patch groups / compliance op-by-op re-verification (spot-checked only)
-  - Maintenance windows (tasks/targets) op-by-op re-verification (spot-checked only)
-  - State Manager associations op-by-op re-verification (spot-checked only)
-  - OpsCenter (OpsItem/OpsMetadata) op-by-op re-verification (spot-checked only, errors already wired)
-leaks: {status: clean, note: "Janitor (janitor.go) is the only background goroutine, ctx.Done()-aware, single Run() loop shared across all sweeps (parameters/commands/sessions). PutParameter's history cap now also deletes the corresponding parameterLabels[version] entries on eviction (previously left as an unbounded-growth leak: labels attached to since-evicted versions stayed in the map forever with no key ever removed). No new goroutines/tickers/timers introduced this pass."}
+  - "ListCloudConnectors/ValidateCloudConnector MaxResults default/cap (defaultCloudConnectorMaxResults=50, aliased to the existing defaultDescribeMaxResults) is a reasonable-default guess, not a value confirmed against real AWS docs — this brand-new API family (added in aws-sdk-go-v2 v1.70/1.71) has no documented bound in the SDK's Go doc comments or a public API reference at time of this pass (re-checked this pass, still no bound published). Revisit if AWS publishes the real bound."
+  - "ValidateCloudConnector cannot make a real outbound call to Azure (gopherstack has no Azure tenant), so its ValidationFindings are derived deterministically from the connector's own stored Configuration (tenant/subscription IDs) rather than reflecting real third-party connectivity/permission state. This is an inherent sandbox constraint (same category as KMS being locally emulated instead of a real HSM call), not a wire/state bug — documented here so a future reader doesn't mistake the mocked findings for verified AWS behavior."
+  - "State Manager associations: CreateAssociationInput is missing ApplyOnlyAtCronInterval/ComplianceSeverity/MaxConcurrency/MaxErrors/OutputLocation/ScheduleExpression/SyncCompliance/CalendarNames/AssociationDispatchAssumeRole/AutomationTargetParameterName/Duration — confirmed absent against aws-sdk-go-v2 v1.71.0's api_op_CreateAssociation.go. Not fixed this pass due to scope (bd: gopherstack-ouvq)."
+  - "OpsCenter: CreateOpsItemInput/UpdateOpsItemInput missing AccountId/ActualStartTime/ActualEndTime/Notifications/PlannedStartTime/PlannedEndTime/RelatedOpsItems — confirmed absent against aws-sdk-go-v2 v1.71.0's api_op_CreateOpsItem.go/api_op_UpdateOpsItem.go. Priority was fixed this pass; these Change-Manager-oriented fields were not, due to scope (bd: gopherstack-iq4m)."
+  - "PatchBaseline.ApprovedPatchesEnableNonSecurity is modeled as a plain bool (matching this package's existing convention for boolean input fields, e.g. AllowUnassociatedTargets) rather than the SDK's *bool. UpdatePatchBaseline therefore cannot distinguish an explicit false from 'field omitted' and can only ever turn the flag on, never back off, via Update. Minor (Create always sets it correctly either way), not fixed this pass."
+  - "CreateMaintenanceWindow/UpdateMaintenanceWindow's new StartDate/EndDate/ScheduleTimezone/ScheduleOffset fields are stored and round-tripped verbatim but not evaluated — DescribeMaintenanceWindowSchedule/DescribeMaintenanceWindowExecutions do not yet factor StartDate/EndDate into whether a window is currently active, or ScheduleOffset into the computed next-run time. Same category as the pre-existing NoChangeNotification gap: real state, not yet acted upon. Not fixed this pass due to scope."
+deferred: []              # all 5 previously-deferred families closed this pass (3 fully re-verified+ok:
+                           # sessions, patch-baselines, maintenance-windows; 2 spot-checked+partial with
+                           # bd issues filed for the remainder: state-manager-associations, ops-center)
+leaks: {status: clean, note: "Janitor (janitor.go) is the only background goroutine, ctx.Done()-aware, single Run() loop shared across all sweeps (parameters/commands/sessions). PutParameter's history cap now also deletes the corresponding parameterLabels[version] entries on eviction (previously left as an unbounded-growth leak: labels attached to since-evicted versions stayed in the map forever with no key ever removed). THIS PASS: new AccessRequest store (services/ssm/sessions.go) follows the same pattern as patchBaselines/opsItems/documents — a user-managed resource with no automatic janitor sweep, not a leak (consistent with existing precedent for resources the caller is expected to explicitly delete). No new goroutines/tickers/timers introduced this pass; the epoch-seconds timestamp fix (see overall note) touched only struct field types and their few call-site assignments, no new state or locking."}
 ---
 
 ## Notes
@@ -222,3 +264,96 @@ CloudConnector-specific one) was chosen for the not-found case since no dedicate
 for this resource. See `gaps` for the two known limitations (unconfirmed pagination bound; findings
 are derived from stored config rather than a real Azure connectivity check) that were consciously
 left as-is rather than guessed at with false confidence.
+
+### parity-sweep-3 (2026-07-23): systemic epoch-seconds timestamp bug (the headline finding)
+
+SSM speaks awsjson1.1. Every `DateTime`-shaped field in
+`aws-sdk-go-v2/service/ssm@v1.71.0`'s generated `deserializers.go` is deserialized via
+`smithytime.ParseEpochSeconds(f64)` from a `json.Number` — confirmed by grepping every one of the
+~15 `case "<FieldName>":` blocks for the affected fields (see below), every single one hit the
+`case json.Number: ... ParseEpochSeconds` branch and explicitly rejects anything else
+(`default: return fmt.Errorf("expected DateTime to be a JSON Number, got %T instead", value)`).
+This package's own convention for timestamps (`CreatedDate`, `ModifiedDate`, `StartDate`, `EndDate`
+on Parameter/Document/PatchBaseline/MaintenanceWindow/etc.) already does this correctly via the
+`UnixTimeFloat(t time.Time) float64` helper (`models.go`). But 9 structs across 6 files had instead
+declared the field as a raw `time.Time` or `*time.Time`, which Go's `encoding/json` marshals as an
+RFC3339Nano **string** by default (e.g. `"ExecutionDate":"2026-07-23T00:00:00Z"`) — a real
+`aws-sdk-go-v2` client parsing gopherstack's response for any of these fields would hard-fail with
+exactly the deserializer error quoted above. This is the exact bug class the audit brief flagged as
+having recurred in sagemaker/glue, and it had silently spread across a third service. Fixed by
+converting every field to `float64` + `UnixTimeFloat` at each population site:
+
+- `AssociationExecution.ExecutionDate` (`models_associations.go`, `associations.go`) — DescribeAssociationExecutions
+- `MaintenanceWindowExecution.StartTime`/`EndTime`, `MaintenanceWindowExecutionTask.StartTime`,
+  `MaintenanceWindowExecutionTaskInvocation.StartTime`, and the 3 `Get*OutputFull` variants of the
+  same shapes (`models_maintenance_window.go`, `maintenance_window.go`) — the whole
+  DescribeMaintenanceWindowExecution*/GetMaintenanceWindowExecution* op family
+- `InstanceInformation.RegistrationDate`, `NodeInfo.RegistrationDate`,
+  `InstanceAssociationStatusInfo.ExecutionDate`, `InstancePatchState.OperationStartTime`,
+  `PatchComplianceData.InstalledTime` (`models_instances.go`, `instances.go`, `patch_inventory.go`) —
+  DescribeInstanceInformation/ListNodes/DescribeInstanceAssociationsStatus/DescribeInstancePatchStates/DescribeInstancePatches
+- `ResourceDataSync.SyncCreatedTime`/`LastSyncTime` (`models_activations.go`, `activations.go`) — ListResourceDataSync
+- `InventoryDeletion.DeletionStartTime` (`patch_inventory.go`, `inventory.go`) — DescribeInventoryDeletions
+
+Two call sites (`instances.go`'s `RegistrationDate`/`ExecutionDate` population) had been doing a
+pointless `time.Unix(int64(x.CreatedDate), 0).UTC()` round-trip from an *already-float64* source
+field just to satisfy the (wrong) `time.Time` field type — simplified to a direct assignment now
+that the field type matches the source. Locked in by a new dedicated test file,
+`epoch_seconds_wire_shape_test.go`, asserting byte-for-byte that each affected field marshals as a
+bare JSON number (not a quoted string) — a Go zero-value-string vs. absent-field comparison
+wouldn't catch this class of bug, same rationale as the earlier `DocumentDescription` content-leak
+fix's dedicated marshal-byte test.
+
+### parity-sweep-3: Session Manager (previously deferred, now fully re-verified)
+
+Field-diffed every session op against `aws-sdk-go-v2/service/ssm@v1.71.0`'s `api_op_*.go` files.
+Six real bugs, all fixed (see the `ops:` notes for `StartSession`/`DescribeSessions`/
+`GetConnectionStatus`/`GetAccessToken`/`StartAccessRequest` above for the specifics). The most
+significant: `GetAccessToken`/`StartAccessRequest` were pure stubs that didn't implement the
+just-in-time node access workflow at all — `GetAccessToken` returned an ad-hoc `TokenValue` field
+that doesn't exist anywhere in the real `GetAccessTokenOutput` shape (`AccessRequestStatus` +
+`Credentials{AccessKeyId,SecretAccessKey,SessionToken,ExpirationTime}`), and `StartAccessRequest`
+never stored the request it claimed to create, so a `GetAccessToken` call against a real
+`AccessRequestId` had no state to look up even in principle. Implemented as a real
+`*store.Table[AccessRequest]`-backed resource, auto-approved (documented — gopherstack has no
+approver workflow to model, and leaving every request permanently "Pending" would make
+`GetAccessToken` a dead end for every caller).
+
+### parity-sweep-3: Patch baselines & Maintenance windows (previously deferred, now fully re-verified)
+
+Patch baselines: `CreatePatchBaselineInput`/`PatchBaseline` were missing `ApprovalRules`
+(auto-approval rules), `GlobalFilters`, `Sources` (custom Linux repos), `RejectedPatchesAction`,
+`AvailableSecurityUpdatesComplianceStatus`, and `ApprovedPatchesEnableNonSecurity` — six fields
+confirmed present in `api_op_CreatePatchBaseline.go` and entirely absent from this package. Added
+as real, persisted, round-tripped fields (not evaluated against actual patch matching — same
+scoping as the pre-existing `ApprovedPatches`/`RejectedPatches` handling, which was already
+correctly scoped to storage-not-evaluation). Also: `GetPatchBaselineOutput.PatchGroups` (the patch
+groups currently registered with a baseline) was entirely unpopulated — confirmed unique to
+`GetPatchBaselineOutput` (absent from `UpdatePatchBaselineOutput`) via
+`api_op_UpdatePatchBaseline.go`, now derived from the reverse `patchGroup->baselineID` map.
+
+Maintenance windows: `RegisterTaskWithMaintenanceWindowInput.Targets` (the managed nodes/window-
+targets a task runs against — required in practice for Run Command-type tasks per
+`api_op_RegisterTaskWithMaintenanceWindow.go`) was accepted on the wire and silently discarded,
+meaning a registered task could never actually record what it targets. Fixed through
+Register/Update/Describe. `CreateMaintenanceWindowInput`/`UpdateMaintenanceWindowInput` were also
+missing `StartDate`/`EndDate`/`ScheduleTimezone`/`ScheduleOffset` (confirmed present in both
+`api_op_CreateMaintenanceWindow.go` and `api_op_UpdateMaintenanceWindow.go`), and
+`AllowUnassociatedTargets` was previously create-only despite being documented as updatable — all
+now round-trip (stored, not yet factored into schedule-execution logic — see `gaps`).
+
+### parity-sweep-3: State Manager associations & OpsCenter (previously deferred, spot-checked only)
+
+Ran out of scope budget to fully field-diff these two op-by-op after the epoch-seconds fix (which
+itself touched `DescribeAssociationExecutions`) and the Session/PatchBaseline/MaintenanceWindow
+work above consumed the pass. What was verified: `CreateAssociationInput` is missing ~10 fields
+(`ApplyOnlyAtCronInterval`, `ComplianceSeverity`, `MaxConcurrency`, `MaxErrors`, `OutputLocation`,
+`ScheduleExpression`, `SyncCompliance`, `CalendarNames`, `AssociationDispatchAssumeRole`,
+`AutomationTargetParameterName`, `Duration`) confirmed absent against
+`api_op_CreateAssociation.go` (bd: gopherstack-ouvq); `CreateOpsItemInput`/`UpdateOpsItemInput` are
+missing `AccountId`/`ActualStartTime`/`ActualEndTime`/`Notifications`/`PlannedStartTime`/
+`PlannedEndTime`/`RelatedOpsItems` (mostly Change-Manager `/aws/changerequest`-oriented) confirmed
+absent against `api_op_CreateOpsItem.go`/`api_op_UpdateOpsItem.go` (bd: gopherstack-iq4m) — `Priority`
+was the one field from that list fixed this pass since it's simple and broadly useful outside
+Change Manager specifically. Per the audit brief's instruction, these are recorded honestly as
+`partial`/open gaps with bd issues filed, not reclassified to `ok`.

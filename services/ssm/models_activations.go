@@ -1,9 +1,5 @@
 package ssm
 
-import (
-	"time"
-)
-
 type CreateResourceDataSyncOutput struct{}
 
 // DeleteActivationOutput is the response for DeleteActivation.
@@ -99,11 +95,11 @@ type CreateActivationOutput struct {
 
 // ResourceDataSync represents a resource data sync configuration.
 type ResourceDataSync struct {
-	SyncCreatedTime time.Time `json:"SyncCreatedTime"`
-	LastSyncTime    time.Time `json:"LastSyncTime,omitzero"`
-	SyncName        string    `json:"SyncName"`
-	SyncType        string    `json:"SyncType"`
-	LastStatus      string    `json:"LastStatus"`
+	SyncName        string  `json:"SyncName"`
+	SyncType        string  `json:"SyncType"`
+	LastStatus      string  `json:"LastStatus"`
+	SyncCreatedTime float64 `json:"SyncCreatedTime"`
+	LastSyncTime    float64 `json:"LastSyncTime,omitempty"`
 }
 
 // CreateResourceDataSyncInputFull replaces the empty stub for CreateResourceDataSync.

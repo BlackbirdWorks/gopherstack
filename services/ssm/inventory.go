@@ -293,7 +293,7 @@ func (b *InMemoryBackend) DeleteInventory(
 		TypeName:          input.TypeName,
 		LastStatus:        "Complete",
 		LastStatusMessage: "The inventory deletion has completed.",
-		DeletionStartTime: time.Now().UTC(),
+		DeletionStartTime: UnixTimeFloat(time.Now()),
 		DeletionSummary: &InventoryDeletionSummary{
 			TotalCount:     removed,
 			RemainingCount: 0,

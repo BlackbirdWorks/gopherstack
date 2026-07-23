@@ -17,6 +17,11 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 	t.Parallel()
 
 	// These operations accept empty bodies and return stub responses.
+	// GetAccessToken and StartAccessRequest are deliberately NOT listed here:
+	// both have real required fields (AccessRequestId; Reason+Targets) and
+	// now correctly reject an empty body with ValidationException — see
+	// TestGetAccessToken_RequiresAccessRequestID and
+	// TestAccessRequest_ValidationRequiresReasonAndTargets in sessions_test.go.
 	ops := []string{
 		"CreateResourceDataSync",
 		"DeleteInventory",
@@ -49,7 +54,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"DescribePatchProperties",
 		"DescribeSessions",
 		"DisassociateOpsItemRelatedItem",
-		"GetAccessToken",
 		"GetCalendarState",
 		"GetConnectionStatus",
 		"GetDeployablePatchSnapshotForInstance",
@@ -85,7 +89,6 @@ func TestStubOps_SimpleCalls(t *testing.T) {
 		"ResetServiceSetting",
 		"ResumeSession",
 		"SendAutomationSignal",
-		"StartAccessRequest",
 		"StartAssociationsOnce",
 		"StartAutomationExecution",
 		"StartChangeRequestExecution",
@@ -206,6 +209,53 @@ func TestCreateMaintenanceWindow_Success(t *testing.T) {
 			assert.Equal(t, 1, backend.MaintenanceWindowCount())
 		})
 	}
+}
+
+// TestMaintenanceWindow_ScheduleFieldsRoundTrip locks in
+// StartDate/EndDate/ScheduleTimezone/ScheduleOffset, which were entirely
+// absent from CreateMaintenanceWindowInput/UpdateMaintenanceWindowInput and
+// silently discarded even when a client sent them. Confirmed present in
+// aws-sdk-go-v2/service/ssm@v1.71.0's api_op_CreateMaintenanceWindow.go and
+// api_op_UpdateMaintenanceWindow.go (the latter also updates
+// AllowUnassociatedTargets, previously create-only in this emulator).
+func TestMaintenanceWindow_ScheduleFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateMaintenanceWindow", `{
+		"Name": "ScheduledWindow",
+		"Schedule": "cron(0 2 ? * SUN *)",
+		"ScheduleTimezone": "America/Los_Angeles",
+		"ScheduleOffset": 2,
+		"StartDate": "2026-01-01T00:00:00Z",
+		"EndDate": "2026-12-31T00:00:00Z",
+		"Duration": 4,
+		"Cutoff": 1
+	}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created ssm.CreateMaintenanceWindowOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	out, err := b.GetMaintenanceWindow(context.Background(), &ssm.GetMaintenanceWindowInput{WindowID: created.WindowID})
+	require.NoError(t, err)
+	assert.Equal(t, "America/Los_Angeles", out.ScheduleTimezone)
+	assert.EqualValues(t, 2, out.ScheduleOffset)
+	assert.Equal(t, "2026-01-01T00:00:00Z", out.StartDate)
+	assert.Equal(t, "2026-12-31T00:00:00Z", out.EndDate)
+
+	allowFalse := false
+	updated, err := b.UpdateMaintenanceWindow(context.Background(), &ssm.UpdateMaintenanceWindowInput{
+		WindowID:                 created.WindowID,
+		ScheduleTimezone:         "UTC",
+		AllowUnassociatedTargets: &allowFalse,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "UTC", updated.ScheduleTimezone)
+	assert.False(t, updated.AllowUnassociatedTargets)
+	// Fields not touched by this update must survive untouched.
+	assert.Equal(t, "2026-01-01T00:00:00Z", updated.StartDate)
 }
 
 func TestCreateMaintenanceWindow_ValidationError(t *testing.T) {

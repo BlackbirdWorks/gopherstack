@@ -65,6 +65,7 @@ func (b *InMemoryBackend) CreateOpsItem(
 		OperationalData:  input.OperationalData,
 		CreatedTime:      now,
 		LastModifiedTime: now,
+		Priority:         input.Priority,
 	}
 
 	b.opsItemsStore(region).Put(&item)
@@ -256,6 +257,7 @@ func (b *InMemoryBackend) DescribeOpsItems(
 			Status:      item.Status,
 			Source:      item.Source,
 			CreatedTime: item.CreatedTime,
+			Priority:    item.Priority,
 		})
 	}
 
@@ -357,6 +359,10 @@ func (b *InMemoryBackend) UpdateOpsItem(
 
 	if input.Category != "" {
 		item.Category = input.Category
+	}
+
+	if input.Priority != nil {
+		item.Priority = *input.Priority
 	}
 
 	if len(input.OperationalData) > 0 {

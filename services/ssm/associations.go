@@ -274,7 +274,7 @@ func (b *InMemoryBackend) recordAssociationExecutionLocked(
 		AssociationID: assoc.AssociationID,
 		ExecutionID:   execID,
 		Status:        status,
-		ExecutionDate: time.Now().UTC(),
+		ExecutionDate: UnixTimeFloat(time.Now()),
 	}
 
 	if b.associationExecutions[region] == nil {

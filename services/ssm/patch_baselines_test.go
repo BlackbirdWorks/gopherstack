@@ -64,7 +64,7 @@ func TestDescribeAvailablePatches(t *testing.T) {
 func TestDescribePatchGroupState(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now().UTC().Truncate(time.Second)
+	now := ssm.UnixTimeFloat(time.Now())
 
 	cases := []struct {
 		name             string
@@ -336,6 +336,104 @@ func TestCreatePatchBaseline_Success(t *testing.T) {
 			assert.Equal(t, 1, backend.PatchBaselineCount())
 		})
 	}
+}
+
+// TestPatchBaseline_ApprovalRulesGlobalFiltersSourcesRoundTrip locks in
+// wire-shape coverage for the previously entirely-missing
+// ApprovalRules/GlobalFilters/Sources/RejectedPatchesAction/
+// AvailableSecurityUpdatesComplianceStatus/ApprovedPatchesEnableNonSecurity
+// fields on CreatePatchBaselineInput/PatchBaseline, confirmed against
+// aws-sdk-go-v2/service/ssm@v1.71.0's api_op_CreatePatchBaseline.go.
+func TestPatchBaseline_ApprovalRulesGlobalFiltersSourcesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+
+	body := `{
+		"Name": "FullFeatured",
+		"OperatingSystem": "AMAZON_LINUX_2",
+		"RejectedPatchesAction": "BLOCK",
+		"AvailableSecurityUpdatesComplianceStatus": "NON_COMPLIANT",
+		"ApprovedPatchesEnableNonSecurity": true,
+		"ApprovalRules": {
+			"PatchRules": [{
+				"PatchFilterGroup": {"PatchFilters": [{"Key": "PRODUCT", "Values": ["AmazonLinux2"]}]},
+				"ApproveAfterDays": 7,
+				"ComplianceLevel": "CRITICAL"
+			}]
+		},
+		"GlobalFilters": {
+			"PatchFilters": [{"Key": "CLASSIFICATION", "Values": ["Security"]}]
+		},
+		"Sources": [{"Name": "custom-repo", "Products": ["AmazonLinux2"], "Configuration": "[main]\nenabled=1"}]
+	}`
+
+	rec := doRequest(t, h, "CreatePatchBaseline", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created ssm.CreatePatchBaselineOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+
+	out, err := b.GetPatchBaseline(context.Background(), &ssm.GetPatchBaselineInput{BaselineID: created.BaselineID})
+	require.NoError(t, err)
+
+	assert.Equal(t, "BLOCK", out.RejectedPatchesAction)
+	assert.Equal(t, "NON_COMPLIANT", out.AvailableSecurityUpdatesComplianceStatus)
+	assert.True(t, out.ApprovedPatchesEnableNonSecurity)
+	require.NotNil(t, out.ApprovalRules)
+	require.Len(t, out.ApprovalRules.PatchRules, 1)
+	assert.Equal(t, "CRITICAL", out.ApprovalRules.PatchRules[0].ComplianceLevel)
+	require.NotNil(t, out.ApprovalRules.PatchRules[0].ApproveAfterDays)
+	assert.EqualValues(t, 7, *out.ApprovalRules.PatchRules[0].ApproveAfterDays)
+	require.NotNil(t, out.GlobalFilters)
+	require.Len(t, out.GlobalFilters.PatchFilters, 1)
+	assert.Equal(t, "CLASSIFICATION", out.GlobalFilters.PatchFilters[0].Key)
+	require.Len(t, out.Sources, 1)
+	assert.Equal(t, "custom-repo", out.Sources[0].Name)
+}
+
+// TestGetPatchBaseline_PatchGroupsReflectsRegistrations locks in
+// GetPatchBaselineOutput.PatchGroups (previously unpopulated): the patch
+// groups currently registered with a baseline via
+// RegisterPatchBaselineForPatchGroup must be listed, and deregistering must
+// remove them again. The synthetic "default"/"default-<OS>" bookkeeping keys
+// RegisterDefaultPatchBaseline writes into the same map must never leak into
+// this list -- they are not real patch groups.
+func TestGetPatchBaseline_PatchGroupsReflectsRegistrations(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	ctx := context.Background()
+
+	created, err := b.CreatePatchBaseline(ctx, &ssm.CreatePatchBaselineInput{Name: "GroupedBaseline"})
+	require.NoError(t, err)
+
+	_, err = b.RegisterPatchBaselineForPatchGroup(ctx, &ssm.RegisterPatchBaselineForPatchGroupInput{
+		BaselineID: created.BaselineID, PatchGroup: "prod-web",
+	})
+	require.NoError(t, err)
+	_, err = b.RegisterPatchBaselineForPatchGroup(ctx, &ssm.RegisterPatchBaselineForPatchGroupInput{
+		BaselineID: created.BaselineID, PatchGroup: "prod-db",
+	})
+	require.NoError(t, err)
+	_, err = b.RegisterDefaultPatchBaseline(ctx, &ssm.RegisterDefaultPatchBaselineInput{
+		BaselineID: created.BaselineID,
+	})
+	require.NoError(t, err)
+
+	out, err := b.GetPatchBaseline(ctx, &ssm.GetPatchBaselineInput{BaselineID: created.BaselineID})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"prod-db", "prod-web"}, out.PatchGroups,
+		"must list real patch groups, sorted, excluding the default-baseline bookkeeping keys")
+
+	_, err = b.DeregisterPatchBaselineForPatchGroup(ctx, &ssm.DeregisterPatchBaselineForPatchGroupInput{
+		BaselineID: created.BaselineID, PatchGroup: "prod-web",
+	})
+	require.NoError(t, err)
+
+	out, err = b.GetPatchBaseline(ctx, &ssm.GetPatchBaselineInput{BaselineID: created.BaselineID})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"prod-db"}, out.PatchGroups)
 }
 
 func TestSSMBounds_DescribePatchGroups(t *testing.T) {

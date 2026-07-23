@@ -13,7 +13,7 @@ import (
 func TestDescribeInstancePatchStates(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now().UTC().Truncate(time.Second)
+	now := ssm.UnixTimeFloat(time.Now())
 
 	cases := []struct {
 		name               string
@@ -82,7 +82,7 @@ func TestDescribeInstancePatchStates(t *testing.T) {
 func TestDescribeInstancePatchStatesForPatchGroup(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now().UTC().Truncate(time.Second)
+	now := ssm.UnixTimeFloat(time.Now())
 
 	cases := []struct {
 		name           string
@@ -152,7 +152,7 @@ func TestDescribeInstancePatchStatesForPatchGroup(t *testing.T) {
 func TestDescribeInstancePatches(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now().UTC().Truncate(time.Second)
+	now := ssm.UnixTimeFloat(time.Now())
 
 	cases := []struct {
 		seed        map[string][]ssm.PatchComplianceData
@@ -175,7 +175,7 @@ func TestDescribeInstancePatches(t *testing.T) {
 			seed: map[string][]ssm.PatchComplianceData{
 				"i-aaa": {
 					{
-						InstalledTime:  &now,
+						InstalledTime:  now,
 						Title:          "KB123",
 						Classification: "SecurityUpdates",
 						Severity:       "Critical",
@@ -193,7 +193,7 @@ func TestDescribeInstancePatches(t *testing.T) {
 			seed: map[string][]ssm.PatchComplianceData{
 				"i-aaa": {
 					{
-						InstalledTime:  &now,
+						InstalledTime:  now,
 						Title:          "KB123",
 						Classification: "SecurityUpdates",
 						Severity:       "Critical",

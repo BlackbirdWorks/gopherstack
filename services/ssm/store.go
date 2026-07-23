@@ -54,6 +54,7 @@ type InMemoryBackend struct {
 	maintenanceWindowTargets   map[string]*store.Table[MaintenanceWindowTarget]
 	maintenanceWindowTasks     map[string]*store.Table[MaintenanceWindowTask]
 	sessions                   map[string]*store.Table[Session]
+	accessRequests             map[string]*store.Table[AccessRequest]
 	patchGroupToBaseline       map[string]map[string]string
 	tags                       map[string]map[string]*tags.Tags
 	associations               map[string]*store.Table[Association]
@@ -113,6 +114,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		maintenanceWindowTargets:   make(map[string]*store.Table[MaintenanceWindowTarget]),
 		maintenanceWindowTasks:     make(map[string]*store.Table[MaintenanceWindowTask]),
 		sessions:                   make(map[string]*store.Table[Session]),
+		accessRequests:             make(map[string]*store.Table[AccessRequest]),
 		patchGroupToBaseline:       make(map[string]map[string]string),
 		opsItems:                   make(map[string]*store.Table[OpsItem]),
 		opsItemRelatedItems:        make(map[string]map[string][]OpsItemRelatedItem),
@@ -270,6 +272,7 @@ func (b *InMemoryBackend) Reset() {
 	b.maintenanceWindowTargets = make(map[string]*store.Table[MaintenanceWindowTarget])
 	b.maintenanceWindowTasks = make(map[string]*store.Table[MaintenanceWindowTask])
 	b.sessions = make(map[string]*store.Table[Session])
+	b.accessRequests = make(map[string]*store.Table[AccessRequest])
 	b.patchGroupToBaseline = make(map[string]map[string]string)
 	b.opsItems = make(map[string]*store.Table[OpsItem])
 	b.opsItemRelatedItems = make(map[string]map[string][]OpsItemRelatedItem)

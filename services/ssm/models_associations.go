@@ -1,9 +1,5 @@
 package ssm
 
-import (
-	"time"
-)
-
 // DeleteAssociationOutput is the response for DeleteAssociation.
 type DeleteAssociationOutput struct{}
 
@@ -186,10 +182,10 @@ type DescribeAssociationExecutionsOutputFull struct {
 
 // AssociationExecution represents a single execution record of an association.
 type AssociationExecution struct {
-	ExecutionDate time.Time `json:"ExecutionDate"`
-	AssociationID string    `json:"AssociationId"`
-	ExecutionID   string    `json:"ExecutionId"`
-	Status        string    `json:"Status"`
+	AssociationID string  `json:"AssociationId"`
+	ExecutionID   string  `json:"ExecutionId"`
+	Status        string  `json:"Status"`
+	ExecutionDate float64 `json:"ExecutionDate"`
 }
 
 // DescribeAssociationExecutionTargetsOutputFull extends the empty output.
