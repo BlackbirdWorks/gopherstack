@@ -102,10 +102,12 @@ func (h *Handler) handleCreateSNVA(c *echo.Context, body map[string]any) error {
 		}
 	}
 
+	privateDNSEnabled, _ := body[keyPrivateDNSEnabled].(bool)
+
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	assoc, err := h.Backend.CreateServiceNetworkVpcAssociation(ctx, snID, vpcID, sgs, tags)
+	assoc, err := h.Backend.CreateServiceNetworkVpcAssociation(ctx, snID, vpcID, sgs, privateDNSEnabled, tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -201,7 +203,7 @@ func snsaToJSON(s *ServiceNetworkServiceAssociation) map[string]any {
 	}
 
 	if s.DNSName != "" {
-		m["dnsEntry"] = map[string]any{keyDomainName: s.DNSName}
+		m["dnsEntry"] = dnsEntryToJSON(s.DNSName, s.HostedZoneID)
 	}
 
 	return m
@@ -226,7 +228,19 @@ func snsaSummaryToJSON(s *ServiceNetworkServiceAssociationSummary) map[string]an
 	}
 
 	if s.DNSName != "" {
-		m["dnsEntry"] = map[string]any{keyDomainName: s.DNSName}
+		m["dnsEntry"] = dnsEntryToJSON(s.DNSName, s.HostedZoneID)
+	}
+
+	return m
+}
+
+// dnsEntryToJSON builds the wire shape of a VPC Lattice DnsEntry
+// (domainName + hostedZoneId), shared by Service and
+// ServiceNetworkServiceAssociation responses.
+func dnsEntryToJSON(domainName, hostedZoneID string) map[string]any {
+	m := map[string]any{keyDomainName: domainName}
+	if hostedZoneID != "" {
+		m[keyHostedZoneID] = hostedZoneID
 	}
 
 	return m
@@ -246,6 +260,7 @@ func snvaToJSON(s *ServiceNetworkVpcAssociation) map[string]any {
 		"securityGroupIds":    sgs,
 		keyStatus:             s.Status,
 		"createdBy":           s.CreatedBy,
+		keyPrivateDNSEnabled:  s.PrivateDNSEnabled,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt:      s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
@@ -260,6 +275,7 @@ func snvaSummaryToJSON(s *ServiceNetworkVpcAssociationSummary) map[string]any {
 		keyServiceNetworkID:   s.ServiceNetworkID,
 		keyServiceNetworkName: s.ServiceNetworkName,
 		keyStatus:             s.Status,
+		keyPrivateDNSEnabled:  s.PrivateDNSEnabled,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }

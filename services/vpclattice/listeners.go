@@ -176,16 +176,24 @@ func (b *InMemoryBackend) DeleteListener(serviceID, listenerID string) error {
 	}
 
 	l, _ := b.listeners.Get(lID)
-	b.listeners.Delete(lID)
+	b.deleteListenerCascade(l)
+
+	return nil
+}
+
+// deleteListenerCascade removes a listener and all of its rules. It backs
+// both DeleteListener and DeleteService, which cascades through every
+// listener on the service being deleted (real AWS deletes a service's
+// listeners and listener rules automatically -- see DeleteService's doc
+// comment).
+func (b *InMemoryBackend) deleteListenerCascade(l *storedListener) {
+	b.listeners.Delete(l.ID)
 	delete(b.tags, l.ARN)
 
-	// delete all rules for this listener
-	for _, r := range slices.Clone(b.rulesByListener.Get(lID)) {
+	for _, r := range slices.Clone(b.rulesByListener.Get(l.ID)) {
 		b.rules.Delete(r.ID)
 		delete(b.tags, r.ARN)
 	}
-
-	return nil
 }
 
 // ListListeners lists listeners for a service.

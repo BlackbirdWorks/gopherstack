@@ -48,7 +48,7 @@ func newPersistenceTestBackend(t *testing.T) (*vpclattice.InMemoryBackend, persi
 	snsa, err := b.CreateServiceNetworkServiceAssociation(ctx, sn.ID, svc.ID, nil)
 	require.NoError(t, err)
 
-	snva, err := b.CreateServiceNetworkVpcAssociation(ctx, sn.ID, "vpc-1", []string{"sg-1"}, nil)
+	snva, err := b.CreateServiceNetworkVpcAssociation(ctx, sn.ID, "vpc-1", []string{"sg-1"}, true, nil)
 	require.NoError(t, err)
 
 	listener, err := b.CreateListener(svc.ID, "listener1", "HTTP", 80, nil, nil)
@@ -111,6 +111,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	svc, err := fresh.GetService(ids.serviceID)
 	require.NoError(t, err)
 	assert.Equal(t, ids.serviceID, svc.ID)
+	assert.NotEmpty(t, svc.HostedZoneID)
 
 	_, err = fresh.CreateService(t.Context(), "svc1", "", "", "", nil)
 	require.ErrorIs(t, err, vpclattice.ErrAlreadyExists)
@@ -132,6 +133,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	snva, err := fresh.GetServiceNetworkVpcAssociation(ids.snvaID)
 	require.NoError(t, err)
 	assert.Equal(t, ids.snvaID, snva.ID)
+	assert.True(t, snva.PrivateDNSEnabled)
 
 	// listeners table + listenersByService index.
 	listener, err := fresh.GetListener(ids.serviceID, ids.listenerID)

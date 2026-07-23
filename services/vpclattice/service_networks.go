@@ -129,7 +129,12 @@ func (b *InMemoryBackend) UpdateServiceNetwork(snID, authType string) (*ServiceN
 	return sn.toServiceNetwork(), nil
 }
 
-// DeleteServiceNetwork deletes a service network.
+// DeleteServiceNetwork deletes a service network. Real AWS rejects the
+// delete with ConflictException while any service or VPC is still
+// associated with the service network, and otherwise cascades the delete
+// through the service network's resource policy, auth policy, and access
+// log subscriptions -- see the DeleteServiceNetwork doc comment in
+// aws-sdk-go-v2/service/vpclattice's api_op_DeleteServiceNetwork.go.
 func (b *InMemoryBackend) DeleteServiceNetwork(snID string) error {
 	b.mu.Lock("DeleteServiceNetwork")
 	defer b.mu.Unlock()
@@ -139,9 +144,23 @@ func (b *InMemoryBackend) DeleteServiceNetwork(snID string) error {
 		return ErrNotFound
 	}
 
+	if b.countSNSAs(id) > 0 || b.countSNVAs(id) > 0 {
+		return ErrDependencyConflict
+	}
+
 	sn, _ := b.serviceNetworks.Get(id)
 	b.serviceNetworks.Delete(id)
 	delete(b.tags, sn.ARN)
+
+	delete(b.authPolicies, sn.ARN)
+	delete(b.resourcePolicies, sn.ARN)
+
+	for _, a := range b.alss.All() {
+		if a.ResourceARN == sn.ARN {
+			b.alss.Delete(a.ID)
+			delete(b.tags, a.ARN)
+		}
+	}
 
 	return nil
 }

@@ -16,6 +16,7 @@ type storedService struct {
 	CertificateArn   string            `json:"certificateArn"`
 	CustomDomainName string            `json:"customDomainName"`
 	DNSName          string            `json:"dnsName"`
+	HostedZoneID     string            `json:"hostedZoneId"`
 	Status           string            `json:"status"`
 	Region           string            `json:"region"`
 }
@@ -29,6 +30,7 @@ func (s *storedService) toService() *Service {
 		CertificateArn:   s.CertificateArn,
 		CustomDomainName: s.CustomDomainName,
 		DNSName:          s.DNSName,
+		HostedZoneID:     s.HostedZoneID,
 		Status:           s.Status,
 		CreatedAt:        s.CreatedAt,
 		LastUpdatedAt:    s.LastUpdatedAt,
@@ -42,6 +44,7 @@ func (s *storedService) toSummary() *ServiceSummary {
 		Name:             s.Name,
 		CustomDomainName: s.CustomDomainName,
 		DNSName:          s.DNSName,
+		HostedZoneID:     s.HostedZoneID,
 		Status:           s.Status,
 		CreatedAt:        s.CreatedAt,
 		LastUpdatedAt:    s.LastUpdatedAt,
@@ -102,6 +105,7 @@ type storedSNSA struct {
 	CreatedBy          string            `json:"createdBy"`
 	CustomDomainName   string            `json:"customDomainName"`
 	DNSName            string            `json:"dnsName"`
+	HostedZoneID       string            `json:"hostedZoneId"`
 	Region             string            `json:"region"`
 }
 
@@ -119,6 +123,7 @@ func (s *storedSNSA) toAssociation() *ServiceNetworkServiceAssociation {
 		CreatedBy:          s.CreatedBy,
 		CustomDomainName:   s.CustomDomainName,
 		DNSName:            s.DNSName,
+		HostedZoneID:       s.HostedZoneID,
 		CreatedAt:          s.CreatedAt,
 	}
 }
@@ -136,6 +141,7 @@ func (s *storedSNSA) toSummary() *ServiceNetworkServiceAssociationSummary {
 		Status:             s.Status,
 		CustomDomainName:   s.CustomDomainName,
 		DNSName:            s.DNSName,
+		HostedZoneID:       s.HostedZoneID,
 		CreatedAt:          s.CreatedAt,
 	}
 }
@@ -155,6 +161,7 @@ type storedSNVA struct {
 	CreatedBy          string            `json:"createdBy"`
 	Region             string            `json:"region"`
 	SecurityGroupIDs   []string          `json:"securityGroupIds"`
+	PrivateDNSEnabled  bool              `json:"privateDnsEnabled"`
 }
 
 func (s *storedSNVA) toAssociation() *ServiceNetworkVpcAssociation {
@@ -171,6 +178,7 @@ func (s *storedSNVA) toAssociation() *ServiceNetworkVpcAssociation {
 		SecurityGroupIDs:   sgs,
 		Status:             s.Status,
 		CreatedBy:          s.CreatedBy,
+		PrivateDNSEnabled:  s.PrivateDNSEnabled,
 		CreatedAt:          s.CreatedAt,
 		LastUpdatedAt:      s.LastUpdatedAt,
 	}
@@ -185,6 +193,7 @@ func (s *storedSNVA) toSummary() *ServiceNetworkVpcAssociationSummary {
 		ServiceNetworkID:   s.ServiceNetworkID,
 		ServiceNetworkName: s.ServiceNetworkName,
 		Status:             s.Status,
+		PrivateDNSEnabled:  s.PrivateDNSEnabled,
 		CreatedAt:          s.CreatedAt,
 	}
 }

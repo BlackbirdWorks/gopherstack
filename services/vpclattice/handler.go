@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -50,6 +51,8 @@ const (
 	keyUnsuccessful       = "unsuccessful"
 	keySuccessful         = "successful"
 	keyDomainName         = "domainName"
+	keyHostedZoneID       = "hostedZoneId"
+	keyPrivateDNSEnabled  = "privateDnsEnabled"
 	keyNameRequired       = "name is required"
 
 	opBatchUpdateRule      = "BatchUpdateRule"
@@ -229,13 +232,186 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-// handleREST is a flat routing dispatch over every VPC Lattice operation;
-// its size and branching are mechanical (one case per op, each a one-line
-// delegation) rather than incidental complexity, so it is kept as a single
-// function instead of being decomposed further.
-func (h *Handler) handleREST( //nolint:gocyclo,cyclop,funlen // flat routing dispatch, see doc comment
-	c *echo.Context,
-) error {
+// opHandlerFunc is the uniform shape every VPC Lattice operation handler is
+// adapted to below, so the op -> handler mapping can live in a single lookup
+// table (onceOpHandlers) instead of a large switch. id1/id2/id3 are the path
+// segments classifyPath extracted (service/listener/rule etc, in order);
+// most operations only need a subset of them.
+type opHandlerFunc func(h *Handler, c *echo.Context, id1, id2, id3 string, body map[string]any) error
+
+// onceOpHandlers lazily builds the operation-name -> handler lookup table
+// used by handleREST, exactly once. Each entry is a thin adapter from the
+// uniform opHandlerFunc shape to the specific handleXxx method's actual
+// signature. This replaces what was previously a single ~50-case switch
+// (handleREST's branching is mechanical -- one case per op, each a one-line
+// delegation -- so moving it into data removes the cyclomatic/line-count
+// complexity without changing behavior).
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
+var onceOpHandlers = sync.OnceValue(func() map[string]opHandlerFunc {
+	return map[string]opHandlerFunc{
+		opCreateService: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleCreateService(c, body)
+		},
+		opGetService: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetService(c, id1)
+		},
+		opUpdateService: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleUpdateService(c, id1, body)
+		},
+		opDeleteService: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteService(c, id1)
+		},
+		opListServices: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListServices(c)
+		},
+		opCreateSN: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleCreateServiceNetwork(c, body)
+		},
+		opGetSN: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetServiceNetwork(c, id1)
+		},
+		opUpdateSN: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleUpdateServiceNetwork(c, id1, body)
+		},
+		opDeleteSN: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteServiceNetwork(c, id1)
+		},
+		opListSNs: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListServiceNetworks(c)
+		},
+		opCreateSNSA: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleCreateSNSA(c, body)
+		},
+		opGetSNSA: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetSNSA(c, id1)
+		},
+		opDeleteSNSA: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteSNSA(c, id1)
+		},
+		opListSNSAs: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListSNSAs(c)
+		},
+		opCreateSNVA: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleCreateSNVA(c, body)
+		},
+		opGetSNVA: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetSNVA(c, id1)
+		},
+		opUpdateSNVA: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleUpdateSNVA(c, id1, body)
+		},
+		opDeleteSNVA: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteSNVA(c, id1)
+		},
+		opListSNVAs: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListSNVAs(c)
+		},
+		opCreateListener: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleCreateListener(c, id1, body)
+		},
+		opGetListener: func(h *Handler, c *echo.Context, id1, id2, _ string, _ map[string]any) error {
+			return h.handleGetListener(c, id1, id2)
+		},
+		opUpdateListener: func(h *Handler, c *echo.Context, id1, id2, _ string, body map[string]any) error {
+			return h.handleUpdateListener(c, id1, id2, body)
+		},
+		opDeleteListener: func(h *Handler, c *echo.Context, id1, id2, _ string, _ map[string]any) error {
+			return h.handleDeleteListener(c, id1, id2)
+		},
+		opListListeners: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleListListeners(c, id1)
+		},
+		opCreateRule: func(h *Handler, c *echo.Context, id1, id2, _ string, body map[string]any) error {
+			return h.handleCreateRule(c, id1, id2, body)
+		},
+		opGetRule: func(h *Handler, c *echo.Context, id1, id2, id3 string, _ map[string]any) error {
+			return h.handleGetRule(c, id1, id2, id3)
+		},
+		opUpdateRule: func(h *Handler, c *echo.Context, id1, id2, id3 string, body map[string]any) error {
+			return h.handleUpdateRule(c, id1, id2, id3, body)
+		},
+		opDeleteRule: func(h *Handler, c *echo.Context, id1, id2, id3 string, _ map[string]any) error {
+			return h.handleDeleteRule(c, id1, id2, id3)
+		},
+		opListRules: func(h *Handler, c *echo.Context, id1, id2, _ string, _ map[string]any) error {
+			return h.handleListRules(c, id1, id2)
+		},
+		opBatchUpdateRule: func(h *Handler, c *echo.Context, id1, id2, _ string, body map[string]any) error {
+			return h.handleBatchUpdateRule(c, id1, id2, body)
+		},
+		opCreateTG: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleCreateTargetGroup(c, body)
+		},
+		opGetTG: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetTargetGroup(c, id1)
+		},
+		opUpdateTG: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleUpdateTargetGroup(c, id1, body)
+		},
+		opDeleteTG: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteTargetGroup(c, id1)
+		},
+		opListTGs: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListTargetGroups(c)
+		},
+		opRegisterTargets: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleRegisterTargets(c, id1, body)
+		},
+		opDeregisterTargets: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleDeregisterTargets(c, id1, body)
+		},
+		opListTargets: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleListTargets(c, id1, body)
+		},
+		opCreateALS: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleCreateALS(c, body)
+		},
+		opGetALS: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetALS(c, id1)
+		},
+		opUpdateALS: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleUpdateALS(c, id1, body)
+		},
+		opDeleteALS: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteALS(c, id1)
+		},
+		opListALSs: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListALSs(c)
+		},
+		opPutAuthPolicy: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handlePutAuthPolicy(c, id1, body)
+		},
+		opGetAuthPolicy: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetAuthPolicy(c, id1)
+		},
+		opDeleteAuthPolicy: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteAuthPolicy(c, id1)
+		},
+		opPutResourcePolicy: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handlePutResourcePolicy(c, id1, body)
+		},
+		opGetResourcePolicy: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetResourcePolicy(c, id1)
+		},
+		opDeleteResourcePolicy: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteResourcePolicy(c, id1)
+		},
+		opTagResource: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleTagResource(c, id1, body)
+		},
+		opUntagResource: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleUntagResource(c, id1)
+		},
+		opListTagsForResource: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleListTagsForResource(c, id1)
+		},
+	}
+})
+
+// handleREST decodes the request body and dispatches to the operation
+// resolved by classifyPath via onceOpHandlers.
+func (h *Handler) handleREST(c *echo.Context) error {
 	op, id1, id2, id3 := classifyPath(c.Request().Method, c.Request().URL.Path)
 
 	var body map[string]any
@@ -250,114 +426,12 @@ func (h *Handler) handleREST( //nolint:gocyclo,cyclop,funlen // flat routing dis
 		body = map[string]any{}
 	}
 
-	switch op {
-	case opCreateService:
-		return h.handleCreateService(c, body)
-	case opGetService:
-		return h.handleGetService(c, id1)
-	case opUpdateService:
-		return h.handleUpdateService(c, id1, body)
-	case opDeleteService:
-		return h.handleDeleteService(c, id1)
-	case opListServices:
-		return h.handleListServices(c)
-	case opCreateSN:
-		return h.handleCreateServiceNetwork(c, body)
-	case opGetSN:
-		return h.handleGetServiceNetwork(c, id1)
-	case opUpdateSN:
-		return h.handleUpdateServiceNetwork(c, id1, body)
-	case opDeleteSN:
-		return h.handleDeleteServiceNetwork(c, id1)
-	case opListSNs:
-		return h.handleListServiceNetworks(c)
-	case opCreateSNSA:
-		return h.handleCreateSNSA(c, body)
-	case opGetSNSA:
-		return h.handleGetSNSA(c, id1)
-	case opDeleteSNSA:
-		return h.handleDeleteSNSA(c, id1)
-	case opListSNSAs:
-		return h.handleListSNSAs(c)
-	case opCreateSNVA:
-		return h.handleCreateSNVA(c, body)
-	case opGetSNVA:
-		return h.handleGetSNVA(c, id1)
-	case opUpdateSNVA:
-		return h.handleUpdateSNVA(c, id1, body)
-	case opDeleteSNVA:
-		return h.handleDeleteSNVA(c, id1)
-	case opListSNVAs:
-		return h.handleListSNVAs(c)
-	case opCreateListener:
-		return h.handleCreateListener(c, id1, body)
-	case opGetListener:
-		return h.handleGetListener(c, id1, id2)
-	case opUpdateListener:
-		return h.handleUpdateListener(c, id1, id2, body)
-	case opDeleteListener:
-		return h.handleDeleteListener(c, id1, id2)
-	case opListListeners:
-		return h.handleListListeners(c, id1)
-	case opCreateRule:
-		return h.handleCreateRule(c, id1, id2, body)
-	case opGetRule:
-		return h.handleGetRule(c, id1, id2, id3)
-	case opUpdateRule:
-		return h.handleUpdateRule(c, id1, id2, id3, body)
-	case opDeleteRule:
-		return h.handleDeleteRule(c, id1, id2, id3)
-	case opListRules:
-		return h.handleListRules(c, id1, id2)
-	case opBatchUpdateRule:
-		return h.handleBatchUpdateRule(c, id1, id2, body)
-	case opCreateTG:
-		return h.handleCreateTargetGroup(c, body)
-	case opGetTG:
-		return h.handleGetTargetGroup(c, id1)
-	case opUpdateTG:
-		return h.handleUpdateTargetGroup(c, id1, body)
-	case opDeleteTG:
-		return h.handleDeleteTargetGroup(c, id1)
-	case opListTGs:
-		return h.handleListTargetGroups(c)
-	case opRegisterTargets:
-		return h.handleRegisterTargets(c, id1, body)
-	case opDeregisterTargets:
-		return h.handleDeregisterTargets(c, id1, body)
-	case opListTargets:
-		return h.handleListTargets(c, id1, body)
-	case opCreateALS:
-		return h.handleCreateALS(c, body)
-	case opGetALS:
-		return h.handleGetALS(c, id1)
-	case opUpdateALS:
-		return h.handleUpdateALS(c, id1, body)
-	case opDeleteALS:
-		return h.handleDeleteALS(c, id1)
-	case opListALSs:
-		return h.handleListALSs(c)
-	case opPutAuthPolicy:
-		return h.handlePutAuthPolicy(c, id1, body)
-	case opGetAuthPolicy:
-		return h.handleGetAuthPolicy(c, id1)
-	case opDeleteAuthPolicy:
-		return h.handleDeleteAuthPolicy(c, id1)
-	case opPutResourcePolicy:
-		return h.handlePutResourcePolicy(c, id1, body)
-	case opGetResourcePolicy:
-		return h.handleGetResourcePolicy(c, id1)
-	case opDeleteResourcePolicy:
-		return h.handleDeleteResourcePolicy(c, id1)
-	case opTagResource:
-		return h.handleTagResource(c, id1, body)
-	case opUntagResource:
-		return h.handleUntagResource(c, id1)
-	case opListTagsForResource:
-		return h.handleListTagsForResource(c, id1)
-	default:
+	fn, ok := onceOpHandlers()[op]
+	if !ok {
 		return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "unknown operation"})
 	}
+
+	return fn(h, c, id1, id2, id3, body)
 }
 
 // handleError converts backend errors to HTTP responses.
@@ -366,6 +440,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusNotFound, map[string]any{keyMessage: err.Error()})
 	case errors.Is(err, awserr.ErrAlreadyExists):
+		return c.JSON(http.StatusConflict, map[string]any{keyMessage: err.Error()})
+	case errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusConflict, map[string]any{keyMessage: err.Error()})
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: err.Error()})
@@ -376,105 +452,146 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 // ------- Path classification -------
 
+// collectionRoute pairs a top-level resource collection's exact path (e.g.
+// "/services") with its create/list operations and the delegate that
+// classifies paths beneath it (e.g. "/services/{id}/listeners/...").
+type collectionRoute struct {
+	subHandler func(method, path string) (string, string, string, string)
+	path       string
+	subPrefix  string
+	createOp   string
+	listOp     string
+}
+
+// onceCollectionRoutes lazily builds the ordered list of top-level resource
+// collections handled by classifyPath, exactly once. Order doesn't affect
+// matching: every collection's path/subPrefix pair is mutually exclusive
+// with every other's.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
+var onceCollectionRoutes = sync.OnceValue(func() []collectionRoute {
+	return []collectionRoute{
+		{
+			path: pathServices, subPrefix: pathServices + "/",
+			createOp: opCreateService, listOp: opListServices,
+			subHandler: classifyServicePath,
+		},
+		{
+			path: pathServiceNetworks, subPrefix: pathServiceNetworks + "/",
+			createOp: opCreateSN, listOp: opListSNs,
+			subHandler: classifyServiceNetworkPath,
+		},
+		{
+			path: pathServiceNetworkServiceAssociations, subPrefix: pathServiceNetworkServiceAssociations + "/",
+			createOp: opCreateSNSA, listOp: opListSNSAs,
+			subHandler: classifySNSAPath,
+		},
+		{
+			path: pathServiceNetworkVpcAssociations, subPrefix: pathServiceNetworkVpcAssociations + "/",
+			createOp: opCreateSNVA, listOp: opListSNVAs,
+			subHandler: classifySNVAPath,
+		},
+		{
+			path: pathTargetGroups, subPrefix: pathTargetGroups + "/",
+			createOp: opCreateTG, listOp: opListTGs,
+			subHandler: classifyTargetGroupPath,
+		},
+		{
+			path: pathAccessLogSubscriptions, subPrefix: pathAccessLogSubscriptions + "/",
+			createOp: opCreateALS, listOp: opListALSs,
+			subHandler: classifyALSPath,
+		},
+	}
+})
+
+// onceSingletonRoutes lazily builds the method -> operation lookup tables
+// for the /authpolicy/, /resourcepolicy/, and /tags/ families, which key off
+// a single resourceID/resourceArn path segment rather than a numbered
+// collection, exactly once.
+//
+//nolint:gochecknoglobals // read-only package-level lookup tables, built once via sync.OnceValue
+var (
+	onceAuthPolicyOps = sync.OnceValue(func() map[string]string {
+		return map[string]string{
+			http.MethodPut:    opPutAuthPolicy,
+			http.MethodGet:    opGetAuthPolicy,
+			http.MethodDelete: opDeleteAuthPolicy,
+		}
+	})
+	onceResourcePolicyOps = sync.OnceValue(func() map[string]string {
+		return map[string]string{
+			http.MethodPut:    opPutResourcePolicy,
+			http.MethodGet:    opGetResourcePolicy,
+			http.MethodDelete: opDeleteResourcePolicy,
+		}
+	})
+	onceTagOps = sync.OnceValue(func() map[string]string {
+		return map[string]string{
+			http.MethodPost:   opTagResource,
+			http.MethodDelete: opUntagResource,
+			http.MethodGet:    opListTagsForResource,
+		}
+	})
+)
+
 // classifyPath maps (method, path) → (op, id1, id2, id3).
 // id1..id3 are path segments in order (service, listener, rule etc.).
 //
-// Like handleREST, this is a flat dispatch over path prefixes -- one case
-// per resource collection -- so it is kept as a single function rather than
-// decomposed further.
-func classifyPath( //nolint:gocyclo,cyclop,funlen // flat routing dispatch, see doc comment
-	method, path string,
-) (string, string, string, string) {
-	switch {
-	case path == pathServices:
-		if method == http.MethodPost {
-			return opCreateService, "", "", ""
+// Top-level dispatch is a data-driven walk over onceCollectionRoutes (for
+// the numbered resource collections) falling back to classifySingletonPath
+// (for the auth-policy/resource-policy/tags families), rather than a flat
+// switch, so adding a resource family only means appending a table entry.
+func classifyPath(method, path string) (string, string, string, string) {
+	for _, r := range onceCollectionRoutes() {
+		if path == r.path {
+			if method == http.MethodPost {
+				return r.createOp, "", "", ""
+			}
+
+			return r.listOp, "", "", ""
 		}
 
-		return opListServices, "", "", ""
-	case strings.HasPrefix(path, pathServices+"/"):
-		return classifyServicePath(method, path)
-
-	case path == pathServiceNetworks:
-		if method == http.MethodPost {
-			return opCreateSN, "", "", ""
-		}
-
-		return opListSNs, "", "", ""
-	case strings.HasPrefix(path, pathServiceNetworks+"/"):
-		return classifyServiceNetworkPath(method, path)
-
-	case path == pathServiceNetworkServiceAssociations:
-		if method == http.MethodPost {
-			return opCreateSNSA, "", "", ""
-		}
-
-		return opListSNSAs, "", "", ""
-	case strings.HasPrefix(path, pathServiceNetworkServiceAssociations+"/"):
-		return classifySNSAPath(method, path)
-
-	case path == pathServiceNetworkVpcAssociations:
-		if method == http.MethodPost {
-			return opCreateSNVA, "", "", ""
-		}
-
-		return opListSNVAs, "", "", ""
-	case strings.HasPrefix(path, pathServiceNetworkVpcAssociations+"/"):
-		return classifySNVAPath(method, path)
-
-	case path == pathTargetGroups:
-		if method == http.MethodPost {
-			return opCreateTG, "", "", ""
-		}
-
-		return opListTGs, "", "", ""
-	case strings.HasPrefix(path, pathTargetGroups+"/"):
-		return classifyTargetGroupPath(method, path)
-
-	case path == pathAccessLogSubscriptions:
-		if method == http.MethodPost {
-			return opCreateALS, "", "", ""
-		}
-
-		return opListALSs, "", "", ""
-	case strings.HasPrefix(path, pathAccessLogSubscriptions+"/"):
-		return classifyALSPath(method, path)
-
-	case strings.HasPrefix(path, pathAuthPolicy+"/"):
-		resourceID := strings.TrimPrefix(path, pathAuthPolicy+"/")
-		switch method {
-		case http.MethodPut:
-			return opPutAuthPolicy, resourceID, "", ""
-		case http.MethodGet:
-			return opGetAuthPolicy, resourceID, "", ""
-		case http.MethodDelete:
-			return opDeleteAuthPolicy, resourceID, "", ""
-		}
-
-	case strings.HasPrefix(path, pathResourcePolicy+"/"):
-		resourceArn := strings.TrimPrefix(path, pathResourcePolicy+"/")
-		switch method {
-		case http.MethodPut:
-			return opPutResourcePolicy, resourceArn, "", ""
-		case http.MethodGet:
-			return opGetResourcePolicy, resourceArn, "", ""
-		case http.MethodDelete:
-			return opDeleteResourcePolicy, resourceArn, "", ""
-		}
-
-	case strings.HasPrefix(path, pathTags+"/"):
-		resourceArn := strings.TrimPrefix(path, pathTags+"/")
-		switch method {
-		case http.MethodPost:
-			return opTagResource, resourceArn, "", ""
-		case http.MethodDelete:
-			return opUntagResource, resourceArn, "", ""
-		case http.MethodGet:
-			return opListTagsForResource, resourceArn, "", ""
+		if strings.HasPrefix(path, r.subPrefix) {
+			return r.subHandler(method, path)
 		}
 	}
 
+	if op, id, ok := classifySingletonPath(path, pathAuthPolicy, method, onceAuthPolicyOps()); ok {
+		return op, id, "", ""
+	}
+
+	if op, id, ok := classifySingletonPath(path, pathResourcePolicy, method, onceResourcePolicyOps()); ok {
+		return op, id, "", ""
+	}
+
+	if op, id, ok := classifySingletonPath(path, pathTags, method, onceTagOps()); ok {
+		return op, id, "", ""
+	}
+
 	return opUnknown, "", "", ""
+}
+
+// classifySingletonPath handles the /{prefix}/{resourceID} routes (auth
+// policy, resource policy, tags) whose operation is selected purely by HTTP
+// method. ok is false when path isn't under prefix at all, signaling the
+// caller to try the next family; when path is under prefix but method has no
+// mapped op, it returns (opUnknown, "", true) -- discarding the resource ID,
+// matching classifyPath's pre-refactor fallthrough behavior for an
+// unrecognized method on these routes.
+func classifySingletonPath(
+	path, prefix, method string,
+	ops map[string]string,
+) (string, string, bool) {
+	id, ok := strings.CutPrefix(path, prefix+"/")
+	if !ok {
+		return "", "", false
+	}
+
+	if op, found := ops[method]; found {
+		return op, id, true
+	}
+
+	return opUnknown, "", true
 }
 
 // classifyServicePath handles /services/{serviceID}[/listeners[/...]].
