@@ -47,11 +47,18 @@ const (
 	// Shared map-literal keys reused across multiple op families (members,
 	// invitations, organizations, resources V2) -- kept here so every family
 	// file references one constant instead of re-declaring the same literal.
-	keyAccountID        = "AccountId"
-	keyInvitedAt        = "InvitedAt"
-	keyMemberStatus     = "MemberStatus"
-	keyGroupByAttribute = "GroupByAttribute"
-	keyCount            = "Count"
+	keyAccountID         = "AccountId"
+	keyInvitedAt         = "InvitedAt"
+	keyMemberStatus      = "MemberStatus"
+	keyGroupByAttribute  = "GroupByAttribute"
+	keyCount             = "Count"
+	keySortOrder         = "SortOrder"
+	keyFindingIdentifier = "FindingIdentifier"
+	keyProductArn        = "ProductArn"
+	keyAwsAccountID      = "AwsAccountId"
+	keyMetadataUID       = "MetadataUid"
+
+	msgFindingNotFound = "Finding not found"
 
 	errCodeResourceNotFound = "ResourceNotFoundException"
 )
@@ -70,6 +77,7 @@ type InMemoryBackend struct {
 	automationRules        *store.Table[AutomationRule]
 	hub                    *Hub
 	findings               map[string]map[string]any
+	findingHistory         map[string][]map[string]any
 	insights               *store.Table[Insight]
 	controlParams          map[string]map[string]any
 	productSubscriptions   map[string]string
@@ -115,6 +123,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 		findings:             make(map[string]map[string]any),
+		findingHistory:       make(map[string][]map[string]any),
 		productSubscriptions: make(map[string]string),
 		controlParams:        make(map[string]map[string]any),
 		tags:                 make(map[string]map[string]string),
@@ -148,6 +157,7 @@ func (b *InMemoryBackend) resetLocked() {
 	b.hubEnabled = false
 	b.hub = nil
 	b.findings = make(map[string]map[string]any)
+	b.findingHistory = make(map[string][]map[string]any)
 	b.insightSeq = 0
 	b.standardsSeq = 0
 	b.actionTargetSeq = 0
@@ -188,6 +198,7 @@ type snapshot struct {
 	ProductSubscriptions map[string]string            `json:"productSubscriptions"`
 	Hub                  *Hub                         `json:"hub"`
 	Findings             map[string]map[string]any    `json:"findings"`
+	FindingHistory       map[string][]map[string]any  `json:"findingHistory"`
 	Tags                 map[string]map[string]string `json:"tags"`
 	ControlParams        map[string]map[string]any    `json:"controlParams"`
 	// Members / Invitations / Admin
@@ -236,6 +247,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		HubEnabled:           b.hubEnabled,
 		Hub:                  b.hub,
 		Findings:             b.findings,
+		FindingHistory:       b.findingHistory,
 		InsightSeq:           b.insightSeq,
 		StandardsSeq:         b.standardsSeq,
 		ActionTargetSeq:      b.actionTargetSeq,
@@ -299,6 +311,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.findings = snap.Findings
 	if b.findings == nil {
 		b.findings = make(map[string]map[string]any)
+	}
+
+	b.findingHistory = snap.FindingHistory
+	if b.findingHistory == nil {
+		b.findingHistory = make(map[string][]map[string]any)
 	}
 
 	b.insightSeq = snap.InsightSeq

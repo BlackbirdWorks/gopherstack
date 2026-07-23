@@ -1,9 +1,42 @@
 package securityhub
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
+	"sort"
 	"strings"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
+
+// findingCustomerManagedFields lists ASFF fields that AWS documents as
+// "cannot be updated" by BatchImportFindings once a finding already exists --
+// Security Hub retains whatever value (or absence) the finding already had,
+// ignoring whatever a re-import request supplies for these fields, since
+// they're managed by Security Hub customers/automation rules, not finding
+// providers.
+// https://docs.aws.amazon.com/securityhub/1.0/APIReference/API_BatchImportFindings.html
+var findingCustomerManagedFields = []string{ //nolint:gochecknoglobals // read-only lookup data
+	"Note", "UserDefinedFields", "VerificationState", "Workflow",
+}
+
+// findingHistoryIgnoredFields are ASFF fields GetFindingHistory documents as
+// excluded from the change log ("changes made to any fields...except
+// top-level timestamp fields, such as the CreatedAt and UpdatedAt fields").
+var findingHistoryIgnoredFields = map[string]bool{ //nolint:gochecknoglobals // read-only lookup data
+	keyCreatedAt:      true,
+	keyUpdatedAt:      true,
+	"FirstObservedAt": true,
+	"LastObservedAt":  true,
+}
+
+const (
+	findingHistorySourceImport      = "BATCH_IMPORT_FINDINGS"
+	findingHistorySourceBatchUpdate = "BATCH_UPDATE_FINDINGS"
+
+	maxFindingHistoryResults = 100
 )
 
 func findingKey(productArn, id string) string {
@@ -22,7 +55,7 @@ func validateASFFRequiredFields(f map[string]any, productArn, id string) string 
 		return "Id is required"
 	}
 
-	if v, _ := f["AwsAccountId"].(string); v == "" {
+	if v, _ := f[keyAwsAccountID].(string); v == "" {
 		return "AwsAccountId is required"
 	}
 
@@ -70,14 +103,14 @@ func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, [
 	var failedFindings []map[string]any
 
 	for _, f := range findings {
-		productArn, _ := f["ProductArn"].(string)
+		productArn, _ := f[keyProductArn].(string)
 		id, _ := f["Id"].(string)
 
 		if msg := validateASFFRequiredFields(f, productArn, id); msg != "" {
 			failedCount++
 			failedFindings = append(failedFindings, map[string]any{
 				"Id":            id,
-				"ProductArn":    productArn, //nolint:goconst // existing issue.
+				keyProductArn:   productArn,
 				keyErrorCode:    "InvalidInputException",
 				keyErrorMessage: msg,
 			})
@@ -86,21 +119,48 @@ func (b *InMemoryBackend) ImportFindings(findings []map[string]any) (int, int, [
 		}
 
 		key := findingKey(productArn, id)
+		existing, hadExisting := b.findings[key]
 
 		// Copy the finding
 		stored := make(map[string]any, len(f))
 		maps.Copy(stored, f)
 
+		if hadExisting {
+			preserveCustomerManagedFields(stored, existing)
+		}
+
 		b.findings[key] = stored
 		successCount++
+
+		if hadExisting {
+			changes := diffFindingFields(existing, stored)
+			b.recordFindingHistory(productArn, id, false, changes, findingHistorySourceImport)
+		} else {
+			b.recordFindingHistory(productArn, id, true, nil, findingHistorySourceImport)
+		}
 	}
 
 	return successCount, failedCount, failedFindings
 }
 
+// preserveCustomerManagedFields overwrites stored's customer-managed fields
+// (findingCustomerManagedFields) with existing's values, deleting the field
+// from stored entirely if existing never had it set. AWS documents that
+// BatchImportFindings cannot update these fields once a finding exists --
+// see findingCustomerManagedFields for the doc citation.
+func preserveCustomerManagedFields(stored, existing map[string]any) {
+	for _, field := range findingCustomerManagedFields {
+		if v, ok := existing[field]; ok {
+			stored[field] = v
+		} else {
+			delete(stored, field)
+		}
+	}
+}
+
 func (b *InMemoryBackend) GetFindings(
 	filters map[string]any,
-	_ []map[string]any,
+	sortCriteria []map[string]any,
 	nextToken string,
 	maxResults int,
 ) ([]map[string]any, string) {
@@ -114,6 +174,8 @@ func (b *InMemoryBackend) GetFindings(
 			results = append(results, f)
 		}
 	}
+
+	sortFindings(results, sortCriteria)
 
 	if maxResults <= 0 || maxResults > 100 {
 		maxResults = 100
@@ -137,6 +199,74 @@ func (b *InMemoryBackend) GetFindings(
 	return page, nextOut
 }
 
+// sortFindings sorts findings in place per sortCriteria, each element of
+// which is the ASFF wire shape {"Field": string, "SortOrder": "asc"|"desc"}
+// (types.SortCriterion). Earlier criteria take precedence; later criteria
+// break ties, matching AWS's documented multi-field sort semantics. A no-op
+// for empty/malformed criteria (results keep their prior order).
+func sortFindings(findings []map[string]any, sortCriteria []map[string]any) {
+	type criterion struct {
+		field string
+		desc  bool
+	}
+
+	criteria := make([]criterion, 0, len(sortCriteria))
+
+	for _, sc := range sortCriteria {
+		field, _ := sc["Field"].(string)
+		if field == "" {
+			continue
+		}
+
+		order, _ := sc[keySortOrder].(string)
+		criteria = append(criteria, criterion{field: field, desc: order == "desc"})
+	}
+
+	if len(criteria) == 0 {
+		return
+	}
+
+	sort.SliceStable(findings, func(i, j int) bool {
+		for _, c := range criteria {
+			vi := findingSortValue(findings[i], c.field)
+			vj := findingSortValue(findings[j], c.field)
+
+			if vi == vj {
+				continue
+			}
+
+			if c.desc {
+				return vi > vj
+			}
+
+			return vi < vj
+		}
+
+		return false
+	})
+}
+
+// findingSortValue returns a comparable string representation of finding's
+// top-level field, used to order findings for a single sort criterion.
+// Fields absent on the finding sort as "" (first in ascending order).
+func findingSortValue(f map[string]any, field string) string {
+	v, ok := f[field]
+	if !ok {
+		return ""
+	}
+
+	if s, isStr := v.(string); isStr {
+		return s
+	}
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+
+	return string(b)
+}
+
 // matchesFindingFilters is a simplified filter check.
 // AWS SecurityHub finding filters are complex; we support a basic subset.
 func matchesFindingFilters(finding, filters map[string]any) bool {
@@ -149,16 +279,18 @@ func matchesFindingFilters(finding, filters map[string]any) bool {
 		return false
 	}
 
-	fArn, _ := finding["ProductArn"].(string)
-	if !matchesStringFilter(fArn, filters["ProductArn"]) {
+	fArn, _ := finding[keyProductArn].(string)
+	if !matchesStringFilter(fArn, filters[keyProductArn]) {
 		return false
 	}
 
-	// Additional string field filters
+	// Additional string field filters. "Type" here is the AwsSecurityFindingFilters
+	// filter parameter name, a distinct concept from the FindingHistoryUpdateSource
+	// "Type" wire field in recordFindingHistory (see its nolint comment).
 	for _, fieldKey := range []string{
-		"AwsAccountId", "GeneratorId", "Title", "Description", //nolint:goconst // keyDescription lives in handler.go
+		keyAwsAccountID, "GeneratorId", keyTitle, keyDescription,
 		"RecordState", "WorkflowStatus", "SeverityLabel", "ComplianceStatus",
-		"Type", "ResourceType", "ResourceId",
+		"Type", "ResourceType", "ResourceId", //nolint:goconst // see comment above
 	} {
 		fVal, _ := finding[fieldKey].(string)
 		if !matchesStringFilter(fVal, filters[fieldKey]) {
@@ -184,6 +316,8 @@ func compareStringFilter(comp, fieldVal, val string) bool {
 		return strings.Contains(fieldVal, val)
 	case "NOT_CONTAINS":
 		return !strings.Contains(fieldVal, val)
+	case "CONTAINS_WORD":
+		return matchesWholeWord(fieldVal, val)
 	default: // EQUALS
 		return fieldVal == val
 	}
@@ -222,17 +356,26 @@ func (b *InMemoryBackend) UpdateFindings(filters map[string]any, note map[string
 	}
 
 	for key, f := range b.findings {
-		if matchesFindingFilters(f, filters) {
-			if note != nil {
-				f["Note"] = note
-			}
-
-			if recordState != "" {
-				f["RecordState"] = recordState
-			}
-
-			b.findings[key] = f
+		if !matchesFindingFilters(f, filters) {
+			continue
 		}
+
+		before := make(map[string]any, len(f))
+		maps.Copy(before, f)
+
+		if note != nil {
+			f["Note"] = note
+		}
+
+		if recordState != "" {
+			f["RecordState"] = recordState
+		}
+
+		b.findings[key] = f
+
+		productArn, _ := f[keyProductArn].(string)
+		id, _ := f["Id"].(string)
+		b.recordFindingHistory(productArn, id, false, diffFindingFields(before, f), findingHistorySourceBatchUpdate)
 	}
 
 	return nil
@@ -249,26 +392,31 @@ func (b *InMemoryBackend) BatchUpdateFindings(
 	var unprocessedFindings []map[string]any
 
 	for _, ident := range findingIdentifiers {
-		productArn, _ := ident["ProductArn"].(string)
+		productArn, _ := ident[keyProductArn].(string)
 		id, _ := ident["Id"].(string)
 		key := findingKey(productArn, id)
 
 		f, exists := b.findings[key]
 		if !exists {
 			unprocessedFindings = append(unprocessedFindings, map[string]any{
-				"FindingIdentifier": ident,
-				keyErrorCode:        errCodeInvalidInput,
-				keyErrorMessage:     "Finding not found",
+				keyFindingIdentifier: ident,
+				keyErrorCode:         errCodeInvalidInput,
+				keyErrorMessage:      msgFindingNotFound,
 			})
 
 			continue
 		}
+
+		before := make(map[string]any, len(f))
+		maps.Copy(before, f)
 
 		// Apply updates
 		maps.Copy(f, updates)
 
 		b.findings[key] = f
 		processedFindings = append(processedFindings, ident)
+
+		b.recordFindingHistory(productArn, id, false, diffFindingFields(before, f), findingHistorySourceBatchUpdate)
 	}
 
 	if processedFindings == nil {
@@ -282,34 +430,170 @@ func (b *InMemoryBackend) BatchUpdateFindings(
 	return processedFindings, unprocessedFindings
 }
 
+// diffFindingFields compares old and new top-level ASFF field maps and
+// returns one FindingHistoryUpdate-shaped entry ({"UpdatedField",
+// "OldValue", "NewValue"}) per changed field, excluding
+// findingHistoryIgnoredFields. A field added or removed entirely still
+// produces an entry with only NewValue or only OldValue set, matching how
+// FindingHistoryUpdate omits absent values on the wire.
+func diffFindingFields(oldF, newF map[string]any) []map[string]any {
+	seen := make(map[string]bool, len(oldF)+len(newF))
+
+	var updates []map[string]any
+
+	record := func(field string, oldV, newV any) {
+		if findingHistoryIgnoredFields[field] || seen[field] {
+			return
+		}
+
+		seen[field] = true
+
+		oldRepr := historyValueString(oldV)
+		newRepr := historyValueString(newV)
+
+		if oldRepr == nil && newRepr == nil {
+			return
+		}
+
+		if oldRepr != nil && newRepr != nil && *oldRepr == *newRepr {
+			return
+		}
+
+		entry := map[string]any{"UpdatedField": field}
+		if oldRepr != nil {
+			entry["OldValue"] = *oldRepr
+		}
+
+		if newRepr != nil {
+			entry["NewValue"] = *newRepr
+		}
+
+		updates = append(updates, entry)
+	}
+
+	for field, newV := range newF {
+		record(field, oldF[field], newV)
+	}
+
+	for field, oldV := range oldF {
+		if _, ok := newF[field]; !ok {
+			record(field, oldV, nil)
+		}
+	}
+
+	return updates
+}
+
+// historyValueString renders v as the string form GetFindingHistory reports
+// for a changed ASFF field's Old/NewValue. nil renders as nil (field absent).
+func historyValueString(v any) *string {
+	if v == nil {
+		return nil
+	}
+
+	if s, ok := v.(string); ok {
+		return &s
+	}
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		s := fmt.Sprintf("%v", v)
+
+		return &s
+	}
+
+	s := string(b)
+
+	return &s
+}
+
+// recordFindingHistory appends one FindingHistoryRecord-shaped entry to the
+// finding's change log. The caller must already hold b.mu for writing. A
+// no-op for a change event with nothing to report (not a creation and no
+// field actually changed), since AWS's GetFindingHistory only records real
+// change events.
+func (b *InMemoryBackend) recordFindingHistory(
+	productArn, id string,
+	findingCreated bool,
+	updates []map[string]any,
+	sourceType string,
+) {
+	if !findingCreated && len(updates) == 0 {
+		return
+	}
+
+	if updates == nil {
+		updates = []map[string]any{}
+	}
+
+	rec := map[string]any{
+		keyFindingIdentifier: map[string]any{"Id": id, keyProductArn: productArn},
+		"FindingCreated":     findingCreated,
+		"UpdateTime":         time.Now().UTC().Format(time.RFC3339),
+		"UpdateSource": map[string]any{
+			"Type":     sourceType,
+			"Identity": arn.Build("iam", b.region, b.accountID, "root"),
+		},
+		"Updates": updates,
+	}
+
+	key := findingKey(productArn, id)
+	b.findingHistory[key] = append(b.findingHistory[key], rec)
+}
+
 func (b *InMemoryBackend) GetFindingHistory(
-	_ map[string]any,
-	_, _ string,
-	_ string,
-	_ int,
+	ident map[string]any,
+	startTime, endTime string,
+	nextToken string,
+	maxResults int,
 ) ([]map[string]any, string) {
 	b.mu.RLock("GetFindingHistory")
 	defer b.mu.RUnlock()
 
-	// Return empty history since we don't track history
-	return []map[string]any{}, ""
+	productArn, _ := ident[keyProductArn].(string)
+	id, _ := ident["Id"].(string)
+	key := findingKey(productArn, id)
+
+	start, hasStart := parseHistoryTime(startTime)
+	end, hasEnd := parseHistoryTime(endTime)
+
+	var filtered []map[string]any
+
+	for _, rec := range b.findingHistory[key] {
+		ts, _ := rec["UpdateTime"].(string)
+
+		t, err := time.Parse(time.RFC3339, ts)
+		if err == nil {
+			if hasStart && t.Before(start) {
+				continue
+			}
+
+			if hasEnd && t.After(end) {
+				continue
+			}
+		}
+
+		filtered = append(filtered, rec)
+	}
+
+	return paginateSlice(filtered, nextToken, maxResults, maxFindingHistoryResults)
 }
 
-func (b *InMemoryBackend) GetFindingsV2(
-	filters map[string]any,
-	sortCriteria []map[string]any,
-	nextToken string,
-	maxResults int,
-) ([]map[string]any, string) {
-	// Delegate to existing GetFindings – V2 uses same store
-	return b.GetFindings(filters, sortCriteria, nextToken, maxResults)
-}
+// parseHistoryTime parses an ISO-8601 GetFindingHistory StartTime/EndTime
+// bound. An empty or malformed value reports hasTime=false so the caller
+// treats the bound as unset (matching AWS's documented "if you provide
+// neither StartTime nor EndTime" behavior).
+func parseHistoryTime(s string) (time.Time, bool) {
+	if s == "" {
+		return time.Time{}, false
+	}
 
-func (b *InMemoryBackend) BatchUpdateFindingsV2(
-	findingIdentifiers []map[string]any,
-	updates map[string]any,
-) ([]map[string]any, []map[string]any) {
-	return b.BatchUpdateFindings(findingIdentifiers, updates)
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	return t, true
 }
 
 func (b *InMemoryBackend) GetFindingStatisticsV2(groupByAttributes []string) []map[string]any {
