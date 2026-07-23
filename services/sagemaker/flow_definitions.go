@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -32,6 +33,40 @@ func cloneFlowDefinition(f *FlowDefinition) *FlowDefinition {
 	cp.Tags = maps.Clone(f.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime as an AWS awsjson1.1 epoch-seconds number
+// rather than Go's default RFC3339 string — this struct is marshaled
+// directly by handleDescribeFlowDefinition.
+func (f *FlowDefinition) MarshalJSON() ([]byte, error) {
+	type alias FlowDefinition
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{
+		alias:        (*alias)(f),
+		CreationTime: epochSeconds(f.CreationTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [FlowDefinition.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (f *FlowDefinition) UnmarshalJSON(data []byte) error {
+	type alias FlowDefinition
+
+	aux := struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{alias: (*alias)(f)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	f.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+
+	return nil
 }
 
 // CreateFlowDefinition creates a flow definition.

@@ -236,8 +236,9 @@ func (b *InMemoryBackend) StopProcessingJob(ctx context.Context, name string) er
 		b.mu.Lock("StopProcessingJob.goroutine")
 		defer b.mu.Unlock()
 
-		if pj2, ok2 := b.processingJobsStore(region).Get(name); ok2 && pj2.ProcessingJobStatus == "Stopping" {
-			pj2.ProcessingJobStatus = "Stopped"
+		pj2, ok2 := b.processingJobsStore(region).Get(name)
+		if ok2 && pj2.ProcessingJobStatus == notebookStatusStopping {
+			pj2.ProcessingJobStatus = pipelineStatusStopped
 			pj2.LastModifiedTime = time.Now()
 		}
 	})

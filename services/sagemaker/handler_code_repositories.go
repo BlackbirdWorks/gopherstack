@@ -108,8 +108,8 @@ func (h *Handler) handleListCodeRepositories(ctx context.Context, body []byte) (
 		summaries = append(summaries, map[string]any{
 			"CodeRepositoryName": r.CodeRepositoryName,
 			keyCodeRepositoryArn: r.CodeRepositoryArn,
-			keyCreationTime:      r.CreationTime,
-			keyLastModifiedTime:  r.LastModifiedTime,
+			keyCreationTime:      epochSeconds(r.CreationTime),
+			keyLastModifiedTime:  epochSeconds(r.LastModifiedTime),
 		})
 	}
 

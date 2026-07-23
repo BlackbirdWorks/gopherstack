@@ -81,8 +81,8 @@ func (h *Handler) handleListInferenceComponents(ctx context.Context, body []byte
 			keyInferenceComponentArn:   c.InferenceComponentArn,
 			"EndpointName":             c.EndpointName,
 			"InferenceComponentStatus": c.InferenceComponentStatus,
-			keyCreationTime:            c.CreationTime,
-			keyLastModifiedTime:        c.LastModifiedTime,
+			keyCreationTime:            epochSeconds(c.CreationTime),
+			keyLastModifiedTime:        epochSeconds(c.LastModifiedTime),
 		})
 	}
 

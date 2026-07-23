@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -34,6 +35,44 @@ func cloneInferenceExperiment(e *InferenceExperiment) *InferenceExperiment {
 	cp.Tags = maps.Clone(e.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeInferenceExperiment.
+func (e *InferenceExperiment) MarshalJSON() ([]byte, error) {
+	type alias InferenceExperiment
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(e),
+		CreationTime:     epochSeconds(e.CreationTime),
+		LastModifiedTime: epochSeconds(e.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [InferenceExperiment.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (e *InferenceExperiment) UnmarshalJSON(data []byte) error {
+	type alias InferenceExperiment
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(e)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	e.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	e.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateInferenceExperiment creates an inference experiment.

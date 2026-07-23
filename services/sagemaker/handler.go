@@ -897,6 +897,42 @@ func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix())
 }
 
+// epochSecondsPtr is the nil-safe, pointer-preserving variant of
+// [epochSeconds] for optional timestamp fields (`*time.Time` in the backend
+// model, `json:"X,omitempty"` on the wire): a nil input stays nil so
+// `omitempty` still drops the field, while a non-nil input is converted to
+// an epoch-seconds float64 instead of Go's default RFC3339 string encoding.
+func epochSecondsPtr(t *time.Time) *float64 {
+	if t == nil {
+		return nil
+	}
+
+	v := epochSeconds(*t)
+
+	return &v
+}
+
+// timeFromEpochSeconds is the inverse of [epochSeconds] — it is used by the
+// paired UnmarshalJSON methods that accompany every MarshalJSON override in
+// this package, so that a struct's own persistence.go snapshot/restore round
+// trip (which marshals/unmarshals these same structs directly) stays
+// symmetric with the epoch-seconds wire encoding used for API responses.
+func timeFromEpochSeconds(f float64) time.Time {
+	return time.Unix(int64(f), 0).UTC()
+}
+
+// timeFromEpochSecondsPtr is the nil-safe pointer variant of
+// [timeFromEpochSeconds], pairing with [epochSecondsPtr].
+func timeFromEpochSecondsPtr(f *float64) *time.Time {
+	if f == nil {
+		return nil
+	}
+
+	v := timeFromEpochSeconds(*f)
+
+	return &v
+}
+
 // tagObject represents a SageMaker tag in the JSON API format.
 type tagObject struct {
 	Key   string `json:"Key"`

@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -38,6 +39,44 @@ func cloneMonitoringSchedule(ms *MonitoringSchedule) *MonitoringSchedule {
 	cp.Tags = maps.Clone(ms.Tags)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings — this
+// struct is marshaled directly by handleDescribeMonitoringSchedule.
+func (ms *MonitoringSchedule) MarshalJSON() ([]byte, error) {
+	type alias MonitoringSchedule
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(ms),
+		CreationTime:     epochSeconds(ms.CreationTime),
+		LastModifiedTime: epochSeconds(ms.LastModifiedTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [MonitoringSchedule.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (ms *MonitoringSchedule) UnmarshalJSON(data []byte) error {
+	type alias MonitoringSchedule
+
+	aux := struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{alias: (*alias)(ms)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	ms.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+	ms.LastModifiedTime = timeFromEpochSeconds(aux.LastModifiedTime)
+
+	return nil
 }
 
 // CreateMonitoringSchedule creates a monitoring schedule.

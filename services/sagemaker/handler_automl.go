@@ -94,10 +94,12 @@ func (h *Handler) handleListAutoMLJobs(ctx context.Context, body []byte) ([]byte
 	summaries := make([]map[string]any, 0, len(items))
 	for _, j := range items {
 		summaries = append(summaries, map[string]any{
-			"AutoMLJobName":   j.AutoMLJobName,
-			"AutoMLJobArn":    j.AutoMLJobArn,
-			"AutoMLJobStatus": j.AutoMLJobStatus,
-			keyCreationTime:   j.CreationTime,
+			"AutoMLJobName":            j.AutoMLJobName,
+			"AutoMLJobArn":             j.AutoMLJobArn,
+			"AutoMLJobStatus":          j.AutoMLJobStatus,
+			"AutoMLJobSecondaryStatus": j.AutoMLJobSecondaryStatus,
+			keyCreationTime:            epochSeconds(j.CreationTime),
+			keyLastModifiedTime:        epochSeconds(j.LastModifiedTime),
 		})
 	}
 

@@ -368,22 +368,81 @@ type Cluster struct {
 	InstanceGroups []ClusterInstanceGroup  `json:"InstanceGroups,omitempty"`
 }
 
+// ModelPackageStatusItem mirrors AWS's ModelPackageStatusItem: the outcome of
+// one validation or image-scan check run against a model package.
+type ModelPackageStatusItem struct {
+	Name          string `json:"Name"`
+	Status        string `json:"Status"`
+	FailureReason string `json:"FailureReason,omitempty"`
+}
+
+// ModelPackageStatusDetails mirrors AWS's ModelPackageStatusDetails: the
+// overall validation/scan status of a model package. ValidationStatuses is
+// "This member is required" in the real DescribeModelPackageOutput — it must
+// always be emitted (as an empty list when no validation profiles ran),
+// never omitted.
+type ModelPackageStatusDetails struct {
+	ValidationStatuses []ModelPackageStatusItem `json:"ValidationStatuses"`
+	ImageScanStatuses  []ModelPackageStatusItem `json:"ImageScanStatuses,omitempty"`
+}
+
 // ModelPackage represents a SageMaker model package.
 type ModelPackage struct {
-	CreationTime            time.Time         `json:"CreationTime"`
-	Tags                    map[string]string `json:"Tags,omitempty"`
-	ModelPackageName        string            `json:"ModelPackageName"`
-	ModelPackageArn         string            `json:"ModelPackageArn"`
-	ModelPackageGroupName   string            `json:"ModelPackageGroupName,omitempty"`
-	ModelPackageStatus      string            `json:"ModelPackageStatus"`
-	ModelApprovalStatus     string            `json:"ModelApprovalStatus,omitempty"`
-	ModelPackageDescription string            `json:"ModelPackageDescription,omitempty"`
+	CreationTime              time.Time                 `json:"CreationTime"`
+	Tags                      map[string]string         `json:"Tags,omitempty"`
+	ModelPackageName          string                    `json:"ModelPackageName"`
+	ModelPackageArn           string                    `json:"ModelPackageArn"`
+	ModelPackageGroupName     string                    `json:"ModelPackageGroupName,omitempty"`
+	ModelPackageStatus        string                    `json:"ModelPackageStatus"`
+	ModelApprovalStatus       string                    `json:"ModelApprovalStatus,omitempty"`
+	ModelPackageDescription   string                    `json:"ModelPackageDescription,omitempty"`
+	ModelPackageStatusDetails ModelPackageStatusDetails `json:"ModelPackageStatusDetails"`
 }
 
 // cloneModelPackage returns a deep copy of mp.
 func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 	cp := *mp
 	cp.Tags = maps.Clone(mp.Tags)
+	cp.ModelPackageStatusDetails.ValidationStatuses = append(
+		[]ModelPackageStatusItem{}, mp.ModelPackageStatusDetails.ValidationStatuses...,
+	)
+	cp.ModelPackageStatusDetails.ImageScanStatuses = append(
+		[]ModelPackageStatusItem{}, mp.ModelPackageStatusDetails.ImageScanStatuses...,
+	)
 
 	return &cp
+}
+
+// MarshalJSON emits CreationTime as an AWS awsjson1.1 epoch-seconds number
+// rather than Go's default RFC3339 string — this struct is marshaled
+// directly by handleDescribeModelPackage.
+func (mp *ModelPackage) MarshalJSON() ([]byte, error) {
+	type alias ModelPackage
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{
+		alias:        (*alias)(mp),
+		CreationTime: epochSeconds(mp.CreationTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [ModelPackage.MarshalJSON], read by
+// persistence.go's snapshot restore path.
+func (mp *ModelPackage) UnmarshalJSON(data []byte) error {
+	type alias ModelPackage
+
+	aux := struct {
+		*alias
+		CreationTime float64 `json:"CreationTime"`
+	}{alias: (*alias)(mp)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	mp.CreationTime = timeFromEpochSeconds(aux.CreationTime)
+
+	return nil
 }

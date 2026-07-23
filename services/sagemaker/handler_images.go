@@ -88,8 +88,8 @@ func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, er
 			"ImageName":         img.ImageName,
 			"ImageArn":          img.ImageArn,
 			"ImageStatus":       img.ImageStatus,
-			keyCreationTime:     img.CreationTime,
-			keyLastModifiedTime: img.LastModifiedTime,
+			keyCreationTime:     epochSeconds(img.CreationTime),
+			keyLastModifiedTime: epochSeconds(img.LastModifiedTime),
 		})
 	}
 
@@ -215,8 +215,8 @@ func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]b
 			"ImageVersionArn":    iv.ImageVersionArn,
 			"ImageVersionStatus": iv.ImageVersionStatus,
 			"Version":            iv.Version,
-			keyCreationTime:      iv.CreationTime,
-			keyLastModifiedTime:  iv.LastModifiedTime,
+			keyCreationTime:      epochSeconds(iv.CreationTime),
+			keyLastModifiedTime:  epochSeconds(iv.LastModifiedTime),
 		})
 	}
 

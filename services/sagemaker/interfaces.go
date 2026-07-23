@@ -123,6 +123,7 @@ type StorageBackend interface {
 	CreateHyperParameterTuningJob(
 		ctx context.Context,
 		name, strategy string,
+		limits HPResourceLimits,
 		tags map[string]string,
 	) (*HyperParameterTuningJob, error)
 	DescribeHyperParameterTuningJob(ctx context.Context, name string) (*HyperParameterTuningJob, error)

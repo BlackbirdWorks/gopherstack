@@ -227,7 +227,7 @@ func (b *InMemoryBackend) StopTransformJob(ctx context.Context, name string) err
 		if tj2, found := b.transformJobsStore(region).
 			Get(name); found &&
 			tj2.TransformJobStatus == pipelineStatusStopping {
-			tj2.TransformJobStatus = "Stopped"
+			tj2.TransformJobStatus = pipelineStatusStopped
 			tj2.LastModifiedTime = time.Now()
 		}
 	})

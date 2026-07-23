@@ -114,8 +114,8 @@ func (h *Handler) handleListCompilationJobs(ctx context.Context, body []byte) ([
 			"CompilationJobName":   j.CompilationJobName,
 			"CompilationJobArn":    j.CompilationJobArn,
 			"CompilationJobStatus": j.CompilationJobStatus,
-			keyCreationTime:        j.CreationTime,
-			keyLastModifiedTime:    j.LastModifiedTime,
+			keyCreationTime:        epochSeconds(j.CreationTime),
+			keyLastModifiedTime:    epochSeconds(j.LastModifiedTime),
 		})
 	}
 
