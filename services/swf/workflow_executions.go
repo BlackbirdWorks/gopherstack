@@ -271,6 +271,107 @@ func (b *InMemoryBackend) registerExecutionOrderLocked(key string) {
 	}
 }
 
+// childLink identifies the parent execution/decision when a new execution is
+// being created as the child of a StartChildWorkflowExecution decision (see
+// decision_orchestration.go). nil for a top-level (non-child) execution.
+type childLink struct {
+	parentWorkflowID       string
+	parentRunID            string
+	parentInitiatedEventID int64
+}
+
+// createExecutionLocked is the shared core behind StartWorkflowExecution,
+// ContinueAsNewWorkflowExecution, and StartChildWorkflowExecution: it rejects
+// a workflowId that already has an open run, stores the new WorkflowExecution,
+// appends its WorkflowExecutionStarted history event, and enqueues its
+// initial decision task. continuedFromRunID and parent are both optional and
+// mutually exclusive in practice (continuation vs. child-start); pass "" /
+// nil when neither applies (the plain StartWorkflowExecution case).
+// Caller must hold the write lock.
+func (b *InMemoryBackend) createExecutionLocked(
+	input StartWorkflowExecutionInput,
+	defaults startExecutionDefaults,
+	continuedFromRunID string,
+	parent *childLink,
+) (*WorkflowExecution, error) {
+	key := input.Domain + ":" + input.WorkflowID
+
+	if existing, exists := b.executions.Get(key); exists && existing.Status == statusRunning {
+		return nil, fmt.Errorf("%w: %s", ErrWorkflowAlreadyStarted, input.WorkflowID)
+	}
+
+	b.registerExecutionOrderLocked(key)
+
+	runID := input.RunID
+	if runID == "" {
+		runID = uuid.New().String()
+	}
+
+	now := float64(time.Now().UnixMilli()) / milliDivisor
+	exec := &WorkflowExecution{
+		Domain:                       input.Domain,
+		WorkflowID:                   input.WorkflowID,
+		RunID:                        runID,
+		Status:                       statusRunning,
+		StartTimestamp:               now,
+		WorkflowTypeName:             input.WorkflowTypeName,
+		WorkflowTypeVersion:          input.WorkflowTypeVersion,
+		TaskList:                     defaults.taskList,
+		Input:                        input.Input,
+		TagList:                      input.TagList,
+		ChildPolicy:                  defaults.childPolicy,
+		LambdaRole:                   defaults.lambdaRole,
+		ExecutionStartToCloseTimeout: defaults.execTimeout,
+		TaskStartToCloseTimeout:      defaults.taskTimeout,
+		TaskPriority:                 input.TaskPriority,
+	}
+	if parent != nil {
+		exec.ParentWorkflowID = parent.parentWorkflowID
+		exec.ParentRunID = parent.parentRunID
+		exec.ParentInitiatedEventID = parent.parentInitiatedEventID
+	}
+	b.executions.Put(exec)
+
+	startedAttrs := map[string]any{
+		attrInput:       input.Input,
+		attrChildPolicy: defaults.childPolicy,
+		attrTaskList:    map[string]any{attrName: defaults.taskList},
+		attrWorkflowType: map[string]any{
+			attrName:    input.WorkflowTypeName,
+			attrVersion: input.WorkflowTypeVersion,
+		},
+		attrExecToCloseTO: defaults.execTimeout,
+		attrTaskToCloseTO: defaults.taskTimeout,
+		attrLambdaRole:    defaults.lambdaRole,
+		attrTagList:       input.TagList,
+	}
+	if continuedFromRunID != "" {
+		startedAttrs["continuedExecutionRunId"] = continuedFromRunID
+	}
+	if parent != nil {
+		startedAttrs["parentInitiatedEventId"] = parent.parentInitiatedEventID
+		startedAttrs["parentWorkflowExecution"] = map[string]any{
+			attrWorkflowID: parent.parentWorkflowID,
+			attrRunID:      parent.parentRunID,
+		}
+	}
+	b.appendHistoryEventLocked(input.Domain, input.WorkflowID, "WorkflowExecutionStarted", map[string]any{
+		eventAttrKey("WorkflowExecutionStarted"): startedAttrs,
+	})
+
+	// Real AWS schedules the first decision task immediately after starting an
+	// execution, so a decider can PollForDecisionTask and see the
+	// WorkflowExecutionStarted event without any other event (signal, cancel
+	// request, activity completion) first triggering one. Without this, a
+	// freshly started workflow with no other stimulus never gets its first
+	// decision task and stays OPEN forever.
+	b.enqueueDecisionTaskLocked(input.Domain, input.WorkflowID)
+
+	cp := *exec
+
+	return &cp, nil
+}
+
 // StartWorkflowExecution starts a new workflow execution.
 // It validates that the referenced WorkflowType exists and is REGISTERED.
 func (b *InMemoryBackend) StartWorkflowExecution(
@@ -292,69 +393,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 		return nil, err
 	}
 
-	runID := input.RunID
-	if runID == "" {
-		runID = uuid.New().String()
-	}
-
-	key := input.Domain + ":" + input.WorkflowID
-
-	// Reject if there is already an open (RUNNING) execution for this workflowId.
-	if existing, exists := b.executions.Get(key); exists && existing.Status == statusRunning {
-		return nil, fmt.Errorf("%w: %s", ErrWorkflowAlreadyStarted, input.WorkflowID)
-	}
-
-	b.registerExecutionOrderLocked(key)
-
-	now := float64(time.Now().UnixMilli()) / milliDivisor
-	exec := &WorkflowExecution{
-		Domain:                       input.Domain,
-		WorkflowID:                   input.WorkflowID,
-		RunID:                        runID,
-		Status:                       statusRunning,
-		StartTimestamp:               now,
-		WorkflowTypeName:             input.WorkflowTypeName,
-		WorkflowTypeVersion:          input.WorkflowTypeVersion,
-		TaskList:                     defaults.taskList,
-		Input:                        input.Input,
-		TagList:                      input.TagList,
-		ChildPolicy:                  defaults.childPolicy,
-		LambdaRole:                   defaults.lambdaRole,
-		ExecutionStartToCloseTimeout: defaults.execTimeout,
-		TaskStartToCloseTimeout:      defaults.taskTimeout,
-		TaskPriority:                 input.TaskPriority,
-	}
-	b.executions.Put(exec)
-
-	attrKey := eventAttrKey("WorkflowExecutionStarted")
-	attrs := map[string]any{
-		attrKey: map[string]any{
-			attrInput:     input.Input,
-			"childPolicy": defaults.childPolicy,
-			"taskList":    map[string]any{attrName: defaults.taskList},
-			"workflowType": map[string]any{
-				attrName:  input.WorkflowTypeName,
-				"version": input.WorkflowTypeVersion,
-			},
-			"executionStartToCloseTimeout": defaults.execTimeout,
-			"taskStartToCloseTimeout":      defaults.taskTimeout,
-			"lambdaRole":                   defaults.lambdaRole,
-			"tagList":                      input.TagList,
-		},
-	}
-	b.appendHistoryEventLocked(input.Domain, input.WorkflowID, "WorkflowExecutionStarted", attrs)
-
-	// Real AWS schedules the first decision task immediately after starting an
-	// execution, so a decider can PollForDecisionTask and see the
-	// WorkflowExecutionStarted event without any other event (signal, cancel
-	// request, activity completion) first triggering one. Without this, a
-	// freshly started workflow with no other stimulus never gets its first
-	// decision task and stays OPEN forever.
-	b.enqueueDecisionTaskLocked(input.Domain, input.WorkflowID)
-
-	cp := *exec
-
-	return &cp, nil
+	return b.createExecutionLocked(input, defaults, "", nil)
 }
 
 // TerminateWorkflowExecution terminates a running workflow execution.
@@ -389,13 +428,14 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(
 	attrKey := eventAttrKey("WorkflowExecutionTerminated")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			attrReason:    reason,
-			attrDetails:   details,
-			"cause":       "OPERATOR_INITIATED",
-			"childPolicy": exec.ChildPolicy,
+			attrReason:      reason,
+			attrDetails:     details,
+			attrCause:       "OPERATOR_INITIATED",
+			attrChildPolicy: exec.ChildPolicy,
 		},
 	}
 	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionTerminated", attrs)
+	b.propagateChildClosureLocked(domain, exec, "ChildWorkflowExecutionTerminated", nil)
 
 	return nil
 }
@@ -417,8 +457,8 @@ func (b *InMemoryBackend) DescribeWorkflowExecution(
 	return &cp, nil
 }
 
-// openCountsLocked returns open activity/decision/timer counts for an execution.
-// Caller must hold at least RLock.
+// openCountsLocked returns open activity/decision/timer/child-workflow counts
+// for an execution. Caller must hold at least RLock.
 func (b *InMemoryBackend) openCountsLocked(domain, workflowID string) map[string]int {
 	activityCount := 0
 	for _, rec := range b.activeActivityTasks.All() {
@@ -435,11 +475,25 @@ func (b *InMemoryBackend) openCountsLocked(domain, workflowID string) map[string
 		}
 	}
 
+	timerCount := 0
+	if exec, ok := b.executions.Get(domain + ":" + workflowID); ok {
+		timerCount = len(exec.OpenTimerIDs)
+	}
+
+	childCount := 0
+	if exec, ok := b.executions.Get(domain + ":" + workflowID); ok {
+		for _, e := range b.executionsByDomain.Get(domain) {
+			if e.Status == statusRunning && e.ParentWorkflowID == workflowID && e.ParentRunID == exec.RunID {
+				childCount++
+			}
+		}
+	}
+
 	return map[string]int{
 		"openActivityTasks":           activityCount,
 		"openDecisionTasks":           decisionCount,
-		"openTimers":                  0,
-		"openChildWorkflowExecutions": 0,
+		"openTimers":                  timerCount,
+		"openChildWorkflowExecutions": childCount,
 	}
 }
 
@@ -514,7 +568,7 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 	attrKey := eventAttrKey("WorkflowExecutionCancelRequested")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"cause": "OPERATOR_INITIATED",
+			attrCause: "OPERATOR_INITIATED",
 		},
 	}
 	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionCancelRequested", attrs)

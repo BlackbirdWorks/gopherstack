@@ -191,14 +191,15 @@ type workflowExecutionRef struct {
 }
 
 type executionInfoOutput struct {
-	WorkflowType    *workflowTypeRef     `json:"workflowType,omitempty"`
-	Execution       workflowExecutionRef `json:"execution"`
-	ExecutionStatus string               `json:"executionStatus"`
-	CloseStatus     string               `json:"closeStatus,omitempty"`
-	TagList         []string             `json:"tagList,omitempty"`
-	StartTimestamp  float64              `json:"startTimestamp"`
-	CloseTimestamp  float64              `json:"closeTimestamp,omitempty"`
-	CancelRequested bool                 `json:"cancelRequested,omitempty"`
+	WorkflowType    *workflowTypeRef      `json:"workflowType,omitempty"`
+	Parent          *workflowExecutionRef `json:"parent,omitempty"`
+	Execution       workflowExecutionRef  `json:"execution"`
+	ExecutionStatus string                `json:"executionStatus"`
+	CloseStatus     string                `json:"closeStatus,omitempty"`
+	TagList         []string              `json:"tagList,omitempty"`
+	StartTimestamp  float64               `json:"startTimestamp"`
+	CloseTimestamp  float64               `json:"closeTimestamp,omitempty"`
+	CancelRequested bool                  `json:"cancelRequested,omitempty"`
 }
 
 type executionConfigOutput struct {
@@ -251,6 +252,9 @@ func (h *Handler) handleDescribeWorkflowExecution(
 	}
 	if exec.WorkflowTypeName != "" {
 		info.WorkflowType = &workflowTypeRef{Name: exec.WorkflowTypeName, Version: exec.WorkflowTypeVersion}
+	}
+	if exec.ParentWorkflowID != "" {
+		info.Parent = &workflowExecutionRef{WorkflowID: exec.ParentWorkflowID, RunID: exec.ParentRunID}
 	}
 
 	cfg := executionConfigOutput{
@@ -357,6 +361,9 @@ func executionToInfo(e WorkflowExecution) executionInfoOutput {
 	}
 	if e.WorkflowTypeName != "" {
 		info.WorkflowType = &workflowTypeRef{Name: e.WorkflowTypeName, Version: e.WorkflowTypeVersion}
+	}
+	if e.ParentWorkflowID != "" {
+		info.Parent = &workflowExecutionRef{WorkflowID: e.ParentWorkflowID, RunID: e.ParentRunID}
 	}
 
 	return info

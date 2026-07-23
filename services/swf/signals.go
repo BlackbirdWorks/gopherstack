@@ -32,8 +32,8 @@ func (b *InMemoryBackend) SignalWorkflowExecution(
 	attrKey := eventAttrKey("WorkflowExecutionSignaled")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			"signalName": signalName,
-			"input":      input,
+			attrSignalName: signalName,
+			attrInput:      input,
 		},
 	}
 	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionSignaled", attrs)

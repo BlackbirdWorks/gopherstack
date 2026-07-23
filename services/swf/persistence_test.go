@@ -1,6 +1,8 @@
 package swf_test
 
 import (
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -312,4 +314,98 @@ func TestSnapshotRestore_WorkflowTypes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "DEPRECATED", wt.Status)
 	assert.Equal(t, "wf desc", wt.Description)
+}
+
+// TestSnapshotRestore_ChildLinkAndOpenTimers verifies the fields added to
+// WorkflowExecution for the StartChildWorkflowExecution/parent-closure-
+// propagation and openTimers work (ParentWorkflowID/ParentRunID/
+// ParentInitiatedEventID/ParentStartedEventID/OpenTimerIDs) survive
+// snapshot/restore -- executions is a "clean" store.Table (see store.go), so
+// these need no special persistence.go wiring, but a restart losing a
+// child's parent link or its open timers would silently break
+// openChildWorkflowExecutions/openTimers and child-closure propagation after
+// every restart, so this is worth locking down explicitly.
+func TestSnapshotRestore_ChildLinkAndOpenTimers(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "childType", "1.0", "", swf.WorkflowTypeDefaults{}))
+
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain: "dom", WorkflowID: "parent-1", TaskList: "parent-tasks",
+	})
+	require.NoError(t, err)
+
+	parentToken := pollDecisionTask(t, b, "dom", "parent-tasks")
+	require.NoError(t, b.RespondDecisionTaskCompleted(parentToken, "", []swf.Decision{
+		{
+			DecisionType: "StartChildWorkflowExecution",
+			StartChildWorkflowExecutionAttrs: &swf.StartChildWorkflowExecutionDecisionAttrs{
+				WorkflowID:   "child-1",
+				WorkflowType: swf.WorkflowTypeRef{Name: "childType", Version: "1.0"},
+				TaskList:     "child-tasks",
+			},
+		},
+		{
+			DecisionType:    "StartTimer",
+			StartTimerAttrs: &swf.StartTimerDecisionAttrs{TimerID: "t1", StartToFireTimeout: "60"},
+		},
+	}))
+
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	b2 := swf.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), data))
+
+	child, err := b2.DescribeWorkflowExecution("dom", "child-1")
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", child.Status)
+
+	// openChildWorkflowExecutions/openTimers must reflect the restored
+	// ParentWorkflowID/ParentRunID and OpenTimerIDs, not 0 -- these come from
+	// the "clean" executions table (see store.go), which round-trips through
+	// backendSnapshot automatically, unlike decisionQueues/activityQueues
+	// (deliberately ephemeral, see the FullState test above), so this checks
+	// state directly rather than through a queue.
+	h2 := swf.NewHandler(b2)
+	rec := doSWFRequest(t, h2, "DescribeWorkflowExecution", map[string]any{
+		"domain":    "dom",
+		"execution": map[string]any{"workflowId": "parent-1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	openCounts, ok := body["openCounts"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(
+		t,
+		1,
+		openCounts["openChildWorkflowExecutions"],
+		0,
+		"ParentWorkflowID/ParentRunID must survive restore",
+	)
+	assert.InDelta(t, 1, openCounts["openTimers"], 0, "OpenTimerIDs must survive restore")
+
+	// The child-close-propagation link (ParentInitiatedEventID/
+	// ParentStartedEventID) must have survived too: completing the child
+	// after restore must still notify the parent. decisionQueues is
+	// deliberately ephemeral (see the FullState test's comment above), so
+	// re-seed the child's decision task the same way that test re-seeds
+	// activity/decision tasks post-restore.
+	b2.EnqueueDecisionTaskInternal("dom", "child-tasks", "child-1", child.RunID)
+	childToken := pollDecisionTask(t, b2, "dom", "child-tasks")
+	require.NoError(t, b2.RespondDecisionTaskCompleted(childToken, "", []swf.Decision{{
+		DecisionType:                   "CompleteWorkflowExecution",
+		CompleteWorkflowExecutionAttrs: &swf.CompleteWorkflowExecutionDecisionAttrs{Result: "done"},
+	}}))
+	events, _ := b2.GetWorkflowExecutionHistory("dom", "parent-1", 0, "", false)
+	var sawChildCompleted bool
+	for i := range events {
+		if events[i].EventType == "ChildWorkflowExecutionCompleted" {
+			sawChildCompleted = true
+		}
+	}
+	assert.True(t, sawChildCompleted, "parent link must survive restore for child-closure propagation")
 }
