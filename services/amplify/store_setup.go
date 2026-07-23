@@ -66,6 +66,9 @@ func backendEnvKeyFn(v *BackendEnvironment) string {
 func backendEnvAppIndexKeyFn(v *BackendEnvironment) string { return v.AppID }
 
 func artifactKeyFn(v *Artifact) string { return v.ArtifactID }
+func artifactJobIndexKeyFn(v *Artifact) string {
+	return jobKey(v.AppID, v.BranchName, v.JobID)
+}
 
 // registerAllTables registers every converted resource collection on
 // b.registry exactly once. It must be called during construction only
@@ -92,4 +95,5 @@ func registerAllTables(b *InMemoryBackend) {
 	b.backendEnvironmentsByApp = b.backendEnvironments.AddIndex("byApp", backendEnvAppIndexKeyFn)
 
 	b.artifacts = store.Register(b.registry, "artifacts", store.New(artifactKeyFn))
+	b.artifactsByJob = b.artifacts.AddIndex("byJob", artifactJobIndexKeyFn)
 }
