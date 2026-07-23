@@ -75,6 +75,11 @@ type retryStageExecutionInput struct {
 	RetryMode           string `json:"retryMode"`
 }
 
+// validRetryMode returns true if m is a valid StageRetryMode value.
+func validRetryMode(m string) bool {
+	return m == "FAILED_ACTIONS" || m == stageRetryModeAllActions
+}
+
 func (h *Handler) handleRetryStageExecution(
 	ctx context.Context,
 	in *retryStageExecutionInput,
@@ -83,7 +88,20 @@ func (h *Handler) handleRetryStageExecution(
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.RetryStageExecution(ctx, in.PipelineName, in.StageName, in.PipelineExecutionID)
+	if in.StageName == "" {
+		return nil, fmt.Errorf("%w: stageName is required", errInvalidRequest)
+	}
+
+	if in.PipelineExecutionID == "" {
+		return nil, fmt.Errorf("%w: pipelineExecutionId is required", errInvalidRequest)
+	}
+
+	if !validRetryMode(in.RetryMode) {
+		return nil, fmt.Errorf("%w: invalid retryMode %q, must be FAILED_ACTIONS or %s",
+			ErrValidation, in.RetryMode, stageRetryModeAllActions)
+	}
+
+	exec, err := h.Backend.RetryStageExecution(ctx, in.PipelineName, in.StageName, in.PipelineExecutionID, in.RetryMode)
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +123,14 @@ func (h *Handler) handleRollbackStage(
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
+	if in.StageName == "" {
+		return nil, fmt.Errorf("%w: stageName is required", errInvalidRequest)
+	}
+
+	if in.TargetPipelineExecutionID == "" {
+		return nil, fmt.Errorf("%w: targetPipelineExecutionId is required", errInvalidRequest)
+	}
+
 	exec, err := h.Backend.RollbackStage(ctx, in.PipelineName, in.StageName, in.TargetPipelineExecutionID)
 	if err != nil {
 		return nil, err
@@ -120,12 +146,27 @@ type overrideStageConditionInput struct {
 	ConditionType       string `json:"conditionType"`
 }
 
+// validConditionType returns true if t is a valid ConditionType value.
+func validConditionType(t string) bool { return t == "BEFORE_ENTRY" }
+
 func (h *Handler) handleOverrideStageCondition(
 	ctx context.Context,
 	in *overrideStageConditionInput,
 ) (*emptyOut, error) {
 	if in.PipelineName == "" {
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
+	}
+
+	if in.StageName == "" {
+		return nil, fmt.Errorf("%w: stageName is required", errInvalidRequest)
+	}
+
+	if in.PipelineExecutionID == "" {
+		return nil, fmt.Errorf("%w: pipelineExecutionId is required", errInvalidRequest)
+	}
+
+	if !validConditionType(in.ConditionType) {
+		return nil, fmt.Errorf("%w: invalid conditionType %q, must be BEFORE_ENTRY", ErrValidation, in.ConditionType)
 	}
 
 	if err := h.Backend.OverrideStageCondition(ctx, in.PipelineName, in.StageName, in.PipelineExecutionID); err != nil {

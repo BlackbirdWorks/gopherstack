@@ -75,6 +75,76 @@ func samplePipeline(name string) codepipeline.PipelineDeclaration {
 	}
 }
 
+// approvalPipeline returns a 3-stage pipeline (Source -> Approve -> Deploy)
+// whose middle stage is a single manual-approval action, used by tests that
+// exercise the approval-gate machine in action_engine.go/approvals.go:
+// StartPipelineExecution runs Source, then gates on Approve until
+// PutApprovalResult resolves it, and only then runs Deploy.
+func approvalPipeline(name string) codepipeline.PipelineDeclaration {
+	p := samplePipeline(name)
+	p.Stages = append(p.Stages,
+		codepipeline.Stage{
+			Name: "Approve",
+			Actions: []codepipeline.Action{
+				{
+					Name: "ApprovalAction",
+					ActionTypeID: codepipeline.ActionTypeID{
+						Category: "Approval",
+						Owner:    "AWS",
+						Provider: "Manual",
+						Version:  "1",
+					},
+				},
+			},
+		},
+		codepipeline.Stage{
+			Name: "Deploy",
+			Actions: []codepipeline.Action{
+				{
+					Name: "DeployAction",
+					ActionTypeID: codepipeline.ActionTypeID{
+						Category: "Deploy",
+						Owner:    "AWS",
+						Provider: "S3",
+						Version:  "1",
+					},
+				},
+			},
+		},
+	)
+
+	return p
+}
+
+// approvalToken extracts the pending approval token for stageName/actionName
+// from a decoded GetPipelineState response body.
+func approvalToken(t *testing.T, body map[string]any, stageName, actionName string) string {
+	t.Helper()
+
+	stageStates, _ := body["stageStates"].([]any)
+	for _, s := range stageStates {
+		stage, _ := s.(map[string]any)
+		if stage["stageName"] != stageName {
+			continue
+		}
+
+		actionStates, _ := stage["actionStates"].([]any)
+		for _, a := range actionStates {
+			action, _ := a.(map[string]any)
+			if action["actionName"] != actionName {
+				continue
+			}
+
+			latest, _ := action["latestExecution"].(map[string]any)
+			token, _ := latest["token"].(string)
+
+			return token
+		}
+	}
+
+	return ""
+}
+
 func decodeBody(t *testing.T, data []byte) map[string]any {
 	t.Helper()
 

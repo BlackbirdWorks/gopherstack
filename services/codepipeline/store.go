@@ -64,8 +64,45 @@ const (
 	// statusStopped is the terminal status for a manually stopped pipeline execution.
 	statusStopped = "Stopped"
 
+	// statusFailed is the terminal status for a failed pipeline execution or
+	// action execution (reached only via a rejected manual approval in this
+	// backend, since every action otherwise completes synchronously).
+	statusFailed = "Failed"
+
+	// statusActionAbandoned is the terminal status for an action execution
+	// abandoned by StopPipelineExecution while awaiting manual approval.
+	statusActionAbandoned = "Abandoned"
+
 	// ruleOwnerAWS is the owner value for AWS-managed CodePipeline rule types.
 	ruleOwnerAWS = "AWS"
+
+	// actionCategoryApproval is the ActionTypeID.Category value for manual
+	// approval actions; it is the only category this backend treats
+	// specially (as a gate on StartPipelineExecution/PutApprovalResult),
+	// matching real AWS's built-in Approval/AWS/Manual/1 action type.
+	actionCategoryApproval = "Approval"
+
+	// approvalStatusApproved and approvalStatusRejected are the valid
+	// ApprovalResult.Status values for PutApprovalResult.
+	approvalStatusApproved = "Approved"
+	approvalStatusRejected = "Rejected"
+
+	// stageRetryModeAllActions is the StageRetryMode value that resets every
+	// action in the stage, not just the failed ones (FAILED_ACTIONS, the
+	// default/only other mode, is handled without a named constant since it
+	// is simply "not ALL_ACTIONS").
+	stageRetryModeAllActions = "ALL_ACTIONS"
+
+	// executionTypeStandard and executionTypeRollback are the valid
+	// PipelineExecution ExecutionType values.
+	executionTypeStandard = "STANDARD"
+	executionTypeRollback = "ROLLBACK"
+
+	// triggerTypeManualRollback and triggerTypePutActionRevision are
+	// ExecutionTrigger.TriggerType values this backend can produce, beyond
+	// triggerTypeStartExecution (handler_pipeline_executions.go).
+	triggerTypeManualRollback    = "ManualRollback"
+	triggerTypePutActionRevision = "PutActionRevision"
 )
 
 // InMemoryBackend is a thread-safe in-memory store for CodePipeline resources.
@@ -94,8 +131,9 @@ type InMemoryBackend struct {
 	stageTransitions           *store.Table[StageTransitionState]
 	stageTransitionsByPipeline *store.Index[StageTransitionState]
 	registry                   *store.Registry
-	executions                 map[string]map[string][]*PipelineExecution // region → pipelineName → executions
-	actionExecutions           map[string]map[string][]*ActionExecution   // region → pipelineName → action executions
+	executions                 map[string]map[string][]*PipelineExecution  // region → pipelineName → executions
+	actionExecutions           map[string]map[string][]*ActionExecution    // region → pipelineName → action executions
+	actionRevisions            map[string]map[string]*ActionRevisionRecord // region → "pipeline/stage/action" → revision
 	mu                         *lockmetrics.RWMutex
 	accountID                  string
 	region                     string
@@ -107,6 +145,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		registry:         store.NewRegistry(),
 		executions:       make(map[string]map[string][]*PipelineExecution),
 		actionExecutions: make(map[string]map[string][]*ActionExecution),
+		actionRevisions:  make(map[string]map[string]*ActionRevisionRecord),
 		accountID:        accountID,
 		region:           region,
 		mu:               lockmetrics.New("codepipeline-" + region),
@@ -141,6 +180,22 @@ func (b *InMemoryBackend) actionExecutionsStore(region string) map[string][]*Act
 	return b.actionExecutions[region]
 }
 
+// actionRevisionKey builds the composite key PutActionRevision/GetPipelineState
+// use to identify a single pipeline/stage/action within actionRevisionsStore.
+func actionRevisionKey(pipelineName, stageName, actionName string) string {
+	return pipelineName + "/" + stageName + "/" + actionName
+}
+
+// actionRevisionsStore returns the per-region action-revision map for
+// region, lazily creating it. Callers must hold b.mu.
+func (b *InMemoryBackend) actionRevisionsStore(region string) map[string]*ActionRevisionRecord {
+	if b.actionRevisions[region] == nil {
+		b.actionRevisions[region] = make(map[string]*ActionRevisionRecord)
+	}
+
+	return b.actionRevisions[region]
+}
+
 // Region returns the default region for this backend instance.
 func (b *InMemoryBackend) Region() string { return b.region }
 
@@ -152,6 +207,7 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 	b.executions = make(map[string]map[string][]*PipelineExecution)
 	b.actionExecutions = make(map[string]map[string][]*ActionExecution)
+	b.actionRevisions = make(map[string]map[string]*ActionRevisionRecord)
 }
 
 func (b *InMemoryBackend) buildPipelineARN(region, name string) string {

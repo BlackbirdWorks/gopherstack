@@ -309,12 +309,21 @@ type Tag struct {
 }
 
 // PipelineExecution represents a stored pipeline execution.
+//
+// RollbackTargetExecutionID is set only for ExecutionType ROLLBACK
+// executions created by RollbackStage; it mirrors the real
+// PipelineRollbackMetadata.RollbackTargetPipelineExecutionId field.
 type PipelineExecution struct {
-	PipelineName        string `json:"pipelineName"`
-	PipelineExecutionID string `json:"pipelineExecutionId"`
-	Status              string `json:"status"`
-	Trigger             string `json:"trigger,omitempty"`
-	PipelineVersion     int    `json:"pipelineVersion"`
+	StartTime                 time.Time `json:"startTime"`
+	LastUpdateTime            time.Time `json:"lastUpdateTime"`
+	PipelineName              string    `json:"pipelineName"`
+	PipelineExecutionID       string    `json:"pipelineExecutionId"`
+	Status                    string    `json:"status"`
+	Trigger                   string    `json:"trigger,omitempty"`
+	ExecutionMode             string    `json:"executionMode,omitempty"`
+	ExecutionType             string    `json:"executionType,omitempty"`
+	RollbackTargetExecutionID string    `json:"rollbackTargetExecutionId,omitempty"`
+	PipelineVersion           int       `json:"pipelineVersion"`
 }
 
 // StageState represents the state of a pipeline stage.
@@ -326,6 +335,12 @@ type StageState struct {
 }
 
 // ActionExecution records a single action's execution within a pipeline run.
+//
+// Token carries the system-generated approval token while the action is a
+// gating Approval-category action awaiting PutApprovalResult (InProgress with
+// a non-empty Token); it is cleared once the approval is resolved. Summary
+// carries the reviewer's PutApprovalResult summary, mirroring the real
+// ActionExecution.Summary field.
 type ActionExecution struct {
 	StartTime           time.Time `json:"startTime"`
 	LastUpdateTime      time.Time `json:"lastUpdateTime"`
@@ -334,4 +349,15 @@ type ActionExecution struct {
 	StageName           string    `json:"stageName"`
 	ActionName          string    `json:"actionName"`
 	Status              string    `json:"status"`
+	Token               string    `json:"token,omitempty"`
+	Summary             string    `json:"summary,omitempty"`
+}
+
+// ActionRevisionRecord tracks the most recent ActionRevision submitted via
+// PutActionRevision for a single pipeline/stage/action, surfaced back through
+// GetPipelineState's ActionState.CurrentRevision.
+type ActionRevisionRecord struct {
+	RevisionID       string  `json:"revisionId"`
+	RevisionChangeID string  `json:"revisionChangeId"`
+	Created          float64 `json:"created"`
 }

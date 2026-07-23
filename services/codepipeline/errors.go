@@ -31,4 +31,19 @@ var (
 	ErrExecutionNotFound = awserr.New("PipelineExecutionNotFoundException", awserr.ErrNotFound)
 	// ErrVersionNotFound is returned when a requested pipeline version does not exist.
 	ErrVersionNotFound = awserr.New("PipelineVersionNotFoundException", awserr.ErrNotFound)
+	// ErrActionNotFound is returned when a stage/action name does not exist,
+	// or (for PutApprovalResult) does not identify an Approval-category action.
+	ErrActionNotFound = awserr.New("ActionNotFoundException", awserr.ErrNotFound)
+	// ErrInvalidApprovalToken is returned when PutApprovalResult's token does
+	// not match the pending approval request's system-generated token.
+	ErrInvalidApprovalToken = awserr.New("InvalidApprovalTokenException", awserr.ErrInvalidParameter)
+	// ErrApprovalAlreadyCompleted is returned when PutApprovalResult targets
+	// an action with no open (InProgress) approval request.
+	ErrApprovalAlreadyCompleted = awserr.New("ApprovalAlreadyCompletedException", awserr.ErrConflict)
+	// ErrStageNotRetryable is returned when RetryStageExecution targets a
+	// stage/execution pair with no failed action to retry.
+	ErrStageNotRetryable = awserr.New("StageNotRetryableException", awserr.ErrInvalidParameter)
+	// ErrUnableToRollbackStage is returned when RollbackStage's target
+	// execution never completed the given stage successfully.
+	ErrUnableToRollbackStage = awserr.New("UnableToRollbackStageException", awserr.ErrInvalidParameter)
 )
