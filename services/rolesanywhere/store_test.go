@@ -23,8 +23,8 @@ func TestReset_ClearsState(t *testing.T) {
 
 	b := newBackend(t)
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-	_, _ = b.CreateTrustAnchor(context.Background(), "reset-anchor", src, nil, nil)
-	_, _ = b.CreateProfile(context.Background(), "reset-profile", nil, nil, nil, nil, "", false)
+	_, _ = b.CreateTrustAnchor(context.Background(), "reset-anchor", src, nil, nil, nil)
+	_, _ = b.CreateProfile(context.Background(), "reset-profile", nil, nil, nil, nil, "", false, nil, nil)
 
 	b.Reset()
 
@@ -88,9 +88,9 @@ func TestSnapshotRestore(t *testing.T) {
 
 			b := newBackend(t)
 			src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
-			_, err := b.CreateTrustAnchor(context.Background(), tt.anchorName, src, nil, nil)
+			_, err := b.CreateTrustAnchor(context.Background(), tt.anchorName, src, nil, nil, nil)
 			require.NoError(t, err)
-			_, err = b.CreateProfile(context.Background(), tt.profileName, nil, nil, nil, nil, "", false)
+			_, err = b.CreateProfile(context.Background(), tt.profileName, nil, nil, nil, nil, "", false, nil, nil)
 			require.NoError(t, err)
 
 			snap := b.Snapshot(t.Context())

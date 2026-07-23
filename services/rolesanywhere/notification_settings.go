@@ -21,10 +21,23 @@ func (b *InMemoryBackend) PutNotificationSettings(
 		return nil, ErrTrustAnchorNotFound
 	}
 
+	b.putNotificationSettingsLocked(region, trustAnchorID, settings)
+	ta.UpdatedAt = time.Now().UTC()
+
+	return copyTrustAnchor(ta), nil
+}
+
+// putNotificationSettingsLocked applies settings to trustAnchorID's stored
+// notification settings, stamping each with the backend's account ID as
+// AWS's NotificationSettingDetail.configuredBy (gopherstack never seeds
+// AWS-default settings, so every setting reaching here was customer
+// configured). Callers must already hold b.mu.
+func (b *InMemoryBackend) putNotificationSettingsLocked(region, trustAnchorID string, settings []NotificationSetting) {
 	nsStore := b.notificationSettingsStore(region)
 	existing := nsStore[trustAnchorID]
 
 	for _, ns := range settings {
+		ns.ConfiguredBy = b.accountID
 		updated := false
 
 		for i, e := range existing {
@@ -42,9 +55,6 @@ func (b *InMemoryBackend) PutNotificationSettings(
 	}
 
 	nsStore[trustAnchorID] = existing
-	ta.UpdatedAt = time.Now().UTC()
-
-	return copyTrustAnchor(ta), nil
 }
 
 // ResetNotificationSettings removes specified notification settings from a trust anchor.

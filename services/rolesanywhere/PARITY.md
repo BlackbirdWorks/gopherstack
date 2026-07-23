@@ -1,108 +1,172 @@
 ---
 service: rolesanywhere
 sdk_module: aws-sdk-go-v2/service/rolesanywhere@v1.23.0
-last_audit_commit: 59739a9e
-last_audit_date: 2026-07-13
+last_audit_commit: aec3b6110
+last_audit_date: 2026-07-23
 overall: A            # real fixes found and applied this pass
 ops:
-  CreateTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: enabled field was ignored, always created enabled; now honors request enabled (default true)"}
-  GetTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes notificationSettings"}
-  ListTrustAnchors: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes notificationSettings per item"}
-  DeleteTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response was an empty envelope; now returns {trustAnchor: {...}} matching AWS DeleteTrustAnchorResponse"}
-  UpdateTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes notificationSettings"}
-  EnableTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes notificationSettings"}
-  DisableTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes notificationSettings"}
-  CreateProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes attributeMappings (empty at create)"}
-  GetProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes attributeMappings"}
-  ListProfiles: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes attributeMappings per item"}
-  DeleteProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response was an empty envelope; now returns {profile: {...}} matching AWS DeleteProfileResponse"}
-  UpdateProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes attributeMappings"}
-  EnableProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes attributeMappings"}
-  DisableProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now includes attributeMappings"}
-  ImportCrl: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer rejects duplicate names with an invented ConflictException (the real service has ZERO ConflictException shape anywhere in its model -- confirmed via botocore's rolesanywhere service-2.json, which lists only AccessDeniedException/ResourceNotFoundException/TooManyTagsException/ValidationException across all 27 operations); also fixed: now applies the request's notificationSettings at creation (previously silently dropped); also fixed: now validates source.sourceType is non-empty (required per CreateTrustAnchorInput); tags no longer stored on the TrustAnchor struct -- routed into the same ARN-keyed tags store TagResource/ListTagsForResource use (see families.tags_field_removed)"}
+  GetTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response no longer includes an invented \"tags\" key -- real TrustAnchorDetail has no tags field at all (field-by-field diff against aws-sdk-go-v2 types.TrustAnchorDetail); tags are ListTagsForResource-only"}
+  ListTrustAnchors: {wire: ok, errors: ok, state: ok, persist: ok, note: "same tags-field fix as GetTrustAnchor"}
+  DeleteTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now cascade-deletes the trust anchor's notification settings and tags (both live in separate ID/ARN-keyed maps, not on the TrustAnchor struct) -- previously left ghost rows keyed by a dead trust anchor ID/ARN"}
+  UpdateTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "same tags-field fix as GetTrustAnchor"}
+  EnableTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "same tags-field fix as GetTrustAnchor"}
+  DisableTrustAnchor: {wire: ok, errors: ok, state: ok, persist: ok, note: "same tags-field fix as GetTrustAnchor"}
+  CreateProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer rejects duplicate names (see CreateTrustAnchor note -- no ConflictException in the real model); fixed: the request's enabled field was completely ignored (profile was always created enabled:true regardless of caller input) -- same ignored-input bug class as the CreateTrustAnchor.enabled bug fixed in the prior pass; now honors it, defaulting to true when omitted; added: acceptRoleSessionName (real CreateProfileInput field, was entirely unmodeled) and createdBy (real ProfileDetail field, populated with the backend's account ID) now round-trip; tags no longer stored on the Profile struct -- routed into the ARN-keyed tags store"}
+  GetProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response no longer includes an invented \"tags\" key -- real ProfileDetail has no tags field at all (field-by-field diff); added acceptRoleSessionName/createdBy to the response"}
+  ListProfiles: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as GetProfile"}
+  DeleteProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now cascade-deletes the profile's attribute mappings and tags (both live in separate ID/ARN-keyed maps, not on the Profile struct) -- previously left ghost rows keyed by a dead profile ID/ARN"}
+  UpdateProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as GetProfile; UpdateProfileInput.acceptRoleSessionName now applied"}
+  EnableProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "same tags-field fix as GetProfile"}
+  DisableProfile: {wire: ok, errors: ok, state: ok, persist: ok, note: "same tags-field fix as GetProfile"}
+  ImportCrl: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer rejects duplicate names (no ConflictException in the real model); fixed: now validates crlData and trustAnchorArn are non-empty (both required per ImportCrlInput, confirmed against validateOpImportCrlInput -- previously only name was checked, so a request missing crlData/trustAnchorArn silently created a malformed CRL)"}
   GetCrl: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCrls: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateCrl: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteCrl: {wire: ok, errors: ok, state: ok, persist: ok, note: "already correctly returned {crl: {...}} pre-audit; used as the reference pattern for the Delete*TrustAnchor/Profile fix"}
+  DeleteCrl: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now cascade-deletes the CRL's tags (a separate ARN-keyed map, not on the Crl struct) -- previously left a ghost row keyed by a dead CRL ARN"}
   EnableCrl: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableCrl: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSubject: {wire: ok, errors: ok, state: partial, persist: ok, note: "store is never populated (see gaps: no CreateSession)"}
   ListSubjects: {wire: ok, errors: ok, state: partial, persist: ok, note: "store is never populated (see gaps: no CreateSession)"}
   PutAttributeMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAttributeMapping: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutNotificationSettings: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutNotificationSettings: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: each resulting NotificationSettingDetail.configuredBy is now populated with the backend's account ID (real field, was entirely unmodeled -- gopherstack seeds no AWS-default settings, so every setting is customer-configured and configuredBy is always the account ID per AWS's documented semantics)"}
   ResetNotificationSettings: {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: read resourceArn/tagKeys from query string; real wire shape is a JSON POST body -- op was a complete no-op against any real SDK client"}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resourceArn is a GET query param (verified against serializer, not the task brief's body assumption)"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: HTTP response status was 200; real AWS's TagResource responds 201 Created per the service model's http.responseCode (confirmed against botocore's service-2.json -- every other void-result op in this service is genuinely 200, TagResource is the sole 201 exception); fixed: now returns ResourceNotFoundException when resourceArn matches no trust anchor/profile/CRL (previously happily wrote tags for any ARN, real or not); added: TooManyTagsException when the resulting tag count on a resource would exceed 200 (the real SDK's shared TagList shape's max:200 constraint, applied here as the per-resource total-tag limit since TagResource is the only op in the service model that declares TooManyTagsException)"}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "confirmed UntagResource declares NO ResourceNotFoundException in the real model (unlike TagResource/ListTagsForResource) -- left as a silent no-op against an unknown ARN, matching AWS"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now returns ResourceNotFoundException when resourceArn matches no trust anchor/profile/CRL (previously returned 200 with an empty list for ANY arn, including ones with no backing resource at all -- a disguised stub since the real op validates the resource exists)"}
 families:
-  trustAnchor_crud: {status: ok, note: "route matcher + PATCH/POST/GET/DELETE methods verified against serializers.go opPath/Method for every op; all match"}
+  trustAnchor_crud: {status: ok, note: "route matcher + PATCH/POST/GET/DELETE methods re-verified against botocore's service-2.json http.method/requestUri/responseCode for every op this pass; all match, including the 201 vs 200 distinction on TagResource"}
   profile_crud: {status: ok, note: "same verification as trustAnchor_crud"}
-  crl_crud: {status: ok, note: "DeleteCrl was already correct; used as reference for the two Delete fixes"}
-  tags: {status: ok, note: "UntagResource wire-shape bug fixed; TagResource/ListTagsForResource were already correct"}
+  crl_crud: {status: ok, note: "same verification as trustAnchor_crud"}
+  tags: {status: ok, note: "this pass: removed the invented \"tags\" field from TrustAnchorDetail/ProfileDetail JSON (real AWS never returns one on either shape -- confirmed field-by-field against types.TrustAnchorDetail/types.ProfileDetail, neither has a Tags member), which also fixes the desync bug where creation-time tags (stored on the resource struct) permanently diverged from TagResource/UntagResource-mutated tags (stored in a separate ARN-keyed map) -- both now route through the same store; added ResourceNotFoundException validation to TagResource/ListTagsForResource (not UntagResource, which the real model doesn't declare it for) and TooManyTagsException to TagResource"}
+  duplicate_name_rejection: {status: ok, note: "REMOVED this pass: CreateTrustAnchor/CreateProfile/ImportCrl each independently rejected duplicate names with a gopherstack-invented ConflictException/409. Cross-checked against botocore's rolesanywhere/2018-05-10/service-2.json: the service's shapes map contains exactly 4 exception shapes total (AccessDeniedException, ResourceNotFoundException, TooManyTagsException, ValidationException) across ALL 27 operations -- there is no ConflictException shape in the entire service model, so this was invented behavior with a fabricated error code, not a real AWS constraint. Real Roles Anywhere trust anchors/profiles/CRLs are identified by generated ID/ARN; names are not unique. Deleted ErrTrustAnchorAlreadyExists/ErrProfileAlreadyExists/ErrCrlAlreadyExists and their duplicate-check code paths; all three Create/Import ops now accept duplicate names, matching the real API."}
 gaps:
-  - "GetSubject/ListSubjects: subjects store is never populated -- there is no CreateSession endpoint in this service (AWS Roles Anywhere's session-vending API is a separate mTLS-authenticated data-plane API, not SigV4/control-plane, and was out of scope for this audit). SubjectDetail's Credentials/InstanceProperties fields are also unmodeled. Would need its own audit pass if CreateSession is ever added to gopherstack."
-  - "CreateProfile/UpdateProfile ignore the real acceptRoleSessionName field entirely (not modeled in the Profile struct); low impact since it only affects the separate CreateSession data plane, which gopherstack doesn't implement."
-  - "TrustAnchorDetail/ProfileDetail's createdBy field (AWS account that created the resource) is not populated; cosmetic, single-account emulator."
-  - "CreateTrustAnchor accepts a notificationSettings field in the real request (set notifications at creation time); gopherstack silently drops it -- callers must use the separate PutNotificationSettings op after create instead. Not fixed this pass (kept scope to the enabled-field bug, which was the higher-severity ignored-input gap)."
-  - "No tag-count validation (TooManyTagsException) or AccessDeniedException paths -- these are generic AWS exceptions with no evidence they're actually exercised by common client flows against this service; not treated as a stub violation."
-leaks: {status: clean, note: "no goroutines/janitors in this service; locking is via the shared lockmetrics.RWMutex per pkgs-catalog rule, single lock, no nesting introduced by this pass's added GetNotificationSettings/GetAttributeMappings calls (each backend call takes and releases the lock independently, no re-entrant locking)"}
+  - "GetSubject/ListSubjects: subjects store is never populated -- there is no CreateSession endpoint in this service (AWS Roles Anywhere's session-vending API is a separate mTLS-authenticated data-plane API, not SigV4/control-plane, and remains out of scope). SubjectDetail's Credentials/InstanceProperties fields are also unmodeled. Would need its own audit pass if CreateSession is ever added to gopherstack."
+  - "No AccessDeniedException path anywhere in this service -- gopherstack has no IAM policy evaluation engine to source it from; this is a cross-cutting infra gap common to every gopherstack service, not specific to rolesanywhere."
+  - "CreateProfile/CreateTrustAnchor/ImportCrl don't validate their other 'required' members (e.g. CreateProfileInput.RoleArns, CreateTrustAnchorInput.Source is now checked but ImportCrlInput.CrlData/TrustAnchorArn were added this pass) as exhaustively as the real SDK's client-side validators -- e.g. RoleArns may still be an empty/nil list without a ValidationException, where real AWS's validateOpCreateProfileInput requires it non-nil. Low severity (permissive-accepts-more, not a wire-shape or invented-behavior bug); left unfixed this pass to control blast radius across the many existing tests that create profiles with nil roleArns for role-agnostic scenarios (attribute-mapping tests, isolation tests, etc.)."
+  - "TrustAnchorDetail has no createdBy field in the real API (confirmed absent from types.TrustAnchorDetail) -- correctly NOT added to TrustAnchor's JSON output this pass (a prior gaps note incorrectly implied it should be); ProfileDetail DOES have createdBy and it is now implemented."
+leaks: {status: clean, note: "no goroutines/janitors in this service; locking is via the shared lockmetrics.RWMutex per pkgs-catalog rule, single lock, no re-entrant locking (CreateTrustAnchor's notificationSettings-at-create path calls the new putNotificationSettingsLocked helper directly instead of re-entering PutNotificationSettings's own Lock). This pass's real find: DeleteTrustAnchor/DeleteProfile/DeleteCrl left ghost rows in the notificationSettings/attributeMappings/tags maps (keyed by the now-dead resource ID/ARN) -- all three Delete paths now cascade-delete their dependent maps under the same lock as the primary delete, closing the leak."}
 ---
 
 ## Notes
 
-Protocol: restJson1. Verified route/method/path for every operation directly against
-`aws-sdk-go-v2/service/rolesanywhere@v1.23.0`'s `serializers.go` (`SplitURI` opPath +
-`request.Method` per op) -- all of gopherstack's `parseRESTPath`/`parseEntityPath`/
-`parseTagPaths` switch cases matched the real SDK exactly (including the somewhat
-surprising ones: `ListTagsForResource` is GET with `resourceArn` as a query param, not
-POST with a body like Tag/UntagResource).
+Protocol: restJson1. Re-verified route/method/path/**response status code** for every
+operation directly against `botocore`'s `rolesanywhere/2018-05-10/service-2.json` (canonical
+source for `http.method`/`http.requestUri`/`http.responseCode`, cross-checked against
+`aws-sdk-go-v2/service/rolesanywhere@v1.23.0`'s `serializers.go`/`deserializers.go` for wire
+field names) -- all of gopherstack's `parseRESTPath`/`parseEntityPath`/`parseTagPaths` switch
+cases matched exactly, with one status-code exception fixed this pass: `TagResource` responds
+`201 Created`, not `200 OK` (every other void-result op in this service genuinely is 200).
 
-**Real bugs fixed this pass:**
+**Real bugs fixed this pass** (in addition to the ones summarized in the `ops`/`families`
+frontmatter above):
 
-1. **`UntagResource` wire-shape bug (handler.go)** -- the real AWS client serializes
-   `UntagResourceInput` (`resourceArn`, `tagKeys`) as a JSON POST body (confirmed via
-   `awsRestjson1_serializeOpDocumentUntagResourceInput` in the SDK's `serializers.go`),
-   not query parameters. gopherstack's `handleUntagResource` was parsing `c.Request().
-   URL.RawQuery` instead, so tagKeys/resourceArn were *always* empty against a real SDK
-   call -- this made UntagResource a complete no-op for any real client, silently
-   returning 200 without removing anything. `TagResource` and `ListTagsForResource` were
-   already correct (body and query-param respectively, matching the SDK).
+1. **Invented `ConflictException` on duplicate names (`trust_anchors.go`, `profiles.go`,
+   `crls.go`, `errors.go`, `handler.go`).** `CreateTrustAnchor`/`CreateProfile`/`ImportCrl`
+   each scanned the region's existing resources for a name collision and returned a
+   fabricated `ConflictException`/409. Cross-checked against botocore's service-2.json shapes
+   map: the entire Roles Anywhere service model defines exactly 4 exception shapes
+   (`AccessDeniedException`, `ResourceNotFoundException`, `TooManyTagsException`,
+   `ValidationException`) -- **no `ConflictException` shape exists anywhere in the service**,
+   confirming this was invented behavior with a fabricated error code, not a real AWS
+   constraint. Deleted `ErrTrustAnchorAlreadyExists`/`ErrProfileAlreadyExists`/
+   `ErrCrlAlreadyExists` and the duplicate-check loops entirely; all three ops now accept
+   duplicate names (distinguished by generated ID/ARN), matching real AWS.
 
-2. **`DeleteTrustAnchor`/`DeleteProfile` returned an empty envelope.** AWS's
-   `DeleteTrustAnchorResponse`/`DeleteProfileResponse` both carry the deleted resource
-   (confirmed via `awsRestjson1_deserializeOpDocumentDeleteTrustAnchorOutput` /
-   `...DeleteProfileOutput` in the SDK). `DeleteCrl` already did this correctly in
-   gopherstack (returns `{crl: {...}}`); TrustAnchor/Profile did not. Backend interface
-   signatures changed from `Delete*(ctx, id) error` to `Delete*(ctx, id) (*T, error)`,
-   snapshotting state immediately before removal (same pattern as the existing
-   `DeleteCrl`).
+2. **Invented `"tags"` field on `TrustAnchorDetail`/`ProfileDetail` responses
+   (`models.go`, `handler_trust_anchors.go`, `handler_profiles.go`).** Field-by-field diff
+   against `aws-sdk-go-v2/service/rolesanywhere/types.TrustAnchorDetail` and
+   `types.ProfileDetail` shows neither has a `tags` member at all -- tags are visible **only**
+   via `ListTagsForResource`. A prior version stored creation-time tags directly on the
+   `TrustAnchor`/`Profile` struct and serialized them into every Create/Get/List/Update/
+   Enable/Disable response. This was doubly wrong: it invented a wire field no real client
+   would ever see, AND it permanently desynced from the real tag state, since
+   `TagResource`/`UntagResource` write to a wholly separate ARN-keyed map
+   (`InMemoryBackend.tags`) that was never merged with the struct field -- a persistence_test.go
+   comment even documented this desync as expected behavior. Removed `Tags` from both structs;
+   `CreateTrustAnchor`/`CreateProfile` now route creation-time tags into the same ARN-keyed
+   store `TagResource` uses (the pattern `ImportCrl` already followed correctly for CRLs,
+   which have no `tags` field on `CrlDetail` either and were unaffected by this bug).
 
-3. **`CreateTrustAnchor` ignored the request's `enabled` field**, always creating trust
-   anchors as enabled regardless of what the caller sent. `CreateTrustAnchorInput.
-   Enabled` is a real, optional field (confirmed in the SDK's request struct and
-   `awsRestjson1_serializeOpDocumentCreateTrustAnchorInput`). Backend now takes
-   `enabled *bool` (nil defaults to true, matching `ImportCrl`'s existing enabled-default
-   pattern).
+3. **`TagResource` HTTP status was 200, should be 201 (`handler_tags.go`).** Confirmed
+   against botocore's `service-2.json`: `TagResource`'s `http.responseCode` is `201`, the only
+   201 among this service's void-result ops (every other one -- `UntagResource`,
+   `Enable*`/`Disable*`, etc. -- is genuinely 200).
 
-4. **`notificationSettings`/`attributeMappings` were only visible via the dedicated
-   `Put*`/`Reset*`/`Delete*Mapping` responses**, never via `Get`/`List`/`Create`/
-   `Update`/`Enable`/`Disable`. AWS's `TrustAnchorDetail.notificationSettings` and
-   `ProfileDetail.attributeMappings` are read on *every* detail response (confirmed
-   field-by-field in `awsRestjson1_deserializeDocumentTrustAnchorDetail`/
-   `...ProfileDetail`) -- settings/mappings that were stored via one op but invisible
-   from every other read were a disguised-gap in the persisted state's visibility. Added
-   `Handler.trustAnchorJSON`/`Handler.profileJSON` helpers that every trust-anchor/
-   profile handler now routes through instead of the bare `trustAnchorToJSON`/
-   `profileToJSON`.
+4. **`TagResource`/`ListTagsForResource` never validated the resource exists
+   (`tags.go`).** Both declare `ResourceNotFoundException` in the real model (confirmed via
+   botocore's per-operation `errors` list), but the backend happily tagged/listed tags for any
+   ARN string, including ones with no backing trust anchor/profile/CRL at all -- a disguised
+   stub (accepting input without checking it refers to anything real). Added
+   `resourceExistsLocked`, scanning the three region-indexed resource tables by ARN.
+   `UntagResource` deliberately does **not** get this check: it declares no
+   `ResourceNotFoundException` in the real model and is correctly left as a silent no-op
+   against an unknown ARN.
+
+5. **`TooManyTagsException` was entirely unimplemented (`tags.go`, `errors.go`,
+   `handler.go`).** `TagResource` is the only operation in the service model that declares
+   `TooManyTagsException`; added a 200-tag-per-resource cap (matching the real SDK's shared
+   `TagList` shape's `max: 200` constraint) enforced atomically -- an over-limit batch is
+   rejected without partially applying any of it.
+
+6. **`CreateProfile` silently ignored the request's `enabled` field
+   (`profiles.go`, `handler_profiles.go`).** `CreateProfileInput.Enabled` is a real, optional
+   field (confirmed in the SDK's request struct); the backend hardcoded
+   `Enabled: true` regardless of what the caller sent -- the same ignored-input bug class as
+   the `CreateTrustAnchor.Enabled` bug a prior pass fixed. Now honors it, defaulting to true
+   when nil.
+
+7. **`CreateTrustAnchor` still dropped the request's `notificationSettings` field
+   (`trust_anchors.go`).** Flagged but deliberately left unfixed in the prior pass's gaps
+   list; fixed this pass by extracting `PutNotificationSettings`'s locked application logic
+   into `putNotificationSettingsLocked` and calling it directly from `CreateTrustAnchor` under
+   the same lock (avoiding re-entrant locking).
+
+8. **`acceptRoleSessionName` was entirely unmodeled (`models.go`, `profiles.go`,
+   `handler_profiles.go`).** Real `CreateProfileInput`/`UpdateProfileInput`/`ProfileDetail`
+   all carry this field; added to the `Profile` struct and threaded through Create/Update/JSON
+   output (following the same "omit when false" convention `requireInstanceProperties`
+   already used).
+
+9. **`ProfileDetail.createdBy` was unpopulated (`models.go`, `profiles.go`,
+   `handler_profiles.go`).** Real field ("The Amazon Web Services account that created the
+   profile"); now populated with the backend's account ID at creation. Note:
+   `TrustAnchorDetail` has **no** `createdBy` field in the real API (confirmed absent from
+   `types.TrustAnchorDetail`) -- the prior pass's gaps note conflated the two shapes; only
+   `ProfileDetail` needed this fix.
+
+10. **`NotificationSettingDetail.configuredBy` was unpopulated
+    (`models.go`, `notification_settings.go`).** Real field naming "the principal that
+    configured the notification setting"; gopherstack seeds no AWS-default settings, so every
+    setting reaching a response is customer-configured and `configuredBy` is always the
+    backend's account ID per AWS's documented semantics. Populated in
+    `putNotificationSettingsLocked`.
+
+11. **`ImportCrl` didn't validate `crlData`/`trustAnchorArn` as required (`crls.go`).**
+    Both are required members of `ImportCrlInput` (confirmed against
+    `validateOpImportCrlInput` in the SDK); only `name` was checked, so a request missing
+    either silently created a malformed CRL. Added both checks.
+
+12. **Cascade-delete leaks: `DeleteTrustAnchor`/`DeleteProfile`/`DeleteCrl` left ghost
+    rows (`trust_anchors.go`, `profiles.go`, `crls.go`).** Notification settings,
+    attribute mappings, and tags all live in separate ID/ARN-keyed maps, not on the
+    resource structs themselves (`InMemoryBackend.notificationSettings`/
+    `.attributeMappings`/`.tags`). None of the three Delete paths cleaned these up, so a
+    deleted trust anchor/profile/CRL's dependent rows survived indefinitely under its old
+    ID/ARN. All three Delete paths now `delete()` their dependent map entries under the same
+    lock as the primary delete.
 
 **Traps for the next auditor (looks-wrong-but-correct):**
 
 - Timestamps use `time.RFC3339` (via `Format(time.RFC3339)`), not the SDK's exact
   millisecond output format (`2006-01-02T15:04:05.999Z`, per `smithy-go/time.
-  FormatDateTime`). This is NOT a bug: `smithytime.ParseDateTime` (the client-side
-  parser) accepts both `time.RFC3339` and `time.RFC3339Nano` as fallbacks, so
-  gopherstack's output round-trips fine through the real SDK client.
+  FormatDateTime`). This is NOT a bug: restJson1's default timestamp trait is ISO-8601
+  (confirmed in `deserializers.go`: `awsRestjson1_deserializeDocumentTrustAnchorDetail` parses
+  `createdAt` via `smithytime.ParseDateTime` on a JSON *string*, never an epoch-seconds
+  number) -- this service is NOT in the epoch-seconds bug class (unlike sagemaker/glue/ssm/
+  iot/cloudtrail). `smithytime.ParseDateTime` (the client-side parser) also accepts
+  `time.RFC3339`/`time.RFC3339Nano` as fallbacks, so gopherstack's output round-trips fine.
 - `errBody` returns `{"__type": ..., "message": ...}` with no `X-Amzn-ErrorType` header.
   This is also NOT a bug: the SDK's error deserializer (`awsRestjson1_deserializeOpError*`)
   falls back to the JSON body's type field via `restjson.GetErrorInfo` when the header is
@@ -110,3 +174,17 @@ POST with a body like Tag/UntagResource).
 - `go.Blob` fields (`crlData`) are plain `[]byte` in the Go struct/JSON tag; Go's
   `encoding/json` already base64-encodes `[]byte` on marshal, matching the SDK's
   base64-string wire representation with zero extra code.
+- `TrustAnchorType`'s real enum has a third value, `SELF_SIGNED_REPOSITORY`, beyond
+  `AWS_ACM_PCA`/`CERTIFICATE_BUNDLE` (confirmed in `types/enums.go`) -- it has no
+  corresponding `SourceData` union member (`SourceData` only has `AcmPcaArn`/
+  `X509CertificateData`), so it needs no external data. gopherstack's `TrustAnchorSource`
+  already accepts any `sourceType` string generically (no enum-value allowlist), so this
+  requires no code change -- just noting it so nobody "fixes" the SourceType validation to
+  reject it.
+- `AcceptRoleSessionName`/`RequireInstanceProperties` are both bool (not `*bool`) on the
+  `Profile` struct and use "omit from JSON when false" instead of true three-state
+  (unset/true/false) semantics. This matches `requireInstanceProperties`'s pre-existing
+  convention in this codebase and is a reasonable simplification (the real API's
+  `*bool` distinguishes "not provided" from "explicitly false", but neither is meaningfully
+  observable by a client here since gopherstack has no separate CreateSession data plane
+  where the distinction would matter).

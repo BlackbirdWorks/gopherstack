@@ -12,6 +12,8 @@ import (
 func (h *Handler) handleCreateProfile(ctx context.Context, body []byte) (any, int, error) {
 	var req struct {
 		DurationSeconds           *int32     `json:"durationSeconds"`
+		Enabled                   *bool      `json:"enabled"`
+		AcceptRoleSessionName     *bool      `json:"acceptRoleSessionName"`
 		Name                      string     `json:"name"`
 		SessionPolicy             string     `json:"sessionPolicy"`
 		RoleArns                  []string   `json:"roleArns"`
@@ -24,10 +26,15 @@ func (h *Handler) handleCreateProfile(ctx context.Context, body []byte) (any, in
 		return nil, 0, ErrValidation
 	}
 
+	if len(req.Tags) > maxResourceTags {
+		return nil, 0, ErrValidation
+	}
+
 	p, err := h.Backend.CreateProfile(
 		ctx, req.Name, req.RoleArns, req.Tags,
 		req.DurationSeconds, req.ManagedPolicyArns,
 		req.SessionPolicy, req.RequireInstanceProperties,
+		req.Enabled, req.AcceptRoleSessionName,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -90,6 +97,7 @@ func (h *Handler) handleUpdateProfile(ctx context.Context, path string, body []b
 	var req struct {
 		DurationSeconds           *int32   `json:"durationSeconds"`
 		RequireInstanceProperties *bool    `json:"requireInstanceProperties"`
+		AcceptRoleSessionName     *bool    `json:"acceptRoleSessionName"`
 		Name                      string   `json:"name"`
 		SessionPolicy             string   `json:"sessionPolicy"`
 		RoleArns                  []string `json:"roleArns"`
@@ -104,6 +112,7 @@ func (h *Handler) handleUpdateProfile(ctx context.Context, path string, body []b
 		ctx, id, req.Name, req.RoleArns,
 		req.DurationSeconds, req.ManagedPolicyArns,
 		req.SessionPolicy, req.RequireInstanceProperties,
+		req.AcceptRoleSessionName,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -147,6 +156,12 @@ func (h *Handler) profileJSON(ctx context.Context, p *Profile) map[string]any {
 	return profileWithMappingsToJSON(p, mappings)
 }
 
+// profileToJSON renders p's base fields. Deliberately no "tags" key: real
+// AWS's ProfileDetail carries no tags field at all (confirmed field-by-field
+// against aws-sdk-go-v2/service/rolesanywhere/types.ProfileDetail) -- tags
+// are visible only via ListTagsForResource. See trustAnchorToJSON's doc
+// comment for why a prior version's inclusion of p.Tags here was a bug, not
+// a feature.
 func profileToJSON(p *Profile) map[string]any {
 	m := map[string]any{
 		"profileId":  p.ProfileID,
@@ -158,8 +173,8 @@ func profileToJSON(p *Profile) map[string]any {
 		"updatedAt":  p.UpdatedAt.Format(time.RFC3339), //nolint:goconst // existing issue.
 	}
 
-	if len(p.Tags) > 0 {
-		m["tags"] = p.Tags
+	if p.CreatedBy != "" {
+		m["createdBy"] = p.CreatedBy
 	}
 
 	if p.DurationSeconds != nil {
@@ -176,6 +191,10 @@ func profileToJSON(p *Profile) map[string]any {
 
 	if p.RequireInstanceProperties {
 		m["requireInstanceProperties"] = true
+	}
+
+	if p.AcceptRoleSessionName {
+		m["acceptRoleSessionName"] = true
 	}
 
 	return m

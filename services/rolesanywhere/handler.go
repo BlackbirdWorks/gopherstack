@@ -369,15 +369,14 @@ func (h *Handler) dispatchNotificationOps(ctx context.Context, op string, body [
 // handleError writes an error response.
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
-	case errors.Is(err, ErrTrustAnchorAlreadyExists),
-		errors.Is(err, ErrProfileAlreadyExists),
-		errors.Is(err, ErrCrlAlreadyExists):
-		return c.JSON(http.StatusConflict, errBody("ConflictException", err.Error()))
 	case errors.Is(err, ErrTrustAnchorNotFound),
 		errors.Is(err, ErrProfileNotFound),
 		errors.Is(err, ErrCrlNotFound),
-		errors.Is(err, ErrSubjectNotFound):
+		errors.Is(err, ErrSubjectNotFound),
+		errors.Is(err, ErrResourceNotFound):
 		return c.JSON(http.StatusNotFound, errBody("ResourceNotFoundException", err.Error()))
+	case errors.Is(err, ErrTooManyTags):
+		return c.JSON(http.StatusBadRequest, errBody("TooManyTagsException", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, errBody("ValidationException", err.Error()))
 	}

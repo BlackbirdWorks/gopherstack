@@ -19,11 +19,18 @@ func (h *Handler) handleTagResource(ctx context.Context, body []byte) (any, int,
 		return nil, 0, ErrValidation
 	}
 
+	if req.ResourceArn == "" || req.Tags == nil {
+		return nil, 0, ErrValidation
+	}
+
 	if err := h.Backend.TagResource(ctx, req.ResourceArn, req.Tags); err != nil {
 		return nil, 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	// Real AWS's TagResource responds 201 Created (per the service model's
+	// http.responseCode: 201 on the TagResource operation), not 200 --
+	// unlike every other void-result op in this service.
+	return nil, http.StatusCreated, nil
 }
 
 func (h *Handler) handleUntagResource(ctx context.Context, body []byte) (any, int, error) {
@@ -33,6 +40,10 @@ func (h *Handler) handleUntagResource(ctx context.Context, body []byte) (any, in
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	if req.ResourceArn == "" || req.TagKeys == nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -50,6 +61,10 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, query string) (
 		if after, ok := strings.CutPrefix(part, "resourceArn="); ok {
 			resourceARN = after
 		}
+	}
+
+	if resourceARN == "" {
+		return nil, 0, ErrValidation
 	}
 
 	tags, err := h.Backend.ListTagsForResource(ctx, resourceARN)
