@@ -631,3 +631,111 @@ func TestGlobalCluster_HasArnResourceIdEngine(t *testing.T) {
 		})
 	}
 }
+
+// TestGlobalCluster_ModifyGlobalCluster_PersistsDeletionProtectionAndEngineVersion
+// locks the core fix: ModifyGlobalCluster used to accept no new values at all
+// (a disguised no-op by construction, not just by behavior), so nothing a
+// caller sent could ever change anything. It must now genuinely mutate
+// DeletionProtection/EngineVersion.
+func TestGlobalCluster_ModifyGlobalCluster_PersistsDeletionProtectionAndEngineVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":                  {"CreateGlobalCluster"},
+		"Version":                 {"2014-10-31"},
+		"GlobalClusterIdentifier": {"gc-modify-real"},
+	})
+
+	rr := doRequest(t, h, url.Values{
+		"Action":                  {"ModifyGlobalCluster"},
+		"Version":                 {"2014-10-31"},
+		"GlobalClusterIdentifier": {"gc-modify-real"},
+		"DeletionProtection":      {"true"},
+		"EngineVersion":           {"1.4.0.0"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	assert.Contains(t, body, "<DeletionProtection>true</DeletionProtection>")
+	assert.Contains(t, body, "<EngineVersion>1.4.0.0</EngineVersion>")
+
+	rr = doRequest(t, h, url.Values{
+		"Action":  {"DescribeGlobalClusters"},
+		"Version": {"2014-10-31"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	body = rr.Body.String()
+	assert.Contains(t, body, "<DeletionProtection>true</DeletionProtection>")
+	assert.Contains(t, body, "<EngineVersion>1.4.0.0</EngineVersion>")
+}
+
+// TestGlobalCluster_ModifyGlobalCluster_Rename verifies
+// NewGlobalClusterIdentifier renames the global cluster in place, including
+// its ARN, and that the old identifier no longer resolves as the
+// GlobalClusterIdentifier (GlobalClusterResourceId, like AWS's other
+// resource IDs, is immutable and intentionally does NOT change on rename --
+// it is derived from the original creation-time identifier).
+func TestGlobalCluster_ModifyGlobalCluster_Rename(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":                  {"CreateGlobalCluster"},
+		"Version":                 {"2014-10-31"},
+		"GlobalClusterIdentifier": {"gc-old-name"},
+	})
+
+	rr := doRequest(t, h, url.Values{
+		"Action":                     {"ModifyGlobalCluster"},
+		"Version":                    {"2014-10-31"},
+		"GlobalClusterIdentifier":    {"gc-old-name"},
+		"NewGlobalClusterIdentifier": {"gc-new-name"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), "gc-new-name")
+
+	rr = doRequest(t, h, url.Values{
+		"Action":  {"DescribeGlobalClusters"},
+		"Version": {"2014-10-31"},
+	})
+	body := rr.Body.String()
+	assert.Contains(t, body, "<GlobalClusterIdentifier>gc-new-name</GlobalClusterIdentifier>")
+	assert.NotContains(t, body, "<GlobalClusterIdentifier>gc-old-name</GlobalClusterIdentifier>")
+}
+
+// TestGlobalCluster_FailoverGlobalCluster_PromotesRealTarget locks the core
+// fix: FailoverGlobalCluster used to validate the global cluster and then
+// return an unchanged clone -- GlobalClusterMembers.IsWriter never flipped
+// regardless of TargetDbClusterIdentifier. It must now genuinely promote a
+// target that resolves to a real DB cluster.
+func TestGlobalCluster_FailoverGlobalCluster_PromotesRealTarget(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createCluster(t, h, "gc-real-primary")
+	createCluster(t, h, "gc-real-secondary")
+	doRequest(t, h, url.Values{
+		"Action":                    {"CreateGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"gc-real-failover"},
+		"SourceDBClusterIdentifier": {"gc-real-primary"},
+	})
+
+	rr := doRequest(t, h, url.Values{
+		"Action":                    {"FailoverGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"gc-real-failover"},
+		"TargetDbClusterIdentifier": {"gc-real-secondary"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	assert.Contains(t, body, "gc-real-secondary")
+	assert.Contains(t, body, "<IsWriter>true</IsWriter>")
+
+	// The old writer (gc-real-primary) must now be demoted.
+	rr = doRequest(t, h, url.Values{
+		"Action":  {"DescribeGlobalClusters"},
+		"Version": {"2014-10-31"},
+	})
+	assert.Contains(t, rr.Body.String(), "<IsWriter>false</IsWriter>")
+}

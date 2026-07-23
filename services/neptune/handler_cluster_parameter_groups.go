@@ -67,7 +67,8 @@ func (h *Handler) handleModifyDBClusterParameterGroup(
 	vals url.Values,
 ) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
-	pg, err := h.Backend.ModifyDBClusterParameterGroup(ctx, name)
+	params := parseParameterEntries(vals)
+	pg, err := h.Backend.ModifyDBClusterParameterGroup(ctx, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -101,16 +102,19 @@ func (h *Handler) handleDescribeDBClusterParameters(
 	vals url.Values,
 ) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
-	if name != "" {
-		if _, err := h.Backend.DescribeDBClusterParameterGroups(ctx, name); err != nil {
-			return nil, err
-		}
+	params, err := h.Backend.DescribeDBClusterParameters(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	members := make([]xmlParameter, 0, len(params))
+	for _, p := range params {
+		members = append(members, toXMLParameter(p))
 	}
 
 	return &describeDBClusterParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeDBClusterParametersResult{
-			Parameters: xmlParameterList{},
+			Parameters: xmlParameterList{Members: members},
 		},
 	}, nil
 }
@@ -120,7 +124,9 @@ func (h *Handler) handleResetDBClusterParameterGroup(
 	vals url.Values,
 ) (any, error) {
 	name := vals.Get("DBClusterParameterGroupName")
-	pg, err := h.Backend.ResetDBClusterParameterGroup(ctx, name)
+	params := parseParameterEntries(vals)
+	resetAll := vals.Get("ResetAllParameters") == formTrue
+	pg, err := h.Backend.ResetDBClusterParameterGroup(ctx, name, resetAll, params)
 	if err != nil {
 		return nil, err
 	}
@@ -139,13 +145,18 @@ func (h *Handler) handleDescribeEngineDefaultClusterParameters(
 	if family == "" {
 		family = pgFamilyNeptune13
 	}
+	catalog := neptuneParameterCatalog()
+	members := make([]xmlParameter, 0, len(catalog))
+	for _, p := range catalog {
+		members = append(members, toXMLParameter(p))
+	}
 
 	return &describeEngineDefaultClusterParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeEngineDefaultClusterParametersResult{
 			EngineDefaults: xmlEngineDefaults{
 				DBParameterGroupFamily: family,
-				Parameters:             xmlParameterList{},
+				Parameters:             xmlParameterList{Members: members},
 			},
 		},
 	}, nil

@@ -68,6 +68,7 @@ type StorageBackend interface {
 	ModifyDBClusterParameterGroup(
 		ctx context.Context,
 		name string,
+		params []ParameterInput,
 	) (*DBClusterParameterGroup, error)
 
 	// Cluster snapshot operations
@@ -100,7 +101,9 @@ type StorageBackend interface {
 	ApplyPendingMaintenanceAction(
 		ctx context.Context,
 		resourceID, applyAction, optInType string,
-	) error
+	) (*ResourcePendingMaintenanceActions, error)
+	DescribePendingMaintenanceActions(ctx context.Context, resourceFilter string) []ResourcePendingMaintenanceActions
+	DescribeEvents(ctx context.Context, filter EventsFilter) []Event
 	CopyDBClusterParameterGroup(
 		ctx context.Context,
 		sourceName, targetName, targetDescription string,
@@ -142,16 +145,25 @@ type StorageBackend interface {
 	ModifyDBClusterEndpoint(
 		ctx context.Context,
 		endpointID, endpointType string,
+		staticMembers, excludedMembers []string,
 	) (*DBClusterEndpoint, error)
 
 	// DB parameter group operations
 	DeleteDBParameterGroup(ctx context.Context, name string) error
 	DescribeDBParameterGroups(ctx context.Context, name string) ([]DBParameterGroup, error)
-	ModifyDBParameterGroup(ctx context.Context, name string) (*DBParameterGroup, error)
-	ResetDBParameterGroup(ctx context.Context, name string) (*DBParameterGroup, error)
+	ModifyDBParameterGroup(
+		ctx context.Context, name string, params []ParameterInput,
+	) (*DBParameterGroup, error)
+	ResetDBParameterGroup(
+		ctx context.Context, name string, resetAll bool, params []ParameterInput,
+	) (*DBParameterGroup, error)
+	DescribeDBParameters(ctx context.Context, name string) ([]EngineParameter, error)
 
 	// Cluster parameter group extended operations
-	ResetDBClusterParameterGroup(ctx context.Context, name string) (*DBClusterParameterGroup, error)
+	ResetDBClusterParameterGroup(
+		ctx context.Context, name string, resetAll bool, params []ParameterInput,
+	) (*DBClusterParameterGroup, error)
+	DescribeDBClusterParameters(ctx context.Context, name string) ([]EngineParameter, error)
 
 	// Event subscription extended operations
 	DeleteEventSubscription(ctx context.Context, name string) (*EventSubscription, error)
@@ -172,7 +184,9 @@ type StorageBackend interface {
 		ctx context.Context,
 		globalClusterID, targetDBClusterID string,
 	) (*GlobalCluster, error)
-	ModifyGlobalCluster(ctx context.Context, globalClusterID string) (*GlobalCluster, error)
+	ModifyGlobalCluster(
+		ctx context.Context, globalClusterID string, opts GlobalClusterModifyOptions,
+	) (*GlobalCluster, error)
 	RemoveFromGlobalCluster(
 		ctx context.Context,
 		globalClusterID, dbClusterID string,

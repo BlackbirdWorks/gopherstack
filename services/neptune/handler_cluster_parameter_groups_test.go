@@ -434,7 +434,12 @@ func TestDescribeDBClusterParameters_MissingGroup(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
-// TestDescribeDBClusterParameters_Empty verifies empty group name succeeds.
+// TestDescribeDBClusterParameters_Empty verifies that an empty group name is
+// rejected: DBClusterParameterGroupName is a required field on the real
+// DescribeDBClusterParametersInput, and this backend now actually looks the
+// group up (see the parameter-value-store fix in parameter_catalog.go)
+// rather than always answering with an empty parameter list regardless of
+// the name given.
 func TestDescribeDBClusterParameters_Empty(t *testing.T) {
 	t.Parallel()
 
@@ -443,7 +448,8 @@ func TestDescribeDBClusterParameters_Empty(t *testing.T) {
 		"Action":  {"DescribeDBClusterParameters"},
 		"Version": {"2014-10-31"},
 	})
-	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 // --- Cluster parameter group extended ops ---

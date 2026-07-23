@@ -110,6 +110,7 @@ const (
 	snapshotStatusCreating       = "creating"
 	percentProgressComplete      = 100
 	minFailoverClusterMembers    = 2
+	engineVersion1200            = "1.2.0.0"
 )
 
 // InMemoryBackend is a thread-safe in-memory backend for Neptune.
@@ -145,20 +146,45 @@ type InMemoryBackend struct {
 	globalClusters                 *store.Table[GlobalCluster] // global/partition-scoped, not region-nested
 	clusterRoles                   map[string]map[string][]string
 	tags                           map[string]map[string][]Tag
-	mu                             *lockmetrics.RWMutex
-	accountID                      string
-	region                         string
+	// parameterOverrides and clusterParameterOverrides hold per-group
+	// parameter value overrides written by Modify/Reset(DBCluster)ParameterGroup,
+	// keyed by regionKey(region, groupName) -> parameter name -> value (see
+	// parameter_catalog.go). Plain nested maps, not store.Table, following the
+	// same rationale as clusterRoles/tags above: a bare ParameterValue carries
+	// no identity of its own to key a table by.
+	parameterOverrides map[string]map[string]ParameterValue
+	// clusterParameterOverrides is the DBClusterParameterGroup counterpart of
+	// parameterOverrides.
+	clusterParameterOverrides map[string]map[string]ParameterValue
+	// pendingMaintenanceActions holds queued maintenance actions keyed by
+	// resource ARN -> action name -> action, seeded via
+	// AddPendingMaintenanceActionInternal (see maintenance.go) since nothing
+	// in this backend organically generates them the way real AWS does from
+	// system-side upgrade/security-patch availability data.
+	pendingMaintenanceActions map[string]map[string]PendingMaintenanceAction
+	// eventsLog holds the account activity event log, keyed by region,
+	// appended to by recordEvent at the point of the underlying state change
+	// (see events.go). Bounded by maxEventsLogPerRegion to avoid unbounded
+	// growth in a long-lived backend.
+	eventsLog map[string][]Event
+	mu        *lockmetrics.RWMutex
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend creates a new in-memory Neptune backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:     store.NewRegistry(),
-		clusterRoles: make(map[string]map[string][]string),
-		tags:         make(map[string]map[string][]Tag),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("neptune"),
+		registry:                  store.NewRegistry(),
+		clusterRoles:              make(map[string]map[string][]string),
+		tags:                      make(map[string]map[string][]Tag),
+		parameterOverrides:        make(map[string]map[string]ParameterValue),
+		clusterParameterOverrides: make(map[string]map[string]ParameterValue),
+		pendingMaintenanceActions: make(map[string]map[string]PendingMaintenanceAction),
+		eventsLog:                 make(map[string][]Event),
+		accountID:                 accountID,
+		region:                    region,
+		mu:                        lockmetrics.New("neptune"),
 	}
 	registerAllTables(b)
 
@@ -219,23 +245,6 @@ func validNeptuneParameterGroupFamily(family string) bool {
 	return family == pgFamilyNeptune12 || family == pgFamilyNeptune13 || family == "neptune1.4"
 }
 
-// ApplyPendingMaintenanceAction applies a pending maintenance action to a resource.
-func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
-	_ context.Context, resourceID, applyAction, optInType string,
-) error {
-	if resourceID == "" {
-		return fmt.Errorf("%w: ResourceIdentifier is required", ErrInvalidParameter)
-	}
-	if applyAction == "" {
-		return fmt.Errorf("%w: ApplyAction is required", ErrInvalidParameter)
-	}
-	if optInType == "" {
-		return fmt.Errorf("%w: OptInType is required", ErrInvalidParameter)
-	}
-
-	return nil
-}
-
 // AccountID returns the backend's AWS account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
@@ -251,4 +260,8 @@ func (b *InMemoryBackend) Reset() {
 	b.registry.ResetAll()
 	b.clusterRoles = make(map[string]map[string][]string)
 	b.tags = make(map[string]map[string][]Tag)
+	b.parameterOverrides = make(map[string]map[string]ParameterValue)
+	b.clusterParameterOverrides = make(map[string]map[string]ParameterValue)
+	b.pendingMaintenanceActions = make(map[string]map[string]PendingMaintenanceAction)
+	b.eventsLog = make(map[string][]Event)
 }

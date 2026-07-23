@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strconv"
 )
 
 func (h *Handler) handleAddSourceIdentifierToSubscription(
@@ -152,13 +153,50 @@ func (h *Handler) handleDescribeEventCategories(_ context.Context, _ url.Values)
 	}, nil
 }
 
-func (h *Handler) handleDescribeEvents(_ context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleDescribeEvents(ctx context.Context, vals url.Values) (any, error) {
+	duration := 0
+	if d := vals.Get("Duration"); d != "" {
+		if v, err := strconv.Atoi(d); err == nil {
+			duration = v
+		}
+	}
+	filter := EventsFilter{
+		SourceIdentifier: vals.Get("SourceIdentifier"),
+		SourceType:       vals.Get("SourceType"),
+		StartTime:        vals.Get("StartTime"),
+		EndTime:          vals.Get("EndTime"),
+		Duration:         duration,
+		EventCategories:  parseMemberList(vals, "EventCategories.member"),
+	}
+	events := h.Backend.DescribeEvents(ctx, filter)
+	members := make([]xmlEvent, 0, len(events))
+	for _, e := range events {
+		members = append(members, toXMLEvent(&e))
+	}
+
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeEventsResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeEventsResult{
-			Events: xmlEventList{},
+			Events: xmlEventList{Members: members},
+			Marker: nextMarker,
 		},
 	}, nil
+}
+
+// toXMLEvent renders an Event as its wire shape.
+func toXMLEvent(e *Event) xmlEvent {
+	cats := make([]string, len(e.EventCategories))
+	copy(cats, e.EventCategories)
+
+	return xmlEvent{
+		SourceIdentifier: e.SourceIdentifier,
+		SourceType:       e.SourceType,
+		Message:          e.Message,
+		Date:             e.Date,
+		EventCategories:  xmlEventCategoryItemList{Members: cats},
+	}
 }
 
 func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
@@ -282,9 +320,11 @@ type describeEventCategoriesResponse struct {
 }
 
 type xmlEvent struct {
-	SourceIdentifier string `xml:"SourceIdentifier,omitempty"`
-	SourceType       string `xml:"SourceType,omitempty"`
-	Message          string `xml:"Message,omitempty"`
+	SourceIdentifier string                   `xml:"SourceIdentifier,omitempty"`
+	SourceType       string                   `xml:"SourceType,omitempty"`
+	Message          string                   `xml:"Message,omitempty"`
+	Date             string                   `xml:"Date,omitempty"`
+	EventCategories  xmlEventCategoryItemList `xml:"EventCategories"`
 }
 
 type xmlEventList struct {

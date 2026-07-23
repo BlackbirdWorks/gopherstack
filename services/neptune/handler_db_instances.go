@@ -157,7 +157,7 @@ func (h *Handler) handleDescribeDBEngineVersions(_ context.Context, _ url.Values
 	members := []xmlDBEngineVersion{
 		{
 			Engine:                 neptuneEngine,
-			EngineVersion:          "1.2.0.0",
+			EngineVersion:          engineVersion1200,
 			DBEngineDescription:    engineDescriptionAmazonNeptune,
 			DBParameterGroupFamily: pgFamilyNeptune12,
 		},
@@ -215,7 +215,7 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(
 	_ context.Context,
 	_ url.Values,
 ) (any, error) {
-	engineVersions := []string{"1.2.0.0", "1.2.1.0", defaultEngineVersion, "1.3.1.0", "1.4.0.0"}
+	engineVersions := []string{engineVersion1200, "1.2.1.0", defaultEngineVersion, "1.3.1.0", "1.4.0.0"}
 	instanceClasses := []string{
 		"db.r5.large", "db.r5.xlarge", "db.r5.2xlarge", "db.r5.4xlarge", "db.r5.8xlarge",
 		"db.r6g.large", "db.r6g.xlarge", "db.r6g.2xlarge", "db.r6g.4xlarge",
@@ -247,30 +247,56 @@ func (h *Handler) handleApplyPendingMaintenanceAction(
 	resourceID := vals.Get("ResourceIdentifier")
 	applyAction := vals.Get("ApplyAction")
 	optInType := vals.Get("OptInType")
-	if err := h.Backend.ApplyPendingMaintenanceAction(ctx, resourceID, applyAction, optInType); err != nil {
+	result, err := h.Backend.ApplyPendingMaintenanceAction(ctx, resourceID, applyAction, optInType)
+	if err != nil {
 		return nil, err
 	}
 
 	return &applyPendingMaintenanceActionResponse{
 		Xmlns: neptuneXMLNS,
 		Result: applyPendingMaintenanceActionResult{
-			ResourcePendingMaintenanceActions: xmlResourcePendingMaintenanceActions{
-				ResourceIdentifier: resourceID,
-			},
+			ResourcePendingMaintenanceActions: toXMLResourcePendingMaintenanceActions(result),
 		},
 	}, nil
 }
 
 func (h *Handler) handleDescribePendingMaintenanceActions(
-	_ context.Context,
-	_ url.Values,
+	ctx context.Context,
+	vals url.Values,
 ) (any, error) {
+	resourceFilter := parseNeptuneFilterValue(vals, "db-cluster-id")
+	if resourceFilter == "" {
+		resourceFilter = parseNeptuneFilterValue(vals, "db-instance-id")
+	}
+	resources := h.Backend.DescribePendingMaintenanceActions(ctx, resourceFilter)
+	members := make([]xmlResourcePendingMaintenanceActions, 0, len(resources))
+	for _, r := range resources {
+		cp := r
+		members = append(members, toXMLResourcePendingMaintenanceActions(&cp))
+	}
+
 	return &describePendingMaintenanceActionsResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describePendingMaintenanceActionsResult{
-			PendingMaintenanceActions: xmlResourcePendingMaintenanceActionsList{},
+			PendingMaintenanceActions: xmlResourcePendingMaintenanceActionsList{Members: members},
 		},
 	}, nil
+}
+
+// toXMLResourcePendingMaintenanceActions renders a
+// ResourcePendingMaintenanceActions as its wire shape.
+func toXMLResourcePendingMaintenanceActions(
+	r *ResourcePendingMaintenanceActions,
+) xmlResourcePendingMaintenanceActions {
+	details := make([]xmlPendingMaintenanceAction, 0, len(r.PendingMaintenanceActionDetails))
+	for _, a := range r.PendingMaintenanceActionDetails {
+		details = append(details, xmlPendingMaintenanceAction(a))
+	}
+
+	return xmlResourcePendingMaintenanceActions{
+		ResourceIdentifier:              r.ResourceIdentifier,
+		PendingMaintenanceActionDetails: xmlPendingMaintenanceActionList{Members: details},
+	}
 }
 
 func (h *Handler) handleDescribeValidDBInstanceModifications(
@@ -440,8 +466,12 @@ type applyPendingMaintenanceActionResponse struct {
 
 // xmlPendingMaintenanceAction represents a single queued action for a resource.
 type xmlPendingMaintenanceAction struct {
-	Action      string `xml:"Action"`
-	Description string `xml:"Description,omitempty"`
+	Action               string `xml:"Action"`
+	Description          string `xml:"Description,omitempty"`
+	AutoAppliedAfterDate string `xml:"AutoAppliedAfterDate,omitempty"`
+	CurrentApplyDate     string `xml:"CurrentApplyDate,omitempty"`
+	ForcedApplyDate      string `xml:"ForcedApplyDate,omitempty"`
+	OptInStatus          string `xml:"OptInStatus,omitempty"`
 }
 
 // xmlPendingMaintenanceActionList wraps a resource's list of individual

@@ -293,3 +293,77 @@ type DBClusterFilters struct {
 	EngineVersion string
 	Status        string
 }
+
+// ParameterValue is a single persisted parameter override applied to a DB
+// (cluster) parameter group via ModifyDBParameterGroup/
+// ModifyDBClusterParameterGroup, keyed by parameter name in the backend's
+// per-group override store (see parameter_catalog.go).
+type ParameterValue struct {
+	ParameterValue string `json:"ParameterValue"`
+	ApplyMethod    string `json:"ApplyMethod"`
+}
+
+// ParameterInput is a single parameter name/value/apply-method triple
+// supplied by a caller to Modify/Reset(DBCluster)ParameterGroup.
+type ParameterInput struct {
+	ParameterName  string
+	ParameterValue string
+	ApplyMethod    string
+}
+
+// EngineParameter is a fully-resolved parameter description as returned by
+// DescribeDBParameters/DescribeDBClusterParameters/
+// DescribeEngineDefaultParameters/DescribeEngineDefaultClusterParameters --
+// the static catalog definition (AllowedValues/ApplyType/DataType/
+// Description/IsModifiable/MinimumEngineVersion) merged with any per-group
+// override (ParameterValue/ApplyMethod/Source).
+type EngineParameter struct {
+	ParameterName        string `json:"ParameterName"`
+	ParameterValue       string `json:"ParameterValue"`
+	Description          string `json:"Description"`
+	Source               string `json:"Source"`
+	ApplyType            string `json:"ApplyType"`
+	DataType             string `json:"DataType"`
+	AllowedValues        string `json:"AllowedValues"`
+	MinimumEngineVersion string `json:"MinimumEngineVersion"`
+	ApplyMethod          string `json:"ApplyMethod"`
+	IsModifiable         bool   `json:"IsModifiable"`
+}
+
+// GlobalClusterModifyOptions holds optional fields for ModifyGlobalCluster.
+type GlobalClusterModifyOptions struct {
+	NewGlobalClusterIdentifier string
+	EngineVersion              string
+	DeletionProtection         bool
+	DeletionProtectionSet      bool
+	AllowMajorVersionUpgrade   bool
+}
+
+// PendingMaintenanceAction is a single queued maintenance action for a
+// resource (see ApplyPendingMaintenanceAction/DescribePendingMaintenanceActions).
+type PendingMaintenanceAction struct {
+	Action               string `json:"Action"`
+	Description          string `json:"Description"`
+	AutoAppliedAfterDate string `json:"AutoAppliedAfterDate"`
+	CurrentApplyDate     string `json:"CurrentApplyDate"`
+	ForcedApplyDate      string `json:"ForcedApplyDate"`
+	OptInStatus          string `json:"OptInStatus"`
+}
+
+// ResourcePendingMaintenanceActions bundles a resource's queued maintenance
+// actions with the resource's ARN.
+type ResourcePendingMaintenanceActions struct {
+	ResourceIdentifier              string                     `json:"ResourceIdentifier"`
+	PendingMaintenanceActionDetails []PendingMaintenanceAction `json:"PendingMaintenanceActionDetails"`
+}
+
+// Event is a single account activity event as returned by DescribeEvents,
+// recorded by recordEvent at the point of the underlying state change (see
+// events.go).
+type Event struct {
+	SourceIdentifier string   `json:"SourceIdentifier"`
+	SourceType       string   `json:"SourceType"`
+	Message          string   `json:"Message"`
+	Date             string   `json:"Date"`
+	EventCategories  []string `json:"EventCategories"`
+}
