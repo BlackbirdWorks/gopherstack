@@ -15,7 +15,7 @@ func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, bo
 		return result, code, true, err
 
 	case opListFindings:
-		result, code, err := h.handleListFindings(detectorID)
+		result, code, err := h.handleListFindings(detectorID, body)
 
 		return result, code, true, err
 
@@ -35,7 +35,7 @@ func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, bo
 		return nil, code, true, err
 
 	case opGetFindingsStatistics:
-		result, code, err := h.handleGetFindingsStatistics(detectorID)
+		result, code, err := h.handleGetFindingsStatistics(detectorID, body)
 
 		return result, code, true, err
 
@@ -65,13 +65,41 @@ func (h *Handler) handleGetFindings(detectorID string, body []byte) (any, int, e
 	return map[string]any{"findings": findings}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListFindings(detectorID string) (any, int, error) {
-	ids, err := h.Backend.ListFindings(detectorID)
+func (h *Handler) handleListFindings(detectorID string, body []byte) (any, int, error) {
+	var req struct {
+		FindingCriteria *FindingCriteria `json:"findingCriteria"`
+		SortCriteria    *SortCriteria    `json:"sortCriteria"`
+		NextToken       string           `json:"nextToken"`
+		MaxResults      int32            `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, http.StatusBadRequest, ErrValidation
+		}
+	}
+
+	q := FindingsQuery{NextToken: req.NextToken, MaxResults: req.MaxResults}
+	if req.FindingCriteria != nil {
+		q.Criteria = req.FindingCriteria.Criterion
+	}
+
+	if req.SortCriteria != nil {
+		q.SortAttr = req.SortCriteria.AttributeName
+		q.SortOrder = req.SortCriteria.OrderBy
+	}
+
+	ids, nextToken, err := h.Backend.ListFindings(detectorID, q)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
 
-	return map[string]any{"findingIds": ids}, http.StatusOK, nil
+	resp := map[string]any{"findingIds": orEmptyAny(ids)}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 func (h *Handler) handleArchiveFindings(detectorID string, body []byte) (int, error) {
@@ -124,8 +152,26 @@ func (h *Handler) handleCreateSampleFindings(detectorID string, body []byte) (in
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleGetFindingsStatistics(detectorID string) (any, int, error) {
-	stats, err := h.Backend.GetFindingsStatistics(detectorID)
+func (h *Handler) handleGetFindingsStatistics(detectorID string, body []byte) (any, int, error) {
+	var req struct {
+		FindingCriteria *FindingCriteria `json:"findingCriteria"`
+		GroupBy         string           `json:"groupBy"`
+		OrderBy         string           `json:"orderBy"`
+		MaxResults      int32            `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, http.StatusBadRequest, ErrValidation
+		}
+	}
+
+	q := FindingStatisticsQuery{GroupBy: req.GroupBy, OrderBy: req.OrderBy}
+	if req.FindingCriteria != nil {
+		q.Criteria = req.FindingCriteria.Criterion
+	}
+
+	stats, err := h.Backend.GetFindingsStatistics(detectorID, q)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
@@ -134,11 +180,10 @@ func (h *Handler) handleGetFindingsStatistics(detectorID string) (any, int, erro
 }
 
 func (h *Handler) handleUpdateFindingsFeedback(detectorID string, body []byte) (int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
-		FindingIDs []string `json:"findingIds"`
 		Feedback   string   `json:"feedback"`
 		Comments   string   `json:"comments"`
+		FindingIDs []string `json:"findingIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

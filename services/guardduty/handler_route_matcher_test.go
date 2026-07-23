@@ -169,6 +169,75 @@ func TestRouteMatcher_MethodSensitivity(t *testing.T) {
 		},
 		{name: "StartMalwareScan", method: http.MethodPost, path: "/malware-scan/start", wantOp: "StartMalwareScan"},
 		{name: "GetMalwareScan", method: http.MethodGet, path: "/malware-scan/scan1", wantOp: "GetMalwareScan"},
+		// The rows below exercise every (collection, method) entry in
+		// handler.go's detectorCollectionRoutes table -- the map that
+		// replaced the parseDetectorCollection switch statement previously
+		// flagged for cyclop/gocyclo/gocognit/funlen.
+		{name: "CreateMembers", method: http.MethodPost, path: "/detector/d1/member", wantOp: "CreateMembers"},
+		{name: "ListMembers", method: http.MethodGet, path: "/detector/d1/member", wantOp: "ListMembers"},
+		{
+			name: "AcceptAdministratorInvitation", method: http.MethodPost,
+			path: "/detector/d1/administrator", wantOp: "AcceptAdministratorInvitation",
+		},
+		{
+			name: "GetAdministratorAccount", method: http.MethodGet,
+			path: "/detector/d1/administrator", wantOp: "GetAdministratorAccount",
+		},
+		{name: "AcceptInvitation", method: http.MethodPost, path: "/detector/d1/master", wantOp: "AcceptInvitation"},
+		{name: "GetMasterAccount", method: http.MethodGet, path: "/detector/d1/master", wantOp: "GetMasterAccount"},
+		{
+			name: "DescribeOrganizationConfiguration", method: http.MethodGet,
+			path: "/detector/d1/admin", wantOp: "DescribeOrganizationConfiguration",
+		},
+		{
+			name: "UpdateOrganizationConfiguration", method: http.MethodPost,
+			path: "/detector/d1/admin", wantOp: "UpdateOrganizationConfiguration",
+		},
+		{
+			name: "CreatePublishingDestination", method: http.MethodPost,
+			path: "/detector/d1/publishingDestination", wantOp: "CreatePublishingDestination",
+		},
+		{
+			name: "ListPublishingDestinations", method: http.MethodGet,
+			path: "/detector/d1/publishingDestination", wantOp: "ListPublishingDestinations",
+		},
+		{
+			name: "DescribeMalwareScans (detector-nested)", method: http.MethodPost,
+			path: "/detector/d1/malware-scans", wantOp: "DescribeMalwareScans",
+		},
+		{
+			name: "GetMalwareScanSettings", method: http.MethodGet,
+			path: "/detector/d1/malware-scan-settings", wantOp: "GetMalwareScanSettings",
+		},
+		{
+			name: "UpdateMalwareScanSettings", method: http.MethodPost,
+			path: "/detector/d1/malware-scan-settings", wantOp: "UpdateMalwareScanSettings",
+		},
+		{
+			name: "CreateThreatEntitySet", method: http.MethodPost,
+			path: "/detector/d1/threatentityset", wantOp: "CreateThreatEntitySet",
+		},
+		{
+			name: "ListThreatEntitySets", method: http.MethodGet,
+			path: "/detector/d1/threatentityset", wantOp: "ListThreatEntitySets",
+		},
+		{
+			name: "CreateTrustedEntitySet", method: http.MethodPost,
+			path: "/detector/d1/trustedentityset", wantOp: "CreateTrustedEntitySet",
+		},
+		{
+			name: "ListTrustedEntitySets", method: http.MethodGet,
+			path: "/detector/d1/trustedentityset", wantOp: "ListTrustedEntitySets",
+		},
+		{name: "ListCoverage", method: http.MethodPost, path: "/detector/d1/coverage", wantOp: "ListCoverage"},
+		// Unregistered (collection, method) combinations must not resolve to
+		// any operation -- e.g. DELETE is not a valid verb for the /member
+		// collection root (only item-addressed member ops are DELETE-able
+		// via POST actions).
+		{
+			name: "member collection root rejects DELETE", method: http.MethodDelete,
+			path: "/detector/d1/member", wantOp: "Unknown",
+		},
 	}
 
 	for _, tt := range tests {

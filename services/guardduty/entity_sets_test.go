@@ -201,3 +201,66 @@ func TestTrustedEntitySets(t *testing.T) {
 		})
 	}
 }
+
+// TestEntitySets_ExpectedBucketOwner locks the previously-missing
+// expectedBucketOwner field: real CreateThreatEntitySetInput/
+// CreateTrustedEntitySetInput/Update*Input all accept it, and
+// Get*EntitySetOutput returns it, but this backend didn't store or return
+// it at all.
+func TestEntitySets_ExpectedBucketOwner(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		collection string
+		idKey      string
+	}{
+		{name: "threatentityset", collection: "threatentityset", idKey: "threatEntitySetId"},
+		{name: "trustedentityset", collection: "trustedentityset", idKey: "trustedEntitySetId"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			id := createTestDetector(t, h)
+
+			createResp := doJSON(t, h, http.MethodPost, "/detector/"+id+"/"+tt.collection, map[string]any{
+				"name": "s1", "format": "TXT", "location": "s3://b/k",
+				"expectedBucketOwner": "111111111111",
+			})
+			setID, ok := createResp[tt.idKey].(string)
+			require.True(t, ok)
+
+			got := doJSON(t, h, http.MethodGet, "/detector/"+id+"/"+tt.collection+"/"+setID, nil)
+			assert.Equal(t, "111111111111", got["expectedBucketOwner"],
+				"expectedBucketOwner supplied at creation must round-trip through Get")
+
+			doRequest(t, h, http.MethodPost, "/detector/"+id+"/"+tt.collection+"/"+setID, map[string]any{
+				"expectedBucketOwner": "222222222222",
+			})
+
+			got = doJSON(t, h, http.MethodGet, "/detector/"+id+"/"+tt.collection+"/"+setID, nil)
+			assert.Equal(t, "222222222222", got["expectedBucketOwner"], "Update must overwrite expectedBucketOwner")
+		})
+	}
+}
+
+// TestEntitySets_ExpectedBucketOwner_OmittedWhenUnset guards that the field
+// is correctly absent (not present as "") when never supplied -- it's an
+// optional *string on the real output.
+func TestEntitySets_ExpectedBucketOwner_OmittedWhenUnset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	id := createTestDetector(t, h)
+
+	createResp := doJSON(t, h, http.MethodPost, "/detector/"+id+"/threatentityset", map[string]any{
+		"name": "s1", "format": "TXT", "location": "s3://b/k",
+	})
+	setID := createResp["threatEntitySetId"].(string)
+
+	got := doJSON(t, h, http.MethodGet, "/detector/"+id+"/threatentityset/"+setID, nil)
+	assert.NotContains(t, got, "expectedBucketOwner")
+}

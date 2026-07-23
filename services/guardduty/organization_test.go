@@ -78,12 +78,59 @@ func TestOrganization(t *testing.T) {
 			},
 		},
 		{
-			name: "org_statistics",
+			// Locks the GetOrganizationStatistics wire-shape fix: real
+			// GetOrganizationStatisticsOutput wraps everything under a
+			// single organizationDetails object carrying updatedAt (epoch
+			// seconds) alongside organizationStatistics -- both were
+			// previously missing entirely.
+			name: "org_statistics_wire_shape",
 			fn: func(t *testing.T, h *guardduty.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodGet, "/organization/statistics", nil)
-				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := doJSON(t, h, http.MethodGet, "/organization/statistics", nil)
+
+				details, ok := resp["organizationDetails"].(map[string]any)
+				require.True(t, ok, "response must be wrapped under organizationDetails")
+
+				updatedAt, ok := details["updatedAt"].(float64)
+				require.True(t, ok, "organizationDetails.updatedAt must be a JSON number (epoch seconds)")
+				assert.Positive(t, updatedAt)
+
+				stats, ok := details["organizationStatistics"].(map[string]any)
+				require.True(t, ok, "organizationDetails.organizationStatistics must be present")
+
+				for _, key := range []string{
+					"activeAccountsCount", "totalAccountsCount", "memberAccountsCount",
+					"enabledAccountsCount", "countByFeature",
+				} {
+					assert.Containsf(t, stats, key, "organizationStatistics must include %s", key)
+				}
+			},
+		},
+		{
+			// Locks that account counts reflect real member state, not the
+			// unrelated orgAdminAccounts (delegated-administrator) table.
+			name: "org_statistics_reflects_members",
+			fn: func(t *testing.T, h *guardduty.Handler) {
+				t.Helper()
+
+				id := createTestDetector(t, h)
+
+				doRequest(t, h, http.MethodPost, "/detector/"+id+"/member", map[string]any{
+					"accountDetails": []map[string]any{
+						{"accountId": "222222222222", "email": "m1@example.com"},
+					},
+				})
+
+				resp := doJSON(t, h, http.MethodGet, "/organization/statistics", nil)
+				details := resp["organizationDetails"].(map[string]any)
+				stats := details["organizationStatistics"].(map[string]any)
+
+				// 1 member account created (relationship "Created", not yet
+				// "Enabled") + this account itself.
+				assert.InDelta(t, 2, stats["totalAccountsCount"], 0)
+				assert.InDelta(t, 1, stats["memberAccountsCount"], 0)
+				assert.InDelta(t, 0, stats["enabledAccountsCount"], 0)
 			},
 		},
 	}

@@ -43,13 +43,12 @@ func (h *Handler) dispatchIPSetOps(op, path string, body []byte) (any, int, bool
 
 //nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateIPSet(detectorID string, body []byte) (any, int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
 		Tags     map[string]string `json:"tags"`
+		Activate *bool             `json:"activate"`
 		Name     string            `json:"name"`
 		Format   string            `json:"format"`
 		Location string            `json:"location"`
-		Activate *bool             `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -89,11 +88,10 @@ func (h *Handler) handleGetIPSet(detectorID, ipSetID string) (any, int, error) {
 }
 
 func (h *Handler) handleUpdateIPSet(detectorID, ipSetID string, body []byte) (int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
+		Activate *bool  `json:"activate"`
 		Name     string `json:"name"`
 		Location string `json:"location"`
-		Activate *bool  `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -162,13 +160,12 @@ func (h *Handler) dispatchThreatIntelSetOps(op, path string, body []byte) (any, 
 
 //nolint:dupl // IPSet and ThreatIntelSet have identical handler patterns
 func (h *Handler) handleCreateThreatIntelSet(detectorID string, body []byte) (any, int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
 		Tags     map[string]string `json:"tags"`
+		Activate *bool             `json:"activate"`
 		Name     string            `json:"name"`
 		Format   string            `json:"format"`
 		Location string            `json:"location"`
-		Activate *bool             `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -208,11 +205,10 @@ func (h *Handler) handleGetThreatIntelSet(detectorID, setID string) (any, int, e
 }
 
 func (h *Handler) handleUpdateThreatIntelSet(detectorID, setID string, body []byte) (int, error) {
-	//nolint:govet // fieldalignment: logical order preferred for readability
 	var req struct {
+		Activate *bool  `json:"activate"`
 		Name     string `json:"name"`
 		Location string `json:"location"`
-		Activate *bool  `json:"activate"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
