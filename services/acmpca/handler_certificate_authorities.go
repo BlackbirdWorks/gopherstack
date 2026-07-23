@@ -22,10 +22,114 @@ type caConfigInput struct {
 	SigningAlgorithm string               `json:"SigningAlgorithm"`
 }
 
+// crlDistributionPointExtConfigWire mirrors types.CrlDistributionPointExtensionConfiguration.
+type crlDistributionPointExtConfigWire struct {
+	OmitExtension bool `json:"OmitExtension"`
+}
+
+// crlConfigWire mirrors types.CrlConfiguration.
+type crlConfigWire struct {
+	CrlDistributionPointExtensionConfiguration *crlDistributionPointExtConfigWire `json:"CrlDistributionPointExtensionConfiguration,omitempty"` //nolint:lll // SDK field name
+	CustomCname                                string                             `json:"CustomCname,omitempty"`
+	CustomPath                                 string                             `json:"CustomPath,omitempty"`
+	S3BucketName                               string                             `json:"S3BucketName,omitempty"`
+	S3ObjectACL                                string                             `json:"S3ObjectAcl,omitempty"`
+	CrlType                                    string                             `json:"CrlType,omitempty"`
+	ExpirationInDays                           int32                              `json:"ExpirationInDays,omitempty"`
+	Enabled                                    bool                               `json:"Enabled"`
+}
+
+// ocspConfigWire mirrors types.OcspConfiguration.
+type ocspConfigWire struct {
+	OcspCustomCname string `json:"OcspCustomCname,omitempty"`
+	Enabled         bool   `json:"Enabled"`
+}
+
+// revocationConfigWire mirrors types.RevocationConfiguration on both the
+// CreateCertificateAuthority/UpdateCertificateAuthority input and the
+// DescribeCertificateAuthority/ListCertificateAuthorities output.
+type revocationConfigWire struct {
+	CrlConfiguration  *crlConfigWire  `json:"CrlConfiguration,omitempty"`
+	OcspConfiguration *ocspConfigWire `json:"OcspConfiguration,omitempty"`
+}
+
+func (w *revocationConfigWire) toModel() *RevocationConfiguration {
+	if w == nil {
+		return nil
+	}
+
+	rc := &RevocationConfiguration{}
+
+	if w.CrlConfiguration != nil {
+		crl := &CrlConfiguration{
+			Enabled:          w.CrlConfiguration.Enabled,
+			ExpirationInDays: w.CrlConfiguration.ExpirationInDays,
+			CustomCname:      w.CrlConfiguration.CustomCname,
+			CustomPath:       w.CrlConfiguration.CustomPath,
+			S3BucketName:     w.CrlConfiguration.S3BucketName,
+			S3ObjectACL:      w.CrlConfiguration.S3ObjectACL,
+			CrlType:          w.CrlConfiguration.CrlType,
+		}
+		if ext := w.CrlConfiguration.CrlDistributionPointExtensionConfiguration; ext != nil {
+			crl.OmitExtension = ext.OmitExtension
+		}
+
+		rc.CrlConfiguration = crl
+	}
+
+	if w.OcspConfiguration != nil {
+		rc.OcspConfiguration = &OcspConfiguration{
+			Enabled:         w.OcspConfiguration.Enabled,
+			OcspCustomCname: w.OcspConfiguration.OcspCustomCname,
+		}
+	}
+
+	return rc
+}
+
+func revocationConfigFromModel(rc *RevocationConfiguration) *revocationConfigWire {
+	if rc == nil {
+		return nil
+	}
+
+	w := &revocationConfigWire{}
+
+	if rc.CrlConfiguration != nil {
+		crl := rc.CrlConfiguration
+		w.CrlConfiguration = &crlConfigWire{
+			Enabled:          crl.Enabled,
+			ExpirationInDays: crl.ExpirationInDays,
+			CustomCname:      crl.CustomCname,
+			CustomPath:       crl.CustomPath,
+			S3BucketName:     crl.S3BucketName,
+			S3ObjectACL:      crl.S3ObjectACL,
+			CrlType:          crl.CrlType,
+		}
+		if crl.OmitExtension {
+			w.CrlConfiguration.CrlDistributionPointExtensionConfiguration = &crlDistributionPointExtConfigWire{
+				OmitExtension: true,
+			}
+		}
+	}
+
+	if rc.OcspConfiguration != nil {
+		w.OcspConfiguration = &ocspConfigWire{
+			Enabled:         rc.OcspConfiguration.Enabled,
+			OcspCustomCname: rc.OcspConfiguration.OcspCustomCname,
+		}
+	}
+
+	return w
+}
+
 type createCertificateAuthorityInput struct {
-	CertificateAuthorityConfiguration caConfigInput `json:"CertificateAuthorityConfiguration"`
-	CertificateAuthorityType          string        `json:"CertificateAuthorityType"`
-	Tags                              []svcTags.KV  `json:"Tags"`
+	CertificateAuthorityConfiguration caConfigInput         `json:"CertificateAuthorityConfiguration"`
+	CertificateAuthorityType          string                `json:"CertificateAuthorityType"`
+	IdempotencyToken                  string                `json:"IdempotencyToken,omitempty"`
+	KeyStorageSecurityStandard        string                `json:"KeyStorageSecurityStandard,omitempty"`
+	UsageMode                         string                `json:"UsageMode,omitempty"`
+	RevocationConfiguration           *revocationConfigWire `json:"RevocationConfiguration,omitempty"`
+	Tags                              []svcTags.KV          `json:"Tags"`
 }
 
 type createCertificateAuthorityOutput struct {
@@ -51,20 +155,21 @@ type caConfigOutput struct {
 	SigningAlgorithm string                `json:"SigningAlgorithm"`
 }
 
-type revocationConfigOutput struct{}
-
 type certAuthorityOutput struct {
-	CertificateAuthorityConfiguration caConfigOutput         `json:"CertificateAuthorityConfiguration"`
-	RevocationConfiguration           revocationConfigOutput `json:"RevocationConfiguration"`
-	Arn                               string                 `json:"Arn"`
-	OwnerAccount                      string                 `json:"OwnerAccount,omitempty"`
-	Type                              string                 `json:"Type"`
-	Status                            string                 `json:"Status"`
-	Serial                            string                 `json:"Serial,omitempty"`
-	CreatedAt                         int64                  `json:"CreatedAt"`
-	NotBefore                         int64                  `json:"NotBefore,omitempty"`
-	NotAfter                          int64                  `json:"NotAfter,omitempty"`
-	RestorableUntil                   int64                  `json:"RestorableUntil,omitempty"`
+	CertificateAuthorityConfiguration caConfigOutput        `json:"CertificateAuthorityConfiguration"`
+	RevocationConfiguration           *revocationConfigWire `json:"RevocationConfiguration,omitempty"`
+	Arn                               string                `json:"Arn"`
+	OwnerAccount                      string                `json:"OwnerAccount,omitempty"`
+	Type                              string                `json:"Type"`
+	Status                            string                `json:"Status"`
+	Serial                            string                `json:"Serial,omitempty"`
+	KeyStorageSecurityStandard        string                `json:"KeyStorageSecurityStandard,omitempty"`
+	UsageMode                         string                `json:"UsageMode,omitempty"`
+	CreatedAt                         int64                 `json:"CreatedAt"`
+	NotBefore                         int64                 `json:"NotBefore,omitempty"`
+	NotAfter                          int64                 `json:"NotAfter,omitempty"`
+	RestorableUntil                   int64                 `json:"RestorableUntil,omitempty"`
+	LastStateChangeAt                 int64                 `json:"LastStateChangeAt,omitempty"`
 }
 
 type describeCertificateAuthorityOutput struct {
@@ -72,8 +177,9 @@ type describeCertificateAuthorityOutput struct {
 }
 
 type listCertificateAuthoritiesInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int    `json:"MaxResults"`
+	NextToken     string `json:"NextToken"`
+	ResourceOwner string `json:"ResourceOwner"`
+	MaxResults    int    `json:"MaxResults"`
 }
 
 type listCertificateAuthoritiesOutput struct {
@@ -89,8 +195,34 @@ type deleteCertificateAuthorityInput struct {
 type deleteCertificateAuthorityOutput struct{}
 
 type updateCertificateAuthorityInput struct {
-	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
-	Status                  string `json:"Status"`
+	RevocationConfiguration    *revocationConfigWire `json:"RevocationConfiguration,omitempty"`
+	CertificateAuthorityArn    string                `json:"CertificateAuthorityArn"`
+	Status                     string                `json:"Status"`
+	revocationConfigurationSet bool
+}
+
+// UnmarshalJSON records whether the RevocationConfiguration key was present in
+// the request body at all (see revocationConfigurationSet), matching the real
+// API's "if you don't supply this parameter, existing capabilities remain
+// unchanged" semantics for UpdateCertificateAuthorityInput.
+func (in *updateCertificateAuthorityInput) UnmarshalJSON(data []byte) error {
+	type alias updateCertificateAuthorityInput
+
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+
+	*in = updateCertificateAuthorityInput(a)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	_, in.revocationConfigurationSet = raw["RevocationConfiguration"]
+
+	return nil
 }
 
 type updateCertificateAuthorityOutput struct{}
@@ -145,7 +277,12 @@ func (h *Handler) jsonCreateCA(ctx context.Context, body []byte) (any, error) {
 		SigningAlgorithm: input.CertificateAuthorityConfiguration.SigningAlgorithm,
 	}
 
-	ca, err := h.Backend.CreateCertificateAuthority(ctx, input.CertificateAuthorityType, cfg)
+	ca, err := h.Backend.CreateCertificateAuthority(ctx, input.CertificateAuthorityType, cfg,
+		WithCreateCAIdempotencyToken(input.IdempotencyToken),
+		WithCreateCAKeyStorageSecurityStandard(input.KeyStorageSecurityStandard),
+		WithCreateCAUsageMode(input.UsageMode),
+		WithCreateCARevocationConfiguration(input.RevocationConfiguration.toModel()),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +317,11 @@ func (h *Handler) jsonListCAs(ctx context.Context, body []byte) (any, error) {
 	var input listCertificateAuthoritiesInput
 	_ = json.Unmarshal(body, &input)
 
-	p := h.Backend.ListCertificateAuthorities(ctx, input.NextToken, input.MaxResults)
+	p, err := h.Backend.ListCertificateAuthorities(ctx, input.NextToken, input.MaxResults, input.ResourceOwner)
+	if err != nil {
+		return nil, err
+	}
+
 	cas := make([]certAuthorityOutput, 0, len(p.Data))
 
 	for _, ca := range p.Data {
@@ -218,7 +359,14 @@ func (h *Handler) jsonUpdateCA(ctx context.Context, body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
-	if err := h.Backend.UpdateCertificateAuthority(ctx, input.CertificateAuthorityArn, input.Status); err != nil {
+	var opts []UpdateCAOption
+	if input.revocationConfigurationSet {
+		opts = append(opts, WithUpdateCARevocationConfiguration(input.RevocationConfiguration.toModel()))
+	}
+
+	if err := h.Backend.UpdateCertificateAuthority(
+		ctx, input.CertificateAuthorityArn, input.Status, opts...,
+	); err != nil {
 		return nil, err
 	}
 
@@ -296,12 +444,15 @@ func (h *Handler) jsonRestoreCA(ctx context.Context, body []byte) (any, error) {
 
 func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 	out := certAuthorityOutput{
-		Arn:          ca.ARN,
-		OwnerAccount: ca.OwnerAccount,
-		Type:         ca.Type,
-		Status:       ca.Status,
-		Serial:       ca.Serial,
-		CreatedAt:    ca.CreatedAt.Unix(),
+		Arn:                        ca.ARN,
+		OwnerAccount:               ca.OwnerAccount,
+		Type:                       ca.Type,
+		Status:                     ca.Status,
+		Serial:                     ca.Serial,
+		KeyStorageSecurityStandard: ca.KeyStorageSecurityStandard,
+		UsageMode:                  ca.UsageMode,
+		CreatedAt:                  ca.CreatedAt.Unix(),
+		RevocationConfiguration:    revocationConfigFromModel(ca.RevocationConfiguration),
 		CertificateAuthorityConfiguration: caConfigOutput{
 			Subject: caConfigSubjectOutput{
 				CommonName:         ca.CertificateAuthorityConfiguration.Subject.CommonName,
@@ -326,6 +477,10 @@ func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 
 	if !ca.RestorableUntil.IsZero() {
 		out.RestorableUntil = ca.RestorableUntil.Unix()
+	}
+
+	if !ca.LastStateChangeAt.IsZero() {
+		out.LastStateChangeAt = ca.LastStateChangeAt.Unix()
 	}
 
 	return out

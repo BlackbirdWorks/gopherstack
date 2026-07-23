@@ -74,7 +74,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				// IssuedCertificate ARN contains the CA ARN as a prefix
 				// Find the cert by listing all CAs first
-				cas := b.ListCertificateAuthorities(context.Background(), "", 0).Data
+				cas := listAllCAs(t, b)
 				require.NotEmpty(t, cas)
 
 				certs := b.ListCertificates(context.Background(), cas[0].ARN, "", 0).Data
@@ -87,7 +87,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *acmpca.InMemoryBackend, _ string) {
 				t.Helper()
 
-				cas := b.ListCertificateAuthorities(context.Background(), "", 0).Data
+				cas := listAllCAs(t, b)
 				assert.Empty(t, cas)
 			},
 		},
@@ -136,7 +136,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	err = b.Restore(t.Context(), []byte(`{"version":999,"tables":{}}`))
 	require.NoError(t, err)
 
-	assert.Empty(t, b.ListCertificateAuthorities(context.Background(), "", 0).Data)
+	assert.Empty(t, listAllCAs(t, b))
 }
 
 // TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero verifies that a
@@ -159,7 +159,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	))
 	require.NoError(t, err)
 
-	assert.Empty(t, b.ListCertificateAuthorities(context.Background(), "", 0).Data)
+	assert.Empty(t, listAllCAs(t, b))
 }
 
 // TestInMemoryBackend_RevokeCertificateAfterRestore verifies that
@@ -412,7 +412,7 @@ func TestACMPCAHandler_Persistence(t *testing.T) {
 	freshH := acmpca.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(t.Context(), snap))
 
-	cas := fresh.ListCertificateAuthorities(context.Background(), "", 0).Data
+	cas := listAllCAs(t, fresh)
 	assert.Len(t, cas, 1)
 }
 

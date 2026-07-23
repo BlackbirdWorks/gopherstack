@@ -60,6 +60,19 @@ func parseACMPCAResponse(t *testing.T, rec *httptest.ResponseRecorder) map[strin
 	return out
 }
 
+// listAllCAs is a shared test helper wrapping InMemoryBackend.ListCertificateAuthorities
+// (SELF ownership, no pagination, context.Background()) so call sites across
+// this package's test files don't each have to handle the (page, error)
+// return themselves.
+func listAllCAs(t *testing.T, b *acmpca.InMemoryBackend) []acmpca.CertificateAuthority {
+	t.Helper()
+
+	p, err := b.ListCertificateAuthorities(context.Background(), "", 0, "")
+	require.NoError(t, err)
+
+	return p.Data
+}
+
 func createHandlerCA(t *testing.T, h *acmpca.Handler) string {
 	t.Helper()
 
