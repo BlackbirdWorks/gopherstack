@@ -9,8 +9,19 @@ import (
 const (
 	statusActive      = "ACTIVE"
 	statusInProgress  = "InProgress"
+	statusCancelled   = "Cancelled"
 	defaultK8sVersion = "1.32"
 	priorK8sVersion   = "1.31"
+)
+
+const (
+	// typeVersionRollback is the only UpdateType real EKS currently allows
+	// CancelUpdate to act on (Kubernetes version rollback on EKS Auto Mode
+	// clusters) -- verified against aws-sdk-go-v2/service/eks's CancelUpdate
+	// doc comment and types.UpdateTypeVersionRollback.
+	typeVersionRollback = "VersionRollback"
+
+	cancellationStatusSuccessful = "Successful"
 )
 
 const (
@@ -206,6 +217,7 @@ type Nodegroup struct {
 // AccessEntry represents an EKS access entry that grants a principal access to a cluster.
 type AccessEntry struct {
 	CreatedAt        time.Time  `json:"createdAt"`
+	ModifiedAt       time.Time  `json:"modifiedAt"`
 	Tags             *tags.Tags `json:"tags,omitempty"`
 	PrincipalARN     string     `json:"principalArn"`
 	ClusterName      string     `json:"clusterName"`
@@ -231,14 +243,22 @@ type EncryptionConfig struct {
 }
 
 // IdentityProviderConfig represents an identity provider configuration for a cluster.
+//
+// OIDC holds the flat string-valued OIDC fields (issuerUrl, clientId,
+// usernameClaim, usernamePrefix, groupsClaim, groupsPrefix); RequiredClaims
+// is kept separate since the real
+// aws-sdk-go-v2/service/eks.OidcIdentityProviderConfig.RequiredClaims is a
+// nested map, not a flat string like the other OIDC fields.
 type IdentityProviderConfig struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	Tags        *tags.Tags        `json:"tags,omitempty"`
-	OIDC        map[string]string `json:"oidc,omitempty"`
-	ClusterName string            `json:"clusterName"`
-	Name        string            `json:"name"`
-	Type        string            `json:"type"`
-	Status      string            `json:"status"`
+	CreatedAt      time.Time         `json:"createdAt"`
+	Tags           *tags.Tags        `json:"tags,omitempty"`
+	OIDC           map[string]string `json:"oidc,omitempty"`
+	RequiredClaims map[string]string `json:"requiredClaims,omitempty"`
+	ClusterName    string            `json:"clusterName"`
+	Name           string            `json:"name"`
+	ARN            string            `json:"arn"`
+	Type           string            `json:"type"`
+	Status         string            `json:"status"`
 }
 
 // AddonHealth represents the health status of an EKS managed add-on.
@@ -262,34 +282,61 @@ type Addon struct {
 	ResolveConflicts      string       `json:"resolveConflicts,omitempty"`
 }
 
+// CapabilityIssue represents a single health issue affecting a Capability.
+type CapabilityIssue struct {
+	Code        string   `json:"code,omitempty"`
+	Message     string   `json:"message,omitempty"`
+	ResourceIDs []string `json:"resourceIds,omitempty"`
+}
+
+// CapabilityHealth mirrors aws-sdk-go-v2/service/eks/types.CapabilityHealth.
+type CapabilityHealth struct {
+	Issues []CapabilityIssue `json:"issues"`
+}
+
 // Capability represents an EKS capability. Capabilities are cluster-scoped:
 // CapabilityName is unique per cluster, not globally (verified against
 // aws-sdk-go-v2/service/eks -- CreateCapabilityInput requires ClusterName,
 // CapabilityName, Type, RoleArn, and DeletePropagationPolicy; the route is
 // /clusters/{clusterName}/capabilities[/{capabilityName}]).
 type Capability struct {
-	CreatedAt               time.Time  `json:"createdAt"`
-	Tags                    *tags.Tags `json:"tags,omitempty"`
-	ClusterName             string     `json:"clusterName"`
-	CapabilityName          string     `json:"capabilityName"`
-	ARN                     string     `json:"arn"`
-	Type                    string     `json:"type,omitempty"`
-	RoleARN                 string     `json:"roleArn,omitempty"`
-	DeletePropagationPolicy string     `json:"deletePropagationPolicy,omitempty"`
-	Version                 string     `json:"version,omitempty"`
-	Status                  string     `json:"status"`
+	CreatedAt               time.Time         `json:"createdAt"`
+	ModifiedAt              time.Time         `json:"modifiedAt"`
+	Tags                    *tags.Tags        `json:"tags,omitempty"`
+	Configuration           map[string]any    `json:"configuration,omitempty"`
+	Health                  *CapabilityHealth `json:"health,omitempty"`
+	ClusterName             string            `json:"clusterName"`
+	CapabilityName          string            `json:"capabilityName"`
+	ARN                     string            `json:"arn"`
+	Type                    string            `json:"type,omitempty"`
+	RoleARN                 string            `json:"roleArn,omitempty"`
+	DeletePropagationPolicy string            `json:"deletePropagationPolicy,omitempty"`
+	Version                 string            `json:"version,omitempty"`
+	Status                  string            `json:"status"`
+}
+
+// SubscriptionTerm holds the term duration/unit for an EKS Anywhere
+// subscription (required on create -- verified against
+// aws-sdk-go-v2/service/eks's CreateEksAnywhereSubscriptionInput.Term).
+type SubscriptionTerm struct {
+	Unit     string `json:"unit,omitempty"`
+	Duration int32  `json:"duration,omitempty"`
 }
 
 // AnywhereSubscription represents an EKS Anywhere subscription.
 type AnywhereSubscription struct {
-	CreatedAt       time.Time  `json:"createdAt"`
-	Tags            *tags.Tags `json:"tags,omitempty"`
-	ID              string     `json:"id"`
-	ARN             string     `json:"arn"`
-	Name            string     `json:"name"`
-	Status          string     `json:"status"`
-	LicenseType     string     `json:"licenseType,omitempty"`
-	LicenseQuantity int32      `json:"licenseQuantity,omitempty"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	EffectiveDate   time.Time         `json:"effectiveDate"`
+	ExpirationDate  time.Time         `json:"expirationDate"`
+	Tags            *tags.Tags        `json:"tags,omitempty"`
+	Term            *SubscriptionTerm `json:"term,omitempty"`
+	ID              string            `json:"id"`
+	ARN             string            `json:"arn"`
+	Name            string            `json:"name"`
+	Status          string            `json:"status"`
+	LicenseType     string            `json:"licenseType,omitempty"`
+	LicenseQuantity int32             `json:"licenseQuantity,omitempty"`
+	AutoRenew       bool              `json:"autoRenew"`
 }
 
 // FargateProfileSelector is a namespace/labels selector for a Fargate profile.
@@ -298,10 +345,23 @@ type FargateProfileSelector struct {
 	Namespace string            `json:"namespace"`
 }
 
+// FargateProfileIssue represents a single health issue reported for a Fargate profile.
+type FargateProfileIssue struct {
+	Code        string   `json:"code,omitempty"`
+	Message     string   `json:"message,omitempty"`
+	ResourceIDs []string `json:"resourceIds,omitempty"`
+}
+
+// FargateProfileHealth mirrors aws-sdk-go-v2/service/eks/types.FargateProfileHealth.
+type FargateProfileHealth struct {
+	Issues []FargateProfileIssue `json:"issues"`
+}
+
 // FargateProfile represents an EKS Fargate profile.
 type FargateProfile struct {
 	CreatedAt           time.Time                `json:"createdAt"`
 	Tags                *tags.Tags               `json:"tags,omitempty"`
+	Health              *FargateProfileHealth    `json:"health,omitempty"`
 	Subnets             []string                 `json:"subnets,omitempty"`
 	ClusterName         string                   `json:"clusterName"`
 	FargateProfileName  string                   `json:"fargateProfileName"`
@@ -313,15 +373,19 @@ type FargateProfile struct {
 
 // PodIdentityAssociation represents an EKS pod identity association.
 type PodIdentityAssociation struct {
-	CreatedAt      time.Time  `json:"createdAt"`
-	Tags           *tags.Tags `json:"tags,omitempty"`
-	ClusterName    string     `json:"clusterName"`
-	AssociationID  string     `json:"associationId"`
-	ARN            string     `json:"associationArn"`
-	Namespace      string     `json:"namespace"`
-	ServiceAccount string     `json:"serviceAccount"`
-	RoleARN        string     `json:"roleArn,omitempty"`
-	OwnerARN       string     `json:"ownerArn,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	ModifiedAt         time.Time  `json:"modifiedAt"`
+	Tags               *tags.Tags `json:"tags,omitempty"`
+	ClusterName        string     `json:"clusterName"`
+	AssociationID      string     `json:"associationId"`
+	ARN                string     `json:"associationArn"`
+	Namespace          string     `json:"namespace"`
+	ServiceAccount     string     `json:"serviceAccount"`
+	RoleARN            string     `json:"roleArn,omitempty"`
+	OwnerARN           string     `json:"ownerArn,omitempty"`
+	ExternalID         string     `json:"externalId,omitempty"`
+	Policy             string     `json:"policy,omitempty"`
+	DisableSessionTags bool       `json:"disableSessionTags"`
 }
 
 // Insight represents an EKS cluster insight.
@@ -360,13 +424,21 @@ type UpdateError struct {
 	ResourceIDs  []string `json:"resourceIds,omitempty"`
 }
 
+// Cancellation represents the latest cancellation state of an Update, present
+// only when a cancellation was attempted (e.g. via CancelUpdate).
+type Cancellation struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // Update represents an EKS update record.
 type Update struct {
-	CreatedAt   time.Time     `json:"createdAt"`
-	ID          string        `json:"id"`
-	ClusterName string        `json:"clusterName"`
-	Status      string        `json:"status"`
-	Type        string        `json:"type"`
-	Params      []UpdateParam `json:"params,omitempty"`
-	Errors      []UpdateError `json:"errors,omitempty"`
+	CreatedAt    time.Time     `json:"createdAt"`
+	Cancellation *Cancellation `json:"cancellation,omitempty"`
+	ID           string        `json:"id"`
+	ClusterName  string        `json:"clusterName"`
+	Status       string        `json:"status"`
+	Type         string        `json:"type"`
+	Params       []UpdateParam `json:"params,omitempty"`
+	Errors       []UpdateError `json:"errors,omitempty"`
 }

@@ -1,18 +1,21 @@
 package eks
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchInsightsOps handles cluster insights and insights-refresh operations.
-func (h *Handler) dispatchInsightsOps(c *echo.Context, route eksRoute, _ []byte) (bool, error) {
+func (h *Handler) dispatchInsightsOps(c *echo.Context, route eksRoute, body []byte) (bool, error) {
 	switch route.operation {
 	case opDescribeInsight:
 		return true, h.handleDescribeInsight(c, route.clusterName, route.nodegroupName)
 	case opListInsights:
-		return true, h.handleListInsights(c, route.clusterName)
+		return true, h.handleListInsights(c, route.clusterName, body)
 	case opStartInsightsRefresh:
 		return true, h.handleStartInsightsRefresh(c, route.clusterName)
 	case opDescribeInsightsRefresh:
@@ -75,7 +78,12 @@ func (h *Handler) handleDescribeInsight(c *echo.Context, clusterName, insightID 
 	})
 }
 
-func (h *Handler) handleListInsights(c *echo.Context, clusterName string) error {
+type listInsightsBody struct {
+	NextToken  string `json:"nextToken"`
+	MaxResults int    `json:"maxResults"`
+}
+
+func (h *Handler) handleListInsights(c *echo.Context, clusterName string, body []byte) error {
 	insights, err := h.Backend.ListInsights(clusterName)
 	if err != nil {
 		return h.handleError(c, err)
@@ -86,9 +94,17 @@ func (h *Handler) handleListInsights(c *echo.Context, clusterName string) error 
 		result[i] = insightToJSON(ins)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"insights": result,
-	})
+	var in listInsightsBody
+	if len(body) > 0 {
+		// A malformed body is tolerated (ListInsights' filter/pagination
+		// fields are all optional) rather than rejected, matching the
+		// permissive parsing used by every other optional-body op here.
+		_ = json.Unmarshal(body, &in)
+	}
+
+	p := page.New(result, in.NextToken, in.MaxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("insights", p))
 }
 
 // Both StartInsightsRefresh and DescribeInsightsRefresh return their fields

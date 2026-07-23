@@ -441,7 +441,9 @@ func TestTagResourceOnPodIdentity(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	assoc, err := b.CreatePodIdentityAssociation("c1", "default", "my-sa", "arn:aws:iam::123:role/r", nil)
+	assoc, err := b.CreatePodIdentityAssociation(
+		"c1", "default", "my-sa", "arn:aws:iam::123:role/r", nil, eks.PodIdentityAssociationInput{},
+	)
 	require.NoError(t, err)
 
 	err = b.TagResource(assoc.ARN, map[string]string{"a": "b"})

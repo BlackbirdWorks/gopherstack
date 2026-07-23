@@ -5,13 +5,14 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // AssociateIdentityProviderConfig associates an identity provider configuration with a cluster.
 func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 	clusterName, configType, name string,
-	params, kv map[string]string,
+	params, requiredClaims, kv map[string]string,
 ) (*IdentityProviderConfig, error) {
 	b.mu.Lock("AssociateIdentityProviderConfig")
 	defer b.mu.Unlock()
@@ -34,14 +35,19 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 		t.Merge(kv)
 	}
 
+	idpResource := "identityproviderconfig/" + clusterName + "/oidc/" + name + "/" + stableID(clusterName+"/"+name)
+	idpARN := arn.Build("eks", b.region, b.accountID, idpResource)
+
 	cfg := &IdentityProviderConfig{
-		ClusterName: clusterName,
-		Name:        name,
-		Type:        configType,
-		Status:      statusCreating,
-		OIDC:        params,
-		CreatedAt:   time.Now().UTC(),
-		Tags:        t,
+		ClusterName:    clusterName,
+		Name:           name,
+		ARN:            idpARN,
+		Type:           configType,
+		Status:         statusCreating,
+		OIDC:           params,
+		RequiredClaims: requiredClaims,
+		CreatedAt:      time.Now().UTC(),
+		Tags:           t,
 	}
 	b.identityProviderConfigs.Put(cfg)
 	cp := *cfg

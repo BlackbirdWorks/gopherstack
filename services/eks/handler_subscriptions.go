@@ -2,10 +2,13 @@ package eks
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchSubscriptionOps handles EKS Anywhere subscription CRUD operations.
@@ -58,7 +61,7 @@ func parseSubscriptionEKSPath(method, path string) (eksRoute, bool) {
 }
 
 func subscriptionToJSON(sub *AnywhereSubscription) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		"id":              sub.ID,
 		"arn":             sub.ARN,
 		keyName:           sub.Name,
@@ -66,14 +69,64 @@ func subscriptionToJSON(sub *AnywhereSubscription) map[string]any {
 		"licenseType":     sub.LicenseType,
 		"licenseQuantity": sub.LicenseQuantity,
 		keyCreatedAt:      sub.CreatedAt.Unix(),
+		"autoRenew":       sub.AutoRenew,
+		"effectiveDate":   sub.EffectiveDate.Unix(),
+		"expirationDate":  sub.ExpirationDate.Unix(),
 	}
+
+	if sub.Term != nil {
+		m["term"] = map[string]any{
+			"unit":     sub.Term.Unit,
+			"duration": sub.Term.Duration,
+		}
+	}
+
+	return m
+}
+
+type subscriptionTermJSON struct {
+	Unit     string `json:"unit"`
+	Duration int32  `json:"duration"`
 }
 
 type createEksAnywhereSubscriptionBody struct {
-	Tags            map[string]string `json:"tags"`
-	Name            string            `json:"name"`
-	LicenseType     string            `json:"licenseType"`
-	LicenseQuantity int32             `json:"licenseQuantity"`
+	Tags            map[string]string     `json:"tags"`
+	Term            *subscriptionTermJSON `json:"term"`
+	Name            string                `json:"name"`
+	LicenseType     string                `json:"licenseType"`
+	LicenseQuantity int32                 `json:"licenseQuantity"`
+	AutoRenew       bool                  `json:"autoRenew"`
+}
+
+// The only term durations (in months) real AWS accepts for EKS Anywhere
+// subscriptions -- verified against
+// aws-sdk-go-v2/service/eks/types.EksAnywhereSubscriptionTerm's doc comment.
+const (
+	eksAnywhereTermUnitMonths = "MONTHS"
+	eksAnywhereTermDuration12 = 12
+	eksAnywhereTermDuration36 = 36
+)
+
+var (
+	errSubscriptionTermRequired = errors.New("term is required")
+	errSubscriptionTermUnit     = errors.New("term.unit must be MONTHS")
+	errSubscriptionTermDuration = errors.New("term.duration must be 12 or 36")
+)
+
+func validateSubscriptionTerm(t *subscriptionTermJSON) error {
+	if t == nil {
+		return errSubscriptionTermRequired
+	}
+
+	if t.Unit != eksAnywhereTermUnitMonths {
+		return errSubscriptionTermUnit
+	}
+
+	if t.Duration != eksAnywhereTermDuration12 && t.Duration != eksAnywhereTermDuration36 {
+		return errSubscriptionTermDuration
+	}
+
+	return nil
 }
 
 func (h *Handler) handleCreateEksAnywhereSubscription(c *echo.Context, body []byte) error {
@@ -86,21 +139,21 @@ func (h *Handler) handleCreateEksAnywhereSubscription(c *echo.Context, body []by
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "name is required"))
 	}
 
-	sub, err := h.Backend.CreateEksAnywhereSubscription(in.Name, in.LicenseQuantity, in.LicenseType, in.Tags)
+	if err := validateSubscriptionTerm(in.Term); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
+	}
+
+	term := SubscriptionTerm{Unit: in.Term.Unit, Duration: in.Term.Duration}
+
+	sub, err := h.Backend.CreateEksAnywhereSubscription(
+		in.Name, term, in.AutoRenew, in.LicenseQuantity, in.LicenseType, in.Tags,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keySubscription: map[string]any{
-			"id":              sub.ID,
-			keyArn:            sub.ARN,
-			keyName:           sub.Name,
-			keyStatusField:    sub.Status,
-			"licenseType":     sub.LicenseType,
-			"licenseQuantity": sub.LicenseQuantity,
-			keyCreatedAt:      sub.CreatedAt.Unix(),
-		},
+		keySubscription: subscriptionToJSON(sub),
 	})
 }
 
@@ -134,9 +187,10 @@ func (h *Handler) handleListEksAnywhereSubscriptions(c *echo.Context) error {
 		result[i] = subscriptionToJSON(sub)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"subscriptions": result,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(result, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("subscriptions", p))
 }
 
 type updateSubscriptionBody struct {

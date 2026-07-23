@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // dispatchClusterOps handles cluster CRUD and cluster-registration operations.
@@ -352,9 +354,10 @@ func (h *Handler) handleDescribeCluster(c *echo.Context, name string) error {
 func (h *Handler) handleListClusters(c *echo.Context) error {
 	names := h.Backend.ListClusters()
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"clusters": names,
-	})
+	maxResults, nextToken := eksPaginationParams(c)
+	p := page.New(names, nextToken, maxResults, eksDefaultPageSize)
+
+	return c.JSON(http.StatusOK, eksPageResponse("clusters", p))
 }
 
 func (h *Handler) handleDeleteCluster(c *echo.Context, name string) error {

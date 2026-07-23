@@ -905,3 +905,110 @@ func TestUpdateClusterVersionReturnsInProgress(t *testing.T) {
 		})
 	}
 }
+
+// TestEKS_CancelUpdate covers CancelUpdate: success on an InProgress
+// VersionRollback update, and the InvalidRequestException/ResourceNotFound
+// rejection paths. Real EKS only supports cancellation for VersionRollback
+// updates (Kubernetes version rollback on EKS Auto Mode clusters) that are
+// still InProgress -- verified against aws-sdk-go-v2/service/eks's
+// CancelUpdate doc comment. Since no public op creates a VersionRollback
+// update, tests seed one directly via the exported StoreUpdate helper.
+func TestEKS_CancelUpdate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cancels_inprogress_version_rollback", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestEKSHandler(t)
+		doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "cancel-cluster"})
+
+		h.Backend.StoreUpdate(&eks.Update{
+			ID:          "rollback-1",
+			ClusterName: "cancel-cluster",
+			Status:      "InProgress",
+			Type:        "VersionRollback",
+		})
+
+		rec := doREST(t, h, http.MethodPost, "/clusters/cancel-cluster/updates/rollback-1/cancel-update", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		resp := parseResp(t, rec)
+		upd, ok := resp["update"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "Cancelled", upd["status"])
+
+		cancellation, ok := upd["cancellation"].(map[string]any)
+		require.True(t, ok, "cancellation field must be present after a successful cancel")
+		assert.Equal(t, "Successful", cancellation["status"])
+	})
+
+	t.Run("rejects_non_rollback_update_type", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestEKSHandler(t)
+		doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "cancel-cluster2"})
+
+		u, err := h.Backend.UpdateClusterVersion("cancel-cluster2", "1.33")
+		require.NoError(t, err)
+
+		rec := doREST(t, h, http.MethodPost, "/clusters/cancel-cluster2/updates/"+u.ID+"/cancel-update", nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("rejects_already_completed_update", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestEKSHandler(t)
+		doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "cancel-cluster3"})
+
+		h.Backend.StoreUpdate(&eks.Update{
+			ID:          "rollback-done",
+			ClusterName: "cancel-cluster3",
+			Status:      "Successful",
+			Type:        "VersionRollback",
+		})
+
+		rec := doREST(t, h, http.MethodPost, "/clusters/cancel-cluster3/updates/rollback-done/cancel-update", nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("update_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestEKSHandler(t)
+		doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "cancel-cluster4"})
+
+		rec := doREST(t, h, http.MethodPost, "/clusters/cancel-cluster4/updates/nonexistent/cancel-update", nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+
+	t.Run("cluster_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestEKSHandler(t)
+
+		rec := doREST(t, h, http.MethodPost, "/clusters/nonexistent/updates/upd1/cancel-update", nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+
+	t.Run("backend_direct_call", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		mustCreateClusterNoVpc(t, b, "cancel-direct")
+
+		b.StoreUpdate(&eks.Update{
+			ID: "u1", ClusterName: "cancel-direct", Status: "InProgress", Type: "VersionRollback",
+		})
+
+		u, err := b.CancelUpdate("cancel-direct", "u1")
+		require.NoError(t, err)
+		assert.Equal(t, "Cancelled", u.Status)
+		require.NotNil(t, u.Cancellation)
+		assert.Equal(t, "Successful", u.Cancellation.Status)
+
+		// Cancelling again fails: no longer InProgress.
+		_, err = b.CancelUpdate("cancel-direct", "u1")
+		assert.ErrorIs(t, err, eks.ErrInvalidRequest)
+	})
+}

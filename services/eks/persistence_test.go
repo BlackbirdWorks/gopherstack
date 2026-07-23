@@ -51,7 +51,9 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.AssociateIdentityProviderConfig("c1", "oidc", "idp1", map[string]string{"issuerUrl": "https://x"}, nil)
+	_, err = b.AssociateIdentityProviderConfig(
+		"c1", "oidc", "idp1", map[string]string{"issuerUrl": "https://x"}, nil, nil,
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateAddon("c1", "vpc-cni", "", "", "", "", nil)
@@ -60,13 +62,17 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	_, err = b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123456789012:role/fp", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreatePodIdentityAssociation("c1", "default", "sa1", "arn:aws:iam::123456789012:role/sa", nil)
+	_, err = b.CreatePodIdentityAssociation(
+		"c1", "default", "sa1", "arn:aws:iam::123456789012:role/sa", nil, eks.PodIdentityAssociationInput{},
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateCapability("c1", "cap1", "ARGOCD", "arn:aws:iam::123456789012:role/capability-role", "RETAIN", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateEksAnywhereSubscription("sub1", 3, "Cluster", nil)
+	_, err = b.CreateEksAnywhereSubscription(
+		"sub1", eks.SubscriptionTerm{Unit: "MONTHS", Duration: 12}, false, 3, "Cluster", nil,
+	)
 	require.NoError(t, err)
 
 	_, err = b.UpdateClusterVersion("c1", "1.33")
@@ -170,13 +176,17 @@ func TestPersistenceRoundTrip_SubscriptionAndFargate(t *testing.T) {
 	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateEksAnywhereSubscription("my-sub", 3, "Cluster", nil)
+	_, err = b.CreateEksAnywhereSubscription(
+		"my-sub", eks.SubscriptionTerm{Unit: "MONTHS", Duration: 12}, false, 3, "Cluster", nil,
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateFargateProfile("c1", "fp1", "arn:aws:iam::123:role/fp", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreatePodIdentityAssociation("c1", "default", "sa1", "arn:aws:iam::123:role/sa", nil)
+	_, err = b.CreatePodIdentityAssociation(
+		"c1", "default", "sa1", "arn:aws:iam::123:role/sa", nil, eks.PodIdentityAssociationInput{},
+	)
 	require.NoError(t, err)
 
 	// Snapshot and restore
@@ -223,7 +233,9 @@ func TestPersistenceRoundTrip_AddonCapabilityEncryptionConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create pod identity association.
-	_, err = b.CreatePodIdentityAssociation("c1", "default", "my-sa", "arn:aws:iam::123456789012:role/pod", nil)
+	_, err = b.CreatePodIdentityAssociation(
+		"c1", "default", "my-sa", "arn:aws:iam::123456789012:role/pod", nil, eks.PodIdentityAssociationInput{},
+	)
 	require.NoError(t, err)
 
 	// Create capability.
@@ -231,7 +243,9 @@ func TestPersistenceRoundTrip_AddonCapabilityEncryptionConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create subscription.
-	_, err = b.CreateEksAnywhereSubscription("sub1", 3, "License", nil)
+	_, err = b.CreateEksAnywhereSubscription(
+		"sub1", eks.SubscriptionTerm{Unit: "MONTHS", Duration: 12}, false, 3, "License", nil,
+	)
 	require.NoError(t, err)
 
 	// Associate encryption config.

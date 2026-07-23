@@ -6,8 +6,47 @@ import (
 	"fmt"
 	"hash/fnv"
 	"maps"
+	"strconv"
 	"time"
+
+	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// eksDefaultPageSize is the default page size for EKS List* operations when
+// the caller omits maxResults -- matches the "If you don't specify a value,
+// the default is 100 results" documented on e.g. ListCapabilitiesInput in
+// aws-sdk-go-v2/service/eks.
+const eksDefaultPageSize = 100
+
+// eksPaginationParams extracts maxResults and nextToken from query
+// parameters, shared by every GET-based EKS List* handler.
+func eksPaginationParams(c *echo.Context) (int, string) {
+	q := c.Request().URL.Query()
+	maxResults := 0
+
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	return maxResults, q.Get("nextToken")
+}
+
+// eksPageResponse builds the common {<itemsKey>: ..., "nextToken": ...}
+// envelope shared by every EKS List* response. nextToken is only present
+// (non-null) when there are more pages, matching the real API's null-when-
+// exhausted semantics.
+func eksPageResponse[T any](itemsKey string, p page.Page[T]) map[string]any {
+	m := map[string]any{itemsKey: p.Data}
+	if p.Next != "" {
+		m["nextToken"] = p.Next
+	}
+
+	return m
+}
 
 // cloneStrings returns a deep copy of a string slice (nil-safe).
 func cloneStrings(ss []string) []string {

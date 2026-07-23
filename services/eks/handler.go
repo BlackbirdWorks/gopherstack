@@ -29,6 +29,8 @@ const (
 	keyFargateProfile = "fargateProfile"
 	keyTags           = "tags"
 	keyEnabled        = "enabled"
+	keyModifiedAt     = "modifiedAt"
+	keyHealth         = "health"
 )
 
 const (
@@ -58,6 +60,7 @@ const (
 	opUpdateClusterConfig           = "UpdateClusterConfig"
 	opUpdateClusterVersion          = "UpdateClusterVersion"
 	opRegisterCluster               = "RegisterCluster"
+	opCancelUpdate                  = "CancelUpdate"
 )
 
 const (
@@ -231,6 +234,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateClusterVersion,
 		opDescribeUpdate,
 		opListUpdates,
+		opCancelUpdate,
 		opRegisterCluster,
 		opDeregisterCluster,
 		opDescribeClusterVersions,
@@ -519,6 +523,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusConflict, errResp("ResourceInUseException", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", err.Error()))
+	case errors.Is(err, ErrInvalidRequest):
+		return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 	}

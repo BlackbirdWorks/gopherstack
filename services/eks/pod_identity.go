@@ -11,10 +11,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// PodIdentityAssociationInput groups the optional fields for
+// CreatePodIdentityAssociation beyond the always-required namespace,
+// serviceAccount, and roleARN.
+type PodIdentityAssociationInput struct {
+	Policy             string
+	DisableSessionTags bool
+}
+
 // CreatePodIdentityAssociation creates a new pod identity association in a cluster.
 func (b *InMemoryBackend) CreatePodIdentityAssociation(
 	clusterName, namespace, serviceAccount, roleARN string,
 	kv map[string]string,
+	opt PodIdentityAssociationInput,
 ) (*PodIdentityAssociation, error) {
 	b.mu.Lock("CreatePodIdentityAssociation")
 	defer b.mu.Unlock()
@@ -31,15 +40,20 @@ func (b *InMemoryBackend) CreatePodIdentityAssociation(
 		t.Merge(kv)
 	}
 
+	now := time.Now().UTC()
 	assoc := &PodIdentityAssociation{
-		ClusterName:    clusterName,
-		AssociationID:  assocID,
-		ARN:            assocARN,
-		Namespace:      namespace,
-		ServiceAccount: serviceAccount,
-		RoleARN:        roleARN,
-		CreatedAt:      time.Now().UTC(),
-		Tags:           t,
+		ClusterName:        clusterName,
+		AssociationID:      assocID,
+		ARN:                assocARN,
+		Namespace:          namespace,
+		ServiceAccount:     serviceAccount,
+		RoleARN:            roleARN,
+		CreatedAt:          now,
+		ModifiedAt:         now,
+		Tags:               t,
+		ExternalID:         uuid.NewString(),
+		Policy:             opt.Policy,
+		DisableSessionTags: opt.DisableSessionTags,
 	}
 	b.podIdentityAssociations.Put(assoc)
 	cp := *assoc
@@ -127,9 +141,19 @@ func (b *InMemoryBackend) ListPodIdentityAssociations(clusterName string) ([]*Po
 	return list, nil
 }
 
+// PodIdentityAssociationUpdate holds the mutable fields for
+// UpdatePodIdentityAssociation. Nil/empty fields leave the existing value
+// unchanged, matching the real API's optional-field update semantics.
+type PodIdentityAssociationUpdate struct {
+	Policy             *string
+	DisableSessionTags *bool
+	RoleARN            string
+}
+
 // UpdatePodIdentityAssociation updates a pod identity association.
 func (b *InMemoryBackend) UpdatePodIdentityAssociation(
-	clusterName, associationID, roleARN string,
+	clusterName, associationID string,
+	upd PodIdentityAssociationUpdate,
 ) (*PodIdentityAssociation, error) {
 	b.mu.Lock("UpdatePodIdentityAssociation")
 	defer b.mu.Unlock()
@@ -148,9 +172,19 @@ func (b *InMemoryBackend) UpdatePodIdentityAssociation(
 		)
 	}
 
-	if roleARN != "" {
-		assoc.RoleARN = roleARN
+	if upd.RoleARN != "" {
+		assoc.RoleARN = upd.RoleARN
 	}
+
+	if upd.Policy != nil {
+		assoc.Policy = *upd.Policy
+	}
+
+	if upd.DisableSessionTags != nil {
+		assoc.DisableSessionTags = *upd.DisableSessionTags
+	}
+
+	assoc.ModifiedAt = time.Now().UTC()
 
 	cp := *assoc
 
