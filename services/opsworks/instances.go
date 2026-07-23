@@ -7,13 +7,24 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateInstance creates a new instance in a stack/layer.
+// CreateInstance creates a new instance in a stack/layer. StackId,
+// LayerIds (at least one), and InstanceType are all "This member is
+// required" on the real CreateInstanceInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CreateInstance.go).
 func (b *InMemoryBackend) CreateInstance(stackID, layerID, instanceType string) (*Instance, error) {
+	if stackID == "" || layerID == "" || instanceType == "" {
+		return nil, ErrValidation
+	}
+
 	b.mu.Lock("CreateInstance")
 	defer b.mu.Unlock()
 
 	if !b.stacks.Has(stackID) {
 		return nil, ErrStackNotFound
+	}
+
+	if !b.layers.Has(layerID) {
+		return nil, ErrLayerNotFound
 	}
 
 	id := uuid.NewString()
@@ -79,7 +90,11 @@ func (b *InMemoryBackend) DeregisterInstance(instanceID string) error {
 	return nil
 }
 
-// AssignInstance assigns an existing EC2 instance to a layer.
+// AssignInstance assigns a registered instance to a layer. The target
+// layer must exist and belong to the same stack as the instance -- AWS
+// does not document cross-stack assignment as valid, and this backend
+// previously accepted any layer ID (even one from an unrelated stack, or
+// one that didn't exist at all) without checking.
 func (b *InMemoryBackend) AssignInstance(instanceID string, layerIDs []string) error {
 	b.mu.Lock("AssignInstance")
 	defer b.mu.Unlock()
@@ -89,9 +104,22 @@ func (b *InMemoryBackend) AssignInstance(instanceID string, layerIDs []string) e
 		return ErrInstanceNotFound
 	}
 
-	if len(layerIDs) > 0 {
-		i.LayerID = layerIDs[0]
+	if len(layerIDs) == 0 {
+		return ErrValidation
 	}
+
+	layerID := layerIDs[0]
+
+	l, ok := b.layers.Get(layerID)
+	if !ok {
+		return ErrLayerNotFound
+	}
+
+	if l.StackID != i.StackID {
+		return ErrValidation
+	}
+
+	i.LayerID = layerID
 
 	return nil
 }

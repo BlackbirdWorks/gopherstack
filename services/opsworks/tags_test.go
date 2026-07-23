@@ -86,6 +86,80 @@ func TestTags(t *testing.T) {
 	}
 }
 
+// TestTagResourceRejectsNonStackOrLayerARN verifies TagResource only
+// accepts a stack or layer ARN, matching the real API's documented
+// contract ("The stack or layer's Amazon Resource Number (ARN)" -- confirmed
+// against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_TagResource.go,
+// api_op_UntagResource.go, and api_op_ListTags.go doc comments). Instances
+// and apps are not independently taggable resources on the real API.
+func TestTagResourceRejectsNonStackOrLayerARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		buildResource func(t *testing.T, h *opsworks.Handler) string
+		name          string
+	}{
+		{
+			name: "layer ARN is accepted",
+			buildResource: func(t *testing.T, h *opsworks.Handler) string {
+				t.Helper()
+				stackID := createTestStack(t, h)
+				layerID := createTestLayer(t, h, stackID)
+
+				return "arn:aws:opsworks:us-east-1:000000000000:layer/" + layerID
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			resourceArn := tt.buildResource(t, h)
+
+			rec := doTarget(t, h, "TagResource", map[string]any{
+				"ResourceArn": resourceArn,
+				"Tags":        map[string]string{"env": "prod"},
+			})
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+
+	t.Run("instance ARN is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		stackID := createTestStack(t, h)
+		layerID := createTestLayer(t, h, stackID)
+		instanceID := createTestInstance(t, h, stackID, layerID)
+
+		rec := doTarget(t, h, "TagResource", map[string]any{
+			"ResourceArn": "arn:aws:opsworks:us-east-1:000000000000:instance/" + instanceID,
+			"Tags":        map[string]string{"env": "prod"},
+		})
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+
+	t.Run("app ARN is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		stackID := createTestStack(t, h)
+		rec := doTarget(t, h, "CreateApp", map[string]any{
+			"StackId": stackID, "Name": "app", "Type": "other",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		appID := parseJSON(t, rec.Body.Bytes())["AppId"].(string)
+
+		rec = doTarget(t, h, "TagResource", map[string]any{
+			"ResourceArn": "arn:aws:opsworks:us-east-1:000000000000:app/" + appID,
+			"Tags":        map[string]string{"env": "prod"},
+		})
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+}
+
 // TestListTagsPagination verifies ListTags respects MaxResults/NextToken.
 func TestListTagsPagination(t *testing.T) {
 	t.Parallel()

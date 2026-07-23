@@ -110,21 +110,20 @@ func stackScoped[V any](stackID string, all func() []*V, byStack func(string) []
 	return byStack(stackID)
 }
 
-// CreateStack creates a new OpsWorks stack.
-
-// resourceExists checks if a resource ARN refers to a known resource.
+// resourceExists checks if a resource ARN refers to a known taggable
+// resource. TagResource/UntagResource/ListTags only accept "the stack or
+// layer's ARN" on the real API (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_TagResource.go,
+// api_op_UntagResource.go, and api_op_ListTags.go doc comments, all three of
+// which say exactly that) -- instances and apps are not independently
+// taggable resources in real OpsWorks, so a previous pass accepting their
+// ARNs here was broader than the real API.
 func (b *InMemoryBackend) resourceExists(resourceArn string) bool {
 	if strings.Contains(resourceArn, ":stack/") {
 		return b.stacks.Has(arnSuffix(resourceArn))
 	}
 	if strings.Contains(resourceArn, ":layer/") {
 		return b.layers.Has(arnSuffix(resourceArn))
-	}
-	if strings.Contains(resourceArn, ":instance/") {
-		return b.instances.Has(arnSuffix(resourceArn))
-	}
-	if strings.Contains(resourceArn, ":app/") {
-		return b.apps.Has(arnSuffix(resourceArn))
 	}
 
 	return false

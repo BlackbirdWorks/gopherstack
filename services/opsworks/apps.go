@@ -6,9 +6,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateApp creates a new app in a stack.
+// isValidAppType reports whether appType is one of the exact AppType enum
+// values from aws-sdk-go-v2/service/opsworks/types.AppType.Values() --
+// CreateApp's Type member on the real API is restricted to this set, not a
+// free string.
+func isValidAppType(appType string) bool {
+	switch appType {
+	case "aws-flow-ruby", "java", "rails", "php", "nodejs", "static", "other":
+		return true
+	default:
+		return false
+	}
+}
+
+// CreateApp creates a new app in a stack. Name, StackId, and Type are all
+// "This member is required" on the real CreateAppInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CreateApp.go), and Type is
+// restricted to the AppType enum, not a free string.
 func (b *InMemoryBackend) CreateApp(stackID, name, appType string) (*App, error) {
-	if name == "" {
+	if name == "" || stackID == "" || !isValidAppType(appType) {
 		return nil, ErrValidation
 	}
 

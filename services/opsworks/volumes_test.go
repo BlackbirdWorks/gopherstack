@@ -51,6 +51,54 @@ func TestVolumes(t *testing.T) {
 				require.Len(t, vols, 1)
 				vol := vols[0].(map[string]any)
 				assert.Equal(t, "vol-5678", vol["Ec2VolumeId"])
+				// The real types.Volume has no StackId member; a previous
+				// pass invented one and put it on the wire.
+				assert.NotContains(t, vol, "StackId")
+			},
+		},
+		{
+			name: "DescribeVolumes filters by StackId",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				stackID := createTestStack(t, h)
+				otherStackID := createTestStack(t, h)
+
+				doTarget(t, h, "RegisterVolume", map[string]any{
+					"Ec2VolumeId": "vol-in-stack",
+					"StackId":     stackID,
+				})
+				doTarget(t, h, "RegisterVolume", map[string]any{
+					"Ec2VolumeId": "vol-in-other-stack",
+					"StackId":     otherStackID,
+				})
+
+				rec := doTarget(t, h, "DescribeVolumes", map[string]any{"StackId": stackID})
+				require.Equal(t, http.StatusOK, rec.Code)
+				vols := parseJSON(t, rec.Body.Bytes())["Volumes"].([]any)
+				require.Len(t, vols, 1)
+				assert.Equal(t, "vol-in-stack", vols[0].(map[string]any)["Ec2VolumeId"])
+			},
+		},
+		{
+			name: "AssignVolume rejects an instance from a different stack",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				stackID := createTestStack(t, h)
+				otherStackID := createTestStack(t, h)
+				otherLayerID := createTestLayer(t, h, otherStackID)
+				otherInstanceID := createTestInstance(t, h, otherStackID, otherLayerID)
+
+				rec := doTarget(t, h, "RegisterVolume", map[string]any{
+					"Ec2VolumeId": "vol-cross-stack",
+					"StackId":     stackID,
+				})
+				volumeID := parseJSON(t, rec.Body.Bytes())["VolumeId"].(string)
+
+				rec = doTarget(t, h, "AssignVolume", map[string]any{
+					"VolumeId":   volumeID,
+					"InstanceId": otherInstanceID,
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
