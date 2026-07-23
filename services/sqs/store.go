@@ -43,8 +43,16 @@ type InMemoryBackend struct {
 	snsUnsubscribe func()
 	janitorStop    chan struct{}
 	mu             *lockmetrics.RWMutex
-	accountID      string
-	region         string
+	// recentlyDeleted maps a queueKey(region, name) to the time DeleteQueue was
+	// called for it, so CreateQueue can enforce AWS's 60-second
+	// wait-before-recreate rule (ErrQueueDeletedRecently). Guarded by b.mu, the
+	// same lock CreateQueue/DeleteQueue already hold. Entries older than
+	// queueDeletedRecentlyWindowSecs are pruned lazily by CreateQueue's own
+	// check and swept periodically by pruneState so the map cannot grow
+	// unboundedly across a long-lived backend that deletes many queues.
+	recentlyDeleted map[string]time.Time
+	accountID       string
+	region          string
 }
 
 // queueTableKey is the [store.Table] key function for b.queues, deriving the
@@ -103,11 +111,12 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	}
 
 	b := &InMemoryBackend{
-		registry:  store.NewRegistry(),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("sqs"),
-		svcCtx:    svcCtx,
+		registry:        store.NewRegistry(),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("sqs"),
+		svcCtx:          svcCtx,
+		recentlyDeleted: make(map[string]time.Time),
 	}
 
 	b.queues = store.Register(b.registry, "queues", store.New(queueTableKey))
@@ -289,6 +298,7 @@ func (b *InMemoryBackend) Reset() {
 	}
 
 	b.registry.ResetAll()
+	clear(b.recentlyDeleted)
 }
 
 // queueURLFromARNLocked returns the URL and ARN of the queue with the given ARN.

@@ -86,6 +86,11 @@ const (
 	attrMessageGroupIDSys           = "MessageGroupId"
 	attrMessageDeduplicationIDSys   = "MessageDeduplicationId"
 	attrSequenceNumber              = "SequenceNumber"
+	// attrDeadLetterQueueSourceArn is the message system attribute AWS attaches
+	// when a message is auto-redriven into a dead-letter queue (MaxReceiveCount
+	// exceeded): the ARN of the original source queue the message was moved
+	// from. Only present on messages received from a DLQ; see tryRouteToDLQ.
+	attrDeadLetterQueueSourceArn = "DeadLetterQueueSourceArn"
 
 	// maxDelaySeconds is the AWS maximum for per-message or queue-level DelaySeconds.
 	maxDelaySeconds = 900
@@ -97,6 +102,10 @@ const (
 	minMaximumMessageSize = 1024
 	// purgeCooldownSecs is the AWS-mandated minimum interval between PurgeQueue calls.
 	purgeCooldownSecs = 60
+	// queueDeletedRecentlyWindowSecs is the AWS-mandated minimum wait after
+	// DeleteQueue before a queue with the same name (in the same region) can
+	// be created again; see ErrQueueDeletedRecently.
+	queueDeletedRecentlyWindowSecs = 60
 
 	attrValTrue  = "true"
 	attrValFalse = "false"

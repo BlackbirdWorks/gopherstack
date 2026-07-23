@@ -85,10 +85,18 @@ func moveTaskSnapshotKey(ts *moveTaskSnapshot) string {
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	// RecentlyDeleted persists the ErrQueueDeletedRecently cooldown (queueKey
+	// -> deletion Unix-milli timestamp) across restarts, matching the same
+	// rationale as queueSnapshot.LastPurgedAtUnixMilli: without it, a restore
+	// immediately followed by CreateQueue would silently drop AWS's 60-second
+	// wait-before-recreate rule for any queue deleted just before the
+	// snapshot. Keyed by queueKey(region, name) since the deleted queue no
+	// longer has a live Queue struct to attach this to.
+	RecentlyDeleted map[string]int64           `json:"recentlyDeleted,omitempty"`
+	Tables          map[string]json.RawMessage `json:"tables"`
+	AccountID       string                     `json:"accountID"`
+	Region          string                     `json:"region"`
+	Version         int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -177,11 +185,20 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
+	var recentlyDeleted map[string]int64
+	if len(b.recentlyDeleted) > 0 {
+		recentlyDeleted = make(map[string]int64, len(b.recentlyDeleted))
+		for key, deletedAt := range b.recentlyDeleted {
+			recentlyDeleted[key] = deletedAt.UnixMilli()
+		}
+	}
+
 	snap := backendSnapshot{
-		Version:   sqsSnapshotVersion,
-		Tables:    tables,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Version:         sqsSnapshotVersion,
+		Tables:          tables,
+		AccountID:       b.accountID,
+		Region:          b.region,
+		RecentlyDeleted: recentlyDeleted,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "sqs", snap)
@@ -213,6 +230,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", sqsSnapshotVersion)
 
 		b.registry.ResetAll()
+		clear(b.recentlyDeleted)
 
 		return nil
 	}
@@ -273,6 +291,21 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// Restore the ErrQueueDeletedRecently cooldown, dropping any entry whose
+	// 60-second window has already elapsed since it was snapshotted so the
+	// map doesn't carry stale cooldowns forward indefinitely.
+	now := time.Now()
+	recentlyDeleted := make(map[string]time.Time, len(snap.RecentlyDeleted))
+
+	for key, deletedAtMillis := range snap.RecentlyDeleted {
+		deletedAt := time.UnixMilli(deletedAtMillis)
+		if now.Sub(deletedAt) < queueDeletedRecentlyWindowSecs*time.Second {
+			recentlyDeleted[key] = deletedAt
+		}
+	}
+
+	b.recentlyDeleted = recentlyDeleted
 
 	return nil
 }

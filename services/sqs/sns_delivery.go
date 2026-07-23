@@ -75,7 +75,7 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 		return
 	}
 
-	queueName := queueNameFromARN(sub.Endpoint)
+	queueRegion, queueName := parseQueueARNOrURL(sub.Endpoint)
 	if queueName == "" {
 		return
 	}
@@ -85,6 +85,7 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 	input := &SendMessageInput{
 		QueueURL:    "internal/" + queueName,
 		MessageBody: body,
+		Region:      queueRegion,
 	}
 
 	if len(msgAttrs) > 0 {
@@ -130,7 +131,7 @@ func (b *InMemoryBackend) deliverToDLQ(
 		return
 	}
 
-	dlqName := queueNameFromARN(policy.DeadLetterTargetArn)
+	dlqRegion, dlqName := parseQueueARNOrURL(policy.DeadLetterTargetArn)
 	if dlqName == "" {
 		return
 	}
@@ -138,6 +139,7 @@ func (b *InMemoryBackend) deliverToDLQ(
 	input := &SendMessageInput{
 		QueueURL:    "internal/" + dlqName,
 		MessageBody: body,
+		Region:      dlqRegion,
 	}
 
 	if len(msgAttrs) > 0 {
@@ -165,19 +167,30 @@ func snsAttrsToSQSAttrs(attrs map[string]events.SNSMessageAttributeSnapshot) map
 	return result
 }
 
-// queueNameFromARN extracts the queue name from an SQS ARN or URL.
-// ARN format:  arn:aws:sqs:<region>:<account>:<queue-name>
-// URL format:  http://…/<account>/<queue-name>
-func queueNameFromARN(endpoint string) string {
+// arnRegionFieldCount is the number of colon-separated fields in a well-formed
+// ARN up to and including the region field (arn:partition:service:region:...).
+const arnRegionFieldCount = 4
+
+// parseQueueARNOrURL extracts the region and queue name from an SQS ARN or URL,
+// so that internal SNS->SQS fan-out and DLQ redirect deliveries reach a queue
+// created in a non-default region instead of always falling back to the
+// backend's default region (see gopherstack-qgh).
+//
+// ARN format:  arn:aws:sqs:<region>:<account>:<queue-name>  -> region is field 4
+// URL format:  http://…/<account>/<queue-name>               -> region is unknown,
+// so the empty string is returned and the caller's SendMessageInput.Region falls
+// back to the backend's default region via effectiveRegion, matching prior behavior.
+func parseQueueARNOrURL(endpoint string) (string, string) {
 	parts := strings.Split(endpoint, ":")
 	if len(parts) >= 6 && parts[0] == "arn" {
-		return parts[len(parts)-1]
+		return parts[arnRegionFieldCount-1], parts[len(parts)-1]
 	}
 
-	// Fall back to last path segment for URLs.
+	// Fall back to last path segment for URLs; region is not recoverable from a
+	// bare queue URL in this codebase's URL scheme (scheme://host/account/name).
 	segments := strings.Split(endpoint, "/")
 
-	return segments[len(segments)-1]
+	return "", segments[len(segments)-1]
 }
 
 // buildSNSEnvelope wraps the published message in the standard SNS notification JSON.

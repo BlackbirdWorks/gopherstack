@@ -406,6 +406,76 @@ func TestDLQ_AutoRedrive(t *testing.T) {
 	}
 }
 
+// TestDLQ_AutoRedrive_SetsDeadLetterQueueSourceArn verifies that a message
+// auto-redriven into a DLQ (MaxReceiveCount exceeded) carries the
+// DeadLetterQueueSourceArn system attribute set to the ARN of the queue it
+// was redriven from, matching real AWS's MessageSystemAttributeName enum
+// (aws-sdk-go-v2/service/sqs/types.MessageSystemAttributeNameDeadLetterQueueSourceArn).
+// A message that never leaves its source queue must not carry the attribute.
+func TestDLQ_AutoRedrive_SetsDeadLetterQueueSourceArn(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	dlqOut, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: "dlq",
+		Endpoint:  testEndpoint,
+	})
+	require.NoError(t, err)
+
+	dlqARN := "arn:aws:sqs:us-east-1:000000000000:dlq"
+	srcARN := "arn:aws:sqs:us-east-1:000000000000:src"
+
+	srcOut, err := b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: "src",
+		Endpoint:  testEndpoint,
+		Attributes: map[string]string{
+			"RedrivePolicy": fmt.Sprintf(`{"deadLetterTargetArn":%q,"maxReceiveCount":1}`, dlqARN),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = b.SendMessage(&sqs.SendMessageInput{
+		QueueURL:    srcOut.QueueURL,
+		MessageBody: "redrive-me",
+	})
+	require.NoError(t, err)
+
+	// First receive on the source queue: message is still in the source queue,
+	// so it must NOT carry DeadLetterQueueSourceArn yet.
+	srcRecv, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+		QueueURL:            srcOut.QueueURL,
+		MaxNumberOfMessages: 1,
+		VisibilityTimeout:   0,
+		AttributeNames:      []string{"All"},
+	})
+	require.NoError(t, err)
+	require.Len(t, srcRecv.Messages, 1)
+	assert.NotContains(t, srcRecv.Messages[0].Attributes, "DeadLetterQueueSourceArn")
+
+	// Re-queue immediately, then trigger the lazy redrive sweep with a second receive.
+	require.NoError(t, b.ChangeMessageVisibility(&sqs.ChangeMessageVisibilityInput{
+		QueueURL:          srcOut.QueueURL,
+		ReceiptHandle:     srcRecv.Messages[0].ReceiptHandle,
+		VisibilityTimeout: 0,
+	}))
+	_, _ = b.ReceiveMessage(&sqs.ReceiveMessageInput{
+		QueueURL:            srcOut.QueueURL,
+		MaxNumberOfMessages: 1,
+		VisibilityTimeout:   0,
+	})
+
+	dlqRecv, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+		QueueURL:            dlqOut.QueueURL,
+		MaxNumberOfMessages: 1,
+		AttributeNames:      []string{"All"},
+	})
+	require.NoError(t, err)
+	require.Len(t, dlqRecv.Messages, 1, "message must have been auto-redriven to the DLQ")
+	assert.Equal(t, srcARN, dlqRecv.Messages[0].Attributes["DeadLetterQueueSourceArn"],
+		"DeadLetterQueueSourceArn must be the ARN of the queue the message was redriven from")
+}
+
 // TestSQS_DLQRedrive validates that StartMessageMoveTask, CancelMessageMoveTask,
 // and ListMessageMoveTasks work correctly for the async DLQ redrive use case.
 func TestSQS_DLQRedrive(t *testing.T) {

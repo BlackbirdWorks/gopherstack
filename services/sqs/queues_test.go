@@ -381,6 +381,42 @@ func TestDeleteQueueNotFound(t *testing.T) {
 	require.ErrorIs(t, err, sqs.ErrQueueNotFound)
 }
 
+// TestQueueDeletedRecently verifies AWS's real "you must wait 60 seconds
+// after deleting a queue before you can create another with the same name"
+// rule (aws-sdk-go-v2/service/sqs/types.QueueDeletedRecently), which this
+// backend did not enforce at all prior to this change.
+func TestQueueDeletedRecently(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	qURL := createTestQueue(t, b, "recreate-me")
+
+	require.NoError(t, b.DeleteQueue(&sqs.DeleteQueueInput{QueueURL: qURL}))
+
+	// Immediate recreation with the same name must fail.
+	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "recreate-me", Endpoint: testEndpoint})
+	require.ErrorIs(t, err, sqs.ErrQueueDeletedRecently)
+
+	// A different name is unaffected.
+	_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "recreate-me-2", Endpoint: testEndpoint})
+	require.NoError(t, err)
+
+	// A different region is unaffected (same name, different region key).
+	_, err = b.CreateQueue(&sqs.CreateQueueInput{
+		QueueName: "recreate-me", Endpoint: testEndpoint, Region: "us-west-2",
+	})
+	require.NoError(t, err)
+
+	// Once the 60-second window elapses, recreation succeeds. Simulate the
+	// elapsed window by driving the janitor's prune pass with a future time
+	// (RunJanitorOnceForTest) rather than sleeping in the test.
+	b.RunJanitorOnceForTest(time.Now().Add(2 * time.Minute))
+
+	out, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "recreate-me", Endpoint: testEndpoint})
+	require.NoError(t, err)
+	assert.Contains(t, out.QueueURL, "recreate-me")
+}
+
 func TestListQueues(t *testing.T) {
 	t.Parallel()
 
