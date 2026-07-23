@@ -369,3 +369,138 @@ func TestCreateChannel_FillerSlate(t *testing.T) {
 	assert.Equal(t, "sl1", fs["SourceLocationName"])
 	assert.Equal(t, "vs1", fs["VodSourceName"])
 }
+
+// TestCreateChannel_TagsSurviveDescribe verifies tags passed to CreateChannel
+// are queryable back from DescribeChannel/ListChannels. Regression test for a
+// bug found by field-diffing this pass: CreateChannel stored tags on the
+// channel struct but DescribeChannel/ListChannels unconditionally overwrite
+// the response Tags from a separate ARN-keyed tag map that CreateChannel
+// never wrote to, silently dropping every tag passed at creation.
+func TestCreateChannel_TagsSurviveDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/channel/ch1", map[string]any{
+		"PlaybackMode": "LOOP",
+		"tags":         map[string]any{"env": "prod"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	createdTags, _ := created["tags"].(map[string]any)
+	assert.Equal(t, "prod", createdTags["env"], "tags must be present in the create response")
+
+	rec = doRequest(t, h, http.MethodGet, "/channel/ch1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var described map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described))
+	describedTags, _ := described["tags"].(map[string]any)
+	assert.Equal(t, "prod", describedTags["env"], "tags set at creation must survive to DescribeChannel")
+}
+
+// TestChannel_AudiencesAndTimeShift verifies CreateChannel/UpdateChannel
+// accept and return Audiences and TimeShiftConfiguration (deferred item:
+// these fields weren't modeled at all previously).
+func TestChannel_AudiencesAndTimeShift(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/channel/ch1", map[string]any{
+		"PlaybackMode": "LOOP",
+		"Audiences":    []any{"aud1", "aud2"},
+		"TimeShiftConfiguration": map[string]any{
+			"MaxTimeDelaySeconds": float64(120),
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	audiences, _ := resp["Audiences"].([]any)
+	assert.ElementsMatch(t, []any{"aud1", "aud2"}, audiences)
+	ts, ok := resp["TimeShiftConfiguration"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, float64(120), ts["MaxTimeDelaySeconds"], 0.0001)
+
+	rec = doRequest(t, h, http.MethodPut, "/channel/ch1", map[string]any{
+		"Audiences": []any{"aud3"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	updateResp := map[string]any{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	audiences, _ = updateResp["Audiences"].([]any)
+	assert.ElementsMatch(t, []any{"aud3"}, audiences)
+	assert.Nil(t, updateResp["TimeShiftConfiguration"], "UpdateChannel omitting TimeShiftConfiguration must clear it")
+}
+
+// TestCreateChannel_Tier verifies CreateChannel accepts an explicit Tier and
+// rejects an invalid one.
+func TestCreateChannel_Tier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		tier       string
+		wantTier   string
+		wantStatus int
+	}{
+		{name: "STANDARD accepted", tier: "STANDARD", wantStatus: http.StatusOK, wantTier: "STANDARD"},
+		{name: "BASIC accepted", tier: "BASIC", wantStatus: http.StatusOK, wantTier: "BASIC"},
+		{name: "empty defaults to BASIC", tier: "", wantStatus: http.StatusOK, wantTier: "BASIC"},
+		{name: "invalid rejected", tier: "GOLD", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, "/channel/ch1", map[string]any{
+				"PlaybackMode": "LOOP",
+				"Tier":         tt.tier,
+			})
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+
+			if tt.wantStatus == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantTier, resp["Tier"])
+			}
+		})
+	}
+}
+
+// TestDeleteChannel_CascadesPrograms verifies DeleteChannel removes every
+// program scheduled on the channel and its policy, so no ghost rows survive
+// in the programs table (or its byChannel index) after the channel is gone.
+func TestDeleteChannel_CascadesPrograms(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createTestSourceLocation(t, h)
+	doRequest(t, h, http.MethodPost, "/channel/ch1", map[string]any{"PlaybackMode": "LOOP"})
+	doRequest(t, h, http.MethodPut, "/channel/ch1/policy", map[string]any{
+		"Policy": `{"Version":"2012-10-17"}`,
+	})
+
+	progBody := testScheduleConfigBody(1_700_000_000_000)
+	progBody["SourceLocationName"] = "sl1"
+	progRec := doRequest(t, h, http.MethodPost, "/channel/ch1/program/prog1", progBody)
+	require.Equal(t, http.StatusOK, progRec.Code, progRec.Body.String())
+
+	rec := doRequest(t, h, http.MethodDelete, "/channel/ch1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Recreating the channel must not resurrect the old program or policy --
+	// both must have been cascade-deleted, not merely orphaned.
+	doRequest(t, h, http.MethodPost, "/channel/ch1", map[string]any{"PlaybackMode": "LOOP"})
+
+	rec = doRequest(t, h, http.MethodGet, "/channel/ch1/program/prog1", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code, "program must not survive channel delete+recreate")
+
+	rec = doRequest(t, h, http.MethodGet, "/channel/ch1/policy", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code, "policy must not survive channel delete+recreate")
+}

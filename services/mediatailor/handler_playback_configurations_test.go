@@ -338,3 +338,60 @@ func TestDeletePlaybackConfiguration_Idempotent(t *testing.T) {
 		})
 	}
 }
+
+// TestPutPlaybackConfiguration_ExtraConfigRoundTrips verifies
+// PutPlaybackConfiguration's optional sub-configs (AvailSuppression, Bumper,
+// CdnConfiguration, etc. -- previously entirely unmodeled) are stored and
+// echoed back verbatim on Get/List, matching what a real client PUT.
+func TestPutPlaybackConfiguration_ExtraConfigRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPut, "/playbackConfiguration", map[string]any{
+		"Name": "cfg1",
+		"AvailSuppression": map[string]any{
+			"Mode":  "BEHIND_LIVE_EDGE",
+			"Value": "00:45:00",
+		},
+		"Bumper": map[string]any{
+			"StartUrl": "https://example.com/start.mp4",
+			"EndUrl":   "https://example.com/end.mp4",
+		},
+		"CdnConfiguration": map[string]any{
+			"AdSegmentUrlPrefix": "https://cdn.example.com/ads",
+		},
+		"PersonalizationThresholdSeconds": float64(10),
+		"SlateAdUrl":                      "https://example.com/slate.mp4",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var putResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+	assertPlaybackConfigExtras(t, putResp)
+
+	rec = doRequest(t, h, http.MethodGet, "/playbackConfiguration/cfg1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	assertPlaybackConfigExtras(t, getResp)
+}
+
+func assertPlaybackConfigExtras(t *testing.T, resp map[string]any) {
+	t.Helper()
+
+	avail, ok := resp["AvailSuppression"].(map[string]any)
+	require.True(t, ok, "AvailSuppression must round-trip")
+	assert.Equal(t, "BEHIND_LIVE_EDGE", avail["Mode"])
+
+	bumper, ok := resp["Bumper"].(map[string]any)
+	require.True(t, ok, "Bumper must round-trip")
+	assert.Equal(t, "https://example.com/start.mp4", bumper["StartUrl"])
+
+	cdn, ok := resp["CdnConfiguration"].(map[string]any)
+	require.True(t, ok, "CdnConfiguration must round-trip")
+	assert.Equal(t, "https://cdn.example.com/ads", cdn["AdSegmentUrlPrefix"])
+
+	assert.InDelta(t, float64(10), resp["PersonalizationThresholdSeconds"], 0.0001)
+	assert.Equal(t, "https://example.com/slate.mp4", resp["SlateAdUrl"])
+}

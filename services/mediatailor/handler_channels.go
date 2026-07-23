@@ -4,19 +4,20 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- Channel handlers ---
 
 func (h *Handler) handleCreateChannel(c *echo.Context, name string, body map[string]any) error {
 	playbackMode, _ := body["PlaybackMode"].(string)
+	tier, _ := body["Tier"].(string)
 	outputs := extractOutputs(body)
 	fillerSlate := extractFillerSlate(body)
+	audiences := extractStringSlice(body, "Audiences")
+	timeShift := extractTimeShiftConfiguration(body)
 	tags := extractTags(body)
 
-	ch, err := h.Backend.CreateChannel(name, playbackMode, outputs, fillerSlate, tags)
+	ch, err := h.Backend.CreateChannel(name, playbackMode, tier, outputs, fillerSlate, audiences, timeShift, tags)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -35,8 +36,11 @@ func (h *Handler) handleDescribeChannel(c *echo.Context, name string) error {
 
 func (h *Handler) handleUpdateChannel(c *echo.Context, name string, body map[string]any) error {
 	outputs := extractOutputs(body)
+	fillerSlate := extractFillerSlate(body)
+	audiences := extractStringSlice(body, "Audiences")
+	timeShift := extractTimeShiftConfiguration(body)
 
-	ch, err := h.Backend.UpdateChannel(name, outputs)
+	ch, err := h.Backend.UpdateChannel(name, outputs, fillerSlate, audiences, timeShift)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -66,6 +70,7 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 			keyArn:         s.ARN,
 			"PlaybackMode": s.PlaybackMode,
 			"ChannelState": s.ChannelState,
+			"Tier":         s.Tier,
 			keyTags:        nilToEmpty(s.Tags),
 		})
 	}
@@ -117,24 +122,27 @@ func toChannelOutput(ch *Channel) map[string]any {
 		"Tier":         ch.Tier,
 		"Outputs":      outputs,
 		keyTags:        nilToEmpty(ch.Tags),
+		"LogConfiguration": map[string]any{
+			"LogTypes": nilToEmptyStrings(ch.LogConfiguration.LogTypes),
+		},
 	}
 
-	// CreationTime/LastModifiedTime are unixTimestamp shapes on the wire (JSON
-	// number of seconds since epoch), not RFC3339 strings — real SDK
-	// deserializers reject a string here with "expected __timestampUnix to be
-	// a JSON Number, got string instead".
-	if !ch.CreationTime.IsZero() {
-		result["CreationTime"] = awstime.Epoch(ch.CreationTime)
+	if len(ch.Audiences) > 0 {
+		result["Audiences"] = ch.Audiences
 	}
 
-	if !ch.LastModified.IsZero() {
-		result["LastModifiedTime"] = awstime.Epoch(ch.LastModified)
-	}
+	addTimestamps(result, ch.CreationTime, ch.LastModified)
 
 	if ch.FillerSlate != nil {
 		result["FillerSlate"] = map[string]any{
-			"SourceLocationName": ch.FillerSlate.SourceLocationName,
-			"VodSourceName":      ch.FillerSlate.VodSourceName,
+			keySourceLocationName: ch.FillerSlate.SourceLocationName,
+			keyVodSourceName:      ch.FillerSlate.VodSourceName,
+		}
+	}
+
+	if ch.TimeShift != nil {
+		result["TimeShiftConfiguration"] = map[string]any{
+			"MaxTimeDelaySeconds": ch.TimeShift.MaxTimeDelaySeconds,
 		}
 	}
 

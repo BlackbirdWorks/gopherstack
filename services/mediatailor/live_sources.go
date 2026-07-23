@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -39,7 +40,10 @@ func (b *InMemoryBackend) CreateLiveSource(
 		"arn:aws:mediatailor:%s:%s:sourceLocation/%s/liveSource/%s",
 		b.region, b.accountID, sourceLocationName, liveSourceName,
 	)
+	now := time.Now().UTC()
 	ls := &LiveSource{
+		CreationTime:              now,
+		LastModified:              now,
 		Tags:                      copyTags(tags),
 		ARN:                       lsARN,
 		SourceLocationName:        sourceLocationName,
@@ -84,6 +88,7 @@ func (b *InMemoryBackend) UpdateLiveSource(
 	cfgs := make([]HTTPPackageConfiguration, len(httpPackageConfigurations))
 	copy(cfgs, httpPackageConfigurations)
 	ls.HTTPPackageConfigurations = cfgs
+	ls.LastModified = time.Now().UTC()
 
 	return ls, nil
 }

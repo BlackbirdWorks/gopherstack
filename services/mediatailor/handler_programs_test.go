@@ -16,11 +16,11 @@ func TestProgram_CRUD(t *testing.T) {
 	createTestChannel(t, h)
 
 	// create program
-	rec := doRequest(t, h, http.MethodPost, "/channel/ch1/program/prog1", map[string]any{
-		"SourceLocationName": "sl1",
-		"VodSourceName":      "vs1",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	createBody := testScheduleConfigBody(1_700_000_000_000)
+	createBody["SourceLocationName"] = "sl1"
+	createBody["VodSourceName"] = "vs1"
+	rec := doRequest(t, h, http.MethodPost, "/channel/ch1/program/prog1", createBody)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
@@ -38,8 +38,10 @@ func TestProgram_CRUD(t *testing.T) {
 	assert.Equal(t, "sl1", described["SourceLocationName"])
 
 	// update program
-	rec = doRequest(t, h, http.MethodPut, "/channel/ch1/program/prog1", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
+	rec = doRequest(t, h, http.MethodPut, "/channel/ch1/program/prog1", map[string]any{
+		"ScheduleConfiguration": map[string]any{},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	// get channel schedule
 	rec = doRequest(t, h, http.MethodGet, "/channel/ch1/schedule", nil)
@@ -65,6 +67,7 @@ func TestProgram_NotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body     any
 		method   string
 		path     string
 		name     string
@@ -74,6 +77,7 @@ func TestProgram_NotFound(t *testing.T) {
 			name:     "create under missing channel returns 404",
 			method:   http.MethodPost,
 			path:     "/channel/nope/program/prog1",
+			body:     testScheduleConfigBody(1_700_000_000_000),
 			wantCode: http.StatusNotFound,
 		},
 		{
@@ -97,7 +101,7 @@ func TestProgram_NotFound(t *testing.T) {
 			h := newTestHandler(t)
 			createTestChannel(t, h)
 
-			rec := doRequest(t, h, tc.method, tc.path, nil)
+			rec := doRequest(t, h, tc.method, tc.path, tc.body)
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
@@ -131,11 +135,17 @@ func TestHandleGetChannelSchedule_WithItems(t *testing.T) {
 	})
 
 	// Create program in channel
-	doRequest(t, h, http.MethodPost, "/channel/ch1/program/prog1", map[string]any{
-		"SourceLocationName": "sl1",
-		"VodSourceName":      "vs1",
-	})
+	progBody := testScheduleConfigBody(1_700_000_000_000)
+	progBody["SourceLocationName"] = "sl1"
+	progBody["VodSourceName"] = "vs1"
+	createRec := doRequest(t, h, http.MethodPost, "/channel/ch1/program/prog1", progBody)
+	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	rec := doRequest(t, h, http.MethodGet, "/channel/ch1/schedule", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
+
+	var schedResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schedResp))
+	items, _ := schedResp["Items"].([]any)
+	require.Len(t, items, 1)
 }

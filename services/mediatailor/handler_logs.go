@@ -27,14 +27,36 @@ func (h *Handler) handleConfigureLogsForPlaybackConfiguration(c *echo.Context, b
 	playbackConfigName, _ := body["PlaybackConfigurationName"].(string)
 	pct, _ := body["PercentEnabled"].(float64)
 	percentEnabled := int(pct)
+	strategies := extractStringSlice(body, "EnabledLoggingStrategies")
+	adsLog, _ := body["AdsInteractionLog"].(map[string]any)
+	manifestLog, _ := body["ManifestServiceInteractionLog"].(map[string]any)
 
-	name, percent, err := h.Backend.ConfigureLogsForPlaybackConfiguration(playbackConfigName, percentEnabled)
+	logCfg, err := h.Backend.ConfigureLogsForPlaybackConfiguration(
+		playbackConfigName, percentEnabled, strategies, adsLog, manifestLog,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"PlaybackConfigurationName": name,
-		"PercentEnabled":            percent,
-	})
+	out := toLogConfigurationOutput(logCfg)
+	out["PlaybackConfigurationName"] = playbackConfigName
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func toLogConfigurationOutput(logCfg *PlaybackConfigurationLogConfiguration) map[string]any {
+	out := map[string]any{
+		"PercentEnabled":           logCfg.PercentEnabled,
+		"EnabledLoggingStrategies": nilToEmptyStrings(logCfg.EnabledLoggingStrategies),
+	}
+
+	if logCfg.AdsInteractionLog != nil {
+		out["AdsInteractionLog"] = logCfg.AdsInteractionLog
+	}
+
+	if logCfg.ManifestServiceInteractionLog != nil {
+		out["ManifestServiceInteractionLog"] = logCfg.ManifestServiceInteractionLog
+	}
+
+	return out
 }

@@ -1,6 +1,7 @@
 package mediatailor
 
 import (
+	"maps"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -13,8 +14,9 @@ func (h *Handler) handlePutPlaybackConfiguration(c *echo.Context, body map[strin
 	adsURL, _ := body["AdDecisionServerUrl"].(string)
 	videoURL, _ := body["VideoContentSourceUrl"].(string)
 	tags := extractTags(body)
+	extra := extractExtraConfig(body)
 
-	cfg, err := h.Backend.PutPlaybackConfiguration(name, adsURL, videoURL, tags)
+	cfg, err := h.Backend.PutPlaybackConfiguration(name, adsURL, videoURL, tags, extra)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -48,13 +50,15 @@ func (h *Handler) handleListPlaybackConfigurations(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
-		out = append(out, map[string]any{
+		item := map[string]any{
 			keyName:                    s.Name,
 			"PlaybackConfigurationArn": s.PlaybackConfigurationARN,
 			"AdDecisionServerUrl":      s.AdDecisionServerURL,
 			"VideoContentSourceUrl":    s.VideoContentSourceURL,
 			keyTags:                    nilToEmpty(s.Tags),
-		})
+		}
+		mergeExtraConfig(item, s.Extra)
+		out = append(out, item)
 	}
 
 	resp := map[string]any{keyItems: out}
@@ -82,5 +86,18 @@ func toPlaybackConfigOutput(cfg *PlaybackConfiguration) map[string]any {
 		}
 	}
 
+	if cfg.LogConfiguration != nil {
+		out["LogConfiguration"] = toLogConfigurationOutput(cfg.LogConfiguration)
+	}
+
+	mergeExtraConfig(out, cfg.Extra)
+
 	return out
+}
+
+// mergeExtraConfig writes every key from extra (PutPlaybackConfiguration's
+// pass-through optional sub-configs) into out, so a client reads back
+// exactly what it sent on the last Put.
+func mergeExtraConfig(out map[string]any, extra map[string]any) {
+	maps.Copy(out, extra)
 }

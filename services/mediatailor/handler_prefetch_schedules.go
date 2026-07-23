@@ -17,8 +17,14 @@ func (h *Handler) handleCreatePrefetchSchedule(
 ) error {
 	retrieval := extractPrefetchRetrieval(body)
 	consumption := extractPrefetchConsumption(body)
+	scheduleType, _ := body["ScheduleType"].(string)
+	streamID, _ := body["StreamId"].(string)
+	recurringConfig, _ := body["RecurringPrefetchConfiguration"].(map[string]any)
+	tags := extractTags(body)
 
-	ps, err := h.Backend.CreatePrefetchSchedule(playbackConfigName, name, retrieval, consumption)
+	ps, err := h.Backend.CreatePrefetchSchedule(
+		playbackConfigName, name, scheduleType, streamID, retrieval, consumption, recurringConfig, tags,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -45,7 +51,12 @@ func (h *Handler) handleDeletePrefetchSchedule(c *echo.Context, playbackConfigNa
 
 func (h *Handler) handleListPrefetchSchedules(c *echo.Context, playbackConfigName string, body map[string]any) error {
 	maxResults, nextToken := extractBodyPaginationParams(body)
-	schedules, nextToken, err := h.Backend.ListPrefetchSchedules(playbackConfigName, maxResults, nextToken)
+	scheduleType, _ := body["ScheduleType"].(string)
+	streamID, _ := body["StreamId"].(string)
+
+	schedules, nextToken, err := h.Backend.ListPrefetchSchedules(
+		playbackConfigName, scheduleType, streamID, maxResults, nextToken,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -68,6 +79,20 @@ func toPrefetchScheduleOutput(ps *PrefetchSchedule) map[string]any {
 		keyArn:                      ps.ARN,
 		keyName:                     ps.Name,
 		"PlaybackConfigurationName": ps.PlaybackConfigurationName,
+		"ScheduleType":              ps.ScheduleType,
+		keyTags:                     nilToEmpty(ps.Tags),
+	}
+
+	if ps.StreamID != "" {
+		out["StreamId"] = ps.StreamID
+	}
+
+	if !ps.CreationTime.IsZero() {
+		out["CreationTime"] = awstime.Epoch(ps.CreationTime)
+	}
+
+	if ps.RecurringPrefetchConfiguration != nil {
+		out["RecurringPrefetchConfiguration"] = ps.RecurringPrefetchConfiguration
 	}
 
 	if ps.Retrieval != nil {
