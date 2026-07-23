@@ -3,10 +3,14 @@ package stepfunctions
 import (
 	"context"
 	"encoding/json"
+	"io"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
 	dynamodbpkg "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	s3pkg "github.com/blackbirdworks/gopherstack/services/s3"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
@@ -68,6 +72,39 @@ var _ asl.DynamoDBIntegration = (*dynamoDBAdapter)(nil)
 // NewDynamoDBIntegration creates a new DynamoDB integration adapter.
 func NewDynamoDBIntegration(backend dynamodbpkg.StorageBackend) asl.DynamoDBIntegration {
 	return &dynamoDBAdapter{backend: backend}
+}
+
+// s3Adapter adapts s3.StorageBackend to asl.S3Reader, used to resolve Map
+// state ItemReader (Distributed Map) items from S3 objects.
+type s3Adapter struct {
+	backend s3pkg.StorageBackend
+}
+
+// Compile-time assertion: s3Adapter must implement asl.S3Reader.
+var _ asl.S3Reader = (*s3Adapter)(nil)
+
+// NewS3Integration creates a new S3 integration adapter for Map state ItemReader.
+func NewS3Integration(backend s3pkg.StorageBackend) asl.S3Reader {
+	return &s3Adapter{backend: backend}
+}
+
+// GetObjectBytes implements asl.S3Reader.
+func (a *s3Adapter) GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error) {
+	out, err := a.backend.GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer out.Body.Close()
+
+	data, err := io.ReadAll(out.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }
 
 // convertViaJSON converts a value to a target type by marshaling to JSON and back.

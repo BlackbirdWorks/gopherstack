@@ -708,7 +708,7 @@ func TestHandlerOpsLenHelper(t *testing.T) {
 
 	b := stepfunctions.NewInMemoryBackend()
 	h := stepfunctions.NewHandler(b)
-	assert.Equal(t, 38, h.HandlerOpsLen())
+	assert.Equal(t, 37, h.HandlerOpsLen())
 }
 
 // TestRefinement1_HandlersErrorResponse verifies that unknown operations return 400.

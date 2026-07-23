@@ -91,6 +91,7 @@ type InMemoryBackend struct {
 	ecsIntegration  asl.ECSIntegration
 	glueIntegration asl.GlueIntegration
 	ebIntegration   asl.EventBridgeIntegration
+	s3Reader        asl.S3Reader
 	svcCtx          context.Context
 	// tasksByToken maps task token → task entry for SendTaskSuccess/Failure.
 	// Left as a plain map (not a store.Table): activityTaskEntry carries
@@ -314,6 +315,14 @@ func (b *InMemoryBackend) SetEventBridgeIntegration(eb asl.EventBridgeIntegratio
 	b.mu.Lock("SetEventBridgeIntegration")
 	defer b.mu.Unlock()
 	b.ebIntegration = eb
+}
+
+// SetS3Reader configures the S3 reader used to resolve Map state ItemReader
+// (Distributed Map) items from S3 objects.
+func (b *InMemoryBackend) SetS3Reader(s3Reader asl.S3Reader) {
+	b.mu.Lock("SetS3Reader")
+	defer b.mu.Unlock()
+	b.s3Reader = s3Reader
 }
 
 func (b *InMemoryBackend) smARN(region, name string) string {

@@ -2,6 +2,8 @@ package stepfunctions
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"sort"
@@ -10,6 +12,28 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
+
+// revisionIDBytes controls the length of the opaque token returned as
+// StateMachine.RevisionID / UpdateStateMachineOutput.RevisionId. AWS treats
+// this purely as an opaque comparison token, so its exact format is
+// unspecified -- any unique-per-update string satisfies the contract
+// ("compare between versions ... without performing a diff of the
+// properties").
+const revisionIDBytes = 8
+
+// newRevisionID generates a fresh opaque revision token, following the same
+// crypto/rand + hex pattern used for activity task tokens (activities.go).
+func newRevisionID() string {
+	b := make([]byte, revisionIDBytes)
+	if _, err := cryptorand.Read(b); err != nil {
+		// crypto/rand.Read only fails if the OS entropy source is
+		// unavailable; fall back to a timestamp so callers never see an
+		// empty/ambiguous revision token.
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+
+	return hex.EncodeToString(b)
+}
 
 // SetStateMachineConfigurations sets optional tracing, logging, and encryption configuration
 // for a state machine. Any nil argument leaves the corresponding field unchanged.
@@ -184,34 +208,55 @@ func (b *InMemoryBackend) ListStateMachines(
 	return sms, token, nil
 }
 
-// DescribeStateMachine returns details for a single state machine.
+// DescribeStateMachine returns details for a single state machine. Per AWS,
+// arn may also be a version-qualified ARN (stateMachineArn:N) -- "This API
+// action returns the details for a state machine version if the
+// stateMachineArn you specify is a state machine version ARN" -- in which
+// case the response reflects that version's frozen definition/roleArn/type
+// and echoes the version ARN back as StateMachineArn (unlike execution
+// start, Describe does NOT normalize a qualified ARN back to the base ARN).
+// There is no dedicated DescribeStateMachineVersion API in real AWS Step
+// Functions; this qualified-ARN path is how AWS exposes version details.
 func (b *InMemoryBackend) DescribeStateMachine(arn string) (*StateMachine, error) {
 	b.mu.RLock("DescribeStateMachine")
 	defer b.mu.RUnlock()
 
-	sm, exists := b.stateMachines.Get(arn)
-	if !exists {
-		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, arn)
+	if sm, exists := b.stateMachines.Get(arn); exists {
+		cp := *sm
+
+		return &cp, nil
 	}
 
-	cp := *sm
+	if v, exists := b.versions.Get(arn); exists {
+		return &StateMachine{
+			StateMachineArn: v.StateMachineVersionArn,
+			Name:            v.Name,
+			Type:            v.Type,
+			Status:          v.Status,
+			Definition:      v.Definition,
+			RoleArn:         v.RoleArn,
+			RevisionID:      v.RevisionID,
+			CreationDate:    v.CreationDate,
+		}, nil
+	}
 
-	return &cp, nil
+	return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, arn)
 }
 
 // UpdateStateMachine updates a state machine's definition and/or roleArn.
-// It returns the update timestamp (Unix epoch seconds).
-func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) (float64, error) {
+// It returns the update timestamp (Unix epoch seconds) and the new opaque
+// RevisionId (see StateMachine.RevisionID's doc comment).
+func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) (float64, string, error) {
 	// Validate the new definition before acquiring the lock.
 	if definition != "" {
 		if _, err := asl.Parse(definition); err != nil {
-			return 0, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
+			return 0, "", fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
 		}
 	}
 
 	if roleArn != "" {
 		if err := validateRoleARN(roleArn); err != nil {
-			return 0, err
+			return 0, "", err
 		}
 	}
 
@@ -220,7 +265,7 @@ func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) 
 
 	sm, exists := b.stateMachines.Get(smARN)
 	if !exists {
-		return 0, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, smARN)
+		return 0, "", fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, smARN)
 	}
 
 	if definition != "" {
@@ -232,8 +277,9 @@ func (b *InMemoryBackend) UpdateStateMachine(smARN, definition, roleArn string) 
 	}
 
 	sm.UpdatedDate = float64(time.Now().Unix())
+	sm.RevisionID = newRevisionID()
 
-	return sm.UpdatedDate, nil
+	return sm.UpdatedDate, sm.RevisionID, nil
 }
 
 func validateRoleARN(roleArn string) error {

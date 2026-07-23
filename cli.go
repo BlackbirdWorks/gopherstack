@@ -2622,7 +2622,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
 
-	// Wire Step Functions → SQS/SNS/DynamoDB/ECS/Glue/EventBridge service integrations.
+	// Wire Step Functions → SQS/SNS/DynamoDB/ECS/Glue/EventBridge/S3 service integrations.
 	wireStepFunctionsServiceIntegrations(
 		byName["StepFunctions"],
 		byName["SQS"],
@@ -2631,6 +2631,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["ECS"],
 		byName["Glue"],
 		byName["EventBridge"],
+		byName["S3"],
 	)
 
 	// Wire SSM → KMS for SecureString encryption with customer-managed keys.
@@ -3823,10 +3824,10 @@ func (a *cognitoLambdaTriggerAdapter) InvokeTrigger(
 }
 
 // wireStepFunctionsServiceIntegrations connects the Step Functions backend to SQS, SNS, DynamoDB,
-// ECS, Glue, and EventBridge backends so that Task states with service integration resources can
-// invoke those services.
+// ECS, Glue, EventBridge, and S3 backends so that Task states with service integration resources
+// (and Distributed Map's S3 ItemReader) can invoke those services.
 func wireStepFunctionsServiceIntegrations(
-	sfnReg, sqsReg, snsReg, ddbReg, ecsReg, glueReg, ebReg service.Registerable,
+	sfnReg, sqsReg, snsReg, ddbReg, ecsReg, glueReg, ebReg, s3Reg service.Registerable,
 ) {
 	sfnH, ok := sfnReg.(*sfnbackend.Handler)
 	if !ok {
@@ -3866,6 +3867,10 @@ func wireStepFunctionsServiceIntegrations(
 		if ebBk, ebBkOk := ebH.Backend.(*ebbackend.InMemoryBackend); ebBkOk {
 			sfnBk.SetEventBridgeIntegration(ebBk)
 		}
+	}
+
+	if s3H, s3Ok := s3Reg.(*s3backend.S3Handler); s3Ok {
+		sfnBk.SetS3Reader(sfnbackend.NewS3Integration(s3H.Backend))
 	}
 }
 

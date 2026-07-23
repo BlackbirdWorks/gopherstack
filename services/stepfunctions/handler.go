@@ -91,6 +91,14 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 }
 
 // GetSupportedOperations returns all mocked Step Functions operations.
+//
+// NOTE: "DescribeStateMachineVersion" is deliberately absent -- it does not
+// exist as an operation in real AWS Step Functions (verified against
+// aws-sdk-go-v2/service/sfn, which has no api_op_DescribeStateMachineVersion.go).
+// A prior gopherstack pass fabricated it; AWS's real mechanism for
+// retrieving version details is calling DescribeStateMachine with a
+// version-qualified ARN (stateMachineArn:N), which DescribeStateMachine now
+// implements directly (see state_machines.go).
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"CreateActivity",
@@ -106,7 +114,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeStateMachine",
 		"DescribeStateMachineAlias",
 		"DescribeStateMachineForExecution",
-		"DescribeStateMachineVersion",
 		"GetActivityTask",
 		"GetExecutionHistory",
 		"ListActivities",
