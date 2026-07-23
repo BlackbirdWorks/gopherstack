@@ -151,6 +151,12 @@ func (h *Handler) handleGetAPI(c *echo.Context, apiID string) error {
 func (h *Handler) handleDeleteAPI(c *echo.Context, apiID string) error {
 	log := logger.Load(c.Request().Context())
 
+	// Snapshot the API's authorizer IDs before the cascade delete removes
+	// them, so any cached decisions for those authorizers can be purged
+	// afterward (bd: gopherstack-wmh). A lookup failure here just means
+	// nothing to purge -- DeleteAPI below still enforces ErrAPINotFound.
+	authorizers, _ := h.Backend.GetAuthorizers(apiID)
+
 	if err := h.Backend.DeleteAPI(apiID); err != nil {
 		log.Error("apigatewayv2: delete api failed", logKeyAPIID, apiID, "error", err)
 
@@ -159,6 +165,12 @@ func (h *Handler) handleDeleteAPI(c *echo.Context, apiID string) error {
 		}
 
 		return writeErr(c, http.StatusInternalServerError, err.Error())
+	}
+
+	if h.authCache != nil {
+		for _, a := range authorizers {
+			h.authCache.purge(a.AuthorizerID)
+		}
 	}
 
 	return c.NoContent(http.StatusNoContent)

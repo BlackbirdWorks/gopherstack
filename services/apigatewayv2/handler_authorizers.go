@@ -54,6 +54,12 @@ func (h *Handler) handleDeleteAuthorizer(c *echo.Context, apiID, authorizerID st
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
+	// Drop any cached decisions for the now-deleted authorizer so they don't
+	// linger in memory until their TTL expires (bd: gopherstack-wmh).
+	if h.authCache != nil {
+		h.authCache.purge(authorizerID)
+	}
+
 	return c.NoContent(http.StatusNoContent)
 }
 

@@ -158,6 +158,7 @@ type integrationSnapshot struct {
 	ConnectionID                string                `json:"connectionId,omitempty"`
 	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
 	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
+	CredentialsArn              string                `json:"credentialsArn,omitempty"`
 	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
 	APIGatewayManaged           bool                  `json:"apiGatewayManaged"`
 }
@@ -183,6 +184,7 @@ func toIntegrationSnapshot(v *Integration) *integrationSnapshot {
 		ConnectionID:                v.ConnectionID,
 		TemplateSelectionExpression: v.TemplateSelectionExpression,
 		PassthroughBehavior:         v.PassthroughBehavior,
+		CredentialsArn:              v.CredentialsArn,
 		TimeoutInMillis:             v.TimeoutInMillis,
 		APIGatewayManaged:           v.APIGatewayManaged,
 	}
@@ -205,6 +207,7 @@ func fromIntegrationSnapshot(v *integrationSnapshot) *Integration {
 		ConnectionID:                v.ConnectionID,
 		TemplateSelectionExpression: v.TemplateSelectionExpression,
 		PassthroughBehavior:         v.PassthroughBehavior,
+		CredentialsArn:              v.CredentialsArn,
 		TimeoutInMillis:             v.TimeoutInMillis,
 		APIGatewayManaged:           v.APIGatewayManaged,
 	}

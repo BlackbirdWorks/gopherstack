@@ -177,3 +177,77 @@ func Test_DomainName_ArnAndMutualTLS(t *testing.T) {
 	// DomainNameArn is stable across updates.
 	assert.Equal(t, dn.DomainNameArn, updated.DomainNameArn)
 }
+
+// Test_DomainName_RoutingMode covers DomainName.RoutingMode, which the real
+// AWS SDK carries on DomainName/CreateDomainNameInput/UpdateDomainNameInput
+// but was entirely absent from gopherstack's shapes, so a caller-supplied
+// routingMode was silently dropped on decode and GetDomainName always
+// returned "" instead of the AWS default ("API_MAPPING_ONLY").
+func Test_DomainName_RoutingMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "defaults_to_api_mapping_only", input: "", want: "API_MAPPING_ONLY"},
+		{name: "explicit_routing_rule_only", input: "ROUTING_RULE_ONLY", want: "ROUTING_RULE_ONLY"},
+		{
+			name: "explicit_routing_rule_then_api_mapping", input: "ROUTING_RULE_THEN_API_MAPPING",
+			want: "ROUTING_RULE_THEN_API_MAPPING",
+		},
+		{name: "rejects_invalid_value", input: "SOMETHING_ELSE", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+
+			dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
+				DomainNameValue: tt.name + ".example.com",
+				RoutingMode:     tt.input,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, dn.RoutingMode)
+
+			got, err := b.GetDomainName(tt.name + ".example.com")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.RoutingMode)
+		})
+	}
+}
+
+// Test_UpdateDomainName_RoutingMode covers updating an existing domain
+// name's RoutingMode, and that an invalid value is rejected rather than
+// silently applied.
+func Test_UpdateDomainName_RoutingMode(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "routingmode-update.example.com",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "API_MAPPING_ONLY", dn.RoutingMode)
+
+	updated, err := b.UpdateDomainName(dn.DomainNameValue, apigatewayv2.UpdateDomainNameInput{
+		RoutingMode: "ROUTING_RULE_ONLY",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "ROUTING_RULE_ONLY", updated.RoutingMode)
+
+	_, err = b.UpdateDomainName(dn.DomainNameValue, apigatewayv2.UpdateDomainNameInput{RoutingMode: "BOGUS"})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+}

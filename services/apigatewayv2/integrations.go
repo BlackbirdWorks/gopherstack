@@ -142,6 +142,7 @@ func buildIntegration(apiID, protocolType string, input CreateIntegrationInput) 
 		PayloadFormatVersion:        payloadFmtVer,
 		ConnectionType:              connectionType,
 		ConnectionID:                input.ConnectionID,
+		CredentialsArn:              input.CredentialsArn,
 		TimeoutInMillis:             timeoutMs,
 		RequestParameters:           input.RequestParameters,
 		RequestTemplates:            input.RequestTemplates,
@@ -216,8 +217,19 @@ func (b *InMemoryBackend) DeleteIntegration(apiID, integrationID string) error {
 }
 
 // UpdateIntegration updates fields on an existing integration.
-// applyIntegrationUpdate copies non-zero fields from input onto the integration.
+// applyIntegrationUpdate copies non-zero fields from input onto the
+// integration. Split into two helpers (by field group) to stay under the
+// cyclomatic complexity threshold rather than growing a single branch-heavy
+// function.
 func applyIntegrationUpdate(i *Integration, input UpdateIntegrationInput) {
+	applyIntegrationIdentityUpdate(i, input)
+	applyIntegrationBehaviorUpdate(i, input)
+}
+
+// applyIntegrationIdentityUpdate copies the "what/where" fields (type,
+// subtype, method, URI, description, connection/credentials) from input onto
+// the integration.
+func applyIntegrationIdentityUpdate(i *Integration, input UpdateIntegrationInput) {
 	if input.IntegrationType != "" {
 		i.IntegrationType = input.IntegrationType
 	}
@@ -238,16 +250,25 @@ func applyIntegrationUpdate(i *Integration, input UpdateIntegrationInput) {
 		i.Description = input.Description
 	}
 
-	if input.PayloadFormatVersion != "" {
-		i.PayloadFormatVersion = input.PayloadFormatVersion
-	}
-
 	if input.ConnectionType != "" {
 		i.ConnectionType = input.ConnectionType
 	}
 
 	if input.ConnectionID != "" {
 		i.ConnectionID = input.ConnectionID
+	}
+
+	if input.CredentialsArn != "" {
+		i.CredentialsArn = input.CredentialsArn
+	}
+}
+
+// applyIntegrationBehaviorUpdate copies the request/response-shaping fields
+// (payload version, timeout, templates, passthrough, TLS) from input onto
+// the integration.
+func applyIntegrationBehaviorUpdate(i *Integration, input UpdateIntegrationInput) {
+	if input.PayloadFormatVersion != "" {
+		i.PayloadFormatVersion = input.PayloadFormatVersion
 	}
 
 	if input.TimeoutInMillis != 0 {

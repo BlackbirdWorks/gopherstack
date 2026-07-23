@@ -62,6 +62,17 @@ const (
 	// caller does not specify one.
 	connectionTypeInternet = "INTERNET"
 	connectionTypeVpcLink  = "VPC_LINK"
+
+	// ipAddressTypeIPv4 is the default API/DomainName IPAddressType when the
+	// caller does not specify one.
+	ipAddressTypeIPv4      = "ipv4"
+	ipAddressTypeDualstack = "dualstack"
+
+	// routingModeAPIMappingOnly is the default DomainName RoutingMode when
+	// the caller does not specify one.
+	routingModeAPIMappingOnly            = "API_MAPPING_ONLY"
+	routingModeRoutingRuleOnly           = "ROUTING_RULE_ONLY"
+	routingModeRoutingRuleThenAPIMapping = "ROUTING_RULE_THEN_API_MAPPING"
 )
 
 const (

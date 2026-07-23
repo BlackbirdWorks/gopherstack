@@ -374,3 +374,39 @@ func Test_Integration_TlsConfig(t *testing.T) {
 		})
 	}
 }
+
+// Test_Integration_CredentialsArn covers Integration.CredentialsArn, which
+// the real AWS SDK carries on Integration/CreateIntegrationInput/
+// UpdateIntegrationInput but was entirely absent from gopherstack's shapes,
+// so a caller-supplied credentialsArn was silently dropped on decode and
+// never returned.
+func Test_Integration_CredentialsArn(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "api", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	const roleARN = "arn:aws:iam::123456789012:role/apigw-role"
+
+	intg, err := b.CreateIntegration(api.APIID, apigatewayv2.CreateIntegrationInput{
+		IntegrationType: "AWS",
+		IntegrationURI:  "arn:aws:apigateway:us-east-1:s3:path/bucket/key",
+		CredentialsArn:  roleARN,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, roleARN, intg.CredentialsArn)
+
+	got, err := b.GetIntegration(api.APIID, intg.IntegrationID)
+	require.NoError(t, err)
+	assert.Equal(t, roleARN, got.CredentialsArn)
+
+	const updatedARN = "arn:aws:iam::*:user/*"
+
+	updated, err := b.UpdateIntegration(api.APIID, intg.IntegrationID, apigatewayv2.UpdateIntegrationInput{
+		CredentialsArn: updatedARN,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, updatedARN, updated.CredentialsArn)
+}

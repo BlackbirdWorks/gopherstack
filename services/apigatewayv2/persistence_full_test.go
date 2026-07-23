@@ -40,6 +40,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	integration, err := b.CreateIntegration(api.APIID, apigatewayv2.CreateIntegrationInput{
 		IntegrationType: "AWS_PROXY",
 		IntegrationURI:  "arn:aws:lambda:us-east-1:1:function:f",
+		CredentialsArn:  "arn:aws:iam::123456789012:role/apigw-role",
 	})
 	require.NoError(t, err)
 
@@ -122,6 +123,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotIntegration, err := fresh.GetIntegration(api.APIID, integration.IntegrationID)
 	require.NoError(t, err)
 	assert.Equal(t, integration.IntegrationURI, gotIntegration.IntegrationURI)
+	assert.Equal(t, integration.CredentialsArn, gotIntegration.CredentialsArn)
 
 	gotDeployment, err := fresh.GetDeployment(api.APIID, deployment.DeploymentID)
 	require.NoError(t, err)
