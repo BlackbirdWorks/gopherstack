@@ -18,6 +18,7 @@ func defaultServiceUpdates() []*ServiceUpdate {
 			Description:         "Security update for Redis 7.x clusters",
 			Status:              clusterStatusAvailable,
 			Type:                "security-update",
+			Engine:              engineRedis,
 			AutoUpdateStartDate: time.Date(2024, time.July, 1, 0, 0, 0, 0, time.UTC),
 		},
 		{
@@ -26,6 +27,7 @@ func defaultServiceUpdates() []*ServiceUpdate {
 			Description:         "Engine update with performance improvements",
 			Status:              clusterStatusAvailable,
 			Type:                "engine-update",
+			Engine:              engineRedis,
 			AutoUpdateStartDate: time.Date(2024, time.September, 1, 0, 0, 0, 0, time.UTC),
 		},
 	}

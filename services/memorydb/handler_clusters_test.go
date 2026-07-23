@@ -117,7 +117,7 @@ func TestHandler_DescribeClusters(t *testing.T) {
 		{
 			name:       "describe by name not found",
 			body:       map[string]any{"ClusterName": "no-such-cluster"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -158,7 +158,7 @@ func TestHandler_DeleteCluster(t *testing.T) {
 		},
 		{
 			name:       "delete non-existent cluster",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -177,7 +177,7 @@ func TestHandler_DeleteCluster(t *testing.T) {
 			}
 
 			clusterName := "del-cluster"
-			if tt.wantStatus == http.StatusNotFound {
+			if tt.wantStatus == http.StatusBadRequest {
 				clusterName = "no-cluster"
 			}
 
@@ -358,7 +358,7 @@ func TestHandler_UpdateCluster(t *testing.T) {
 		{
 			name:       "cluster not found",
 			body:       map[string]any{"ClusterName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

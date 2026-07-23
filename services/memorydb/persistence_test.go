@@ -172,7 +172,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, pgs, 1)
 
-	snaps, err := fresh.DescribeSnapshots(ctx, "fs-snap", "", "", "")
+	snaps, err := fresh.DescribeSnapshots(ctx, "fs-snap", "", "")
 	require.NoError(t, err)
 	require.Len(t, snaps, 1)
 
@@ -181,7 +181,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, mrcs, 1)
 
 	reservedNodes, err := fresh.DescribeReservedNodes(ctx, &memorydb.ExportedDescribeReservedNodesRequest{
-		ReservedNodeID: "fs-reserved-node",
+		ReservationID: "fs-reserved-node",
 	})
 	require.NoError(t, err)
 	require.Len(t, reservedNodes, 1)

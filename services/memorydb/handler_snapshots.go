@@ -6,8 +6,6 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 func (h *Handler) handleCreateSnapshot(ctx context.Context, c *echo.Context, body []byte) error {
@@ -95,7 +93,7 @@ func (h *Handler) handleDescribeSnapshots(ctx context.Context, c *echo.Context, 
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
-	snapshots, err := h.Backend.DescribeSnapshots(ctx, req.SnapshotName, req.ClusterName, req.SnapshotType, req.Source)
+	snapshots, err := h.Backend.DescribeSnapshots(ctx, req.SnapshotName, req.ClusterName, req.Source)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -151,8 +149,7 @@ func toSnapshotObject(s *Snapshot) snapshotObject {
 		ClusterConfiguration: clusterConfig,
 		Status:               s.Status,
 		KmsKeyID:             s.KmsKeyID,
-		SnapshotType:         s.SnapshotType,
 		Source:               s.Source,
-		CreatedAt:            awstime.Epoch(s.CreatedAt),
+		DataTiering:          s.DataTiering,
 	}
 }

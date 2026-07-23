@@ -40,16 +40,30 @@ type updateSubnetGroupRequest struct {
 
 // -- User request types ----------------------------------------------------------
 
+// subnetGroupObject is field-diffed against the real SDK's types.SubnetGroup
+// (deserializers.go's awsAwsjson11_deserializeDocumentSubnetGroup: ARN,
+// Description, Name, Subnets, SupportedNetworkTypes, VpcId).
 type subnetGroupObject struct {
-	ARN         string        `json:"ARN,omitempty"`
-	Name        string        `json:"Name,omitempty"`
-	Description string        `json:"Description,omitempty"`
-	VPCID       string        `json:"VpcId,omitempty"`
-	Subnets     []subnetEntry `json:"Subnets,omitempty"`
+	ARN                   string        `json:"ARN,omitempty"`
+	Name                  string        `json:"Name,omitempty"`
+	Description           string        `json:"Description,omitempty"`
+	VPCID                 string        `json:"VpcId,omitempty"`
+	Subnets               []subnetEntry `json:"Subnets,omitempty"`
+	SupportedNetworkTypes []string      `json:"SupportedNetworkTypes,omitempty"`
 }
 
+// subnetEntry is field-diffed against the real SDK's types.Subnet
+// (deserializers.go's awsAwsjson11_deserializeDocumentSubnet: AvailabilityZone,
+// Identifier, SupportedNetworkTypes).
 type subnetEntry struct {
-	Identifier string `json:"Identifier,omitempty"`
+	AvailabilityZone      *availabilityZoneObject `json:"AvailabilityZone,omitempty"`
+	Identifier            string                  `json:"Identifier,omitempty"`
+	SupportedNetworkTypes []string                `json:"SupportedNetworkTypes,omitempty"`
+}
+
+// availabilityZoneObject mirrors the real types.AvailabilityZone (just Name).
+type availabilityZoneObject struct {
+	Name string `json:"Name,omitempty"`
 }
 
 // createSubnetGroupResponse is the response for CreateSubnetGroup.

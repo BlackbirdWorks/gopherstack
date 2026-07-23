@@ -12,7 +12,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWireEpoch_Snapshot_CreationTimeIsNumber(t *testing.T) {
+// TestWireShape_Snapshot_NoTopLevelCreationTime_HasDataTiering locks two
+// findings from field-diffing snapshotObject against the real SDK's
+// types.Snapshot (deserializers.go's awsAwsjson11_deserializeDocumentSnapshot,
+// which recognizes exactly ARN, ClusterConfiguration, DataTiering, KmsKeyId,
+// Name, Source, Status): a prior pass fabricated a top-level
+// "SnapshotCreationTime" field (the real field of that name belongs to
+// types.ShardDetail, nested inside ClusterConfiguration.Shards, not top-level
+// Snapshot) and omitted the real "DataTiering" field entirely. This test
+// previously asserted SnapshotCreationTime's presence as a JSON number
+// (renamed from TestWireEpoch_Snapshot_CreationTimeIsNumber); it now asserts
+// the corrected shape.
+func TestWireShape_Snapshot_NoTopLevelCreationTime_HasDataTiering(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -34,10 +45,9 @@ func TestWireEpoch_Snapshot_CreationTimeIsNumber(t *testing.T) {
 	snap, _ := resp["Snapshot"].(map[string]any)
 	require.NotNil(t, snap)
 
-	_, isNumber := snap["SnapshotCreationTime"].(float64)
-	assert.True(t, isNumber,
-		"Snapshot.SnapshotCreationTime must be a JSON number, got %T: %v",
-		snap["SnapshotCreationTime"], snap["SnapshotCreationTime"])
+	_, hasCreationTime := snap["SnapshotCreationTime"]
+	assert.False(t, hasCreationTime, "SnapshotCreationTime must not appear at the top level of the Snapshot response")
+	assert.Equal(t, "false", snap["DataTiering"], "DataTiering must be present and reflect the source cluster")
 }
 
 // -- User Authentication.Type wire-shape regression ------------------------
@@ -150,7 +160,7 @@ func TestHandler_ExportSnapshot_NotFound(t *testing.T) {
 	rec := doRequest(t, h, "ExportSnapshot", map[string]any{
 		"SnapshotName": "no-such-snap",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestParity_ExportSnapshot_MissingSnapshotName verifies validation.
@@ -197,7 +207,7 @@ func TestHandler_CreateSnapshot(t *testing.T) {
 				"SnapshotName": "dup-snap",
 				"ClusterName":  "my-cluster",
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -270,7 +280,7 @@ func TestHandler_CopySnapshot(t *testing.T) {
 				"SourceSnapshotName": "no-such-snap",
 				"TargetSnapshotName": "dst-snap",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -319,7 +329,7 @@ func TestHandler_DeleteSnapshot(t *testing.T) {
 		},
 		{
 			name:       "delete non-existent snapshot",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing snapshot name",
@@ -462,16 +472,24 @@ func TestHandler_Snapshot_ExpandedClusterConfig_AllFields(t *testing.T) {
 	assert.EqualValues(t, 3, config["SnapshotRetentionLimit"])
 }
 
-func TestHandler_Snapshot_FilterByType(t *testing.T) {
+// TestHandler_Snapshot_FilterBySource filters via the real DescribeSnapshotsInput
+// "Source" field (values "system"/"user" per api_op_DescribeSnapshots.go,
+// normalized to this backend's internal "automated"/"manual" storage
+// convention by normalizeSnapshotSource) -- a prior pass filtered on a
+// fabricated "SnapshotType" field instead, which never matched a real client's
+// request and is now silently ignored.
+func TestHandler_Snapshot_FilterBySource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name           string
-		filterType     string
+		filterSource   string
 		wantMinResults int
 	}{
 		{"filter manual returns manual snaps", "manual", 1},
 		{"filter automated returns automated snaps", "automated", 1},
+		{"filter user (real AWS alias) returns manual snaps", "user", 1},
+		{"filter system (real AWS alias) returns automated snaps", "system", 1},
 		{"no filter returns all", "", 2},
 	}
 
@@ -496,8 +514,8 @@ func TestHandler_Snapshot_FilterByType(t *testing.T) {
 			require.Equal(t, http.StatusOK, manRec.Code)
 
 			body := map[string]any{}
-			if tt.filterType != "" {
-				body["SnapshotType"] = tt.filterType
+			if tt.filterSource != "" {
+				body["Source"] = tt.filterSource
 			}
 
 			rec := doRequest(t, h, "DescribeSnapshots", body)
@@ -507,7 +525,7 @@ func TestHandler_Snapshot_FilterByType(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			snaps, _ := resp["Snapshots"].([]any)
 			assert.GreaterOrEqual(t, len(snaps), tt.wantMinResults,
-				"filter=%q: expected >= %d snapshots", tt.filterType, tt.wantMinResults)
+				"filter=%q: expected >= %d snapshots", tt.filterSource, tt.wantMinResults)
 		})
 	}
 }
@@ -583,8 +601,8 @@ func TestHandler_DescribeSnapshots_Filtered(t *testing.T) {
 		wantCount int
 	}{
 		{name: "filter by cluster name", body: map[string]any{"ClusterName": "snap-cl"}, wantCount: 1},
-		{name: "filter by type manual", body: map[string]any{"SnapshotType": "manual"}, wantCount: 1},
 		{name: "filter by source manual", body: map[string]any{"Source": "manual"}, wantCount: 1},
+		{name: "filter by source alias user (real AWS value)", body: map[string]any{"Source": "user"}, wantCount: 1},
 		{name: "filter by non-match", body: map[string]any{"ClusterName": "no-such"}, wantCount: 0},
 	}
 
@@ -686,8 +704,8 @@ func TestHandler_AutomatedSnapshot_OnCreate(t *testing.T) {
 			})
 
 			rec := doRequest(t, h, "DescribeSnapshots", map[string]any{
-				"ClusterName":  "snap-cluster",
-				"SnapshotType": "automated",
+				"ClusterName": "snap-cluster",
+				"Source":      "automated",
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -698,7 +716,7 @@ func TestHandler_AutomatedSnapshot_OnCreate(t *testing.T) {
 			if tt.wantAutoSnap {
 				assert.NotEmpty(t, snaps, "expected automated snapshot to be created")
 				snap := snaps[0].(map[string]any)
-				assert.Equal(t, "automated", snap["SnapshotType"])
+				assert.Equal(t, "automated", snap["Source"])
 				assert.True(t, strings.HasPrefix(snap["Name"].(string), "automatic.snap-cluster"))
 			} else {
 				assert.Empty(t, snaps, "expected no automated snapshot")
@@ -729,10 +747,10 @@ func TestHandler_DescribeSnapshots_SourceFilter(t *testing.T) {
 	})
 
 	tests := []struct {
-		body             map[string]any
-		name             string
-		wantSnapshotType string
-		wantMinCount     int
+		body         map[string]any
+		name         string
+		wantSource   string
+		wantMinCount int
 	}{
 		{
 			name:         "no filter returns all",
@@ -740,16 +758,16 @@ func TestHandler_DescribeSnapshots_SourceFilter(t *testing.T) {
 			wantMinCount: 2,
 		},
 		{
-			name:             "source=manual returns only manual",
-			body:             map[string]any{"Source": "manual"},
-			wantMinCount:     1,
-			wantSnapshotType: "manual",
+			name:         "source=manual returns only manual",
+			body:         map[string]any{"Source": "manual"},
+			wantMinCount: 1,
+			wantSource:   "manual",
 		},
 		{
-			name:             "source=automated returns only automated",
-			body:             map[string]any{"Source": "automated"},
-			wantMinCount:     1,
-			wantSnapshotType: "automated",
+			name:         "source=automated returns only automated",
+			body:         map[string]any{"Source": "automated"},
+			wantMinCount: 1,
+			wantSource:   "automated",
 		},
 		{
 			name:         "filter by cluster name",
@@ -770,10 +788,10 @@ func TestHandler_DescribeSnapshots_SourceFilter(t *testing.T) {
 			snaps := resp["Snapshots"].([]any)
 			assert.GreaterOrEqual(t, len(snaps), tt.wantMinCount)
 
-			if tt.wantSnapshotType != "" {
+			if tt.wantSource != "" {
 				for _, s := range snaps {
 					snap := s.(map[string]any)
-					assert.Equal(t, tt.wantSnapshotType, snap["SnapshotType"])
+					assert.Equal(t, tt.wantSource, snap["Source"])
 				}
 			}
 		})
@@ -906,13 +924,13 @@ func TestHandler_SnapshotCRUD(t *testing.T) {
 			name:       "describe snapshot not found",
 			op:         "DescribeSnapshots",
 			body:       map[string]any{"SnapshotName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "delete snapshot not found",
 			op:         "DeleteSnapshot",
 			body:       map[string]any{"SnapshotName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "copy snapshot",

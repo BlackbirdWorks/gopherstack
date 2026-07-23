@@ -613,13 +613,13 @@ func TestHandler_WriteBackendError(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "not found returns 404",
+			name:       "not found returns 400",
 			op:         "DescribeClusters",
 			body:       map[string]any{"ClusterName": "nonexistent"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "already exists returns 409",
+			name: "already exists returns 400",
 			op:   "CreateCluster",
 			body: map[string]any{
 				"ClusterName": "dup-cluster",
@@ -636,13 +636,13 @@ func TestHandler_WriteBackendError(t *testing.T) {
 			h := newTestHandler(t)
 
 			// For "already exists" test, create it first
-			if tt.name == "already exists returns 409" {
+			if tt.name == "already exists returns 400" {
 				doRequest(t, h, "CreateCluster", map[string]any{
 					"ClusterName": "dup-cluster",
 					"NodeType":    "db.r6g.large",
 				})
 				rec := doRequest(t, h, "CreateCluster", tt.body)
-				assert.Equal(t, http.StatusConflict, rec.Code)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 				return
 			}
@@ -724,7 +724,7 @@ func TestHandler_Reset(t *testing.T) {
 			h.Reset()
 
 			rec := doRequest(t, h, "DescribeClusters", map[string]any{"ClusterName": "reset-cluster"})
-			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
 }

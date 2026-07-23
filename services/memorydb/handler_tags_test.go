@@ -73,7 +73,7 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 			name:       "list tags unknown ARN",
 			op:         "ListTags",
 			body:       map[string]any{"ResourceArn": "arn:aws:memorydb:us-east-1:123:cluster/no-such"},
-			wantStatus: 404,
+			wantStatus: 400,
 		},
 		{
 			name: "tag resource unknown ARN",
@@ -82,7 +82,7 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 				"ResourceArn": "arn:aws:memorydb:us-east-1:123:cluster/no-such",
 				"Tags":        []map[string]any{{"Key": "k", "Value": "v"}},
 			},
-			wantStatus: 404,
+			wantStatus: 400,
 		},
 		{
 			name: "untag resource unknown ARN",
@@ -91,7 +91,7 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 				"ResourceArn": "arn:aws:memorydb:us-east-1:123:cluster/no-such",
 				"TagKeys":     []string{"k"},
 			},
-			wantStatus: 404,
+			wantStatus: 400,
 		},
 		{
 			name:       "list tags missing ARN",

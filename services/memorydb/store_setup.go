@@ -38,7 +38,7 @@ func subnetGroupKeyFn(v *SubnetGroup) string       { return v.Name }
 func userKeyFn(v *User) string                     { return v.Name }
 func parameterGroupKeyFn(v *ParameterGroup) string { return v.Name }
 func snapshotKeyFn(v *Snapshot) string             { return v.Name }
-func reservedNodeKeyFn(v *ReservedNode) string     { return v.ReservedNodeID }
+func reservedNodeKeyFn(v *ReservedNode) string     { return v.ReservationID }
 
 func multiRegionClusterKeyFn(v *MultiRegionCluster) string               { return v.MultiRegionClusterName }
 func multiRegionParameterGroupKeyFn(v *MultiRegionParameterGroup) string { return v.Name }

@@ -33,6 +33,7 @@ func (h *Handler) handleDescribeServiceUpdates(ctx context.Context, c *echo.Cont
 			Description:         su.Description,
 			Status:              su.Status,
 			Type:                su.Type,
+			Engine:              su.Engine,
 			AutoUpdateStartDate: awstime.Epoch(su.AutoUpdateStartDate),
 		})
 	}

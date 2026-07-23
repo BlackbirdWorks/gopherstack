@@ -35,7 +35,7 @@ func TestErrCode_ClusterNotFound(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, "DeleteCluster", map[string]any{"ClusterName": "no-such-cluster"})
-	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "ClusterNotFoundFault", responseType(t, rec.Body.Bytes()))
 }
 
@@ -52,7 +52,7 @@ func TestErrCode_ACLInUse(t *testing.T) {
 	})
 
 	rec := doRequest(t, h, "DeleteACL", map[string]any{"ACLName": "in-use-acl"})
-	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "InvalidACLStateFault", responseType(t, rec.Body.Bytes()))
 }
 
@@ -71,7 +71,7 @@ func TestErrCode_UserInUse(t *testing.T) {
 	})
 
 	rec := doRequest(t, h, "DeleteUser", map[string]any{"UserName": "in-use-user"})
-	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "InvalidUserStateFault", responseType(t, rec.Body.Bytes()))
 }
 
@@ -94,7 +94,7 @@ func TestErrCode_SubnetGroupInUse(t *testing.T) {
 	})
 
 	rec := doRequest(t, h, "DeleteSubnetGroup", map[string]any{"SubnetGroupName": "in-use-sg"})
-	require.Equal(t, http.StatusConflict, rec.Code,
+	require.Equal(t, http.StatusBadRequest, rec.Code,
 		"DeleteSubnetGroup must reject deleting a subnet group still referenced by a cluster")
 	assert.Equal(t, "SubnetGroupInUseFault", responseType(t, rec.Body.Bytes()))
 
@@ -112,7 +112,7 @@ func TestErrCode_TagResourceInvalidARN(t *testing.T) {
 		"ResourceArn": "arn:aws:memorydb:us-east-1:123456789012:cluster/does-not-exist",
 		"Tags":        []map[string]string{{"Key": "k", "Value": "v"}},
 	})
-	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "InvalidARNFault", responseType(t, rec.Body.Bytes()))
 }
 
@@ -124,6 +124,6 @@ func TestErrCode_MultiRegionParameterGroupNotFound(t *testing.T) {
 	rec := doRequest(t, h, "DescribeMultiRegionParameters", map[string]any{
 		"ParameterGroupName": "no-such-mrpg",
 	})
-	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "MultiRegionParameterGroupNotFoundFault", responseType(t, rec.Body.Bytes()))
 }

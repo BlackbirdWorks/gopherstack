@@ -28,15 +28,15 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 	snapshotARN := arn.Build("memorydb", region, b.accountID, "snapshot/"+req.SnapshotName)
 
 	s := &Snapshot{
-		Name:         req.SnapshotName,
-		ARN:          snapshotARN,
-		ClusterName:  req.ClusterName,
-		Status:       snapshotStatusAvailable,
-		KmsKeyID:     req.KmsKeyID,
-		SnapshotType: snapshotSourceManual,
-		Source:       snapshotSourceManual,
-		Tags:         tagsFromSlice(req.Tags),
-		CreatedAt:    time.Now(),
+		Name:        req.SnapshotName,
+		ARN:         snapshotARN,
+		ClusterName: req.ClusterName,
+		Status:      snapshotStatusAvailable,
+		KmsKeyID:    req.KmsKeyID,
+		Source:      snapshotSourceManual,
+		DataTiering: c.DataTiering,
+		Tags:        tagsFromSlice(req.Tags),
+		CreatedAt:   time.Now(),
 		ClusterConfiguration: snapshotClusterConfig{
 			Name:                   c.Name,
 			NodeType:               c.NodeType,
@@ -71,10 +71,27 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 	return cloneSnapshot(s), nil
 }
 
-// DescribeSnapshots returns snapshots, optionally filtered by name, cluster name, snapshot type, or source.
+// normalizeSnapshotSource maps DescribeSnapshotsInput's real Source filter
+// values ("system"/"user", per api_op_DescribeSnapshots.go's doc comment) to
+// this backend's internal Source storage convention ("automated"/"manual",
+// matching types.Snapshot.Source's own doc comment: "automated" or "manual").
+// Also leniently accepts "automated"/"manual" directly, since a caller may
+// reasonably pass the response-side value back in as a filter.
+func normalizeSnapshotSource(source string) string {
+	switch source {
+	case "system":
+		return snapshotSourceAutomated
+	case "user":
+		return snapshotSourceManual
+	default:
+		return source
+	}
+}
+
+// DescribeSnapshots returns snapshots, optionally filtered by name, cluster name, or source.
 func (b *InMemoryBackend) DescribeSnapshots(
 	ctx context.Context,
-	name, clusterName, snapshotType, source string,
+	name, clusterName, source string,
 ) ([]*Snapshot, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -91,13 +108,12 @@ func (b *InMemoryBackend) DescribeSnapshots(
 		return []*Snapshot{cloneSnapshot(s)}, nil
 	}
 
+	source = normalizeSnapshotSource(source)
+
 	all := tableAll(t)
 	result := make([]*Snapshot, 0, len(all))
 	for _, s := range all {
 		if clusterName != "" && s.ClusterName != clusterName {
-			continue
-		}
-		if snapshotType != "" && s.SnapshotType != snapshotType {
 			continue
 		}
 		if source != "" && s.Source != source {
@@ -152,7 +168,8 @@ func (b *InMemoryBackend) CopySnapshot(ctx context.Context, req *copySnapshotReq
 		ClusterName:          src.ClusterName,
 		Status:               snapshotStatusAvailable,
 		KmsKeyID:             kmsKeyID,
-		SnapshotType:         snapshotSourceManual,
+		Source:               snapshotSourceManual,
+		DataTiering:          src.DataTiering,
 		Tags:                 tags,
 		CreatedAt:            time.Now(),
 		ClusterConfiguration: src.ClusterConfiguration,

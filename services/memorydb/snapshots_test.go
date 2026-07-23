@@ -36,7 +36,7 @@ func TestDescribeSnapshots(t *testing.T) {
 		{
 			name:       "filter by name - not found",
 			body:       map[string]any{"SnapshotName": "no-such"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -74,11 +74,18 @@ func TestCreateSnapshotValidatesCluster(t *testing.T) {
 		"ClusterName":  "non-existent-cluster",
 	})
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestRefinement1_DescribeSnapshotCreatedAtField verifies CreatedAt is returned.
-func TestDescribeSnapshotCreatedAtField(t *testing.T) {
+// TestDescribeSnapshotNoTopLevelCreationTimeField verifies the Snapshot
+// response has no top-level "SnapshotCreationTime" field. Real AWS's
+// SnapshotCreationTime belongs to types.ShardDetail, nested inside
+// ClusterConfiguration.Shards -- confirmed absent from the top-level
+// Snapshot's own deserializer (awsAwsjson11_deserializeDocumentSnapshot only
+// recognizes ARN, ClusterConfiguration, DataTiering, KmsKeyId, Name, Source,
+// Status). A prior pass fabricated a top-level SnapshotCreationTime and this
+// test used to assert its presence; inverted.
+func TestDescribeSnapshotNoTopLevelCreationTimeField(t *testing.T) {
 	t.Parallel()
 
 	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
@@ -96,7 +103,8 @@ func TestDescribeSnapshotCreatedAtField(t *testing.T) {
 	require.Len(t, snaps, 1)
 
 	snap := snaps[0].(map[string]any)
-	assert.NotEmpty(t, snap["SnapshotCreationTime"])
+	_, hasField := snap["SnapshotCreationTime"]
+	assert.False(t, hasField, "SnapshotCreationTime must not appear at the top level of the Snapshot response")
 }
 
 // TestRefinement1_CopySnapshotInheritsTags verifies tags are inherited from source when none supplied.
