@@ -8,6 +8,7 @@ func (h *Handler) createSolution(input map[string]any) (map[string]any, error) {
 	name, _ := input["name"].(string)
 	datasetGroupArn, _ := input["datasetGroupArn"].(string)
 	recipeArn, _ := input["recipeArn"].(string)
+	eventType, _ := input["eventType"].(string)
 	performAutoML, _ := input["performAutoML"].(bool)
 	performHPO, _ := input["performHPO"].(bool)
 	// performAutoTraining defaults to true when omitted (the real API
@@ -15,11 +16,13 @@ func (h *Handler) createSolution(input map[string]any) (map[string]any, error) {
 	// otherwise); performIncrementalUpdate defaults to false.
 	performAutoTraining := boolFieldDefault(input, "performAutoTraining", true)
 	performIncrementalUpdate, _ := input["performIncrementalUpdate"].(bool)
+	solutionConfig, _ := input["solutionConfig"].(map[string]any)
 	tags := extractTags(input)
 
 	sol, err := h.Backend.CreateSolution(
-		name, datasetGroupArn, recipeArn,
+		name, datasetGroupArn, recipeArn, eventType,
 		performAutoML, performHPO, performAutoTraining, performIncrementalUpdate,
+		solutionConfig,
 		tags,
 	)
 	if err != nil {
@@ -115,12 +118,6 @@ func (h *Handler) describeSolutionVersion(input map[string]any) (map[string]any,
 	return map[string]any{"solutionVersion": solutionVersionToMap(sv)}, nil
 }
 
-func (h *Handler) deleteSolutionVersion(input map[string]any) (map[string]any, error) {
-	svArn, _ := input["solutionVersionArn"].(string)
-
-	return map[string]any{}, h.Backend.DeleteSolutionVersion(svArn)
-}
-
 func (h *Handler) listSolutionVersions(input map[string]any) (map[string]any, error) {
 	solutionArn, _ := input["solutionArn"].(string)
 	maxResults := intField(input, "maxResults")
@@ -154,11 +151,12 @@ func (h *Handler) getSolutionMetrics(input map[string]any) (map[string]any, erro
 }
 
 func solutionToMap(sol *Solution) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keySolutionArn:             sol.SolutionArn,
 		keyName:                    sol.Name,
 		keyDatasetGroupArn:         sol.DatasetGroupArn,
 		keyRecipeArn:               sol.RecipeArn,
+		"eventType":                sol.EventType,
 		"performAutoML":            sol.PerformAutoML,
 		"performHPO":               sol.PerformHPO,
 		"performAutoTraining":      sol.PerformAutoTraining,
@@ -167,10 +165,23 @@ func solutionToMap(sol *Solution) map[string]any {
 		keyCreationDateTime:        awstime.Epoch(sol.CreationDateTime),
 		keyLastUpdatedDateTime:     awstime.Epoch(sol.LastUpdatedDateTime),
 	}
+	if sol.SolutionConfig != nil {
+		m["solutionConfig"] = sol.SolutionConfig
+	}
+	if sol.AutoMLResult != nil {
+		m["autoMLResult"] = sol.AutoMLResult
+	}
+	// latestSolutionUpdate is only returned once the solution has had at
+	// least one UpdateSolution call -- matches the real API.
+	if sol.LatestSolutionUpdate != nil {
+		m["latestSolutionUpdate"] = sol.LatestSolutionUpdate
+	}
+
+	return m
 }
 
 func solutionVersionToMap(sv *SolutionVersion) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keySolutionVersionArn:  sv.SolutionVersionArn,
 		keySolutionArn:         sv.SolutionArn,
 		keyStatus:              sv.Status,
@@ -179,4 +190,9 @@ func solutionVersionToMap(sv *SolutionVersion) map[string]any {
 		keyCreationDateTime:    awstime.Epoch(sv.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(sv.LastUpdatedDateTime),
 	}
+	if sv.SolutionConfig != nil {
+		m["solutionConfig"] = sv.SolutionConfig
+	}
+
+	return m
 }

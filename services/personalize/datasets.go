@@ -2,10 +2,23 @@ package personalize
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
 // --- Dataset ---
+
+// validDatasetTypes are the case-insensitive DatasetType values the real API
+// accepts (documented on CreateDatasetInput.DatasetType; the field is a
+// plain *string in the SDK, not a typed smithy enum, but AWS still rejects
+// anything outside this set server-side).
+var validDatasetTypes = map[string]bool{ //nolint:gochecknoglobals // fixed lookup table, mirrors errCodeLookup style
+	"INTERACTIONS":        true,
+	"ITEMS":               true,
+	"USERS":               true,
+	"ACTIONS":             true,
+	"ACTION_INTERACTIONS": true,
+}
 
 // CreateDataset creates a new dataset.
 func (b *InMemoryBackend) CreateDataset(
@@ -20,6 +33,15 @@ func (b *InMemoryBackend) CreateDataset(
 	}
 	if b.datasets.Has(name) {
 		return nil, fmt.Errorf("%w: dataset %q already exists", ErrAlreadyExists, name)
+	}
+	if !validDatasetTypes[strings.ToUpper(datasetType)] {
+		return nil, fmt.Errorf("%w: datasetType %q is invalid", ErrValidation, datasetType)
+	}
+	if b.findDatasetGroup(datasetGroupArn) == nil {
+		return nil, fmt.Errorf("%w: dataset group %q not found", ErrNotFound, datasetGroupArn)
+	}
+	if b.findSchema(schemaArn) == nil {
+		return nil, fmt.Errorf("%w: schema %q not found", ErrNotFound, schemaArn)
 	}
 
 	now := time.Now().UTC()
@@ -114,6 +136,17 @@ func (b *InMemoryBackend) findDataset(nameOrArn string) *Dataset {
 	return nil
 }
 
+// requireDataset FK-validates that datasetArn resolves to a real dataset,
+// shared by CreateDatasetImportJob and CreateDatasetExportJob (both key
+// their source data off a datasetArn).
+func (b *InMemoryBackend) requireDataset(datasetArn string) error {
+	if b.findDataset(datasetArn) == nil {
+		return fmt.Errorf("%w: dataset %q not found", ErrNotFound, datasetArn)
+	}
+
+	return nil
+}
+
 // --- DatasetImportJob ---
 
 // CreateDatasetImportJob creates a new dataset import job.
@@ -125,8 +158,11 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 	b.mu.Lock("CreateDatasetImportJob")
 	defer b.mu.Unlock()
 
-	if jobName == "" {
-		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
+	if err := requireJobName(jobName); err != nil {
+		return nil, err
+	}
+	if err := b.requireDataset(datasetArn); err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()
@@ -193,8 +229,11 @@ func (b *InMemoryBackend) CreateDatasetExportJob(
 	b.mu.Lock("CreateDatasetExportJob")
 	defer b.mu.Unlock()
 
-	if jobName == "" {
-		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
+	if err := requireJobName(jobName); err != nil {
+		return nil, err
+	}
+	if err := b.requireDataset(datasetArn); err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()

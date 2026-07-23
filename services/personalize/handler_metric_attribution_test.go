@@ -12,10 +12,11 @@ func TestPersonalize_MetricAttribution_CRUD(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "my-ma-dg")
 
 	rec := personalizeDo(t, h, "CreateMetricAttribution", map[string]any{
 		"name":            "my-ma",
-		"datasetGroupArn": "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1",
+		"datasetGroupArn": dgArn,
 		"metrics": []map[string]any{
 			{"eventType": "click", "expression": "SUM(Items.PRICE)", "metricName": "click-sum"},
 		},

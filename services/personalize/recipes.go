@@ -57,6 +57,20 @@ func getBuiltinRecipes() []map[string]any {
 	}
 }
 
+// recipeExists reports whether recipeArn matches one of the built-in
+// recipe catalog entries. Used to FK-validate CreateRecommender/
+// CreateSolution's recipeArn against the read-only recipe catalog the same
+// way arnExists validates mutable resource ARNs.
+func recipeExists(recipeArn string) bool {
+	for _, r := range getBuiltinRecipes() {
+		if r[keyRecipeArn] == recipeArn {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (h *Handler) describeRecipe(input map[string]any) (map[string]any, error) {
 	recipeArn, _ := input[keyRecipeArn].(string)
 

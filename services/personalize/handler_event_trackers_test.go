@@ -12,10 +12,11 @@ func TestPersonalize_EventTracker_TrackingID(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "my-tracker-dg")
 
 	rec := personalizeDo(t, h, "CreateEventTracker", map[string]any{
 		"name":            "my-tracker",
-		"datasetGroupArn": "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1",
+		"datasetGroupArn": dgArn,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	m := personalizeUnmarshal(t, rec)
@@ -30,14 +31,14 @@ func TestPersonalize_EventTracker_TrackingID(t *testing.T) {
 	et := personalizeUnmarshal(t, rec)["eventTracker"].(map[string]any)
 	assert.Equal(t, trackingID, et["trackingId"])
 	assert.Equal(t, "ACTIVE", et["status"])
-	assert.Equal(t, "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1", et["datasetGroupArn"])
+	assert.Equal(t, dgArn, et["datasetGroupArn"])
 }
 
 func TestPersonalize_EventTracker_ListDelete(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
-	dgArn := "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1"
+	dgArn := personalizeCreateDatasetGroup(t, h, "trackers-dg")
 	personalizeDo(t, h, "CreateEventTracker", map[string]any{"name": "t1", "datasetGroupArn": dgArn})
 	personalizeDo(t, h, "CreateEventTracker", map[string]any{"name": "t2", "datasetGroupArn": dgArn})
 

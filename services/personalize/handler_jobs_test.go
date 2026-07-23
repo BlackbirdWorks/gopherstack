@@ -12,10 +12,11 @@ func TestPersonalize_BatchInferenceJob(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
+	svArn := personalizeCreateSolutionVersion(t, h, "sol")
 
 	rec := personalizeDo(t, h, "CreateBatchInferenceJob", map[string]any{
 		"jobName":            "batch-inf-1",
-		"solutionVersionArn": "arn:aws:personalize:us-east-1:000000000000:solution/sol/v1",
+		"solutionVersionArn": svArn,
 		"roleArn":            "arn:aws:iam::000000000000:role/PersonalizeRole",
 		"jobInput":           map[string]any{"s3DataSource": map[string]any{"path": "s3://bucket/input"}},
 		"jobOutput":          map[string]any{"s3DataDestination": map[string]any{"path": "s3://bucket/output"}},
@@ -34,10 +35,11 @@ func TestPersonalize_BatchSegmentJob(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
+	svArn := personalizeCreateSolutionVersion(t, h, "sol")
 
 	rec := personalizeDo(t, h, "CreateBatchSegmentJob", map[string]any{
 		"jobName":            "seg-job-1",
-		"solutionVersionArn": "arn:aws:personalize:us-east-1:000000000000:solution/sol/v1",
+		"solutionVersionArn": svArn,
 		"roleArn":            "arn:aws:iam::000000000000:role/PersonalizeRole",
 		"jobInput":           map[string]any{"s3DataSource": map[string]any{"path": "s3://bucket/input"}},
 		"jobOutput":          map[string]any{"s3DataDestination": map[string]any{"path": "s3://bucket/output"}},
@@ -55,10 +57,11 @@ func TestPersonalize_DataDeletionJob(t *testing.T) {
 	t.Parallel()
 
 	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "delete-job-1-dg")
 
 	rec := personalizeDo(t, h, "CreateDataDeletionJob", map[string]any{
 		"jobName":         "delete-job-1",
-		"datasetGroupArn": "arn:aws:personalize:us-east-1:000000000000:dataset-group/g1",
+		"datasetGroupArn": dgArn,
 		"roleArn":         "arn:aws:iam::000000000000:role/PersonalizeRole",
 		"dataSource":      map[string]any{"dataLocation": "s3://bucket/users-to-delete.csv"},
 	})

@@ -3,6 +3,8 @@ package personalize
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- Recommender ---
@@ -11,6 +13,7 @@ import (
 func (b *InMemoryBackend) CreateRecommender(
 	name, datasetGroupArn, recipeArn string,
 	minRPS int32,
+	recommenderConfig map[string]any,
 	tags map[string]string,
 ) (*Recommender, error) {
 	b.mu.Lock("CreateRecommender")
@@ -22,6 +25,12 @@ func (b *InMemoryBackend) CreateRecommender(
 	if b.recommenders.Has(name) {
 		return nil, fmt.Errorf("%w: recommender %q already exists", ErrAlreadyExists, name)
 	}
+	if b.findDatasetGroup(datasetGroupArn) == nil {
+		return nil, fmt.Errorf("%w: dataset group %q not found", ErrNotFound, datasetGroupArn)
+	}
+	if !recipeExists(recipeArn) {
+		return nil, fmt.Errorf("%w: recipe %q not found", ErrNotFound, recipeArn)
+	}
 
 	now := time.Now().UTC()
 	r := &Recommender{
@@ -31,6 +40,7 @@ func (b *InMemoryBackend) CreateRecommender(
 		RecipeArn:                          recipeArn,
 		Status:                             statusActive,
 		MinRecommendationRequestsPerSecond: minRPS,
+		RecommenderConfig:                  recommenderConfig,
 		CreationDateTime:                   now,
 		LastUpdatedDateTime:                now,
 	}
@@ -54,10 +64,24 @@ func (b *InMemoryBackend) DescribeRecommender(nameOrArn string) (*Recommender, e
 	return nil, fmt.Errorf("%w: recommender %q not found", ErrNotFound, nameOrArn)
 }
 
-// UpdateRecommender updates recommender configuration.
-func (b *InMemoryBackend) UpdateRecommender(nameOrArn string, minRPS int32) (*Recommender, error) {
+// UpdateRecommender updates a recommender's configuration. recommenderConfig
+// is required on the real UpdateRecommenderInput; every successful call
+// records a types.RecommenderUpdateSummary-shaped snapshot on
+// LatestRecommenderUpdate, matching real AWS which only populates that field
+// once the recommender has had at least one update.
+func (b *InMemoryBackend) UpdateRecommender(
+	nameOrArn string,
+	minRPS int32,
+	recommenderConfig map[string]any,
+) (*Recommender, error) {
 	b.mu.Lock("UpdateRecommender")
 	defer b.mu.Unlock()
+
+	// recommenderConfig is a required member on the real UpdateRecommenderInput
+	// (unlike CreateRecommender, where it is optional).
+	if recommenderConfig == nil {
+		return nil, fmt.Errorf("%w: recommenderConfig is required", ErrValidation)
+	}
 
 	r := b.findRecommender(nameOrArn)
 	if r == nil {
@@ -66,7 +90,14 @@ func (b *InMemoryBackend) UpdateRecommender(nameOrArn string, minRPS int32) (*Re
 	if minRPS > 0 {
 		r.MinRecommendationRequestsPerSecond = minRPS
 	}
+	r.RecommenderConfig = recommenderConfig
 	r.LastUpdatedDateTime = time.Now().UTC()
+	r.LatestRecommenderUpdate = map[string]any{
+		keyCreationDateTime:    awstime.Epoch(r.LastUpdatedDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(r.LastUpdatedDateTime),
+		"recommenderConfig":    r.RecommenderConfig,
+		keyStatus:              r.Status,
+	}
 
 	return r, nil
 }

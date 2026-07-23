@@ -19,6 +19,9 @@ func (b *InMemoryBackend) CreateDataDeletionJob(
 	if jobName == "" {
 		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
 	}
+	if b.findDatasetGroup(datasetGroupArn) == nil {
+		return nil, fmt.Errorf("%w: dataset group %q not found", ErrNotFound, datasetGroupArn)
+	}
 
 	now := time.Now().UTC()
 	jobArn := b.personalizeARN("data-deletion-job", jobName)

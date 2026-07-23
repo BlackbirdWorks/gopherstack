@@ -7,6 +7,20 @@ import (
 
 // --- DatasetGroup ---
 
+// validDomain reports whether domain is a value the real types.Domain enum
+// accepts. An empty domain is valid (it creates a Custom dataset group /
+// schema rather than a Domain one) -- only a non-empty, unrecognized value is
+// rejected. Shared with CreateSchema, which takes the same Domain-typed
+// field.
+func validDomain(domain string) bool {
+	switch domain {
+	case "", "ECOMMERCE", "VIDEO_ON_DEMAND":
+		return true
+	default:
+		return false
+	}
+}
+
 // CreateDatasetGroup creates a new dataset group.
 func (b *InMemoryBackend) CreateDatasetGroup(
 	name, domain, kmsKeyArn, roleArn string,
@@ -20,6 +34,9 @@ func (b *InMemoryBackend) CreateDatasetGroup(
 	}
 	if b.datasetGroups.Has(name) {
 		return nil, fmt.Errorf("%w: dataset group %q already exists", ErrAlreadyExists, name)
+	}
+	if !validDomain(domain) {
+		return nil, fmt.Errorf("%w: domain %q is invalid", ErrValidation, domain)
 	}
 
 	now := time.Now().UTC()

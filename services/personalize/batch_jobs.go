@@ -7,7 +7,32 @@ import (
 
 // --- BatchInferenceJob ---
 
+// requireJobName rejects an empty batch/async job name, matching the
+// "jobName is required" validation shared by every Create*Job op in this
+// file.
+func requireJobName(jobName string) error {
+	if jobName == "" {
+		return fmt.Errorf("%w: jobName is required", ErrValidation)
+	}
+
+	return nil
+}
+
+// requireSolutionVersion FK-validates that solutionVersionArn resolves to a
+// real solution version, shared by CreateBatchInferenceJob and
+// CreateBatchSegmentJob (both key their training source off a
+// solutionVersionArn).
+func (b *InMemoryBackend) requireSolutionVersion(solutionVersionArn string) error {
+	if !b.solutionVersions.Has(solutionVersionArn) {
+		return fmt.Errorf("%w: solution version %q not found", ErrNotFound, solutionVersionArn)
+	}
+
+	return nil
+}
+
 // CreateBatchInferenceJob creates a new batch inference job.
+//
+//nolint:dupl // structurally identical to CreateBatchSegmentJob by design; different resource types
 func (b *InMemoryBackend) CreateBatchInferenceJob(
 	jobName, solutionVersionArn, roleArn string,
 	jobInput, jobOutput map[string]any,
@@ -16,8 +41,11 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 	b.mu.Lock("CreateBatchInferenceJob")
 	defer b.mu.Unlock()
 
-	if jobName == "" {
-		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
+	if err := requireJobName(jobName); err != nil {
+		return nil, err
+	}
+	if err := b.requireSolutionVersion(solutionVersionArn); err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()
@@ -77,6 +105,8 @@ func (b *InMemoryBackend) ListBatchInferenceJobs(
 // --- BatchSegmentJob ---
 
 // CreateBatchSegmentJob creates a new batch segment job.
+//
+//nolint:dupl // structurally identical to CreateBatchInferenceJob by design; different resource types
 func (b *InMemoryBackend) CreateBatchSegmentJob(
 	jobName, solutionVersionArn, roleArn string,
 	jobInput, jobOutput map[string]any,
@@ -85,8 +115,11 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 	b.mu.Lock("CreateBatchSegmentJob")
 	defer b.mu.Unlock()
 
-	if jobName == "" {
-		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
+	if err := requireJobName(jobName); err != nil {
+		return nil, err
+	}
+	if err := b.requireSolutionVersion(solutionVersionArn); err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()

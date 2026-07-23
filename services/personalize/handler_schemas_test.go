@@ -35,6 +35,25 @@ func TestPersonalize_Schema_FieldRetention(t *testing.T) {
 	assert.NotEmpty(t, s["creationDateTime"])
 }
 
+// TestPersonalize_Schema_InvalidDomain locks that CreateSchema rejects a
+// domain outside the real types.Domain enum (ECOMMERCE/VIDEO_ON_DEMAND);
+// real AWS rejects an unrecognized value rather than silently accepting it.
+func TestPersonalize_Schema_InvalidDomain(t *testing.T) {
+	t.Parallel()
+
+	h := personalizeHandler(t)
+
+	rec := personalizeDo(t, h, "CreateSchema", map[string]any{
+		"name":   "bad-domain-schema",
+		"schema": `{"type":"record"}`,
+		"domain": "NOT_A_REAL_DOMAIN",
+	})
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	m := personalizeUnmarshal(t, rec)
+	assert.Equal(t, "InvalidInputException", m["__type"])
+}
+
 func TestPersonalize_Schema_List(t *testing.T) {
 	t.Parallel()
 
