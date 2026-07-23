@@ -279,7 +279,6 @@ type DescribeSecretOutput struct {
 	Description        string                  `json:"Description,omitempty"`
 	KmsKeyID           string                  `json:"KmsKeyId,omitempty"`
 	RotationLambdaARN  string                  `json:"RotationLambdaARN,omitempty"`
-	OwnerAccountID     string                  `json:"OwnerAccountId,omitempty"`
 	PrimaryRegion      string                  `json:"PrimaryRegion,omitempty"`
 	RotationRules      *RotationRulesType      `json:"RotationRules,omitempty"`
 	ReplicationStatus  []ReplicationStatusType `json:"ReplicationStatus,omitempty"`

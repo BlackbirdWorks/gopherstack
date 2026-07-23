@@ -35,6 +35,31 @@ func (h *Handler) smRotationActions() map[string]smActionFn {
 //nolint:gochecknoglobals // intentional package-level constant slice
 var rotationSteps = []string{"createSecret", "setSecret", "testSecret", "finishSecret"}
 
+// testSecretStep is the single step run by RotateSecret's RotateImmediately=false
+// probe (see runRotationTestProbe): it validates the rotation configuration
+// without creating a permanent new version.
+const testSecretStep = "testSecret"
+
+// Field names for the JSON event payload sent to a rotation Lambda invocation.
+// Shared by every call site that builds a rotation step event, to avoid
+// goconst-flagged literal duplication across this file, invokeLambdaRotationSteps,
+// and the scheduler's rotation.go:runLambdaRotationSteps.
+const (
+	rotationEventSecretIDKey = "SecretId"
+	rotationEventTokenKey    = "ClientRequestToken"
+	rotationEventStepKey     = "Step"
+)
+
+// buildRotationStepEvent builds the JSON payload sent to a rotation Lambda for a
+// single rotation step.
+func buildRotationStepEvent(secretID, token, step string) ([]byte, error) {
+	return json.Marshal(map[string]string{
+		rotationEventSecretIDKey: secretID,
+		rotationEventTokenKey:    token,
+		rotationEventStepKey:     step,
+	})
+}
+
 // extractFunctionNameFromARN extracts the bare function name from a Lambda ARN.
 // Handles both unqualified ARNs (…:function:my-fn) and qualified ARNs (…:function:my-fn:alias).
 func extractFunctionNameFromARN(arn string) string {
@@ -64,6 +89,18 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 		return nil, err
 	}
 
+	rotateImmediately := true
+	if input.RotateImmediately != nil {
+		rotateImmediately = *input.RotateImmediately
+	}
+
+	if !rotateImmediately {
+		// RotateSecret doesn't rotate now; it only validates the rotation
+		// configuration by running the Lambda's testSecret step against a
+		// transient AWSPENDING version, then removes that version.
+		return h.runRotationTestProbe(ctx, input, out)
+	}
+
 	if input.RotationLambdaARN == "" || h.lambdaInvoker == nil {
 		// No Lambda ARN, or no invoker wired — backend already promoted to AWSCURRENT.
 		return out, nil
@@ -84,6 +121,66 @@ func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecre
 	return out, nil
 }
 
+// runRotationTestProbe implements RotateSecret's RotateImmediately=false path: if a
+// rotation Lambda is configured (either on the request or already stored on the
+// secret) and an invoker is wired, it runs only the testSecret step against a
+// transient AWSPENDING version and then removes that version, without promoting
+// anything to AWSCURRENT. If no Lambda is configured, or no invoker is wired,
+// this is a no-op: the backend has already stored any RotationRules/Lambda ARN
+// supplied on the request.
+func (h *Handler) runRotationTestProbe(
+	ctx context.Context, input *RotateSecretInput, out *RotateSecretOutput,
+) (*RotateSecretOutput, error) {
+	if h.lambdaInvoker == nil {
+		return out, nil
+	}
+
+	lambdaARN := input.RotationLambdaARN
+	if lambdaARN == "" {
+		desc, descErr := h.Backend.DescribeSecret(ctx, &DescribeSecretInput{SecretID: input.SecretID})
+		if descErr == nil {
+			lambdaARN = desc.RotationLambdaARN
+		}
+	}
+
+	if lambdaARN == "" {
+		return out, nil
+	}
+
+	b, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return out, nil
+	}
+
+	versionID, probeErr := b.BeginRotationTestProbe(ctx, input.SecretID)
+	if probeErr != nil {
+		return nil, probeErr
+	}
+
+	// The transient probe version must be removed no matter how the Lambda
+	// invocation below turns out.
+	defer func() { _ = b.AbortRotation(ctx, input.SecretID, versionID) }()
+
+	token := input.ClientRequestToken
+	if token == "" {
+		token = versionID
+	}
+
+	functionName := extractFunctionNameFromARN(lambdaARN)
+
+	event, marshalErr := buildRotationStepEvent(input.SecretID, token, testSecretStep)
+	if marshalErr != nil {
+		return nil, fmt.Errorf("rotation event marshal: %w", marshalErr)
+	}
+
+	_, _, invokeErr := h.lambdaInvoker.InvokeFunction(ctx, functionName, "RequestResponse", event)
+	if invokeErr != nil {
+		return nil, fmt.Errorf("rotation Lambda step %q failed: %w", testSecretStep, invokeErr)
+	}
+
+	return out, nil
+}
+
 // invokeLambdaRotationSteps calls each rotation step in order via the Lambda invoker.
 func (h *Handler) invokeLambdaRotationSteps(
 	ctx context.Context,
@@ -98,11 +195,7 @@ func (h *Handler) invokeLambdaRotationSteps(
 	functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
 
 	for _, step := range rotationSteps {
-		event, marshalErr := json.Marshal(map[string]string{
-			"SecretId":           input.SecretID,
-			"ClientRequestToken": token,
-			"Step":               step,
-		})
+		event, marshalErr := buildRotationStepEvent(input.SecretID, token, step)
 		if marshalErr != nil {
 			return fmt.Errorf("rotation event marshal: %w", marshalErr)
 		}
