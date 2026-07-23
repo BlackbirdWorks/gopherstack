@@ -66,6 +66,27 @@ func TestRDSHandler_DescribePagination(t *testing.T) {
 			wantFirstPage: []string{"subnet-01", "subnet-02"},
 			wantSecond:    []string{"subnet-03"},
 		},
+		{
+			// Regression test for a missing-pagination gap: real AWS's
+			// DescribeDBClusterSnapshotsOutput/DescribeEventsOutput both
+			// carry a Marker field, but this emulator previously returned
+			// every cluster snapshot / event unpaginated regardless of
+			// MaxRecords.
+			name:   "cluster snapshots pagination",
+			action: "DescribeDBClusterSnapshots",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=page-clu" +
+					"&Engine=aurora-postgresql&MasterUsername=admin&MasterUserPassword=password123",
+				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+					"&DBClusterSnapshotIdentifier=csnap-03&DBClusterIdentifier=page-clu",
+				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+					"&DBClusterSnapshotIdentifier=csnap-01&DBClusterIdentifier=page-clu",
+				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+					"&DBClusterSnapshotIdentifier=csnap-02&DBClusterIdentifier=page-clu",
+			},
+			wantFirstPage: []string{"csnap-01", "csnap-02"},
+			wantSecond:    []string{"csnap-03"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -135,6 +156,36 @@ func TestRDSHandler_DescribePagination_InvalidMaxRecords(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
 		})
 	}
+}
+
+// TestRDSHandler_DescribeEventsPagination is a regression test for a
+// missing-pagination gap: real AWS's DescribeEventsOutput carries a Marker
+// field, but this emulator previously returned every event unpaginated
+// regardless of MaxRecords. Events are seeded as a side effect of
+// CreateDBInstance ("DB instance created").
+func TestRDSHandler_DescribeEventsPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	for _, id := range []string{"evt-db-1", "evt-db-2", "evt-db-3"} {
+		rec := postRDSForm(t, h,
+			"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier="+id+"&Engine=postgres")
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	firstPage := postRDSForm(t, h, "Action=DescribeEvents&Version=2014-10-31&MaxRecords=2")
+	require.Equal(t, http.StatusOK, firstPage.Code)
+
+	firstBody := firstPage.Body.String()
+	marker := extractXMLMarker(firstBody)
+	require.NotEmpty(t, marker, "first page of 3 events with MaxRecords=2 must return a Marker")
+
+	secondPage := postRDSForm(t, h, fmt.Sprintf(
+		"Action=DescribeEvents&Version=2014-10-31&MaxRecords=2&Marker=%s",
+		url.QueryEscape(marker),
+	))
+	require.Equal(t, http.StatusOK, secondPage.Code)
+	assert.NotContains(t, secondPage.Body.String(), "<Marker>")
 }
 
 func extractXMLMarker(body string) string {

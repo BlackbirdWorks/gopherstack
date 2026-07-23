@@ -2,6 +2,7 @@ package rds
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 	"time"
 )
@@ -44,6 +45,7 @@ func (b *InMemoryBackend) newManualSnapshotLocked(snapshotID string, inst *DBIns
 		SnapshotCreateTime:   time.Now().UTC(),
 		DBSnapshotIdentifier: snapshotID,
 		DBInstanceIdentifier: inst.DBInstanceIdentifier,
+		DbiResourceID:        inst.DbiResourceID,
 		Engine:               inst.Engine,
 		EngineVersion:        inst.EngineVersion,
 		Status:               instanceStatusAvailable,
@@ -51,7 +53,7 @@ func (b *InMemoryBackend) newManualSnapshotLocked(snapshotID string, inst *DBIns
 		Port:                 inst.Port,
 		StorageType:          inst.StorageType,
 		StorageEncrypted:     inst.StorageEncrypted,
-		SnapshotType:         "manual",
+		SnapshotType:         snapshotTypeManual,
 		OptionGroupName:      inst.OptionGroupName,
 		PercentProgress:      percentProgressComplete,
 	}
@@ -96,6 +98,75 @@ func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID, instanceID string) ([]
 	})
 
 	return snaps, nil
+}
+
+// isKnownDBSnapshotFilterName reports whether name is a Filters.Filter.N.Name
+// value AWS recognizes for DescribeDBSnapshots. "dbi-resource-id" is accepted
+// (to avoid rejecting otherwise-valid client requests) and is matched against
+// the snapshot's DbiResourceID, mirroring the DescribeDBInstances filter of
+// the same name.
+func isKnownDBSnapshotFilterName(name string) bool {
+	switch name {
+	case filterNameDBInstanceID, "db-snapshot-id", filterNameDbiResourceID, filterNameSnapshotType, filterNameEngine:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBSnapshotFilters narrows snaps per the AWS DescribeDBSnapshots
+// Filters contract: each filter ANDs together, and a filter's Values list is
+// OR-matched against the corresponding snapshot field. An unrecognized
+// filter name returns InvalidParameterValue, matching real AWS.
+func applyDBSnapshotFilters(vals url.Values, snaps []DBSnapshot) ([]DBSnapshot, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return snaps, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBSnapshotFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBSnapshot, 0, len(snaps))
+	for _, s := range snaps {
+		if matchesAllDBSnapshotFilters(s, filters) {
+			filtered = append(filtered, s)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBSnapshotFilters(s DBSnapshot, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameDBInstanceID:
+			if !slices.Contains(values, s.DBInstanceIdentifier) {
+				return false
+			}
+		case "db-snapshot-id":
+			if !slices.Contains(values, s.DBSnapshotIdentifier) {
+				return false
+			}
+		case filterNameDbiResourceID:
+			if !slices.Contains(values, s.DbiResourceID) {
+				return false
+			}
+		case filterNameSnapshotType:
+			if !slices.Contains(values, s.SnapshotType) {
+				return false
+			}
+		case filterNameEngine:
+			if !slices.Contains(values, s.Engine) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // DeleteDBSnapshot removes the given snapshot.
@@ -147,6 +218,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 		SnapshotCreateTime:   time.Now().UTC(),
 		DBSnapshotIdentifier: targetSnapshotID,
 		DBInstanceIdentifier: src.DBInstanceIdentifier,
+		DbiResourceID:        src.DbiResourceID,
 		Engine:               src.Engine,
 		EngineVersion:        src.EngineVersion,
 		Status:               instanceStatusAvailable,
@@ -154,6 +226,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 		Port:                 src.Port,
 		StorageType:          src.StorageType,
 		StorageEncrypted:     src.StorageEncrypted,
+		SnapshotType:         snapshotTypeManual,
 		KmsKeyID:             kmsKeyID,
 		SourceRegion:         opts.SourceRegion,
 		OptionGroupName:      src.OptionGroupName,

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"slices"
 	"time"
 )
@@ -41,6 +42,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	cluster := &DBCluster{
 		ClusterCreateTime:            time.Now().UTC(),
 		DBClusterIdentifier:          id,
+		DBClusterResourceID:          "cluster-" + id,
 		Engine:                       engine,
 		EngineVersion:                opts.EngineVersion,
 		Status:                       instanceStatusAvailable,
@@ -105,6 +107,69 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 	})
 
 	return result, nil
+}
+
+// isKnownDBClusterFilterName reports whether name is a Filters.Filter.N.Name
+// value AWS recognizes for DescribeDBClusters. "domain" and "clone-group-id"
+// are accepted (to avoid rejecting otherwise-valid client requests) but have
+// no meaningful analog in this emulator (Directory Service domain membership,
+// Aurora clone groups), so they are not implemented as match predicates.
+func isKnownDBClusterFilterName(name string) bool {
+	switch name {
+	case "clone-group-id", filterNameDBClusterID, "db-cluster-resource-id", filterNameDomain, filterNameEngine:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBClusterFilters narrows clusters per the AWS DescribeDBClusters
+// Filters contract: each filter ANDs together, and a filter's Values list is
+// OR-matched against the corresponding cluster field. An unrecognized filter
+// name returns InvalidParameterValue, matching real AWS.
+func applyDBClusterFilters(vals url.Values, clusters []DBCluster) ([]DBCluster, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return clusters, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBClusterFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBCluster, 0, len(clusters))
+	for _, c := range clusters {
+		if matchesAllDBClusterFilters(c, filters) {
+			filtered = append(filtered, c)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBClusterFilters(c DBCluster, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameDBClusterID:
+			if !slices.Contains(values, c.DBClusterIdentifier) {
+				return false
+			}
+		case "db-cluster-resource-id":
+			if !slices.Contains(values, c.DBClusterResourceID) {
+				return false
+			}
+		case filterNameEngine:
+			if !slices.Contains(values, c.Engine) {
+				return false
+			}
+		case "clone-group-id", filterNameDomain:
+			// Not modeled; accept unconditionally.
+		}
+	}
+
+	return true
 }
 
 // DeleteDBCluster removes the given cluster.
@@ -174,8 +239,26 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	delete(b.tags, b.rdsARN("cluster", id))
 	delete(b.fisFailoverFaults, id)
 	delete(b.clusterRoles, id)
+	b.deleteClusterEndpointsLocked(id)
 
 	return &cp, nil
+}
+
+// deleteClusterEndpointsLocked removes every custom DB cluster endpoint (and
+// its tags) belonging to clusterID. Real RDS tears down a cluster's custom
+// endpoints along with the cluster itself, since an endpoint has no
+// independent existence apart from its parent cluster; leaving them behind
+// is a ghost-row leak (DescribeDBClusterEndpoints would keep returning
+// endpoints pointing at a deleted cluster, and the map grows unboundedly
+// across create/delete cycles). Caller must already hold b.mu for writing.
+func (b *InMemoryBackend) deleteClusterEndpointsLocked(clusterID string) {
+	for _, ep := range b.clusterEndpoints.All() {
+		if ep.DBClusterIdentifier != clusterID {
+			continue
+		}
+		b.clusterEndpoints.Delete(ep.DBClusterEndpointIdentifier)
+		delete(b.tags, b.rdsARN("cluster-endpoint", ep.DBClusterEndpointIdentifier))
+	}
 }
 
 // applyDBClusterOpts applies DBClusterOptions fields to a cluster in-place.

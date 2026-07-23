@@ -860,7 +860,7 @@ func (b *InMemoryBackend) DescribeValidDBInstanceModifications(id string) (*DBIn
 // passes it vacuously.
 func isKnownDBInstanceFilterName(name string) bool {
 	switch name {
-	case "db-cluster-id", "db-instance-id", "dbi-resource-id", "domain", "engine":
+	case filterNameDBClusterID, filterNameDBInstanceID, filterNameDbiResourceID, filterNameDomain, filterNameEngine:
 		return true
 	default:
 		return false
@@ -896,23 +896,23 @@ func applyDBInstanceFilters(vals url.Values, instances []DBInstance) ([]DBInstan
 func matchesAllDBInstanceFilters(inst DBInstance, filters map[string][]string) bool {
 	for name, values := range filters {
 		switch name {
-		case "db-cluster-id":
+		case filterNameDBClusterID:
 			if !slices.Contains(values, inst.DBClusterIdentifier) {
 				return false
 			}
-		case "db-instance-id":
+		case filterNameDBInstanceID:
 			if !slices.Contains(values, inst.DBInstanceIdentifier) {
 				return false
 			}
-		case "dbi-resource-id":
+		case filterNameDbiResourceID:
 			if !slices.Contains(values, inst.DbiResourceID) {
 				return false
 			}
-		case "engine":
+		case filterNameEngine:
 			if !slices.Contains(values, inst.Engine) {
 				return false
 			}
-		case "domain":
+		case filterNameDomain:
 			// No domain-membership state is modeled; accept unconditionally.
 		}
 	}

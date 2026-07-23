@@ -2,6 +2,7 @@ package rds
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 	"time"
 )
@@ -38,9 +39,11 @@ func (b *InMemoryBackend) newManualClusterSnapshotLocked(snapshotID string, clus
 		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: snapshotID,
 		DBClusterIdentifier:         cluster.DBClusterIdentifier,
+		DBClusterResourceID:         cluster.DBClusterResourceID,
 		Engine:                      cluster.Engine,
 		EngineVersion:               cluster.EngineVersion,
 		Status:                      instanceStatusAvailable,
+		SnapshotType:                snapshotTypeManual,
 		PercentProgress:             percentProgressComplete,
 		StorageEncrypted:            cluster.StorageEncrypted,
 	}
@@ -79,6 +82,69 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID strin
 	})
 
 	return result, nil
+}
+
+// isKnownDBClusterSnapshotFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for DescribeDBClusterSnapshots.
+func isKnownDBClusterSnapshotFilterName(name string) bool {
+	switch name {
+	case filterNameDBClusterID, "db-cluster-snapshot-id", filterNameSnapshotType, filterNameEngine:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBClusterSnapshotFilters narrows snaps per the AWS
+// DescribeDBClusterSnapshots Filters contract: each filter ANDs together,
+// and a filter's Values list is OR-matched against the corresponding
+// snapshot field. An unrecognized filter name returns InvalidParameterValue,
+// matching real AWS.
+func applyDBClusterSnapshotFilters(vals url.Values, snaps []DBClusterSnapshot) ([]DBClusterSnapshot, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return snaps, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBClusterSnapshotFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBClusterSnapshot, 0, len(snaps))
+	for _, s := range snaps {
+		if matchesAllDBClusterSnapshotFilters(s, filters) {
+			filtered = append(filtered, s)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBClusterSnapshotFilters(s DBClusterSnapshot, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameDBClusterID:
+			if !slices.Contains(values, s.DBClusterIdentifier) {
+				return false
+			}
+		case "db-cluster-snapshot-id":
+			if !slices.Contains(values, s.DBClusterSnapshotIdentifier) {
+				return false
+			}
+		case filterNameSnapshotType:
+			if !slices.Contains(values, s.SnapshotType) {
+				return false
+			}
+		case filterNameEngine:
+			if !slices.Contains(values, s.Engine) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // DeleteDBClusterSnapshot removes the given cluster snapshot.
@@ -121,10 +187,16 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 		)
 	}
 	snap := &DBClusterSnapshot{
+		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: targetSnapshotID,
 		DBClusterIdentifier:         source.DBClusterIdentifier,
+		DBClusterResourceID:         source.DBClusterResourceID,
 		Engine:                      source.Engine,
+		EngineVersion:               source.EngineVersion,
 		Status:                      instanceStatusAvailable,
+		SnapshotType:                snapshotTypeManual,
+		PercentProgress:             percentProgressComplete,
+		StorageEncrypted:            source.StorageEncrypted,
 	}
 	b.clusterSnapshots.Put(snap)
 	cp := *snap

@@ -194,18 +194,27 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlEvent, 0, len(events))
-	for _, ev := range events {
-		members = append(members, xmlEvent{
+	members, marker, err := paginateDescribe(vals, events, func(a, b Event) bool {
+		if !a.CreatedAt.Equal(b.CreatedAt) {
+			return a.CreatedAt.Before(b.CreatedAt)
+		}
+
+		return a.SourceIdentifier < b.SourceIdentifier
+	}, func(ev Event) xmlEvent {
+		return xmlEvent{
 			SourceIdentifier: ev.SourceIdentifier,
 			SourceType:       ev.SourceType,
 			Message:          ev.Message,
 			Date:             ev.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		})
+		}
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeEventsResponse{
 		Xmlns:  rdsXMLNS,
+		Marker: marker,
 		Events: xmlEventList{Members: members},
 	}, nil
 }
@@ -269,6 +278,7 @@ type xmlEventList struct {
 type describeEventsResponse struct {
 	XMLName xml.Name     `xml:"DescribeEventsResponse"`
 	Xmlns   string       `xml:"xmlns,attr"`
+	Marker  string       `xml:"DescribeEventsResult>Marker,omitempty"`
 	Events  xmlEventList `xml:"DescribeEventsResult>Events"`
 }
 

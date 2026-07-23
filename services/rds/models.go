@@ -148,6 +148,7 @@ type DBSnapshot struct {
 	SnapshotCreateTime   time.Time `json:"snapshotCreateTime"`
 	DBSnapshotIdentifier string    `json:"dbSnapshotIdentifier"`
 	DBInstanceIdentifier string    `json:"dbInstanceIdentifier"`
+	DbiResourceID        string    `json:"dbiResourceId,omitempty"`
 	Engine               string    `json:"engine"`
 	EngineVersion        string    `json:"engineVersion"`
 	Status               string    `json:"status"`
@@ -229,6 +230,7 @@ type DBCluster struct {
 	MasterUsername                  string                            `json:"masterUsername"`
 	DatabaseName                    string                            `json:"databaseName"`
 	DBClusterParameterGroupName     string                            `json:"dbClusterParameterGroupName"`
+	DBClusterResourceID             string                            `json:"dbClusterResourceId,omitempty"`
 	Engine                          string                            `json:"engine"`
 	EngineVersion                   string                            `json:"engineVersion,omitempty"`
 	ActivityStreamAuditPolicy       string                            `json:"activityStreamAuditPolicy"`
@@ -266,9 +268,11 @@ type DBClusterSnapshot struct {
 	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
 	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
 	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
+	DBClusterResourceID         string    `json:"dbClusterResourceId,omitempty"`
 	Engine                      string    `json:"engine"`
 	EngineVersion               string    `json:"engineVersion,omitempty"`
 	Status                      string    `json:"status"`
+	SnapshotType                string    `json:"snapshotType,omitempty"`
 	PercentProgress             int       `json:"percentProgress"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
 }

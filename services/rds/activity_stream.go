@@ -9,7 +9,7 @@ func (b *InMemoryBackend) StartActivityStream(clusterID, kmsKeyID, mode string) 
 
 	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
-		return nil, fmt.Errorf("%w: DBCluster %s not found", ErrInvalidParameter, clusterID)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
 	if cluster.ActivityStreamStatus == activityStreamStatusStarted {
@@ -38,7 +38,7 @@ func (b *InMemoryBackend) StopActivityStream(clusterID string) (*DBCluster, erro
 
 	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
-		return nil, fmt.Errorf("%w: DBCluster %s not found", ErrInvalidParameter, clusterID)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
 	if cluster.ActivityStreamStatus != activityStreamStatusStarted {
@@ -64,7 +64,7 @@ func (b *InMemoryBackend) ModifyActivityStream(clusterID string, auditPolicy str
 
 	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
-		return nil, fmt.Errorf("%w: DBCluster %s not found", ErrInvalidParameter, clusterID)
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
 	if cluster.ActivityStreamStatus != activityStreamStatusStarted {
