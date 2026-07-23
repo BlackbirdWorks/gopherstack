@@ -2,46 +2,53 @@ package opensearch
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
-// handleScheduledActionsRoutes handles scheduled action routes.
-func (h *Handler) handleScheduledActionsRoutes(w http.ResponseWriter, r *http.Request) {
-	rest := strings.TrimPrefix(r.URL.Path, openSearchScheduledActionsPath)
+// updateScheduledActionRequest is the JSON request body for
+// UpdateScheduledAction (types.UpdateScheduledActionInput -- DomainName comes
+// from the URL path, not the body).
+type updateScheduledActionRequest struct {
+	ActionID         string `json:"ActionID"`
+	ActionType       string `json:"ActionType"`
+	ScheduleAt       string `json:"ScheduleAt"`
+	DesiredStartTime int64  `json:"DesiredStartTime"`
+}
 
-	switch {
-	// GET /scheduledActions → ListScheduledActions
-	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
-		domainName := r.URL.Query().Get("DomainName")
-		actions := h.Backend.ListScheduledActions(domainName)
-		if actions == nil {
-			actions = []*ScheduledAction{}
-		}
-		h.writeJSON(r, w, map[string]any{"ScheduledActions": actions})
-	// PUT /scheduledActions/update → UpdateScheduledAction
-	case rest == "/update" && r.Method == http.MethodPut:
-		body, err := httputils.ReadBody(r)
-		if err != nil {
-			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+// handleUpdateScheduledAction handles
+// PUT /2021-01-01/opensearch/domain/{DomainName}/scheduledAction/update.
+func (h *Handler) handleUpdateScheduledAction(w http.ResponseWriter, r *http.Request, domainName string) {
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req updateScheduledActionRequest
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 			return
 		}
-		var req struct {
-			ScheduledAction *ScheduledAction `json:"ScheduledAction"`
-			DomainName      string           `json:"DomainName"`
-		}
-		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
-		}
-		if req.ScheduledAction == nil {
-			req.ScheduledAction = &ScheduledAction{}
-		}
-		action, _ := h.Backend.UpdateScheduledAction(req.DomainName, req.ScheduledAction)
-		h.writeJSON(r, w, map[string]any{"ScheduledAction": action})
-	default:
-		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+
+	action, updateErr := h.Backend.UpdateScheduledAction(
+		domainName, req.ActionID, req.ActionType, req.ScheduleAt, req.DesiredStartTime,
+	)
+	if updateErr != nil {
+		if errors.Is(updateErr, ErrScheduledActionNotFound) {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
+		} else {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", updateErr.Error())
+		}
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{"ScheduledAction": action})
 }

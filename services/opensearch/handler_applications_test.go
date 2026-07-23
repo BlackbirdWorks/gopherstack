@@ -147,6 +147,48 @@ func TestApplications_HTTPHandler(t *testing.T) {
 	}
 }
 
+func TestApplications_GetAndUpdateWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	cr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/application",
+		map[string]any{"Name": "wire-app"})
+	var cOut map[string]any
+	require.NoError(t, json.NewDecoder(cr.Body).Decode(&cOut))
+	cr.Body.Close()
+	require.Equal(t, http.StatusOK, cr.StatusCode)
+
+	appID := cOut["Id"].(string)
+	assert.NotEmpty(t, cOut["CreatedAt"])
+	// CreateApplicationOutput has no Status field on the real API.
+	assert.NotContains(t, cOut, "Status")
+
+	// GetApplication must include Status, Endpoint, CreatedAt, LastUpdatedAt.
+	gr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/application/"+appID, nil)
+	defer gr.Body.Close()
+	require.Equal(t, http.StatusOK, gr.StatusCode)
+
+	var gOut map[string]any
+	require.NoError(t, json.NewDecoder(gr.Body).Decode(&gOut))
+	assert.Equal(t, "ACTIVE", gOut["Status"])
+	assert.NotEmpty(t, gOut["Endpoint"])
+	assert.NotEmpty(t, gOut["CreatedAt"])
+	assert.NotEmpty(t, gOut["LastUpdatedAt"])
+
+	// UpdateApplication must not carry a Status field on the real API.
+	ur := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/application/"+appID,
+		map[string]any{"AppConfigs": []any{}, "DataSources": []any{}})
+	defer ur.Body.Close()
+	require.Equal(t, http.StatusOK, ur.StatusCode)
+
+	var uOut map[string]any
+	require.NoError(t, json.NewDecoder(ur.Body).Decode(&uOut))
+	assert.NotContains(t, uOut, "Status")
+	assert.NotEmpty(t, uOut["CreatedAt"])
+	assert.NotEmpty(t, uOut["LastUpdatedAt"])
+}
+
 func TestOpenSearchHandler_CreateApplication(t *testing.T) {
 	t.Parallel()
 

@@ -111,6 +111,84 @@ func TestAcceptInboundConnection_UnknownIDReturnsError(t *testing.T) {
 	}
 }
 
+func TestInboundConnections_RejectAndDeleteUnknownReturnNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{
+			name:   "reject unknown",
+			method: http.MethodPut,
+			path:   "/2021-01-01/opensearch/cc/inboundConnection/nonexistent-conn/reject",
+		},
+		{
+			name:   "delete unknown",
+			method: http.MethodDelete,
+			path:   "/2021-01-01/opensearch/cc/inboundConnection/nonexistent-conn",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			resp := doRequest(t, h, tt.method, tt.path, nil)
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		})
+	}
+}
+
+func TestOutboundConnection_CreateThenAcceptMirrorsBothSides(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	cr := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/cc/outboundConnection",
+		map[string]any{
+			"ConnectionAlias": "mirror-alias",
+			"LocalDomainInfo": map[string]any{
+				"AWSDomainInformation": map[string]any{"DomainName": "local-dom"},
+			},
+			"RemoteDomainInfo": map[string]any{
+				"AWSDomainInformation": map[string]any{"DomainName": "remote-dom"},
+			},
+		})
+	defer cr.Body.Close()
+	require.Equal(t, http.StatusOK, cr.StatusCode)
+
+	var cOut map[string]any
+	require.NoError(t, json.NewDecoder(cr.Body).Decode(&cOut))
+	connID := cOut["ConnectionId"].(string)
+
+	// Accepting the mirrored inbound connection also activates the outbound side.
+	ar := doRequest(t, h, http.MethodPut,
+		"/2021-01-01/opensearch/cc/inboundConnection/"+connID+"/accept", nil)
+	defer ar.Body.Close()
+	require.Equal(t, http.StatusOK, ar.StatusCode)
+
+	var aOut map[string]any
+	require.NoError(t, json.NewDecoder(ar.Body).Decode(&aOut))
+	aConn := aOut["Connection"].(map[string]any)
+	assert.Equal(t, "ACTIVE", aConn["ConnectionStatus"].(map[string]any)["StatusCode"])
+
+	dr := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/cc/outboundConnection", nil)
+	defer dr.Body.Close()
+
+	var dOut map[string]any
+	require.NoError(t, json.NewDecoder(dr.Body).Decode(&dOut))
+	conns := dOut["Connections"].([]any)
+	require.Len(t, conns, 1)
+	outConn := conns[0].(map[string]any)
+	assert.Equal(t, connID, outConn["ConnectionId"])
+	assert.Equal(t, "ACTIVE", outConn["ConnectionStatus"].(map[string]any)["StatusCode"])
+}
+
 func TestOpenSearchHandler_AcceptInboundConnection(t *testing.T) {
 	t.Parallel()
 

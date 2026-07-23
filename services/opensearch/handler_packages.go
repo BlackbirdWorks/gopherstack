@@ -25,11 +25,7 @@ func (h *Handler) handleDissociatePackage(
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": domainPackageDetailsJSON{
-		PackageID:           details.PackageID,
-		DomainName:          details.DomainName,
-		DomainPackageStatus: details.State,
-	}})
+	h.writeJSON(r, w, map[string]any{"DomainPackageDetails": toDomainPackageDetailsJSON(details)})
 }
 
 func (h *Handler) handleDissociatePackages(w http.ResponseWriter, r *http.Request) {
@@ -68,12 +64,8 @@ func (h *Handler) handleDissociatePackages(w http.ResponseWriter, r *http.Reques
 
 	outList := make([]domainPackageDetailsJSON, 0, len(details))
 
-	for _, d := range details {
-		outList = append(outList, domainPackageDetailsJSON{
-			PackageID:           d.PackageID,
-			DomainName:          d.DomainName,
-			DomainPackageStatus: d.State,
-		})
+	for i := range details {
+		outList = append(outList, toDomainPackageDetailsJSON(&details[i]))
 	}
 
 	h.writeJSON(r, w, map[string]any{"DomainPackageDetailsList": outList})
@@ -184,8 +176,25 @@ func (h *Handler) handlePackageSubResourceRoutes(
 	// GET /packages/{packageId}/domains → ListDomainsForPackage
 	case strings.HasSuffix(rest, "/domains") && r.Method == http.MethodGet:
 		pkgID := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/domains")
-		domains := h.Backend.ListDomainsForPackage(pkgID)
-		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: domains})
+
+		var pkgName, pkgType string
+		if pkgs, err := h.Backend.DescribePackages([]string{pkgID}); err == nil && len(pkgs) == 1 {
+			pkgName, pkgType = pkgs[0].PackageName, pkgs[0].PackageType
+		}
+
+		domainNames := h.Backend.ListDomainsForPackage(pkgID)
+		outList := make([]domainPackageDetailsJSON, 0, len(domainNames))
+		for _, domainName := range domainNames {
+			outList = append(outList, domainPackageDetailsJSON{
+				PackageID:           pkgID,
+				DomainName:          domainName,
+				DomainPackageStatus: pkgStateActive,
+				PackageName:         pkgName,
+				PackageType:         pkgType,
+			})
+		}
+
+		h.writeJSON(r, w, map[string]any{jsonKeyPkgDetailsList: outList})
 
 		return true
 	// PUT /packages/{packageId}/scope → UpdatePackageScope
@@ -331,11 +340,28 @@ type associatePackageOutput struct {
 	DomainPackageDetails domainPackageDetailsJSON `json:"DomainPackageDetails"`
 }
 
-// domainPackageDetailsJSON is the JSON representation of package domain details.
+// domainPackageDetailsJSON is the JSON representation of package domain details
+// (types.DomainPackageDetails).
 type domainPackageDetailsJSON struct {
-	PackageID           string `json:"PackageID"`
-	DomainName          string `json:"DomainName"`
-	DomainPackageStatus string `json:"DomainPackageStatus"`
+	PackageID           string  `json:"PackageID"`
+	DomainName          string  `json:"DomainName"`
+	DomainPackageStatus string  `json:"DomainPackageStatus"`
+	PackageName         string  `json:"PackageName,omitempty"`
+	PackageType         string  `json:"PackageType,omitempty"`
+	LastUpdated         float64 `json:"LastUpdated,omitempty"`
+}
+
+// toDomainPackageDetailsJSON renders a DomainPackageDetails as the wire-shape
+// types.DomainPackageDetails object.
+func toDomainPackageDetailsJSON(d *DomainPackageDetails) domainPackageDetailsJSON {
+	return domainPackageDetailsJSON{
+		PackageID:           d.PackageID,
+		DomainName:          d.DomainName,
+		DomainPackageStatus: d.State,
+		PackageName:         d.PackageName,
+		PackageType:         d.PackageType,
+		LastUpdated:         d.LastUpdated,
+	}
 }
 
 func (h *Handler) handleAssociatePackage(
@@ -355,11 +381,7 @@ func (h *Handler) handleAssociatePackage(
 	}
 
 	h.writeJSON(r, w, associatePackageOutput{
-		DomainPackageDetails: domainPackageDetailsJSON{
-			PackageID:           details.PackageID,
-			DomainName:          details.DomainName,
-			DomainPackageStatus: details.State,
-		},
+		DomainPackageDetails: toDomainPackageDetailsJSON(details),
 	})
 }
 
@@ -411,12 +433,8 @@ func (h *Handler) handleAssociatePackages(w http.ResponseWriter, r *http.Request
 	}
 
 	outList := make([]domainPackageDetailsJSON, 0, len(details))
-	for _, d := range details {
-		outList = append(outList, domainPackageDetailsJSON{
-			PackageID:           d.PackageID,
-			DomainName:          d.DomainName,
-			DomainPackageStatus: d.State,
-		})
+	for i := range details {
+		outList = append(outList, toDomainPackageDetailsJSON(&details[i]))
 	}
 
 	h.writeJSON(r, w, associatePackagesOutput{DomainPackageDetailsList: outList})

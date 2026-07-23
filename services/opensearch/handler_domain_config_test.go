@@ -91,49 +91,61 @@ func TestOpenSearchHandler_UpdateDomainConfig_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
-func TestOpenSearchHandler_DefaultApplicationSettings(t *testing.T) {
+func TestOpenSearchHandler_DefaultApplicationSetting(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
 
-	// GET before any settings → empty list.
-	resp := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/application/settings/default?ApplicationType=MyApp", nil)
+	// GET before any setting → empty ARN.
+	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/defaultApplicationSetting", nil)
 	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	settings0, ok := out["DefaultApplicationSettings"].([]any)
-	require.True(t, ok)
-	assert.Empty(t, settings0)
+	assert.Empty(t, out["applicationArn"])
 
-	// PUT settings.
-	putResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/application/settings/default",
-		map[string]any{
-			"ApplicationType": "MyApp",
-			"DefaultApplicationSettings": []map[string]any{
-				{"Key": "theme", "Value": "dark"},
-				{"Key": "locale", "Value": "en-US"},
-			},
-		})
-	putResp.Body.Close()
+	appArn := "arn:aws:es:us-east-1:123456789012:application/app-1"
+
+	// PUT with SetAsDefault=true sets the default.
+	putResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/defaultApplicationSetting",
+		map[string]any{"applicationArn": appArn, "setAsDefault": true})
+	defer putResp.Body.Close()
 	assert.Equal(t, http.StatusOK, putResp.StatusCode)
 
-	// GET after PUT → should return stored settings.
-	getResp := doRequest(t, h, http.MethodGet,
-		"/2021-01-01/opensearch/application/settings/default?ApplicationType=MyApp", nil)
+	var putOut map[string]any
+	require.NoError(t, json.NewDecoder(putResp.Body).Decode(&putOut))
+	assert.Equal(t, appArn, putOut["applicationArn"])
+
+	// GET after PUT → should return the stored ARN.
+	getResp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/defaultApplicationSetting", nil)
 	defer getResp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, getResp.StatusCode)
 
 	var out2 map[string]any
 	require.NoError(t, json.NewDecoder(getResp.Body).Decode(&out2))
+	assert.Equal(t, appArn, out2["applicationArn"])
 
-	assert.Equal(t, "MyApp", out2["ApplicationType"])
+	// PUT with SetAsDefault=false clears the default.
+	clearResp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/defaultApplicationSetting",
+		map[string]any{"applicationArn": appArn, "setAsDefault": false})
+	defer clearResp.Body.Close()
+	assert.Equal(t, http.StatusOK, clearResp.StatusCode)
 
-	settings, ok := out2["DefaultApplicationSettings"].([]any)
-	require.True(t, ok)
-	assert.Len(t, settings, 2)
+	var clearOut map[string]any
+	require.NoError(t, json.NewDecoder(clearResp.Body).Decode(&clearOut))
+	assert.Empty(t, clearOut["applicationArn"])
+}
+
+func TestOpenSearchHandler_DefaultApplicationSetting_MissingArn(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	resp := doRequest(t, h, http.MethodPut, "/2021-01-01/opensearch/defaultApplicationSetting",
+		map[string]any{"setAsDefault": true})
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestDescribeDomainConfig_RealData(t *testing.T) {
@@ -172,6 +184,41 @@ func TestCancelDomainConfigChange_DryRun(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, ids)
 	assert.True(t, dryRun)
+}
+
+// TestCancelDomainConfigChange_DryRunDoesNotMutate asserts that DryRun=true
+// reports what would be cancelled without actually clearing the pending
+// change -- the same class of bug UpdateDomainConfig's DryRun had (see
+// PARITY.md), now fixed on CancelDomainConfigChange too.
+func TestCancelDomainConfigChange_DryRunDoesNotMutate(t *testing.T) {
+	t.Parallel()
+
+	b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
+	_, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "dryrun-cancel-domain"})
+	require.NoError(t, err)
+
+	// Trigger a pending config change.
+	_, err = b.UpdateDomainConfig("dryrun-cancel-domain", opensearch.UpdateDomainConfigInput{
+		AccessPolicies: "{}",
+	})
+	require.NoError(t, err)
+
+	// Dry-run cancel reports the pending change ID but must not clear it.
+	ids, dryRun, err := b.CancelDomainConfigChange("dryrun-cancel-domain", true)
+	require.NoError(t, err)
+	require.Len(t, ids, 1)
+	assert.True(t, dryRun)
+
+	// A real (non-dry-run) cancel afterward must still see the same pending change.
+	ids2, dryRun2, err := b.CancelDomainConfigChange("dryrun-cancel-domain", false)
+	require.NoError(t, err)
+	assert.Equal(t, ids, ids2)
+	assert.False(t, dryRun2)
+
+	// Now it's actually cleared.
+	ids3, _, err := b.CancelDomainConfigChange("dryrun-cancel-domain", false)
+	require.NoError(t, err)
+	assert.Empty(t, ids3)
 }
 
 // TestAudit1_UpdateDomainConfig_AllOptions verifies UpdateDomainConfig can set all new fields.

@@ -152,7 +152,27 @@ func SeedInboundConnection(b *InMemoryBackend, connectionID string) {
 	defer b.mu.Unlock()
 
 	b.inboundConnections.Put(&InboundConnection{
-		ConnectionID: connectionID,
-		Status:       "PENDING_ACCEPTANCE",
+		ConnectionID:   connectionID,
+		ConnectionMode: connectionModeDirect,
+		Status:         connStatusPendingAcceptance,
+		LocalDomainInfo: DomainInformation{
+			DomainName: "seeded-local-domain",
+		},
+		RemoteDomainInfo: DomainInformation{
+			DomainName: "seeded-remote-domain",
+		},
 	})
+}
+
+// AddScheduledActionInternal seeds a scheduled action directly into the
+// backend for test setup. Real AWS creates scheduled actions automatically
+// (e.g. ahead of a service-software update); UpdateScheduledAction can only
+// reschedule one that already exists, so tests need this to seed the initial
+// action.
+func AddScheduledActionInternal(b *InMemoryBackend, domainName string, action *ScheduledAction) {
+	b.mu.Lock("AddScheduledActionInternal")
+	defer b.mu.Unlock()
+
+	cp := *action
+	b.scheduledActions[domainName] = append(b.scheduledActions[domainName], &cp)
 }

@@ -32,10 +32,15 @@ func (b *InMemoryBackend) AssociatePackage(
 
 	b.addPackageAssociation(packageID, domainName)
 
+	pkg, _ := b.packages.Get(packageID)
+
 	return &DomainPackageDetails{
-		PackageID:  packageID,
-		DomainName: domainName,
-		State:      pkgStateActive,
+		PackageID:   packageID,
+		DomainName:  domainName,
+		State:       pkgStateActive,
+		PackageName: pkg.PackageName,
+		PackageType: pkg.PackageType,
+		LastUpdated: float64(b.clock().Unix()),
 	}, nil
 }
 
@@ -95,15 +100,19 @@ func (b *InMemoryBackend) AssociatePackages(
 	results := make([]DomainPackageDetails, 0, len(packageIDs))
 
 	for _, pkgID := range packageIDs {
-		if !b.packages.Has(pkgID) {
+		pkg, exists := b.packages.Get(pkgID)
+		if !exists {
 			return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, pkgID)
 		}
 
 		b.addPackageAssociation(pkgID, domainName)
 		results = append(results, DomainPackageDetails{
-			PackageID:  pkgID,
-			DomainName: domainName,
-			State:      pkgStateActive,
+			PackageID:   pkgID,
+			DomainName:  domainName,
+			State:       pkgStateActive,
+			PackageName: pkg.PackageName,
+			PackageType: pkg.PackageType,
+			LastUpdated: float64(b.clock().Unix()),
 		})
 	}
 
@@ -132,7 +141,7 @@ func (b *InMemoryBackend) CreatePackage(
 		PackageName:              name,
 		PackageType:              pkgType,
 		PackageDescription:       description,
-		PackageStatus:            pkgStateActive,
+		PackageStatus:            pkgStatusAvailable,
 		PackageSource:            source,
 		PackageEncryptionOptions: encryptionOptions,
 		AvailablePackageVersion:  "1",
@@ -314,13 +323,22 @@ func (b *InMemoryBackend) DissociatePackage(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
+	pkg, _ := b.packages.Get(packageID)
+
 	b.removePackageAssociation(packageID, domainName)
 
-	return &DomainPackageDetails{
-		PackageID:  packageID,
-		DomainName: domainName,
-		State:      "DISSOCIATED",
-	}, nil
+	details := &DomainPackageDetails{
+		PackageID:   packageID,
+		DomainName:  domainName,
+		State:       domainPackageStatusDissociating,
+		LastUpdated: float64(b.clock().Unix()),
+	}
+	if pkg != nil {
+		details.PackageName = pkg.PackageName
+		details.PackageType = pkg.PackageType
+	}
+
+	return details, nil
 }
 
 // DissociatePackages removes multiple package associations from a domain.
@@ -342,13 +360,22 @@ func (b *InMemoryBackend) DissociatePackages(
 	results := make([]DomainPackageDetails, 0, len(packageIDs))
 
 	for _, pkgID := range packageIDs {
+		pkg, _ := b.packages.Get(pkgID)
+
 		b.removePackageAssociation(pkgID, domainName)
 
-		results = append(results, DomainPackageDetails{
-			PackageID:  pkgID,
-			DomainName: domainName,
-			State:      "DISSOCIATED",
-		})
+		details := DomainPackageDetails{
+			PackageID:   pkgID,
+			DomainName:  domainName,
+			State:       domainPackageStatusDissociating,
+			LastUpdated: float64(b.clock().Unix()),
+		}
+		if pkg != nil {
+			details.PackageName = pkg.PackageName
+			details.PackageType = pkg.PackageType
+		}
+
+		results = append(results, details)
 	}
 
 	return results, nil
@@ -364,7 +391,7 @@ func (b *InMemoryBackend) AddPackageInternal(packageID, packageName, packageType
 		PackageID:     packageID,
 		PackageName:   packageName,
 		PackageType:   packageType,
-		PackageStatus: pkgStateActive,
+		PackageStatus: pkgStatusAvailable,
 		CreatedAt:     now,
 		VersionHistory: []*PackageVersionHistory{
 			{

@@ -144,6 +144,8 @@ func (h *Handler) handleVpcEndpointIDRoutes(
 			"VpcEndpointSummary": map[string]any{
 				jsonKeyVpcEndpointID: ep.VpcEndpointID,
 				jsonKeyStatus:        ep.Status,
+				"DomainArn":          ep.DomainArn,
+				"VpcEndpointOwner":   ep.VpcEndpointOwner,
 			},
 		})
 	case http.MethodPut:

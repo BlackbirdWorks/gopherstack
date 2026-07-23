@@ -54,7 +54,7 @@ func TestOpenSearchHandler_DissociatePackage(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, pkgID, details2["PackageID"])
 	assert.Equal(t, "dissoc-domain", details2["DomainName"])
-	assert.Equal(t, "DISSOCIATED", details2["DomainPackageStatus"])
+	assert.Equal(t, "DISSOCIATING", details2["DomainPackageStatus"])
 }
 
 func TestOpenSearchHandler_DissociatePackages(t *testing.T) {
@@ -108,8 +108,83 @@ func TestOpenSearchHandler_DissociatePackages(t *testing.T) {
 	for _, item := range list {
 		entry, ok2 := item.(map[string]any)
 		require.True(t, ok2)
-		assert.Equal(t, "DISSOCIATED", entry["DomainPackageStatus"])
+		assert.Equal(t, "DISSOCIATING", entry["DomainPackageStatus"])
 	}
+}
+
+func TestListPackagesForDomain_ReturnsDomainPackageDetailsShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	createTestDomain(t, h, "list-pkg-domain")
+
+	pkgResp := doRequest(t, h, http.MethodPost, "/2021-01-01/packages",
+		map[string]any{"PackageName": "list-pkg", "PackageType": "TXT-DICTIONARY"})
+	var pkgOut map[string]any
+	require.NoError(t, json.NewDecoder(pkgResp.Body).Decode(&pkgOut))
+	pkgResp.Body.Close()
+	pkgID := pkgOut["PackageDetails"].(map[string]any)["PackageID"].(string)
+
+	assocResp := doRequest(t, h, http.MethodPost,
+		"/2021-01-01/packages/associate/"+pkgID+"/list-pkg-domain", nil)
+	assocResp.Body.Close()
+
+	// GET /domain/{name}/packages must return the DomainPackageDetailsList
+	// shape (PackageID/DomainName/DomainPackageStatus/PackageName/PackageType),
+	// not raw Package objects.
+	lr := doRequest(t, h, http.MethodGet,
+		"/2021-01-01/opensearch/domain/list-pkg-domain/packages", nil)
+	defer lr.Body.Close()
+	require.Equal(t, http.StatusOK, lr.StatusCode)
+
+	var lOut map[string]any
+	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	list, ok := lOut["DomainPackageDetailsList"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 1)
+
+	entry := list[0].(map[string]any)
+	assert.Equal(t, pkgID, entry["PackageID"])
+	assert.Equal(t, "list-pkg-domain", entry["DomainName"])
+	assert.Equal(t, "ACTIVE", entry["DomainPackageStatus"])
+	assert.Equal(t, "list-pkg", entry["PackageName"])
+	assert.Equal(t, "TXT-DICTIONARY", entry["PackageType"])
+}
+
+func TestListDomainsForPackage_ReturnsDomainPackageDetailsShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	createTestDomain(t, h, "domain-for-pkg")
+
+	pkgResp := doRequest(t, h, http.MethodPost, "/2021-01-01/packages",
+		map[string]any{"PackageName": "shared-pkg", "PackageType": "TXT-DICTIONARY"})
+	var pkgOut map[string]any
+	require.NoError(t, json.NewDecoder(pkgResp.Body).Decode(&pkgOut))
+	pkgResp.Body.Close()
+	pkgID := pkgOut["PackageDetails"].(map[string]any)["PackageID"].(string)
+
+	assocResp := doRequest(t, h, http.MethodPost,
+		"/2021-01-01/packages/associate/"+pkgID+"/domain-for-pkg", nil)
+	assocResp.Body.Close()
+
+	// GET /packages/{id}/domains must return the DomainPackageDetailsList
+	// shape, not bare domain-name strings.
+	lr := doRequest(t, h, http.MethodGet, "/2021-01-01/packages/"+pkgID+"/domains", nil)
+	defer lr.Body.Close()
+	require.Equal(t, http.StatusOK, lr.StatusCode)
+
+	var lOut map[string]any
+	require.NoError(t, json.NewDecoder(lr.Body).Decode(&lOut))
+	list, ok := lOut["DomainPackageDetailsList"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 1)
+
+	entry := list[0].(map[string]any)
+	assert.Equal(t, pkgID, entry["PackageID"])
+	assert.Equal(t, "domain-for-pkg", entry["DomainName"])
+	assert.Equal(t, "ACTIVE", entry["DomainPackageStatus"])
+	assert.Equal(t, "shared-pkg", entry["PackageName"])
 }
 
 func TestAssociatePackages_EmptyList(t *testing.T) {

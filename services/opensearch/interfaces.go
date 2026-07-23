@@ -1,6 +1,9 @@
 package opensearch
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // StorageBackend defines the interface for OpenSearch backend implementations.
 // All mutating methods must be safe for concurrent use.
@@ -31,24 +34,33 @@ type StorageBackend interface {
 
 	// Outbound cross-cluster connection operations
 	CreateOutboundConnection(
-		connectionAlias string,
-		localDomainInfo, remoteDomainInfo map[string]any,
+		connectionAlias, connectionMode string,
+		localDomainInfo, remoteDomainInfo DomainInformation,
+		skipUnavailable, endpoint string,
 	) (*OutboundConnection, error)
 	DescribeOutboundConnections() []*OutboundConnection
 	DeleteOutboundConnection(connectionID string) (*OutboundConnection, error)
 
 	// Data source operations
-	AddDataSource(domainName, name, description, dataSourceType string) (string, error)
+	AddDataSource(domainName, name, description string, dataSourceType json.RawMessage) (string, error)
 	GetDataSource(domainName, name string) (*DataSource, error)
 	ListDataSources(domainName string) ([]*DataSource, error)
-	UpdateDataSource(domainName, name, description string) error
+	UpdateDataSource(domainName, name, description string, dataSourceType json.RawMessage, status string) error
 	DeleteDataSource(domainName, name string) error
 
 	// Direct-query data source operations
-	AddDirectQueryDataSource(name, description, dataSourceType string, openSearchArns []string) (string, error)
+	AddDirectQueryDataSource(
+		name, description string,
+		dataSourceType json.RawMessage,
+		openSearchArns []string,
+	) (string, error)
 	ListDirectQueryDataSources() []*DirectQueryDataSource
 	GetDirectQueryDataSource(name string) (*DirectQueryDataSource, error)
-	UpdateDirectQueryDataSource(name, description string, openSearchArns []string) (*DirectQueryDataSource, error)
+	UpdateDirectQueryDataSource(
+		name, description string,
+		dataSourceType json.RawMessage,
+		openSearchArns []string,
+	) (*DirectQueryDataSource, error)
 	DeleteDirectQueryDataSource(name string) error
 
 	// Package operations
@@ -91,16 +103,19 @@ type StorageBackend interface {
 	ListApplications() []*Application
 	UpdateApplication(id string, appConfigs []AppConfig, dataSources []AppDataSource) (*Application, error)
 	DeleteApplication(id string) error
-	GetDefaultApplicationSettings(applicationType string) ([]AppSetting, error)
-	PutDefaultApplicationSettings(applicationType string, settings []AppSetting) error
+	GetDefaultApplicationSetting() string
+	PutDefaultApplicationSetting(applicationArn string, setAsDefault bool) (string, error)
 
 	// Scheduled actions
 	ListScheduledActions(domainName string) []*ScheduledAction
-	UpdateScheduledAction(domainName string, action *ScheduledAction) (*ScheduledAction, error)
+	UpdateScheduledAction(
+		domainName, actionID, actionType, scheduleAt string,
+		desiredStartTime int64,
+	) (*ScheduledAction, error)
 
 	// Reserved instances
-	DescribeReservedInstanceOfferings() []*ReservedInstanceOffering
-	DescribeReservedInstances() []*ReservedInstance
+	DescribeReservedInstanceOfferings(offeringID string) []*ReservedInstanceOffering
+	DescribeReservedInstances(reservationID string) []*ReservedInstance
 	PurchaseReservedInstanceOffering(offeringID, name string, count int) (*ReservedInstance, error)
 
 	// Domain maintenance
