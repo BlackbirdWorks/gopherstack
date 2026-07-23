@@ -274,3 +274,77 @@ func TestResponseHeadersPolicyCRUD(t *testing.T) {
 		})
 	}
 }
+
+// TestResponseHeadersPolicyCORSItems_WireRoundTrip proves that CORS allow-origins/
+// allow-headers/allow-methods/expose-headers lists, plus the ContentTypeOptions and
+// ContentSecurityPolicy security headers, survive a full Create -> Get -> GetConfig
+// -> List round trip. Before this fix, rhpResponseXML only emitted the three scalar
+// CorsConfig fields (AllowCredentials/MaxAgeSec/OriginOverride) and completely
+// dropped every list -- the actual CORS behavior a policy configures -- from every
+// read response.
+func TestResponseHeadersPolicyCORSItems_WireRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	body := []byte(`<ResponseHeadersPolicyConfig><Name>wire-rhp</Name>` +
+		`<CorsConfig>` +
+		`<AccessControlAllowCredentials>false</AccessControlAllowCredentials>` +
+		`<AccessControlAllowHeaders><Items><Header>X-Api-Key</Header></Items>` +
+		`<Quantity>1</Quantity></AccessControlAllowHeaders>` +
+		`<AccessControlAllowMethods><Items><Method>GET</Method></Items><Quantity>1</Quantity></AccessControlAllowMethods>` +
+		`<AccessControlAllowOrigins><Items><Origin>https://example.com</Origin></Items>` +
+		`<Quantity>1</Quantity></AccessControlAllowOrigins>` +
+		`<AccessControlExposeHeaders><Items><Header>X-Trace-Id</Header></Items>` +
+		`<Quantity>1</Quantity></AccessControlExposeHeaders>` +
+		`<AccessControlMaxAgeSec>600</AccessControlMaxAgeSec>` +
+		`<OriginOverride>true</OriginOverride>` +
+		`</CorsConfig>` +
+		`<SecurityHeadersConfig>` +
+		`<ContentTypeOptions><Override>true</Override></ContentTypeOptions>` +
+		`<ContentSecurityPolicy><ContentSecurityPolicy>default-src 'self'</ContentSecurityPolicy></ContentSecurityPolicy>` +
+		`</SecurityHeadersConfig>` +
+		`</ResponseHeadersPolicyConfig>`)
+
+	createRec := doXML(t, h, http.MethodPost, "/2020-05-31/response-headers-policy", body)
+	require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
+
+	policies := h.Backend.ListResponseHeadersPolicies()
+	var created *cloudfront.ResponseHeadersPolicy
+	for _, p := range policies {
+		if p.Name == "wire-rhp" {
+			created = p
+		}
+	}
+	require.NotNil(t, created)
+	require.NotNil(t, created.CorsConfig)
+	assert.Equal(t, []string{"X-Api-Key"}, created.CorsConfig.AccessControlAllowHeaders)
+	assert.Equal(t, []string{"GET"}, created.CorsConfig.AccessControlAllowMethods)
+	assert.Equal(t, []string{"https://example.com"}, created.CorsConfig.AccessControlAllowOrigins)
+	assert.Equal(t, []string{"X-Trace-Id"}, created.CorsConfig.AccessControlExposeHeaders)
+	require.NotNil(t, created.SecurityHeaders)
+	assert.True(t, created.SecurityHeaders.ContentTypeOptionsOverride)
+	assert.Equal(t, "default-src 'self'", created.SecurityHeaders.ContentSecurityPolicy)
+
+	for _, path := range []string{
+		"/2020-05-31/response-headers-policy/" + created.ID,
+		"/2020-05-31/response-headers-policy/" + created.ID + "/config",
+		"/2020-05-31/response-headers-policy",
+	} {
+		rec := doXML(t, h, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, rec.Code, path)
+		respBody := rec.Body.String()
+		assert.Contains(t, respBody, "<Header>X-Api-Key</Header>", "path %s", path)
+		assert.Contains(t, respBody, "<Method>GET</Method>", "path %s", path)
+		assert.Contains(t, respBody, "<Origin>https://example.com</Origin>", "path %s", path)
+		assert.Contains(t, respBody, "<Header>X-Trace-Id</Header>", "path %s", path)
+		assert.Contains(
+			t,
+			respBody,
+			"<ContentTypeOptions><Override>true</Override></ContentTypeOptions>",
+			"path %s",
+			path,
+		)
+		assert.Contains(t, respBody, "default-src 'self'", "path %s", path)
+	}
+}

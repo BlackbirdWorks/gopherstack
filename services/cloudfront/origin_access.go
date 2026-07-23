@@ -19,19 +19,27 @@ func oaiS3CanonicalUserID(id string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// oaiReferencePath returns the value CloudFront distribution configs use to
+// reference an OAI in S3OriginConfig.OriginAccessIdentity: the literal string
+// "origin-access-identity/cloudfront/{id}" (not a bare ID, not a full ARN --
+// see the real SDK's S3OriginConfig.OriginAccessIdentity doc comment).
+func oaiReferencePath(id string) string {
+	return fmt.Sprintf("origin-access-identity/cloudfront/%s", id)
+}
+
 // oaiARN builds an ARN for an Origin Access Identity.
 func (b *InMemoryBackend) oaiARN(id string) string {
-	return arn.Build(
-		"cloudfront",
-		"",
-		b.accountID,
-		fmt.Sprintf("origin-access-identity/cloudfront/%s", id),
-	)
+	return arn.Build("cloudfront", "", b.accountID, oaiReferencePath(id))
 }
 
 // CreateOAI creates a new Origin Access Identity.
-// If an OAI with the same CallerReference already exists, it is returned without
-// creating a duplicate (idempotent).
+//
+// If an OAI with the same CallerReference already exists AND its Comment is
+// identical to the request, the existing OAI is returned (idempotent). If the
+// CallerReference matches but the Comment differs, CloudFront returns
+// CloudFrontOriginAccessIdentityAlreadyExists -- unlike CreateDistribution,
+// the real CloudFrontOriginAccessIdentityConfig doc explicitly describes this
+// content-comparison behavior rather than an unconditional conflict.
 func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIdentity, error) {
 	b.mu.Lock("CreateCloudFrontOriginAccessIdentity")
 	defer b.mu.Unlock()
@@ -40,9 +48,15 @@ func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIde
 		return nil, fmt.Errorf("%w: CallerReference must not be empty", ErrValidation)
 	}
 
-	// Idempotency: return existing OAI for the same CallerReference.
 	if existingID, ok := b.oaiCallerRefs[callerRef]; ok {
 		existing, _ := b.oais.Get(existingID)
+		if existing.Comment != comment {
+			return nil, fmt.Errorf(
+				"%w: CallerReference %q is associated with another OAI whose config differs",
+				ErrOAIAlreadyExists, callerRef,
+			)
+		}
+
 		cp := *existing
 
 		return &cp, nil
@@ -78,7 +92,8 @@ func (b *InMemoryBackend) GetOAI(id string) (*OriginAccessIdentity, error) {
 	return &cp, nil
 }
 
-// DeleteOAI deletes an OAI by ID.
+// DeleteOAI deletes an OAI by ID. It returns ErrOAIInUse when the OAI is still
+// referenced by a distribution's S3 origin.
 func (b *InMemoryBackend) DeleteOAI(id string) error {
 	b.mu.Lock("DeleteCloudFrontOriginAccessIdentity")
 	defer b.mu.Unlock()
@@ -86,6 +101,10 @@ func (b *InMemoryBackend) DeleteOAI(id string) error {
 	oai, ok := b.oais.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: OAI %s not found", ErrOAINotFound, id)
+	}
+
+	if b.tokenReferencedByAnyDistribution(oaiReferencePath(id)) {
+		return fmt.Errorf("%w: OAI %s is in use by a distribution", ErrOAIInUse, id)
 	}
 
 	delete(b.oaiCallerRefs, oai.CallerReference)
@@ -235,7 +254,8 @@ func (b *InMemoryBackend) UpdateOriginAccessControl(
 	return &cp, nil
 }
 
-// DeleteOriginAccessControl deletes an OAC by ID.
+// DeleteOriginAccessControl deletes an OAC by ID. It returns ErrOACInUse when
+// the OAC is still referenced by a distribution's origin.
 func (b *InMemoryBackend) DeleteOriginAccessControl(id string) error {
 	b.mu.Lock("DeleteOriginAccessControl")
 	defer b.mu.Unlock()
@@ -243,6 +263,10 @@ func (b *InMemoryBackend) DeleteOriginAccessControl(id string) error {
 	oac, ok := b.originAccessControls.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: origin access control %s not found", ErrOACNotFound, id)
+	}
+
+	if b.tokenReferencedByAnyDistribution(id) {
+		return fmt.Errorf("%w: origin access control %s is in use by a distribution", ErrOACInUse, id)
 	}
 
 	delete(b.originAccessControlByName, oac.Name)

@@ -115,6 +115,38 @@ var (
 	// for a list that does not match the number of Items actually provided. AWS
 	// validates this pervasively across DistributionConfig and policy configs.
 	ErrInconsistentQuantities = awserr.New("InconsistentQuantities", awserr.ErrInvalidParameter)
+	// ErrOAIInUse is returned when attempting to delete an origin access identity that
+	// is still referenced by a distribution's S3OriginConfig.
+	ErrOAIInUse = awserr.New("CloudFrontOriginAccessIdentityInUse", awserr.ErrConflict)
+	// ErrOACInUse is returned when attempting to delete an origin access control that
+	// is still referenced by a distribution's origin.
+	ErrOACInUse = awserr.New("OriginAccessControlInUse", awserr.ErrConflict)
+	// ErrKeyGroupInUse is returned when attempting to delete a key group that is still
+	// referenced by a distribution's cache behavior TrustedKeyGroups. Real AWS has no
+	// dedicated KeyGroupInUse type; DeleteKeyGroup documents ResourceInUse for this case.
+	ErrKeyGroupInUse = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrOAIAlreadyExists is returned when CreateOAI reuses a CallerReference whose
+	// stored Comment differs from the request (content-comparison idempotency; see
+	// the real CloudFrontOriginAccessIdentityConfig.CallerReference doc).
+	ErrOAIAlreadyExists = awserr.New("CloudFrontOriginAccessIdentityAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrDistributionAlreadyExists is returned when CreateDistribution/CopyDistribution
+	// is called with a CallerReference that already identifies another distribution.
+	// Unlike OAI/PublicKey/KeyGroup/FLE-profile, real AWS does NOT compare config content
+	// here: per the CreateDistribution API docs, reuse of CallerReference always returns
+	// this error, "regardless of the content of the DistributionConfig object".
+	ErrDistributionAlreadyExists = awserr.New("DistributionAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrStreamingDistributionAlreadyExists is returned when
+	// CreateStreamingDistribution reuses a CallerReference that already identifies
+	// another streaming distribution. Same "always conflicts, content is irrelevant"
+	// rule as ErrDistributionAlreadyExists (see CreateStreamingDistribution API docs).
+	ErrStreamingDistributionAlreadyExists = awserr.New("StreamingDistributionAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrIllegalDelete is returned when attempting to delete an AWS-managed cache
+	// policy, origin request policy, or response headers policy. Managed policies are
+	// read-only; real AWS returns this instead of actually deleting them.
+	ErrIllegalDelete = awserr.New("IllegalDelete", awserr.ErrInvalidParameter)
+	// ErrIllegalUpdate is returned when attempting to update an AWS-managed cache
+	// policy, origin request policy, or response headers policy.
+	ErrIllegalUpdate = awserr.New("IllegalUpdate", awserr.ErrInvalidParameter)
 )
 
 // ErrPreconditionFailed is returned when an If-Match ETag check fails in a data-plane operation.

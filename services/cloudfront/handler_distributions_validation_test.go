@@ -63,15 +63,21 @@ func TestCallerReferenceValidation(t *testing.T) {
 	}
 }
 
-// TestCallerReferenceIdempotency verifies duplicate CallerReferences return existing resource.
-func TestCallerReferenceIdempotency(t *testing.T) {
+// TestCallerReferenceReuse verifies CloudFront's two different CallerReference-reuse
+// policies: Distribution always conflicts on reuse (DistributionAlreadyExists,
+// regardless of whether the config content matches -- see the real CreateDistribution
+// API docs), while OAI is content-comparison idempotent (identical Comment returns the
+// existing OAI; a different Comment conflicts with CloudFrontOriginAccessIdentityAlreadyExists
+// -- see the real CloudFrontOriginAccessIdentityConfig.CallerReference doc).
+func TestCallerReferenceReuse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
 	}{
-		{name: "distribution_idempotency"},
-		{name: "oai_idempotency"},
+		{name: "distribution_always_conflicts"},
+		{name: "oai_idempotent_when_identical"},
+		{name: "oai_conflicts_when_content_differs"},
 	}
 
 	for _, tt := range tests {
@@ -80,27 +86,36 @@ func TestCallerReferenceIdempotency(t *testing.T) {
 
 			h := newTestHandler()
 
-			if strings.Contains(tt.name, "distribution") {
+			switch tt.name {
+			case "distribution_always_conflicts":
 				body := minimalDistConfig("idem-ref-001", "idem-dist", true)
 				rec1 := doXML(t, h, http.MethodPost, "/2020-05-31/distribution", body)
 				require.Equal(t, http.StatusCreated, rec1.Code)
 
-				// Second call with same CallerReference should return same distribution.
+				// Second call with the same CallerReference always conflicts, even
+				// though the body is byte-identical to the first request.
 				rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/distribution", body)
-				require.Equal(t, http.StatusCreated, rec2.Code)
-
-				// Should have same ID (only one distribution created).
-				assert.Equal(t, rec1.Body.String(), rec2.Body.String())
+				assert.Equal(t, http.StatusConflict, rec2.Code)
+				assert.Contains(t, rec2.Body.String(), "DistributionAlreadyExists")
 				assert.Len(t, h.Backend.ListDistributions(), 1)
-			} else {
+			case "oai_idempotent_when_identical":
 				body := minimalOAIConfig("idem-oai-ref-001", "idem-oai")
 				rec1 := doXML(t, h, http.MethodPost, "/2020-05-31/origin-access-identity/cloudfront", body)
 				require.Equal(t, http.StatusCreated, rec1.Code)
 
 				rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/origin-access-identity/cloudfront", body)
 				require.Equal(t, http.StatusCreated, rec2.Code)
+				assert.Equal(t, rec1.Body.String(), rec2.Body.String())
+				assert.Len(t, h.Backend.ListOAIs(), 1)
+			case "oai_conflicts_when_content_differs":
+				body1 := minimalOAIConfig("idem-oai-ref-002", "first-comment")
+				rec1 := doXML(t, h, http.MethodPost, "/2020-05-31/origin-access-identity/cloudfront", body1)
+				require.Equal(t, http.StatusCreated, rec1.Code)
 
-				// Only one OAI should be stored.
+				body2 := minimalOAIConfig("idem-oai-ref-002", "different-comment")
+				rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/origin-access-identity/cloudfront", body2)
+				assert.Equal(t, http.StatusConflict, rec2.Code)
+				assert.Contains(t, rec2.Body.String(), "CloudFrontOriginAccessIdentityAlreadyExists")
 				assert.Len(t, h.Backend.ListOAIs(), 1)
 			}
 		})

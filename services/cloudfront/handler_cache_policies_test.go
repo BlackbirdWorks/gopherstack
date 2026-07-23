@@ -575,3 +575,65 @@ func TestCachePolicyETagValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestCachePolicyWhitelistItems_WireRoundTrip proves that whitelisted header/cookie/
+// query-string names survive a full Create -> Get -> GetConfig -> List round trip.
+// Before this fix, the request parser used the wrong XML paths (Headers>Header
+// instead of the real Headers>Items>Name) so any real SDK-generated whitelist
+// request silently lost every listed name on unmarshal, and every read response
+// omitted the Items list entirely -- a real SDK client had no way to discover which
+// headers/cookies/query-strings a policy actually whitelists.
+func TestCachePolicyWhitelistItems_WireRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	body := []byte(`<CachePolicyConfig><Name>wire-cp</Name>` +
+		`<DefaultTTL>1</DefaultTTL><MaxTTL>2</MaxTTL><MinTTL>0</MinTTL>` +
+		`<ParametersInCacheKeyAndForwardedToOrigin>` +
+		`<EnableAcceptEncodingGzip>true</EnableAcceptEncodingGzip>` +
+		`<EnableAcceptEncodingBrotli>false</EnableAcceptEncodingBrotli>` +
+		`<HeadersConfig><HeaderBehavior>whitelist</HeaderBehavior>` +
+		`<Headers><Items><Name>X-Custom-Header</Name></Items><Quantity>1</Quantity></Headers>` +
+		`</HeadersConfig>` +
+		`<CookiesConfig><CookieBehavior>whitelist</CookieBehavior>` +
+		`<Cookies><Items><Name>session-id</Name></Items><Quantity>1</Quantity></Cookies>` +
+		`</CookiesConfig>` +
+		`<QueryStringsConfig><QueryStringBehavior>whitelist</QueryStringBehavior>` +
+		`<QueryStrings><Items><Name>utm_source</Name></Items><Quantity>1</Quantity></QueryStrings>` +
+		`</QueryStringsConfig>` +
+		`</ParametersInCacheKeyAndForwardedToOrigin>` +
+		`</CachePolicyConfig>`)
+
+	createRec := doXML(t, h, http.MethodPost, "/2020-05-31/cache-policy", body)
+	require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
+
+	// The backend model itself must have parsed the whitelisted names (proves the
+	// request-side Headers>Items>Name / Cookies>Items>Name / QueryStrings>Items>Name
+	// tags are correct, not just that some XML happened to round-trip).
+	policies := h.Backend.ListCachePolicies()
+	var created *cloudfront.CachePolicy
+	for _, p := range policies {
+		if p.Name == "wire-cp" {
+			created = p
+		}
+	}
+	require.NotNil(t, created)
+	require.NotNil(t, created.Params)
+	assert.Equal(t, []string{"X-Custom-Header"}, created.Params.HeadersConfig.Headers)
+	assert.Equal(t, []string{"session-id"}, created.Params.CookiesConfig.Cookies)
+	assert.Equal(t, []string{"utm_source"}, created.Params.QueryStringsConfig.QueryStrings)
+
+	for _, path := range []string{
+		"/2020-05-31/cache-policy/" + created.ID,
+		"/2020-05-31/cache-policy/" + created.ID + "/config",
+		"/2020-05-31/cache-policy",
+	} {
+		rec := doXML(t, h, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, rec.Code, path)
+		body := rec.Body.String()
+		assert.Contains(t, body, "<Name>X-Custom-Header</Name>", "path %s", path)
+		assert.Contains(t, body, "<Name>session-id</Name>", "path %s", path)
+		assert.Contains(t, body, "<Name>utm_source</Name>", "path %s", path)
+	}
+}

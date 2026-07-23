@@ -295,10 +295,14 @@ func TestPersistenceRoundTrip_IndexesRebuilt(t *testing.T) {
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
-	// CallerReference idempotency should work after restore.
-	d2, err := b2.CreateDistribution("persist-ref-001", "persist-dist", true, nil)
-	require.NoError(t, err)
-	assert.Equal(t, d.ID, d2.ID, "same CallerReference should return same distribution after restore")
+	// The restored distributionCallerRefs index should still reject a reused
+	// CallerReference after restore, exactly like it would before a
+	// snapshot/restore round trip (CreateDistribution never treats CallerReference
+	// reuse as idempotent -- see distributions.go's CreateDistribution doc).
+	_, err = b2.CreateDistribution("persist-ref-001", "persist-dist", true, nil)
+	require.Error(t, err, "CallerReference reuse should still conflict after restore")
+	require.ErrorIs(t, err, cloudfront.ErrDistributionAlreadyExists)
+	assert.NotEmpty(t, d.ID)
 
 	// CachePolicy name uniqueness should work after restore.
 	_, err = b2.CreateCachePolicy("persist-cp", "comment", 86400, 31536000, 0)

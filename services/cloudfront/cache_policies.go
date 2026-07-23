@@ -113,6 +113,12 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 		return nil, fmt.Errorf("%w: cache policy %s not found", ErrCachePolicyNotFound, id)
 	}
 
+	if p.Managed {
+		return nil, fmt.Errorf(
+			"%w: cache policy %s is an AWS-managed policy and cannot be updated", ErrIllegalUpdate, id,
+		)
+	}
+
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
 	}
@@ -170,6 +176,10 @@ func (b *InMemoryBackend) DeleteCachePolicy(id string) error {
 	p, ok := b.cachePolicies.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: cache policy %s not found", ErrCachePolicyNotFound, id)
+	}
+
+	if p.Managed {
+		return fmt.Errorf("%w: cache policy %s is an AWS-managed policy and cannot be deleted", ErrIllegalDelete, id)
 	}
 
 	if b.tokenReferencedByAnyDistribution(id) {
