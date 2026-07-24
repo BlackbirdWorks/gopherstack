@@ -466,27 +466,25 @@ func TestHandler_MultipleProfilesAndSessions(t *testing.T) {
 }
 
 // TestHandler_ContentLengthAndETagOnChange verifies Content-Length and ETag are only set
-// when content is returned (200), not on 204 responses.
+// when content is returned, not on unchanged (empty-body) responses. Both cases use HTTP
+// 200 -- AWS's GetLatestConfiguration has a fixed responseCode and never returns 204.
 func TestHandler_ContentLengthAndETagOnChange(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over micro-optimization
+	tests := []struct {
 		name        string
 		content     string
 		wantHeaders bool
-		wantStatus  int
 		secondPoll  bool
 	}{
 		{
-			name:        "200_has_content_length_and_etag",
+			name:        "content_present_has_content_length_and_etag",
 			content:     `{"x":42}`,
-			wantStatus:  http.StatusOK,
 			wantHeaders: true,
 		},
 		{
-			name:       "204_has_no_content_length_or_etag",
+			name:       "unchanged_has_no_content_length_or_etag",
 			content:    `{"x":42}`,
-			wantStatus: http.StatusNoContent,
 			secondPoll: true,
 		},
 	}
@@ -506,12 +504,13 @@ func TestHandler_ContentLengthAndETagOnChange(t *testing.T) {
 			}
 
 			rec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+tok, nil)
-			require.Equal(t, tt.wantStatus, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code, "GetLatestConfiguration always returns 200")
 
 			if tt.wantHeaders {
 				assert.NotEmpty(t, rec.Header().Get("Content-Length"))
 				assert.NotEmpty(t, rec.Header().Get("ETag"))
 			} else {
+				assert.Empty(t, rec.Body.String(), "unchanged response must have an empty body")
 				assert.Empty(t, rec.Header().Get("ETag"))
 			}
 		})
