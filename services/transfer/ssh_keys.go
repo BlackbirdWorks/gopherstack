@@ -44,6 +44,10 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
+	if !b.users.Has(userKey(serverID, userName)) {
+		return nil, fmt.Errorf("%w: user %s not found on server %s", ErrUserNotFound, userName, serverID)
+	}
+
 	// Lazily initialize the body index for this server/user.
 	if _, ok := b.sshKeyBodies[serverID]; !ok {
 		b.sshKeyBodies[serverID] = make(map[string]map[string]struct{})

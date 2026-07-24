@@ -71,14 +71,11 @@ type StorageBackend interface {
 	ListProfiles() []*Profile
 	UpdateProfile(profileID, as2ID string) (*Profile, error)
 	UpdateProfileFull(in *UpdateProfileInput) (*Profile, error)
-	CreateWebApp(tags map[string]string) (*WebApp, error)
+	CreateWebApp(in *CreateWebAppInput) (*WebApp, error)
 	DeleteWebApp(webAppID string) error
 	DescribeWebApp(webAppID string) (*WebApp, error)
 	ListWebApps() []*WebApp
-	UpdateWebApp(
-		webAppID string,
-		identityProviderDetails *WebAppIdentityProviderDetails,
-	) (*WebApp, error)
+	UpdateWebApp(in *UpdateWebAppInput) (*WebApp, error)
 	DeleteWebAppCustomization(webAppID string) error
 	DescribeWebAppCustomization(webAppID string) (*WebAppCustomization, error)
 	UpdateWebAppCustomization(webAppID, title, logoFile, faviconFile string) (*WebAppCustomization, error)
@@ -97,9 +94,11 @@ type StorageBackend interface {
 		notBefore, notAfter time.Time,
 		tags map[string]string,
 	) (*Certificate, error)
+	ImportCertificateFull(in *ImportCertificateInput) (*Certificate, error)
 	DescribeCertificate(certificateID string) (*Certificate, error)
 	ListCertificates() []*Certificate
 	UpdateCertificate(certificateID, description string) (*Certificate, error)
+	UpdateCertificateFull(in *UpdateCertificateInput) (*Certificate, error)
 	ImportHostKey(
 		serverID, hostKeyBody, description string,
 		tags map[string]string,

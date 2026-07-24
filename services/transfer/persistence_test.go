@@ -40,7 +40,12 @@ func TestPersistence_FullStateRoundTrip(t *testing.T) {
 	connector, err := b.CreateConnector("https://example.com", "arn:role", nil, nil, nil)
 	require.NoError(t, err)
 
-	webApp, err := b.CreateWebApp(nil)
+	webApp, err := b.CreateWebApp(&transfer.CreateWebAppInput{
+		IdentityCenterConfig: &transfer.WebAppIdentityCenterConfig{
+			InstanceArn: "arn:aws:sso:::instance/ssoins-persistence",
+			Role:        "arn:aws:iam::123456789012:role/webapp-idp",
+		},
+	})
 	require.NoError(t, err)
 
 	workflow, err := b.CreateWorkflow("desc", nil, nil, nil)

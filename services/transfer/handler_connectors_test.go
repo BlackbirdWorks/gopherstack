@@ -273,10 +273,15 @@ func TestHandler_StartDirectoryListing(t *testing.T) {
 
 	rec := doTransferRequest(t, h, "StartDirectoryListing", map[string]any{
 		"ConnectorId":         connectorID,
-		"RemotePath":          "/",
+		"RemoteDirectoryPath": "/",
 		"OutputDirectoryPath": "/output",
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp["ListingId"], "ListingId is a required field on StartDirectoryListingOutput")
+	assert.Equal(t, connectorID+"-"+resp["ListingId"].(string)+".json", resp["OutputFileName"])
 }
 
 func TestHandler_ListFileTransferResults(t *testing.T) {
@@ -419,7 +424,7 @@ func TestHandler_DescribeConnectorLoggingRole(t *testing.T) {
 	assert.Equal(t, "TransferSecurityPolicy-2024-01", connector["SecurityPolicyName"])
 }
 
-// Test 28: StartDirectoryListing returns a unique DirectoryListingId.
+// Test 28: StartDirectoryListing returns a unique ListingId.
 func TestHandler_StartDirectoryListingUniqueId(t *testing.T) {
 	t.Parallel()
 
@@ -433,23 +438,115 @@ func TestHandler_StartDirectoryListingUniqueId(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	rec1 := doTransferRequest(t, h, "StartDirectoryListing", map[string]any{
-		"ConnectorId":          conn.ConnectorID,
-		"RemoteDirectoryPaths": []string{"/remote"},
-	})
+	body := map[string]any{
+		"ConnectorId":         conn.ConnectorID,
+		"RemoteDirectoryPath": "/remote",
+		"OutputDirectoryPath": "/output",
+	}
+
+	rec1 := doTransferRequest(t, h, "StartDirectoryListing", body)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
-	rec2 := doTransferRequest(t, h, "StartDirectoryListing", map[string]any{
-		"ConnectorId":          conn.ConnectorID,
-		"RemoteDirectoryPaths": []string{"/remote"},
-	})
+	rec2 := doTransferRequest(t, h, "StartDirectoryListing", body)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var r1, r2 map[string]any
 	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
 
-	id1 := r1["DirectoryListingId"].(string)
-	id2 := r2["DirectoryListingId"].(string)
+	id1 := r1["ListingId"].(string)
+	id2 := r2["ListingId"].(string)
 	assert.NotEqual(t, id1, id2, "each StartDirectoryListing must return a distinct ID")
+}
+
+// TestHandler_StartDirectoryListing_RequiresFields verifies real-AWS required-field
+// validation: ConnectorId, OutputDirectoryPath, and RemoteDirectoryPath are all
+// required members of StartDirectoryListingInput.
+func TestHandler_StartDirectoryListing_RequiresFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	conn, err := h.Backend.CreateConnector(
+		"sftp://example.com", "arn:aws:iam::000000000000:role/transfer", nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{name: "missing ConnectorId", body: map[string]any{
+			"OutputDirectoryPath": "/out", "RemoteDirectoryPath": "/remote",
+		}},
+		{name: "missing OutputDirectoryPath", body: map[string]any{
+			"ConnectorId": conn.ConnectorID, "RemoteDirectoryPath": "/remote",
+		}},
+		{name: "missing RemoteDirectoryPath", body: map[string]any{
+			"ConnectorId": conn.ConnectorID, "OutputDirectoryPath": "/out",
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doTransferRequest(t, h, "StartDirectoryListing", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestHandler_StartRemoteDelete_ReturnsDeleteId verifies the real-AWS response key
+// (DeleteId, not the invented TransferId) and that DeletePath is required.
+func TestHandler_StartRemoteDelete_ReturnsDeleteId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	conn, err := h.Backend.CreateConnector(
+		"sftp://example.com", "arn:aws:iam::000000000000:role/transfer", nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	rec := doTransferRequest(t, h, "StartRemoteDelete", map[string]any{
+		"ConnectorId": conn.ConnectorID,
+		"DeletePath":  "/remote/path",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp["DeleteId"])
+	assert.NotContains(t, resp, "TransferId", "StartRemoteDeleteOutput has no TransferId field in real AWS")
+
+	missingPath := doTransferRequest(t, h, "StartRemoteDelete", map[string]any{"ConnectorId": conn.ConnectorID})
+	assert.Equal(t, http.StatusBadRequest, missingPath.Code)
+}
+
+// TestHandler_StartRemoteMove_ReturnsMoveId verifies the real-AWS response key
+// (MoveId, not the invented TransferId) and that SourcePath/TargetPath are required.
+func TestHandler_StartRemoteMove_ReturnsMoveId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	conn, err := h.Backend.CreateConnector(
+		"sftp://example.com", "arn:aws:iam::000000000000:role/transfer", nil, nil, nil,
+	)
+	require.NoError(t, err)
+
+	rec := doTransferRequest(t, h, "StartRemoteMove", map[string]any{
+		"ConnectorId": conn.ConnectorID,
+		"SourcePath":  "/source",
+		"TargetPath":  "/target",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp["MoveId"])
+	assert.NotContains(t, resp, "TransferId", "StartRemoteMoveOutput has no TransferId field in real AWS")
+
+	missingTarget := doTransferRequest(t, h, "StartRemoteMove", map[string]any{
+		"ConnectorId": conn.ConnectorID, "SourcePath": "/source",
+	})
+	assert.Equal(t, http.StatusBadRequest, missingTarget.Code)
 }

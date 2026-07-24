@@ -136,7 +136,15 @@ func TestHandler_ListTagsForResourceCreationTagsVisibleAcrossResources(t *testin
 			setup: func(t *testing.T, h *transfer.Handler) string {
 				t.Helper()
 
-				rec := doTransferRequest(t, h, "CreateWebApp", map[string]any{"Tags": creationTags})
+				rec := doTransferRequest(t, h, "CreateWebApp", map[string]any{
+					"Tags": creationTags,
+					"IdentityProviderDetails": map[string]any{
+						"IdentityCenterConfig": map[string]any{
+							"InstanceArn": "arn:aws:sso:::instance/ssoins-tagtest",
+							"Role":        "arn:aws:iam::123456789012:role/webapp-idp",
+						},
+					},
+				})
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var out struct {

@@ -7,8 +7,36 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+type webAppIdentityCenterConfigInput struct {
+	InstanceArn string `json:"InstanceArn,omitempty"`
+	Role        string `json:"Role,omitempty"`
+}
+
+type webAppIdentityProviderDetailsInput struct {
+	IdentityCenterConfig *webAppIdentityCenterConfigInput `json:"IdentityCenterConfig,omitempty"`
+}
+
+type webAppVpcConfigInput struct {
+	VpcID            string   `json:"VpcId,omitempty"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
+	SubnetIDs        []string `json:"SubnetIds,omitempty"`
+}
+
+type webAppEndpointDetailsInput struct {
+	Vpc *webAppVpcConfigInput `json:"Vpc,omitempty"`
+}
+
+type webAppUnitsInput struct {
+	Provisioned int32 `json:"Provisioned,omitempty"`
+}
+
 type createWebAppInput struct {
-	Tags []map[string]string `json:"Tags"`
+	IdentityProviderDetails *webAppIdentityProviderDetailsInput `json:"IdentityProviderDetails"`
+	EndpointDetails         *webAppEndpointDetailsInput         `json:"EndpointDetails,omitempty"`
+	WebAppUnits             *webAppUnitsInput                   `json:"WebAppUnits,omitempty"`
+	AccessEndpoint          string                              `json:"AccessEndpoint,omitempty"`
+	WebAppEndpointPolicy    string                              `json:"WebAppEndpointPolicy,omitempty"`
+	Tags                    []map[string]string                 `json:"Tags,omitempty"`
 }
 
 type createWebAppOutput struct {
@@ -19,9 +47,32 @@ func (h *Handler) handleCreateWebApp(
 	_ context.Context,
 	in *createWebAppInput,
 ) (*createWebAppOutput, error) {
-	tags := tagsFromList(in.Tags)
+	backendIn := &CreateWebAppInput{
+		AccessEndpoint:       in.AccessEndpoint,
+		WebAppEndpointPolicy: in.WebAppEndpointPolicy,
+		Tags:                 tagsFromList(in.Tags),
+	}
 
-	w, err := h.Backend.CreateWebApp(tags)
+	if in.IdentityProviderDetails != nil && in.IdentityProviderDetails.IdentityCenterConfig != nil {
+		backendIn.IdentityCenterConfig = &WebAppIdentityCenterConfig{
+			InstanceArn: in.IdentityProviderDetails.IdentityCenterConfig.InstanceArn,
+			Role:        in.IdentityProviderDetails.IdentityCenterConfig.Role,
+		}
+	}
+
+	if in.EndpointDetails != nil && in.EndpointDetails.Vpc != nil {
+		backendIn.VpcConfig = &WebAppVpcConfig{
+			SecurityGroupIDs: in.EndpointDetails.Vpc.SecurityGroupIDs,
+			SubnetIDs:        in.EndpointDetails.Vpc.SubnetIDs,
+			VpcID:            in.EndpointDetails.Vpc.VpcID,
+		}
+	}
+
+	if in.WebAppUnits != nil {
+		backendIn.WebAppUnits = in.WebAppUnits.Provisioned
+	}
+
+	w, err := h.Backend.CreateWebApp(backendIn)
 	if err != nil {
 		return nil, err
 	}
@@ -72,23 +123,49 @@ func (h *Handler) handleDescribeWebApp(
 	}
 
 	webAppMap := map[string]any{
-		"WebAppId": w.WebAppID,
-		keyArn:     webAppARN(w.AccountID, w.Region, w.WebAppID),
-		keyTags:    tagsToList(w.Tags),
+		keyWebAppID:            w.WebAppID,
+		keyArn:                 webAppARN(w.AccountID, w.Region, w.WebAppID),
+		keyTags:                tagsToList(w.Tags),
+		"AccessEndpoint":       w.AccessEndpoint,
+		"WebAppEndpoint":       w.WebAppEndpoint,
+		"WebAppEndpointPolicy": w.WebAppEndpointPolicy,
+		"EndpointType":         webAppEndpointType(w),
 	}
 
-	if w.IdentityProviderDetails != nil {
-		webAppMap["IdentityProviderDetails"] = map[string]any{
-			"IdentityProviderType": w.IdentityProviderDetails.IdentityProviderType,
-			"InstanceArn":          w.IdentityProviderDetails.InstanceArn,
-			keyRole:                w.IdentityProviderDetails.Role,
-			keyURL:                 w.IdentityProviderDetails.URL,
-			"Directory":            w.IdentityProviderDetails.Directory,
-			"Function":             w.IdentityProviderDetails.Function,
+	if w.IdentityCenterConfig != nil {
+		webAppMap["DescribedIdentityProviderDetails"] = map[string]any{
+			"IdentityCenterConfig": map[string]any{
+				"ApplicationArn": w.IdentityCenterConfig.ApplicationArn,
+				"InstanceArn":    w.IdentityCenterConfig.InstanceArn,
+				keyRole:          w.IdentityCenterConfig.Role,
+			},
 		}
 	}
 
+	if w.VpcConfig != nil {
+		webAppMap["DescribedEndpointDetails"] = map[string]any{
+			"Vpc": map[string]any{
+				"SubnetIds":     w.VpcConfig.SubnetIDs,
+				"VpcEndpointId": w.VpcConfig.VpcEndpointID,
+				"VpcId":         w.VpcConfig.VpcID,
+			},
+		}
+	}
+
+	if w.WebAppUnits != 0 {
+		webAppMap["WebAppUnits"] = map[string]any{"Provisioned": w.WebAppUnits}
+	}
+
 	return &describeWebAppOutput{WebApp: webAppMap}, nil
+}
+
+// webAppEndpointType returns the real-AWS EndpointType ("PUBLIC" or "VPC") for a web app.
+func webAppEndpointType(w *WebApp) string {
+	if w.VpcConfig != nil {
+		return "VPC"
+	}
+
+	return "PUBLIC"
 }
 
 type listWebAppsInput struct {
@@ -111,26 +188,39 @@ func (h *Handler) handleListWebApps(
 
 	for i, w := range page {
 		out[i] = map[string]any{
-			"WebAppId": w.WebAppID,
-			keyArn:     webAppARN(w.AccountID, w.Region, w.WebAppID),
+			keyWebAppID:      w.WebAppID,
+			keyArn:           webAppARN(w.AccountID, w.Region, w.WebAppID),
+			"AccessEndpoint": w.AccessEndpoint,
+			"WebAppEndpoint": w.WebAppEndpoint,
+			"EndpointType":   webAppEndpointType(w),
 		}
 	}
 
 	return &listWebAppsOutput{WebApps: out, NextToken: next}, nil
 }
 
-type webAppIdentityProviderDetailsInput struct {
-	IdentityProviderType string `json:"IdentityProviderType,omitempty"`
-	InstanceArn          string `json:"InstanceArn,omitempty"`
-	Role                 string `json:"Role,omitempty"`
-	URL                  string `json:"Url,omitempty"`
-	Directory            string `json:"Directory,omitempty"`
-	Function             string `json:"Function,omitempty"`
+type updateWebAppIdentityCenterConfigInput struct {
+	Role string `json:"Role,omitempty"`
+}
+
+type updateWebAppIdentityProviderDetailsInput struct {
+	IdentityCenterConfig *updateWebAppIdentityCenterConfigInput `json:"IdentityCenterConfig,omitempty"`
+}
+
+type updateWebAppVpcConfigInput struct {
+	SubnetIDs []string `json:"SubnetIds,omitempty"`
+}
+
+type updateWebAppEndpointDetailsInput struct {
+	Vpc *updateWebAppVpcConfigInput `json:"Vpc,omitempty"`
 }
 
 type updateWebAppInput struct {
-	IdentityProviderDetails *webAppIdentityProviderDetailsInput `json:"IdentityProviderDetails,omitempty"`
-	WebAppID                string                              `json:"WebAppId"`
+	IdentityProviderDetails *updateWebAppIdentityProviderDetailsInput `json:"IdentityProviderDetails,omitempty"`
+	EndpointDetails         *updateWebAppEndpointDetailsInput         `json:"EndpointDetails,omitempty"`
+	WebAppUnits             *webAppUnitsInput                         `json:"WebAppUnits,omitempty"`
+	WebAppID                string                                    `json:"WebAppId"`
+	AccessEndpoint          string                                    `json:"AccessEndpoint,omitempty"`
 }
 
 type updateWebAppOutput struct {
@@ -145,19 +235,26 @@ func (h *Handler) handleUpdateWebApp(
 		return nil, fmt.Errorf("%w: WebAppId is required", errInvalidRequest)
 	}
 
-	var ipd *WebAppIdentityProviderDetails
-	if in.IdentityProviderDetails != nil {
-		ipd = &WebAppIdentityProviderDetails{
-			IdentityProviderType: in.IdentityProviderDetails.IdentityProviderType,
-			InstanceArn:          in.IdentityProviderDetails.InstanceArn,
-			Role:                 in.IdentityProviderDetails.Role,
-			URL:                  in.IdentityProviderDetails.URL,
-			Directory:            in.IdentityProviderDetails.Directory,
-			Function:             in.IdentityProviderDetails.Function,
-		}
+	backendIn := &UpdateWebAppInput{
+		WebAppID:       in.WebAppID,
+		AccessEndpoint: in.AccessEndpoint,
 	}
 
-	w, err := h.Backend.UpdateWebApp(in.WebAppID, ipd)
+	if in.IdentityProviderDetails != nil && in.IdentityProviderDetails.IdentityCenterConfig != nil {
+		role := in.IdentityProviderDetails.IdentityCenterConfig.Role
+		backendIn.IdentityCenterRole = &role
+	}
+
+	if in.EndpointDetails != nil && in.EndpointDetails.Vpc != nil {
+		backendIn.VpcSubnetIDs = in.EndpointDetails.Vpc.SubnetIDs
+	}
+
+	if in.WebAppUnits != nil {
+		units := in.WebAppUnits.Provisioned
+		backendIn.WebAppUnits = &units
+	}
+
+	w, err := h.Backend.UpdateWebApp(backendIn)
 	if err != nil {
 		return nil, err
 	}
