@@ -176,6 +176,28 @@ type File struct {
 	FileContent     []byte `json:"fileContent"`
 }
 
+// FileHistoryEntry records one commit that touched a file path, paired with
+// the blob ID that commit produced (or "" if the commit deleted the path).
+// Stored oldest-first per repoName/filePath in InMemoryBackend.fileHistory
+// and used to build AWS's FileVersion shape for ListFileCommitHistory.
+type FileHistoryEntry struct {
+	CommitID string `json:"commitId"`
+	BlobID   string `json:"blobId,omitempty"`
+}
+
+// FileVersionEntry is the resolved (commit + blob + path + children) tuple
+// for one entry of a file's revision history, used to build the AWS
+// FileVersion wire shape (blobId/commit/path/revisionChildren) in
+// ListFileCommitHistory's response. RevisionChildren is computed against the
+// full (unpaginated) history so it stays correct even when the entry itself
+// is returned on a page boundary.
+type FileVersionEntry struct {
+	Commit           *Commit
+	FilePath         string
+	BlobID           string
+	RevisionChildren []string
+}
+
 // RepositoryTrigger represents a trigger on a repository.
 type RepositoryTrigger struct {
 	Name           string   `json:"name"`

@@ -86,7 +86,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		tmpl.ApprovalRuleTemplateName, repo.RepositoryName,
 	))
 
-	commit1, _, err := original.CreateCommit(
+	commit1, _, _, err := original.CreateCommit(
 		repo.RepositoryName, "main", "author", "author@example.com", "init", "",
 		[]codecommit.PutFileEntry{{FilePath: "README.md", FileMode: "NORMAL", FileContent: []byte("hello")}}, nil,
 	)
@@ -176,10 +176,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotCommit, err := fresh.GetCommit(repo.RepositoryName, commit1.CommitID)
 	require.NoError(t, err)
 	assert.Equal(t, "init", gotCommit.Message)
-	history, err := fresh.ListFileCommitHistory(repo.RepositoryName, "README.md")
+	history, err := fresh.ListFileCommitHistory(repo.RepositoryName, "README.md", "", 0)
 	require.NoError(t, err)
-	require.Len(t, history, 1)
-	assert.Equal(t, commit1.CommitID, history[0].CommitID)
+	require.Len(t, history.Data, 1)
+	assert.Equal(t, commit1.CommitID, history.Data[0].Commit.CommitID)
 
 	// files table (composite key + byRepo index; RepoName hidden field).
 	gotFile, err := fresh.GetFile(repo.RepositoryName, "", "docs/guide.md")

@@ -1,13 +1,13 @@
 ---
 service: codecommit
 sdk_module: aws-sdk-go-v2/service/codecommit@v1.33.10
-last_audit_commit: 2ca17ef1
-last_audit_date: 2026-07-12
-overall: A            # 4 genuine bugs fixed this pass (see Notes); backend was already substantial
+last_audit_commit: aabde46b5
+last_audit_date: 2026-07-23
+overall: A            # 9 genuine bugs + 1 leak fixed this pass (see Notes); backend was already substantial
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRepository: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteRepository: {wire: ok, errors: ok, state: ok, persist: ok, note: cascades branches/commits/files/triggers/PRs}
+  DeleteRepository: {wire: ok, errors: ok, state: fixed, persist: ok, note: "cascades branches/commits/files/fileHistory/triggers/PRs/comments/commentReactions; comments and fileHistory were leaking past repo deletion before this pass (see Notes)"}
   ListRepositories: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetRepositories: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateRepositoryDescription: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -17,19 +17,19 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateBranch: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateBranch: {wire: ok, errors: fixed, state: ok, persist: ok, note: "validateBranchName's BranchNameRequiredException/InvalidBranchNameException sentinels were missing from errCodeLookup (see Notes) and so were unreachable — both fell through to generic ValidationException"}
   GetBranch: {wire: ok, errors: ok, state: ok, persist: ok}
   ListBranches: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteBranch: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateCommit: {wire: fixed, errors: ok, state: ok, persist: ok, note: "filesAdded[].blobId was hardcoded empty; now real per-file blob id"}
+  CreateCommit: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "filesAdded[].blobId was hardcoded empty (fixed prior pass); this pass: filesDeleted[].blobId was omitted entirely (now the real removed blob id, matching filesAdded), and ParentCommitIdOutdatedException/ParentCommitIdRequiredException were unreachable (missing from errCodeLookup — see Notes)"}
   GetCommit: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchGetCommits: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutFile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "blobId was hardcoded empty; now the real generated blob id, round-trips through GetBlob"}
+  PutFile: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "blobId was hardcoded empty (fixed prior pass); this pass: File.CommitSpecifier stored branchName instead of the real commit id, so GetFile's commitId field after a PutFile returned the branch name — now the real commit id. Also never recorded fileHistory, so files written via PutFile (not CreateCommit) were invisible to ListFileCommitHistory — now recorded"}
   GetFile: {wire: ok, errors: fixed, state: ok, persist: ok, note: "not-found now FileDoesNotExistException, was RepositoryDoesNotExistException"}
   GetFolder: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteFile: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "deleting a non-existent path silently fabricated a commit before; now FileDoesNotExistException. blobId in response was hardcoded empty; now the removed file's real blob id"}
+  DeleteFile: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "deleting a non-existent path silently fabricated a commit before; now FileDoesNotExistException. blobId in response was hardcoded empty; now the removed file's real blob id. This pass: parentCommitId was accepted and silently ignored (documented gap) — now required and validated against the branch tip (ParentCommitIdRequiredException/ParentCommitIdOutdatedException), matching real AWS's DeleteFileInput.ParentCommitId (a required field per the SDK's validators.go). Also never recorded fileHistory — now recorded"}
   GetBlob: {wire: ok, errors: fixed, state: ok, persist: ok, note: "not-found now BlobIdDoesNotExistException, was RepositoryDoesNotExistException"}
-  ListFileCommitHistory: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFileCommitHistory: {wire: fixed, errors: ok, state: fixed, persist: fixed, note: "revisionDag entries were raw Commit objects; real AWS's shape is FileVersion (blobId/path/commit/revisionChildren) — a real SDK client's FileVersion deserializer could not have read this response at all. Also added nextToken/maxResults pagination (was a documented deferred item) and fixed the underlying state gap: PutFile/DeleteFile never populated fileHistory (see those ops' notes), so single-file writes/deletes were invisible to this op even though it's the primary op AWS clients use to see a file's commit history"}
   CreateApprovalRuleTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   GetApprovalRuleTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteApprovalRuleTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -80,7 +80,7 @@ ops:
   PutCommentReaction: {wire: ok, errors: fixed, state: ok, persist: ok}
   UpdateComment: {wire: ok, errors: fixed, state: ok, persist: ok}
   DeleteCommentContent: {wire: ok, errors: fixed, state: ok, persist: ok}
-  GetDifferences: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetDifferences: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "was a documented deferred item (nextToken/maxResults accepted but not enforced); now paginated via pkgs/page. Also fixed a wire-shape bug: this op is the one CodeCommit exception to lowercase pagination field names — both request and response use MaxResults/NextToken (capital), verified against the SDK's generated (de)serializers; the handler previously used lowercase and so real pagination requests/responses were silently no-ops"}
   GetRepositoryTriggers: {wire: ok, errors: ok, state: ok, persist: ok}
   PutRepositoryTriggers: {wire: ok, errors: ok, state: ok, persist: ok}
   TestRepositoryTriggers: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always-succeed simulation; matches AWS's own TestRepositoryTriggers semantics (it doesn't invoke real destinations either)"}
@@ -89,13 +89,11 @@ families:
   pull_request_lifecycle: {status: ok, note: "create/list/get/update/status/events verified"}
   pull_request_approval: {status: ok, note: "rules, states, overrides, evaluation all mutate real backend state; 2 error-code fixes this pass"}
 gaps:
-  - "MergeBranchesBySquash/MergeBranchesByThreeWay handlers call the FastForward backend method verbatim (handler_ops.go handleMergeBranchesBySquash/handleMergeBranchesByThreeWay) — the merge *result* (a new commit + branch tip update) is real, but there's no content-level distinction between the three strategies. Root cause: the backend has no tree/blob diff-merge engine. Implementing real 3-way/squash merge semantics is a substantial feature, not a bug fix; out of scope for this pass. (bd: file follow-up)"
-  - "GetMergeConflicts/BatchDescribeMergeConflicts/DescribeMergeConflicts never report a real conflict: mergeable is always true and conflicts/mergeHunks are always empty, because the backend has no file-content diffing. This was true before this pass (backend.go's BatchDescribeMergeConflicts doc even says so) and DescribeMergeConflicts now correctly delegates to that same (still content-blind) logic instead of being a separate, less-validated stub. (bd: file follow-up)"
-  - "DeleteFile ignores parentCommitId entirely (never validates it against the branch tip), unlike CreateCommit which enforces ParentCommitIdOutdatedException. Real AWS requires parentCommitId to be the current HEAD. Low-risk since DeleteFile is typically called right after GetBranch in real clients, but a race with a concurrent commit would go undetected here. (bd: file follow-up)"
-deferred:
-  - GetDifferences pagination (nextToken/maxResults accepted but not enforced — returns full result set every call)
-  - ListFileCommitHistory pagination
-leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snapshot/Restore cover all state including the 3 dirty tables (comments, files, prApprovalRules)"}
+  - "MergeBranchesBySquash/MergeBranchesByThreeWay handlers call the FastForward backend method verbatim (handler_merges.go handleMergeBranchesBySquash/handleMergeBranchesByThreeWay) — the merge *result* (a new commit + branch tip update) is real, but there's no content-level distinction between the three strategies. Root cause, confirmed this pass by re-reading the file model end to end: File is stored flatly, keyed only by repoName|filePath (fileKey in store_setup.go) — there is no per-branch or per-commit file tree at all, so there is no 'source branch version' vs 'destination branch version' of a file to even diff, let alone merge. Implementing real 3-way/squash merge semantics is not a bug fix but a full data-model rework (branch- or commit-scoped file trees) touching PutFile/DeleteFile/CreateCommit/GetFile/GetFolder/GetDifferences and every other file-reading op; out of scope for this pass. (bd: file follow-up)"
+  - "GetMergeConflicts/BatchDescribeMergeConflicts/DescribeMergeConflicts never report a real conflict: mergeable is always true and conflicts/mergeHunks are always empty. Same root cause as the merge-strategy gap above (no per-branch file state to diff), re-confirmed this pass, not merely 'no content-diff engine' as previously stated — there is nothing to diff even in principle without a data-model change. (bd: file follow-up)"
+  - "SameFileContentException/FilePathConflictsWithSubmodulePathException (ErrSameFileContent/ErrFilePathConflicts in errors.go) are declared and now correctly wired into errCodeLookup (this pass), but no backend path ever returns them — PutFile/CreateCommit never compare new content against the existing blob at a path, and submodules aren't modeled at all. Confirmed via grep: both sentinels are referenced nowhere outside their own declaration. Implementing the same-content check is plausible follow-up work (compare content on PutFile/CreateCommit's putFiles entries); submodule-path conflict detection has no submodule concept to build on. Neither is a currently-documented AWS op family in this file's ops list, so left as a noted gap rather than a fixed op. (bd: file follow-up)"
+deferred: []
+leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snapshot/Restore cover all state including the 3 dirty tables (comments, files, prApprovalRules). Fixed this pass: DeleteRepository never cleaned up fileHistory[repoName], and never cascade-deleted comments (compared-commit comments by RepoName, PR comments by PRid) or their commentReactions — both are ghost-row leaks now closed (see Notes); locked by TestHandler_DeleteRepository_Cascade_FileHistory and TestHandler_DeleteRepository_Cascade_Comments."}
 ---
 
 ## Notes
@@ -151,17 +149,104 @@ vice versa via `sdk_completeness_test.go`.
    refactored from an 18-branch `switch` (tripped `cyclop`) into a table
    (`errCodeLookup`) so future sentinel additions don't grow its cyclomatic complexity.
 
+### Bugs fixed this pass (2026-07-23, HEAD aabde46b5)
+
+No commits touched `services/codecommit/` between the prior audit (`2ca17ef1`) and this
+one (`git log 2ca17ef1..HEAD -- services/codecommit/` is empty), so the prior pass's "ok"
+entries were re-verified rather than re-derived from scratch; the bugs below are new
+findings from field-diffing the file/commit/merge-conflict/pagination surface against
+`aws-sdk-go-v2/service/codecommit@v1.33.10`'s generated (de)serializers.
+
+1. **`ListFileCommitHistory`'s `revisionDag` was the wrong wire shape entirely.** Each
+   entry was a flattened `Commit` map (`commitId`/`treeId`/`message`/...) instead of AWS's
+   `FileVersion` shape (`blobId`/`path`/`commit`/`revisionChildren`, verified against
+   `awsAwsjson11_deserializeDocumentFileVersion` in the SDK's `deserializers.go`) — a real
+   SDK client's `FileVersion` deserializer would find no nested `commit` object and no
+   `blobId`/`path` at all. Fixed by having the backend return `[]FileVersionEntry`
+   (`models.go`) built from `fileHistory`, with `revisionChildren` computed as a linear
+   chain (this backend has no branch-aware file versioning — see the `gaps` entry on merge
+   conflicts for why) over the *unpaginated* history so a page boundary never truncates a
+   still-valid child reference.
+
+2. **`PutFile`/`DeleteFile` never recorded `fileHistory` at all** — only `CreateCommit`'s
+   `applyFileChanges` did. Since `PutFile` is the primary single-file write path, any file
+   added that way was invisible to `ListFileCommitHistory` when queried by `filePath`
+   (silently fell through to the always-empty-history branch). Fixed: both ops now call the
+   same `recordFileHistory` helper `CreateCommit` uses; `fileHistory`'s value type changed
+   from `[]string` (bare commit IDs) to `[]FileHistoryEntry` (commit ID + blob ID pairs, the
+   blob ID needed for bug #1's `FileVersion.BlobId`) — `codecommitSnapshotVersion` bumped
+   `1 -> 2` since this changes a persisted table's value shape.
+
+3. **`PutFile` stored the branch name, not the commit ID, in `File.CommitSpecifier`.**
+   `GetFile`'s `commitId` response field is documented as "the full commit ID of the commit
+   that contains the content" — after a `PutFile("repo", "main", ...)`, `GetFile` returned
+   `"main"` in that field instead of a real commit ID. `CreateCommit`'s `applyFileChanges`
+   already did this correctly (`CommitSpecifier: commitID`); `PutFile` now generates its
+   commit ID before constructing the `File` row and uses it the same way.
+
+4. **`GetDifferences` used lowercase pagination field names; AWS uses capitalized ones for
+   this one op.** Verified against the SDK's generated
+   `awsAwsjson11_serializeOpDocumentGetDifferencesInput` /
+   `awsAwsjson11_deserializeOpDocumentGetDifferencesOutput`: `MaxResults`/`NextToken` (both
+   request and response), unlike every other paginated op in this service which uses
+   lowercase `maxResults`/`nextToken`. Since the handler used lowercase, a real SDK client's
+   pagination requests were silent no-ops (always the first page). Fixed the field names and
+   implemented real pagination via `pkgs/page` (closing the `GetDifferences pagination`
+   deferred item); `ListFileCommitHistory` pagination (also previously deferred) was
+   implemented the same way with the correct lowercase names for that op.
+
+5. **`DeleteFile` accepted and silently ignored `parentCommitId`** (a documented gap).
+   Real AWS's `DeleteFileInput.ParentCommitId` is a **required** field (verified via the
+   SDK's `validateOpDeleteFileInput` in `validators.go`, which client-side rejects a nil
+   value before ever sending a request) and must be the branch's current HEAD. Fixed:
+   `DeleteFile` now returns `ParentCommitIdRequiredException` when empty and
+   `ParentCommitIdOutdatedException` when non-empty but stale, mirroring the check
+   `CreateCommit` already performs for its own `parentCommitId`.
+
+6. **`CreateCommit`'s `filesDeleted` entries never carried a `blobId`**, unlike
+   `filesAdded` (fixed in the prior pass). `FileMetadata.BlobId` (the type both arrays use)
+   is optional but informative — mirroring the fix already applied to the standalone
+   `DeleteFile` op (which does report the removed blob), `applyFileChanges` now also
+   returns the blob ID each `deleteFiles` entry removed, and the handler threads it through.
+
+7. **Six error sentinels were declared but missing from `errCodeLookup`, making them
+   unreachable.** `ErrBranchNameRequired`, `ErrInvalidBranchName` (both actively returned by
+   `validateBranchName`, used by `CreateBranch`), `ErrParentCommitIDRequired`,
+   `ErrParentCommitIDOutdated` (returned by `CreateCommit`, and now `DeleteFile` — see #5),
+   and the still-unused `ErrSameFileContent`/`ErrFilePathConflicts` (see `gaps`) were all
+   absent from the table `handleError` looks up in `handler.go`. Every error using one of
+   the four *active* sentinels fell through to a generic 400 `ValidationException` instead
+   of its real, SDK-matching exception name — meaning `CreateCommit` with a stale
+   `parentCommitId` has been returning the wrong exception type since before this pass, an
+   `errCodeLookup` gap the prior pass's own refactor (which introduced the table) didn't
+   catch because nothing exercised that path. All six now map to their real AWS exception
+   name (still 400, matching this table's existing all-client-errors-are-400 convention).
+
+8. **`DeleteRepository` leaked `fileHistory[repoName]` and every comment (+ reactions)
+   belonging to the repository.** `fileHistory` was never touched by the cascade at all.
+   Comments have no secondary index (`comments` is a "dirty" table — see the trap below) and
+   `GetComment(commentId)` does a pure by-ID lookup with no repository check, so a comment
+   survived its repository's deletion as a permanently-reachable ghost row; the same was
+   true of pull-request comments when their PR was cascade-deleted. Fixed:
+   `deleteCommentsForRepo`/`deleteCommentsForPR` helpers (`repositories.go`) sweep
+   `comments`/`commentReactions` by `RepoName`/`PRid`, and `fileHistory[repoName]` is now
+   `delete()`-d in the same cascade. Locked by
+   `TestHandler_DeleteRepository_Cascade_{Comments,FileHistory}`.
+
 ### Traps for the next auditor
 
 - `MergeBranchesBySquash`/`MergeBranchesByThreeWay` and the analogous
   `MergePullRequestBySquash`/`MergePullRequestByThreeWay` **look like** they implement
   distinct merge strategies but don't — this is a known, documented gap (see `gaps` above),
-  not something introduced this pass. Don't re-flag without also proposing the
-  diff/merge-conflict engine needed to fix it for real (large feature, not a bug fix).
+  not something introduced this pass. The root cause is now precisely identified (not just
+  "no diff engine"): `File` has no per-branch or per-commit identity at all (flat
+  `repoName|filePath` key, see `fileKey`), so there is no second version of a file to diff
+  against in the first place. Don't re-flag without also proposing the branch/commit-scoped
+  file-tree rework needed to fix it for real (large feature, not a bug fix).
 - `BatchDescribeMergeConflicts`'s own doc comment says "stub implementation" — that refers
   to the fact it never finds real conflicts (no content diffing), not that it's unwired;
   it does validate real backend state (repo existence) and is exercised correctly by both
-  `BatchDescribeMergeConflicts` and (after this pass) `DescribeMergeConflicts`.
+  `BatchDescribeMergeConflicts` and `DescribeMergeConflicts`.
 - `TestRepositoryTriggers` always reporting every trigger as a `successfulExecution` is
   *correct* emulator behavior, matching real AWS (which also doesn't actually invoke SNS
   and always reports success in the common case) — do not "fix" this into a stub-detector
@@ -170,3 +255,13 @@ vice versa via `sdk_completeness_test.go`.
   `b.registry`) persisted via DTOs in `persistence.go` — if you add a field to `Comment`,
   `File`, or `PullRequestApprovalRule`, you must also update the matching DTO
   (`commentSnapshot`/`fileSnapshot`/`prApprovalRuleSnapshot`) or it silently won't persist.
+- `fileHistory`'s value type is `[]FileHistoryEntry` (commit ID + blob ID), not the bare
+  `[]string` of commit IDs it was before this pass — if you touch it again, remember
+  `codecommitSnapshotVersion` must bump whenever its shape changes again (see the comment on
+  the constant in `persistence.go`).
+- `errCodeLookup` (`handler.go`) is checked by test coverage now (#7 above added tests for
+  the four previously-unreachable-but-active entries), but there's no automated check that
+  every sentinel declared in `errors.go` has a table entry — a new `awserr.New(...)`
+  sentinel with no matching `errCodeLookup` row will silently fall through to generic
+  `ValidationException` again. Diff `errors.go`'s `Err*` declarations against
+  `errCodeLookup`'s `sentinel:` entries by hand if you add or suspect one.

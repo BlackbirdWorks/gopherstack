@@ -78,7 +78,8 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	delete(b.repositoriesByARN, r.ARN)
 	r.Tags.Close()
 
-	// Cascade: remove branches, commits, template-associations, files, triggers.
+	// Cascade: remove branches, commits, template-associations, files,
+	// fileHistory, triggers.
 	for _, br := range append([]*Branch{}, b.branchesByRepo.Get(name)...) {
 		b.branches.Delete(branchKey(name, br.BranchName))
 	}
@@ -89,9 +90,17 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	for _, f := range append([]*File{}, b.filesByRepo.Get(name)...) {
 		b.files.Delete(fileKey(name, f.FilePath))
 	}
+	delete(b.fileHistory, name)
 	delete(b.triggers, name)
 
-	// Cascade: remove pull requests that target this repository.
+	// Cascade: remove compared-commit comments (and their reactions) that
+	// belong directly to this repository — these are not reachable through
+	// any pull request, so they must be swept independently of the PR loop
+	// below.
+	b.deleteCommentsForRepo(name)
+
+	// Cascade: remove pull requests that target this repository, and every
+	// PR comment (+ reactions) that belongs to one of them.
 	for _, pr := range b.pullRequests.All() {
 		for _, t := range pr.PullRequestTargets {
 			if t.RepositoryName == name {
@@ -106,6 +115,7 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 				delete(b.prOverrides, prID)
 				delete(b.prOverriders, prID)
 				delete(b.prEvents, prID)
+				b.deleteCommentsForPR(prID)
 
 				break
 			}
@@ -113,6 +123,32 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	}
 
 	return &cp, nil
+}
+
+// deleteCommentsForRepo removes every compared-commit comment (and its
+// reactions) whose RepoName is repoName. comments has no secondary index (it
+// is a "dirty" table — see store_setup.go), so this scans the full table;
+// acceptable since it only runs on the already-O(n)-cascade DeleteRepository
+// path. Caller must hold the write lock.
+func (b *InMemoryBackend) deleteCommentsForRepo(repoName string) {
+	for _, c := range b.comments.All() {
+		if c.RepoName == repoName {
+			b.comments.Delete(c.CommentID)
+			delete(b.commentReactions, c.CommentID)
+		}
+	}
+}
+
+// deleteCommentsForPR removes every pull-request comment (and its reactions)
+// whose PRid is prID. See deleteCommentsForRepo's doc for why this scans the
+// full table. Caller must hold the write lock.
+func (b *InMemoryBackend) deleteCommentsForPR(prID string) {
+	for _, c := range b.comments.All() {
+		if c.PRid == prID {
+			b.comments.Delete(c.CommentID)
+			delete(b.commentReactions, c.CommentID)
+		}
+	}
 }
 
 // ListRepositories returns all repositories sorted by name.

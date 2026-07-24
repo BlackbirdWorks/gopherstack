@@ -41,6 +41,14 @@ func TestHandler_PutFile_GetFile(t *testing.T) {
 	assert.Equal(t, "hello.txt", resp["filePath"])
 	assert.Equal(t, putBlobID, resp["blobId"], "GetFile's blobId must match the blobId PutFile returned")
 
+	// AWS's GetFileOutput.CommitId is "the full commit ID of the commit that
+	// contains the content" — it must be the commit PutFile created, not the
+	// branch name (a prior bug stored the branch name in File.CommitSpecifier).
+	putCommitID, _ := putResp["commitId"].(string)
+	require.NotEmpty(t, putCommitID)
+	assert.NotEqual(t, "main", resp["commitId"], "GetFile's commitId must not be the branch name")
+	assert.Equal(t, putCommitID, resp["commitId"], "GetFile's commitId must be the commit PutFile created")
+
 	// The blob ID PutFile returns must be usable with GetBlob (round trip).
 	rec = doRequest(t, h, "GetBlob", map[string]any{
 		"repositoryName": "file-repo",
@@ -92,12 +100,16 @@ func TestHandler_DeleteFile(t *testing.T) {
 	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
 	putBlobID, _ := putResp["blobId"].(string)
 	require.NotEmpty(t, putBlobID)
+	putCommitID, _ := putResp["commitId"].(string)
+	require.NotEmpty(t, putCommitID)
 
+	// parentCommitId must be the current branch tip (PutFile's commit) —
+	// real AWS returns ParentCommitIdOutdatedException otherwise.
 	rec := doRequest(t, h, "DeleteFile", map[string]any{
 		"repositoryName": "del-file-repo",
 		"branchName":     "main",
 		"filePath":       "todelete.txt",
-		"parentCommitId": "abc",
+		"parentCommitId": putCommitID,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -126,6 +138,66 @@ func TestHandler_DeleteFile_NotFound(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "FileDoesNotExistException", resp["__type"])
+}
+
+// TestHandler_DeleteFile_ParentCommitIdRequired verifies that AWS's
+// ParentCommitId (a required DeleteFileInput field per
+// aws-sdk-go-v2/service/codecommit's validators.go) is enforced: omitting it
+// against a file that does exist must not silently succeed.
+func TestHandler_DeleteFile_ParentCommitIdRequired(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "del-file-repo-3"})
+	doRequest(t, h, "PutFile", map[string]any{
+		"repositoryName": "del-file-repo-3",
+		"branchName":     "main",
+		"filePath":       "keep.txt",
+		"fileContent":    "a2VlcA==",
+	})
+
+	rec := doRequest(t, h, "DeleteFile", map[string]any{
+		"repositoryName": "del-file-repo-3",
+		"branchName":     "main",
+		"filePath":       "keep.txt",
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ParentCommitIdRequiredException", resp["__type"])
+}
+
+// TestHandler_DeleteFile_ParentCommitIdOutdated verifies that a
+// parentCommitId not matching the branch's current tip is rejected with
+// ParentCommitIdOutdatedException, the same way CreateCommit already
+// enforces this for its own parentCommitId.
+func TestHandler_DeleteFile_ParentCommitIdOutdated(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "del-file-repo-4"})
+	doRequest(t, h, "PutFile", map[string]any{
+		"repositoryName": "del-file-repo-4",
+		"branchName":     "main",
+		"filePath":       "keep.txt",
+		"fileContent":    "a2VlcA==",
+	})
+
+	rec := doRequest(t, h, "DeleteFile", map[string]any{
+		"repositoryName": "del-file-repo-4",
+		"branchName":     "main",
+		"filePath":       "keep.txt",
+		"parentCommitId": "not-the-real-tip",
+	})
+	// This service's errCodeLookup maps every client-fault CodeCommit
+	// exception to 400 (see handler.go), including "conflict"-shaped ones
+	// like ParentCommitIdOutdatedException — not 409.
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ParentCommitIdOutdatedException", resp["__type"])
 }
 
 func TestHandler_GetBlob(t *testing.T) {
@@ -178,6 +250,188 @@ func TestHandler_ListFileCommitHistory(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotNil(t, resp["revisionDag"])
+}
+
+// TestHandler_ListFileCommitHistory_RevisionDagShape locks AWS's FileVersion
+// wire shape for each revisionDag entry (blobId/path/commit/revisionChildren)
+// — a prior version of this handler returned raw Commit objects in
+// revisionDag, which a real SDK client's FileVersion deserializer cannot
+// read (it looks for a nested "commit" object, not flattened commit fields).
+// It also locks revisionChildren linkage: an older entry must reference the
+// commit ID of the newer entry that touched the same path, and the newest
+// entry must have none.
+func TestHandler_ListFileCommitHistory_RevisionDagShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "dag-repo"})
+
+	firstRec := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "dag-repo",
+		"branchName":     "main",
+		"putFiles": []map[string]any{
+			{"filePath": "main.go", "fileContent": "dmVyc2lvbjE="},
+		},
+	})
+	require.Equal(t, http.StatusOK, firstRec.Code)
+	var firstResp map[string]any
+	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &firstResp))
+	firstCommitID, _ := firstResp["commitId"].(string)
+	require.NotEmpty(t, firstCommitID)
+
+	secondRec := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "dag-repo",
+		"branchName":     "main",
+		"putFiles": []map[string]any{
+			{"filePath": "main.go", "fileContent": "dmVyc2lvbjI="},
+		},
+	})
+	require.Equal(t, http.StatusOK, secondRec.Code)
+	var secondResp map[string]any
+	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &secondResp))
+	secondCommitID, _ := secondResp["commitId"].(string)
+	require.NotEmpty(t, secondCommitID)
+
+	rec := doRequest(t, h, "ListFileCommitHistory", map[string]any{
+		"repositoryName": "dag-repo",
+		"filePath":       "main.go",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	dag, ok := resp["revisionDag"].([]any)
+	require.True(t, ok)
+	require.Len(t, dag, 2)
+
+	older, ok := dag[0].(map[string]any)
+	require.True(t, ok)
+	newer, ok := dag[1].(map[string]any)
+	require.True(t, ok)
+
+	for _, entry := range []map[string]any{older, newer} {
+		assert.Contains(t, entry, "blobId")
+		assert.Equal(t, "main.go", entry["path"])
+		commitObj, commitOK := entry["commit"].(map[string]any)
+		require.True(t, commitOK, "revisionDag entry's \"commit\" field must be a nested object")
+		assert.NotEmpty(t, commitObj["commitId"])
+		assert.NotEmpty(t, commitObj["treeId"])
+	}
+
+	olderCommit := older["commit"].(map[string]any)
+	newerCommit := newer["commit"].(map[string]any)
+	assert.Equal(t, firstCommitID, olderCommit["commitId"])
+	assert.Equal(t, secondCommitID, newerCommit["commitId"])
+
+	olderChildren, ok := older["revisionChildren"].([]any)
+	require.True(t, ok)
+	require.Len(t, olderChildren, 1)
+	assert.Equal(t, secondCommitID, olderChildren[0],
+		"the older revision's revisionChildren must point at the newer commit")
+
+	newerChildren, ok := newer["revisionChildren"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, newerChildren, "the newest revision has no more recent versions")
+}
+
+// TestHandler_ListFileCommitHistory_IncludesPutFileWrites verifies that a
+// file written via the standalone PutFile op (not CreateCommit) shows up in
+// ListFileCommitHistory. PutFile previously never recorded fileHistory at
+// all, so single-file writes were invisible to this op even though AWS's
+// ListFileCommitHistory doc says it returns every commit that changed the
+// file regardless of which op created that commit.
+func TestHandler_ListFileCommitHistory_IncludesPutFileWrites(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "putfile-hist-repo"})
+	doRequest(t, h, "PutFile", map[string]any{
+		"repositoryName": "putfile-hist-repo",
+		"branchName":     "main",
+		"filePath":       "solo.txt",
+		"fileContent":    "c29sbw==",
+	})
+
+	rec := doRequest(t, h, "ListFileCommitHistory", map[string]any{
+		"repositoryName": "putfile-hist-repo",
+		"filePath":       "solo.txt",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	dag, ok := resp["revisionDag"].([]any)
+	require.True(t, ok)
+	require.Len(t, dag, 1, "the PutFile commit must appear in the file's history")
+}
+
+// TestHandler_ListFileCommitHistory_Pagination verifies nextToken/maxResults
+// paginate revisionDag and every commit surfaces exactly once across pages.
+func TestHandler_ListFileCommitHistory_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "page-hist-repo"})
+
+	commitIDs := make([]string, 0, 5)
+	for i := range 5 {
+		rec := doRequest(t, h, "CreateCommit", map[string]any{
+			"repositoryName": "page-hist-repo",
+			"branchName":     "main",
+			"commitMessage":  fmt.Sprintf("commit %d", i),
+			"putFiles": []map[string]any{
+				{"filePath": "main.go", "fileContent": "dmVyc2lvbg=="},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		id, _ := resp["commitId"].(string)
+		require.NotEmpty(t, id)
+		commitIDs = append(commitIDs, id)
+	}
+
+	seen := map[string]bool{}
+	nextToken := ""
+
+	for range 10 {
+		req := map[string]any{
+			"repositoryName": "page-hist-repo",
+			"filePath":       "main.go",
+			"maxResults":     2,
+		}
+		if nextToken != "" {
+			req["nextToken"] = nextToken
+		}
+
+		rec := doRequest(t, h, "ListFileCommitHistory", req)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		dag, ok := resp["revisionDag"].([]any)
+		require.True(t, ok)
+		assert.LessOrEqual(t, len(dag), 2, "each page must respect maxResults")
+
+		for _, raw := range dag {
+			entry, entryOK := raw.(map[string]any)
+			require.True(t, entryOK)
+			commitObj, commitOK := entry["commit"].(map[string]any)
+			require.True(t, commitOK)
+			id, _ := commitObj["commitId"].(string)
+			require.NotEmpty(t, id)
+			assert.False(t, seen[id], "commit %s must not repeat across pages", id)
+			seen[id] = true
+		}
+
+		next, hasNext := resp["nextToken"].(string)
+		if !hasNext || next == "" {
+			break
+		}
+		nextToken = next
+	}
+
+	assert.Len(t, seen, len(commitIDs), "pagination must eventually surface every commit exactly once")
 }
 
 func TestHandler_ListFileCommitHistory_TableDriven(t *testing.T) {
@@ -256,6 +510,8 @@ func TestHandler_FileLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "src/main.go", resp["filePath"])
 	assert.NotEmpty(t, resp["blobId"])
+	putCommitID, _ := resp["commitId"].(string)
+	require.NotEmpty(t, putCommitID, "GetFile's commitId must be the real commit ID PutFile created")
 
 	// Get folder.
 	rec = doRequest(t, h, "GetFolder", map[string]any{
@@ -272,11 +528,13 @@ func TestHandler_FileLifecycle(t *testing.T) {
 	blobID := resp["files"].([]any) // We need blobId from GetFile
 	_ = blobID
 
-	// Delete file.
+	// Delete file. parentCommitId must be the current branch tip (real AWS
+	// requires it and rejects a stale value with ParentCommitIdOutdatedException).
 	rec = doRequest(t, h, "DeleteFile", map[string]any{
 		"repositoryName": "repo",
 		"branchName":     "main",
 		"filePath":       "src/main.go",
+		"parentCommitId": putCommitID,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

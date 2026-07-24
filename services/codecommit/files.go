@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/google/uuid"
 )
 
@@ -19,19 +20,27 @@ func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content
 		return nil, "", fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
+	commitID := uuid.NewString()
+	treeID := uuid.NewString()
+	now := time.Now().UTC()
+
 	blobID := uuid.NewString()
 	b.files.Put(&File{
-		FilePath:        filePath,
-		CommitSpecifier: branchName,
+		FilePath: filePath,
+		// CommitSpecifier is the commit that produced this version of the
+		// file — AWS's GetFile/GetFileOutput.CommitId documents it as "the
+		// full commit ID of the commit that contains the content". It must
+		// NOT be the branch name (a prior bug here stored branchName,
+		// meaning GetFile after PutFile returned the branch name where AWS
+		// clients expect a commit ID).
+		CommitSpecifier: commitID,
 		BlobID:          blobID,
 		FileMode:        fileModeDefault,
 		FileContent:     content,
 		RepoName:        repoName,
 	})
+	b.recordFileHistory(repoName, filePath, commitID, blobID)
 
-	commitID := uuid.NewString()
-	treeID := uuid.NewString()
-	now := time.Now().UTC()
 	commit := &Commit{
 		CommitID:       commitID,
 		TreeID:         treeID,
@@ -135,8 +144,16 @@ func (b *InMemoryBackend) GetFolderFiles(repoName, _ /* commitSpecifier */, fold
 // AWS rejects deletion of a path that does not exist with
 // FileDoesNotExistException, so callers must not be able to fabricate a
 // delete commit for a file that was never there.
+//
+// parentCommitId is a required field on AWS's DeleteFileInput (unlike
+// CreateCommit, where it is optional) — verified against
+// aws-sdk-go-v2/service/codecommit's validators.go, which client-side rejects
+// a DeleteFileInput with a nil ParentCommitId before ever making a request.
+// Real AWS documents it as "must be the HEAD commit for the branch", so a
+// non-empty value that does not match the current branch tip is rejected the
+// same way CreateCommit rejects a stale parentCommitId.
 func (b *InMemoryBackend) DeleteFile(
-	repoName, branchName, filePath, _ /* parentCommitID */ string,
+	repoName, branchName, filePath, parentCommitID string,
 ) (*Commit, string, error) {
 	b.mu.Lock("DeleteFile")
 	defer b.mu.Unlock()
@@ -151,6 +168,26 @@ func (b *InMemoryBackend) DeleteFile(
 	}
 	blobID := existing.BlobID
 
+	var currentTip string
+	if branchName != "" {
+		if br, branchOK := b.branches.Get(branchKey(repoName, branchName)); branchOK {
+			currentTip = br.CommitID
+		}
+	}
+
+	if parentCommitID == "" {
+		return nil, "", fmt.Errorf(
+			"%w: parentCommitId is required and must be the current tip of branch %s",
+			ErrParentCommitIDRequired, branchName,
+		)
+	}
+	if currentTip != "" && parentCommitID != currentTip {
+		return nil, "", fmt.Errorf(
+			"%w: parentCommitId %s does not match current branch tip %s",
+			ErrParentCommitIDOutdated, parentCommitID, currentTip,
+		)
+	}
+
 	b.files.Delete(fileKey(repoName, filePath))
 
 	commitID := uuid.NewString()
@@ -164,6 +201,7 @@ func (b *InMemoryBackend) DeleteFile(
 		CreatedAt:      now,
 	}
 	b.commits.Put(commit)
+	b.recordFileHistory(repoName, filePath, commitID, blobID)
 
 	// Update branch tip
 	if branchName != "" {
@@ -201,46 +239,100 @@ func (b *InMemoryBackend) GetBlob(repoName, blobID string) ([]byte, error) {
 	return nil, fmt.Errorf("%w: blob %s not found", ErrBlobNotFound, blobID)
 }
 
-// ListFileCommitHistory returns commits that touched the given filePath.
-// When filePath is empty, all commits for the repository are returned.
-func (b *InMemoryBackend) ListFileCommitHistory(repoName, filePath string) ([]*Commit, error) {
+// listFileCommitHistoryDefaultMaxResults is applied when the caller does not
+// supply a positive maxResults.
+const listFileCommitHistoryDefaultMaxResults = 100
+
+// ListFileCommitHistory returns a page of FileVersionEntry describing the
+// commits that touched the given filePath, oldest first, each paired with
+// the blob ID that commit wrote for the path (empty when that commit deleted
+// it). When filePath is empty (real AWS marks FilePath required, but a raw
+// HTTP client could omit it), every commit in the repository is returned
+// instead, with FilePath/BlobID left empty since no single path applies.
+func (b *InMemoryBackend) ListFileCommitHistory(
+	repoName, filePath, nextToken string, maxResults int,
+) (page.Page[FileVersionEntry], error) {
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[FileVersionEntry]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
 	b.mu.RLock("ListFileCommitHistory")
 	defer b.mu.RUnlock()
 
 	if !b.repositories.Has(repoName) {
-		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+		return page.Page[FileVersionEntry]{}, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
+	var entries []FileVersionEntry
 	if filePath == "" {
-		repoCommits := b.commitsByRepo.Get(repoName)
-		result := make([]*Commit, 0, len(repoCommits))
-		for _, c := range repoCommits {
-			cp := *c
-			cp.Parents = make([]string, len(c.Parents))
-			copy(cp.Parents, c.Parents)
-			result = append(result, &cp)
-		}
-
-		return result, nil
+		entries = b.allRepoCommitVersions(repoName)
+	} else {
+		entries = b.fileVersionsForPath(repoName, filePath)
 	}
 
-	// Use fileHistory to find all commits that touched this file path.
-	commitIDs, ok := b.fileHistory[repoName][filePath]
-	if !ok || len(commitIDs) == 0 {
-		return []*Commit{}, nil
+	return page.New(entries, nextToken, maxResults, listFileCommitHistoryDefaultMaxResults), nil
+}
+
+// allRepoCommitVersions builds one FileVersionEntry per commit in repoName,
+// oldest first, with no specific FilePath/BlobID (used only for the
+// filePath=="" convenience case — see ListFileCommitHistory). Caller must
+// hold at least a read lock.
+func (b *InMemoryBackend) allRepoCommitVersions(repoName string) []FileVersionEntry {
+	// Index.Get's returned slice is owned by the index and must not be
+	// mutated (including by sort.Slice) — copy before sorting.
+	indexed := b.commitsByRepo.Get(repoName)
+	repoCommits := make([]*Commit, len(indexed))
+	copy(repoCommits, indexed)
+	sort.Slice(repoCommits, func(i, j int) bool {
+		return repoCommits[i].CreatedAt.Before(repoCommits[j].CreatedAt)
+	})
+
+	entries := make([]FileVersionEntry, 0, len(repoCommits))
+	for _, c := range repoCommits {
+		cp := *c
+		cp.Parents = append([]string(nil), c.Parents...)
+		entries = append(entries, FileVersionEntry{Commit: &cp})
 	}
 
-	result := make([]*Commit, 0, len(commitIDs))
-	for _, commitID := range commitIDs {
-		c, exists := b.commits.Get(commitKey(repoName, commitID))
+	linkRevisionChildren(entries)
+
+	return entries
+}
+
+// fileVersionsForPath builds one FileVersionEntry per fileHistory record for
+// repoName/filePath, oldest first. Caller must hold at least a read lock.
+func (b *InMemoryBackend) fileVersionsForPath(repoName, filePath string) []FileVersionEntry {
+	history := b.fileHistory[repoName][filePath]
+	entries := make([]FileVersionEntry, 0, len(history))
+
+	for _, h := range history {
+		c, exists := b.commits.Get(commitKey(repoName, h.CommitID))
 		if !exists {
 			continue
 		}
 		cp := *c
-		cp.Parents = make([]string, len(c.Parents))
-		copy(cp.Parents, c.Parents)
-		result = append(result, &cp)
+		cp.Parents = append([]string(nil), c.Parents...)
+		entries = append(entries, FileVersionEntry{Commit: &cp, FilePath: filePath, BlobID: h.BlobID})
 	}
 
-	return result, nil
+	linkRevisionChildren(entries)
+
+	return entries
+}
+
+// linkRevisionChildren sets each entry's RevisionChildren to the commit ID of
+// the next (more recent) entry, matching AWS's FileVersion.RevisionChildren
+// doc ("array of commit IDs that contain more recent versions of this
+// file"). Our history is a simple oldest-first chain (no branch-aware
+// versioning — see the models.go doc on File), so each entry has at most one
+// child; the last entry has none. Must run over the full, unpaginated slice
+// so a page boundary never truncates a still-valid child reference.
+func linkRevisionChildren(entries []FileVersionEntry) {
+	for i := range entries {
+		if i+1 < len(entries) {
+			entries[i].RevisionChildren = []string{entries[i+1].Commit.CommitID}
+		} else {
+			entries[i].RevisionChildren = []string{}
+		}
+	}
 }
