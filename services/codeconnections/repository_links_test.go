@@ -461,24 +461,30 @@ func TestListRepositoryLinksPagination(t *testing.T) {
 	}
 }
 
-// TestRepositoryLinkTagsInListItem verifies that tags appear in ListRepositoryLinks items.
-func TestRepositoryLinkTagsInListItem(t *testing.T) {
+// TestRepositoryLinkNoTagsFieldInListItem verifies that ListRepositoryLinks
+// (and CreateRepositoryLink/GetRepositoryLink) items have NO "Tags" field:
+// the real RepositoryLinkInfo wire type (aws-sdk-go-v2/service/
+// codeconnections@v1.10.22 types.RepositoryLinkInfo) has no Tags member at
+// all -- tags for a repository link are retrievable only via
+// ListTagsForResource, exercised here too so the tags themselves are not
+// lost, just moved to the right operation.
+func TestRepositoryLinkNoTagsFieldInListItem(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		tags     []map[string]string
-		wantTags int
+		name      string
+		tags      []map[string]string
+		wantCount int
 	}{
 		{
-			name:     "tags_in_list_item",
-			tags:     []map[string]string{{"Key": "owner", "Value": "ops"}},
-			wantTags: 1,
+			name:      "tags_retrievable_via_list_tags_for_resource",
+			tags:      []map[string]string{{"Key": "owner", "Value": "ops"}},
+			wantCount: 1,
 		},
 		{
-			name:     "no_tags_empty_in_list_item",
-			tags:     nil,
-			wantTags: 0,
+			name:      "no_tags",
+			tags:      nil,
+			wantCount: 0,
 		},
 	}
 
@@ -501,6 +507,13 @@ func TestRepositoryLinkTagsInListItem(t *testing.T) {
 			rec := doJSON(t, h, "CreateRepositoryLink", body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
+			createInfo := parseResp(t, rec)["RepositoryLinkInfo"].(map[string]any)
+			_, hasTagsOnCreate := createInfo["Tags"]
+			assert.False(t, hasTagsOnCreate, "RepositoryLinkInfo must not carry a Tags field")
+
+			linkArn, _ := createInfo["RepositoryLinkArn"].(string)
+			require.NotEmpty(t, linkArn)
+
 			rec = doJSON(t, h, "ListRepositoryLinks", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -509,8 +522,14 @@ func TestRepositoryLinkTagsInListItem(t *testing.T) {
 			require.Len(t, links, 1)
 
 			linkMap := links[0].(map[string]any)
-			tags, _ := linkMap["Tags"].([]any)
-			assert.Len(t, tags, tt.wantTags)
+			_, hasTags := linkMap["Tags"]
+			assert.False(t, hasTags, "RepositoryLinkInfo list item must not carry a Tags field")
+
+			// Tags are still real state, retrievable via ListTagsForResource.
+			tagRec := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": linkArn})
+			require.Equal(t, http.StatusOK, tagRec.Code)
+			gotTags, _ := parseResp(t, tagRec)["Tags"].([]any)
+			assert.Len(t, gotTags, tt.wantCount)
 		})
 	}
 }
@@ -550,7 +569,7 @@ func TestDeleteRepositoryLink_InUse(t *testing.T) {
 			if tt.attachSync {
 				_, syncErr := b.CreateSyncConfiguration(
 					ctx, "main", "sync.yaml", link.RepositoryLinkID, "my-stack",
-					"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "",
+					"arn:aws:iam::123456789012:role/r", "CFN_STACK_SYNC", "", "", "",
 				)
 				require.NoError(t, syncErr)
 			}

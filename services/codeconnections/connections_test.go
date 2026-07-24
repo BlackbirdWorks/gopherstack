@@ -788,14 +788,14 @@ func TestErrorPaths(t *testing.T) {
 			action:      "CreateConnection",
 			body:        map[string]any{"ConnectionName": "bad-conn"},
 			wantCode:    http.StatusBadRequest,
-			wantErrType: "ValidationException",
+			wantErrType: "InvalidInputException",
 		},
 		{
 			name:        "GetHost missing HostArn",
 			action:      "GetHost",
 			body:        map[string]any{},
 			wantCode:    http.StatusBadRequest,
-			wantErrType: "ValidationException",
+			wantErrType: "InvalidInputException",
 		},
 	}
 

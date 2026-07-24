@@ -77,16 +77,58 @@ type getResourceSyncStatusInput struct {
 	SyncType     string `json:"SyncType"`
 }
 
-// resourceSyncAttemptItem is the wire shape of a resource sync attempt.
-// StartedAt is an epoch-seconds JSON number on the wire, not an RFC3339 string.
-type resourceSyncAttemptItem struct {
-	Status    string          `json:"Status"`
-	Events    []syncEventItem `json:"Events"`
-	StartedAt float64         `json:"StartedAt"`
+// revisionItem is the wire shape of a Revision (aws-sdk-go-v2/service/
+// codeconnections@v1.10.22 types.Revision -- all six members are required).
+type revisionItem struct {
+	Branch         string `json:"Branch"`
+	Directory      string `json:"Directory"`
+	OwnerID        string `json:"OwnerId"`
+	ProviderType   string `json:"ProviderType"`
+	RepositoryName string `json:"RepositoryName"`
+	Sha            string `json:"Sha"`
 }
 
+// revisionToItem converts a backend Revision to its wire shape. Struct tags
+// are ignored by Go's conversion rules, so this is a plain type conversion
+// as long as revisionItem's field names/types/order keep matching Revision's.
+func revisionToItem(r Revision) revisionItem {
+	return revisionItem(r)
+}
+
+// resourceSyncAttemptItem is the wire shape of a resource sync attempt
+// (aws-sdk-go-v2/service/codeconnections@v1.10.22 types.ResourceSyncAttempt).
+// StartedAt is an epoch-seconds JSON number on the wire, not an RFC3339
+// string. Events/InitialRevision/StartedAt/Status/Target/TargetRevision are
+// all required wire members -- InitialRevision/Target/TargetRevision were
+// previously missing entirely from this response shape.
+type resourceSyncAttemptItem struct {
+	InitialRevision revisionItem    `json:"InitialRevision"`
+	TargetRevision  revisionItem    `json:"TargetRevision"`
+	Status          string          `json:"Status"`
+	Target          string          `json:"Target"`
+	Events          []syncEventItem `json:"Events"`
+	StartedAt       float64         `json:"StartedAt"`
+}
+
+func resourceSyncAttemptToItem(a ResourceSyncAttempt) resourceSyncAttemptItem {
+	return resourceSyncAttemptItem{
+		StartedAt:       awstime.Epoch(a.StartedAt),
+		Status:          a.Status,
+		Target:          a.Target,
+		InitialRevision: revisionToItem(a.InitialRevision),
+		TargetRevision:  revisionToItem(a.TargetRevision),
+		Events:          buildSyncEventItems(a.Events),
+	}
+}
+
+// getResourceSyncStatusOutput is the GetResourceSyncStatusOutput wire shape.
+// DesiredState/LatestSuccessfulSync are optional in the real shape but this
+// backend always has them once a sync configuration exists (see
+// GetResourceSyncStatus), so they are populated whenever LatestSync is.
 type getResourceSyncStatusOutput struct {
-	LatestSync resourceSyncAttemptItem `json:"LatestSync"`
+	DesiredState         *revisionItem            `json:"DesiredState,omitempty"`
+	LatestSuccessfulSync *resourceSyncAttemptItem `json:"LatestSuccessfulSync,omitempty"`
+	LatestSync           resourceSyncAttemptItem  `json:"LatestSync"`
 }
 
 func (h *Handler) handleGetResourceSyncStatus(
@@ -106,15 +148,18 @@ func (h *Handler) handleGetResourceSyncStatus(
 		return nil, err
 	}
 
-	events := buildSyncEventItems(status.Events)
+	desiredState := revisionToItem(status.DesiredState)
+	out := &getResourceSyncStatusOutput{
+		LatestSync:   resourceSyncAttemptToItem(status.LatestSync),
+		DesiredState: &desiredState,
+	}
 
-	return &getResourceSyncStatusOutput{
-		LatestSync: resourceSyncAttemptItem{
-			StartedAt: awstime.Epoch(status.StartedAt),
-			Status:    status.Status,
-			Events:    events,
-		},
-	}, nil
+	if status.LatestSuccessfulSync != nil {
+		item := resourceSyncAttemptToItem(*status.LatestSuccessfulSync)
+		out.LatestSuccessfulSync = &item
+	}
+
+	return out, nil
 }
 
 // buildSyncEventItems converts backend SyncEvents to handler response items.
@@ -145,7 +190,17 @@ type repositorySyncDefinitionItem struct {
 	Target    string `json:"Target"`
 }
 
+// listRepositorySyncDefinitionsOutput is the ListRepositorySyncDefinitionsOutput
+// wire shape. The real output has an optional NextToken member, but the real
+// input (ListRepositorySyncDefinitionsInput) has NO NextToken/MaxResults
+// member at all (confirmed against aws-sdk-go-v2/service/codeconnections@
+// v1.10.22's ListRepositorySyncDefinitionsInput struct and botocore's
+// paginators-1.json, which has an empty pagination config for this op) --
+// a real client has no way to ever request a further page, so this
+// emulation always returns every definition in one response and NextToken
+// stays nil/omitted.
 type listRepositorySyncDefinitionsOutput struct {
+	NextToken                 *string                        `json:"NextToken,omitempty"`
 	RepositorySyncDefinitions []repositorySyncDefinitionItem `json:"RepositorySyncDefinitions"`
 }
 

@@ -97,7 +97,7 @@ func seedFullState(t *testing.T, b *codeconnections.InMemoryBackend) seededState
 
 	eastCfg, err := b.CreateSyncConfiguration(
 		ctxEast, "main", "cfg.yaml", eastLink.RepositoryLinkID, "east-stack", "arn:role", "CFN_STACK_SYNC",
-		"ENABLED", "ANY_CHANGE",
+		"ENABLED", "ANY_CHANGE", "ENABLED",
 	)
 	require.NoError(t, err)
 
@@ -183,6 +183,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, eastCfg.RoleArn, gotCfg.RoleArn)
 	assert.Equal(t, "ENABLED", gotCfg.PublishDeploymentStatus)
 	assert.Equal(t, "ANY_CHANGE", gotCfg.TriggerResourceUpdateOn)
+	assert.Equal(t, "ENABLED", gotCfg.PullRequestComment,
+		"PullRequestComment must survive the syncConfigurations DTO round trip")
 
 	_, err = restored.GetSyncConfiguration(ctxWest, "east-stack", "CFN_STACK_SYNC")
 	require.ErrorIs(t, err, codeconnections.ErrNotFound,
