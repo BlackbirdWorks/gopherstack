@@ -281,6 +281,65 @@ func TestApplyGuardrail_OutputsMirrorInput(t *testing.T) {
 	}
 }
 
+func TestApplyGuardrail_AssessmentsReflectBlockedMatch(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/guardrail/my-guardrail/version/1/apply",
+		map[string]any{
+			"source": "INPUT",
+			"content": []map[string]any{
+				{"text": map[string]any{"text": "This is toxic content."}},
+			},
+		})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Equal(t, "BLOCKED", out["action"])
+
+	assessments, ok := out["assessments"].([]any)
+	require.True(t, ok)
+	require.Len(t, assessments, 1, "BLOCKED action must report the policy match, not an empty assessments list")
+
+	assessment := assessments[0].(map[string]any)
+	wordPolicy, ok := assessment["wordPolicy"].(map[string]any)
+	require.True(t, ok, "assessment must carry a wordPolicy reflecting the matched keyword")
+
+	customWords, ok := wordPolicy["customWords"].([]any)
+	require.True(t, ok)
+	require.Len(t, customWords, 1)
+
+	match := customWords[0].(map[string]any)
+	assert.Equal(t, "toxic", match["match"])
+	assert.Equal(t, "BLOCKED", match["action"])
+	assert.Equal(t, true, match["detected"])
+}
+
+func TestApplyGuardrail_AssessmentsEmptyForNoneAction(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/guardrail/my-guardrail/version/1/apply",
+		map[string]any{
+			"source": "INPUT",
+			"content": []map[string]any{
+				{"text": map[string]any{"text": "Tell me about the weather."}},
+			},
+		})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Equal(t, "NONE", out["action"])
+
+	assessments, ok := out["assessments"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, assessments)
+}
+
 func TestApplyGuardrail_MissingParameters(t *testing.T) {
 	t.Parallel()
 

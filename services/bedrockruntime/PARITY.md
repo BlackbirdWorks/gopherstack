@@ -6,32 +6,35 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockruntime
 sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.50.1
-last_audit_commit: 7262a2b0
-last_audit_date: 2026-07-13
+last_audit_commit: f581b70ab
+last_audit_date: 2026-07-24
 overall: A            # genuine fixes found this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  InvokeModel: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed ARN-embedded-slash modelId truncation; fixed InternalFailure->InternalServerException error code"}
-  InvokeModelWithResponseStream: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same modelId-extraction fix applies"}
-  InvokeModelWithBidirectionalStream: {wire: ok, errors: ok, state: ok, persist: n/a}
-  Converse: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same modelId-extraction fix applies"}
-  ConverseStream: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CountTokens: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: request body wire shape was fabricated (top-level prompt/messages/system); real shape is {input:{invokeModel:{body:<base64 blob>}}} or {input:{converse:{messages,system}}}"}
-  ApplyGuardrail: {wire: ok, errors: ok, state: ok, persist: n/a}
+  InvokeModel: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: guardrailIdentifier-without-guardrailVersion now ValidationException (matches documented InvokeModelInput precondition); PerformanceConfigLatency request header now echoed onto the response header (was silently dropped, always empty to real SDK callers)"}
+  InvokeModelWithResponseStream: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass (CRITICAL): the 'chunk' event payload was the raw mock-response JSON; the real client (types.PayloadPart via awsRestjson1_deserializeDocumentPayloadPart) requires the payload to be a JSON document {\"bytes\":\"<base64>\"} -- previously every real SDK client's InvokeModelWithResponseStream call against gopherstack decoded to an EMPTY body. Also added: X-Amzn-Bedrock-Content-Type response header (was never set --  bound to a *different* header than plain InvokeModel's Content-Type), same guardrail-header and PerformanceConfigLatency fixes as InvokeModel, chunk event :content-type fixed from the wrong 'application/octet-stream' to 'application/json'"}
+  InvokeModelWithBidirectionalStream: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: same chunk-payload {\"bytes\":<base64>} wrapping bug as InvokeModelWithResponseStream (types.BidirectionalOutputPayloadPart has the identical Bytes-wrapped shape). No guardrail/PerformanceConfigLatency headers exist on this op's real Input struct (verified against api_op_InvokeModelWithBidirectionalStream.go: ModelId is its only member), so those fixes do not apply here"}
+  Converse: {wire: ok, errors: ok, state: ok, persist: n/a, note: "field-diffed against ConverseInput/ConverseOutput -- messages/system/inferenceConfig/toolConfig/guardrailConfig accepted (not fabricated-away), output.message/stopReason/usage{input,output,totalTokens}/metrics{latencyMs} all match required members"}
+  ConverseStream: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: contentBlockStart event no longer sends a fabricated 'start':{'text':''} field -- types.ContentBlockStart's union has only image/toolResult/toolUse variants (verified against deserializeDocumentContentBlockStart in the real SDK), no 'text' member exists, so a plain-text content block must omit 'start' entirely rather than emit a non-existent union tag. Event names (messageStart/contentBlockStart/contentBlockDelta/contentBlockStop/messageStop/metadata) and their field shapes (contentBlockIndex/delta.text/stopReason/usage/metrics.latencyMs) verified against awsRestjson1_deserializeEventStreamConverseStreamOutput -- all correct, unchanged"}
+  CountTokens: {wire: ok, errors: ok, state: ok, persist: n/a, note: "unchanged this pass -- previously fixed request body wire shape ({input:{invokeModel:{body}}} / {input:{converse:{...}}}) re-verified still correct"}
+  ApplyGuardrail: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: assessments was ALWAYS an empty array, including when action=BLOCKED -- a disguised no-op (PARITY.md previously and incorrectly claimed 'assessments... reflect the real input content', which was false: only outputs did). Now a BLOCKED action reports a types.GuardrailWordPolicyAssessment-shaped wordPolicy.customWords entry naming the matched keyword, matching the real GuardrailAssessment union's required member shapes"}
   StartAsyncInvoke: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAsyncInvoke: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAsyncInvokes: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  model-path-routing: {status: ok, note: "extractModelID/ExtractResource now bound the modelId segment by the operation's known literal suffix (not first '/'), fixing ARN modelIds (inference-profile/custom-model ARNs) that embed a '/'"}
-  guardrail-path-routing: {status: ok, note: "extractGuardrailIDAndVersion already correctly delimits on the literal '/version/' substring, not first '/' -- unaffected by ARN-embedded slashes in guardrailIdentifier; verified, not changed"}
-  async-invoke: {status: ok, note: "StartAsyncInvoke/GetAsyncInvoke/ListAsyncInvokes verified against real wire shapes (RFC3339 timestamps match smithytime.ParseDateTime's date-time format); idempotency via clientRequestToken verified; janitor advances InProgress->Completed and sweeps old invocations; persistence wired via backendSnapshot"}
-  error-codes: {status: ok, note: "all internal-error responses changed from the fabricated 'InternalFailure' to the real SDK error code 'InternalServerException' (see types/errors.go and deserializers.go's error-code switch) -- 9 call sites in handler.go"}
+  model-path-routing: {status: ok, note: "unchanged this pass; extractModelID/ExtractResource ARN-embedded-slash fix from the prior audit re-verified still correct"}
+  guardrail-path-routing: {status: ok, note: "unchanged this pass"}
+  async-invoke: {status: ok, note: "unchanged this pass; StartAsyncInvoke/GetAsyncInvoke/ListAsyncInvokes wire shapes, idempotency, janitor advance/sweep, and persistence re-verified against StartAsyncInvokeInput/GetAsyncInvokeOutput/AsyncInvokeSummary -- all required members present, no fabricated fields"}
+  error-codes: {status: ok, note: "unchanged this pass; resolveErrorType/fallback confirmed to map to the REAL modeled 'InternalServerException' (not a fabricated 'InternalFailure') at all 9 handler.go/handler_*.go call sites -- re-verified, not a regression"}
+  event-stream-chunk-payload: {status: ok, note: "NEW this pass (see InvokeModelWithResponseStream/InvokeModelWithBidirectionalStream op notes): the 'chunk' event's payload must be the smithy PayloadPart/BidirectionalOutputPayloadPart document shape {\"bytes\":\"<base64>\"}, not the raw response JSON. This was the highest-impact bug found this audit -- it broke response-body delivery for every real aws-sdk-go-v2 client streaming call against gopherstack, silently (no error, just an empty Body on the client side)."}
 gaps:
   - "InvokeModel/Converse do not implement chaos-injectable ModelErrorException/ModelNotReadyException/ThrottlingException/ServiceUnavailableException response paths (ChaosServiceName/ChaosOperations hooks exist but no service-specific fault-shape mapping beyond the generic chaos middleware) -- not fixed this pass, out of budget; low customer impact since gopherstack's chaos middleware likely handles generic fault injection at a higher layer"
   - "CountTokens' invokeModel-body token estimate uses raw decoded-byte length as a chars proxy (cannot know the tokenizer for arbitrary model-specific InvokeModel body formats); acceptable per parity rules (deterministic mock), documented as an approximation in code comments"
+  - "Converse's guardrailConfig body field (GuardrailIdentifier/GuardrailVersion) is accepted opaquely (json.RawMessage, unparsed) but not validated for the identifier-requires-version precondition that InvokeModel's equivalent HEADER fields now enforce -- both fields are optional/unrequired on types.GuardrailConfiguration (no smithy 'required' trait, verified), so the real SDK client does not enforce this combination client-side either; low-value/out-of-budget this pass since Converse's mock inference doesn't depend on guardrail semantics to produce a valid response"
+  - "StartAsyncInvoke does not validate the real, client-side-required 'modelInput' body member is present -- deliberately not added: the real aws-sdk-go-v2 client enforces this required struct field before ever constructing the HTTP request (addOpStartAsyncInvokeValidationMiddleware), so no real SDK-driven caller can produce a request that omits it; adding server-side validation for it would only add risk (touches ~8 existing test bodies) for a scenario no real client can trigger"
 deferred: []
-leaks: {status: clean, note: "janitor (RunJanitor/StartWorker/Shutdown) uses context-bounded worker.Group with proper cancel+done-channel wiring; no goroutine leaks found"}
+leaks: {status: clean, note: "unchanged this pass; janitor (RunJanitor/StartWorker/Shutdown) uses context-bounded worker.Group with proper cancel+done-channel wiring; no goroutine leaks found. No new goroutines/locks introduced by this pass's fixes (all pure request/response shape changes)."}
 ---
 
 ## Notes
@@ -103,9 +106,61 @@ leaks: {status: clean, note: "janitor (RunJanitor/StartWorker/Shutdown) uses con
 
 - **ApplyGuardrail** mock is deterministic: BLOCKED for content containing "blocked"/"harmful"/
   "toxic"/"unsafe" (case-insensitive substring), NONE otherwise; usage counters are always 0 (all
-  required int32 fields in the real GuardrailUsage struct, present with zero values -- acceptable mock,
-  not a disguised no-op since assessments/outputs do reflect the real input content).
+  required int32 fields in the real GuardrailUsage struct, present with zero values -- acceptable mock).
+  **Corrected this pass**: the previous version of this note claimed "assessments/outputs do reflect
+  the real input content" -- that was only ever true of `outputs`. `assessments` was unconditionally
+  `[]` regardless of action, including BLOCKED, which IS a disguised no-op (the one thing a caller most
+  wants explained -- *why* was I blocked -- was always empty). Fixed: BLOCKED now returns one
+  `types.GuardrailAssessment`-shaped entry with a `wordPolicy.customWords` array containing the matched
+  keyword, `action: "BLOCKED"`, `detected: true` (see `types.GuardrailWordPolicyAssessment`/
+  `types.GuardrailCustomWord`'s required members in the real SDK's types.go). NONE still returns `[]`,
+  which is correct (no policy violation to report) -- verified this is not a second disguised no-op by
+  re-reading `buildGuardrailAssessments`'s NONE branch.
 
 - **Converse/ConverseStream** mock reads the actual request (messages/system) to estimate input
   tokens and does NOT ignore them; the completion text itself is a fixed deterministic string, which is
   the explicitly-acceptable "mock inference" behavior per parity rules (no real LLM backing this).
+  **Fixed this pass**: ConverseStream's `contentBlockStart` event sent a fabricated
+  `"start":{"text":""}` field. The real `types.ContentBlockStart` union (verified against
+  `awsRestjson1_deserializeDocumentContentBlockStart` in deserializers.go) has exactly three variants --
+  image, toolResult, toolUse -- and no "text" variant, because plain-text content blocks carry no
+  meaningful start-of-block payload in the real API. gopherstack's mock only ever emits plain-text
+  content, so `contentBlockStart` now omits `start` entirely (real clients tolerate an unset/nil
+  `ContentBlockStartEvent.Start`; sending an unrecognized union tag instead produces a `types.UnknownUnionMember`
+  substitution client-side, which is the wrong outcome for a field the mock never needed to send).
+
+- **InvokeModelWithResponseStream / InvokeModelWithBidirectionalStream "chunk" event payload** (CRITICAL
+  bug fixed this pass): the event message's payload bytes were the raw mock model-response JSON
+  (`{"completion":"...", ...}`) written directly. The real aws-sdk-go-v2 client deserializes a "chunk"
+  event's payload as `types.PayloadPart` / `types.BidirectionalOutputPayloadPart`
+  (`awsRestjson1_deserializeDocumentPayloadPart` in deserializers.go), which looks for exactly one JSON
+  key, `"bytes"`, holding the base64-encoded actual response bytes -- any other shape leaves
+  `PayloadPart.Bytes` **nil**. This means every real SDK client streaming call
+  (`InvokeModelWithResponseStream`/`InvokeModelWithBidirectionalStream`) against gopherstack silently
+  received an EMPTY response body -- no error, just nothing, because the raw JSON's top-level keys
+  ("completion", "id", "role", ...) never matched the "bytes" key the deserializer looks for. Fixed via
+  `modelResponsePayloadPart()`, which now wraps the mock response as
+  `{"bytes":"<base64 of the response JSON>"}` before framing it into the chunk event. Also fixed in the
+  same pass: the chunk event's `:content-type` message header was the wrong `"application/octet-stream"`
+  (now `"application/json"`, matching a structured-document payload), and
+  `InvokeModelWithResponseStream`'s HTTP-level `X-Amzn-Bedrock-Content-Type` response header (bound to a
+  *different* wire location than plain InvokeModel's `Content-Type` -- verified against
+  `awsRestjson1_deserializeOpHttpBindingsInvokeModelWithResponseStreamOutput`) was never set at all.
+
+- **InvokeModel / InvokeModelWithResponseStream guardrail headers**: `GuardrailIdentifier`
+  (`X-Amzn-Bedrock-Guardrailidentifier`) and `GuardrailVersion` (`X-Amzn-Bedrock-Guardrailversion`) are
+  documented as jointly required in `InvokeModelInput.GuardrailIdentifier`'s doc comment ("An error will
+  be thrown ... You provide a guardrail identifier, but guardrailVersion isn't specified"). Fixed this
+  pass: gopherstack previously accepted any combination silently. `validateGuardrailHeaders` now returns
+  `ValidationException` when an identifier is set without a version, or when a guardrail identifier is
+  combined with a non-`application/json` content type (also documented). `InvokeModelWithBidirectionalStream`
+  does NOT get this check -- its real `Input` struct has only `ModelId` (verified against
+  `api_op_InvokeModelWithBidirectionalStream.go`), no guardrail headers exist on that operation.
+
+- **PerformanceConfigLatency echo**: `InvokeModel`/`InvokeModelWithResponseStream`'s
+  `X-Amzn-Bedrock-Performanceconfig-Latency` request header now echoes onto the response (real output
+  struct's `PerformanceConfigLatency` member, read back from the same header name -- verified against
+  `awsRestjson1_deserializeOpHttpBindingsInvokeModelOutput`). Previously always empty to callers who set
+  it. gopherstack has no real latency-optimized inference tier, so it reflects the caller's request value
+  instead of fabricating one; omitted entirely (not defaulted to "standard") when the caller didn't send
+  it, to avoid inventing a value with no backing semantics.
