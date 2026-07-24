@@ -242,8 +242,6 @@ func (h *Handler) dispatchReadOnly(c *echo.Context, route mcRoute) (bool, error)
 		return true, h.handleGetJob(c, route.resource)
 	case opCancelJob:
 		return true, h.handleCancelJob(c, route.resource)
-	case opDescribeEndpoints:
-		return true, h.handleDescribeEndpoints(c)
 	case opListTagsForResource:
 		return true, h.handleListTagsForResource(c, route.resource)
 	}
@@ -324,6 +322,8 @@ func (h *Handler) dispatchMutatingNewOps(c *echo.Context, route mcRoute, body []
 		return h.handleProbe(c, body)
 	case opStartJobsQuery:
 		return h.handleStartJobsQuery(c, body)
+	case opDescribeEndpoints:
+		return h.handleDescribeEndpoints(c, body)
 	}
 
 	return c.JSON(
@@ -366,7 +366,9 @@ func parseStaticPathRoute(method, path string) mcRoute {
 	case policyPath:
 		return parsePolicyRoute(method)
 	case endpointsPath:
-		return mcRoute{operation: opDescribeEndpoints}
+		if method == http.MethodPost {
+			return mcRoute{operation: opDescribeEndpoints}
+		}
 	case resourceSharesPath:
 		if method == http.MethodPost {
 			return mcRoute{operation: opCreateResourceShare}

@@ -30,12 +30,28 @@ type StorageBackend interface {
 		settings map[string]any,
 		tags map[string]string,
 	) (*JobTemplate, error)
+	CreateJobTemplateFull(
+		name, description, category, queue string,
+		priority int,
+		settings map[string]any,
+		tags map[string]string,
+		accelerationMode, statusUpdateInterval string,
+		hopDestinations []HopDestination,
+	) (*JobTemplate, error)
 	GetJobTemplate(name string) (*JobTemplate, error)
 	ListJobTemplates() []*JobTemplate
 	UpdateJobTemplate(
 		name, description, category, queue string,
 		priority *int,
 		settings map[string]any,
+	) (*JobTemplate, error)
+	UpdateJobTemplateFull(
+		name, description, category, queue string,
+		priority *int,
+		settings map[string]any,
+		accelerationSettings *AccelerationSettings,
+		statusUpdateInterval string,
+		hopDestinations []HopDestination,
 	) (*JobTemplate, error)
 	DeleteJobTemplate(name string) error
 
@@ -55,6 +71,7 @@ type StorageBackend interface {
 		billingTagsSource, clientRequestToken, accelerationMode, jobEngineVersionReq string,
 		priority int,
 		hopDestinations []HopDestination,
+		extras ...JobCreateExtras,
 	) (*Job, error)
 	GetJob(id string) (*Job, error)
 	ListJobs() []*Job

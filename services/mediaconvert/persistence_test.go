@@ -95,8 +95,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	queue2, err := original.CreateQueue("queue-2", "secondary queue", "", "", nil)
 	require.NoError(t, err)
 
-	jobTemplate, err := original.CreateJobTemplate(
+	jobTemplate, err := original.CreateJobTemplateFull(
 		"template-1", "desc", "category-a", "queue-1", 10, map[string]any{"k": "v"}, map[string]string{"env": "prod"},
+		"PREFERRED", "SECONDS_30",
+		[]mediaconvert.HopDestination{{Queue: "queue-2", WaitMinutes: 20}},
 	)
 	require.NoError(t, err)
 
@@ -108,6 +110,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		map[string]any{"s": "v"}, map[string]string{"owner": "team"}, map[string]string{"m": "v"},
 		"JOB", "req-token-1", "ENABLED", "2017-08-29", 7,
 		[]mediaconvert.HopDestination{{Queue: "queue-2", WaitMinutes: 5}},
+		mediaconvert.JobCreateExtras{StatusUpdateInterval: "SECONDS_10", SimulateReservedQueue: "ENABLED"},
 	)
 	require.NoError(t, err)
 
@@ -141,6 +144,11 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "category-a", gotJobTemplate.Category)
 	assert.Equal(t, 10, gotJobTemplate.Priority)
+	require.NotNil(t, gotJobTemplate.AccelerationSettings)
+	assert.Equal(t, "PREFERRED", gotJobTemplate.AccelerationSettings.Mode)
+	assert.Equal(t, "SECONDS_30", gotJobTemplate.StatusUpdateInterval)
+	require.Len(t, gotJobTemplate.HopDestinations, 1)
+	assert.Equal(t, "queue-2", gotJobTemplate.HopDestinations[0].Queue)
 
 	gotPreset, err := fresh.GetPreset(preset.Name)
 	require.NoError(t, err)
@@ -151,6 +159,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "req-token-1", gotJob.ClientRequestToken)
 	require.Len(t, gotJob.HopDestinations, 1)
 	assert.Equal(t, "queue-2", gotJob.HopDestinations[0].Queue)
+	assert.Equal(t, "SECONDS_10", gotJob.StatusUpdateInterval)
+	assert.Equal(t, "ENABLED", gotJob.SimulateReservedQueue)
 
 	// byARN secondary index on the queues table: resolving a queue by ARN
 	// (rather than name) only works if AddIndex's registered index was

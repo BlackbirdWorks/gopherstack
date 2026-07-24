@@ -53,6 +53,40 @@ func (b *InMemoryBackend) lookupTokenLocked(token string) (*Job, bool) {
 	return cloneJob(j), true
 }
 
+// JobCreateExtras carries newer optional CreateJob fields (StatusUpdateInterval,
+// SimulateReservedQueue) that were added to the real CreateJobInput wire shape
+// after CreateJobFull's long positional parameter list was already established.
+// CreateJobFull accepts it as a variadic trailing parameter (pass zero or one
+// value) so every pre-existing call site keeps compiling unchanged.
+type JobCreateExtras struct {
+	// StatusUpdateInterval sets how often MediaConvert reports STATUS_UPDATE
+	// events. Defaults to [defaultStatusUpdateInterval] when zero-valued.
+	StatusUpdateInterval string
+	// SimulateReservedQueue enables the on-demand RTS simulation mode.
+	// Defaults to "DISABLED" when zero-valued.
+	SimulateReservedQueue string
+}
+
+// jobCreateParams bundles CreateJobFull's inputs for buildNewJobLocked, so
+// the field-by-field Job construction can live in its own function and keep
+// CreateJobFull itself under the funlen budget.
+type jobCreateParams struct {
+	settings              map[string]any
+	tags                  map[string]string
+	userMetadata          map[string]string
+	accelerationMode      string
+	role                  string
+	queue                 string
+	jobTemplate           string
+	billingTagsSource     string
+	clientRequestToken    string
+	jobEngineVersionReq   string
+	statusUpdateInterval  string
+	simulateReservedQueue string
+	hopDestinations       []HopDestination
+	priority              int
+}
+
 // CreateJobFull creates a new MediaConvert job with all optional fields.
 func (b *InMemoryBackend) CreateJobFull(
 	role, queue, jobTemplate string,
@@ -62,6 +96,7 @@ func (b *InMemoryBackend) CreateJobFull(
 	billingTagsSource, clientRequestToken, accelerationMode, jobEngineVersionReq string,
 	priority int,
 	hopDestinations []HopDestination,
+	extras ...JobCreateExtras,
 ) (*Job, error) {
 	b.mu.Lock("CreateJobFull")
 	defer b.mu.Unlock()
@@ -75,75 +110,41 @@ func (b *InMemoryBackend) CreateJobFull(
 		return j, nil
 	}
 
-	// Resolve queue ARN from queue name or ARN.
-	queueArn := ""
-
-	if queue != "" {
-		resolved, err := b.resolveQueueLocked(queue)
-		if err != nil {
-			return nil, err
-		}
-
-		queueArn = resolved.Arn
+	var extra JobCreateExtras
+	if len(extras) > 0 {
+		extra = extras[0]
 	}
 
-	accelStatus := "NOT_APPLICABLE"
-	if accelerationMode == "ENABLED" {
-		accelStatus = "PREFERRED"
+	j, err := b.buildNewJobLocked(jobCreateParams{
+		role:                  role,
+		queue:                 queue,
+		jobTemplate:           jobTemplate,
+		settings:              settings,
+		tags:                  tags,
+		userMetadata:          userMetadata,
+		billingTagsSource:     billingTagsSource,
+		clientRequestToken:    clientRequestToken,
+		accelerationMode:      accelerationMode,
+		jobEngineVersionReq:   jobEngineVersionReq,
+		priority:              priority,
+		hopDestinations:       hopDestinations,
+		statusUpdateInterval:  extra.StatusUpdateInterval,
+		simulateReservedQueue: extra.SimulateReservedQueue,
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	var accelSettings *AccelerationSettings
-	if accelerationMode != "" {
-		accelSettings = &AccelerationSettings{Mode: accelerationMode}
-	}
-
-	now := epochSeconds(time.Now())
-	id := generateJobID()
-
-	var hopDests []HopDestination
-	if len(hopDestinations) > 0 {
-		hopDests = make([]HopDestination, len(hopDestinations))
-		copy(hopDests, hopDestinations)
-	}
-
-	j := &Job{
-		Arn:                       arn.Build("mediaconvert", b.region, b.accountID, "jobs/"+id),
-		ID:                        id,
-		Role:                      role,
-		Queue:                     queue,
-		QueueArn:                  queueArn,
-		JobTemplate:               jobTemplate,
-		Status:                    jobStatusSubmitted,
-		CurrentPhase:              jobPhaseProbing,
-		Settings:                  deepCloneMap(settings),
-		Tags:                      nonNilTagsCopy(tags),
-		UserMetadata:              nonNilTagsCopy(userMetadata),
-		BillingTagsSource:         billingTagsSource,
-		AccelerationStatus:        accelStatus,
-		AccelerationSettings:      accelSettings,
-		SimulateReservedQueue:     "DISABLED",
-		StatusUpdateInterval:      "SECONDS_60",
-		Timing:                    &JobTiming{SubmitTime: now},
-		CreatedAt:                 now,
-		Priority:                  priority,
-		HopDestinations:           hopDests,
-		ClientRequestToken:        clientRequestToken,
-		JobEngineVersionRequested: jobEngineVersionReq,
-		JobEngineVersionUsed:      jobEngineVersionUsed,
-		Messages:                  &JobMessages{},
-		Warnings:                  []WarningGroup{},
-		ShareStatus:               "NOT_SHARED",
-	}
 	b.jobs.Put(j)
 
 	// Update queue counter for the new SUBMITTED job.
-	b.adjustQueueCounterLocked(queueArn, jobStatusSubmitted, +1)
+	b.adjustQueueCounterLocked(j.QueueArn, jobStatusSubmitted, +1)
 
 	// Record token for dedup (cap to prevent unbounded growth).
 	if clientRequestToken != "" && b.tokenIndex.Len() < maxTokens {
 		b.tokenIndex.Put(&tokenEntry{
 			token:     clientRequestToken,
-			jobID:     id,
+			jobID:     j.ID,
 			createdAt: time.Now(),
 		})
 	}
@@ -153,6 +154,80 @@ func (b *InMemoryBackend) CreateJobFull(
 	}
 
 	return cloneJob(j), nil
+}
+
+// buildNewJobLocked constructs (but does not store) a new Job from the given
+// params, resolving the queue ARN and defaulting StatusUpdateInterval/
+// SimulateReservedQueue along the way. Caller must hold the write lock.
+func (b *InMemoryBackend) buildNewJobLocked(p jobCreateParams) (*Job, error) {
+	queueArn := ""
+
+	if p.queue != "" {
+		resolved, err := b.resolveQueueLocked(p.queue)
+		if err != nil {
+			return nil, err
+		}
+
+		queueArn = resolved.Arn
+	}
+
+	accelStatus := "NOT_APPLICABLE"
+	if p.accelerationMode == "ENABLED" {
+		accelStatus = "PREFERRED"
+	}
+
+	var accelSettings *AccelerationSettings
+	if p.accelerationMode != "" {
+		accelSettings = &AccelerationSettings{Mode: p.accelerationMode}
+	}
+
+	statusUpdateInterval := p.statusUpdateInterval
+	if statusUpdateInterval == "" {
+		statusUpdateInterval = defaultStatusUpdateInterval
+	}
+
+	simulateReservedQueue := p.simulateReservedQueue
+	if simulateReservedQueue == "" {
+		simulateReservedQueue = "DISABLED"
+	}
+
+	now := epochSeconds(time.Now())
+	id := generateJobID()
+
+	var hopDests []HopDestination
+	if len(p.hopDestinations) > 0 {
+		hopDests = make([]HopDestination, len(p.hopDestinations))
+		copy(hopDests, p.hopDestinations)
+	}
+
+	return &Job{
+		Arn:                       arn.Build("mediaconvert", b.region, b.accountID, "jobs/"+id),
+		ID:                        id,
+		Role:                      p.role,
+		Queue:                     p.queue,
+		QueueArn:                  queueArn,
+		JobTemplate:               p.jobTemplate,
+		Status:                    jobStatusSubmitted,
+		CurrentPhase:              jobPhaseProbing,
+		Settings:                  deepCloneMap(p.settings),
+		Tags:                      nonNilTagsCopy(p.tags),
+		UserMetadata:              nonNilTagsCopy(p.userMetadata),
+		BillingTagsSource:         p.billingTagsSource,
+		AccelerationStatus:        accelStatus,
+		AccelerationSettings:      accelSettings,
+		SimulateReservedQueue:     simulateReservedQueue,
+		StatusUpdateInterval:      statusUpdateInterval,
+		Timing:                    &JobTiming{SubmitTime: now},
+		CreatedAt:                 now,
+		Priority:                  p.priority,
+		HopDestinations:           hopDests,
+		ClientRequestToken:        p.clientRequestToken,
+		JobEngineVersionRequested: p.jobEngineVersionReq,
+		JobEngineVersionUsed:      jobEngineVersionUsed,
+		Messages:                  &JobMessages{},
+		Warnings:                  []WarningGroup{},
+		ShareStatus:               "NOT_SHARED",
+	}, nil
 }
 
 // GetJob returns a job by ID.

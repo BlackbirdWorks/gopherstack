@@ -2,12 +2,12 @@
 service: mediaconvert
 sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.87.3
 last_audit_commit: 911ff167
-last_audit_date: 2026-07-13
+last_audit_date: 2026-07-24
 overall: A            # genuine wire-breaking bugs found and fixed this pass
 ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "was reading arn from URL path (always empty since real client sends POST /tags with arn in JSON body); fixed to read arn from body"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "was routed on DELETE with tagKeys from query string; real op is PUT with tagKeys in JSON body -- real SDK calls 404'd before this fix"}
-  CreateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "input field was jobEngineVersionRequested; real wire key is jobEngineVersion (response field IS jobEngineVersionRequested -- request/response names differ)"}
+  CreateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "input field was jobEngineVersionRequested; real wire key is jobEngineVersion (response field IS jobEngineVersionRequested -- request/response names differ). This pass: statusUpdateInterval/simulateReservedQueue were parsed from the request body but silently overridden with hardcoded defaults (SECONDS_60/DISABLED) instead of the caller's value -- fixed via CreateJobFull's new JobCreateExtras parameter"}
   CreateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "input field was reservationPlan; real wire key is reservationPlanSettings (response field IS reservationPlan)"}
   UpdateQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "reservationPlanSettings field name fixed; concurrentJobs and reservationPlanSettings were entirely unsupported on update (silently dropped), now applied"}
   StartJobsQuery: {wire: ok, errors: ok, state: ok, persist: ok, note: "output field was queryId; real wire key is id"}
@@ -15,10 +15,10 @@ ops:
   GetJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "extra non-AWS totalCount field in response; additive, harmless to real clients"}
   CancelJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: added accelerationSettings/hopDestinations/statusUpdateInterval, which the real CreateJobTemplateInput wire shape accepts but JobTemplate previously had no fields for (silently dropped) -- see CreateJobTemplateFull"}
   GetJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   ListJobTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateJobTemplate: {wire: partial, errors: ok, state: ok, persist: ok, note: "accelerationSettings/hopDestinations/statusUpdateInterval accepted by real API but not modeled here -- see gaps"}
+  UpdateJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: added accelerationSettings/hopDestinations/statusUpdateInterval support via UpdateJobTemplateFull -- previously silently dropped despite the real UpdateJobTemplateInput accepting them (was the last remaining gap for this family)"}
   DeleteJobTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePreset: {wire: ok, errors: ok, state: ok, persist: ok}
   GetPreset: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -29,7 +29,7 @@ ops:
   ListQueues: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteQueue: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeEndpoints: {wire: partial, errors: ok, state: ok, persist: n/a, note: "real op is POST with maxResults/nextToken/mode JSON body -- gopherstack ignores body and answers any method; functionally harmless (single synthetic endpoint, no real pagination need) but not strictly modeled"}
+  DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a, note: "this pass: real op is POST-only with maxResults/nextToken/mode in a JSON body -- gopherstack previously answered any HTTP method and ignored the body. Fixed: route now requires POST (GET/other methods 404 as unknown operation, matching real-client behavior against a real endpoint), and the body is parsed (mode/maxResults honored; nextToken accepted but there is never a next page since exactly one synthetic endpoint ever exists)"}
   GetPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   PutPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -41,19 +41,17 @@ ops:
   CreateResourceShare: {wire: partial, errors: ok, state: ok, persist: ok, note: "real input also requires supportCaseId; not validated/stored (harmless, output is void)"}
 families:
   queue: {status: ok, note: "CreateQueue/GetQueue/ListQueues/UpdateQueue/DeleteQueue verified op-by-op against restjson1 serializers; reservationPlanSettings wire-name bug fixed on both create and update"}
-  jobTemplate: {status: ok, note: "verified op-by-op; AccelerationSettings/HopDestinations/StatusUpdateInterval gap noted below"}
-  job: {status: ok, note: "CreateJob/GetJob/ListJobs/CancelJob verified; jobEngineVersion wire-name bug fixed; UpdateJob is a gopherstack-only extension, see notes"}
+  jobTemplate: {status: ok, note: "verified op-by-op; this pass closed the AccelerationSettings/HopDestinations/StatusUpdateInterval gap on both Create and Update (CreateJobTemplateFull/UpdateJobTemplateFull) -- family is now full field parity, no open gaps"}
+  job: {status: ok, note: "CreateJob/GetJob/ListJobs/CancelJob verified; jobEngineVersion wire-name bug fixed; this pass also fixed CreateJob silently overriding statusUpdateInterval/simulateReservedQueue with hardcoded defaults instead of applying the caller's request values; UpdateJob is a gopherstack-only extension, see notes"}
   preset: {status: ok, note: "verified op-by-op, full field parity"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource: two critical wire bugs fixed (see gaps->fixed above); this is the class of bug parity-principles.md warns about (ARN routing) but the actual defect here was ARN-in-body vs ARN-in-URL and DELETE-vs-PUT method, not slash-escaping"}
   jobsQuery: {status: ok, note: "StartJobsQuery/GetJobsQueryResults: id/status wire-name bugs fixed"}
-  endpoints/policy/certificates/misc: {status: ok, note: "DescribeEndpoints/GetPolicy/PutPolicy/DeletePolicy/AssociateCertificate/DisassociateCertificate/ListVersions/Probe/SearchJobs/CreateResourceShare verified op-by-op"}
+  endpoints/policy/certificates/misc: {status: ok, note: "DescribeEndpoints/GetPolicy/PutPolicy/DeletePolicy/AssociateCertificate/DisassociateCertificate/ListVersions/Probe/SearchJobs/CreateResourceShare verified op-by-op; this pass closed the DescribeEndpoints method/body gap (now POST-only, body parsed)"}
 gaps:
-  - UpdateJobTemplate/CreateJobTemplate do not model AccelerationSettings, HopDestinations, or StatusUpdateInterval (real API accepts them; gopherstack silently drops them since JobTemplate has no such fields) (bd: TODO -- file at session close)
-  - Queue.ServiceOverrides is typed map[string]any in gopherstack vs a real []types.ServiceOverride list on the wire; currently dormant (CreateQueueInput has no serviceOverrides input member in the real API, so the field can never be populated by a real client) but the type would emit the wrong JSON shape (object instead of array) if ever populated internally
-  - DescribeEndpoints does not parse its POST JSON body (maxResults/nextToken/mode) and accepts GET as well as POST; functionally harmless today (always returns exactly one synthetic endpoint) but not strictly wire-accurate
+  - Queue.ServiceOverrides is typed map[string]any in gopherstack vs a real []types.ServiceOverride list on the wire; currently dormant (CreateQueueInput has no serviceOverrides input member in the real API, so the field can never be populated by a real client) but the type would emit the wrong JSON shape (object instead of array) if ever populated internally. Re-verified this pass against aws-sdk-go-v2/service/mediaconvert@v1.87.3: still no serviceOverrides member on CreateQueueInput or UpdateQueueInput, so this remains genuinely unreachable/harmless -- left as-is rather than reshaping a field no real client can ever populate.
 deferred:
   - JobSettings/JobTemplateSettings/PresetSettings deep-structure field-level validation (gopherstack stores these as opaque map[string]any and round-trips them verbatim, which is the established pattern for this service; no validation of e.g. OutputGroups internals was audited)
-leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to ctx cancellation; no goroutine/map leaks found. lockmetrics.RWMutex used as the single coarse backend lock; safemap not used (not applicable, all backend collections are cross-map transactional and correctly share the coarse lock)"}
+leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to ctx cancellation; no goroutine/map leaks found. lockmetrics.RWMutex used as the single coarse backend lock; safemap not used (not applicable, all backend collections are cross-map transactional and correctly share the coarse lock). Re-verified this pass: no new goroutines/tickers/maps introduced by the CreateJob/CreateJobTemplate/UpdateJobTemplate/DescribeEndpoints fixes; all new code paths run synchronously under the existing b.mu lock or (DescribeEndpoints) hold no lock at all since it reads no mutable backend state."}
 ---
 
 ## Notes
@@ -122,3 +120,57 @@ leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to 
   (`Snapshot`/`Restore`) is wired through `Handler.Snapshot`/`Restore` delegating to
   `InMemoryBackend`, versioned (`mediaconvertSnapshotVersion`), confirmed non-dead
   (see the doc comment on `Handler.Snapshot` explaining why this delegation matters).
+
+## 2026-07-24 pass -- closed all remaining gaps/deferred-whole-family items
+
+- **`JobTemplate` gained `AccelerationSettings`/`HopDestinations`/`StatusUpdateInterval`**
+  (`models.go`). The real `CreateJobTemplateInput`/`UpdateJobTemplateInput` wire
+  shapes both accept these three fields (confirmed against
+  `aws-sdk-go-v2/service/mediaconvert@v1.87.3`'s `api_op_CreateJobTemplate.go` /
+  `api_op_UpdateJobTemplate.go`), but `JobTemplate` previously had no fields to
+  hold them, so a real SDK client setting e.g. `AccelerationSettings` on
+  `CreateJobTemplateInput` had it silently dropped -- the response would never
+  reflect it. Fixed by adding the fields to `JobTemplate`, threading them through
+  new `CreateJobTemplateFull`/`UpdateJobTemplateFull` backend methods (the
+  existing `CreateJobTemplate`/`UpdateJobTemplate` signatures are preserved as
+  thin wrappers so no caller outside this fix needed to change), and parsing them
+  in `handler_job_templates.go`'s `createJobTemplateInput`/`updateJobTemplateInput`.
+  `StatusUpdateInterval` defaults to `SECONDS_60` when unset, matching the
+  behavior `Job` already had. `cloneJobTemplate` deep-copies the new pointer/slice
+  fields so returned copies can't alias backend state (mirrors `cloneJob`'s
+  existing pattern for the identical `Job` fields).
+- **`CreateJob` was silently overriding `statusUpdateInterval`/`simulateReservedQueue`
+  with hardcoded defaults** (`SECONDS_60`/`DISABLED`) instead of applying the
+  caller's request values -- both are real, accepted `CreateJobInput` members
+  (confirmed against `api_op_CreateJob.go`) that `handler_jobs.go`'s
+  `createJobInput` never even parsed from the request body. Fixed by adding both
+  fields to `createJobInput` and threading them into `CreateJobFull` via a new
+  variadic `JobCreateExtras` trailing parameter (`jobs.go`) -- variadic so the
+  ~20 pre-existing `CreateJobFull(...)` call sites across the test suite keep
+  compiling unchanged (Go allows omitting a trailing variadic argument entirely).
+  `CreateJobFull`'s body was split into `buildNewJobLocked` to stay under the
+  `funlen` budget after the added logic.
+- **`DescribeEndpoints` now POST-only with its JSON body parsed.** The real
+  operation's serializer (`serializers.go`'s
+  `awsRestjson1_serializeOpDescribeEndpoints`) hardcodes `request.Method = "POST"`
+  and sends `{maxResults, mode, nextToken}` in the body; gopherstack previously
+  matched the `/2017-08-29/endpoints` path on *any* HTTP method and never read the
+  body. Fixed: the route now requires POST (other methods fall through to
+  `opUnknown` → 404, matching what a real client would see hitting a real
+  MediaConvert endpoint with the wrong method), and `handleDescribeEndpoints` now
+  parses and honors `maxResults` (caps the returned list) and accepts `mode`/
+  `nextToken` for wire accuracy. Behavior is otherwise unchanged: gopherstack
+  always has exactly one synthetic endpoint (the host the request arrived on), so
+  `mode=DEFAULT` vs `mode=GET_ONLY` can't observably differ here, and there is
+  never a next page.
+- **Re-verified, left unchanged as genuinely non-actionable**: `Queue.ServiceOverrides`
+  (dormant -- no real input member exists to ever populate it) and
+  `CreateResourceShare`'s missing `supportCaseId` validation (output is void, so
+  this is unobservable to a real client either way). Both re-checked against the
+  v1.87.3 SDK this pass and confirmed still accurate; see `gaps` above.
+- No leaks introduced: all new code (`buildNewJobLocked`, `CreateJobTemplateFull`,
+  `UpdateJobTemplateFull`, `handleDescribeEndpoints`'s body parsing) runs
+  synchronously with no new goroutines, tickers, or maps -- `CreateJobTemplateFull`/
+  `UpdateJobTemplateFull` execute under the existing coarse `b.mu` lock exactly
+  like their pre-existing counterparts, and `handleDescribeEndpoints` touches no
+  backend state at all.

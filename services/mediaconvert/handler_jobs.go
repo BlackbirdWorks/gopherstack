@@ -49,9 +49,11 @@ type createJobInput struct {
 	// JobEngineVersion is the wire field name the real MediaConvert API uses
 	// on CreateJobInput (it becomes JobEngineVersionRequested on the Job
 	// output resource -- the request and response field names differ).
-	JobEngineVersion string           `json:"jobEngineVersion,omitempty"`
-	HopDestinations  []HopDestination `json:"hopDestinations,omitempty"`
-	Priority         int              `json:"priority,omitempty"`
+	JobEngineVersion      string           `json:"jobEngineVersion,omitempty"`
+	StatusUpdateInterval  string           `json:"statusUpdateInterval,omitempty"`
+	SimulateReservedQueue string           `json:"simulateReservedQueue,omitempty"`
+	HopDestinations       []HopDestination `json:"hopDestinations,omitempty"`
+	Priority              int              `json:"priority,omitempty"`
 }
 
 type jobWrapper struct {
@@ -92,6 +94,10 @@ func (h *Handler) handleCreateJob(c *echo.Context, body []byte) error {
 		in.JobEngineVersion,
 		in.Priority,
 		in.HopDestinations,
+		JobCreateExtras{
+			StatusUpdateInterval:  in.StatusUpdateInterval,
+			SimulateReservedQueue: in.SimulateReservedQueue,
+		},
 	)
 	if err != nil {
 		return h.writeError(c, err)

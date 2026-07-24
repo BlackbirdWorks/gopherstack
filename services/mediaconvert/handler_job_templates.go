@@ -35,13 +35,16 @@ func parseJobTemplateRoute(method, suffix string) mcRoute {
 // --- Job Template handlers ---
 
 type createJobTemplateInput struct {
-	Settings    map[string]any    `json:"settings,omitempty"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Category    string            `json:"category,omitempty"`
-	Queue       string            `json:"queue,omitempty"`
-	Priority    int               `json:"priority"`
+	AccelerationSettings *AccelerationSettings `json:"accelerationSettings,omitempty"`
+	Settings             map[string]any        `json:"settings,omitempty"`
+	Tags                 map[string]string     `json:"tags,omitempty"`
+	Name                 string                `json:"name"`
+	Description          string                `json:"description,omitempty"`
+	Category             string                `json:"category,omitempty"`
+	Queue                string                `json:"queue,omitempty"`
+	StatusUpdateInterval string                `json:"statusUpdateInterval,omitempty"`
+	HopDestinations      []HopDestination      `json:"hopDestinations,omitempty"`
+	Priority             int                   `json:"priority"`
 }
 
 type jobTemplateWrapper struct {
@@ -62,7 +65,12 @@ func (h *Handler) handleCreateJobTemplate(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "name is required"))
 	}
 
-	jt, err := h.Backend.CreateJobTemplate(
+	accelMode := ""
+	if in.AccelerationSettings != nil {
+		accelMode = in.AccelerationSettings.Mode
+	}
+
+	jt, err := h.Backend.CreateJobTemplateFull(
 		in.Name,
 		in.Description,
 		in.Category,
@@ -70,6 +78,9 @@ func (h *Handler) handleCreateJobTemplate(c *echo.Context, body []byte) error {
 		in.Priority,
 		in.Settings,
 		in.Tags,
+		accelMode,
+		in.StatusUpdateInterval,
+		in.HopDestinations,
 	)
 	if err != nil {
 		return h.writeError(c, err)
@@ -118,11 +129,14 @@ func (h *Handler) handleListJobTemplates(c *echo.Context) error {
 }
 
 type updateJobTemplateInput struct {
-	Priority    *int           `json:"priority,omitempty"`
-	Settings    map[string]any `json:"settings,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Category    string         `json:"category,omitempty"`
-	Queue       string         `json:"queue,omitempty"`
+	Priority             *int                  `json:"priority,omitempty"`
+	Settings             map[string]any        `json:"settings,omitempty"`
+	AccelerationSettings *AccelerationSettings `json:"accelerationSettings,omitempty"`
+	Description          string                `json:"description,omitempty"`
+	Category             string                `json:"category,omitempty"`
+	Queue                string                `json:"queue,omitempty"`
+	StatusUpdateInterval string                `json:"statusUpdateInterval,omitempty"`
+	HopDestinations      []HopDestination      `json:"hopDestinations,omitempty"`
 }
 
 func (h *Handler) handleUpdateJobTemplate(c *echo.Context, name string, body []byte) error {
@@ -131,7 +145,17 @@ func (h *Handler) handleUpdateJobTemplate(c *echo.Context, name string, body []b
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	jt, err := h.Backend.UpdateJobTemplate(name, in.Description, in.Category, in.Queue, in.Priority, in.Settings)
+	jt, err := h.Backend.UpdateJobTemplateFull(
+		name,
+		in.Description,
+		in.Category,
+		in.Queue,
+		in.Priority,
+		in.Settings,
+		in.AccelerationSettings,
+		in.StatusUpdateInterval,
+		in.HopDestinations,
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}
