@@ -1,15 +1,86 @@
 package appconfig_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
+
+// doRequestWithHeader is like doRequest but sets an additional request
+// header -- used for AppConfig ops whose real request shape binds a field to
+// a header rather than the JSON body (e.g. StopDeployment's Allow-Revert).
+func doRequestWithHeader(
+	t *testing.T,
+	h *appconfig.Handler,
+	method, path, headerName, headerValue string,
+	body []byte,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var reqBody *bytes.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
+	} else {
+		reqBody = bytes.NewReader(nil)
+	}
+
+	e := echo.New()
+	req := httptest.NewRequest(method, path, reqBody)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerName, headerValue)
+	req = req.WithContext(logger.Save(t.Context(), slog.Default()))
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+// waitForDeploymentTerminal polls GetDeployment until State reaches a
+// terminal value (COMPLETE/ROLLED_BACK/REVERTED) or the deadline elapses,
+// returning the last-observed deployment.
+func waitForDeploymentTerminal(
+	t *testing.T, h *appconfig.Handler, appID, envID string, deploymentNumber int,
+) appconfig.Deployment {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+
+	var dep appconfig.Deployment
+
+	for time.Now().Before(deadline) {
+		rec := doRequest(t, h, http.MethodGet,
+			"/applications/"+appID+"/environments/"+envID+"/deployments/"+strconv.Itoa(deploymentNumber), nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep))
+
+		switch dep.State {
+		case "COMPLETE", "ROLLED_BACK", "REVERTED":
+			return dep
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	t.Fatalf("deployment did not reach a terminal state within the deadline, last state: %s", dep.State)
+
+	return dep
+}
 
 func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	t.Parallel()
@@ -50,8 +121,21 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	var prof appconfig.ConfigurationProfile
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &prof))
 
+	// Create a hosted configuration version (required for StartDeployment
+	// to validate ConfigurationVersion against, for a "hosted" profile).
+	rec = doRequest(
+		t, h, http.MethodPost,
+		"/applications/"+app.ID+"/configurationprofiles/"+prof.ID+"/hostedconfigurationversions",
+		[]byte(`{"content":"enabled"}`),
+	)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
 	// Create deployment strategy (required by StartDeployment validation).
-	stratBody := []byte(`{"name":"my-strategy","deploymentDurationInMinutes":10,"growthFactor":20}`)
+	// A non-zero duration and bake time exercise the real DEPLOYING ->
+	// BAKING -> COMPLETE state machine (see waitForDeploymentTerminal).
+	stratBody := []byte(
+		`{"name":"my-strategy","deploymentDurationInMinutes":10,"growthFactor":20,"finalBakeTimeInMinutes":5}`,
+	)
 	rec = doRequest(t, h, http.MethodPost, "/deploymentstrategies", stratBody)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
@@ -73,7 +157,12 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	var dep appconfig.Deployment
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep))
 	assert.Equal(t, int32(1), dep.DeploymentNumber)
-	assert.Equal(t, "COMPLETE", dep.State)
+	assert.Equal(t, "DEPLOYING", dep.State, "a non-zero-duration strategy must not complete synchronously")
+	assert.NotEmpty(t, dep.EventLog, "StartDeployment must record a DEPLOYMENT_STARTED event")
+
+	final := waitForDeploymentTerminal(t, h, app.ID, env.ID, 1)
+	assert.Equal(t, "COMPLETE", final.State)
+	assert.InDelta(t, float32(100.0), final.PercentageComplete, 0.001)
 
 	// Get deployment.
 	rec = doRequest(
@@ -95,7 +184,9 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Stop deployment (COMPLETE deployments can be rolled back in stub).
+	// Stopping a COMPLETE deployment without Allow-Revert is rejected --
+	// real AWS only allows it via AllowRevert (see
+	// TestHandler_StopDeployment_AllowRevert for that path).
 	rec = doRequest(
 		t,
 		h,
@@ -103,7 +194,21 @@ func TestHandler_Deployment_Lifecycle(t *testing.T) {
 		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1",
 		nil,
 	)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// Stop deployment with Allow-Revert reverts it.
+	rec = doRequestWithHeader(
+		t, h, http.MethodDelete,
+		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1",
+		"Allow-Revert", "true", nil,
+	)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet,
+		"/applications/"+app.ID+"/environments/"+env.ID+"/deployments/1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dep))
+	assert.Equal(t, "REVERTED", dep.State)
 }
 
 func TestHandler_Deployment_HTTP_NotFound(t *testing.T) {
@@ -237,6 +342,11 @@ func TestHandler_DeploymentFieldsPresent(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
 
+	hcvRec := doRequest(t, h, http.MethodPost,
+		"/applications/"+app.ID+"/configurationprofiles/"+prof.ID+"/hostedconfigurationversions",
+		[]byte(`{"feature":"enabled"}`))
+	require.Equal(t, http.StatusCreated, hcvRec.Code)
+
 	stratRec := doRequest(t, h, http.MethodPost, "/deploymentstrategies",
 		[]byte(`{"Name":"dep-strat","DeploymentDurationInMinutes":0,"GrowthFactor":100,"ReplicateTo":"NONE"}`))
 	require.Equal(t, http.StatusCreated, stratRec.Code)
@@ -312,6 +422,11 @@ func TestHandler_DeploymentNumberIncrements(t *testing.T) {
 	}
 
 	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+
+	hcvRec := doRequest(t, h, http.MethodPost,
+		"/applications/"+app.ID+"/configurationprofiles/"+prof.ID+"/hostedconfigurationversions",
+		[]byte(`{"feature":"enabled"}`))
+	require.Equal(t, http.StatusCreated, hcvRec.Code)
 
 	stratRec := doRequest(t, h, http.MethodPost, "/deploymentstrategies",
 		[]byte(`{"Name":"seq-strat","DeploymentDurationInMinutes":0,"GrowthFactor":100,"ReplicateTo":"NONE"}`))

@@ -138,8 +138,13 @@ func (b *InMemoryBackend) DeleteEnvironment(applicationID, environmentID string)
 		return fmt.Errorf("%w: environment %s", ErrEnvironmentNotFound, environmentID)
 	}
 
+	envArn := b.appconfigARN("application/" + applicationID + "/environment/" + environmentID)
 	b.environments.Delete(environmentID)
-	delete(b.tags, b.appconfigARN("application/"+applicationID+"/environment/"+environmentID))
+	delete(b.tags, envArn)
+	b.deleteExtensionAssociationsForResourceLocked(envArn)
+	b.deleteDeployedConfigsLocked(func(appID, envID, _ string) bool {
+		return appID == applicationID && envID == environmentID
+	})
 
 	return nil
 }

@@ -24,6 +24,16 @@ func (h *Handler) handleCreateHostedConfigurationVersion(
 	description := c.Request().Header.Get("Description")
 	versionLabel := c.Request().Header.Get("Versionlabel")
 
+	// Optional optimistic-concurrency check, bound to the
+	// "Latest-Version-Number" request header.
+	var latestVersionNumber *int32
+	if s := c.Request().Header.Get("Latest-Version-Number"); s != "" {
+		if n, parseErr := strconv.ParseInt(s, 10, 32); parseErr == nil {
+			v := int32(n)
+			latestVersionNumber = &v
+		}
+	}
+
 	content, err := io.ReadAll(http.MaxBytesReader(c.Response(), c.Request().Body, maxHostedConfigurationVersionBytes))
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
@@ -47,6 +57,7 @@ func (h *Handler) handleCreateHostedConfigurationVersion(
 		description,
 		versionLabel,
 		content,
+		latestVersionNumber,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {

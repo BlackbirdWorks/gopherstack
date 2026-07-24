@@ -110,19 +110,23 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 		return fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
 	}
 
-	// Clean up tags for the application and all its child resources.
-	delete(b.tags, b.appconfigARN("application/"+applicationID))
+	// Clean up tags and extension associations for the application and all
+	// its child resources.
+	appArn := b.appconfigARN("application/" + applicationID)
+	delete(b.tags, appArn)
+	b.deleteExtensionAssociationsForResourceLocked(appArn)
 
 	for _, env := range slices.Clone(b.environmentsByApp.Get(applicationID)) {
-		delete(b.tags, b.appconfigARN("application/"+applicationID+"/environment/"+env.ID))
+		envArn := b.appconfigARN("application/" + applicationID + "/environment/" + env.ID)
+		delete(b.tags, envArn)
+		b.deleteExtensionAssociationsForResourceLocked(envArn)
 		b.environments.Delete(env.ID)
 	}
 
 	for _, profile := range slices.Clone(b.configProfilesByApp.Get(applicationID)) {
-		delete(
-			b.tags,
-			b.appconfigARN("application/"+applicationID+"/configurationprofile/"+profile.ID),
-		)
+		profileArn := b.appconfigARN("application/" + applicationID + "/configurationprofile/" + profile.ID)
+		delete(b.tags, profileArn)
+		b.deleteExtensionAssociationsForResourceLocked(profileArn)
 		b.configProfiles.Delete(profile.ID)
 	}
 
@@ -133,6 +137,8 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 	for _, d := range slices.Clone(b.deploymentsByApp.Get(applicationID)) {
 		b.deployments.Delete(deploymentKeyFn(d))
 	}
+
+	b.deleteDeployedConfigsLocked(func(appID, _, _ string) bool { return appID == applicationID })
 
 	b.applications.Delete(applicationID)
 	delete(b.versionCounters, applicationID)

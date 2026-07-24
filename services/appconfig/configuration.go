@@ -2,6 +2,7 @@ package appconfig
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ValidateConfiguration validates a configuration version against its validators.
@@ -27,29 +28,86 @@ func (b *InMemoryBackend) ValidateConfiguration(applicationID, profileID, _ stri
 	return nil
 }
 
-// GetConfiguration retrieves the latest deployed configuration for the given application,
-// environment, and configuration profile (deprecated API).
+// GetConfiguration retrieves the latest DEPLOYED configuration for the given
+// application, environment, and configuration profile (deprecated API).
 func (b *InMemoryBackend) GetConfiguration(
 	application, environment, configuration string,
 ) (*HostedConfigurationVersion, error) {
 	b.mu.RLock("GetConfiguration")
 	defer b.mu.RUnlock()
 
-	appID, err := b.resolveAppID(application)
+	appID, envID, profileID, err := b.resolveConfigurationTriple(application, environment, configuration)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err = b.resolveEnvID(appID, environment); err != nil {
-		return nil, err
+	return b.deployedConfigVersionLocked(appID, envID, profileID), nil
+}
+
+// CurrentDeployedConfiguration returns the content, content type, and
+// version label of the configuration currently active (the most recently
+// COMPLETEd deployment) for the given application/environment/configuration
+// profile. See the StorageBackend interface doc comment for why this
+// exists: it is a public accessor with no caller inside this package today,
+// exposed for a future appconfig -> appconfigdata bridge.
+func (b *InMemoryBackend) CurrentDeployedConfiguration(
+	application, environment, configuration string,
+) ([]byte, string, string, error) {
+	b.mu.RLock("CurrentDeployedConfiguration")
+	defer b.mu.RUnlock()
+
+	appID, envID, profileID, err := b.resolveConfigurationTriple(application, environment, configuration)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	v := b.deployedConfigVersionLocked(appID, envID, profileID)
+
+	return v.Content, v.ContentType, v.VersionLabel, nil
+}
+
+// resolveConfigurationTriple resolves an application/environment/
+// configuration-profile identifier triple (each accepted by ID or name) to
+// their canonical IDs. Must be called under lock.
+func (b *InMemoryBackend) resolveConfigurationTriple(
+	application, environment, configuration string,
+) (string, string, string, error) {
+	appID, err := b.resolveAppID(application)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	envID, err := b.resolveEnvID(appID, environment)
+	if err != nil {
+		return "", "", "", err
 	}
 
 	profileID, err := b.resolveProfileID(appID, configuration)
 	if err != nil {
-		return nil, err
+		return "", "", "", err
 	}
 
-	return b.latestConfigVersion(appID, profileID), nil
+	return appID, envID, profileID, nil
+}
+
+// deleteDeployedConfigsLocked removes every deployedConfigs entry whose
+// (applicationID, environmentID, profileID) key satisfies match, so
+// DeleteApplication/DeleteEnvironment/DeleteConfigurationProfile leave no
+// ghost rows behind (see the InMemoryBackend doc comment on
+// deployedConfigs in store.go). Must be called under lock.
+func (b *InMemoryBackend) deleteDeployedConfigsLocked(match func(appID, envID, profileID string) bool) {
+	const segments = 3 // appID|envID|profileID
+
+	for k := range b.deployedConfigs {
+		parts := strings.SplitN(k, "|", segments)
+		if len(parts) != segments {
+			continue
+		}
+
+		if match(parts[0], parts[1], parts[2]) {
+			delete(b.deployedConfigs, k)
+		}
+	}
 }
 
 // resolveAppID finds an application ID by ID or name. Must be called under lock.
@@ -95,10 +153,15 @@ func (b *InMemoryBackend) resolveProfileID(appID, identifier string) (string, er
 	)
 }
 
-// latestConfigVersion returns the latest hosted configuration version for a profile. Must be called under lock.
-// It walks version numbers from the counter downward to skip any deleted versions, so the
-// common case (no deletes) is O(1) and deletions from the top add at most one step each.
-func (b *InMemoryBackend) latestConfigVersion(appID, profileID string) *HostedConfigurationVersion {
+// deployedConfigVersionLocked returns the hosted configuration version
+// currently DEPLOYED (the ConfigurationVersion of the most recent COMPLETE
+// deployment recorded in deployedConfigs -- see its doc comment on
+// InMemoryBackend in store.go) for an environment/profile pair. Before any
+// deployment has ever completed for this environment/profile -- or if the
+// deployed version has since been deleted, or the profile is not
+// AppConfig-hosted -- real AWS AppConfig returns empty content rather than
+// an error, which this mirrors. Must be called under lock.
+func (b *InMemoryBackend) deployedConfigVersionLocked(appID, envID, profileID string) *HostedConfigurationVersion {
 	empty := &HostedConfigurationVersion{
 		ApplicationID:          appID,
 		ConfigurationProfileID: profileID,
@@ -106,19 +169,17 @@ func (b *InMemoryBackend) latestConfigVersion(appID, profileID string) *HostedCo
 		Content:                []byte{},
 	}
 
-	if len(b.hostedConfigVersionsByProfile.Get(appProfileKey(appID, profileID))) == 0 {
+	configVersion, ok := b.deployedConfigs[appEnvProfileKey(appID, envID, profileID)]
+	if !ok {
 		return empty
 	}
 
-	counter := b.versionCounters[appID][profileID]
-
-	for n := counter; n >= 1; n-- {
-		if v, ok := b.hostedConfigVersions.Get(hcvKey(appID, profileID, n)); ok {
-			cp := *v
-
-			return &cp
-		}
+	v, ok := b.resolveHostedConfigVersion(appID, profileID, configVersion)
+	if !ok {
+		return empty
 	}
 
-	return empty
+	cp := *v
+
+	return &cp
 }

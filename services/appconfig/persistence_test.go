@@ -94,7 +94,7 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	require.NoError(t, err)
 
 	hcv, err := b.CreateHostedConfigurationVersion(
-		app.ID, profile.ID, "application/json", "v1", "", []byte(`{"flag":true}`),
+		app.ID, profile.ID, "application/json", "v1", "", []byte(`{"flag":true}`), nil,
 	)
 	require.NoError(t, err)
 
@@ -102,7 +102,7 @@ func seedFullState(t *testing.T, b *appconfig.InMemoryBackend) seedState {
 	// proves the versionCounters map survives (this must land as version 2,
 	// not collide with a reset counter).
 	labeledHCV, err := b.CreateHostedConfigurationVersion(
-		app.ID, profile.ID, "application/json", "v2", "release-1", []byte(`{"flag":false}`),
+		app.ID, profile.ID, "application/json", "v2", "release-1", []byte(`{"flag":false}`), nil,
 	)
 	require.NoError(t, err)
 
@@ -240,14 +240,14 @@ func assertHostedConfigVersionsRestored(t *testing.T, fresh *appconfig.InMemoryB
 	// byLabel index was rebuilt: the same label is still rejected as a
 	// duplicate on the restored profile.
 	_, err = fresh.CreateHostedConfigurationVersion(
-		seed.app.ID, seed.profile.ID, "application/json", "dup", seed.labeledHCV.VersionLabel, []byte(`{}`),
+		seed.app.ID, seed.profile.ID, "application/json", "dup", seed.labeledHCV.VersionLabel, []byte(`{}`), nil,
 	)
 	require.Error(t, err)
 
 	// versionCounters survived: the next created version must be 3, not a
 	// reset-to-1 collision with the seeded versions.
 	newHCV, err := fresh.CreateHostedConfigurationVersion(
-		seed.app.ID, seed.profile.ID, "application/json", "v3", "", []byte(`{}`),
+		seed.app.ID, seed.profile.ID, "application/json", "v3", "", []byte(`{}`), nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, seed.labeledHCV.VersionNumber+1, newHCV.VersionNumber)
@@ -287,7 +287,7 @@ func assertDeploymentFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBacke
 func assertExtensionFamilyRestored(t *testing.T, fresh *appconfig.InMemoryBackend, seed seedState) {
 	t.Helper()
 
-	gotExt, err := fresh.GetExtension(seed.ext.ID)
+	gotExt, err := fresh.GetExtension(seed.ext.ID, 0)
 	require.NoError(t, err)
 	assert.Equal(t, seed.ext.Name, gotExt.Name)
 

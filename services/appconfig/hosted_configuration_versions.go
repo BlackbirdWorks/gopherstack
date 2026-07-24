@@ -3,15 +3,22 @@ package appconfig
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 )
 
 const maxHostedConfigSizeBytes = 1024 * 1024 // 1 MiB, matching AWS limit
 
 // CreateHostedConfigurationVersion creates a hosted configuration version.
+// latestVersionNumber implements real CreateHostedConfigurationVersionInput's
+// optional optimistic-concurrency check (the "Latest-Version-Number" request
+// header): when non-nil, it must match the profile's current highest
+// version, or the create is rejected with a conflict rather than silently
+// racing another writer.
 func (b *InMemoryBackend) CreateHostedConfigurationVersion(
 	applicationID, profileID, contentType, description, versionLabel string,
 	content []byte,
+	latestVersionNumber *int32,
 ) (*HostedConfigurationVersion, error) {
 	b.mu.Lock("CreateHostedConfigurationVersion")
 	defer b.mu.Unlock()
@@ -44,6 +51,17 @@ func (b *InMemoryBackend) CreateHostedConfigurationVersion(
 			"%w: version label %q already exists for profile %s",
 			ErrConflict,
 			versionLabel,
+			profileID,
+		)
+	}
+
+	currentLatest := b.versionCounters[applicationID][profileID]
+	if latestVersionNumber != nil && *latestVersionNumber != currentLatest {
+		return nil, fmt.Errorf(
+			"%w: latest version number %d does not match current latest version %d for profile %s",
+			ErrConflict,
+			*latestVersionNumber,
+			currentLatest,
 			profileID,
 		)
 	}
@@ -124,6 +142,29 @@ func (b *InMemoryBackend) ListHostedConfigurationVersions(
 	page, token := appConfigPaginate(out, nextToken, b.paginationSecret, maxResults)
 
 	return page, token, nil
+}
+
+// resolveHostedConfigVersion resolves configVersion -- a version number or a
+// version label, matching real AppConfig's ConfigurationVersion semantics
+// for AppConfig-hosted configuration profiles (StartDeploymentInput's doc:
+// "If deploying an AppConfig hosted configuration version, you can specify
+// either the version number or version label") -- to the underlying
+// HostedConfigurationVersion. Must be called under lock (read or write).
+func (b *InMemoryBackend) resolveHostedConfigVersion(
+	applicationID, profileID, configVersion string,
+) (*HostedConfigurationVersion, bool) {
+	if n, err := strconv.ParseInt(configVersion, 10, 32); err == nil {
+		if v, ok := b.hostedConfigVersions.Get(hcvKey(applicationID, profileID, int32(n))); ok {
+			return v, true
+		}
+	}
+
+	labelKey := hcvLabelKey(applicationID, profileID, configVersion)
+	if matches := b.hostedConfigVersionsByLabel.Get(labelKey); len(matches) > 0 {
+		return matches[0], true
+	}
+
+	return nil, false
 }
 
 // DeleteHostedConfigurationVersion deletes a hosted configuration version.

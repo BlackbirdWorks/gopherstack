@@ -155,8 +155,13 @@ func (b *InMemoryBackend) DeleteConfigurationProfile(applicationID, profileID st
 		)
 	}
 
+	profileArn := b.appconfigARN("application/" + applicationID + "/configurationprofile/" + profileID)
 	b.configProfiles.Delete(profileID)
-	delete(b.tags, b.appconfigARN("application/"+applicationID+"/configurationprofile/"+profileID))
+	delete(b.tags, profileArn)
+	b.deleteExtensionAssociationsForResourceLocked(profileArn)
+	b.deleteDeployedConfigsLocked(func(appID, _, pID string) bool {
+		return appID == applicationID && pID == profileID
+	})
 
 	return nil
 }

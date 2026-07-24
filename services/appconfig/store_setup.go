@@ -87,7 +87,13 @@ func deploymentEnvIndexKeyFn(v *Deployment) string {
 
 func deploymentAppIndexKeyFn(v *Deployment) string { return v.ApplicationID }
 
-func extensionKeyFn(v *Extension) string { return v.ID }
+// extensionKeyFn keys each row on its composite (extensionID, versionNumber)
+// identity -- extensions are versioned resources in real AWS AppConfig (see
+// the InMemoryBackend doc comment in store.go), so unlike every other
+// directly-registered table here, Extension.ID alone is not a unique key.
+func extensionKeyFn(v *Extension) string { return extensionVersionKey(v.ID, v.VersionNumber) }
+
+func extensionIDIndexKeyFn(v *Extension) string { return v.ID }
 
 func extensionNameIndexKeyFn(v *Extension) string { return v.Name }
 
@@ -134,6 +140,7 @@ func registerAllTables(b *InMemoryBackend) {
 	b.deploymentsByApp = b.deployments.AddIndex("byApp", deploymentAppIndexKeyFn)
 
 	b.extensions = store.Register(b.registry, "extensions", store.New(extensionKeyFn))
+	b.extensionsByID = b.extensions.AddIndex("byID", extensionIDIndexKeyFn)
 	b.extensionsByName = b.extensions.AddIndex("byName", extensionNameIndexKeyFn)
 
 	b.extensionAssociations = store.Register(

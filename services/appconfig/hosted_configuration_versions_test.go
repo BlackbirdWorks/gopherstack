@@ -22,6 +22,7 @@ func TestBackend_HostedConfigVersion_ProfileNotFound(t *testing.T) {
 		"",
 		"",
 		[]byte("{}"),
+		nil,
 	)
 	require.Error(t, err)
 }
