@@ -86,7 +86,36 @@ func TestAccessPreviewLifecycle(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
 				findings := resp["findings"].([]any)
-				assert.Len(t, findings, 1)
+				require.Len(t, findings, 1)
+
+				// types.AccessPreviewFinding has "id"/"changeType" and no
+				// analyzerArn member -- it is NOT the v1 Finding/FindingSummary
+				// shape, despite gopherstack modeling both from the same
+				// underlying record.
+				f, ok := findings[0].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "New", f["changeType"])
+				assert.Equal(t, "000000000000", f["resourceOwnerAccount"])
+				_, hasAnalyzerArn := f["analyzerArn"]
+				assert.False(t, hasAnalyzerArn, "AccessPreviewFinding has no analyzerArn member")
+			},
+		},
+		{
+			name: "list_access_preview_findings_missing_analyzer_arn",
+			fn: func(t *testing.T, b *accessanalyzer.InMemoryBackend, h *accessanalyzer.Handler) {
+				t.Helper()
+				arn := mustAnalyzer(t, b, "preview-findings-no-arn")
+
+				rec := doRequest(t, h, http.MethodPut, "/access-preview", map[string]any{
+					"analyzerArn": arn, "configurations": map[string]any{},
+				})
+				var created map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+				previewID := created["id"]
+
+				// ListAccessPreviewFindingsInput requires analyzerArn.
+				rec2 := doRequest(t, h, http.MethodPost, "/access-preview/"+previewID, map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec2.Code)
 			},
 		},
 		{

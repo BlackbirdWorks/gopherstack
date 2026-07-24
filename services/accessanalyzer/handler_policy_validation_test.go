@@ -76,3 +76,33 @@ func TestValidatePolicy(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotNil(t, resp["findings"])
 }
+
+// TestValidatePolicy_FindingDetailsPopulated verifies that every finding
+// ValidatePolicy produces carries a non-empty "findingDetails" message --
+// a required member of types.ValidatePolicyFinding ("a localized message
+// that explains the finding and provides guidance on how to address it"),
+// previously always omitted.
+func TestValidatePolicy_FindingDetailsPopulated(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	// No "Version" element triggers the MISSING_VERSION suggestion finding.
+	rec := doRequest(t, h, http.MethodPost, "/policy/validation", map[string]any{
+		"policyDocument": `{"Statement":[]}`,
+		"policyType":     "IDENTITY_POLICY",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	findings, ok := resp["findings"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, findings)
+
+	for _, raw := range findings {
+		f, isMap := raw.(map[string]any)
+		require.True(t, isMap)
+		details, _ := f["findingDetails"].(string)
+		assert.NotEmpty(t, details, "findingDetails is required and must not be empty for issueCode %v", f["issueCode"])
+	}
+}

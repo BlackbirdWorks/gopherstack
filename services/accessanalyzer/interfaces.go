@@ -1,17 +1,23 @@
 package accessanalyzer
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // StorageBackend defines the interface for Access Analyzer backend implementations.
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
-	// Analyzer operations
-	CreateAnalyzer(name string, analyzerType AnalyzerType, tags map[string]string) (*Analyzer, error)
+	// Analyzer operations. configuration is the optional raw
+	// AnalyzerConfiguration union wire body -- see Analyzer.Configuration.
+	CreateAnalyzer(
+		name string, analyzerType AnalyzerType, tags map[string]string, configuration ...json.RawMessage,
+	) (*Analyzer, error)
 	GetAnalyzer(name string) (*Analyzer, error)
 	ListAnalyzers(analyzerType string) ([]*Analyzer, error)
 	DeleteAnalyzer(name string) error
-	UpdateAnalyzer(name string) (*Analyzer, error)
-	CreateServiceLinkedAnalyzer(analyzerType AnalyzerType) (*Analyzer, error)
+	UpdateAnalyzer(name string, configuration ...json.RawMessage) (*Analyzer, error)
+	CreateServiceLinkedAnalyzer(analyzerType AnalyzerType, configuration ...json.RawMessage) (*Analyzer, error)
 
 	// Archive rule operations
 	CreateArchiveRule(analyzerName, ruleName string, filter map[string]FilterCriterion) (*ArchiveRule, error)

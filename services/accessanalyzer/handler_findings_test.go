@@ -71,6 +71,13 @@ func TestGetFinding(t *testing.T) {
 
 			_, hasWrongKey := finding["resourceArn"]
 			assert.False(t, hasWrongKey, `wire shape must use "resource", not "resourceArn"`)
+
+			// "condition" is a required Finding member -- it must always be
+			// present (as {}, since mustFinding creates a finding with no
+			// condition), never omitted.
+			condition, hasCondition := finding["condition"]
+			assert.True(t, hasCondition, `"condition" is required and must be present even when empty`)
+			assert.Equal(t, map[string]any{}, condition)
 		})
 	}
 }
@@ -174,6 +181,18 @@ func TestFindingV2Lifecycle(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.Equal(t, findingID, resp["id"])
+				// findingType and the ExternalAccessDetails union member of
+				// findingDetails are required GetFindingV2Output members.
+				assert.Equal(t, "ExternalAccess", resp["findingType"])
+				details, ok := resp["findingDetails"].([]any)
+				require.True(t, ok)
+				require.Len(t, details, 1)
+				member, ok := details[0].(map[string]any)
+				require.True(t, ok)
+				external, ok := member["externalAccessDetails"].(map[string]any)
+				require.True(t, ok)
+				_, hasCondition := external["condition"]
+				assert.True(t, hasCondition, `"condition" is required on ExternalAccessDetails`)
 			},
 		},
 		{
@@ -193,6 +212,10 @@ func TestFindingV2Lifecycle(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				findings := resp["findings"].([]any)
 				assert.Len(t, findings, 2)
+				first, ok := findings[0].(map[string]any)
+				require.True(t, ok)
+				// findingType is a required FindingSummaryV2 member.
+				assert.Equal(t, "ExternalAccess", first["findingType"])
 			},
 		},
 		{
@@ -269,8 +292,7 @@ func TestGetFindingsStatistics(t *testing.T) {
 				require.Len(t, stats, 1)
 
 				extStats := stats[0].(map[string]any)["externalAccessFindingsStatistics"].(map[string]any)
-				active := extStats["activeFindings"].(map[string]any)
-				assert.InDelta(t, float64(tt.wantActive), active["total"], 0.0001)
+				assert.InDelta(t, float64(tt.wantActive), extStats["totalActiveFindings"], 0.0001)
 			}
 		})
 	}

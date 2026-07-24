@@ -133,10 +133,11 @@ func (h *Handler) handleValidatePolicy(body []byte) (any, int, error) {
 
 	for _, f := range raw {
 		findings = append(findings, map[string]any{
-			"findingType":   f.FindingType,
-			"issueCode":     f.IssueCode,
-			"learnMoreLink": f.LearnMoreLink,
-			"locations":     f.Locations,
+			"findingType":    f.FindingType,
+			"issueCode":      f.IssueCode,
+			"findingDetails": f.FindingDetails,
+			"learnMoreLink":  f.LearnMoreLink,
+			"locations":      f.Locations,
 		})
 	}
 

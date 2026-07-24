@@ -99,15 +99,26 @@ func (h *Handler) handleListAccessPreviews(query string) (any, int, error) {
 	return map[string]any{"accessPreviews": list}, http.StatusOK, nil
 }
 
+// handleListAccessPreviewFindings serves POST /access-preview/{id}.
+// ListAccessPreviewFindingsInput requires analyzerArn (validated below, same
+// required-field contract as ListFindings/GetFindingsStatistics).
 func (h *Handler) handleListAccessPreviewFindings(path string, body []byte) (any, int, error) {
 	accessPreviewID := extractLastSegment(path, pathAccessPreview)
 
 	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
+		Filter      map[string]FilterCriterion `json:"filter"`
+		AnalyzerArn string                     `json:"analyzerArn"`
+		NextToken   string                     `json:"nextToken"`
+		MaxResults  int                        `json:"maxResults"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	if req.AnalyzerArn == "" {
+		return nil, 0, ErrValidation
+	}
 
 	findings, nextToken, err := h.Backend.ListAccessPreviewFindings(
 		accessPreviewID, req.MaxResults, req.NextToken,
@@ -120,7 +131,7 @@ func (h *Handler) handleListAccessPreviewFindings(path string, body []byte) (any
 	list := make([]any, 0, len(findings))
 
 	for _, f := range findings {
-		list = append(list, findingToJSON(f, accountID))
+		list = append(list, accessPreviewFindingToJSON(f, accountID))
 	}
 
 	resp := map[string]any{keyFindings: list}
@@ -164,4 +175,44 @@ func accessPreviewToJSON(ap *AccessPreview) map[string]any {
 		keyStatus:      string(ap.Status),
 		keyCreatedAt:   ap.CreatedAt.Format(time.RFC3339),
 	}
+}
+
+// accessPreviewFindingToJSON builds the wire shape of types.AccessPreviewFinding
+// for ListAccessPreviewFindings, which is NOT the same shape as v1
+// Finding/FindingSummary despite gopherstack modeling both from the same
+// underlying *Finding record: AccessPreviewFinding uses "id"/"changeType"
+// instead of a bare finding id and has no analyzerArn member. Every finding
+// InMemoryBackend can produce for a preview is reported as changeType "New"
+// (a newly-introduced finding), since access previews here are not diffed
+// against a prior finding set -- existingFindingId/existingFindingStatus are
+// therefore never populated, matching an access preview with no prior
+// findings to compare against.
+func accessPreviewFindingToJSON(f *Finding, accountID string) map[string]any {
+	m := map[string]any{
+		"id":                 f.ID,
+		"changeType":         "New",
+		keyStatus:            string(f.Status),
+		keyResourceType:      f.ResourceType,
+		keyResource:          f.ResourceArn,
+		keyResourceOwnerAcct: accountID,
+		keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
+	}
+
+	if len(f.Action) > 0 {
+		m["action"] = f.Action
+	}
+
+	if len(f.Principal) > 0 {
+		m["principal"] = f.Principal
+	}
+
+	if len(f.Condition) > 0 {
+		m["condition"] = f.Condition
+	}
+
+	if f.IsPublic != nil {
+		m["isPublic"] = *f.IsPublic
+	}
+
+	return m
 }

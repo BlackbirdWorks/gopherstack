@@ -1,6 +1,7 @@
 package accessanalyzer
 
 import (
+	"encoding/json"
 	"slices"
 	"sort"
 	"time"
@@ -8,11 +9,32 @@ import (
 	"github.com/google/uuid"
 )
 
-// CreateAnalyzer creates a new analyzer.
+// firstConfiguration returns the first element of a variadic
+// json.RawMessage configuration argument, or nil if omitted / empty / the
+// JSON null literal. CreateAnalyzer, CreateServiceLinkedAnalyzer, and
+// UpdateAnalyzer all accept the AnalyzerConfiguration union as an optional
+// parameter this way so existing call sites (which never set it) do not
+// need to change.
+func firstConfiguration(cs []json.RawMessage) json.RawMessage {
+	if len(cs) == 0 {
+		return nil
+	}
+
+	c := cs[0]
+	if len(c) == 0 || string(c) == "null" {
+		return nil
+	}
+
+	return c
+}
+
+// CreateAnalyzer creates a new analyzer. configuration, if supplied, is the
+// raw AnalyzerConfiguration union body (see Analyzer.Configuration).
 func (b *InMemoryBackend) CreateAnalyzer(
 	name string,
 	analyzerType AnalyzerType,
 	tags map[string]string,
+	configuration ...json.RawMessage,
 ) (*Analyzer, error) {
 	if name == "" {
 		return nil, ErrValidation
@@ -27,12 +49,13 @@ func (b *InMemoryBackend) CreateAnalyzer(
 
 	now := time.Now().UTC()
 	a := &Analyzer{
-		Arn:       b.analyzerARN(name),
-		Name:      name,
-		Type:      analyzerType,
-		Status:    AnalyzerStatusActive,
-		CreatedAt: now,
-		Tags:      cloneTags(tags),
+		Arn:           b.analyzerARN(name),
+		Name:          name,
+		Type:          analyzerType,
+		Status:        AnalyzerStatusActive,
+		CreatedAt:     now,
+		Tags:          cloneTags(tags),
+		Configuration: firstConfiguration(configuration),
 	}
 
 	b.analyzers.Put(a)
@@ -76,14 +99,23 @@ func (b *InMemoryBackend) ListAnalyzers(analyzerType string) ([]*Analyzer, error
 	return result, nil
 }
 
-// DeleteAnalyzer removes an analyzer and all its findings and archive rules.
+// DeleteAnalyzer removes an analyzer and cascade-cleans every piece of state
+// keyed off it, so no ghost rows survive it: archive rules, findings (and
+// their finding recommendations, keyed 1:1 by finding ID), analyzed
+// resources, access previews, and tags. Tags in particular used to leak --
+// b.tags[analyzerARN] was never removed here, so re-creating an analyzer of
+// the same name after deleting the old one would silently resurrect its
+// stale tags.
 func (b *InMemoryBackend) DeleteAnalyzer(name string) error {
 	b.mu.Lock("DeleteAnalyzer")
 	defer b.mu.Unlock()
 
-	if !b.analyzers.Has(name) {
+	a, ok := b.analyzers.Get(name)
+	if !ok {
 		return ErrAnalyzerNotFound
 	}
+
+	analyzerARN := a.Arn
 
 	b.analyzers.Delete(name)
 
@@ -93,26 +125,54 @@ func (b *InMemoryBackend) DeleteAnalyzer(name string) error {
 
 	for _, f := range slices.Clone(b.findingsByAnalyzer.Get(name)) {
 		b.findings.Delete(f.ID)
+		b.findingRecommendations.Delete(f.ID)
 	}
+
+	for _, ar := range b.analyzedResources.All() {
+		if ar.AnalyzerArn == analyzerARN {
+			b.analyzedResources.Delete(analyzedResourceKey(ar.AnalyzerArn, ar.ResourceArn))
+		}
+	}
+
+	for _, ap := range b.accessPreviews.All() {
+		if ap.AnalyzerArn == analyzerARN {
+			b.accessPreviews.Delete(ap.ID)
+		}
+	}
+
+	delete(b.tags, analyzerARN)
 
 	return nil
 }
 
-// CreateServiceLinkedAnalyzer creates an analyzer with a generated service-linked name.
-func (b *InMemoryBackend) CreateServiceLinkedAnalyzer(analyzerType AnalyzerType) (*Analyzer, error) {
+// CreateServiceLinkedAnalyzer creates an analyzer with a generated
+// service-linked name. configuration, if supplied, is the raw
+// AnalyzerConfiguration union body (see Analyzer.Configuration).
+func (b *InMemoryBackend) CreateServiceLinkedAnalyzer(
+	analyzerType AnalyzerType,
+	configuration ...json.RawMessage,
+) (*Analyzer, error) {
 	name := "_AccessAnalyzerForInternalUse-" + uuid.NewString()[:8]
 
-	return b.CreateAnalyzer(name, analyzerType, nil)
+	return b.CreateAnalyzer(name, analyzerType, nil, configuration...)
 }
 
-// UpdateAnalyzer updates an analyzer (currently a no-op — configuration not stored).
-func (b *InMemoryBackend) UpdateAnalyzer(name string) (*Analyzer, error) {
-	b.mu.RLock("UpdateAnalyzer")
-	defer b.mu.RUnlock()
+// UpdateAnalyzer updates an analyzer's configuration. If configuration is
+// supplied (non-empty, non-null), it replaces the analyzer's stored
+// AnalyzerConfiguration; otherwise the existing configuration is left
+// untouched and simply echoed back, matching UpdateAnalyzerOutput's
+// contract of always returning the analyzer's current configuration.
+func (b *InMemoryBackend) UpdateAnalyzer(name string, configuration ...json.RawMessage) (*Analyzer, error) {
+	b.mu.Lock("UpdateAnalyzer")
+	defer b.mu.Unlock()
 
 	a, ok := b.analyzers.Get(name)
 	if !ok {
 		return nil, ErrAnalyzerNotFound
+	}
+
+	if cfg := firstConfiguration(configuration); cfg != nil {
+		a.Configuration = cfg
 	}
 
 	return copyAnalyzer(a), nil
