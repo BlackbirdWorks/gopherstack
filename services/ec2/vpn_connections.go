@@ -178,6 +178,7 @@ func (b *InMemoryBackend) DeleteVpnConnection(id string) error {
 		return fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, id)
 	}
 	b.vpnConnections.Delete(id)
+	delete(b.tags, id)
 
 	prefix := id + ":"
 	for _, route := range b.vpnConnectionRoutes.All() {

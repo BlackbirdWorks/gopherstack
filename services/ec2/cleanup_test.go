@@ -180,6 +180,80 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 				return b.DeletePlacementGroup(id)
 			},
 		},
+		{
+			// Locks the tag-leak fix: DeleteTransitGateway previously left the
+			// tag entry behind (see the "newer op families" tag-cleanup sweep).
+			name: "DeleteTransitGateway",
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				tgw, err := b.CreateTransitGateway("test tgw")
+				require.NoError(t, err)
+
+				return tgw.ID
+			},
+			deleteFn: func(b *ec2.InMemoryBackend, id string) error {
+				return b.DeleteTransitGateway(id)
+			},
+		},
+		{
+			name: "DeleteVpnGateway",
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				vgw, err := b.CreateVpnGateway("ipsec.1")
+				require.NoError(t, err)
+
+				return vgw.VpnGatewayID
+			},
+			deleteFn: func(b *ec2.InMemoryBackend, id string) error {
+				return b.DeleteVpnGateway(id)
+			},
+		},
+		{
+			name: "DeleteDhcpOptions",
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				dopt, err := b.CreateDhcpOptions([]ec2.DhcpConfiguration{
+					{Key: "domain-name", Values: []string{"example.com"}},
+				})
+				require.NoError(t, err)
+
+				return dopt.DhcpOptionsID
+			},
+			deleteFn: func(b *ec2.InMemoryBackend, id string) error {
+				return b.DeleteDhcpOptions(id)
+			},
+		},
+		{
+			name: "DeleteCarrierGateway",
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				cagw, err := b.CreateCarrierGateway("vpc-default")
+				require.NoError(t, err)
+
+				return cagw.CarrierGatewayID
+			},
+			deleteFn: func(b *ec2.InMemoryBackend, id string) error {
+				return b.DeleteCarrierGateway(id)
+			},
+		},
+		{
+			name: "DeleteFpgaImage",
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				img, err := b.CreateFpgaImage("test-fpga", "test description")
+				require.NoError(t, err)
+
+				return img.FpgaImageID
+			},
+			deleteFn: func(b *ec2.InMemoryBackend, id string) error {
+				return b.DeleteFpgaImage(id)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -442,9 +516,11 @@ func TestTerminateInstances_OnlyDeletesAttachedENIs(t *testing.T) {
 	assert.Equal(t, "in-use", enisB[0].Status)
 }
 
-// TestDeleteSubnet_CascadeDeletesENIs verifies that deleting a subnet removes
-// all network interfaces associated with it.
-func TestDeleteSubnet_CascadeDeletesENIs(t *testing.T) {
+// TestDeleteSubnet_DependencyViolation_ENIs verifies that DeleteSubnet fails
+// with DependencyViolation while network interfaces exist in that subnet
+// (matching real AWS — subnets are never cascade-deleted), and succeeds once
+// they are removed, with their tags cleaned up.
+func TestDeleteSubnet_DependencyViolation_ENIs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -478,15 +554,28 @@ func TestDeleteSubnet_CascadeDeletesENIs(t *testing.T) {
 			}
 
 			err = b.DeleteSubnet(subnet.ID)
+			if tt.eniCount > 0 {
+				require.Error(t, err, "DeleteSubnet must fail while ENIs exist")
+				require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+				assert.NotEmpty(t, b.DescribeSubnets([]string{subnet.ID}),
+					"subnet must survive a failed DeleteSubnet")
+
+				// Explicitly remove every ENI, then deletion succeeds.
+				for _, eniID := range eniIDs {
+					require.NoError(t, b.DeleteNetworkInterface(eniID))
+				}
+
+				err = b.DeleteSubnet(subnet.ID)
+			}
 			require.NoError(t, err)
 
-			// All ENIs in the subnet must be removed.
+			// All ENIs in the subnet must be gone, along with their tags.
 			for _, eniID := range eniIDs {
 				assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniID}))
 				assert.Empty(
 					t,
 					b.DescribeTags([]string{eniID}),
-					"ENI tags must be removed with subnet",
+					"ENI tags must be removed with the ENI",
 				)
 			}
 
@@ -497,9 +586,11 @@ func TestDeleteSubnet_CascadeDeletesENIs(t *testing.T) {
 	}
 }
 
-// TestDeleteSubnet_CascadeTerminatesInstances verifies that deleting a subnet
-// marks all instances in that subnet as terminated.
-func TestDeleteSubnet_CascadeTerminatesInstances(t *testing.T) {
+// TestDeleteSubnet_DependencyViolation_Instances verifies that DeleteSubnet
+// fails with DependencyViolation while a non-terminated instance's primary
+// ENI is still in that subnet, and succeeds once the instance is terminated
+// (which removes its ENI).
+func TestDeleteSubnet_DependencyViolation_Instances(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
@@ -511,19 +602,37 @@ func TestDeleteSubnet_CascadeTerminatesInstances(t *testing.T) {
 	require.NoError(t, err)
 
 	err = b.DeleteSubnet(subnet.ID)
+	require.Error(t, err, "DeleteSubnet must fail while instances are running in the subnet")
+	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+
+	instanceIDs := make([]string, len(insts))
+	for i, inst := range insts {
+		instanceIDs[i] = inst.ID
+	}
+
+	_, err = b.TerminateInstances(instanceIDs)
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // shutting-down -> terminated
 
 	for _, inst := range insts {
 		remaining := b.DescribeInstances([]string{inst.ID}, "")
 		require.Len(t, remaining, 1, "terminated instances should still be visible in grace period")
 		assert.Equal(t, "terminated", remaining[0].State.Name,
-			"instance %s should be terminated after subnet deletion", inst.ID)
+			"instance %s should be terminated", inst.ID)
 	}
+
+	// The primary ENIs are gone with the terminated instances, so the subnet
+	// now has no dependents.
+	require.NoError(t, b.DeleteSubnet(subnet.ID))
+	assert.Empty(t, b.DescribeSubnets([]string{subnet.ID}))
 }
 
-// TestDeleteVpc_CascadeDeletesDependents verifies that deleting a VPC removes
-// all dependent resources: subnets, security groups, route tables, and ENIs.
-func TestDeleteVpc_CascadeDeletesDependents(t *testing.T) {
+// TestDeleteVpc_DependencyViolation_Dependents verifies that DeleteVpc fails
+// with DependencyViolation while any dependent resource (subnet, non-default
+// security group, route table, ENI) still exists, and succeeds — with tags
+// cleaned up — only once every dependent has been explicitly removed.
+// Matches real AWS: DeleteVpc never cascades.
+func TestDeleteVpc_DependencyViolation_Dependents(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
@@ -548,7 +657,17 @@ func TestDeleteVpc_CascadeDeletesDependents(t *testing.T) {
 	require.NoError(t, err)
 
 	err = b.DeleteVpc(vpc.ID)
-	require.NoError(t, err)
+	require.Error(t, err, "DeleteVpc must fail while dependents exist")
+	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+	assert.NotEmpty(t, b.DescribeVpcs([]string{vpc.ID}), "VPC must survive a failed DeleteVpc")
+
+	// Tear down every dependent explicitly, in the order real AWS requires.
+	require.NoError(t, b.DeleteNetworkInterface(eni.ID))
+	require.NoError(t, b.DeleteSubnet(subnet.ID))
+	require.NoError(t, b.DeleteRouteTable(rt.ID))
+	require.NoError(t, b.DeleteSecurityGroup(sg.ID))
+
+	require.NoError(t, b.DeleteVpc(vpc.ID))
 
 	// VPC itself must be gone.
 	assert.Empty(t, b.DescribeVpcs([]string{vpc.ID}))
@@ -559,15 +678,18 @@ func TestDeleteVpc_CascadeDeletesDependents(t *testing.T) {
 	assert.Empty(t, b.DescribeRouteTables([]string{rt.ID}), "route table must be removed")
 	assert.Empty(t, b.DescribeNetworkInterfaces([]string{eni.ID}), "ENI must be removed")
 
-	// Tags for all dependents must be removed.
-	for _, resID := range []string{subnet.ID, sg.ID, rt.ID, eni.ID} {
+	// Tags for all dependents (and the VPC's own auto-created default SG) must
+	// be removed.
+	for _, resID := range []string{subnet.ID, sg.ID, rt.ID, eni.ID, vpc.ID} {
 		assert.Empty(t, b.DescribeTags([]string{resID}), "tags for %s must be removed", resID)
 	}
 }
 
-// TestDeleteVpc_CascadeTerminatesInstances verifies that deleting a VPC marks
-// all instances in that VPC as terminated.
-func TestDeleteVpc_CascadeTerminatesInstances(t *testing.T) {
+// TestDeleteVpc_DependencyViolation_Instances verifies that DeleteVpc fails
+// with DependencyViolation while the VPC's subnet still holds a running
+// instance, and succeeds once the instance is terminated and the (now empty)
+// subnet is explicitly deleted.
+func TestDeleteVpc_DependencyViolation_Instances(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
@@ -582,14 +704,28 @@ func TestDeleteVpc_CascadeTerminatesInstances(t *testing.T) {
 	require.NoError(t, err)
 
 	err = b.DeleteVpc(vpc.ID)
+	require.Error(t, err, "DeleteVpc must fail while its subnet holds running instances")
+	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+
+	instanceIDs := make([]string, len(insts))
+	for i, inst := range insts {
+		instanceIDs[i] = inst.ID
+	}
+
+	_, err = b.TerminateInstances(instanceIDs)
 	require.NoError(t, err)
+	b.TickLifecycleForTest() // shutting-down -> terminated
 
 	for _, inst := range insts {
 		remaining := b.DescribeInstances([]string{inst.ID}, "")
 		require.Len(t, remaining, 1, "terminated instances should still be visible in grace period")
 		assert.Equal(t, "terminated", remaining[0].State.Name,
-			"instance %s should be terminated after VPC deletion", inst.ID)
+			"instance %s should be terminated", inst.ID)
 	}
+
+	require.NoError(t, b.DeleteSubnet(subnet.ID))
+	require.NoError(t, b.DeleteVpc(vpc.ID))
+	assert.Empty(t, b.DescribeVpcs([]string{vpc.ID}))
 }
 
 // TestUnassignPrivateIPAddresses_RecyclesIPs verifies that auto-allocated
@@ -830,9 +966,10 @@ func TestDeleteNatGateway_RecyclesPrivateIP(t *testing.T) {
 	assert.Equal(t, ngwPrivateIP, eni.PrivateIP, "deleted NAT GW's private IP must be reused")
 }
 
-// TestDeleteSubnet_CascadeDeletesNatGateways verifies that deleting a subnet
-// cascade-deletes any NAT gateways in that subnet.
-func TestDeleteSubnet_CascadeDeletesNatGateways(t *testing.T) {
+// TestDeleteSubnet_DependencyViolation_NatGateways verifies that DeleteSubnet
+// fails with DependencyViolation while a NAT gateway exists in that subnet,
+// and succeeds once the NAT gateway is explicitly deleted.
+func TestDeleteSubnet_DependencyViolation_NatGateways(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
@@ -847,16 +984,21 @@ func TestDeleteSubnet_CascadeDeletesNatGateways(t *testing.T) {
 	require.NoError(t, err)
 
 	err = b.DeleteSubnet(subnet.ID)
-	require.NoError(t, err)
+	require.Error(t, err, "DeleteSubnet must fail while a NAT gateway exists in it")
+	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+
+	require.NoError(t, b.DeleteNatGateway(ngw.ID))
+	require.NoError(t, b.DeleteSubnet(subnet.ID))
 
 	ngws := b.DescribeNatGateways([]string{ngw.ID})
-	assert.Empty(t, ngws, "NAT gateway must be deleted when its subnet is deleted")
+	assert.Empty(t, ngws)
 }
 
-// TestDeleteVpc_CascadeDeletesIGWsAndNatGateways verifies that deleting a VPC
-// cascade-deletes internet gateways attached to it and NAT gateways in its
-// subnets.
-func TestDeleteVpc_CascadeDeletesIGWsAndNatGateways(t *testing.T) {
+// TestDeleteVpc_DependencyViolation_IGWsAndNatGateways verifies that DeleteVpc
+// fails with DependencyViolation while an internet gateway is attached to it
+// or a NAT gateway exists in one of its subnets, and succeeds once every
+// dependent (IGW detach+delete, NAT gateway, subnet) is explicitly removed.
+func TestDeleteVpc_DependencyViolation_IGWsAndNatGateways(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
@@ -882,18 +1024,33 @@ func TestDeleteVpc_CascadeDeletesIGWsAndNatGateways(t *testing.T) {
 	require.NoError(t, err)
 
 	err = b.DeleteVpc(vpc.ID)
-	require.NoError(t, err)
+	require.Error(t, err, "DeleteVpc must fail while an attached IGW/NAT gateway exists")
+	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
 
-	assert.Empty(t, b.DescribeInternetGateways([]string{igw.ID}),
-		"internet gateway must be deleted when its VPC is deleted")
-	assert.Empty(t, b.DescribeNatGateways([]string{ngw.ID}),
-		"NAT gateway must be deleted when its VPC is deleted")
+	// Detach and delete the IGW; DeleteVpc must still block on the NAT gateway
+	// (in the still-present subnet).
+	require.NoError(t, b.DetachInternetGateway(igw.ID, vpc.ID))
+	require.NoError(t, b.DeleteInternetGateway(igw.ID))
+
+	err = b.DeleteVpc(vpc.ID)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+
+	require.NoError(t, b.DeleteNatGateway(ngw.ID))
+	require.NoError(t, b.DeleteSubnet(subnet.ID))
+	require.NoError(t, b.DeleteVpc(vpc.ID))
+
+	assert.Empty(t, b.DescribeInternetGateways([]string{igw.ID}))
+	assert.Empty(t, b.DescribeNatGateways([]string{ngw.ID}))
+	assert.Empty(t, b.DescribeVpcs([]string{vpc.ID}))
 }
 
-// TestDeleteVpc_CascadeDetachesVolumesAndEIPs verifies that when a VPC is
-// deleted the volumes attached to its instances are detached and any Elastic
-// IPs associated with those instances are disassociated.
-func TestDeleteVpc_CascadeDetachesVolumesAndEIPs(t *testing.T) {
+// TestDeleteVpc_AfterTeardownDetachesVolumesAndEIPs verifies that once a VPC's
+// dependents are fully torn down (instance terminated — which detaches its
+// volumes and disassociates its Elastic IPs — then its subnet deleted),
+// DeleteVpc itself succeeds and the volume/EIP state set by termination is
+// unaffected by the VPC deletion.
+func TestDeleteVpc_AfterTeardownDetachesVolumesAndEIPs(t *testing.T) {
 	t.Parallel()
 
 	b := newTestBackend()
@@ -922,13 +1079,20 @@ func TestDeleteVpc_CascadeDetachesVolumesAndEIPs(t *testing.T) {
 	require.NoError(t, err)
 
 	err = b.DeleteVpc(vpc.ID)
+	require.Error(t, err, "DeleteVpc must fail while the instance is still running in its subnet")
+	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+
+	_, err = b.TerminateInstances([]string{instanceID})
 	require.NoError(t, err)
+	require.NoError(t, b.DeleteSubnet(subnet.ID))
+	require.NoError(t, b.DeleteVpc(vpc.ID))
+	assert.Empty(t, b.DescribeVpcs([]string{vpc.ID}))
 
 	vols := b.DescribeVolumes([]string{vol.ID})
 	require.Len(t, vols, 1)
-	assert.Equal(t, "available", vols[0].State, "volume must be detached when VPC is deleted")
+	assert.Equal(t, "available", vols[0].State, "volume must be detached after instance termination")
 
 	addrs := b.DescribeAddresses([]string{addr.AllocationID})
 	require.Len(t, addrs, 1)
-	assert.Empty(t, addrs[0].InstanceID, "EIP must be disassociated when VPC is deleted")
+	assert.Empty(t, addrs[0].InstanceID, "EIP must be disassociated after instance termination")
 }

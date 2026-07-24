@@ -37,14 +37,25 @@ func (b *InMemoryBackend) CreateInternetGateway() (*InternetGateway, error) {
 	return igw, nil
 }
 
-// DeleteInternetGateway removes an Internet Gateway.
+// DeleteInternetGateway removes an Internet Gateway. Matching real AWS, this
+// fails with DependencyViolation while the IGW is still attached to a VPC —
+// callers must DetachInternetGateway first.
 func (b *InMemoryBackend) DeleteInternetGateway(id string) error {
 	b.mu.Lock("DeleteInternetGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.internetGateways.Get(id); !ok {
+	igw, ok := b.internetGateways.Get(id)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrInternetGatewayNotFound, id)
 	}
+
+	if len(igw.Attachments) > 0 {
+		return fmt.Errorf(
+			"%w: the internetGateway %s has dependencies (VPC attachment) and cannot be deleted",
+			ErrDependencyViolation, id,
+		)
+	}
+
 	b.internetGateways.Delete(id)
 	delete(b.tags, id)
 
@@ -84,7 +95,9 @@ func (b *InMemoryBackend) DescribeInternetGateways(ids []string) []*InternetGate
 	return out
 }
 
-// AttachInternetGateway attaches an IGW to a VPC.
+// AttachInternetGateway attaches an IGW to a VPC. Matching real AWS, an IGW
+// can only be attached to one VPC at a time, and a VPC can only have one IGW
+// attached at a time; either conflict returns Resource.AlreadyAssociated.
 func (b *InMemoryBackend) AttachInternetGateway(igwID, vpcID string) error {
 	b.mu.Lock("AttachInternetGateway")
 	defer b.mu.Unlock()
@@ -96,6 +109,24 @@ func (b *InMemoryBackend) AttachInternetGateway(igwID, vpcID string) error {
 
 	if _, vpcOK := b.vpcs.Get(vpcID); !vpcOK {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
+	}
+
+	if len(igw.Attachments) > 0 {
+		return fmt.Errorf(
+			"%w: resource %s is already attached to network %s",
+			ErrResourceAlreadyAssociated, igwID, igw.Attachments[0].VPCID,
+		)
+	}
+
+	for _, other := range b.internetGateways.All() {
+		for _, att := range other.Attachments {
+			if att.VPCID == vpcID {
+				return fmt.Errorf(
+					"%w: the vpc %s already has an internet gateway attached",
+					ErrResourceAlreadyAssociated, vpcID,
+				)
+			}
+		}
 	}
 
 	igw.Attachments = append(igw.Attachments, IGWAttachment{VPCID: vpcID, State: stateAvailable})

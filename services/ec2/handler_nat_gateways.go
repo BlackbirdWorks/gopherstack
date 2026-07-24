@@ -6,30 +6,57 @@ import (
 	"net/url"
 )
 
+type associateNatGatewayAddressResponse struct {
+	XMLName             xml.Name             `xml:"AssociateNatGatewayAddressResponse"`
+	Xmlns               string               `xml:"xmlns,attr"`
+	RequestID           string               `xml:"requestId"`
+	NatGatewayID        string               `xml:"natGatewayId,omitempty"`
+	NatGatewayAddresses natGatewayAddressSet `xml:"natGatewayAddressSet"`
+}
+
+type disassociateNatGatewayAddressResponse struct {
+	XMLName             xml.Name             `xml:"DisassociateNatGatewayAddressResponse"`
+	Xmlns               string               `xml:"xmlns,attr"`
+	RequestID           string               `xml:"requestId"`
+	NatGatewayID        string               `xml:"natGatewayId,omitempty"`
+	NatGatewayAddresses natGatewayAddressSet `xml:"natGatewayAddressSet"`
+}
+
 func (h *Handler) handleDisassociateNatGatewayAddress(vals url.Values, reqID string) (any, error) {
 	natGatewayID := vals.Get("NatGatewayId")
-	if err := h.Backend.DisassociateNatGatewayAddress(natGatewayID); err != nil {
+	associationIDs := parseMemberList(vals, "AssociationId")
+
+	ngw, err := h.Backend.DisassociateNatGatewayAddress(natGatewayID, associationIDs)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "DisassociateNatGatewayAddressResponse"},
-		RequestID: reqID,
-		Return:    true,
+	item := toNatGatewayItem(ngw)
+
+	return &disassociateNatGatewayAddressResponse{
+		Xmlns:               ec2XMLNS,
+		RequestID:           reqID,
+		NatGatewayID:        ngw.ID,
+		NatGatewayAddresses: item.NatGatewayAddresses,
 	}, nil
 }
 
 func (h *Handler) handleAssociateNatGatewayAddress(vals url.Values, reqID string) (any, error) {
 	natGatewayID := vals.Get("NatGatewayId")
-	allocationID := vals.Get("AllocationId")
-	if err := h.Backend.AssociateNatGatewayAddress(natGatewayID, allocationID); err != nil {
+	allocationIDs := parseMemberList(vals, "AllocationId")
+
+	ngw, err := h.Backend.AssociateNatGatewayAddress(natGatewayID, allocationIDs)
+	if err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "AssociateNatGatewayAddressResponse"},
-		RequestID: reqID,
-		Return:    true,
+	item := toNatGatewayItem(ngw)
+
+	return &associateNatGatewayAddressResponse{
+		Xmlns:               ec2XMLNS,
+		RequestID:           reqID,
+		NatGatewayID:        ngw.ID,
+		NatGatewayAddresses: item.NatGatewayAddresses,
 	}, nil
 }
 
@@ -95,9 +122,11 @@ func natGatewaysSupportedOperations() []string {
 }
 
 type natGatewayAddressItem struct {
-	AllocationID string `xml:"allocationId"`
-	PublicIP     string `xml:"publicIp"`
-	PrivateIP    string `xml:"privateIp"`
+	AllocationID  string `xml:"allocationId,omitempty"`
+	AssociationID string `xml:"associationId,omitempty"`
+	PublicIP      string `xml:"publicIp,omitempty"`
+	PrivateIP     string `xml:"privateIp,omitempty"`
+	IsPrimary     bool   `xml:"isPrimary,omitempty"`
 }
 
 type natGatewayAddressSet struct {
@@ -138,12 +167,26 @@ type deleteNatGatewayResponse struct {
 }
 
 func toNatGatewayItem(ngw *NatGateway) natGatewayItem {
-	items := make([]natGatewayAddressItem, 0, 1+len(ngw.SecondaryPrivateIPs))
+	items := make(
+		[]natGatewayAddressItem, 0,
+		1+len(ngw.SecondaryAddresses)+len(ngw.SecondaryPrivateIPs),
+	)
 	items = append(items, natGatewayAddressItem{
-		AllocationID: ngw.AllocationID,
-		PublicIP:     ngw.PublicIP,
-		PrivateIP:    ngw.PrivateIP,
+		AllocationID:  ngw.AllocationID,
+		AssociationID: ngw.AssociationID,
+		PublicIP:      ngw.PublicIP,
+		PrivateIP:     ngw.PrivateIP,
+		IsPrimary:     true,
 	})
+
+	for _, sa := range ngw.SecondaryAddresses {
+		items = append(items, natGatewayAddressItem{
+			AllocationID:  sa.AllocationID,
+			AssociationID: sa.AssociationID,
+			PublicIP:      sa.PublicIP,
+			PrivateIP:     sa.PrivateIP,
+		})
+	}
 
 	for _, ip := range ngw.SecondaryPrivateIPs {
 		items = append(items, natGatewayAddressItem{PrivateIP: ip})

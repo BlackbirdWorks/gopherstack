@@ -58,7 +58,9 @@ func (b *InMemoryBackend) CreateRouteTable(vpcID string) (*RouteTable, error) {
 	return rt, nil
 }
 
-// DeleteRouteTable removes a route table.
+// DeleteRouteTable removes a route table. Matching real AWS, this fails with
+// DependencyViolation while the route table still has subnet associations —
+// callers must DisassociateRouteTable first.
 func (b *InMemoryBackend) DeleteRouteTable(id string) error {
 	b.mu.Lock("DeleteRouteTable")
 	defer b.mu.Unlock()
@@ -66,6 +68,13 @@ func (b *InMemoryBackend) DeleteRouteTable(id string) error {
 	rt, ok := b.routeTables.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrRouteTableNotFound, id)
+	}
+
+	if len(rt.Associations) > 0 {
+		return fmt.Errorf(
+			"%w: the routeTable %s has dependencies (subnet associations) and cannot be deleted",
+			ErrDependencyViolation, id,
+		)
 	}
 
 	b.deindexRouteTableLocked(id, rt.VPCID)

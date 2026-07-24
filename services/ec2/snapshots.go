@@ -545,6 +545,7 @@ func (b *InMemoryBackend) DeleteSnapshot(id string) error {
 		return fmt.Errorf("%w: %s", ErrSnapshotNotFound, id)
 	}
 	b.snapshots.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

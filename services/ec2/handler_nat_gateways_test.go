@@ -17,13 +17,34 @@ func TestNatGatewayAddressOps(t *testing.T) { //nolint:paralleltest // existing 
 	nat, setupErr := b.CreateNatGateway("subnet-default", addr.AllocationID)
 	require.NoError(t, setupErr)
 
-	t.Run("disassociate address", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.NoError(t, b.DisassociateNatGatewayAddress(nat.ID))
+	t.Run("associate then disassociate address", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		addr2, err := b.AllocateAddress()
+		require.NoError(t, err)
+
+		updated, err := b.AssociateNatGatewayAddress(nat.ID, []string{addr2.AllocationID})
+		require.NoError(t, err)
+		require.Len(t, updated.SecondaryAddresses, 1)
+		assert.Equal(t, addr2.AllocationID, updated.SecondaryAddresses[0].AllocationID)
+		assert.NotEmpty(t, updated.SecondaryAddresses[0].AssociationID)
+		assert.NotEmpty(t, updated.SecondaryAddresses[0].PrivateIP)
+
+		assocID := updated.SecondaryAddresses[0].AssociationID
+
+		updated, err = b.DisassociateNatGatewayAddress(nat.ID, []string{assocID})
+		require.NoError(t, err)
+		assert.Empty(t, updated.SecondaryAddresses)
 	})
 
-	t.Run("associate address", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		addr2, _ := b.AllocateAddress()
-		require.NoError(t, b.AssociateNatGatewayAddress(nat.ID, addr2.AllocationID))
+	t.Run("associate unknown allocation returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		_, err := b.AssociateNatGatewayAddress(nat.ID, []string{"eipalloc-missing"})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ec2.ErrAddressNotFound)
+	})
+
+	t.Run("disassociate unknown assoc errors", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		_, err := b.DisassociateNatGatewayAddress(nat.ID, []string{"eipassoc-missing"})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ec2.ErrAssociationNotFound)
 	})
 
 	t.Run("assign private address", func(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -31,7 +52,8 @@ func TestNatGatewayAddressOps(t *testing.T) { //nolint:paralleltest // existing 
 	})
 
 	t.Run("unknown NAT GW returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		require.Error(t, b.DisassociateNatGatewayAddress("nat-missing"))
+		_, err := b.DisassociateNatGatewayAddress("nat-missing", []string{"eipassoc-x"})
+		require.Error(t, err)
 	})
 }
 
@@ -59,10 +81,10 @@ func TestNatGateway_AssociateAddress(t *testing.T) {
 		"AllocationId.1": {addr2.AllocationID},
 	})
 	require.NoError(t, err)
-	assert.NotEmpty(t, resp)
+	assert.Contains(t, resp, "AssociateNatGatewayAddressResponse")
+	assert.Contains(t, resp, addr2.AllocationID, "response must echo the associated allocation")
+	assert.Contains(t, resp, "<associationId>", "response must include the new association ID")
 }
-
-// TestNatGateway_DisassociateAddress tests DisassociateNatGatewayAddress.
 
 // TestNatGateway_DisassociateAddress tests DisassociateNatGatewayAddress.
 func TestNatGateway_DisassociateAddress(t *testing.T) {
@@ -78,13 +100,25 @@ func TestNatGateway_DisassociateAddress(t *testing.T) {
 	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
 	require.NoError(t, err)
 
+	addr2, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	updated, err := b.AssociateNatGatewayAddress(ngw.ID, []string{addr2.AllocationID})
+	require.NoError(t, err)
+	require.Len(t, updated.SecondaryAddresses, 1)
+	assocID := updated.SecondaryAddresses[0].AssociationID
+
 	resp, err := ec2.ExportDispatch(h, url.Values{
 		"Action":          {"DisassociateNatGatewayAddress"},
 		"NatGatewayId":    {ngw.ID},
-		"AssociationId.1": {"eipassoc-test"},
+		"AssociationId.1": {assocID},
 	})
 	require.NoError(t, err)
-	assert.NotEmpty(t, resp)
+	assert.Contains(t, resp, "DisassociateNatGatewayAddressResponse")
+
+	final := b.DescribeNatGateways([]string{ngw.ID})
+	require.Len(t, final, 1)
+	assert.Empty(t, final[0].SecondaryAddresses, "association must be removed")
 }
 
 // ============================================================================

@@ -548,6 +548,7 @@ func (b *InMemoryBackend) DeleteInstanceConnectEndpoint(id string) error {
 		return fmt.Errorf("%w: %s", ErrInstanceConnectEndpointNotFound, id)
 	}
 	b.instanceConnectEndpoints.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -630,6 +631,7 @@ func (b *InMemoryBackend) DeleteInstanceEventWindow(id string) error {
 		return fmt.Errorf("%w: %s", ErrInstanceEventWindowNotFound, id)
 	}
 	b.instanceEventWindows.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

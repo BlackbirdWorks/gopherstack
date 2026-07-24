@@ -71,6 +71,7 @@ func (b *InMemoryBackend) DeleteVpnGateway(id string) error {
 		return fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, id)
 	}
 	b.vpnGateways.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -200,6 +201,7 @@ func (b *InMemoryBackend) DeleteCustomerGateway(id string) error {
 		return fmt.Errorf("%w: %s", ErrCustomerGatewayNotFound, id)
 	}
 	b.customerGateways.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

@@ -433,6 +433,7 @@ func (b *InMemoryBackend) DeleteVpcBlockPublicAccessExclusion(
 	excl.LastUpdateTimestamp = time.Now().UTC()
 	out := cloneVpcBPAExclusion(excl)
 	b.vpcBlockPublicAccessExclusions.Delete(exclusionID)
+	delete(b.tags, exclusionID)
 
 	return out, nil
 }

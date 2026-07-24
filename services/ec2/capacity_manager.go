@@ -178,6 +178,7 @@ func (b *InMemoryBackend) DeleteCapacityManagerDataExport(id string) (string, er
 		return "", fmt.Errorf("%w: %s", ErrCapacityManagerDataExportNotFound, id)
 	}
 	b.capacityManagerDataExports.Delete(id)
+	delete(b.tags, id)
 
 	return id, nil
 }

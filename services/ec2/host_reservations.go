@@ -355,6 +355,7 @@ func (b *InMemoryBackend) ReleaseHosts(hostIDs []string) ([]string, []HostReleas
 			continue
 		}
 		b.dedicatedHosts.Delete(id)
+		delete(b.tags, id)
 		successful = append(successful, id)
 	}
 

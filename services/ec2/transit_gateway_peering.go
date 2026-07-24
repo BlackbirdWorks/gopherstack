@@ -46,6 +46,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) error
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, id)
 	}
 	b.tgwPeeringAttachments.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -118,6 +119,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayConnect(id string) error {
 		return fmt.Errorf("%w: %s", ErrTransitGatewayConnectNotFound, id)
 	}
 	b.tgwConnects.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -192,6 +194,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayConnectPeer(id string) error {
 		return fmt.Errorf("%w: %s", ErrTransitGatewayConnectPeerNotFound, id)
 	}
 	b.tgwConnectPeers.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }

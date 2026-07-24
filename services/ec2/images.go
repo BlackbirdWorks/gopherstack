@@ -520,6 +520,7 @@ func (b *InMemoryBackend) DeregisterImage(imageID string) error {
 	}
 	b.images.Delete(imageID)
 	b.imageUsageReports.Delete(imageID)
+	delete(b.tags, imageID)
 
 	return nil
 }

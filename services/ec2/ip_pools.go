@@ -142,6 +142,7 @@ func (b *InMemoryBackend) DeleteCoipPool(poolID string) (*CoipPool, error) {
 		return nil, fmt.Errorf("%w: %s", ErrCoipPoolNotFound, poolID)
 	}
 	b.coipPools.Delete(poolID)
+	delete(b.tags, poolID)
 
 	for _, cidr := range b.coipCidrs.All() {
 		key := coipCidrsKeyFn(cidr)
@@ -293,6 +294,7 @@ func (b *InMemoryBackend) DeletePublicIpv4Pool(poolID string) error {
 		return fmt.Errorf("%w: %s", ErrIpv4PoolNotFound, poolID)
 	}
 	b.ipv4Pools.Delete(poolID)
+	delete(b.tags, poolID)
 
 	return nil
 }

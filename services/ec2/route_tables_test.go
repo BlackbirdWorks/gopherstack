@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
 func TestRouteTableOperations(t *testing.T) {
@@ -113,4 +115,29 @@ func TestRouteTableOperations(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDeleteRouteTable_DependencyViolation verifies that DeleteRouteTable
+// fails with DependencyViolation while the route table still has a subnet
+// association, and succeeds once the association is removed — matching real
+// AWS (callers must DisassociateRouteTable first).
+func TestDeleteRouteTable_DependencyViolation(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	rt, err := b.CreateRouteTable("vpc-default")
+	require.NoError(t, err)
+
+	assocID, err := b.AssociateRouteTable(rt.ID, "subnet-default")
+	require.NoError(t, err)
+
+	err = b.DeleteRouteTable(rt.ID)
+	require.Error(t, err, "DeleteRouteTable must fail while a subnet is associated")
+	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
+	assert.NotEmpty(t, b.DescribeRouteTables([]string{rt.ID}))
+
+	require.NoError(t, b.DisassociateRouteTable(assocID))
+	require.NoError(t, b.DeleteRouteTable(rt.ID))
+	assert.Empty(t, b.DescribeRouteTables([]string{rt.ID}))
 }

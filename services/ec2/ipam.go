@@ -180,10 +180,15 @@ func (b *InMemoryBackend) DeleteIpam(id string) error {
 		return fmt.Errorf("%w: %s", ErrIpamNotFound, id)
 	}
 	b.ipamScopes.Delete(ipam.PublicDefaultScopeID)
+	delete(b.tags, ipam.PublicDefaultScopeID)
 	b.ipamScopes.Delete(ipam.PrivateDefaultScopeID)
+	delete(b.tags, ipam.PrivateDefaultScopeID)
 	b.ipamResourceDiscoveries.Delete(ipam.DefaultResourceDiscoveryID)
+	delete(b.tags, ipam.DefaultResourceDiscoveryID)
 	b.ipamResourceDiscoveryAssocs.Delete(ipam.DefaultResourceDiscoveryAssociationID)
+	delete(b.tags, ipam.DefaultResourceDiscoveryAssociationID)
 	b.ipams.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -293,6 +298,7 @@ func (b *InMemoryBackend) DeleteIpamScope(id string) error {
 		ipam.ScopeCount--
 	}
 	b.ipamScopes.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -450,6 +456,7 @@ func (b *InMemoryBackend) DeleteIpamPool(id string) error {
 	}
 	b.ipamPools.Delete(id)
 	delete(b.ipamPoolCidrs, id)
+	delete(b.tags, id)
 
 	return nil
 }

@@ -51,6 +51,7 @@ func (b *InMemoryBackend) DeleteManagedPrefixList(id string) error {
 		return fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
 	b.managedPrefixLists.Delete(id)
+	delete(b.tags, id)
 
 	return nil
 }
