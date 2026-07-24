@@ -136,11 +136,16 @@ func (h *Handler) handleGetGroups(_ context.Context, body []byte) ([]byte, error
 	return json.Marshal(resp)
 }
 
+// updateGroupInput uses pointer fields for FilterExpression and InsightsConfiguration
+// so an omitted field can be distinguished from an explicit zero value: the real
+// UpdateGroupInput models both as independently optional, and unlike CreateGroup, an
+// UpdateGroup call that only wants to flip InsightsConfiguration must not silently wipe
+// out an existing FilterExpression (and vice versa).
 type updateGroupInput struct {
-	GroupName             string             `json:"GroupName"`
-	GroupARN              string             `json:"GroupARN"`
-	FilterExpression      string             `json:"FilterExpression"`
-	InsightsConfiguration insightsConfigView `json:"InsightsConfiguration"`
+	FilterExpression      *string             `json:"FilterExpression"`
+	InsightsConfiguration *insightsConfigView `json:"InsightsConfiguration"`
+	GroupName             string              `json:"GroupName"`
+	GroupARN              string              `json:"GroupARN"`
 }
 
 func (h *Handler) handleUpdateGroup(_ context.Context, body []byte) ([]byte, error) {
@@ -155,7 +160,20 @@ func (h *Handler) handleUpdateGroup(_ context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: GroupName is required", errInvalidRequest)
 	}
 
-	g, err := h.Backend.UpdateGroupByARN(in.GroupName, in.GroupARN, in.FilterExpression)
+	var insights *InsightsConfiguration
+
+	if in.InsightsConfiguration != nil {
+		if in.InsightsConfiguration.NotificationsEnabled && !in.InsightsConfiguration.InsightsEnabled {
+			return nil, fmt.Errorf("%w: NotificationsEnabled requires InsightsEnabled to be true", errInvalidRequest)
+		}
+
+		insights = &InsightsConfiguration{
+			InsightsEnabled:      in.InsightsConfiguration.InsightsEnabled,
+			NotificationsEnabled: in.InsightsConfiguration.NotificationsEnabled,
+		}
+	}
+
+	g, err := h.Backend.UpdateGroupByARN(in.GroupName, in.GroupARN, in.FilterExpression, insights)
 	if err != nil {
 		return nil, err
 	}

@@ -14,14 +14,14 @@ type StorageBackend interface {
 	GetGroupByARN(arn string) (*Group, error)
 	GetGroups() []Group
 	UpdateGroup(name, filterExpr string) (*Group, error)
-	UpdateGroupByARN(name, arn, filterExpr string) (*Group, error)
+	UpdateGroupByARN(name, arn string, filterExpr *string, insights *InsightsConfiguration) (*Group, error)
 	DeleteGroup(name string) error
 	DeleteGroupByARN(name, arn string) error
 	CreateSamplingRule(rule SamplingRule) (*SamplingRule, error)
 	GetSamplingRules() []SamplingRule
 	UpdateSamplingRule(ruleName string, updates SamplingRule) (*SamplingRule, error)
-	UpdateSamplingRuleWithPointers(ruleName string, updates SamplingRuleUpdate) (*SamplingRule, error)
-	DeleteSamplingRule(ruleName string) (*SamplingRule, error)
+	UpdateSamplingRuleWithPointers(ruleName, ruleARN string, updates SamplingRuleUpdate) (*SamplingRule, error)
+	DeleteSamplingRule(ruleName, ruleARN string) (*SamplingRule, error)
 	PutTraceSegments(segments []string) []string
 	GetTraceSummaries() []Trace
 	GetTrace(traceID string) *Trace
@@ -37,14 +37,14 @@ type StorageBackend interface {
 	GetInsightEvents(insightID string) ([]*InsightEvent, error)
 	GetInsightSummaries(states []string) ([]Insight, error)
 	// Resource policy operations
-	CancelTraceRetrieval(retrievalToken string)
-	DeleteResourcePolicy(policyName string) error
+	CancelTraceRetrieval(retrievalToken string) error
+	DeleteResourcePolicy(policyName, policyRevisionID string) error
 	ListResourcePolicies() []ResourcePolicy
 	PutResourcePolicy(policyName, policyDocument, revisionID string) (*ResourcePolicy, error)
 	// Indexing rules
 	GetIndexingRules() []*IndexingRule
 	// Retrieval
-	GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace)
+	GetRetrievedTracesGraph(retrievalToken string) (string, []*Trace, error)
 	// Sampling statistics
 	GetSamplingStatisticSummaries() []SamplingStatisticSummary
 	GetSamplingTargets(docs []SamplingStatisticsDocument) ([]SamplingTargetResult, []UnprocessedStatisticsResult)
@@ -57,14 +57,14 @@ type StorageBackend interface {
 	GetTraceSegmentDestination() string
 	UpdateTraceSegmentDestination(destination string) string
 	// Retrieval list
-	ListRetrievedTraces(retrievalToken string) (string, []*Trace)
+	ListRetrievedTraces(retrievalToken string) (string, []*Trace, error)
 	// Tags
-	ListTagsForResource(resourceARN string) []map[string]string
+	ListTagsForResource(resourceARN string) ([]map[string]string, error)
 	StartTraceRetrieval(traceIDs []string) string
-	TagResource(resourceARN string, tags map[string]string)
-	UntagResource(resourceARN string, tagKeys []string)
+	TagResource(resourceARN string, tags map[string]string) error
+	UntagResource(resourceARN string, tagKeys []string) error
 	// Indexing rule update
-	UpdateIndexingRule(name string) (*IndexingRule, error)
+	UpdateIndexingRule(name string, rule *ProbabilisticRuleValue) (*IndexingRule, error)
 	// Telemetry
 	PutTelemetryRecords(records []TelemetryRecord)
 }

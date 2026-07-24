@@ -436,6 +436,58 @@ func (h *Handler) dispatch(ctx context.Context, path string, body []byte) ([]byt
 	return fn(h, ctx, body)
 }
 
+// notFoundExceptionName returns the exception name for an awserr.ErrNotFound-class
+// error. Unlike GetGroup/DeleteGroup/GetSamplingRules/GetInsight/etc. (which only ever
+// model InvalidRequestException for "not found"), ErrIndexingRuleNotFound/
+// ErrResourceNotFound/ErrTraceRetrievalNotFound's operations declare
+// ResourceNotFoundException instead -- confirmed against aws-sdk-go-v2/service/xray's
+// deserializers.go per-op error switch.
+func notFoundExceptionName(err error) string {
+	switch {
+	case errors.Is(err, ErrIndexingRuleNotFound),
+		errors.Is(err, ErrResourceNotFound),
+		errors.Is(err, ErrTraceRetrievalNotFound):
+		return "ResourceNotFoundException"
+	default:
+		return errInvalidRequestException
+	}
+}
+
+// conflictExceptionName returns the exception name for an awserr.ErrConflict-class error.
+func conflictExceptionName(err error) string {
+	switch {
+	case errors.Is(err, ErrGroupAlreadyExists):
+		return "GroupAlreadyExistsException"
+	case errors.Is(err, ErrSamplingRuleAlreadyExists):
+		return "RuleAlreadyExistsException"
+	case errors.Is(err, ErrInvalidPolicyRevisionID):
+		return "InvalidPolicyRevisionIdException"
+	default:
+		return errInvalidRequestException
+	}
+}
+
+// invalidParameterExceptionName returns the exception name for an
+// awserr.ErrInvalidParameter-class error.
+func invalidParameterExceptionName(err error) string {
+	switch {
+	case errors.Is(err, ErrInvalidSamplingRule):
+		return "InvalidSamplingRuleException"
+	case errors.Is(err, ErrMalformedPolicyDocument):
+		return "MalformedPolicyDocumentException"
+	case errors.Is(err, ErrTooManyPolicies):
+		return "PolicyCountLimitExceededException"
+	case errors.Is(err, ErrPolicySizeLimitExceeded):
+		return "PolicySizeLimitExceededException"
+	case errors.Is(err, ErrRuleLimitExceeded):
+		return "RuleLimitExceededException"
+	case errors.Is(err, ErrTooManyTags):
+		return "TooManyTagsException"
+	default:
+		return errInvalidRequestException
+	}
+}
+
 func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
@@ -443,36 +495,17 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    errInvalidRequestException,
+			keyTypeField:    notFoundExceptionName(err),
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrConflict):
-		typeName := errInvalidRequestException
-
-		switch {
-		case errors.Is(err, ErrGroupAlreadyExists):
-			typeName = "GroupAlreadyExistsException"
-		case errors.Is(err, ErrSamplingRuleAlreadyExists):
-			typeName = "RuleAlreadyExistsException"
-		case errors.Is(err, ErrInvalidPolicyRevisionID):
-			typeName = "InvalidPolicyRevisionIdException"
-		}
-
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    typeName,
+			keyTypeField:    conflictExceptionName(err),
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		typeName := errInvalidRequestException
-
-		if errors.Is(err, ErrInvalidSamplingRule) {
-			typeName = "InvalidSamplingRuleException"
-		} else if errors.Is(err, ErrMalformedPolicyDocument) {
-			typeName = "MalformedPolicyDocumentException"
-		}
-
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyTypeField:    typeName,
+			keyTypeField:    invalidParameterExceptionName(err),
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownPath),

@@ -200,7 +200,7 @@ func TestInMemoryBackend_DeleteSamplingRule(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			r, err := b.DeleteSamplingRule(tt.ruleName)
+			r, err := b.DeleteSamplingRule(tt.ruleName, "")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -287,7 +287,7 @@ func TestDefaultSamplingRuleUndeletableBackend(t *testing.T) {
 	t.Parallel()
 
 	b := xray.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.DeleteSamplingRule("Default")
+	_, err := b.DeleteSamplingRule("Default", "")
 	require.Error(t, err, "DeleteSamplingRule(Default) must return an error")
 	assert.ErrorIs(t, err, xray.ErrDefaultRuleUndeletable)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -33,17 +34,24 @@ type traceSummaryServiceIDView struct {
 
 type traceSummaryForecastView struct{}
 
+// traceSummary is the wire view for a single entry of GetTraceSummariesOutput's
+// TraceSummaries list. EntryPoint is a ServiceId object per the real SDK (types.ServiceId),
+// not a plain string -- a real client fails to parse this field otherwise, since
+// awsRestjson1_deserializeDocumentServiceId expects a JSON object. There is deliberately
+// no per-item "ApproximateTime" field: the real API only has "ApproximateTime" at the
+// GetTraceSummariesOutput envelope level (the start time of the results page), not per
+// TraceSummary -- see handleGetTraceSummaries.
 type traceSummary struct {
 	HTTP               *traceSummaryHTTPView       `json:"Http,omitempty"`
 	Annotations        map[string]any              `json:"Annotations,omitempty"`
 	ForecastStatistics *traceSummaryForecastView   `json:"ForecastStatistics,omitempty"`
-	EntryPoint         string                      `json:"EntryPoint,omitempty"`
+	EntryPoint         *traceSummaryServiceIDView  `json:"EntryPoint,omitempty"`
 	ID                 string                      `json:"Id"`
 	ServiceIds         []traceSummaryServiceIDView `json:"ServiceIds,omitempty"` //nolint:revive // AWS API field name
 	Users              []string                    `json:"Users,omitempty"`
 	Duration           float64                     `json:"Duration"`
 	ResponseTime       float64                     `json:"ResponseTime"`
-	ApproximateTime    float64                     `json:"ApproximateTime"`
+	StartTime          float64                     `json:"StartTime"`
 	Revision           int                         `json:"Revision"`
 	HasFault           bool                        `json:"HasFault"`
 	HasError           bool                        `json:"HasError"`
@@ -52,20 +60,25 @@ type traceSummary struct {
 }
 
 // buildTraceSummaryView converts a TraceSummaryData to the JSON view struct.
-func buildTraceSummaryView(traceID string, sd TraceSummaryData) traceSummary {
+// startTime is the trace's earliest-observed segment start time (tracked on the
+// backend's Trace record), surfaced as the real API's required "StartTime" field.
+func buildTraceSummaryView(traceID string, sd TraceSummaryData, startTime time.Time) traceSummary {
 	s := traceSummary{
-		ID:              traceID,
-		Duration:        sd.Duration,
-		ResponseTime:    sd.ResponseTime,
-		ApproximateTime: sd.ApproxTime,
-		HasFault:        sd.HasFault,
-		HasError:        sd.HasError,
-		HasThrottle:     sd.HasThrottle,
-		IsPartial:       sd.IsPartial,
-		EntryPoint:      sd.EntryPoint,
-		Revision:        sd.Revision,
+		ID:           traceID,
+		Duration:     sd.Duration,
+		ResponseTime: sd.ResponseTime,
+		StartTime:    float64(startTime.Unix()),
+		HasFault:     sd.HasFault,
+		HasError:     sd.HasError,
+		HasThrottle:  sd.HasThrottle,
+		IsPartial:    sd.IsPartial,
+		Revision:     sd.Revision,
 		// ForecastStatistics is always present per AWS API (even as empty object).
 		ForecastStatistics: &traceSummaryForecastView{},
+	}
+
+	if sd.EntryPoint != nil {
+		s.EntryPoint = &traceSummaryServiceIDView{Name: sd.EntryPoint.Name, Type: sd.EntryPoint.Type}
 	}
 
 	if len(sd.Users) > 0 {
@@ -133,7 +146,7 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 			continue
 		}
 
-		summaries = append(summaries, buildTraceSummaryView(traces[i].TraceID, sd))
+		summaries = append(summaries, buildTraceSummaryView(traces[i].TraceID, sd, traces[i].StartTime))
 	}
 
 	pg := page.New(summaries, in.NextToken, int(in.MaxResults), defaultTraceSummariesPageSize)
@@ -141,7 +154,11 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 	return json.Marshal(map[string]any{
 		"TraceSummaries":       pg.Data,
 		"TracesProcessedCount": len(summaries),
-		keyNextToken:           pg.Next,
+		// ApproximateTime is the start time of this page of results (per the real
+		// GetTraceSummariesOutput shape); it is an envelope-level field, not a
+		// per-TraceSummary field.
+		"ApproximateTime": float64(time.Now().Unix()),
+		keyNextToken:      pg.Next,
 	})
 }
 
@@ -155,9 +172,10 @@ type batchSegmentOutput struct {
 }
 
 type traceOutput struct {
-	ID       string               `json:"Id"`
-	Segments []batchSegmentOutput `json:"Segments"`
-	Duration float64              `json:"Duration"`
+	ID            string               `json:"Id"`
+	Segments      []batchSegmentOutput `json:"Segments"`
+	Duration      float64              `json:"Duration"`
+	LimitExceeded bool                 `json:"LimitExceeded"`
 }
 
 func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, error) {

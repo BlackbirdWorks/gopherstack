@@ -25,7 +25,10 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	tags := h.Backend.ListTagsForResource(in.ResourceARN)
+	tags, err := h.Backend.ListTagsForResource(in.ResourceARN)
+	if err != nil {
+		return nil, err
+	}
 
 	pg := page.New(tags, in.NextToken, 0, defaultTagsPageSize)
 
@@ -52,7 +55,9 @@ func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	h.Backend.TagResource(in.ResourceARN, in.Tags)
+	if err := h.Backend.TagResource(in.ResourceARN, in.Tags); err != nil {
+		return nil, err
+	}
 
 	return json.Marshal(map[string]any{})
 }
@@ -74,7 +79,9 @@ func (h *Handler) handleUntagResource(_ context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	h.Backend.UntagResource(in.ResourceARN, in.TagKeys)
+	if err := h.Backend.UntagResource(in.ResourceARN, in.TagKeys); err != nil {
+		return nil, err
+	}
 
 	return json.Marshal(map[string]any{})
 }

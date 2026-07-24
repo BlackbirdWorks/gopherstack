@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +17,7 @@ func cloneResourcePolicy(p *ResourcePolicy) *ResourcePolicy {
 
 // PutResourcePolicy creates or updates a resource policy with the given name and document.
 // Returns ErrTooManyPolicies if the account already has maxResourcePolicies.
+// Returns ErrPolicySizeLimitExceeded if policyDocument exceeds maxResourcePolicySizeBytes.
 // Returns ErrInvalidPolicyRevisionID if revisionID doesn't match the stored one.
 // Returns ErrMalformedPolicyDocument if policyDocument is not valid JSON.
 func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument, revisionID string) (*ResourcePolicy, error) {
@@ -23,6 +25,11 @@ func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument, revision
 	var js json.RawMessage
 	if err := json.Unmarshal([]byte(policyDocument), &js); err != nil {
 		return nil, fmt.Errorf("%w: policy document is not valid JSON: %w", ErrMalformedPolicyDocument, err)
+	}
+
+	if len(policyDocument) > maxResourcePolicySizeBytes {
+		return nil, fmt.Errorf("%w: policy document must be at most %d bytes, got %d",
+			ErrPolicySizeLimitExceeded, maxResourcePolicySizeBytes, len(policyDocument))
 	}
 
 	b.mu.Lock("PutResourcePolicy")
@@ -47,6 +54,7 @@ func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument, revision
 		PolicyName:       policyName,
 		PolicyDocument:   policyDocument,
 		PolicyRevisionID: uuid.NewString(),
+		LastUpdatedTime:  time.Now(),
 	}
 	b.resourcePolicies.Put(p)
 
@@ -73,13 +81,23 @@ func (b *InMemoryBackend) ListResourcePolicies() []ResourcePolicy {
 }
 
 // DeleteResourcePolicy removes the resource policy with the given name.
-func (b *InMemoryBackend) DeleteResourcePolicy(policyName string) error {
+// If policyRevisionID is non-empty, it must match the stored policy's current
+// revision ID, or ErrInvalidPolicyRevisionID is returned (matches real AWS: providing a
+// PolicyRevisionId makes the delete atomic and guards against a concurrent PutResourcePolicy).
+func (b *InMemoryBackend) DeleteResourcePolicy(policyName, policyRevisionID string) error {
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
-	if !b.resourcePolicies.Delete(policyName) {
+	existing, exists := b.resourcePolicies.Get(policyName)
+	if !exists {
 		return fmt.Errorf("%w: resource policy %s not found", ErrResourcePolicyNotFound, policyName)
 	}
+
+	if policyRevisionID != "" && existing.PolicyRevisionID != policyRevisionID {
+		return fmt.Errorf("%w: policy revision ID does not match", ErrInvalidPolicyRevisionID)
+	}
+
+	b.resourcePolicies.Delete(policyName)
 
 	return nil
 }
@@ -95,4 +113,10 @@ func (b *InMemoryBackend) AddResourcePolicyInternal(policy ResourcePolicy) {
 const (
 	// maxResourcePolicies is the maximum number of resource policies per account.
 	maxResourcePolicies = 5
+)
+
+const (
+	// maxResourcePolicySizeBytes is the maximum size of a resource policy document
+	// (AWS docs: "can be up to 5kb in size").
+	maxResourcePolicySizeBytes = 5 * 1024
 )

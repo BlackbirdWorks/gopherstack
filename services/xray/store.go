@@ -54,12 +54,14 @@ type InMemoryBackend struct {
 	encryptionConfig *EncryptionConfig
 	mu               *lockmetrics.RWMutex
 	samplingRules    *store.Table[SamplingRule]
-	traceSegmentDest string
-	region           string
-	accountID        string
-	telemetry        []*TelemetryRecord
-	indexingRules    []*IndexingRule
-	telemetryIdx     int
+	// samplingRulesByARN is a secondary index on samplingRules, keyed by RuleARN.
+	samplingRulesByARN *store.Index[SamplingRule]
+	traceSegmentDest   string
+	region             string
+	accountID          string
+	telemetry          []*TelemetryRecord
+	indexingRules      []*IndexingRule
+	telemetryIdx       int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the given accountID and region.
@@ -109,6 +111,12 @@ func (b *InMemoryBackend) Reset() {
 	b.insightEvents = make(map[string][]*InsightEvent)
 	b.retrievedTraces = make(map[string][]*Trace)
 	b.retrievalTimes = make(map[string]time.Time)
+	// resourceTags is a plain map (not store.Table), so registry.ResetAll() above does
+	// not touch it -- it must be cleared explicitly, exactly like the other plain-map
+	// fields above. This was previously missed (the same bug class the traceSegmentDest
+	// fix addressed): a gopherstack Reset() left old resource tags visible to a caller
+	// that expects a clean-slate backend.
+	b.resourceTags = make(map[string]map[string]string)
 	b.telemetry = make([]*TelemetryRecord, telemetryRingSize)
 	b.telemetryIdx = 0
 	b.indexingRules = defaultIndexingRules()

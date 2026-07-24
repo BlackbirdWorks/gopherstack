@@ -60,9 +60,11 @@ func TestListRetrievedTraces_IncludesSegments(t *testing.T) {
 	firstTrace, ok := traces[0].(map[string]any)
 	require.True(t, ok)
 
-	segments, ok := firstTrace["Segments"].([]any)
-	require.True(t, ok, "expected Segments field")
-	assert.NotEmpty(t, segments, "expected non-empty Segments in trace view")
+	// The real RetrievedTrace shape's field is "Spans" (types.Span{Document,Id}), not
+	// "Segments" -- a real SDK client's deserializer only recognizes "Spans".
+	spans, ok := firstTrace["Spans"].([]any)
+	require.True(t, ok, "expected Spans field")
+	assert.NotEmpty(t, spans, "expected non-empty Spans in trace view")
 
 	// Duration should be computed from segment timing.
 	duration, ok := firstTrace["Duration"].(float64)
@@ -70,84 +72,102 @@ func TestListRetrievedTraces_IncludesSegments(t *testing.T) {
 	assert.Greater(t, duration, 0.0, "expected non-zero Duration")
 }
 
+// startTestRetrieval creates a real trace retrieval via StartTraceRetrieval and
+// returns its token, so Cancel/List/GetGraph tests exercise a token the backend
+// actually recognizes.
+func startTestRetrieval(t *testing.T, h *xray.Handler) string {
+	t.Helper()
+
+	rec := doXrayRequest(t, h, "/StartTraceRetrieval", map[string]any{"TraceIds": []string{"1-real-000000000001"}})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	token, ok := resp["RetrievalToken"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, token)
+
+	return token
+}
+
 func TestHandler_CancelTraceRetrieval(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body       map[string]any
-		name       string
-		wantStatus int
-	}{
-		{
-			name:       "cancels with valid token",
-			body:       map[string]any{"RetrievalToken": "token-abc"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "missing RetrievalToken returns 400",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-		{
-			name:       "non-existent token is idempotent",
-			body:       map[string]any{"RetrievalToken": "does-not-exist"},
-			wantStatus: http.StatusOK,
-		},
-	}
+	t.Run("cancels a real retrieval token", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		h := newTestHandler(t)
+		token := startTestRetrieval(t, h)
 
-			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/CancelTraceRetrieval", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
+		rec := doXrayRequest(t, h, "/CancelTraceRetrieval", map[string]any{"RetrievalToken": token})
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("missing RetrievalToken returns 400", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doXrayRequest(t, h, "/CancelTraceRetrieval", map[string]any{})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("unknown token returns 400 ResourceNotFoundException", func(t *testing.T) {
+		t.Parallel()
+
+		// CancelTraceRetrieval declares ResourceNotFoundException for a token that
+		// was never created by StartTraceRetrieval -- not a silent idempotent no-op.
+		h := newTestHandler(t)
+		rec := doXrayRequest(t, h, "/CancelTraceRetrieval", map[string]any{"RetrievalToken": "does-not-exist"})
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+
+		var resp map[string]string
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+	})
 }
 
 func TestHandler_GetRetrievedTracesGraph(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body            map[string]any
-		name            string
-		wantRetrievalSt string
-		wantStatus      int
-	}{
-		{
-			name:            "returns COMPLETE for unknown token",
-			body:            map[string]any{"RetrievalToken": "unknown-token"},
-			wantStatus:      http.StatusOK,
-			wantRetrievalSt: "COMPLETE",
-		},
-		{
-			name:       "missing RetrievalToken returns 400",
-			body:       map[string]any{},
-			wantStatus: http.StatusBadRequest,
-		},
-	}
+	t.Run("returns status for a real retrieval token", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		h := newTestHandler(t)
+		token := startTestRetrieval(t, h)
 
-			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/GetRetrievedTracesGraph", tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+		rec := doXrayRequest(t, h, "/GetRetrievedTracesGraph", map[string]any{"RetrievalToken": token})
+		require.Equal(t, http.StatusOK, rec.Code)
 
-			if tt.wantStatus == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-				assert.Equal(t, tt.wantRetrievalSt, resp["RetrievalStatus"])
+		assert.Equal(t, "COMPLETE", resp["RetrievalStatus"])
 
-				services, ok := resp["Services"].([]any)
-				require.True(t, ok)
-				assert.Empty(t, services)
-			}
-		})
-	}
+		services, ok := resp["Services"].([]any)
+		require.True(t, ok)
+		assert.Empty(t, services)
+	})
+
+	t.Run("missing RetrievalToken returns 400", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doXrayRequest(t, h, "/GetRetrievedTracesGraph", map[string]any{})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("unknown token returns 400 ResourceNotFoundException", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doXrayRequest(t, h, "/GetRetrievedTracesGraph", map[string]any{"RetrievalToken": "unknown-token"})
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+
+		var resp map[string]string
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+	})
 }
 
 func TestTraceRetrieval_StartAndList(t *testing.T) {
@@ -185,49 +205,42 @@ func TestTraceRetrieval_StartAndList(t *testing.T) {
 	assert.NotEmpty(t, listResp["RetrievalStatus"])
 }
 
-func TestTraceRetrieval_CancelIsIdempotent(t *testing.T) {
+// TestTraceRetrieval_CancelThenCancelAgainReturnsNotFound verifies a second cancel of
+// the same token fails: unlike some AWS "delete" APIs, CancelTraceRetrieval is not
+// idempotent -- the modeled ResourceNotFoundException applies once the token is gone.
+func TestTraceRetrieval_CancelThenCancelAgainReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name           string
-		retrievalToken string
-		wantStatus     int
-	}{
-		{name: "cancel known token", retrievalToken: "some-token-123", wantStatus: http.StatusOK},
-		{name: "cancel unknown token is idempotent", retrievalToken: "not-a-real-token", wantStatus: http.StatusOK},
-		{name: "cancel empty token rejected", retrievalToken: "", wantStatus: http.StatusBadRequest},
-	}
+	h := newTestHandler(t)
+	token := startTestRetrieval(t, h)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	firstRec := doXrayRequest(t, h, "/CancelTraceRetrieval", map[string]any{"RetrievalToken": token})
+	require.Equal(t, http.StatusOK, firstRec.Code)
 
-			h := newTestHandler(t)
-			body := map[string]any{}
-			if tt.retrievalToken != "" {
-				body["RetrievalToken"] = tt.retrievalToken
-			}
-
-			rec := doXrayRequest(t, h, "/CancelTraceRetrieval", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
+	secondRec := doXrayRequest(t, h, "/CancelTraceRetrieval", map[string]any{"RetrievalToken": token})
+	assert.Equal(t, http.StatusBadRequest, secondRec.Code)
 }
 
-func TestRetrievedTracesGraph_CompleteForUnknownToken(t *testing.T) {
+func TestTraceRetrieval_CancelEmptyTokenRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doXrayRequest(t, h, "/CancelTraceRetrieval", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRetrievedTracesGraph_NotFoundForUnknownToken(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body            map[string]any
-		name            string
-		wantRetrievalSt string
-		wantStatus      int
+		body       map[string]any
+		name       string
+		wantStatus int
 	}{
 		{
-			name:            "unknown token returns COMPLETE",
-			body:            map[string]any{"RetrievalToken": "unknown"},
-			wantStatus:      http.StatusOK,
-			wantRetrievalSt: "COMPLETE",
+			name:       "unknown token returns 400 ResourceNotFoundException",
+			body:       map[string]any{"RetrievalToken": "unknown"},
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing token rejected",
@@ -243,12 +256,6 @@ func TestRetrievedTracesGraph_CompleteForUnknownToken(t *testing.T) {
 			h := newTestHandler(t)
 			rec := doXrayRequest(t, h, "/GetRetrievedTracesGraph", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
-
-			if tt.wantRetrievalSt != "" {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Equal(t, tt.wantRetrievalSt, resp["RetrievalStatus"])
-			}
 		})
 	}
 }

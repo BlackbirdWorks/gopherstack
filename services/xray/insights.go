@@ -21,6 +21,7 @@ func (b *InMemoryBackend) maybeResetInsightWindow(w *serviceInsightWindow, now t
 			if ins, exists := b.insights.Get(w.InsightID); exists {
 				ins.State = "CLOSED"
 				ins.EndTime = now
+				ins.LastUpdateTime = now
 			}
 
 			w.InsightID = ""
@@ -46,11 +47,12 @@ func (b *InMemoryBackend) maybeOpenInsight(w *serviceInsightWindow, svcName stri
 
 	insightID := uuid.NewString()
 	b.insights.Put(&Insight{
-		InsightID: insightID,
-		GroupARN:  b.groupARN("default"),
-		GroupName: "default",
-		State:     statusActive,
-		StartTime: now,
+		InsightID:      insightID,
+		GroupARN:       b.groupARN("default"),
+		GroupName:      "default",
+		State:          statusActive,
+		StartTime:      now,
+		LastUpdateTime: now,
 		Summary: fmt.Sprintf(
 			"Elevated fault rate detected for service %q (%.0f%%)",
 			svcName, rate*pctMultiplier,

@@ -1,14 +1,37 @@
 package xray
 
 import (
+	"fmt"
 	"maps"
 )
 
+// resourceExists reports whether resourceARN corresponds to a known X-Ray group or
+// sampling rule -- the only two resource kinds TagResource/UntagResource/
+// ListTagsForResource operate on ("The ARN of an X-Ray group or sampling rule").
+// Must be called with b.mu held (read or write lock).
+func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
+	if list := b.groupsByARN.Get(resourceARN); len(list) > 0 {
+		return true
+	}
+
+	if list := b.samplingRulesByARN.Get(resourceARN); len(list) > 0 {
+		return true
+	}
+
+	return false
+}
+
 // TagResource adds or updates tags on a resource identified by ARN.
 // Tags are stored in a per-ARN map on the backend.
-func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) {
+// Returns ErrResourceNotFound if resourceARN is not a known group or sampling rule.
+// Returns ErrTooManyTags if applying tags would exceed maxTagsPerResource.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
+
+	if !b.resourceExists(resourceARN) {
+		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceARN)
+	}
 
 	if b.resourceTags == nil {
 		b.resourceTags = make(map[string]map[string]string)
@@ -17,34 +40,52 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	existing, ok := b.resourceTags[resourceARN]
 	if !ok {
 		existing = make(map[string]string)
-		b.resourceTags[resourceARN] = existing
 	}
 
-	maps.Copy(existing, tags)
+	merged := make(map[string]string, len(existing)+len(tags))
+	maps.Copy(merged, existing)
+	maps.Copy(merged, tags)
+
+	if len(merged) > maxTagsPerResource {
+		return fmt.Errorf("%w: resource %s would have more than %d tags",
+			ErrTooManyTags, resourceARN, maxTagsPerResource)
+	}
+
+	b.resourceTags[resourceARN] = merged
+
+	return nil
 }
 
 // UntagResource removes the specified tag keys from a resource.
-func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) {
+// Returns ErrResourceNotFound if resourceARN is not a known group or sampling rule.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
+	if !b.resourceExists(resourceARN) {
+		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceARN)
+	}
+
 	if b.resourceTags == nil {
-		return
+		return nil
 	}
 
 	existing := b.resourceTags[resourceARN]
 	for _, k := range tagKeys {
 		delete(existing, k)
 	}
+
+	return nil
 }
 
 // ListTagsForResource returns all tags for the given resource ARN as a slice of key/value maps.
-func (b *InMemoryBackend) ListTagsForResource(resourceARN string) []map[string]string {
+// Returns ErrResourceNotFound if resourceARN is not a known group or sampling rule.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if b.resourceTags == nil {
-		return []map[string]string{}
+	if !b.resourceExists(resourceARN) {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceARN)
 	}
 
 	tags := b.resourceTags[resourceARN]
@@ -54,5 +95,10 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) []map[string]s
 		out = append(out, map[string]string{"Key": k, "Value": v})
 	}
 
-	return out
+	return out, nil
 }
+
+const (
+	// maxTagsPerResource is the maximum number of user-applied tags per resource.
+	maxTagsPerResource = 50
+)

@@ -8,8 +8,25 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// probabilisticRuleValueView is the wire shape for an indexing rule's Rule field:
+// the tagged union {"Probabilistic": {...}} (real SDK type IndexingRuleValue /
+// IndexingRuleValueUpdate) collapses to its only known member in gopherstack.
+type probabilisticRuleValueUpdateView struct {
+	DesiredSamplingPercentage float64 `json:"DesiredSamplingPercentage"`
+}
+
+type probabilisticRuleValueView struct {
+	DesiredSamplingPercentage float64 `json:"DesiredSamplingPercentage"`
+	ActualSamplingPercentage  float64 `json:"ActualSamplingPercentage"`
+}
+
+type indexingRuleValueUpdateInput struct {
+	Probabilistic *probabilisticRuleValueUpdateView `json:"Probabilistic,omitempty"`
+}
+
 type updateIndexingRuleInput struct {
-	Name string `json:"Name"`
+	Rule *indexingRuleValueUpdateInput `json:"Rule,omitempty"`
+	Name string                        `json:"Name"`
 }
 
 func (h *Handler) handleUpdateIndexingRule(_ context.Context, body []byte) ([]byte, error) {
@@ -24,22 +41,44 @@ func (h *Handler) handleUpdateIndexingRule(_ context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
-	rule, err := h.Backend.UpdateIndexingRule(in.Name)
+	var update *ProbabilisticRuleValue
+
+	if in.Rule != nil && in.Rule.Probabilistic != nil {
+		update = &ProbabilisticRuleValue{DesiredSamplingPercentage: in.Rule.Probabilistic.DesiredSamplingPercentage}
+	}
+
+	rule, err := h.Backend.UpdateIndexingRule(in.Name, update)
 	if err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]any{
-		"IndexingRule": map[string]any{
-			"Name":       rule.Name,
-			"ModifiedAt": rule.ModifiedAt,
-		},
+		"IndexingRule": toIndexingRuleView(rule),
 	})
 }
 
 type indexingRuleView struct {
-	Name       string  `json:"Name"`
-	ModifiedAt float64 `json:"ModifiedAt"`
+	Rule       map[string]any `json:"Rule,omitempty"`
+	Name       string         `json:"Name"`
+	ModifiedAt float64        `json:"ModifiedAt"`
+}
+
+func toIndexingRuleView(r *IndexingRule) indexingRuleView {
+	v := indexingRuleView{
+		Name:       r.Name,
+		ModifiedAt: float64(r.ModifiedAt.Unix()),
+	}
+
+	if r.Rule != nil {
+		v.Rule = map[string]any{
+			"Probabilistic": probabilisticRuleValueView{
+				DesiredSamplingPercentage: r.Rule.DesiredSamplingPercentage,
+				ActualSamplingPercentage:  r.Rule.ActualSamplingPercentage,
+			},
+		}
+	}
+
+	return v
 }
 
 type getIndexingRulesInput struct {
@@ -59,10 +98,7 @@ func (h *Handler) handleGetIndexingRules(_ context.Context, body []byte) ([]byte
 	views := make([]indexingRuleView, 0, len(rules))
 
 	for _, r := range rules {
-		views = append(views, indexingRuleView{
-			Name:       r.Name,
-			ModifiedAt: float64(r.ModifiedAt.Unix()),
-		})
+		views = append(views, toIndexingRuleView(r))
 	}
 
 	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultIndexingRulesPageSize)

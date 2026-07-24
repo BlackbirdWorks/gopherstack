@@ -3,31 +3,63 @@ package xray_test
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/xray"
 )
+
+// createTaggableGroup creates a real group via the handler and returns its ARN, so
+// tag tests exercise TagResource/UntagResource/ListTagsForResource against a resource
+// ARN that actually resolves -- real AWS returns ResourceNotFoundException for tag
+// operations against an ARN that isn't a known group or sampling rule.
+func createTaggableGroup(t *testing.T, h *xray.Handler, name string) string {
+	t.Helper()
+
+	rec := doXrayRequest(t, h, "/CreateGroup", map[string]any{"GroupName": name})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	group, ok := resp["Group"].(map[string]any)
+	require.True(t, ok)
+
+	arn, ok := group["GroupARN"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, arn)
+
+	return arn
+}
 
 func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body       map[string]any
-		name       string
-		wantStatus int
-		wantTags   int
+		name           string
+		explicitARN    string
+		wantStatus     int
+		wantTags       int
+		explicitStatus int
+		useKnownGroup  bool
 	}{
 		{
 			name:       "missing ResourceARN rejected",
-			body:       map[string]any{},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "resource with no tags returns empty list",
-			body:       map[string]any{"ResourceARN": "arn:aws:xray:us-east-1:123:group/default/g1"},
-			wantStatus: http.StatusOK,
-			wantTags:   0,
+			name:          "resource with no tags returns empty list",
+			useKnownGroup: true,
+			wantStatus:    http.StatusOK,
+			wantTags:      0,
+		},
+		{
+			name:        "unknown resource ARN returns 400 ResourceNotFoundException",
+			explicitARN: "arn:aws:xray:us-east-1:123:group/default/does-not-exist",
+			wantStatus:  http.StatusBadRequest,
 		},
 	}
 
@@ -36,7 +68,17 @@ func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doXrayRequest(t, h, "/ListTagsForResource", tt.body)
+
+			body := map[string]any{}
+
+			switch {
+			case tt.useKnownGroup:
+				body["ResourceARN"] = createTaggableGroup(t, h, "g1")
+			case tt.explicitARN != "":
+				body["ResourceARN"] = tt.explicitARN
+			}
+
+			rec := doXrayRequest(t, h, "/ListTagsForResource", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -55,7 +97,7 @@ func TestHandler_ListTagsForResource_WithTags(t *testing.T) {
 
 	h, b := newTestHandlerWithBackend(t)
 
-	arn := "arn:aws:xray:us-east-1:123456789012:group/default/tagged"
+	arn := createTaggableGroup(t, h, "tagged")
 	tags := map[string]string{
 		"env":     "prod",
 		"team":    "platform",
@@ -63,7 +105,7 @@ func TestHandler_ListTagsForResource_WithTags(t *testing.T) {
 		"owner":   "alice",
 		"cost":    "high",
 	}
-	b.TagResource(arn, tags)
+	require.NoError(t, b.TagResource(arn, tags))
 
 	rec := doXrayRequest(t, h, "/ListTagsForResource", map[string]any{"ResourceARN": arn})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -105,7 +147,7 @@ func TestTags_RoundTrip(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			arn := "arn:aws:xray:us-east-1:123456789012:group/default/test-group"
+			arn := createTaggableGroup(t, h, "test-group")
 
 			tagRec := doXrayRequest(t, h, "/TagResource", map[string]any{
 				"ResourceARN": arn,
@@ -132,7 +174,7 @@ func TestTags_UntagResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	arn := "arn:aws:xray:us-east-1:123456789012:group/default/untag-group"
+	arn := createTaggableGroup(t, h, "untag-group")
 
 	tagRec := doXrayRequest(t, h, "/TagResource", map[string]any{
 		"ResourceARN": arn,
@@ -154,4 +196,58 @@ func TestTags_UntagResource(t *testing.T) {
 
 	tags, _ := resp["Tags"].([]any)
 	assert.Len(t, tags, 1, "only key2 should remain after untagging key1")
+}
+
+func TestTags_TagResource_UnknownResourceReturns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doXrayRequest(t, h, "/TagResource", map[string]any{
+		"ResourceARN": "arn:aws:xray:us-east-1:000000000000:group/default/nope",
+		"Tags":        map[string]string{"env": "prod"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+}
+
+func TestTags_UntagResource_UnknownResourceReturns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doXrayRequest(t, h, "/UntagResource", map[string]any{
+		"ResourceARN": "arn:aws:xray:us-east-1:000000000000:group/default/nope",
+		"TagKeys":     []string{"env"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+}
+
+func TestTags_TagResource_ExceedsMaxTagsReturns400(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	arn := createTaggableGroup(t, h, "many-tags")
+
+	tags := make(map[string]string, 51)
+	for i := range 51 {
+		tags["k"+strconv.Itoa(i)] = "v"
+	}
+
+	rec := doXrayRequest(t, h, "/TagResource", map[string]any{
+		"ResourceARN": arn,
+		"Tags":        tags,
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "TooManyTagsException", resp["__type"])
 }

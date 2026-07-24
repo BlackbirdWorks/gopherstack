@@ -182,7 +182,8 @@ func TestRetrievalCleanup_JanitorSweepsOldTokens(t *testing.T) {
 	b.SetRetrievalTimeForTest(token, time.Now().Add(-2*time.Hour))
 
 	// Verify retrieval exists before sweep.
-	status, traces := b.ListRetrievedTraces(token)
+	status, traces, err := b.ListRetrievedTraces(token)
+	require.NoError(t, err)
 	assert.Equal(t, "COMPLETE", status)
 	assert.NotNil(t, traces)
 
@@ -190,10 +191,11 @@ func TestRetrievalCleanup_JanitorSweepsOldTokens(t *testing.T) {
 	j := xray.NewJanitor(b, time.Minute, 30*time.Minute)
 	j.SweepOnce(context.Background())
 
-	// After sweep, token should be gone (returns COMPLETE with nil).
-	status2, traces2 := b.ListRetrievedTraces(token)
-	assert.Equal(t, "COMPLETE", status2)
-	assert.Nil(t, traces2, "retrieval state should have been cleaned up by janitor")
+	// After sweep, the token no longer resolves: real AWS returns
+	// ResourceNotFoundException for an unknown/expired RetrievalToken.
+	_, _, err = b.ListRetrievedTraces(token)
+	require.Error(t, err, "retrieval state should have been cleaned up by janitor")
+	assert.ErrorIs(t, err, xray.ErrTraceRetrievalNotFound)
 }
 
 // TestJanitor_CleansUpSegmentIndexes verifies janitor removes parsedSegments and traceSegments.

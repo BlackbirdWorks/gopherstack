@@ -784,7 +784,11 @@ func TestGetTraceSummaries_EntryPointFromRootSegment(t *testing.T) {
 	require.Len(t, summaries, 1)
 
 	s, _ := summaries[0].(map[string]any)
-	assert.Equal(t, "my-service", s["EntryPoint"], "EntryPoint must be the root segment name")
+	// EntryPoint is a ServiceId object per the real SDK type (types.ServiceId), not a
+	// plain string -- a real client's deserializer expects a JSON object here.
+	entryPoint, ok := s["EntryPoint"].(map[string]any)
+	require.True(t, ok, "EntryPoint must be a JSON object, not a string")
+	assert.Equal(t, "my-service", entryPoint["Name"], "EntryPoint.Name must be the root segment name")
 }
 
 func TestGetTraceSummaries_IsPartialWithoutRootSegment(t *testing.T) {
