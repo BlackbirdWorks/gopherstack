@@ -261,7 +261,53 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
-func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+// Operation name constants for the ops referenced by
+// opsWithoutValidationException below. Named (rather than inline string
+// literals) so goconst doesn't flag them as a third occurrence of strings
+// already used in GetSupportedOperations/buildOps.
+const (
+	opAnalyzeDocument            = "AnalyzeDocument"
+	opAnalyzeExpense             = "AnalyzeExpense"
+	opAnalyzeID                  = "AnalyzeID"
+	opDetectDocumentText         = "DetectDocumentText"
+	opGetDocumentAnalysis        = "GetDocumentAnalysis"
+	opGetDocumentTextDetection   = "GetDocumentTextDetection"
+	opGetExpenseAnalysis         = "GetExpenseAnalysis"
+	opGetLendingAnalysis         = "GetLendingAnalysis"
+	opGetLendingAnalysisSummary  = "GetLendingAnalysisSummary"
+	opStartDocumentAnalysis      = "StartDocumentAnalysis"
+	opStartDocumentTextDetection = "StartDocumentTextDetection"
+	opStartExpenseAnalysis       = "StartExpenseAnalysis"
+	opStartLendingAnalysis       = "StartLendingAnalysis"
+)
+
+// opsWithoutValidationException is the set of Textract operations whose real
+// SDK deserializeOpError<Op> switch (aws-sdk-go-v2/service/textract
+// deserializers.go) has no ValidationException case at all -- only
+// InvalidParameterException. Generic parameter-validation failures (missing
+// required field, unknown enum value, malformed body) on these ops must
+// surface as InvalidParameterException, never ValidationException, which
+// real AWS Textract never returns for them. Verified against every op's
+// deserializer switch; the adapter-management + Tag*/ListTagsForResource ops
+// are NOT in this set because their real deserializers do declare
+// ValidationException.
+var opsWithoutValidationException = map[string]bool{ //nolint:gochecknoglobals // static lookup table
+	opAnalyzeDocument:            true,
+	opAnalyzeExpense:             true,
+	opAnalyzeID:                  true,
+	opDetectDocumentText:         true,
+	opGetDocumentAnalysis:        true,
+	opGetDocumentTextDetection:   true,
+	opGetExpenseAnalysis:         true,
+	opGetLendingAnalysis:         true,
+	opGetLendingAnalysisSummary:  true,
+	opStartDocumentAnalysis:      true,
+	opStartDocumentTextDetection: true,
+	opStartExpenseAnalysis:       true,
+	opStartLendingAnalysis:       true,
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, action string, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
@@ -272,11 +318,15 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrJobNotFound):
 		code, status = "InvalidJobIdException", http.StatusBadRequest
 	case errors.Is(err, ErrAdapterNotFound), errors.Is(err, ErrAdapterVersionNotFound):
-		code, status = "InvalidParameterException", http.StatusBadRequest
+		code, status = "ResourceNotFoundException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation), errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		code, status = "ValidationException", http.StatusBadRequest
+		if opsWithoutValidationException[action] {
+			code, status = "InvalidParameterException", http.StatusBadRequest
+		} else {
+			code, status = "ValidationException", http.StatusBadRequest
+		}
 	default:
 		code, status = "InternalServerError", http.StatusInternalServerError
 	}

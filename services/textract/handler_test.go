@@ -368,7 +368,7 @@ func TestHandler_Reset(t *testing.T) {
 }
 
 // TestHandler_HandleError_AdapterNotFound ensures adapter not-found returns
-// InvalidParameterException (not InvalidJobIdException).
+// ResourceNotFoundException (not InvalidJobIdException).
 func TestHandler_HandleError_AdapterNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -381,7 +381,7 @@ func TestHandler_HandleError_AdapterNotFound(t *testing.T) {
 
 	var errResp map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "InvalidParameterException", errResp["__type"])
+	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }
 
 // TestHandler_HandleError_JobNotFound ensures job not-found returns
@@ -484,20 +484,24 @@ func TestHandler_ErrorEnvelope_TypeAndMessage(t *testing.T) {
 			wantType: "InvalidJobIdException",
 		},
 		{
-			name:     "adapter_not_found_gives_InvalidParameterException",
+			name:     "adapter_not_found_gives_ResourceNotFoundException",
 			action:   "GetAdapter",
 			body:     map[string]any{"AdapterId": "no-such-adapter"},
-			wantType: "InvalidParameterException",
+			wantType: "ResourceNotFoundException",
 		},
 		{
-			name:   "validation_error_gives_ValidationException",
+			// StartDocumentAnalysis has no ValidationException case in the
+			// real SDK's deserializeOpErrorStartDocumentAnalysis switch --
+			// only InvalidParameterException -- verified against
+			// aws-sdk-go-v2/service/textract deserializers.go.
+			name:   "validation_error_gives_InvalidParameterException",
 			action: "StartDocumentAnalysis",
 			body: map[string]any{
 				"DocumentLocation": map[string]any{
 					"S3Object": map[string]any{"Bucket": "", "Name": ""},
 				},
 			},
-			wantType: "ValidationException",
+			wantType: "InvalidParameterException",
 		},
 		{
 			name:     "unknown_action_gives_ValidationException",

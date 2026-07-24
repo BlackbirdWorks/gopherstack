@@ -53,7 +53,37 @@ const (
 	evalF1Score   = 0.85
 	evalPrecision = 0.88
 	evalRecall    = 0.82
+
+	evalBaselineF1Score   = 0.80
+	evalBaselinePrecision = 0.83
+	evalBaselineRecall    = 0.78
 )
+
+// buildEvaluationMetrics returns one AdapterVersionEvaluationMetric per
+// FeatureType the adapter was created with, pairing a deterministic
+// baseline score against a deterministic adapter-version score. Matches the
+// real SDK's GetAdapterVersionOutput.EvaluationMetrics shape: a list scoped
+// by FeatureType, not a single flat metrics struct.
+func buildEvaluationMetrics(featureTypes []string) []AdapterVersionEvaluationMetric {
+	metrics := make([]AdapterVersionEvaluationMetric, 0, len(featureTypes))
+	for _, ft := range featureTypes {
+		metrics = append(metrics, AdapterVersionEvaluationMetric{
+			FeatureType: ft,
+			Baseline: &EvaluationMetric{
+				F1Score:   evalBaselineF1Score,
+				Precision: evalBaselinePrecision,
+				Recall:    evalBaselineRecall,
+			},
+			AdapterVersion: &EvaluationMetric{
+				F1Score:   evalF1Score,
+				Precision: evalPrecision,
+				Recall:    evalRecall,
+			},
+		})
+	}
+
+	return metrics
+}
 
 // CreateAdapterVersion creates a new version for an existing adapter.
 func (b *InMemoryBackend) CreateAdapterVersion(
@@ -103,11 +133,7 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 			OutputConfig:       outputConfig,
 			KMSKeyId:           kmsKeyID,
 			ClientRequestToken: clientRequestToken,
-			EvaluationMetrics: &EvaluationMetrics{
-				F1Score:   evalF1Score,
-				Precision: evalPrecision,
-				Recall:    evalRecall,
-			},
+			EvaluationMetrics:  buildEvaluationMetrics(adapter.FeatureTypes),
 		}
 		b.adapterVersions.Put(av)
 
@@ -213,6 +239,11 @@ func cloneAdapterVersion(av *AdapterVersion) *AdapterVersion {
 	cp.FeatureTypes = make([]string, len(av.FeatureTypes))
 	copy(cp.FeatureTypes, av.FeatureTypes)
 	cp.Tags = cloneTags(av.Tags)
+
+	if av.EvaluationMetrics != nil {
+		cp.EvaluationMetrics = make([]AdapterVersionEvaluationMetric, len(av.EvaluationMetrics))
+		copy(cp.EvaluationMetrics, av.EvaluationMetrics)
+	}
 
 	return &cp
 }

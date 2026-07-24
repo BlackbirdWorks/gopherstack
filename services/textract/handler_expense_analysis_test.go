@@ -352,3 +352,117 @@ func TestHandler_GetExpenseAnalysis_RejectsDocumentJobID(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_AnalyzeExpense_CurrencyAndTypeWireShape locks the real SDK's
+// ExpenseField shape: Currency is an ExpenseCurrency{Code, Confidence}
+// object (not an ExpenseDetection with Text/Geometry), and Type is an
+// ExpenseType{Text, Confidence} object with no Geometry member -- both
+// diverge from the shape of ValueDetection/LabelDetection, which do use
+// ExpenseDetection.
+func TestHandler_AnalyzeExpense_CurrencyAndTypeWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doTextractRequest(t, h, "AnalyzeExpense", map[string]any{
+		"Document": map[string]any{
+			"S3Object": map[string]any{"Bucket": "b", "Name": "invoice.pdf"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	docs, ok := resp["ExpenseDocuments"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, docs)
+
+	doc, ok := docs[0].(map[string]any)
+	require.True(t, ok)
+
+	summaryFields, ok := doc["SummaryFields"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, summaryFields)
+
+	var sawCurrency bool
+
+	for _, sf := range summaryFields {
+		sfm, ok2 := sf.(map[string]any)
+		require.True(t, ok2)
+
+		typeField, ok3 := sfm["Type"].(map[string]any)
+		require.True(t, ok3, "every SummaryFields entry must have a Type object")
+		_, hasGeometry := typeField["Geometry"]
+		assert.False(t, hasGeometry, "ExpenseType must not carry a Geometry key")
+		_, hasText := typeField["Text"]
+		assert.True(t, hasText, "ExpenseType must carry a Text key")
+
+		currency, hasCurrency := sfm["Currency"].(map[string]any)
+		if !hasCurrency {
+			continue
+		}
+
+		sawCurrency = true
+		_, hasCode := currency["Code"]
+		assert.True(t, hasCode, "ExpenseCurrency must carry a Code key")
+		_, hasCurrencyText := currency["Text"]
+		assert.False(t, hasCurrencyText, "ExpenseCurrency must not carry a Text key")
+		_, hasCurrencyGeometry := currency["Geometry"]
+		assert.False(t, hasCurrencyGeometry, "ExpenseCurrency must not carry a Geometry key")
+	}
+
+	assert.True(t, sawCurrency, "TOTAL summary field should carry a Currency object")
+}
+
+// TestHandler_GetExpenseAnalysis_Pagination verifies NextToken/MaxResults
+// pagination over ExpenseDocuments, mirroring the same pattern
+// GetDocumentAnalysis already applies to Blocks. Real AWS's
+// GetExpenseAnalysisInput accepts MaxResults/NextToken and
+// GetExpenseAnalysisOutput echoes NextToken -- this was previously accepted
+// but silently ignored.
+func TestHandler_GetExpenseAnalysis_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	b := h.Backend.(*textract.InMemoryBackend)
+
+	jobID := "pagination-expense-job"
+	docs := make([]textract.ExpenseDocument, 5)
+	for i := range docs {
+		docs[i] = textract.ExpenseDocument{ExpenseIndex: i + 1}
+	}
+
+	textract.AddExpenseJobInternal(b, &textract.ExpenseJob{
+		JobID:            jobID,
+		JobStatus:        "SUCCEEDED",
+		ExpenseDocuments: docs,
+	})
+
+	rec1 := doTextractRequest(t, h, "GetExpenseAnalysis", map[string]any{
+		"JobId":      jobID,
+		"MaxResults": 2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var resp1 struct {
+		NextToken        string           `json:"NextToken"`
+		ExpenseDocuments []map[string]any `json:"ExpenseDocuments"`
+	}
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	assert.Len(t, resp1.ExpenseDocuments, 2)
+	require.NotEmpty(t, resp1.NextToken, "first page must return a NextToken")
+
+	rec2 := doTextractRequest(t, h, "GetExpenseAnalysis", map[string]any{
+		"JobId":     jobID,
+		"NextToken": resp1.NextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 struct {
+		NextToken        string           `json:"NextToken"`
+		ExpenseDocuments []map[string]any `json:"ExpenseDocuments"`
+	}
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	assert.Len(t, resp2.ExpenseDocuments, 3, "remaining 3 documents on the second page")
+	assert.Empty(t, resp2.NextToken, "no more pages")
+}

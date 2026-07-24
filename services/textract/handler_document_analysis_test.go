@@ -304,6 +304,45 @@ func TestHandler_AnalyzeDocument_TablesTableCellBlocks(t *testing.T) {
 	}
 }
 
+// TestHandler_AnalyzeDocument_ColumnHeaderCellsUseEntityTypes verifies that
+// header cells signal COLUMN_HEADER status via the real SDK's mechanism --
+// EntityTypes containing "COLUMN_HEADER" -- and that the response carries no
+// "ColumnHeader" key. gopherstack's Block previously had a fabricated
+// ColumnHeader bool field with no counterpart in
+// aws-sdk-go-v2/service/textract/types.Block; it was deleted since the
+// EntityTypes mechanism already conveys the same information correctly.
+func TestHandler_AnalyzeDocument_ColumnHeaderCellsUseEntityTypes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doTextractRequest(t, h, "AnalyzeDocument", map[string]any{
+		"Document": map[string]any{
+			"S3Object": map[string]any{"Bucket": "b", "Name": "table.pdf"},
+		},
+		"FeatureTypes": []string{"TABLES"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	cells := blocksOfType(t, rec.Body.Bytes(), "CELL")
+	require.NotEmpty(t, cells)
+
+	var sawColumnHeader bool
+
+	for _, cell := range cells {
+		_, hasColumnHeaderKey := cell["ColumnHeader"]
+		assert.False(t, hasColumnHeaderKey, "Block must not have an invented ColumnHeader key")
+
+		entityTypes, _ := cell["EntityTypes"].([]any)
+		for _, et := range entityTypes {
+			if et == "COLUMN_HEADER" {
+				sawColumnHeader = true
+			}
+		}
+	}
+
+	assert.True(t, sawColumnHeader, "at least one CELL should carry EntityTypes=[COLUMN_HEADER]")
+}
+
 // TestHandler_AnalyzeDocument_QueriesQueryBlocks verifies AnalyzeDocument
 // QUERIES with QueriesConfig produces QUERY and QUERY_RESULT blocks.
 func TestHandler_AnalyzeDocument_QueriesQueryBlocks(t *testing.T) {
@@ -748,7 +787,7 @@ func TestHandler_StartDocumentAnalysis_JobIdNonEmpty(t *testing.T) {
 }
 
 // TestHandler_AnalyzeDocument_NoFeatureTypesRejected verifies AnalyzeDocument
-// returns ValidationException (400) when FeatureTypes is omitted.
+// returns InvalidParameterException (400) when FeatureTypes is omitted.
 func TestHandler_AnalyzeDocument_NoFeatureTypesRejected(t *testing.T) {
 	t.Parallel()
 
@@ -765,7 +804,7 @@ func TestHandler_AnalyzeDocument_NoFeatureTypesRejected(t *testing.T) {
 
 // TestHandler_AnalyzeDocument_QueriesWithoutQueriesConfigRejected verifies that
 // when QUERIES is listed in FeatureTypes but no QueriesConfig is provided,
-// AnalyzeDocument returns a ValidationException (HTTP 400).
+// AnalyzeDocument returns an InvalidParameterException (HTTP 400).
 func TestHandler_AnalyzeDocument_QueriesWithoutQueriesConfigRejected(t *testing.T) {
 	t.Parallel()
 
@@ -779,6 +818,65 @@ func TestHandler_AnalyzeDocument_QueriesWithoutQueriesConfigRejected(t *testing.
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code,
 		"QUERIES without QueriesConfig must return 400")
+}
+
+// TestHandler_AnalyzeDocumentAndStart_ValidationErrorsUseInvalidParameterException
+// locks in that AnalyzeDocument and StartDocumentAnalysis surface parameter
+// validation failures as InvalidParameterException, never ValidationException:
+// the real SDK's deserializeOpErrorAnalyzeDocument and
+// deserializeOpErrorStartDocumentAnalysis switches have no
+// ValidationException case at all (verified against
+// aws-sdk-go-v2/service/textract@v1.41.0/deserializers.go), unlike the
+// adapter-management operations, which do support ValidationException.
+func TestHandler_AnalyzeDocumentAndStart_ValidationErrorsUseInvalidParameterException(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "AnalyzeDocument_missing_FeatureTypes",
+			action: "AnalyzeDocument",
+			body: map[string]any{
+				"Document": map[string]any{
+					"S3Object": map[string]any{"Bucket": "b", "Name": "doc.pdf"},
+				},
+			},
+		},
+		{
+			name:   "AnalyzeDocument_QUERIES_without_QueriesConfig",
+			action: "AnalyzeDocument",
+			body: map[string]any{
+				"Document": map[string]any{
+					"S3Object": map[string]any{"Bucket": "b", "Name": "doc.pdf"},
+				},
+				"FeatureTypes": []string{"QUERIES"},
+			},
+		},
+		{
+			name:   "StartDocumentAnalysis_missing_DocumentLocation",
+			action: "StartDocumentAnalysis",
+			body: map[string]any{
+				"FeatureTypes": []string{"TABLES"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTextractRequest(t, h, tt.action, tt.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errResp map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, "InvalidParameterException", errResp["__type"])
+		})
+	}
 }
 
 // TestHandler_AnalyzeDocument_FeatureTypesValidation verifies that

@@ -3,6 +3,9 @@ package textract
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // createAdapterVersionInput is the input for CreateAdapterVersion.
@@ -62,18 +65,18 @@ type getAdapterVersionInput struct {
 
 // getAdapterVersionResponse is the response for GetAdapterVersion.
 type getAdapterVersionResponse struct {
-	Tags              map[string]string  `json:"Tags"`
-	DatasetConfig     *DatasetConfig     `json:"DatasetConfig,omitempty"`
-	OutputConfig      *OutputConfig      `json:"OutputConfig,omitempty"`
-	EvaluationMetrics *EvaluationMetrics `json:"EvaluationMetrics,omitempty"`
-	AdapterID         string             `json:"AdapterId"`
-	AdapterVersion    string             `json:"AdapterVersion"`
-	CreationTime      string             `json:"CreationTime"`
-	Status            string             `json:"Status"`
-	StatusMessage     string             `json:"StatusMessage"`
+	Tags           map[string]string `json:"Tags"`
+	DatasetConfig  *DatasetConfig    `json:"DatasetConfig,omitempty"`
+	OutputConfig   *OutputConfig     `json:"OutputConfig,omitempty"`
+	AdapterID      string            `json:"AdapterId"`
+	AdapterVersion string            `json:"AdapterVersion"`
+	Status         string            `json:"Status"`
+	StatusMessage  string            `json:"StatusMessage"`
 	//nolint:revive,staticcheck // KMSKeyId: AWS SDK field name convention
-	KMSKeyId     string   `json:"KMSKeyId,omitempty"`
-	FeatureTypes []string `json:"FeatureTypes"`
+	KMSKeyId          string                           `json:"KMSKeyId,omitempty"`
+	EvaluationMetrics []AdapterVersionEvaluationMetric `json:"EvaluationMetrics,omitempty"`
+	FeatureTypes      []string                         `json:"FeatureTypes"`
+	CreationTime      float64                          `json:"CreationTime"`
 }
 
 func (h *Handler) handleGetAdapterVersion(
@@ -96,7 +99,7 @@ func (h *Handler) handleGetAdapterVersion(
 	return &getAdapterVersionResponse{
 		AdapterID:         av.AdapterID,
 		AdapterVersion:    av.AdapterVersion,
-		CreationTime:      av.CreationTime.Format("2006-01-02T15:04:05Z"),
+		CreationTime:      awstime.Epoch(av.CreationTime),
 		FeatureTypes:      av.FeatureTypes,
 		Status:            av.Status,
 		StatusMessage:     av.StatusMessage,
@@ -108,23 +111,38 @@ func (h *Handler) handleGetAdapterVersion(
 	}, nil
 }
 
+// listAdapterVersionsDefaultPageSize is used when
+// ListAdapterVersionsInput.MaxResults is unset or non-positive.
+const listAdapterVersionsDefaultPageSize = 1000
+
 // listAdapterVersionsInput is the input for ListAdapterVersions.
+// AfterCreationTime / BeforeCreationTime are epoch-seconds (JSON numbers),
+// matching the awsjson1.1 unixTimestamp wire format -- see pkgs/awstime's
+// package doc.
 type listAdapterVersionsInput struct {
-	AdapterID string `json:"AdapterId"`
+	AdapterID          string  `json:"AdapterId"`
+	NextToken          string  `json:"NextToken"`
+	AfterCreationTime  float64 `json:"AfterCreationTime"`
+	BeforeCreationTime float64 `json:"BeforeCreationTime"`
+	MaxResults         int     `json:"MaxResults"`
 }
 
-// listAdapterVersionsResponse is the response for ListAdapterVersions.
+// listAdapterVersionsResponse is the response for ListAdapterVersions. There
+// is no top-level AdapterId in the real SDK's ListAdapterVersionsOutput --
+// gopherstack previously invented one; each entry inside AdapterVersions
+// carries its own AdapterId instead, matching types.AdapterVersionOverview.
 type listAdapterVersionsResponse struct {
-	AdapterID       string                  `json:"AdapterId"`
+	NextToken       string                  `json:"NextToken,omitempty"`
 	AdapterVersions []adapterVersionSummary `json:"AdapterVersions"`
 }
 
 type adapterVersionSummary struct {
+	AdapterID      string   `json:"AdapterId"`
 	AdapterVersion string   `json:"AdapterVersion"`
-	CreationTime   string   `json:"CreationTime"`
 	Status         string   `json:"Status"`
 	StatusMessage  string   `json:"StatusMessage,omitempty"`
 	FeatureTypes   []string `json:"FeatureTypes"`
+	CreationTime   float64  `json:"CreationTime"`
 }
 
 func (h *Handler) handleListAdapterVersions(
@@ -140,11 +158,28 @@ func (h *Handler) handleListAdapterVersions(
 		return nil, err
 	}
 
-	summaries := make([]adapterVersionSummary, 0, len(versions))
+	filtered := make([]AdapterVersion, 0, len(versions))
+
 	for _, av := range versions {
+		if in.AfterCreationTime > 0 && awstime.Epoch(av.CreationTime) <= in.AfterCreationTime {
+			continue
+		}
+
+		if in.BeforeCreationTime > 0 && awstime.Epoch(av.CreationTime) >= in.BeforeCreationTime {
+			continue
+		}
+
+		filtered = append(filtered, av)
+	}
+
+	pg := page.New(filtered, in.NextToken, in.MaxResults, listAdapterVersionsDefaultPageSize)
+
+	summaries := make([]adapterVersionSummary, 0, len(pg.Data))
+	for _, av := range pg.Data {
 		summaries = append(summaries, adapterVersionSummary{
+			AdapterID:      av.AdapterID,
 			AdapterVersion: av.AdapterVersion,
-			CreationTime:   av.CreationTime.Format("2006-01-02T15:04:05Z"),
+			CreationTime:   awstime.Epoch(av.CreationTime),
 			FeatureTypes:   av.FeatureTypes,
 			Status:         av.Status,
 			StatusMessage:  av.StatusMessage,
@@ -152,8 +187,8 @@ func (h *Handler) handleListAdapterVersions(
 	}
 
 	return &listAdapterVersionsResponse{
-		AdapterID:       in.AdapterID,
 		AdapterVersions: summaries,
+		NextToken:       pg.Next,
 	}, nil
 }
 

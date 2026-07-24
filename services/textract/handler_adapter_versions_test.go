@@ -231,7 +231,10 @@ func TestHandler_AdapterVersion_InProgressThenActive(t *testing.T) {
 }
 
 // TestHandler_AdapterVersion_EvaluationMetrics verifies GetAdapterVersion
-// returns the deterministic EvaluationMetrics.
+// returns the deterministic EvaluationMetrics as a list of
+// AdapterVersionEvaluationMetric entries (one per FeatureType), each with
+// Baseline and AdapterVersion sub-scores -- matching the real SDK's
+// GetAdapterVersionOutput.EvaluationMetrics shape, not a single flat struct.
 func TestHandler_AdapterVersion_EvaluationMetrics(t *testing.T) {
 	t.Parallel()
 
@@ -265,16 +268,30 @@ func TestHandler_AdapterVersion_EvaluationMetrics(t *testing.T) {
 	var getVersionResp map[string]any
 	require.NoError(t, json.Unmarshal(getVersionRec.Body.Bytes(), &getVersionResp))
 
-	evalMetrics, ok := getVersionResp["EvaluationMetrics"].(map[string]any)
-	require.True(t, ok, "GetAdapterVersion should include EvaluationMetrics")
-	assert.InDelta(t, 0.85, evalMetrics["F1Score"], 0.001)
-	assert.InDelta(t, 0.88, evalMetrics["Precision"], 0.001)
-	assert.InDelta(t, 0.82, evalMetrics["Recall"], 0.001)
+	evalMetricsList, ok := getVersionResp["EvaluationMetrics"].([]any)
+	require.True(t, ok, "GetAdapterVersion should include EvaluationMetrics as a list")
+	require.Len(t, evalMetricsList, 1, "one entry per adapter FeatureType (QUERIES)")
+
+	entry, ok := evalMetricsList[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "QUERIES", entry["FeatureType"])
+
+	adapterVersionScore, ok := entry["AdapterVersion"].(map[string]any)
+	require.True(t, ok, "entry should include AdapterVersion sub-scores")
+	assert.InDelta(t, 0.85, adapterVersionScore["F1Score"], 0.001)
+	assert.InDelta(t, 0.88, adapterVersionScore["Precision"], 0.001)
+	assert.InDelta(t, 0.82, adapterVersionScore["Recall"], 0.001)
+
+	baseline, ok := entry["Baseline"].(map[string]any)
+	require.True(t, ok, "entry should include Baseline sub-scores")
+	assert.InDelta(t, 0.80, baseline["F1Score"], 0.001)
+	assert.InDelta(t, 0.83, baseline["Precision"], 0.001)
+	assert.InDelta(t, 0.78, baseline["Recall"], 0.001)
 }
 
 // TestHandler_DeleteAdapterVersion_GetReturnsErrorAfterDelete verifies that
 // after DeleteAdapterVersion, calling GetAdapterVersion on the deleted version
-// returns InvalidParameterException (400).
+// returns ResourceNotFoundException (400).
 func TestHandler_DeleteAdapterVersion_GetReturnsErrorAfterDelete(t *testing.T) {
 	t.Parallel()
 
@@ -317,8 +334,8 @@ func TestHandler_DeleteAdapterVersion_GetReturnsErrorAfterDelete(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, getAfterRec.Code)
 	var errResp map[string]any
 	require.NoError(t, json.Unmarshal(getAfterRec.Body.Bytes(), &errResp))
-	assert.Equal(t, "InvalidParameterException", errResp["__type"],
-		"deleted version must return InvalidParameterException")
+	assert.Equal(t, "ResourceNotFoundException", errResp["__type"],
+		"deleted version must return ResourceNotFoundException")
 }
 
 // TestHandler_ListAdapterVersions_HappyPath tests listing versions for an adapter.
@@ -351,7 +368,17 @@ func TestHandler_ListAdapterVersions_HappyPath(t *testing.T) {
 	versions, ok := resp["AdapterVersions"].([]any)
 	assert.True(t, ok)
 	assert.Len(t, versions, 3)
-	assert.Equal(t, adapterID, resp["AdapterId"])
+
+	// ListAdapterVersionsOutput has no top-level AdapterId in the real SDK --
+	// only per-entry AdapterId inside each AdapterVersionOverview.
+	_, hasTopLevelAdapterID := resp["AdapterId"]
+	assert.False(t, hasTopLevelAdapterID, "ListAdapterVersions response must not have a top-level AdapterId")
+
+	for _, v := range versions {
+		vm, ok2 := v.(map[string]any)
+		require.True(t, ok2)
+		assert.Equal(t, adapterID, vm["AdapterId"], "each AdapterVersionOverview entry must carry its own AdapterId")
+	}
 }
 
 // TestHandler_ListAdapterVersions_NotFound returns 400 for unknown adapter.
@@ -416,4 +443,116 @@ func TestHandler_ListAdapterVersions_SummaryShape(t *testing.T) {
 	status, hasStatus := vSummary["Status"].(string)
 	assert.True(t, hasStatus, "ListAdapterVersions summary must include Status")
 	assert.NotEmpty(t, status)
+}
+
+// TestHandler_AdapterVersion_CreationTimeIsEpochSeconds locks in that
+// CreationTime is serialized as a JSON number of epoch seconds (the
+// awsjson1.1 unixTimestamp wire format the real SDK deserializer requires),
+// not an RFC3339 string. GetAdapterVersion/ListAdapterVersions previously
+// formatted CreationTime as "2006-01-02T15:04:05Z", which a real Textract
+// SDK client would reject.
+func TestHandler_AdapterVersion_CreationTimeIsEpochSeconds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createAdapterRec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
+		"AdapterName":  "epoch-version-adapter",
+		"FeatureTypes": []string{"FORMS"},
+	})
+	require.Equal(t, http.StatusOK, createAdapterRec.Code)
+
+	var createAdapterResp map[string]string
+	require.NoError(t, json.Unmarshal(createAdapterRec.Body.Bytes(), &createAdapterResp))
+	adapterID := createAdapterResp["AdapterId"]
+
+	createVersionRec := doTextractRequest(t, h, "CreateAdapterVersion", map[string]any{
+		"AdapterId": adapterID,
+	})
+	require.Equal(t, http.StatusOK, createVersionRec.Code)
+
+	var createVersionResp map[string]string
+	require.NoError(t, json.Unmarshal(createVersionRec.Body.Bytes(), &createVersionResp))
+	adapterVersion := createVersionResp["AdapterVersion"]
+
+	getRec := doTextractRequest(t, h, "GetAdapterVersion", map[string]any{
+		"AdapterId":      adapterID,
+		"AdapterVersion": adapterVersion,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	ct, ok := getResp["CreationTime"].(float64)
+	assert.True(t, ok, "GetAdapterVersion CreationTime must be a JSON number")
+	assert.Positive(t, ct)
+
+	listRec := doTextractRequest(t, h, "ListAdapterVersions", map[string]any{"AdapterId": adapterID})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	versions, ok := listResp["AdapterVersions"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, versions)
+
+	summary, ok := versions[0].(map[string]any)
+	require.True(t, ok)
+	lct, ok := summary["CreationTime"].(float64)
+	assert.True(t, ok, "ListAdapterVersions summary CreationTime must be a JSON number")
+	assert.Positive(t, lct)
+}
+
+// TestHandler_ListAdapterVersions_Pagination verifies NextToken/MaxResults
+// pagination. Real AWS's ListAdapterVersionsInput accepts
+// MaxResults/NextToken and ListAdapterVersionsOutput echoes NextToken --
+// this was previously accepted as AdapterId-only, dropping every other
+// field silently.
+func TestHandler_ListAdapterVersions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doTextractRequest(t, h, "CreateAdapter", map[string]any{
+		"AdapterName":  "pagination-versions-adapter",
+		"FeatureTypes": []string{"FORMS"},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]string
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	adapterID := createResp["AdapterId"]
+
+	for range 3 {
+		rec := doTextractRequest(t, h, "CreateAdapterVersion", map[string]any{"AdapterId": adapterID})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec1 := doTextractRequest(t, h, "ListAdapterVersions", map[string]any{
+		"AdapterId":  adapterID,
+		"MaxResults": 2,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var resp1 struct {
+		NextToken       string           `json:"NextToken"`
+		AdapterVersions []map[string]any `json:"AdapterVersions"`
+	}
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	assert.Len(t, resp1.AdapterVersions, 2)
+	require.NotEmpty(t, resp1.NextToken, "first page must return a NextToken")
+
+	rec2 := doTextractRequest(t, h, "ListAdapterVersions", map[string]any{
+		"AdapterId": adapterID,
+		"NextToken": resp1.NextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 struct {
+		NextToken       string           `json:"NextToken"`
+		AdapterVersions []map[string]any `json:"AdapterVersions"`
+	}
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	assert.Len(t, resp2.AdapterVersions, 1, "remaining 1 version on the second page")
+	assert.Empty(t, resp2.NextToken, "no more pages")
 }

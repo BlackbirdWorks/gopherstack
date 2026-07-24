@@ -18,22 +18,20 @@ func syntheticLendingResults() []LendingResult {
 		{
 			Page: 1,
 			PageClassification: &PageClassification{
-				PageType:   []LendingDetection{{Text: "PAYSTUB", Confidence: confidenceLending}},
-				PageNumber: []LendingDetection{{Text: "1", Confidence: confidencePage}},
+				PageType:   []Prediction{{Value: "PAYSTUB", Confidence: confidenceLending}},
+				PageNumber: []Prediction{{Value: "1", Confidence: confidencePage}},
 			},
 			Extractions: []Extraction{
 				{
 					LendingDocument: &LendingDocument{
 						LendingFields: []LendingField{
 							{
-								Type:           &LendingDetection{Text: "BORROWER_NAME", Confidence: confidenceLending},
-								ValueDetection: &LendingDetection{Text: "Jane Doe", Confidence: confidenceLending},
-								PageNumber:     1,
+								Type:            "BORROWER_NAME",
+								ValueDetections: []LendingDetection{{Text: "Jane Doe", Confidence: confidenceLending}},
 							},
 							{
-								Type:           &LendingDetection{Text: "GROSS_INCOME", Confidence: confidenceLending2},
-								ValueDetection: &LendingDetection{Text: "$5000.00", Confidence: confidenceLending2},
-								PageNumber:     1,
+								Type:            "GROSS_INCOME",
+								ValueDetections: []LendingDetection{{Text: "$5000.00", Confidence: confidenceLending2}},
 							},
 						},
 						SignatureDetections: []SignatureDetection{

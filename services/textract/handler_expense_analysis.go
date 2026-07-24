@@ -3,7 +3,13 @@ package textract
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// getExpenseAnalysisDefaultPageSize is used when
+// GetExpenseAnalysisInput.MaxResults is unset or non-positive.
+const getExpenseAnalysisDefaultPageSize = 1000
 
 // analyzeExpenseInput is the input for AnalyzeExpense.
 type analyzeExpenseInput struct {
@@ -48,6 +54,7 @@ type getExpenseAnalysisInput struct {
 type getExpenseAnalysisResponse struct {
 	AnalyzeExpenseModelVersion string            `json:"AnalyzeExpenseModelVersion"`
 	JobStatus                  string            `json:"JobStatus"`
+	NextToken                  string            `json:"NextToken,omitempty"`
 	StatusMessage              string            `json:"StatusMessage,omitempty"`
 	Warnings                   []WarningBlock    `json:"Warnings,omitempty"`
 	ExpenseDocuments           []ExpenseDocument `json:"ExpenseDocuments"`
@@ -69,12 +76,15 @@ func (h *Handler) handleGetExpenseAnalysis(
 		return nil, err
 	}
 
+	pg := page.New(job.ExpenseDocuments, in.NextToken, in.MaxResults, getExpenseAnalysisDefaultPageSize)
+
 	resp := &getExpenseAnalysisResponse{
 		AnalyzeExpenseModelVersion: modelVersion10,
-		ExpenseDocuments:           job.ExpenseDocuments,
+		ExpenseDocuments:           pg.Data,
 		JobStatus:                  job.JobStatus,
 		StatusMessage:              job.StatusMessage,
 		Warnings:                   job.Warnings,
+		NextToken:                  pg.Next,
 	}
 	resp.DocumentMetadata.Pages = 1
 
