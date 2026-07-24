@@ -56,10 +56,6 @@ type UserPoolMfaFullConfig struct {
 	MfaConfiguration      string                         `json:"mfaConfiguration,omitempty"`
 }
 
-type createUserPoolInput struct {
-	PoolName string `json:"PoolName,omitempty"`
-}
-
 // userPoolPoliciesData holds the Policies block returned by the Cognito IDP API.
 // Returning a non-nil Policies object prevents nil-pointer panics in the Terraform
 // AWS provider, which accesses Policies.PasswordPolicy and Policies.SignInPolicy
@@ -87,18 +83,6 @@ type userPoolData struct {
 	LastModifiedDate   float64              `json:"LastModifiedDate,omitempty"`
 }
 
-type createUserPoolOutput struct {
-	UserPool userPoolData `json:"UserPool"`
-}
-
-type describeUserPoolInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-}
-
-type describeUserPoolOutput struct {
-	UserPool userPoolData `json:"UserPool"`
-}
-
 type listUserPoolsInput struct {
 	NextToken  string `json:"NextToken,omitempty"`
 	MaxResults int    `json:"MaxResults,omitempty"`
@@ -114,30 +98,6 @@ type deleteUserPoolInput struct {
 }
 
 type deleteUserPoolOutput struct{}
-
-type getUserPoolMfaConfigInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-}
-
-type getUserPoolMfaConfigOutput struct {
-	MfaConfiguration string `json:"MfaConfiguration,omitempty"`
-}
-
-type setUserPoolMfaConfigInput struct {
-	UserPoolID       string `json:"UserPoolId,omitempty"`
-	MfaConfiguration string `json:"MfaConfiguration,omitempty"`
-}
-
-type setUserPoolMfaConfigOutput struct {
-	MfaConfiguration string `json:"MfaConfiguration,omitempty"`
-}
-
-type updateUserPoolInput struct {
-	UserPoolID       string `json:"UserPoolId,omitempty"`
-	MfaConfiguration string `json:"MfaConfiguration,omitempty"`
-}
-
-type updateUserPoolOutput struct{}
 
 type createUserPoolWithOptsInput struct {
 	LambdaConfig           map[string]any         `json:"LambdaConfig,omitempty"`

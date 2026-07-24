@@ -43,49 +43,12 @@ type UserPoolClientOptions struct {
 	AllowedOAuthFlowsUserPoolClient bool              `json:"allowedOAuthFlowsUserPoolClient,omitempty"`
 }
 
-type createUserPoolClientInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientName string `json:"ClientName,omitempty"`
-}
-
-type userPoolClientData struct {
-	ClientID     string  `json:"ClientId,omitempty"`
-	ClientName   string  `json:"ClientName,omitempty"`
-	UserPoolID   string  `json:"UserPoolId,omitempty"`
-	ClientSecret string  `json:"ClientSecret,omitempty"`
-	CreationDate float64 `json:"CreationDate,omitempty"`
-}
-
-type createUserPoolClientOutput struct {
-	UserPoolClient userPoolClientData `json:"UserPoolClient"`
-}
-
-type describeUserPoolClientInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
-}
-
-type describeUserPoolClientOutput struct {
-	UserPoolClient userPoolClientData `json:"UserPoolClient"`
-}
-
 type deleteUserPoolClientInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
 	ClientID   string `json:"ClientId,omitempty"`
 }
 
 type deleteUserPoolClientOutput struct{}
-
-type listUserPoolClientsInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	NextToken  string `json:"NextToken,omitempty"`
-	MaxResults int    `json:"MaxResults,omitempty"`
-}
-
-type listUserPoolClientsOutput struct {
-	NextToken       string               `json:"NextToken,omitempty"`
-	UserPoolClients []userPoolClientData `json:"UserPoolClients"`
-}
 
 type addUserPoolClientSecretInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
@@ -94,16 +57,6 @@ type addUserPoolClientSecretInput struct {
 
 type addUserPoolClientSecretOutput struct {
 	ClientSecret string `json:"ClientSecret,omitempty"`
-}
-
-type updateUserPoolClientInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
-	ClientName string `json:"ClientName,omitempty"`
-}
-
-type updateUserPoolClientOutput struct {
-	UserPoolClient userPoolClientData `json:"UserPoolClient"`
 }
 
 // clientDataAccurate is the wire format for UserPoolClient including OAuth fields.

@@ -187,8 +187,11 @@ func TestHandler_RespondToAuthChallenge_NewPassword(t *testing.T) {
 			challengeName: "NEW_PASSWORD_REQUIRED",
 		},
 		{
-			name:          "default_challenge",
-			wantCode:      http.StatusOK,
+			// CUSTOM_CHALLENGE is a real, handled challenge type (CUSTOM_AUTH flow); with
+			// no such session actually pending, this correctly errors rather than silently
+			// succeeding, matching AWS's NotAuthorizedException for an invalid Session.
+			name:          "custom_challenge_with_no_pending_session",
+			wantCode:      http.StatusBadRequest,
 			challengeName: "CUSTOM_CHALLENGE",
 		},
 		{

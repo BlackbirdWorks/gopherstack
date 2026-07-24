@@ -1,15 +1,15 @@
 ---
 service: cognitoidp
 sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@1.59.1
-last_audit_commit: ee7d2bae
-last_audit_date: 2026-07-12
-overall: A                # ~17 LOC genuine fix (backend.go) + 107 LOC new tests this pass (PreventUserExistenceErrors masking gap closed); no local drift since ce30166a (prior sweep 3), SDK pinned at same v1.59.1
+last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
+last_audit_date: 2026-07-23
+overall: A                # CUSTOM_AUTH state machine implemented for real (was: rejected with InvalidUserPoolConfigurationException); UserMigration/PreAuthentication/PostAuthentication Lambda triggers now fire (closes remainder of gopherstack-8fw); PreventUserExistenceErrors masking extended to ConfirmSignUp/ConfirmForgotPassword (closes remainder of gopherstack-aib); DescribeUserPoolDomain now echoes CustomDomainConfig; ~15-op handler.go dead-code shadowing fully deleted (4 files); 0 golangci-lint issues, 0 banned nolints, race-clean
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 ops:
-  InitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH/USER_SRP_AUTH(simplified)/REFRESH_TOKEN_AUTH real; PreventUserExistenceErrors masking added prior pass (gopherstack-2sp); PreTokenGeneration trigger now fires on token issuance (this pass, gopherstack-8fw)"}
-  AdminInitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "never masks UserNotFoundException, matching AWS (admin API); PreTokenGeneration trigger now fires (this pass)"}
-  RespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "SOFTWARE_TOKEN_MFA now real RFC6238 TOTP (was disguised stub accepting any 6 digits); SMS_MFA/EMAIL_OTP now require the generated one-time code (was also any 6 digits); PASSWORD_VERIFIER/NEW_PASSWORD_REQUIRED unchanged, real; PreTokenGeneration trigger now fires on token issuance (this pass)"}
-  AdminRespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as RespondToAuthChallenge (shared backend method); PreTokenGeneration trigger now fires (this pass)"}
+  InitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH/USER_SRP_AUTH(simplified)/CUSTOM_AUTH/REFRESH_TOKEN_AUTH all real; PreventUserExistenceErrors masking (prior pass, gopherstack-2sp); PreTokenGeneration trigger fires on token issuance (prior pass, gopherstack-8fw); PreAuthentication/PostAuthentication/UserMigration triggers now fire (this pass, closes remainder of gopherstack-8fw); CUSTOM_AUTH now a real Lambda-driven state machine, was previously rejected outright with InvalidUserPoolConfigurationException (this pass, see custom_auth.go)"}
+  AdminInitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "never masks UserNotFoundException, matching AWS (admin API); PreTokenGeneration trigger fires (prior pass); PreAuthentication/PostAuthentication/UserMigration/CUSTOM_AUTH now real (this pass), same mechanism as InitiateAuth"}
+  RespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "SOFTWARE_TOKEN_MFA real RFC6238 TOTP; SMS_MFA/EMAIL_OTP require the generated one-time code; PASSWORD_VERIFIER/NEW_PASSWORD_REQUIRED real; PreTokenGeneration trigger fires on token issuance; CUSTOM_CHALLENGE now handled for real (this pass): verifies the answer via VerifyAuthChallengeResponse and can return either tokens or another CUSTOM_CHALLENGE round, per DefineAuthChallenge's decision -- ChallengeParameters is now populated on the wire (was always {})"}
+  AdminRespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as RespondToAuthChallenge (shared backend method), including CUSTOM_CHALLENGE (this pass)"}
   AssociateSoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok}
   VerifySoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "now verifies a real RFC 6238 TOTP code against the associated secret (was: any 6 digits accepted) — gopherstack-2sp"}
   SetUserMFAPreference: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -26,7 +26,7 @@ ops:
   DeleteUserPoolClient: {wire: ok, errors: ok, state: ok, persist: ok}
   AddUserPoolClientSecret: {wire: ok, errors: ok, state: ok, persist: ok}
   SignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "password policy enforced, real confirm code generated; PreSignUp trigger now fires and applies autoConfirmUser/autoVerifyEmail/autoVerifyPhone, CustomMessage trigger now fires (this pass, gopherstack-8fw)"}
-  ConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "expiring codes, CodeMismatchException/ExpiredCodeException; PostConfirmation trigger now fires fire-and-observe (this pass) -- invocation errors surface but do not roll back confirmation, matching AWS"}
+  ConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "expiring codes, CodeMismatchException/ExpiredCodeException; PostConfirmation trigger fires fire-and-observe -- invocation errors surface but do not roll back confirmation, matching AWS; PreventUserExistenceErrors=ENABLED now masks an unknown username behind CodeMismatchException, the same error a real-but-wrong-code account produces (this pass, closes remainder of gopherstack-aib)"}
   AdminConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "PostConfirmation trigger now fires (this pass), same source/semantics as ConfirmSignUp"}
   ResendConfirmationCode: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks unknown-user UserNotFoundException as a fabricated success (prior pass, closes gopherstack-aib); CustomMessage trigger now fires (this pass)"}
   AdminCreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreSignUp trigger now fires (source PreSignUp_AdminCreateUser); only autoVerifyEmail/autoVerifyPhone applied, autoConfirmUser has no target state for admin-created users (this pass)"}
@@ -44,7 +44,7 @@ ops:
   ListUsers: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/page-style pagination"}
   ListUsersInGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED masks unknown-user UserNotFoundException as a fabricated success (prior pass, closes gopherstack-aib); CustomMessage trigger now fires (this pass, gopherstack-8fw)"}
-  ConfirmForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok}
+  ConfirmForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks an unknown username behind CodeMismatchException, same rationale as ConfirmSignUp (this pass, closes remainder of gopherstack-aib)"}
   ChangePassword: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUser: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteUser: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -59,27 +59,103 @@ ops:
   GetUserPoolMfaConfig/SetUserPoolMfaConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   jwks_well_known: {wire: ok, errors: ok, state: ok, persist: ok, note: "RS256, real RSA-2048 per pool, JWKS + GetSigningCertificate both derive from the same key"}
 families:
-  user_import_jobs: {status: ok, note: "CreateUserImportJob/StartUserImportJob/StopUserImportJob/DescribeUserImportJob/ListUserImportJobs/GetCSVHeader — audited at family level, unchanged since prior sweep"}
-  devices: {status: ok, note: "ConfirmDevice/ForgetDevice/AdminForgetDevice/GetDevice/AdminGetDevice/ListDevices/AdminListDevices/UpdateDeviceStatus/AdminUpdateDeviceStatus — family level, unchanged since prior sweep"}
-  webauthn: {status: ok, note: "StartWebAuthnRegistration/CompleteWebAuthnRegistration/ListWebAuthnCredentials/DeleteWebAuthnCredential — family level, unchanged since prior sweep"}
-  managed_login_branding: {status: ok, note: "Create/Describe/Update/Delete + DescribeManagedLoginBrandingByClient, UICustomization — family level"}
-  risk_config: {status: ok, note: "DescribeRiskConfiguration/SetRiskConfiguration/AdminListUserAuthEvents/AdminUpdateAuthEventFeedback/GetUserAuthFactors — family level"}
-  domains: {status: ok, note: "CreateUserPoolDomain/DescribeUserPoolDomain/DeleteUserPoolDomain — family level"}
-  terms: {status: ok, note: "CreateTerms/DescribeTerms/ListTerms/UpdateTerms/DeleteTerms — family level"}
-  log_delivery: {status: ok, note: "GetLogDeliveryConfiguration/SetLogDeliveryConfiguration — family level"}
+  user_import_jobs: {status: ok, note: "CreateUserImportJob/StartUserImportJob/StopUserImportJob/DescribeUserImportJob/ListUserImportJobs/GetCSVHeader — audited at family level, unchanged since prior sweep; NOT re-walked op-by-op this pass"}
+  devices: {status: ok, note: "ConfirmDevice/ForgetDevice/AdminForgetDevice/GetDevice/AdminGetDevice/ListDevices/AdminListDevices/UpdateDeviceStatus/AdminUpdateDeviceStatus — family level, unchanged since prior sweep; NOT re-walked op-by-op this pass"}
+  webauthn: {status: ok, note: "StartWebAuthnRegistration/CompleteWebAuthnRegistration/ListWebAuthnCredentials/DeleteWebAuthnCredential — family level, unchanged since prior sweep; NOT re-walked op-by-op this pass"}
+  managed_login_branding: {status: ok, note: "Create/Describe/Update/Delete + DescribeManagedLoginBrandingByClient, UICustomization — family level; NOT re-walked op-by-op this pass"}
+  risk_config: {status: ok, note: "DescribeRiskConfiguration/SetRiskConfiguration/AdminListUserAuthEvents/AdminUpdateAuthEventFeedback/GetUserAuthFactors — family level; NOT re-walked op-by-op this pass"}
+  domains: {status: ok, note: "CreateUserPoolDomain/DescribeUserPoolDomain/DeleteUserPoolDomain/UpdateUserPoolDomain — field-diffed DomainDescriptionType against the SDK this pass: DescribeUserPoolDomain was missing CustomDomainConfig entirely (a custom domain never echoed back its ACM CertificateArn, which e.g. the Terraform AWS provider reads to detect drift) — fixed (this pass). Still does not populate AWSAccountId/ManagedLoginVersion/S3Bucket/Version (not tracked by this backend's domain model); low-severity, informational-only fields, tracked as items_still_open rather than silently left off the ledger."}
+  terms: {status: ok, note: "CreateTerms/DescribeTerms/ListTerms/UpdateTerms/DeleteTerms — family level; NOT re-walked op-by-op this pass"}
+  log_delivery: {status: ok, note: "GetLogDeliveryConfiguration/SetLogDeliveryConfiguration — family level; NOT re-walked op-by-op this pass"}
+  identity_providers: {status: ok, note: "spot-checked IdentityProviderType this pass: AttributeMapping/CreationDate/LastModifiedDate/IdpIdentifiers/ProviderDetails/ProviderName/ProviderType/UserPoolId all present with correct field names and epoch-seconds timestamps; not a full op-by-op field-by-field walk of every op (CreateIdentityProvider/UpdateIdentityProvider/GetIdentityProviderByIdentifier/etc individually)"}
+  resource_servers: {status: ok, note: "spot-checked ResourceServerType this pass: Identifier/Name/Scopes/UserPoolId all present, no timestamp fields to check; not a full op-by-op walk"}
 gaps:
-  - "USER_SRP_AUTH does not implement real SRP-6a: InitiateAuth requires AuthParameters[PASSWORD] directly (server-side bcrypt check), then returns a PASSWORD_VERIFIER challenge that RespondToAuthChallenge completes without any zero-knowledge proof exchange. A real SRP client never sends PASSWORD and cannot authenticate here. Investigated in depth this pass; not fixed because a byte-perfect implementation of Cognito's SRP variant (3072-bit N, HKDF-SHA256 with the \"Caldera Derived Key\" info string, HMAC-SHA256 M1 proof) could not be verified against a real client/reference vectors in this session, and a subtly-wrong crypto implementation would be worse than the current honestly-documented simplification. (bd: gopherstack-p8i)"
-  - "LambdaConfig trigger invocation: PreSignUp (SignUp + AdminCreateUser), PostConfirmation (ConfirmSignUp + AdminConfirmSignUp), PreTokenGeneration (InitiateAuth/AdminInitiateAuth/RespondToAuthChallenge/AdminRespondToAuthChallenge + REFRESH_TOKEN_AUTH), and CustomMessage (SignUp/ForgotPassword/ResendConfirmationCode) now fire for real via a new `LambdaTriggerInvoker` interface (services/cognitoidp/lambda_triggers.go) that cli.go wires to the lambda service's Invoke; nil/unwired-invoker or unset LambdaConfig preserves prior no-op behavior exactly. PreAuthentication, PostAuthentication, DefineAuthChallenge, CreateAuthChallenge, VerifyAuthChallengeResponse, and UserMigration are still stored/returned but never invoked — their invocation points/response contracts were not verified against the AWS custom-auth-challenge state machine this pass; each needs its own bd follow-up. (bd: gopherstack-8fw, now partially closed)"
-  - "PreventUserExistenceErrors=ENABLED still only masks user-existence at InitiateAuth/ForgotPassword/ResendConfirmationCode (this pass closed the latter two — see 'What this pass fixed'). ConfirmSignUp and ConfirmForgotPassword do not mask an unknown username behind CodeMismatchException the way AWS does; not fixed this pass to keep the change scoped to the ledger's existing gap (gopherstack-aib) — worth a follow-up bd issue if stricter parity is wanted."
+  - "USER_SRP_AUTH does not implement real SRP-6a: InitiateAuth requires AuthParameters[PASSWORD] directly (server-side bcrypt check), then returns a PASSWORD_VERIFIER challenge that RespondToAuthChallenge completes without any zero-knowledge proof exchange. A real SRP client never sends PASSWORD and cannot authenticate here. Investigated in depth in a prior pass; not fixed because a byte-perfect implementation of Cognito's SRP variant (3072-bit N, HKDF-SHA256 with the \"Caldera Derived Key\" info string, HMAC-SHA256 M1 proof) could not be verified against a real client/reference vectors in that session, and a subtly-wrong crypto implementation would be worse than the current honestly-documented simplification. Unchanged this pass -- CUSTOM_AUTH (fixed this pass) is a fully separate, unrelated flow and does nothing to close this gap. (bd: gopherstack-p8i)"
 deferred:
-  - "Identity providers, resource servers, user import jobs, devices, WebAuthn, managed login branding, risk config, domains, terms, log delivery: verified at a family/smoke level (dispatch wired, backend mutates real maps, persisted in backendSnapshot, no bare stubs found), not re-walked op-by-op field-by-field this pass — unchanged since the prior two sweeps (parity sweep 1 & 2) which already covered these in depth."
-  - "handler.go retains dead, shadowed implementations of ~15 ops (ForgotPassword, ConfirmForgotPassword, ResendConfirmationCode, SignUp, ConfirmSignUp, InitiateAuth, AdminInitiateAuth, CreateUserPool[Client], UpdateUserPool[Client], DescribeUserPool[Client], ListUserPoolClients, GetUser) whose dispatchTable() registrations are unconditionally overwritten by accuracy_handler.go's accurate/SecretHash-validating versions via maps.Copy(table, h.accuracyDispatchTable()) in dispatchTable(). Confirmed genuinely unreachable (not a routing bug — the accurate version is correct and live), but it is dead code that could mislead a future auditor reading handler.go in isolation (as it briefly did this pass). Not deleted this pass to stay scoped to the PreventUserExistenceErrors fix; candidate for a follow-up de-stub-hygiene cleanup bd issue."
-leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker; no new goroutines/unbounded maps introduced this pass"}
+  - "user_import_jobs, devices, webauthn, managed_login_branding, risk_config, terms, log_delivery: verified at a family/smoke level (dispatch wired, backend mutates real maps, persisted in backendSnapshot, no bare stubs found) in prior sweeps, NOT re-walked op-by-op field-by-field this pass. domains/identity_providers/resource_servers were spot-checked or field-diffed this pass (see families above) but domains/identity_providers still have individual ops (e.g. CreateIdentityProvider input validation, UpdateIdentityProvider) not walked line-by-line."
+leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker. This pass added custom_auth.go (CUSTOM_AUTH state machine) and user_migration.go (UserMigration trigger), both of which reuse the existing mfaSessions map/EvictExpiredMFASessions sweep for their session state -- no new maps, goroutines, or tickers introduced. All new backend methods (tryUserMigration, applyPostMigrationFinalStatus, startCustomAuth, customAuthRound, defineAuthChallenge, createAuthChallenge, verifyCustomAuthChallenge, preAuthenticationCheck, postAuthenticationNotify) are plain functions that assume the caller already holds b.mu (documented per-function), never call b.mu.Lock/RLock themselves -- verified no double-lock/deadlock paths and confirmed via `go test -race` (full suite, 233s, clean). De-stub hygiene: the ~15-op handler.go/handler_auth.go/handler_user_pools.go/handler_user_pool_clients.go/handler_users.go dead-code shadowing flagged as deferred in the prior sweep is now fully deleted (dead handlers + their now-orphaned model types removed across 4 files + models_auth.go/models_user_pools.go/models_user_pool_clients.go/models_users.go), closing that item; golangci-lint (0 issues) confirms nothing is newly unused."}
 ---
 
 ## Notes
 
-### What this pass fixed (see report for full detail)
+### What this pass fixed (2026-07-23)
+
+1. **CUSTOM_AUTH did not exist as a flow at all (highest-severity finding this pass).**
+   `InitiateAuth`/`AdminInitiateAuth` with `AuthFlow: "CUSTOM_AUTH"` unconditionally
+   returned `InvalidUserPoolConfigurationException: unsupported auth flow "CUSTOM_AUTH"`
+   — not a disguised stub, just entirely unrouted. Implemented the real Lambda-driven
+   state machine (`custom_auth.go`): `DefineAuthChallenge` decides issue-tokens /
+   fail / present-a-challenge each round from the accumulated session history;
+   `CreateAuthChallenge` builds public (client-visible) and private (server-only)
+   challenge parameters; `VerifyAuthChallengeResponse` judges the answer. A wrong
+   answer does **not** auto-fail the attempt — exactly like AWS, the Lambda alone
+   decides via the next `DefineAuthChallenge` call, so "fail after N wrong answers"
+   policies work. `RespondToAuthChallenge`/`AdminRespondToAuthChallenge` gained a
+   `CUSTOM_CHALLENGE` case, and `ChallengeParameters` is now populated end-to-end
+   (was always `{}` on the wire; `AuthResult`/`authOutput` gained the field).
+   Verified against `aws-lambda-go/events` (`CognitoEventUserPoolsDefineAuthChallenge/
+   CreateAuthChallenge/VerifyAuthChallenge`) and the real SDK's
+   `RespondToAuthChallengeOutput.ChallengeParameters` field. 7 new tests in
+   `custom_auth_test.go` cover single-round issue/fail, multi-round retry, the
+   "DefineAuthChallenge not configured" error, ExplicitAuthFlows restriction, and the
+   Admin path.
+
+2. **UserMigration and PreAuthentication/PostAuthentication triggers were stored but
+   never invoked**, closing the remainder of `gopherstack-8fw`. `UserMigration` now
+   fires (`user_migration.go`) when `USER_PASSWORD_AUTH`/`ADMIN_USER_PASSWORD_AUTH`/
+   `ADMIN_NO_SRP_AUTH` names an unknown username and the pool has the trigger
+   configured: a Lambda response with `userAttributes` creates and authenticates a new
+   user in one round trip (matching AWS: "migrate a user from an external system on
+   first sign-in"); a response with no attributes, or no trigger configured, falls
+   back to the pre-existing "unknown user" handling (including
+   `PreventUserExistenceErrors` masking) exactly as before. `FinalUserStatus:
+   "RESET_REQUIRED"` is honored per AWS's documented semantics: *this* migrating
+   sign-in still succeeds with tokens, but the account is left in
+   `FORCE_CHANGE_PASSWORD` so the *next* sign-in requires a password reset (see
+   "Traps" below for the residual uncertainty on this specific timing).
+   `PreAuthentication`/`PostAuthentication` now fire around `authenticate()`/
+   `issueTokensLocked()` respectively; a Lambda that throws fails the sign-in attempt
+   (`UserLambdaValidationException`) before (PreAuthentication) or after
+   (PostAuthentication) credentials are checked. `PostAuthentication` does not
+   re-fire on `REFRESH_TOKEN_AUTH`, matching AWS. UserMigration is scoped to
+   `InitiateAuth`/`AdminInitiateAuth` only this pass — `ForgotPassword`'s
+   `UserMigration_ForgotPassword` trigger source is a documented `items_still_open`
+   item, not implemented.
+
+3. **PreventUserExistenceErrors=ENABLED did not mask `ConfirmSignUp`/
+   `ConfirmForgotPassword`**, closing the remainder of `gopherstack-aib` (InitiateAuth/
+   ForgotPassword/ResendConfirmationCode were already closed in prior passes). An
+   unknown username on either op now returns `CodeMismatchException` — the same error
+   a real account with a wrong code produces — instead of `UserNotFoundException`,
+   closing the last username-enumeration vector in the auth surface. New tests in
+   `prevent_user_existence_test.go`; one pre-existing test's assertion
+   (`Test_ForgotPassword_PreventUserExistenceErrors/ENABLED_masks_as_a_fabricated_success`)
+   was updated in place since it was asserting the now-fixed gap's old (wrong)
+   behavior.
+
+4. **`DescribeUserPoolDomain` never returned `CustomDomainConfig`.** Field-diffed
+   `DomainDescriptionType` against the real SDK this pass (see `families.domains`) and
+   found a custom domain's ACM `CertificateArn` was tracked internally
+   (`UserPoolDomain.CertificateArn`) but never echoed back on Describe — a real fidelity
+   gap for anything that reads it back to detect drift (e.g. the Terraform AWS
+   provider). Fixed; `AWSAccountId`/`ManagedLoginVersion`/`S3Bucket`/`Version` remain
+   unpopulated (not tracked by this backend's domain model) and are recorded as
+   `items_still_open`, not silently dropped.
+
+5. **De-stub hygiene: deleted the ~15-op handler.go dead-code shadowing** flagged as a
+   deferred cleanup candidate in the prior sweep. `handler_auth.go`,
+   `handler_user_pools.go`, `handler_user_pool_clients.go`, and `handler_users.go` each
+   registered a non-accurate handler for an op *and* a `*Accurate`/`*WithOpts`/`*Full`
+   twin under the same op name later in `dispatchTable()`'s `maps.Copy` chain, so the
+   accurate version always won and the first was unreachable dead code (confirmed via
+   `grep` for direct test references — none existed). Deleted the dead handler funcs,
+   their now-orphaned model-only input/output types (in `models_auth.go`,
+   `models_user_pools.go`, `models_user_pool_clients.go`, `models_users.go`), the
+   `authOpsB()`/shadowed-entry helper functions, and the corresponding
+   `dispatchTable()` wiring. `golangci-lint`'s `unused` check (0 issues) confirms
+   nothing is newly orphaned.
+
+### What prior passes fixed
 
 1. **MFA challenge codes were a disguised stub (highest-severity finding).**
    `RespondToMFAChallenge` / `VerifySoftwareToken` validated only that the supplied code was
@@ -149,12 +225,37 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
   apply to this service the way they do to EC2/S3-family query/XML services.
 - Token timestamps (`iat`/`exp`/`auth_time`/`UserCreateDate`/etc.) are epoch-seconds JSON
   numbers throughout — already correct, no `awstime.Epoch` gap found.
-- **`handler.go`'s `dispatchTable()` and `accuracy_handler.go`'s `accuracyDispatchTable()`
-  overlap on ~15 op names** (see `deferred` above for the full list). `dispatchTable()`
-  does `maps.Copy(table, h.accuracyDispatchTable())` *after* populating its own entries, so
-  the accuracy version always wins and the `handler.go` version of those 15 ops is dead
-  code — do not assume editing `handler.go`'s `handleForgotPassword` (etc.) has any
-  runtime effect; the live implementation is the `*Accurate` twin in `accuracy_handler.go`.
-  This is what almost caused a wasted fix this pass (this branch's `PreventUserExistenceErrors`
-  gap was correctly fixed in the shared `backend.go` methods, so it applies regardless, but
-  reading only `handler.go` in isolation would give a false read on op behavior).
+- **The dead-code `dispatchTable()` shadowing (dating back to an old `accuracy_handler.go`
+  split) is now fully deleted (2026-07-23 pass).** Every op in `dispatchTable()` has
+  exactly one live registration now; there is no more "read `handler_auth.go` and get a
+  false read on behavior because a same-named `*Accurate` twin actually wins" trap. If a
+  future op needs both a legacy and an accurate variant again, register only the live one
+  under the bare op-name key and delete the other immediately — do not let both linger.
+- **CUSTOM_AUTH's wire `ChallengeName` is always the literal `"CUSTOM_CHALLENGE"`
+  string**, regardless of what name `DefineAuthChallenge`'s Lambda response used for its
+  own bookkeeping (`mfaSessionEntry.CustomAuthChallengeName`, which only ever appears in
+  the `session` history passed *back* to `DefineAuthChallenge`/`CreateAuthChallenge`, never
+  on the wire to the client). Do not conflate the two when reading `custom_auth.go` —
+  `challengeCustomChallenge` (`"CUSTOM_CHALLENGE"`) is the fixed wire constant;
+  `CustomAuthChallengeName` is Lambda-internal bookkeeping only.
+- **UserMigration's `FinalUserStatus: "RESET_REQUIRED"` timing is a good-faith reading of
+  AWS's documented wording** ("the user must change their password *during the next
+  sign-in attempt*"), not verified against a live Cognito pool: this implementation lets
+  the *migrating* attempt itself succeed with tokens (the plaintext password was already
+  validated by the Lambda for this one attempt) and only gates *subsequent* attempts
+  behind `FORCE_CHANGE_PASSWORD`/`NEW_PASSWORD_REQUIRED`. If a real Cognito trace ever
+  contradicts this ordering, `applyPostMigrationFinalStatus` in `user_migration.go` is the
+  single place to fix it — it deliberately runs *after* `authenticate()` has already used
+  the freshly-migrated user's `CONFIRMED` status for this attempt.
+- **UserMigration only fires for `InitiateAuth`/`AdminInitiateAuth`, not `ForgotPassword`.**
+  AWS also defines a `UserMigration_ForgotPassword` trigger source for migrating a user who
+  tries to reset a password they never had in Cognito; this backend does not implement that
+  path (`ForgotPassword` on an unknown username still just returns/masks
+  `UserNotFoundException` as before). Tracked as `items_still_open`.
+- **Ordering between UserMigration and PreAuthentication for a migrating sign-in is an
+  implementation choice, not a verified AWS behavior.** `InitiateAuth`/`AdminInitiateAuth`
+  run `tryUserMigration` first (to obtain a `*User` to authenticate at all), then call
+  `authenticate()`, which fires `PreAuthentication` unconditionally -- so PreAuthentication
+  does fire for a freshly-migrated user, just after migration rather than before. Real
+  Cognito's exact ordering between these two triggers on a migrating request was not
+  verified against a live pool.

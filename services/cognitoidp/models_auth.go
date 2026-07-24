@@ -2,40 +2,10 @@ package cognitoidp
 
 // AuthResult is the result of a successful authentication or a pending challenge.
 type AuthResult struct {
-	// Tokens is set when authentication is complete.
-	Tokens *TokenResult `json:"tokens,omitempty"`
-	// MFASession is set when a challenge is required; the caller must respond to it.
-	MFASession string `json:"mfaSession,omitempty"`
-	// ChallengeName identifies the type of challenge (SOFTWARE_TOKEN_MFA, NEW_PASSWORD_REQUIRED, etc.).
-	ChallengeName string `json:"challengeName,omitempty"`
-}
-
-type signUpInput struct {
-	Username       string          `json:"Username,omitempty"`
-	Password       string          `json:"Password,omitempty"`
-	ClientID       string          `json:"ClientId,omitempty"`
-	UserAttributes []attributeType `json:"UserAttributes,omitempty"`
-}
-
-type signUpOutput struct {
-	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
-	UserSub             string            `json:"UserSub,omitempty"`
-	UserConfirmed       bool              `json:"UserConfirmed"`
-}
-
-type confirmSignUpInput struct {
-	Username         string `json:"Username,omitempty"`
-	ConfirmationCode string `json:"ConfirmationCode,omitempty"`
-	ClientID         string `json:"ClientId,omitempty"`
-}
-
-type confirmSignUpOutput struct{}
-
-type authInput struct {
-	AuthParameters map[string]string `json:"AuthParameters,omitempty"`
-	AuthFlow       string            `json:"AuthFlow,omitempty"`
-	ClientID       string            `json:"ClientId,omitempty"`
-	UserPoolID     string            `json:"UserPoolId,omitempty"`
+	Tokens              *TokenResult      `json:"tokens,omitempty"`
+	ChallengeParameters map[string]string `json:"challengeParameters,omitempty"`
+	MFASession          string            `json:"mfaSession,omitempty"`
+	ChallengeName       string            `json:"challengeName,omitempty"`
 }
 
 type authResult struct {
@@ -60,24 +30,6 @@ type adminConfirmSignUpInput struct {
 
 type adminConfirmSignUpOutput struct{}
 
-type forgotPasswordInput struct {
-	ClientID string `json:"ClientId,omitempty"`
-	Username string `json:"Username,omitempty"`
-}
-
-type forgotPasswordOutput struct {
-	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
-}
-
-type confirmForgotPasswordInput struct {
-	ClientID         string `json:"ClientId,omitempty"`
-	Username         string `json:"Username,omitempty"`
-	ConfirmationCode string `json:"ConfirmationCode,omitempty"`
-	Password         string `json:"Password,omitempty"`
-}
-
-type confirmForgotPasswordOutput struct{}
-
 type changePasswordInput struct {
 	AccessToken      string `json:"AccessToken,omitempty"`
 	PreviousPassword string `json:"PreviousPassword,omitempty"`
@@ -85,15 +37,6 @@ type changePasswordInput struct {
 }
 
 type changePasswordOutput struct{}
-
-type resendConfirmationCodeInput struct {
-	ClientID string `json:"ClientId,omitempty"`
-	Username string `json:"Username,omitempty"`
-}
-
-type resendConfirmationCodeOutput struct {
-	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
-}
 
 type adminResetUserPasswordInput struct {
 	UserPoolID string `json:"UserPoolId,omitempty"`
@@ -110,9 +53,10 @@ type respondToAuthChallengeAccurateInput struct {
 }
 
 type respondToAuthChallengeAccurateOutput struct {
-	AuthenticationResult *authResult `json:"AuthenticationResult,omitempty"`
-	ChallengeName        string      `json:"ChallengeName,omitempty"`
-	Session              string      `json:"Session,omitempty"`
+	AuthenticationResult *authResult       `json:"AuthenticationResult,omitempty"`
+	ChallengeParameters  map[string]string `json:"ChallengeParameters,omitempty"`
+	ChallengeName        string            `json:"ChallengeName,omitempty"`
+	Session              string            `json:"Session,omitempty"`
 }
 
 type adminRespondToAuthChallengeInput struct {
@@ -124,9 +68,10 @@ type adminRespondToAuthChallengeInput struct {
 }
 
 type adminRespondToAuthChallengeOutput struct {
-	AuthenticationResult *authResult `json:"AuthenticationResult,omitempty"`
-	ChallengeName        string      `json:"ChallengeName,omitempty"`
-	Session              string      `json:"Session,omitempty"`
+	AuthenticationResult *authResult       `json:"AuthenticationResult,omitempty"`
+	ChallengeParameters  map[string]string `json:"ChallengeParameters,omitempty"`
+	ChallengeName        string            `json:"ChallengeName,omitempty"`
+	Session              string            `json:"Session,omitempty"`
 }
 
 type signUpAccurateInput struct {
@@ -193,17 +138,4 @@ type resendConfirmationCodeAccurateInput struct {
 
 type resendConfirmationCodeAccurateOutput struct {
 	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
-}
-
-type respondToAuthChallengeInput struct {
-	ClientID           string            `json:"ClientId,omitempty"`
-	ChallengeName      string            `json:"ChallengeName,omitempty"`
-	ChallengeResponses map[string]string `json:"ChallengeResponses,omitempty"`
-	Session            string            `json:"Session,omitempty"`
-}
-
-type respondToAuthChallengeOutput struct {
-	AuthenticationResult *authResult `json:"AuthenticationResult,omitempty"`
-	ChallengeName        string      `json:"ChallengeName,omitempty"`
-	Session              string      `json:"Session,omitempty"`
 }

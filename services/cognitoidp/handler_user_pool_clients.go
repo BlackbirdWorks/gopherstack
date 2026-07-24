@@ -7,41 +7,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-// clientToData converts a UserPoolClient to the wire format.
-func clientToData(c *UserPoolClient) userPoolClientData {
-	return userPoolClientData{
-		ClientID:     c.ClientID,
-		ClientName:   c.ClientName,
-		UserPoolID:   c.UserPoolID,
-		ClientSecret: c.ClientSecret,
-		CreationDate: float64(c.CreatedAt.Unix()),
-	}
-}
-
-func (h *Handler) handleCreateUserPoolClient(
-	_ context.Context,
-	in *createUserPoolClientInput,
-) (*createUserPoolClientOutput, error) {
-	client, err := h.Backend.CreateUserPoolClient(in.UserPoolID, in.ClientName)
-	if err != nil {
-		return nil, err
-	}
-
-	return &createUserPoolClientOutput{UserPoolClient: clientToData(client)}, nil
-}
-
-func (h *Handler) handleDescribeUserPoolClient(
-	_ context.Context,
-	in *describeUserPoolClientInput,
-) (*describeUserPoolClientOutput, error) {
-	client, err := h.Backend.DescribeUserPoolClient(in.UserPoolID, in.ClientID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &describeUserPoolClientOutput{UserPoolClient: clientToData(client)}, nil
-}
-
 func (h *Handler) handleDeleteUserPoolClient(
 	_ context.Context,
 	in *deleteUserPoolClientInput,
@@ -51,49 +16,6 @@ func (h *Handler) handleDeleteUserPoolClient(
 	}
 
 	return &deleteUserPoolClientOutput{}, nil
-}
-
-func (h *Handler) handleListUserPoolClients(
-	_ context.Context,
-	in *listUserPoolClientsInput,
-) (*listUserPoolClientsOutput, error) {
-	limit, err := validateCognitoMaxResults(in.MaxResults)
-	if err != nil {
-		return nil, err
-	}
-
-	// ListUserPoolClients already returns clients sorted by name, giving a
-	// stable ordering for pagination tokens.
-	clients, err := h.Backend.ListUserPoolClients(in.UserPoolID)
-	if err != nil {
-		return nil, err
-	}
-
-	start := 0
-	if in.NextToken != "" {
-		for i, c := range clients {
-			if c.ClientID == in.NextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
-	clients = clients[start:]
-
-	nextToken := ""
-	if len(clients) > limit {
-		nextToken = clients[limit].ClientID
-		clients = clients[:limit]
-	}
-
-	items := make([]userPoolClientData, 0, len(clients))
-	for _, c := range clients {
-		items = append(items, clientToData(c))
-	}
-
-	return &listUserPoolClientsOutput{UserPoolClients: items, NextToken: nextToken}, nil
 }
 
 func (h *Handler) handleAddUserPoolClientSecret(
@@ -106,18 +28,6 @@ func (h *Handler) handleAddUserPoolClientSecret(
 	}
 
 	return &addUserPoolClientSecretOutput{ClientSecret: secret}, nil
-}
-
-func (h *Handler) handleUpdateUserPoolClient(
-	_ context.Context,
-	in *updateUserPoolClientInput,
-) (*updateUserPoolClientOutput, error) {
-	client, err := h.Backend.UpdateUserPoolClient(in.UserPoolID, in.ClientID, in.ClientName)
-	if err != nil {
-		return nil, err
-	}
-
-	return &updateUserPoolClientOutput{UserPoolClient: clientToData(client)}, nil
 }
 
 func clientToAccurateData(c *UserPoolClient) clientDataAccurate {
@@ -267,13 +177,13 @@ func (h *Handler) handleListUserPoolClientSecrets(
 	return &listUserPoolClientSecretsOutput{Secrets: secrets}, nil
 }
 
+// userPoolClientsOpsA registers the ops in this file that have no accurate twin
+// in userPoolClientsOpsC (CreateUserPoolClient, DescribeUserPoolClient,
+// ListUserPoolClients, UpdateUserPoolClient all moved there only -- see
+// de-stub-hygiene note in PARITY.md).
 func (h *Handler) userPoolClientsOpsA() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateUserPoolClient":    service.WrapOp(h.handleCreateUserPoolClient),
-		"DescribeUserPoolClient":  service.WrapOp(h.handleDescribeUserPoolClient),
-		"ListUserPoolClients":     service.WrapOp(h.handleListUserPoolClients),
 		"DeleteUserPoolClient":    service.WrapOp(h.handleDeleteUserPoolClient),
-		"UpdateUserPoolClient":    service.WrapOp(h.handleUpdateUserPoolClient),
 		"AddUserPoolClientSecret": service.WrapOp(h.handleAddUserPoolClientSecret),
 	}
 }

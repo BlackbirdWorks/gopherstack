@@ -76,7 +76,7 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
-		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+		return unknownUserConfirmError(client, username)
 	}
 
 	if confirmationCode == "" {
@@ -130,9 +130,33 @@ func (b *InMemoryBackend) InitiateAuth(clientID, authFlow, username, password st
 	b.mu.Lock("InitiateAuth")
 	defer b.mu.Unlock()
 
-	user, pool, err := b.findUserByClientID(clientID, username)
-	if err != nil {
-		return nil, err
+	client, ok := b.clients.Get(clientID)
+	if !ok {
+		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+	}
+
+	pool, ok := b.pools.Get(client.UserPoolID)
+	if !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
+	}
+
+	user, ok := b.users.Get(userKey(client.UserPoolID, username))
+	if !ok {
+		migrated, finalStatus, migErr := b.tryUserMigration(pool, clientID, authFlow, username, password)
+		if migErr != nil {
+			return nil, migErr
+		}
+
+		if migrated == nil {
+			return nil, unknownUserAuthError(client, username)
+		}
+
+		user = migrated
+
+		result, authErr := b.authenticate(pool, clientID, authFlow, user, password)
+		b.applyPostMigrationFinalStatus(pool.ID, username, finalStatus)
+
+		return result, authErr
 	}
 
 	return b.authenticate(pool, clientID, authFlow, user, password)
@@ -157,7 +181,21 @@ func (b *InMemoryBackend) AdminInitiateAuth(
 
 	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+		migrated, finalStatus, migErr := b.tryUserMigration(pool, clientID, authFlow, username, password)
+		if migErr != nil {
+			return nil, migErr
+		}
+
+		if migrated == nil {
+			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+		}
+
+		user = migrated
+
+		result, authErr := b.authenticate(pool, clientID, authFlow, user, password)
+		b.applyPostMigrationFinalStatus(pool.ID, username, finalStatus)
+
+		return result, authErr
 	}
 
 	return b.authenticate(pool, clientID, authFlow, user, password)
@@ -265,7 +303,7 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
-		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+		return unknownUserConfirmError(client, username)
 	}
 
 	if !user.ConfirmCodeExpiresAt.IsZero() && time.Now().After(user.ConfirmCodeExpiresAt) {
@@ -327,31 +365,6 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 	return nil
 }
 
-// findUserByClientID finds a user and their pool using the clientID. This backs the
-// non-admin InitiateAuth path, so an unknown username is reported via
-// unknownUserAuthError, which honors the client's PreventUserExistenceErrors setting.
-// AdminInitiateAuth looks users up separately and always reveals UserNotFoundException,
-// matching AWS (existence-error masking only applies to the non-admin, unauthenticated API).
-// Caller must hold at least a read lock.
-func (b *InMemoryBackend) findUserByClientID(clientID, username string) (*User, *UserPool, error) {
-	client, ok := b.clients.Get(clientID)
-	if !ok {
-		return nil, nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
-	}
-
-	pool, ok := b.pools.Get(client.UserPoolID)
-	if !ok {
-		return nil, nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
-	}
-
-	user, ok := b.users.Get(userKey(client.UserPoolID, username))
-	if !ok {
-		return nil, nil, unknownUserAuthError(client, username)
-	}
-
-	return user, pool, nil
-}
-
 // unknownUserAuthError returns the error InitiateAuth surfaces when the username does not
 // exist. When the app client's PreventUserExistenceErrors is "ENABLED" (the AWS-recommended
 // setting), Cognito masks the distinction behind the same NotAuthorizedException a wrong
@@ -363,6 +376,20 @@ func (b *InMemoryBackend) findUserByClientID(clientID, username string) (*User, 
 func unknownUserAuthError(client *UserPoolClient, username string) error {
 	if client.PreventUserExistenceErrors == preventUserExistenceEnabled {
 		return fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
+	}
+
+	return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+}
+
+// unknownUserConfirmError returns the error ConfirmSignUp/ConfirmForgotPassword surface
+// when the username does not exist. When PreventUserExistenceErrors is "ENABLED", AWS
+// masks the distinction behind the same CodeMismatchException an incorrect confirmation
+// code produces for a real account -- a caller cannot distinguish "no such user" from
+// "wrong code" by error type/text, closing the same enumeration vector unknownUserAuthError
+// closes for InitiateAuth. "LEGACY" (the default when unset) reveals UserNotFoundException.
+func unknownUserConfirmError(client *UserPoolClient, username string) error {
+	if client.PreventUserExistenceErrors == preventUserExistenceEnabled {
+		return fmt.Errorf("%w: invalid confirmation code", ErrCodeMismatch)
 	}
 
 	return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
@@ -397,7 +424,7 @@ func (b *InMemoryBackend) authenticate(
 	password string,
 ) (*AuthResult, error) {
 	switch authFlow {
-	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "ADMIN_NO_SRP_AUTH", "USER_SRP_AUTH":
+	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "ADMIN_NO_SRP_AUTH", "USER_SRP_AUTH", "CUSTOM_AUTH":
 		// valid flows; ADMIN_NO_SRP_AUTH is a legacy alias for ADMIN_USER_PASSWORD_AUTH
 	default:
 		return nil, fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)
@@ -411,12 +438,26 @@ func (b *InMemoryBackend) authenticate(
 		)
 	}
 
+	// PreAuthentication fires before any credential/status validation, matching AWS:
+	// the Lambda only sees userAttributes/validationData (never the password), and can
+	// reject the attempt outright by returning an error.
+	if err := b.preAuthenticationCheck(pool, clientID, user); err != nil {
+		return nil, err
+	}
+
 	if user.Status == UserStatusUnconfirmed {
 		return nil, fmt.Errorf("%w: user %q is not confirmed", ErrUserNotConfirmed, user.Username)
 	}
 
 	if !user.Enabled {
 		return nil, fmt.Errorf("%w: user %q account is disabled", ErrNotAuthorized, user.Username)
+	}
+
+	// CUSTOM_AUTH never validates a password server-side -- that decision is fully
+	// delegated to the pool's DefineAuthChallenge/CreateAuthChallenge/
+	// VerifyAuthChallengeResponse Lambda chain (custom_auth.go).
+	if authFlow == "CUSTOM_AUTH" {
+		return b.startCustomAuth(pool, clientID, user)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
@@ -584,7 +625,7 @@ func (b *InMemoryBackend) SignUpWithValidation(
 		pool, triggerKeyPreSignUp, triggerSourcePreSignUpSignUp, clientID, username,
 		map[string]any{
 			eventKeyUserAttributes: stringMapToAny(attrs),
-			"validationData":       map[string]any{},
+			eventKeyValidationData: map[string]any{},
 			eventKeyClientMetadata: map[string]any{},
 		},
 		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},

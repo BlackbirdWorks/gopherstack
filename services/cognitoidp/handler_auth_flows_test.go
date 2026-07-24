@@ -65,12 +65,12 @@ func TestHandler_SignUp_PolicyEnforced(t *testing.T) {
 func TestSignUp_ConfirmSignUp(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: test struct, cosmetic only
+	tests := []struct {
+		policy   map[string]any
 		name     string
 		username string
 		password string
 		wantOK   bool
-		policy   map[string]any
 	}{
 		{name: "valid_user", username: "alice", password: "Passw0rd!", wantOK: true},
 		{
