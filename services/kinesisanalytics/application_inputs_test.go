@@ -36,6 +36,10 @@ func TestHandler_AddApplicationInput(t *testing.T) {
 						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
 						"RoleARN":     "arn:aws:iam::000000000000:role/role",
 					},
+					"InputSchema": map[string]any{
+						"RecordFormat":  map[string]any{"RecordFormatType": "JSON"},
+						"RecordColumns": []map[string]any{{"Name": "COL1", "SqlType": "VARCHAR(4)"}},
+					},
 				},
 			},
 			wantStatus: http.StatusOK,
@@ -56,9 +60,34 @@ func TestHandler_AddApplicationInput(t *testing.T) {
 						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
 						"RoleARN":     "arn:aws:iam::000000000000:role/r",
 					},
+					"InputSchema": map[string]any{
+						"RecordFormat":  map[string]any{"RecordFormatType": "JSON"},
+						"RecordColumns": []map[string]any{{"Name": "COL1", "SqlType": "VARCHAR(4)"}},
+					},
 				},
 			},
 			wantStatus: http.StatusNotFound,
+		},
+		{
+			// AWS models Input.InputSchema as a required member (validated server-side via
+			// aws-sdk-go-v2/service/kinesisanalytics/validators.go's validateInput, which is
+			// authoritative even though the field's doc comment alone doesn't say "required").
+			name: "missing InputSchema is rejected",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "input-noschema-app", "", "", nil)
+			},
+			input: map[string]any{
+				"ApplicationName":             "input-noschema-app",
+				"CurrentApplicationVersionId": 1,
+				"Input": map[string]any{
+					"NamePrefix": "SOURCE",
+					"KinesisStreamsInput": map[string]any{
+						"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
+						"RoleARN":     "arn:aws:iam::000000000000:role/role",
+					},
+				},
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "version mismatch",
@@ -197,9 +226,42 @@ func TestHandler_AddApplicationInputProcessingConfiguration(t *testing.T) {
 					"ApplicationName":             "proc-notfound-app",
 					"CurrentApplicationVersionId": 1,
 					"InputId":                     inputID,
+					"InputProcessingConfiguration": map[string]any{
+						"InputLambdaProcessor": map[string]any{
+							"ResourceARN": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+							"RoleARN":     "arn:aws:iam::000000000000:role/role",
+						},
+					},
 				}
 			},
 			wantStatus: http.StatusNotFound,
+		},
+		{
+			// AWS requires InputProcessingConfiguration.InputLambdaProcessor whenever
+			// InputProcessingConfiguration itself is supplied.
+			name:    "missing InputLambdaProcessor is rejected",
+			appName: "proc-nolambda-app",
+			setup: func(b *kinesisanalytics.InMemoryBackend) string {
+				_, _ = kinesisanalytics.CreateApp(b, testRegion, testAccountID, "proc-nolambda-app", "", "", nil)
+				_ = b.AddApplicationInput(
+					context.Background(),
+					"proc-nolambda-app",
+					1,
+					kinesisanalytics.InputDescription{NamePrefix: "PREFIX"},
+				)
+				app, _ := b.DescribeApplication(context.Background(), "proc-nolambda-app")
+
+				return app.Inputs[0].InputID
+			},
+			input: func(inputID string) map[string]any {
+				return map[string]any{
+					"ApplicationName":              "proc-nolambda-app",
+					"CurrentApplicationVersionId":  2,
+					"InputId":                      inputID,
+					"InputProcessingConfiguration": map[string]any{},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -395,7 +457,7 @@ func TestHandler_DiscoverInputSchema(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name: "returns synthetic schema",
+			name: "returns synthetic schema for streaming source",
 			input: map[string]any{
 				"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
 				"RoleARN":     "arn:aws:iam::000000000000:role/role",
@@ -403,9 +465,55 @@ func TestHandler_DiscoverInputSchema(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "returns schema for empty request",
-			input:      map[string]any{},
+			name: "returns synthetic schema for S3 source",
+			input: map[string]any{
+				"S3Configuration": map[string]any{
+					"BucketARN": "arn:aws:s3:::bucket",
+					"FileKey":   "key.json",
+					"RoleARN":   "arn:aws:iam::000000000000:role/role",
+				},
+			},
 			wantStatus: http.StatusOK,
+		},
+		{
+			// Real AWS rejects a request with no streaming source and no S3Configuration --
+			// there is nothing to discover a schema from.
+			name:       "empty request is rejected",
+			input:      map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// ResourceARN without RoleARN can never authenticate against the streaming source.
+			name: "streaming source missing RoleARN is rejected",
+			input: map[string]any{
+				"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// S3Configuration with a missing required sub-field is rejected.
+			name: "S3 source missing FileKey is rejected",
+			input: map[string]any{
+				"S3Configuration": map[string]any{
+					"BucketARN": "arn:aws:s3:::bucket",
+					"RoleARN":   "arn:aws:iam::000000000000:role/role",
+				},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// Both a streaming source and an S3Configuration is over-specified and rejected.
+			name: "both sources specified is rejected",
+			input: map[string]any{
+				"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
+				"RoleARN":     "arn:aws:iam::000000000000:role/role",
+				"S3Configuration": map[string]any{
+					"BucketARN": "arn:aws:s3:::bucket",
+					"FileKey":   "key.json",
+					"RoleARN":   "arn:aws:iam::000000000000:role/role",
+				},
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

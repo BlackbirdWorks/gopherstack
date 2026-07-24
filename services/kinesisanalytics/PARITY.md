@@ -1,41 +1,44 @@
 ---
 service: kinesisanalytics
 sdk_module: aws-sdk-go-v2/service/kinesisanalytics@v1.30.21
-last_audit_commit: d6bfd3a1
-last_audit_date: 2026-07-13
-overall: A            # real fixes found: wire-shape bugs across the UpdateApplication nested
-                       # payloads, S3ReferenceDataSource field-name swap, tag-limit modeling,
-                       # non-modeled error codes, missing required-field validation
+last_audit_commit: 6e7056ac
+last_audit_date: 2026-07-24
+overall: A            # real fixes found: deleted three gopherstack-invented surfaces
+                       # (ServiceExecutionRole/RuntimeEnvironment fields, five non-real
+                       # ApplicationStatus constants, InputUpdate.InputStartingPositionConfiguration),
+                       # and closed a whole class of missing required-field validation across
+                       # Input/Output/ReferenceDataSource/InputProcessingConfiguration/SourceSchema
+                       # that let malformed requests silently succeed instead of failing with
+                       # InvalidArgumentException like real AWS.
 ops:
-  CreateApplication: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "fixed: tags were never validated (no key/value checks, no cap enforcement); tag-limit error was LimitExceededException instead of modeled TooManyTagsException"}
+  CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "ServiceExecutionRole request field DELETED (gopherstack-invented -- CreateApplicationInput has no such member in the real SDK, verified via grep across the whole module). Inputs[]/Outputs[] now route through the same hardened convertInputConfig/convertOutputConfig validation as AddApplicationInput/AddApplicationOutput (see families below)."}
   DeleteApplication: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "HasMoreApplications/ExclusiveStartApplicationName pagination already correct, no NextToken"}
-  StartApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "READY->STARTING->RUNNING transition via launchTransition goroutine, already correct"}
-  StopApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "RUNNING->STOPPING->READY transition, already correct"}
-  UpdateApplication: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "InputUpdates/OutputUpdates/ReferenceDataSourceUpdates nested payloads used the wrong wire shape end to end -- see Notes. InputParallelismUpdate was entirely unimplemented (input parallelism could not be changed via UpdateApplication at all)."}
+  DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "ServiceExecutionRole/RuntimeEnvironment response fields DELETED (gopherstack-invented, present nowhere in ApplicationDetail)."}
+  ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "HasMoreApplications/ExclusiveStartApplicationName pagination correct, no NextToken -- matches real ListApplicationsInput/Output exactly."}
+  StartApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "READY->STARTING->RUNNING transition via launchTransition goroutine, correct."}
+  StopApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "RUNNING->STOPPING->READY transition, correct."}
+  UpdateApplication: {wire: fixed, errors: ok, state: ok, persist: ok, note: "InputUpdate.InputStartingPositionConfiguration field DELETED (gopherstack-invented -- the real InputUpdate shape has no such member; starting-position changes are only ever accepted via StartApplication's InputConfigurations). ReferenceDataSourceUpdate.ReferenceSchemaUpdate (a whole-object SourceSchema replace, per its doc) now runs through the same required-field validation as a fresh ReferenceSchema."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  TagResource: {wire: ok, errors: fixed, state: ok, persist: ok, note: "tag-limit error was LimitExceededException instead of modeled TooManyTagsException; cap was 200 instead of the real 50 user-defined-tag limit"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  AddApplicationCloudWatchLoggingOption: {wire: ok, errors: fixed, state: ok, persist: ok, note: "cap-exceeded error switched from non-modeled LimitExceededException to modeled InvalidArgumentException"}
-  AddApplicationInput: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "NamePrefix (required member) was never validated; cap-exceeded error switched LimitExceededException -> InvalidArgumentException"}
-  AddApplicationInputProcessingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  AddApplicationOutput: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "Output.Name (required member) was never validated; cap-exceeded error switched LimitExceededException -> InvalidArgumentException"}
-  AddApplicationReferenceDataSource: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "S3ReferenceDataSource.RoleARN wire field was wrong -- real field is ReferenceRoleARN; cap-exceeded error switched LimitExceededException -> InvalidArgumentException"}
+  AddApplicationCloudWatchLoggingOption: {wire: ok, errors: ok, state: ok, persist: ok}
+  AddApplicationInput: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "Input.InputSchema (a required member per validators.go's validateInput -- authoritative over the doc comment, which doesn't call it out) was never validated; a request omitting it was silently accepted with a nil InputSchema. Also added: KinesisStreamsInput/KinesisFirehoseInput.ResourceARN+RoleARN required-when-the-sub-object-is-present; InputProcessingConfiguration.InputLambdaProcessor required-when-InputProcessingConfiguration-is-present, and its own ResourceARN/RoleARN required."}
+  AddApplicationInputProcessingConfiguration: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "InputId and InputProcessingConfiguration (both required members) were never validated -- a request omitting InputProcessingConfiguration silently cleared/no-op'd instead of being rejected. Now validates both, plus InputProcessingConfiguration.InputLambdaProcessor and its ResourceARN/RoleARN, matching validateOpAddApplicationInputProcessingConfigurationInput/validateInputProcessingConfiguration/validateInputLambdaProcessor."}
+  AddApplicationOutput: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "KinesisStreamsOutput/KinesisFirehoseOutput/LambdaOutput.ResourceARN+RoleARN required-when-the-sub-object-is-present was never validated -- added, matching validateKinesisStreamsOutput/validateKinesisFirehoseOutput/validateLambdaOutput."}
+  AddApplicationReferenceDataSource: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ReferenceSchema's own required members (RecordFormat.RecordFormatType restricted to JSON/CSV, RecordColumns non-nil, each RecordColumn.Name/SqlType, JSON/CSVMappingParameters sub-fields) were never validated -- only top-level presence was checked. Added full validateSourceSchema-equivalent validation, shared with AddApplicationInput's InputSchema and UpdateApplication's ReferenceSchemaUpdate via the same convertSourceSchema helper."}
   DeleteApplicationCloudWatchLoggingOption: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteApplicationInputProcessingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteApplicationOutput: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteApplicationReferenceDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
-  DiscoverInputSchema: {wire: ok, errors: ok, state: deferred, persist: n/a, note: "intentional fixed-shape stub -- see gaps. Also fixed an inert wire-shape bug in the unused S3Configuration sub-field (ReferenceRoleARN -> RoleARN) while auditing this op"}
+  DiscoverInputSchema: {wire: ok, errors: fixed, state: deferred, persist: n/a, note: "fixed: the request previously did zero validation and always returned a canned 200 OK schema regardless of input (empty request, both a streaming source AND an S3Configuration, or a source missing its own required sub-fields all incorrectly succeeded). Now enforces exactly-one-of-{ResourceARN+RoleARN, S3Configuration{BucketARN,FileKey,RoleARN}} plus InputProcessingConfiguration's usual required-field contract, rejecting malformed requests with InvalidArgumentException like every other modeled error path on this op. The successful-path response content remains an intentional fixed-shape sample -- see gaps."}
 families:
-  updateNestedPayloads: {status: fixed, note: "InputUpdate/OutputUpdate/ReferenceDataSourceUpdate's Kinesis*/Lambda/S3/InputProcessingConfiguration/InputSchema/InputParallelism sub-objects all carry AWS-suffixed field names (ResourceARNUpdate, RoleARNUpdate, BucketARNUpdate, FileKeyUpdate, ReferenceRoleARNUpdate, RecordColumnUpdates, RecordEncodingUpdate, RecordFormatUpdate, CountUpdate) distinct from their Add* counterparts -- gopherstack reused the Add* Go types (unsuffixed field names) for all of them, so every real aws-sdk-go-v2 client request updating an existing input/output/reference-data-source's Kinesis/Firehose/Lambda/S3 config, schema, or parallelism silently failed to decode (fields landed as zero values) and then overwrote the stored sub-object with those zero values -- UpdateApplication looked like it succeeded (200 OK, version bumped) but corrupted the target field to empty strings instead of applying the caller's update. Fixed by giving each Update-suffixed shape its own Go type with the correct JSON tags."}
+  requiredFieldValidation: {status: fixed, note: "A whole class of nested required-member validation gaps, all verified against aws-sdk-go-v2/service/kinesisanalytics/validators.go (the authoritative client-side validator source, distinct from -- and occasionally contradicting -- doc comments): Input.InputSchema; KinesisStreamsInput/KinesisFirehoseInput/KinesisStreamsOutput/KinesisFirehoseOutput/LambdaOutput.ResourceARN+RoleARN (required whenever their parent sub-object is supplied at all); InputProcessingConfiguration.InputLambdaProcessor (required whenever InputProcessingConfiguration is supplied) and its own ResourceARN/RoleARN; SourceSchema.RecordFormat.RecordFormatType (restricted to the real two-value RecordFormatType enum, JSON/CSV -- previously only enforced for Output.DestinationSchema, not for Input.InputSchema or ReferenceDataSource.ReferenceSchema); SourceSchema.RecordColumns (required, non-nil) and each RecordColumn's Name/SqlType; JSONMappingParameters.RecordRowPath and CSVMappingParameters.RecordRowDelimiter/RecordColumnDelimiter (required whenever their parent variant is supplied). Previously these gaps meant a malformed request (missing schema, missing role ARN on a nested Kinesis/Lambda sub-object, empty processing configuration, invalid record-format type) was silently accepted and stored with zero-valued/absent fields instead of being rejected with InvalidArgumentException -- a disguised-corruption bug in the same family as the UpdateApplication wire-shape bug fixed in a prior sweep. Centralized in new helpers (validateResourceRoleARN, convertInputProcessingConfig, convertSourceSchema + validateRecordFormatType/validateMappingParameters/validateRecordColumns in applications.go) shared across CreateApplication/AddApplicationInput/AddApplicationOutput/AddApplicationInputProcessingConfiguration/AddApplicationReferenceDataSource/UpdateApplication's ReferenceSchemaUpdate."}
+  updateNestedPayloads: {status: ok, note: "InputUpdate/OutputUpdate/ReferenceDataSourceUpdate's Kinesis*/Lambda/S3/InputProcessingConfiguration/InputSchema/InputParallelism sub-objects all correctly carry AWS-suffixed field names (ResourceARNUpdate, RoleARNUpdate, BucketARNUpdate, FileKeyUpdate, ReferenceRoleARNUpdate, RecordColumnUpdates, RecordEncodingUpdate, RecordFormatUpdate, CountUpdate), each with its own dedicated Go type -- verified against aws-sdk-go-v2/service/kinesisanalytics/serializers.go's per-shape awsAwsjson11_serializeDocument* functions. InputSchemaUpdate is correctly applied as a field-by-field partial patch; ReferenceSchemaUpdate is correctly applied as a whole-object SourceSchema replace (confirmed via types.ReferenceDataSourceUpdate.ReferenceSchemaUpdate *SourceSchema)."}
 gaps:
-  - "DiscoverInputSchema returns a fixed canned schema/sample records regardless of input; real schema inference from a live Kinesis/Firehose stream or S3 object requires an actual sampling+type-inference engine this emulator does not have. Documented as an intentional stub in the handler (handleDiscoverInputSchema doc comment); response shape matches the real wire format so SDK consumers parse it without error. (bd: TBD)"
-  - "Application/applicationDetail carry ServiceExecutionRole and RuntimeEnvironment fields that DO NOT EXIST anywhere in the real aws-sdk-go-v2/service/kinesisanalytics@v1.30.21 model (verified: grep for both identifiers across the whole SDK package returns zero hits outside unrelated client-config internals). These are additive/extra JSON keys in our responses; real SDK clients silently ignore unknown fields, so this doesn't break wire compatibility, but it is not a real field either -- ServiceExecutionRole is entirely unreachable from a real client (CreateApplicationInput has no such member) and RuntimeEnvironment is hardcoded to \"SQL-1_0\" for display only. Left as-is this sweep: removing them would require an Application persistence-shape/version bump and touches ~10 tests for zero real-client-facing benefit (extra fields are harmless). Worth a dedicated cleanup pass. (bd: TBD)"
-  - "statusAutoScaling/statusForceStopping/statusMaintenance/statusRollingBack/statusRolledBack constants in backend.go are marked //nolint:deadcode \"AWS status constant\" but are NOT part of the real v1 ApplicationStatus enum (only DELETING/STARTING/STOPPING/READY/RUNNING/UPDATING exist per types/enums.go) -- they appear to be copied from the v2 (kinesisanalyticsv2) ApplicationStatus enum, which has more values. Unused dead code today so no functional bug, but the doc comment is misleading; a future pass should either delete them or correct the comment. (bd: TBD)"
-  - "inputUpdate.InputStartingPositionConfiguration is accepted server-side but does not exist on the real InputUpdate shape (real InputUpdate only has InputId/InputParallelismUpdate/InputProcessingConfigurationUpdate/InputSchemaUpdate/Kinesis*InputUpdate/NamePrefixUpdate). Harmless surplus -- no real client ever sends it since the field isn't in their SDK type -- but noted so a future audit doesn't assume it's reachable in practice. (bd: TBD)"
+  - "DiscoverInputSchema's successful-path response is a fixed synthetic schema/sample-records payload regardless of a well-formed request's actual source; real schema inference from a live Kinesis/Firehose stream or S3 object requires an actual sampling+type-inference engine this emulator does not have. This sweep hardened the REQUEST side (see DiscoverInputSchema op note and TestHandler_DiscoverInputSchema) so malformed requests are correctly rejected with InvalidArgumentException instead of always synthesizing success -- but the successful-path content itself remains a documented, wire-shape-correct stub (handleDiscoverInputSchema doc comment). (bd: TBD)"
+  - "statusUpdating (\"UPDATING\", a real ApplicationStatus enum value per types/enums.go) is currently unused: UpdateApplication applies changes synchronously and never transiently sets the application's status to UPDATING the way StartApplication/StopApplication transition through STARTING/STOPPING. Real AWS documents a brief UPDATING window while an update is processed. Not a fabricated value (unlike the five deleted v2-only status constants -- see Notes) and not user-visible today since this emulator's UpdateApplication has no asynchronous gap for a client to observe it during, but a future sweep could add a launchTransition-style transient state for full fidelity. (bd: TBD)"
 deferred: []
-leaks: {status: clean, note: "launchTransition/DeleteApplication background goroutines are bounded by b.svcCtx (NewInMemoryBackendWithContext) and tracked in b.cancelFuncs, canceled on Reset(); no per-request or unbounded goroutines introduced this sweep"}
+leaks: {status: clean, note: "launchTransition/DeleteApplication background goroutines remain bounded by b.svcCtx (NewInMemoryBackendWithContext) and tracked in b.cancelFuncs, canceled on Reset(). No new goroutines, maps, or per-request state introduced this sweep -- all changes were request-validation logic in the existing conversion helpers (applications.go/handler_*.go), which return early with an error and mutate no backend state on the rejected path."}
 ---
 
 ## Notes
@@ -45,110 +48,92 @@ dispatch (verified against handler.go's `kinesisanalyticsTargetPrefix` -- correc
 older 20150814 date, not v2's 20180523). Timestamps (`CreateTimestamp`/`LastUpdateTimestamp`) are
 epoch-seconds `float64` with sub-second precision, verified against
 `aws-sdk-go-v2/service/kinesisanalytics` deserializers.go's `smithytime.ParseEpochSeconds` --
-already correct.
+correct.
 
 ### Real bugs fixed this sweep
 
-1. **UpdateApplication's nested Input/Output/ReferenceDataSource Update payloads used the wrong
-   wire shape entirely** (services/kinesisanalytics/models.go, backend.go). This is the
-   highest-impact fix: every "*Update" sub-object nested under `ApplicationUpdate.InputUpdates[]`,
-   `.OutputUpdates[]`, and `.ReferenceDataSourceUpdates[]` in the real API carries an "Update"
-   suffix on every leaf field (`ResourceARNUpdate`/`RoleARNUpdate` instead of
-   `ResourceARN`/`RoleARN`, `BucketARNUpdate`/`FileKeyUpdate`/`ReferenceRoleARNUpdate` instead of
-   `BucketARN`/`FileKey`/`RoleARN`, `RecordColumnUpdates`/`RecordEncodingUpdate`/
-   `RecordFormatUpdate` instead of `RecordColumns`/`RecordEncoding`/`RecordFormat`,
-   `CountUpdate` instead of `Count`) -- verified against
-   `aws-sdk-go-v2/service/kinesisanalytics/serializers.go`'s
-   `awsAwsjson11_serializeDocumentKinesisStreamsInputUpdate`/`...OutputUpdate`/
-   `...S3ReferenceDataSourceUpdate`/`...InputSchemaUpdate`/`...InputLambdaProcessorUpdate`/
-   `...InputParallelismUpdate` functions. gopherstack instead reused the *Add* request Go types
-   (unsuffixed field names) for these Update payloads. Consequence: a real aws-sdk-go-v2 client
-   calling `UpdateApplication` to change an existing input's Kinesis/Firehose source, an output's
-   Kinesis/Firehose/Lambda destination, a reference data source's S3 location, an input's schema,
-   or an input's parallelism count would have every field silently decode as a zero value (wrong
-   JSON key), and the handler would then overwrite the stored sub-object with that zero value --
-   the response was `200 OK` with the version bumped, but the target field was corrupted to empty
-   strings instead of updated. This is a disguised-no-op-plus-corruption bug: it looked like
-   success from the client's perspective (no error) but silently discarded the caller's real
-   intent while also destroying the previous value. `InputParallelismUpdate` was not modeled at
-   all, meaning input parallelism could never be changed via `UpdateApplication` under any
-   payload. Fixed by giving each Update-suffixed nested shape its own Go type
-   (`kinesisStreamsInputUpdateConfig`, `kinesisFirehoseInputUpdateConfig`,
-   `kinesisStreamsOutputUpdateConfig`, `kinesisFirehoseOutputUpdateConfig`,
-   `lambdaOutputUpdateConfig`, `s3ReferenceDataSourceUpdateConfig`,
-   `inputProcessingConfigUpdateInput`/`lambdaProcessorUpdateInput`, `inputSchemaUpdateInput`,
-   `inputParallelismUpdateConfig`) with the correct "Update"-suffixed JSON tags, adding
-   `InputParallelismUpdate` support end to end, and implementing `InputSchemaUpdate` as a
-   field-by-field partial patch (matching its distinct "Update"-suffixed shape) rather than a
-   whole-object replace -- unlike `ReferenceSchemaUpdate`, which genuinely does reuse the full
-   `SourceSchema` shape verbatim (confirmed via `types.ReferenceDataSourceUpdate.ReferenceSchemaUpdate
-   *SourceSchema`) and so correctly remains a whole-object replace.
-   Covered by `TestHandler_UpdateApplication_NestedWireShapes` and
-   `TestHandler_UpdateApplication_InputSchemaUpdateIsPartialPatch` (handler_test.go), which
-   round-trip real AWS-shaped JSON through the handler and assert the backend state actually
-   changed.
+1. **Three gopherstack-invented surfaces DELETED**, none of which exist anywhere in
+   `aws-sdk-go-v2/service/kinesisanalytics@v1.30.21` (verified by grepping the whole downloaded
+   SDK module source, including generated serializers/deserializers/validators, not just
+   `types.go`):
+   - `Application.ServiceExecutionRole` / `Application.RuntimeEnvironment` and their mirrors on
+     `createApplicationInput`/`applicationDetail`. `CreateApplicationInput` has no
+     `ServiceExecutionRole` member at all (confirmed against `api_op_CreateApplication.go`), and
+     neither field appears on `ApplicationDetail`. The only "RuntimeEnvironment" hits in the SDK
+     module are unrelated client-config internals (`aws.RuntimeEnvironment` for
+     `DefaultsMode` resolution in `options.go`/`api_client.go`), not an API field. Removed from
+     `Application`/`createApplicationInput`/`applicationDetail` (models.go),
+     `CreateApplication`'s signature (applications.go, store.go's `StorageBackend` interface),
+     and `toApplicationDetail` (handler_applications.go). All backend/handler test call sites
+     updated (export_test.go, persistence_test.go, isolation_test.go).
+   - `statusAutoScaling`/`statusForceStopping`/`statusMaintenance`/`statusRollingBack`/
+     `statusRolledBack` constants (store.go), marked `//nolint:deadcode "AWS status constant"`
+     but not part of the real v1 `ApplicationStatus` enum (`types/enums.go`'s
+     `ApplicationStatus.Values()` returns exactly `DELETING/STARTING/STOPPING/READY/RUNNING/
+     UPDATING` -- six values, no more). These five were copied from kinesisanalyticsv2's larger,
+     distinct `ApplicationStatus` enum. Deleted; the doc comment on the remaining six real
+     constants now states the real enum explicitly so a future audit doesn't need to re-derive
+     it.
+   - `inputUpdate.InputStartingPositionConfiguration` (models.go) and its handling in
+     `applyOneInputUpdate` (application_update.go): the real `InputUpdate` shape
+     (`types.InputUpdate`) has exactly `InputId`/`InputParallelismUpdate`/
+     `InputProcessingConfigurationUpdate`/`InputSchemaUpdate`/`KinesisFirehoseInputUpdate`/
+     `KinesisStreamsInputUpdate`/`NamePrefixUpdate` -- no starting-position member. A real
+     client's `UpdateApplication` call can never change an input's starting position; that's
+     only reachable via `StartApplication`'s `InputConfigurations` (`types.InputConfiguration`,
+     which legitimately does carry `InputStartingPositionConfiguration` -- confirmed distinct
+     from `InputUpdate`). Deleted the field and its dead-in-practice handling.
 
-2. **S3ReferenceDataSource's IAM role field used the wrong wire name** (models.go, handler.go,
-   backend.go). Every other role-ARN-bearing shape in this API uses `RoleARN`, but
-   `S3ReferenceDataSource`/`S3ReferenceDataSourceDescription` uniquely uses `ReferenceRoleARN` --
-   verified against `aws-sdk-go-v2/service/kinesisanalytics/types.go` and
-   `deserializers.go`/`serializers.go`'s `case "ReferenceRoleARN":` handling. gopherstack used
-   `RoleARN` for both the `AddApplicationReferenceDataSource` request and the
-   `DescribeApplication` response, meaning a real client's `ReferenceRoleARN` value was silently
-   dropped on the way in (decoded as empty) and never populated on the way out (client's
-   `S3ReferenceDataSourceDescription.ReferenceRoleARN` field always came back nil). Fixed by
-   renaming the field on `S3ReferenceDataSourceDesc` (response) and `s3ReferenceDataSourceConfig`
-   (Add request) to `ReferenceRoleARN`, and adding the correctly-suffixed
-   `s3ReferenceDataSourceUpdateConfig` for the Update payload (see bug 1). While auditing this
-   area, also fixed the *unused* `S3Configuration` sub-field on `DiscoverInputSchema` (which
-   correctly uses plain `RoleARN`, not `ReferenceRoleARN` -- the two shapes had been swapped
-   relative to each other in the original code, even though `DiscoverInputSchema` is a stub that
-   never reads this field today).
+2. **A whole class of missing required-field validation, closed** (applications.go,
+   handler_inputs.go, handler_reference_data.go, application_update.go). Verified against
+   `aws-sdk-go-v2/service/kinesisanalytics/validators.go`, which is the authoritative source for
+   what AWS actually requires client-side (and, by strong inference, server-side) -- doc
+   comments alone are occasionally wrong or incomplete (e.g. `Input.InputSchema`'s doc comment
+   doesn't say "required" but `validateInput` unconditionally requires it). Before this sweep,
+   several nested required members were accepted as absent/empty and silently stored that way
+   (a `200 OK` with a corrupted/incomplete resource) instead of being rejected with
+   `InvalidArgumentException` -- the same disguised-corruption bug class as the `UpdateApplication`
+   nested-payload wire-shape bug fixed in a prior sweep, just at the required-field-presence
+   layer instead of the field-naming layer. Fixed:
+   - `Input.InputSchema` (required on both `CreateApplication`'s `Inputs[]` and
+     `AddApplicationInput`, since both route through `convertInputConfig`).
+   - `KinesisStreamsInput`/`KinesisFirehoseInput`/`KinesisStreamsOutput`/`KinesisFirehoseOutput`/
+     `LambdaOutput`'s `ResourceARN`+`RoleARN`, required whenever that sub-object is supplied at
+     all (new shared `validateResourceRoleARN` helper).
+   - `InputProcessingConfiguration.InputLambdaProcessor`, required whenever
+     `InputProcessingConfiguration` itself is supplied -- previously an empty
+     `InputProcessingConfiguration{}` was silently dropped instead of rejected (new
+     `convertInputProcessingConfig` helper, shared by `AddApplicationInput`,
+     `AddApplicationInputProcessingConfiguration`, and `DiscoverInputSchema`'s optional
+     processing-config field). `AddApplicationInputProcessingConfiguration` additionally never
+     validated its own required `InputId`/`InputProcessingConfiguration` members at all.
+   - `SourceSchema.RecordFormat.RecordFormatType` restricted to the real two-value
+     `RecordFormatType` enum (`JSON`/`CSV`) -- previously only enforced on
+     `Output.DestinationSchema`, not on `Input.InputSchema` or
+     `ReferenceDataSource.ReferenceSchema`/`ReferenceSchemaUpdate`, despite all four using the
+     identically-typed field. `SourceSchema.RecordColumns` (required, non-nil) and each
+     `RecordColumn.Name`/`SqlType` (required), and `JSONMappingParameters.RecordRowPath`/
+     `CSVMappingParameters.RecordRowDelimiter`/`RecordColumnDelimiter` (required whenever their
+     parent variant is supplied) -- all previously unvalidated. Consolidated into
+     `convertSourceSchema` (now returning an error), shared by `AddApplicationInput`'s
+     `InputSchema`, `AddApplicationReferenceDataSource`'s `ReferenceSchema`, and
+     `UpdateApplication`'s `ReferenceSchemaUpdate` (a whole-object replace per its doc, so the
+     same required-field contract legitimately applies there too -- unlike `InputSchemaUpdate`,
+     which is a genuine partial patch and was correctly left alone).
 
-3. **CreateApplication never validated tags at all** (backend.go `CreateApplication`). Every
-   other tag-mutating op (`TagResource`) ran incoming tags through `validateAndMergeTags`
-   (key/value length, `aws:`-prefix rejection, per-resource cap), but `CreateApplication` copied
-   `Tags` straight into the new `Application` with no validation whatsoever -- a `CreateApplication`
-   call with an invalid tag key or an unbounded tag count silently succeeded, produced a resource
-   real AWS would have rejected with `CodeValidationException`/`TooManyTagsException`. Fixed by
-   calling `validateAndMergeTags(nil, tags)` before creating the application, matching
-   `CreateApplicationInput`'s modeled `TooManyTagsException`/`InvalidArgumentException` error
-   surface (verified via `aws-sdk-go-v2/service/kinesisanalytics/deserializers.go`'s
-   `awsAwsjson11_deserializeOpErrorCreateApplication`).
-
-4. **Tag-limit-exceeded used the wrong error code, and the wrong limit** (backend.go, handler.go).
-   `maxTagsPerResource` was 200 (the generic default many other services use); the real KDA v1
-   limit is 50 user-defined tags (AWS docs, and mirrored in the `TagResource`/`CreateApplication`
-   doc comments in the SDK source: "The maximum number of user-defined application tags is 50").
-   Separately, exceeding the cap returned `LimitExceededException`, but AWS models this case as a
-   dedicated `TooManyTagsException` on both `CreateApplication` and `TagResource` (confirmed via
-   the per-operation modeled error lists in deserializers.go -- `TooManyTagsException` appears only
-   on `CreateApplication`/`TagResource`/`UntagResource`, `LimitExceededException` only on
-   `CreateApplication` for the *application-count* cap). Fixed: `maxTagsPerResource` is now 50, and
-   a new `ErrTooManyTags` sentinel maps to the `TooManyTagsException` code, checked ahead of the
-   generic `awserr.ErrConflict` case in `handler.go`'s error switch so it isn't shadowed by the
-   `LimitExceededException` mapping.
-
-5. **Add-time per-application-resource caps (Input/Output/ReferenceDataSource/
-   CloudWatchLoggingOption) used a non-modeled error code** (backend.go). All four
-   `AddApplication*` ops returned `LimitExceededException` when the resource's hard cap (1 input,
-   3 outputs, 1 reference data source, 50 CloudWatch logging options) was reached, but none of
-   these four operations model `LimitExceededException` in their AWS API definition -- their
-   modeled error set is `{ConcurrentModificationException, InvalidArgumentException,
-   ResourceInUseException, ResourceNotFoundException, UnsupportedOperationException}` (verified
-   via deserializers.go's per-op `awsAwsjson11_deserializeOpError*` functions).
-   `LimitExceededException` is reserved for the *application-count* cap on `CreateApplication`.
-   These are hard architectural caps (SQL apps support exactly one input, etc.), not adjustable
-   service quotas, so `InvalidArgumentException` is the correct modeled fit. Fixed all four to use
-   `ErrValidation` (InvalidArgumentException) instead of `ErrLimitExceeded`.
-
-6. **`Input.NamePrefix` and `Output.Name` (both required members in the real API) were never
-   validated** (backend.go `convertInputConfig`/`convertOutputConfig`). A request omitting either
-   field was silently accepted, producing an input with an empty `NamePrefix` (which also breaks
-   `InAppStreamNames` derivation -- `inAppStreamNames` returns nil for an empty prefix) or an
-   output with an empty `Name`, neither of which real AWS would ever allow (both are
-   `smithy.NewErrParamRequired` in the SDK's client-side validators, and the server enforces the
-   same server-side). Fixed by rejecting empty `NamePrefix`/`Name` with `InvalidArgumentException`.
+3. **`DiscoverInputSchema` accepted any request shape and always returned a canned success**
+   (handler_inputs.go). An empty request, a request supplying both `ResourceARN` and
+   `S3Configuration`, or a source missing its own required sub-fields (`RoleARN` for the
+   streaming-source path; `BucketARN`/`FileKey`/`RoleARN` for `S3Configuration`, all three
+   `This member is required` per `types.S3Configuration`) all incorrectly returned `200 OK`.
+   Added `validateDiscoverInputSchemaInput`, enforcing exactly-one-of-{streaming source, S3
+   source} plus each source's required sub-fields, rejecting malformed requests with
+   `InvalidArgumentException` -- one of `DiscoverInputSchema`'s modeled errors (confirmed via
+   `deserializers.go`'s `awsAwsjson11_deserializeOpErrorDiscoverInputSchema`, alongside
+   `ResourceProvisionedThroughputExceededException`/`ServiceUnavailableException`/
+   `UnableToDetectSchemaException`). The successful-path response content remains an
+   intentionally fixed synthetic sample (see gaps) -- this fix is about the request side, not
+   fabricating real schema inference.
 
 ### Verified clean (no bug, but worth recording so the next audit doesn't re-flag)
 
@@ -158,26 +143,24 @@ already correct.
   lookup fails closed rather than routing garbage.
 - **Persistence**: `Handler.Snapshot`/`Restore` (persistence.go) delegate to
   `InMemoryBackend.Snapshot`/`Restore`, which version-gate (`kinesisanalyticsSnapshotVersion`) and
-  go through `store.Registry.SnapshotAll`/`RestoreAll` for the `apps` table -- already correctly
-  wired, confirmed via `TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip`
-  (persistence_test.go), which round-trips every sub-resource kind across two regions.
-  `CloudWatchLoggingOptionUpdate`'s wire shape (`CloudWatchLoggingOptionId`,
-  `LogStreamARNUpdate`, `RoleARNUpdate`) was already correct -- verified against
-  `types.CloudWatchLoggingOptionUpdate` and `serializers.go`'s
-  `awsAwsjson11_serializeDocumentCloudWatchLoggingOptionUpdate`; this was the one Update-suffixed
-  nested shape that did NOT have the bug described in fix #1 above.
+  go through `store.Registry.SnapshotAll`/`RestoreAll` for the `apps` table -- confirmed via
+  `TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip` (persistence_test.go), which round-trips
+  every sub-resource kind across two regions and survives the `CreateApplication` signature change
+  from this sweep.
 - **Lifecycle transitions**: `StartApplication` (READY -> STARTING -> RUNNING) and
   `StopApplication` (RUNNING -> STOPPING -> READY) both correctly gate on the real API's
-  documented precondition ("application status must be READY to start" /
-  "can only stop a RUNNING application"), and `launchTransition`'s background goroutine actually
-  advances the transient state after `transitionDelay` -- not a disguised no-op; a client polling
-  `DescribeApplication` will observe the terminal state within `transitionDelay` (50ms).
-  `UpdateApplication`'s optimistic-concurrency check (`CurrentApplicationVersionId` vs
-  `ApplicationVersionId`) is real and enforced, as is every `Add*`/`Delete*` sub-resource op's
-  `checkAndBumpVersion` call.
-- **ApplicationStatus enum**: DELETING/STARTING/STOPPING/READY/RUNNING/UPDATING match
-  `types.ApplicationStatus`'s six real v1 values exactly (see gaps for the unused v2-only
-  constants that shouldn't be there but are dead code).
+  documented precondition, and `launchTransition`'s background goroutine actually advances the
+  transient state after `transitionDelay` (50ms). `UpdateApplication`'s optimistic-concurrency
+  check (`CurrentApplicationVersionId` vs `ApplicationVersionId`) is real and enforced, as is
+  every `Add*`/`Delete*` sub-resource op's `checkAndBumpVersion` call.
+- **ApplicationStatus enum**: the six remaining real constants
+  (DELETING/STARTING/STOPPING/READY/RUNNING/UPDATING) match `types.ApplicationStatus`'s six real
+  v1 values exactly (see gaps for `statusUpdating`'s currently-unused transient-state status).
+- **Cascade cleanup on delete / no ghost rows**: inputs/outputs/reference-data-sources/tags are
+  all plain fields embedded directly on `Application` (not separate top-level maps), so
+  `DeleteApplication` removing the `Application` row from `b.apps` inherently removes every
+  sub-resource with it -- there is no separate cleanup step to forget. Confirmed no orphaned
+  per-sub-resource maps exist anywhere in store.go/store_setup.go.
 - **ListApplications**: `ApplicationSummaries`/`HasMoreApplications` pagination shape, and the
-  absence of a `NextToken`, already matches `types.ApplicationSummary` /
-  `ListApplicationsOutput` -- no cursor-based pagination in the real v1 API.
+  absence of a `NextToken`, matches `types.ApplicationSummary` / `ListApplicationsOutput` -- no
+  cursor-based pagination in the real v1 API.
