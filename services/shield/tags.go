@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 const (
@@ -100,11 +102,17 @@ func (b *InMemoryBackend) resolveTaggableProtection(resourceARN string) (*Protec
 	return nil, fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, resourceARN)
 }
 
-// resolveShieldProtectionARN resolves a Shield protection ARN (arn:aws:shield::*:protection/<id>)
+// resolveShieldProtectionARN resolves a Shield protection ARN (arn:{partition}:shield::*:protection/<id>)
 // to a protection, or returns nil if the ARN is not a Shield protection ARN or not found.
-// The ID is extracted directly from the ARN path — no O(n) scan needed.
+// The ID is extracted directly from the ARN path — no O(n) scan needed. The partition prefix is
+// derived from the backend's configured region (via arn.PartitionForRegion) rather than
+// hardcoded to "aws", matching how protectionARN/protectionGroupARN build ARNs elsewhere in this
+// package -- otherwise GovCloud/China/ISO region backends could never resolve their own
+// protection ARNs back to a Protection.
 func (b *InMemoryBackend) resolveShieldProtectionARN(resourceARN string) *Protection {
-	if !strings.HasPrefix(resourceARN, "arn:aws:shield::") || !strings.Contains(resourceARN, ":protection/") {
+	prefix := fmt.Sprintf("arn:%s:shield::", arn.PartitionForRegion(b.region))
+
+	if !strings.HasPrefix(resourceARN, prefix) || !strings.Contains(resourceARN, ":protection/") {
 		return nil
 	}
 

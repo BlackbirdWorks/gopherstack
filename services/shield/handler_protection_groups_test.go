@@ -283,8 +283,6 @@ func TestHandler_ListProtectionGroupsInclusionFilterByAggregation(t *testing.T) 
 	assert.Len(t, groups, 1)
 }
 
-// --- Gap 11: GetAttackVectorDefinitionVersion ---
-
 // TestRefinement1_HTTPDescribeProtectionGroup tests via HTTP.
 func TestHandler_DescribeProtectionGroup(t *testing.T) {
 	t.Parallel()

@@ -100,7 +100,7 @@ func (h *Handler) handleListProtectionGroups(body []byte) ([]byte, error) {
 
 	start, err := decodeOffsetToken(req.NextToken)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", errInvalidRequest, err.Error())
+		return nil, fmt.Errorf("invalid NextToken: %w", err)
 	}
 
 	if start >= len(groups) {

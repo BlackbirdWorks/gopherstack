@@ -44,7 +44,7 @@ func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
 
 	start, err := decodeOffsetToken(req.NextToken)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", errInvalidRequest, err.Error())
+		return nil, fmt.Errorf("invalid NextToken: %w", err)
 	}
 
 	var nextToken string
@@ -85,18 +85,6 @@ func (h *Handler) handleListAttacks(body []byte) ([]byte, error) {
 	}
 
 	return json.Marshal(resp)
-}
-
-// attackVectorDefinitionVersion is the taxonomy version returned by GetAttackVectorDefinitionVersion.
-// AWS Shield returns a date-stamped semantic version; we pin to the 2022-11-29 release which
-// introduced the current set of vector types used in this emulator.
-const attackVectorDefinitionVersion = "20221129.1"
-
-// handleGetAttackVectorDefinitionVersion returns the current attack-vector taxonomy version.
-func (h *Handler) handleGetAttackVectorDefinitionVersion() ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"AttackVectorDefinitionVersion": attackVectorDefinitionVersion,
-	})
 }
 
 // simulateAttackRequest is the request body for the __SimulateAttack endpoint (gap 25).
