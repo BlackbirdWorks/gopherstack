@@ -29,6 +29,14 @@ func TestGetCredentialsForIdentity_ExpirationIsEpochSeconds(t *testing.T) {
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
 
+	rolesRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": created["IdentityPoolId"],
+		"Roles": map[string]string{
+			"unauthenticated": "arn:aws:iam::000000000000:role/UnauthRole",
+		},
+	})
+	require.Equal(t, http.StatusOK, rolesRec.Code)
+
 	idRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
 		"AccountId":      "000000000000",
 		"IdentityPoolId": created["IdentityPoolId"],
@@ -104,6 +112,14 @@ func TestGetCredentialsForIdentity_CustomRoleArn(t *testing.T) {
 			var created map[string]any
 			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
 
+			rolesRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
+				"IdentityPoolId": created["IdentityPoolId"],
+				"Roles": map[string]string{
+					"unauthenticated": "arn:aws:iam::000000000000:role/UnauthRole",
+				},
+			})
+			require.Equal(t, http.StatusOK, rolesRec.Code)
+
 			idRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
 				"AccountId":      "000000000000",
 				"IdentityPoolId": created["IdentityPoolId"],
@@ -143,6 +159,14 @@ func TestHandler_GetCredentialsForIdentity(t *testing.T) {
 
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+
+	rolesRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": created["IdentityPoolId"],
+		"Roles": map[string]string{
+			"unauthenticated": "arn:aws:iam::000000000000:role/UnauthRole",
+		},
+	})
+	require.Equal(t, http.StatusOK, rolesRec.Code)
 
 	idRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
 		"AccountId":      "000000000000",

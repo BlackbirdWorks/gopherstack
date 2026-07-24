@@ -32,6 +32,12 @@ func ExportedRandomAlphanumeric(n int) (string, error) {
 	return randomAlphanumeric(n)
 }
 
+// ResolveErrorType exposes resolveErrorType for test coverage of the HTTP
+// error-type/status-code mapping.
+func ResolveErrorType(err error) (string, int) {
+	return resolveErrorType(err)
+}
+
 // SetIdentityEnabled directly sets the Enabled flag on an identity for testing.
 // Searches across all regions.
 func (b *InMemoryBackend) SetIdentityEnabled(identityID string, enabled bool) {

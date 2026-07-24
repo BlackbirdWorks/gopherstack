@@ -47,6 +47,13 @@ func TestInMemoryBackend_GetCredentialsForIdentity(t *testing.T) {
 				)
 				require.NoError(t, poolErr)
 
+				require.NoError(t, b.SetIdentityPoolRoles(
+					context.Background(),
+					pool.IdentityPoolID,
+					"", "arn:aws:iam::000000000000:role/UnauthRole",
+					nil,
+				))
+
 				identity, idErr := b.GetID(
 					context.Background(),
 					pool.IdentityPoolID,
@@ -210,6 +217,161 @@ func TestInMemoryBackend_GetOpenIDTokenForDeveloperIdentity_InvalidDuration(
 	}
 }
 
+// TestInMemoryBackend_GetOpenIDTokenForDeveloperIdentity_LinksExistingIdentity verifies AWS's
+// documented behavior: "you can...link new logins...to an existing...identity, by providing
+// the existing IdentityId." Supplying an existing IdentityId together with a new developer
+// login must attach that login to the identity, not silently ignore it.
+func TestInMemoryBackend_GetOpenIDTokenForDeveloperIdentity_LinksExistingIdentity(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"link-dev-pool",
+		true,
+		false,
+		"developer.example.com",
+		nil,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+
+	// An identity that has no developer login yet.
+	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "", nil)
+	require.NoError(t, err)
+
+	token, err := b.GetOpenIDTokenForDeveloperIdentity(context.Background(),
+		pool.IdentityPoolID,
+		identity.IdentityID,
+		map[string]string{"developer.example.com": "user-linked"},
+		0,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, identity.IdentityID, token.IdentityID)
+
+	desc, err := b.DescribeIdentity(context.Background(), identity.IdentityID)
+	require.NoError(t, err)
+	assert.Contains(t, desc.Logins, "developer.example.com",
+		"developer login supplied alongside an explicit IdentityId must be linked")
+}
+
+// TestInMemoryBackend_GetOpenIDTokenForDeveloperIdentity_AlreadyRegistered verifies that
+// attempting to link a developer user identifier that's already registered to a *different*
+// identity in the pool returns DeveloperUserAlreadyRegisteredException, per AWS semantics.
+func TestInMemoryBackend_GetOpenIDTokenForDeveloperIdentity_AlreadyRegistered(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"already-reg-pool",
+		true,
+		false,
+		"developer.example.com",
+		nil,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+
+	// devA is already registered under "user-taken".
+	devA, err := b.GetOpenIDTokenForDeveloperIdentity(context.Background(),
+		pool.IdentityPoolID,
+		"",
+		map[string]string{"developer.example.com": "user-taken"},
+		0,
+	)
+	require.NoError(t, err)
+
+	// A second, distinct identity.
+	identityB, err := b.GetID(context.Background(), pool.IdentityPoolID, "", nil)
+	require.NoError(t, err)
+	require.NotEqual(t, devA.IdentityID, identityB.IdentityID)
+
+	// Attempting to link "user-taken" onto identityB must be rejected.
+	_, err = b.GetOpenIDTokenForDeveloperIdentity(context.Background(),
+		pool.IdentityPoolID,
+		identityB.IdentityID,
+		map[string]string{"developer.example.com": "user-taken"},
+		0,
+	)
+	require.ErrorIs(t, err, cognitoidentity.ErrDeveloperUserAlreadyRegistered)
+
+	// identityB must not have been mutated by the rejected link attempt.
+	desc, err := b.DescribeIdentity(context.Background(), identityB.IdentityID)
+	require.NoError(t, err)
+	assert.NotContains(t, desc.Logins, "developer.example.com")
+}
+
+// TestInMemoryBackend_GetCredentialsForIdentity_InvalidIdentityPoolConfiguration verifies
+// that GetCredentialsForIdentity rejects requests against a pool with no IAM role configured
+// for the identity's auth state, matching AWS's InvalidIdentityPoolConfigurationException.
+func TestInMemoryBackend_GetCredentialsForIdentity_InvalidIdentityPoolConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		configureRoles func(t *testing.T, b *cognitoidentity.InMemoryBackend, poolID string)
+		logins         map[string]string
+		name           string
+	}{
+		{
+			name:   "no_roles_configured_at_all",
+			logins: nil,
+		},
+		{
+			name:   "unauthenticated_but_only_authenticated_role_set",
+			logins: nil,
+			configureRoles: func(t *testing.T, b *cognitoidentity.InMemoryBackend, poolID string) {
+				t.Helper()
+				require.NoError(t, b.SetIdentityPoolRoles(
+					context.Background(), poolID,
+					"arn:aws:iam::000000000000:role/AuthRole", "",
+					nil,
+				))
+			},
+		},
+		{
+			name:   "authenticated_but_only_unauthenticated_role_set",
+			logins: map[string]string{"accounts.google.com": "google-token"},
+			configureRoles: func(t *testing.T, b *cognitoidentity.InMemoryBackend, poolID string) {
+				t.Helper()
+				require.NoError(t, b.SetIdentityPoolRoles(
+					context.Background(), poolID,
+					"", "arn:aws:iam::000000000000:role/UnauthRole",
+					nil,
+				))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			pool, err := b.CreateIdentityPool(
+				context.Background(), "bad-config-"+tt.name, true, false, "", nil, nil, nil,
+			)
+			require.NoError(t, err)
+
+			if tt.configureRoles != nil {
+				tt.configureRoles(t, b, pool.IdentityPoolID)
+			}
+
+			identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "", tt.logins)
+			require.NoError(t, err)
+
+			_, err = b.GetCredentialsForIdentity(context.Background(), identity.IdentityID, tt.logins)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, cognitoidentity.ErrInvalidIdentityPoolConfiguration)
+		})
+	}
+}
+
 func TestInMemoryBackend_RandomAlphanumeric_NoBias(t *testing.T) {
 	t.Parallel()
 
@@ -282,6 +444,13 @@ func TestGetCredentialsForIdentity_MatchingLogins(t *testing.T) {
 	pool, err := b.CreateIdentityPool(context.Background(), "creds-pool-3", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
 
+	require.NoError(t, b.SetIdentityPoolRoles(
+		context.Background(),
+		pool.IdentityPoolID,
+		"arn:aws:iam::000000000000:role/AuthRole", "",
+		nil,
+	))
+
 	logins := map[string]string{"accounts.google.com": "real-token"}
 	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", logins)
 	require.NoError(t, err)
@@ -298,6 +467,13 @@ func TestGetCredentialsForIdentity_NilLogins(t *testing.T) {
 
 	pool, err := b.CreateIdentityPool(context.Background(), "creds-pool-nil", true, false, "", nil, nil, nil)
 	require.NoError(t, err)
+
+	require.NoError(t, b.SetIdentityPoolRoles(
+		context.Background(),
+		pool.IdentityPoolID,
+		"", "arn:aws:iam::000000000000:role/UnauthRole",
+		nil,
+	))
 
 	identity, err := b.GetID(context.Background(), pool.IdentityPoolID, "000000000000", nil)
 	require.NoError(t, err)
@@ -362,6 +538,14 @@ func TestGetCredentialsForIdentity_EmptyLoginsBypass(t *testing.T) {
 				nil,
 			)
 			require.NoError(t, err)
+
+			require.NoError(t, b.SetIdentityPoolRoles(
+				context.Background(),
+				pool.IdentityPoolID,
+				"arn:aws:iam::000000000000:role/AuthRole",
+				"arn:aws:iam::000000000000:role/UnauthRole",
+				nil,
+			))
 
 			identity, err := b.GetID(
 				context.Background(),

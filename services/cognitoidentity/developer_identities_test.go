@@ -278,6 +278,72 @@ func TestInMemoryBackend_UnlinkDeveloperIdentity(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_LookupDeveloperIdentity_BothSupplied covers AWS's documented
+// dual-lookup semantics: if you supply both IdentityId and DeveloperUserIdentifier,
+// DeveloperUserIdentifier is matched against IdentityId; otherwise a
+// ResourceConflictException is thrown.
+func TestInMemoryBackend_LookupDeveloperIdentity_BothSupplied(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateIdentityPool(
+		context.Background(),
+		"lookup-both-pool",
+		true,
+		false,
+		"",
+		nil,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+
+	devA, err := b.GetOpenIDTokenForDeveloperIdentity(context.Background(),
+		pool.IdentityPoolID,
+		"",
+		map[string]string{"developer.example.com": "user-a"},
+		0,
+	)
+	require.NoError(t, err)
+
+	devB, err := b.GetOpenIDTokenForDeveloperIdentity(context.Background(),
+		pool.IdentityPoolID,
+		"",
+		map[string]string{"developer.example.com": "user-b"},
+		0,
+	)
+	require.NoError(t, err)
+	require.NotEqual(t, devA.IdentityID, devB.IdentityID)
+
+	t.Run("matching_pair_succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		result, lookupErr := b.LookupDeveloperIdentity(context.Background(),
+			pool.IdentityPoolID,
+			devA.IdentityID,
+			"user-a",
+			"developer.example.com",
+		)
+		require.NoError(t, lookupErr)
+		assert.Equal(t, devA.IdentityID, result.IdentityID)
+		assert.Contains(t, result.DeveloperUserIdentifierList, "user-a")
+	})
+
+	t.Run("mismatched_pair_returns_resource_conflict", func(t *testing.T) {
+		t.Parallel()
+
+		_, lookupErr := b.LookupDeveloperIdentity(context.Background(),
+			pool.IdentityPoolID,
+			devA.IdentityID,
+			"user-b",
+			"developer.example.com",
+		)
+		require.Error(t, lookupErr)
+		assert.ErrorIs(t, lookupErr, cognitoidentity.ErrResourceConflict)
+	})
+}
+
 func TestInMemoryBackend_LookupDeveloperIdentity_EmptyPoolID(t *testing.T) {
 	t.Parallel()
 

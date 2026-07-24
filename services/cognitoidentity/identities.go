@@ -290,7 +290,10 @@ func (b *InMemoryBackend) ListIdentities(
 }
 
 // LookupDeveloperIdentity retrieves the identity associated with a developer user identifier
-// or the list of developer user identifiers associated with an identity.
+// or the list of developer user identifiers associated with an identity. Per AWS semantics,
+// if you supply only one of IdentityId/DeveloperUserIdentifier, the other is looked up and
+// returned; if you supply both, DeveloperUserIdentifier is verified against IdentityId and a
+// ResourceConflictException is returned when they do not match.
 func (b *InMemoryBackend) LookupDeveloperIdentity(
 	ctx context.Context,
 	poolID string,
@@ -302,6 +305,13 @@ func (b *InMemoryBackend) LookupDeveloperIdentity(
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
+	if identityID == "" && developerUserIdentifier == "" {
+		return nil, fmt.Errorf(
+			"%w: either IdentityId or DeveloperUserIdentifier must be provided",
+			ErrInvalidParameter,
+		)
+	}
+
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("LookupDeveloperIdentity")
@@ -311,43 +321,69 @@ func (b *InMemoryBackend) LookupDeveloperIdentity(
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
+	var byID *Identity
+
 	if identityID != "" {
 		identity, ok := b.identityGet(region, identityID)
 		if !ok {
 			return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 		}
 
-		devIDs := developerLoginsFrom(identity.Logins, developerProviderName)
-
-		return &LookupDeveloperIdentityResult{
-			IdentityID:                  identity.IdentityID,
-			DeveloperUserIdentifierList: devIDs,
-		}, nil
+		byID = identity
 	}
+
+	var byDeveloperID *Identity
 
 	if developerUserIdentifier != "" {
 		for _, identity := range b.identitiesInPool(region, poolID) {
 			if v, ok := identity.Logins[developerProviderName]; ok && v == developerUserIdentifier {
-				devIDs := developerLoginsFrom(identity.Logins, developerProviderName)
+				byDeveloperID = identity
 
-				return &LookupDeveloperIdentityResult{
-					IdentityID:                  identity.IdentityID,
-					DeveloperUserIdentifierList: devIDs,
-				}, nil
+				break
 			}
 		}
 
-		return nil, fmt.Errorf(
-			"%w: developer user identifier %q not found",
-			ErrIdentityPoolNotFound,
-			developerUserIdentifier,
-		)
+		if byDeveloperID == nil {
+			return nil, fmt.Errorf(
+				"%w: developer user identifier %q not found",
+				ErrIdentityPoolNotFound,
+				developerUserIdentifier,
+			)
+		}
 	}
 
-	return nil, fmt.Errorf(
-		"%w: either IdentityId or DeveloperUserIdentifier must be provided",
-		ErrInvalidParameter,
-	)
+	identity, err := reconcileLookupMatch(byID, byDeveloperID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LookupDeveloperIdentityResult{
+		IdentityID:                  identity.IdentityID,
+		DeveloperUserIdentifierList: developerLoginsFrom(identity.Logins, developerProviderName),
+	}, nil
+}
+
+// reconcileLookupMatch resolves LookupDeveloperIdentity's dual-lookup result: when only one
+// of byID/byDeveloperID is non-nil, that one wins; when both are supplied they must refer to
+// the same identity, per AWS's documented "DeveloperUserIdentifier will be matched against
+// IdentityId... Otherwise, a ResourceConflictException is thrown" behavior.
+func reconcileLookupMatch(byID, byDeveloperID *Identity) (*Identity, error) {
+	switch {
+	case byID != nil && byDeveloperID != nil:
+		if byID.IdentityID != byDeveloperID.IdentityID {
+			return nil, fmt.Errorf(
+				"%w: developer user identifier does not match identity %q",
+				ErrResourceConflict,
+				byID.IdentityID,
+			)
+		}
+
+		return byID, nil
+	case byID != nil:
+		return byID, nil
+	default:
+		return byDeveloperID, nil
+	}
 }
 
 // developerLoginsFrom extracts developer user identifiers from a logins map.

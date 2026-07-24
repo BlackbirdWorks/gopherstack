@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"maps"
 	"time"
 )
 
@@ -48,6 +49,14 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(
 				provider,
 			)
 		}
+	}
+
+	// AWS returns InvalidIdentityPoolConfigurationException when the pool has no IAM role
+	// configured for the identity's auth state (authenticated vs. unauthenticated) -- there
+	// would be nothing for GetCredentialsForIdentity to hand out credentials for.
+	authenticated := len(logins) > 0
+	if err := b.checkRoleConfigured(region, identity.IdentityPoolID, authenticated); err != nil {
+		return nil, err
 	}
 
 	expiry := time.Now().Add(credentialsExpirySeconds * time.Second)
@@ -132,17 +141,24 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 	b.mu.Lock("GetOpenIDTokenForDeveloperIdentity")
 	defer b.mu.Unlock()
 
-	if _, ok := b.poolGet(region, poolID); !ok {
+	pool, ok := b.poolGet(region, poolID)
+	if !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
 	if identityID != "" {
-		if _, ok := b.identityGet(region, identityID); !ok {
+		identity, identityOK := b.identityGet(region, identityID)
+		if !identityOK {
 			return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 		}
-	}
 
-	if identityID == "" {
+		// Per AWS: "you can also...link new logins...to an existing...identity, by
+		// providing the existing IdentityId." Link the supplied logins into it, after
+		// rejecting a developer user identifier that's already claimed elsewhere.
+		if err := b.linkDeveloperLogins(region, pool, identity, logins); err != nil {
+			return nil, err
+		}
+	} else {
 		identityID = b.lookupOrCreateDeveloperIdentity(region, poolID, logins)
 	}
 
@@ -157,6 +173,94 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 		IdentityID: identityID,
 		Token:      token,
 	}, nil
+}
+
+// checkRoleConfigured returns ErrInvalidIdentityPoolConfiguration if poolID has no IAM role
+// mapped for the given auth state (authenticated vs. unauthenticated). Must be called with
+// b.mu held (read or write).
+func (b *InMemoryBackend) checkRoleConfigured(region, poolID string, authenticated bool) error {
+	roles, ok := b.rolesGet(region, poolID)
+	if !ok {
+		return fmt.Errorf(
+			"%w: identity pool %q has no IAM roles configured",
+			ErrInvalidIdentityPoolConfiguration, poolID,
+		)
+	}
+
+	roleARN := roles.UnauthenticatedRoleARN
+	if authenticated {
+		roleARN = roles.AuthenticatedRoleARN
+	}
+
+	if roleARN == "" {
+		return fmt.Errorf(
+			"%w: identity pool %q has no IAM role configured for this identity's auth state",
+			ErrInvalidIdentityPoolConfiguration, poolID,
+		)
+	}
+
+	return nil
+}
+
+// linkDeveloperLogins merges logins into identity, in place, rejecting the request with
+// ErrDeveloperUserAlreadyRegistered when the pool's developer-provider login supplied in
+// logins is already linked to a different identity in the pool. Must be called with b.mu
+// (write) held.
+func (b *InMemoryBackend) linkDeveloperLogins(
+	region string,
+	pool *IdentityPool,
+	identity *Identity,
+	logins map[string]string,
+) error {
+	if err := b.checkDeveloperUserNotRegisteredElsewhere(region, pool, identity, logins); err != nil {
+		return err
+	}
+
+	if len(logins) > 0 {
+		if identity.Logins == nil {
+			identity.Logins = make(map[string]string)
+		}
+
+		maps.Copy(identity.Logins, logins)
+		identity.LastModifiedDate = time.Now()
+	}
+
+	return nil
+}
+
+// checkDeveloperUserNotRegisteredElsewhere returns ErrDeveloperUserAlreadyRegistered when
+// logins carries pool's developer-provider login and that developer user identifier is
+// already linked to an identity other than identity. A no-op when the pool has no developer
+// provider configured, or logins doesn't carry it. Must be called with b.mu held.
+func (b *InMemoryBackend) checkDeveloperUserNotRegisteredElsewhere(
+	region string,
+	pool *IdentityPool,
+	identity *Identity,
+	logins map[string]string,
+) error {
+	if pool.DeveloperProviderName == "" {
+		return nil
+	}
+
+	devUserID, requested := logins[pool.DeveloperProviderName]
+	if !requested {
+		return nil
+	}
+
+	for _, other := range b.identitiesInPool(region, pool.IdentityPoolID) {
+		if other.IdentityID == identity.IdentityID {
+			continue
+		}
+
+		if registered, exists := other.Logins[pool.DeveloperProviderName]; exists && registered == devUserID {
+			return fmt.Errorf(
+				"%w: developer user identifier %q is already registered to identity %q",
+				ErrDeveloperUserAlreadyRegistered, devUserID, other.IdentityID,
+			)
+		}
+	}
+
+	return nil
 }
 
 // randomAlphanumeric returns a random alphanumeric string of length n.
