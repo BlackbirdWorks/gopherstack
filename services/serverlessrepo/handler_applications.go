@@ -15,14 +15,50 @@ type createApplicationRequest struct {
 	Description          string   `json:"description"`
 	Author               string   `json:"author"`
 	HomePageURL          string   `json:"homePageUrl"`
+	LicenseBody          string   `json:"licenseBody"`
 	LicenseURL           string   `json:"licenseUrl"`
+	ReadmeBody           string   `json:"readmeBody"`
 	ReadmeURL            string   `json:"readmeUrl"`
 	SpdxLicenseID        string   `json:"spdxLicenseId"`
 	SourceCodeURL        string   `json:"sourceCodeUrl"`
 	SourceCodeArchiveURL string   `json:"sourceCodeArchiveUrl"`
+	TemplateBody         string   `json:"templateBody"`
 	TemplateURL          string   `json:"templateUrl"`
 	SemanticVersion      string   `json:"semanticVersion"`
 	Labels               []string `json:"labels"`
+}
+
+// resolveCreateApplicationBodies validates the licenseBody/licenseUrl, readmeBody/readmeUrl,
+// and templateBody/templateUrl mutual-exclusivity constraints documented on the real AWS SAR
+// CreateApplicationInput ("You can specify only one of X and Y; otherwise, an error results")
+// and, when only the *Body variant is given, synthesizes the *Url the real service would
+// return after uploading the inline content to S3.
+func resolveCreateApplicationBodies(req *createApplicationRequest) error {
+	if req.LicenseBody != "" {
+		if req.LicenseURL != "" {
+			return fmt.Errorf("%w: only one of licenseBody and licenseUrl may be specified", ErrValidation)
+		}
+
+		req.LicenseURL = synthesizeLicenseURL(req.Name)
+	}
+
+	if req.ReadmeBody != "" {
+		if req.ReadmeURL != "" {
+			return fmt.Errorf("%w: only one of readmeBody and readmeUrl may be specified", ErrValidation)
+		}
+
+		req.ReadmeURL = synthesizeReadmeURL(req.Name)
+	}
+
+	if req.TemplateBody != "" {
+		if req.TemplateURL != "" {
+			return fmt.Errorf("%w: only one of templateBody and templateUrl may be specified", ErrValidation)
+		}
+
+		req.TemplateURL = synthesizeTemplateURL(req.Name, req.SemanticVersion)
+	}
+
+	return nil
 }
 
 // versionResponse represents the SAR Version type in API responses.
@@ -118,6 +154,10 @@ func (h *Handler) handleCreateApplication(ctx context.Context, body []byte) ([]b
 	var req createApplicationRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := resolveCreateApplicationBodies(&req); err != nil {
+		return nil, err
 	}
 
 	a, err := h.Backend.CreateApplication(
@@ -258,6 +298,7 @@ type updateApplicationRequest struct {
 	Description string   `json:"description"`
 	Author      string   `json:"author"`
 	HomePageURL string   `json:"homePageUrl"`
+	ReadmeBody  string   `json:"readmeBody"`
 	ReadmeURL   string   `json:"readmeUrl"`
 	Labels      []string `json:"labels"`
 }
@@ -271,6 +312,18 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request
 	var updateReq updateApplicationRequest
 	if err := json.Unmarshal(body, &updateReq); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	// Real AWS SAR accepts only one of readmeBody and readmeUrl on UpdateApplication;
+	// specifying both is a BadRequestException. When only readmeBody is given, AWS uploads its
+	// content to S3 and returns that generated location as readmeUrl; gopherstack emulates
+	// that S3 upload with a deterministic synthesized URL.
+	if updateReq.ReadmeBody != "" {
+		if updateReq.ReadmeURL != "" {
+			return nil, fmt.Errorf("%w: only one of readmeBody and readmeUrl may be specified", ErrValidation)
+		}
+
+		updateReq.ReadmeURL = synthesizeReadmeURL(name)
 	}
 
 	a, err := h.Backend.UpdateApplication(

@@ -178,6 +178,59 @@ func TestCreateApplicationVersion_TemplateURLOnly(t *testing.T) {
 	assert.Equal(t, "s3://bucket/tmpl.yaml", resp["templateUrl"])
 }
 
+// TestCreateApplicationVersion_TemplateBody locks CreateApplicationVersion's handling of the
+// templateBody wire field (aws-sdk-go-v2's CreateApplicationVersionInput.TemplateBody): it is
+// accepted as an alternative to templateUrl, satisfies the "at least one of sourceCodeUrl,
+// sourceCodeArchiveUrl or templateUrl" requirement on its own, and synthesizes a templateUrl
+// as the real service would after uploading the inline content to S3. Supplying both
+// templateBody and templateUrl is a BadRequestException per the real API doc.
+func TestCreateApplicationVersion_TemplateBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		appName  string
+		wantCode int
+	}{
+		{
+			name:     "templateBody alone satisfies the required-field check and synthesizes templateUrl",
+			appName:  "tbody-alone-app",
+			body:     map[string]any{"templateBody": "AWSTemplateFormatVersion: '2010-09-09'"},
+			wantCode: http.StatusCreated,
+		},
+		{
+			name:    "templateBody and templateUrl together is a bad request",
+			appName: "tbody-both-app",
+			body: map[string]any{
+				"templateBody": "AWSTemplateFormatVersion: '2010-09-09'",
+				"templateUrl":  "s3://bucket/template.yaml",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_, err := h.Backend.CreateApplication(tt.appName, "desc", "author", "", "", nil, "", "", "")
+			require.NoError(t, err)
+
+			path := "/applications/" + tt.appName + "/versions/1.0.0"
+			rec := doServerlessRepoRequest(t, h, http.MethodPut, path, tt.body)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusCreated {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["templateUrl"])
+			}
+		})
+	}
+}
+
 func TestCreateApplicationVersion_DuplicateReturns409(t *testing.T) {
 	t.Parallel()
 
@@ -437,7 +490,13 @@ func TestListApplicationVersions_PaginationNextToken(t *testing.T) {
 	assert.Nil(t, r2["nextToken"])
 }
 
-func TestListApplicationVersions_ResourcesSupported(t *testing.T) {
+// TestListApplicationVersions_SummaryShape locks the ListApplicationVersions summary to
+// exactly the real AWS SAR VersionSummary shape (applicationId, creationTime,
+// semanticVersion, sourceCodeUrl -- see
+// aws-sdk-go-v2/service/serverlessapplicationrepository/types.VersionSummary). It must NOT
+// include resourcesSupported: that field only exists on the full Version shape returned by
+// GetApplication/CreateApplication/CreateApplicationVersion, not on VersionSummary.
+func TestListApplicationVersions_SummaryShape(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -457,9 +516,13 @@ func TestListApplicationVersions_ResourcesSupported(t *testing.T) {
 	require.Len(t, versions, 1)
 
 	v := versions[0].(map[string]any)
-	resourcesSupported, exists := v["resourcesSupported"]
-	assert.True(t, exists, "resourcesSupported must be present in version list summary")
-	assert.Equal(t, true, resourcesSupported)
+	assert.Equal(t, "1.0.0", v["semanticVersion"])
+	assert.Equal(t, "https://example.com", v["sourceCodeUrl"])
+	assert.NotEmpty(t, v["applicationId"])
+	assert.NotEmpty(t, v["creationTime"])
+
+	_, exists := v["resourcesSupported"]
+	assert.False(t, exists, "resourcesSupported is not part of the real VersionSummary shape and must not be emitted")
 }
 
 func TestListApplicationVersions_ARNForm(t *testing.T) {
