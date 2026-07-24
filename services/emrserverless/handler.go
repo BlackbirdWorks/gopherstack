@@ -35,6 +35,7 @@ const (
 	keyReleaseLabel  = "releaseLabel"
 	keyStateDetails  = "stateDetails"
 	keySessionID     = "sessionId"
+	keyCreatedBy     = "createdBy"
 )
 
 const (
@@ -512,6 +513,9 @@ func applicationToMap(app *Application) map[string]any {
 	if app.Architecture != "" {
 		m["architecture"] = app.Architecture
 	}
+	if app.StateDetails != "" {
+		m[keyStateDetails] = app.StateDetails
+	}
 
 	maps.Copy(m, app.ExtraConfig)
 
@@ -524,19 +528,25 @@ func applicationToMap(app *Application) map[string]any {
 // Tags are always included (as an empty map if none are set).
 func jobRunToMap(jr *JobRun) map[string]any {
 	m := map[string]any{
-		keyApplicationID:   jr.ApplicationID,
-		"jobRunId":         jr.JobRunID,
-		"id":               jr.JobRunID, // JobRunSummary.id in AWS SDK ListJobRuns response
-		keyArn:             jr.Arn,
-		keyName:            jr.Name,
-		keyState:           jr.State,
-		keyStateDetails:    jr.StateDetails,
-		"mode":             jr.Mode,
-		"executionRoleArn": jr.ExecutionRoleArn,
-		keyCreatedAt:       epochSeconds(jr.CreatedAt),
-		keyUpdatedAt:       epochSeconds(jr.UpdatedAt),
-		keyTags:            jr.Tags,
-		"attempt":          0,
+		keyApplicationID: jr.ApplicationID,
+		"jobRunId":       jr.JobRunID,
+		"id":             jr.JobRunID, // JobRunSummary.id in AWS SDK ListJobRuns response
+		keyArn:           jr.Arn,
+		keyName:          jr.Name,
+		keyState:         jr.State,
+		keyStateDetails:  jr.StateDetails,
+		"mode":           jr.Mode,
+		// The response wire field is "executionRole" (types.JobRun.ExecutionRole /
+		// types.JobRunSummary.ExecutionRole), NOT "executionRoleArn" -- that name
+		// is only used on the StartJobRunInput *request* body. Confirmed against
+		// deserializeDocumentJobRun / deserializeDocumentJobRunSummary.
+		"executionRole":           jr.ExecutionRoleArn,
+		keyCreatedBy:              jr.CreatedBy,
+		"executionTimeoutMinutes": jr.ExecutionTimeoutMinutes,
+		keyCreatedAt:              epochSeconds(jr.CreatedAt),
+		keyUpdatedAt:              epochSeconds(jr.UpdatedAt),
+		keyTags:                   jr.Tags,
+		"attempt":                 0,
 	}
 	if jr.ReleaseLabel != "" {
 		m[keyReleaseLabel] = jr.ReleaseLabel
@@ -546,6 +556,12 @@ func jobRunToMap(jr *JobRun) map[string]any {
 	}
 	if jr.ConfigurationOverrides != nil {
 		m["configurationOverrides"] = jr.ConfigurationOverrides
+	}
+	if jr.ExecutionIamPolicy != nil {
+		m["executionIamPolicy"] = jr.ExecutionIamPolicy
+	}
+	if jr.RetryPolicy != nil {
+		m["retryPolicy"] = jr.RetryPolicy
 	}
 
 	return m
@@ -563,21 +579,25 @@ func jobRunToMap(jr *JobRun) map[string]any {
 // named) in createApplicationBody/updateApplicationBody so its JSON tags are
 // promoted to the top level of the request body.
 type applicationConfigFields struct {
-	InitialCapacity          any `json:"initialCapacity,omitempty"`
-	MaximumCapacity          any `json:"maximumCapacity,omitempty"`
-	AutoStartConfiguration   any `json:"autoStartConfiguration,omitempty"`
-	AutoStopConfiguration    any `json:"autoStopConfiguration,omitempty"`
-	NetworkConfiguration     any `json:"networkConfiguration,omitempty"`
-	ImageConfiguration       any `json:"imageConfiguration,omitempty"`
-	MonitoringConfiguration  any `json:"monitoringConfiguration,omitempty"`
-	WorkerTypeSpecifications any `json:"workerTypeSpecifications,omitempty"`
-	RuntimeConfiguration     any `json:"runtimeConfiguration,omitempty"`
-	InteractiveConfiguration any `json:"interactiveConfiguration,omitempty"`
+	InitialCapacity                     any `json:"initialCapacity,omitempty"`
+	MaximumCapacity                     any `json:"maximumCapacity,omitempty"`
+	AutoStartConfiguration              any `json:"autoStartConfiguration,omitempty"`
+	AutoStopConfiguration               any `json:"autoStopConfiguration,omitempty"`
+	NetworkConfiguration                any `json:"networkConfiguration,omitempty"`
+	ImageConfiguration                  any `json:"imageConfiguration,omitempty"`
+	MonitoringConfiguration             any `json:"monitoringConfiguration,omitempty"`
+	WorkerTypeSpecifications            any `json:"workerTypeSpecifications,omitempty"`
+	RuntimeConfiguration                any `json:"runtimeConfiguration,omitempty"`
+	InteractiveConfiguration            any `json:"interactiveConfiguration,omitempty"`
+	IdentityCenterConfiguration         any `json:"identityCenterConfiguration,omitempty"`
+	DiskEncryptionConfiguration         any `json:"diskEncryptionConfiguration,omitempty"`
+	JobLevelCostAllocationConfiguration any `json:"jobLevelCostAllocationConfiguration,omitempty"`
+	SchedulerConfiguration              any `json:"schedulerConfiguration,omitempty"`
 }
 
 // applicationConfigFieldCount is the number of sub-object fields in
 // applicationConfigFields, used to size the map toMap builds.
-const applicationConfigFieldCount = 10
+const applicationConfigFieldCount = 14
 
 // toMap returns the subset of fields present in the request, keyed by their
 // AWS wire field name, ready to merge into Application.ExtraConfig.
@@ -600,6 +620,10 @@ func (f applicationConfigFields) toMap() map[string]any {
 	add("workerTypeSpecifications", f.WorkerTypeSpecifications)
 	add("runtimeConfiguration", f.RuntimeConfiguration)
 	add("interactiveConfiguration", f.InteractiveConfiguration)
+	add("identityCenterConfiguration", f.IdentityCenterConfiguration)
+	add("diskEncryptionConfiguration", f.DiskEncryptionConfiguration)
+	add("jobLevelCostAllocationConfiguration", f.JobLevelCostAllocationConfiguration)
+	add("schedulerConfiguration", f.SchedulerConfiguration)
 
 	return m
 }
@@ -752,13 +776,16 @@ func (h *Handler) handleStopApplication(c *echo.Context, applicationID string) e
 // --- JobRun handlers ---
 
 type startJobRunBody struct {
-	Tags                   map[string]string `json:"tags"`
-	JobDriver              any               `json:"jobDriver"`
-	ConfigurationOverrides any               `json:"configurationOverrides"`
-	ExecutionRoleArn       string            `json:"executionRoleArn"`
-	Name                   string            `json:"name"`
-	Mode                   string            `json:"mode"`
-	ClientToken            string            `json:"clientToken"`
+	Tags                    map[string]string `json:"tags"`
+	JobDriver               any               `json:"jobDriver"`
+	ConfigurationOverrides  any               `json:"configurationOverrides"`
+	ExecutionIamPolicy      any               `json:"executionIamPolicy"`
+	RetryPolicy             any               `json:"retryPolicy"`
+	ExecutionRoleArn        string            `json:"executionRoleArn"`
+	Name                    string            `json:"name"`
+	Mode                    string            `json:"mode"`
+	ClientToken             string            `json:"clientToken"`
+	ExecutionTimeoutMinutes int64             `json:"executionTimeoutMinutes"`
 }
 
 type startJobRunResponse struct {
@@ -777,9 +804,12 @@ func (h *Handler) handleStartJobRun(c *echo.Context, applicationID string, body 
 
 	jr, err := h.Backend.StartJobRun(applicationID, in.ExecutionRoleArn, in.Name, in.Mode, in.Tags,
 		StartJobRunOptions{
-			ClientToken:            in.ClientToken,
-			JobDriver:              in.JobDriver,
-			ConfigurationOverrides: in.ConfigurationOverrides,
+			ClientToken:             in.ClientToken,
+			JobDriver:               in.JobDriver,
+			ConfigurationOverrides:  in.ConfigurationOverrides,
+			ExecutionIamPolicy:      in.ExecutionIamPolicy,
+			RetryPolicy:             in.RetryPolicy,
+			ExecutionTimeoutMinutes: in.ExecutionTimeoutMinutes,
 		})
 	if err != nil {
 		return h.handleError(c, err)
@@ -876,7 +906,7 @@ func jobRunAttemptToMap(a *JobRunAttemptSummary) map[string]any {
 		keyCreatedAt:     epochSeconds(a.CreatedAt),
 		keyUpdatedAt:     epochSeconds(a.UpdatedAt),
 		"jobCreatedAt":   epochSeconds(a.JobCreatedAt),
-		"createdBy":      a.CreatedBy,
+		keyCreatedBy:     a.CreatedBy,
 		"executionRole":  a.ExecutionRole,
 		"id":             a.ID,
 		"releaseLabel":   a.ReleaseLabel,

@@ -201,7 +201,7 @@ func (b *InMemoryBackend) StartApplication(id string) error {
 	switch app.State {
 	case ApplicationStateStarted:
 		return fmt.Errorf("%w: application %s is already in STARTED state", ErrInvalidState, id)
-	case ApplicationStateTerminated, ApplicationStateTerminatedWithError:
+	case ApplicationStateTerminated:
 		return fmt.Errorf(
 			"%w: application %s cannot be started from state %s",
 			ErrInvalidState, id, app.State,
@@ -230,7 +230,7 @@ func (b *InMemoryBackend) StopApplication(id string) error {
 	}
 
 	switch app.State {
-	case ApplicationStateStopped, ApplicationStateTerminated, ApplicationStateTerminatedWithError:
+	case ApplicationStateStopped, ApplicationStateTerminated:
 		return fmt.Errorf("%w: application %s is already in %s state", ErrInvalidState, id, app.State)
 	}
 

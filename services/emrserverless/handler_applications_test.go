@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -476,6 +477,105 @@ func TestHandler_CreateApplication_ConfigPassthrough(t *testing.T) {
 	app := out["application"].(map[string]any)
 	assert.Equal(t, maxCapacity, app["maximumCapacity"])
 	assert.Equal(t, autoStop, app["autoStopConfiguration"])
+}
+
+// TestHandler_CreateApplication_ExtendedConfigPassthrough verifies the four
+// application configuration sub-objects added to applicationConfigFields
+// this pass (identityCenterConfiguration, diskEncryptionConfiguration,
+// jobLevelCostAllocationConfiguration, schedulerConfiguration -- all real
+// fields on types.CreateApplicationInput/types.Application per the SDK, but
+// previously silently dropped like maximumCapacity/autoStopConfiguration
+// were before an earlier pass) round-trip through CreateApplication ->
+// GetApplication instead of being discarded.
+func TestHandler_CreateApplication_ExtendedConfigPassthrough(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	identityCenter := map[string]any{"identityCenterInstanceArn": "arn:aws:sso:::instance/ssoins-1"}
+	diskEncryption := map[string]any{"encryptionKeyArn": "arn:aws:kms:us-east-1:000000000000:key/abc"}
+	jobLevelCost := map[string]any{"enabled": true}
+	scheduler := map[string]any{"maxConcurrentRuns": float64(15), "queueTimeoutMinutes": float64(360)}
+
+	rec := doRequest(t, h, http.MethodPost, "/applications", map[string]any{
+		"name":                                "extended-config-app",
+		"type":                                "SPARK",
+		"releaseLabel":                        "emr-7.0.0",
+		"identityCenterConfiguration":         identityCenter,
+		"diskEncryptionConfiguration":         diskEncryption,
+		"jobLevelCostAllocationConfiguration": jobLevelCost,
+		"schedulerConfiguration":              scheduler,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created map[string]string
+	mustUnmarshal(t, rec, &created)
+
+	getRec := doRequest(t, h, http.MethodGet, "/applications/"+created["applicationId"], nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, getRec, &out)
+	app := out["application"].(map[string]any)
+	assert.Equal(t, identityCenter, app["identityCenterConfiguration"])
+	assert.Equal(t, diskEncryption, app["diskEncryptionConfiguration"])
+	assert.Equal(t, jobLevelCost, app["jobLevelCostAllocationConfiguration"])
+	assert.Equal(t, scheduler, app["schedulerConfiguration"])
+}
+
+// TestHandler_ApplicationToMap_StateDetails verifies stateDetails is echoed
+// on GetApplication when set (types.Application.StateDetails is a real,
+// optional response field) and omitted from the wire body when empty --
+// matching the same present-if-non-empty convention already used for
+// architecture.
+func TestHandler_ApplicationToMap_StateDetails(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		stateDetails string
+		wantPresent  bool
+	}{
+		{name: "set", stateDetails: "Application failed to start: insufficient capacity", wantPresent: true},
+		{name: "empty", stateDetails: "", wantPresent: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := emrserverless.NewInMemoryBackend("000000000000", "us-east-1")
+			h := emrserverless.NewHandler(b)
+
+			now := time.Now().UTC()
+			app := &emrserverless.Application{
+				ApplicationID: "app-state-details",
+				Arn:           "arn:aws:emr-serverless:us-east-1:000000000000:/applications/app-state-details",
+				Name:          "state-details-app",
+				Type:          "SPARK",
+				ReleaseLabel:  "emr-6.6.0",
+				State:         emrserverless.ApplicationStateCreated,
+				StateDetails:  tt.stateDetails,
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			}
+			b.AddApplicationInternal(app)
+
+			rec := doRequest(t, h, http.MethodGet, "/applications/"+app.ApplicationID, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+			got := out["application"].(map[string]any)
+
+			if tt.wantPresent {
+				assert.Equal(t, tt.stateDetails, got["stateDetails"])
+			} else {
+				_, present := got["stateDetails"]
+				assert.False(t, present, "stateDetails should be absent when empty")
+			}
+		})
+	}
 }
 
 // TestHandler_UpdateApplication_ConfigMerge verifies that UpdateApplication
