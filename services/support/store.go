@@ -2,6 +2,7 @@ package support
 
 import (
 	"sync"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -22,8 +23,15 @@ type InMemoryBackend struct {
 	// map: case communications are ORDER-SENSITIVE (chronological) and
 	// store.Table makes no iteration-order guarantee -- see store_setup.go.
 	communications map[string][]Communication
-	nextDisplayID  uint64
-	mu             sync.RWMutex
+	// attachmentSetCreationTimes / describeAttachmentCallTimes are sliding
+	// rate-limit windows backing AttachmentLimitExceeded and
+	// DescribeAttachmentLimitExceeded (see attachments.go). They are
+	// intentionally NOT part of the persisted snapshot: a restore resetting
+	// the throttle window is equivalent to a real service instance restart.
+	attachmentSetCreationTimes  []time.Time
+	describeAttachmentCallTimes []time.Time
+	nextDisplayID               uint64
+	mu                          sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -45,6 +53,8 @@ func (b *InMemoryBackend) Reset() {
 	b.resetTablesLocked()
 	b.communications = make(map[string][]Communication)
 	b.nextDisplayID = 0
+	b.attachmentSetCreationTimes = nil
+	b.describeAttachmentCallTimes = nil
 }
 
 // resetTablesLocked resets every store.Table-backed resource field to empty:

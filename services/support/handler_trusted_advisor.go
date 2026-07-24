@@ -25,7 +25,7 @@ func (h *Handler) handleDescribeTrustedAdvisorChecks(
 	_ context.Context,
 	in *describeTrustedAdvisorChecksInput,
 ) (*describeTrustedAdvisorChecksOutput, error) {
-	if !validLanguage(in.Language) {
+	if !validTALanguage(in.Language) {
 		return nil, fmt.Errorf("%w: language is required and must be supported", ErrValidation)
 	}
 	checks := h.Backend.DescribeTrustedAdvisorChecks()

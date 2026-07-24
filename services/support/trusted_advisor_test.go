@@ -26,6 +26,43 @@ func TestSupport_DescribeTrustedAdvisorChecks(t *testing.T) {
 	assert.NotEmpty(t, checks)
 }
 
+// TestSupport_DescribeTrustedAdvisorChecks_LanguageSet verifies the full
+// documented Trusted Advisor language set is accepted -- distinct from (and
+// larger than) the 4-language set Support case handling accepts. Real AWS
+// documents 11 codes for DescribeTrustedAdvisorChecks; reusing the
+// case-language validator here previously rejected valid requests such as
+// language=fr.
+func TestSupport_DescribeTrustedAdvisorChecks_LanguageSet(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		language string
+		wantCode int
+	}{
+		{"english", "en", http.StatusOK},
+		{"french", "fr", http.StatusOK},
+		{"german", "de", http.StatusOK},
+		{"spanish", "es", http.StatusOK},
+		{"indonesian", "id", http.StatusOK},
+		{"italian", "it", http.StatusOK},
+		{"brazilian_portuguese", "pt_BR", http.StatusOK},
+		{"traditional_chinese", "zh_TW", http.StatusOK},
+		{"unsupported_code", "xx", http.StatusBadRequest},
+		{"empty", "", http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSupportHandler(t)
+			rec := doSupportRequest(t, h, "DescribeTrustedAdvisorChecks", map[string]any{"language": tt.language})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
 func TestSupport_DescribeTrustedAdvisorCheckRefreshStatuses(t *testing.T) {
 	t.Parallel()
 
