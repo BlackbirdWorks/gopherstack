@@ -71,7 +71,7 @@ func TestCollaborationCRUD(t *testing.T) {
 	if _, ok := createResp["collaboration"]; !ok {
 		t.Fatalf("missing key %q in response: %v", "collaboration", createResp)
 	}
-	collabID := createResp["collaboration"].(map[string]any)["collaborationIdentifier"].(string)
+	collabID := createResp["collaboration"].(map[string]any)["id"].(string)
 
 	// List collaborations
 	rec = doRequest(t, e, http.MethodGet, "/collaborations", nil)
@@ -129,7 +129,7 @@ func TestConfiguredTableCRUD(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&createResp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	ctID := createResp["configuredTable"].(map[string]any)["configuredTableIdentifier"].(string)
+	ctID := createResp["configuredTable"].(map[string]any)["id"].(string)
 
 	// List configured tables
 	rec = doRequest(t, e, http.MethodGet, "/configuredTables", nil)
@@ -174,7 +174,7 @@ func TestMembershipCRUD(t *testing.T) {
 	}
 	var colResp map[string]any
 	_ = json.NewDecoder(colRec.Body).Decode(&colResp)
-	colID := colResp["collaboration"].(map[string]any)["collaborationIdentifier"].(string)
+	colID := colResp["collaboration"].(map[string]any)["id"].(string)
 
 	createBody := map[string]any{
 		"collaborationIdentifier": colID,
@@ -188,7 +188,7 @@ func TestMembershipCRUD(t *testing.T) {
 	}
 	var createResp map[string]any
 	_ = json.NewDecoder(rec.Body).Decode(&createResp)
-	mID := createResp["membership"].(map[string]any)["membershipIdentifier"].(string)
+	mID := createResp["membership"].(map[string]any)["id"].(string)
 
 	// List memberships
 	rec = doRequest(t, e, http.MethodGet, "/memberships", nil)
@@ -294,14 +294,14 @@ func TestProtectedQueryLifecycle(t *testing.T) {
 	})
 	var colResp map[string]any
 	_ = json.NewDecoder(colRec.Body).Decode(&colResp)
-	colID := colResp["collaboration"].(map[string]any)["collaborationIdentifier"].(string)
+	colID := colResp["collaboration"].(map[string]any)["id"].(string)
 
 	// Create membership
 	memRec := doRequest(t, e, http.MethodPost, "/memberships",
 		map[string]any{"collaborationIdentifier": colID, "queryLogStatus": "DISABLED"})
 	var memResp map[string]any
 	_ = json.NewDecoder(memRec.Body).Decode(&memResp)
-	mID := memResp["membership"].(map[string]any)["membershipIdentifier"].(string)
+	mID := memResp["membership"].(map[string]any)["id"].(string)
 
 	// Start protected query
 	rec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/protectedQueries",

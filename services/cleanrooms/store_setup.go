@@ -48,26 +48,34 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-func collaborationTableKeyFn(v *Collaboration) string { return v.CollaborationIdentifier }
+// Table key functions below intentionally read the *correctly AWS-wire-keyed*
+// sibling field (ID/CollaborationID/MembershipID/...), never the legacy
+// "*Identifier" fields -- those are now internal-only (json:"-", see
+// models.go) since their wire presence was invented, and a field tagged
+// json:"-" does not round-trip through store.Registry's JSON-based
+// Snapshot/Restore. Both fields hold the same value (set together at
+// creation time), so this is a pure persistence-safety fix, not a behavior
+// change.
+func collaborationTableKeyFn(v *Collaboration) string { return v.ID }
 
-func membershipTableKeyFn(v *Membership) string { return v.MembershipIdentifier }
+func membershipTableKeyFn(v *Membership) string { return v.ID }
 
-func configuredTableTableKeyFn(v *ConfiguredTable) string { return v.ConfiguredTableIdentifier }
+func configuredTableTableKeyFn(v *ConfiguredTable) string { return v.ID }
 
 func ctAnalysisRuleTableKeyFn(v *ConfiguredTableAnalysisRule) string {
-	return ctAnalysisRuleKey(v.ConfiguredTableIdentifier, v.Type)
+	return ctAnalysisRuleKey(v.ConfiguredTableID, v.Type)
 }
 
 func ctAnalysisRuleTableIndexKeyFn(v *ConfiguredTableAnalysisRule) string {
-	return v.ConfiguredTableIdentifier
+	return v.ConfiguredTableID
 }
 
 func ctAssociationTableKeyFn(v *ConfiguredTableAssociation) string {
-	return membershipKey(v.MembershipIdentifier, v.ConfiguredTableAssociationIdentifier)
+	return membershipKey(v.MembershipID, v.ID)
 }
 
 func ctAssociationTableIndexKeyFn(v *ConfiguredTableAssociation) string {
-	return v.MembershipIdentifier
+	return v.MembershipID
 }
 
 func ctaAnalysisRuleTableKeyFn(v *ConfiguredTableAssociationAnalysisRule) string {
@@ -79,68 +87,68 @@ func ctaAnalysisRuleTableIndexKeyFn(v *ConfiguredTableAssociationAnalysisRule) s
 }
 
 func analysisTemplateTableKeyFn(v *AnalysisTemplate) string {
-	return membershipKey(v.MembershipIdentifier, v.AnalysisTemplateIdentifier)
+	return membershipKey(v.MembershipID, v.ID)
 }
 
-func analysisTemplateTableIndexKeyFn(v *AnalysisTemplate) string { return v.MembershipIdentifier }
+func analysisTemplateTableIndexKeyFn(v *AnalysisTemplate) string { return v.MembershipID }
 
 func privacyBudgetTemplateTableKeyFn(v *PrivacyBudgetTemplate) string {
-	return membershipKey(v.MembershipIdentifier, v.PrivacyBudgetTemplateIdentifier)
+	return membershipKey(v.MembershipID, v.ID)
 }
 
 func privacyBudgetTemplateTableIndexKeyFn(v *PrivacyBudgetTemplate) string {
-	return v.MembershipIdentifier
+	return v.MembershipID
 }
 
 func idMappingTableTableKeyFn(v *IDMappingTable) string {
-	return membershipKey(v.MembershipIdentifier, v.IDMappingTableIdentifier)
+	return membershipKey(v.MembershipID, v.ID)
 }
 
-func idMappingTableTableIndexKeyFn(v *IDMappingTable) string { return v.MembershipIdentifier }
+func idMappingTableTableIndexKeyFn(v *IDMappingTable) string { return v.MembershipID }
 
 func idNamespaceAssociationTableKeyFn(v *IDNamespaceAssociation) string {
-	return membershipKey(v.MembershipIdentifier, v.IDNamespaceAssociationIdentifier)
+	return membershipKey(v.MembershipID, v.ID)
 }
 
 func idNamespaceAssociationTableIndexKeyFn(v *IDNamespaceAssociation) string {
-	return v.MembershipIdentifier
+	return v.MembershipID
 }
 
 func camaAssociationTableKeyFn(v *ConfiguredAudienceModelAssociation) string {
-	return membershipKey(v.MembershipIdentifier, v.ConfiguredAudienceModelAssociationIdentifier)
+	return membershipKey(v.MembershipID, v.ID)
 }
 
 func camaAssociationTableIndexKeyFn(v *ConfiguredAudienceModelAssociation) string {
-	return v.MembershipIdentifier
+	return v.MembershipID
 }
 
 func changeRequestTableKeyFn(v *CollaborationChangeRequest) string {
-	return collaborationKey(v.CollaborationIdentifier, v.ChangeRequestIdentifier)
+	return collaborationKey(v.CollaborationID, v.ID)
 }
 
 func changeRequestTableIndexKeyFn(v *CollaborationChangeRequest) string {
-	return v.CollaborationIdentifier
+	return v.CollaborationID
 }
 
-func schemaTableKeyFn(v *Schema) string { return collaborationKey(v.CollaborationIdentifier, v.Name) }
+func schemaTableKeyFn(v *Schema) string { return collaborationKey(v.CollaborationID, v.Name) }
 
-func schemaTableIndexKeyFn(v *Schema) string { return v.CollaborationIdentifier }
+func schemaTableIndexKeyFn(v *Schema) string { return v.CollaborationID }
 
 func schemaAnalysisRuleTableKeyFn(v *SchemaAnalysisRule) string {
-	return schemaAnalysisRuleKey(v.CollaborationIdentifier, v.Name, v.Type)
+	return schemaAnalysisRuleKey(v.CollaborationID, v.Name, v.Type)
 }
 
 func protectedQueryTableKeyFn(v *ProtectedQuery) string {
-	return membershipKey(v.MembershipIdentifier, v.ID)
+	return membershipKey(v.MembershipID, v.ID)
 }
 
-func protectedQueryTableIndexKeyFn(v *ProtectedQuery) string { return v.MembershipIdentifier }
+func protectedQueryTableIndexKeyFn(v *ProtectedQuery) string { return v.MembershipID }
 
 func protectedJobTableKeyFn(v *ProtectedJob) string {
-	return membershipKey(v.MembershipIdentifier, v.ID)
+	return membershipKey(v.MembershipID, v.ID)
 }
 
-func protectedJobTableIndexKeyFn(v *ProtectedJob) string { return v.MembershipIdentifier }
+func protectedJobTableIndexKeyFn(v *ProtectedJob) string { return v.MembershipID }
 
 // registerAllTables registers every converted resource collection on
 // b.registry exactly once. It must be called during construction only

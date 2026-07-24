@@ -71,11 +71,10 @@ func TestConfiguredTables_Create(t *testing.T) {
 			ct := resp["configuredTable"].(map[string]any)
 
 			id, hasID := ct["id"]
-			legacyID, hasLegacy := ct["configuredTableIdentifier"]
+			_, hasInvented := ct["configuredTableIdentifier"]
 
 			assert.True(t, hasID, "configuredTable must have 'id' key (AWS canonical)")
-			assert.True(t, hasLegacy, "configuredTable must have 'configuredTableIdentifier' (backward compat)")
-			assert.Equal(t, id, legacyID)
+			assert.False(t, hasInvented, "configuredTable must not have invented 'configuredTableIdentifier' key")
 			assert.NotEmpty(t, id)
 		})
 	}

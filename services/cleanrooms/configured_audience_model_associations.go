@@ -31,9 +31,9 @@ func toConfiguredAudienceModelAssociationSummary(
 		Name:                    a.Name,
 		CreateTime:              a.CreateTime,
 		UpdateTime:              a.UpdateTime,
-		ID:                      a.ConfiguredAudienceModelAssociationIdentifier,
-		MembershipID:            a.MembershipIdentifier,
-		CollaborationID:         a.CollaborationIdentifier,
+		ID:                      a.ID,
+		MembershipID:            a.MembershipID,
+		CollaborationID:         a.CollaborationID,
 	}
 }
 
@@ -53,7 +53,7 @@ func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
 	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
+	collab, _ := b.collaborations.Get(mem.CollaborationID)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -62,7 +62,7 @@ func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
 		ConfiguredAudienceModelAssociationIdentifier: id,
 		Arn:                        b.camaARN(membershipID, id),
 		CollaborationArn:           collabArn,
-		CollaborationIdentifier:    mem.CollaborationIdentifier,
+		CollaborationIdentifier:    mem.CollaborationID,
 		MembershipArn:              mem.Arn,
 		MembershipIdentifier:       membershipID,
 		ConfiguredAudienceModelArn: configuredAudienceModelArn,
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
 		Tags:                       tags,
 		ID:                         id,
 		MembershipID:               membershipID,
-		CollaborationID:            mem.CollaborationIdentifier,
+		CollaborationID:            mem.CollaborationID,
 	}
 	b.camaAssociations.Put(assoc)
 	if len(tags) > 0 {
@@ -110,7 +110,7 @@ func (b *InMemoryBackend) ListConfiguredAudienceModelAssociations(
 		nil,
 		toConfiguredAudienceModelAssociationSummary,
 		func(a, c *ConfiguredAudienceModelAssociationSummary) bool {
-			return a.ConfiguredAudienceModelAssociationIdentifier < c.ConfiguredAudienceModelAssociationIdentifier
+			return a.ID < c.ID
 		},
 		maxResults, nextToken,
 	)
@@ -161,7 +161,7 @@ func (b *InMemoryBackend) GetCollaborationConfiguredAudienceModelAssociation(
 	defer b.mu.RUnlock()
 	var found *ConfiguredAudienceModelAssociation
 	b.camaAssociations.Range(func(a *ConfiguredAudienceModelAssociation) bool {
-		if a.CollaborationIdentifier == collaborationID && a.ConfiguredAudienceModelAssociationIdentifier == assocID {
+		if a.CollaborationID == collaborationID && a.ID == assocID {
 			found = a
 
 			return false
@@ -187,11 +187,11 @@ func (b *InMemoryBackend) ListCollaborationConfiguredAudienceModelAssociations(
 	page, next := listNestedItems(
 		b.camaAssociations.All(),
 		func(a *ConfiguredAudienceModelAssociation) bool {
-			return a.CollaborationIdentifier == collaborationID
+			return a.CollaborationID == collaborationID
 		},
 		toConfiguredAudienceModelAssociationSummary,
 		func(a, c *ConfiguredAudienceModelAssociationSummary) bool {
-			return a.ConfiguredAudienceModelAssociationIdentifier < c.ConfiguredAudienceModelAssociationIdentifier
+			return a.ID < c.ID
 		},
 		maxResults, nextToken,
 	)

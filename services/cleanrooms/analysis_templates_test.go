@@ -45,16 +45,10 @@ func TestAnalysisTemplateHasIDKeys(t *testing.T) {
 	at := resp["analysisTemplate"].(map[string]any)
 
 	assert.Contains(t, at, "id", "analysisTemplate must have 'id' key")
-	assert.Contains(
-		t,
-		at,
-		"analysisTemplateIdentifier",
-		"analysisTemplate must have legacy 'analysisTemplateIdentifier'",
-	)
 	assert.Contains(t, at, "membershipId", "analysisTemplate must have 'membershipId' key")
-	assert.Contains(t, at, "membershipIdentifier", "analysisTemplate must have legacy 'membershipIdentifier'")
 	assert.Contains(t, at, "collaborationId", "analysisTemplate must have 'collaborationId' key")
-	assert.Equal(t, at["id"], at["analysisTemplateIdentifier"])
-	assert.Equal(t, at["membershipId"], at["membershipIdentifier"])
-	assert.Equal(t, at["collaborationId"], at["collaborationIdentifier"])
+
+	for _, invented := range []string{"analysisTemplateIdentifier", "membershipIdentifier", "collaborationIdentifier"} {
+		assert.NotContains(t, at, invented, "analysisTemplate must not have invented %q key", invented)
+	}
 }

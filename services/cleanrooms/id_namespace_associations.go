@@ -27,11 +27,13 @@ func toIDNamespaceAssociationSummary(a *IDNamespaceAssociation) *IDNamespaceAsso
 		MembershipArn:                    a.MembershipArn,
 		MembershipIdentifier:             a.MembershipIdentifier,
 		Name:                             a.Name,
+		InputReferenceConfig:             a.InputReferenceConfig,
+		InputReferenceProperties:         a.InputReferenceProperties,
 		CreateTime:                       a.CreateTime,
 		UpdateTime:                       a.UpdateTime,
-		ID:                               a.IDNamespaceAssociationIdentifier,
-		MembershipID:                     a.MembershipIdentifier,
-		CollaborationID:                  a.CollaborationIdentifier,
+		ID:                               a.ID,
+		MembershipID:                     a.MembershipID,
+		CollaborationID:                  a.CollaborationID,
 	}
 }
 
@@ -49,7 +51,7 @@ func (b *InMemoryBackend) CreateIDNamespaceAssociation(
 	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
+	collab, _ := b.collaborations.Get(mem.CollaborationID)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -58,7 +60,7 @@ func (b *InMemoryBackend) CreateIDNamespaceAssociation(
 		IDNamespaceAssociationIdentifier: id,
 		Arn:                              b.idNamespaceAssocARN(membershipID, id),
 		CollaborationArn:                 collabArn,
-		CollaborationIdentifier:          mem.CollaborationIdentifier,
+		CollaborationIdentifier:          mem.CollaborationID,
 		MembershipArn:                    mem.Arn,
 		MembershipIdentifier:             membershipID,
 		Name:                             name,
@@ -70,7 +72,7 @@ func (b *InMemoryBackend) CreateIDNamespaceAssociation(
 		Tags:                             tags,
 		ID:                               id,
 		MembershipID:                     membershipID,
-		CollaborationID:                  mem.CollaborationIdentifier,
+		CollaborationID:                  mem.CollaborationID,
 	}
 	b.idNamespaceAssociations.Put(assoc)
 	if len(tags) > 0 {
@@ -106,7 +108,7 @@ func (b *InMemoryBackend) ListIDNamespaceAssociations(
 		nil,
 		toIDNamespaceAssociationSummary,
 		func(a, c *IDNamespaceAssociationSummary) bool {
-			return a.IDNamespaceAssociationIdentifier < c.IDNamespaceAssociationIdentifier
+			return a.ID < c.ID
 		},
 		maxResults, nextToken,
 	)
@@ -156,7 +158,7 @@ func (b *InMemoryBackend) GetCollaborationIDNamespaceAssociation(
 	defer b.mu.RUnlock()
 	var found *IDNamespaceAssociation
 	b.idNamespaceAssociations.Range(func(a *IDNamespaceAssociation) bool {
-		if a.CollaborationIdentifier == collaborationID && a.IDNamespaceAssociationIdentifier == assocID {
+		if a.CollaborationID == collaborationID && a.ID == assocID {
 			found = a
 
 			return false
@@ -181,10 +183,10 @@ func (b *InMemoryBackend) ListCollaborationIDNamespaceAssociations(
 	}
 	page, next := listNestedItems(
 		b.idNamespaceAssociations.All(),
-		func(a *IDNamespaceAssociation) bool { return a.CollaborationIdentifier == collaborationID },
+		func(a *IDNamespaceAssociation) bool { return a.CollaborationID == collaborationID },
 		toIDNamespaceAssociationSummary,
 		func(a, c *IDNamespaceAssociationSummary) bool {
-			return a.IDNamespaceAssociationIdentifier < c.IDNamespaceAssociationIdentifier
+			return a.ID < c.ID
 		},
 		maxResults,
 		nextToken,

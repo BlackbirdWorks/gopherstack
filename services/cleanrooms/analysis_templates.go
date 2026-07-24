@@ -29,9 +29,9 @@ func toAnalysisTemplateSummary(t *AnalysisTemplate) *AnalysisTemplateSummary {
 		Name:                       t.Name,
 		CreateTime:                 t.CreateTime,
 		UpdateTime:                 t.UpdateTime,
-		ID:                         t.AnalysisTemplateIdentifier,
-		MembershipID:               t.MembershipIdentifier,
-		CollaborationID:            t.CollaborationIdentifier,
+		ID:                         t.ID,
+		MembershipID:               t.MembershipID,
+		CollaborationID:            t.CollaborationID,
 	}
 }
 
@@ -49,7 +49,7 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
+	collab, _ := b.collaborations.Get(mem.CollaborationID)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -58,7 +58,7 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 		AnalysisTemplateIdentifier: id,
 		Arn:                        b.analysisTemplateARN(membershipID, id),
 		CollaborationArn:           collabArn,
-		CollaborationIdentifier:    mem.CollaborationIdentifier,
+		CollaborationIdentifier:    mem.CollaborationID,
 		MembershipIdentifier:       membershipID,
 		MembershipArn:              mem.Arn,
 		Name:                       name,
@@ -71,7 +71,7 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 		Tags:                       tags,
 		ID:                         id,
 		MembershipID:               membershipID,
-		CollaborationID:            mem.CollaborationIdentifier,
+		CollaborationID:            mem.CollaborationID,
 	}
 	b.analysisTemplates.Put(tmpl)
 	if len(tags) > 0 {
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) ListAnalysisTemplates(
 		nil,
 		toAnalysisTemplateSummary,
 		func(a, c *AnalysisTemplateSummary) bool {
-			return a.AnalysisTemplateIdentifier < c.AnalysisTemplateIdentifier
+			return a.ID < c.ID
 		},
 		maxResults, nextToken,
 	)
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) GetCollaborationAnalysisTemplate(
 	defer b.mu.RUnlock()
 	var found *AnalysisTemplate
 	b.analysisTemplates.Range(func(t *AnalysisTemplate) bool {
-		if t.CollaborationIdentifier == collaborationID && t.Arn == templateArn {
+		if t.CollaborationID == collaborationID && t.Arn == templateArn {
 			found = t
 
 			return false
@@ -176,10 +176,10 @@ func (b *InMemoryBackend) ListCollaborationAnalysisTemplates(
 	}
 	page, next := listNestedItems(
 		b.analysisTemplates.All(),
-		func(t *AnalysisTemplate) bool { return t.CollaborationIdentifier == collaborationID },
+		func(t *AnalysisTemplate) bool { return t.CollaborationID == collaborationID },
 		toAnalysisTemplateSummary,
 		func(a, c *AnalysisTemplateSummary) bool {
-			return a.AnalysisTemplateIdentifier < c.AnalysisTemplateIdentifier
+			return a.ID < c.ID
 		},
 		maxResults, nextToken,
 	)
@@ -202,7 +202,7 @@ func (b *InMemoryBackend) BatchGetCollaborationAnalysisTemplate(
 	for _, arnStr := range templateArns {
 		found := false
 		for _, t := range all {
-			if t.CollaborationIdentifier == collaborationID && t.Arn == arnStr {
+			if t.CollaborationID == collaborationID && t.Arn == arnStr {
 				results = append(results, t)
 				found = true
 
