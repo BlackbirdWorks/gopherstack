@@ -99,7 +99,15 @@ func s3CoreOperations() []string {
 	}
 }
 
-// s3StubOperations returns S3 stub (not-implemented) operations.
+// s3StubOperations returns the S3 operations that are implemented but were
+// historically tracked separately from the primary CRUD/config surface in
+// s3CoreOperations (mostly SDK-completeness-only or later-added corners:
+// directory buckets, ABAC, request-payment, torrent, restore, metadata-table
+// journal/inventory updates, WriteGetObjectResponse). Despite the name, every
+// operation here performs real state mutation/reads against the backend —
+// none of them return a canned/no-op response. GetSupportedOperations merges
+// this with s3CoreOperations into a single flat list; the split exists only
+// for readability of this file.
 func s3StubOperations() []string {
 	return []string{
 		"GetBucketAbac",

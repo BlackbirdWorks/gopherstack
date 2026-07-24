@@ -312,6 +312,30 @@ func TestS3BucketPolicyCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestS3PutBucketPolicy_MalformedJSON locks that a non-JSON policy body is
+// rejected with 400 MalformedPolicy, matching real S3, instead of being
+// stored verbatim.
+func TestS3PutBucketPolicy_MalformedJSON(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "malformed-policy-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?policy", strings.NewReader("not json"))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedPolicy")
+
+	// The invalid body must not have been persisted.
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?policy", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 // TestS3BucketCORSCRUD verifies put/get/delete bucket CORS + OPTIONS preflight.
 
 func TestS3PublicAccessBlockCRUD(t *testing.T) {

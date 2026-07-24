@@ -62,6 +62,10 @@ var (
 	// ErrMalformedXML is returned when an XML request body cannot be decoded.
 	// The error table maps it to HTTP 400 with code "MalformedXML".
 	ErrMalformedXML = errors.New(errMalformedXML)
+	// ErrMalformedPolicy is returned when a PutBucketPolicy body is not valid
+	// JSON. The error table maps it to HTTP 400 with code "MalformedPolicy",
+	// matching real S3.
+	ErrMalformedPolicy = errors.New("MalformedPolicy")
 )
 
 type s3ErrorInfo struct {
@@ -230,6 +234,11 @@ func configErrorTable() []s3ErrorEntry {
 			"NoSuchBucketPolicy",
 			"The bucket policy does not exist",
 			http.StatusNotFound,
+		}},
+		{ErrMalformedPolicy, s3ErrorInfo{
+			"MalformedPolicy",
+			"Policy has invalid resource",
+			http.StatusBadRequest,
 		}},
 		{ErrNoCORSConfig, s3ErrorInfo{
 			"NoSuchCORSConfiguration",

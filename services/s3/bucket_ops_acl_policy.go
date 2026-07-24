@@ -130,6 +130,15 @@ func (h *S3Handler) putBucketPolicy(
 
 		return
 	}
+
+	// Real S3 rejects a policy body that isn't valid JSON with 400
+	// MalformedPolicy before ever persisting it.
+	if !json.Valid(body) {
+		WriteError(ctx, w, r, ErrMalformedPolicy)
+
+		return
+	}
+
 	if pabErr := h.enforceBucketPolicyAgainstPAB(ctx, bucket, string(body)); pabErr != nil {
 		WriteError(ctx, w, r, pabErr)
 

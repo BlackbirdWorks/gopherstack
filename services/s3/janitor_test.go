@@ -64,7 +64,11 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			},
 		},
 		{
-			name: "bucket with objects removed after drain",
+			// Real S3 rejects DeleteBucket on non-empty buckets with 409
+			// BucketNotEmpty — the caller must empty the bucket first. Once
+			// emptied, DeleteBucket succeeds immediately and the janitor
+			// removes the (already-empty) bucket on its next tick.
+			name: "bucket with objects rejected until emptied, then removed after drain",
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "full-bucket")
@@ -78,11 +82,25 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 					t.Context(),
 					&sdk_s3.DeleteBucketInput{Bucket: aws.String("full-bucket")},
 				)
+				require.ErrorIs(t, err, s3.ErrBucketNotEmpty)
+
+				for i := range 5 {
+					_, err = b.DeleteObject(t.Context(), &sdk_s3.DeleteObjectInput{
+						Bucket: aws.String("full-bucket"),
+						Key:    aws.String(fmt.Sprintf("key-%d", i)),
+					})
+					require.NoError(t, err)
+				}
+
+				_, err = b.DeleteBucket(
+					t.Context(),
+					&sdk_s3.DeleteBucketInput{Bucket: aws.String("full-bucket")},
+				)
 				require.NoError(t, err)
 
 				_, err = b.GetObject(t.Context(), &sdk_s3.GetObjectInput{
 					Bucket: aws.String("full-bucket"),
-					Key:    aws.String("key-a"),
+					Key:    aws.String("key-0"),
 				})
 				require.ErrorIs(t, err, s3.ErrNoSuchBucket)
 			},
@@ -123,7 +141,14 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 			verify: func(_ *testing.T, _ *s3.InMemoryBackend) {},
 		},
 		{
-			name: "orphaned uploads and tags cleaned up when bucket is fully drained",
+			// DeleteBucket now requires the bucket to already be empty of
+			// objects AND incomplete multipart uploads (matching real S3's
+			// BucketNotEmpty behaviour), so the object/upload-tagging cleanup
+			// must happen through the normal DeleteObject/AbortMultipartUpload
+			// APIs before DeleteBucket is called. This still regression-locks
+			// that a bucket carries no residual tag/upload state once its
+			// content has been removed and the janitor finalizes the delete.
+			name: "uploads and tags cleaned up before bucket removal is allowed",
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, b, "cleanup-bucket")
@@ -143,7 +168,7 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 				require.NoError(t, err)
 
 				// Start (but do not complete) a multipart upload.
-				_, err = b.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+				mpu, err := b.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
 					Bucket: aws.String("cleanup-bucket"),
 					Key:    aws.String("mpu-key"),
 				})
@@ -152,6 +177,31 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 				// Verify preconditions.
 				assert.Equal(t, 1, b.UploadsForBucket("cleanup-bucket"))
 				assert.Equal(t, 1, b.TagsForBucket("cleanup-bucket"))
+
+				// DeleteBucket must reject while the object and the
+				// incomplete upload are still present.
+				_, err = b.DeleteBucket(
+					t.Context(),
+					&sdk_s3.DeleteBucketInput{Bucket: aws.String("cleanup-bucket")},
+				)
+				require.ErrorIs(t, err, s3.ErrBucketNotEmpty)
+
+				// Empty the bucket via the real APIs.
+				_, err = b.DeleteObject(t.Context(), &sdk_s3.DeleteObjectInput{
+					Bucket: aws.String("cleanup-bucket"),
+					Key:    aws.String("tagged-key"),
+				})
+				require.NoError(t, err)
+
+				_, err = b.AbortMultipartUpload(t.Context(), &sdk_s3.AbortMultipartUploadInput{
+					Bucket:   aws.String("cleanup-bucket"),
+					Key:      aws.String("mpu-key"),
+					UploadId: mpu.UploadId,
+				})
+				require.NoError(t, err)
+
+				assert.Equal(t, 0, b.UploadsForBucket("cleanup-bucket"))
+				assert.Equal(t, 0, b.TagsForBucket("cleanup-bucket"))
 			},
 			act: func(t *testing.T, b *s3.InMemoryBackend) {
 				t.Helper()

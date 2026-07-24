@@ -113,6 +113,8 @@ func TestDeleteBucket(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			// Real S3 refuses DeleteBucket with 409 BucketNotEmpty until the
+			// caller removes every object/version/delete-marker first.
 			name:   "delete non-empty bucket",
 			bucket: "my-bucket",
 			setup: func(t *testing.T, b *s3.InMemoryBackend) {
@@ -120,8 +122,26 @@ func TestDeleteBucket(t *testing.T) {
 				mustCreateBucket(t, b, "my-bucket")
 				mustPutObject(t, b, "my-bucket", "key", []byte("data"))
 			},
-			// Async deletion: non-empty buckets are now accepted and queued for
-			// background deletion by the Janitor.
+			wantErr:   s3.ErrBucketNotEmpty,
+			expectErr: true,
+		},
+		{
+			// A well-known real-S3 gotcha: incomplete multipart uploads block
+			// deletion even though they never appear in ListObjects, so a
+			// bucket that "looks empty" can still return BucketNotEmpty.
+			name:   "delete bucket with incomplete multipart upload",
+			bucket: "mpu-bucket",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "mpu-bucket")
+				_, err := b.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+					Bucket: aws.String("mpu-bucket"),
+					Key:    aws.String("mpu-key"),
+				})
+				require.NoError(t, err)
+			},
+			wantErr:   s3.ErrBucketNotEmpty,
+			expectErr: true,
 		},
 	}
 

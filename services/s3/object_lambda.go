@@ -63,6 +63,16 @@ func (h *S3Handler) objectLambdaARN(bucket string) string {
 	return h.objectLambdaConfigs[bucket]
 }
 
+// clearObjectLambdaConfig removes any registered Object Lambda config for the
+// given bucket. Called on DeleteBucket so a subsequently recreated bucket of
+// the same name starts with no Lambda wiring inherited from a prior identity.
+func (h *S3Handler) clearObjectLambdaConfig(bucket string) {
+	h.objectLambdaMu.Lock()
+	defer h.objectLambdaMu.Unlock()
+
+	delete(h.objectLambdaConfigs, bucket)
+}
+
 // registerObjectLambdaRequest adds a pending channel keyed by token and returns the channel.
 func (h *S3Handler) registerObjectLambdaRequest(token string) chan objectLambdaResponse {
 	ch := make(chan objectLambdaResponse, 1)

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,4 +108,63 @@ func TestS3ObjectLambda_WriteGetObjectResponse(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, objectLambdaTransformedContent, rec.Body.String())
+}
+
+// TestS3ObjectLambda_ConfigClearedOnBucketDelete locks that DeleteBucket
+// drops any registered Object Lambda config for that bucket name. Without
+// this, a bucket recreated under the same name would silently inherit the
+// previous incarnation's Lambda wiring on GetObject.
+func TestS3ObjectLambda_ConfigClearedOnBucketDelete(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	bucket := "object-lambda-recreate-bucket"
+	key := "hello.txt"
+
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket, nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	handler.SetObjectLambdaConfig(bucket, "arn:aws:lambda:us-east-1:000000000000:function:transformer")
+
+	// Empty the bucket (required for DeleteBucket to succeed) and delete it.
+	req = httptest.NewRequest(http.MethodDelete, "/"+bucket, nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Run the janitor so the pending-delete bucket is fully removed from the
+	// table (DeleteBucket only marks it pending; removal is asynchronous).
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go s3.NewJanitor(backend, s3.Settings{JanitorInterval: 5 * time.Millisecond}).Run(ctx)
+
+	// Recreate a bucket with the same name and put a plain object.
+	require.Eventually(t, func() bool {
+		req = httptest.NewRequest(http.MethodPut, "/"+bucket, nil)
+		rec = httptest.NewRecorder()
+		serveS3Handler(handler, rec, req)
+
+		return rec.Code == http.StatusOK
+	}, time.Second, 10*time.Millisecond, "recreated bucket should succeed once janitor drains the pending delete")
+
+	req = httptest.NewRequest(
+		http.MethodPut,
+		"/"+bucket+"/"+key,
+		strings.NewReader("plain content"),
+	)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// GetObject must return the plain object directly, NOT attempt to invoke
+	// the stale Lambda config (which would hang/fail since no notifier or
+	// LambdaInvoker is wired up for this handler).
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"/"+key, nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "plain content", rec.Body.String())
 }
