@@ -230,8 +230,7 @@ type StorageBackend interface {
 	UntagRole(roleName string, keys []string) error
 	TagPolicy(policyArn string, tags map[string]string) error
 	UntagPolicy(policyArn string, keys []string) error
-	TagGroup(groupName string, tags map[string]string) error
-	UntagGroup(groupName string, keys []string) error
+	// Note: Group is not taggable in real IAM — no TagGroup/UntagGroup here.
 
 	// Signing Certificates
 	UploadSigningCertificate(userName, body string) (*SigningCertificate, error)
@@ -467,6 +466,22 @@ func (b *InMemoryBackend) removePolicyAttachmentLocked(policyArn, entityName, en
 			pol.AttachmentCount = len(refs.users) + len(refs.roles) + len(refs.groups)
 			b.policies.Put(pol)
 		}
+	}
+}
+
+// renamePolicyAttachmentsLocked moves entityType's key from oldName to newName
+// in the reverse policyAttachments index (policyArn -> attached entity
+// names), for every policy ARN in policyARNs. Must be called whenever a user
+// or group is renamed (UpdateUser / UpdateGroup) so that DeletePolicy's
+// attachment check, ListEntitiesForPolicy, and DetachUserPolicy/
+// DetachGroupPolicy keyed by the NEW name continue to find the attachment —
+// otherwise the reverse index keeps referencing the entity's old name forever
+// (a ghost attachment that can neither be detached under the new name nor
+// ever clears, permanently blocking DeletePolicy with a stale DeleteConflict).
+func (b *InMemoryBackend) renamePolicyAttachmentsLocked(entityType, oldName, newName string, policyARNs []string) {
+	for _, policyArn := range policyARNs {
+		b.removePolicyAttachmentLocked(policyArn, oldName, entityType)
+		b.addPolicyAttachmentLocked(policyArn, newName, entityType)
 	}
 }
 
@@ -804,12 +819,12 @@ func (c *comprehensiveBackend) restore(snap comprehensiveSnapshot) {
 }
 
 // comp returns the comprehensiveBackend associated with this InMemoryBackend.
-// It is always non-nil because NewInMemoryBackendWithConfig initialises it.
+// It is always non-nil because NewInMemoryBackendWithConfig initialises it in
+// the constructor, and it is never reassigned afterward (ResetComprehensiveBackend
+// clears its fields in place under c.mu rather than replacing the pointer). A
+// lazy nil-check-then-assign here would be a data race with no benefit, since
+// the field is already guaranteed non-nil for the object's entire lifetime.
 func (b *InMemoryBackend) comp() *comprehensiveBackend {
-	if b.comprehensive == nil {
-		b.comprehensive = newComprehensiveBackend()
-	}
-
 	return b.comprehensive
 }
 

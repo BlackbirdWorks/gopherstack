@@ -134,7 +134,6 @@ func toGroupXML(g *Group) GroupXML {
 		GroupID:    g.GroupID,
 		Arn:        g.Arn,
 		CreateDate: isoTime(g.CreateDate),
-		Tags:       tagsToXML(g.Tags),
 	}
 }
 
@@ -193,10 +192,4 @@ func (h *Handler) iamGroupRefinementDispatch() map[string]iamActionFn {
 			}, nil
 		},
 	}
-}
-
-// iamGroupTagsDispatch returns an empty map; group tag operations are now handled
-// in iamTagDispatchTable via the backend (TagGroup/UntagGroup/ListGroupTags).
-func (h *Handler) iamGroupTagsDispatch() map[string]iamActionFn {
-	return map[string]iamActionFn{}
 }

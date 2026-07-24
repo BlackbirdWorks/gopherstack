@@ -113,21 +113,8 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListGroupTags": func(vals url.Values, reqID string) (any, error) {
-			g, err := h.Backend.GetGroup(vals.Get("GroupName"))
-			if err != nil {
-				return nil, err
-			}
-
-			members := tagsMapToKV(g.Tags)
-
-			return &iamListTagsResponse{
-				XMLName:          xml.Name{Local: "ListGroupTagsResponse"},
-				Xmlns:            iamXMLNS,
-				Result:           iamListTagsResult{XMLName: xml.Name{Local: "ListGroupTagsResult"}, Tags: members},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
+		// Note: real IAM has no ListGroupTags action — Group is not a taggable
+		// resource type (types.Group has no Tags field in the SDK).
 	}
 }
 
@@ -200,28 +187,8 @@ func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"TagGroup": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.TagGroup(vals.Get("GroupName"), parseIAMTags(vals)); err != nil {
-				return nil, err
-			}
-
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "TagGroupResponse"},
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-		"UntagGroup": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.UntagGroup(vals.Get("GroupName"), parseIAMTagKeys(vals)); err != nil {
-				return nil, err
-			}
-
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "UntagGroupResponse"},
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
+		// Note: real IAM has no TagGroup/UntagGroup actions — Group is not a
+		// taggable resource type (types.Group has no Tags field in the SDK).
 	}
 }
 

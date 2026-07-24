@@ -174,10 +174,13 @@ func TestHandler_PermissionsBoundary_UserRoundTrip(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	req2 := iamRequest("GetUserPermissionsBoundary", map[string]string{"UserName": "alice"})
+	// Real IAM has no GetUserPermissionsBoundary action; the boundary is
+	// surfaced via GetUser's PermissionsBoundary field instead.
+	req2 := iamRequest("GetUser", map[string]string{"UserName": "alice"})
 	rec2 := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req2, rec2)))
 	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), p.Arn)
 
 	req3 := iamRequest("DeleteUserPermissionsBoundary", map[string]string{"UserName": "alice"})
 	rec3 := httptest.NewRecorder()
@@ -202,10 +205,13 @@ func TestHandler_PermissionsBoundary_RoleRoundTrip(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	req2 := iamRequest("GetRolePermissionsBoundary", map[string]string{"RoleName": "MyRole"})
+	// Real IAM has no GetRolePermissionsBoundary action; the boundary is
+	// surfaced via GetRole's PermissionsBoundary field instead.
+	req2 := iamRequest("GetRole", map[string]string{"RoleName": "MyRole"})
 	rec2 := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req2, rec2)))
 	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), p.Arn)
 
 	req3 := iamRequest("DeleteRolePermissionsBoundary", map[string]string{"RoleName": "MyRole"})
 	rec3 := httptest.NewRecorder()

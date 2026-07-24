@@ -3,6 +3,7 @@ package iam
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -34,8 +35,104 @@ func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string)
 	return &u, nil
 }
 
-// DeleteUser deletes an IAM user by name, removing all associated access keys and login profile.
+// userComprehensiveDeps reports whether userName has an SSH public key and/or
+// a linked MFA device, per the comprehensiveBackend state (guarded by its own
+// mutex c.mu — see comp()). Split out of DeleteUser to keep it below the
+// cognitive-complexity threshold and because c.mu must never be acquired
+// while holding b.mu.
+func (b *InMemoryBackend) userComprehensiveDeps(userName string) (bool, bool) {
+	c := b.comp()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	hasSSHKey := false
+
+	for _, k := range c.sshPublicKeys {
+		if k.UserName == userName {
+			hasSSHKey = true
+
+			break
+		}
+	}
+
+	hasMFADevice := false
+
+	for _, linkedUser := range c.mfaUserLinks {
+		if linkedUser == userName {
+			hasMFADevice = true
+
+			break
+		}
+	}
+
+	return hasSSHKey, hasMFADevice
+}
+
+// deleteUserConflictLocked returns the DeleteConflict error for the first
+// dependent of userName found, in the order AWS documents for DeleteUser, or
+// nil if the user has none. Must be called with b.mu held. Split out of
+// DeleteUser to keep it below the cognitive-complexity threshold.
+func (b *InMemoryBackend) deleteUserConflictLocked(userName string, hasSSHKey, hasMFADevice bool) error {
+	if _, exists := b.loginProfiles.Get(userName); exists {
+		return fmt.Errorf("%w: user %q has a login profile (password)", ErrDeleteConflict, userName)
+	}
+
+	if len(b.userAccessKeys[userName]) > 0 {
+		return fmt.Errorf("%w: user %q has access keys", ErrDeleteConflict, userName)
+	}
+
+	for _, cert := range b.signingCertificates.All() {
+		if cert.UserName == userName {
+			return fmt.Errorf("%w: user %q has a signing certificate", ErrDeleteConflict, userName)
+		}
+	}
+
+	if hasSSHKey {
+		return fmt.Errorf("%w: user %q has an SSH public key", ErrDeleteConflict, userName)
+	}
+
+	for _, cred := range b.serviceSpecificCreds.All() {
+		if cred.UserName == userName {
+			return fmt.Errorf("%w: user %q has a service-specific credential", ErrDeleteConflict, userName)
+		}
+	}
+
+	if hasMFADevice {
+		return fmt.Errorf("%w: user %q has an MFA device", ErrDeleteConflict, userName)
+	}
+
+	if len(b.userInlinePolicies[userName]) > 0 {
+		return fmt.Errorf("%w: user %q has inline policies", ErrDeleteConflict, userName)
+	}
+
+	if len(b.userPolicies[userName]) > 0 {
+		return fmt.Errorf("%w: user %q has attached policies", ErrDeleteConflict, userName)
+	}
+
+	for _, members := range b.groupMembers {
+		if slices.Contains(members, userName) {
+			return fmt.Errorf("%w: user %q is a member of a group", ErrDeleteConflict, userName)
+		}
+	}
+
+	return nil
+}
+
+// DeleteUser deletes an IAM user by name.
+//
+// Matching real AWS: DeleteUser does NOT cascade-remove any of the user's
+// dependents. The caller must first remove the login profile (password),
+// access keys, signing certificate, SSH public key, service-specific
+// credentials, MFA device, inline policies, attached managed policies, and
+// group memberships — otherwise the request is rejected with
+// DeleteConflictException. See
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html.
 func (b *InMemoryBackend) DeleteUser(userName string) error {
+	// SSH public keys and MFA device links live in comprehensiveBackend,
+	// which is guarded by its own mutex (c.mu) that must never be acquired
+	// while holding b.mu (see comp()). Check them first, before taking b.mu.
+	hasSSHKey, hasMFADevice := b.userComprehensiveDeps(userName)
+
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
@@ -43,32 +140,8 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	if len(b.userPolicies[userName]) > 0 {
-		return fmt.Errorf("%w: user %q has attached policies", ErrDeleteConflict, userName)
-	}
-
-	if len(b.userInlinePolicies[userName]) > 0 {
-		return fmt.Errorf("%w: user %q has inline policies", ErrDeleteConflict, userName)
-	}
-
-	// Clean up access keys belonging to the user.
-	for _, id := range b.userAccessKeys[userName] {
-		b.accessKeys.Delete(id)
-	}
-	delete(b.userAccessKeys, userName)
-
-	// Clean up login profile.
-	b.loginProfiles.Delete(userName)
-
-	// Remove user from all group memberships.
-	for groupName, members := range b.groupMembers {
-		for i, m := range members {
-			if m == userName {
-				b.groupMembers[groupName] = append(members[:i], members[i+1:]...)
-
-				break
-			}
-		}
+	if err := b.deleteUserConflictLocked(userName, hasSSHKey, hasMFADevice); err != nil {
+		return err
 	}
 
 	b.users.Delete(userName)
@@ -379,6 +452,10 @@ func (b *InMemoryBackend) migrateUserData(oldName, newName string) {
 	if policies, found := b.userPolicies[oldName]; found {
 		b.userPolicies[newName] = policies
 		delete(b.userPolicies, oldName)
+		// Keep the reverse policyAttachments index (used by DeletePolicy's
+		// conflict check, ListEntitiesForPolicy, and DetachUserPolicy) in
+		// sync so it doesn't keep pointing at the pre-rename user name.
+		b.renamePolicyAttachmentsLocked("user", oldName, newName, policies)
 	}
 
 	if inline, found := b.userInlinePolicies[oldName]; found {

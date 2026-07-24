@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -53,6 +54,12 @@ func (b *InMemoryBackend) CreateRole(
 }
 
 // DeleteRole deletes an IAM role by name.
+//
+// Matching real AWS: DeleteRole is rejected with DeleteConflictException if
+// the role still has inline policies, attached managed policies, or is
+// attached to an instance profile — the caller must DeleteRolePolicy /
+// DetachRolePolicy / RemoveRoleFromInstanceProfile first. See
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteRole.html.
 func (b *InMemoryBackend) DeleteRole(roleName string) error {
 	b.mu.Lock("DeleteRole")
 	defer b.mu.Unlock()
@@ -67,6 +74,15 @@ func (b *InMemoryBackend) DeleteRole(roleName string) error {
 
 	if len(b.roleInlinePolicies[roleName]) > 0 {
 		return fmt.Errorf("%w: role %q has inline policies", ErrDeleteConflict, roleName)
+	}
+
+	for _, ip := range b.instanceProfiles.All() {
+		if slices.Contains(ip.Roles, roleName) {
+			return fmt.Errorf(
+				"%w: role %q is attached to instance profile %q",
+				ErrDeleteConflict, roleName, ip.InstanceProfileName,
+			)
+		}
 	}
 
 	role, _ := b.roles.Get(roleName)

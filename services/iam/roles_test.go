@@ -757,3 +757,47 @@ func TestInMemoryBackend_UpdateAssumeRolePolicy(t *testing.T) {
 		})
 	}
 }
+
+// Real AWS DeleteRole is rejected with DeleteConflictException while the
+// role is attached to an instance profile — the caller must call
+// RemoveRoleFromInstanceProfile first. See
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteRole.html.
+func TestDeleteRole_FailsWhenAttachedToInstanceProfile(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+	_, err := b.CreateRole("MyRole", "/", "", "")
+	require.NoError(t, err)
+	_, err = b.CreateInstanceProfile("MyProfile", "/")
+	require.NoError(t, err)
+	require.NoError(t, b.AddRoleToInstanceProfile("MyProfile", "MyRole"))
+
+	err = b.DeleteRole("MyRole")
+	require.Error(t, err)
+	require.ErrorIs(t, err, iam.ErrDeleteConflict)
+
+	// The role must still exist since the delete was rejected.
+	_, getErr := b.GetRole("MyRole")
+	require.NoError(t, getErr)
+}
+
+// TestDeleteRole_SucceedsAfterRemovedFromInstanceProfile verifies the
+// documented AWS workflow: RemoveRoleFromInstanceProfile, then DeleteRole
+// succeeds and does not leave a ghost role reference on the instance profile.
+func TestDeleteRole_SucceedsAfterRemovedFromInstanceProfile(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+	_, err := b.CreateRole("MyRole", "/", "", "")
+	require.NoError(t, err)
+	_, err = b.CreateInstanceProfile("MyProfile", "/")
+	require.NoError(t, err)
+	require.NoError(t, b.AddRoleToInstanceProfile("MyProfile", "MyRole"))
+
+	require.NoError(t, b.RemoveRoleFromInstanceProfile("MyProfile", "MyRole"))
+	require.NoError(t, b.DeleteRole("MyRole"))
+
+	ip, err := b.GetInstanceProfile("MyProfile")
+	require.NoError(t, err)
+	assert.Empty(t, ip.Roles, "instance profile must not retain a ghost role reference")
+}

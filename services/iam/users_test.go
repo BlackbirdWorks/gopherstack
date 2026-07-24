@@ -221,6 +221,38 @@ func TestUpdateUser_RenameAndPath(t *testing.T) {
 	assert.Equal(t, "/new/", u.Path)
 }
 
+// TestUpdateUser_Rename_KeepsPolicyAttachmentInSync guards against a rename
+// desyncing the reverse policyAttachments index: renaming a user with an
+// attached managed policy must let the policy still be detached (and
+// eventually deleted) under the user's NEW name. Before this was fixed, the
+// reverse index kept referencing the pre-rename user name forever, so
+// DetachUserPolicy(newName, ...) silently no-op'd and DeletePolicy stayed
+// permanently blocked by a DeleteConflict against a name nothing pointed to
+// anymore.
+func TestUpdateUser_Rename_KeepsPolicyAttachmentInSync(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	_, err := b.CreateUser("alice", "/", "")
+	require.NoError(t, err)
+	pol, err := b.CreatePolicy(
+		"RenamePolicy", "/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+	)
+	require.NoError(t, err)
+	require.NoError(t, b.AttachUserPolicy("alice", pol.Arn))
+
+	require.NoError(t, b.UpdateUser("alice", "", "alicia"))
+
+	attached, err := b.ListAttachedUserPolicies("alicia")
+	require.NoError(t, err)
+	require.Len(t, attached, 1, "attachment must follow the user under its new name")
+
+	// Detaching under the NEW name must actually clear the attachment.
+	require.NoError(t, b.DetachUserPolicy("alicia", pol.Arn))
+	require.NoError(t, b.DeletePolicy(pol.Arn), "policy must be deletable once detached under the new name")
+}
+
 func TestInMemoryBackend_Users(t *testing.T) {
 	t.Parallel()
 

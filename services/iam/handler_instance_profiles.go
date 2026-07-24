@@ -45,9 +45,12 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 			}, nil
 		},
 		"DeleteInstanceProfile": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.DeleteInstanceProfile(vals.Get("InstanceProfileName")); err != nil {
+			name := vals.Get("InstanceProfileName")
+			if err := h.Backend.DeleteInstanceProfile(name); err != nil {
 				return nil, err
 			}
+
+			h.deleteTags("ip:" + name)
 
 			return &DeleteInstanceProfileResponse{
 				Xmlns:            iamXMLNS,
