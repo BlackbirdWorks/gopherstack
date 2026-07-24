@@ -15,9 +15,10 @@ func TestCreateWebLoginToken_HTTP_NonAvailable_Returns404(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	rec := doMWAARequest(t, h, http.MethodPut, "/environments/web-http-env", map[string]any{
-		"DagS3Path":        "dags/",
-		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
-		"SourceBucketArn":  "arn:aws:s3:::b",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/r",
+		"SourceBucketArn":      "arn:aws:s3:::b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -43,9 +44,10 @@ func TestHandler_WebToken_HappyPath(t *testing.T) {
 
 	h := newHandlerForTest(t)
 	createRec := doMWAARequest(t, h, http.MethodPut, "/environments/web-happy", map[string]any{
-		"DagS3Path":        "dags/",
-		"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
-		"SourceBucketArn":  "arn:aws:s3:::bucket",
+		"DagS3Path":            "dags/",
+		"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/role",
+		"SourceBucketArn":      "arn:aws:s3:::bucket",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	doMWAARequest(t, h, http.MethodGet, "/environments/web-happy", nil)
@@ -81,9 +83,10 @@ func TestHandler_CreateWebLoginToken(t *testing.T) {
 			h := newHandlerForTest(t)
 			// Seed the environment so the token endpoint can validate it exists.
 			doMWAARequest(t, h, http.MethodPut, "/environments/"+tt.envName, map[string]any{
-				"DagS3Path":        "dags/",
-				"ExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
-				"SourceBucketArn":  "arn:aws:s3:::bucket",
+				"DagS3Path":            "dags/",
+				"ExecutionRoleArn":     "arn:aws:iam::123456789012:role/role",
+				"SourceBucketArn":      "arn:aws:s3:::bucket",
+				"NetworkConfiguration": networkConfigBody(),
 			})
 			doMWAARequest(t, h, http.MethodGet, "/environments/"+tt.envName, nil)
 			rec := doMWAARequest(t, h, http.MethodPost, "/webtoken/"+tt.envName, nil)
@@ -104,6 +107,7 @@ func TestWebLoginToken_HTTP_ResponseStructure(t *testing.T) {
 	h := newHandlerForTest(t)
 	doMWAARequest(t, h, http.MethodPut, "/environments/jwt-web-http-env", map[string]any{
 		"DagS3Path": "dags/", "ExecutionRoleArn": "arn:r", "SourceBucketArn": "arn:b",
+		"NetworkConfiguration": networkConfigBody(),
 	})
 	doMWAARequest(t, h, http.MethodGet, "/environments/jwt-web-http-env", nil) // promote CREATING → AVAILABLE
 

@@ -20,6 +20,10 @@ func newIsoCreateReq() *createEnvironmentRequest {
 		DagS3Path:        "dags/",
 		ExecutionRoleArn: "arn:aws:iam::000000000000:role/mwaa",
 		SourceBucketArn:  "arn:aws:s3:::mwaa-bucket",
+		NetworkConfiguration: &NetworkConfig{
+			SubnetIDs:        []string{"subnet-aaaa1111", "subnet-bbbb2222"},
+			SecurityGroupIDs: []string{"sg-cccc3333"},
+		},
 	}
 }
 

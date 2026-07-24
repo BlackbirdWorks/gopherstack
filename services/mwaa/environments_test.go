@@ -15,11 +15,22 @@ func newTestBackend() *mwaa.InMemoryBackend {
 	return mwaa.NewInMemoryBackend("us-east-1", "123456789012")
 }
 
+// testNetworkConfig returns a minimal valid NetworkConfiguration satisfying AWS's
+// CreateEnvironment contract: NetworkConfiguration is required, SubnetIds must
+// contain exactly 2 entries, and SecurityGroupIds must contain 1-5 entries.
+func testNetworkConfig() *mwaa.NetworkConfig {
+	return &mwaa.NetworkConfig{
+		SubnetIDs:        []string{"subnet-aaaa1111", "subnet-bbbb2222"},
+		SecurityGroupIDs: []string{"sg-cccc3333"},
+	}
+}
+
 func newCreateReq() *mwaa.ExportedCreateEnvironmentRequest {
 	return &mwaa.ExportedCreateEnvironmentRequest{
-		DagS3Path:        "dags/",
-		ExecutionRoleArn: "arn:aws:iam::123456789012:role/mwaa-role",
-		SourceBucketArn:  "arn:aws:s3:::my-bucket",
+		DagS3Path:            "dags/",
+		ExecutionRoleArn:     "arn:aws:iam::123456789012:role/mwaa-role",
+		SourceBucketArn:      "arn:aws:s3:::my-bucket",
+		NetworkConfiguration: testNetworkConfig(),
 	}
 }
 
@@ -27,9 +38,10 @@ func seedEnv(t *testing.T, b *mwaa.InMemoryBackend, name string) {
 	t.Helper()
 
 	_, err := b.CreateEnvironment(context.Background(), name, &mwaa.ExportedCreateEnvironmentRequest{
-		DagS3Path:        "dags/",
-		ExecutionRoleArn: "arn:aws:iam::123456789012:role/role",
-		SourceBucketArn:  "arn:aws:s3:::bucket",
+		DagS3Path:            "dags/",
+		ExecutionRoleArn:     "arn:aws:iam::123456789012:role/role",
+		SourceBucketArn:      "arn:aws:s3:::bucket",
+		NetworkConfiguration: testNetworkConfig(),
 	})
 	require.NoError(t, err)
 	_, _ = b.GetEnvironment(context.Background(), name)
@@ -63,11 +75,12 @@ func TestBackend_CreateEnvironment(t *testing.T) {
 			name:    "creates_with_custom_version",
 			envName: "custom-env",
 			req: &mwaa.ExportedCreateEnvironmentRequest{
-				DagS3Path:        "dags/",
-				ExecutionRoleArn: "arn:aws:iam::123456789012:role/mwaa-role",
-				SourceBucketArn:  "arn:aws:s3:::my-bucket",
-				AirflowVersion:   "2.8.1",
-				EnvironmentClass: "mw1.medium",
+				DagS3Path:            "dags/",
+				ExecutionRoleArn:     "arn:aws:iam::123456789012:role/mwaa-role",
+				SourceBucketArn:      "arn:aws:s3:::my-bucket",
+				AirflowVersion:       "2.8.1",
+				EnvironmentClass:     "mw1.medium",
+				NetworkConfiguration: testNetworkConfig(),
 			},
 			wantStatus:  "CREATING",
 			wantVersion: "2.8.1",
@@ -342,9 +355,10 @@ func TestBackend_UpdateEnvironment_MinMaxValidation(t *testing.T) {
 				context.Background(),
 				"env-update",
 				&mwaa.ExportedCreateEnvironmentRequest{
-					DagS3Path:        "dags/",
-					ExecutionRoleArn: "arn:r",
-					SourceBucketArn:  "arn:b",
+					DagS3Path:            "dags/",
+					ExecutionRoleArn:     "arn:r",
+					SourceBucketArn:      "arn:b",
+					NetworkConfiguration: testNetworkConfig(),
 				},
 			)
 			require.NoError(t, err)
@@ -414,9 +428,10 @@ func TestCreateEnvironment_Duplicate(t *testing.T) {
 	seedEnv(t, b, "dup-env")
 
 	_, err := b.CreateEnvironment(context.Background(), "dup-env", &mwaa.ExportedCreateEnvironmentRequest{
-		DagS3Path:        "dags/",
-		ExecutionRoleArn: "arn:aws:iam::123456789012:role/role",
-		SourceBucketArn:  "arn:aws:s3:::bucket",
+		DagS3Path:            "dags/",
+		ExecutionRoleArn:     "arn:aws:iam::123456789012:role/role",
+		SourceBucketArn:      "arn:aws:s3:::bucket",
+		NetworkConfiguration: testNetworkConfig(),
 	})
 
 	require.Error(t, err)
@@ -529,11 +544,12 @@ func TestHandler_CreateEnvironment_InvalidJSON(t *testing.T) {
 			// Test the create environment validation path via backend directly.
 			b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 			_, err := b.CreateEnvironment(context.Background(), "env-err", &mwaa.ExportedCreateEnvironmentRequest{
-				DagS3Path:        "dags/",
-				ExecutionRoleArn: "arn:r",
-				SourceBucketArn:  "arn:b",
-				MinWorkers:       5,
-				MaxWorkers:       3,
+				DagS3Path:            "dags/",
+				ExecutionRoleArn:     "arn:r",
+				SourceBucketArn:      "arn:b",
+				NetworkConfiguration: testNetworkConfig(),
+				MinWorkers:           5,
+				MaxWorkers:           3,
 			})
 			assert.Error(t, err)
 			_ = tt.wantStatus
@@ -715,11 +731,11 @@ func TestStatus_UpdateRollingBack_PromotedOnGet(t *testing.T) {
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	env := b.AddEnvironmentInternal("rollback-env")
-	env.Status = "UPDATE_ROLLING_BACK"
+	env.Status = "ROLLING_BACK"
 
 	got, err := b.GetEnvironment(context.Background(), "rollback-env")
 	require.NoError(t, err)
-	assert.Equal(t, "UPDATE_ROLLING_BACK", got.Status)
+	assert.Equal(t, "ROLLING_BACK", got.Status)
 
 	got2, err := b.GetEnvironment(context.Background(), "rollback-env")
 	require.NoError(t, err)
@@ -747,7 +763,7 @@ func TestStatus_Pending_PromotedOnGet(t *testing.T) {
 func TestStatus_Terminal_NotPromoted(t *testing.T) {
 	t.Parallel()
 
-	terminalStatuses := []string{"AVAILABLE", "CREATE_FAILED", "UPDATE_FAILED", "UNAVAILABLE", "ERROR"}
+	terminalStatuses := []string{"AVAILABLE", "CREATE_FAILED", "UPDATE_FAILED", "UNAVAILABLE"}
 
 	for _, status := range terminalStatuses {
 		t.Run(status, func(t *testing.T) {
@@ -1139,7 +1155,7 @@ func TestNetworkConfig_MutationDoesNotAffectStoredEnv(t *testing.T) {
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
 	req := newCreateReq()
 	req.NetworkConfiguration = &mwaa.NetworkConfig{
-		SubnetIDs:        []string{"subnet-aaa"},
+		SubnetIDs:        []string{"subnet-aaa", "subnet-bbb"},
 		SecurityGroupIDs: []string{"sg-111"},
 	}
 	_, err := b.CreateEnvironment(context.Background(), "nc-copy-env", req)
@@ -1155,7 +1171,7 @@ func TestNetworkConfig_MutationDoesNotAffectStoredEnv(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, env2.NetworkConfiguration,
 		"stored NetworkConfiguration must survive mutation of returned copy")
-	assert.Equal(t, []string{"subnet-aaa"}, env2.NetworkConfiguration.SubnetIDs)
+	assert.Equal(t, []string{"subnet-aaa", "subnet-bbb"}, env2.NetworkConfiguration.SubnetIDs)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1209,7 +1225,7 @@ func TestFullLifecycle_AllValidations(t *testing.T) {
 
 	// Update with valid strategy and access mode.
 	_, err = b.UpdateEnvironment(context.Background(), "full-lifecycle-env", &mwaa.ExportedUpdateEnvironmentRequest{
-		WorkerReplacementStrategy: "TERMINATION_WITH_DRAIN",
+		WorkerReplacementStrategy: "GRACEFUL",
 		WebserverAccessMode:       "PRIVATE_ONLY",
 		EnvironmentClass:          "mw1.large",
 	})

@@ -7,8 +7,13 @@ import (
 )
 
 // validEnvironmentClasses returns the set of valid environment class values.
+// AWS's documented set (aws-sdk-go-v2/service/mwaa/types.EnvironmentClass field
+// comment on CreateEnvironmentInput) is mw1.micro, mw1.small, mw1.medium,
+// mw1.large, mw1.xlarge, mw1.2xlarge -- gopherstack previously omitted
+// mw1.micro entirely, incorrectly rejecting a real, valid class name.
 func validEnvironmentClasses() map[string]struct{} {
 	return map[string]struct{}{
+		"mw1.micro":   {},
 		"mw1.small":   {},
 		"mw1.medium":  {},
 		"mw1.large":   {},
@@ -131,10 +136,10 @@ func validateWorkerReplacementStrategy(strategy string) error {
 		return nil
 	}
 
-	if strategy != workerStrategyForced && strategy != workerStrategyDrain {
+	if strategy != workerStrategyForced && strategy != workerStrategyGraceful {
 		return fmt.Errorf(
 			"%w: WorkerReplacementStrategy must be %s or %s, got %q",
-			ErrInvalidParameter, workerStrategyForced, workerStrategyDrain, strategy,
+			ErrInvalidParameter, workerStrategyForced, workerStrategyGraceful, strategy,
 		)
 	}
 
@@ -180,18 +185,59 @@ func validateCreateRequiredFields(req *createEnvironmentRequest) error {
 		return fmt.Errorf("%w: SourceBucketArn is required", ErrInvalidParameter)
 	}
 
+	return validateNetworkConfigCreate(req.NetworkConfiguration)
+}
+
+// validateNetworkConfigCreate enforces AWS's CreateEnvironmentInput.NetworkConfiguration
+// contract: the member itself is required (aws-sdk-go-v2's generated client-side
+// validator rejects a nil NetworkConfiguration before the request is ever sent), and its
+// SubnetIds must contain exactly 2 entries (subnets are pinned to 2 AZs) while
+// SecurityGroupIds must contain 1-5 entries. Confirmed against
+// docs.aws.amazon.com/mwaa/latest/API/API_CreateEnvironment.html and
+// API_NetworkConfiguration.html.
+func validateNetworkConfigCreate(nc *NetworkConfig) error {
+	if nc == nil {
+		return fmt.Errorf("%w: NetworkConfiguration is required", ErrInvalidParameter)
+	}
+
+	if len(nc.SubnetIDs) != requiredSubnetIDs {
+		return fmt.Errorf(
+			"%w: NetworkConfiguration.SubnetIds must contain exactly %d entries",
+			ErrInvalidParameter, requiredSubnetIDs,
+		)
+	}
+
+	if len(nc.SecurityGroupIDs) < minSecurityGroupIDs || len(nc.SecurityGroupIDs) > maxSecurityGroupIDs {
+		return fmt.Errorf(
+			"%w: NetworkConfiguration.SecurityGroupIds must contain %d-%d entries",
+			ErrInvalidParameter, minSecurityGroupIDs, maxSecurityGroupIDs,
+		)
+	}
+
 	return nil
+}
+
+// validateWebserverAccessMode validates the WebserverAccessMode field, shared
+// by both CreateEnvironment and UpdateEnvironment. AWS's WebserverAccessMode
+// enum has three values (PUBLIC_ONLY | PRIVATE_ONLY | PUBLIC_AND_PRIVATE --
+// confirmed via aws-sdk-go-v2/service/mwaa/types.WebserverAccessMode); a prior
+// version of this file only accepted the first two, incorrectly rejecting
+// real requests that set PUBLIC_AND_PRIVATE.
+func validateWebserverAccessMode(mode string) error {
+	if mode == "" || mode == accessModePublic || mode == accessModePrivate || mode == accessModePublicAndPrivate {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: WebserverAccessMode must be %s, %s, or %s",
+		ErrInvalidParameter, accessModePublic, accessModePrivate, accessModePublicAndPrivate,
+	)
 }
 
 // validateCreateEnums validates enumerated string fields and ARN-shaped fields.
 func validateCreateEnums(req *createEnvironmentRequest) error {
-	if req.WebserverAccessMode != "" &&
-		req.WebserverAccessMode != accessModePublic &&
-		req.WebserverAccessMode != accessModePrivate {
-		return fmt.Errorf(
-			"%w: WebserverAccessMode must be %s or %s",
-			ErrInvalidParameter, accessModePublic, accessModePrivate,
-		)
+	if err := validateWebserverAccessMode(req.WebserverAccessMode); err != nil {
+		return err
 	}
 
 	if req.EnvironmentClass != "" {
@@ -219,7 +265,10 @@ func validateCreateEnums(req *createEnvironmentRequest) error {
 		return fmt.Errorf("%w: KmsKey must be a KMS ARN", ErrInvalidParameter)
 	}
 
-	return validateWorkerReplacementStrategy(req.WorkerReplacementStrategy)
+	// No WorkerReplacementStrategy check here: it is not a member of
+	// CreateEnvironmentInput in the real API (see createEnvironmentRequest's
+	// doc comment in models.go) -- only validateUpdateEnums validates it.
+	return nil
 }
 
 // validateCreateS3Paths validates the three optional S3 path/version pairs and the
@@ -427,13 +476,8 @@ func validateUpdateEnums(req *updateEnvironmentRequest) error {
 		}
 	}
 
-	if req.WebserverAccessMode != "" &&
-		req.WebserverAccessMode != accessModePublic &&
-		req.WebserverAccessMode != accessModePrivate {
-		return fmt.Errorf(
-			"%w: WebserverAccessMode must be %s or %s",
-			ErrInvalidParameter, accessModePublic, accessModePrivate,
-		)
+	if err := validateWebserverAccessMode(req.WebserverAccessMode); err != nil {
+		return err
 	}
 
 	return validateWorkerReplacementStrategy(req.WorkerReplacementStrategy)
