@@ -1,6 +1,7 @@
 package comprehend
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -21,6 +22,49 @@ const (
 	sentimentNeutralScore = 0.06
 	sentimentMaxScore     = 0.99
 	sentimentMixedMin     = 0.05
+
+	// Per-operation text byte limits, field-diffed against each op's doc
+	// comment in aws-sdk-go-v2/service/comprehend (e.g. DetectSentimentInput.Text:
+	// "The maximum string size is 5 KB"; DetectKeyPhrasesInput.Text: "must
+	// contain less than 100 KB"). Real AWS returns TextSizeLimitExceededException
+	// when a request's Text exceeds its operation's limit.
+	textLimit5KB   = 5000
+	textLimit100KB = 100000
+
+	// batchMaxItems/batchItemLimit back BatchSizeLimitExceededException (>25
+	// documents in one TextList, a whole-request rejection) and the
+	// per-item 5KB limit every Batch* doc comment documents
+	// ("A list containing... maximum of 25 documents. The maximum size of
+	// each document is 5 KB.") -- an oversized item is a per-item
+	// BatchItemError, not a whole-request rejection.
+	batchMaxItems   = 25
+	batchItemLimit  = 5000
+	toxicSegmentCap = 1024  // "Each string has a maximum size of 1 KB"
+	toxicTotalCap   = 10240 // "the maximum size of the list is 10 KB"
+)
+
+// generalLanguageCodes/syntaxLanguageCodes/englishOnlyLanguageCodes back
+// LanguageCode validation, field-diffed against types.LanguageCode's 12
+// enum values and DetectSyntaxInput's narrower types.SyntaxLanguageCode (6
+// values) in aws-sdk-go-v2/service/comprehend/types/enums.go. Computed once
+// at package init (not rebuilt per request like the word lists above) since
+// these are consulted on every Detect*/BatchDetect* call.
+//
+//nolint:gochecknoglobals // read-only lookup tables, analogous to apigatewayv2's onceOpTable
+var (
+	generalLanguageCodes = map[string]bool{
+		"en": true, "es": true, "fr": true, "de": true, "it": true, "pt": true,
+		"ar": true, "hi": true, "ja": true, "ko": true, "zh": true, "zh-TW": true,
+	}
+	syntaxLanguageCodes = map[string]bool{
+		"en": true, "es": true, "fr": true, "de": true, "it": true, "pt": true,
+	}
+	// englishOnlyLanguageCodes backs DetectToxicContent/DetectTargetedSentiment
+	// (and their Batch counterparts), whose input still types LanguageCode as
+	// the general 12-value enum but whose doc comments state "Currently,
+	// English is the only supported language" -- any other (otherwise valid)
+	// LanguageCode value must be rejected with UnsupportedLanguageException.
+	englishOnlyLanguageCodes = map[string]bool{"en": true}
 )
 
 func positiveWordList() []string {
@@ -68,7 +112,10 @@ func sentimentResult(posCount, negCount int) (string, float64, float64, float64,
 }
 
 func (h *Handler) detectSentiment(input map[string]any) (map[string]any, error) {
-	text, err := documentText(input)
+	if err := requireLanguageCode(input, generalLanguageCodes); err != nil {
+		return nil, err
+	}
+	text, err := documentText(input, textLimit5KB)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +208,17 @@ func entityType(word, textLower string) string {
 }
 
 func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
-	text, err := documentText(input)
+	// LanguageCode is NOT required on DetectEntities (unlike the other
+	// Detect* ops): a caller may supply EndpointArn for a custom entity
+	// recognition model instead, in which case AWS uses the custom model's
+	// language and ignores LanguageCode entirely. Only validate the value
+	// when one is actually supplied.
+	if code := stringValue(input, fieldLanguageCode, ""); code != "" {
+		if err := validateLanguageCode(code, generalLanguageCodes); err != nil {
+			return nil, err
+		}
+	}
+	text, err := documentText(input, textLimit100KB)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +241,10 @@ func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
 }
 
 func (h *Handler) detectKeyPhrases(input map[string]any) (map[string]any, error) {
-	text, err := documentText(input)
+	if err := requireLanguageCode(input, generalLanguageCodes); err != nil {
+		return nil, err
+	}
+	text, err := documentText(input, textLimit100KB)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +257,10 @@ func (h *Handler) detectKeyPhrases(input map[string]any) (map[string]any, error)
 }
 
 func (h *Handler) detectPIIEntities(input map[string]any) (map[string]any, error) {
-	text, err := documentText(input)
+	if err := requireLanguageCode(input, generalLanguageCodes); err != nil {
+		return nil, err
+	}
+	text, err := documentText(input, textLimit100KB)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +282,13 @@ func (h *Handler) detectPIIEntities(input map[string]any) (map[string]any, error
 }
 
 func (h *Handler) detectSyntax(input map[string]any) (map[string]any, error) {
-	text, err := documentText(input)
+	// DetectSyntax types LanguageCode as the narrower 6-value SyntaxLanguageCode
+	// enum (de/en/es/fr/it/pt), not the general 12-value LanguageCode enum
+	// every other Detect* op here uses.
+	if err := requireLanguageCode(input, syntaxLanguageCodes); err != nil {
+		return nil, err
+	}
+	text, err := documentText(input, textLimit5KB)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +312,9 @@ func (h *Handler) detectSyntax(input map[string]any) (map[string]any, error) {
 }
 
 func (h *Handler) detectDominantLanguage(input map[string]any) (map[string]any, error) {
-	text, err := documentText(input)
+	// DetectDominantLanguageInput has no LanguageCode field at all -- it is
+	// the one op that infers the language rather than requiring it.
+	text, err := documentText(input, textLimit100KB)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +395,29 @@ func dominantLanguage(text string) string {
 }
 
 func (h *Handler) detectToxicContent(input map[string]any) (map[string]any, error) {
+	// "Currently, English is the only supported language" per
+	// DetectToxicContentInput's doc comment, despite LanguageCode being
+	// typed as the general enum.
+	if err := requireLanguageCode(input, englishOnlyLanguageCodes); err != nil {
+		return nil, err
+	}
+
 	segments, _ := input["TextSegments"].([]any)
+	totalBytes := 0
+	for _, segment := range segments {
+		entry, _ := segment.(map[string]any)
+		text := stringValue(entry, fieldText, "")
+		if len(text) > toxicSegmentCap {
+			return nil, fmt.Errorf("%w: text segment of %d bytes exceeds the %d byte per-segment limit",
+				ErrTextSizeLimitExceeded, len(text), toxicSegmentCap)
+		}
+		totalBytes += len(text)
+	}
+	if totalBytes > toxicTotalCap {
+		return nil, fmt.Errorf("%w: TextSegments total of %d bytes exceeds the %d byte limit",
+			ErrTextSizeLimitExceeded, totalBytes, toxicTotalCap)
+	}
+
 	result := make([]map[string]any, 0, len(segments))
 	for _, segment := range segments {
 		entry, _ := segment.(map[string]any)
@@ -342,30 +435,111 @@ func (h *Handler) detectToxicContent(input map[string]any) (map[string]any, erro
 	return map[string]any{"ResultList": result}, nil
 }
 
-func (h *Handler) batch(detector operation) operation {
+// batchItemErrorCode maps an internal validation error to the wire ErrorCode
+// string a real BatchItemError entry carries for that failure class.
+func batchItemErrorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrTextSizeLimitExceeded):
+		return "TEXT_SIZE_LIMIT_EXCEEDED"
+	case errors.Is(err, ErrUnsupportedLanguage):
+		return "UNSUPPORTED_LANGUAGE"
+	default:
+		return "INVALID_REQUEST"
+	}
+}
+
+// batch wraps a single-document detector as a Batch* operation: it enforces
+// the whole-request 25-item limit (BatchSizeLimitExceededException) and the
+// shared LanguageCode once up front, then processes each TextList entry
+// against the per-item 5KB limit, routing any per-item failure into
+// ErrorList (matching each item's Index) instead of the ResultList rather
+// than aborting the whole batch -- "If there are no errors in the batch, the
+// ErrorList is empty" per every Batch*Output doc comment, implying
+// per-item failures are expected, ordinary batch outcomes.
+func (h *Handler) batch(detector operation, allowedLanguages map[string]bool) operation {
 	return func(input map[string]any) (map[string]any, error) {
 		texts, _ := input["TextList"].([]any)
+		if len(texts) > batchMaxItems {
+			return nil, fmt.Errorf("%w: TextList has %d documents, exceeding the %d document limit",
+				ErrBatchSizeLimitExceeded, len(texts), batchMaxItems)
+		}
+		if allowedLanguages != nil {
+			if err := requireLanguageCode(input, allowedLanguages); err != nil {
+				return nil, err
+			}
+		}
+
 		results := make([]map[string]any, 0, len(texts))
+		errorList := make([]map[string]any, 0)
 		for index, rawText := range texts {
+			text, _ := rawText.(string)
+			if len(text) > batchItemLimit {
+				errorList = append(errorList, map[string]any{
+					"Index":     index,
+					"ErrorCode": "TEXT_SIZE_LIMIT_EXCEEDED",
+					"ErrorMessage": fmt.Sprintf(
+						"input text of %d bytes exceeds the %d byte limit",
+						len(text),
+						batchItemLimit,
+					),
+				})
+
+				continue
+			}
+
 			result, err := detector(map[string]any{fieldText: rawText, fieldLanguageCode: input[fieldLanguageCode]})
 			if err != nil {
-				return nil, err
+				errorList = append(errorList, map[string]any{
+					"Index": index, "ErrorCode": batchItemErrorCode(err), "ErrorMessage": err.Error(),
+				})
+
+				continue
 			}
 			result["Index"] = index
 			results = append(results, result)
 		}
 
-		return map[string]any{"ResultList": results, "ErrorList": []any{}}, nil
+		return map[string]any{"ResultList": results, "ErrorList": errorList}, nil
 	}
 }
 
-func documentText(input map[string]any) (string, error) {
+// documentText extracts and validates the Text field of a single-document
+// request against limit (an operation-specific byte cap; see the textLimit*
+// constants). limit <= 0 means no cap.
+func documentText(input map[string]any, limit int) (string, error) {
 	text := stringValue(input, fieldText, "")
 	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("%w: Text is required", ErrValidation)
 	}
+	if limit > 0 && len(text) > limit {
+		return "", fmt.Errorf("%w: input text of %d bytes exceeds the %d byte limit for this operation",
+			ErrTextSizeLimitExceeded, len(text), limit)
+	}
 
 	return text, nil
+}
+
+// validateLanguageCode rejects a LanguageCode not present in allowed.
+func validateLanguageCode(code string, allowed map[string]bool) error {
+	if !allowed[code] {
+		return fmt.Errorf("%w: language %q is not supported by this operation", ErrUnsupportedLanguage, code)
+	}
+
+	return nil
+}
+
+// requireLanguageCode validates a required LanguageCode field against
+// allowed. Real AWS models LanguageCode as required on every
+// Detect*/BatchDetect* operation here except DetectEntities (which allows an
+// EndpointArn instead) and DetectDominantLanguage (which has no LanguageCode
+// field at all).
+func requireLanguageCode(input map[string]any, allowed map[string]bool) error {
+	code := stringValue(input, fieldLanguageCode, "")
+	if code == "" {
+		return fmt.Errorf("%w: LanguageCode is required", ErrValidation)
+	}
+
+	return validateLanguageCode(code, allowed)
 }
 
 func matchResult(text, match, kind string) map[string]any {
@@ -382,7 +556,12 @@ func matchResult(text, match, kind string) map[string]any {
 }
 
 func (h *Handler) detectTargetedSentiment(input map[string]any) (map[string]any, error) {
-	text, err := documentText(input)
+	// "Currently, English is the only supported language" per
+	// DetectTargetedSentimentInput's doc comment.
+	if err := requireLanguageCode(input, englishOnlyLanguageCodes); err != nil {
+		return nil, err
+	}
+	text, err := documentText(input, textLimit5KB)
 	if err != nil {
 		return nil, err
 	}

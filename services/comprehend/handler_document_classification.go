@@ -6,7 +6,9 @@ import (
 )
 
 func (h *Handler) classifyDocument(input map[string]any) (map[string]any, error) {
-	text, err := documentText(input)
+	// ClassifyDocumentInput has no LanguageCode field at all: the classifier
+	// (identified by EndpointArn) determines the language.
+	text, err := documentText(input, textLimit100KB)
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +35,10 @@ func (h *Handler) classifyDocument(input map[string]any) (map[string]any, error)
 }
 
 func (h *Handler) containsPIIEntities(input map[string]any) (map[string]any, error) {
-	text, err := documentText(input)
+	if err := requireLanguageCode(input, generalLanguageCodes); err != nil {
+		return nil, err
+	}
+	text, err := documentText(input, textLimit100KB)
 	if err != nil {
 		return nil, err
 	}
