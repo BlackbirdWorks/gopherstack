@@ -1,8 +1,8 @@
 ---
 service: mediastore
 sdk_module: aws-sdk-go-v2/service/mediastore@v1.29.23
-last_audit_commit: dfd2cb83
-last_audit_date: 2026-07-13
+last_audit_commit: 7e4e35369
+last_audit_date: 2026-07-24
 overall: B            # already-accurate; proven op-by-op, one real (message-text) bug fixed
 ops:
   CreateContainer: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -90,3 +90,25 @@ leaks: {status: clean, note: "No goroutines, timers, or janitors in this service
   persisted -- regenerated fresh per process start, matching AppConfig/AppConfigData. A
   NextToken issued before a restore will fail its HMAC check afterward; this is an accepted,
   pre-existing limitation shared with sibling services, not a new gap.
+- **2026-07-24 re-audit (parity-3 sweep)**: independently re-field-diffed every op against a
+  freshly-fetched `aws-sdk-go-v2/service/mediastore@v1.29.23` (`types/types.go`,
+  `types/errors.go`, `types/enums.go`, `validators.go`, `deserializers.go`, every
+  `api_op_*.go`) rather than trusting the prior audit's conclusions at face value. Confirmed
+  byte-for-byte: `Container`/`CorsRule`/`MetricPolicy`/`MetricPolicyRule`/`Tag` field sets and
+  types, all five modeled exceptions (`ContainerInUseException`, `ContainerNotFoundException`,
+  `CorsPolicyNotFoundException`, `InternalServerError`, `LimitExceededException`,
+  `PolicyNotFoundException` -- six, not five) with correct HTTP status/fault mapping,
+  `ContainerStatus`/`ContainerLevelMetrics`/`MethodName` enum values, and the epoch-seconds
+  `CreationTime` deserializer (`smithytime.ParseEpochSeconds`). Also confirmed
+  `DescribeContainerInput.ContainerName` and `ListContainersInput`/`MaxResults` carry no
+  client-side `validateOp*Input` middleware in the real SDK (no generated validator exists for
+  those two ops) -- gopherstack's server-side `ContainerName` non-empty check on
+  `DescribeContainer` is therefore a defensible server-side guard rather than a
+  shape-mismatch; left as-is since no real client can produce a request that would surface a
+  behavioral difference. No new gaps found; no regressions; no invented ops/fields. Ran the
+  full self-gate suite (`go build ./services/mediastore/...`, `go test -race`, `go vet`,
+  `gofmt -l`, `golangci-lint run`, banned-nolint grep, `git diff --stat go.mod go.sum`) -- all
+  clean/empty. `go build ./...` (full tree) fails, but only in `services/networkmonitor`
+  (`buildNestedProbes` undefined), a concurrent session's uncommitted in-progress edit
+  unrelated to and untouched by this pass -- `services/mediastore` itself was not the cause
+  and was not modified to route around it.
