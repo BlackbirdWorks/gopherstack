@@ -450,6 +450,7 @@ func TestPipeSourceFiltering(t *testing.T) {
 
 			pipeName := "filter-pipe-" + tt.name
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:          "arn:aws:iam::123456789012:role/r",
 				Name:             pipeName,
 				Source:           "arn:aws:sqs:us-east-1:000000000000:queue",
 				Target:           "arn:aws:lambda:us-east-1:000000000000:function:fn",

@@ -52,8 +52,9 @@ func TestLifecycle_Creating(t *testing.T) {
 
 			b := auditNewBackend()
 			body := map[string]any{
-				"Source": "arn:aws:sqs:us-west-2:123456789012:q",
-				"Target": "arn:aws:lambda:us-west-2:123456789012:function:fn",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:sqs:us-west-2:123456789012:q",
+				"Target":  "arn:aws:lambda:us-west-2:123456789012:function:fn",
 			}
 			if tt.desiredState != "" {
 				body["DesiredState"] = tt.desiredState
@@ -93,6 +94,7 @@ func TestLifecycle_CreatingToRunning(t *testing.T) {
 
 			b := auditNewBackend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         tt.name,
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -141,6 +143,7 @@ func TestLifecycle_Updating(t *testing.T) {
 				desiredState = "STOPPED"
 			}
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         pipeName,
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -151,6 +154,7 @@ func TestLifecycle_Updating(t *testing.T) {
 
 			desc := tt.description
 			updated, err := b.UpdatePipe(context.Background(), pipeName, pipes.UpdatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Description:  &desc,
 				DesiredState: desiredState,
 			})
@@ -184,6 +188,7 @@ func TestLifecycle_Deleting(t *testing.T) {
 			b := auditNewBackend()
 			pipeName := tt.name + "-pipe"
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         pipeName,
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -222,8 +227,9 @@ func TestLifecycle_DeleteReturnsBody(t *testing.T) {
 
 			h := auditNewHandler(t)
 			auditCreate(t, h, tt.pipeName, map[string]any{
-				"Source": "arn:aws:sqs:us-west-2:123456789012:q",
-				"Target": "arn:aws:lambda:us-west-2:123456789012:function:fn",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:sqs:us-west-2:123456789012:q",
+				"Target":  "arn:aws:lambda:us-west-2:123456789012:function:fn",
 			})
 
 			rec := auditDo(t, h, http.MethodDelete, "/v1/pipes/"+tt.pipeName, nil)
@@ -255,6 +261,7 @@ func TestLifecycle_StartStop(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         tt.name,
 				Source:       b2SQSSource,
 				Target:       b2ECSTarget,
@@ -321,9 +328,10 @@ func TestLifecycle_Delete(t *testing.T) {
 
 			b := b2Backend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
-				Name:   tt.name,
-				Source: b2SQSSource,
-				Target: "arn:aws:batch:us-east-1:123456789012:job-queue/q",
+				RoleARN: "arn:aws:iam::123456789012:role/r",
+				Name:    tt.name,
+				Source:  b2SQSSource,
+				Target:  "arn:aws:batch:us-east-1:123456789012:job-queue/q",
 				TargetParameters: &pipes.TargetParameters{
 					BatchJobParameters: &pipes.BatchJobTargetParameters{
 						JobDefinition: "jd",
@@ -386,6 +394,7 @@ func TestPipeStateTransitions(t *testing.T) {
 			pipeName := "transition-" + tt.name
 
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         pipeName,
 				Source:       "arn:aws:sqs:us-east-1:000000000000:queue",
 				Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
@@ -424,6 +433,7 @@ func TestPipeStateTransitions_DoubleStart(t *testing.T) {
 
 	b := newPipeBackend()
 	_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+		RoleARN:      "arn:aws:iam::123456789012:role/r",
 		Name:         "double-start",
 		Source:       "arn:aws:sqs:us-east-1:000000000000:queue",
 		Target:       "arn:aws:lambda:us-east-1:000000000000:function:fn",
@@ -457,16 +467,18 @@ func TestErrors(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/v1/pipes/dup-pipe",
 			body: map[string]any{
-				"Source": "arn:aws:sqs:us-west-2:123456789012:q",
-				"Target": "arn:aws:lambda:us-west-2:123456789012:function:fn",
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  "arn:aws:sqs:us-west-2:123456789012:q",
+				"Target":  "arn:aws:lambda:us-west-2:123456789012:function:fn",
 			},
 			wantStatus: http.StatusConflict,
 			wantType:   "ConflictException",
 			setup: func(t *testing.T, h *pipes.Handler) {
 				t.Helper()
 				auditCreate(t, h, "dup-pipe", map[string]any{
-					"Source": "arn:aws:sqs:us-west-2:123456789012:q",
-					"Target": "arn:aws:lambda:us-west-2:123456789012:function:fn",
+					"RoleArn": "arn:aws:iam::123456789012:role/r",
+					"Source":  "arn:aws:sqs:us-west-2:123456789012:q",
+					"Target":  "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				})
 			},
 		},
@@ -485,10 +497,13 @@ func TestErrors(t *testing.T) {
 			wantType:   "NotFoundException",
 		},
 		{
-			name:       "update_nonexistent_pipe_returns_404",
-			method:     http.MethodPut,
-			path:       "/v1/pipes/missing-pipe",
-			body:       map[string]any{"Description": "x"},
+			name:   "update_nonexistent_pipe_returns_404",
+			method: http.MethodPut,
+			path:   "/v1/pipes/missing-pipe",
+			body: map[string]any{
+				"RoleArn":     "arn:aws:iam::123456789012:role/r",
+				"Description": "x",
+			},
 			wantStatus: http.StatusNotFound,
 			wantType:   "NotFoundException",
 		},
@@ -497,6 +512,7 @@ func TestErrors(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/v1/pipes/bad-state-pipe",
 			body: map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "INVALID",
@@ -514,6 +530,7 @@ func TestErrors(t *testing.T) {
 			setup: func(t *testing.T, h *pipes.Handler) {
 				t.Helper()
 				auditCreate(t, h, "already-running-pipe", map[string]any{
+					"RoleArn":      "arn:aws:iam::123456789012:role/r",
 					"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 					"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 					"DesiredState": "RUNNING",
@@ -530,6 +547,7 @@ func TestErrors(t *testing.T) {
 			setup: func(t *testing.T, h *pipes.Handler) {
 				t.Helper()
 				auditCreate(t, h, "already-stopped-pipe", map[string]any{
+					"RoleArn":      "arn:aws:iam::123456789012:role/r",
 					"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 					"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 					"DesiredState": "STOPPED",
@@ -574,8 +592,9 @@ func TestError_DuplicatePipe(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2LambdaTarget,
 			}
 			b2Create(t, h, tt.name, body)
 			rec := b2Do(t, h, http.MethodPost, "/v1/pipes/"+tt.name, body)
@@ -625,6 +644,7 @@ func TestError_InvalidDesiredState(t *testing.T) {
 
 			h := b2Handler(t)
 			body := map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       b2SQSSource,
 				"Target":       b2LambdaTarget,
 				"DesiredState": tt.desiredState,
@@ -667,6 +687,7 @@ func TestMarkPipeFailed(t *testing.T) {
 
 			b := auditNewBackend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         tt.name + "-pipe",
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -704,6 +725,7 @@ func TestARN_Format(t *testing.T) {
 
 			h := auditNewHandler(t)
 			resp := auditCreate(t, h, tt.pipeName, map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -732,6 +754,7 @@ func TestTimestamps_SetOnCreate(t *testing.T) {
 
 			h := auditNewHandler(t)
 			resp := auditCreate(t, h, tt.name+"-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -762,6 +785,7 @@ func TestUpdatePipe_UpdatesLastModifiedTime(t *testing.T) {
 
 			b := auditNewBackend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         tt.name + "-pipe",
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -775,6 +799,7 @@ func TestUpdatePipe_UpdatesLastModifiedTime(t *testing.T) {
 
 			updatedDesc := "updated"
 			_, err = b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
+				RoleARN:     "arn:aws:iam::123456789012:role/r",
 				Description: &updatedDesc,
 			})
 			require.NoError(t, err)
@@ -831,6 +856,7 @@ func TestUpdatePipe_Description_AbsentMeansUnchanged(t *testing.T) {
 
 			desc := tt.updateDesc
 			_, err = b.UpdatePipe(context.Background(), tt.name, pipes.UpdatePipeInput{
+				RoleARN:     "arn:aws:iam::123456789012:role/r",
 				Description: &desc,
 			})
 			require.NoError(t, err)
@@ -853,19 +879,28 @@ func TestUpdatePipe_Description_HTTPAbsentPreserves(t *testing.T) {
 		wantDesc string
 	}{
 		{
-			name:     "no_description_field_preserves",
-			body:     map[string]any{"DesiredState": "RUNNING"},
+			name: "no_description_field_preserves",
+			body: map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
+				"DesiredState": "RUNNING",
+			},
 			wantDesc: "keep me",
 		},
 		{
 			// JSON "" → *string pointing to "" → backend clears; response omits field (omitempty).
-			name:     "empty_string_clears_description",
-			body:     map[string]any{"Description": ""},
+			name: "empty_string_clears_description",
+			body: map[string]any{
+				"RoleArn":     "arn:aws:iam::123456789012:role/r",
+				"Description": "",
+			},
 			wantDesc: "",
 		},
 		{
-			name:     "new_value_updates_description",
-			body:     map[string]any{"Description": "new desc"},
+			name: "new_value_updates_description",
+			body: map[string]any{
+				"RoleArn":     "arn:aws:iam::123456789012:role/r",
+				"Description": "new desc",
+			},
 			wantDesc: "new desc",
 		},
 	}
@@ -876,6 +911,7 @@ func TestUpdatePipe_Description_HTTPAbsentPreserves(t *testing.T) {
 
 			h := b3Handler(t)
 			b3Create(t, h, tt.name+"-pipe", map[string]any{
+				"RoleArn":     "arn:aws:iam::123456789012:role/r",
 				"Source":      b3SQSSource,
 				"Target":      b3LambdaTarget,
 				"Description": "keep me",
@@ -927,6 +963,7 @@ func TestKmsKeyIdentifier(t *testing.T) {
 
 			h := auditNewHandler(t)
 			body := map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -974,6 +1011,7 @@ func TestKmsKeyIdentifier_Update(t *testing.T) {
 
 			b := auditNewBackend()
 			inp := pipes.CreatePipeInput{
+				RoleARN:      "arn:aws:iam::123456789012:role/r",
 				Name:         tt.name + "-pipe",
 				Source:       "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:       "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -987,6 +1025,7 @@ func TestKmsKeyIdentifier_Update(t *testing.T) {
 			pipes.WaitPipeRunning(t, b, tt.name+"-pipe")
 
 			updated, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
+				RoleARN:          "arn:aws:iam::123456789012:role/r",
 				KmsKeyIdentifier: tt.updatedKey,
 			})
 			require.NoError(t, err)
@@ -1015,6 +1054,7 @@ func TestDeadLetterConfig(t *testing.T) {
 
 			h := auditNewHandler(t)
 			body := map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -1118,6 +1158,7 @@ func TestLogConfiguration(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-pipe", map[string]any{
+				"RoleArn":          "arn:aws:iam::123456789012:role/r",
 				"Source":           "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":           "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState":     "RUNNING",
@@ -1212,6 +1253,7 @@ func TestRuntimeMetricsStreaming_Create(t *testing.T) {
 			}
 
 			body := map[string]any{
+				"RoleArn":                 "arn:aws:iam::123456789012:role/r",
 				"Source":                  b2SQSSource,
 				"Target":                  b2LambdaTarget,
 				"RuntimeMetricsStreaming": rmsBody,
@@ -1257,14 +1299,16 @@ func TestRuntimeMetricsStreaming_Update(t *testing.T) {
 
 			h := b2Handler(t)
 			b2Create(t, h, tt.name, map[string]any{
-				"Source": b2SQSSource,
-				"Target": b2LambdaTarget,
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
+				"Source":  b2SQSSource,
+				"Target":  b2LambdaTarget,
 				"RuntimeMetricsStreaming": map[string]any{
 					"Level": tt.initialLevel,
 				},
 			})
 
 			resp := b2Update(t, h, tt.name, map[string]any{
+				"RoleArn": "arn:aws:iam::123456789012:role/r",
 				"RuntimeMetricsStreaming": map[string]any{
 					"Level": tt.updatedLevel,
 				},

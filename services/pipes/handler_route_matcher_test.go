@@ -190,7 +190,12 @@ func TestRouteMatcher_FullDispatch(t *testing.T) {
 		{http.MethodPost, "/v1/pipes/route-dispatch-pipe/start", ""},
 		// UpdatePipe always unmarshals the body, so a real client's PUT
 		// (which always carries at least "{}") must be modelled here too.
-		{http.MethodPut, "/v1/pipes/route-dispatch-pipe", "{}"},
+		// UpdatePipe requires RoleArn on every call (real AWS marks it a
+		// required member of UpdatePipeInput even when unchanged).
+		{
+			http.MethodPut, "/v1/pipes/route-dispatch-pipe",
+			`{"RoleArn":"arn:aws:iam::123456789012:role/pipe-role"}`,
+		},
 		{http.MethodDelete, "/v1/pipes/route-dispatch-pipe", ""},
 	}
 

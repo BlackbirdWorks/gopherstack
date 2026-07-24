@@ -36,6 +36,7 @@ func TestSourceParams_SQS(t *testing.T) {
 
 			h := auditNewHandler(t)
 			body := map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -119,6 +120,7 @@ func TestSourceParams_Kinesis(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-kinesis-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:kinesis:us-west-2:123456789012:stream/s",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -177,6 +179,7 @@ func TestSourceParams_DynamoDB(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-ddb-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:dynamodb:us-west-2:123456789012:table/T/stream/2024",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -219,6 +222,7 @@ func TestFilterCriteria_StoredAndReturned(t *testing.T) {
 			}
 
 			resp := auditCreate(t, h, tt.name+"-pipe", map[string]any{
+				"RoleArn":      "arn:aws:iam::123456789012:role/r",
 				"Source":       "arn:aws:sqs:us-west-2:123456789012:q",
 				"Target":       "arn:aws:lambda:us-west-2:123456789012:function:fn",
 				"DesiredState": "RUNNING",
@@ -319,6 +323,7 @@ func TestBatchSize_EffectiveFromAllSources(t *testing.T) {
 
 			b := auditNewBackend()
 			_, err := b.CreatePipe(context.Background(), pipes.CreatePipeInput{
+				RoleARN:          "arn:aws:iam::123456789012:role/r",
 				Name:             tt.name + "-pipe",
 				Source:           "arn:aws:sqs:us-west-2:123456789012:q",
 				Target:           "arn:aws:lambda:us-west-2:123456789012:function:fn",
@@ -493,6 +498,7 @@ func TestBatchSize_UpdateValidation(t *testing.T) {
 			b3CreatePipe(t, b, tt.name+"-pipe", b3LambdaTarget)
 
 			_, err := b.UpdatePipe(context.Background(), tt.name+"-pipe", pipes.UpdatePipeInput{
+				RoleARN:          "arn:aws:iam::123456789012:role/r",
 				SourceParameters: tt.sp,
 			})
 
