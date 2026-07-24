@@ -39,11 +39,13 @@ func regionFromARN(resourceARN, defaultRegion string) string {
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:  store.NewRegistry(),
-		tags:      make(map[string]map[string][]Tag),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("docdb"),
+		registry:                  store.NewRegistry(),
+		tags:                      make(map[string]map[string][]Tag),
+		eventsLog:                 make(map[string][]Event),
+		pendingMaintenanceActions: make(map[string]map[string]PendingMaintenanceAction),
+		accountID:                 accountID,
+		region:                    region,
+		mu:                        lockmetrics.New("docdb"),
 	}
 	registerAllTables(b)
 
@@ -210,6 +212,8 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string][]Tag)
+	b.eventsLog = make(map[string][]Event)
+	b.pendingMaintenanceActions = make(map[string]map[string]PendingMaintenanceAction)
 }
 
 // clusterARN returns the ARN for a DB cluster in the given region.
@@ -240,6 +244,13 @@ func (b *InMemoryBackend) clusterSnapshotARN(region, id string) string {
 // globalClusterARN returns the ARN for a global cluster.
 func (b *InMemoryBackend) globalClusterARN(id string) string {
 	return arn.Build("rds", b.region, b.accountID, "global-cluster:"+id)
+}
+
+// eventSubscriptionARN returns the ARN for an event subscription in the
+// given region, matching the "es:" resource-type prefix RDS-family event
+// subscription ARNs use.
+func (b *InMemoryBackend) eventSubscriptionARN(region, name string) string {
+	return arn.Build("rds", region, b.accountID, "es:"+name)
 }
 
 // AddDBClusterInternal seeds a cluster directly for testing.
@@ -336,6 +347,21 @@ func copyEventSubscription(sub *EventSubscription) *EventSubscription {
 	copy(cp.SourceIDs, sub.SourceIDs)
 	cp.EventCategories = make([]string, len(sub.EventCategories))
 	copy(cp.EventCategories, sub.EventCategories)
+
+	return &cp
+}
+
+// copyGlobalCluster returns a deep copy of a GlobalCluster, including its
+// GlobalClusterMembers slice (and each member's own Readers slice).
+func copyGlobalCluster(gc *GlobalCluster) *GlobalCluster {
+	cp := *gc
+	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
+	for i, m := range gc.GlobalClusterMembers {
+		mc := m
+		mc.Readers = make([]string, len(m.Readers))
+		copy(mc.Readers, m.Readers)
+		cp.GlobalClusterMembers[i] = mc
+	}
 
 	return &cp
 }

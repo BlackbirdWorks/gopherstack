@@ -354,6 +354,104 @@ func TestHandler_ResetDBClusterParameterGroup(t *testing.T) {
 	}
 }
 
+// TestResetDBClusterParameterGroup_RealReset locks in the fix for a
+// disguised no-op: ResetDBClusterParameterGroup previously validated the
+// group and returned an unchanged clone without ever touching
+// pg.Parameters, so a real caller's ResetAllParameters=true or
+// per-parameter reset request silently did nothing. It must now genuinely
+// clear the requested overrides.
+func TestResetDBClusterParameterGroup_RealReset(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reset_all_parameters_clears_every_override", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, url.Values{
+			"Action":                      {"CreateDBClusterParameterGroup"},
+			"Version":                     {"2014-10-31"},
+			"DBClusterParameterGroupName": {"reset-all-pg"},
+			"DBParameterGroupFamily":      {"docdb4.0"},
+		})
+		doRequest(t, h, url.Values{
+			"Action":                                {"ModifyDBClusterParameterGroup"},
+			"Version":                               {"2014-10-31"},
+			"DBClusterParameterGroupName":           {"reset-all-pg"},
+			"Parameters.Parameter.1.ParameterName":  {"tls"},
+			"Parameters.Parameter.1.ParameterValue": {"disabled"},
+		})
+
+		// Confirm the override actually took before reset.
+		beforeRR := doRequest(t, h, url.Values{
+			"Action":                      {"DescribeDBClusterParameters"},
+			"Version":                     {"2014-10-31"},
+			"DBClusterParameterGroupName": {"reset-all-pg"},
+		})
+		require.Equal(t, http.StatusOK, beforeRR.Code)
+		assert.Contains(t, beforeRR.Body.String(), "<ParameterValue>disabled</ParameterValue>")
+
+		resetRR := doRequest(t, h, url.Values{
+			"Action":                      {"ResetDBClusterParameterGroup"},
+			"Version":                     {"2014-10-31"},
+			"DBClusterParameterGroupName": {"reset-all-pg"},
+			"ResetAllParameters":          {"true"},
+		})
+		require.Equal(t, http.StatusOK, resetRR.Code)
+
+		afterRR := doRequest(t, h, url.Values{
+			"Action":                      {"DescribeDBClusterParameters"},
+			"Version":                     {"2014-10-31"},
+			"DBClusterParameterGroupName": {"reset-all-pg"},
+		})
+		require.Equal(t, http.StatusOK, afterRR.Code)
+		assert.NotContains(t, afterRR.Body.String(), "<ParameterValue>disabled</ParameterValue>",
+			"ResetAllParameters=true must clear the user override back to the engine default")
+		assert.Contains(t, afterRR.Body.String(), "<ParameterValue>enabled</ParameterValue>",
+			"tls's engine default (enabled) must be visible again after reset")
+	})
+
+	t.Run("reset_named_parameter_only_clears_that_one", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, url.Values{
+			"Action":                      {"CreateDBClusterParameterGroup"},
+			"Version":                     {"2014-10-31"},
+			"DBClusterParameterGroupName": {"reset-one-pg"},
+			"DBParameterGroupFamily":      {"docdb4.0"},
+		})
+		doRequest(t, h, url.Values{
+			"Action":                                {"ModifyDBClusterParameterGroup"},
+			"Version":                               {"2014-10-31"},
+			"DBClusterParameterGroupName":           {"reset-one-pg"},
+			"Parameters.Parameter.1.ParameterName":  {"tls"},
+			"Parameters.Parameter.1.ParameterValue": {"disabled"},
+			"Parameters.Parameter.2.ParameterName":  {"ttl_monitor"},
+			"Parameters.Parameter.2.ParameterValue": {"disabled"},
+		})
+
+		resetRR := doRequest(t, h, url.Values{
+			"Action":                               {"ResetDBClusterParameterGroup"},
+			"Version":                              {"2014-10-31"},
+			"DBClusterParameterGroupName":          {"reset-one-pg"},
+			"Parameters.Parameter.1.ParameterName": {"tls"},
+		})
+		require.Equal(t, http.StatusOK, resetRR.Code)
+
+		afterRR := doRequest(t, h, url.Values{
+			"Action":                      {"DescribeDBClusterParameters"},
+			"Version":                     {"2014-10-31"},
+			"DBClusterParameterGroupName": {"reset-one-pg"},
+		})
+		require.Equal(t, http.StatusOK, afterRR.Code)
+		body := afterRR.Body.String()
+		// tls reverted to its engine default (enabled); ttl_monitor keeps
+		// the user override (disabled) since it wasn't named in the reset.
+		assert.Contains(t, body, "<ParameterName>tls</ParameterName><ParameterValue>enabled</ParameterValue>")
+		assert.Contains(t, body, "<ParameterName>ttl_monitor</ParameterName><ParameterValue>disabled</ParameterValue>")
+	})
+}
+
 func TestDeleteParameterGroupInUse(t *testing.T) {
 	t.Parallel()
 

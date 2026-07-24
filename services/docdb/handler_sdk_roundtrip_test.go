@@ -237,3 +237,179 @@ func Test_SDKRoundTrip_ModifyDBClusterParameterGroup_Parameters(t *testing.T) {
 	}
 	require.True(t, found, "expected the tls parameter in the describe response")
 }
+
+// Test_SDKRoundTrip_ResetDBClusterParameterGroup proves the real SDK
+// client's ResetAllParameters actually clears a previously-set override.
+// ResetDBClusterParameterGroup used to be a disguised no-op: it validated
+// the group and returned an unchanged clone without ever touching the
+// parameter overrides, so a real client's ResetAllParameters=true request
+// silently did nothing.
+func Test_SDKRoundTrip_ResetDBClusterParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBClusterParameterGroup(ctx, &docdbsdk.CreateDBClusterParameterGroupInput{
+		DBClusterParameterGroupName: aws.String("rt-reset-pg"),
+		DBParameterGroupFamily:      aws.String("docdb4.0"),
+		Description:                 aws.String("roundtrip reset test"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyDBClusterParameterGroup(ctx, &docdbsdk.ModifyDBClusterParameterGroupInput{
+		DBClusterParameterGroupName: aws.String("rt-reset-pg"),
+		Parameters: []types.Parameter{
+			{ParameterName: aws.String("tls"), ParameterValue: aws.String("disabled")},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.ResetDBClusterParameterGroup(ctx, &docdbsdk.ResetDBClusterParameterGroupInput{
+		DBClusterParameterGroupName: aws.String("rt-reset-pg"),
+		ResetAllParameters:          aws.Bool(true),
+	})
+	require.NoError(t, err)
+
+	descOut, err := client.DescribeDBClusterParameters(ctx, &docdbsdk.DescribeDBClusterParametersInput{
+		DBClusterParameterGroupName: aws.String("rt-reset-pg"),
+	})
+	require.NoError(t, err)
+
+	for _, p := range descOut.Parameters {
+		if aws.ToString(p.ParameterName) == "tls" {
+			require.Equal(t, "enabled", aws.ToString(p.ParameterValue),
+				"ResetAllParameters=true must have cleared the disabled override back to the engine default")
+		}
+	}
+}
+
+// Test_SDKRoundTrip_EventSubscription_FullFieldRoundTrip proves the real SDK
+// client's EventCategories/Enabled round-trip end to end. xmlEventSubscription
+// used to omit EventCategoriesList/EventSubscriptionArn/Enabled/CustomerAwsId/
+// SubscriptionCreationTime entirely, so a real client reading the categories
+// or ARN back always saw a zero value even though the backend tracked them
+// correctly internally.
+func Test_SDKRoundTrip_EventSubscription_FullFieldRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	out, err := client.CreateEventSubscription(ctx, &docdbsdk.CreateEventSubscriptionInput{
+		SubscriptionName: aws.String("rt-event-sub"),
+		SnsTopicArn:      aws.String("arn:aws:sns:us-east-1:000000000000:rt-topic"),
+		SourceType:       aws.String("db-cluster"),
+		EventCategories:  []string{"failover", "maintenance"},
+		SourceIds:        []string{"rt-source-cluster"},
+		Enabled:          aws.Bool(false),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.EventSubscription)
+
+	require.ElementsMatch(t, []string{"failover", "maintenance"}, out.EventSubscription.EventCategoriesList,
+		"EventCategoriesList must round-trip, not silently drop to empty")
+	require.ElementsMatch(t, []string{"rt-source-cluster"}, out.EventSubscription.SourceIdsList,
+		"SourceIdsList must round-trip and must not be swapped with EventCategoriesList")
+	require.False(t, aws.ToBool(out.EventSubscription.Enabled))
+	require.NotEmpty(t, aws.ToString(out.EventSubscription.EventSubscriptionArn))
+	require.Equal(t, "000000000000", aws.ToString(out.EventSubscription.CustomerAwsId))
+}
+
+// Test_SDKRoundTrip_GlobalCluster_MemberTracking proves the real SDK
+// client's GlobalClusterMembers actually reflects real membership.
+// GlobalCluster.GlobalClusterMembers previously had no backing field at
+// all: CreateGlobalCluster never attached the source cluster, and
+// DescribeGlobalClusters always answered an empty member list.
+func Test_SDKRoundTrip_GlobalCluster_MemberTracking(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-gc-source"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.CreateGlobalCluster(ctx, &docdbsdk.CreateGlobalClusterInput{
+		GlobalClusterIdentifier:   aws.String("rt-gc"),
+		SourceDBClusterIdentifier: aws.String("rt-gc-source"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.GlobalCluster)
+	require.Len(t, out.GlobalCluster.GlobalClusterMembers, 1)
+	require.True(t, aws.ToBool(out.GlobalCluster.GlobalClusterMembers[0].IsWriter))
+	require.Contains(t, aws.ToString(out.GlobalCluster.GlobalClusterMembers[0].DBClusterArn), "rt-gc-source")
+}
+
+// Test_SDKRoundTrip_DescribeEvents proves the real SDK client can decode a
+// populated Events list end to end (Date/EventCategories/SourceIdentifier/
+// SourceType/Message). Before this pass, DescribeEvents always answered an
+// empty list -- no real event log existed at all -- so this response shape
+// had never actually been exercised against the real deserializer with
+// non-empty data.
+func Test_SDKRoundTrip_DescribeEvents(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-events-cluster"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeEvents(ctx, &docdbsdk.DescribeEventsInput{
+		SourceIdentifier: aws.String("rt-events-cluster"),
+		SourceType:       types.SourceTypeDbCluster,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Events, 1)
+	event := out.Events[0]
+	require.Equal(t, "rt-events-cluster", aws.ToString(event.SourceIdentifier))
+	require.Equal(t, types.SourceTypeDbCluster, event.SourceType)
+	require.NotNil(t, event.Date, "Date must decode, not be left nil by a wire-shape mismatch")
+	require.NotEmpty(t, event.Message)
+	require.Contains(t, event.EventCategories, "creation")
+}
+
+// Test_SDKRoundTrip_ApplyPendingMaintenanceAction proves the real SDK
+// client's queued pending-maintenance-action fields round-trip. Before this
+// pass there was no real queue at all, so ApplyPendingMaintenanceAction
+// always answered an empty PendingMaintenanceActionDetails regardless of
+// OptInType.
+func Test_SDKRoundTrip_ApplyPendingMaintenanceAction(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	const resourceARN = "arn:aws:rds:us-east-1:000000000000:cluster:rt-maint-cluster"
+	backend.AddPendingMaintenanceActionInternal(resourceARN, "system-update", "roundtrip test")
+
+	out, err := client.ApplyPendingMaintenanceAction(ctx, &docdbsdk.ApplyPendingMaintenanceActionInput{
+		ResourceIdentifier: aws.String(resourceARN),
+		ApplyAction:        aws.String("system-update"),
+		OptInType:          aws.String("immediate"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ResourcePendingMaintenanceActions)
+	require.Equal(t, resourceARN, aws.ToString(out.ResourcePendingMaintenanceActions.ResourceIdentifier))
+	require.Len(t, out.ResourcePendingMaintenanceActions.PendingMaintenanceActionDetails, 1)
+	action := out.ResourcePendingMaintenanceActions.PendingMaintenanceActionDetails[0]
+	require.Equal(t, "system-update", aws.ToString(action.Action))
+	require.Equal(t, "immediate", aws.ToString(action.OptInStatus))
+}

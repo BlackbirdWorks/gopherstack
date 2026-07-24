@@ -52,11 +52,13 @@ func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Regi
 // guards against decoding a snapshot from an incompatible (older or newer)
 // build of this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage  `json:"tables"`
-	Tags      map[string]map[string][]Tag `json:"tags"`
-	AccountID string                      `json:"accountID"`
-	Region    string                      `json:"region"`
-	Version   int                         `json:"version"`
+	Tables                    map[string]json.RawMessage                     `json:"tables"`
+	Tags                      map[string]map[string][]Tag                    `json:"tags"`
+	EventsLog                 map[string][]Event                             `json:"eventsLog"`
+	PendingMaintenanceActions map[string]map[string]PendingMaintenanceAction `json:"pendingMaintenanceActions"`
+	AccountID                 string                                         `json:"accountID"`
+	Region                    string                                         `json:"region"`
+	Version                   int                                            `json:"version"`
 }
 
 // buildPersistenceDTORegistry constructs the ephemeral DTO registry used by
@@ -152,11 +154,13 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:   docdbSnapshotVersion,
-		Tables:    tables,
-		Tags:      b.tags,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Version:                   docdbSnapshotVersion,
+		Tables:                    tables,
+		Tags:                      b.tags,
+		EventsLog:                 b.eventsLog,
+		PendingMaintenanceActions: b.pendingMaintenanceActions,
+		AccountID:                 b.accountID,
+		Region:                    b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "docdb", snap)
@@ -187,6 +191,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.tags = make(map[string]map[string][]Tag)
+		b.eventsLog = make(map[string][]Event)
+		b.pendingMaintenanceActions = make(map[string]map[string]PendingMaintenanceAction)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 
@@ -201,6 +207,16 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.Tags = make(map[string]map[string][]Tag)
 	}
 	b.tags = snap.Tags
+
+	if snap.EventsLog == nil {
+		snap.EventsLog = make(map[string][]Event)
+	}
+	b.eventsLog = snap.EventsLog
+
+	if snap.PendingMaintenanceActions == nil {
+		snap.PendingMaintenanceActions = make(map[string]map[string]PendingMaintenanceAction)
+	}
+	b.pendingMaintenanceActions = snap.PendingMaintenanceActions
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region

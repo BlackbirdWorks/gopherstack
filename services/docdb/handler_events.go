@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strconv"
 )
 
 func (h *Handler) handleAddSourceIdentifierToSubscription(ctx context.Context, vals url.Values) (any, error) {
@@ -25,9 +26,17 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
 	sourceType := vals.Get("SourceType")
+	// NB: CreateEventSubscription's backend signature takes
+	// (eventCategories, sourceIDs) in that order -- a real, previously
+	// undetected bug had these two swapped positionally here, so a real
+	// client's SourceIds silently came back as EventCategories and vice
+	// versa (both are []string, so nothing type-checked away the mistake).
 	sourceIDs := parseSourceIDMembers(vals)
 	eventCategories := parseEventCategoryMembers(vals)
-	sub, err := h.Backend.CreateEventSubscription(ctx, name, snsTopicARN, sourceType, sourceIDs, eventCategories)
+	enabled := parseBoolParam(vals, "Enabled")
+	sub, err := h.Backend.CreateEventSubscription(
+		ctx, name, snsTopicARN, sourceType, eventCategories, sourceIDs, enabled,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +85,8 @@ func (h *Handler) handleModifyEventSubscription(ctx context.Context, vals url.Va
 	snsTopicARN := vals.Get("SnsTopicArn")
 	sourceType := vals.Get("SourceType")
 	eventCategories := parseEventCategoryMembers(vals)
-	sub, err := h.Backend.ModifyEventSubscription(ctx, name, snsTopicARN, sourceType, eventCategories)
+	enabled := parseBoolParam(vals, "Enabled")
+	sub, err := h.Backend.ModifyEventSubscription(ctx, name, snsTopicARN, sourceType, eventCategories, enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -101,11 +111,31 @@ func (h *Handler) handleRemoveSourceIdentifierFromSubscription(ctx context.Conte
 	}, nil
 }
 
-func (h *Handler) handleDescribeEvents(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeEvents(ctx context.Context, vals url.Values) (any, error) {
+	filter := EventsFilter{
+		SourceIdentifier: vals.Get("SourceIdentifier"),
+		SourceType:       vals.Get("SourceType"),
+		StartTime:        vals.Get("StartTime"),
+		EndTime:          vals.Get("EndTime"),
+		EventCategories:  parseEventCategoryMembers(vals),
+	}
+	if d := vals.Get("Duration"); d != "" {
+		if n, err := strconv.Atoi(d); err == nil {
+			filter.Duration = n
+		}
+	}
+	events := h.Backend.DescribeEvents(ctx, filter)
+	members := make([]xmlEvent, 0, len(events))
+	for _, e := range events {
+		members = append(members, toXMLEvent(&e))
+	}
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeEventsResponse{
 		Xmlns: docdbXMLNS,
 		Result: describeEventsResult{
-			Events: xmlEventList{},
+			Events: xmlEventList{Members: members},
+			Marker: nextMarker,
 		},
 	}, nil
 }
@@ -135,12 +165,24 @@ type xmlSourceIDList struct {
 	Members []string `xml:"SourceId"`
 }
 
+// xmlEventSubscription mirrors types.EventSubscription's full wire shape
+// (awsAwsquery_deserializeDocumentEventSubscription). EventCategoriesList/
+// EventSubscriptionArn/Enabled/CustomerAwsId/SubscriptionCreationTime were
+// previously entirely absent from this struct -- a real caller reading back
+// the event categories or ARN it just set on Create/Modify always saw them
+// silently dropped, even though the backend tracked EventCategories
+// correctly internally.
 type xmlEventSubscription struct {
-	SubscriptionName string          `xml:"CustSubscriptionId"`
-	SnsTopicARN      string          `xml:"SnsTopicArn,omitempty"`
-	SourceType       string          `xml:"SourceType,omitempty"`
-	Status           string          `xml:"Status"`
-	SourceIDsList    xmlSourceIDList `xml:"SourceIdsList"`
+	SubscriptionName         string               `xml:"CustSubscriptionId"`
+	SnsTopicARN              string               `xml:"SnsTopicArn,omitempty"`
+	SourceType               string               `xml:"SourceType,omitempty"`
+	Status                   string               `xml:"Status"`
+	EventSubscriptionArn     string               `xml:"EventSubscriptionArn,omitempty"`
+	CustomerAwsID            string               `xml:"CustomerAwsId,omitempty"`
+	SubscriptionCreationTime string               `xml:"SubscriptionCreationTime,omitempty"`
+	SourceIDsList            xmlSourceIDList      `xml:"SourceIdsList"`
+	EventCategoriesList      xmlEventCategoryList `xml:"EventCategoriesList"`
+	Enabled                  bool                 `xml:"Enabled"`
 }
 
 type addSourceIdentifierToSubscriptionResponse struct {
@@ -164,13 +206,20 @@ type deleteEventSubscriptionResponse struct {
 func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 	ids := make([]string, len(sub.SourceIDs))
 	copy(ids, sub.SourceIDs)
+	cats := make([]string, len(sub.EventCategories))
+	copy(cats, sub.EventCategories)
 
 	return xmlEventSubscription{
-		SubscriptionName: sub.SubscriptionName,
-		SnsTopicARN:      sub.SnsTopicARN,
-		SourceType:       sub.SourceType,
-		Status:           sub.Status,
-		SourceIDsList:    xmlSourceIDList{Members: ids},
+		SubscriptionName:         sub.SubscriptionName,
+		SnsTopicARN:              sub.SnsTopicARN,
+		SourceType:               sub.SourceType,
+		Status:                   sub.Status,
+		EventSubscriptionArn:     sub.EventSubscriptionArn,
+		CustomerAwsID:            sub.CustomerAwsID,
+		SubscriptionCreationTime: sub.SubscriptionCreationTime,
+		SourceIDsList:            xmlSourceIDList{Members: ids},
+		EventCategoriesList:      xmlEventCategoryList{Members: cats},
+		Enabled:                  sub.Enabled,
 	}
 }
 
@@ -201,9 +250,33 @@ type removeSourceIdentifierFromSubscriptionResponse struct {
 	EventSubscription xmlEventSubscription `xml:"RemoveSourceIdentifierFromSubscriptionResult>EventSubscription"`
 }
 
+// xmlEvent mirrors types.Event's full wire shape
+// (awsAwsquery_deserializeDocumentEvent): Date/EventCategories/Message/
+// SourceArn/SourceIdentifier/SourceType. Date/SourceIdentifier/EventCategories
+// were previously entirely absent -- DescribeEvents always answered an empty
+// list regardless (see events_log.go), so this struct was never actually
+// exercised against real event data until now.
 type xmlEvent struct {
-	Message    string `xml:"Message,omitempty"`
-	SourceType string `xml:"SourceType,omitempty"`
+	Message          string               `xml:"Message,omitempty"`
+	SourceType       string               `xml:"SourceType,omitempty"`
+	SourceIdentifier string               `xml:"SourceIdentifier,omitempty"`
+	SourceArn        string               `xml:"SourceArn,omitempty"`
+	Date             string               `xml:"Date,omitempty"`
+	EventCategories  xmlEventCategoryList `xml:"EventCategories"`
+}
+
+func toXMLEvent(e *Event) xmlEvent {
+	cats := make([]string, len(e.EventCategories))
+	copy(cats, e.EventCategories)
+
+	return xmlEvent{
+		Message:          e.Message,
+		SourceType:       e.SourceType,
+		SourceIdentifier: e.SourceIdentifier,
+		SourceArn:        e.SourceArn,
+		Date:             e.Date,
+		EventCategories:  xmlEventCategoryList{Members: cats},
+	}
 }
 
 type xmlEventList struct {
@@ -211,6 +284,7 @@ type xmlEventList struct {
 }
 
 type describeEventsResult struct {
+	Marker string       `xml:"Marker,omitempty"`
 	Events xmlEventList `xml:"Events"`
 }
 

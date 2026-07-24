@@ -241,24 +241,52 @@ type DBClusterSnapshot struct {
 type EventSubscription struct {
 	// region is the AWS region this event subscription belongs to; see
 	// DBCluster.region for the composite-key rationale.
-	region           string
-	SubscriptionName string   `json:"subscriptionName"`
-	SnsTopicARN      string   `json:"snsTopicARN"`
-	Status           string   `json:"status"`
-	SourceType       string   `json:"sourceType"`
-	SourceIDs        []string `json:"sourceIDs"`
-	EventCategories  []string `json:"eventCategories"`
+	region                   string
+	SubscriptionName         string   `json:"subscriptionName"`
+	SnsTopicARN              string   `json:"snsTopicARN"`
+	Status                   string   `json:"status"`
+	SourceType               string   `json:"sourceType"`
+	EventSubscriptionArn     string   `json:"eventSubscriptionArn"`
+	CustomerAwsID            string   `json:"customerAwsID"`
+	SubscriptionCreationTime string   `json:"subscriptionCreationTime"`
+	SourceIDs                []string `json:"sourceIDs"`
+	EventCategories          []string `json:"eventCategories"`
+	Enabled                  bool     `json:"enabled"`
+}
+
+// GlobalClusterMember represents a single DB cluster's membership in a
+// global cluster (types.GlobalClusterMember: DBClusterArn/IsWriter/Readers/
+// SynchronizationStatus).
+type GlobalClusterMember struct {
+	DBClusterArn          string   `json:"dbClusterArn"`
+	SynchronizationStatus string   `json:"synchronizationStatus"`
+	Readers               []string `json:"readers"`
+	IsWriter              bool     `json:"isWriter"`
 }
 
 type GlobalCluster struct {
-	GlobalClusterIdentifier string `json:"globalClusterIdentifier"`
-	SourceDBClusterID       string `json:"sourceDBClusterID"`
-	Status                  string `json:"status"`
-	Engine                  string `json:"engine"`
-	EngineVersion           string `json:"engineVersion"`
-	GlobalClusterArn        string `json:"globalClusterArn"`
-	StorageEncrypted        bool   `json:"storageEncrypted"`
-	DeletionProtection      bool   `json:"deletionProtection"`
+	GlobalClusterIdentifier string                `json:"globalClusterIdentifier"`
+	SourceDBClusterID       string                `json:"sourceDBClusterID"`
+	Status                  string                `json:"status"`
+	Engine                  string                `json:"engine"`
+	EngineVersion           string                `json:"engineVersion"`
+	GlobalClusterArn        string                `json:"globalClusterArn"`
+	GlobalClusterMembers    []GlobalClusterMember `json:"globalClusterMembers"`
+	StorageEncrypted        bool                  `json:"storageEncrypted"`
+	DeletionProtection      bool                  `json:"deletionProtection"`
+}
+
+// Event represents a single DocDB account-activity event (types.Event:
+// Date/EventCategories/Message/SourceArn/SourceIdentifier/SourceType). It
+// backs the real event log fed by recordEvent (events.go) from the key
+// cluster/instance/snapshot lifecycle mutators.
+type Event struct {
+	SourceIdentifier string   `json:"sourceIdentifier"`
+	SourceType       string   `json:"sourceType"`
+	Message          string   `json:"message"`
+	SourceArn        string   `json:"sourceArn"`
+	Date             string   `json:"date"`
+	EventCategories  []string `json:"eventCategories"`
 }
 
 type Certificate struct {
@@ -275,6 +303,7 @@ type DBClusterParameter struct {
 	Description    string
 	Source         string
 	ApplyType      string
+	ApplyMethod    string
 	DataType       string
 	IsModifiable   bool
 }
@@ -302,10 +331,16 @@ type ResourcePendingMaintenanceActions struct {
 	Actions            []PendingMaintenanceAction
 }
 
-// PendingMaintenanceAction describes a pending maintenance action.
+// PendingMaintenanceAction describes a pending maintenance action
+// (types.PendingMaintenanceAction: Action/AutoAppliedAfterDate/
+// CurrentApplyDate/Description/ForcedApplyDate/OptInStatus).
 type PendingMaintenanceAction struct {
-	Action      string
-	OptInStatus string
+	Action               string
+	Description          string
+	OptInStatus          string
+	AutoAppliedAfterDate string
+	CurrentApplyDate     string
+	ForcedApplyDate      string
 }
 
 // EventCategoryMap maps a source type to a list of event categories.
@@ -344,9 +379,19 @@ type InMemoryBackend struct {
 	snapshotAttributes             *store.Table[DBClusterSnapshotAttributesResult] // no byRegion index; see doc comment
 	globalClusters                 *store.Table[GlobalCluster]                     // global/partition-scoped
 	tags                           map[string]map[string][]Tag
-	mu                             *lockmetrics.RWMutex
-	accountID                      string
-	region                         string
+	// eventsLog holds the account activity event log, keyed by region, fed by
+	// recordEvent (events.go). Plain map, not a store.Table: an Event carries
+	// no identity of its own to key a table by (mirrors the tags rationale
+	// above), and this backend has no need to look one up individually.
+	eventsLog map[string][]Event
+	// pendingMaintenanceActions holds queued maintenance actions keyed by
+	// resource ARN -> action name (maintenance.go seeds/mutates this via
+	// AddPendingMaintenanceActionInternal/ApplyPendingMaintenanceAction).
+	// Plain nested map for the same reason as eventsLog.
+	pendingMaintenanceActions map[string]map[string]PendingMaintenanceAction
+	mu                        *lockmetrics.RWMutex
+	accountID                 string
+	region                    string
 }
 
 // CreateDBClusterOptions holds optional parameters for CreateDBCluster.

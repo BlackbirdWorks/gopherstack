@@ -89,6 +89,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 	if len(tags) > 0 {
 		b.tagsStore(region)[instanceArn] = tagsFromMap(tags)
 	}
+	b.recordEvent(region, id, sourceTypeDBInstance, instanceArn, "DB instance created", eventCatCreate)
 
 	return copyInstance(inst), nil
 }
@@ -159,6 +160,7 @@ func (b *InMemoryBackend) DeleteDBInstance(ctx context.Context, id string) (*DBI
 	cp := copyInstance(inst)
 	b.instanceDelete(region, id)
 	delete(b.tagsStore(region), b.instanceARN(region, id))
+	b.recordEvent(region, id, sourceTypeDBInstance, cp.DBInstanceArn, "DB instance deleted", eventCatDelete)
 
 	return cp, nil
 }
