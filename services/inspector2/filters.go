@@ -3,12 +3,49 @@ package inspector2
 import (
 	"fmt"
 	"maps"
+	"regexp"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+const (
+	filterNameMinLen = 3
+	filterNameMaxLen = 64
+)
+
+// onceFilterNamePattern lazily compiles the real Inspector2 filter-name
+// pattern (alphanumeric plus dot/underscore/dash), exactly once.
+//
+//nolint:gochecknoglobals // read-only package-level regexp, built once via sync.OnceValue
+var onceFilterNamePattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+})
+
+// validateFilterName enforces AWS's real CreateFilter name constraint: 3-64
+// characters, alphanumeric plus dot/underscore/dash. Real AWS returns
+// ValidationException for violations; this backend previously accepted any
+// non-empty string.
+func validateFilterName(name string) error {
+	if len(name) < filterNameMinLen || len(name) > filterNameMaxLen {
+		return fmt.Errorf(
+			"%w: filter name must be between %d and %d characters, got %d",
+			ErrValidation, filterNameMinLen, filterNameMaxLen, len(name),
+		)
+	}
+
+	if !onceFilterNamePattern().MatchString(name) {
+		return fmt.Errorf(
+			"%w: filter name must contain only alphanumeric characters, dots, underscores, and dashes",
+			ErrValidation,
+		)
+	}
+
+	return nil
+}
 
 // validateFilterAction returns an error if action is not a valid Inspector2 filter action.
 func validateFilterAction(action string) error {
@@ -38,8 +75,8 @@ func (b *InMemoryBackend) CreateFilter(
 	b.mu.Lock("CreateFilter")
 	defer b.mu.Unlock()
 
-	if name == "" {
-		return nil, ErrValidation
+	if err := validateFilterName(name); err != nil {
+		return nil, err
 	}
 
 	if err := validateFilterAction(action); err != nil {

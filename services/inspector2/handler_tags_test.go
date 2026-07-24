@@ -182,7 +182,7 @@ func TestTagResourceKeyValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newAuditHandler(t)
-			filterARN := auditCreateFilter(t, h, "tag-validation-"+tc.name)
+			filterARN := auditCreateFilter(t, h, "tag-validation-"+sanitizeFilterName(tc.name))
 
 			rec := auditDo(t, h, http.MethodPost, "/tags/"+filterARN, map[string]any{
 				"tags": tc.tags,

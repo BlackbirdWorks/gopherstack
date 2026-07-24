@@ -324,16 +324,20 @@ func (b *InMemoryBackend) FindingSeverityCounts() map[string]int64 {
 }
 
 // CreateFindingsReport creates an async findings report.
-func (b *InMemoryBackend) CreateFindingsReport(destination map[string]any) (*FindingsReport, error) {
+func (b *InMemoryBackend) CreateFindingsReport(
+	destination, filterCriteria map[string]any, reportFormat string,
+) (*FindingsReport, error) {
 	b.mu.Lock("CreateFindingsReport")
 	defer b.mu.Unlock()
 
 	reportID := b.buildReportARN()
 	report := &FindingsReport{
-		ReportID:    reportID,
-		Status:      "SUCCEEDED",
-		Destination: destination,
-		CreatedAt:   time.Now().UTC(),
+		ReportID:       reportID,
+		Status:         "SUCCEEDED",
+		Destination:    destination,
+		FilterCriteria: filterCriteria,
+		ReportFormat:   reportFormat,
+		CreatedAt:      time.Now().UTC(),
 	}
 	b.findingsReports.Put(report)
 
@@ -432,23 +436,203 @@ func (b *InMemoryBackend) ListFindingAggregations(aggregationType string, _ map[
 	}, nil
 }
 
-// SearchVulnerabilities returns matching vulnerabilities (stub).
-func (b *InMemoryBackend) SearchVulnerabilities(_ map[string]any, _ string) ([]map[string]any, string, error) {
-	return []map[string]any{}, "", nil
+// SeedVulnerability injects a vulnerability into the backend so
+// SearchVulnerabilities can look it up by ID, mirroring SeedFinding: real
+// SearchVulnerabilities queries AWS's own global vulnerability intelligence
+// database (CVE/NVD-derived), which gopherstack has no equivalent data
+// source for, so this is the additive capability that lets tests/fixtures
+// populate specific vulnerability IDs instead of the op being permanently
+// hardwired empty.
+func (b *InMemoryBackend) SeedVulnerability(v Vulnerability) (*Vulnerability, error) {
+	b.mu.Lock("SeedVulnerability")
+	defer b.mu.Unlock()
+
+	if v.ID == "" {
+		return nil, ErrValidation
+	}
+
+	clone := v
+	b.vulnerabilities.Put(&clone)
+
+	out := v
+
+	return &out, nil
 }
 
-// BatchGetCodeSnippet returns code snippets for findings (stub).
-func (b *InMemoryBackend) BatchGetCodeSnippet(_ []string) (map[string]any, error) {
+// SearchVulnerabilities looks up seeded vulnerabilities by ID. Real
+// SearchVulnerabilitiesFilterCriteria.VulnerabilityIds is a required exact-ID
+// lookup list (not a free-text query), so this returns exactly the seeded
+// vulnerabilities whose ID was requested, in requested order, silently
+// omitting any ID with no seeded match (matching real AWS's behavior for an
+// unknown vulnerability ID: it is simply absent from the response, not an
+// error).
+func (b *InMemoryBackend) SearchVulnerabilities(
+	filterCriteria map[string]any, nextToken string,
+) ([]*Vulnerability, string, error) {
+	b.mu.RLock("SearchVulnerabilities")
+	defer b.mu.RUnlock()
+
+	ids, _ := filterCriteria["vulnerabilityIds"].([]any)
+
+	matched := make([]*Vulnerability, 0, len(ids))
+
+	for _, raw := range ids {
+		id, ok := raw.(string)
+		if !ok || id == "" {
+			continue
+		}
+
+		if v, found := b.vulnerabilities.Get(id); found {
+			clone := *v
+			matched = append(matched, &clone)
+		}
+	}
+
+	// Pagination is a formality here (SearchVulnerabilities requests are
+	// bounded by the caller-supplied ID list, typically small), but the
+	// nextToken cursor is honored for shape-completeness.
+	start := 0
+
+	if nextToken != "" {
+		for i, v := range matched {
+			if v.ID == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	return matched[start:], "", nil
+}
+
+// SeedCodeSnippet attaches code snippet content to a finding ARN so
+// BatchGetCodeSnippet can return it, mirroring the SeedFinding/SeedCoverage/
+// SeedVulnerability additive-capability precedent: gopherstack has no static
+// analysis engine to derive real snippet content.
+func (b *InMemoryBackend) SeedCodeSnippet(findingARN string, lines []CodeLine, fixes []SuggestedFix) error {
+	b.mu.Lock("SeedCodeSnippet")
+	defer b.mu.Unlock()
+
+	if findingARN == "" {
+		return ErrValidation
+	}
+
+	startLine, endLine := int32(0), int32(0)
+	if len(lines) > 0 {
+		startLine = lines[0].LineNumber
+		endLine = lines[len(lines)-1].LineNumber
+	}
+
+	b.codeSnippets.Put(&codeSnippet{
+		FindingArn:     findingARN,
+		Lines:          lines,
+		StartLine:      startLine,
+		EndLine:        endLine,
+		SuggestedFixes: fixes,
+	})
+
+	return nil
+}
+
+// BatchGetCodeSnippet returns seeded code snippet content for each requested
+// finding ARN, or a CODE_SNIPPET_NOT_FOUND error entry (the only error code
+// meaningful here -- see types.CodeSnippetErrorCode) for any ARN with none
+// seeded. This replaces the prior stub, which silently ignored its input
+// entirely and always returned two empty lists regardless of what was asked
+// for.
+func (b *InMemoryBackend) BatchGetCodeSnippet(findingARNs []string) (map[string]any, error) {
+	b.mu.RLock("BatchGetCodeSnippet")
+	defer b.mu.RUnlock()
+
+	results := make([]map[string]any, 0, len(findingARNs))
+	errs := make([]map[string]any, 0)
+
+	for _, findingARN := range findingARNs {
+		snip, ok := b.codeSnippets.Get(findingARN)
+		if !ok {
+			errs = append(errs, map[string]any{
+				keyFindingArn:  findingARN,
+				keyErrorCode:   "CODE_SNIPPET_NOT_FOUND",
+				"errorMessage": "no code snippet is available for this finding",
+			})
+
+			continue
+		}
+
+		results = append(results, map[string]any{
+			keyFindingArn:    snip.FindingArn,
+			"codeSnippet":    snip.Lines,
+			"startLine":      snip.StartLine,
+			"endLine":        snip.EndLine,
+			"suggestedFixes": snip.SuggestedFixes,
+		})
+	}
+
 	return map[string]any{
-		"codeSnippetResults": []any{},
-		"errors":             []any{},
+		"codeSnippetResults": results,
+		"errors":             errs,
 	}, nil
 }
 
-// BatchGetFindingDetails returns finding details (stub).
-func (b *InMemoryBackend) BatchGetFindingDetails(_ []map[string]any) (map[string]any, error) {
+// findingDetailToWire renders a Finding's BatchGetFindingDetails-only fields
+// (see Finding's doc comment) in the real FindingDetail wire shape.
+func findingDetailToWire(f *Finding) map[string]any {
+	detail := map[string]any{keyFindingArn: f.FindingArn}
+
+	if f.EpssScore != 0 {
+		detail["epssScore"] = f.EpssScore
+	}
+
+	if f.RiskScore != 0 {
+		detail["riskScore"] = f.RiskScore
+	}
+
+	if len(f.Cwes) > 0 {
+		detail["cwes"] = f.Cwes
+	}
+
+	if len(f.ReferenceUrls) > 0 {
+		detail["referenceUrls"] = f.ReferenceUrls
+	}
+
+	if len(f.Tools) > 0 {
+		detail["tools"] = f.Tools
+	}
+
+	return detail
+}
+
+// BatchGetFindingDetails returns extended vulnerability details for each
+// requested finding ARN that exists in the backend, or a
+// FINDING_DETAILS_NOT_FOUND error entry for any ARN that does not. This
+// replaces the prior stub (which additionally decoded its request body into
+// the wrong shape entirely -- real BatchGetFindingDetailsInput.findingArns is
+// a plain string array, not an array of objects).
+func (b *InMemoryBackend) BatchGetFindingDetails(findingARNs []string) (map[string]any, error) {
+	b.mu.RLock("BatchGetFindingDetails")
+	defer b.mu.RUnlock()
+
+	details := make([]map[string]any, 0, len(findingARNs))
+	errs := make([]map[string]any, 0)
+
+	for _, findingARN := range findingARNs {
+		f, ok := b.findings.Get(findingARN)
+		if !ok {
+			errs = append(errs, map[string]any{
+				keyFindingArn:  findingARN,
+				keyErrorCode:   "FINDING_DETAILS_NOT_FOUND",
+				"errorMessage": "no finding details are available for this finding",
+			})
+
+			continue
+		}
+
+		details = append(details, findingDetailToWire(&f.Finding))
+	}
+
 	return map[string]any{
-		"findingDetails": []any{},
-		"errors":         []any{},
+		"findingDetails": details,
+		"errors":         errs,
 	}, nil
 }

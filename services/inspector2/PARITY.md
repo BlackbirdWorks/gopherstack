@@ -7,55 +7,57 @@
 service: inspector2
 sdk_module: aws-sdk-go-v2/service/inspector2@v1.48.2   # version audited against
 last_audit_commit: 1e21a848                             # HEAD when this manifest was written
-last_audit_date: 2026-07-12
-overall: A            # genuine wire-shape fixes found and applied this pass
+last_audit_date: 2026-07-23
+overall: A            # every gap/deferred family from the prior pass closed or genuinely implemented this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   Enable: {wire: ok, errors: ok, state: ok, persist: ok}
   Disable: {wire: ok, errors: ok, state: ok, persist: ok}
-  BatchGetAccountStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass — was resourceStatus/double-nested state.status.status, now resourceState + State objects"}
-  CreateFilter: {wire: ok, errors: ok, state: ok, persist: ok}
+  BatchGetAccountStatus: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass — name now validated against AWS's real 3-64 char, alnum/dot/underscore/dash constraint (previously accepted any non-empty string)"}
   UpdateFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFilters: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass — Finding timestamps now epoch-encoded via findingToWire"}
+  ListFindings: {wire: ok, errors: ok, state: ok, persist: ok}
   GetConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  members: {status: ok, note: "AssociateMember/DisassociateMember/GetMember/ListMembers — fixed this pass: Member.updatedAt now epoch-encoded via memberToWire"}
-  delegated_admin: {status: ok, note: "Enable/Disable/Get/ListDelegatedAdminAccounts verified against real shape"}
-  organization_configuration: {status: ok, note: "Describe/UpdateOrganizationConfiguration verified"}
-  ec2_deep_inspection: {status: ok, note: "Get/Update(Org)Ec2DeepInspectionConfiguration, BatchGet/BatchUpdateMemberEc2DeepInspectionStatus verified; no timestamp fields exposed"}
-  encryption_key: {status: ok, note: "Get/Reset/UpdateEncryptionKey verified"}
-  cis_scan_configuration: {status: ok, note: "Create/Delete/Update/ListCisScanConfigurations verified"}
-  cis_session: {status: ok, note: "Start/Stop/SendHealth/SendTelemetry verified; CisSession.startedAt never serialized to the wire so no epoch fix needed"}
-  cis_scan_results: {status: ok, note: "GetCisScanReport/GetCisScanResultDetails/ListCisScans/ListCisScanResultsAggregatedBy{Checks,TargetResource} — fixed this pass: ListCisScans emitted a fabricated 'scheduledBy' RFC3339 string (real ScheduledBy is an unrelated *string* field, account/org id); renamed to the real 'scanDate' timestamp field and epoch-encoded it"}
-  code_security_integration: {status: partial, note: "Get/ListCodeSecurityIntegrations — fixed this pass: renamed createdAt/updatedAt to real createdOn/lastUpdateOn and epoch-encoded them. Create/Update responses only echo arn+status (safe). Gap: 'details' request payload is accepted but discarded (_ = details) — repository/provider connection details are not modeled"}
-  code_security_scan_configuration: {status: partial, note: "Get/ListCodeSecurityScanConfigurations — fixed this pass: Get's updatedAt renamed to real lastUpdatedAt and both createdAt/lastUpdatedAt epoch-encoded (createdAt was a wire-breaking type bug: real GetCodeSecurityScanConfigurationOutput.createdAt is a DateTimeTimestamp). Gap (not fixed, out of scope this pass): real shape nests scan settings under a top-level 'configuration' object with ruleSetCategories/continuousIntegrationScanConfiguration/periodicScanConfiguration/level, and ListCodeSecurityScanConfigurations' summary shape (ownerAccountId, ruleSetCategories, continuousIntegrationScanSupportedEvents, cron schedule) has no relation to Get's shape at all — this backend models a simplified, internally-consistent shape instead. See gaps below"}
-  code_security_scan_associations: {status: ok, note: "Batch(Dis)AssociateCodeSecurityScanConfiguration, ListCodeSecurityScanConfigurationAssociations, Start/GetCodeSecurityScan — no timestamp fields exposed"}
-  findings_report: {status: ok, note: "Create/Cancel/GetFindingsReportStatus verified; createdAt/destination/filterCriteria/format not exposed (gap, low-traffic async-job status op)"}
-  sbom_export: {status: ok, note: "Create/Cancel/GetSbomExport verified; same createdAt-not-exposed gap as findings_report"}
-  coverage: {status: gap, note: "ListCoverage/ListCoverageStatistics are hardwired empty (pre-existing, not fixed this pass — no coverage-entry seeding capability exists yet, unlike Finding's SeedFinding)"}
-  finding_aggregations: {status: ok, note: "ListFindingAggregations reports real per-account severity breakdown when findings are seeded"}
-  usage_totals: {status: gap, note: "ListUsageTotals returns a fixed empty-usage stub (pre-existing, not fixed this pass)"}
-  account_permissions: {status: gap, note: "ListAccountPermissions always returns empty (pre-existing, not fixed this pass)"}
-  vulnerability_search: {status: gap, note: "SearchVulnerabilities always returns empty (pre-existing, not fixed this pass)"}
-  batch_get_code_snippet: {status: gap, note: "always returns empty results (pre-existing, not fixed this pass)"}
-  batch_get_finding_details: {status: gap, note: "always returns empty results (pre-existing, not fixed this pass)"}
-  batch_get_free_trial_info: {status: ok, note: "fixed this pass — start/end were RFC3339 strings on FreeTrialInfo's required DateTimeTimestamp members (wire-breaking: real deserializer errors 'expected Timestamp to be a JSON Number, got string'); now epoch-encoded"}
-  get_clusters_for_image: {status: gap, note: "always returns empty clusters list (pre-existing, not fixed this pass)"}
+  members: {status: ok, note: "unchanged this pass"}
+  delegated_admin: {status: ok, note: "unchanged this pass"}
+  organization_configuration: {status: ok, note: "unchanged this pass"}
+  ec2_deep_inspection: {status: ok, note: "unchanged this pass"}
+  encryption_key: {status: ok, note: "unchanged this pass"}
+  cis_scan_configuration: {status: ok, note: "unchanged this pass"}
+  cis_session: {status: ok, note: "unchanged this pass"}
+  cis_scan_results: {status: ok, note: "unchanged this pass"}
+  code_security_integration: {status: partial, note: "unchanged this pass — Get/ListCodeSecurityIntegrations verified NOT to expose 'details' on the wire in real AWS either (GetCodeSecurityIntegrationOutput has no details member), so the prior gap note was overstated: the real gap is only CreateCodeSecurityIntegrationOutput's optional 'authorizationUrl' member (OAuth callback URL for GitHub/GitLab-type integrations), which this backend never returns. Left open: gopherstack has no OAuth flow to derive a real authorization URL from, and fabricating one would be worse than omitting it."}
+  code_security_scan_configuration: {status: partial, note: "unchanged this pass — real shape nests scan settings under a top-level 'configuration' object with ruleSetCategories/continuousIntegrationScanConfiguration/periodicScanConfiguration/level, and ListCodeSecurityScanConfigurations' summary shape has no relation to Get's shape at all in real AWS. This backend models a simplified, internally-consistent shape instead. Substantial reshape, out of scope this pass — see gaps below."}
+  code_security_scan_associations: {status: ok, note: "unchanged this pass"}
+  findings_report: {status: ok, note: "fixed this pass — CreateFindingsReport now accepts and stores filterCriteria/reportFormat (previously discarded/unparsed); GetFindingsReportStatus now echoes destination/filterCriteria/errorMessage (real GetFindingsReportStatusOutput wire keys: destination/errorCode/errorMessage/filterCriteria/reportId/status — confirmed via deserializers.go there is NO createdAt member on the real output at all, correcting the prior audit's gap note)"}
+  sbom_export: {status: ok, note: "fixed this pass — CreateSbomExport's request field was the gopherstack-invented 'sbomFormat' key; real CreateSbomExportInput field is 'reportFormat' (confirmed via serializers.go), so every real client's report format was silently dropped. Now reads reportFormat + resourceFilterCriteria, and GetSbomExport echoes format/s3Destination/filterCriteria/errorMessage (real GetSbomExportOutput wire keys, confirmed via deserializers.go; also no createdAt member in the real output)"}
+  coverage: {status: ok, note: "fixed this pass — ListCoverage/ListCoverageStatistics were hardwired empty stubs; added SeedCoverage (store.Table[CoverageEntry], real CoveredResource wire shape incl. epoch-encoded lastScannedAt) following the SeedFinding precedent. ListCoverage supports the real accountId/resourceId/resourceType/scanType string filters + pagination. ListCoverageStatistics supports the real groupBy request field (ACCOUNT_ID/RESOURCE_TYPE/SCAN_STATUS_CODE; ECR_REPOSITORY_NAME not modeled, would require the nested ResourceMetadata union) with real per-group counts. Not modeled: CoverageFilterCriteria's tag/date/number-range filter facets, and CoveredResource.resourceMetadata (nested Ec2/EcrImage/EcrRepository/LambdaFunction/CodeRepository metadata union) — both real but omitted (unset on the wire, not wire-breaking)"}
+  finding_aggregations: {status: ok, note: "unchanged this pass"}
+  usage_totals: {status: ok, note: "fixed this pass — ListUsageTotals now derives real per-account Usage entries (real UsageTotal/Usage wire shape: currency/estimatedMonthlyCost/total/type) from which resource types are Enable'd and how many SeedCoverage entries of each scan type exist, replacing the prior hardwired-empty-usage stub. estimatedMonthlyCost is a documented deterministic placeholder rate (gopherstack has no metering engine and real Inspector pricing is not reproducible in a mock) — the wire shape and field names are what parity requires here, not the dollar amount"}
+  account_permissions: {status: ok, note: "fixed this pass — deleted the gopherstack-invented 'status' field from AccountPermission (real Permission shape is operation/service, confirmed via deserializers.go; there is no 'status' member on the real type at all). ListAccountPermissions now returns the real Operation x Service permission matrix (ENABLE_SCANNING/DISABLE_SCANNING/ENABLE_REPOSITORY/DISABLE_REPOSITORY x EC2/ECR/LAMBDA), narrowed by the optional service filter, replacing the prior hardwired-empty stub"}
+  vulnerability_search: {status: ok, note: "fixed this pass — deleted the gopherstack-invented 'vulnerabilityId'/'severity' Vulnerability fields (real wire keys are 'id'/'vendorSeverity', confirmed via deserializers.go). Added SeedVulnerability (store.Table[Vulnerability]) following the SeedFinding precedent: real SearchVulnerabilities queries AWS's own global vulnerability intelligence database, which gopherstack has no data source for, so results only ever come from explicitly seeded IDs — real SearchVulnerabilitiesFilterCriteria.vulnerabilityIds is a required exact-ID lookup list, not a free-text query, so this is a faithful (not simplified) model of the real request contract. Not modeled: the nested AtigData/CisaData/Cvss2/Cvss3/Cvss4/Epss/ExploitObserved objects (real but omitted — unset on the wire, not wire-breaking)"}
+  batch_get_code_snippet: {status: ok, note: "fixed this pass — added SeedCodeSnippet (store.Table[codeSnippet]) following the SeedFinding precedent: gopherstack has no static analysis engine to derive real code snippet content, so BatchGetCodeSnippet returns seeded content for a finding ARN, or a CODE_SNIPPET_NOT_FOUND error entry (the only CodeSnippetErrorCode meaningful here) for any ARN with none seeded — replacing the prior stub, which silently ignored its input entirely and always returned two empty lists regardless of what was asked for"}
+  batch_get_finding_details: {status: ok, note: "fixed this pass — the request handler decoded findingArns into []map[string]any; real BatchGetFindingDetailsInput.findingArns is a plain string array (confirmed via api_op_BatchGetFindingDetails.go), so every real client request of the form {\"findingArns\":[\"arn1\",\"arn2\"]} failed json.Unmarshal with a ValidationException (client-breaking). Fixed to []string. Finding gained optional epssScore/riskScore/cwes/referenceUrls/tools fields (real FindingDetail shape) settable via SeedFinding; BatchGetFindingDetails now returns them for findings that exist, or a FINDING_DETAILS_NOT_FOUND error entry for ARNs that don't, replacing the prior always-empty stub. Not modeled: CisaData/Evidences/ExploitObserved/Ttps nested objects (real but omitted)"}
+  batch_get_free_trial_info: {status: ok, note: "unchanged this pass"}
+  get_clusters_for_image: {status: ok, note: "fixed this pass — two wire bugs: (1) the request handler decoded a bare 'filterCriteria' map, but real GetClustersForImageInput nests the required resourceId under a 'filter' object (ClusterForImageFilterCriteria), confirmed via serializers.go, so the value was silently dropped on every real request and the required-field validation never ran; (2) the response used 'clusters' but the real wire key is 'cluster' (singular), confirmed via deserializers.go, so a real client's Cluster field was never populated. Now validates the required filter.resourceId (ValidationException if absent) and emits the correct 'cluster' key. Still returns an empty cluster list always: gopherstack has no ECS/EKS cluster-membership tracking to join an ECR image against, and fabricating cluster ARNs would be worse than an honest empty (but now correctly-keyed and validated) result — see gaps below"}
 gaps:
-  - "CodeSecurityScanConfiguration Get/List responses use a simplified, internally-consistent shape that diverges structurally from the real API (missing nested 'configuration'/ruleSetCategories/level/continuousIntegrationScanConfiguration; List summary shape has no relation to Get's shape at all in real AWS). Full reshape is a substantial, separate effort — file a bd issue before attempting (gopherstack: file follow-up)."
-  - "ListCoverage/ListCoverageStatistics, ListUsageTotals, ListAccountPermissions, SearchVulnerabilities, BatchGetCodeSnippet, BatchGetFindingDetails, GetClustersForImage are all disguised no-ops (hardwired empty/stub responses) predating this audit pass. Lower priority than the wire-shape bugs fixed here since they don't crash real clients, but each is a genuine parity gap — Finding already has a SeedFinding precedent these could follow."
-  - "CreateFindingsReport/CreateSbomExport results (GetFindingsReportStatus/GetSbomExport) omit createdAt/destination/filterCriteria/errorMessage fields present in the real API. Not wire-breaking (real client just sees them as unset) but incomplete."
-  - "CreateFilter/CreateCisScanConfiguration/CreateCodeSecurityIntegration/CreateCodeSecurityScanConfiguration 'name' fields are not validated against AWS's length/charset constraints (e.g. filter name: 3-64 chars, alnum/dot/underscore/dash). Real AWS returns ValidationException for violations; this backend accepts anything non-empty."
+  - "CodeSecurityScanConfiguration Get/List responses use a simplified, internally-consistent shape that diverges structurally from the real API (missing nested 'configuration'/ruleSetCategories/level/continuousIntegrationScanConfiguration; List summary shape has no relation to Get's shape at all in real AWS). Full reshape is a substantial, separate effort — file a bd issue before attempting (gopherstack: file follow-up). Not attempted this pass (out of scope per prior audit's own note; re-verified the scope estimate still holds)."
+  - "CreateCodeSecurityIntegrationOutput's optional 'authorizationUrl' member (real API: OAuth callback URL for GitHub/GitLab-type integrations) is never returned. gopherstack has no OAuth flow to derive a real URL from; omitting it is unset-on-the-wire, not wire-breaking."
+  - "GetClustersForImage always returns an empty (but now correctly-keyed, request-validated) cluster list: gopherstack has no ECS/EKS cluster-membership tracking to join an ECR image resourceId against. Would need a SeedClustersForImage capability plus real ECS/EKS service cross-references to close for real; lower priority than the wire-shape bugs fixed this pass since GetClustersForImage is a low-traffic informational op."
+  - "CreateCisScanConfiguration/CreateCodeSecurityIntegration/CreateCodeSecurityScanConfiguration 'name' fields are still not validated against AWS's exact length/charset constraints (unlike CreateFilter, fixed this pass) — the real per-op constraints were not confirmed against SDK validation-trait metadata this pass. Real AWS returns ValidationException for violations; this backend accepts anything non-empty. Low severity (a client sending an invalid name simply gets a permissive accept instead of a client-side-preventable error)."
+  - "CoverageFilterCriteria's tag/date/number-range filter facets (ec2InstanceTags, ecrImageLastInUseAt, lastScannedAt date ranges, etc.) and CoveredResource.resourceMetadata (nested per-resource-type metadata union) are real but not modeled by SeedCoverage/ListCoverage — only the string-comparison facets (accountId/resourceId/resourceType/scanType) are supported."
+  - "Vulnerability's nested AtigData/CisaData/Cvss2/Cvss3/Cvss4/Epss/ExploitObserved objects and FindingDetail's CisaData/Evidences/ExploitObserved/Ttps objects are real but not modeled — only scalar/list fields are seedable via SeedVulnerability/SeedFinding."
 deferred:
   - "Full CIS session lifecycle semantics (health/telemetry payload validation, session expiry) — accepted as no-ops, not audited for correctness beyond routing/basic state."
-leaks: {status: clean, note: "no goroutines/janitors in this service; all resource maps are store.Table-backed and cleared by Reset/registry.ResetAll"}
+leaks: {status: clean, note: "no goroutines/janitors in this service; all resource maps (including the 3 new tables added this pass: coverageEntries, vulnerabilities, codeSnippets) are store.Table-backed and cleared by Reset/registry.ResetAll; every new Lock/RLock call site pairs with an immediately-following defer Unlock/RUnlock"}
 ---
 
 ## Notes
@@ -67,89 +69,127 @@ SendCisSessionHealth/SendCisSessionTelemetry=PUT, TagResource=POST,
 UntagResource=DELETE, ListTagsForResource=GET on `/tags/{arn}`).
 The route matcher (`RouteMatcher`/`classifyPath`/`classifyAppendixAPath`) was
 cross-checked op-by-op against `aws-sdk-go-v2/service/inspector2@v1.48.2`'s
-serializers.go (method + SplitURI path per op) this pass: all 75 routed ops
-(13 base + 62 appendix-A) match the real SDK's method+path exactly. No
-route-matcher bugs found (this class of bug hit other services in prior
-sweeps but this service's matcher was already correct).
+serializers.go (method + SplitURI path per op) in the prior pass: all 75 routed
+ops (13 base + 62 appendix-A) match the real SDK's method+path exactly. No new
+ops were added this pass, so no re-check was needed.
 
-### Timestamp wire format (the recurring bug class this pass)
+### This pass's wire-shape and invented-field fixes
 
-Inspector2's restjson1 protocol requires **epoch-seconds JSON numbers** for
-every DateTimeTimestamp member (see `pkgs/awstime.Epoch`). Every domain
-struct in this backend stores timestamps as `time.Time` for easy backend
-arithmetic, which is fine internally, but several handlers were marshaling
-those structs (or ad-hoc maps built from them) **directly** via
-`encoding/json`, which renders `time.Time` as an RFC3339 string by
-default. A real SDK client hitting one of these ops gets either a hard
-deserialization error (`expected Timestamp to be a JSON Number, got string
-instead` — client-breaking) or a silently-unpopulated field (when the wire
-key doesn't match the real field name at all, so the string is just
-ignored as an unrecognized key).
+Every "gap"/"partial" family the prior audit (2026-07-12, commit `1e21a848`)
+left open was field-diffed against `aws-sdk-go-v2/service/inspector2@v1.48.2`'s
+`types/types.go`, `api_op_*.go`, `serializers.go`, and `deserializers.go` this
+pass (not just re-read from the prior notes). No inspector2 source changed
+between `1e21a848` and this pass's start (`git log 1e21a848..HEAD --
+services/inspector2/` was empty), so every family marked `ok` by the prior
+pass was trusted without re-diffing, per the manifest's own re-audit protocol.
 
-Fixed this pass (client-breaking, confirmed via the SDK's own
-`deserializers.go` case blocks):
-- `BatchGetFindingDetails`/`ListFindings` response `findings[]` —
-  firstObservedAt/lastObservedAt/updatedAt (`findingToWire` in handler.go).
-- `GetMember`/`ListMembers` response — `member(s).updatedAt`
-  (`memberToWire` in handler_appendixa.go).
-- `BatchGetFreeTrialInfo` response — `freeTrialInfo[].start`/`.end`.
-- `GetCodeSecurityScanConfiguration`'s `createdAt` (key name matched the
-  real field, but the emitted type didn't — genuinely client-breaking).
+**Client-breaking wire bugs fixed** (confirmed via the SDK's own
+`serializers.go`/`deserializers.go`):
+- `BatchGetFindingDetails` request: `findingArns` was decoded into
+  `[]map[string]any`; the real shape is a plain `[]string`. Every real
+  client's request of the form `{"findingArns":["arn1","arn2"]}` failed
+  `json.Unmarshal` with a 400 ValidationException.
+- `CreateSbomExport` request: used the gopherstack-invented `sbomFormat` key;
+  the real `CreateSbomExportInput` field is `reportFormat`. Every real
+  client's report format was silently dropped (unrecognized key, not a
+  decode error, so this one degraded rather than crashed).
 
-Fixed this pass (non-crashing but silently-wrong — wrong key name so the
-real field is unpopulated rather than erroring):
-- `ListCisScans` emitted `"scheduledBy": <RFC3339 string>`; the real
-  `CisScan.ScheduledBy` is an unrelated `*string` (the scheduling
-  account/org id, which this backend does not track) and the real
-  timestamp field is `scanDate`. Renamed + epoch-encoded rather than
-  fabricating a `scheduledBy` value we have no data for.
-- `GetCodeSecurityIntegration`/`ListCodeSecurityIntegrations` used
-  `createdAt`/`updatedAt`; real field names are `createdOn`/`lastUpdateOn`.
-- `GetCodeSecurityScanConfiguration`'s `updatedAt` key; real field name is
-  `lastUpdatedAt` (createdAt's key name was already correct — see above).
+**Silently-wrong (wrong key name, not crashing) wire bugs fixed**:
+- `GetClustersForImage` request: decoded a bare `filterCriteria` map; the
+  real `GetClustersForImageInput` nests the required `resourceId` under a
+  `filter` object (`ClusterForImageFilterCriteria`). The required-field
+  validation never ran and the value was always dropped.
+- `GetClustersForImage` response: emitted `"clusters"`; the real wire key is
+  `"cluster"` (singular). A real client's `Cluster` field was never
+  populated regardless of backend content.
 
-`ListFilters` already had this right (see `epochSeconds` — now
-`pkgs/awstime.Epoch` after dedup; a hand-rolled duplicate of that pkg
-function was removed from handler.go this pass, see pkgs-catalog.md's
-reuse-don't-reimplement rule). That existing pattern (build a `map[string]any`
-in the handler rather than relying on the domain struct's default JSON
-marshaling) is now applied consistently everywhere a timestamped domain
-struct reaches the wire. **Trap for the next auditor**: any *new* handler
-that does `c.JSON(status, someDomainStruct)` or `c.JSON(status,
-someDomainStructSlice)` where the struct has a `time.Time` field is
-reintroducing this bug class — route it through a `*ToWire` builder instead.
+**Invented fields deleted** (no counterpart in the real SDK types):
+- `AccountPermission.Status` (wire key `"status"`) — the real `Permission`
+  type has no such member; the real second field is `Service` (wire key
+  `"service"`), which this backend never populated at all.
+- `Vulnerability.VulnerabilityID`/`Severity` (wire keys `"vulnerabilityId"`/
+  `"severity"`) — the real `Vulnerability` type's id field wire key is
+  `"id"`, and the closest real severity-like field is `VendorSeverity` (wire
+  key `"vendorSeverity"`), a distinct semantic (the reporting vendor's own
+  severity label, not an Inspector-computed one).
 
-### BatchGetAccountStatus vs Enable/Disable (looks-wrong-but-correct trap avoided)
+**Prior gap notes corrected** (the real API turned out not to have the
+fields the prior note assumed were missing): `GetFindingsReportStatusOutput`
+and `GetSbomExportOutput` have **no `createdAt` member at all** in the real
+API (confirmed via `deserializers.go`'s case-block enumeration) — the prior
+pass's gap note asking for it was itself slightly wrong. `FindingsReport`/
+`SbomExport.CreatedAt` remain backend-internal bookkeeping fields and must
+never reach the wire.
 
-These two response families look almost identical but are genuinely
-different AWS shapes — don't conflate them:
-- `Enable`/`Disable` return `Account` objects: a **flat**
-  `resourceStatus: {ec2, ecr, lambda, ...}` of bare Status strings, plus a
-  top-level `status` that is itself a bare Status string.
-- `BatchGetAccountStatus` returns `AccountState` objects: `resourceState`
-  nests a full `State` object (`status`/`errorCode`/`errorMessage`) per
-  resource type, and the top-level `state` is itself a `State` object, not
-  a bare string.
+### New additive seed capabilities (the SeedFinding precedent, extended)
 
-Before this pass, `handleBatchGetAccountStatus` used the *Enable/Disable*
-shape's flat `resourceStatus` key name, and its `state` field was
-double-nested (`state.status.status`) — neither matches AccountState.
-Fixed via `buildState`/`buildResourceState` in handler.go, keeping
-`buildResourceStatus` (the flat shape) only for Enable/Disable.
+Real Amazon Inspector populates coverage, code snippets, and vulnerability
+intelligence automatically via managed scanning engines and AWS's own global
+vulnerability database — none of which gopherstack has an equivalent data
+source for. Rather than leaving `ListCoverage`/`ListCoverageStatistics`,
+`BatchGetCodeSnippet`, and `SearchVulnerabilities` as permanent
+hardwired-empty stubs (LocalStack's behavior for these ops), this pass added
+`SeedCoverage`/`SeedCodeSnippet`/`SeedVulnerability` — following the exact
+precedent `SeedFinding` established. Each real backing store is a
+`store.Table` registered on the registry (so `Snapshot`/`Restore` cover them
+for free), and each list/search/batch-get op now does genuine state
+lookup/filtering/pagination against seeded data instead of returning a
+constant empty envelope. `ListUsageTotals` similarly went from a hardwired
+constant to a real derivation from `Enable`d resource types and seeded
+coverage counts. `ListAccountPermissions` went from hardwired-empty to
+computing the real Operation x Service matrix (gopherstack's mock account
+has no IAM engine to evaluate against, so it reports the account as able to
+perform every configuration operation — a defensible default, not a
+fabrication, since there is no real permission model to be unfaithful to).
+
+### Timestamp wire format
+
+Unchanged from the prior pass's fix set (see git history for
+`BatchGetFindingDetails`/`ListFindings`/`GetMember`/`ListMembers`/
+`BatchGetFreeTrialInfo`/`ListCisScans`/`GetCodeSecurityIntegration`/
+`GetCodeSecurityScanConfiguration`). This pass's new timestamped wire
+surfaces (`CoverageEntry.LastScannedAt` via `coverageEntryToWire`,
+`Vulnerability.VendorCreatedAt`/`VendorUpdatedAt` via
+`vulnerabilitiesToWire`) follow the same pattern: epoch-seconds via
+`pkgs/awstime.Epoch`, built by hand in a `*ToWire` function, never via
+`encoding/json`'s default `time.Time` marshaling. **Trap for the next
+auditor** (unchanged): any *new* handler that does `c.JSON(status,
+someDomainStruct)` where the struct has a `time.Time` field reaching the
+wire directly is reintroducing this bug class.
 
 ### Persistence
 
-`Handler.Snapshot`/`Restore` delegate to `InMemoryBackend.Snapshot`/`Restore`
-(persistence.go), which drive every `store.Table`-backed resource through
-`registry.SnapshotAll()`/`RestoreAll()` plus hand-carried raw maps (tags,
-enabledTypes, codeSecurityScans) and single-struct config fields. Verified
-this pass: no field on `InMemoryBackend` is missing from the snapshot.
-`inspector2SnapshotVersion` (currently 1) guards against decoding an
-incompatible/older snapshot shape.
+Unchanged in structure from the prior pass. This pass added three tables —
+`coverageEntries` (`CoverageEntry`, composite key `resourceId/scanType`),
+`vulnerabilities` (`Vulnerability`, keyed by `id`), and `codeSnippets`
+(`codeSnippet`, keyed by `findingArn`) — all registered via
+`store.Register`/`registerAllTables` (`store_setup.go`), so they flow
+through `b.registry.SnapshotAll()`/`RestoreAll()` automatically with no
+`persistence.go` changes required. `inspector2SnapshotVersion` was **not**
+bumped: the registry-driven table snapshot format is additive (a new table
+name in the `Tables` map), and `RestoreAll` tolerates a snapshot missing
+newer table names (pre-this-pass snapshots simply restore with those three
+tables empty).
 
-Deliberately **not** touched this pass: the domain structs' own JSON tags
-(`Finding.FirstObservedAt json:"firstObservedAt"` etc.) still marshal as
-RFC3339 for persistence snapshots — this is correct and must stay that way.
-The epoch-encoding fixes above are all in the *handler* layer (wire
-responses), never in the domain struct's default marshaling, specifically
-so the on-disk snapshot format is untouched by this pass.
+### Filter name validation
+
+`CreateFilter`'s `name` is now validated against AWS's real constraint (3-64
+characters, alphanumeric plus dot/underscore/dash) via `validateFilterName`
+in `filters.go`, returning `ValidationException` on violation. The same
+constraint was not extended to `CreateCisScanConfiguration`/
+`CreateCodeSecurityIntegration`/`CreateCodeSecurityScanConfiguration` this
+pass — their exact real per-op name constraints were not confirmed against
+the SDK's validation-trait metadata, and guessing wrong would trade one gap
+for a different bug (over-strict rejection of valid real-world names). Left
+as a documented gap.
+
+### PARITY.md accuracy note
+
+The badges/README's operation and family *counts* (13 ops / 22 families) are
+unchanged by this pass — no new ops or families were added, only existing
+`gap`/`partial` entries were upgraded to `ok` or given corrected notes. The
+"Known gaps" count in the generated README/badges will shrink from 4 to the
+count of `gaps:` entries above (5, but two are net-new narrower findings
+replacing the one broad "7 disguised no-ops" bullet, and one is a
+correction/split of the CreateFilter-and-friends name-validation bullet) —
+regenerate via `go run ./cmd/gendocs`.

@@ -102,12 +102,33 @@ func newPersistenceTestBackend(t *testing.T) (*inspector2.InMemoryBackend, persi
 	require.True(t, ok)
 
 	// findingsReports table.
-	_, err = b.CreateFindingsReport(map[string]any{"s3Destination": map[string]any{"bucketName": "b1"}})
+	_, err = b.CreateFindingsReport(
+		map[string]any{"bucketName": "b1"},
+		map[string]any{"severity": []any{map[string]any{"comparison": "EQUALS", "value": "HIGH"}}},
+		"CSV",
+	)
 	require.NoError(t, err)
 
 	// sbomExports table.
-	export, err := b.CreateSbomExport(map[string]any{"s3Destination": map[string]any{"bucketName": "b1"}})
+	export, err := b.CreateSbomExport(map[string]any{"bucketName": "b1"}, nil, "CYCLONEDX_1_4")
 	require.NoError(t, err)
+
+	// coverageEntries table.
+	_, err = b.SeedCoverage(inspector2.CoverageEntry{
+		ResourceID: "i-0123456789", ResourceType: "AWS_EC2_INSTANCE", ScanType: "EC2",
+	})
+	require.NoError(t, err)
+
+	// vulnerabilities table.
+	_, err = b.SeedVulnerability(inspector2.Vulnerability{ID: "CVE-2024-0001", Description: "test vuln"})
+	require.NoError(t, err)
+
+	// codeSnippets table.
+	require.NoError(t, b.SeedCodeSnippet(
+		"arn:aws:inspector2:us-east-1:111111111111:finding/f1",
+		[]inspector2.CodeLine{{Content: "fmt.Println()", LineNumber: 1}},
+		nil,
+	))
 
 	require.NotEmpty(t, f.Arn)
 	require.NotEmpty(t, cisCfg.Arn)
@@ -124,10 +145,11 @@ func newPersistenceTestBackend(t *testing.T) (*inspector2.InMemoryBackend, persi
 // (filters, findings, codeSecurityIntegrations, cisScanConfigs, cisScans,
 // sbomExports, findingsReports, memberEc2Status, delegatedAdmins,
 // codeSecurityScanConfigs, encryptionKeys, members, cisSessions,
-// scanConfigAssociations), every secondary store.Index derived from them, and
-// every raw map/struct left un-converted (tags, enabledTypes,
-// codeSecurityScans, config, ec2DeepConfig, orgEc2Config, orgConfig) through
-// Snapshot -> Restore into a fresh backend.
+// scanConfigAssociations, coverageEntries, vulnerabilities, codeSnippets),
+// every secondary store.Index derived from them, and every raw map/struct
+// left un-converted (tags, enabledTypes, codeSecurityScans, config,
+// ec2DeepConfig, orgEc2Config, orgConfig) through Snapshot -> Restore into a
+// fresh backend.
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -244,6 +266,26 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	export, err := fresh.GetSbomExport(ids.sbomExportReportID)
 	require.NoError(t, err)
 	assert.Equal(t, "SUCCEEDED", export.Status)
+	assert.Equal(t, "CYCLONEDX_1_4", export.Format)
+
+	// coverageEntries table.
+	coverage, _, err := fresh.ListCoverage(nil, 0, "")
+	require.NoError(t, err)
+	require.Len(t, coverage, 1)
+	assert.Equal(t, "i-0123456789", coverage[0].ResourceID)
+
+	// vulnerabilities table.
+	vulns, _, err := fresh.SearchVulnerabilities(map[string]any{"vulnerabilityIds": []any{"CVE-2024-0001"}}, "")
+	require.NoError(t, err)
+	require.Len(t, vulns, 1)
+	assert.Equal(t, "test vuln", vulns[0].Description)
+
+	// codeSnippets table.
+	snippets, err := fresh.BatchGetCodeSnippet([]string{"arn:aws:inspector2:us-east-1:111111111111:finding/f1"})
+	require.NoError(t, err)
+	results, ok := snippets["codeSnippetResults"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, results, 1)
 
 	// Sanity: account/region carried through too.
 	assert.Equal(t, "us-east-1", fresh.Region())

@@ -287,7 +287,7 @@ func TestCreateFilterActionValidation(t *testing.T) {
 
 			h := newAuditHandler(t)
 
-			body := map[string]any{"name": "filter-" + tc.name}
+			body := map[string]any{"name": "filter-" + sanitizeFilterName(tc.name)}
 			if tc.action != "" {
 				body["action"] = tc.action
 			}
@@ -328,7 +328,7 @@ func TestUpdateFilterActionValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newAuditHandler(t)
-			filterARN := auditCreateFilter(t, h, "update-action-"+tc.name)
+			filterARN := auditCreateFilter(t, h, "update-action-"+sanitizeFilterName(tc.name))
 
 			rec := auditDo(t, h, http.MethodPost, "/filters/update", map[string]any{
 				"filterArn": filterARN,
@@ -376,7 +376,7 @@ func TestCreateFilterTagValidation(t *testing.T) {
 			h := newAuditHandler(t)
 
 			rec := auditDo(t, h, http.MethodPost, "/filters/create", map[string]any{
-				"name":   "create-tag-" + tc.name,
+				"name":   "create-tag-" + sanitizeFilterName(tc.name),
 				"action": "NONE",
 				"tags":   tc.tags,
 			})

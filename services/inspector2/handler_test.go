@@ -11,7 +11,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +21,20 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/inspector2"
 )
+
+// sanitizeFilterName rewrites s so it satisfies the real Inspector2 filter
+// name charset (alphanumeric, dot, underscore, dash), replacing every other
+// rune with a dash. Used by table-driven tests that build a filter name from
+// a free-text subtest name (which may contain spaces/parens/etc).
+func sanitizeFilterName(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '_' || r == '-' {
+			return r
+		}
+
+		return '-'
+	}, s)
+}
 
 // newAuditBackend returns a fresh backend for account 123456789012 in us-east-1.
 func newAuditBackend() *inspector2.InMemoryBackend {

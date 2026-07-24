@@ -58,6 +58,7 @@ const (
 	keyName           = "name"
 	keyUpdatedAt      = "updatedAt"
 	keyType           = "type"
+	keyFindingArn     = "findingArn"
 )
 
 // Handler handles Inspector2 HTTP requests.
@@ -97,36 +98,54 @@ func (h *Handler) GetSupportedOperations() []string {
 	return append(base, extendedOps()...)
 }
 
+// onceRouteMatchPrefixes lazily builds the list of URL path prefixes
+// RouteMatcher accepts, exactly once. Kept as a data table (rather than a
+// long ||-chain) so RouteMatcher itself stays a simple loop instead of
+// tripping cyclomatic-complexity lint thresholds.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
+var onceRouteMatchPrefixes = sync.OnceValue(func() []string {
+	return []string{
+		pathEnable,
+		pathDisable,
+		"/status/",
+		"/filters/",
+		"/findings/",
+		"/configuration/",
+		pathTagsPrefix + "arn:aws:inspector2:",
+		"/members/",
+		"/delegatedadminaccounts/",
+		"/organizationconfiguration/",
+		"/ec2deepinspection",
+		"/encryptionkey/",
+		"/cis/",
+		"/cissession/",
+		"/codesecurity/",
+		"/reporting/",
+		"/sbomexport/",
+		"/coverage/",
+		"/findings/aggregation/",
+		"/usage/",
+		"/accountpermissions/",
+		"/vulnerabilities/",
+		"/codesnippet/",
+		"/freetrialinfo/",
+		"/cluster/",
+	}
+})
+
 // RouteMatcher returns a matcher that accepts Inspector2 REST paths.
-func (h *Handler) RouteMatcher() service.Matcher { //nolint:cyclop // existing issue.
+func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, pathEnable) ||
-			strings.HasPrefix(path, pathDisable) ||
-			strings.HasPrefix(path, "/status/") ||
-			strings.HasPrefix(path, "/filters/") ||
-			strings.HasPrefix(path, "/findings/") ||
-			strings.HasPrefix(path, "/configuration/") ||
-			strings.HasPrefix(path, pathTagsPrefix+"arn:aws:inspector2:") ||
-			strings.HasPrefix(path, "/members/") ||
-			strings.HasPrefix(path, "/delegatedadminaccounts/") ||
-			strings.HasPrefix(path, "/organizationconfiguration/") ||
-			strings.HasPrefix(path, "/ec2deepinspection") ||
-			strings.HasPrefix(path, "/encryptionkey/") ||
-			strings.HasPrefix(path, "/cis/") ||
-			strings.HasPrefix(path, "/cissession/") ||
-			strings.HasPrefix(path, "/codesecurity/") ||
-			strings.HasPrefix(path, "/reporting/") ||
-			strings.HasPrefix(path, "/sbomexport/") ||
-			strings.HasPrefix(path, "/coverage/") ||
-			strings.HasPrefix(path, "/findings/aggregation/") ||
-			strings.HasPrefix(path, "/usage/") ||
-			strings.HasPrefix(path, "/accountpermissions/") ||
-			strings.HasPrefix(path, "/vulnerabilities/") ||
-			strings.HasPrefix(path, "/codesnippet/") ||
-			strings.HasPrefix(path, "/freetrialinfo/") ||
-			strings.HasPrefix(path, "/cluster/")
+		for _, prefix := range onceRouteMatchPrefixes() {
+			if strings.HasPrefix(path, prefix) {
+				return true
+			}
+		}
+
+		return false
 	}
 }
 

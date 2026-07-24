@@ -86,6 +86,16 @@ func scanConfigAssociationConfigKeyFn(v *CodeSecurityScanConfigurationAssociatio
 	return v.ScanConfigurationArn
 }
 
+// coverageEntryKeyFn builds the composite "<resourceId>/<scanType>" identity
+// for a CoverageEntry -- a resource can be covered by more than one scan
+// type (e.g. an EC2 instance covered by both EC2 and EC2_AGENTLESS), so
+// resourceId alone is not unique.
+func coverageEntryKeyFn(v *CoverageEntry) string { return v.ResourceID + "/" + v.ScanType }
+
+func vulnerabilityKeyFn(v *Vulnerability) string { return v.ID }
+
+func codeSnippetKeyFn(v *codeSnippet) string { return v.FindingArn }
+
 // registerAllTables registers every backend resource table (and its
 // secondary indexes) exactly once. It must be called during construction
 // only, immediately after b.registry is created -- store.Register panics on
@@ -129,4 +139,10 @@ func registerAllTables(b *InMemoryBackend) {
 	b.scanConfigAssociationsByConfig = b.scanConfigAssociations.AddIndex(
 		"byConfig", scanConfigAssociationConfigKeyFn,
 	)
+
+	b.coverageEntries = store.Register(b.registry, "coverageEntries", store.New(coverageEntryKeyFn))
+
+	b.vulnerabilities = store.Register(b.registry, "vulnerabilities", store.New(vulnerabilityKeyFn))
+
+	b.codeSnippets = store.Register(b.registry, "codeSnippets", store.New(codeSnippetKeyFn))
 }

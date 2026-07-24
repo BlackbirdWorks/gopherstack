@@ -25,9 +25,14 @@ func (h *Handler) handleCreateSbomExport(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
 	}
 
+	// Real CreateSbomExportInput fields are reportFormat/resourceFilterCriteria/
+	// s3Destination -- the prior "sbomFormat" key does not exist on the real
+	// request shape (real key is "reportFormat"), so every real client's
+	// report format was silently dropped.
 	var req struct {
-		S3Destination map[string]any `json:"s3Destination"`
-		SbomFormat    string         `json:"sbomFormat"`
+		S3Destination          map[string]any `json:"s3Destination"`
+		ResourceFilterCriteria map[string]any `json:"resourceFilterCriteria"`
+		ReportFormat           string         `json:"reportFormat"`
 	}
 
 	if len(body) > 0 {
@@ -39,7 +44,7 @@ func (h *Handler) handleCreateSbomExport(c *echo.Context) error {
 		}
 	}
 
-	export, createErr := h.Backend.CreateSbomExport(req.S3Destination)
+	export, createErr := h.Backend.CreateSbomExport(req.S3Destination, req.ResourceFilterCriteria, req.ReportFormat)
 	if createErr != nil {
 		return h.mapError(c, createErr)
 	}
@@ -87,9 +92,27 @@ func (h *Handler) handleGetSbomExport(c *echo.Context) error {
 		return h.mapError(c, getErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyReportID:  export.ReportID,
 		keyStatus:    export.Status,
 		keyErrorCode: export.ErrorCode,
-	})
+	}
+
+	if export.ErrorMessage != "" {
+		resp["errorMessage"] = export.ErrorMessage
+	}
+
+	if export.Destination != nil {
+		resp["s3Destination"] = export.Destination
+	}
+
+	if export.FilterCriteria != nil {
+		resp["filterCriteria"] = export.FilterCriteria
+	}
+
+	if export.Format != "" {
+		resp["format"] = export.Format
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
