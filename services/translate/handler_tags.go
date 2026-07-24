@@ -3,11 +3,15 @@ package translate
 import "fmt"
 
 // --- Tags ---
+//
+// TagResource, UntagResource, and ListTagsForResource all model
+// InvalidParameterValueException but never InvalidRequestException
+// (api-2.json), so a missing ResourceArn uses ErrInvalidParameter.
 
 func (h *Handler) tagResource(input map[string]any) (map[string]any, error) {
 	resourceARN, _ := input[keyResourceARN].(string)
 	if resourceARN == "" {
-		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
 	}
 
 	tags := extractTagsFromSlice(input, "Tags")
@@ -22,7 +26,7 @@ func (h *Handler) tagResource(input map[string]any) (map[string]any, error) {
 func (h *Handler) untagResource(input map[string]any) (map[string]any, error) {
 	resourceARN, _ := input[keyResourceARN].(string)
 	if resourceARN == "" {
-		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
 	}
 
 	keys := strSliceField(input, "TagKeys")
@@ -37,7 +41,7 @@ func (h *Handler) untagResource(input map[string]any) (map[string]any, error) {
 func (h *Handler) listTagsForResource(input map[string]any) (map[string]any, error) {
 	resourceARN, _ := input[keyResourceARN].(string)
 	if resourceARN == "" {
-		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
+		return nil, fmt.Errorf("%w: ResourceArn is required", ErrInvalidParameter)
 	}
 
 	tags, err := h.Backend.ListTagsForResource(resourceARN)

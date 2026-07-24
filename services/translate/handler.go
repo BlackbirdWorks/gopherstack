@@ -30,6 +30,12 @@ const (
 	keyTargetLanguageCodes = "TargetLanguageCodes"
 	keyLanguageCode        = "LanguageCode"
 	keyLanguageName        = "LanguageName"
+
+	// sourceLangAuto is the sentinel SourceLanguageCode value that requests
+	// automatic source-language detection (real AWS resolves it via an
+	// internal Amazon Comprehend call); it is never validated against
+	// knownLanguageCodesTable the way a real language code is.
+	sourceLangAuto = "auto"
 )
 
 type opFunc func(map[string]any) (map[string]any, error)
@@ -157,9 +163,23 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrNotFound):
 		code, status = "ResourceNotFoundException", http.StatusBadRequest
 	case errors.Is(err, ErrConflict):
-		code, status = "ResourceInUseException", http.StatusBadRequest
+		code, status = "ConflictException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation):
 		code, status = "InvalidRequestException", http.StatusBadRequest
+	case errors.Is(err, ErrInvalidParameter):
+		code, status = "InvalidParameterValueException", http.StatusBadRequest
+	case errors.Is(err, ErrLimitExceeded):
+		code, status = "LimitExceededException", http.StatusBadRequest
+	case errors.Is(err, ErrTextSizeLimitExceeded):
+		code, status = "TextSizeLimitExceededException", http.StatusBadRequest
+	case errors.Is(err, ErrTooManyTags):
+		code, status = "TooManyTagsException", http.StatusBadRequest
+	case errors.Is(err, ErrUnsupportedLanguagePair):
+		code, status = "UnsupportedLanguagePairException", http.StatusBadRequest
+	case errors.Is(err, ErrUnsupportedDisplayLanguage):
+		code, status = "UnsupportedDisplayLanguageCodeException", http.StatusBadRequest
+	case errors.Is(err, ErrInvalidFilter):
+		code, status = "InvalidFilterException", http.StatusBadRequest
 	}
 
 	c.Response().Header().Set("Content-Type", translateContentType)

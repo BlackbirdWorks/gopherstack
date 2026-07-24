@@ -1,6 +1,51 @@
 package translate
 
+import (
+	"fmt"
+	"sync"
+)
+
 // --- Languages ---
+
+// knownLanguageCodesTable is the set of LanguageCode values knownLanguages()
+// serves, built once (apigatewayv2-style; knownLanguages returns a fresh
+// slice per call, so this avoids rebuilding the set on every translation
+// request).
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2-style
+var knownLanguageCodesTable = sync.OnceValue(func() map[string]bool {
+	langs := knownLanguages()
+	set := make(map[string]bool, len(langs))
+
+	for _, l := range langs {
+		if c, ok := l[keyLanguageCode].(string); ok {
+			set[c] = true
+		}
+	}
+
+	return set
+})
+
+func isKnownLanguageCode(code string) bool {
+	return knownLanguageCodesTable()[code]
+}
+
+// displayLanguageCodesTable is the fixed set of DisplayLanguageCode values
+// Amazon Translate supports for UI localization, confirmed against the
+// DisplayLanguageCode shape's "enum" in the smithy model
+// (aws-sdk-go@v1.55.5/models/apis/translate/2017-07-01/api-2.json). This is
+// deliberately a much smaller set than knownLanguageCodesTable above (the
+// ~75 translation-target language codes): DisplayLanguageCode only controls
+// which language LanguageName strings are localized into, not which
+// languages can be translated.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, apigatewayv2-style
+var displayLanguageCodesTable = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"de": true, "en": true, "es": true, "fr": true, "it": true,
+		"ja": true, "ko": true, "pt": true, "zh": true, "zh-TW": true,
+	}
+})
 
 func (h *Handler) listLanguages(input map[string]any) (map[string]any, error) {
 	const defaultMaxLanguages = 500
@@ -14,6 +59,10 @@ func (h *Handler) listLanguages(input map[string]any) (map[string]any, error) {
 	displayLang, _ := input["DisplayLanguageCode"].(string)
 	if displayLang == "" {
 		displayLang = "en"
+	} else if !displayLanguageCodesTable()[displayLang] {
+		return nil, fmt.Errorf(
+			"%w: DisplayLanguageCode %q is not supported", ErrUnsupportedDisplayLanguage, displayLang,
+		)
 	}
 
 	languages := knownLanguages()

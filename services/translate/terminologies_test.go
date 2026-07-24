@@ -40,7 +40,7 @@ func TestInMemoryBackend_ImportTerminology_DirectionalityPassthrough(t *testing.
 			term, err := b.ImportTerminology("dir-term-"+tt.name, "", data, nil, nil)
 
 			if tt.wantError {
-				require.ErrorIs(t, err, translate.ErrValidation)
+				require.ErrorIs(t, err, translate.ErrInvalidParameter)
 
 				return
 			}
