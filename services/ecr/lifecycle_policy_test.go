@@ -392,3 +392,95 @@ func TestGetLifecyclePolicyPreview_NotStarted_Errors(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, rec.Code,
 		"GetLifecyclePolicyPreview without StartLifecyclePolicyPreview must error")
 }
+
+// TestLifecyclePolicyResult_LastEvaluatedAt_IsEpochNumber locks the
+// GetLifecyclePolicy/PutLifecyclePolicy/DeleteLifecyclePolicy wire shape: AWS's
+// awsAwsjson11_deserializeDocumentGetLifecyclePolicyOutput parses lastEvaluatedAt
+// via smithytime.ParseEpochSeconds(json.Number) — a bare time.Time json.Marshal
+// would instead emit an RFC3339 string, which the real SDK client rejects.
+func TestLifecyclePolicyResult_LastEvaluatedAt_IsEpochNumber(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "lea-repo")
+
+	policy := `{"rules":[{"rulePriority":1,` +
+		`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},` +
+		`"action":{"type":"expire"}}]}`
+
+	putRec := doAccuracy(t, h, "PutLifecyclePolicy", map[string]any{
+		"repositoryName":      "lea-repo",
+		"lifecyclePolicyText": policy,
+	})
+	require.Equal(t, http.StatusOK, putRec.Code)
+	putOut := parseAccuracy(t, putRec)
+	putLEA, ok := putOut["lastEvaluatedAt"].(float64)
+	require.True(t, ok, "PutLifecyclePolicy lastEvaluatedAt must be a JSON number, got %T", putOut["lastEvaluatedAt"])
+	assert.Positive(t, putLEA, "lastEvaluatedAt must reflect the immediate post-Put evaluation")
+
+	getRec := doAccuracy(t, h, "GetLifecyclePolicy", map[string]any{"repositoryName": "lea-repo"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	getOut := parseAccuracy(t, getRec)
+	getLEA, ok := getOut["lastEvaluatedAt"].(float64)
+	require.True(t, ok, "GetLifecyclePolicy lastEvaluatedAt must be a JSON number, got %T", getOut["lastEvaluatedAt"])
+	assert.InDelta(t, putLEA, getLEA, 0, "Get must echo the same evaluation timestamp recorded by Put")
+
+	deleteRec := doAccuracy(t, h, "DeleteLifecyclePolicy", map[string]any{"repositoryName": "lea-repo"})
+	require.Equal(t, http.StatusOK, deleteRec.Code)
+	deleteOut := parseAccuracy(t, deleteRec)
+	_, ok = deleteOut["lastEvaluatedAt"].(float64)
+	assert.True(t, ok,
+		"DeleteLifecyclePolicy lastEvaluatedAt must be a JSON number, got %T", deleteOut["lastEvaluatedAt"])
+}
+
+// TestLifecyclePolicyPreview_EntryShape locks the full per-image preview wire
+// shape: real AWS's GetLifecyclePolicyPreviewOutput.previewResults is a list of
+// {action, appliedRulePriority, imageDigest, imagePushedAt, imageTags,
+// storageClass} objects (types.LifecyclePolicyPreviewResult), not the bare
+// {imageDigest, imageTag} ImageIdentifier shape. It also locks the top-level
+// "summary.expiringImageTotalCount" field (types.LifecyclePolicyPreviewSummary).
+func TestLifecyclePolicyPreview_EntryShape(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "entry-shape-repo")
+	digest := mustPutImage(t, h, "entry-shape-repo", "v1", `{"schemaVersion":2,"v":1}`)
+
+	policy := `{"rules":[{"rulePriority":7,"description":"expire all",` +
+		`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":0},` +
+		`"action":{"type":"expire"}}]}`
+
+	rec := doAccuracy(t, h, "StartLifecyclePolicyPreview", map[string]any{
+		"repositoryName":      "entry-shape-repo",
+		"lifecyclePolicyText": policy,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+
+	summary, ok := out["summary"].(map[string]any)
+	require.True(t, ok, "summary must be an object")
+	assert.InDelta(t, float64(1), summary["expiringImageTotalCount"], 0,
+		"summary.expiringImageTotalCount must count the one previewed image")
+
+	results, ok := out["previewResults"].([]any)
+	require.True(t, ok)
+	require.Len(t, results, 1)
+
+	entry, ok := results[0].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, digest, entry["imageDigest"], "imageDigest must be the pushed image's digest key")
+	assert.Contains(t, entry["imageTags"], "v1", "imageTags must include the image's tag")
+	assert.Equal(t, "STANDARD", entry["storageClass"], "default storage class must be STANDARD")
+	assert.InDelta(t, float64(7), entry["appliedRulePriority"], 0,
+		"appliedRulePriority must reflect the matched rule's rulePriority")
+
+	action, ok := entry["action"].(map[string]any)
+	require.True(t, ok, "action must be an object, not a bare string")
+	assert.Equal(t, "EXPIRE", action["type"])
+
+	pushedAt, ok := entry["imagePushedAt"].(float64)
+	require.True(t, ok, "imagePushedAt must be a JSON number, got %T", entry["imagePushedAt"])
+	assert.Positive(t, pushedAt)
+}

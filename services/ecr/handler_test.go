@@ -164,8 +164,9 @@ func mustPutImage(t *testing.T, h *ecr.Handler, repoName, tag, manifest string) 
 	require.Equal(t, http.StatusOK, rec.Code, "PutImage failed: %s", rec.Body.String())
 	out := parseAccuracy(t, rec)
 	img, _ := out["image"].(map[string]any)
+	imageID, _ := img["imageId"].(map[string]any)
 
-	return img["imageDigest"].(string)
+	return imageID["imageDigest"].(string)
 }
 
 // ── core dispatch tests ──────────────────────────────────────────────────────

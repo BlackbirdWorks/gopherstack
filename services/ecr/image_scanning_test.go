@@ -151,6 +151,41 @@ func TestImageScanning_BASIC_StartAndGet(t *testing.T) {
 	assert.Equal(t, "scan-basic", findOut["repositoryName"])
 }
 
+// TestDescribeImageScanFindings_ImageScanCompletedAt_WireShape locks the
+// imageScanFindings.imageScanCompletedAt wire field over the JSON boundary:
+// the real ECR SDK deserializer (awsAwsjson11_deserializeDocumentImageScanFindings)
+// reads the key "imageScanCompletedAt" as a JSON Number via
+// smithytime.ParseEpochSeconds — not "completedAt" as an RFC3339 string.
+func TestDescribeImageScanFindings_ImageScanCompletedAt_WireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "scan-wire-shape")
+	d := mustPutManifest(t, h, "scan-wire-shape", "v1", `{"schemaVersion":2}`)
+
+	doAccuracy(t, h, "StartImageScan", map[string]any{
+		"repositoryName": "scan-wire-shape",
+		"imageId":        map[string]any{"imageDigest": d},
+	})
+
+	findRec := doAccuracy(t, h, "DescribeImageScanFindings", map[string]any{
+		"repositoryName": "scan-wire-shape",
+		"imageId":        map[string]any{"imageDigest": d},
+	})
+	require.Equal(t, http.StatusOK, findRec.Code)
+
+	findOut := parseAccuracy(t, findRec)
+	findings, ok := findOut["imageScanFindings"].(map[string]any)
+	require.True(t, ok, "imageScanFindings must be an object")
+
+	_, hasOldKey := findings["completedAt"]
+	assert.False(t, hasOldKey, "the wire key must be imageScanCompletedAt, not completedAt")
+
+	completedAt, ok := findings["imageScanCompletedAt"].(float64)
+	require.True(t, ok, "imageScanCompletedAt must be a JSON number, got %T", findings["imageScanCompletedAt"])
+	assert.Positive(t, completedAt)
+}
+
 func TestImageScanning_StartByScanByTag(t *testing.T) {
 	t.Parallel()
 

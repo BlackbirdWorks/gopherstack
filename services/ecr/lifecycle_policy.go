@@ -78,7 +78,7 @@ func (b *InMemoryBackend) GetLifecyclePolicyPreview(
 	}
 
 	cp := *preview
-	cp.PreviewResults = append([]ImageIdentifier(nil), preview.PreviewResults...)
+	cp.PreviewResults = append([]LifecyclePolicyPreviewEntry(nil), preview.PreviewResults...)
 
 	return &cp, nil
 }
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) StartLifecyclePolicyPreview(
 	b.lifecyclePolicyPreviews.Put(preview)
 
 	cp := *preview
-	cp.PreviewResults = append([]ImageIdentifier(nil), preview.PreviewResults...)
+	cp.PreviewResults = append([]LifecyclePolicyPreviewEntry(nil), preview.PreviewResults...)
 
 	return &cp, nil
 }

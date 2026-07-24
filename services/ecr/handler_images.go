@@ -40,6 +40,32 @@ func (h *Handler) handleBatchDeleteImage(
 	return &batchDeleteImageOutput{ImageIDs: deleted, Failures: failures}, nil
 }
 
+// imageView is the JSON representation of an image returned by PutImage and
+// BatchGetImage. The real AWS ecr.types.Image shape (per
+// awsAwsjson11_deserializeDocumentImage) has exactly five fields — imageId,
+// imageManifest, imageManifestMediaType, registryId, repositoryName — and
+// notably does NOT include imageDigest, imagePushedAt, imageStatus,
+// storageClass, or imageSizeInBytes at the top level (those only appear on the
+// distinct ImageDetail shape returned by DescribeImages). The digest is
+// available to callers via the nested imageId.imageDigest field.
+type imageView struct {
+	ImageID                ImageIdentifier `json:"imageId"`
+	ImageManifest          string          `json:"imageManifest,omitempty"`
+	ImageManifestMediaType string          `json:"imageManifestMediaType,omitempty"`
+	RegistryID             string          `json:"registryId,omitempty"`
+	RepositoryName         string          `json:"repositoryName,omitempty"`
+}
+
+func toImageView(img Image) imageView {
+	return imageView{
+		ImageID:                img.ImageID,
+		ImageManifest:          img.ImageManifest,
+		ImageManifestMediaType: img.ImageManifestMediaType,
+		RegistryID:             img.RegistryID,
+		RepositoryName:         img.RepositoryName,
+	}
+}
+
 // batchGetImageInput is the request body for BatchGetImage.
 type batchGetImageInput struct {
 	RepositoryName string            `json:"repositoryName"`
@@ -48,7 +74,7 @@ type batchGetImageInput struct {
 }
 
 type batchGetImageOutput struct {
-	Images   []Image        `json:"images"`
+	Images   []imageView    `json:"images"`
 	Failures []ImageFailure `json:"failures"`
 }
 
@@ -61,15 +87,16 @@ func (h *Handler) handleBatchGetImage(
 		return nil, err
 	}
 
-	if imgs == nil {
-		imgs = []Image{}
+	views := make([]imageView, 0, len(imgs))
+	for _, img := range imgs {
+		views = append(views, toImageView(img))
 	}
 
 	if failures == nil {
 		failures = []ImageFailure{}
 	}
 
-	return &batchGetImageOutput{Images: imgs, Failures: failures}, nil
+	return &batchGetImageOutput{Images: views, Failures: failures}, nil
 }
 
 type describeImagesFilter struct {
@@ -257,7 +284,7 @@ type putImageInput struct {
 }
 
 type putImageOutput struct {
-	Image *Image `json:"image"`
+	Image *imageView `json:"image"`
 }
 
 func (h *Handler) handlePutImage(ctx context.Context, in *putImageInput) (*putImageOutput, error) {
@@ -292,7 +319,9 @@ func (h *Handler) handlePutImage(ctx context.Context, in *putImageInput) (*putIm
 		return nil, err
 	}
 
-	return &putImageOutput{Image: img}, nil
+	view := toImageView(*img)
+
+	return &putImageOutput{Image: &view}, nil
 }
 
 type putImageTagMutabilityInput struct {

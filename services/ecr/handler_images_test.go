@@ -1347,3 +1347,69 @@ func TestListImages_OpaqueNextToken(t *testing.T) {
 		})
 	}
 }
+
+// TestPutImage_ImageView_OmitsInventedFields locks the PutImage "image" wire
+// shape against the real AWS ecr.types.Image, which has exactly five fields —
+// imageId, imageManifest, imageManifestMediaType, registryId, repositoryName
+// (per awsAwsjson11_deserializeDocumentImage). gopherstack's internal Image
+// domain struct additionally carries imageDigest, imagePushedAt, imageStatus,
+// storageClass, and imageSizeInBytes for its own bookkeeping (used by the
+// separate DescribeImages ImageDetail shape); those must never leak onto the
+// PutImage/BatchGetImage "image" object.
+func TestPutImage_ImageView_OmitsInventedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "image-view-repo")
+
+	rec := doAccuracy(t, h, "PutImage", map[string]any{
+		"repositoryName": "image-view-repo",
+		"imageManifest":  `{"schemaVersion":2}`,
+		"imageTag":       "v1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	img, ok := out["image"].(map[string]any)
+	require.True(t, ok)
+
+	for _, invented := range []string{"imageDigest", "imagePushedAt", "imageStatus", "storageClass", "imageSizeInBytes"} {
+		_, present := img[invented]
+		assert.False(t, present, "PutImage image object must not carry invented field %q", invented)
+	}
+
+	imageID, ok := img["imageId"].(map[string]any)
+	require.True(t, ok, "image.imageId must be present")
+	assert.NotEmpty(t, imageID["imageDigest"], "the digest belongs under imageId.imageDigest")
+	assert.Equal(t, "v1", imageID["imageTag"])
+}
+
+// TestBatchGetImage_ImageView_OmitsInventedFields is the BatchGetImage
+// counterpart of TestPutImage_ImageView_OmitsInventedFields: BatchGetImageOutput.Images
+// is also []types.Image, the same thin shape as PutImage's response.
+func TestBatchGetImage_ImageView_OmitsInventedFields(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "bgi-view-repo")
+	digest := mustPutImage(t, h, "bgi-view-repo", "v1", `{"schemaVersion":2}`)
+
+	rec := doAccuracy(t, h, "BatchGetImage", map[string]any{
+		"repositoryName": "bgi-view-repo",
+		"imageIds":       []map[string]any{{"imageDigest": digest}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	images, ok := out["images"].([]any)
+	require.True(t, ok)
+	require.Len(t, images, 1)
+
+	img, ok := images[0].(map[string]any)
+	require.True(t, ok)
+
+	for _, invented := range []string{"imageDigest", "imagePushedAt", "imageStatus", "storageClass", "imageSizeInBytes"} {
+		_, present := img[invented]
+		assert.False(t, present, "BatchGetImage image object must not carry invented field %q", invented)
+	}
+}
