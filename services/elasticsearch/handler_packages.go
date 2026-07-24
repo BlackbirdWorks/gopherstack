@@ -9,11 +9,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
+// packageSourceJSON is the JSON representation of a package's S3 source
+// location (types.PackageSource).
+type packageSourceJSON struct {
+	S3BucketName string `json:"S3BucketName"`
+	S3Key        string `json:"S3Key"`
+}
+
 // createPackageRequest is the JSON body for CreatePackage.
 type createPackageRequest struct {
-	PackageName        string `json:"PackageName"`
-	PackageType        string `json:"PackageType"`
-	PackageDescription string `json:"PackageDescription"`
+	PackageSource      *packageSourceJSON `json:"PackageSource"`
+	PackageName        string             `json:"PackageName"`
+	PackageType        string             `json:"PackageType"`
+	PackageDescription string             `json:"PackageDescription"`
 }
 
 // packageJSON is the JSON representation of an Elasticsearch package.
@@ -45,7 +53,14 @@ func (h *Handler) handleCreatePackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pkg, createErr := h.Backend.CreatePackage(h.reqContext(r), req.PackageName, req.PackageType, req.PackageDescription)
+	var source PackageSource
+	if req.PackageSource != nil {
+		source = PackageSource{S3BucketName: req.PackageSource.S3BucketName, S3Key: req.PackageSource.S3Key}
+	}
+
+	pkg, createErr := h.Backend.CreatePackage(
+		h.reqContext(r), req.PackageName, req.PackageType, req.PackageDescription, source,
+	)
 	if createErr != nil {
 		if errors.Is(createErr, ErrDomainAlreadyExists) {
 			h.writeError(r, w, http.StatusConflict, "ResourceAlreadyExistsException", createErr.Error())

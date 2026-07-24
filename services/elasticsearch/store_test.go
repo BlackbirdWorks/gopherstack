@@ -30,7 +30,8 @@ func TestElasticsearchHandler_ExportCountHelpers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.DomainCount())
 
-	_, err = b.CreatePackage(context.Background(), "my-pkg", "TXT-DICTIONARY", "desc")
+	_, err = b.CreatePackage(context.Background(), "my-pkg", "TXT-DICTIONARY", "desc",
+		elasticsearch.PackageSource{S3BucketName: "b", S3Key: "k"})
 	require.NoError(t, err)
 	assert.Equal(t, 1, b.PackageCount())
 
@@ -67,7 +68,8 @@ func TestElasticsearchHandler_ResetClearsAllMaps(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreatePackage(context.Background(), "pkg1", "TXT-DICTIONARY", "")
+	_, err = b.CreatePackage(context.Background(), "pkg1", "TXT-DICTIONARY", "",
+		elasticsearch.PackageSource{S3BucketName: "b", S3Key: "k"})
 	require.NoError(t, err)
 
 	_, err = b.CreateVpcEndpoint(context.Background(), "arn:aws:es:us-east-1:123456789012:domain/reset-dom", nil)

@@ -67,6 +67,59 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 			},
 		},
 		{
+			name: "domain_advanced_options_preserved",
+			setup: func(t *testing.T, b *elasticsearch.InMemoryBackend) {
+				t.Helper()
+
+				_, err := b.CreateDomain(
+					context.Background(),
+					elasticsearch.CreateDomainInput{
+						Name: "advanced-domain",
+						VPCOptions: &elasticsearch.VPCOptions{
+							SubnetIDs:        []string{"subnet-1"},
+							SecurityGroupIDs: []string{"sg-1"},
+						},
+						CognitoOptions: &elasticsearch.CognitoOptions{
+							Enabled:        true,
+							UserPoolID:     "pool-1",
+							IdentityPoolID: "idpool-1",
+							RoleARN:        "arn:aws:iam::123456789012:role/CognitoRole",
+						},
+						AdvancedSecurityOptions: &elasticsearch.AdvancedSecurityOptions{
+							Enabled: true,
+						},
+						AutoTuneOptions: &elasticsearch.AutoTuneOptions{DesiredState: "ENABLED"},
+						LogPublishingOptions: map[string]elasticsearch.LogPublishingOption{
+							"AUDIT_LOGS": {
+								Enabled:                   true,
+								CloudWatchLogsLogGroupARN: "arn:aws:logs:us-east-1:123456789012:log-group:/es/audit",
+							},
+						},
+					},
+				)
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *elasticsearch.InMemoryBackend) {
+				t.Helper()
+
+				d, err := b.DescribeDomain(context.Background(), "advanced-domain")
+				require.NoError(t, err)
+				require.NotNil(t, d.VPCOptions)
+				assert.Equal(t, []string{"subnet-1"}, d.VPCOptions.SubnetIDs)
+				require.NotNil(t, d.CognitoOptions)
+				assert.True(t, d.CognitoOptions.Enabled)
+				assert.Equal(t, "pool-1", d.CognitoOptions.UserPoolID)
+				require.NotNil(t, d.AdvancedSecurityOptions)
+				assert.True(t, d.AdvancedSecurityOptions.Enabled)
+				require.NotNil(t, d.AutoTuneOptions)
+				assert.Equal(t, "ENABLED", d.AutoTuneOptions.DesiredState)
+				require.Contains(t, d.LogPublishingOptions, "AUDIT_LOGS")
+				assert.True(t, d.LogPublishingOptions["AUDIT_LOGS"].Enabled)
+				assert.Equal(t, 1, d.ConfigVersion)
+				assert.False(t, d.CreatedAt.IsZero())
+			},
+		},
+		{
 			name: "tags_preserved_via_arn",
 			setup: func(t *testing.T, b *elasticsearch.InMemoryBackend) {
 				t.Helper()
@@ -105,7 +158,8 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 				_, err := b.CreateDomain(ctx, elasticsearch.CreateDomainInput{Name: "pkg-domain"})
 				require.NoError(t, err)
 
-				pkg, err := b.CreatePackage(ctx, "my-dict", "TXT-DICTIONARY", "custom dictionary")
+				pkg, err := b.CreatePackage(ctx, "my-dict", "TXT-DICTIONARY", "custom dictionary",
+					elasticsearch.PackageSource{S3BucketName: "b", S3Key: "k"})
 				require.NoError(t, err)
 
 				require.NoError(t, b.AssociatePackage(ctx, pkg.ID, "pkg-domain"))
@@ -123,7 +177,8 @@ func TestElasticsearch_PersistenceSnapshotRestore(t *testing.T) {
 
 				// packagesByName (raw map) must be preserved: creating the same
 				// name again must still fail as already-existing.
-				_, err := b.CreatePackage(ctx, "my-dict", "TXT-DICTIONARY", "dup")
+				_, err := b.CreatePackage(ctx, "my-dict", "TXT-DICTIONARY", "dup",
+					elasticsearch.PackageSource{S3BucketName: "b", S3Key: "k"})
 				require.Error(t, err)
 
 				// packageAssociations (raw map) must be preserved.
@@ -363,7 +418,8 @@ func TestElasticsearch_PersistenceCoversAllMaps(t *testing.T) {
 
 	b := elasticsearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.CreatePackage(context.Background(), "dict-pkg", "TXT-DICTIONARY", "my dictionary")
+	_, err := b.CreatePackage(context.Background(), "dict-pkg", "TXT-DICTIONARY", "my dictionary",
+		elasticsearch.PackageSource{S3BucketName: "b", S3Key: "k"})
 	require.NoError(t, err)
 
 	_, err = b.CreateVpcEndpoint(

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -50,6 +51,7 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 		clusterConfig.InstanceType = defaultInstanceType
 	}
 
+	now := time.Now()
 	d := &Domain{
 		region:                      region,
 		Name:                        inp.Name,
@@ -63,12 +65,25 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 		SnapshotOptions:             inp.SnapshotOptions,
 		AdvancedOptions:             inp.AdvancedOptions,
 		AccessPolicies:              inp.AccessPolicies,
+		VPCOptions:                  cloneVPCOptions(inp.VPCOptions),
+		CognitoOptions:              cloneCognitoOptions(inp.CognitoOptions),
+		AdvancedSecurityOptions:     cloneAdvancedSecurityOptions(inp.AdvancedSecurityOptions),
+		AutoTuneOptions:             cloneAutoTuneOptions(inp.AutoTuneOptions),
+		LogPublishingOptions:        cloneLogPublishingOptions(inp.LogPublishingOptions),
 		EncryptionAtRestEnabled:     inp.EncryptionAtRestEnabled,
 		NodeToNodeEncryptionEnabled: inp.NodeToNodeEncryptionEnabled,
 		EnforceHTTPS:                inp.EnforceHTTPS,
 		TLSSecurityPolicy:           inp.TLSSecurityPolicy,
+		CreatedAt:                   now,
+		ConfigUpdatedAt:             now,
+		ConfigVersion:               1,
 		Tags:                        tags.New("elasticsearch." + region + "." + inp.Name + ".tags"),
 	}
+
+	if len(inp.Tags) > 0 {
+		d.Tags.Merge(inp.Tags)
+	}
+
 	b.domainPut(d)
 	b.arnIndexStore(region)[domainARN] = inp.Name
 

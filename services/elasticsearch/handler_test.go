@@ -99,6 +99,7 @@ func createTestPackage(t *testing.T, h *elasticsearch.Handler, name string) stri
 		"PackageName":        name,
 		"PackageType":        "TXT-DICTIONARY",
 		"PackageDescription": "test",
+		"PackageSource":      map[string]any{"S3BucketName": "test-bucket", "S3Key": "test-key"},
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 

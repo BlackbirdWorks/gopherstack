@@ -253,13 +253,77 @@ func (b *InMemoryBackend) nextIDLocked() int {
 	return b.nextID
 }
 
-// domainCopy returns a shallow copy of d with Tags set to nil so that callers
-// cannot accidentally mutate or close the stored Tags collection.
+// domainCopy returns a copy of d with Tags set to nil (so callers cannot
+// accidentally mutate or close the stored Tags collection) and every
+// mutable reference field (maps/slices/option pointers) deep-cloned so that
+// mutating the returned copy can never alias the backend's stored state.
 func domainCopy(d *Domain) *Domain {
 	cp := *d
 	cp.Tags = nil
+	cp.AdvancedOptions = maps.Clone(d.AdvancedOptions)
+	cp.VPCOptions = cloneVPCOptions(d.VPCOptions)
+	cp.CognitoOptions = cloneCognitoOptions(d.CognitoOptions)
+	cp.AdvancedSecurityOptions = cloneAdvancedSecurityOptions(d.AdvancedSecurityOptions)
+	cp.AutoTuneOptions = cloneAutoTuneOptions(d.AutoTuneOptions)
+	cp.LogPublishingOptions = cloneLogPublishingOptions(d.LogPublishingOptions)
 
 	return &cp
+}
+
+// cloneVPCOptions returns a deep copy of v (including its subnet/security
+// group slices), or nil if v is nil.
+func cloneVPCOptions(v *VPCOptions) *VPCOptions {
+	if v == nil {
+		return nil
+	}
+
+	cp := *v
+	cp.SubnetIDs = slices.Clone(v.SubnetIDs)
+	cp.SecurityGroupIDs = slices.Clone(v.SecurityGroupIDs)
+
+	return &cp
+}
+
+// cloneCognitoOptions returns a shallow copy of v (all fields are scalar),
+// or nil if v is nil.
+func cloneCognitoOptions(v *CognitoOptions) *CognitoOptions {
+	if v == nil {
+		return nil
+	}
+
+	cp := *v
+
+	return &cp
+}
+
+// cloneAdvancedSecurityOptions returns a shallow copy of v (all fields are
+// scalar), or nil if v is nil.
+func cloneAdvancedSecurityOptions(v *AdvancedSecurityOptions) *AdvancedSecurityOptions {
+	if v == nil {
+		return nil
+	}
+
+	cp := *v
+
+	return &cp
+}
+
+// cloneAutoTuneOptions returns a shallow copy of v (all fields are scalar),
+// or nil if v is nil.
+func cloneAutoTuneOptions(v *AutoTuneOptions) *AutoTuneOptions {
+	if v == nil {
+		return nil
+	}
+
+	cp := *v
+
+	return &cp
+}
+
+// cloneLogPublishingOptions returns a deep copy of the map (LogPublishingOption
+// values are scalar so the top-level map clone is sufficient), or nil if v is nil.
+func cloneLogPublishingOptions(v map[string]LogPublishingOption) map[string]LogPublishingOption {
+	return maps.Clone(v)
 }
 
 func vpcEndpointCopy(endpoint *VpcEndpoint) *VpcEndpoint {

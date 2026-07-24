@@ -2,6 +2,7 @@ package elasticsearch
 
 import (
 	"regexp"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -64,19 +65,35 @@ var validElasticsearchVersions = map[string]bool{ //nolint:gochecknoglobals // p
 	elasticsearchVersion717:     true,
 }
 
-// validPackageTypes is the set of package types accepted by AWS Elasticsearch Service.
+// validPackageTypes is the set of package types accepted by AWS Elasticsearch
+// Service. NOTE: unlike the newer OpenSearch Service API (which also accepts
+// ZIP-PLUGIN/PACKAGE-LICENSE/PACKAGE-CONFIG), the legacy elasticsearchservice
+// PackageType enum supports only TXT-DICTIONARY -- confirmed against
+// aws-sdk-go-v2/service/elasticsearchservice/types.PackageType, whose only
+// enum value is PackageTypeTxtDictionary ("TXT-DICTIONARY").
 var validPackageTypes = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
 	"TXT-DICTIONARY": true,
-	"ZIP-PLUGIN":     true,
+}
+
+// PackageSource holds the S3 bucket/key location a package was imported
+// from (types.PackageSource). It is a required member of CreatePackageInput
+// in the real API but is never echoed back by any Describe/Create/Update
+// package response (types.PackageDetails has no PackageSource field), so it
+// is stored on Package purely so the backend has captured real input state --
+// it is intentionally not surfaced by toPackageJSON.
+type PackageSource struct {
+	S3BucketName string `json:"s3BucketName"`
+	S3Key        string `json:"s3Key"`
 }
 
 // Package represents an Elasticsearch package (e.g., a custom dictionary or synonym file).
 type Package struct {
-	ID          string `json:"packageID"`
-	Name        string `json:"packageName"`
-	PackageType string `json:"packageType"`
-	Description string `json:"packageDescription"`
-	Status      string `json:"packageStatus"`
+	ID            string        `json:"packageID"`
+	Name          string        `json:"packageName"`
+	PackageType   string        `json:"packageType"`
+	Description   string        `json:"packageDescription"`
+	Status        string        `json:"packageStatus"`
+	PackageSource PackageSource `json:"packageSource"`
 	// region is the store.Table composite-key qualifier (see regionKey in
 	// backend.go); it is unexported so it is never marshaled by a plain
 	// json.Marshal(Package) and is instead carried through persistence via
@@ -197,22 +214,79 @@ type EBSOptions struct {
 	EBSEnabled bool   `json:"ebsEnabled"`
 }
 
+// VPCOptions holds the subnet/security-group configuration for placing a
+// domain inside a VPC (types.VPCOptions on request, types.VPCDerivedInfo on
+// response). AvailabilityZones/VPCId are not modeled -- deriving them would
+// require cross-service EC2 subnet lookups this backend does not perform
+// (matches services/opensearch's identical simplification), so they are
+// always left empty on the wire.
+type VPCOptions struct {
+	SubnetIDs        []string `json:"subnetIDs,omitempty"`
+	SecurityGroupIDs []string `json:"securityGroupIDs,omitempty"`
+}
+
+// CognitoOptions holds the Cognito user/identity pool configuration for
+// Kibana authentication (types.CognitoOptions -- the same shape is used for
+// both the request and response).
+type CognitoOptions struct {
+	UserPoolID     string `json:"userPoolID,omitempty"`
+	IdentityPoolID string `json:"identityPoolID,omitempty"`
+	RoleARN        string `json:"roleARN,omitempty"`
+	Enabled        bool   `json:"enabled"`
+}
+
+// LogPublishingOption holds a single log-type publishing configuration
+// (types.LogPublishingOption), keyed by AWS LogType string
+// (INDEX_SLOW_LOGS/SEARCH_SLOW_LOGS/ES_APPLICATION_LOGS/AUDIT_LOGS) in
+// Domain.LogPublishingOptions.
+type LogPublishingOption struct {
+	CloudWatchLogsLogGroupARN string `json:"cloudWatchLogsLogGroupARN,omitempty"`
+	Enabled                   bool   `json:"enabled"`
+}
+
+// AdvancedSecurityOptions holds fine-grained access control settings
+// (types.AdvancedSecurityOptions on response). Master user credentials
+// (MasterUserOptions on the *Input request shape) and SAML IdP configuration
+// are intentionally not persisted here: real AWS never echoes
+// MasterUserOptions back on any Describe/Create/Update response either, and
+// full SAML modeling is out of scope for this pass (see PARITY.md gaps).
+type AdvancedSecurityOptions struct {
+	Enabled                     bool `json:"enabled"`
+	InternalUserDatabaseEnabled bool `json:"internalUserDatabaseEnabled,omitempty"`
+	AnonymousAuthEnabled        bool `json:"anonymousAuthEnabled,omitempty"`
+}
+
+// AutoTuneOptions holds the Auto-Tune desired state for a domain
+// (types.AutoTuneOptionsInput's DesiredState member). MaintenanceSchedules is
+// not modeled (see PARITY.md gaps).
+type AutoTuneOptions struct {
+	DesiredState string `json:"desiredState,omitempty"`
+}
+
 // Domain represents an Elasticsearch domain.
 type Domain struct {
-	Tags                        *tags.Tags        `json:"tags,omitempty"`
-	AdvancedOptions             map[string]string `json:"advancedOptions,omitempty"`
-	Status                      string            `json:"status"`
-	AccessPolicies              string            `json:"accessPolicies,omitempty"`
-	DomainID                    string            `json:"domainID"`
-	ARN                         string            `json:"arn"`
-	ElasticsearchVersion        string            `json:"elasticsearchVersion"`
-	Endpoint                    string            `json:"endpoint"`
+	ConfigUpdatedAt             time.Time                      `json:"configUpdatedAt,omitzero"`
+	CreatedAt                   time.Time                      `json:"createdAt,omitzero"`
+	VPCOptions                  *VPCOptions                    `json:"vpcOptions,omitempty"`
+	AdvancedOptions             map[string]string              `json:"advancedOptions,omitempty"`
+	LogPublishingOptions        map[string]LogPublishingOption `json:"logPublishingOptions,omitempty"`
+	AutoTuneOptions             *AutoTuneOptions               `json:"autoTuneOptions,omitempty"`
+	Tags                        *tags.Tags                     `json:"tags,omitempty"`
+	AdvancedSecurityOptions     *AdvancedSecurityOptions       `json:"advancedSecurityOptions,omitempty"`
+	CognitoOptions              *CognitoOptions                `json:"cognitoOptions,omitempty"`
+	ElasticsearchVersion        string                         `json:"elasticsearchVersion"`
+	AccessPolicies              string                         `json:"accessPolicies,omitempty"`
+	Status                      string                         `json:"status"`
+	TLSSecurityPolicy           string                         `json:"tlsSecurityPolicy,omitempty"`
+	DomainID                    string                         `json:"domainID"`
+	Name                        string                         `json:"name"`
 	region                      string
-	Name                        string          `json:"name"`
-	TLSSecurityPolicy           string          `json:"tlsSecurityPolicy,omitempty"`
+	Endpoint                    string          `json:"endpoint"`
+	ARN                         string          `json:"arn"`
 	EBSOptions                  EBSOptions      `json:"ebsOptions"`
 	ClusterConfig               ClusterConfig   `json:"clusterConfig"`
 	SnapshotOptions             SnapshotOptions `json:"snapshotOptions"`
+	ConfigVersion               int             `json:"configVersion"`
 	EncryptionAtRestEnabled     bool            `json:"encryptionAtRestEnabled"`
 	NodeToNodeEncryptionEnabled bool            `json:"nodeToNodeEncryptionEnabled"`
 	EnforceHTTPS                bool            `json:"enforceHTTPS"`
@@ -220,11 +294,17 @@ type Domain struct {
 
 // CreateDomainInput holds all parameters for CreateDomain.
 type CreateDomainInput struct {
+	VPCOptions                  *VPCOptions
+	Tags                        map[string]string
+	LogPublishingOptions        map[string]LogPublishingOption
+	AutoTuneOptions             *AutoTuneOptions
 	AdvancedOptions             map[string]string
-	Name                        string
-	ElasticsearchVersion        string
+	AdvancedSecurityOptions     *AdvancedSecurityOptions
+	CognitoOptions              *CognitoOptions
 	AccessPolicies              string
 	TLSSecurityPolicy           string
+	ElasticsearchVersion        string
+	Name                        string
 	EBSOptions                  EBSOptions
 	ClusterConfig               ClusterConfig
 	SnapshotOptions             SnapshotOptions
@@ -239,6 +319,11 @@ type UpdateConfig struct {
 	EBSOptions                  *EBSOptions
 	SnapshotOptions             *SnapshotOptions
 	AdvancedOptions             map[string]string
+	VPCOptions                  *VPCOptions
+	CognitoOptions              *CognitoOptions
+	AdvancedSecurityOptions     *AdvancedSecurityOptions
+	AutoTuneOptions             *AutoTuneOptions
+	LogPublishingOptions        map[string]LogPublishingOption
 	AccessPolicies              *string
 	TLSSecurityPolicy           *string
 	EncryptionAtRestEnabled     *bool

@@ -3,6 +3,7 @@ package elasticsearch
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // UpdateDomainConfig updates the cluster configuration and/or EBS options for a domain.
@@ -16,43 +17,101 @@ func (b *InMemoryBackend) UpdateDomainConfig(ctx context.Context, name string, c
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
 
+	if applyDomainConfigUpdate(d, cfg) {
+		d.ConfigUpdatedAt = time.Now()
+		d.ConfigVersion++
+	}
+
+	return domainCopy(d), nil
+}
+
+// applyDomainConfigUpdate mutates d in place from every field cfg sets and
+// reports whether at least one field changed. Factored out of
+// UpdateDomainConfig to keep its cognitive complexity low. Caller must hold
+// b.mu.Lock.
+func applyDomainConfigUpdate(d *Domain, cfg UpdateConfig) bool {
+	changed := false
+
 	if cfg.ClusterConfig != nil {
 		d.ClusterConfig = *cfg.ClusterConfig
+		changed = true
 	}
 
 	if cfg.EBSOptions != nil {
 		d.EBSOptions = *cfg.EBSOptions
+		changed = true
 	}
 
 	if cfg.SnapshotOptions != nil {
 		d.SnapshotOptions = *cfg.SnapshotOptions
+		changed = true
 	}
 
 	if cfg.AdvancedOptions != nil {
 		d.AdvancedOptions = cfg.AdvancedOptions
+		changed = true
 	}
 
 	if cfg.AccessPolicies != nil {
 		d.AccessPolicies = *cfg.AccessPolicies
+		changed = true
 	}
 
 	if cfg.EncryptionAtRestEnabled != nil {
 		d.EncryptionAtRestEnabled = *cfg.EncryptionAtRestEnabled
+		changed = true
 	}
 
 	if cfg.NodeToNodeEncryptionEnabled != nil {
 		d.NodeToNodeEncryptionEnabled = *cfg.NodeToNodeEncryptionEnabled
+		changed = true
 	}
 
 	if cfg.EnforceHTTPS != nil {
 		d.EnforceHTTPS = *cfg.EnforceHTTPS
+		changed = true
 	}
 
 	if cfg.TLSSecurityPolicy != nil {
 		d.TLSSecurityPolicy = *cfg.TLSSecurityPolicy
+		changed = true
 	}
 
-	return domainCopy(d), nil
+	return applyDomainConfigUpdateExtended(d, cfg) || changed
+}
+
+// applyDomainConfigUpdateExtended applies the VPC/Cognito/AdvancedSecurity/
+// AutoTune/LogPublishing fields, split out of applyDomainConfigUpdate to
+// keep both functions' cognitive complexity low.
+func applyDomainConfigUpdateExtended(d *Domain, cfg UpdateConfig) bool {
+	changed := false
+
+	if cfg.VPCOptions != nil {
+		d.VPCOptions = cloneVPCOptions(cfg.VPCOptions)
+		changed = true
+	}
+
+	if cfg.CognitoOptions != nil {
+		d.CognitoOptions = cloneCognitoOptions(cfg.CognitoOptions)
+		changed = true
+	}
+
+	if cfg.AdvancedSecurityOptions != nil {
+		d.AdvancedSecurityOptions = cloneAdvancedSecurityOptions(cfg.AdvancedSecurityOptions)
+		changed = true
+	}
+
+	if cfg.AutoTuneOptions != nil {
+		d.AutoTuneOptions = cloneAutoTuneOptions(cfg.AutoTuneOptions)
+		changed = true
+	}
+
+	if cfg.LogPublishingOptions != nil {
+		d.LogPublishingOptions = cloneLogPublishingOptions(cfg.LogPublishingOptions)
+		changed = true
+	}
+
+	return changed
 }
 
 // CancelDomainConfigChange cancels any in-progress configuration change for a domain.
