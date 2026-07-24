@@ -19,9 +19,6 @@ func buildAccountSettingsResponse(settings AccountSettings) map[string]any {
 	if settings.MaxQueryTCU != nil {
 		resp["MaxQueryTCU"] = *settings.MaxQueryTCU
 	}
-	if settings.LastUpdatedTime != nil {
-		resp["LastUpdatedTime"] = settings.LastUpdatedTime.Unix()
-	}
 	if settings.QueryCompute != nil {
 		resp["QueryCompute"] = settings.QueryCompute
 	}
@@ -55,31 +52,80 @@ func (h *Handler) handlePrepareQuery(ctx context.Context, body []byte) ([]byte, 
 	})
 }
 
-func (h *Handler) handleUpdateAccountSettings(ctx context.Context, body []byte) ([]byte, error) {
-	var req struct {
-		MaxQueryTCU  *int32 `json:"MaxQueryTCU"`
-		QueryCompute *struct {
-			ProvisionedCapacity *struct {
-				TargetQueryTCU *int32 `json:"TargetQueryTCU"`
-			} `json:"ProvisionedCapacity"`
-			ComputeMode string `json:"ComputeMode"`
-		} `json:"QueryCompute"`
-		QueryPricingModel string `json:"QueryPricingModel"`
+// updateAccountSettingsRequest is the parsed request body for
+// UpdateAccountSettings. Nested wire-shape types mirror
+// types.QueryComputeRequest / types.ProvisionedCapacityRequest /
+// types.AccountSettingsNotificationConfiguration / types.SnsConfiguration.
+type updateAccountSettingsRequest struct {
+	MaxQueryTCU       *int32                   `json:"MaxQueryTCU"`
+	QueryCompute      *queryComputeRequestWire `json:"QueryCompute"`
+	QueryPricingModel string                   `json:"QueryPricingModel"`
+}
+
+type queryComputeRequestWire struct {
+	ProvisionedCapacity *provisionedCapacityRequestWire `json:"ProvisionedCapacity"`
+	ComputeMode         string                          `json:"ComputeMode"`
+}
+
+type provisionedCapacityRequestWire struct {
+	NotificationConfiguration *accountSettingsNotificationConfigWire `json:"NotificationConfiguration"`
+	TargetQueryTCU            *int32                                 `json:"TargetQueryTCU"`
+}
+
+type accountSettingsNotificationConfigWire struct {
+	SnsConfiguration *snsConfigurationWire `json:"SnsConfiguration"`
+	RoleArn          string                `json:"RoleArn"`
+}
+
+type snsConfigurationWire struct {
+	TopicArn string `json:"TopicArn"`
+}
+
+// toQueryComputeUpdate converts the parsed wire request into the backend's
+// QueryComputeUpdate shape, or nil if QueryCompute was omitted entirely.
+func (req updateAccountSettingsRequest) toQueryComputeUpdate() *QueryComputeUpdate {
+	if req.QueryCompute == nil {
+		return nil
 	}
+
+	update := &QueryComputeUpdate{ComputeMode: req.QueryCompute.ComputeMode}
+
+	pc := req.QueryCompute.ProvisionedCapacity
+	if pc == nil {
+		return update
+	}
+
+	update.TargetQueryTCU = pc.TargetQueryTCU
+	update.NotificationConfiguration = pc.NotificationConfiguration.toModel()
+
+	return update
+}
+
+// toModel converts the parsed wire NotificationConfiguration into the
+// backend's typed AccountSettingsNotificationConfiguration, or nil if absent.
+func (nc *accountSettingsNotificationConfigWire) toModel() *AccountSettingsNotificationConfiguration {
+	if nc == nil {
+		return nil
+	}
+
+	cfg := &AccountSettingsNotificationConfiguration{RoleArn: nc.RoleArn}
+	if nc.SnsConfiguration != nil {
+		cfg.SnsConfiguration = &SnsConfiguration{TopicArn: nc.SnsConfiguration.TopicArn}
+	}
+
+	return cfg
+}
+
+func (h *Handler) handleUpdateAccountSettings(ctx context.Context, body []byte) ([]byte, error) {
+	var req updateAccountSettingsRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
-	var queryCompute *QueryComputeUpdate
-	if req.QueryCompute != nil {
-		queryCompute = &QueryComputeUpdate{ComputeMode: req.QueryCompute.ComputeMode}
-		if req.QueryCompute.ProvisionedCapacity != nil {
-			queryCompute.TargetQueryTCU = req.QueryCompute.ProvisionedCapacity.TargetQueryTCU
-		}
-	}
-
-	settings, err := h.Backend.UpdateAccountSettings(ctx, req.QueryPricingModel, req.MaxQueryTCU, queryCompute)
+	settings, err := h.Backend.UpdateAccountSettings(
+		ctx, req.QueryPricingModel, req.MaxQueryTCU, req.toQueryComputeUpdate(),
+	)
 	if err != nil {
 		return nil, err
 	}
