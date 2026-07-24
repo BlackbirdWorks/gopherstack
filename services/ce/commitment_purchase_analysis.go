@@ -16,7 +16,7 @@ func (b *InMemoryBackend) CreateCommitmentAnalysis() *CommitmentAnalysis {
 	estimated := now.Add(analysisETAMinutes * time.Minute)
 	a := &CommitmentAnalysis{
 		AnalysisID:              uuid.NewString(),
-		AnalysisStatus:          "PROCESSING",
+		AnalysisStatus:          statusProcessing,
 		AnalysisStartedTime:     now.Format(time.RFC3339),
 		EstimatedCompletionTime: estimated.Format(time.RFC3339),
 	}

@@ -11,7 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGetSavingsPlanPurchaseRecommendationDetails verifies stub.
+// TestGetSavingsPlanPurchaseRecommendationDetails verifies the real AWS wire shape
+// (RecommendationDetailData, not the previously-invented RecommendationDetail field).
 func TestGetSavingsPlanPurchaseRecommendationDetails(t *testing.T) {
 	t.Parallel()
 
@@ -21,9 +22,24 @@ func TestGetSavingsPlanPurchaseRecommendationDetails(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var out map[string]any
+	var out struct {
+		RecommendationDetailData map[string]any `json:"RecommendationDetailData"`
+		RecommendationDetailID   string         `json:"RecommendationDetailId"`
+	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.NotNil(t, out)
+	assert.Equal(t, "detail-abc123", out.RecommendationDetailID)
+	assert.NotEmpty(t, out.RecommendationDetailData)
+}
+
+// TestGetSavingsPlanPurchaseRecommendationDetails_MissingIDReturns400 verifies
+// RecommendationDetailId is enforced as required, matching real AWS CE's
+// validateOpGetSavingsPlanPurchaseRecommendationDetailsInput.
+func TestGetSavingsPlanPurchaseRecommendationDetails_MissingIDReturns400(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+	rec := doRequest(t, h, "GetSavingsPlanPurchaseRecommendationDetails", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestListSavingsPlansPurchaseRecommendationGeneration verifies generation list.
@@ -43,13 +59,61 @@ func TestListSavingsPlansPurchaseRecommendationGeneration(t *testing.T) {
 	assert.NotNil(t, out.GenerationSummaryList)
 }
 
-// TestStartSavingsPlansPurchaseRecommendationGeneration verifies generation start.
+// TestStartSavingsPlansPurchaseRecommendationGeneration verifies generation start
+// returns the real AWS field name (RecommendationId, not the previously-invented
+// GenerationId) and that the job is persisted so a subsequent List call sees it.
 func TestStartSavingsPlansPurchaseRecommendationGeneration(t *testing.T) {
 	t.Parallel()
 
 	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
 	rec := doRequest(t, h, "StartSavingsPlansPurchaseRecommendationGeneration", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		RecommendationID        string `json:"RecommendationId"`
+		GenerationStartedTime   string `json:"GenerationStartedTime"`
+		EstimatedCompletionTime string `json:"EstimatedCompletionTime"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.NotEmpty(t, out.RecommendationID)
+	assert.NotEmpty(t, out.GenerationStartedTime)
+	assert.NotEmpty(t, out.EstimatedCompletionTime)
+
+	listRec := doRequest(t, h, "ListSavingsPlansPurchaseRecommendationGeneration", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut struct {
+		GenerationSummaryList []struct {
+			RecommendationID string `json:"RecommendationId"`
+			GenerationStatus string `json:"GenerationStatus"`
+		} `json:"GenerationSummaryList"`
+	}
+	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.Len(t, listOut.GenerationSummaryList, 1)
+	assert.Equal(t, out.RecommendationID, listOut.GenerationSummaryList[0].RecommendationID)
+	assert.Equal(t, "PROCESSING", listOut.GenerationSummaryList[0].GenerationStatus)
+}
+
+// TestListSavingsPlansPurchaseRecommendationGeneration_FiltersByStatus verifies the
+// GenerationStatus filter excludes non-matching generation jobs.
+func TestListSavingsPlansPurchaseRecommendationGeneration_FiltersByStatus(t *testing.T) {
+	t.Parallel()
+
+	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+
+	startRec := doRequest(t, h, "StartSavingsPlansPurchaseRecommendationGeneration", map[string]any{})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	rec := doRequest(t, h, "ListSavingsPlansPurchaseRecommendationGeneration", map[string]any{
+		"GenerationStatus": "SUCCEEDED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		GenerationSummaryList []any `json:"GenerationSummaryList"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.Empty(t, out.GenerationSummaryList, "job is PROCESSING, must not match a SUCCEEDED filter")
 }
 
 // TestGetSavingsPlansCoverage verifies coverage response shape.

@@ -2,6 +2,7 @@ package ce_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -57,7 +58,7 @@ func TestGetApproximateUsageRecords_Shape(t *testing.T) {
 			body: map[string]any{
 				"ApproximationDimension": "RESOURCE",
 				"Granularity":            "DAILY",
-				"Services":               []string{"Amazon EC2"},
+				"Services":               []string{"Amazon Elastic Compute Cloud - Compute"},
 			},
 		},
 	}
@@ -71,36 +72,94 @@ func TestGetApproximateUsageRecords_Shape(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
-				Services     map[string]string `json:"Services"`
-				TotalRecords string            `json:"TotalRecords"`
+				Services     map[string]int64 `json:"Services"`
+				TotalRecords int64            `json:"TotalRecords"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 			assert.NotNil(t, out.Services)
-			assert.NotEmpty(t, out.TotalRecords)
+			assert.Positive(t, out.TotalRecords)
 		})
 	}
 }
 
-// TestGetCostAndUsageComparisons_Shape verifies comparison stubs return valid shape.
+// TestGetCostAndUsageComparisons_Shape verifies the real AWS wire shape
+// (CostAndUsageComparisons/BaselineTimePeriod/MetricForComparison, not the previously
+// invented CostAndUsages/BaseTimePeriod/Metrics fields) and that the comparison amounts
+// are derived from the synthetic cost ledger rather than always-empty.
 func TestGetCostAndUsageComparisons_Shape(t *testing.T) {
 	t.Parallel()
 
 	h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
 	rec := doRequest(t, h, "GetCostAndUsageComparisons", map[string]any{
-		"BaseTimePeriod":       map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+		"BaselineTimePeriod":   map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
 		"ComparisonTimePeriod": map[string]string{"Start": "2023-01-01", "End": "2023-02-01"},
-		"Granularity":          "MONTHLY",
-		"Metrics":              []string{"BlendedCost"},
+		"MetricForComparison":  "BlendedCost",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		CostAndUsages     []any `json:"CostAndUsages"`
-		TotalCostAndUsage []any `json:"TotalCostAndUsage"`
+		TotalCostAndUsage       map[string]any `json:"TotalCostAndUsage"`
+		CostAndUsageComparisons []struct {
+			Metrics map[string]struct {
+				BaselineTimePeriodAmount   string `json:"BaselineTimePeriodAmount"`
+				ComparisonTimePeriodAmount string `json:"ComparisonTimePeriodAmount"`
+				Difference                 string `json:"Difference"`
+			} `json:"Metrics"`
+		} `json:"CostAndUsageComparisons"`
 	}
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.NotNil(t, out.CostAndUsages)
-	assert.NotNil(t, out.TotalCostAndUsage)
+	require.NotEmpty(t, out.CostAndUsageComparisons)
+	assert.NotEmpty(t, out.TotalCostAndUsage["BlendedCost"])
+	assert.NotEmpty(t, out.CostAndUsageComparisons[0].Metrics["BlendedCost"].ComparisonTimePeriodAmount)
+}
+
+// TestGetCostAndUsageComparisons_RequiredFields verifies BaselineTimePeriod,
+// ComparisonTimePeriod, and MetricForComparison are enforced as required, matching real
+// AWS CE's validateOpGetCostAndUsageComparisonsInput.
+func TestGetCostAndUsageComparisons_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	full := map[string]any{
+		"BaselineTimePeriod":   map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+		"ComparisonTimePeriod": map[string]string{"Start": "2023-01-01", "End": "2023-02-01"},
+		"MetricForComparison":  "BlendedCost",
+	}
+
+	tests := []struct {
+		mutate         func(body map[string]any)
+		name           string
+		wantStatusCode int
+	}{
+		{
+			name:           "missing_baseline_time_period",
+			mutate:         func(b map[string]any) { delete(b, "BaselineTimePeriod") },
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "missing_comparison_time_period",
+			mutate:         func(b map[string]any) { delete(b, "ComparisonTimePeriod") },
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name:           "missing_metric_for_comparison",
+			mutate:         func(b map[string]any) { delete(b, "MetricForComparison") },
+			wantStatusCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			body := make(map[string]any, len(full))
+			maps.Copy(body, full)
+			tt.mutate(body)
+
+			h := ce.NewHandler(ce.NewInMemoryBackend("000000000000", "us-east-1"))
+			rec := doRequest(t, h, "GetCostAndUsageComparisons", body)
+			assert.Equal(t, tt.wantStatusCode, rec.Code)
+		})
+	}
 }
 
 // TestGetCostComparisonDrivers_Shape verifies comparison drivers stub.
@@ -728,12 +787,26 @@ func TestHandler_GetApproximateUsageRecords(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name: "returns_empty",
+			name: "derives_from_cost_ledger",
 			body: map[string]any{
 				"ApproximationDimension": "SERVICE",
 				"Granularity":            "MONTHLY",
 			},
 			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "missing_approximation_dimension_returns_400",
+			body: map[string]any{
+				"Granularity": "MONTHLY",
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_granularity_returns_400",
+			body: map[string]any{
+				"ApproximationDimension": "SERVICE",
+			},
+			wantStatusCode: http.StatusBadRequest,
 		},
 	}
 
@@ -745,12 +818,19 @@ func TestHandler_GetApproximateUsageRecords(t *testing.T) {
 			rec := doRequest(t, h, "GetApproximateUsageRecords", tt.body)
 			assert.Equal(t, tt.wantStatusCode, rec.Code)
 
+			if tt.wantStatusCode != http.StatusOK {
+				return
+			}
+
 			var out struct {
-				Services     map[string]any `json:"Services"`
-				TotalRecords string         `json:"TotalRecords"`
+				Services       map[string]int64  `json:"Services"`
+				LookbackPeriod map[string]string `json:"LookbackPeriod"`
+				TotalRecords   int64             `json:"TotalRecords"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Equal(t, "0", out.TotalRecords)
+			assert.Positive(t, out.TotalRecords)
+			assert.NotEmpty(t, out.LookbackPeriod["Start"])
+			assert.NotEmpty(t, out.LookbackPeriod["End"])
 		})
 	}
 }
@@ -764,12 +844,11 @@ func TestHandler_GetCostAndUsageComparisons(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name: "returns_empty_comparisons",
+			name: "returns_derived_comparisons",
 			body: map[string]any{
-				"BaseTimePeriod":       map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"BaselineTimePeriod":   map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
 				"ComparisonTimePeriod": map[string]string{"Start": "2023-01-01", "End": "2023-02-01"},
-				"Granularity":          "MONTHLY",
-				"Metrics":              []string{"BlendedCost"},
+				"MetricForComparison":  "BlendedCost",
 			},
 			wantStatusCode: http.StatusOK,
 		},
@@ -784,10 +863,10 @@ func TestHandler_GetCostAndUsageComparisons(t *testing.T) {
 			assert.Equal(t, tt.wantStatusCode, rec.Code)
 
 			var out struct {
-				CostAndUsages []any `json:"CostAndUsages"`
+				CostAndUsageComparisons []any `json:"CostAndUsageComparisons"`
 			}
 			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-			assert.Empty(t, out.CostAndUsages)
+			assert.NotEmpty(t, out.CostAndUsageComparisons)
 		})
 	}
 }
@@ -806,8 +885,37 @@ func TestHandler_GetCostAndUsageWithResources(t *testing.T) {
 				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
 				"Granularity": "MONTHLY",
 				"Metrics":     []string{"BlendedCost"},
+				"Filter": map[string]any{
+					"Dimensions": map[string]any{
+						"Key":    "SERVICE",
+						"Values": []string{"Amazon Elastic Compute Cloud - Compute"},
+					},
+				},
 			},
 			wantStatusCode: http.StatusOK,
+		},
+		{
+			name: "missing_filter_returns_400",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Granularity": "MONTHLY",
+				"Metrics":     []string{"BlendedCost"},
+			},
+			wantStatusCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_granularity_returns_400",
+			body: map[string]any{
+				"TimePeriod": map[string]string{"Start": "2024-01-01", "End": "2024-02-01"},
+				"Metrics":    []string{"BlendedCost"},
+				"Filter": map[string]any{
+					"Dimensions": map[string]any{
+						"Key":    "SERVICE",
+						"Values": []string{"Amazon Elastic Compute Cloud - Compute"},
+					},
+				},
+			},
+			wantStatusCode: http.StatusBadRequest,
 		},
 	}
 
@@ -818,6 +926,10 @@ func TestHandler_GetCostAndUsageWithResources(t *testing.T) {
 			h := newTestHandler(t)
 			rec := doRequest(t, h, "GetCostAndUsageWithResources", tt.body)
 			assert.Equal(t, tt.wantStatusCode, rec.Code)
+
+			if tt.wantStatusCode != http.StatusOK {
+				return
+			}
 
 			var out struct {
 				ResultsByTime []any `json:"ResultsByTime"`

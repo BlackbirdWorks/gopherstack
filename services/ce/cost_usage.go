@@ -347,6 +347,45 @@ func (b *InMemoryBackend) GetCostAndUsage(
 	return results
 }
 
+// GetApproximateUsageRecords returns estimated per-service usage record counts derived
+// from the cost ledger's UsageQuantity over the trailing daysPerMonth-day lookback
+// window, optionally filtered to services. Matches real AWS's GetApproximateUsageRecords
+// shape: LookbackPeriod + per-service counts + a grand total.
+func (b *InMemoryBackend) GetApproximateUsageRecords(
+	services []string,
+) (string, string, map[string]int64, int64) {
+	b.mu.RLock("GetApproximateUsageRecords")
+	defer b.mu.RUnlock()
+
+	endT := time.Now().UTC()
+	startT := endT.AddDate(0, 0, -daysPerMonth)
+	lookbackStart := startT.Format("2006-01-02")
+	lookbackEnd := endT.Format("2006-01-02")
+
+	filter := make(map[string]struct{}, len(services))
+	for _, s := range services {
+		filter[s] = struct{}{}
+	}
+
+	perService := make(map[string]int64)
+
+	var total int64
+
+	for _, e := range b.costLedgerInBucket(lookbackStart, lookbackEnd) {
+		if len(filter) > 0 {
+			if _, ok := filter[e.Service]; !ok {
+				continue
+			}
+		}
+
+		count := int64(e.UsageQuantity)
+		perService[e.Service] += count
+		total += count
+	}
+
+	return lookbackStart, lookbackEnd, perService, total
+}
+
 // GetDimensionValues returns unique values for the given dimension from the cost ledger.
 func (b *InMemoryBackend) GetDimensionValues(dimension string) []string {
 	b.mu.RLock("GetDimensionValues")

@@ -117,6 +117,17 @@ type BackfillJob struct {
 	LastUpdatedAt  string `json:"lastUpdatedAt"`
 }
 
+// SavingsPlansGeneration represents a Savings Plans purchase recommendation generation
+// job, matching real AWS CE's GenerationSummary shape (RecommendationId, not
+// GenerationId -- see api_op_StartSavingsPlansPurchaseRecommendationGeneration.go).
+type SavingsPlansGeneration struct {
+	RecommendationID         string `json:"recommendationId"`
+	GenerationStatus         string `json:"generationStatus"` // PROCESSING|SUCCEEDED|FAILED
+	GenerationStartedTime    string `json:"generationStartedTime"`
+	GenerationCompletionTime string `json:"generationCompletionTime,omitempty"`
+	EstimatedCompletionTime  string `json:"estimatedCompletionTime"`
+}
+
 // CommitmentAnalysis represents a commitment purchase analysis.
 type CommitmentAnalysis struct {
 	AnalysisID              string `json:"analysisId"`

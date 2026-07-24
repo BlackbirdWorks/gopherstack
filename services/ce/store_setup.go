@@ -37,6 +37,8 @@ func costAllocationTagKeyFn(v *CostAllocationTag) string { return v.TagKey }
 
 func commitmentAnalysisKeyFn(v *CommitmentAnalysis) string { return v.AnalysisID }
 
+func savingsPlansGenerationKeyFn(v *SavingsPlansGeneration) string { return v.RecommendationID }
+
 // registerAllTables constructs and registers every store.Table-backed
 // resource field exactly once, at construction time. It must be called
 // during construction only, never on every Reset(): store.Register panics on
@@ -51,4 +53,7 @@ func registerAllTables(b *InMemoryBackend) {
 	b.anomalies = store.Register(b.registry, "anomalies", store.New(anomalyKeyFn))
 	b.costAllocationTags = store.Register(b.registry, "costAllocationTags", store.New(costAllocationTagKeyFn))
 	b.commitmentAnalyses = store.Register(b.registry, "commitmentAnalyses", store.New(commitmentAnalysisKeyFn))
+	b.savingsPlansGenerations = store.Register(
+		b.registry, "savingsPlansGenerations", store.New(savingsPlansGenerationKeyFn),
+	)
 }
