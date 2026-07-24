@@ -29,18 +29,27 @@ const (
 	defaultContentType            = "application/octet-stream"
 	defaultVariant                = "AllTraffic"
 	newSessionRequest             = "NEW_SESSION"
-	syncResponseBody              = "mock response from Gopherstack"
-	streamResponseBody            = "mock streaming response from Gopherstack"
-	headerCustomAttributes        = "X-Amzn-Sagemaker-Custom-Attributes"
-	headerNewSessionID            = "X-Amzn-Sagemaker-New-Session-Id"
-	headerSessionID               = "X-Amzn-Sagemaker-Session-Id"
-	headerInferenceID             = "X-Amzn-Sagemaker-Inference-Id"
-	headerOutputLocation          = "X-Amzn-Sagemaker-Outputlocation"
-	headerFailureLocation         = "X-Amzn-Sagemaker-Failurelocation"
-	headerAsyncAccept             = "X-Amzn-Sagemaker-Accept"
-	headerStreamContentType       = "X-Amzn-Sagemaker-Content-Type"
-	headerTargetVariant           = "X-Amzn-Sagemaker-Target-Variant"
-	headerInvokedVariant          = "X-Amzn-Invoked-Production-Variant"
+	// newSessionExpiresLayout matches the real AWS wire format for the
+	// Expires= attribute of X-Amzn-SageMaker-New-Session-Id, per the SDK
+	// model's NewSessionResponseHeader pattern:
+	// "^[a-zA-Z0-9](-*[a-zA-Z0-9])*;\sExpires=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+	// (an RFC 3339 timestamp with no fractional seconds), NOT an RFC 1123
+	// HTTP-date -- confirmed against botocore's sagemaker-runtime
+	// service-2.json.
+	newSessionExpiresLayout = "2006-01-02T15:04:05Z"
+	syncResponseBody        = "mock response from Gopherstack"
+	streamResponseBody      = "mock streaming response from Gopherstack"
+	headerCustomAttributes  = "X-Amzn-Sagemaker-Custom-Attributes"
+	headerNewSessionID      = "X-Amzn-Sagemaker-New-Session-Id"
+	headerClosedSessionID   = "X-Amzn-Sagemaker-Closed-Session-Id"
+	headerSessionID         = "X-Amzn-Sagemaker-Session-Id"
+	headerInferenceID       = "X-Amzn-Sagemaker-Inference-Id"
+	headerOutputLocation    = "X-Amzn-Sagemaker-Outputlocation"
+	headerFailureLocation   = "X-Amzn-Sagemaker-Failurelocation"
+	headerAsyncAccept       = "X-Amzn-Sagemaker-Accept"
+	headerStreamContentType = "X-Amzn-Sagemaker-Content-Type"
+	headerTargetVariant     = "X-Amzn-Sagemaker-Target-Variant"
+	headerInvokedVariant    = "X-Amzn-Invoked-Production-Variant"
 )
 
 // Event stream frame constants (AWS binary event stream protocol).
@@ -140,6 +149,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", "missing EndpointName in path"))
 		}
 
+		if msg, ok := h.Backend.validateEndpoint(r.Context(), endpointName); !ok {
+			return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", msg))
+		}
+
 		op := pathToOperation(r.URL.Path)
 
 		switch op {
@@ -221,7 +234,10 @@ func (h *Handler) handleInvokeEndpointWithResponseStream(
 	c.Response().Header().Set(headerStreamContentType, responseContentType(c.Request().Header.Get(headerAsyncAccept)))
 	setForwardedHeader(c, headerCustomAttributes)
 	setVariantResponseHeader(c)
-	h.Backend.TouchSession(c.Request().Header.Get(headerSessionID))
+	// InvokeEndpointWithResponseStreamOutput has no ClosedSessionId member
+	// (only InvokeEndpointOutput does -- see the SDK model), so any expiry
+	// eviction here is a side effect only, never surfaced on this response.
+	_ = h.Backend.TouchSession(c.Request().Header.Get(headerSessionID))
 	c.Response().WriteHeader(http.StatusOK)
 	_, _ = c.Response().Write(frame)
 
@@ -236,15 +252,25 @@ func setCommonResponseHeaders(c *echo.Context, accept string) {
 
 func setSessionResponseHeader(c *echo.Context, backend *InMemoryBackend, endpointName string) {
 	sessionID := c.Request().Header.Get(headerSessionID)
-	if sessionID != newSessionRequest {
-		backend.TouchSession(sessionID)
 
+	switch sessionID {
+	case "":
 		return
+	case newSessionRequest:
+		session := backend.StartSession(endpointName)
+		expires := session.ExpiresAt.UTC().Format(newSessionExpiresLayout)
+		c.Response().Header().Set(headerNewSessionID, session.ID+"; Expires="+expires)
+	default:
+		// A non-NEW_SESSION SessionId identifies an existing stateful
+		// session. If that session has expired (ExpiresAt in the past),
+		// AWS's model container would have already torn it down; we
+		// emulate that by reporting ClosedSessionId on this response
+		// instead of silently keeping the session alive forever (see
+		// PARITY.md's now-fixed gap on ExpiresAt enforcement).
+		if outcome := backend.TouchSession(sessionID); outcome.ClosedSessionID != "" {
+			c.Response().Header().Set(headerClosedSessionID, outcome.ClosedSessionID)
+		}
 	}
-
-	session := backend.StartSession(endpointName)
-	expires := session.ExpiresAt.UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT")
-	c.Response().Header().Set(headerNewSessionID, session.ID+"; Expires="+expires)
 }
 
 func setForwardedHeader(c *echo.Context, header string) {
