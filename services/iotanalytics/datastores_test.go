@@ -75,6 +75,108 @@ func TestInMemoryBackend_Datastore(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_DatastorePartitionsValidation verifies CreateDatastore and
+// UpdateDatastore validate the DatastorePartitions union shape: exactly one of
+// attributePartition/timestampPartition must be set per entry, and the set variant must
+// carry a non-empty attributeName -- mirroring the AWS SDK's client-side validators.
+func TestInMemoryBackend_DatastorePartitionsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		partitions *iotanalytics.DatastorePartitions
+		name       string
+		wantErr    bool
+	}{
+		{
+			name: "valid_attribute_partition",
+			partitions: &iotanalytics.DatastorePartitions{
+				Partitions: []iotanalytics.DatastorePartitionEntry{
+					{AttributePartition: &iotanalytics.AttributePartition{AttributeName: "deviceId"}},
+				},
+			},
+		},
+		{
+			name: "valid_timestamp_partition",
+			partitions: &iotanalytics.DatastorePartitions{
+				Partitions: []iotanalytics.DatastorePartitionEntry{
+					{TimestampPartition: &iotanalytics.TimestampPartition{AttributeName: "ts"}},
+				},
+			},
+		},
+		{
+			name: "valid_multiple_mixed",
+			partitions: &iotanalytics.DatastorePartitions{
+				Partitions: []iotanalytics.DatastorePartitionEntry{
+					{AttributePartition: &iotanalytics.AttributePartition{AttributeName: "deviceId"}},
+					{TimestampPartition: &iotanalytics.TimestampPartition{AttributeName: "ts"}},
+				},
+			},
+		},
+		{
+			name: "missing_attribute_name",
+			partitions: &iotanalytics.DatastorePartitions{
+				Partitions: []iotanalytics.DatastorePartitionEntry{
+					{AttributePartition: &iotanalytics.AttributePartition{}},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing_timestamp_attribute_name",
+			partitions: &iotanalytics.DatastorePartitions{
+				Partitions: []iotanalytics.DatastorePartitionEntry{
+					{TimestampPartition: &iotanalytics.TimestampPartition{}},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "both_variants_set",
+			partitions: &iotanalytics.DatastorePartitions{
+				Partitions: []iotanalytics.DatastorePartitionEntry{
+					{
+						AttributePartition: &iotanalytics.AttributePartition{AttributeName: "deviceId"},
+						TimestampPartition: &iotanalytics.TimestampPartition{AttributeName: "ts"},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "neither_variant_set",
+			partitions: &iotanalytics.DatastorePartitions{
+				Partitions: []iotanalytics.DatastorePartitionEntry{{}},
+			},
+			wantErr: true,
+		},
+		{
+			name:       "nil_partitions_ok",
+			partitions: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iotanalytics.NewInMemoryBackend()
+			_, err := b.CreateDatastore(context.Background(), "ds_"+tt.name, nil, nil, nil, nil, tt.partitions)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, iotanalytics.ErrValidation)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			err = b.UpdateDatastore("ds_"+tt.name, nil, nil, nil, tt.partitions)
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestInMemoryBackend_SortedListDatastores verifies ListDatastores returns datastores sorted by name.
 func TestInMemoryBackend_SortedListDatastores(t *testing.T) {
 	t.Parallel()

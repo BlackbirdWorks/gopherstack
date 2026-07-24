@@ -1,9 +1,9 @@
 ---
 service: iotanalytics
 sdk_module: aws-sdk-go-v2/service/iotanalytics@v1.32.0
-last_audit_commit: a910ab55a
-last_audit_date: 2026-07-13
-overall: A            # genuine fixes found (tag validation, dataset-content versionId semantics, pagination)
+last_audit_commit: be69d5ece
+last_audit_date: 2026-07-24
+overall: A            # RunPipelineActivity real per-activity transforms, ListDatasetContents schedule filters, CreateDatasetContent versionId, DatastorePartitions validation
 ops:
   CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates tags (key/value charset, aws: prefix, max 50) before create, matching TagResource"}
   DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -29,26 +29,25 @@ ops:
   StartPipelineReprocessing: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelPipelineReprocessing: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchPutMessage: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "always synchronously SUCCEEDED (no CREATING/FAILED simulation) -- acceptable simplification, see Notes"}
+  CreateDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: now accepts and honors an explicit versionId body field (CreateDatasetContentInput.VersionId), previously silently discarded -- duplicate explicit versionId against the same dataset now returns ResourceAlreadyExistsException instead of being accepted. Still always synchronously SUCCEEDED (no CREATING/FAILED simulation) -- acceptable simplification, see Notes"}
   GetDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: now honors $LATEST / $LATEST_SUCCEEDED (uppercase, as sent by the SDK) in addition to an omitted versionId; previously matched only a non-wire-accurate lowercase '$latest'"}
-  ListDatasetContents: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: pagination cursor was VersionID-threshold (random UUID, unrelated to the CreationTime-descending sort) -- now offset-based. FIXED: underlying sort used slices.SortFunc (unstable) over second-resolution timestamps, so tied entries could reorder between calls -- now slices.SortStableFunc with a reversed-input tiebreak (see Notes)"}
+  ListDatasetContents: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: pagination cursor was VersionID-threshold (random UUID, unrelated to the CreationTime-descending sort) -- now offset-based. FIXED: underlying sort used slices.SortFunc (unstable) over second-resolution timestamps, so tied entries could reorder between calls -- now slices.SortStableFunc with a reversed-input tiebreak (see Notes). FIXED: scheduleTime was missing entirely from DatasetContentSummary (a real field, distinct from creationTime) and the scheduledBefore/scheduledOnOrAfter query filters were unimplemented -- both now implemented (see Notes)"}
   DeleteDatasetContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: omitted versionId previously deleted ALL content versions; AWS defaults to $LATEST_SUCCEEDED (exactly one version). Now also honors explicit $LATEST / $LATEST_SUCCEEDED"}
   DescribeLoggingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutLoggingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
-  RunPipelineActivity: {wire: ok, errors: ok, state: partial, persist: n/a, note: "pass-through only -- see gaps"}
+  RunPipelineActivity: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED: addAttributes/removeAttributes/selectAttributes/filter/math now perform real per-activity transforms (see Notes and pipeline_expr.go); channel/datastore remain pass-through (correct: real source/sink activities); lambda/deviceRegistryEnrich/deviceShadowEnrich remain pass-through -- see items_still_open"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  routing: {status: ok, note: "RouteMatcher + parseIoTAnalyticsPath verified path-prefix and HTTP-method-for-method against every awsRestjson1_serializeOpHttpBindings*/request.Method in aws-sdk-go-v2/service/iotanalytics@v1.32.0/serializers.go -- all 33 ops match (paths, GET/POST/PUT/DELETE, query param names incl. includeStatistics/maxMessages/maxResults/nextToken/resourceArn/tagKeys/versionId)"}
-  timestamps: {status: ok, note: "creationTime/lastUpdateTime/lastMessageArrivalTime/completionTime/startTime/endTime all epoch-seconds JSON numbers (awstime-equivalent; models.go epochSeconds), matches smithytime.ParseEpochSeconds/FormatEpochSeconds in the real deserializers/serializers"}
+  routing: {status: ok, note: "RouteMatcher + parseIoTAnalyticsPath verified path-prefix and HTTP-method-for-method against every awsRestjson1_serializeOpHttpBindings*/request.Method in aws-sdk-go-v2/service/iotanalytics@v1.32.0/serializers.go -- all 33 ops match (paths, GET/POST/PUT/DELETE, query param names incl. includeStatistics/maxMessages/maxResults/nextToken/resourceArn/tagKeys/versionId/scheduledBefore/scheduledOnOrAfter)"}
+  timestamps: {status: ok, note: "creationTime/lastUpdateTime/lastMessageArrivalTime/completionTime/startTime/endTime/scheduleTime all epoch-seconds JSON numbers (awstime-equivalent; models.go epochSeconds), matches smithytime.ParseEpochSeconds/FormatEpochSeconds in the real deserializers/serializers"}
 gaps:
-  - "RunPipelineActivity returns payloads unchanged regardless of the requested pipelineActivity (addAttributes/removeAttributes/selectAttributes/filter/math/lambda/deviceRegistryEnrich/deviceShadowEnrich all no-op pass through; only channel/datastore source activities are pass-through in real AWS too). Implementing real per-activity-type transforms (esp. filter/math expression evaluation) is a distinct, large scope -- file as follow-up bd issue rather than a partial/half-correct expression engine."
   - "GetDatasetContent always returns an empty entries array (no S3-backed data URIs) since this backend has no S3 delivery integration -- consistent with CreateDatasetContent's synchronous SUCCEEDED simulation, not tracked as a bug."
-deferred:
-  - "ListDatasetContents scheduledBefore/scheduledOnOrAfter query filters (present on ListDatasetContentsInput) -- not implemented; low-traffic filter, no existing caller exercises it"
-  - "DatastorePartitions cardinality/shape validation (AWS limits on partition count/nesting) -- not audited this pass"
-leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcCtx is only used to seed test helpers (AddChannelInternal etc.)"}
+  - "items_still_open: RunPipelineActivity lambda/deviceRegistryEnrich/deviceShadowEnrich activities remain pass-through, not real invocations. Reason: real AWS invokes a Lambda function / looks up AWS IoT Device Registry or Device Shadow data for these, which requires cross-service calls this backend has no wiring for -- iotanalytics's Provider.Init (provider.go) receives only a *service.AppContext (JanitorCtx/Logger/PortAlloc), not a shared backend registry like cloudformation's ResourceCreator (which threads rc.backends.Lambda through at a higher app-assembly layer this task was explicitly barred from touching, i.e. cli.go). Wiring that through would be a cross-cutting architecture change outside a single-service parity pass."
+  - "items_still_open: RunPipelineActivity filter/math expression language (pipeline_expr.go) implements literals, message-attribute identifiers, arithmetic (+ - * / %), comparison (= != <> < <= > >=), logical (AND/OR/NOT), and parentheses -- covering AWS's documented examples (e.g. \"temp > 50\", \"(temp - 32) / 1.8\"). It does NOT implement SQL function calls (TRIM/SUBSTR/date functions/etc.), LIKE, IN, or BETWEEN. Reason: AWS's real filter/math grammar is an undocumented open SQL-like superset with no published formal grammar; the implemented subset is a real, tested evaluator (not a stub) covering the operators AWS's own docs demonstrate, but a full function library is unbounded scope this pass did not attempt rather than risk an incorrect partial implementation of unspecified semantics."
+deferred: []
+leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcCtx is only used to seed test helpers (AddChannelInternal etc.). pipeline_expr.go's tokenizer/parser/evaluator is pure, synchronous, and per-call -- no new goroutines, tickers, or shared mutable state introduced."}
 ---
 
 ## Notes
@@ -96,12 +95,60 @@ leaks: {status: clean, note: "no goroutines/janitors owned by this backend; svcC
   creation-order copy before `slices.SortStableFunc`, which makes ties resolve
   deterministically as "most-recently-inserted first" and keeps repeated calls
   byte-for-byte identical.
-- `RunPipelineActivity` is intentionally left as a documented gap rather than a partial fix:
-  implementing per-activity-type semantics (especially `filter`'s and `math`'s
-  IoT-Analytics-specific expression languages) is out of scope for a bug-fix sweep and risks
-  a half-correct expression evaluator being worse than an honest pass-through. `channel` and
-  `datastore` source/sink activities are legitimately pass-through in real AWS too, so the
-  existing test coverage (which only exercises `channel`) does not reflect a false positive.
+- **`RunPipelineActivity` real per-activity transforms (fixed):** previously every activity
+  type, including `addAttributes`/`removeAttributes`/`selectAttributes`/`filter`/`math`, was
+  pass-through regardless of the requested activity -- a real gap, since AWS applies real
+  transforms for these. `pipeline_expr.go` adds a self-contained tokenizer, recursive-descent
+  parser, and evaluator for the SQL-like expression language `filter` and `math` carry
+  (literals, message-attribute identifiers, `+ - * / %`, `= != <> < <= > >=`, `AND/OR/NOT`,
+  parentheses). `pipelines.go` wires per-activity-type handling into `RunPipelineActivity`
+  (now takes the typed `PipelineActivity` the client sent, not an untyped
+  `map[string]any` the old code never even inspected):
+  `addAttributes`/`removeAttributes`/`selectAttributes` mutate the decoded JSON message
+  object; `filter` evaluates the expression per payload and drops non-matching (or
+  unparsable) payloads, matching a real filter activity removing messages from the pipeline;
+  `math` evaluates the expression and stores the numeric result under `Attribute`. A
+  per-message failure (non-JSON payload, unknown attribute, malformed expression, type
+  mismatch) is a soft failure -- the payload is left unchanged (transforms/math) or dropped
+  (filter) rather than failing the whole `RunPipelineActivity` call, matching a single bad
+  message failing only its own activity step. `channel`/`datastore` remain pass-through
+  (correct: real source/sink activities); `lambda`/`deviceRegistryEnrich`/
+  `deviceShadowEnrich` remain pass-through for an architectural reason, not an oversight --
+  see `items_still_open`.
+- **`CreateDatasetContent` explicit `versionId` (fixed):** `CreateDatasetContentInput` has a
+  real `versionId` body field the old handler never read (the handler didn't even parse a
+  request body). Now `handleCreateDatasetContent` parses `createDatasetContentRequest` and
+  `InMemoryBackend.CreateDatasetContent(datasetName, versionID string)` uses the caller's
+  `versionID` when non-empty (generating a UUID only when it's empty, as before), rejecting a
+  duplicate with `ErrAlreadyExists` (409) instead of silently accepting it. AWS's docs say
+  specifying `versionId` requires the dataset to use a `DeltaTimer` filter; this backend
+  accepts it unconditionally rather than modeling that restriction, since enforcing it would
+  require simulating `DeltaTimer`-driven dataset content generation this backend does not
+  otherwise implement.
+- **`ListDatasetContents` `scheduleTime` field + `scheduledBefore`/`scheduledOnOrAfter`
+  filters (fixed):** `DatasetContentSummary.ScheduleTime` ("the time the creation of the
+  dataset contents was scheduled to start", distinct from `CreationTime`, "the actual time
+  ... was started") was missing entirely from `DatasetContent`/`datasetContentSummary`, and
+  the `scheduledBefore`/`scheduledOnOrAfter` query filters on `ListDatasetContentsInput` were
+  unimplemented. `DatasetContent.ScheduleTime` is now set equal to `CreationTime` in
+  `CreateDatasetContent` -- this backend only ever creates dataset content synchronously via
+  a direct API call (no background cron simulation of a dataset's `Schedule` trigger), which
+  is exactly the case where real AWS also sets `scheduleTime == creationTime` (a manually
+  invoked `CreateDatasetContent` wasn't fired by a schedule). `handleListDatasetContents` now
+  parses the `scheduledBefore`/`scheduledOnOrAfter` query params (RFC3339 date-time strings,
+  matching `smithytime.FormatDateTime`) and filters on `ScheduleTime` before pagination.
+- **`DatastorePartitions` validation (fixed):** `CreateDatastore`/`UpdateDatastore` accepted
+  any `DatastorePartitions` shape, including partition entries with neither
+  `attributePartition` nor `timestampPartition` set, both set, or a set variant with an empty
+  `attributeName`. The real SDK's client-side validators (`validatePartition` /
+  `validateTimestampPartition`) require `attributeName` on whichever variant is set; a raw
+  HTTP caller bypassing SDK-side validation would still need to satisfy this server-side.
+  `validateDatastorePartitions`/`validateDatastorePartitionEntry` in `store.go` now enforce
+  exactly-one-variant-set plus a non-empty `attributeName`, returning `InvalidRequestException`
+  otherwise. Partition count/nesting cardinality limits are not enforced -- no SDK client-side
+  validator surfaces a specific limit to diff against, and AWS's server-side limits for a
+  deprecated service are not independently documented; this is treated as an intentional
+  non-issue rather than a gap.
 - Persistence: `channels`/`datastores`/`datasets`/`pipelines` are `store.Table[T]` (key =
   `Name`, no secondary index needed -- `resolveARNResource` parses the ARN's resource segment
   back into a name rather than reverse-indexing). `tags`/`channelMessages`/`datasetContents`
