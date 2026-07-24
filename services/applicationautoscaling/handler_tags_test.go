@@ -53,7 +53,7 @@ func TestHandler_TagResource_Validation(t *testing.T) {
 				"ResourceARN": "arn:aws:autoscaling:us-east-1:000000000000:scalable-target/no-such",
 				"Tags":        map[string]string{"k": "v"},
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -99,12 +99,99 @@ func TestHandler_TagResource_ExceedsLimit(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tagRec.Code)
 
-	// Adding one more distinct tag should fail with 400
+	// Adding one more distinct tag should fail with 400 and the real AWS
+	// TooManyTagsException wire type (not ValidationException -- confirmed
+	// against TagResource's modeled error set in the vendored SDK), carrying
+	// the resource ARN in the "ResourceName" field.
 	overRec := doRequest(t, h, "TagResource", map[string]any{
 		"ResourceARN": targetARN,
 		"Tags":        map[string]string{"new-key": "value"},
 	})
 	assert.Equal(t, http.StatusBadRequest, overRec.Code)
+
+	var errBody map[string]any
+	require.NoError(t, json.Unmarshal(overRec.Body.Bytes(), &errBody))
+	assert.Equal(t, "TooManyTagsException", errBody["__type"])
+	assert.Equal(t, targetARN, errBody["ResourceName"])
+}
+
+// TestHandler_RegisterScalableTarget_ExceedsTagLimit verifies that exceeding
+// the tag limit through RegisterScalableTarget (rather than TagResource) is
+// reported as LimitExceededException, not TooManyTagsException --
+// RegisterScalableTarget's modeled error set has no TooManyTagsException
+// (confirmed against the vendored SDK's deserializeOpErrorRegisterScalableTarget).
+func TestHandler_RegisterScalableTarget_ExceedsTagLimit(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	tags := make(map[string]string, 51)
+	for i := range 51 {
+		tags[fmt.Sprintf("key-%d", i)] = "value"
+	}
+
+	rec := doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(10),
+		"Tags":              tags,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errBody map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	assert.Equal(t, "LimitExceededException", errBody["__type"])
+}
+
+// TestHandler_TagOps_NotFound_ResourceNotFoundException verifies the tagging
+// operations (ListTagsForResource/TagResource/UntagResource) report a
+// missing resource ARN as ResourceNotFoundException, not
+// ObjectNotFoundException -- real AWS models these three ops with
+// ResourceNotFoundException only (confirmed against each op's
+// deserializeOpError* switch in the vendored SDK).
+func TestHandler_TagOps_NotFound_ResourceNotFoundException(t *testing.T) {
+	t.Parallel()
+
+	const missingARN = "arn:aws:autoscaling:us-east-1:000000000000:scalable-target/no-such"
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "ListTagsForResource",
+			action: "ListTagsForResource",
+			body:   map[string]any{"ResourceARN": missingARN},
+		},
+		{
+			name:   "TagResource",
+			action: "TagResource",
+			body:   map[string]any{"ResourceARN": missingARN, "Tags": map[string]string{"k": "v"}},
+		},
+		{
+			name:   "UntagResource",
+			action: "UntagResource",
+			body:   map[string]any{"ResourceARN": missingARN, "TagKeys": []string{"k"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var errBody map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+			assert.Equal(t, "ResourceNotFoundException", errBody["__type"])
+			assert.Equal(t, missingARN, errBody["ResourceName"])
+		})
+	}
 }
 
 func TestHandler_ListTagsForResource(t *testing.T) {

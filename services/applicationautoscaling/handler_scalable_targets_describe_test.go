@@ -19,7 +19,7 @@ func TestHandler_DeregisterScalableTarget(t *testing.T) {
 		preCreate bool
 	}{
 		{name: "success", preCreate: true, wantCode: http.StatusOK},
-		{name: "not_found", preCreate: false, wantCode: http.StatusNotFound},
+		{name: "not_found", preCreate: false, wantCode: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {

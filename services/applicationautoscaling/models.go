@@ -24,29 +24,42 @@ type ScalableTarget struct {
 	LastModifiedTime  time.Time         `json:"lastModifiedTime"`
 	SuspendedState    *SuspendedState   `json:"suspendedState,omitempty"`
 	Tags              map[string]string `json:"tags,omitempty"`
-	ResourceID        string            `json:"resourceId"`
-	ARN               string            `json:"arn"`
+	PredictedCapacity *int32            `json:"predictedCapacity,omitempty"`
 	RoleARN           string            `json:"roleArn,omitempty"`
+	ARN               string            `json:"arn"`
 	ScalableDimension string            `json:"scalableDimension"`
 	ServiceNamespace  string            `json:"serviceNamespace"`
 	AccountID         string            `json:"accountID"`
 	Region            string            `json:"region"`
+	ResourceID        string            `json:"resourceId"`
 	MinCapacity       int32             `json:"minCapacity"`
 	MaxCapacity       int32             `json:"maxCapacity"`
 }
 
+// Alarm mirrors the CloudWatch alarm reference AWS attaches to
+// TargetTrackingScaling/StepScaling policies (PutScalingPolicy and
+// DescribeScalingPolicies both return this on the wire). Real AWS creates
+// backing CloudWatch alarms server-side; gopherstack synthesizes stable
+// alarm identifiers instead of a real cross-service CloudWatch integration.
+type Alarm struct {
+	AlarmARN  string `json:"alarmArn"`
+	AlarmName string `json:"alarmName"`
+}
+
 // ScalingPolicy represents an Application Auto Scaling scaling policy.
 type ScalingPolicy struct {
-	CreationTime         time.Time      `json:"creationTime"`
-	LastModifiedTime     time.Time      `json:"lastModifiedTime"`
-	TargetTrackingConfig map[string]any `json:"targetTrackingConfig,omitempty"`
-	StepScalingConfig    map[string]any `json:"stepScalingConfig,omitempty"`
-	PolicyType           string         `json:"policyType"`
-	PolicyName           string         `json:"policyName"`
-	ResourceID           string         `json:"resourceId"`
-	ARN                  string         `json:"arn"`
-	ScalableDimension    string         `json:"scalableDimension"`
-	ServiceNamespace     string         `json:"serviceNamespace"`
+	CreationTime            time.Time      `json:"creationTime"`
+	LastModifiedTime        time.Time      `json:"lastModifiedTime"`
+	TargetTrackingConfig    map[string]any `json:"targetTrackingConfig,omitempty"`
+	StepScalingConfig       map[string]any `json:"stepScalingConfig,omitempty"`
+	PredictiveScalingConfig map[string]any `json:"predictiveScalingConfig,omitempty"`
+	PolicyType              string         `json:"policyType"`
+	PolicyName              string         `json:"policyName"`
+	ResourceID              string         `json:"resourceId"`
+	ARN                     string         `json:"arn"`
+	ScalableDimension       string         `json:"scalableDimension"`
+	ServiceNamespace        string         `json:"serviceNamespace"`
+	Alarms                  []Alarm        `json:"alarms,omitempty"`
 }
 
 // ScheduledAction represents an Application Auto Scaling scheduled action.
@@ -65,6 +78,19 @@ type ScheduledAction struct {
 	Timezone             string                `json:"timezone,omitempty"`
 }
 
+// NotScaledReason mirrors the real AWS NotScaledReason type: it explains why
+// a scaling activity did not change capacity, and is only ever returned when
+// a client sets IncludeNotScaledActivities=true. gopherstack has no metric
+// evaluation loop capable of deciding "not scaled" outcomes (see
+// PARITY.md), so NotScaledReasons on [ScalingActivity] is always empty
+// rather than fabricated -- documented, not a fabricated stub.
+type NotScaledReason struct {
+	CurrentCapacity *int32 `json:"currentCapacity,omitempty"`
+	MaxCapacity     *int32 `json:"maxCapacity,omitempty"`
+	MinCapacity     *int32 `json:"minCapacity,omitempty"`
+	Code            string `json:"code"`
+}
+
 // ScalingActivity records a capacity-changing activity on a scalable target,
 // returned by DescribeScalingActivities.
 type ScalingActivity struct {
@@ -78,6 +104,12 @@ type ScalingActivity struct {
 	Cause             string    `json:"Cause"`
 	StatusCode        string    `json:"StatusCode"`
 	StatusMessage     string    `json:"StatusMessage"`
+	// Details holds supplementary JSON detail AWS attaches to some activities
+	// (e.g. which step adjustment fired). gopherstack has no such detail to
+	// report, so this is always empty.
+	Details string `json:"details,omitempty"`
+	// NotScaledReasons is always empty; see [NotScaledReason].
+	NotScaledReasons []NotScaledReason `json:"notScaledReasons,omitempty"`
 }
 
 // CapacityForecastData holds the timestamps and capacity values for a forecast.

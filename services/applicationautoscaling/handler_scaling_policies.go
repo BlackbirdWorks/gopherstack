@@ -7,6 +7,7 @@ import (
 type putScalingPolicyInput struct {
 	TargetTrackingScalingPolicyConfiguration map[string]any `json:"TargetTrackingScalingPolicyConfiguration,omitempty"`
 	StepScalingPolicyConfiguration           map[string]any `json:"StepScalingPolicyConfiguration,omitempty"`
+	PredictiveScalingPolicyConfiguration     map[string]any `json:"PredictiveScalingPolicyConfiguration,omitempty"`
 	ServiceNamespace                         string         `json:"ServiceNamespace"`
 	ResourceID                               string         `json:"ResourceId"`
 	ScalableDimension                        string         `json:"ScalableDimension"`
@@ -15,7 +16,8 @@ type putScalingPolicyInput struct {
 }
 
 type putScalingPolicyOutput struct {
-	PolicyARN string `json:"PolicyARN"`
+	PolicyARN string         `json:"PolicyARN"`
+	Alarms    []alarmSummary `json:"Alarms,omitempty"`
 }
 
 func (h *Handler) handlePutScalingPolicy(
@@ -27,12 +29,13 @@ func (h *Handler) handlePutScalingPolicy(
 		in.PolicyName, in.PolicyType,
 		in.TargetTrackingScalingPolicyConfiguration,
 		in.StepScalingPolicyConfiguration,
+		in.PredictiveScalingPolicyConfiguration,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &putScalingPolicyOutput{PolicyARN: p.ARN}, nil
+	return &putScalingPolicyOutput{PolicyARN: p.ARN, Alarms: alarmSummaries(p.Alarms)}, nil
 }
 
 type deleteScalingPolicyInput struct {
@@ -66,13 +69,13 @@ type describeScalingPoliciesInput struct {
 	ScalableDimension string   `json:"ScalableDimension,omitempty"`
 	NextToken         string   `json:"NextToken,omitempty"`
 	PolicyNames       []string `json:"PolicyNames,omitempty"`
-	PolicyARNs        []string `json:"PolicyARNs,omitempty"`
 	MaxResults        int32    `json:"MaxResults,omitempty"`
 }
 
 type scalingPolicySummary struct {
 	TargetTrackingScalingPolicyConfiguration map[string]any `json:"TargetTrackingScalingPolicyConfiguration,omitempty"`
 	StepScalingPolicyConfiguration           map[string]any `json:"StepScalingPolicyConfiguration,omitempty"`
+	PredictiveScalingPolicyConfiguration     map[string]any `json:"PredictiveScalingPolicyConfiguration,omitempty"`
 	CreationTime                             *float64       `json:"CreationTime,omitempty"`
 	LastModifiedTime                         *float64       `json:"LastModifiedTime,omitempty"`
 	ServiceNamespace                         string         `json:"ServiceNamespace"`
@@ -90,6 +93,22 @@ type alarmSummary struct {
 	AlarmName string `json:"AlarmName"`
 }
 
+// alarmSummaries converts backend Alarm values to their wire shape. Returns
+// nil (omitted on the wire) for a nil/empty input, matching real AWS which
+// omits Alarms entirely for PredictiveScaling policies.
+func alarmSummaries(alarms []Alarm) []alarmSummary {
+	if len(alarms) == 0 {
+		return nil
+	}
+
+	out := make([]alarmSummary, 0, len(alarms))
+	for _, a := range alarms {
+		out = append(out, alarmSummary(a))
+	}
+
+	return out
+}
+
 type describeScalingPoliciesOutput struct {
 	NextToken       string                 `json:"NextToken,omitempty"`
 	ScalingPolicies []scalingPolicySummary `json:"ScalingPolicies"`
@@ -99,15 +118,18 @@ func (h *Handler) handleDescribeScalingPolicies(
 	_ context.Context,
 	in *describeScalingPoliciesInput,
 ) (*describeScalingPoliciesOutput, error) {
-	policies, nextToken := h.Backend.DescribeScalingPolicies(DescribeScalingPoliciesFilter{
+	policies, nextToken, err := h.Backend.DescribeScalingPolicies(DescribeScalingPoliciesFilter{
 		ServiceNamespace:  in.ServiceNamespace,
 		ResourceID:        in.ResourceID,
 		ScalableDimension: in.ScalableDimension,
 		PolicyNames:       in.PolicyNames,
-		PolicyARNs:        in.PolicyARNs,
 		MaxResults:        in.MaxResults,
 		NextToken:         in.NextToken,
 	})
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]scalingPolicySummary, 0, len(policies))
 	for _, p := range policies {
 		items = append(items, scalingPolicySummary{
@@ -121,6 +143,8 @@ func (h *Handler) handleDescribeScalingPolicies(
 			LastModifiedTime:                         epochSecondsPtr(p.LastModifiedTime),
 			TargetTrackingScalingPolicyConfiguration: p.TargetTrackingConfig,
 			StepScalingPolicyConfiguration:           p.StepScalingConfig,
+			PredictiveScalingPolicyConfiguration:     p.PredictiveScalingConfig,
+			Alarms:                                   alarmSummaries(p.Alarms),
 		})
 	}
 

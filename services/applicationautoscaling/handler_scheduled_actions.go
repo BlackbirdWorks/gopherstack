@@ -118,7 +118,7 @@ func (h *Handler) handleDescribeScheduledActions(
 	_ context.Context,
 	in *describeScheduledActionsInput,
 ) (*describeScheduledActionsOutput, error) {
-	actions, nextToken := h.Backend.DescribeScheduledActions(DescribeScheduledActionsFilter{
+	actions, nextToken, err := h.Backend.DescribeScheduledActions(DescribeScheduledActionsFilter{
 		ServiceNamespace:     in.ServiceNamespace,
 		ResourceID:           in.ResourceID,
 		ScalableDimension:    in.ScalableDimension,
@@ -126,6 +126,10 @@ func (h *Handler) handleDescribeScheduledActions(
 		MaxResults:           in.MaxResults,
 		NextToken:            in.NextToken,
 	})
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]scheduledActionSummary, 0, len(actions))
 	for _, a := range actions {
 		item := scheduledActionSummary{

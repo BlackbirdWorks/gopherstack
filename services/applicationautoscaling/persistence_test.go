@@ -25,7 +25,7 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *applicationautoscaling.InMemoryBackend) {
 				t.Helper()
 
-				targets, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
+				targets, _, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
 				assert.Empty(t, targets)
 			},
 		},
@@ -49,7 +49,7 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *applicationautoscaling.InMemoryBackend) {
 				t.Helper()
 
-				targets, _ := b.DescribeScalableTargets(
+				targets, _, _ := b.DescribeScalableTargets(
 					applicationautoscaling.DescribeScalableTargetsFilter{ServiceNamespace: "ecs"},
 				)
 				require.Len(t, targets, 1)
@@ -75,14 +75,14 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 				_, err = b.PutScalingPolicy(
 					"ecs", "service/default/svc", "ecs:service:DesiredCount",
 					"my-policy", "TargetTrackingScaling",
-					map[string]any{"TargetValue": 50.0}, nil,
+					map[string]any{"TargetValue": 50.0}, nil, nil,
 				)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *applicationautoscaling.InMemoryBackend) {
 				t.Helper()
 
-				policies, _ := b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
+				policies, _, _ := b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
 					ServiceNamespace: "ecs",
 				})
 				require.Len(t, policies, 1)
@@ -94,11 +94,11 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 				_, err := b.PutScalingPolicy(
 					"ecs", "service/default/svc", "ecs:service:DesiredCount",
 					"my-policy", "",
-					map[string]any{"TargetValue": 75.0}, nil,
+					map[string]any{"TargetValue": 75.0}, nil, nil,
 				)
 				require.NoError(t, err)
 
-				policies, _ = b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
+				policies, _, _ = b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
 					ServiceNamespace: "ecs",
 				})
 				require.Len(t, policies, 1)
@@ -108,7 +108,7 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 				err = b.DeleteScalingPolicy("ecs", "service/default/svc", "ecs:service:DesiredCount", "my-policy")
 				require.NoError(t, err)
 
-				policies, _ = b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
+				policies, _, _ = b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
 					ServiceNamespace: "ecs",
 				})
 				assert.Empty(t, policies)
@@ -134,7 +134,7 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *applicationautoscaling.InMemoryBackend) {
 				t.Helper()
 
-				actions, _ := b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
+				actions, _, _ := b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
 					ServiceNamespace: "ecs",
 				})
 				require.Len(t, actions, 1)
@@ -150,7 +150,7 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 				)
 				require.NoError(t, err)
 
-				actions, _ = b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
+				actions, _, _ = b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
 					ServiceNamespace: "ecs",
 				})
 				require.Len(t, actions, 1)
@@ -160,7 +160,7 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 				err = b.DeleteScheduledAction("ecs", "service/default/svc", "ecs:service:DesiredCount", "my-action")
 				require.NoError(t, err)
 
-				actions, _ = b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
+				actions, _, _ = b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
 					ServiceNamespace: "ecs",
 				})
 				assert.Empty(t, actions)
@@ -179,7 +179,7 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 				_, err = b.PutScalingPolicy(
 					"ecs", "service/default/svc", "ecs:service:DesiredCount",
 					"cascade-policy", "TargetTrackingScaling",
-					map[string]any{"TargetValue": 50.0}, nil,
+					map[string]any{"TargetValue": 50.0}, nil, nil,
 				)
 				require.NoError(t, err)
 
@@ -199,17 +199,17 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 				err := b.DeregisterScalableTarget("ecs", "service/default/svc", "ecs:service:DesiredCount")
 				require.NoError(t, err)
 
-				targets, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
+				targets, _, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
 					ServiceNamespace: "ecs",
 				})
 				assert.Empty(t, targets)
 
-				policies, _ := b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
+				policies, _, _ := b.DescribeScalingPolicies(applicationautoscaling.DescribeScalingPoliciesFilter{
 					ServiceNamespace: "ecs",
 				})
 				assert.Empty(t, policies)
 
-				actions, _ := b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
+				actions, _, _ := b.DescribeScheduledActions(applicationautoscaling.DescribeScheduledActionsFilter{
 					ServiceNamespace: "ecs",
 				})
 				assert.Empty(t, actions)
@@ -230,7 +230,7 @@ func Test_PersistenceSnapshotRestore(t *testing.T) {
 
 				// scalingActivities was never part of the pre-Phase-3.3 snapshot
 				// either, so it must remain empty across a Restore.
-				activities, _ := b.DescribeScalingActivities(
+				activities, _, _ := b.DescribeScalingActivities(
 					applicationautoscaling.DescribeScalingActivitiesFilter{ServiceNamespace: "ecs"},
 				)
 				assert.Empty(t, activities)
@@ -286,10 +286,10 @@ func Test_PersistenceRestoreVersionMismatch(t *testing.T) {
 	err = b.Restore(t.Context(), []byte(`{"version":999,"tables":{}}`))
 	require.NoError(t, err)
 
-	targets, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
+	targets, _, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
 	assert.Empty(t, targets)
 
-	activities, _ := b.DescribeScalingActivities(applicationautoscaling.DescribeScalingActivitiesFilter{})
+	activities, _, _ := b.DescribeScalingActivities(applicationautoscaling.DescribeScalingActivitiesFilter{})
 	assert.Empty(t, activities)
 }
 
@@ -313,7 +313,7 @@ func Test_PersistenceOldPreVersionSnapshotDiscarded(t *testing.T) {
 	err := b.Restore(t.Context(), []byte(oldFormat))
 	require.NoError(t, err)
 
-	targets, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
+	targets, _, _ := b.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{})
 	assert.Empty(t, targets)
 }
 
@@ -339,7 +339,7 @@ func Test_PersistenceHandlerDelegates(t *testing.T) {
 	)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
-	targets, _ := h2.Backend.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
+	targets, _, _ := h2.Backend.DescribeScalableTargets(applicationautoscaling.DescribeScalableTargetsFilter{
 		ServiceNamespace: "dynamodb",
 	})
 	require.Len(t, targets, 1)
@@ -378,6 +378,13 @@ func TestHandler_PersistenceRebuildsSecondaryIndexes(t *testing.T) {
 
 	h := newTestHandler(t)
 
+	doRequest(t, h, "RegisterScalableTarget", map[string]any{
+		"ServiceNamespace":  "ecs",
+		"ResourceId":        "service/default/my-svc",
+		"ScalableDimension": "ecs:service:DesiredCount",
+		"MinCapacity":       int32(1),
+		"MaxCapacity":       int32(10),
+	})
 	doRequest(t, h, "PutScalingPolicy", map[string]any{
 		"ServiceNamespace":  "ecs",
 		"ResourceId":        "service/default/my-svc",
