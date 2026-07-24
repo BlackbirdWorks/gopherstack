@@ -45,7 +45,7 @@ func newFullPersistenceTestBackend(t *testing.T) *iotdataplane.InMemoryBackend {
 
 	require.NoError(t, b.RegisterConnection("client-1", "10.0.0.1"))
 
-	require.NoError(t, b.StoreRetainedMessage("home/sensor1/state", []byte(`{"temp":72}`), 1))
+	require.NoError(t, b.StoreRetainedMessage("home/sensor1/state", []byte(`{"temp":72}`), 1, nil))
 
 	return b
 }
@@ -250,7 +250,7 @@ func TestHandler_SnapshotRestore(t *testing.T) {
 			setup: func(t *testing.T, b *iotdataplane.InMemoryBackend) {
 				t.Helper()
 
-				require.NoError(t, b.StoreRetainedMessage("a/b", []byte("payload"), 0))
+				require.NoError(t, b.StoreRetainedMessage("a/b", []byte("payload"), 0, nil))
 			},
 			check: func(t *testing.T, b *iotdataplane.InMemoryBackend) {
 				t.Helper()
@@ -287,7 +287,7 @@ func Test_PersistenceRoundTrip(t *testing.T) {
 	b := iotdataplane.NewInMemoryBackend()
 	b.AddShadowInternal("thing1", "", []byte(`{"state":{"desired":{"k":"v"}}}`))
 	b.AddConnectionInternal("client-1")
-	require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("42"), 1))
+	require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("42"), 1, nil))
 
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)

@@ -13,6 +13,14 @@ var ErrShadowNotFound = errors.New("shadow not found")
 // ErrRetainedMessageNotFound is returned when no retained message exists for a topic.
 var ErrRetainedMessageNotFound = errors.New("retained message not found")
 
+// ErrConnectionNotFound is returned when DeleteConnection targets a clientID
+// that is not currently tracked as connected. Wire error code
+// "ResourceNotFoundException" (real AWS iotdataplane exception; confirmed
+// modeled for DeleteConnection via
+// aws-sdk-go-v2/service/iotdataplane/deserializers.go's
+// awsRestjson1_deserializeOpErrorDeleteConnection case list).
+var ErrConnectionNotFound = errors.New("connection not found")
+
 // ErrVersionConflict is returned when a shadow update specifies a version
 // that does not match the current shadow version (optimistic locking violation).
 // The wire error code is "ConflictException" (real AWS iotdataplane exception

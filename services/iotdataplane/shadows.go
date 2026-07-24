@@ -293,6 +293,48 @@ func parseShadowUpdateDoc(document []byte) (*shadowUpdateInput, error) {
 	}, nil
 }
 
+// jsonValueDepth returns the nesting depth of a decoded JSON value (as
+// produced by json.Unmarshal into `any`). Objects and arrays each contribute
+// one level of depth; scalars contribute none, so an empty/scalar-only object
+// or array has depth 1 (the container itself).
+func jsonValueDepth(v any) int {
+	switch t := v.(type) {
+	case map[string]any:
+		maxChild := 0
+		for _, child := range t {
+			maxChild = max(maxChild, jsonValueDepth(child))
+		}
+
+		return 1 + maxChild
+	case []any:
+		maxChild := 0
+		for _, child := range t {
+			maxChild = max(maxChild, jsonValueDepth(child))
+		}
+
+		return 1 + maxChild
+	default:
+		return 0
+	}
+}
+
+// validateShadowStateDepth checks that a state.desired/state.reported section
+// does not exceed AWS IoT's documented maximum JSON nesting depth (see
+// maxShadowStateDepth). raw must already be known non-empty and non-null.
+func validateShadowStateDepth(raw json.RawMessage, sectionName string) error {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return fmt.Errorf("%w: state.%s must be a valid JSON object", ErrValidation, sectionName)
+	}
+
+	if depth := jsonValueDepth(v); depth > maxShadowStateDepth {
+		return fmt.Errorf("%w: state.%s exceeds maximum nesting depth of %d",
+			ErrValidation, sectionName, maxShadowStateDepth)
+	}
+
+	return nil
+}
+
 // applyShadowStateSection merges a raw state section into existing state.
 // raw absent (nil) → keep existing; raw null → clear; raw object → merge patch.
 func applyShadowStateSection(
@@ -308,6 +350,10 @@ func applyShadowStateSection(
 
 	if isJSONNull(raw) {
 		return nil, nil, nil
+	}
+
+	if err := validateShadowStateDepth(raw, sectionName); err != nil {
+		return nil, nil, err
 	}
 
 	var patch map[string]json.RawMessage
@@ -341,14 +387,6 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	defer b.mu.Unlock()
 
 	current, _ := b.shadows.Get(shadowKey(thingName, shadowName))
-
-	// A tombstoned (deleted) entry counts the same as "no shadow yet" for the
-	// purposes of the per-thing shadow limit -- it doesn't represent a live
-	// shadow, so recreating it must not be blocked by stale tombstone rows.
-	if (current == nil || current.deleted) && liveShadowCount(b.shadowsByThing.Get(thingName)) >= maxShadowsPerThing {
-		return nil, fmt.Errorf("%w: shadow limit (%d) per thing exceeded for %s",
-			ErrValidation, maxShadowsPerThing, thingName)
-	}
 
 	if conflictErr := checkVersionConflict(input.Version, current); conflictErr != nil {
 		return nil, conflictErr
@@ -469,19 +507,6 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byt
 	})
 
 	return payload, nil
-}
-
-// liveShadowCount returns the number of non-tombstoned entries in group.
-func liveShadowCount(group []*shadowEntry) int {
-	n := 0
-
-	for _, e := range group {
-		if !e.deleted {
-			n++
-		}
-	}
-
-	return n
 }
 
 // ListNamedShadowsForThing returns the sorted list of named shadow names for the given thing.

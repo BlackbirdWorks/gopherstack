@@ -28,10 +28,14 @@ func TestHandler_DeleteConnection(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "delete_nonexistent_connection_is_idempotent",
+			// Real AWS models ResourceNotFoundException for DeleteConnection
+			// (see ErrConnectionNotFound) -- gopherstack tracks "currently
+			// connected" via the connections registry, so a clientId with no
+			// tracked connection is correctly a 404, not an idempotent no-op.
+			name:     "delete_nonexistent_connection_returns_not_found",
 			method:   http.MethodDelete,
 			clientID: "unknown-client",
-			wantCode: http.StatusOK,
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:     "missing_clientId_returns_bad_request",
@@ -94,7 +98,7 @@ func TestHandler_RouteMatcher_DeleteConnectionRealPath(t *testing.T) {
 		})
 	}
 }
-func TestBackend_DeleteConnection_Idempotent(t *testing.T) {
+func TestBackend_DeleteConnection_UnknownClientNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
@@ -102,10 +106,11 @@ func TestBackend_DeleteConnection_Idempotent(t *testing.T) {
 
 	// First delete succeeds.
 	require.NoError(t, b.DeleteConnection("my-client"))
-	// Second delete on already-removed client is also a no-op.
-	require.NoError(t, b.DeleteConnection("my-client"))
-	// Deleting an unknown client is also fine.
-	require.NoError(t, b.DeleteConnection("never-existed"))
+	// Second delete on the now-removed client returns ResourceNotFoundException
+	// -- real AWS models this for DeleteConnection (see ErrConnectionNotFound).
+	require.ErrorIs(t, b.DeleteConnection("my-client"), iotdataplane.ErrConnectionNotFound)
+	// Deleting a client that was never registered is also not found.
+	require.ErrorIs(t, b.DeleteConnection("never-existed"), iotdataplane.ErrConnectionNotFound)
 }
 func Test_DeleteConnection_DollarPrefixReturns400(t *testing.T) {
 	t.Parallel()
@@ -115,15 +120,15 @@ func Test_DeleteConnection_DollarPrefixReturns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InvalidRequestException")
 }
-func Test_DeleteConnection_Idempotent(t *testing.T) {
+func Test_DeleteConnection_UnknownClientNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
 	b.AddConnectionInternal("c1")
 
 	require.NoError(t, b.DeleteConnection("c1"))
-	require.NoError(t, b.DeleteConnection("c1"))
-	require.NoError(t, b.DeleteConnection("never-existed"))
+	require.ErrorIs(t, b.DeleteConnection("c1"), iotdataplane.ErrConnectionNotFound)
+	require.ErrorIs(t, b.DeleteConnection("never-existed"), iotdataplane.ErrConnectionNotFound)
 
 	assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
 }
@@ -339,16 +344,48 @@ func Test_Connection_DollarPrefix_Rejected(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "InvalidRequestException", resp["error"])
 }
-func Test_Connection_DeleteIdempotent_DollarRejected(t *testing.T) {
+func Test_Connection_DeleteUnknown_NotFound_DollarStillRejected(t *testing.T) {
 	t.Parallel()
 
 	b := iotdataplane.NewInMemoryBackend()
 
-	// Deleting a nonexistent ID is idempotent.
+	// Deleting a nonexistent ID returns ResourceNotFoundException (real AWS
+	// models this for DeleteConnection; see ErrConnectionNotFound).
 	err := b.DeleteConnection("nonexistent-client")
-	require.NoError(t, err, "delete of nonexistent client must be idempotent")
+	require.ErrorIs(t, err, iotdataplane.ErrConnectionNotFound)
 
-	// Dollar-prefix rejected even for delete.
+	// Dollar-prefix is still rejected as InvalidRequestException, checked
+	// before the not-found lookup.
 	err = b.DeleteConnection("$system")
 	require.ErrorIs(t, err, iotdataplane.ErrValidation)
+}
+
+// Test_DeleteConnection_UnknownClient_HTTPShape verifies the HTTP-level wire
+// shape for DeleteConnection against an untracked clientId: 404 with the
+// ResourceNotFoundException error code, on both the gopherstack admin alias
+// and the real AWS wire path.
+func Test_DeleteConnection_UnknownClient_HTTPShape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "admin_alias", path: "/_admin/connections/never-connected"},
+		{name: "real_aws_path", path: "/connections/never-connected"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
+			rec := doRequest(t, h, http.MethodDelete, tt.path, nil)
+			require.Equal(t, http.StatusNotFound, rec.Code)
+
+			var resp map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, "ResourceNotFoundException", resp["error"])
+		})
+	}
 }

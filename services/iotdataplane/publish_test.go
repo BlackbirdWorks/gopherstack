@@ -2,6 +2,7 @@ package iotdataplane_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -562,7 +563,7 @@ func Test_RetainMatrix(t *testing.T) {
 
 			b := iotdataplane.NewInMemoryBackend()
 			if tt.preseed {
-				require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("old"), 0))
+				require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("old"), 0, nil))
 			}
 
 			h := iotdataplane.NewHandler(b)
@@ -622,6 +623,147 @@ func Test_Publish_BinaryContentType_NoUnwrap(t *testing.T) {
 			assert.Equal(t, tt.wantPayload, msg.Payload)
 		})
 	}
+}
+
+// doRequestHeaders issues a request like doRequest but with extra headers set
+// (used to exercise the MQTT5 Publish headers: X-Amz-Mqtt5-*).
+func doRequestHeaders(
+	t *testing.T, h *iotdataplane.Handler, method, path string, body []byte, headers map[string]string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var r *bytes.Reader
+	if body != nil {
+		r = bytes.NewReader(body)
+	} else {
+		r = bytes.NewReader(nil)
+	}
+
+	req := httptest.NewRequest(method, path, r)
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+
+	require.NoError(t, h.Handler()(c))
+
+	return rec
+}
+
+// Test_Publish_MQTT5Fields_AcceptedAndValidated exercises every MQTT5 Publish
+// field beyond topic/qos/payload/retain against the real SDK's wire locations
+// (aws-sdk-go-v2/service/iotdataplane/serializers.go,
+// awsRestjson1_serializeOpHttpBindingsPublishInput): contentType/messageExpiry/
+// responseTopic are query params; correlationData/payloadFormatIndicator/
+// userProperties are X-Amz-Mqtt5-* headers.
+func Test_Publish_MQTT5Fields_AcceptedAndValidated(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		headers  map[string]string
+		name     string
+		query    string
+		wantCode int
+	}{
+		{
+			name:  "all_fields_valid",
+			query: "?contentType=text%2Fplain&messageExpiry=60&responseTopic=reply/topic",
+			headers: map[string]string{
+				"X-Amz-Mqtt5-Correlation-Data":         "abc123",
+				"X-Amz-Mqtt5-Payload-Format-Indicator": "UTF8_DATA",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "no_optional_fields",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "invalid_payload_format_indicator",
+			headers:  map[string]string{"X-Amz-Mqtt5-Payload-Format-Indicator": "NOT_A_REAL_ENUM"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "unspecified_bytes_indicator_valid",
+			headers:  map[string]string{"X-Amz-Mqtt5-Payload-Format-Indicator": "UNSPECIFIED_BYTES"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "negative_message_expiry_rejected",
+			query:    "?messageExpiry=-1",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "non_numeric_message_expiry_rejected",
+			query:    "?messageExpiry=soon",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "response_topic_with_wildcard_rejected",
+			query:    "?responseTopic=reply/%23",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid_base64_user_properties_rejected",
+			headers:  map[string]string{"X-Amz-Mqtt5-User-Properties": "not-valid-base64!!"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
+			rec := doRequestHeaders(t, h, http.MethodPost, "/topics/test/topic"+tt.query, []byte("payload"), tt.headers)
+			assert.Equal(t, tt.wantCode, rec.Code, "body: %s", rec.Body.String())
+		})
+	}
+}
+
+// Test_Publish_UserProperties_PersistedOnRetainedMessage verifies that the
+// X-Amz-Mqtt5-User-Properties header (base64-encoded per AWS docs) survives a
+// retain=true Publish and is echoed back by GetRetainedMessage, matching
+// GetRetainedMessageOutput.UserProperties in the real SDK.
+func Test_Publish_UserProperties_PersistedOnRetainedMessage(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	h := iotdataplane.NewHandler(b)
+
+	rawProps := `[{"deviceName":"alpha"}]`
+	encoded := base64.StdEncoding.EncodeToString([]byte(rawProps))
+
+	rec := doRequestHeaders(t, h, http.MethodPost, "/topics/sensor/temp?retain=true", []byte("25"),
+		map[string]string{"X-Amz-Mqtt5-User-Properties": encoded})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	msg, err := b.GetRetainedMessage("sensor/temp")
+	require.NoError(t, err)
+	assert.Equal(t, []byte(rawProps), msg.UserProperties)
+}
+
+// Test_Publish_NoUserProperties_RetainedMessageHasNone verifies a Publish
+// without the userProperties header leaves the retained message's
+// UserProperties nil (AWS docs: "...or null if the retained message doesn't
+// include any user properties").
+func Test_Publish_NoUserProperties_RetainedMessageHasNone(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	h := iotdataplane.NewHandler(b)
+
+	rec := doRequest(t, h, http.MethodPost, "/topics/sensor/temp?retain=true", []byte("25"))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	msg, err := b.GetRetainedMessage("sensor/temp")
+	require.NoError(t, err)
+	assert.Nil(t, msg.UserProperties)
 }
 func Test_TopicValidation_Matrix(t *testing.T) {
 	t.Parallel()

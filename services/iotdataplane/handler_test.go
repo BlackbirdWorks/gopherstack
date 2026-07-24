@@ -305,7 +305,7 @@ func Test_Reset(t *testing.T) {
 			setup: func(b *iotdataplane.InMemoryBackend) {
 				b.AddShadowInternal("thing1", "", []byte(`{"state":{}}`))
 				b.AddConnectionInternal("client-1")
-				require.NoError(t, b.StoreRetainedMessage("t/1", []byte("x"), 0))
+				require.NoError(t, b.StoreRetainedMessage("t/1", []byte("x"), 0, nil))
 			},
 		},
 	}
@@ -333,7 +333,7 @@ func Test_MultipleResetCycle(t *testing.T) {
 	b := iotdataplane.NewInMemoryBackend()
 	for range 3 {
 		b.AddShadowInternal("thing", "shadow", []byte(`{}`))
-		require.NoError(t, b.StoreRetainedMessage("t/1", []byte("x"), 0))
+		require.NoError(t, b.StoreRetainedMessage("t/1", []byte("x"), 0, nil))
 		b.Reset()
 		assert.Equal(t, 0, iotdataplane.ShadowCount(b))
 		assert.Equal(t, 0, iotdataplane.RetainedMessageCount(b))
@@ -380,7 +380,7 @@ func Test_SeedHelpers(t *testing.T) {
 	b.AddShadowInternal("thing1", "", []byte(`{"state":{"desired":{"k":"v"}}}`))
 	b.AddShadowInternal("thing1", "named", []byte(`{"state":{"desired":{"k":"v2"}}}`))
 	b.AddConnectionInternal("client-abc")
-	require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("25"), 0))
+	require.NoError(t, b.StoreRetainedMessage("sensor/temp", []byte("25"), 0, nil))
 
 	assert.Equal(t, 2, iotdataplane.ShadowCount(b))
 	assert.Equal(t, 1, iotdataplane.ThingCount(b))
