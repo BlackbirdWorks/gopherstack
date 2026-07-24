@@ -178,9 +178,15 @@ func TestHandler_ExportNotebook(t *testing.T) {
 	}
 }
 
-// --- Tags via CreateWorkGroup and CreateCapacityReservation ---
-
-func TestHandler_CreateNotebook_WithTags(t *testing.T) {
+// TestHandler_CreateNotebook_UnknownFieldIgnored verifies that a "Tags" key
+// in the CreateNotebook request body is silently ignored rather than causing
+// a failure. Unlike CreateWorkGroup/CreateDataCatalog/CreateCapacityReservation,
+// the real CreateNotebookInput has no Tags field at all (only Name, WorkGroup,
+// and ClientRequestToken) -- a notebook can only be tagged after creation via
+// TagResource against its ARN. gopherstack previously (incorrectly) accepted
+// and stored an invented Tags input here; this test locks in that a client
+// sending it (as no real AWS SDK client would) doesn't break the request.
+func TestHandler_CreateNotebook_UnknownFieldIgnored(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -189,7 +195,7 @@ func TestHandler_CreateNotebook_WithTags(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "with_tags",
+			name:       "tags_field_ignored",
 			body:       `{"WorkGroup":"primary","Name":"tagged-nb","Tags":[{"Key":"env","Value":"dev"}]}`,
 			wantStatus: http.StatusOK,
 		},

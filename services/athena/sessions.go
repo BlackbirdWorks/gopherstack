@@ -238,17 +238,9 @@ func (b *InMemoryBackend) ListExecutors(sessionID, stateFilter string) ([]Execut
 // ListEngineVersions returns the engines available to a workgroup.
 func (b *InMemoryBackend) ListEngineVersions() []EngineVersionDescriptor {
 	return []EngineVersionDescriptor{
-		{AuthEngineVersion: stateAuto, EffectiveEngineVersion: athenaEngineV3, SelectedEngineVersion: stateAuto},
-		{
-			AuthEngineVersion:      athenaEngineV3,
-			EffectiveEngineVersion: athenaEngineV3,
-			SelectedEngineVersion:  athenaEngineV3,
-		},
-		{
-			AuthEngineVersion:      pysparkEngineV3,
-			EffectiveEngineVersion: pysparkEngineV3,
-			SelectedEngineVersion:  pysparkEngineV3,
-		},
+		{EffectiveEngineVersion: athenaEngineV3, SelectedEngineVersion: stateAuto},
+		{EffectiveEngineVersion: athenaEngineV3, SelectedEngineVersion: athenaEngineV3},
+		{EffectiveEngineVersion: pysparkEngineV3, SelectedEngineVersion: pysparkEngineV3},
 	}
 }
 

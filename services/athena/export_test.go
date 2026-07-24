@@ -197,12 +197,13 @@ func PopulateEveryTable(t *testing.T, b *InMemoryBackend) Fixture {
 	namedQueryID, err := b.CreateNamedQuery("nq1", "", "db", "SELECT 1", "wg1")
 	require.NoError(t, err)
 
-	require.NoError(t, b.CreateDataCatalog("cat1", "GLUE", "", "", nil, nil))
+	_, err = b.CreateDataCatalog("cat1", "GLUE", "", "", nil, nil)
+	require.NoError(t, err)
 
 	require.NoError(t, b.CreatePreparedStatement("ps1", "", "wg1", "SELECT 1"))
 	require.NoError(t, b.CreateCapacityReservation("cr1", 24, nil))
 
-	notebookID, err := b.CreateNotebook("wg1", "nb1", nil)
+	notebookID, err := b.CreateNotebook("wg1", "nb1")
 	require.NoError(t, err)
 
 	_, _, err = b.StartSession("wg1", "", "", EngineConfiguration{}, SessionConfiguration{}, notebookID)

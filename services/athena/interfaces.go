@@ -24,14 +24,14 @@ type StorageBackend interface {
 	CreateDataCatalog(
 		name, catalogType, description, connectionType string,
 		params, tags map[string]string,
-	) error
+	) (*DataCatalog, error)
 	GetDataCatalog(name string) (*DataCatalog, error)
 	ListDataCatalogs(nextToken string, maxResults int) ([]*DataCatalogSummary, string, error)
 	UpdateDataCatalog(
 		name, catalogType, description, connectionType string,
 		params map[string]string,
 	) error
-	DeleteDataCatalog(name string) error
+	DeleteDataCatalog(name string) (*DataCatalog, error)
 
 	// Query Executions
 	StartQueryExecution(
@@ -50,7 +50,7 @@ type StorageBackend interface {
 	// Tags
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, keys []string) error
-	ListTagsForResource(arn string) ([]Tag, error)
+	ListTagsForResource(arn, nextToken string, maxResults int) ([]Tag, string, error)
 
 	// Prepared Statements
 	BatchGetPreparedStatement(
@@ -71,7 +71,7 @@ type StorageBackend interface {
 	DeleteCapacityReservation(name string) error
 
 	// Notebooks
-	CreateNotebook(workGroup, name string, tags map[string]string) (string, error)
+	CreateNotebook(workGroup, name string) (string, error)
 	CreatePresignedNotebookURL(sessionID string) (url, authToken string, authTokenExpiration float64, err error)
 	DeleteNotebook(notebookID string) error
 	ExportNotebook(notebookID string) (NotebookMetadata, string, error)

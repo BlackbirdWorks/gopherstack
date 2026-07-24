@@ -178,7 +178,7 @@ func TestBackend_ARNsUseRegionAndAccount(t *testing.T) {
 			require.NoError(t, err)
 
 			wgARN := "arn:aws:athena:" + tt.region + ":" + tt.accountID + ":workgroup/my-wg"
-			gotTags, err := b.ListTagsForResource(wgARN)
+			gotTags, _, err := b.ListTagsForResource(wgARN, "", 0)
 			require.NoError(t, err)
 			require.Len(t, gotTags, 1)
 			assert.Equal(t, "env", gotTags[0].Key)

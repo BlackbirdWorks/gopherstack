@@ -367,6 +367,29 @@ func TestHandler_ListEngineVersions(t *testing.T) {
 	}
 }
 
+// TestHandler_ListEngineVersions_NoInventedAuthEngineVersionField locks in
+// that ListEngineVersionsOutput's EngineVersions entries carry only the two
+// fields the real types.EngineVersion has (EffectiveEngineVersion,
+// SelectedEngineVersion) -- a previous "AuthEngineVersion" field here was a
+// gopherstack invention with no counterpart on the real SDK type.
+func TestHandler_ListEngineVersions_NoInventedAuthEngineVersionField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "ListEngineVersions", `{}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string][]map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp["EngineVersions"])
+
+	for _, ev := range resp["EngineVersions"] {
+		_, hasAuthEngineVersion := ev["AuthEngineVersion"]
+		assert.False(t, hasAuthEngineVersion, "EngineVersion must not carry an invented AuthEngineVersion field")
+		assert.NotEmpty(t, ev["EffectiveEngineVersion"])
+	}
+}
+
 func TestHandler_ListApplicationDPUSizes(t *testing.T) {
 	t.Parallel()
 

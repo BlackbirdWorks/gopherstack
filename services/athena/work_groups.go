@@ -2,7 +2,6 @@ package athena
 
 import (
 	"fmt"
-	"maps"
 	"sort"
 	"time"
 )
@@ -75,7 +74,6 @@ func (b *InMemoryBackend) CreateWorkGroup(
 		Name:          name,
 		Description:   description,
 		State:         state,
-		Tags:          maps.Clone(tags),
 		Configuration: cfg,
 		CreationTime:  now,
 	})
@@ -99,7 +97,6 @@ func (b *InMemoryBackend) GetWorkGroup(name string) (*WorkGroup, error) {
 	}
 
 	cp := *wg
-	cp.Tags = maps.Clone(wg.Tags)
 
 	return &cp, nil
 }
@@ -138,17 +135,7 @@ func (b *InMemoryBackend) ListWorkGroups(
 		limit = maxResults
 	}
 
-	start := 0
-	if nextToken != "" {
-		for i, s := range all {
-			if s.Name == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
+	start := paginationStart(len(all), nextToken, func(i int) string { return all[i].Name })
 	all = all[start:]
 
 	outToken := ""

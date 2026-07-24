@@ -78,6 +78,25 @@ func TestHandler_DistinctErrorCodes(t *testing.T) {
 			body:     `{"QueryString":"SELECT 1","WorkGroup":"ghost-wg"}`,
 			wantType: "InvalidRequestException",
 		},
+		{
+			name:   "tag_resource_unknown_arn_is_invalid_request",
+			action: "TagResource",
+			body: `{"ResourceARN":"arn:aws:athena:us-east-1:000000000000:workgroup/ghost-wg",` +
+				`"Tags":[{"Key":"k","Value":"v"}]}`,
+			wantType: "InvalidRequestException",
+		},
+		{
+			name:     "untag_resource_unknown_arn_is_invalid_request",
+			action:   "UntagResource",
+			body:     `{"ResourceARN":"arn:aws:athena:us-east-1:000000000000:workgroup/ghost-wg","TagKeys":["k"]}`,
+			wantType: "InvalidRequestException",
+		},
+		{
+			name:     "list_tags_for_resource_unknown_arn_is_invalid_request",
+			action:   "ListTagsForResource",
+			body:     `{"ResourceARN":"arn:aws:athena:us-east-1:000000000000:workgroup/ghost-wg"}`,
+			wantType: "InvalidRequestException",
+		},
 	}
 
 	for _, tt := range tests {

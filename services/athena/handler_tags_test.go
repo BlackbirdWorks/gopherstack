@@ -105,6 +105,45 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 	}
 }
 
+// TestHandler_ListTagsForResource_Pagination locks in that ListTagsForResource
+// honors MaxResults/NextToken the way WorkGroups/DataCatalogs/PreparedStatements
+// listings already do -- previously the op ignored both inputs entirely and
+// always returned every tag on the resource in one response.
+func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
+	t.Parallel()
+
+	const primaryWGARN = "arn:aws:athena:us-east-1:000000000000:workgroup/primary"
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "TagResource", `{"ResourceARN":"`+primaryWGARN+`",`+
+		`"Tags":[{"Key":"a","Value":"1"},{"Key":"b","Value":"2"},{"Key":"c","Value":"3"}]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "ListTagsForResource",
+		`{"ResourceARN":"`+primaryWGARN+`","MaxResults":2}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var page1 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	tags1, _ := page1["Tags"].([]any)
+	require.Len(t, tags1, 2)
+	nextToken, ok := page1["NextToken"].(string)
+	require.True(t, ok, "a truncated page must carry a NextToken")
+	require.NotEmpty(t, nextToken)
+
+	rec = doRequest(t, h, "ListTagsForResource",
+		`{"ResourceARN":"`+primaryWGARN+`","MaxResults":2,"NextToken":"`+nextToken+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var page2 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	tags2, _ := page2["Tags"].([]any)
+	require.Len(t, tags2, 1)
+	_, hasNextToken := page2["NextToken"]
+	assert.False(t, hasNextToken, "the final page must not carry a NextToken")
+}
+
 // --- Unknown operation ---
 
 func TestTag_RoundTrip(t *testing.T) {

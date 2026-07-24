@@ -5,8 +5,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // notebookNameKey returns the composite key for notebook name uniqueness.
@@ -15,10 +13,12 @@ func notebookNameKey(workGroup, name string) string {
 }
 
 // CreateNotebook creates a new Athena notebook and returns its ID.
-func (b *InMemoryBackend) CreateNotebook(
-	workGroup, name string,
-	tags map[string]string,
-) (string, error) {
+//
+// The real CreateNotebookInput carries only Name/WorkGroup/ClientRequestToken
+// -- no Tags field (unlike CreateWorkGroup/CreateDataCatalog/
+// CreateCapacityReservation, which all accept Tags at creation time). A
+// notebook can still be tagged after creation via TagResource against its ARN.
+func (b *InMemoryBackend) CreateNotebook(workGroup, name string) (string, error) {
 	switch {
 	case workGroup == "":
 		return "", fmt.Errorf("%w: WorkGroup is required", ErrValidation)
@@ -50,11 +50,6 @@ func (b *InMemoryBackend) CreateNotebook(
 		LastModifiedTime: now,
 		Content:          "",
 	})
-
-	if len(tags) > 0 {
-		notebookARN := arn.Build("athena", b.region, b.accountID, fmt.Sprintf("notebook/%s", id))
-		b.resourceTags[notebookARN] = copyTags(tags)
-	}
 
 	return id, nil
 }
