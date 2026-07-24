@@ -1,6 +1,9 @@
 package resourcegroupstaggingapi
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // defaultComplianceSummaryMaxResults is the default MaxResults for GetComplianceSummary.
 const defaultComplianceSummaryMaxResults = 50
@@ -54,6 +57,26 @@ type GetComplianceSummaryOutput struct {
 	SummaryList []ComplianceSummary `json:"SummaryList"`
 }
 
+// validateComplianceSummaryMaxResults enforces the real API's MaxResultsGetComplianceSummary
+// shape constraint (min: 1, max: 1000; see aws-sdk-go's
+// models/apis/resourcegroupstaggingapi/2017-01-26/api-2.json), matching the same
+// explicit-range-with-error pattern already used for GetResources' TagsPerPage.
+func validateComplianceSummaryMaxResults(maxResults *int32) error {
+	if maxResults == nil {
+		return nil
+	}
+
+	mr := *maxResults
+	if mr < 1 || mr > int32(maxComplianceSummaryMaxResults) {
+		return fmt.Errorf(
+			"%w: MaxResults must be between 1 and %d",
+			ErrValidation, maxComplianceSummaryMaxResults,
+		)
+	}
+
+	return nil
+}
+
 // GetComplianceSummary returns compliance summary data filtered by the supplied parameters.
 // The in-memory backend has no tag policy, so all resources are always compliant and
 // NonCompliantResources is always 0.  Filters and pagination are honoured so callers
@@ -61,7 +84,11 @@ type GetComplianceSummaryOutput struct {
 func (b *InMemoryBackend) GetComplianceSummary(
 	ctx context.Context,
 	input *GetComplianceSummaryInput,
-) *GetComplianceSummaryOutput {
+) (*GetComplianceSummaryOutput, error) {
+	if err := validateComplianceSummaryMaxResults(input.MaxResults); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("GetComplianceSummary")
 	defer b.mu.Unlock()
 
@@ -71,10 +98,7 @@ func (b *InMemoryBackend) GetComplianceSummary(
 	// Resolve MaxResults.
 	maxResults := int32(defaultComplianceSummaryMaxResults)
 	if input.MaxResults != nil {
-		mr := *input.MaxResults
-		if mr >= 1 && mr <= int32(maxComplianceSummaryMaxResults) {
-			maxResults = mr
-		}
+		maxResults = *input.MaxResults
 	}
 
 	all := b.getResources(ctx, nil, nil)
@@ -96,7 +120,7 @@ func (b *InMemoryBackend) GetComplianceSummary(
 	_ = all
 	_ = maxResults
 
-	return &GetComplianceSummaryOutput{SummaryList: []ComplianceSummary{}}
+	return &GetComplianceSummaryOutput{SummaryList: []ComplianceSummary{}}, nil
 }
 
 // ListRequiredTagsInput is the request payload for ListRequiredTags.

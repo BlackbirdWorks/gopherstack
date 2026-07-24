@@ -112,6 +112,7 @@ func AddReportStateForRegion(b *InMemoryBackend, region, status, s3Location, sta
 		Status:     status,
 		S3Location: s3Location,
 		StartDate:  startDate,
+		startedAt:  b.clockFunc(),
 	})
 }
 

@@ -13,9 +13,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
 
-// TestDescribeReportCreation_NoReport verifies that, per real AWS behavior, calling
-// DescribeReportCreation before any report has been generated in the region returns an
-// empty response -- not a "NO REPORT" status string.
+// TestDescribeReportCreation_NoReport verifies that, per real AWS behavior (see the
+// aws-sdk-go-v2 DescribeReportCreationOutput.Status doc comment: "NO REPORT - No report
+// was generated in the last 90 days"), calling DescribeReportCreation before any report
+// has ever been generated in the region returns the literal "NO REPORT" status string --
+// a real, documented AWS value, not an absent/nil field.
 func TestDescribeReportCreation_NoReport(t *testing.T) {
 	t.Parallel()
 
@@ -23,7 +25,8 @@ func TestDescribeReportCreation_NoReport(t *testing.T) {
 	out := b.DescribeReportCreation(context.Background())
 
 	require.NotNil(t, out)
-	assert.Nil(t, out.Status, "Status must be nil (not 'NO REPORT') when no report exists")
+	require.NotNil(t, out.Status, "Status must be \"NO REPORT\", not nil, when no report has ever been generated")
+	assert.Equal(t, "NO REPORT", *out.Status)
 	assert.Nil(t, out.S3Location)
 	assert.Nil(t, out.StartDate)
 }
@@ -31,13 +34,48 @@ func TestDescribeReportCreation_NoReport(t *testing.T) {
 func TestDescribeReportCreation_NoReportResponseBody(t *testing.T) {
 	t.Parallel()
 
-	// At the HTTP level the response must not contain the non-AWS "NO REPORT" string.
+	// At the HTTP level the response must contain the real "NO REPORT" status string.
 	h := resourcegroupstaggingapi.NewHandler(newBackend(t))
 	rec := doTaggingRequest(t, h, "DescribeReportCreation", map[string]any{})
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.NotContains(t, rec.Body.String(), "NO REPORT",
-		"'NO REPORT' is not a real AWS status value and must not appear in the response")
+	assert.Contains(t, rec.Body.String(), "NO REPORT",
+		"\"NO REPORT\" is a real, documented AWS status value and must appear in the response")
+}
+
+// TestDescribeReportCreation_StaleReportBecomesNoReport verifies that a report older
+// than reportStaleAfter (90 days) reports "NO REPORT" instead of its stale terminal
+// status, matching real AWS's documented "no report generated in the last 90 days"
+// behavior.
+func TestDescribeReportCreation_StaleReportBecomesNoReport(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	start := time.Now()
+	resourcegroupstaggingapi.SetClockFunc(b, func() time.Time { return start })
+
+	_, err := b.StartReportCreation(context.Background(), &resourcegroupstaggingapi.StartReportCreationInput{
+		S3Bucket: "bkt",
+	})
+	require.NoError(t, err)
+
+	// Past the running window: report is SUCCEEDED.
+	succeeded := start.Add(resourcegroupstaggingapi.ReportRunningDuration() + time.Second)
+	resourcegroupstaggingapi.SetClockFunc(b, func() time.Time { return succeeded })
+
+	out := b.DescribeReportCreation(context.Background())
+	require.NotNil(t, out.Status)
+	assert.Equal(t, "SUCCEEDED", *out.Status)
+
+	// Past the 90-day staleness window: report reverts to NO REPORT.
+	stale := start.Add(91 * 24 * time.Hour)
+	resourcegroupstaggingapi.SetClockFunc(b, func() time.Time { return stale })
+
+	out = b.DescribeReportCreation(context.Background())
+	require.NotNil(t, out.Status)
+	assert.Equal(t, "NO REPORT", *out.Status)
+	assert.Nil(t, out.S3Location)
+	assert.Nil(t, out.StartDate)
 }
 
 func TestStartReportCreationInput_HasNoS3BucketRegionField(t *testing.T) {

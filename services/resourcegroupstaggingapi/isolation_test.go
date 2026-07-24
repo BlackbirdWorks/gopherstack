@@ -67,18 +67,22 @@ func TestResourceGroupsTaggingAPIRegionIsolation(t *testing.T) {
 	assert.Equal(t, "west", westOut.ResourceTagMappingList[0].Tags[0].Value)
 
 	// 2. GetTagKeys is isolated: each region returns tag keys from its own resources.
-	eastKeys := backend.GetTagKeys(ctxEast, &GetTagKeysInput{})
+	eastKeys, err := backend.GetTagKeys(ctxEast, &GetTagKeysInput{})
+	require.NoError(t, err)
 	assert.Equal(t, []string{"env"}, eastKeys.TagKeys)
 
-	westKeys := backend.GetTagKeys(ctxWest, &GetTagKeysInput{})
+	westKeys, err := backend.GetTagKeys(ctxWest, &GetTagKeysInput{})
+	require.NoError(t, err)
 	assert.Equal(t, []string{"env"}, westKeys.TagKeys)
 
 	// 3. GetTagValues is isolated: us-east-1 sees "east", us-west-2 sees "west".
 	envKey := "env"
-	eastVals := backend.GetTagValues(ctxEast, &GetTagValuesInput{Key: &envKey})
+	eastVals, err := backend.GetTagValues(ctxEast, &GetTagValuesInput{Key: &envKey})
+	require.NoError(t, err)
 	assert.Equal(t, []string{"east"}, eastVals.TagValues)
 
-	westVals := backend.GetTagValues(ctxWest, &GetTagValuesInput{Key: &envKey})
+	westVals, err := backend.GetTagValues(ctxWest, &GetTagValuesInput{Key: &envKey})
+	require.NoError(t, err)
 	assert.Equal(t, []string{"west"}, westVals.TagValues)
 
 	// 4. StartReportCreation/DescribeReportCreation are isolated per region.
@@ -95,11 +99,16 @@ func TestResourceGroupsTaggingAPIRegionIsolation(t *testing.T) {
 	require.NotNil(t, eastReport.S3Location)
 	assert.Contains(t, *eastReport.S3Location, "east-bucket")
 
-	// us-west-2 has no report yet.
+	// us-west-2 has no report yet: real AWS reports the literal "NO REPORT" status, not
+	// a nil/absent field.
 	westReport := backend.DescribeReportCreation(ctxWest)
-	assert.Nil(t, westReport.Status)
+	require.NotNil(t, westReport.Status)
+	assert.Equal(t, "NO REPORT", *westReport.Status)
 
 	// 5. Reset clears all regions.
 	backend.Reset()
-	assert.Nil(t, backend.DescribeReportCreation(ctxEast).Status)
+
+	afterReset := backend.DescribeReportCreation(ctxEast)
+	require.NotNil(t, afterReset.Status)
+	assert.Equal(t, "NO REPORT", *afterReset.Status)
 }

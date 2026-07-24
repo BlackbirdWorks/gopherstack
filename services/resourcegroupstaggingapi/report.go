@@ -19,6 +19,18 @@ const reportStatusRunning = "RUNNING"
 // reportStatusSucceeded is the status for a successfully created report.
 const reportStatusSucceeded = "SUCCEEDED"
 
+// reportStatusNoReport is the status DescribeReportCreation returns when no report has
+// ever been generated for the region, or none in the last reportStaleAfter window. This
+// is a real, documented AWS status value -- not a gopherstack invention -- per the
+// aws-sdk-go-v2 DescribeReportCreationOutput.Status doc comment: "NO REPORT - No report
+// was generated in the last 90 days".
+const reportStatusNoReport = "NO REPORT"
+
+// reportStaleAfter is how long a non-RUNNING report state remains reportable before
+// DescribeReportCreation reports reportStatusNoReport instead, matching the real API's
+// documented "no report in the last 90 days" behavior.
+const reportStaleAfter = 90 * 24 * time.Hour
+
 // reportS3PathTemplate is the S3 path template for generated reports.
 const reportS3PathTemplate = "AwsTagPolicies/report.csv"
 
@@ -104,6 +116,9 @@ type DescribeReportCreationOutput struct {
 
 // DescribeReportCreation returns the status of the most recent StartReportCreation operation.
 // A RUNNING report transitions to SUCCEEDED once reportRunningDuration has elapsed.
+// When no report has ever been started for the region, or the most recent non-RUNNING
+// report is older than reportStaleAfter, Status is reportStatusNoReport ("NO REPORT") --
+// a real, documented AWS status value, not an absent/nil field.
 func (b *InMemoryBackend) DescribeReportCreation(ctx context.Context) *DescribeReportCreationOutput {
 	b.mu.Lock("DescribeReportCreation")
 	defer b.mu.Unlock()
@@ -112,12 +127,24 @@ func (b *InMemoryBackend) DescribeReportCreation(ctx context.Context) *DescribeR
 
 	state, ok := b.reportStates.Get(region)
 	if !ok {
-		return &DescribeReportCreationOutput{}
+		noReport := reportStatusNoReport
+
+		return &DescribeReportCreationOutput{Status: &noReport}
 	}
 
+	now := b.clockFunc()
+
 	// Transition RUNNING → SUCCEEDED once the simulated run duration has elapsed.
-	if state.Status == reportStatusRunning && !b.clockFunc().Before(state.startedAt.Add(reportRunningDuration)) {
+	if state.Status == reportStatusRunning && !now.Before(state.startedAt.Add(reportRunningDuration)) {
 		state.Status = reportStatusSucceeded
+	}
+
+	// A non-RUNNING report older than reportStaleAfter is reported as NO REPORT, per
+	// real AWS's documented "no report generated in the last 90 days" behavior.
+	if state.Status != reportStatusRunning && now.After(state.startedAt.Add(reportStaleAfter)) {
+		noReport := reportStatusNoReport
+
+		return &DescribeReportCreationOutput{Status: &noReport}
 	}
 
 	s3Loc := state.S3Location

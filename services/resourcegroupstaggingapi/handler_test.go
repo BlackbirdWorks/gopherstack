@@ -816,6 +816,34 @@ func TestHandler_GetComplianceSummary_InvalidGroupBy_Returns400(t *testing.T) {
 	}
 }
 
+// TestHandler_GetComplianceSummary_InvalidMaxResults_Returns400 verifies the real
+// API's MaxResultsGetComplianceSummary shape constraint (min: 1, max: 1000) is
+// enforced at the HTTP layer with InvalidParameterException.
+func TestHandler_GetComplianceSummary_InvalidMaxResults_Returns400(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxResults int32
+	}{
+		{name: "zero", maxResults: 0},
+		{name: "negative", maxResults: -5},
+		{name: "over_max", maxResults: 1001},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := resourcegroupstaggingapi.NewHandler(newBackend(t))
+			rec := doTaggingRequest(t, h, "GetComplianceSummary", map[string]any{"MaxResults": tt.maxResults})
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "InvalidParameterException")
+		})
+	}
+}
+
 func TestHandler_GetComplianceSummary_ValidGroupBy_Returns200(t *testing.T) {
 	t.Parallel()
 
@@ -865,6 +893,52 @@ func TestHandler_StartReportCreation_ConcurrentModification_Returns409(t *testin
 	rec = doTaggingRequest(t, h, "StartReportCreation", map[string]any{"S3Bucket": "second-bucket"})
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ConcurrentModificationException")
+}
+
+// TestHandler_PaginationTokenExpired_Returns400 verifies that an unresolvable
+// PaginationToken surfaces as HTTP 400 with the real
+// "PaginationTokenExpiredException" wire error type across all three operations that
+// document this error (GetResources, GetTagKeys, GetTagValues).
+func TestHandler_PaginationTokenExpired_Returns400(t *testing.T) {
+	t.Parallel()
+
+	resources := []resourcegroupstaggingapi.TaggedResource{
+		{ResourceARN: "arn:1", ResourceType: "sqs:queue", Tags: map[string]string{"env": "prod"}},
+	}
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "GetResources",
+			action: "GetResources",
+			body:   map[string]any{"PaginationToken": "does-not-exist"},
+		},
+		{
+			name:   "GetTagKeys",
+			action: "GetTagKeys",
+			body:   map[string]any{"PaginationToken": "does-not-exist"},
+		},
+		{
+			name:   "GetTagValues",
+			action: "GetTagValues",
+			body:   map[string]any{"Key": "env", "PaginationToken": "does-not-exist"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerWithResources(t, resources)
+			rec := doTaggingRequest(t, h, tt.action, tt.body)
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+			assert.Contains(t, rec.Body.String(), "PaginationTokenExpiredException")
+		})
+	}
 }
 
 // ------------------------------------------------------------------ Handler lifecycle/construction ---
