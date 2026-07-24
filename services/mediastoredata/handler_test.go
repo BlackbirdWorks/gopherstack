@@ -490,17 +490,20 @@ func TestMediaStoreData_PathValidation(t *testing.T) {
 	tests := []struct {
 		name       string
 		path       string
+		wantType   string // __type on the wire; empty means "don't check" (2xx cases).
 		wantStatus int
 	}{
 		{
 			name:       "empty_path_rejected",
 			path:       "/",
 			wantStatus: http.StatusBadRequest,
+			wantType:   "ValidationException",
 		},
 		{
 			name:       "traversal_rejected",
 			path:       "/../etc/passwd",
 			wantStatus: http.StatusBadRequest,
+			wantType:   "ValidationException",
 		},
 		{
 			name:       "valid_path_accepted",
@@ -516,6 +519,18 @@ func TestMediaStoreData_PathValidation(t *testing.T) {
 			h := newTestHandler(t)
 			rec := doRequest(t, h, http.MethodPut, tt.path, []byte("data"), nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantType != "" {
+				// __type must be a real mediastoredata/AWS-wide error name --
+				// NOT a fabricated service-specific exception -- since the
+				// real SDK error model has no per-op ValidationException
+				// entry but ValidationException is the established
+				// AWS-wide/gopherstack-wide convention for parameter
+				// validation failures (see errors.go).
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantType, resp["__type"])
+			}
 		})
 	}
 }
@@ -526,15 +541,22 @@ func TestMediaStoreData_StorageClassValidation(t *testing.T) {
 	tests := []struct {
 		name         string
 		storageClass string
+		wantType     string // __type on the wire; empty means "don't check" (2xx cases).
 		wantStatus   int
 	}{
 		{name: "temporal_valid", storageClass: "TEMPORAL", wantStatus: http.StatusOK},
 		// "STANDARD" is an UploadAvailability value, not a StorageClass -- real
 		// MediaStore Data's only StorageClass is "TEMPORAL", so this must be
 		// rejected the same as any other unknown storage class.
-		{name: "standard_rejected_not_a_storage_class", storageClass: "STANDARD", wantStatus: http.StatusBadRequest},
+		{
+			name: "standard_rejected_not_a_storage_class", storageClass: "STANDARD",
+			wantStatus: http.StatusBadRequest, wantType: "ValidationException",
+		},
 		{name: "empty_defaults_to_temporal", storageClass: "", wantStatus: http.StatusOK},
-		{name: "unknown_rejected", storageClass: "GLACIER", wantStatus: http.StatusBadRequest},
+		{
+			name: "unknown_rejected", storageClass: "GLACIER",
+			wantStatus: http.StatusBadRequest, wantType: "ValidationException",
+		},
 	}
 
 	for _, tt := range tests {
@@ -549,6 +571,12 @@ func TestMediaStoreData_StorageClassValidation(t *testing.T) {
 
 			rec := doRequest(t, h, http.MethodPut, "/cls/file.bin", []byte("data"), headers)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantType != "" {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantType, resp["__type"])
+			}
 		})
 	}
 }
@@ -665,6 +693,18 @@ func TestMediaStoreData_RangeRequests(t *testing.T) {
 			if tt.wantStatus == http.StatusPartialContent {
 				assert.NotEmpty(t, rec.Header().Get("Content-Range"))
 			}
+
+			if tt.wantStatus == http.StatusRequestedRangeNotSatisfiable {
+				// __type must be the real modeled exception name
+				// (RequestedRangeNotSatisfiableException) -- a real SDK
+				// client's errors.As(&types.RequestedRangeNotSatisfiableException{})
+				// only matches this exact string, not a fabricated
+				// "InvalidRangeException".
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, "RequestedRangeNotSatisfiableException", resp["__type"])
+				assert.NotEmpty(t, rec.Header().Get("Content-Range"))
+			}
 		})
 	}
 }
@@ -768,6 +808,14 @@ func TestMediaStoreData_ContentSHA256Verification(t *testing.T) {
 			"X-Amz-Content-SHA256": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 		})
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+		// "XAmzContentSHA256Mismatch" is the real AWS error name for this
+		// condition (used by S3 and other signed REST APIs for a declared
+		// payload hash that doesn't match the actual body), not a fabricated
+		// mediastoredata-specific "InvalidContentSHA256Exception".
+		var resp map[string]string
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Equal(t, "XAmzContentSHA256Mismatch", resp["__type"])
 	})
 
 	t.Run("unsigned_payload_skips_check", func(t *testing.T) {
