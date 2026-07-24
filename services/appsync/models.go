@@ -447,17 +447,96 @@ type ChannelNamespace struct {
 	LastModified        int64             `json:"lastModified,omitempty"`
 }
 
-// DataSourceIntrospectionResult holds the result of a data source introspection job.
+// DataSourceIntrospectionStatus values for a DataSourceIntrospection job, matching
+// aws-sdk-go-v2/service/appsync/types.DataSourceIntrospectionStatus exactly.
+const (
+	DataSourceIntrospectionStatusProcessing = "PROCESSING"
+	DataSourceIntrospectionStatusFailed     = "FAILED"
+	DataSourceIntrospectionStatusSuccess    = "SUCCESS"
+)
+
+// RDSDataAPIConfig carries the metadata needed to introspect an RDS cluster via
+// the RDS Data API. Field names match aws-sdk-go-v2/service/appsync/types.RdsDataApiConfig.
+type RDSDataAPIConfig struct {
+	DatabaseName string `json:"databaseName"`
+	ResourceARN  string `json:"resourceArn"`
+	SecretARN    string `json:"secretArn"`
+}
+
+// DataSourceIntrospectionModelFieldType represents the type data for one introspected
+// field. Matches aws-sdk-go-v2/service/appsync/types.DataSourceIntrospectionModelFieldType.
+type DataSourceIntrospectionModelFieldType struct {
+	Type   *DataSourceIntrospectionModelFieldType `json:"type,omitempty"`
+	Kind   string                                 `json:"kind,omitempty"`
+	Name   string                                 `json:"name,omitempty"`
+	Values []string                               `json:"values,omitempty"`
+}
+
+// DataSourceIntrospectionModelField represents one field retrieved from introspected
+// data. Matches aws-sdk-go-v2/service/appsync/types.DataSourceIntrospectionModelField.
+type DataSourceIntrospectionModelField struct {
+	Type   *DataSourceIntrospectionModelFieldType `json:"type,omitempty"`
+	Name   string                                 `json:"name,omitempty"`
+	Length int64                                  `json:"length,omitempty"`
+}
+
+// DataSourceIntrospectionModelIndex is an index retrieved from introspected data.
+// Matches aws-sdk-go-v2/service/appsync/types.DataSourceIntrospectionModelIndex.
+type DataSourceIntrospectionModelIndex struct {
+	Name   string   `json:"name,omitempty"`
+	Fields []string `json:"fields,omitempty"`
+}
+
+// DataSourceIntrospectionModel is the introspected data for a single model (e.g. a
+// database table). Matches aws-sdk-go-v2/service/appsync/types.DataSourceIntrospectionModel.
+type DataSourceIntrospectionModel struct {
+	PrimaryKey *DataSourceIntrospectionModelIndex   `json:"primaryKey,omitempty"`
+	Name       string                               `json:"name,omitempty"`
+	SDL        string                               `json:"sdl,omitempty"`
+	Fields     []*DataSourceIntrospectionModelField `json:"fields,omitempty"`
+	Indexes    []*DataSourceIntrospectionModelIndex `json:"indexes,omitempty"`
+}
+
+// DataSourceIntrospectionResult is the populated result of a completed introspection.
+// Matches aws-sdk-go-v2/service/appsync/types.DataSourceIntrospectionResult.
 type DataSourceIntrospectionResult struct {
-	IntrospectionID string `json:"introspectionId"`
-	Status          string `json:"status"`
-	Models          []any  `json:"models,omitempty"`
+	NextToken string                          `json:"nextToken,omitempty"`
+	Models    []*DataSourceIntrospectionModel `json:"models,omitempty"`
+}
+
+// DataSourceIntrospection is the persisted record of a StartDataSourceIntrospection
+// job, keyed by IntrospectionID. Unlike the rest of this service's resources, a real
+// introspection job is NOT coupled to any AppSync GraphqlApi/DataSource -- it
+// introspects an RDS Data API-backed database directly from the caller-supplied
+// RDSDataAPIConfig (see StartDataSourceIntrospectionInput in the real SDK, which
+// carries only an optional rdsDataApiConfig, no apiId/dataSourceName). The
+// RDSDataAPIConfig field is internal record-keeping only -- it is never part of
+// either operation's wire response.
+type DataSourceIntrospection struct {
+	RDSDataAPIConfig          *RDSDataAPIConfig              `json:"rdsDataApiConfig,omitempty"`
+	IntrospectionResult       *DataSourceIntrospectionResult `json:"introspectionResult,omitempty"`
+	IntrospectionID           string                         `json:"introspectionId"`
+	IntrospectionStatus       string                         `json:"introspectionStatus"`
+	IntrospectionStatusDetail string                         `json:"introspectionStatusDetail,omitempty"`
 }
 
 // SourceAPIAssociationConfig describes how source API merging is performed.
 type SourceAPIAssociationConfig struct {
 	MergeType string `json:"mergeType,omitempty"` // MANUAL_MERGE or AUTO_MERGE
 }
+
+// SourceAPIAssociationStatus values, matching
+// aws-sdk-go-v2/service/appsync/types.SourceApiAssociationStatus exactly.
+const (
+	SourceAPIAssociationStatusMergeScheduled          = "MERGE_SCHEDULED"
+	SourceAPIAssociationStatusMergeFailed             = "MERGE_FAILED"
+	SourceAPIAssociationStatusMergeSuccess            = "MERGE_SUCCESS"
+	SourceAPIAssociationStatusMergeInProgress         = "MERGE_IN_PROGRESS"
+	SourceAPIAssociationStatusAutoMergeScheduleFailed = "AUTO_MERGE_SCHEDULE_FAILED"
+	SourceAPIAssociationStatusDeletionScheduled       = "DELETION_SCHEDULED"
+	SourceAPIAssociationStatusDeletionInProgress      = "DELETION_IN_PROGRESS"
+	SourceAPIAssociationStatusDeletionFailed          = "DELETION_FAILED"
+)
 
 // SourceAPIAssociation represents an association between a source API and a merged API.
 type SourceAPIAssociation struct {

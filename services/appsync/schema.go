@@ -80,15 +80,3 @@ func (b *InMemoryBackend) GetIntrospectionSchema(apiID, _ string) ([]byte, error
 
 	return []byte(schema.SDL), nil
 }
-
-// StartSchemaMerge triggers a schema merge for a merged GraphQL API.
-func (b *InMemoryBackend) StartSchemaMerge(apiID string) (SchemaStatus, error) {
-	b.mu.RLock("StartSchemaMerge")
-	defer b.mu.RUnlock()
-
-	if !b.apis.Has(apiID) {
-		return "", fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
-	}
-
-	return SchemaStatusActive, nil
-}

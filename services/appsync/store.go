@@ -140,12 +140,14 @@ type StorageBackend interface {
 	EvaluateMappingTemplate(template, context string) (string, error)
 	// EvaluateCode evaluates APPSYNC_JS code.
 	EvaluateCode(code, contextJSON, function, runtime string) (string, error)
-	// StartDataSourceIntrospection starts an introspection job for a data source.
-	StartDataSourceIntrospection(apiID, dataSourceName string) (string, error)
-	// GetDataSourceIntrospection returns the result of a data source introspection job.
-	GetDataSourceIntrospection(introspectionID string) (*DataSourceIntrospectionResult, error)
-	// StartSchemaMerge triggers a schema merge for a merged GraphQL API.
-	StartSchemaMerge(apiID string) (SchemaStatus, error)
+	// StartDataSourceIntrospection starts an RDS Data API introspection job. Not
+	// scoped to any existing AppSync API/DataSource -- see DataSourceIntrospection's
+	// doc comment in models.go.
+	StartDataSourceIntrospection(cfg *RDSDataAPIConfig) (*DataSourceIntrospection, error)
+	// GetDataSourceIntrospection returns the persisted record of an introspection job.
+	GetDataSourceIntrospection(introspectionID string) (*DataSourceIntrospection, error)
+	// StartSchemaMerge merges one source API association's schema into its merged API.
+	StartSchemaMerge(mergedAPIID, associationID string) (string, error)
 	// UpdateSourceAPIAssociation updates a source API association on a merged API.
 	UpdateSourceAPIAssociation(mergedAPIID, associationID, description string) (*SourceAPIAssociation, error)
 	// ListTypesByAssociation lists types for a given merged API source association.
@@ -203,6 +205,7 @@ type InMemoryBackend struct {
 	channelNamespaces      *store.Table[ChannelNamespace] // key: apiID#name
 	channelNamespacesByAPI *store.Index[ChannelNamespace] // apiID → channel namespaces
 	sourceAssocs           *store.Table[SourceAPIAssociation]
+	introspections         *store.Table[DataSourceIntrospection]
 	lambdaFn               LambdaInvoker
 	ddbBackend             DynamoDBBackend
 	mu                     *lockmetrics.RWMutex

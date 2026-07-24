@@ -93,7 +93,8 @@ func (h *Handler) associateMergedGraphqlAPI(ctx context.Context, c *echo.Context
 		h.Backend.AssociateMergedGraphqlAPI, input)
 }
 
-// handleMergedAPIs handles /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations[/{assocId}].
+// handleMergedAPIs handles
+// /v1/mergedApis/{mergedApiIdentifier}/sourceApiAssociations[/{assocId}[/types|/merge]].
 func (h *Handler) handleMergedAPIs(ctx context.Context, c *echo.Context, segs []string) error {
 	if len(segs) < pathSegsAPISubresource || segs[3] != keySourceAPIAssociations {
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
@@ -101,41 +102,62 @@ func (h *Handler) handleMergedAPIs(ctx context.Context, c *echo.Context, segs []
 
 	mergedAPIID := segs[2]
 
-	if len(segs) == pathSegsAPISubresource {
-		switch c.Request().Method {
-		case http.MethodPost:
-			return h.associateSourceGraphqlAPI(ctx, c, mergedAPIID)
-		case http.MethodGet:
-			return h.listSourceAPIAssociations(ctx, c, mergedAPIID)
-		default:
-			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
-		}
+	switch len(segs) {
+	case pathSegsAPISubresource:
+		return h.handleMergedAPIsCollection(ctx, c, mergedAPIID)
+	case pathSegsNamedResource:
+		return h.handleMergedAPIsItem(ctx, c, mergedAPIID, segs[4])
+	case pathSegsTypeResolvers:
+		return h.handleMergedAPIsAssocSubresource(ctx, c, mergedAPIID, segs[4], segs[5])
 	}
 
-	if len(segs) == pathSegsNamedResource {
-		assocID := segs[4]
+	return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
+}
 
-		switch c.Request().Method {
-		case http.MethodGet:
-			return h.getSourceAPIAssociation(ctx, c, mergedAPIID, assocID)
-		case http.MethodDelete:
-			if err := h.Backend.DisassociateSourceGraphqlAPI(mergedAPIID, assocID); err != nil {
-				return h.handleError(ctx, c, "DisassociateSourceGraphqlApi", err)
-			}
-
-			return c.NoContent(http.StatusNoContent)
-		case http.MethodPost, http.MethodPut, http.MethodPatch:
-			return h.updateSourceAPIAssociation(ctx, c, mergedAPIID, assocID)
-		default:
-			return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
-		}
+// handleMergedAPIsCollection handles /v1/mergedApis/{mergedApiId}/sourceApiAssociations.
+func (h *Handler) handleMergedAPIsCollection(ctx context.Context, c *echo.Context, mergedAPIID string) error {
+	switch c.Request().Method {
+	case http.MethodPost:
+		return h.associateSourceGraphqlAPI(ctx, c, mergedAPIID)
+	case http.MethodGet:
+		return h.listSourceAPIAssociations(ctx, c, mergedAPIID)
+	default:
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
 	}
+}
 
-	// /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}/types
-	if len(segs) == pathSegsTypeResolvers && segs[5] == pathSegTypes {
-		assocID := segs[4]
+// handleMergedAPIsItem handles /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}.
+func (h *Handler) handleMergedAPIsItem(ctx context.Context, c *echo.Context, mergedAPIID, assocID string) error {
+	switch c.Request().Method {
+	case http.MethodGet:
+		return h.getSourceAPIAssociation(ctx, c, mergedAPIID, assocID)
+	case http.MethodDelete:
+		if err := h.Backend.DisassociateSourceGraphqlAPI(mergedAPIID, assocID); err != nil {
+			return h.handleError(ctx, c, "DisassociateSourceGraphqlApi", err)
+		}
 
+		return c.NoContent(http.StatusNoContent)
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+		return h.updateSourceAPIAssociation(ctx, c, mergedAPIID, assocID)
+	default:
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("MethodNotAllowed", "method not allowed"))
+	}
+}
+
+// handleMergedAPIsAssocSubresource handles
+// /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}/{types|merge}.
+func (h *Handler) handleMergedAPIsAssocSubresource(
+	ctx context.Context, c *echo.Context, mergedAPIID, assocID, seg5 string,
+) error {
+	switch seg5 {
+	case pathSegTypes:
+		// /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}/types
 		return h.listTypesByAssociation(ctx, c, mergedAPIID, assocID)
+	case "merge":
+		// /v1/mergedApis/{mergedApiId}/sourceApiAssociations/{assocId}/merge
+		return h.requireMethod(c, http.MethodPost, func() error {
+			return h.startSchemaMerge(ctx, c, mergedAPIID, assocID)
+		})
 	}
 
 	return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", "Not found"))
