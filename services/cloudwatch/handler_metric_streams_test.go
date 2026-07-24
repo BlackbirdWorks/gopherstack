@@ -126,7 +126,8 @@ func TestCloudWatchHandler_MetricStream(t *testing.T) {
 			name: "PutMetricStream/success",
 			body: "Action=PutMetricStream&Name=my-stream" +
 				"&FirehoseArn=arn%3Aaws%3Afirehose%3Aus-east-1%3A123456789012%3Adeliverystream%2Fmain" +
-				"&RoleArn=arn%3Aaws%3Aiam%3A%3A123456789012%3Arole%2Fstream-role",
+				"&RoleArn=arn%3Aaws%3Aiam%3A%3A123456789012%3Arole%2Fstream-role" +
+				"&OutputFormat=json",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"PutMetricStreamResponse"},
 		},
@@ -136,19 +137,26 @@ func TestCloudWatchHandler_MetricStream(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "UpdateMetricStream/success",
+			// Real CloudWatch has no UpdateMetricStream operation: PutMetricStream
+			// is documented as create-or-update ("If you are updating a metric
+			// stream, specify the name of that stream here"). Re-PUTting an
+			// existing stream name must update it in place.
+			name: "PutMetricStream/updates existing",
 			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
-				b.PutMetricStreamInternal(&cloudwatch.MetricStream{Name: "my-stream"})
+				b.PutMetricStreamInternal(&cloudwatch.MetricStream{
+					Name:         "my-stream",
+					FirehoseArn:  "arn:aws:firehose:us-east-1:123456789012:deliverystream/main",
+					RoleArn:      "arn:aws:iam::123456789012:role/stream-role",
+					OutputFormat: "json",
+				})
 			},
-			body:         "Action=UpdateMetricStream&Name=my-stream&OutputFormat=opentelemetry0.7",
+			body: "Action=PutMetricStream&Name=my-stream" +
+				"&FirehoseArn=arn%3Aaws%3Afirehose%3Aus-east-1%3A123456789012%3Adeliverystream%2Fmain" +
+				"&RoleArn=arn%3Aaws%3Aiam%3A%3A123456789012%3Arole%2Fstream-role" +
+				"&OutputFormat=opentelemetry0.7",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"UpdateMetricStreamResponse"},
-		},
-		{
-			name:     "UpdateMetricStream/not found",
-			body:     "Action=UpdateMetricStream&Name=missing-stream",
-			wantCode: http.StatusBadRequest,
+			wantContains: []string{"PutMetricStreamResponse"},
 		},
 		{
 			name: "DeleteMetricStream/success",
@@ -232,6 +240,11 @@ func TestCloudWatchHandler_PutMetricStream_WithFilters(t *testing.T) {
 
 	h := newCWHandler()
 
+	// IncludeFilters and ExcludeFilters are mutually exclusive in real
+	// CloudWatch ("You cannot include ExcludeFilters and IncludeFilters in the
+	// same operation" -- PutMetricStreamInput doc comment), so this only sets
+	// IncludeFilters; TestHandler_PutMetricStream_WithExcludeFilters covers the
+	// ExcludeFilters-only case separately.
 	body := strings.Join([]string{
 		"Action=PutMetricStream",
 		"Name=filtered-stream",
@@ -240,7 +253,6 @@ func TestCloudWatchHandler_PutMetricStream_WithFilters(t *testing.T) {
 		"OutputFormat=json",
 		"IncludeFilters.member.1.Namespace=AWS%2FEC2",
 		"IncludeFilters.member.1.MetricNames.member.1=CPUUtilization",
-		"ExcludeFilters.member.1.Namespace=AWS%2FLambda",
 	}, "&")
 	rec := postForm(t, h, body)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -252,6 +264,4 @@ func TestCloudWatchHandler_PutMetricStream_WithFilters(t *testing.T) {
 	require.Len(t, stream.IncludeFilters, 1)
 	assert.Equal(t, "AWS/EC2", stream.IncludeFilters[0].Namespace)
 	assert.Equal(t, []string{"CPUUtilization"}, stream.IncludeFilters[0].MetricNames)
-	require.Len(t, stream.ExcludeFilters, 1)
-	assert.Equal(t, "AWS/Lambda", stream.ExcludeFilters[0].Namespace)
 }

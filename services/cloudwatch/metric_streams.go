@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -93,8 +92,8 @@ func (b *InMemoryBackend) matchingRunningStreamNames(
 
 // PutMetricStream creates or updates a metric stream by name.
 func (b *InMemoryBackend) PutMetricStream(stream *MetricStream) error {
-	if strings.TrimSpace(stream.Name) == "" {
-		return fmt.Errorf("%w: Name parameter is required for metric stream", ErrValidation)
+	if err := validateMetricStream(stream); err != nil {
+		return err
 	}
 
 	b.PutMetricStreamInternal(stream)

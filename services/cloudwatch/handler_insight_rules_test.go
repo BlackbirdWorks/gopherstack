@@ -162,7 +162,7 @@ func TestListManagedInsightRules_FiltersByManagedFlag(t *testing.T) {
 				rec := postForm(
 					t,
 					h,
-					"Action=PutInsightRule&RuleName="+name+"&RuleDefinition=test&RuleState=ENABLED",
+					"Action=PutInsightRule&RuleName="+name+"&RuleDefinition=%7B%7D&RuleState=ENABLED",
 				)
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -217,19 +217,20 @@ func TestCloudWatchHandler_InsightRules(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "UpdateInsightRule/success",
+			// Real CloudWatch has no UpdateInsightRule operation: PutInsightRule
+			// is create-or-update (same op, no pre-existence requirement).
+			// Re-PUTting an existing rule name must update it in place.
+			name: "PutInsightRule/updates existing",
 			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
-				b.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "rule-update", State: "ENABLED"})
+				b.PutInsightRuleInternal(&cloudwatch.InsightRule{
+					Name: "rule-update", State: "ENABLED", Definition: "{}",
+				})
 			},
-			body:         "Action=UpdateInsightRule&RuleName=rule-update&RuleState=DISABLED",
+			body: "Action=PutInsightRule&RuleName=rule-update&RuleState=DISABLED" +
+				"&RuleDefinition=%7B%7D",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"UpdateInsightRuleResponse"},
-		},
-		{
-			name:     "UpdateInsightRule/not found",
-			body:     "Action=UpdateInsightRule&RuleName=missing-rule",
-			wantCode: http.StatusBadRequest,
+			wantContains: []string{"PutInsightRuleResponse"},
 		},
 		{
 			name: "DescribeInsightRules/success",

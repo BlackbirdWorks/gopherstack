@@ -35,9 +35,6 @@ var ErrMetricStreamNotFound = errors.New(errResourceNotFoundException)
 // ErrInsightRuleNotFound is returned when a requested insight rule does not exist.
 var ErrInsightRuleNotFound = errors.New(errResourceNotFoundException)
 
-// ErrMetricFilterNotFound is returned when a requested metric filter does not exist.
-var ErrMetricFilterNotFound = errors.New(errResourceNotFoundException)
-
 // ErrValidation is returned when a caller provides an invalid or missing parameter.
 var ErrValidation = errors.New("InvalidParameterValue")
 

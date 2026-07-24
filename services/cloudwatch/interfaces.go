@@ -84,7 +84,7 @@ type StorageBackend interface {
 	) error
 	EnableAlarmActions(alarmNames []string) error
 	DisableAlarmActions(alarmNames []string) error
-	PutDashboard(name, body string) error
+	PutDashboard(name, body string) ([]DashboardValidationMessage, error)
 	GetDashboard(name string) (DashboardEntry, string, error)
 	ListDashboards(prefix, nextToken string) (page.Page[DashboardEntry], error)
 	DeleteDashboards(names []string) error
@@ -108,12 +108,6 @@ type StorageBackend interface {
 	ListMetricStreams(nextToken string, maxResults int) (page.Page[MetricStream], error)
 	DeleteMetricStream(name string) error
 	DescribeAlarmContributors(alarmName, nextToken string) (page.Page[AlarmContributor], error)
-	PutMetricFilter(filter *MetricFilter) error
-	DescribeMetricFilters(
-		filterNamePrefix, logGroupName, nextToken string,
-		maxResults int,
-	) (page.Page[MetricFilter], error)
-	DeleteMetricFilter(filterName, logGroupName string) error
 	StartMetricStreams(names []string) error
 	StopMetricStreams(names []string) error
 	ListAlarmMuteRules(nextToken string, maxResults int) (page.Page[AlarmMuteRule], error)

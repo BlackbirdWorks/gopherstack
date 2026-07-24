@@ -922,15 +922,21 @@ func TestCloudWatchHandler_NewOpsInSupportedOperations(t *testing.T) {
 
 	require.Contains(t, ops, "DeleteAlarmMuteRule")
 	require.Contains(t, ops, "PutAlarmMuteRule")
-	require.Contains(t, ops, "UpdateAlarmMuteRule")
 	require.Contains(t, ops, "DeleteAnomalyDetector")
 	require.Contains(t, ops, "DeleteInsightRules")
 	require.Contains(t, ops, "PutInsightRule")
-	require.Contains(t, ops, "UpdateInsightRule")
 	require.Contains(t, ops, "DeleteMetricStream")
 	require.Contains(t, ops, "PutMetricStream")
-	require.Contains(t, ops, "UpdateMetricStream")
 	require.Contains(t, ops, "DescribeAlarmContributors")
+
+	// UpdateAlarmMuteRule/UpdateInsightRule/UpdateMetricStream are not real
+	// CloudWatch operations -- aws-sdk-go-v2/service/cloudwatch has no such ops;
+	// PutAlarmMuteRule/PutInsightRule/PutMetricStream are documented as
+	// create-or-update (see their SDK doc comments: "If you are updating...
+	// specify the name of that stream here"). Lock that they are NOT routed.
+	require.NotContains(t, ops, "UpdateAlarmMuteRule")
+	require.NotContains(t, ops, "UpdateInsightRule")
+	require.NotContains(t, ops, "UpdateMetricStream")
 	require.Contains(t, ops, "DescribeAnomalyDetectors")
 	require.Contains(t, ops, "DescribeInsightRules")
 	require.Contains(t, ops, "DisableInsightRules")

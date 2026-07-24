@@ -2,13 +2,32 @@ package cloudwatch
 
 import (
 	"encoding/xml"
+	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
+
+// dashboardValidationMessageXML is the XML wire shape of a single
+// DashboardValidationMessage (DataPath + Message only — no error/warning
+// discriminator on the wire, matching aws-sdk-go-v2's types.DashboardValidationMessage).
+type dashboardValidationMessageXML struct {
+	DataPath string `xml:"DataPath,omitempty"`
+	Message  string `xml:"Message"`
+}
+
+func dashboardValidationMessagesXML(msgs []DashboardValidationMessage) []dashboardValidationMessageXML {
+	out := make([]dashboardValidationMessageXML, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, dashboardValidationMessageXML{DataPath: m.DataPath, Message: m.Message})
+	}
+
+	return out
+}
 
 func (h *Handler) handlePutDashboard(form url.Values, c *echo.Context) error {
 	name := form.Get("DashboardName")
@@ -22,18 +41,66 @@ func (h *Handler) handlePutDashboard(form url.Values, c *echo.Context) error {
 	}
 	body := form.Get("DashboardBody")
 
-	if err := h.Backend.PutDashboard(name, body); err != nil {
+	messages, err := h.Backend.PutDashboard(name, body)
+	if err != nil {
+		var valErr *DashboardValidationError
+		if errors.As(err, &valErr) {
+			return h.xmlDashboardValidationError(c, valErr.Messages)
+		}
+
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type response struct {
-		DashboardValidationMessages struct{} `xml:"PutDashboardResult>DashboardValidationMessages"`
-		XMLName                     xml.Name `xml:"PutDashboardResponse"`
-		Xmlns                       string   `xml:"xmlns,attr"`
-		RequestID                   string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name `xml:"PutDashboardResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		//nolint:lll // XML path tag cannot be wrapped
+		DashboardValidationMessages []dashboardValidationMessageXML `xml:"PutDashboardResult>DashboardValidationMessages>member"`
 	}
 
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+	return writeXML(c, response{
+		Xmlns:                       cloudwatchNS,
+		RequestID:                   uuid.New().String(),
+		DashboardValidationMessages: dashboardValidationMessagesXML(messages),
+	})
+}
+
+// xmlDashboardValidationError writes the DashboardInvalidInputError error
+// response for a PutDashboard call whose body failed schema validation. Unlike
+// h.xmlError, this embeds the full DashboardValidationMessages list inside the
+// <Error> element, matching the SDK's DashboardInvalidInputError exception shape.
+func (h *Handler) xmlDashboardValidationError(
+	c *echo.Context,
+	messages []DashboardValidationMessage,
+) error {
+	type errorBody struct {
+		XMLName                     xml.Name                        `xml:"ErrorResponse"`
+		Code                        string                          `xml:"Error>Code"`
+		Message                     string                          `xml:"Error>Message"`
+		RequestID                   string                          `xml:"RequestId"`
+		DashboardValidationMessages []dashboardValidationMessageXML `xml:"Error>DashboardValidationMessages>member"`
+	}
+
+	summary := make([]string, 0, len(messages))
+	for _, m := range messages {
+		if m.IsError {
+			summary = append(summary, m.Message)
+		}
+	}
+
+	w := c.Response()
+	w.Header().Set("Content-Type", "text/xml")
+	w.WriteHeader(http.StatusBadRequest)
+	enc := xml.NewEncoder(w)
+	_ = enc.Encode(errorBody{
+		Code:                        "DashboardInvalidInputError",
+		Message:                     "The dashboard body is invalid: " + strings.Join(summary, "; "),
+		DashboardValidationMessages: dashboardValidationMessagesXML(messages),
+		RequestID:                   uuid.New().String(),
+	})
+
+	return nil
 }
 
 func (h *Handler) handleGetDashboard(form url.Values, c *echo.Context) error {

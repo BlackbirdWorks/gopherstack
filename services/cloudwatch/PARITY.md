@@ -6,17 +6,28 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
 sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.55.1
-last_audit_commit: 95dfa093
-last_audit_date: 2026-07-11
-overall: A            # re-audit pass: no local drift vs ce30166a baseline (recorded
-                      # last_audit_commit 58eec068 predates this file and is not an
-                      # ancestor of HEAD; ce30166a — the commit that authored this
-                      # ledger — was used as the diff baseline per protocol). SDK
-                      # version unchanged (still v1.55.1), so all rows below were
-                      # trusted as-is except the PutMetricData timestamp-window gap,
-                      # which this pass fixed (~40 LOC backend/validation change,
-                      # ~220 LOC test fallout since ~15 tests relied on a hardcoded
-                      # 2024-01-01 anchor that is now outside the enforced window).
+last_audit_commit: e862cdc22
+last_audit_date: 2026-07-24
+overall: A            # this pass fixed the PutDashboard DashboardBody validation gap
+                      # (bd gopherstack-3ro), added the missing insight-rule
+                      # RuleDefinition JSON validation and metric-stream
+                      # required-field/enum/mutual-exclusion validation (both
+                      # previously silently permissive gaps not tracked in this
+                      # ledger), and — the big finding this pass — DELETED four
+                      # gopherstack-invented operations that do not exist in the
+                      # real SDK: UpdateAlarmMuteRule, UpdateInsightRule,
+                      # UpdateMetricStream (Put* is create-or-update for all three
+                      # in real CloudWatch, confirmed by reading the generated SDK
+                      # doc comments — there is no separate Update op for any of
+                      # them), and the entire PutMetricFilter/DescribeMetricFilters/
+                      # DeleteMetricFilter/TestMetricFilter family (these are
+                      # CloudWatch *Logs* operations, not CloudWatch/monitoring
+                      # operations — confirmed absent from
+                      # aws-sdk-go-v2/service/cloudwatch's op list and present in
+                      # aws-sdk-go-v2/service/cloudwatchlogs instead; gopherstack's
+                      # services/cloudwatchlogs/ already implements them for real,
+                      # so nothing was lost). See "Notes" below for the full
+                      # writeup and how each was verified.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -36,20 +47,18 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutDashboard: {wire: partial, errors: ok, state: ok, persist: ok, note: "DashboardValidationMessages field is real (unlike PutMetricData's) but always empty — body is stored verbatim with no JSON/widget-schema validation (bd: gopherstack-3ro)"}
+  PutDashboard: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (bd gopherstack-3ro) — DashboardBody is now validated against the documented dashboard JSON/widget schema (dashboard_validation.go): malformed JSON, non-object root, non-array widgets, non-object widget entries, missing widget type, and non-numeric layout fields are errors (DashboardInvalidInputError, HTTP 400, body not persisted, DashboardValidationMessages embedded in the error per the SDK's DashboardInvalidInputError exception shape); unrecognized widget type, missing properties, and metric-widget-missing-metrics are warnings (dashboard still persisted, DashboardValidationMessages returned informationally on the 200 response). Both XML and CBOR wire paths covered independently."}
   GetDashboard: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDashboards: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDashboards: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "create-or-update semantics confirmed against the real op (no separate Update op exists); re-PUTting an existing MuteName updates in place"}
   GetAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAlarmMuteRule: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAlarmMuteRules: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAnomalyDetector: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAnomalyDetector: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAnomalyDetectors: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutInsightRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateInsightRule: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutInsightRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — RuleDefinition is now validated as well-formed JSON (must decode to a JSON object); previously any non-JSON string was accepted and stored verbatim (insight_rule_validation.go). PutManagedInsightRules deliberately bypasses this validation (it stores a plain TemplateName string, not JSON, in Definition — verified this is the correct real-AWS shape distinction, not an oversight). create-or-update semantics confirmed (no separate Update op); re-PUTting an existing RuleName re-validates and updates in place."}
   DeleteInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -57,34 +66,31 @@ ops:
   GetInsightRuleReport: {wire: ok, errors: ok, state: ok, persist: ok}
   ListManagedInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
   PutManagedInsightRules: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutMetricStream: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutMetricStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — FirehoseArn/RoleArn/OutputFormat are all 'This member is required' in PutMetricStreamInput (true on every call, not just create, since Put is a full-replace not a patch) but were previously unenforced; OutputFormat now validated against the 3 real enum values (json/opentelemetry0.7/opentelemetry1.0); IncludeFilters+ExcludeFilters-together now rejected per the documented mutual exclusion (metric_stream_validation.go). create-or-update semantics confirmed (no separate Update op); re-PUTting an existing Name updates in place."}
   GetMetricStream: {wire: ok, errors: ok, state: ok, persist: ok}
   ListMetricStreams: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateMetricStream: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteMetricStream: {wire: ok, errors: ok, state: ok, persist: ok}
   StartMetricStreams: {wire: ok, errors: ok, state: ok, persist: ok}
   StopMetricStreams: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutMetricFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeMetricFilters: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteMetricFilter: {wire: ok, errors: ok, state: ok, persist: ok}
-  TestMetricFilter: {wire: ok, errors: ok, state: ok, persist: deferred, note: "stateless preview op, nothing to persist"}
   DescribeAlarmContributors: {wire: ok, errors: ok, state: ok, persist: ok}
   GetMetricWidgetImage: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "rendering-only op; PNG output not byte-compared against real AWS"}
 # Families audited as a group (when per-op is impractical):
 families:
   alarm-evaluation-state-machine: {status: ok, note: "FIXED this pass — breachesThreshold was missing the LessThanLowerThreshold comparison operator entirely (fell through to default:false, so alarms configured with it never fired). All 4 TreatMissingData modes (missing/notBreaching/breaching/ignore) proven correct in countBreachingPeriods/evaluateMetricAlarmState, including ignore's 'maintain current state when no data' rule and M-of-N DatapointsToAlarm."}
   alarm-action-dispatch: {status: ok, note: "FIXED this pass — composite-alarm action history mistagged AlarmType=MetricAlarm (see DescribeAlarmHistory). SNS/Lambda/EC2-automate/AutoScaling-policy ARN routing, best-effort delivery (failures logged, other actions still run), EC2 InstanceId dimension extraction all proven correct. Actual SNS/Lambda/EC2/ASG client wiring lives in cli.go (out of scope per task boundary) — only the in-package dispatch/selection logic was audited/fixed."}
-  error-codes: {status: ok, note: "ResourceNotFoundException/InvalidParameterValue/InvalidParameterCombination/LimitExceeded all HTTP 400 (correct for CloudWatch's query/XML protocol, which never uses 404); InternalFailure is 500. Spot-checked across alarms/dashboards/mute-rules/anomaly-detectors/insight-rules/metric-streams/metric-filters."}
-  persistence: {status: ok, note: "backendSnapshot/persistence.go covers metrics, alarms, composite alarms, alarm history, dashboards, anomaly detectors, insight rules, metric streams, alarm mute rules, metric filters; field names unchanged by this pass (MetricDatum gained Values/Counts/Has* fields, additive only, so existing snapshots restore unchanged for the fields they populate)"}
-gaps:                     # known divergences NOT fixed — link bd issue ids
-  - PutDashboard never validates DashboardBody JSON/widget schema, so DashboardValidationMessages is always empty even for malformed input (bd: gopherstack-3ro)
-  # PutMetricData timestamp acceptance window (bd: gopherstack-pyv) — FIXED this
-  # pass, see PutMetricData row and Notes below. bd issue should be closed.
+  error-codes: {status: ok, note: "ResourceNotFoundException/InvalidParameterValue/InvalidParameterCombination/LimitExceeded all HTTP 400 (correct for CloudWatch's query/XML protocol, which never uses 404); InternalFailure is 500. Spot-checked across alarms/dashboards/mute-rules/anomaly-detectors/insight-rules/metric-streams. New PutMetricStream/PutDashboard/PutInsightRule validation errors this pass correctly route through errors.Is(err, ErrValidation) to InvalidParameterValue/DashboardInvalidInputError rather than falling through to InternalFailure."}
+  persistence: {status: ok, note: "backendSnapshot/persistence.go covers metrics, alarms, composite alarms, alarm history, dashboards, anomaly detectors, insight rules, metric streams, alarm mute rules; field names unchanged by this pass. The metricFilters table (and its persistence_test.go round-trip coverage) was REMOVED this pass along with the rest of the invented PutMetricFilter family -- see Notes; it was never wired into backendSnapshot's real persistence anyway (only a test-only round-trip existed), so no live snapshot format is affected."}
+gaps: []                  # known divergences NOT fixed — link bd issue ids; none remaining
+                          # after this pass. PutDashboard DashboardBody JSON/widget-schema
+                          # validation (bd: gopherstack-3ro) — FIXED, see PutDashboard row.
+                          # insight-rule RuleDefinition JSON validation — FIXED, see
+                          # PutInsightRule row. metric-stream required-field/enum/mutual-
+                          # exclusion validation — FIXED, see PutMetricStream row.
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - widget.go / widget_draw.go / widget_font.go (GetMetricWidgetImage PNG rendering internals — not a wire-shape or state-correctness concern, only visual fidelity)
-  - metric-stream Firehose delivery payload format (OutputFormat json/opentelemetry0.7 byte-level shape)
-  - insight-rule Definition/Schema JSON-body validation depth (accepted verbatim, like PutDashboard)
-leaks: {status: clean, note: "Janitor (janitor.go) owns the single alarm-eval + metric-sweep goroutine, ctx-cancel-aware, StartWorker only spawns it for *InMemoryBackend. storeDatum/filterAlivePoints reslice (not just filter) to release oversized backing arrays (#60 total-metrics counter avoids O(namespaces) walks). No new goroutines/tickers/maps introduced this pass; PutMetricData's validate-then-commit split does not change lock-hold duration character (still one write-lock section)."}
+  - metric-stream Firehose delivery payload format (OutputFormat json/opentelemetry0.7/opentelemetry1.0 byte-level shape) — gopherstack does not actually deliver metric-stream data to a Firehose endpoint at all (PutMetricStream/matchingRunningStreamNames only track config + which streams a given PutMetricData batch would match); this is analogous to alarm-action-dispatch's SNS/Lambda/EC2/ASG client wiring living in cli.go (out of scope per task boundary), not a wire-shape bug in the audited surface
+  - insight-rule Definition deep schema validation (Schema.Name/Version, Contribution.Keys, LogFormat, LogGroupNames field-level rules per the Contributor Insights Rule Syntax docs) — this pass added well-formed-JSON-object validation (closing the "accepted verbatim" complaint), but did not attempt to re-derive and enforce the full nested schema, since RuleDefinition is an opaque string in the generated SDK model (no typed struct to field-diff against) and guessing at exact AWS-side field requirements risks diverging from real behavior in ways a wire-shape diff can't catch
+leaks: {status: clean, note: "Janitor (janitor.go) owns the single alarm-eval + metric-sweep goroutine, ctx-cancel-aware, StartWorker only spawns it for *InMemoryBackend. storeDatum/filterAlivePoints reslice (not just filter) to release oversized backing arrays (#60 total-metrics counter avoids O(namespaces) walks). No new goroutines/tickers introduced this pass; the metricFilters store.Table was removed (net reduction in backend state), not added. New validation functions (dashboard_validation.go, insight_rule_validation.go, metric_stream_validation.go) are pure/stateless — no locking implications."}
 ---
 
 ## Notes
@@ -230,3 +236,67 @@ outside the enforced window and was silently rejected. Fixed by:
   sweep" case and any test using `RecentTestAnchor()`/`time.Now()`-relative timestamps for
   non-eviction scenarios must go through real `PutMetricData` (not `StoreDatumForTest`) — the
   bypass exists solely to model already-aged data, not as a general test convenience.
+
+### Four gopherstack-invented operations, deleted (2026-07-24 pass)
+
+While field-diffing `PutMetricStream` against the real SDK (to confirm `OutputFormat`'s enum
+values), the op list itself was diffed too
+(`ls $(go env GOMODCACHE)/github.com/aws/aws-sdk-go-v2/service/cloudwatch@v1.55.1/api_op_*.go`),
+which turned up four routed CloudWatch operations that **do not exist** in the real
+`aws-sdk-go-v2/service/cloudwatch` module at all:
+
+- **`UpdateAlarmMuteRule`**, **`UpdateInsightRule`**, **`UpdateMetricStream`** — none of these
+  exist. Real CloudWatch's `PutAlarmMuteRule`/`PutInsightRule`/`PutMetricStream` are each
+  documented as create-or-update in their own SDK doc comments (e.g. `PutMetricStreamInput.Name`:
+  "If you are updating a metric stream, specify the name of that stream here"). A real SDK client
+  has no `Update*` method to call for any of these three resources — it always calls the `Put*`
+  method, whether creating or updating. gopherstack had invented a parallel `Update*` op for each
+  that additionally required the resource to already exist (`ResourceNotFoundException` if not),
+  which is behavior no real client can trigger or would ever depend on. Deleted: the op consts,
+  routing (`handler.go` XML dispatch + `rpcv2cbor.go` CBOR dispatch), the `handleUpdate*`/
+  `cborUpdate*` handler functions, and their `GetSupportedOperations()` entries. The `Put*`
+  handlers already had correct create-or-update semantics (`Put*Internal` upserts by key), so no
+  backend behavior was lost — only the redundant, non-real second entry point.
+- **`PutMetricFilter`/`DescribeMetricFilters`/`DeleteMetricFilter`/`TestMetricFilter`** — this
+  whole family is a **CloudWatch Logs** concept (`logs:PutMetricFilter` etc.), not a CloudWatch
+  (`monitoring:`) one. Confirmed absent from `aws-sdk-go-v2/service/cloudwatch`'s op list and
+  present in `aws-sdk-go-v2/service/cloudwatchlogs`'s instead (both were already in the local
+  module cache, so both were read directly). `services/cloudwatch/models.go`'s own doc comment on
+  the (now-deleted) `MetricFilter` struct even said *"represents a CloudWatch **Logs** metric
+  filter"* — a self-admission that this was misplaced. `services/cloudwatchlogs/` already
+  implements all four ops for real (`metric_filters.go`, `handler_metric_filters.go`,
+  `rpcv2cbor_metric_filters.go` there), so nothing was lost — the cloudwatch-package copies were a
+  pure duplicate that no real AWS SDK client could ever reach (a client calling
+  `cloudwatchClient.PutMetricFilter` doesn't compile — the method doesn't exist on that client;
+  only `cloudwatchlogsClient.PutMetricFilter` does). Deleted: `metric_filters.go`,
+  `metric_filters_test.go`, `handler_metric_filters.go`, `handler_metric_filters_test.go`,
+  `rpcv2cbor_metric_filters.go`, the `MetricFilter`/`MetricTransformation` types and
+  `ErrMetricFilterNotFound` from `models.go`/`errors.go`, the `metricFilters` `store.Table` field
+  and its registration in `store.go`/`store_setup.go`, the four methods from the `StorageBackend`
+  interface in `interfaces.go`, and the op consts/routing in `handler.go`/`rpcv2cbor.go`. A
+  `persistence_test.go` round-trip test for `metricFilters` was also removed — it was the *only*
+  place `metricFilters` touched persistence at all; `persistence.go`'s real `backendSnapshot`
+  never included it, so no live snapshot format is affected by the removal.
+
+**Why `TestSDKCompleteness` (`sdk_completeness_test.go`, `pkgs/sdkcheck`) didn't catch this**: that
+test only checks that `GetSupportedOperations()` is a **superset** of the real SDK's op list (every
+real op must be handled) — it does not flag *extra* entries beyond what the SDK defines. That
+asymmetry is why four invented ops could sit in the routing table, `GetSupportedOperations()`, and
+a whole implementation family for an unknown number of prior passes without any test failing. Worth
+keeping in mind for other services: `sdkcheck.CheckCompleteness` passing is necessary but not
+sufficient evidence of a clean op surface — the op *list* itself needs an occasional read-through
+against the SDK's `api_op_*.go` file listing, not just per-op field-diffing.
+
+**Test fallout**: table-driven `Update*/success` and `Update*/not found` cases in
+`handler_metric_streams_test.go`, `handler_insight_rules_test.go`,
+`handler_alarm_mute_rules_test.go`, and `rpcv2cbor_test.go` were rewritten as `Put*/updates
+existing` cases (re-PUTting an existing resource name, proving create-or-update semantics on the
+one real op) instead of being simply deleted, so create-or-update behavior stays under test.
+`insight_rule_validation_test.go`'s own new tests (written earlier in this same pass, before the
+op-list diff) originally exercised `UpdateInsightRule` too and were fixed the same way.
+`handler_test.go#TestCloudWatchHandler_NewOpsInSupportedOperations` gained explicit
+`require.NotContains` assertions for all three deleted `Update*` op names, and
+`rpcv2cbor_test.go`'s three `Update*/not found` cases were repurposed as `Update*/not a real op`
+(same `wantCode: http.StatusBadRequest`, now asserting `InvalidAction` rather than
+`ResourceNotFoundException` under the hood — both happen to be 400, so the numeric assertion
+didn't need to change, only its meaning).

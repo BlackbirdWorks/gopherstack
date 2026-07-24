@@ -49,23 +49,6 @@ func (h *Handler) cborPutAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 	return writeCBOR(c, cbor.Map{})
 }
 
-func (h *Handler) cborUpdateAlarmMuteRule(input cbor.Map, c *echo.Context) error {
-	muteName := cborStr(input, "MuteName")
-	if muteName == "" {
-		return h.cborError(
-			c,
-			http.StatusBadRequest,
-			"InvalidParameterValue",
-			"MuteName is required",
-		)
-	}
-	if _, err := h.Backend.GetAlarmMuteRule(muteName); err != nil {
-		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
-	}
-
-	return h.cborPutAlarmMuteRule(input, c)
-}
-
 func (h *Handler) cborGetAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 	muteName := cborStr(input, "MuteName")
 	if muteName == "" {

@@ -82,28 +82,6 @@ func (h *Handler) handlePutAlarmMuteRule(form url.Values, c *echo.Context) error
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
-func (h *Handler) handleUpdateAlarmMuteRule(form url.Values, c *echo.Context) error {
-	muteName := form.Get("MuteName")
-	if muteName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "MuteName is required")
-	}
-	if _, err := h.Backend.GetAlarmMuteRule(muteName); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
-	}
-
-	if err := h.putAlarmMuteRuleFromForm(form, c); err != nil {
-		return err
-	}
-
-	type response struct {
-		XMLName   xml.Name `xml:"UpdateAlarmMuteRuleResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-	}
-
-	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
-}
-
 func (h *Handler) handleDeleteAlarmMuteRule(form url.Values, c *echo.Context) error {
 	muteName := form.Get("MuteName")
 	if muteName == "" {

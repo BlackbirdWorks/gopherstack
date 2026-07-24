@@ -27,32 +27,20 @@ func (h *Handler) cborPutInsightRuleWithName(
 		)
 	}
 
+	definition := cborStr(input, "RuleDefinition")
+	if err := validateInsightRuleDefinition(definition); err != nil {
+		return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+	}
+
 	if err := h.Backend.PutInsightRule(&InsightRule{
 		Name:       ruleName,
-		Definition: cborStr(input, "RuleDefinition"),
+		Definition: definition,
 		State:      cborStr(input, "RuleState"),
 	}); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	return writeCBOR(c, cbor.Map{})
-}
-
-func (h *Handler) cborUpdateInsightRule(input cbor.Map, c *echo.Context) error {
-	ruleName := cborStr(input, "RuleName")
-	if ruleName == "" {
-		return h.cborError(
-			c,
-			http.StatusBadRequest,
-			"InvalidParameterValue",
-			"RuleName is required",
-		)
-	}
-	if _, err := h.Backend.GetInsightRule(ruleName); err != nil {
-		return h.cborError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
-	}
-
-	return h.cborPutInsightRuleWithName(ruleName, input, c)
 }
 
 func (h *Handler) cborDeleteInsightRules(input cbor.Map, c *echo.Context) error {
