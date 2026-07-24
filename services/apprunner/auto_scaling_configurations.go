@@ -176,7 +176,9 @@ func (b *InMemoryBackend) UpdateDefaultAutoScalingConfiguration(asgArn string) (
 	return &cp, nil
 }
 
-// ListServicesForAutoScalingConfiguration returns service ARNs using the ASG config.
+// ListServicesForAutoScalingConfiguration returns the ARNs of every live
+// service currently associated with asgArn (which may be a full ARN,
+// name-only ARN, or bare name -- see resolveASG).
 func (b *InMemoryBackend) ListServicesForAutoScalingConfiguration(
 	asgArn string,
 	maxResults int32,
@@ -185,11 +187,20 @@ func (b *InMemoryBackend) ListServicesForAutoScalingConfiguration(
 	b.mu.RLock("ListServicesForAutoScalingConfiguration")
 	defer b.mu.RUnlock()
 
-	if !b.autoScalingConfigs.Has(asgArn) {
+	cfg, ok := b.resolveASG(asgArn)
+	if !ok {
 		return nil, "", fmt.Errorf("auto scaling configuration %s not found: %w", asgArn, ErrNotFound)
 	}
 
+	canonical := cfg.AutoScalingConfigurationArn
+
 	arns := make([]string, 0)
+	for _, svc := range b.services.Snapshot() {
+		if svc.AutoScalingConfigurationArn == canonical {
+			arns = append(arns, svc.ServiceArn)
+		}
+	}
+
 	limit := int(maxResults)
 	pg := page.New(arns, nextToken, limit, defaultMaxResults)
 

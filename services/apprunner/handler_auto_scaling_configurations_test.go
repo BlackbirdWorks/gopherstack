@@ -115,7 +115,9 @@ func TestAutoScalingConfigurationDescribeDeleteList(t *testing.T) { //nolint:par
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				list := resp["AutoScalingConfigurationSummaryList"].([]any)
-				assert.Len(t, list, 1)
+				// cfg1 plus the account's always-present DefaultConfiguration
+				// (see ensureDefaultAutoScalingConfiguration).
+				assert.Len(t, list, 2)
 			},
 		},
 		{
@@ -165,13 +167,16 @@ func TestAutoScalingConfigurationRevisions(t *testing.T) { //nolint:paralleltest
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	list := listResp["AutoScalingConfigurationSummaryList"].([]any)
-	assert.Len(t, list, 2)
+	// my-asg's 2 revisions plus the account's always-present
+	// DefaultConfiguration (see ensureDefaultAutoScalingConfiguration).
+	assert.Len(t, list, 3)
 
 	rec = doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{"LatestOnly": true})
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	list = listResp["AutoScalingConfigurationSummaryList"].([]any)
-	assert.Len(t, list, 1)
+	// my-asg's latest revision plus DefaultConfiguration.
+	assert.Len(t, list, 2)
 
 	rec = doRequest(t, h, "UpdateDefaultAutoScalingConfiguration", map[string]any{
 		"AutoScalingConfigurationArn": asgArn1,

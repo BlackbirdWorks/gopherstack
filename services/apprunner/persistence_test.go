@@ -46,7 +46,16 @@ func newPersistenceTestBackend(t *testing.T) (*apprunner.InMemoryBackend, persis
 
 	b := apprunner.NewInMemoryBackend("000000000000", "us-east-1")
 
-	svc, err := b.CreateService("svc1", "", "", "public.ecr.aws/x/y:latest", map[string]string{"env": "test"})
+	svc, err := b.CreateService(apprunner.CreateServiceParams{
+		Name: "svc1",
+		Source: apprunner.SourceConfig{
+			ImageRepository: &apprunner.ImageSource{
+				ImageIdentifier:     "public.ecr.aws/x/y:latest",
+				ImageRepositoryType: "ECR_PUBLIC",
+			},
+		},
+		Tags: map[string]string{"env": "test"},
+	})
 	require.NoError(t, err)
 
 	_, err = b.CreateAutoScalingConfiguration("asg1", 0, 0, 0, nil)
@@ -110,7 +119,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ids.serviceName, svc.ServiceName)
 
-	_, err = fresh.CreateService(ids.serviceName, "", "", "img", nil)
+	_, err = fresh.CreateService(apprunner.CreateServiceParams{
+		Name: ids.serviceName,
+		Source: apprunner.SourceConfig{
+			ImageRepository: &apprunner.ImageSource{ImageIdentifier: "img", ImageRepositoryType: "ECR_PUBLIC"},
+		},
+	})
 	require.ErrorIs(t, err, apprunner.ErrAlreadyExists)
 
 	// autoScalingConfigs table + asgByName raw map (rebuilt on Restore, not
@@ -196,7 +210,10 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, apprunner.ServiceCount(b))
-	assert.Equal(t, 0, apprunner.AutoScalingConfigCount(b))
+	// 1, not 0: the discarded-snapshot reset path re-seeds the account's
+	// always-present DefaultConfiguration (see
+	// ensureDefaultAutoScalingConfiguration).
+	assert.Equal(t, 1, apprunner.AutoScalingConfigCount(b))
 	assert.Equal(t, 0, apprunner.ConnectionCount(b))
 	assert.Equal(t, 0, apprunner.ObservabilityConfigCount(b))
 	assert.Equal(t, 0, apprunner.VpcConnectorCount(b))

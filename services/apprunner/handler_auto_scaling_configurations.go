@@ -126,6 +126,7 @@ type autoScalingConfigurationSummaryOutput struct {
 	Status                           string `json:"Status"`
 	AutoScalingConfigurationRevision int32  `json:"AutoScalingConfigurationRevision"`
 	IsDefault                        bool   `json:"IsDefault"`
+	HasAssociatedService             bool   `json:"HasAssociatedService"`
 	CreatedAt                        int64  `json:"CreatedAt"`
 }
 
@@ -163,6 +164,7 @@ func (h *Handler) handleListAutoScalingConfigurations(
 			AutoScalingConfigurationRevision: c.AutoScalingConfigurationRevision,
 			Status:                           c.Status,
 			IsDefault:                        c.IsDefault,
+			HasAssociatedService:             c.HasAssociatedService,
 			CreatedAt:                        c.CreatedAt.Unix(),
 		})
 	}
