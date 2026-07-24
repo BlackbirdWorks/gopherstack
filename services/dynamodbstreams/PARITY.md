@@ -7,7 +7,7 @@
 service: dynamodbstreams
 sdk_module: aws-sdk-go-v2/service/dynamodbstreams@v1.35.0   # version audited against
 last_audit_commit: 95ab0584                                  # HEAD when this manifest was written
-last_audit_date: 2026-07-11
+last_audit_date: 2026-07-24
 overall: B            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -87,3 +87,45 @@ green with zero changes required. This package had already been through four pri
 parity passes (`da1b1da1`, `45524338`, `b1146508`, `ce30166a`) plus a dedicated
 persistence-invariant doc commit (`cfdae261`); this fresh audit corroborates that prior
 work rather than finding new regressions.
+
+## Re-audit 2026-07-24
+
+Re-verified field-by-field against the same SDK module already checked out locally
+(`aws-sdk-go-v2/service/dynamodbstreams@v1.35.0` source read directly from the module
+cache: `types/types.go`, `api_op_*.go`, `validators.go`, `deserializers.go`). No wire,
+error-taxonomy, or state-mutation bugs found; confirms the `overall: B` grade still
+holds. This pass focused on closing test-coverage gaps in *this* package (the sibling
+`services/dynamodb` backend already had thorough coverage of the underlying iterator/
+sequence-number/trim logic in `streams_ops_test.go` and `streams_shard_iterator_test.go`
+— those were read and cross-checked, not duplicated) so that `services/dynamodbstreams`
+proves its own wire-translation layer independently:
+
+- `handler_records_test.go`: added HTTP-level coverage for `AT_SEQUENCE_NUMBER` /
+  `AFTER_SEQUENCE_NUMBER` iterator boundary semantics, the `ValidationException` path
+  when `SequenceNumber` is omitted for those two types, `TrimmedDataAccessException`
+  (writes 1001 items to age sequence 1 out of the 1000-record ring buffer, then requests
+  it — verifies the `dynamodbstreams` error namespace and HTTP 400), `StreamViewType`-
+  driven record shape (`KEYS_ONLY`/`NEW_IMAGE`/`OLD_IMAGE`/`NEW_AND_OLD_IMAGES`, table-
+  driven over INSERT vs MODIFY records), and `GetRecords` `Limit` pagination.
+- `handler_streams_test.go`: added `DescribeStream` `Limit` + `ExclusiveStartShardId`
+  pagination coverage (forces a shard split via 1001 `PutItem`s, same technique already
+  used by `TestHandler_DescribeStream_ShardGenealogy`).
+
+**Known test-coverage limitation (not a wire/state bug, left open):**
+`ExpiredIteratorException` (`services/dynamodb/streams_ops.go`'s `resolveIterator`,
+backed by `ShardIteratorStore`'s real 15-minute TTL in
+`services/dynamodb/streams_shard_iterator.go`) is implemented correctly by inspection —
+`Get()` compares `time.Now()` against `entry.ExpiresAt` and deletes+returns
+`ExpiredIteratorException` past that point — but is **not exercised by any test** in
+either package, because `shardIteratorTTL` is an unexported `const` with no clock-
+injection seam, and no test may sleep 15 real minutes. Adding a seam (an exported/
+overridable duration, or an injectable clock) would require a non-trivial change to
+`services/dynamodb/streams_shard_iterator.go`, which is out of this task's scope ("do
+NOT edit services/dynamodb unless a tiny read-accessor is genuinely required" — this
+would be a mutator/testability seam, not a read-accessor, so it was deliberately not
+made). Flagging as a follow-up: a bd issue should track adding a clock seam to
+`ShardIteratorStore` so both packages can add a real `TestExpiredIteratorException`.
+Separately, `GetRecords`' modeled `LimitExceededException` is never produced by this
+backend (there is no artificial per-subscriber rate-limiting anywhere in this
+emulator, consistent with how throttling-style exceptions are treated elsewhere in the
+codebase); this is intentional, not a gap.

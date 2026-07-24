@@ -288,6 +288,434 @@ func TestHandler_GetRecords_EventFields(t *testing.T) {
 	assert.NotNil(t, dynamodb["Keys"], "dynamodb must have Keys")
 }
 
+// TestHandler_GetShardIterator_AtAfterSequenceNumber_ViaHTTP verifies the
+// AT_SEQUENCE_NUMBER and AFTER_SEQUENCE_NUMBER iterator types end-to-end over
+// HTTP, including the exact boundary semantics (AT includes the given
+// sequence number, AFTER excludes it).
+func TestHandler_GetShardIterator_AtAfterSequenceNumber_ViaHTTP(t *testing.T) {
+	t.Parallel()
+
+	db := ddbbackend.NewInMemoryDB()
+	ctx := t.Context()
+
+	const tableName = "AtAfterSeqTable"
+	_, err := db.CreateTable(ctx, &ddbsdk.CreateTableInput{
+		TableName: aws.String(tableName),
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+		},
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+		},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+		StreamSpecification: &ddbtypes.StreamSpecification{
+			StreamEnabled:  aws.Bool(true),
+			StreamViewType: ddbtypes.StreamViewTypeKeysOnly,
+		},
+	})
+	require.NoError(t, err)
+
+	for i := range 3 {
+		_, err = db.PutItem(ctx, &ddbsdk.PutItemInput{
+			TableName: aws.String(tableName),
+			Item: map[string]ddbtypes.AttributeValue{
+				"pk": &ddbtypes.AttributeValueMemberS{Value: fmt.Sprintf("k%d", i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	table, ok := db.GetTable(tableName)
+	require.True(t, ok)
+
+	handler := dynamodbstreams.NewHandler(db)
+	shardID := "shardId-00000000000000000001-00000001"
+
+	// Read all 3 records via TRIM_HORIZON to learn the middle record's sequence number.
+	trimIterBody := fmt.Sprintf(
+		`{"StreamArn":"%s","ShardId":"%s","ShardIteratorType":"TRIM_HORIZON"}`,
+		table.StreamARN, shardID,
+	)
+	trimIterResp := doRequest(t, handler, "GetShardIterator", trimIterBody)
+	require.Equal(t, http.StatusOK, trimIterResp.Code)
+	var trimIterOut map[string]any
+	require.NoError(t, json.Unmarshal(trimIterResp.Body.Bytes(), &trimIterOut))
+	trimIter := trimIterOut["ShardIterator"].(string)
+
+	allRecResp := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s"}`, trimIter))
+	require.Equal(t, http.StatusOK, allRecResp.Code)
+	var allRecOut map[string]any
+	require.NoError(t, json.Unmarshal(allRecResp.Body.Bytes(), &allRecOut))
+	allRecords := allRecOut["Records"].([]any)
+	require.Len(t, allRecords, 3)
+	midSeq := allRecords[1].(map[string]any)["dynamodb"].(map[string]any)["SequenceNumber"].(string)
+
+	tests := []struct {
+		name      string
+		iterType  streamstypes.ShardIteratorType
+		wantCount int
+	}{
+		{
+			name:      "AT_SEQUENCE_NUMBER includes the given record",
+			iterType:  streamstypes.ShardIteratorTypeAtSequenceNumber,
+			wantCount: 2, // middle + last
+		},
+		{
+			name:      "AFTER_SEQUENCE_NUMBER excludes the given record",
+			iterType:  streamstypes.ShardIteratorTypeAfterSequenceNumber,
+			wantCount: 1, // last only
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			iterBody := fmt.Sprintf(
+				`{"StreamArn":"%s","ShardId":"%s","ShardIteratorType":"%s","SequenceNumber":"%s"}`,
+				table.StreamARN, shardID, string(tt.iterType), midSeq,
+			)
+			iterResp := doRequest(t, handler, "GetShardIterator", iterBody)
+			require.Equal(t, http.StatusOK, iterResp.Code)
+
+			var iterOut map[string]any
+			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+			shardIter := iterOut["ShardIterator"].(string)
+
+			recResp := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s"}`, shardIter))
+			require.Equal(t, http.StatusOK, recResp.Code)
+
+			var recOut map[string]any
+			require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut))
+			records, _ := recOut["Records"].([]any)
+			assert.Len(t, records, tt.wantCount)
+		})
+	}
+}
+
+// TestHandler_GetShardIterator_AtAfterSequenceNumber_MissingSequenceNumber verifies
+// that AT_SEQUENCE_NUMBER/AFTER_SEQUENCE_NUMBER without a SequenceNumber returns a
+// ValidationException over HTTP, matching the real API's required-parameter semantics.
+func TestHandler_GetShardIterator_AtAfterSequenceNumber_MissingSequenceNumber(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		iterType streamstypes.ShardIteratorType
+	}{
+		{name: "AT_SEQUENCE_NUMBER without SequenceNumber", iterType: streamstypes.ShardIteratorTypeAtSequenceNumber},
+		{
+			name:     "AFTER_SEQUENCE_NUMBER without SequenceNumber",
+			iterType: streamstypes.ShardIteratorTypeAfterSequenceNumber,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db, streamARN := newTestBackend(t)
+			handler := dynamodbstreams.NewHandler(db)
+
+			body := fmt.Sprintf(
+				`{"StreamArn":"%s","ShardId":"shardId-00000000000000000001-00000001","ShardIteratorType":"%s"}`,
+				streamARN, string(tt.iterType),
+			)
+			w := doRequest(t, handler, "GetShardIterator", body)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+
+			var errBody map[string]string
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+			assert.Contains(t, errBody["__type"], "ValidationException")
+			assert.Contains(t, errBody["__type"], "dynamodbstreams")
+		})
+	}
+}
+
+// TestHandler_ErrorPropagation_TrimmedDataAccess verifies that requesting stream
+// records at a sequence number that has aged out of the ring buffer (past the
+// 1000-record retention window) returns TrimmedDataAccessException with the
+// dynamodbstreams namespace and HTTP 400, matching real AWS 24h-retention behavior.
+func TestHandler_ErrorPropagation_TrimmedDataAccess(t *testing.T) {
+	t.Parallel()
+
+	db := ddbbackend.NewInMemoryDB()
+	ctx := t.Context()
+
+	const tableName = "TrimmedTable"
+	_, err := db.CreateTable(ctx, &ddbsdk.CreateTableInput{
+		TableName: aws.String(tableName),
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+		},
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+		},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+		StreamSpecification: &ddbtypes.StreamSpecification{
+			StreamEnabled:  aws.Bool(true),
+			StreamViewType: ddbtypes.StreamViewTypeKeysOnly,
+		},
+	})
+	require.NoError(t, err)
+
+	// Write 1001 items: the ring buffer holds 1000, so the very first record
+	// (sequence number 1) is now trimmed.
+	for i := range 1001 {
+		_, err = db.PutItem(ctx, &ddbsdk.PutItemInput{
+			TableName: aws.String(tableName),
+			Item: map[string]ddbtypes.AttributeValue{
+				"pk": &ddbtypes.AttributeValueMemberS{Value: fmt.Sprintf("key-%d", i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	table, ok := db.GetTable(tableName)
+	require.True(t, ok)
+
+	handler := dynamodbstreams.NewHandler(db)
+
+	// Sequence number 1 (the trimmed record) as a zero-padded 20-digit string.
+	const trimmedSeq = "00000000000000000001"
+
+	iterBody := fmt.Sprintf(
+		`{"StreamArn":"%s","ShardId":"shardId-00000000000000000001-00000001",`+
+			`"ShardIteratorType":"AT_SEQUENCE_NUMBER","SequenceNumber":"%s"}`,
+		table.StreamARN, trimmedSeq,
+	)
+	w := doRequest(t, handler, "GetShardIterator", iterBody)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var errBody map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+	assert.Contains(t, errBody["__type"], "TrimmedDataAccessException")
+	assert.Contains(t, errBody["__type"], "dynamodbstreams",
+		"error __type must use the dynamodbstreams namespace")
+	assert.NotEmpty(t, errBody["message"])
+}
+
+// TestHandler_GetRecords_StreamViewType_RecordShapes verifies that the
+// Keys/NewImage/OldImage fields present in each stream record match the
+// table's StreamViewType, per real AWS semantics:
+//
+//	KEYS_ONLY          -- Keys only
+//	NEW_IMAGE          -- Keys + NewImage (INSERT/MODIFY); no OldImage ever
+//	OLD_IMAGE          -- Keys + OldImage (MODIFY only, since INSERT has no old item); no NewImage ever
+//	NEW_AND_OLD_IMAGES -- Keys + NewImage (INSERT/MODIFY) + OldImage (MODIFY)
+func TestHandler_GetRecords_StreamViewType_RecordShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		viewType           ddbtypes.StreamViewType
+		wantInsertNewImage bool
+		wantInsertOldImage bool
+		wantModifyNewImage bool
+		wantModifyOldImage bool
+	}{
+		{
+			name:               "KEYS_ONLY",
+			viewType:           ddbtypes.StreamViewTypeKeysOnly,
+			wantInsertNewImage: false,
+			wantInsertOldImage: false,
+			wantModifyNewImage: false,
+			wantModifyOldImage: false,
+		},
+		{
+			name:               "NEW_IMAGE",
+			viewType:           ddbtypes.StreamViewTypeNewImage,
+			wantInsertNewImage: true,
+			wantInsertOldImage: false,
+			wantModifyNewImage: true,
+			wantModifyOldImage: false,
+		},
+		{
+			name:               "OLD_IMAGE",
+			viewType:           ddbtypes.StreamViewTypeOldImage,
+			wantInsertNewImage: false,
+			wantInsertOldImage: false,
+			wantModifyNewImage: false,
+			wantModifyOldImage: true,
+		},
+		{
+			name:               "NEW_AND_OLD_IMAGES",
+			viewType:           ddbtypes.StreamViewTypeNewAndOldImages,
+			wantInsertNewImage: true,
+			wantInsertOldImage: false,
+			wantModifyNewImage: true,
+			wantModifyOldImage: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := ddbbackend.NewInMemoryDB()
+			ctx := t.Context()
+
+			tableName := "ViewTypeTable" + tt.name
+			_, err := db.CreateTable(ctx, &ddbsdk.CreateTableInput{
+				TableName: aws.String(tableName),
+				KeySchema: []ddbtypes.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+				},
+				AttributeDefinitions: []ddbtypes.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+				},
+				BillingMode: ddbtypes.BillingModePayPerRequest,
+				StreamSpecification: &ddbtypes.StreamSpecification{
+					StreamEnabled:  aws.Bool(true),
+					StreamViewType: tt.viewType,
+				},
+			})
+			require.NoError(t, err)
+
+			// INSERT.
+			_, err = db.PutItem(ctx, &ddbsdk.PutItemInput{
+				TableName: aws.String(tableName),
+				Item: map[string]ddbtypes.AttributeValue{
+					"pk":   &ddbtypes.AttributeValueMemberS{Value: "row"},
+					"attr": &ddbtypes.AttributeValueMemberS{Value: "v1"},
+				},
+			})
+			require.NoError(t, err)
+
+			// MODIFY.
+			_, err = db.PutItem(ctx, &ddbsdk.PutItemInput{
+				TableName: aws.String(tableName),
+				Item: map[string]ddbtypes.AttributeValue{
+					"pk":   &ddbtypes.AttributeValueMemberS{Value: "row"},
+					"attr": &ddbtypes.AttributeValueMemberS{Value: "v2"},
+				},
+			})
+			require.NoError(t, err)
+
+			table, ok := db.GetTable(tableName)
+			require.True(t, ok)
+
+			handler := dynamodbstreams.NewHandler(db)
+
+			iterBody := fmt.Sprintf(
+				`{"StreamArn":"%s","ShardId":"shardId-00000000000000000001-00000001","ShardIteratorType":"TRIM_HORIZON"}`,
+				table.StreamARN,
+			)
+			iterResp := doRequest(t, handler, "GetShardIterator", iterBody)
+			require.Equal(t, http.StatusOK, iterResp.Code)
+			var iterOut map[string]any
+			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+			shardIter := iterOut["ShardIterator"].(string)
+
+			recResp := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s"}`, shardIter))
+			require.Equal(t, http.StatusOK, recResp.Code)
+			var recOut map[string]any
+			require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut))
+			records := recOut["Records"].([]any)
+			require.Len(t, records, 2, "must have exactly INSERT + MODIFY records")
+
+			insert := records[0].(map[string]any)
+			require.Equal(t, "INSERT", insert["eventName"])
+			insertData := insert["dynamodb"].(map[string]any)
+			assert.NotNil(t, insertData["Keys"], "Keys must always be present")
+			assertPresence(t, insertData, "NewImage", tt.wantInsertNewImage)
+			assertPresence(t, insertData, "OldImage", tt.wantInsertOldImage)
+
+			modify := records[1].(map[string]any)
+			require.Equal(t, "MODIFY", modify["eventName"])
+			modifyData := modify["dynamodb"].(map[string]any)
+			assert.NotNil(t, modifyData["Keys"], "Keys must always be present")
+			assertPresence(t, modifyData, "NewImage", tt.wantModifyNewImage)
+			assertPresence(t, modifyData, "OldImage", tt.wantModifyOldImage)
+		})
+	}
+}
+
+// assertPresence asserts whether key is present (non-nil) in m according to want.
+func assertPresence(t *testing.T, m map[string]any, key string, want bool) {
+	t.Helper()
+
+	v, exists := m[key]
+	if want {
+		assert.True(t, exists && v != nil, "%s must be present", key)
+	} else {
+		assert.False(t, exists && v != nil, "%s must be absent", key)
+	}
+}
+
+// TestHandler_GetRecords_Limit verifies that GetRecords honors the Limit
+// parameter, returning at most that many records and a NextShardIterator that
+// can be used to fetch the remainder.
+func TestHandler_GetRecords_Limit(t *testing.T) {
+	t.Parallel()
+
+	db := ddbbackend.NewInMemoryDB()
+	ctx := t.Context()
+
+	const tableName = "LimitTable"
+	_, err := db.CreateTable(ctx, &ddbsdk.CreateTableInput{
+		TableName: aws.String(tableName),
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+		},
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+		},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+		StreamSpecification: &ddbtypes.StreamSpecification{
+			StreamEnabled:  aws.Bool(true),
+			StreamViewType: ddbtypes.StreamViewTypeKeysOnly,
+		},
+	})
+	require.NoError(t, err)
+
+	for i := range 5 {
+		_, err = db.PutItem(ctx, &ddbsdk.PutItemInput{
+			TableName: aws.String(tableName),
+			Item: map[string]ddbtypes.AttributeValue{
+				"pk": &ddbtypes.AttributeValueMemberS{Value: fmt.Sprintf("k%d", i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	table, ok := db.GetTable(tableName)
+	require.True(t, ok)
+
+	handler := dynamodbstreams.NewHandler(db)
+
+	iterBody := fmt.Sprintf(
+		`{"StreamArn":"%s","ShardId":"shardId-00000000000000000001-00000001","ShardIteratorType":"TRIM_HORIZON"}`,
+		table.StreamARN,
+	)
+	iterResp := doRequest(t, handler, "GetShardIterator", iterBody)
+	require.Equal(t, http.StatusOK, iterResp.Code)
+	var iterOut map[string]any
+	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+	shardIter := iterOut["ShardIterator"].(string)
+
+	// First page: Limit=2.
+	recResp := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s","Limit":2}`, shardIter))
+	require.Equal(t, http.StatusOK, recResp.Code)
+	var recOut map[string]any
+	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut))
+	records := recOut["Records"].([]any)
+	require.Len(t, records, 2, "Limit must cap the number of records returned")
+
+	nextIter, ok := recOut["NextShardIterator"].(string)
+	require.True(t, ok, "NextShardIterator must be present so pollers can continue")
+
+	// Second page: read the remainder.
+	recResp2 := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s"}`, nextIter))
+	require.Equal(t, http.StatusOK, recResp2.Code)
+	var recOut2 map[string]any
+	require.NoError(t, json.Unmarshal(recResp2.Body.Bytes(), &recOut2))
+	records2 := recOut2["Records"].([]any)
+	assert.Len(t, records2, 3, "remaining 3 records must be returned on the next page")
+}
+
 func TestHandler_GetShardIterator_AllIteratorTypes_ViaHTTP(t *testing.T) {
 	t.Parallel()
 

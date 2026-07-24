@@ -111,6 +111,81 @@ func TestHandler_DescribeStream_ShardGenealogy(t *testing.T) {
 		"child shard must reference parent via ParentShardId")
 }
 
+// TestHandler_DescribeStream_Pagination_ExclusiveStartShardId verifies that
+// DescribeStream honors Limit and ExclusiveStartShardId together, returning
+// LastEvaluatedShardId on the first (truncated) page and the remaining shards
+// on the follow-up request, matching real AWS shard pagination.
+func TestHandler_DescribeStream_Pagination_ExclusiveStartShardId(t *testing.T) {
+	t.Parallel()
+
+	db := ddbbackend.NewInMemoryDB()
+	ctx := t.Context()
+
+	const tableName = "ShardPageTable"
+	_, err := db.CreateTable(ctx, &ddbsdk.CreateTableInput{
+		TableName: aws.String(tableName),
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+		},
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+		},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+		StreamSpecification: &ddbtypes.StreamSpecification{
+			StreamEnabled:  aws.Bool(true),
+			StreamViewType: ddbtypes.StreamViewTypeKeysOnly,
+		},
+	})
+	require.NoError(t, err)
+
+	// Write 1001 items to force a shard split, giving DescribeStream at least
+	// 2 shards to paginate over.
+	for i := range 1001 {
+		_, err = db.PutItem(ctx, &ddbsdk.PutItemInput{
+			TableName: aws.String(tableName),
+			Item: map[string]ddbtypes.AttributeValue{
+				"pk": &ddbtypes.AttributeValueMemberS{Value: fmt.Sprintf("key-%d", i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	table, ok := db.GetTable(tableName)
+	require.True(t, ok)
+
+	handler := dynamodbstreams.NewHandler(db)
+
+	// First page: Limit=1.
+	page1 := doRequest(t, handler, "DescribeStream",
+		fmt.Sprintf(`{"StreamArn":"%s","Limit":1}`, table.StreamARN))
+	require.Equal(t, 200, page1.Code)
+	var out1 map[string]any
+	require.NoError(t, json.Unmarshal(page1.Body.Bytes(), &out1))
+	desc1 := out1["StreamDescription"].(map[string]any)
+	shards1 := desc1["Shards"].([]any)
+	require.Len(t, shards1, 1, "Limit=1 must cap the shard list to 1")
+
+	lastShardID, ok := desc1["LastEvaluatedShardId"].(string)
+	require.True(t, ok, "truncated page must set LastEvaluatedShardId")
+	require.NotEmpty(t, lastShardID)
+
+	// Second page: use ExclusiveStartShardId to continue.
+	page2 := doRequest(t, handler, "DescribeStream",
+		fmt.Sprintf(`{"StreamArn":"%s","ExclusiveStartShardId":"%s"}`, table.StreamARN, lastShardID))
+	require.Equal(t, 200, page2.Code)
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(page2.Body.Bytes(), &out2))
+	desc2 := out2["StreamDescription"].(map[string]any)
+	shards2 := desc2["Shards"].([]any)
+	require.NotEmpty(t, shards2, "second page must return the remaining shards")
+
+	// No overlap between pages.
+	shard1ID := shards1[0].(map[string]any)["ShardId"].(string)
+	shard2ID := shards2[0].(map[string]any)["ShardId"].(string)
+	assert.NotEqual(t, shard1ID, shard2ID, "pages must not overlap")
+	assert.Equal(t, lastShardID, shard1ID, "LastEvaluatedShardId must match the last shard returned")
+}
+
 func TestHandler_ListStreams_PaginationViaHTTP(t *testing.T) {
 	t.Parallel()
 
