@@ -114,13 +114,19 @@ type createProbeRequest struct {
 }
 
 // updateProbeRequest is the request body for PATCH /monitors/{monitorName}/probes/{probeId}.
+//
+// This intentionally has no Tags field: the real SDK's UpdateProbeInput has
+// no Tags member (confirmed against
+// aws-sdk-go-v2/service/networkmonitor/api_op_UpdateProbe.go), so a real
+// client can never send one on this operation. UpdateProbeOutput does still
+// echo the probe's current tags (see probeWireBody), which is unaffected by
+// this struct.
 type updateProbeRequest struct {
-	Tags            map[string]string `json:"tags,omitempty"`
-	DestinationPort *int32            `json:"destinationPort,omitempty"`
-	PacketSize      *int32            `json:"packetSize,omitempty"`
-	Destination     string            `json:"destination,omitempty"`
-	Protocol        string            `json:"protocol,omitempty"`
-	State           string            `json:"state,omitempty"`
+	DestinationPort *int32 `json:"destinationPort,omitempty"`
+	PacketSize      *int32 `json:"packetSize,omitempty"`
+	Destination     string `json:"destination,omitempty"`
+	Protocol        string `json:"protocol,omitempty"`
+	State           string `json:"state,omitempty"`
 }
 
 // probeWireBody is the probe shape returned on the wire.

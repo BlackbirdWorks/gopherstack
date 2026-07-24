@@ -306,6 +306,9 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		status = http.StatusConflict
 		code = "ConflictException"
+	case errors.Is(err, ErrServiceQuotaExceeded):
+		status = http.StatusPaymentRequired
+		code = "ServiceQuotaExceededException"
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		status = http.StatusBadRequest
 		code = "ValidationException"

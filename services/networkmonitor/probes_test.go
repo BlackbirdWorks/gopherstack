@@ -122,11 +122,18 @@ func TestCreateProbeValidation(t *testing.T) {
 			wantErr:     true,
 		},
 		{
-			name:        "destination port too high",
+			name:        "destination port at upper bound",
 			destination: "10.0.0.1",
 			protocol:    "TCP",
 			sourceArn:   "arn:aws:ec2:us-east-1:000000000000:subnet/subnet-abc",
 			destPort:    ptr(int32(65536)),
+		},
+		{
+			name:        "destination port too high",
+			destination: "10.0.0.1",
+			protocol:    "TCP",
+			sourceArn:   "arn:aws:ec2:us-east-1:000000000000:subnet/subnet-abc",
+			destPort:    ptr(int32(65537)),
 			wantErr:     true,
 		},
 	}
