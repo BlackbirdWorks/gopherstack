@@ -13,11 +13,13 @@ import (
 // Group request/response types
 // ----------------------------------------
 
+// createGroupRequest has no ExternalIds field -- the real CreateGroupRequest
+// smithy shape does not accept one (only IdentityStoreId, DisplayName,
+// Description). See the doc comment on CreateGroupRequest in groups.go.
 type createGroupRequest struct {
-	IdentityStoreID string       `json:"IdentityStoreId"`
-	DisplayName     string       `json:"DisplayName"`
-	Description     string       `json:"Description"`
-	ExternalIDs     []ExternalID `json:"ExternalIds"`
+	IdentityStoreID string `json:"IdentityStoreId"`
+	DisplayName     string `json:"DisplayName"`
+	Description     string `json:"Description"`
 }
 
 type createGroupResponse struct {
@@ -69,7 +71,6 @@ func (h *Handler) handleCreateGroup(ctx context.Context, c *echo.Context, body [
 	group, err := h.Backend.CreateGroup(ctx, req.IdentityStoreID, &CreateGroupRequest{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
-		ExternalIDs: req.ExternalIDs,
 	})
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -140,6 +141,10 @@ func (h *Handler) handleUpdateGroup(ctx context.Context, c *echo.Context, body [
 
 	if strings.TrimSpace(req.GroupID) == "" {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "GroupId is required")
+	}
+
+	if err := validateOperations(req.Operations); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
 	if err := h.Backend.UpdateGroup(ctx, req.IdentityStoreID, req.GroupID, req.Operations); err != nil {

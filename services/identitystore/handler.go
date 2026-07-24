@@ -252,6 +252,28 @@ func validateMaxResults(maxResults int32) error {
 	return nil
 }
 
+// maxOperationsPerUpdate is the AWS-modeled upper bound on the number of
+// AttributeOperation entries in a single UpdateUser/UpdateGroup request (the
+// shared AttributeOperations smithy list shape has min:1/max:100).
+const maxOperationsPerUpdate = 100
+
+// errOperationsOutOfRange is returned when UpdateUser/UpdateGroup's
+// Operations list is empty or exceeds the AWS-permitted 1-100 bound.
+var errOperationsOutOfRange = fmt.Errorf(
+	"operations must contain between 1 and %d items", maxOperationsPerUpdate,
+)
+
+// validateOperations enforces the AWS Identity Store UpdateUser/UpdateGroup
+// Operations bound. Operations is a required member with min:1/max:100 on
+// the real AttributeOperations shape.
+func validateOperations(ops []attributeOperation) error {
+	if len(ops) == 0 || len(ops) > maxOperationsPerUpdate {
+		return errOperationsOutOfRange
+	}
+
+	return nil
+}
+
 // alternateIDResult holds the parsed fields from an alternate-identifier request.
 type alternateIDResult struct {
 	storeID   string
@@ -330,7 +352,12 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
 	}
 
-	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	// InternalServerException is the real Identity Store smithy model's
+	// modeled internal-error shape (types.InternalServerException); unlike
+	// some other gopherstack services this backend never actually returns an
+	// unmapped error today (every sentinel above is exhaustive), so this is
+	// a defensive fallback rather than a reachable path.
+	return h.writeError(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 }
 
 // writeResourceError writes a ResourceNotFoundException with a ResourceType field for

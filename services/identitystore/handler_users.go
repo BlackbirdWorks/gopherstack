@@ -168,6 +168,10 @@ func (h *Handler) handleUpdateUser(ctx context.Context, c *echo.Context, body []
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "UserId is required")
 	}
 
+	if err := validateOperations(req.Operations); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
 	if err := h.Backend.UpdateUser(ctx, req.IdentityStoreID, req.UserID, req.Operations); err != nil {
 		return h.handleBackendError(c, err)
 	}

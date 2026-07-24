@@ -140,16 +140,30 @@ func TestGetGroupIDExternalID(t *testing.T) {
 
 			h := newTestHandler()
 
-			// Create a group with ExternalIds.
+			// Real CreateGroup has no ExternalIds parameter -- ExternalIds is
+			// only settable via UpdateGroup's AttributeOperations (see the
+			// doc comment on CreateGroupRequest in groups.go), so seed it
+			// with a create followed by an update.
 			createRec := doRequest(t, h, "CreateGroup", map[string]any{
 				"IdentityStoreId": testStoreID,
 				"DisplayName":     "ext-group-" + tt.name,
-				"ExternalIds": []map[string]string{
-					{"Issuer": "https://sso.example.com", "Id": "ext-group-001"},
-				},
 			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 			createdGroupID := parseResponse(t, createRec)["GroupId"].(string)
+
+			updRec := doRequest(t, h, "UpdateGroup", map[string]any{
+				"IdentityStoreId": testStoreID,
+				"GroupId":         createdGroupID,
+				"Operations": []map[string]any{
+					{
+						"AttributePath": "ExternalIds",
+						"AttributeValue": []map[string]string{
+							{"Issuer": "https://sso.example.com", "Id": "ext-group-001"},
+						},
+					},
+				},
+			})
+			require.Equal(t, http.StatusOK, updRec.Code)
 
 			rec := doRequest(t, h, "GetGroupId", map[string]any{
 				"IdentityStoreId": testStoreID,
@@ -177,26 +191,50 @@ func TestGetGroupIDExternalIDIssuerIsolation(t *testing.T) {
 
 	h := newTestHandler()
 
-	// Create two groups with the same Id but different Issuers.
+	// Create two groups with the same Id but different Issuers. Real
+	// CreateGroup has no ExternalIds parameter, so each group's ExternalIds
+	// is seeded via UpdateGroup after creation (see TestGetGroupIDExternalID).
 	createRec1 := doRequest(t, h, "CreateGroup", map[string]any{
 		"IdentityStoreId": testStoreID,
 		"DisplayName":     "group-issuer-a",
-		"ExternalIds": []map[string]string{
-			{"Issuer": "https://issuer-a.example.com", "Id": "shared-ext-id"},
-		},
 	})
 	require.Equal(t, http.StatusOK, createRec1.Code)
 	groupA := parseResponse(t, createRec1)["GroupId"].(string)
 
+	updRecA := doRequest(t, h, "UpdateGroup", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"GroupId":         groupA,
+		"Operations": []map[string]any{
+			{
+				"AttributePath": "ExternalIds",
+				"AttributeValue": []map[string]string{
+					{"Issuer": "https://issuer-a.example.com", "Id": "shared-ext-id"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updRecA.Code)
+
 	createRec2 := doRequest(t, h, "CreateGroup", map[string]any{
 		"IdentityStoreId": testStoreID,
 		"DisplayName":     "group-issuer-b",
-		"ExternalIds": []map[string]string{
-			{"Issuer": "https://issuer-b.example.com", "Id": "shared-ext-id"},
-		},
 	})
 	require.Equal(t, http.StatusOK, createRec2.Code)
 	groupB := parseResponse(t, createRec2)["GroupId"].(string)
+
+	updRecB := doRequest(t, h, "UpdateGroup", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"GroupId":         groupB,
+		"Operations": []map[string]any{
+			{
+				"AttributePath": "ExternalIds",
+				"AttributeValue": []map[string]string{
+					{"Issuer": "https://issuer-b.example.com", "Id": "shared-ext-id"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updRecB.Code)
 
 	// Lookup by issuer-a must return group A.
 	recA := doRequest(t, h, "GetGroupId", map[string]any{

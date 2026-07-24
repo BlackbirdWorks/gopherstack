@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -107,6 +108,15 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // generateID creates a UUID-format unique ID matching the AWS Identity Store format.
 func (b *InMemoryBackend) generateID() string {
 	return uuid.New().String()
+}
+
+// simulatedCallerARN returns a deterministic placeholder ARN for the
+// CreatedBy/UpdatedBy fields real AWS populates with the calling principal's
+// ARN. gopherstack does not model IAM caller identity for Identity Store, so
+// this returns a stable, wire-shape-valid ARN instead of leaving the field
+// empty (mirrors services/bedrock's identical helper).
+func (b *InMemoryBackend) simulatedCallerARN() string {
+	return arn.Build("iam", "", b.accountID, "root")
 }
 
 // splitExternalIDCompound splits a compound ExternalId key (encoded by extractAlternateIdentifier)

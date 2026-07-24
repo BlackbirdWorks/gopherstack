@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // maxDisplayNameLength is the maximum length allowed for a group's DisplayName.
@@ -15,10 +16,21 @@ const maxDisplayNameLength = 1024
 // ----------------------------------------
 
 // CreateGroupRequest holds the parameters for creating a group.
+//
+// The real CreateGroupRequest smithy shape has no ExternalIds member --
+// ExternalIds is populated only by external-identity-provider provisioning
+// and is exposed as an attribute Group carries, but it is not settable at
+// creation time by any real API caller. A previous revision of this struct
+// (and the wire-facing createGroupRequest in handler_groups.go) accepted and
+// applied an ExternalIds field at CreateGroup time; that was a
+// gopherstack-invented capability with no real-AWS counterpart and has been
+// removed. ExternalIds is instead settable the same way DisplayName and
+// Description are: via UpdateGroup's AttributeOperations (see
+// applyGroupAttributes below), mirroring how User.ExternalIDs is only
+// reachable through UpdateUser, never CreateUser.
 type CreateGroupRequest struct {
-	DisplayName string       `json:"DisplayName"`
-	Description string       `json:"Description"`
-	ExternalIDs []ExternalID `json:"ExternalIds"`
+	DisplayName string `json:"DisplayName"`
+	Description string `json:"Description"`
 }
 
 // CreateGroup creates a new group in the identity store.
@@ -40,13 +52,18 @@ func (b *InMemoryBackend) CreateGroup(ctx context.Context, storeID string, req *
 	}
 
 	groupID := b.generateID()
+	now := epochTime(time.Now().UTC())
+	callerARN := b.simulatedCallerARN()
 	group := &Group{
 		GroupID:         groupID,
 		IdentityStoreID: storeID,
 		DisplayName:     req.DisplayName,
 		Description:     req.Description,
-		ExternalIDs:     req.ExternalIDs,
 		region:          region,
+		CreatedAt:       now,
+		CreatedBy:       callerARN,
+		UpdatedAt:       now,
+		UpdatedBy:       callerARN,
 	}
 
 	b.groups.Put(group)
@@ -112,6 +129,9 @@ func (b *InMemoryBackend) UpdateGroup(ctx context.Context, storeID, groupID stri
 
 	applyGroupAttributes(group, ops)
 
+	group.UpdatedAt = epochTime(time.Now().UTC())
+	group.UpdatedBy = b.simulatedCallerARN()
+
 	b.groups.Put(group)
 
 	return nil
@@ -149,6 +169,8 @@ func applyGroupAttributes(group *Group, ops []attributeOperation) {
 			if s, isStr := op.AttributeValue.(string); isStr {
 				group.Description = s
 			}
+		case "externalids":
+			group.ExternalIDs = parseExternalIDs(op.AttributeValue)
 		}
 	}
 }

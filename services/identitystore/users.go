@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
@@ -72,6 +73,8 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, storeID string, req *C
 	}
 
 	userID := b.generateID()
+	now := epochTime(time.Now().UTC())
+	callerARN := b.simulatedCallerARN()
 	user := &User{
 		UserID:          userID,
 		IdentityStoreID: storeID,
@@ -95,6 +98,10 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, storeID string, req *C
 		Roles:           req.Roles,
 		ExternalIDs:     req.ExternalIDs,
 		region:          region,
+		CreatedAt:       now,
+		CreatedBy:       callerARN,
+		UpdatedAt:       now,
+		UpdatedBy:       callerARN,
 	}
 
 	b.users.Put(user)
@@ -164,6 +171,9 @@ func (b *InMemoryBackend) UpdateUser(ctx context.Context, storeID, userID string
 	for _, op := range ops {
 		applyUserAttribute(user, op.AttributePath, op.AttributeValue)
 	}
+
+	user.UpdatedAt = epochTime(time.Now().UTC())
+	user.UpdatedBy = b.simulatedCallerARN()
 
 	b.users.Put(user)
 
