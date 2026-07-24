@@ -183,6 +183,10 @@ func (h *Handler) handleCreateResource(
 		return nil, fmt.Errorf("%w: TypeName is required", ErrValidation)
 	}
 
+	if in.DesiredState == "" {
+		return nil, fmt.Errorf("%w: DesiredState is required", ErrValidation)
+	}
+
 	event, err := h.Backend.CreateResource(in.TypeName, in.DesiredState, in.ClientToken)
 	if err != nil {
 		return nil, err
@@ -194,8 +198,9 @@ func (h *Handler) handleCreateResource(
 // --- DeleteResource ---
 
 type deleteResourceInput struct {
-	TypeName   string `json:"TypeName"`
-	Identifier string `json:"Identifier"`
+	TypeName    string `json:"TypeName"`
+	Identifier  string `json:"Identifier"`
+	ClientToken string `json:"ClientToken,omitempty"`
 }
 
 type deleteResourceOutput struct {
@@ -214,7 +219,7 @@ func (h *Handler) handleDeleteResource(
 		return nil, fmt.Errorf("%w: Identifier is required", ErrValidation)
 	}
 
-	event, err := h.Backend.DeleteResource(in.TypeName, in.Identifier)
+	event, err := h.Backend.DeleteResource(in.TypeName, in.Identifier, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -330,6 +335,7 @@ type updateResourceInput struct {
 	TypeName      string `json:"TypeName"`
 	Identifier    string `json:"Identifier"`
 	PatchDocument string `json:"PatchDocument"`
+	ClientToken   string `json:"ClientToken,omitempty"`
 }
 
 type updateResourceOutput struct {
@@ -348,7 +354,11 @@ func (h *Handler) handleUpdateResource(
 		return nil, fmt.Errorf("%w: Identifier is required", ErrValidation)
 	}
 
-	event, err := h.Backend.UpdateResource(in.TypeName, in.Identifier, in.PatchDocument)
+	if in.PatchDocument == "" {
+		return nil, fmt.Errorf("%w: PatchDocument is required", ErrValidation)
+	}
+
+	event, err := h.Backend.UpdateResource(in.TypeName, in.Identifier, in.PatchDocument, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -364,6 +374,26 @@ type getResourceRequestStatusInput struct {
 
 type getResourceRequestStatusOutput struct {
 	ProgressEvent *ProgressEvent `json:"ProgressEvent"`
+	// HooksProgressEvent lists Hook invocations for the request's target.
+	// This backend has no Hooks concept, so it is always empty/omitted --
+	// modeled as a real (always-nil) field for wire-shape parity with
+	// GetResourceRequestStatusOutput.HooksProgressEvent rather than being
+	// absent from the struct entirely.
+	HooksProgressEvent []hookProgressEvent `json:"HooksProgressEvent,omitempty"`
+}
+
+// hookProgressEvent mirrors types.HookProgressEvent. This backend never
+// populates it (no Hooks concept), but the field is modeled on the output
+// struct for wire-shape parity -- see getResourceRequestStatusOutput.
+type hookProgressEvent struct {
+	FailureMode       string         `json:"FailureMode,omitempty"`
+	HookEventTime     *unixEpochTime `json:"HookEventTime,omitempty"`
+	HookStatus        string         `json:"HookStatus,omitempty"`
+	HookStatusMessage string         `json:"HookStatusMessage,omitempty"`
+	HookTypeArn       string         `json:"HookTypeArn,omitempty"`
+	HookTypeName      string         `json:"HookTypeName,omitempty"`
+	HookTypeVersionId string         `json:"HookTypeVersionId,omitempty"` //nolint:revive,staticcheck // matches SDK name
+	InvocationPoint   string         `json:"InvocationPoint,omitempty"`
 }
 
 func (h *Handler) handleGetResourceRequestStatus(
@@ -410,8 +440,13 @@ func (h *Handler) handleCancelResourceRequest(
 
 // --- ListResourceRequests ---
 
+// resourceRequestStatusFilter mirrors the real SDK's types.ResourceRequestStatusFilter,
+// which has exactly two members: Operations and OperationStatuses. It does NOT
+// have a TypeName member -- confirmed against both the aws-sdk-go-v2 types
+// package and botocore's service-2.json model -- so ListResourceRequests has no
+// way to filter by resource type on the wire. (A prior gopherstack pass invented
+// a TypeName field here; removed.)
 type resourceRequestStatusFilter struct {
-	TypeName          string   `json:"TypeName,omitempty"`
 	Operations        []string `json:"Operations"`
 	OperationStatuses []string `json:"OperationStatuses"`
 }
@@ -436,7 +471,6 @@ func (h *Handler) handleListResourceRequests(
 		filter = &ResourceRequestFilter{
 			Operations:        in.ResourceRequestStatusFilter.Operations,
 			OperationStatuses: in.ResourceRequestStatusFilter.OperationStatuses,
-			TypeName:          in.ResourceRequestStatusFilter.TypeName,
 		}
 	}
 

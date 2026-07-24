@@ -37,13 +37,8 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 	b.mu.Lock("CreateResource")
 	defer b.mu.Unlock()
 
-	// Idempotency: if the same clientToken was used before, return the cached event.
-	if clientToken != "" {
-		if prevToken, ok := b.clientTokens[clientToken]; ok {
-			if cachedEvent, found := b.requests.Get(prevToken); found {
-				return copyEvent(cachedEvent), nil
-			}
-		}
+	if cached := b.cachedEventForToken(clientToken); cached != nil {
+		return cached, nil
 	}
 
 	if b.resources.Has(key) {
@@ -67,10 +62,7 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 		ResourceModel:   desiredState,
 	}
 	b.requests.Put(event)
-
-	if clientToken != "" {
-		b.clientTokens[clientToken] = token
-	}
+	b.rememberClientToken(clientToken, token)
 
 	return copyEvent(event), nil
 }
@@ -117,7 +109,19 @@ func (b *InMemoryBackend) ListResources(typeName string, maxResults int, nextTok
 
 	pg := page.New(all, nextToken, maxResults, defaultListMaxResults)
 
-	return pg.Data, pg.Next
+	// store.Table.Range hands back the live pointers held in the backend's
+	// map (see pkgs/store's package doc: Table performs no copying, that is
+	// the owning backend's job). Every other accessor here (GetResource,
+	// Create/Update/DeleteResource's ProgressEvent) already returns a copy so
+	// a caller can never mutate backend state without the lock; ListResources
+	// previously handed back live *Resource pointers instead, breaking that
+	// invariant. Copy on the way out to match.
+	out := make([]*Resource, len(pg.Data))
+	for i, r := range pg.Data {
+		out[i] = copyResource(r)
+	}
+
+	return out, pg.Next
 }
 
 // ListAllResources returns all resources regardless of type, sorted by TypeName then Identifier.
@@ -126,21 +130,32 @@ func (b *InMemoryBackend) ListAllResources() []*Resource {
 	b.mu.RLock("ListAllResources")
 	defer b.mu.RUnlock()
 
-	out := b.resources.All()
+	all := b.resources.All()
 
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].TypeName != out[j].TypeName {
-			return out[i].TypeName < out[j].TypeName
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].TypeName != all[j].TypeName {
+			return all[i].TypeName < all[j].TypeName
 		}
 
-		return out[i].Identifier < out[j].Identifier
+		return all[i].Identifier < all[j].Identifier
 	})
+
+	// Copy on the way out -- see the matching comment in ListResources above;
+	// b.resources.All() also hands back live internal pointers.
+	out := make([]*Resource, len(all))
+	for i, r := range all {
+		out[i] = copyResource(r)
+	}
 
 	return out
 }
 
 // DeleteResource removes the resource identified by typeName and identifier.
-func (b *InMemoryBackend) DeleteResource(typeName, identifier string) (*ProgressEvent, error) {
+// An optional clientToken may be supplied for idempotency, matching the real
+// DeleteResourceInput.ClientToken field: if the same token is supplied again
+// the original ProgressEvent is returned without re-deleting (or erroring on
+// an already-deleted resource).
+func (b *InMemoryBackend) DeleteResource(typeName, identifier, clientToken string) (*ProgressEvent, error) {
 	if !isValidTypeName(typeName) {
 		return nil, ErrValidation
 	}
@@ -149,6 +164,10 @@ func (b *InMemoryBackend) DeleteResource(typeName, identifier string) (*Progress
 
 	b.mu.Lock("DeleteResource")
 	defer b.mu.Unlock()
+
+	if cached := b.cachedEventForToken(clientToken); cached != nil {
+		return cached, nil
+	}
 
 	if !b.resources.Has(key) {
 		return nil, ErrNotFound
@@ -166,12 +185,18 @@ func (b *InMemoryBackend) DeleteResource(typeName, identifier string) (*Progress
 		OperationStatus: opStatusSuccess,
 	}
 	b.requests.Put(event)
+	b.rememberClientToken(clientToken, token)
 
 	return copyEvent(event), nil
 }
 
-// UpdateResource applies a JSON RFC 6902 patch document to the resource.
-func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument string) (*ProgressEvent, error) {
+// UpdateResource applies a JSON RFC 6902 patch document to the resource. An
+// optional clientToken may be supplied for idempotency, matching the real
+// UpdateResourceInput.ClientToken field: if the same token is supplied again
+// the original ProgressEvent is returned without re-applying the patch.
+func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument, clientToken string) (
+	*ProgressEvent, error,
+) {
 	if !isValidTypeName(typeName) {
 		return nil, ErrValidation
 	}
@@ -180,6 +205,10 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument str
 
 	b.mu.Lock("UpdateResource")
 	defer b.mu.Unlock()
+
+	if cached := b.cachedEventForToken(clientToken); cached != nil {
+		return cached, nil
+	}
 
 	r, ok := b.resources.Get(key)
 	if !ok {
@@ -203,8 +232,41 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument str
 		ResourceModel:   r.Properties,
 	}
 	b.requests.Put(event)
+	b.rememberClientToken(clientToken, token)
 
 	return copyEvent(event), nil
+}
+
+// cachedEventForToken returns a copy of the ProgressEvent previously recorded
+// for clientToken, or nil if clientToken is empty or unrecognized. Callers
+// must hold b.mu (read or write) already.
+func (b *InMemoryBackend) cachedEventForToken(clientToken string) *ProgressEvent {
+	if clientToken == "" {
+		return nil
+	}
+
+	prevToken, ok := b.clientTokens[clientToken]
+	if !ok {
+		return nil
+	}
+
+	cachedEvent, found := b.requests.Get(prevToken)
+	if !found {
+		return nil
+	}
+
+	return copyEvent(cachedEvent)
+}
+
+// rememberClientToken records the mapping from clientToken to requestToken
+// for future idempotent replays. A no-op when clientToken is empty. Callers
+// must hold b.mu (write) already.
+func (b *InMemoryBackend) rememberClientToken(clientToken, requestToken string) {
+	if clientToken == "" {
+		return
+	}
+
+	b.clientTokens[clientToken] = requestToken
 }
 
 // copyResource returns a shallow copy of a Resource so callers cannot mutate backend state.

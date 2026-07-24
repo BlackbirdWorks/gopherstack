@@ -91,14 +91,14 @@ func seedPersistenceState(t *testing.T, b *cloudcontrol.InMemoryBackend) persist
 	require.NoError(t, err)
 
 	updateLogGroup, err := b.UpdateResource(
-		"AWS::Logs::LogGroup", "snap-grp", `[{"op":"replace","path":"/RetentionInDays","value":30}]`,
+		"AWS::Logs::LogGroup", "snap-grp", `[{"op":"replace","path":"/RetentionInDays","value":30}]`, "",
 	)
 	require.NoError(t, err)
 
 	createQueue, err := b.CreateResource("AWS::SQS::Queue", `{"QueueName":"to-delete"}`, "")
 	require.NoError(t, err)
 
-	deleteQueue, err := b.DeleteResource("AWS::SQS::Queue", "to-delete")
+	deleteQueue, err := b.DeleteResource("AWS::SQS::Queue", "to-delete", "")
 	require.NoError(t, err)
 
 	b.AddProgressEvent(&cloudcontrol.ProgressEvent{
