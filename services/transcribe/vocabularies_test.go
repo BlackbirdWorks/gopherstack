@@ -416,13 +416,78 @@ func TestListVocabularies(t *testing.T) {
 		VocabularyState: "READY",
 	})
 
-	list, _ := b.ListVocabularies("", "")
+	list, _ := b.ListVocabularies("", "", "")
 	require.Len(t, list, 3)
 
-	list, _ = b.ListVocabularies("READY", "")
+	list, _ = b.ListVocabularies("READY", "", "")
 	require.Len(t, list, 2)
 
-	list, _ = b.ListVocabularies("PENDING", "")
+	list, _ = b.ListVocabularies("PENDING", "", "")
 	require.Len(t, list, 1)
 	assert.Equal(t, "vocab-2", list[0].VocabularyName)
+}
+
+// TestListVocabularies_NameContains verifies the NameContains filter (case-insensitive
+// substring match), per the real ListVocabulariesInput field.
+func TestListVocabularies_NameContains(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	b.AddVocabularyInternal(&transcribe.Vocabulary{VocabularyName: "medical-terms", VocabularyState: "READY"})
+	b.AddVocabularyInternal(&transcribe.Vocabulary{VocabularyName: "legal-terms", VocabularyState: "READY"})
+	b.AddVocabularyInternal(&transcribe.Vocabulary{VocabularyName: "sports-vocab", VocabularyState: "READY"})
+
+	list, _ := b.ListVocabularies("", "terms", "")
+	require.Len(t, list, 2)
+
+	list, _ = b.ListVocabularies("", "TERMS", "")
+	require.Len(t, list, 2, "NameContains must be case-insensitive")
+
+	list, _ = b.ListVocabularies("", "sports", "")
+	require.Len(t, list, 1)
+	assert.Equal(t, "sports-vocab", list[0].VocabularyName)
+}
+
+// TestCreateVocabulary_LastModifiedTimeAndFailureReasonEchoed verifies CreateVocabulary's
+// response includes LastModifiedTime and (empty, on success) FailureReason, matching the
+// real CreateVocabularyOutput shape which real gopherstack previously omitted.
+func TestCreateVocabulary_LastModifiedTimeAndFailureReasonEchoed(t *testing.T) {
+	t.Parallel()
+
+	h := newTestTranscribeHandler(t)
+
+	rec := doTranscribeRequest(t, h, "CreateVocabulary", map[string]any{
+		"VocabularyName": "wire-shape-vocab",
+		"LanguageCode":   "en-US",
+		"Phrases":        []string{"hello"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+
+	_, hasLastModified := raw["LastModifiedTime"]
+	assert.True(t, hasLastModified, "CreateVocabularyOutput must include LastModifiedTime")
+
+	// FailureReason is expected to be absent (omitempty) on a successful synchronous create.
+	_, hasFailureReason := raw["FailureReason"]
+	assert.False(t, hasFailureReason, "FailureReason must be omitted (empty) on success")
+}
+
+// TestListVocabularies_EchoesStatusFilter verifies the top-level Status field on
+// ListVocabulariesOutput echoes the StateEquals request filter, per the real
+// ListVocabulariesOutput shape.
+func TestListVocabularies_EchoesStatusFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestTranscribeHandler(t)
+
+	rec := doTranscribeRequest(t, h, "ListVocabularies", map[string]any{
+		"StateEquals": "READY",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	assert.Equal(t, "READY", raw["Status"])
 }

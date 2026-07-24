@@ -17,10 +17,11 @@ type createLanguageModelInput struct {
 }
 
 type createLanguageModelOutput struct {
-	ModelName     string `json:"ModelName"`
-	BaseModelName string `json:"BaseModelName"`
-	LanguageCode  string `json:"LanguageCode"`
-	ModelStatus   string `json:"ModelStatus"`
+	InputDataConfig *InputDataConfig `json:"InputDataConfig,omitempty"`
+	ModelName       string           `json:"ModelName"`
+	BaseModelName   string           `json:"BaseModelName"`
+	LanguageCode    string           `json:"LanguageCode"`
+	ModelStatus     string           `json:"ModelStatus"`
 }
 
 func (h *Handler) handleCreateLanguageModel(
@@ -39,10 +40,11 @@ func (h *Handler) handleCreateLanguageModel(
 	}
 
 	return &createLanguageModelOutput{
-		ModelName:     m.ModelName,
-		BaseModelName: m.BaseModelName,
-		LanguageCode:  m.LanguageCode,
-		ModelStatus:   m.ModelStatus,
+		ModelName:       m.ModelName,
+		BaseModelName:   m.BaseModelName,
+		LanguageCode:    m.LanguageCode,
+		ModelStatus:     m.ModelStatus,
+		InputDataConfig: m.InputDataConfig,
 	}, nil
 }
 
@@ -77,6 +79,7 @@ type languageModelOutput struct {
 	BaseModelName       string           `json:"BaseModelName"`
 	LanguageCode        string           `json:"LanguageCode"`
 	ModelStatus         string           `json:"ModelStatus"`
+	FailureReason       string           `json:"FailureReason,omitempty"`
 	UpgradeAvailability bool             `json:"UpgradeAvailability"`
 }
 
@@ -90,6 +93,7 @@ func toLanguageModelOutput(m *LanguageModel) languageModelOutput {
 		BaseModelName:       m.BaseModelName,
 		LanguageCode:        m.LanguageCode,
 		ModelStatus:         m.ModelStatus,
+		FailureReason:       m.FailureReason,
 		InputDataConfig:     m.InputDataConfig,
 		UpgradeAvailability: m.UpgradeAvailability,
 	}
@@ -128,6 +132,7 @@ func (h *Handler) handleDescribeLanguageModel(
 type listLanguageModelsInput struct {
 	NextToken    string `json:"NextToken"`
 	StatusEquals string `json:"StatusEquals"`
+	NameContains string `json:"NameContains"`
 }
 
 type listLanguageModelsOutput struct {
@@ -139,7 +144,7 @@ func (h *Handler) handleListLanguageModels(
 	_ context.Context,
 	in *listLanguageModelsInput,
 ) (*listLanguageModelsOutput, error) {
-	models, nextToken := h.Backend.ListLanguageModels(in.StatusEquals, in.NextToken)
+	models, nextToken := h.Backend.ListLanguageModels(in.StatusEquals, in.NameContains, in.NextToken)
 
 	result := make([]languageModelOutput, 0, len(models))
 	for i := range models {

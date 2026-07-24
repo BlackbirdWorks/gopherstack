@@ -1,6 +1,7 @@
 package transcribe_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -154,4 +155,79 @@ func TestHTTP_ListMedicalScribeJobs(t *testing.T) {
 	listRec := doTranscribeRequest(t, h, "ListMedicalScribeJobs", map[string]any{})
 	require.Equal(t, http.StatusOK, listRec.Code)
 	assert.Contains(t, listRec.Body.String(), "scribe-list-job")
+}
+
+// TestListMedicalScribeJobs_JobNameContainsAndSummaryShape verifies the
+// JobNameContains filter and that summaries are trimmed to the real
+// MedicalScribeJobSummary fields (no Settings/Media/Tags/ChannelDefinitions, which
+// only belong on the full MedicalScribeJob shape).
+func TestListMedicalScribeJobs_JobNameContainsAndSummaryShape(t *testing.T) {
+	t.Parallel()
+
+	h, b := newHandlerWithBackend(t)
+
+	for _, name := range []string{"cardiology-visit-1", "cardiology-visit-2", "dermatology-visit"} {
+		rec := doTranscribeRequest(t, h, "StartMedicalScribeJob", map[string]any{
+			"MedicalScribeJobName": name,
+			"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
+			"DataAccessRoleArn":    "arn:aws:iam::123456789012:role/ScribeRole",
+			"OutputBucketName":     "scribe-summary-output",
+			"Settings":             map[string]any{"VocabularyName": "med-vocab"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	list, _ := b.ListMedicalScribeJobs("", "cardiology", "")
+	require.Len(t, list, 2)
+
+	listRec := doTranscribeRequest(t, h, "ListMedicalScribeJobs", map[string]any{
+		"JobNameContains": "dermatology",
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var raw struct {
+		MedicalScribeJobSummaries []map[string]json.RawMessage `json:"MedicalScribeJobSummaries"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+	require.Len(t, raw.MedicalScribeJobSummaries, 1)
+
+	summary := raw.MedicalScribeJobSummaries[0]
+	assert.Contains(t, summary, "MedicalScribeJobName")
+	assert.Contains(t, summary, "MedicalScribeJobStatus")
+	assert.NotContains(t, summary, "Settings", "MedicalScribeJobSummary must not include Settings")
+	assert.NotContains(t, summary, "Media", "MedicalScribeJobSummary must not include Media")
+	assert.NotContains(t, summary, "Tags", "MedicalScribeJobSummary must not include Tags")
+}
+
+// TestMedicalScribeJob_OutputURIsPresentWhenCompleted verifies GetMedicalScribeJob
+// returns MedicalScribeOutput (ClinicalDocumentUri/TranscriptFileUri) for a
+// COMPLETED job, a real field gopherstack previously omitted entirely.
+func TestMedicalScribeJob_OutputURIsPresentWhenCompleted(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandlerWithBackend(t)
+	startRec := doTranscribeRequest(t, h, "StartMedicalScribeJob", map[string]any{
+		"MedicalScribeJobName": "scribe-output-job",
+		"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
+		"DataAccessRoleArn":    "arn:aws:iam::123456789012:role/ScribeRole",
+		"OutputBucketName":     "scribe-output-bucket",
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	getRec := doTranscribeRequest(t, h, "GetMedicalScribeJob", map[string]any{
+		"MedicalScribeJobName": "scribe-output-job",
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var raw struct {
+		MedicalScribeJob struct {
+			MedicalScribeOutput struct {
+				ClinicalDocumentURI string `json:"ClinicalDocumentUri"`
+				TranscriptFileURI   string `json:"TranscriptFileUri"`
+			} `json:"MedicalScribeOutput"`
+		} `json:"MedicalScribeJob"`
+	}
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &raw))
+	assert.Contains(t, raw.MedicalScribeJob.MedicalScribeOutput.ClinicalDocumentURI, "scribe-output-bucket")
+	assert.Contains(t, raw.MedicalScribeJob.MedicalScribeOutput.TranscriptFileURI, "scribe-output-bucket")
 }

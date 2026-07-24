@@ -2,6 +2,7 @@ package transcribe
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -23,6 +24,10 @@ const (
 
 	// language model status constant – gopherstack immediately completes models.
 	modelStatusCompleted = "COMPLETED"
+
+	// output location type constants, mirroring OutputLocationType.
+	outputLocationCustomerBucket = "CUSTOMER_BUCKET"
+	outputLocationServiceBucket  = "SERVICE_BUCKET"
 
 	// defaultAccountID is the synthetic AWS account ID used by the in-memory backend.
 	defaultAccountID = "123456789012"
@@ -124,6 +129,29 @@ func applyListOrURI[T any](newList []T, newURI string, curList []T, curURI strin
 	default:
 		return curList, curURI
 	}
+}
+
+// outputLocationType reports whether a job's output lands in a customer-specified
+// S3 bucket or the service-managed bucket, matching the real OutputLocationType
+// values Amazon Transcribe returns alongside CUSTOMER_BUCKET/SERVICE_BUCKET.
+func outputLocationType(outputBucketName string) string {
+	if outputBucketName != "" {
+		return outputLocationCustomerBucket
+	}
+
+	return outputLocationServiceBucket
+}
+
+// matchesNameContains reports whether name contains the (case-insensitive)
+// substring filter, matching the NameContains/JobNameContains behavior AWS
+// documents for its List* operations ("the search is not case sensitive").
+// An empty filter matches everything.
+func matchesNameContains(name, filter string) bool {
+	if filter == "" {
+		return true
+	}
+
+	return strings.Contains(strings.ToLower(name), strings.ToLower(filter))
 }
 
 // parseNextToken parses a pagination token (integer offset) into a slice index.

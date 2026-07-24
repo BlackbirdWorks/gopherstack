@@ -560,7 +560,7 @@ func TestDeferredTranscriptionJob_Lifecycle(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "QUEUED", job.JobStatus)
 
-			jobs, _ := b.ListTranscriptionJobs("QUEUED", "")
+			jobs, _ := b.ListTranscriptionJobs("QUEUED", "", "")
 			assert.Len(t, jobs, 1)
 
 			job, err = b.GetTranscriptionJob(job.JobName)
@@ -928,4 +928,97 @@ func TestTranscriptionJob_MediaInResponse(t *testing.T) {
 	assert.True(t, hasMedia, "Media field must be present in GetTranscriptionJob response")
 	mediaMap, _ := media.(map[string]any)
 	assert.NotEmpty(t, mediaMap["MediaFileUri"], "MediaFileUri must be non-empty")
+}
+
+// TestTranscriptionJob_OutputBucketNotInResponse verifies OutputBucketName/OutputKey
+// (request-only fields per the real TranscriptionJob shape) are never echoed back at
+// the top level of a GetTranscriptionJob/StartTranscriptionJob response -- the real
+// AWS API only surfaces the output location via Transcript.TranscriptFileUri.
+func TestTranscriptionJob_OutputBucketNotInResponse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestTranscribeHandler(t)
+
+	rec := doTranscribeRequest(t, h, "StartTranscriptionJob", map[string]any{
+		"TranscriptionJobName": "no-invented-fields-job",
+		"LanguageCode":         "en-US",
+		"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
+		"OutputBucketName":     "should-not-leak-bucket",
+		"OutputKey":            "should-not-leak-key",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	job, _ := raw["TranscriptionJob"].(map[string]any)
+	require.NotNil(t, job)
+
+	_, hasBucket := job["OutputBucketName"]
+	_, hasKey := job["OutputKey"]
+	assert.False(t, hasBucket, "OutputBucketName must not appear at top level; not a real TranscriptionJob field")
+	assert.False(t, hasKey, "OutputKey must not appear at top level; not a real TranscriptionJob field")
+
+	// The bucket must still be routed into the Transcript URI.
+	transcript, _ := job["Transcript"].(map[string]any)
+	require.NotNil(t, transcript)
+	assert.Contains(t, transcript["TranscriptFileUri"], "should-not-leak-bucket")
+}
+
+// TestListTranscriptionJobs_JobNameContains verifies the JobNameContains filter
+// (case-insensitive substring match, per the real ListTranscriptionJobsInput field).
+func TestListTranscriptionJobs_JobNameContains(t *testing.T) {
+	t.Parallel()
+
+	b := transcribe.NewInMemoryBackend()
+	media := transcribe.Media{MediaFileURI: "s3://b/f"}
+	for _, name := range []string{"alpha-report", "beta-report", "gamma-summary"} {
+		_, err := b.StartTranscriptionJob(&transcribe.TranscriptionJob{
+			JobName: name, LanguageCode: "en-US", Media: media,
+		})
+		require.NoError(t, err)
+	}
+
+	list, _ := b.ListTranscriptionJobs("", "report", "")
+	require.Len(t, list, 2)
+
+	list, _ = b.ListTranscriptionJobs("", "REPORT", "")
+	require.Len(t, list, 2, "NameContains must be case-insensitive")
+
+	list, _ = b.ListTranscriptionJobs("", "gamma", "")
+	require.Len(t, list, 1)
+	assert.Equal(t, "gamma-summary", list[0].JobName)
+
+	list, _ = b.ListTranscriptionJobs("", "nonexistent", "")
+	assert.Empty(t, list)
+}
+
+// TestTranscriptionJob_LanguageIdSettings_Echoed verifies LanguageIdSettings supplied
+// on StartTranscriptionJob round-trips through GetTranscriptionJob, matching the real
+// TranscriptionJob.LanguageIdSettings field.
+func TestTranscriptionJob_LanguageIdSettings_Echoed(t *testing.T) {
+	t.Parallel()
+
+	h := newTestTranscribeHandler(t)
+
+	rec := doTranscribeRequest(t, h, "StartTranscriptionJob", map[string]any{
+		"TranscriptionJobName": "lang-id-settings-job",
+		"IdentifyLanguage":     true,
+		"LanguageOptions":      []string{"en-US", "es-ES"},
+		"Media":                map[string]any{"MediaFileUri": "s3://b/f"},
+		"LanguageIdSettings": map[string]any{
+			"en-US": map[string]any{"VocabularyName": "my-vocab"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	job, _ := raw["TranscriptionJob"].(map[string]any)
+	require.NotNil(t, job)
+
+	settings, ok := job["LanguageIdSettings"].(map[string]any)
+	require.True(t, ok, "LanguageIdSettings must be echoed back")
+	enUS, ok := settings["en-US"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "my-vocab", enUS["VocabularyName"])
 }

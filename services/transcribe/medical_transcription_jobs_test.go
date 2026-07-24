@@ -304,3 +304,48 @@ func TestHTTP_ListMedicalTranscriptionJobs(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 	assert.Contains(t, listRec.Body.String(), "med-list-job")
 }
+
+// TestListMedicalTranscriptionJobs_JobNameContainsAndSummaryShape verifies the
+// JobNameContains filter and that summaries are trimmed to the real
+// MedicalTranscriptionJobSummary fields (no Settings/Media/Tags, which only belong
+// on the full MedicalTranscriptionJob shape), plus the OutputLocationType field.
+func TestListMedicalTranscriptionJobs_JobNameContainsAndSummaryShape(t *testing.T) {
+	t.Parallel()
+
+	h, b := newHandlerWithBackend(t)
+
+	for _, name := range []string{"intake-visit-1", "intake-visit-2", "followup-visit"} {
+		rec := doTranscribeRequest(t, h, "StartMedicalTranscriptionJob", map[string]any{
+			"MedicalTranscriptionJobName": name,
+			"LanguageCode":                "en-US",
+			"Specialty":                   "PRIMARYCARE",
+			"Type":                        "DICTATION",
+			"Media":                       map[string]any{"MediaFileUri": "s3://input/audio.mp3"},
+			"OutputBucketName":            "custom-bucket",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	list, _ := b.ListMedicalTranscriptionJobs("", "intake", "")
+	require.Len(t, list, 2)
+
+	listRec := doTranscribeRequest(t, h, "ListMedicalTranscriptionJobs", map[string]any{
+		"JobNameContains": "followup",
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var raw struct {
+		MedicalTranscriptionJobSummaries []map[string]json.RawMessage `json:"MedicalTranscriptionJobSummaries"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+	require.Len(t, raw.MedicalTranscriptionJobSummaries, 1)
+
+	summary := raw.MedicalTranscriptionJobSummaries[0]
+	assert.NotContains(t, summary, "Settings", "MedicalTranscriptionJobSummary must not include Settings")
+	assert.NotContains(t, summary, "Media", "MedicalTranscriptionJobSummary must not include Media")
+	assert.NotContains(t, summary, "Tags", "MedicalTranscriptionJobSummary must not include Tags")
+
+	var outputLocationType string
+	require.NoError(t, json.Unmarshal(summary["OutputLocationType"], &outputLocationType))
+	assert.Equal(t, "CUSTOMER_BUCKET", outputLocationType)
+}
