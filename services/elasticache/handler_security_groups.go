@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/labstack/echo/v5"
 )
 
@@ -122,15 +123,15 @@ func (h *Handler) deleteCacheSecurityGroup(ctx context.Context, c *echo.Context,
 
 func (h *Handler) describeCacheSecurityGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSecurityGroupName")
-	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeCacheSecurityGroups(ctx, name, marker, maxRecords)
+	p, err := describeListChecked(c, form,
+		func(marker string, maxRecords int) (page.Page[CacheSecurityGroup], error) {
+			return h.Backend.DescribeCacheSecurityGroups(ctx, name, marker, maxRecords)
+		},
+		ErrCacheSecurityGroupNotFound, http.StatusNotFound,
+		"CacheSecurityGroupNotFound", "Cache security group not found")
 	if err != nil {
-		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return err
 	}
 
 	var res describeSGsResultXML

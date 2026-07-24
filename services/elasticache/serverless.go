@@ -254,6 +254,11 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(
 	if !ok {
 		return nil, ErrServerlessCacheNotFound
 	}
+	if err := b.requireAvailableLocked(
+		sc.Status, sc.PendingStatus, sc.AvailableAt, ErrServerlessCacheNotAvailable,
+	); err != nil {
+		return nil, err
+	}
 
 	if opts.Description != "" {
 		sc.Description = opts.Description
@@ -297,6 +302,11 @@ func (b *InMemoryBackend) DeleteServerlessCache(ctx context.Context, name string
 	sc, ok := tbl.Get(name)
 	if !ok || isReaped(b.now(), sc.PendingStatus, sc.AvailableAt) {
 		return nil, ErrServerlessCacheNotFound
+	}
+	if err := b.requireAvailableLocked(
+		sc.Status, sc.PendingStatus, sc.AvailableAt, ErrServerlessCacheNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	if d := b.pendingUntil(); !d.IsZero() {
@@ -421,6 +431,11 @@ func (b *InMemoryBackend) ModifyServerlessCache(
 	sc, ok := b.serverlessCachesStore(region).Get(name)
 	if !ok {
 		return nil, ErrServerlessCacheNotFound
+	}
+	if err := b.requireAvailableLocked(
+		sc.Status, sc.PendingStatus, sc.AvailableAt, ErrServerlessCacheNotAvailable,
+	); err != nil {
+		return nil, err
 	}
 
 	if description != "" {

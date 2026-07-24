@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/labstack/echo/v5"
 )
 
@@ -20,37 +21,43 @@ type describeUserGroupsResultXML struct {
 	} `xml:"DescribeUserGroupsResult>UserGroups"`
 }
 
+// userGroupXML is the wire shape of types.UserGroup. There is no Description
+// field on the real SDK type -- a prior pass invented one and serialized it
+// on the wire; do not re-add it. ReplicationGroups is the reverse of a
+// ReplicationGroup's UserGroupIds, computed fresh on every response (see
+// userGroupReplicationGroupIDsLocked).
 type userGroupXML struct {
 	ARN         string `xml:"ARN"`
 	UserGroupID string `xml:"UserGroupId"`
-	Description string `xml:"Description,omitempty"`
 	Status      string `xml:"Status"`
 	Engine      string `xml:"Engine,omitempty"`
 	UserIDs     struct {
 		Member []string `xml:"member"`
 	} `xml:"UserIds"`
+	ReplicationGroups struct {
+		Member []string `xml:"member"`
+	} `xml:"ReplicationGroups"`
 }
 
 func userGroupToXML(ug *UserGroup) userGroupXML {
 	x := userGroupXML{
 		ARN:         ug.ARN,
 		UserGroupID: ug.UserGroupID,
-		Description: ug.Description,
 		Status:      ug.Status,
 		Engine:      ug.Engine,
 	}
 	x.UserIDs.Member = ug.UserIDs
+	x.ReplicationGroups.Member = ug.AssignedReplicationGroupIDs
 
 	return x
 }
 
 func (h *Handler) createUserGroup(ctx context.Context, c *echo.Context, form url.Values) error {
 	groupID := form.Get("UserGroupId")
-	description := form.Get("Description")
 	engine := form.Get("Engine")
 	userIDs := parseRepeatedField(form, "UserIds.member")
 
-	ug, err := h.Backend.CreateUserGroupValidated(ctx, groupID, description, engine, userIDs)
+	ug, err := h.Backend.CreateUserGroupValidated(ctx, groupID, engine, userIDs)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupAlreadyExists) {
 			return xmlError(c, http.StatusBadRequest, "UserGroupAlreadyExists", "User group already exists")
@@ -68,12 +75,14 @@ func (h *Handler) createUserGroup(ctx context.Context, c *echo.Context, form url
 		Xmlns       string   `xml:"xmlns,attr"`
 		ARN         string   `xml:"CreateUserGroupResult>ARN"`
 		UserGroupID string   `xml:"CreateUserGroupResult>UserGroupId"`
-		Description string   `xml:"CreateUserGroupResult>Description,omitempty"`
 		Status      string   `xml:"CreateUserGroupResult>Status"`
 		Engine      string   `xml:"CreateUserGroupResult>Engine,omitempty"`
 		UserIDs     struct {
 			Member []string `xml:"member"`
 		} `xml:"CreateUserGroupResult>UserIds"`
+		ReplicationGroups struct {
+			Member []string `xml:"member"`
+		} `xml:"CreateUserGroupResult>ReplicationGroups"`
 	}
 
 	x := userGroupToXML(ug)
@@ -81,11 +90,11 @@ func (h *Handler) createUserGroup(ctx context.Context, c *echo.Context, form url
 		Xmlns:       elasticacheNS,
 		ARN:         x.ARN,
 		UserGroupID: x.UserGroupID,
-		Description: x.Description,
 		Status:      x.Status,
 		Engine:      x.Engine,
 	}
 	r.UserIDs.Member = x.UserIDs.Member
+	r.ReplicationGroups.Member = x.ReplicationGroups.Member
 
 	return xmlResp(c, http.StatusOK, r)
 }
@@ -107,12 +116,14 @@ func (h *Handler) deleteUserGroup(ctx context.Context, c *echo.Context, form url
 		Xmlns       string   `xml:"xmlns,attr"`
 		ARN         string   `xml:"DeleteUserGroupResult>ARN"`
 		UserGroupID string   `xml:"DeleteUserGroupResult>UserGroupId"`
-		Description string   `xml:"DeleteUserGroupResult>Description,omitempty"`
 		Status      string   `xml:"DeleteUserGroupResult>Status"`
 		Engine      string   `xml:"DeleteUserGroupResult>Engine,omitempty"`
 		UserIDs     struct {
 			Member []string `xml:"member"`
 		} `xml:"DeleteUserGroupResult>UserIds"`
+		ReplicationGroups struct {
+			Member []string `xml:"member"`
+		} `xml:"DeleteUserGroupResult>ReplicationGroups"`
 	}
 
 	x := userGroupToXML(ug)
@@ -120,26 +131,25 @@ func (h *Handler) deleteUserGroup(ctx context.Context, c *echo.Context, form url
 		Xmlns:       elasticacheNS,
 		ARN:         x.ARN,
 		UserGroupID: x.UserGroupID,
-		Description: x.Description,
 		Status:      x.Status,
 		Engine:      x.Engine,
 	}
 	r.UserIDs.Member = x.UserIDs.Member
+	r.ReplicationGroups.Member = x.ReplicationGroups.Member
 
 	return xmlResp(c, http.StatusOK, r)
 }
 
 func (h *Handler) describeUserGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	groupID := form.Get("UserGroupId")
-	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeUserGroups(ctx, groupID, marker, maxRecords)
+	p, err := describeListChecked(c, form,
+		func(marker string, maxRecords int) (page.Page[UserGroup], error) {
+			return h.Backend.DescribeUserGroups(ctx, groupID, marker, maxRecords)
+		},
+		ErrUserGroupNotFound, http.StatusNotFound, "UserGroupNotFound", "User group not found")
 	if err != nil {
-		if errors.Is(err, ErrUserGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "UserGroupNotFound", "User group not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return err
 	}
 
 	var res describeUserGroupsResultXML
@@ -172,12 +182,14 @@ func (h *Handler) modifyUserGroup(ctx context.Context, c *echo.Context, form url
 		Xmlns       string   `xml:"xmlns,attr"`
 		ARN         string   `xml:"ModifyUserGroupResult>ARN"`
 		UserGroupID string   `xml:"ModifyUserGroupResult>UserGroupId"`
-		Description string   `xml:"ModifyUserGroupResult>Description,omitempty"`
 		Status      string   `xml:"ModifyUserGroupResult>Status"`
 		Engine      string   `xml:"ModifyUserGroupResult>Engine,omitempty"`
 		UserIDs     struct {
 			Member []string `xml:"member"`
 		} `xml:"ModifyUserGroupResult>UserIds"`
+		ReplicationGroups struct {
+			Member []string `xml:"member"`
+		} `xml:"ModifyUserGroupResult>ReplicationGroups"`
 	}
 
 	x := userGroupToXML(ug)
@@ -185,11 +197,11 @@ func (h *Handler) modifyUserGroup(ctx context.Context, c *echo.Context, form url
 		Xmlns:       elasticacheNS,
 		ARN:         x.ARN,
 		UserGroupID: x.UserGroupID,
-		Description: x.Description,
 		Status:      x.Status,
 		Engine:      x.Engine,
 	}
 	r.UserIDs.Member = x.UserIDs.Member
+	r.ReplicationGroups.Member = x.ReplicationGroups.Member
 
 	return xmlResp(c, http.StatusOK, r)
 }

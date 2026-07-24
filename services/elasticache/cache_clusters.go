@@ -267,6 +267,9 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, id string) error {
 	if !exists || isReaped(b.now(), c.PendingStatus, c.AvailableAt) {
 		return ErrClusterNotFound
 	}
+	if err := b.requireAvailableLocked(c.Status, c.PendingStatus, c.AvailableAt, ErrClusterNotAvailable); err != nil {
+		return err
+	}
 
 	// With a lifecycle delay, dwell in "deleting" so waiters can observe it; the
 	// engine stays live and the entry is reaped by the next write op once the
@@ -352,6 +355,9 @@ func (b *InMemoryBackend) ModifyCluster(
 	if !exists {
 		return nil, ErrClusterNotFound
 	}
+	if err := b.requireAvailableLocked(c.Status, c.PendingStatus, c.AvailableAt, ErrClusterNotAvailable); err != nil {
+		return nil, err
+	}
 
 	if nodeType != "" {
 		c.NodeType = nodeType
@@ -399,6 +405,9 @@ func (b *InMemoryBackend) RebootCacheCluster(
 	c, ok := b.clustersStore(region).Get(clusterID)
 	if !ok {
 		return nil, ErrClusterNotFound
+	}
+	if err := b.requireAvailableLocked(c.Status, c.PendingStatus, c.AvailableAt, ErrClusterNotAvailable); err != nil {
+		return nil, err
 	}
 
 	// Record an event for each rebooted node (or one general event if no node IDs provided).

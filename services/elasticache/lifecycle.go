@@ -212,6 +212,20 @@ func (b *InMemoryBackend) globalReplicationGroupView(grg *GlobalReplicationGroup
 	return &cp
 }
 
+// requireAvailableLocked returns notAvailable when the resource's observable
+// (overlaid) status is not "available" -- the state a mutating op (Modify,
+// Delete, TestFailover, ...) requires before it may proceed. AWS models this
+// as an Invalid<Resource>State(Fault) on essentially every mutating op for
+// clusters, replication groups, serverless caches, and global replication
+// groups. Must hold b.mu.
+func (b *InMemoryBackend) requireAvailableLocked(status, pending string, until time.Time, notAvailable error) error {
+	if overlayStatus(b.now(), status, pending, until) != statusAvailable {
+		return notAvailable
+	}
+
+	return nil
+}
+
 // markCreatingLocked records a "creating" transition on the given status/deadline
 // fields when a lifecycle delay is configured. Must hold b.mu.
 func (b *InMemoryBackend) markCreatingLocked(pending *string, until *time.Time) {

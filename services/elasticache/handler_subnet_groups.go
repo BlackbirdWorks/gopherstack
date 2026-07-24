@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/labstack/echo/v5"
 )
 
@@ -127,15 +128,14 @@ type cacheSubnetGroupsListXML struct {
 
 func (h *Handler) describeCacheSubnetGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheSubnetGroupName")
-	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeSubnetGroups(ctx, name, marker, maxRecords)
+	p, err := describeListChecked(c, form,
+		func(marker string, maxRecords int) (page.Page[CacheSubnetGroup], error) {
+			return h.Backend.DescribeSubnetGroups(ctx, name, marker, maxRecords)
+		},
+		ErrSubnetGroupNotFound, http.StatusBadRequest, "CacheSubnetGroupNotFoundFault", "Cache subnet group not found")
 	if err != nil {
-		if errors.Is(err, ErrSubnetGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFoundFault", "Cache subnet group not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return err
 	}
 
 	items := make([]cacheSubnetGroupXML, 0, len(p.Data))

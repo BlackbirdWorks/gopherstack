@@ -122,7 +122,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) { //nolint:main
 
 	_, err = original.CreateUser(ctx, "fs-user", "fs-user-name", "on ~* &* +@all", "redis", true)
 	require.NoError(t, err)
-	_, err = original.CreateUserGroup(ctx, "fs-usergroup", "full state user group", "redis", []string{"fs-user"})
+	_, err = original.CreateUserGroup(ctx, "fs-usergroup", "redis", []string{"fs-user"})
 	require.NoError(t, err)
 
 	// Hardcoded to match the builtin offering ID in backend_ops2.go's
@@ -462,7 +462,7 @@ func TestBackend_Persistence_UserGroupIds(t *testing.T) {
 	_, err := b1.CreateUser(context.Background(), "persist-user", "persist-user", "on ~* +@all", "redis", false)
 	require.NoError(t, err)
 
-	_, err = b1.CreateUserGroup(context.Background(), "persist-ug", "persist group", "redis", []string{"persist-user"})
+	_, err = b1.CreateUserGroup(context.Background(), "persist-ug", "redis", []string{"persist-user"})
 	require.NoError(t, err)
 
 	_, err = b1.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{

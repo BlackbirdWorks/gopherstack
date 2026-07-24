@@ -129,7 +129,7 @@ func TestBackend_DeleteUserSafe_InGroup_Fails(t *testing.T) {
 
 	_, err := b.CreateUser(context.Background(), "grp-member", "grp-member", "on ~* +@all", "redis", true)
 	require.NoError(t, err)
-	_, err = b.CreateUserGroup(context.Background(), "owns-member", "", "redis", []string{"grp-member"})
+	_, err = b.CreateUserGroup(context.Background(), "owns-member", "redis", []string{"grp-member"})
 	require.NoError(t, err)
 
 	_, err = b.DeleteUserSafe(context.Background(), "grp-member")

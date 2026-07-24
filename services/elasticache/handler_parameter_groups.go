@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/labstack/echo/v5"
 )
 
@@ -108,15 +109,15 @@ type cacheParameterGroupsListXML struct {
 
 func (h *Handler) describeCacheParameterGroups(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheParameterGroupName")
-	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeParameterGroups(ctx, name, marker, maxRecords)
+	p, err := describeListChecked(c, form,
+		func(marker string, maxRecords int) (page.Page[CacheParameterGroup], error) {
+			return h.Backend.DescribeParameterGroups(ctx, name, marker, maxRecords)
+		},
+		ErrParameterGroupNotFound, http.StatusNotFound,
+		"CacheParameterGroupNotFound", "Cache parameter group not found")
 	if err != nil {
-		if errors.Is(err, ErrParameterGroupNotFound) {
-			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return err
 	}
 
 	items := make([]cacheParameterGroupXML, 0, len(p.Data))
@@ -256,7 +257,10 @@ func buildParameterItems(params []CacheParameter) []parameterXML {
 
 func (h *Handler) describeCacheParameters(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheParameterGroupName")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	p, err := h.Backend.DescribeParameters(ctx, name, marker, maxRecords)
 	if err != nil {
@@ -276,7 +280,10 @@ func (h *Handler) describeCacheParameters(ctx context.Context, c *echo.Context, 
 
 func (h *Handler) describeEngineDefaultParameters(ctx context.Context, c *echo.Context, form url.Values) error {
 	family := form.Get("CacheParameterGroupFamily")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	p, err := h.Backend.DescribeEngineDefaultParameters(ctx, family, marker, maxRecords)
 	if err != nil {

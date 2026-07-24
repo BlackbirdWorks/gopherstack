@@ -3,6 +3,7 @@ package elasticache
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -21,6 +23,10 @@ const (
 	elasticacheNS      = "http://elasticache.amazonaws.com/doc/2015-02-02/"
 	unknownOp          = "Unknown"
 )
+
+// errInvalidMaxRecords is the sentinel parsePagination wraps when MaxRecords
+// falls outside AWS's modeled [20,100] range.
+var errInvalidMaxRecords = errors.New("invalid MaxRecords")
 
 // Handler is the Echo HTTP handler for ElastiCache operations.
 type Handler struct {
@@ -333,18 +339,84 @@ func parseFormTags(form url.Values) map[string]string {
 	return tags
 }
 
-// parsePagination extracts Marker and MaxRecords from query form values.
-func parsePagination(form url.Values) (string, int) {
-	marker := form.Get("Marker")
-	maxRecords := 0
+// minMaxRecords and maxMaxRecords bound the MaxRecords parameter accepted by
+// every paginated ElastiCache Describe*/List* operation. AWS rejects values
+// outside [20,100] with InvalidParameterValueException (wire code
+// InvalidParameterValue, HTTP 400) rather than silently clamping them.
+const (
+	minMaxRecords = 20
+	maxMaxRecords = 100
+)
 
-	if s := form.Get("MaxRecords"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil {
-			maxRecords = n
-		}
+// parsePagination extracts Marker and MaxRecords from query form values. When
+// MaxRecords is present but non-numeric or outside AWS's modeled [20,100]
+// range, it returns a non-nil error the caller should surface as
+// InvalidParameterValue. A missing MaxRecords falls back to the operation's
+// default (0, resolved downstream by pkgs/page).
+func parsePagination(form url.Values) (string, int, error) {
+	marker := form.Get("Marker")
+
+	s := form.Get("MaxRecords")
+	if s == "" {
+		return marker, 0, nil
 	}
 
-	return marker, maxRecords
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return "", 0, fmt.Errorf("%w: MaxRecords must be an integer, got %q", errInvalidMaxRecords, s)
+	}
+
+	if n < minMaxRecords || n > maxMaxRecords {
+		return "", 0, fmt.Errorf(
+			"%w: MaxRecords must be between %d and %d, got %d",
+			errInvalidMaxRecords, minMaxRecords, maxMaxRecords, n,
+		)
+	}
+
+	return marker, n, nil
+}
+
+// parsePaginationChecked parses Marker/MaxRecords and, on failure, writes the
+// InvalidParameterValue error response to c and returns it as err so the
+// caller can `return err` and stop -- centralizes the boilerplate every
+// paginated Describe*/List* handler needs (avoids ~15 near-identical
+// call-and-check blocks, which trips the dupl linter).
+func parsePaginationChecked(c *echo.Context, form url.Values) (string, int, error) {
+	marker, maxRecords, err := parsePagination(form)
+	if err != nil {
+		return "", 0, xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+	}
+
+	return marker, maxRecords, nil
+}
+
+// describeListChecked runs the sequence shared by every paginated
+// Describe*/List* handler: validate Marker/MaxRecords, invoke the backend
+// call, and split its error into NotFound-vs-InternalFailure. Centralizing
+// this dedups what would otherwise be ~15 near-identical handler bodies
+// (avoiding a wall of //nolint:dupl -- each handler differs only in its
+// backend call and the XML envelope it builds from the result, both of
+// which stay in the caller).
+func describeListChecked[T any](
+	c *echo.Context, form url.Values,
+	call func(marker string, maxRecords int) (page.Page[T], error),
+	notFound error, notFoundStatus int, notFoundCode, notFoundMsg string,
+) (page.Page[T], error) {
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return page.Page[T]{}, err
+	}
+
+	p, err := call(marker, maxRecords)
+	if err != nil {
+		if errors.Is(err, notFound) {
+			return page.Page[T]{}, xmlError(c, notFoundStatus, notFoundCode, notFoundMsg)
+		}
+
+		return page.Page[T]{}, xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return p, nil
 }
 
 // parseRepeatedField extracts a list of values from form fields with numeric suffixes.

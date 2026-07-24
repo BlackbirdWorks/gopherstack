@@ -149,6 +149,9 @@ func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form 
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
 		}
+		if errors.Is(err, ErrClusterNotAvailable) {
+			return xmlError(c, http.StatusBadRequest, "InvalidCacheClusterState", err.Error())
+		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -167,7 +170,10 @@ func (h *Handler) deleteCacheCluster(ctx context.Context, c *echo.Context, form 
 
 func (h *Handler) describeCacheClusters(ctx context.Context, c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 	notInRG := strings.EqualFold(form.Get("ShowCacheClustersNotInReplicationGroups"), "true")
 
 	p, err := h.Backend.DescribeClusters(ctx, id, marker, maxRecords, notInRG)
@@ -280,6 +286,9 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 		if errors.Is(err, ErrParameterGroupNotFound) {
 			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
 		}
+		if errors.Is(err, ErrClusterNotAvailable) {
+			return xmlError(c, http.StatusBadRequest, "InvalidCacheClusterState", err.Error())
+		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -304,6 +313,9 @@ func (h *Handler) rebootCacheCluster(ctx context.Context, c *echo.Context, form 
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
+		}
+		if errors.Is(err, ErrClusterNotAvailable) {
+			return xmlError(c, http.StatusBadRequest, "InvalidCacheClusterState", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

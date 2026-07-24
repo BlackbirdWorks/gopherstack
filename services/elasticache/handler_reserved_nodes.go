@@ -75,7 +75,10 @@ func (h *Handler) describeReservedCacheNodes(ctx context.Context, c *echo.Contex
 	id := form.Get("ReservedCacheNodeId")
 	cacheNodeType := form.Get("CacheNodeType")
 	offeringType := form.Get("OfferingType")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	p, err := h.Backend.DescribeReservedCacheNodes(ctx, id, cacheNodeType, offeringType, marker, maxRecords)
 	if err != nil {
@@ -104,7 +107,10 @@ func (h *Handler) describeReservedCacheNodesOfferings(ctx context.Context, c *ec
 	offeringID := form.Get("ReservedCacheNodesOfferingId")
 	cacheNodeType := form.Get("CacheNodeType")
 	offeringType := form.Get("OfferingType")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	p, err := h.Backend.DescribeReservedCacheNodesOfferings(
 		ctx,

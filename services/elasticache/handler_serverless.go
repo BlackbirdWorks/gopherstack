@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/labstack/echo/v5"
 )
 
@@ -193,6 +194,9 @@ func (h *Handler) deleteServerlessCache(ctx context.Context, c *echo.Context, fo
 		if errors.Is(err, ErrServerlessCacheNotFound) {
 			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
 		}
+		if errors.Is(err, ErrServerlessCacheNotAvailable) {
+			return xmlError(c, http.StatusBadRequest, "InvalidServerlessCacheStateFault", err.Error())
+		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -240,15 +244,14 @@ func (h *Handler) deleteServerlessCacheSnapshot(ctx context.Context, c *echo.Con
 
 func (h *Handler) describeServerlessCaches(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("ServerlessCacheName")
-	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeServerlessCaches(ctx, name, marker, maxRecords)
+	p, err := describeListChecked(c, form,
+		func(marker string, maxRecords int) (page.Page[ServerlessCache], error) {
+			return h.Backend.DescribeServerlessCaches(ctx, name, marker, maxRecords)
+		},
+		ErrServerlessCacheNotFound, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
 	if err != nil {
-		if errors.Is(err, ErrServerlessCacheNotFound) {
-			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
-		}
-
-		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		return err
 	}
 
 	var res describeServerlessCachesResultXML
@@ -265,7 +268,10 @@ func (h *Handler) describeServerlessCaches(ctx context.Context, c *echo.Context,
 func (h *Handler) describeServerlessCacheSnapshots(ctx context.Context, c *echo.Context, form url.Values) error {
 	serverlessCacheName := form.Get("ServerlessCacheName")
 	snapshotName := form.Get("ServerlessCacheSnapshotName")
-	marker, maxRecords := parsePagination(form)
+	marker, maxRecords, err := parsePaginationChecked(c, form)
+	if err != nil {
+		return err
+	}
 
 	p, err := h.Backend.DescribeServerlessCacheSnapshots(ctx, serverlessCacheName, snapshotName, marker, maxRecords)
 	if err != nil {
@@ -342,6 +348,9 @@ func (h *Handler) modifyServerlessCache(ctx context.Context, c *echo.Context, fo
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheNotFound) {
 			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
+		}
+		if errors.Is(err, ErrServerlessCacheNotAvailable) {
+			return xmlError(c, http.StatusBadRequest, "InvalidServerlessCacheStateFault", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

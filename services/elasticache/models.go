@@ -218,6 +218,11 @@ type StorageBackend interface {
 		userID, userName, accessString, engine string,
 		noPasswordRequired bool,
 	) (*User, error)
+	CreateUserWithAuth(
+		ctx context.Context,
+		userID, userName, accessString, engine, authType string,
+		passwordCount int,
+	) (*User, error)
 	BatchApplyUpdateAction(
 		ctx context.Context,
 		replicationGroupIDs, cacheClusterIDs []string,
@@ -233,11 +238,16 @@ type StorageBackend interface {
 	DeleteUser(ctx context.Context, userID string) (*User, error)
 	DescribeUsers(ctx context.Context, userID, marker string, maxRecords int) (page.Page[User], error)
 	ModifyUser(ctx context.Context, userID, accessString string, noPasswordRequired bool) (*User, error)
+	ModifyUserWithAuth(
+		ctx context.Context,
+		userID, accessString, appendAccessString, engine, authType string,
+		passwordCount *int,
+	) (*User, error)
 	// UserGroup operations
-	CreateUserGroup(ctx context.Context, groupID, description, engine string, userIDs []string) (*UserGroup, error)
+	CreateUserGroup(ctx context.Context, groupID, engine string, userIDs []string) (*UserGroup, error)
 	CreateUserGroupValidated(
 		ctx context.Context,
-		groupID, description, engine string,
+		groupID, engine string,
 		userIDs []string,
 	) (*UserGroup, error)
 	DeleteUserGroup(ctx context.Context, groupID string) (*UserGroup, error)
@@ -625,16 +635,28 @@ type ServerlessCacheSnapshot struct {
 }
 
 // User represents an ElastiCache user.
+//
+// AuthType holds the wire-accurate OUTPUT authentication type -- one of
+// "password", "no-password", or "iam" (types.AuthenticationType). Note this
+// differs from the INPUT enum accepted on Create/ModifyUser
+// (types.InputAuthenticationType), which spells the no-password case
+// "no-password-required"; the two must not be confused when field-diffing
+// against the SDK. PasswordCount reflects len(Passwords) (max 2, enforced at
+// the handler); the plaintext passwords themselves are never echoed back on
+// the wire, matching AWS. UserGroupIDs is derived (the reverse of
+// UserGroup.UserIDs) and populated fresh on every response, not persisted.
 type User struct {
-	CreatedAt          time.Time  `json:"createdAt"`
-	Tags               *tags.Tags `json:"tags,omitempty"`
-	UserID             string     `json:"userId"`
-	UserName           string     `json:"userName"`
-	Status             string     `json:"status"`
-	ARN                string     `json:"arn"`
-	Engine             string     `json:"engine"`
-	AccessString       string     `json:"accessString"`
-	NoPasswordRequired bool       `json:"noPasswordRequired"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	Tags          *tags.Tags `json:"tags,omitempty"`
+	UserID        string     `json:"userId"`
+	UserName      string     `json:"userName"`
+	Status        string     `json:"status"`
+	ARN           string     `json:"arn"`
+	Engine        string     `json:"engine"`
+	AccessString  string     `json:"accessString"`
+	AuthType      string     `json:"authType"`
+	UserGroupIDs  []string   `json:"userGroupIds,omitempty"`
+	PasswordCount int        `json:"passwordCount"`
 }
 
 // UpdateActionResult represents the outcome of a single update action.
@@ -656,11 +678,18 @@ type BatchUpdateResult struct {
 // ----------------------------------------
 
 // UserGroup represents an ElastiCache user group.
+//
+// AssignedReplicationGroupIDs mirrors the wire ReplicationGroups field
+// (types.UserGroup.ReplicationGroups): the reverse of
+// ReplicationGroup.UserGroupIDs, computed fresh on every response rather
+// than persisted (see userGroupReplicationGroupIDsLocked), matching how
+// User.UserGroupIDs is derived. Note: the real SDK's UserGroup type has NO
+// Description field -- a prior pass invented one and serialized it on the
+// wire; do not re-add it.
 type UserGroup struct {
 	CreatedAt                   time.Time  `json:"createdAt"`
 	Tags                        *tags.Tags `json:"tags,omitempty"`
 	UserGroupID                 string     `json:"userGroupID"`
-	Description                 string     `json:"description"`
 	Status                      string     `json:"status"`
 	ARN                         string     `json:"arn"`
 	Engine                      string     `json:"engine"`
