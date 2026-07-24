@@ -75,28 +75,24 @@ func (h *Handler) handleDetachManagedPolicyFromPermissionSet(c *echo.Context, bo
 }
 
 func (h *Handler) handleListManagedPoliciesInPermissionSet(c *echo.Context, body []byte) error {
-	var req struct {
-		InstanceArn      string `json:"InstanceArn"`
-		PermissionSetArn string `json:"PermissionSetArn"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
+	return listPermissionSetSubItems(
+		c, body,
+		func(instanceArn, permissionSetArn string) ([]managedPolicyView, error) {
+			policies, err := h.Backend.ListManagedPoliciesInPermissionSet(instanceArn, permissionSetArn)
+			if err != nil {
+				return nil, err
+			}
 
-	policies, err := h.Backend.ListManagedPoliciesInPermissionSet(req.InstanceArn, req.PermissionSetArn)
-	if err != nil {
-		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
-	}
+			views := make([]managedPolicyView, 0, len(policies))
+			for _, mp := range policies {
+				views = append(views, managedPolicyView(mp))
+			}
 
-	views := make([]managedPolicyView, 0, len(policies))
-	for _, mp := range policies {
-		views = append(views, managedPolicyView(mp))
-	}
-
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"AttachedManagedPolicies": views,
-		keyNextToken:              nil,
-	})
+			return views, nil
+		},
+		func(v managedPolicyView) string { return v.Arn },
+		"AttachedManagedPolicies",
+	)
 }
 
 type customerManagedPolicyReferenceView struct {
@@ -127,27 +123,24 @@ func (h *Handler) handleAttachCustomerManagedPolicyReferenceToPermissionSet(c *e
 }
 
 func (h *Handler) handleListCustomerManagedPolicyReferencesInPermissionSet(c *echo.Context, body []byte) error {
-	var req struct {
-		InstanceArn      string `json:"InstanceArn"`
-		PermissionSetArn string `json:"PermissionSetArn"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
-	}
-	refs, err := h.Backend.ListCustomerManagedPolicyReferencesInPermissionSet(req.InstanceArn, req.PermissionSetArn)
-	if err != nil {
-		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
-	}
+	return listPermissionSetSubItems(
+		c, body,
+		func(instanceArn, permissionSetArn string) ([]customerManagedPolicyReferenceView, error) {
+			refs, err := h.Backend.ListCustomerManagedPolicyReferencesInPermissionSet(instanceArn, permissionSetArn)
+			if err != nil {
+				return nil, err
+			}
 
-	out := make([]customerManagedPolicyReferenceView, 0, len(refs))
-	for _, ref := range refs {
-		out = append(out, customerManagedPolicyReferenceView(ref))
-	}
+			out := make([]customerManagedPolicyReferenceView, 0, len(refs))
+			for _, ref := range refs {
+				out = append(out, customerManagedPolicyReferenceView(ref))
+			}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"CustomerManagedPolicyReferences": out,
-		keyNextToken:                      nil,
-	})
+			return out, nil
+		},
+		func(v customerManagedPolicyReferenceView) string { return v.Name },
+		"CustomerManagedPolicyReferences",
+	)
 }
 
 func (h *Handler) handleDetachCustomerManagedPolicyReferenceFromPermissionSet(

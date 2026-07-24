@@ -26,6 +26,8 @@ func (h *Handler) handleDeleteApplicationAccessScope(c *echo.Context, body []byt
 func (h *Handler) handleListApplicationAccessScopes(c *echo.Context, body []byte) error {
 	var req struct {
 		ApplicationArn string `json:"ApplicationArn"`
+		NextToken      string `json:"NextToken"`
+		MaxResults     int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -35,9 +37,13 @@ func (h *Handler) handleListApplicationAccessScopes(c *echo.Context, body []byte
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
+	page, next := paginateBy(scopes, req.MaxResults, req.NextToken, func(s ScopeDetails) string {
+		return s.Scope
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Scopes":     scopes,
-		keyNextToken: nil,
+		"Scopes":     page,
+		keyNextToken: next,
 	})
 }
 

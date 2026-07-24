@@ -248,7 +248,7 @@ func TestErrorCases(t *testing.T) {
 			name:       "describe non-existent instance",
 			op:         "DescribeInstance",
 			body:       map[string]any{"InstanceArn": "arn:aws:sso:::instance/ssoins-bad"},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "delete non-existent permission set",
@@ -257,7 +257,7 @@ func TestErrorCases(t *testing.T) {
 				"InstanceArn":      "arn:aws:sso:::instance/ssoins-bad",
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-bad/badid",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "create permission set missing instance arn",

@@ -390,7 +390,7 @@ func TestDeletePermissionSetWithAssignmentsConflict(t *testing.T) {
 	}{
 		{
 			name:       "delete_ps_with_assignments_returns_conflict",
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 			wantCode:   "ConflictException",
 		},
 	}
@@ -461,6 +461,126 @@ func TestListPermissionSetProvisioningStatusSorted(t *testing.T) {
 		curr := statuses[i].(map[string]any)["CreatedDate"].(float64)
 		assert.GreaterOrEqual(t, prev, curr, "statuses should be sorted by date desc")
 	}
+}
+
+// TestPermissionSetProvisioningStatusWireShape locks in the real
+// types.PermissionSetProvisioningStatus wire shape: the account identifier
+// field is "AccountId" (unlike types.AccountAssignmentOperationStatus, which
+// uses "TargetId" -- see TestAccountAssignmentStatusWireShape in
+// handler_account_assignments_test.go), and the shape has no
+// TargetType/PrincipalId/PrincipalType members at all. Also locks in that
+// ListPermissionSetProvisioningStatus returns the slim
+// PermissionSetProvisioningStatusMetadata shape (CreatedDate/RequestId/Status
+// only) while preserving the CreatedDate-descending order.
+func TestPermissionSetProvisioningStatusWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "prov-wire-shape-inst")
+	psArn := createPermissionSet(t, h, instanceArn, "ProvWireShapePS")
+
+	rec := doRequest(t, h, "ProvisionPermissionSet", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"TargetType":       "AWS_ACCOUNT",
+		"TargetId":         "333333333333",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResponse(t, rec)
+	status, ok := resp["PermissionSetProvisioningStatus"].(map[string]any)
+	require.True(t, ok)
+
+	assert.Equal(t, "333333333333", status["AccountId"], "wire field must be AccountId")
+	assert.Equal(t, psArn, status["PermissionSetArn"])
+	assert.NotContains(t, status, "TargetId", "PermissionSetProvisioningStatus has no TargetId member")
+	assert.NotContains(t, status, "TargetType", "PermissionSetProvisioningStatus has no TargetType member")
+	assert.NotContains(t, status, "PrincipalId", "PermissionSetProvisioningStatus has no PrincipalId member")
+	assert.Contains(t, status, "RequestId")
+	assert.Contains(t, status, "CreatedDate")
+
+	requestID, _ := status["RequestId"].(string)
+
+	listRec := doRequest(t, h, "ListPermissionSetProvisioningStatus", map[string]any{
+		"InstanceArn": instanceArn,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	listResp := parseResponse(t, listRec)
+	items, ok := listResp["PermissionSetsProvisioningStatus"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, items)
+
+	var found bool
+
+	for _, raw := range items {
+		item, itemOK := raw.(map[string]any)
+		require.True(t, itemOK)
+
+		assert.NotContains(t, item, "AccountId", "list metadata shape has no AccountId member")
+		assert.NotContains(t, item, "PermissionSetArn", "list metadata shape has no PermissionSetArn member")
+		assert.Contains(t, item, "RequestId")
+		assert.Contains(t, item, "Status")
+
+		if item["RequestId"] == requestID {
+			found = true
+		}
+	}
+
+	assert.True(t, found, "provisioned permission set's request id must appear in the list")
+}
+
+// TestListPermissionSetProvisioningStatusPagination locks in MaxResults +
+// NextToken pagination support on ListPermissionSetProvisioningStatus, which
+// previously ignored MaxResults entirely and always returned a nil NextToken
+// even when more results existed.
+func TestListPermissionSetProvisioningStatusPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "prov-pagination-inst")
+
+	const totalProvisions = 5
+	for i := range totalProvisions {
+		psArn := createPermissionSet(t, h, instanceArn, "ProvPagPS"+string(rune('A'+i)))
+		rec := doRequest(t, h, "ProvisionPermissionSet", map[string]any{
+			"InstanceArn":      instanceArn,
+			"PermissionSetArn": psArn,
+			"TargetType":       "ALL_PROVISIONED_ACCOUNTS",
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "ListPermissionSetProvisioningStatus", map[string]any{
+		"InstanceArn": instanceArn,
+		"MaxResults":  2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResponse(t, rec)
+	items, ok := resp["PermissionSetsProvisioningStatus"].([]any)
+	require.True(t, ok)
+	assert.Len(t, items, 2, "MaxResults must cap the page size")
+	assert.NotEmpty(t, resp["NextToken"], "NextToken must be set when more results remain")
+
+	seen := len(items)
+	nextToken, _ := resp["NextToken"].(string)
+
+	for nextToken != "" {
+		rec = doRequest(t, h, "ListPermissionSetProvisioningStatus", map[string]any{
+			"InstanceArn": instanceArn,
+			"MaxResults":  2,
+			"NextToken":   nextToken,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp = parseResponse(t, rec)
+		items, ok = resp["PermissionSetsProvisioningStatus"].([]any)
+		require.True(t, ok)
+		seen += len(items)
+		nextToken, _ = resp["NextToken"].(string)
+	}
+
+	assert.Equal(t, totalProvisions, seen, "pagination must eventually surface every status entry exactly once")
 }
 
 // TestCreatePermissionSetNameTooLong verifies name length validation.
@@ -622,7 +742,7 @@ func TestDeletePermissionSetAfterRemovingAssignmentsSucceeds(t *testing.T) {
 		"InstanceArn":      instanceArn,
 		"PermissionSetArn": psArn,
 	})
-	require.Equal(t, http.StatusConflict, delFail.Code)
+	require.Equal(t, http.StatusBadRequest, delFail.Code)
 
 	// Remove the assignment.
 	delAssign := doRequest(t, h, "DeleteAccountAssignment", map[string]any{
@@ -711,7 +831,7 @@ func TestPermissionSetConflict(t *testing.T) {
 	}{
 		{
 			name:       "duplicate permission set name",
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -787,7 +907,7 @@ func TestDeletePermissionSet(t *testing.T) {
 		{
 			name:       "delete non-existing permission set",
 			useInvalid: true,
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -918,7 +1038,7 @@ func TestDescribePermissionSetProvisioningStatus_NotFound(t *testing.T) {
 		{
 			name:       "non_existent_request_id",
 			requestID:  "nonexistent-request-id",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -958,7 +1078,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"InstanceArn": "arn:aws:sso:::instance/ssoins-notfound",
 				"Name":        "TestPS",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -968,7 +1088,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -979,7 +1099,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
 				"Description":      "Updated",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -990,7 +1110,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
 				"ManagedPolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -1001,7 +1121,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
 				"ManagedPolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -1011,7 +1131,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -1022,7 +1142,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
 				"InlinePolicy":     "{}",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -1032,7 +1152,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -1042,7 +1162,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"InstanceArn":      "arn:aws:sso:::instance/ssoins-notfound",
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 		{
@@ -1053,7 +1173,7 @@ func TestPermissionSet_ErrorPaths(t *testing.T) {
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-x/badid",
 				"TargetType":       "ALL_PROVISIONED_ACCOUNTS",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 			wantType:   "ResourceNotFoundException",
 		},
 	}

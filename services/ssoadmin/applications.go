@@ -59,6 +59,9 @@ func (b *InMemoryBackend) AddApplicationInternal(instanceArn, name string) *Appl
 		Status:                 appStatusEnabled,
 		CreatedDate:            time.Now().UTC(),
 		Tags:                   make(map[string]string),
+		ApplicationAccount:     b.accountID,
+		CreatedFrom:            b.region,
+		IdentityStoreArn:       b.identityStoreArn(instanceArn),
 	}
 	b.applications.Put(app)
 
@@ -122,11 +125,27 @@ func (b *InMemoryBackend) CreateApplication(
 		Status:                 appStatusEnabled,
 		Tags:                   make(map[string]string),
 		PortalOptions:          portalOptions,
+		ApplicationAccount:     b.accountID,
+		CreatedFrom:            b.region,
+		IdentityStoreArn:       b.identityStoreArn(instanceArn),
 	}
 	maps.Copy(app.Tags, tags)
 	b.applications.Put(app)
 
 	return copyApplication(app), nil
+}
+
+// identityStoreArn builds the ARN of the identity store connected to the
+// given instance, matching the real ssoadmin.types.Application /
+// DescribeApplicationOutput "IdentityStoreArn" wire field. Returns "" if the
+// instance can't be found (should not happen for a validated instanceArn).
+func (b *InMemoryBackend) identityStoreArn(instanceArn string) string {
+	inst, ok := b.instances.Get(instanceArn)
+	if !ok || inst.IdentityStoreID == "" {
+		return ""
+	}
+
+	return arn.Build("identitystore", "", b.accountID, "identitystore/"+inst.IdentityStoreID)
 }
 
 // DescribeApplication returns an application by ARN.

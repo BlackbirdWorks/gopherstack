@@ -34,7 +34,7 @@ func TestCreateApplicationAssignment(t *testing.T) {
 			name:          "assign to nonexistent application",
 			principalID:   "user-001",
 			principalType: "USER",
-			wantStatus:    http.StatusNotFound,
+			wantStatus:    http.StatusBadRequest,
 			useInvalidApp: true,
 		},
 	}
@@ -83,7 +83,7 @@ func TestDeleteApplicationAssignment(t *testing.T) {
 		{
 			name:         "delete nonexistent assignment",
 			createAssign: false,
-			wantStatus:   http.StatusNotFound,
+			wantStatus:   http.StatusBadRequest,
 		},
 	}
 
@@ -199,4 +199,80 @@ func TestListApplicationAssignmentsForPrincipal(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDescribeApplicationAssignmentWireShape locks in the real
+// DescribeApplicationAssignmentOutput wire shape: flat top-level fields
+// (ApplicationArn, PrincipalId, PrincipalType) with NO nested
+// "ApplicationAssignment" wrapper. gopherstack previously nested these under
+// an invented "ApplicationAssignment" key that doesn't exist on the real
+// wire -- a real aws-sdk-go-v2 client parsing that response would find every
+// DescribeApplicationAssignmentOutput field nil/empty.
+func TestDescribeApplicationAssignmentWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "daa-wire-shape-inst")
+	appArn := createApplication(t, h, instanceArn, "DAAWireShapeApp")
+
+	assignRec := doRequest(t, h, "CreateApplicationAssignment", map[string]any{
+		"ApplicationArn": appArn,
+		"PrincipalId":    "user-wire-shape",
+		"PrincipalType":  "USER",
+	})
+	require.Equal(t, http.StatusOK, assignRec.Code)
+
+	rec := doRequest(t, h, "DescribeApplicationAssignment", map[string]any{
+		"ApplicationArn": appArn,
+		"PrincipalId":    "user-wire-shape",
+		"PrincipalType":  "USER",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseResponse(t, rec)
+
+	assert.NotContains(t, resp, "ApplicationAssignment",
+		`DescribeApplicationAssignmentOutput has no nested "ApplicationAssignment" member`)
+	assert.Equal(t, appArn, resp["ApplicationArn"])
+	assert.Equal(t, "user-wire-shape", resp["PrincipalId"])
+	assert.Equal(t, "USER", resp["PrincipalType"])
+}
+
+// TestApplicationSessionConfiguration_UserBackgroundSessionApplicationStatus
+// locks in the real Put/GetApplicationSessionConfiguration wire shape: the
+// member is "UserBackgroundSessionApplicationStatus" (ENABLED/DISABLED), not
+// "SessionDuration" -- gopherstack previously modeled a fabricated
+// SessionDuration concept for this operation pair that doesn't exist
+// anywhere on the real API (confused with the unrelated
+// PermissionSet.SessionDuration field). GetApplicationSessionConfigurationOutput
+// is also flat -- no nested "ApplicationSessionConfiguration" wrapper.
+func TestApplicationSessionConfiguration_UserBackgroundSessionApplicationStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "session-config-inst")
+	appArn := createApplication(t, h, instanceArn, "SessionConfigApp")
+
+	putRec := doRequest(t, h, "PutApplicationSessionConfiguration", map[string]any{
+		"ApplicationArn":                         appArn,
+		"UserBackgroundSessionApplicationStatus": "ENABLED",
+	})
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	getRec := doRequest(t, h, "GetApplicationSessionConfiguration", map[string]any{
+		"ApplicationArn": appArn,
+	})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	resp := parseResponse(t, getRec)
+
+	assert.NotContains(t, resp, "ApplicationSessionConfiguration",
+		`GetApplicationSessionConfigurationOutput has no nested wrapper member`)
+	assert.NotContains(t, resp, "SessionDuration", "there is no SessionDuration member on this operation")
+	assert.Equal(t, "ENABLED", resp["UserBackgroundSessionApplicationStatus"])
+
+	// Invalid value rejected.
+	badRec := doRequest(t, h, "PutApplicationSessionConfiguration", map[string]any{
+		"ApplicationArn":                         appArn,
+		"UserBackgroundSessionApplicationStatus": "PT4H",
+	})
+	assert.Equal(t, http.StatusBadRequest, badRec.Code)
 }

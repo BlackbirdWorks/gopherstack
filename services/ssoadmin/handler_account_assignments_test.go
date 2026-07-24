@@ -481,7 +481,7 @@ func TestDescribeAccountAssignmentCreationStatus_NotFound(t *testing.T) {
 		{
 			name:       "non_existent_request_id",
 			requestID:  "nonexistent-request-id",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -515,7 +515,7 @@ func TestDescribeAccountAssignmentDeletionStatus_NotFound(t *testing.T) {
 		{
 			name:       "non_existent_request_id",
 			requestID:  "nonexistent-request-id",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -547,7 +547,7 @@ func TestDeleteAccountAssignment_NotFound(t *testing.T) {
 	}{
 		{
 			name:       "delete_non_existing_assignment",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -584,7 +584,7 @@ func TestCreateAccountAssignment_InstanceNotFound(t *testing.T) {
 	}{
 		{
 			name:       "instance_not_found",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -608,4 +608,151 @@ func TestCreateAccountAssignment_InstanceNotFound(t *testing.T) {
 			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 		})
 	}
+}
+
+// TestAccountAssignmentStatusWireShape locks in the real
+// types.AccountAssignmentOperationStatus wire shape: the account identifier
+// field is "TargetId" (echoing the request's TargetId/TargetType), NOT
+// "AccountId" -- unlike PermissionSetProvisioningStatus, which really does use
+// "AccountId" (see TestPermissionSetProvisioningStatusWireShape in
+// handler_permission_sets_test.go). A real aws-sdk-go-v2 client parsing the
+// old "AccountId"-keyed response would silently get a nil TargetId.
+func TestAccountAssignmentStatusWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "wire-shape-inst")
+	psArn := createPermissionSet(t, h, instanceArn, "WireShapePS")
+
+	rec := doRequest(t, h, "CreateAccountAssignment", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"TargetId":         "222222222222",
+		"TargetType":       "AWS_ACCOUNT",
+		"PrincipalType":    "GROUP",
+		"PrincipalId":      "group-xyz",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResponse(t, rec)
+	status, ok := resp["AccountAssignmentCreationStatus"].(map[string]any)
+	require.True(t, ok, "AccountAssignmentCreationStatus must be present")
+
+	assert.Equal(t, "222222222222", status["TargetId"], "wire field must be TargetId")
+	assert.Equal(t, "AWS_ACCOUNT", status["TargetType"])
+	assert.NotContains(t, status, "AccountId", "AccountAssignmentOperationStatus has no AccountId member")
+	assert.Equal(t, psArn, status["PermissionSetArn"])
+	assert.Equal(t, "group-xyz", status["PrincipalId"])
+	assert.Equal(t, "GROUP", status["PrincipalType"])
+	assert.Contains(t, status, "RequestId")
+	assert.Contains(t, status, "CreatedDate")
+
+	requestID, _ := status["RequestId"].(string)
+
+	// ListAccountAssignmentCreationStatus returns the slim
+	// AccountAssignmentOperationStatusMetadata shape: only
+	// CreatedDate/RequestId/Status, no TargetId/PermissionSetArn/etc. Checked
+	// before delete: DeleteAccountAssignment prunes the matching creation
+	// status entry to bound growth, so it would no longer be listed after.
+	listRec := doRequest(t, h, "ListAccountAssignmentCreationStatus", map[string]any{
+		"InstanceArn": instanceArn,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	listResp := parseResponse(t, listRec)
+	items, ok := listResp["AccountAssignmentsCreationStatus"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, items)
+
+	var found bool
+
+	for _, raw := range items {
+		item, itemOK := raw.(map[string]any)
+		require.True(t, itemOK)
+
+		assert.NotContains(t, item, "TargetId", "list metadata shape has no TargetId member")
+		assert.NotContains(t, item, "PermissionSetArn", "list metadata shape has no PermissionSetArn member")
+		assert.NotContains(t, item, "PrincipalId", "list metadata shape has no PrincipalId member")
+		assert.Contains(t, item, "RequestId")
+		assert.Contains(t, item, "Status")
+
+		if item["RequestId"] == requestID {
+			found = true
+		}
+	}
+
+	assert.True(t, found, "created assignment's request id must appear in the list")
+
+	// Same shape check on DeleteAccountAssignment's status.
+	delRec := doRequest(t, h, "DeleteAccountAssignment", map[string]any{
+		"InstanceArn":      instanceArn,
+		"PermissionSetArn": psArn,
+		"TargetId":         "222222222222",
+		"TargetType":       "AWS_ACCOUNT",
+		"PrincipalType":    "GROUP",
+		"PrincipalId":      "group-xyz",
+	})
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	delResp := parseResponse(t, delRec)
+	delStatus, ok := delResp["AccountAssignmentDeletionStatus"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "222222222222", delStatus["TargetId"])
+	assert.NotContains(t, delStatus, "AccountId")
+}
+
+// TestListAccountAssignmentCreationStatusPagination locks in MaxResults +
+// NextToken pagination support on ListAccountAssignmentCreationStatus, which
+// previously ignored MaxResults entirely and always returned a nil NextToken
+// even when more results existed.
+func TestListAccountAssignmentCreationStatusPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	instanceArn := createInstance(t, h, "pagination-inst")
+	psArn := createPermissionSet(t, h, instanceArn, "PaginationPS")
+
+	const totalAssignments = 5
+	for i := range totalAssignments {
+		rec := doRequest(t, h, "CreateAccountAssignment", map[string]any{
+			"InstanceArn":      instanceArn,
+			"PermissionSetArn": psArn,
+			"TargetId":         "10000000000" + string(rune('0'+i)),
+			"TargetType":       "AWS_ACCOUNT",
+			"PrincipalType":    "USER",
+			"PrincipalId":      "user-" + string(rune('0'+i)),
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, "ListAccountAssignmentCreationStatus", map[string]any{
+		"InstanceArn": instanceArn,
+		"MaxResults":  2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResponse(t, rec)
+	items, ok := resp["AccountAssignmentsCreationStatus"].([]any)
+	require.True(t, ok)
+	assert.Len(t, items, 2, "MaxResults must cap the page size")
+	assert.NotEmpty(t, resp["NextToken"], "NextToken must be set when more results remain")
+
+	seen := len(items)
+	nextToken, _ := resp["NextToken"].(string)
+
+	for nextToken != "" {
+		rec = doRequest(t, h, "ListAccountAssignmentCreationStatus", map[string]any{
+			"InstanceArn": instanceArn,
+			"MaxResults":  2,
+			"NextToken":   nextToken,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		resp = parseResponse(t, rec)
+		items, ok = resp["AccountAssignmentsCreationStatus"].([]any)
+		require.True(t, ok)
+		seen += len(items)
+		nextToken, _ = resp["NextToken"].(string)
+	}
+
+	assert.Equal(t, totalAssignments, seen, "pagination must eventually surface every status entry exactly once")
 }

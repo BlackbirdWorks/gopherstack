@@ -72,7 +72,7 @@ func TestGetApplicationGrant(t *testing.T) {
 			name:       "get_nonexistent_grant",
 			grantType:  "implicit",
 			putGrant:   false,
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_grant_type_param",
@@ -100,6 +100,9 @@ func TestGetApplicationGrant(t *testing.T) {
 				putRec := doRequest(t, h, "PutApplicationGrant", map[string]any{
 					"ApplicationArn": appArn,
 					"GrantType":      tt.grantType,
+					"Grant": map[string]any{
+						"AuthorizationCode": map[string]any{"RedirectUris": []string{"https://example.com"}},
+					},
 				})
 				require.Equal(t, http.StatusOK, putRec.Code)
 			}
@@ -112,8 +115,14 @@ func TestGetApplicationGrant(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				resp := parseResponse(t, rec)
-				grant := resp["Grant"].(map[string]any)
-				assert.Equal(t, tt.grantType, grant["GrantType"])
+				// Real GetApplicationGrantOutput is exactly {Grant: <union>}
+				// -- the union's wire shape is {"AuthorizationCode": {...}},
+				// with NO sibling "GrantType" field alongside it.
+				grant, ok := resp["Grant"].(map[string]any)
+				require.True(t, ok)
+				assert.NotContains(t, grant, "GrantType",
+					"GetApplicationGrantOutput's union has no sibling GrantType member")
+				assert.Contains(t, grant, "AuthorizationCode")
 			}
 		})
 	}

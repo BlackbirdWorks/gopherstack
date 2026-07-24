@@ -188,8 +188,11 @@ func TestListInstancesIncludesCreatedDate(t *testing.T) {
 	assert.Greater(t, createdDate.(float64), float64(0), "CreatedDate should be a positive unix timestamp")
 }
 
-// TestDescribeInstanceIncludesTags verifies Tags field in DescribeInstance response.
-func TestDescribeInstanceIncludesTags(t *testing.T) {
+// TestDescribeInstanceWireShape locks in the real DescribeInstanceOutput wire
+// shape: it has no Tags member (gopherstack previously invented one here).
+// Tags for an instance are fetched separately via ListTagsForResource,
+// matching every other taggable ssoadmin resource.
+func TestDescribeInstanceWireShape(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
@@ -207,9 +210,17 @@ func TestDescribeInstanceIncludesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResponse(t, rec)
-	tags, hasTags := resp["Tags"]
-	assert.True(t, hasTags, "DescribeInstance should include Tags")
-	tagSlice, ok := tags.([]any)
+	assert.NotContains(t, resp, "Tags", "DescribeInstanceOutput has no Tags member")
+	assert.Equal(t, instanceArn, resp["InstanceArn"])
+
+	// Tags are only reachable via ListTagsForResource, matching real AWS.
+	tagsRec := doRequest(t, h, "ListTagsForResource", map[string]any{
+		"InstanceArn": instanceArn,
+		"ResourceArn": instanceArn,
+	})
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+	tagsResp := parseResponse(t, tagsRec)
+	tagSlice, ok := tagsResp["Tags"].([]any)
 	assert.True(t, ok)
 	assert.Len(t, tagSlice, 1)
 	tagEntry := tagSlice[0].(map[string]any)
@@ -351,7 +362,7 @@ func TestDeleteInstance(t *testing.T) {
 		{
 			name:        "delete non-existing instance",
 			instanceArn: "arn:aws:sso:::instance/ssoins-nonexistent",
-			wantStatus:  http.StatusNotFound,
+			wantStatus:  http.StatusBadRequest,
 		},
 	}
 

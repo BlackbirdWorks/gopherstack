@@ -77,7 +77,11 @@ type StorageBackend interface {
 	PutApplicationAuthenticationMethod(applicationArn, authMethodType string, body json.RawMessage) error
 	// PutApplicationGrant stores a structured grant body; grantType must be a valid AWS grant type enum value.
 	PutApplicationGrant(applicationArn, grantType string, body json.RawMessage) error
-	PutApplicationSessionConfiguration(applicationArn, sessionDuration string) error
+	// PutApplicationSessionConfiguration sets the UserBackgroundSessionApplicationStatus
+	// (ENABLED or DISABLED) for an application. Matches the real
+	// PutApplicationSessionConfigurationInput wire shape -- this is NOT a
+	// session duration.
+	PutApplicationSessionConfiguration(applicationArn, userBackgroundSessionStatus string) error
 	// PutPermissionsBoundaryToPermissionSet accepts a union boundary
 	// (ManagedPolicyArn xor CustomerManagedPolicyReference).
 	PutPermissionsBoundaryToPermissionSet(

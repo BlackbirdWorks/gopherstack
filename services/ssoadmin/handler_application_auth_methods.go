@@ -95,10 +95,15 @@ func (h *Handler) handleGetApplicationAuthenticationMethod(c *echo.Context, body
 		return handleBackendError(c, err, "authentication method not found: "+req.AuthenticationMethodType)
 	}
 
+	// Real GetApplicationAuthenticationMethodOutput is exactly
+	// {AuthenticationMethod: <union>} -- unlike AuthenticationMethodItem (the
+	// ListApplicationAuthenticationMethods item shape), it has NO sibling
+	// AuthenticationMethodType member alongside the union value. gopherstack
+	// previously double-wrapped the stored union body under an extra
+	// "AuthenticationMethodType"/"AuthenticationMethod" pair one level too
+	// deep, which would prevent a real client's union deserializer from ever
+	// finding the "Iam" tag.
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyAuthenticationMethod: map[string]any{
-			"AuthenticationMethodType": req.AuthenticationMethodType,
-			keyAuthenticationMethod:    authMethodBody,
-		},
+		keyAuthenticationMethod: authMethodBody,
 	})
 }

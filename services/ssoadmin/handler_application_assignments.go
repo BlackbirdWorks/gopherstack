@@ -3,7 +3,6 @@ package ssoadmin
 import (
 	"encoding/json"
 	"net/http"
-	"sort"
 
 	"github.com/labstack/echo/v5"
 )
@@ -65,18 +64,23 @@ func (h *Handler) handleDescribeApplicationAssignment(c *echo.Context, body []by
 		return handleBackendError(c, err, "application assignment not found")
 	}
 
+	// Real DescribeApplicationAssignmentOutput is flat (ApplicationArn,
+	// PrincipalId, PrincipalType) -- no nested "ApplicationAssignment" wrapper
+	// (gopherstack previously invented one here); see
+	// awsAwsjson11_deserializeOpDocumentDescribeApplicationAssignmentOutput in
+	// the real SDK's deserializers.go.
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"ApplicationAssignment": map[string]any{
-			keyApplicationArn: assignment.ApplicationArn,
-			"PrincipalId":     assignment.PrincipalID,
-			"PrincipalType":   assignment.PrincipalType,
-		},
+		keyApplicationArn: assignment.ApplicationArn,
+		"PrincipalId":     assignment.PrincipalID,
+		"PrincipalType":   assignment.PrincipalType,
 	})
 }
 
 func (h *Handler) handleListApplicationAssignments(c *echo.Context, body []byte) error {
 	var req struct {
 		ApplicationArn string `json:"ApplicationArn"`
+		NextToken      string `json:"NextToken"`
+		MaxResults     int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -85,14 +89,6 @@ func (h *Handler) handleListApplicationAssignments(c *echo.Context, body []byte)
 	if err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
-
-	sort.Slice(assignments, func(i, j int) bool {
-		if assignments[i].PrincipalType != assignments[j].PrincipalType {
-			return assignments[i].PrincipalType < assignments[j].PrincipalType
-		}
-
-		return assignments[i].PrincipalID < assignments[j].PrincipalID
-	})
 
 	out := make([]map[string]any, 0, len(assignments))
 	for _, assignment := range assignments {
@@ -103,24 +99,33 @@ func (h *Handler) handleListApplicationAssignments(c *echo.Context, body []byte)
 		})
 	}
 
+	page, next := paginateBy(out, req.MaxResults, req.NextToken, func(v map[string]any) string {
+		principalType, _ := v["PrincipalType"].(string)
+		principalID, _ := v["PrincipalId"].(string)
+
+		return principalType + "|" + principalID
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"ApplicationAssignments": out,
-		keyNextToken:             nil,
+		"ApplicationAssignments": page,
+		keyNextToken:             next,
 	})
 }
 
 func (h *Handler) handlePutApplicationAssignmentConfiguration(c *echo.Context, body []byte) error {
+	// Real PutApplicationAssignmentConfigurationInput is exactly
+	// {ApplicationArn, AssignmentRequired} -- gopherstack previously also
+	// accepted an invented "AssignmentRequiredForAllIdentities" field that
+	// doesn't exist anywhere in the real SDK.
 	var req struct {
-		ApplicationArn                     string `json:"ApplicationArn"`
-		AssignmentRequired                 bool   `json:"AssignmentRequired"`
-		AssignmentRequiredForAllIdentities bool   `json:"AssignmentRequiredForAllIdentities"`
+		ApplicationArn     string `json:"ApplicationArn"`
+		AssignmentRequired bool   `json:"AssignmentRequired"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	required := req.AssignmentRequired || req.AssignmentRequiredForAllIdentities
-	if err := h.Backend.PutApplicationAssignmentConfiguration(req.ApplicationArn, required); err != nil {
+	if err := h.Backend.PutApplicationAssignmentConfiguration(req.ApplicationArn, req.AssignmentRequired); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
@@ -128,14 +133,21 @@ func (h *Handler) handlePutApplicationAssignmentConfiguration(c *echo.Context, b
 }
 
 func (h *Handler) handlePutApplicationSessionConfiguration(c *echo.Context, body []byte) error {
+	// Real PutApplicationSessionConfigurationInput is
+	// {ApplicationArn, UserBackgroundSessionApplicationStatus} -- there is no
+	// "SessionDuration" member on this operation at all (gopherstack
+	// previously invented one, confusing it with the unrelated
+	// PermissionSet.SessionDuration concept).
 	var req struct {
-		ApplicationArn  string `json:"ApplicationArn"`
-		SessionDuration string `json:"SessionDuration"`
+		ApplicationArn                         string `json:"ApplicationArn"`
+		UserBackgroundSessionApplicationStatus string `json:"UserBackgroundSessionApplicationStatus"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	if err := h.Backend.PutApplicationSessionConfiguration(req.ApplicationArn, req.SessionDuration); err != nil {
+	if err := h.Backend.PutApplicationSessionConfiguration(
+		req.ApplicationArn, req.UserBackgroundSessionApplicationStatus,
+	); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
@@ -172,15 +184,17 @@ func (h *Handler) handleGetApplicationSessionConfiguration(c *echo.Context, body
 	if req.ApplicationArn == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "ApplicationArn is required")
 	}
-	dur, err := h.Backend.GetApplicationSessionConfiguration(req.ApplicationArn)
+	status, err := h.Backend.GetApplicationSessionConfiguration(req.ApplicationArn)
 	if err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
+	// Real GetApplicationSessionConfigurationOutput is flat
+	// ({UserBackgroundSessionApplicationStatus}) -- no nested
+	// "ApplicationSessionConfiguration" wrapper and no "SessionDuration"
+	// member (gopherstack previously invented both).
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"ApplicationSessionConfiguration": map[string]any{
-			"SessionDuration": dur,
-		},
+		"UserBackgroundSessionApplicationStatus": status,
 	})
 }
 
@@ -189,6 +203,11 @@ func (h *Handler) handleListApplicationAssignmentsForPrincipal(c *echo.Context, 
 		InstanceArn   string `json:"InstanceArn"`
 		PrincipalID   string `json:"PrincipalId"`
 		PrincipalType string `json:"PrincipalType"`
+		Filter        struct {
+			ApplicationArn string `json:"ApplicationArn"`
+		} `json:"Filter"`
+		NextToken  string `json:"NextToken"`
+		MaxResults int    `json:"MaxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -212,6 +231,10 @@ func (h *Handler) handleListApplicationAssignmentsForPrincipal(c *echo.Context, 
 	}
 	views := make([]appAssignmentView, 0, len(assignments))
 	for _, a := range assignments {
+		if req.Filter.ApplicationArn != "" && a.ApplicationArn != req.Filter.ApplicationArn {
+			continue
+		}
+
 		views = append(views, appAssignmentView{
 			ApplicationArn: a.ApplicationArn,
 			PrincipalID:    a.PrincipalID,
@@ -219,8 +242,12 @@ func (h *Handler) handleListApplicationAssignmentsForPrincipal(c *echo.Context, 
 		})
 	}
 
+	page, next := paginateBy(views, req.MaxResults, req.NextToken, func(v appAssignmentView) string {
+		return v.ApplicationArn + "|" + v.PrincipalType + "|" + v.PrincipalID
+	})
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"ApplicationAssignments": views,
-		keyNextToken:             nil,
+		"ApplicationAssignments": page,
+		keyNextToken:             next,
 	})
 }
