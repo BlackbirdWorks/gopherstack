@@ -2,7 +2,6 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"sort"
@@ -19,19 +18,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
-// Sentinel errors for streams operations.
-var (
-	ErrInvalidAttributeValue = errors.New("expected map[string]any for attribute value")
-	ErrInvalidTypeKeyCount   = errors.New("expected exactly 1 type key")
-	ErrTypeMismatchS         = errors.New("expected string for S")
-	ErrTypeMismatchN         = errors.New("expected string for N")
-	ErrTypeMismatchBOOL      = errors.New("expected bool for BOOL")
-	ErrTypeMismatchM         = errors.New("expected map for M")
-	ErrTypeMismatchL         = errors.New("expected slice for L")
-	ErrTypeMismatchB         = errors.New("expected []byte or base64 string for B")
-	ErrUnknownAttributeType  = errors.New("unknown attribute type")
-	ErrEmptySequenceNumber   = errors.New("empty sequence number")
-)
+// ErrEmptySequenceNumber is returned by parseSeqNum for an empty sequence-number string.
+// The attribute-value conversion sentinel errors (ErrInvalidAttributeValue etc.) live in
+// streams_wire.go alongside the wire<->SDK AttributeValue converters that return them.
+var ErrEmptySequenceNumber = errors.New("empty sequence number")
 
 const (
 	streamShardID       = "shardId-00000000000000000001-00000001"
@@ -191,8 +181,13 @@ func (db *InMemoryDB) DescribeStream(
 		limit = int(*input.Limit)
 	}
 
+	childShardsParentID, filterErr := parseShardFilter(input.ShardFilter)
+	if filterErr != nil {
+		return nil, filterErr
+	}
+
 	tableName, viewType, keySchema, streamCreatedAt, shards, lastEvaluatedShardID :=
-		describeStreamSnapshot(found, exclusiveStart, limit)
+		describeStreamSnapshot(found, exclusiveStart, limit, childShardsParentID)
 
 	sdkKeySchema := make([]streamstypes.KeySchemaElement, 0, len(keySchema))
 	for _, ks := range keySchema {
@@ -203,8 +198,11 @@ func (db *InMemoryDB) DescribeStream(
 	}
 
 	// Build the shard list. If no shards exist yet (stream just enabled but no records),
-	// return a single open shard with empty sequence numbers.
-	sdkShards := buildSDKShards(shards)
+	// return a single open shard with empty sequence numbers. That placeholder only
+	// applies to the unfiltered case: a CHILD_SHARDS filter that legitimately matches
+	// zero shards (e.g. the named parent has not split) must return a real empty list,
+	// not a synthesized shard.
+	sdkShards := buildSDKShardsList(shards, childShardsParentID == nil)
 
 	var creationRequestDateTime *time.Time
 	if !streamCreatedAt.IsZero() {
@@ -227,6 +225,31 @@ func (db *InMemoryDB) DescribeStream(
 	}, nil
 }
 
+// parseShardFilter validates a DescribeStream ShardFilter and, when present,
+// returns the parent shard ID to filter child shards by. A nil return means
+// no filter was requested (all shards are returned, matching AWS's default
+// behavior when ShardFilter is omitted). CHILD_SHARDS is the only filter
+// type AWS currently accepts, and it requires a non-empty ShardId naming the
+// parent whose children should be returned.
+func parseShardFilter(filter *streamstypes.ShardFilter) (*string, error) {
+	if filter == nil {
+		return nil, nil //nolint:nilnil // nil sentinel means "no filter", distinct from a zero-value string
+	}
+
+	if filter.Type != streamstypes.ShardFilterTypeChildShards {
+		return nil, NewValidationException("Invalid ShardFilter Type: " + string(filter.Type))
+	}
+
+	parentShardID := aws.ToString(filter.ShardId)
+	if parentShardID == "" {
+		return nil, NewValidationException(
+			"ShardFilter.ShardId is required when ShardFilter.Type is CHILD_SHARDS",
+		)
+	}
+
+	return &parentShardID, nil
+}
+
 // streamLabelFromARN extracts the stream label from a DynamoDB stream ARN.
 // The label is the last path segment after /stream/: e.g. "2024-01-01T00:00:00.000".
 func streamLabelFromARN(streamARN string) string {
@@ -238,11 +261,14 @@ func streamLabelFromARN(streamARN string) string {
 	return streamARN
 }
 
-// buildSDKShards converts internal StreamShard slice to SDK Shard slice.
-// When the slice is empty, returns a single placeholder shard so callers
-// can always obtain an iterator even before any records are written.
-func buildSDKShards(shards []StreamShard) []streamstypes.Shard {
-	if len(shards) == 0 {
+// buildSDKShardsList converts internal StreamShard slice to SDK Shard slice.
+// When the slice is empty AND synthesizePlaceholder is true, returns a single
+// placeholder shard so callers can always obtain an iterator even before any
+// records are written (the unfiltered DescribeStream case). Callers applying
+// a ShardFilter pass synthesizePlaceholder=false so a filter that legitimately
+// matches zero shards returns a real empty list instead of a fake shard.
+func buildSDKShardsList(shards []StreamShard, synthesizePlaceholder bool) []streamstypes.Shard {
+	if len(shards) == 0 && synthesizePlaceholder {
 		return []streamstypes.Shard{
 			{
 				ShardId: aws.String(streamShardID),
@@ -526,7 +552,10 @@ func streamRecordsSnapshotRLocked(table *Table) (int64, int64, []models.StreamRe
 func (db *InMemoryDB) resolveIterator(token string) (string, int64, int64, error) {
 	entry := db.iteratorStore.Get(token)
 	if entry != nil {
-		if time.Now().After(entry.ExpiresAt) {
+		// Read expiry through the store's clock seam (not time.Now() directly)
+		// so tests can inject a fake clock via iteratorStore.SetClock to
+		// deterministically exercise ExpiredIteratorException.
+		if db.iteratorStore.Now().After(entry.ExpiresAt) {
 			db.iteratorStore.Delete(token)
 
 			return "", 0, 0, NewExpiredIteratorException("Shard iterator has expired")
@@ -697,268 +726,6 @@ func streamARNRegion(streamARN string) string {
 	return ""
 }
 
-// buildSDKRecord converts an internal StreamRecord to the AWS SDK type.
-// region is the backend's default region, included in the EventSource metadata.
-func buildSDKRecord(r models.StreamRecord, region string) streamstypes.Record {
-	createdAt := time.Unix(r.ApproximateCreationDateTime, 0)
-	rec := streamstypes.Record{
-		EventID:      aws.String(r.EventID),
-		EventName:    streamstypes.OperationType(r.EventName),
-		EventVersion: aws.String("1.0"),
-		EventSource:  aws.String("aws:dynamodb"),
-		AwsRegion:    aws.String(region),
-		Dynamodb: &streamstypes.StreamRecord{
-			SequenceNumber:              aws.String(r.SequenceNumber),
-			ApproximateCreationDateTime: &createdAt,
-			StreamViewType:              streamstypes.StreamViewType(r.StreamViewType),
-			SizeBytes:                   aws.Int64(r.SizeBytes),
-		},
-	}
-	if r.UserIdentityPrincipalID != "" {
-		rec.UserIdentity = &streamstypes.Identity{
-			PrincipalId: aws.String(r.UserIdentityPrincipalID),
-			Type:        aws.String(r.UserIdentityType),
-		}
-	}
-
-	if r.Keys != nil {
-		keys, err := buildSDKStreamItem(r.Keys)
-		if err == nil {
-			rec.Dynamodb.Keys = keys
-		}
-	}
-
-	if r.NewImage != nil {
-		newImg, err := buildSDKStreamItem(r.NewImage)
-		if err == nil {
-			rec.Dynamodb.NewImage = newImg
-		}
-	}
-
-	if r.OldImage != nil {
-		oldImg, err := buildSDKStreamItem(r.OldImage)
-		if err == nil {
-			rec.Dynamodb.OldImage = oldImg
-		}
-	}
-
-	return rec
-}
-
-// buildSDKStreamItem converts an internal wire-format item to a dynamodbstreams attribute map.
-// The dynamodbstreams AttributeValue is a different Go interface from dynamodb/types.AttributeValue,
-// so we need a parallel converter here.
-func buildSDKStreamItem(item map[string]any) (map[string]streamstypes.AttributeValue, error) {
-	out := make(map[string]streamstypes.AttributeValue, len(item))
-
-	for k, v := range item {
-		av, err := toStreamAttributeValue(v)
-		if err != nil {
-			return nil, err
-		}
-
-		out[k] = av
-	}
-
-	return out, nil
-}
-
-// toStreamAttributeValue converts a wire-format attribute value (single-key type map)
-// to a dynamodbstreams AttributeValue.
-func toStreamAttributeValue(
-	v any,
-) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
-	m, ok := v.(map[string]any)
-	if !ok {
-		return nil, ErrInvalidAttributeValue
-	}
-
-	if len(m) != 1 {
-		return nil, ErrInvalidTypeKeyCount
-	}
-
-	for typKey, val := range m {
-		return dispatchStreamType(typKey, val)
-	}
-
-	return nil, ErrUnknownAttributeType
-}
-
-func dispatchStreamType(
-	typKey string,
-	val any,
-) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
-	switch typKey {
-	case "S":
-		s, ok := val.(string)
-		if !ok {
-			return nil, ErrTypeMismatchS
-		}
-
-		return &streamstypes.AttributeValueMemberS{Value: s}, nil
-	case "N":
-		s, ok := val.(string)
-		if !ok {
-			return nil, ErrTypeMismatchN
-		}
-
-		return &streamstypes.AttributeValueMemberN{Value: s}, nil
-	case typeBOOL:
-		b, ok := val.(bool)
-		if !ok {
-			return nil, ErrTypeMismatchBOOL
-		}
-
-		return &streamstypes.AttributeValueMemberBOOL{Value: b}, nil
-	case typeNULL:
-		return &streamstypes.AttributeValueMemberNULL{Value: true}, nil
-	case "M":
-		return handleMapAttribute(val)
-	case "L":
-		return handleListAttribute(val)
-	case "SS":
-		return &streamstypes.AttributeValueMemberSS{Value: toStringSliceFrom(val)}, nil
-	case "NS":
-		return &streamstypes.AttributeValueMemberNS{Value: toStringSliceFrom(val)}, nil
-	case "B":
-		return dispatchStreamTypeBinary(val)
-	case "BS":
-		return dispatchStreamTypeBinarySet(val)
-	default:
-		return nil, ErrUnknownAttributeType
-	}
-}
-
-// dispatchStreamTypeBinary converts a wire "B" value ([]byte or base64 string) to a streams AttributeValue.
-func dispatchStreamTypeBinary(
-	val any,
-) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
-	switch b := val.(type) {
-	case []byte:
-		return &streamstypes.AttributeValueMemberB{Value: b}, nil
-	case string:
-		decoded, err := base64.StdEncoding.DecodeString(b)
-		if err != nil {
-			return nil, ErrTypeMismatchB
-		}
-
-		return &streamstypes.AttributeValueMemberB{Value: decoded}, nil
-	default:
-		return nil, ErrTypeMismatchB
-	}
-}
-
-// dispatchStreamTypeBinarySet converts a wire "BS" value to a streams AttributeValue.
-// Accepts [][]byte, []string (base64), or []any containing the above.
-func dispatchStreamTypeBinarySet(
-	val any,
-) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
-	bs, err := toByteSliceSliceFrom(val)
-	if err != nil {
-		return nil, err
-	}
-
-	return &streamstypes.AttributeValueMemberBS{Value: bs}, nil
-}
-
-func handleMapAttribute(
-	val any,
-) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
-	mVal, ok := val.(map[string]any)
-	if !ok {
-		return nil, ErrTypeMismatchM
-	}
-
-	inner, err := buildSDKStreamItem(mVal)
-	if err != nil {
-		return nil, err
-	}
-
-	return &streamstypes.AttributeValueMemberM{Value: inner}, nil
-}
-
-func handleListAttribute(
-	val any,
-) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
-	lVal, ok := val.([]any)
-	if !ok {
-		return nil, ErrTypeMismatchL
-	}
-
-	items := make([]streamstypes.AttributeValue, 0, len(lVal))
-	for _, elem := range lVal {
-		av, err := toStreamAttributeValue(elem)
-		if err != nil {
-			return nil, err
-		}
-
-		items = append(items, av)
-	}
-
-	return &streamstypes.AttributeValueMemberL{Value: items}, nil
-}
-
-// toStringSliceFrom coerces an any to []string (accepts both []string and []any of strings).
-func toStringSliceFrom(v any) []string {
-	switch s := v.(type) {
-	case []string:
-		return s
-	case []any:
-		out := make([]string, 0, len(s))
-		for _, elem := range s {
-			if str, ok := elem.(string); ok {
-				out = append(out, str)
-			}
-		}
-
-		return out
-	default:
-		return nil
-	}
-}
-
-// toByteSliceSliceFrom coerces an any to [][]byte.
-// Accepts [][]byte directly, or []any / []string containing base64-encoded strings.
-func toByteSliceSliceFrom(v any) ([][]byte, error) {
-	switch s := v.(type) {
-	case [][]byte:
-		return s, nil
-	case []string:
-		out := make([][]byte, 0, len(s))
-		for _, elem := range s {
-			decoded, err := base64.StdEncoding.DecodeString(elem)
-			if err != nil {
-				return nil, ErrTypeMismatchB
-			}
-
-			out = append(out, decoded)
-		}
-
-		return out, nil
-	case []any:
-		out := make([][]byte, 0, len(s))
-		for _, elem := range s {
-			switch b := elem.(type) {
-			case []byte:
-				out = append(out, b)
-			case string:
-				decoded, err := base64.StdEncoding.DecodeString(b)
-				if err != nil {
-					return nil, ErrTypeMismatchB
-				}
-
-				out = append(out, decoded)
-			default:
-				return nil, ErrTypeMismatchB
-			}
-		}
-
-		return out, nil
-	default:
-		return nil, ErrTypeMismatchB
-	}
-}
-
 // findTableByStreamARN looks up a table by stream ARN using the reverse index.
 // Must be called with db.mu held.
 func (db *InMemoryDB) findTableByStreamARN(streamARN string) *Table {
@@ -983,11 +750,15 @@ func (db *InMemoryDB) findTableByStreamARNRLocked(streamARN string) *Table {
 // DescribeStream under a single found.mu.RLock/defer, so a panic while
 // trimming/copying the shard slice can never leave table.mu read-locked
 // forever. limit and exclusiveStart are computed by the caller from the
-// request input (no lock needed for that).
+// request input (no lock needed for that). childShardsParentID, when
+// non-nil, restricts the result to shards whose ParentShardID matches
+// (the CHILD_SHARDS ShardFilter); it is applied before ExclusiveStartShardId
+// pagination, matching AWS's documented filter-then-paginate order.
 func describeStreamSnapshot(
 	found *Table,
 	exclusiveStart string,
 	limit int,
+	childShardsParentID *string,
 ) (
 	string,
 	string,
@@ -1000,6 +771,10 @@ func describeStreamSnapshot(
 	defer found.mu.RUnlock()
 
 	shardSlice := found.streamShards
+
+	if childShardsParentID != nil {
+		shardSlice = filterChildShards(shardSlice, *childShardsParentID)
+	}
 
 	if exclusiveStart != "" {
 		foundStart := false
@@ -1026,6 +801,21 @@ func describeStreamSnapshot(
 	copy(shards, shardSlice)
 
 	return found.Name, found.StreamViewType, found.KeySchema, found.StreamCreatedAt, shards, lastEvaluatedShardID
+}
+
+// filterChildShards returns the subset of shards whose ParentShardID equals
+// parentShardID, preserving order. Used to implement DescribeStream's
+// ShardFilter{Type: CHILD_SHARDS, ShardId: parentShardID}.
+func filterChildShards(shards []StreamShard, parentShardID string) []StreamShard {
+	out := make([]StreamShard, 0, len(shards))
+
+	for _, s := range shards {
+		if s.ParentShardID == parentShardID {
+			out = append(out, s)
+		}
+	}
+
+	return out
 }
 
 // collectStreamRecords collects up to limit records starting at startSeq
