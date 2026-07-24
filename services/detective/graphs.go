@@ -55,13 +55,14 @@ func (b *InMemoryBackend) CreateGraph(tags map[string]string) (*Graph, error) {
 	return &cp, nil
 }
 
-// DeleteGraph deletes a behavior graph.
-func (b *InMemoryBackend) DeleteGraph(graphARN string) error {
-	b.mu.Lock("DeleteGraph")
-	defer b.mu.Unlock()
-
+// deleteGraphLocked deletes graphARN and cascades cleanup of every map keyed
+// by it (members, investigations, tags, datasources, orgConfigs). Callers
+// must hold b.mu for writing. Shared by DeleteGraph and
+// DisableOrganizationAdminAccount, which both destroy a behavior graph.
+// Returns false if graphARN does not exist (no-op).
+func (b *InMemoryBackend) deleteGraphLocked(graphARN string) bool {
 	if !b.graphs.Has(graphARN) {
-		return ErrGraphNotFound
+		return false
 	}
 
 	b.graphs.Delete(graphARN)
@@ -77,6 +78,18 @@ func (b *InMemoryBackend) DeleteGraph(graphARN string) error {
 	delete(b.tags, graphARN)
 	delete(b.datasources, graphARN)
 	delete(b.orgConfigs, graphARN)
+
+	return true
+}
+
+// DeleteGraph deletes a behavior graph.
+func (b *InMemoryBackend) DeleteGraph(graphARN string) error {
+	b.mu.Lock("DeleteGraph")
+	defer b.mu.Unlock()
+
+	if !b.deleteGraphLocked(graphARN) {
+		return ErrGraphNotFound
+	}
 
 	return nil
 }

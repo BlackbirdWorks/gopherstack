@@ -1,6 +1,7 @@
 package detective_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -172,4 +173,52 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			}
 		})
 	}
+}
+
+// TestListDatasourcePackagesOpaqueToken verifies ListDatasourcePackages'
+// NextToken is an opaque base64 offset, not the raw next package-name key.
+// A prior audit flagged this list op (along with ListInvitations,
+// ListInvestigations, and ListOrganizationAdminAccounts) as using the raw
+// next item's identifier as the continuation token instead of the opaque
+// base64 offset every other Detective list op already used.
+func TestListDatasourcePackagesOpaqueToken(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var gResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gResp))
+	graphARN := gResp["GraphArn"].(string)
+
+	updateRec := doRequest(t, h, http.MethodPost, "/graph/datasources/update", map[string]any{
+		"GraphArn":           graphARN,
+		"DatasourcePackages": []string{"DETECTIVE_CORE", "EKS_AUDIT", "ASFF_SECURITYHUB_FINDING"},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/graph/datasources/list", map[string]any{
+		"GraphArn":   graphARN,
+		"MaxResults": 1,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+
+	tok, hasTok := resp["NextToken"].(string)
+	require.True(t, hasTok, "NextToken must be present when more results exist")
+
+	_, err := base64.StdEncoding.DecodeString(tok)
+	require.NoError(t, err, "NextToken must be opaque base64, not a raw package name")
+
+	rec3 := doRequest(t, h, http.MethodPost, "/graph/datasources/list", map[string]any{
+		"GraphArn":   graphARN,
+		"MaxResults": 200,
+		"NextToken":  tok,
+	})
+	require.Equal(t, http.StatusOK, rec3.Code)
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp2))
+	_, hasTok2 := resp2["NextToken"]
+	assert.False(t, hasTok2, "NextToken must be absent on the last page")
 }
