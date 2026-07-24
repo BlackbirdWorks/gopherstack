@@ -72,6 +72,26 @@ type Job struct {
 	SNSTopic              string `json:"snsTopic,omitempty"`
 	RetrievalByteRange    string `json:"retrievalByteRange,omitempty"`
 
+	// InventoryRetrievalStartDate/EndDate/Limit/Marker hold the (optional)
+	// InventoryRetrievalParameters supplied at InitiateJob time for InventoryRetrieval
+	// jobs -- internal state, echoed back on DescribeJob/ListJobs via
+	// inventoryRetrievalJobDescriptionResponse, and used by handleInventoryJobOutput
+	// to filter/paginate the returned inventory (see inventory_retrieval.go).
+	InventoryRetrievalStartDate string `json:"inventoryRetrievalStartDate,omitempty"`
+	InventoryRetrievalEndDate   string `json:"inventoryRetrievalEndDate,omitempty"`
+	InventoryRetrievalLimit     string `json:"inventoryRetrievalLimit,omitempty"`
+	InventoryRetrievalMarker    string `json:"inventoryRetrievalMarker,omitempty"`
+
+	// OutputLocation/SelectParameters are only set for Select jobs -- internal state,
+	// echoed back on DescribeJob/ListJobs, and used by handleSelectJobOutput to
+	// actually execute the query against the archive (see select.go).
+	OutputLocation   *outputLocationDTO   `json:"outputLocation,omitempty"`
+	SelectParameters *selectParametersDTO `json:"selectParameters,omitempty"`
+	// JobOutputPath is the (synthetic -- gopherstack has no real S3 write-back)
+	// s3:// URI a Select job's OutputLocation would have been written to, echoed on
+	// InitiateJob (x-amz-job-output-path header) and DescribeJob/ListJobs.
+	JobOutputPath string `json:"jobOutputPath,omitempty"`
+
 	ArchiveSizeInBytes   int64 `json:"archiveSizeInBytes,omitempty"`
 	InventorySizeInBytes int64 `json:"inventorySizeInBytes,omitempty"`
 
@@ -122,21 +142,137 @@ type uploadArchiveResponse struct {
 	Location  string `json:"location"`
 }
 
-// initiateJobRequest is the request body for InitiateJob.
+// initiateJobRequest is the request body for InitiateJob. Its shape matches the real
+// SDK's JobParameters type directly: InitiateJobInput has no other top-level members,
+// so JobParameters IS the whole request body (confirmed via the real SDK's
+// awsRestjson1_serializeOpInitiateJob, which streams awsRestjson1_serializeDocumentJobParameters
+// straight onto the request as the httpPayload).
 type initiateJobRequest struct {
-	Type               string `json:"Type"`
-	ArchiveID          string `json:"ArchiveId,omitempty"`
-	Description        string `json:"Description,omitempty"`
-	Tier               string `json:"Tier,omitempty"`
-	SNSTopic           string `json:"SNSTopic,omitempty"`
-	InventoryFormat    string `json:"Format,omitempty"`
-	RetrievalByteRange string `json:"RetrievalByteRange,omitempty"`
+	InventoryRetrievalParameters *inventoryRetrievalParamsRequest `json:"InventoryRetrievalParameters,omitempty"`
+	OutputLocation               *outputLocationDTO               `json:"OutputLocation,omitempty"`
+	SelectParameters             *selectParametersDTO             `json:"SelectParameters,omitempty"`
+	Type                         string                           `json:"Type"`
+	ArchiveID                    string                           `json:"ArchiveId,omitempty"`
+	Description                  string                           `json:"Description,omitempty"`
+	Tier                         string                           `json:"Tier,omitempty"`
+	SNSTopic                     string                           `json:"SNSTopic,omitempty"`
+	InventoryFormat              string                           `json:"Format,omitempty"`
+	RetrievalByteRange           string                           `json:"RetrievalByteRange,omitempty"`
+}
+
+// inventoryRetrievalParamsRequest mirrors the real SDK's InventoryRetrievalJobInput:
+// options for a range (date/marker/limit filtered) vault inventory retrieval.
+type inventoryRetrievalParamsRequest struct {
+	StartDate string `json:"StartDate,omitempty"`
+	EndDate   string `json:"EndDate,omitempty"`
+	Limit     string `json:"Limit,omitempty"`
+	Marker    string `json:"Marker,omitempty"`
+}
+
+// inventoryRetrievalJobDescriptionResponse mirrors the real SDK's
+// InventoryRetrievalJobDescription: the echoed-back InventoryRetrievalParameters
+// nested object on DescribeJob/ListJobs/InitiateJob responses for InventoryRetrieval
+// jobs. NOTE: unlike the request-side DTO, this ALSO carries Format -- the real
+// GlacierJobDescription has no top-level Format field at all, only this nested one.
+type inventoryRetrievalJobDescriptionResponse struct {
+	StartDate string `json:"StartDate,omitempty"`
+	EndDate   string `json:"EndDate,omitempty"`
+	Format    string `json:"Format,omitempty"`
+	Limit     string `json:"Limit,omitempty"`
+	Marker    string `json:"Marker,omitempty"`
+}
+
+// outputLocationDTO mirrors the real SDK's OutputLocation/S3Location: the location
+// where Select job results are (nominally) delivered. Reused verbatim for both the
+// InitiateJob request and the DescribeJob/ListJobs response -- the real
+// GlacierJobDescription.OutputLocation has the identical shape to
+// JobParameters.OutputLocation on the wire.
+type outputLocationDTO struct {
+	S3 *s3LocationDTO `json:"S3,omitempty"`
+}
+
+// s3LocationDTO mirrors the real SDK's S3Location. AccessControlList/Encryption/
+// Tagging/UserMetadata are accepted and echoed back but otherwise inert: gopherstack
+// has no cross-service S3 write-back (see select.go doc comment for how Select job
+// output is actually served).
+type s3LocationDTO struct {
+	Encryption        *s3EncryptionDTO  `json:"Encryption,omitempty"`
+	Tagging           map[string]string `json:"Tagging,omitempty"`
+	UserMetadata      map[string]string `json:"UserMetadata,omitempty"`
+	BucketName        string            `json:"BucketName,omitempty"`
+	Prefix            string            `json:"Prefix,omitempty"`
+	CannedACL         string            `json:"CannedACL,omitempty"`
+	StorageClass      string            `json:"StorageClass,omitempty"`
+	AccessControlList []s3GrantDTO      `json:"AccessControlList,omitempty"`
+}
+
+// s3GrantDTO mirrors the real SDK's Grant type (an ACL grant on S3Location).
+type s3GrantDTO struct {
+	Grantee    *s3GranteeDTO `json:"Grantee,omitempty"`
+	Permission string        `json:"Permission,omitempty"`
+}
+
+// s3GranteeDTO mirrors the real SDK's Grantee type.
+type s3GranteeDTO struct {
+	Type         string `json:"Type,omitempty"`
+	DisplayName  string `json:"DisplayName,omitempty"`
+	EmailAddress string `json:"EmailAddress,omitempty"`
+	ID           string `json:"ID,omitempty"`
+	URI          string `json:"URI,omitempty"`
+}
+
+// s3EncryptionDTO mirrors the real SDK's Encryption type.
+type s3EncryptionDTO struct {
+	EncryptionType string `json:"EncryptionType,omitempty"`
+	KMSContext     string `json:"KMSContext,omitempty"`
+	KMSKeyID       string `json:"KMSKeyId,omitempty"`
+}
+
+// selectParametersDTO mirrors the real SDK's SelectParameters. Reused verbatim for
+// both the InitiateJob request and the DescribeJob/ListJobs response.
+type selectParametersDTO struct {
+	InputSerialization  *inputSerializationDTO  `json:"InputSerialization,omitempty"`
+	OutputSerialization *outputSerializationDTO `json:"OutputSerialization,omitempty"`
+	Expression          string                  `json:"Expression,omitempty"`
+	ExpressionType      string                  `json:"ExpressionType,omitempty"`
+}
+
+// inputSerializationDTO mirrors the real SDK's InputSerialization (Select-job source
+// format). Only Csv is a real member on the wire -- Glacier Select, like S3 Select,
+// only ever supports CSV-encoded archives.
+type inputSerializationDTO struct {
+	Csv *csvInputDTO `json:"Csv,omitempty"`
+}
+
+// csvInputDTO mirrors the real SDK's CSVInput.
+type csvInputDTO struct {
+	Comments             string `json:"Comments,omitempty"`
+	FieldDelimiter       string `json:"FieldDelimiter,omitempty"`
+	FileHeaderInfo       string `json:"FileHeaderInfo,omitempty"`
+	QuoteCharacter       string `json:"QuoteCharacter,omitempty"`
+	QuoteEscapeCharacter string `json:"QuoteEscapeCharacter,omitempty"`
+	RecordDelimiter      string `json:"RecordDelimiter,omitempty"`
+}
+
+// outputSerializationDTO mirrors the real SDK's OutputSerialization.
+type outputSerializationDTO struct {
+	Csv *csvOutputDTO `json:"Csv,omitempty"`
+}
+
+// csvOutputDTO mirrors the real SDK's CSVOutput.
+type csvOutputDTO struct {
+	FieldDelimiter       string `json:"FieldDelimiter,omitempty"`
+	QuoteCharacter       string `json:"QuoteCharacter,omitempty"`
+	QuoteEscapeCharacter string `json:"QuoteEscapeCharacter,omitempty"`
+	QuoteFields          string `json:"QuoteFields,omitempty"`
+	RecordDelimiter      string `json:"RecordDelimiter,omitempty"`
 }
 
 // initiateJobResponse is the response for InitiateJob.
 type initiateJobResponse struct {
-	JobID    string `json:"jobId"`
-	Location string `json:"location"`
+	JobID         string `json:"jobId"`
+	Location      string `json:"location"`
+	JobOutputPath string `json:"jobOutputPath,omitempty"`
 }
 
 // describeJobResponse is the response body for DescribeJob.
@@ -152,9 +288,17 @@ type describeJobResponse struct {
 	JobID                string `json:"JobId"`
 	Action               string `json:"Action"`
 	JobDescription       string `json:"JobDescription,omitempty"`
-	InventoryFormat      string `json:"Format,omitempty"`
-	Tier                 string `json:"Tier,omitempty"`
-	SHA256TreeHash       string `json:"SHA256TreeHash,omitempty"`
+	JobOutputPath        string `json:"JobOutputPath,omitempty"`
+	// InventoryRetrievalParameters is only populated for InventoryRetrieval jobs; per
+	// the real GlacierJobDescription shape it is null otherwise. It replaces the
+	// invented top-level "Format" field that used to live directly on this struct
+	// (the real wire type has no such field -- Format only ever appears nested here).
+	InventoryRetrievalParameters *inventoryRetrievalJobDescriptionResponse `json:"InventoryRetrievalParameters,omitempty"`
+	// OutputLocation/SelectParameters are only populated for Select jobs.
+	OutputLocation   *outputLocationDTO   `json:"OutputLocation,omitempty"`
+	SelectParameters *selectParametersDTO `json:"SelectParameters,omitempty"`
+	Tier             string               `json:"Tier,omitempty"`
+	SHA256TreeHash   string               `json:"SHA256TreeHash,omitempty"`
 	// ArchiveSHA256TreeHash is a distinct wire field from SHA256TreeHash: it carries
 	// the checksum of the entire archive (always present for a completed archive
 	// retrieval job), whereas SHA256TreeHash is the checksum of the retrieved range.

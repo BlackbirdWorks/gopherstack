@@ -83,6 +83,16 @@ func (b *InMemoryBackend) DeleteVault(accountID, region, vaultName string) error
 
 	for _, up := range slices.Clone(b.multipartUploadsByVault.Get(vArn)) {
 		b.multipartUploads.Delete(multipartUploadKey(vArn, up.MultipartUploadID))
+		// multipartParts is a plain map (not a *store.Table -- see store_setup.go's
+		// package doc), so it is NOT covered by the b.multipartUploads.Delete above
+		// and must be cleaned up explicitly here too, exactly as
+		// AbortMultipartUpload/CompleteMultipartUpload already do for a single
+		// upload -- otherwise deleting a vault with in-progress multipart uploads
+		// leaves orphaned rows behind forever.
+		delete(b.multipartParts, uploadKey{
+			AccountID: accountID, Region: region, VaultName: vaultName,
+			UploadID: up.MultipartUploadID,
+		})
 	}
 
 	b.vaultLocks.Delete(vArn)
