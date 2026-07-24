@@ -223,6 +223,27 @@ func TestDuplicateListenerCreateListeners(t *testing.T) {
 			wantStatus: http.StatusConflict,
 			wantCode:   "DuplicateListener",
 		},
+		{
+			// A malformed SSLCertificateId on the *initial* listener creation
+			// must be rejected the same way SetLoadBalancerListenerSSLCertificate
+			// rejects one later -- both paths share validateCertificateID.
+			name: "malformed_cert_arn_rejected",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "badcert-list-lb")
+			},
+			vals: url.Values{
+				"Action":                              {"CreateLoadBalancerListeners"},
+				"Version":                             {"2012-06-01"},
+				"LoadBalancerName":                    {"badcert-list-lb"},
+				"Listeners.member.1.Protocol":         {"HTTPS"},
+				"Listeners.member.1.LoadBalancerPort": {"443"},
+				"Listeners.member.1.InstancePort":     {"8443"},
+				"Listeners.member.1.SSLCertificateId": {"not-a-valid-arn"},
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "ValidationError",
+		},
 	}
 
 	for _, tt := range tests {
@@ -249,6 +270,31 @@ func TestDuplicateListenerCreateListeners(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCreateLoadBalancerRejectsMalformedInlineCertARN verifies that
+// CreateLoadBalancer's inline Listeners.member.N.SSLCertificateId is
+// validated with the same ARN-format check as
+// SetLoadBalancerListenerSSLCertificate / CreateLoadBalancerListeners,
+// instead of being accepted unchecked at LB-creation time.
+func TestCreateLoadBalancerRejectsMalformedInlineCertARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doELB(t, h, url.Values{
+		"Action":                              {"CreateLoadBalancer"},
+		"Version":                             {"2012-06-01"},
+		"LoadBalancerName":                    {"badcert-create-lb"},
+		"AvailabilityZones.member.1":          {"us-east-1a"},
+		"Listeners.member.1.Protocol":         {"HTTPS"},
+		"Listeners.member.1.LoadBalancerPort": {"443"},
+		"Listeners.member.1.InstancePort":     {"8443"},
+		"Listeners.member.1.SSLCertificateId": {"not-a-valid-arn"},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationError")
 }
 
 func TestListenerProtocols(t *testing.T) {
@@ -477,7 +523,7 @@ func TestCertARNValidation(t *testing.T) {
 }
 
 // TestAccountLimitMaxListeners verifies that adding more than 100
-// listeners to a single LB returns a ValidationError.
+// listeners to a single LB returns an InvalidConfigurationRequest error.
 func TestAccountLimitMaxListeners(t *testing.T) {
 	t.Parallel()
 
@@ -508,6 +554,7 @@ func TestAccountLimitMaxListeners(t *testing.T) {
 		"Listeners.member.1.InstancePort":     {"8080"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidConfigurationRequest")
 }
 
 // TestProtocolPairing verifies that only valid frontend/backend protocol

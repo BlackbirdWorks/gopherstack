@@ -173,12 +173,22 @@ func parseOneListener(vals url.Values, i int) (*Listener, error) {
 
 	certID := vals.Get(fmt.Sprintf("Listeners.member.%d.SSLCertificateId", i))
 
-	// HTTPS/SSL requires a certificate.
-	if (proto == protoHTTPS || proto == protoSSL) && certID == "" {
-		return nil, fmt.Errorf(
-			"%w: SSLCertificateId is required for %s listeners",
-			ErrInvalidParameter, proto,
-		)
+	// HTTPS/SSL requires a certificate. Validated with the same ARN-format
+	// check as SetLoadBalancerListenerSSLCertificate, for consistency: a
+	// malformed cert ARN must be rejected the same way whether it arrives via
+	// CreateLoadBalancer/CreateLoadBalancerListeners' initial Listeners or via
+	// a later SetLoadBalancerListenerSSLCertificate call.
+	if proto == protoHTTPS || proto == protoSSL {
+		if certID == "" {
+			return nil, fmt.Errorf(
+				"%w: SSLCertificateId is required for %s listeners",
+				ErrInvalidParameter, proto,
+			)
+		}
+
+		if certErr := validateCertificateID(certID); certErr != nil {
+			return nil, certErr
+		}
 	}
 
 	return &Listener{

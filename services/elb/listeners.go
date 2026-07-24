@@ -17,9 +17,12 @@ func (b *InMemoryBackend) CreateLoadBalancerListeners(ctx context.Context, name 
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
+	// Real AWS's CreateLoadBalancerListeners typed-error switch recognizes
+	// InvalidConfigurationRequest (not ValidationError) for this op (see
+	// deserializers.go's awsAwsquery_deserializeOpErrorCreateLoadBalancerListeners).
 	const maxListeners = 100
 	if len(lb.Listeners)+len(listeners) > maxListeners {
-		return fmt.Errorf("%w: classic-listeners limit of %d exceeded", ErrValidation, maxListeners)
+		return fmt.Errorf("%w: classic-listeners limit of %d exceeded", ErrInvalidConfiguration, maxListeners)
 	}
 
 	existing := make(map[int32]*Listener, len(lb.Listeners))
