@@ -42,6 +42,9 @@ func TestAppStream_Entitlements(t *testing.T) {
 				ent := resp["Entitlement"].(map[string]any)
 				assert.Equal(t, "my-ent", ent["Name"])
 				assert.Equal(t, "ALL", ent["AppVisibility"])
+				// Real Entitlement carries both CreatedTime and LastModifiedTime.
+				assert.NotEmpty(t, ent["CreatedTime"])
+				assert.NotEmpty(t, ent["LastModifiedTime"])
 			},
 		},
 		{

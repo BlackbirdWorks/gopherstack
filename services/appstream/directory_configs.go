@@ -8,10 +8,12 @@ import (
 )
 
 type storedDirectoryConfig struct {
-	CreatedTime                          time.Time `json:"createdTime"`
-	DirectoryName                        string    `json:"directoryName"`
-	Arn                                  string    `json:"arn"`
-	OrganizationalUnitDistinguishedNames []string  `json:"ouDNs"`
+	CreatedTime                          time.Time                      `json:"createdTime"`
+	ServiceAccountCredentials            ServiceAccountCredentials      `json:"serviceAccountCredentials"`
+	CertificateBasedAuthProperties       CertificateBasedAuthProperties `json:"certificateBasedAuthProperties"`
+	DirectoryName                        string                         `json:"directoryName"`
+	Arn                                  string                         `json:"arn"`
+	OrganizationalUnitDistinguishedNames []string                       `json:"ouDNs"`
 }
 
 func (d *storedDirectoryConfig) toDirectoryConfig() *DirectoryConfig {
@@ -23,6 +25,8 @@ func (d *storedDirectoryConfig) toDirectoryConfig() *DirectoryConfig {
 		OrganizationalUnitDistinguishedNames: ouDNs,
 		DirectoryName:                        d.DirectoryName,
 		Arn:                                  d.Arn,
+		ServiceAccountCredentials:            d.ServiceAccountCredentials,
+		CertificateBasedAuthProperties:       d.CertificateBasedAuthProperties,
 	}
 }
 
@@ -34,6 +38,8 @@ func (b *InMemoryBackend) directoryConfigARN(name string) string {
 func (b *InMemoryBackend) CreateDirectoryConfig(
 	name string,
 	ouDNs []string, //nolint:revive,staticcheck // existing issue.
+	cred ServiceAccountCredentials,
+	certAuth CertificateBasedAuthProperties,
 ) (*DirectoryConfig, error) {
 	b.mu.Lock("CreateDirectoryConfig")
 	defer b.mu.Unlock()
@@ -51,6 +57,8 @@ func (b *InMemoryBackend) CreateDirectoryConfig(
 		OrganizationalUnitDistinguishedNames: dns,
 		DirectoryName:                        name,
 		Arn:                                  arn,
+		ServiceAccountCredentials:            cred,
+		CertificateBasedAuthProperties:       certAuth,
 	}
 	b.directoryConfigs.Put(dc)
 
@@ -99,10 +107,16 @@ func (b *InMemoryBackend) DescribeDirectoryConfigs(names []string) ([]*Directory
 	return result, nil
 }
 
-// UpdateDirectoryConfig updates the OUs of a directory configuration.
+// UpdateDirectoryConfig updates the OUs, service account credentials, and/or
+// certificate-based auth properties of a directory configuration. Each
+// optional group is only overwritten when the caller supplies a non-empty
+// value, matching this backend's existing "empty means unchanged" Update*
+// convention.
 func (b *InMemoryBackend) UpdateDirectoryConfig(
 	name string,
 	ouDNs []string, //nolint:revive,staticcheck // existing issue.
+	cred ServiceAccountCredentials,
+	certAuth CertificateBasedAuthProperties,
 ) (*DirectoryConfig, error) {
 	b.mu.Lock("UpdateDirectoryConfig")
 	defer b.mu.Unlock()
@@ -116,6 +130,14 @@ func (b *InMemoryBackend) UpdateDirectoryConfig(
 		dns := make([]string, len(ouDNs))
 		copy(dns, ouDNs)
 		dc.OrganizationalUnitDistinguishedNames = dns
+	}
+
+	if cred.AccountName != "" || cred.AccountPassword != "" {
+		dc.ServiceAccountCredentials = cred
+	}
+
+	if certAuth.CertificateAuthorityArn != "" || certAuth.Status != "" {
+		dc.CertificateBasedAuthProperties = certAuth
 	}
 
 	return dc.toDirectoryConfig(), nil

@@ -130,3 +130,53 @@ func TestAppStream_DirectoryConfigRoundtrip(t *testing.T) {
 	ouRaw := dc["OrganizationalUnitDistinguishedNames"].([]any)
 	assert.Len(t, ouRaw, 2)
 }
+
+// TestAppStream_DirectoryConfigServiceAccountCredentials verifies that
+// ServiceAccountCredentials and CertificateBasedAuthProperties -- both real
+// CreateDirectoryConfigInput/UpdateDirectoryConfigInput members -- are
+// persisted and reflected back on Describe, and that Update can change them.
+func TestAppStream_DirectoryConfigServiceAccountCredentials(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDirectoryConfig", map[string]any{
+		"DirectoryName": "cred.example.com",
+		"ServiceAccountCredentials": map[string]any{
+			"AccountName":     "svc-account",
+			"AccountPassword": "s3cr3t",
+		},
+		"CertificateBasedAuthProperties": map[string]any{
+			"CertificateAuthorityArn": "arn:aws:acm-pca:us-east-1:000000000000:certificate-authority/abc",
+			"Status":                  "ENABLED",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	dc := createResp["DirectoryConfig"].(map[string]any)
+
+	cred := dc["ServiceAccountCredentials"].(map[string]any)
+	assert.Equal(t, "svc-account", cred["AccountName"])
+	assert.Equal(t, "s3cr3t", cred["AccountPassword"])
+
+	certAuth := dc["CertificateBasedAuthProperties"].(map[string]any)
+	assert.Equal(t, "ENABLED", certAuth["Status"])
+
+	recUpd := doRequest(t, h, "UpdateDirectoryConfig", map[string]any{
+		"DirectoryName": "cred.example.com",
+		"ServiceAccountCredentials": map[string]any{
+			"AccountName":     "svc-account-2",
+			"AccountPassword": "n3wpass",
+		},
+	})
+	require.Equal(t, http.StatusOK, recUpd.Code)
+
+	var updResp map[string]any
+	require.NoError(t, json.Unmarshal(recUpd.Body.Bytes(), &updResp))
+	updDC := updResp["DirectoryConfig"].(map[string]any)
+	updCred := updDC["ServiceAccountCredentials"].(map[string]any)
+	assert.Equal(t, "svc-account-2", updCred["AccountName"])
+	assert.Equal(t, "n3wpass", updCred["AccountPassword"])
+}

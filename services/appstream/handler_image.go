@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- Image handlers ---
@@ -276,14 +277,16 @@ type startImageBuilderInput struct {
 	AppstreamAgentVersion string `json:"AppstreamAgentVersion"`
 }
 
+// opStartImageBuilder starts an image builder. Real AWS's StartImageBuilderOutput
+// carries only the ImageBuilder shape -- no StreamingURL; a prior version of
+// this handler invented one, which real SDK clients would never receive.
 func (h *Handler) opStartImageBuilder(_ context.Context, body []byte) (any, error) {
 	var req startImageBuilderInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	url, err := h.Backend.StartImageBuilder(req.Name, req.AppstreamAgentVersion)
-	if err != nil {
+	if err := h.Backend.StartImageBuilder(req.Name, req.AppstreamAgentVersion); err != nil {
 		return nil, err
 	}
 
@@ -294,7 +297,6 @@ func (h *Handler) opStartImageBuilder(_ context.Context, body []byte) (any, erro
 
 	return map[string]any{
 		"ImageBuilder": imageBuilderToResponse(ibs[0]),
-		"StreamingURL": url, //nolint:goconst // existing issue.
 	}, nil
 }
 
@@ -317,7 +319,8 @@ func (h *Handler) opStopImageBuilder(_ context.Context, body []byte) (any, error
 }
 
 type createImageBuilderStreamingURLInput struct {
-	Name string `json:"Name"`
+	Name     string `json:"Name"`
+	Validity int64  `json:"Validity"`
 }
 
 func (h *Handler) opCreateImageBuilderStreamingURL(_ context.Context, body []byte) (any, error) {
@@ -326,12 +329,15 @@ func (h *Handler) opCreateImageBuilderStreamingURL(_ context.Context, body []byt
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	url, err := h.Backend.CreateImageBuilderStreamingURL(req.Name)
+	url, expires, err := h.Backend.CreateImageBuilderStreamingURL(req.Name, req.Validity)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{"StreamingURL": url}, nil
+	return map[string]any{
+		keyStreamingURL: url,
+		keyExpires:      awstime.Epoch(expires),
+	}, nil
 }
 
 // --- Software association handlers ---
@@ -411,13 +417,18 @@ func (h *Handler) opStartSoftwareDeploymentToImageBuilder(_ context.Context, bod
 }
 
 // --- ExportImageTask handlers ---
+//
+// CreateExportImageTask exports a WorkSpaces Applications image to an EC2
+// AMI (not to S3 -- a prior version of this handler invented an S3Destination
+// request shape and an ExportImageTaskId-only response that don't exist in
+// the real CreateExportImageTaskInput/Output).
 
 type createExportImageTaskInput struct {
-	S3Destination *struct {
-		S3Bucket string `json:"S3Bucket"`
-		S3Key    string `json:"S3Key"`
-	} `json:"S3Destination"`
-	Name string `json:"Name"`
+	TagSpecifications map[string]string `json:"TagSpecifications"`
+	ImageName         string            `json:"ImageName"`
+	AmiName           string            `json:"AmiName"`
+	AmiDescription    string            `json:"AmiDescription"`
+	IamRoleArn        string            `json:"IamRoleArn"`
 }
 
 func (h *Handler) opCreateExportImageTask(_ context.Context, body []byte) (any, error) {
@@ -426,22 +437,18 @@ func (h *Handler) opCreateExportImageTask(_ context.Context, body []byte) (any, 
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	s3Bucket, s3Key := "", ""
-	if req.S3Destination != nil {
-		s3Bucket = req.S3Destination.S3Bucket
-		s3Key = req.S3Destination.S3Key
-	}
-
-	task, err := h.Backend.CreateExportImageTask(req.Name, s3Bucket, s3Key)
+	task, err := h.Backend.CreateExportImageTask(
+		req.ImageName, req.AmiName, req.AmiDescription, req.IamRoleArn, req.TagSpecifications,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{"ExportImageTaskId": task.TaskID}, nil
+	return map[string]any{"ExportImageTask": exportImageTaskToResponse(task)}, nil
 }
 
 type getExportImageTaskInput struct {
-	ExportImageTaskId string `json:"ExportImageTaskId"` //nolint:revive,staticcheck // existing issue.
+	TaskId string `json:"TaskId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) opGetExportImageTask(_ context.Context, body []byte) (any, error) {
@@ -450,7 +457,7 @@ func (h *Handler) opGetExportImageTask(_ context.Context, body []byte) (any, err
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	task, err := h.Backend.GetExportImageTask(req.ExportImageTaskId)
+	task, err := h.Backend.GetExportImageTask(req.TaskId)
 	if err != nil {
 		return nil, err
 	}
@@ -458,8 +465,13 @@ func (h *Handler) opGetExportImageTask(_ context.Context, body []byte) (any, err
 	return map[string]any{"ExportImageTask": exportImageTaskToResponse(task)}, nil
 }
 
+// listExportImageTasksInput intentionally omits Filters: real AWS accepts a
+// generic Name/Values Filters list whose matching semantics aren't part of
+// the published service model, and this emulator doesn't evaluate it (any
+// Filters the caller sends are harmlessly ignored by json.Unmarshal).
 type listExportImageTasksInput struct {
-	ImageNames []string `json:"ImageNames"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int32  `json:"MaxResults"`
 }
 
 func (h *Handler) opListExportImageTasks(_ context.Context, body []byte) (any, error) {
@@ -470,7 +482,7 @@ func (h *Handler) opListExportImageTasks(_ context.Context, body []byte) (any, e
 		}
 	}
 
-	tasks, err := h.Backend.ListExportImageTasks(req.ImageNames)
+	tasks, nextToken, err := h.Backend.ListExportImageTasks(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +492,12 @@ func (h *Handler) opListExportImageTasks(_ context.Context, body []byte) (any, e
 		resp = append(resp, exportImageTaskToResponse(t))
 	}
 
-	return map[string]any{"ExportImageTasks": resp}, nil
+	out := map[string]any{"ExportImageTasks": resp}
+	if nextToken != "" {
+		out["NextToken"] = nextToken
+	}
+
+	return out, nil
 }
 
 // --- Response helpers ---
@@ -494,7 +511,7 @@ func imageToResponse(img *Image) map[string]any {
 		"Visibility":   img.Visibility,
 		"State":        img.State, //nolint:goconst // existing issue.
 		"BaseImageArn": img.BaseImageArn,
-		"CreatedTime":  img.CreatedTime.Unix(), //nolint:goconst // existing issue.
+		"CreatedTime":  awstime.Epoch(img.CreatedTime), //nolint:goconst // existing issue.
 		keyTags:        img.Tags,
 	}
 }
@@ -508,18 +525,34 @@ func imageBuilderToResponse(ib *ImageBuilder) map[string]any {
 		"InstanceType": ib.InstanceType, //nolint:goconst // existing issue.
 		"State":        ib.State,
 		"ImageName":    ib.ImageName,
-		"CreatedTime":  ib.CreatedTime.Unix(),
+		"CreatedTime":  awstime.Epoch(ib.CreatedTime),
 		keyTags:        ib.Tags,
 	}
 }
 
+// exportImageTaskToResponse builds the real ExportImageTask wire shape:
+// TaskId/ImageArn/AmiName/CreatedDate are always present; AmiDescription,
+// AmiId, and TagSpecifications are optional and only included when set.
 func exportImageTaskToResponse(t *ExportImageTask) map[string]any {
-	return map[string]any{
-		"ExportImageTaskId": t.TaskID,
-		"ImageName":         t.ImageName,
-		"S3Bucket":          t.S3Bucket,
-		"S3Key":             t.S3Key,
-		"Status":            t.Status,
-		"CreatedTime":       t.CreatedAt.Unix(),
+	resp := map[string]any{
+		"TaskId":      t.TaskID,
+		"ImageArn":    t.ImageArn,
+		"AmiName":     t.AmiName,
+		"CreatedDate": awstime.Epoch(t.CreatedDate),
+		"State":       t.State,
 	}
+
+	if t.AmiDescription != "" {
+		resp["AmiDescription"] = t.AmiDescription
+	}
+
+	if t.AmiID != "" {
+		resp["AmiId"] = t.AmiID
+	}
+
+	if len(t.TagSpecifications) > 0 {
+		resp["TagSpecifications"] = t.TagSpecifications
+	}
+
+	return resp
 }

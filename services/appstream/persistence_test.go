@@ -53,7 +53,10 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 
 	require.NoError(t, b.AssociateApplicationToEntitlement("app1", "ent1", "stack1"))
 
-	_, err = b.CreateDirectoryConfig("dir1", []string{"OU=test,DC=example,DC=com"})
+	_, err = b.CreateDirectoryConfig(
+		"dir1", []string{"OU=test,DC=example,DC=com"},
+		appstream.ServiceAccountCredentials{}, appstream.CertificateBasedAuthProperties{},
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateImportedImage("image1", "an image", nil)
@@ -66,7 +69,9 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 
 	require.NoError(t, b.AssociateSoftwareToImageBuilder("imgbuilder1", []string{"sw1"}))
 
-	_, err = b.CreateExportImageTask("image1", "bucket1", "prefix1/")
+	_, err = b.CreateExportImageTask(
+		"image1", "exported-ami", "an export", "arn:aws:iam::000000000000:role/export-role", nil,
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateUser("user1", "user1@example.com", "First", "Last", "USERPOOL")
@@ -77,7 +82,7 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateStreamingURL("stack1", "fleet1", "user1")
+	_, _, err = b.CreateStreamingURL("stack1", "fleet1", "user1", 0)
 	require.NoError(t, err)
 
 	_, err = b.CreateUsageReportSubscription("DAILY", "usage-bucket")
@@ -225,7 +230,7 @@ func assertRestoredAssociations(t *testing.T, fresh *appstream.InMemoryBackend) 
 func assertRestoredCountersAndScalar(t *testing.T, fresh *appstream.InMemoryBackend) {
 	t.Helper()
 
-	tasks, err := fresh.ListExportImageTasks([]string{"image1"})
+	tasks, _, err := fresh.ListExportImageTasks(0, "")
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "export-task-00001", tasks[0].TaskID)
@@ -238,11 +243,13 @@ func assertRestoredCountersAndScalar(t *testing.T, fresh *appstream.InMemoryBack
 	// exportTaskSeq/sessionSeq must have survived the round trip: the next
 	// task/session minted after Restore must not collide with the restored
 	// one.
-	nextTask, err := fresh.CreateExportImageTask("image1", "bucket1", "prefix1/")
+	nextTask, err := fresh.CreateExportImageTask(
+		"image1", "exported-ami-2", "an export", "arn:aws:iam::000000000000:role/export-role", nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "export-task-00002", nextTask.TaskID)
 
-	nextURL, err := fresh.CreateStreamingURL("stack1", "fleet1", "user1")
+	nextURL, _, err := fresh.CreateStreamingURL("stack1", "fleet1", "user1", 0)
 	require.NoError(t, err)
 	assert.Contains(t, nextURL, "session-0000000002")
 

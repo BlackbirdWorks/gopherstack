@@ -204,7 +204,9 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 				require.NoError(t, json.Unmarshal(respBody, &resp))
 				ib := resp["ImageBuilder"].(map[string]any)
 				assert.Equal(t, "RUNNING", ib["State"])
-				assert.NotEmpty(t, resp["StreamingURL"])
+				// Real StartImageBuilderOutput carries only ImageBuilder --
+				// no StreamingURL (that's a separate CreateImageBuilderStreamingURL call).
+				assert.NotContains(t, resp, "StreamingURL")
 			},
 		},
 		{
@@ -242,7 +244,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			},
 		},
 		{
-			name:   "CreateImageBuilderStreamingURL returns URL",
+			name:   "CreateImageBuilderStreamingURL returns URL and Expires",
 			action: "CreateImageBuilderStreamingURL",
 			setup: func(h *appstream.Handler) {
 				createImageBuilder(t, h, "url-ib")
@@ -254,6 +256,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
 				assert.NotEmpty(t, resp["StreamingURL"])
+				assert.NotEmpty(t, resp["Expires"])
 			},
 		},
 		{
@@ -355,24 +358,27 @@ func TestAppStream_ExportImageTasks(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:   "CreateExportImageTask returns task ID",
+			name:   "CreateExportImageTask returns ExportImageTask",
 			action: "CreateExportImageTask",
 			setup: func(h *appstream.Handler) {
 				createImage(t, h, "exp-img")
 			},
 			body: map[string]any{
-				"Name": "exp-img",
-				"S3Destination": map[string]any{
-					"S3Bucket": "my-bucket",
-					"S3Key":    "exports/",
-				},
+				"ImageName":  "exp-img",
+				"AmiName":    "exported-ami",
+				"IamRoleArn": "arn:aws:iam::000000000000:role/export-role",
 			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(respBody, &resp))
-				assert.NotEmpty(t, resp["ExportImageTaskId"])
+				task := resp["ExportImageTask"].(map[string]any)
+				assert.NotEmpty(t, task["TaskId"])
+				assert.Equal(t, "exported-ami", task["AmiName"])
+				assert.Equal(t, "COMPLETED", task["State"])
+				assert.NotEmpty(t, task["ImageArn"])
+				assert.NotEmpty(t, task["AmiId"])
 			},
 		},
 		{
@@ -381,8 +387,9 @@ func TestAppStream_ExportImageTasks(t *testing.T) {
 			setup: func(h *appstream.Handler) {
 				createImage(t, h, "lst-exp-img")
 				rec := doRequest(t, h, "CreateExportImageTask", map[string]any{
-					"Name":          "lst-exp-img",
-					"S3Destination": map[string]any{"S3Bucket": "b", "S3Key": "k"},
+					"ImageName":  "lst-exp-img",
+					"AmiName":    "exported-ami",
+					"IamRoleArn": "arn:aws:iam::000000000000:role/export-role",
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
@@ -422,21 +429,22 @@ func TestAppStream_GetExportImageTask(t *testing.T) {
 	createImage(t, h, "rt-img")
 
 	rec := doRequest(t, h, "CreateExportImageTask", map[string]any{
-		"Name": "rt-img", "S3Destination": map[string]any{"S3Bucket": "b", "S3Key": "k"},
+		"ImageName": "rt-img", "AmiName": "exported-ami", "IamRoleArn": "arn:aws:iam::000000000000:role/export-role",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-	taskID := createResp["ExportImageTaskId"].(string)
+	task := createResp["ExportImageTask"].(map[string]any)
+	taskID := task["TaskId"].(string)
 
-	rec2 := doRequest(t, h, "GetExportImageTask", map[string]any{"ExportImageTaskId": taskID})
+	rec2 := doRequest(t, h, "GetExportImageTask", map[string]any{"TaskId": taskID})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var getResp map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
-	task := getResp["ExportImageTask"].(map[string]any)
-	assert.Equal(t, taskID, task["ExportImageTaskId"])
+	gotTask := getResp["ExportImageTask"].(map[string]any)
+	assert.Equal(t, taskID, gotTask["TaskId"])
 }
 
 // TestAppStream_ImageBuilderARNFormat verifies image builder ARN format.

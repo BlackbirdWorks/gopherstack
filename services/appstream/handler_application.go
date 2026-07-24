@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- Application handlers ---
@@ -105,7 +106,8 @@ func (h *Handler) opDescribeAppLicenseUsage(_ context.Context, _ []byte) (any, e
 		return nil, err
 	}
 
-	return map[string]any{"AppLicenseUsage": usage}, nil
+	// Real DescribeAppLicenseUsageOutput carries AppLicenseUsages (plural).
+	return map[string]any{"AppLicenseUsages": usage}, nil
 }
 
 // --- Application-Fleet association handlers ---
@@ -349,9 +351,41 @@ func (h *Handler) opListEntitledApplications(_ context.Context, body []byte) (an
 
 // --- DirectoryConfig handlers ---
 
+// serviceAccountCredentialsJSON mirrors the real ServiceAccountCredentials
+// wire shape (both members required together).
+type serviceAccountCredentialsJSON struct {
+	AccountName     string `json:"AccountName"`
+	AccountPassword string `json:"AccountPassword"`
+}
+
+func (j *serviceAccountCredentialsJSON) toModel() ServiceAccountCredentials {
+	if j == nil {
+		return ServiceAccountCredentials{}
+	}
+
+	return ServiceAccountCredentials(*j)
+}
+
+// certificateBasedAuthPropertiesJSON mirrors the real
+// CertificateBasedAuthProperties wire shape.
+type certificateBasedAuthPropertiesJSON struct {
+	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
+	Status                  string `json:"Status"`
+}
+
+func (j *certificateBasedAuthPropertiesJSON) toModel() CertificateBasedAuthProperties {
+	if j == nil {
+		return CertificateBasedAuthProperties{}
+	}
+
+	return CertificateBasedAuthProperties(*j)
+}
+
 type createDirectoryConfigInput struct {
-	DirectoryName                        string   `json:"DirectoryName"`
-	OrganizationalUnitDistinguishedNames []string `json:"OrganizationalUnitDistinguishedNames"`
+	ServiceAccountCredentials            *serviceAccountCredentialsJSON      `json:"ServiceAccountCredentials"`
+	CertificateBasedAuthProperties       *certificateBasedAuthPropertiesJSON `json:"CertificateBasedAuthProperties"`
+	DirectoryName                        string                              `json:"DirectoryName"`
+	OrganizationalUnitDistinguishedNames []string                            `json:"OrganizationalUnitDistinguishedNames"`
 }
 
 func (h *Handler) opCreateDirectoryConfig(_ context.Context, body []byte) (any, error) {
@@ -360,7 +394,10 @@ func (h *Handler) opCreateDirectoryConfig(_ context.Context, body []byte) (any, 
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	dc, err := h.Backend.CreateDirectoryConfig(req.DirectoryName, req.OrganizationalUnitDistinguishedNames)
+	dc, err := h.Backend.CreateDirectoryConfig(
+		req.DirectoryName, req.OrganizationalUnitDistinguishedNames,
+		req.ServiceAccountCredentials.toModel(), req.CertificateBasedAuthProperties.toModel(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -411,8 +448,10 @@ func (h *Handler) opDescribeDirectoryConfigs(_ context.Context, body []byte) (an
 }
 
 type updateDirectoryConfigInput struct {
-	DirectoryName                        string   `json:"DirectoryName"`
-	OrganizationalUnitDistinguishedNames []string `json:"OrganizationalUnitDistinguishedNames"`
+	ServiceAccountCredentials            *serviceAccountCredentialsJSON      `json:"ServiceAccountCredentials"`
+	CertificateBasedAuthProperties       *certificateBasedAuthPropertiesJSON `json:"CertificateBasedAuthProperties"`
+	DirectoryName                        string                              `json:"DirectoryName"`
+	OrganizationalUnitDistinguishedNames []string                            `json:"OrganizationalUnitDistinguishedNames"`
 }
 
 func (h *Handler) opUpdateDirectoryConfig(_ context.Context, body []byte) (any, error) {
@@ -421,7 +460,10 @@ func (h *Handler) opUpdateDirectoryConfig(_ context.Context, body []byte) (any, 
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	dc, err := h.Backend.UpdateDirectoryConfig(req.DirectoryName, req.OrganizationalUnitDistinguishedNames)
+	dc, err := h.Backend.UpdateDirectoryConfig(
+		req.DirectoryName, req.OrganizationalUnitDistinguishedNames,
+		req.ServiceAccountCredentials.toModel(), req.CertificateBasedAuthProperties.toModel(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +482,7 @@ func applicationToResponse(app *Application) map[string]any {
 		"LaunchPath":  app.LaunchPath,
 		"AppBlockArn": app.AppBlockArn,
 		"Platforms":   app.Platforms,
-		"CreatedTime": app.CreatedTime.Unix(), //nolint:goconst // existing issue.
+		"CreatedTime": awstime.Epoch(app.CreatedTime), //nolint:goconst // existing issue.
 		keyTags:       app.Tags,
 	}
 }
@@ -452,19 +494,37 @@ func entitlementToResponse(e *Entitlement) map[string]any {
 	}
 
 	return map[string]any{
-		"Name":          e.Name,
-		"StackName":     e.StackName, //nolint:goconst // existing issue.
-		"Description":   e.Description,
-		"AppVisibility": e.AppVisibility,
-		"Attributes":    attrs,
-		"CreatedTime":   e.CreatedTime.Unix(),
+		"Name":             e.Name,
+		"StackName":        e.StackName, //nolint:goconst // existing issue.
+		"Description":      e.Description,
+		"AppVisibility":    e.AppVisibility,
+		"Attributes":       attrs,
+		"CreatedTime":      awstime.Epoch(e.CreatedTime),
+		"LastModifiedTime": awstime.Epoch(e.LastModifiedAt),
 	}
 }
 
 func directoryConfigToResponse(dc *DirectoryConfig) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		"DirectoryName":                        dc.DirectoryName,
 		"OrganizationalUnitDistinguishedNames": dc.OrganizationalUnitDistinguishedNames,
-		"CreatedTime":                          dc.CreatedTime.Unix(),
+		"CreatedTime":                          awstime.Epoch(dc.CreatedTime),
 	}
+
+	if dc.ServiceAccountCredentials.AccountName != "" {
+		resp["ServiceAccountCredentials"] = map[string]any{
+			"AccountName":     dc.ServiceAccountCredentials.AccountName,
+			"AccountPassword": dc.ServiceAccountCredentials.AccountPassword,
+		}
+	}
+
+	certAuth := dc.CertificateBasedAuthProperties
+	if certAuth.CertificateAuthorityArn != "" || certAuth.Status != "" {
+		resp["CertificateBasedAuthProperties"] = map[string]any{
+			"CertificateAuthorityArn": certAuth.CertificateAuthorityArn,
+			"Status":                  certAuth.Status,
+		}
+	}
+
+	return resp
 }
