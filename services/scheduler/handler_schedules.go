@@ -152,6 +152,16 @@ func (h *Handler) handleCreateSchedule(ctx context.Context, in *scheduleInput) (
 		return nil, err
 	}
 
+	groupName := in.GroupName
+	if groupName == "" {
+		groupName = defaultGroupName
+	}
+
+	tokenKey := clientTokenKey("schedule", groupName, in.Name, in.ClientToken)
+	if arn, ok := h.lookupIdempotent(tokenKey); ok {
+		return &createScheduleOutput{ScheduleArn: arn}, nil
+	}
+
 	var opts []ScheduleOption
 	if in.StartDate != nil {
 		opts = append(opts, WithStartDate(epochSecondsToTime(*in.StartDate)))
@@ -187,6 +197,8 @@ func (h *Handler) handleCreateSchedule(ctx context.Context, in *scheduleInput) (
 	if err != nil {
 		return nil, err
 	}
+
+	h.storeIdempotent(tokenKey, s.ARN)
 
 	return &createScheduleOutput{ScheduleArn: s.ARN}, nil
 }
@@ -588,7 +600,6 @@ type flexibleTimeWindowOutput struct {
 
 type getScheduleOutput struct {
 	EndDate                    *float64                 `json:"EndDate,omitempty"`
-	Tags                       map[string]string        `json:"Tags,omitempty"`
 	StartDate                  *float64                 `json:"StartDate,omitempty"`
 	Target                     scheduleTargetOutput     `json:"Target"`
 	ScheduleExpression         string                   `json:"ScheduleExpression"`
@@ -611,11 +622,6 @@ func (h *Handler) handleGetSchedule(ctx context.Context, in *scheduleNameInput) 
 		return nil, err
 	}
 
-	var tagMap map[string]string
-	if s.Tags != nil {
-		tagMap = s.Tags.Clone()
-	}
-
 	out := &getScheduleOutput{
 		Name:                       s.Name,
 		Arn:                        s.ARN,
@@ -628,7 +634,6 @@ func (h *Handler) handleGetSchedule(ctx context.Context, in *scheduleNameInput) 
 		KmsKeyArn:                  s.KmsKeyArn,
 		CreationDate:               float64(s.CreationDate.Unix()),
 		LastModificationDate:       float64(s.LastModificationDate.Unix()),
-		Tags:                       tagMap,
 		Target:                     targetToOutput(s.Target),
 		FlexibleTimeWindow: flexibleTimeWindowOutput{
 			Mode:                   s.FlexibleTimeWindow.Mode,
@@ -658,9 +663,10 @@ type listSchedulesInput struct {
 }
 
 // scheduleSummaryTarget holds the target summary included in ListSchedules items.
+// Real AWS's TargetSummary type (see aws-sdk-go-v2/service/scheduler/types) has
+// only an Arn field -- no RoleArn -- so this must not add one.
 type scheduleSummaryTarget struct {
-	Arn     string `json:"Arn"`
-	RoleArn string `json:"RoleArn"`
+	Arn string `json:"Arn"`
 }
 
 type scheduleSummary struct {
@@ -701,8 +707,7 @@ func (h *Handler) handleListSchedules(ctx context.Context, in *listSchedulesInpu
 			CreationDate:         float64(s.CreationDate.Unix()),
 			LastModificationDate: float64(s.LastModificationDate.Unix()),
 			Target: scheduleSummaryTarget{
-				Arn:     s.Target.ARN,
-				RoleArn: s.Target.RoleARN,
+				Arn: s.Target.ARN,
 			},
 		})
 	}

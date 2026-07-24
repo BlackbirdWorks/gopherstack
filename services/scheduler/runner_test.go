@@ -1215,3 +1215,296 @@ func TestRunner_DLQ_SentOnExhaustion(t *testing.T) {
 	require.Len(t, arns, 1)
 	assert.Equal(t, dlqARN, arns[0])
 }
+
+// TestScheduler_ParseAtExpression tests parsing of at() one-time expressions.
+func TestScheduler_ParseAtExpression(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		want    time.Time
+		name    string
+		expr    string
+		wantErr bool
+	}{
+		{
+			name: "valid",
+			expr: "at(2024-06-01T09:30:00)",
+			want: time.Date(2024, 6, 1, 9, 30, 0, 0, time.UTC),
+		},
+		{
+			name:    "missing time component",
+			expr:    "at(2024-06-01)",
+			wantErr: true,
+		},
+		{
+			name:    "not a datetime at all",
+			expr:    "at(not-a-date)",
+			wantErr: true,
+		},
+		{
+			name:    "empty",
+			expr:    "at()",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := scheduler.ParseAtExpression(tt.expr, time.UTC)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.True(t, tt.want.Equal(got))
+		})
+	}
+}
+
+// TestScheduler_Runner_AtExpressionFiresOnceThenNeverAgain verifies a one-time
+// at() schedule fires exactly once, even across further polls where it remains
+// ENABLED (ActionAfterCompletion defaulting to NONE, i.e. the schedule is not
+// deleted after firing).
+func TestScheduler_Runner_AtExpressionFiresOnceThenNeverAgain(t *testing.T) {
+	t.Parallel()
+
+	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:at-once-fn"
+	const role = "arn:aws:iam::000000000000:role/r"
+
+	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"at-once-sched", "", "at(2024-01-15T00:00:00)", "", "",
+		scheduler.Target{ARN: lambdaARN, RoleARN: role},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	due := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, due)
+	require.Len(t, invoker.Called(), 1, "should fire once its target instant is reached")
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, due.Add(24*time.Hour))
+	assert.Len(t, invoker.Called(), 1, "at() schedule must not fire a second time")
+}
+
+// TestScheduler_Runner_AtExpressionNotYetDue verifies an at() schedule does not
+// fire before its target instant is reached.
+func TestScheduler_Runner_AtExpressionNotYetDue(t *testing.T) {
+	t.Parallel()
+
+	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:at-early-fn"
+	const role = "arn:aws:iam::000000000000:role/r"
+
+	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"at-early-sched", "", "at(2024-01-15T00:00:00)", "", "",
+		scheduler.Target{ARN: lambdaARN, RoleARN: role},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	due := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
+	scheduler.CheckAndFireSchedules(t.Context(), runner, due.Add(-time.Minute))
+	assert.Empty(t, invoker.Called(), "must not fire before the target instant")
+}
+
+// TestScheduler_Runner_CronRespectsTimezone verifies cron matching is evaluated in
+// the schedule's ScheduleExpressionTimezone, not the server's UTC poll time.
+func TestScheduler_Runner_CronRespectsTimezone(t *testing.T) {
+	t.Parallel()
+
+	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:cron-tz-fn"
+	const role = "arn:aws:iam::000000000000:role/r"
+
+	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"cron-tz-sched", "", "cron(0 8 * * ? *)", "", "America/New_York",
+		scheduler.Target{ARN: lambdaARN, RoleARN: role},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	// 08:00 UTC is 03:00 EST on 2024-01-15 (January -- no DST, UTC-5) -- must NOT
+	// match a cron expecting 08:00 *local* time.
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Date(2024, 1, 15, 8, 0, 0, 0, time.UTC))
+	assert.Empty(t, invoker.Called(), "cron must be evaluated in the schedule's timezone, not raw UTC")
+
+	// 13:00 UTC is 08:00 EST on 2024-01-15 -- must match.
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Date(2024, 1, 15, 13, 0, 0, 0, time.UTC))
+	assert.Len(t, invoker.Called(), 1, "cron should fire at 08:00 America/New_York local time")
+}
+
+// TestScheduler_Runner_AtExpressionRespectsTimezone verifies at() one-time
+// schedules are evaluated in the schedule's ScheduleExpressionTimezone.
+func TestScheduler_Runner_AtExpressionRespectsTimezone(t *testing.T) {
+	t.Parallel()
+
+	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:at-tz-fn"
+	const role = "arn:aws:iam::000000000000:role/r"
+
+	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	// 08:00 local America/New_York on 2024-01-15 == 13:00 UTC (EST is UTC-5 in January).
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"at-tz-sched", "", "at(2024-01-15T08:00:00)", "", "America/New_York",
+		scheduler.Target{ARN: lambdaARN, RoleARN: role},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Date(2024, 1, 15, 12, 59, 0, 0, time.UTC))
+	assert.Empty(t, invoker.Called(), "must not fire before the target instant in the schedule's timezone")
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Date(2024, 1, 15, 13, 0, 0, 0, time.UTC))
+	assert.Len(t, invoker.Called(), 1, "must fire once the target instant in the schedule's timezone is reached")
+}
+
+// TestScheduler_Runner_StartDateGatesRecurringSchedule verifies a cron/rate
+// schedule does not fire before its StartDate.
+func TestScheduler_Runner_StartDateGatesRecurringSchedule(t *testing.T) {
+	t.Parallel()
+
+	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:start-fn"
+	const role = "arn:aws:iam::000000000000:role/r"
+
+	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	start := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"start-gated", "", "rate(1 minute)", "", "",
+		scheduler.Target{ARN: lambdaARN, RoleARN: role},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+		scheduler.WithStartDate(start),
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	// Before StartDate -- must not fire even on a fresh runner (no prior firing, so
+	// the rate interval alone would otherwise consider it due).
+	scheduler.CheckAndFireSchedules(t.Context(), runner, start.Add(-time.Hour))
+	assert.Empty(t, invoker.Called(), "must not fire before StartDate")
+
+	// On/after StartDate -- must fire.
+	scheduler.CheckAndFireSchedules(t.Context(), runner, start)
+	assert.Len(t, invoker.Called(), 1, "must fire once StartDate is reached")
+}
+
+// TestScheduler_Runner_EndDateGatesRecurringSchedule verifies a cron/rate schedule
+// does not fire after its EndDate.
+func TestScheduler_Runner_EndDateGatesRecurringSchedule(t *testing.T) {
+	t.Parallel()
+
+	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:end-fn"
+	const role = "arn:aws:iam::000000000000:role/r"
+
+	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	end := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"end-gated", "", "rate(1 minute)", "", "",
+		scheduler.Target{ARN: lambdaARN, RoleARN: role},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+		scheduler.WithEndDate(end),
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	// After EndDate -- must not fire.
+	scheduler.CheckAndFireSchedules(t.Context(), runner, end.Add(time.Hour))
+	assert.Empty(t, invoker.Called(), "must not fire after EndDate")
+
+	// On/before EndDate -- must fire.
+	scheduler.CheckAndFireSchedules(t.Context(), runner, end)
+	assert.Len(t, invoker.Called(), 1, "must fire on the EndDate instant (inclusive)")
+}
+
+// TestScheduler_Runner_AtExpressionIgnoresStartAndEndDate verifies one-time at()
+// schedules ignore StartDate/EndDate, per AWS's documented behaviour ("EventBridge
+// Scheduler ignores StartDate/EndDate for one-time schedules").
+func TestScheduler_Runner_AtExpressionIgnoresStartAndEndDate(t *testing.T) {
+	t.Parallel()
+
+	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:at-window-fn"
+	const role = "arn:aws:iam::000000000000:role/r"
+
+	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	due := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	// EndDate is BEFORE the at() target instant; a recurring schedule would never
+	// fire under this window, but a one-time schedule must ignore it entirely.
+	end := due.Add(-time.Hour)
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"at-window", "", "at(2024-01-15T12:00:00)", "", "",
+		scheduler.Target{ARN: lambdaARN, RoleARN: role},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+		scheduler.WithEndDate(end),
+	)
+	require.NoError(t, err)
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, due)
+	assert.Len(t, invoker.Called(), 1, "at() schedules ignore StartDate/EndDate per AWS semantics")
+}
+
+// TestScheduler_Runner_LocCacheEviction verifies stale *time.Location cache entries
+// are swept once no active schedule references their timezone anymore.
+func TestScheduler_Runner_LocCacheEviction(t *testing.T) {
+	t.Parallel()
+
+	const lambdaARN = "arn:aws:lambda:us-east-1:000000000000:function:loc-evict-fn"
+	const role = "arn:aws:iam::000000000000:role/r"
+
+	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := backend.CreateSchedule(
+		context.Background(),
+		"loc-evict-sched", "", "cron(0 12 * * ? *)", "", "America/New_York",
+		scheduler.Target{ARN: lambdaARN, RoleARN: role},
+		"ENABLED", scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
+	require.NoError(t, err)
+
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(&mockLambdaInvoker{})
+
+	matchTime := time.Date(2024, 1, 15, 17, 0, 0, 0, time.UTC) // 12:00 EST
+	scheduler.CheckAndFireSchedules(t.Context(), runner, matchTime)
+	require.Equal(t, 1, scheduler.LocCacheLen(runner), "timezone should be cached after first poll")
+
+	require.NoError(t, backend.DeleteSchedule(context.Background(), "loc-evict-sched", ""))
+
+	scheduler.CheckAndFireSchedules(t.Context(), runner, matchTime.Add(time.Hour))
+	assert.Equal(t, 0, scheduler.LocCacheLen(runner), "stale timezone cache entries should be evicted")
+}

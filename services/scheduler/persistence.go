@@ -368,4 +368,5 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 // Reset implements service.Resettable by delegating to the backend.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+	h.idempotency.Clear()
 }

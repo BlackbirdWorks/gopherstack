@@ -263,9 +263,10 @@ func TestListSchedules_NoTokenReturnsAll(t *testing.T) {
 	assert.Nil(t, out["NextToken"])
 }
 
-// TestListSchedules_IncludesTargetSummary verifies that each schedule
-// returned by ListSchedules includes a Target object with Arn and RoleArn.
-// Real AWS ScheduleSummary always includes a Target sub-object.
+// TestListSchedules_IncludesTargetSummary verifies that each schedule returned by
+// ListSchedules includes a Target object with Arn. Real AWS's TargetSummary type
+// (used by ScheduleSummary.Target) has only an Arn field -- no RoleArn -- so this
+// intentionally does not assert on RoleArn.
 func TestListSchedules_IncludesTargetSummary(t *testing.T) {
 	t.Parallel()
 
@@ -295,16 +296,23 @@ func TestListSchedules_IncludesTargetSummary(t *testing.T) {
 	assert.True(t, hasTarget, "ListSchedules item must have a 'Target' field")
 
 	var target struct {
-		Arn     string `json:"Arn"`
-		RoleArn string `json:"RoleArn"`
+		Arn string `json:"Arn"`
 	}
 	require.NoError(t, json.Unmarshal(targetRaw, &target))
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123:function:fn", target.Arn)
-	assert.Equal(t, "arn:aws:iam::123:role/r", target.RoleArn)
+
+	// Real AWS's TargetSummary has no RoleArn field; assert gopherstack doesn't
+	// invent one on the wire.
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(targetRaw, &raw))
+	_, hasRoleArn := raw["RoleArn"]
+	assert.False(t, hasRoleArn, "ListSchedules Target summary must not include RoleArn (not in real TargetSummary)")
 }
 
-// TestListSchedules_TargetMatchesGetSchedule verifies that the Target.Arn
-// in the list summary matches the Target.Arn in the full GetSchedule response.
+// TestListSchedules_TargetMatchesGetSchedule verifies that the Target.Arn in the
+// list summary matches the Target.Arn in the full GetSchedule response. It does
+// not compare RoleArn: real AWS's TargetSummary (used by ListSchedules) has no
+// RoleArn field at all, unlike the full Target shape returned by GetSchedule.
 func TestListSchedules_TargetMatchesGetSchedule(t *testing.T) {
 	t.Parallel()
 
@@ -326,13 +334,11 @@ func TestListSchedules_TargetMatchesGetSchedule(t *testing.T) {
 	var listOut struct {
 		Schedules []struct {
 			Target struct {
-				Arn     string `json:"Arn"`
-				RoleArn string `json:"RoleArn"`
+				Arn string `json:"Arn"`
 			} `json:"Target"`
 		} `json:"Schedules"`
 	}
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
 	require.Len(t, listOut.Schedules, 1)
 	assert.Equal(t, targetArn, listOut.Schedules[0].Target.Arn)
-	assert.Equal(t, roleArn, listOut.Schedules[0].Target.RoleArn)
 }

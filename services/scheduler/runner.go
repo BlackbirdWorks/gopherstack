@@ -73,8 +73,12 @@ type Runner struct {
 	lastFiredAt map[string]time.Time
 	// cronCache caches parsed cron fields keyed by expression string to avoid re-parsing on every poll.
 	cronCache map[string]*cronFields
-	mu        sync.Mutex
-	cacheMu   sync.RWMutex
+	// locCache caches resolved *time.Location values keyed by IANA timezone name (as
+	// set in a schedule's ScheduleExpressionTimezone) to avoid repeated
+	// time.LoadLocation tzdata lookups on every poll.
+	locCache map[string]*time.Location
+	mu       sync.Mutex
+	cacheMu  sync.RWMutex
 }
 
 // NewRunner creates a new Runner for the given scheduler backend.
@@ -83,6 +87,7 @@ func NewRunner(backend StorageBackend) *Runner {
 		backend:     backend,
 		lastFiredAt: make(map[string]time.Time),
 		cronCache:   make(map[string]*cronFields),
+		locCache:    make(map[string]*time.Location),
 	}
 }
 
@@ -138,11 +143,16 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 
 	activeKeys := make(map[string]struct{}, len(schedules))
 	activeExprs := make(map[string]struct{}, len(schedules))
+	activeTZs := make(map[string]struct{}, len(schedules))
 
 	for _, s := range schedules {
 		key := scheduleKey(s.GroupName, s.Name)
 		activeKeys[key] = struct{}{}
 		activeExprs[strings.TrimSpace(s.ScheduleExpression)] = struct{}{}
+
+		if s.ScheduleExpressionTimezone != "" {
+			activeTZs[s.ScheduleExpressionTimezone] = struct{}{}
+		}
 
 		if s.State != "ENABLED" {
 			continue
@@ -166,32 +176,94 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 	}
 	r.mu.Unlock()
 
-	// Sweep cronCache entries for expressions that no schedule references anymore.
-	// Without this the cache would grow unbounded as schedules churn through unique
-	// cron expressions across the runner's lifetime.
+	// Sweep cronCache/locCache entries for expressions/timezones that no schedule
+	// references anymore. Without this the caches would grow unbounded as schedules
+	// churn through unique cron expressions/timezones across the runner's lifetime.
 	r.cacheMu.Lock()
 	for expr := range r.cronCache {
 		if _, ok := activeExprs[expr]; !ok {
 			delete(r.cronCache, expr)
 		}
 	}
+
+	for tz := range r.locCache {
+		if _, ok := activeTZs[tz]; !ok {
+			delete(r.locCache, tz)
+		}
+	}
 	r.cacheMu.Unlock()
 }
 
 // isDue reports whether the schedule s should fire at time now.
+// StartDate/EndDate gate recurring (cron/rate) schedules but are ignored for
+// one-time (at()) schedules -- both match AWS's documented behaviour ("EventBridge
+// Scheduler ignores StartDate/EndDate for one-time schedules").
 func (r *Runner) isDue(s *Schedule, now time.Time) bool {
 	expr := strings.TrimSpace(s.ScheduleExpression)
 	key := scheduleKey(s.GroupName, s.Name)
 
-	if strings.HasPrefix(expr, "rate(") {
-		return r.isDueRate(key, expr, now)
-	}
+	switch {
+	case strings.HasPrefix(expr, "rate("):
+		if !withinScheduleWindow(s, now) {
+			return false
+		}
 
-	if strings.HasPrefix(expr, "cron(") {
-		return r.isDueCron(key, expr, now)
+		return r.isDueRate(key, expr, now)
+	case strings.HasPrefix(expr, "cron("):
+		if !withinScheduleWindow(s, now) {
+			return false
+		}
+
+		return r.isDueCron(key, expr, now, r.cachedLocation(s.ScheduleExpressionTimezone))
+	case strings.HasPrefix(expr, "at("):
+		return r.isDueAt(key, expr, now, r.cachedLocation(s.ScheduleExpressionTimezone))
 	}
 
 	return false
+}
+
+// withinScheduleWindow reports whether now falls within the schedule's optional
+// [StartDate, EndDate] window (both inclusive bounds, matching "on, or after"/"on,
+// or before" in the AWS docs). Only applies to recurring (cron/rate) schedules.
+func withinScheduleWindow(s *Schedule, now time.Time) bool {
+	if s.StartDate != nil && now.Before(*s.StartDate) {
+		return false
+	}
+
+	if s.EndDate != nil && now.After(*s.EndDate) {
+		return false
+	}
+
+	return true
+}
+
+// cachedLocation returns the *time.Location for the given IANA timezone name (a
+// schedule's ScheduleExpressionTimezone), using locCache to avoid repeated
+// time.LoadLocation tzdata lookups. An empty name resolves to UTC, matching AWS's
+// documented default when ScheduleExpressionTimezone is unset.
+func (r *Runner) cachedLocation(name string) *time.Location {
+	if name == "" {
+		return time.UTC
+	}
+
+	r.cacheMu.RLock()
+	if loc, ok := r.locCache[name]; ok {
+		r.cacheMu.RUnlock()
+
+		return loc
+	}
+	r.cacheMu.RUnlock()
+
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		loc = time.UTC
+	}
+
+	r.cacheMu.Lock()
+	r.locCache[name] = loc
+	r.cacheMu.Unlock()
+
+	return loc
 }
 
 // isDueRate returns true when the rate interval has elapsed since the last firing.
@@ -234,28 +306,58 @@ func (r *Runner) cachedParseCron(expr string) (*cronFields, error) {
 	return cf, nil
 }
 
-// isDueCron returns true when now matches all fields of the cron expression.
-func (r *Runner) isDueCron(key, expr string, now time.Time) bool {
+// isDueCron returns true when now (evaluated in loc, per the schedule's
+// ScheduleExpressionTimezone) matches all fields of the cron expression.
+func (r *Runner) isDueCron(key, expr string, now time.Time, loc *time.Location) bool {
 	fields, err := r.cachedParseCron(expr)
 	if err != nil {
 		return false
 	}
 
-	if !matchesCron(now, fields) {
+	local := now.In(loc)
+
+	if !matchesCron(local, fields) {
 		return false
 	}
 
-	// Prevent double-firing within the same minute.
+	// Prevent double-firing within the same minute (compared in the same location as
+	// the match above, so a minute boundary is judged consistently for the schedule's
+	// configured timezone).
 	r.mu.Lock()
 	last, fired := r.lastFiredAt[key]
 	r.mu.Unlock()
 
-	if fired && last.Year() == now.Year() && last.YearDay() == now.YearDay() &&
-		last.Hour() == now.Hour() && last.Minute() == now.Minute() {
-		return false
+	if fired {
+		lastLocal := last.In(loc)
+		if lastLocal.Year() == local.Year() && lastLocal.YearDay() == local.YearDay() &&
+			lastLocal.Hour() == local.Hour() && lastLocal.Minute() == local.Minute() {
+			return false
+		}
 	}
 
 	return true
+}
+
+// isDueAt returns true the first time now reaches or passes the one-time at()
+// expression's target instant (evaluated in loc, per the schedule's
+// ScheduleExpressionTimezone). Because at() schedules invoke their target exactly
+// once, a schedule that has already fired (present in lastFiredAt) never fires
+// again, even if the caller's ActionAfterCompletion left it in place (NONE).
+func (r *Runner) isDueAt(key, expr string, now time.Time, loc *time.Location) bool {
+	target, err := parseAtExpression(expr, loc)
+	if err != nil {
+		return false
+	}
+
+	r.mu.Lock()
+	_, fired := r.lastFiredAt[key]
+	r.mu.Unlock()
+
+	if fired {
+		return false
+	}
+
+	return !now.Before(target)
 }
 
 // invokeTarget dispatches the schedule's target based on its ARN prefix, with retries and DLQ.
