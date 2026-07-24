@@ -746,3 +746,49 @@ func TestInputTransformer_ValueContextEndToEnd(t *testing.T) {
 	assert.True(t, json.Valid([]byte(msg)), "delivered payload must be valid JSON: %q", msg)
 	assert.JSONEq(t, `{"wrapped":"it.svc"}`, msg)
 }
+
+// TestManagedRuleException_RejectsTargetMutations verifies PutTargets and
+// RemoveTargets reject mutations against a service-managed rule
+// (Rule.ManagedBy non-empty) with ManagedRuleException, matching real AWS.
+// ManagedBy is only reachable via the internal PutRuleInput.ManagedBy seeding
+// path (see rules_test.go's TestPutRule_ManagedByNotWireSettable) -- no real
+// AWS SDK client can set it directly.
+func TestManagedRuleException_RejectsTargetMutations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		op   func(b *eventbridge.InMemoryBackend) ([]eventbridge.FailedEntry, error)
+		name string
+	}{
+		{
+			name: "PutTargets",
+			op: func(b *eventbridge.InMemoryBackend) ([]eventbridge.FailedEntry, error) {
+				return b.PutTargets(context.Background(), "managed-rule", "", []eventbridge.Target{
+					{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:q"},
+				})
+			},
+		},
+		{
+			name: "RemoveTargets",
+			op: func(b *eventbridge.InMemoryBackend) ([]eventbridge.FailedEntry, error) {
+				return b.RemoveTargets(context.Background(), "managed-rule", "", []string{"t1"})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend()
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+				Name:         "managed-rule",
+				EventPattern: `{"source":["x"]}`,
+				ManagedBy:    "scheduler.amazonaws.com",
+			})
+			require.NoError(t, err)
+
+			_, err = tt.op(b)
+			require.ErrorIs(t, err, eventbridge.ErrManagedRule)
+		})
+	}
+}

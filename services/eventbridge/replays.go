@@ -103,39 +103,49 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 
 	region := getRegionFromContext(ctx, b.region)
 
-	cp, eventsToReplay, dt, workerSem, svcCtx, delivTimeout, err := b.startReplayLocked(region, input)
+	plan, err := b.startReplayLocked(region, input)
 	if err != nil {
 		return nil, err
 	}
 
 	// Deliver archived events asynchronously and mark the replay complete.
 	if !b.closing.Load() {
-		b.scheduleReplayWorker(svcCtx, region, workerSem, input.ReplayName, eventsToReplay, dt, delivTimeout)
+		b.scheduleReplayWorker(plan, region, input.ReplayName)
 	}
 
-	return &cp, nil
+	return &plan.replay, nil
+}
+
+// replayDeliveryPlan carries the replay snapshot plus everything StartReplay
+// needs to schedule the async delivery worker after releasing b.mu. Bundled
+// into a struct (rather than startReplayLocked returning six-plus bare
+// values) so adding a field -- as filterRuleARNs was -- doesn't require
+// touching every positional return/call site.
+type replayDeliveryPlan struct {
+	ctx            context.Context
+	filterRuleARNs map[string]struct{}
+	targets        *DeliveryTargets
+	workerSem      chan struct{}
+	replay         Replay
+	events         []EventEntry
+	timeout        time.Duration
 }
 
 // startReplayLocked validates the new replay, records it, and collects the
-// archived events to replay, all under b.mu. It returns the replay snapshot and
-// the delivery configuration StartReplay needs to schedule the async worker
-// after releasing the lock. Extracted from StartReplay so the locked region is
-// a plain method body rather than a function literal.
-func (b *InMemoryBackend) startReplayLocked(region string, input StartReplayInput) (
-	Replay,
-	[]EventEntry,
-	*DeliveryTargets,
-	chan struct{},
-	context.Context,
-	time.Duration,
-	error,
-) {
+// archived events to replay, all under b.mu. It returns the delivery plan
+// StartReplay needs to schedule the async worker after releasing the lock.
+// Extracted from StartReplay so the locked region is a plain method body
+// rather than a function literal.
+func (b *InMemoryBackend) startReplayLocked(
+	region string,
+	input StartReplayInput,
+) (replayDeliveryPlan, error) {
 	b.mu.Lock("StartReplay")
 	defer b.mu.Unlock()
 
 	replays := b.replaysTable(region)
 	if replays.Has(input.ReplayName) {
-		return Replay{}, nil, nil, nil, nil, 0,
+		return replayDeliveryPlan{},
 			fmt.Errorf("%w: replay %s already exists", ErrAlreadyExists, input.ReplayName)
 	}
 
@@ -150,7 +160,7 @@ func (b *InMemoryBackend) startReplayLocked(region string, input StartReplayInpu
 			}
 		}
 		if !found {
-			return Replay{}, nil, nil, nil, nil, 0, fmt.Errorf(
+			return replayDeliveryPlan{}, fmt.Errorf(
 				"%w: destination ARN %s does not match any event bus",
 				ErrInvalidParameter,
 				input.Destination.Arn,
@@ -174,11 +184,12 @@ func (b *InMemoryBackend) startReplayLocked(region string, input StartReplayInpu
 		EventSourceArn:  input.EventSourceArn,
 		EventStartTime:  input.EventStartTime,
 		EventEndTime:    input.EventEndTime,
+		Destination:     input.Destination,
 		ReplayArn:       b.replayARN(input.ReplayName),
 		ReplayName:      input.ReplayName,
 		ReplayStartTime: time.Now(),
 		State:           replayStateStarting,
-		StateReason:     input.Description,
+		Description:     input.Description,
 	}
 	replays.Put(replay)
 
@@ -191,7 +202,32 @@ func (b *InMemoryBackend) startReplayLocked(region string, input StartReplayInpu
 		input.EventEndTime,
 	)
 
-	return *replay, eventsToReplay, b.deliveryTargets, b.workerSem, b.ctx, b.deliveryTimeout, nil
+	return replayDeliveryPlan{
+		replay:         *replay,
+		events:         eventsToReplay,
+		filterRuleARNs: buildFilterRuleARNs(input.Destination),
+		targets:        b.deliveryTargets,
+		workerSem:      b.workerSem,
+		ctx:            b.ctx,
+		timeout:        b.deliveryTimeout,
+	}, nil
+}
+
+// buildFilterRuleARNs converts a ReplayDestination's FilterArns into the set
+// buildDeliveryPlan checks membership against. Returns nil (no filtering, the
+// AWS default of replaying to every matching rule) when dest is nil or
+// FilterArns is empty.
+func buildFilterRuleARNs(dest *ReplayDestination) map[string]struct{} {
+	if dest == nil || len(dest.FilterArns) == 0 {
+		return nil
+	}
+
+	set := make(map[string]struct{}, len(dest.FilterArns))
+	for _, arn := range dest.FilterArns {
+		set[arn] = struct{}{}
+	}
+
+	return set
 }
 
 // filterArchivedEvents returns archived events for the named archive filtered by
@@ -236,25 +272,17 @@ func (b *InMemoryBackend) filterArchivedEvents(
 
 // scheduleReplayWorker launches a background goroutine that delivers archived events
 // and then marks the replay COMPLETED. Extracted to reduce cognitive complexity of StartReplay.
-func (b *InMemoryBackend) scheduleReplayWorker(
-	ctx context.Context,
-	region string,
-	workerSem chan struct{},
-	replayName string,
-	eventsToReplay []EventEntry,
-	dt *DeliveryTargets,
-	delivTimeout time.Duration,
-) {
+func (b *InMemoryBackend) scheduleReplayWorker(plan replayDeliveryPlan, region, replayName string) {
 	b.wg.Go(func() {
 		select {
-		case workerSem <- struct{}{}:
-			defer func() { <-workerSem }()
-		case <-ctx.Done():
+		case plan.workerSem <- struct{}{}:
+			defer func() { <-plan.workerSem }()
+		case <-plan.ctx.Done():
 			return
 		}
 
-		if dt != nil && len(eventsToReplay) > 0 {
-			b.deliverEvents(ctx, region, eventsToReplay, *dt, delivTimeout)
+		if plan.targets != nil && len(plan.events) > 0 {
+			b.deliverEvents(plan.ctx, region, plan.events, *plan.targets, plan.timeout, plan.filterRuleARNs)
 		}
 
 		b.mu.Lock("StartReplay-complete")

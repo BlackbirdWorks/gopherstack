@@ -12,6 +12,53 @@ type createEndpointOutput struct {
 	State       string `json:"State"`
 }
 
+// endpointResponse is the handler-level DTO for Endpoint objects. Timestamps
+// are float64 Unix epoch seconds as required by the AWS JSON protocol (a raw
+// time.Time field would json.Marshal to an RFC3339 string instead).
+type endpointResponse struct {
+	ReplicationConfig *ReplicationConfig `json:"ReplicationConfig,omitempty"`
+	RoutingConfig     *RoutingConfig     `json:"RoutingConfig,omitempty"`
+	Name              string             `json:"Name"`
+	RoleArn           string             `json:"RoleArn,omitempty"`
+	EndpointURL       string             `json:"EndpointUrl"`
+	EndpointID        string             `json:"EndpointId"`
+	Description       string             `json:"Description,omitempty"`
+	Arn               string             `json:"Arn"`
+	State             string             `json:"State"`
+	StateReason       string             `json:"StateReason,omitempty"`
+	EventBuses        []EndpointEventBus `json:"EventBuses,omitempty"`
+	LastModifiedTime  float64            `json:"LastModifiedTime,omitempty"`
+	CreationTime      float64            `json:"CreationTime,omitempty"`
+}
+
+func endpointToResponse(ep *Endpoint) *endpointResponse {
+	if ep == nil {
+		return nil
+	}
+
+	resp := &endpointResponse{
+		ReplicationConfig: ep.ReplicationConfig,
+		RoutingConfig:     ep.RoutingConfig,
+		RoleArn:           ep.RoleArn,
+		EndpointURL:       ep.EndpointURL,
+		Name:              ep.Name,
+		EndpointID:        ep.EndpointID,
+		Description:       ep.Description,
+		Arn:               ep.Arn,
+		State:             ep.State,
+		StateReason:       ep.StateReason,
+		EventBuses:        ep.EventBuses,
+	}
+	if !ep.CreationTime.IsZero() {
+		resp.CreationTime = timeToEpochSeconds(ep.CreationTime)
+	}
+	if !ep.LastModifiedTime.IsZero() {
+		resp.LastModifiedTime = timeToEpochSeconds(ep.LastModifiedTime)
+	}
+
+	return resp
+}
+
 // endpointActions returns the CreateEndpoint action.
 func (h *Handler) endpointActions() map[string]actionFn {
 	return map[string]actionFn{
@@ -55,8 +102,12 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+			ep, err := h.Backend.DescribeEndpoint(ctx, input.Name)
+			if err != nil {
+				return nil, err
+			}
 
-			return h.Backend.DescribeEndpoint(ctx, input.Name)
+			return endpointToResponse(ep), nil
 		},
 		"ListEndpoints": func(ctx context.Context, b []byte) (any, error) {
 			var input struct {
@@ -71,10 +122,15 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 				return nil, err
 			}
 
+			responses := make([]endpointResponse, len(eps))
+			for i := range eps {
+				responses[i] = *endpointToResponse(&eps[i])
+			}
+
 			return &struct {
-				NextToken string     `json:"NextToken,omitempty"`
-				Endpoints []Endpoint `json:"Endpoints"`
-			}{Endpoints: eps, NextToken: next}, nil
+				NextToken string             `json:"NextToken,omitempty"`
+				Endpoints []endpointResponse `json:"Endpoints"`
+			}{Endpoints: responses, NextToken: next}, nil
 		},
 		"UpdateEndpoint": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateEndpointInput

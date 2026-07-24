@@ -52,6 +52,10 @@ var (
 	ErrResourceLimitExceeded  = errors.New("ResourceLimitExceededException")
 	// ErrForbiddenOperation is returned when an operation is forbidden (e.g., modifying built-in registries).
 	ErrForbiddenOperation = errors.New("ForbiddenException")
+	// ErrManagedRule is returned when an operation attempts to modify a rule
+	// that is owned/managed by an AWS service (Rule.ManagedBy is non-empty).
+	// Matches real AWS's ManagedRuleException.
+	ErrManagedRule = errors.New("ManagedRuleException")
 )
 
 const (
@@ -298,10 +302,12 @@ func NewInMemoryBackendWithContext(
 		targetsByARN:    make(map[string]map[string]map[string]struct{}),
 	}
 	// Create the default event bus in the backend's own region.
+	now := time.Now()
 	b.busesTable(b.region).Put(&EventBus{
-		Name:        defaultEventBusName,
-		Arn:         b.busARN(b.region, defaultEventBusName),
-		CreatedTime: time.Now(),
+		Name:             defaultEventBusName,
+		Arn:              b.busARN(b.region, defaultEventBusName),
+		CreatedTime:      now,
+		LastModifiedTime: now,
 	})
 
 	return b
@@ -417,9 +423,11 @@ func (b *InMemoryBackend) Reset() {
 	b.apiDestLimiters = sync.Map{}
 
 	// Re-create the default event bus so it is always available after reset.
+	now := time.Now()
 	b.busesTable(b.region).Put(&EventBus{
-		Name:        defaultEventBusName,
-		Arn:         b.busARN(b.region, defaultEventBusName),
-		CreatedTime: time.Now(),
+		Name:             defaultEventBusName,
+		Arn:              b.busARN(b.region, defaultEventBusName),
+		CreatedTime:      now,
+		LastModifiedTime: now,
 	})
 }

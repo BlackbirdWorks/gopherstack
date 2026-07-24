@@ -30,8 +30,13 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
 	}
 
-	if !busRules.Has(ruleName) {
+	rule, ruleExists := busRules.Get(ruleName)
+	if !ruleExists {
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
+	}
+
+	if err := checkManagedRule(rule); err != nil {
+		return nil, err
 	}
 
 	key := b.targetKey(eventBusName, ruleName)
@@ -100,9 +105,18 @@ func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 	}
 
 	region := getRegionFromContext(ctx, b.region)
+	busKey := ebBusKey(eventBusName)
 
 	b.mu.Lock("RemoveTargets")
 	defer b.mu.Unlock()
+
+	if busRules, exists := b.rulesStore(region)[busKey]; exists {
+		if rule, ruleExists := busRules.Get(ruleName); ruleExists {
+			if err := checkManagedRule(rule); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	key := b.targetKey(eventBusName, ruleName)
 	ruleTargets := b.targetsStore(region)[key]
