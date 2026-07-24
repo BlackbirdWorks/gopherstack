@@ -65,7 +65,34 @@ func TestWAF_SizeConstraintSet_CreateGetUpdateDeleteList(t *testing.T) {
 	sets := listResp["SizeConstraintSets"].([]any)
 	assert.Len(t, sets, 1)
 
-	// Delete
+	// Delete while non-empty must fail with WAFNonEmptyEntityException.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "DeleteSizeConstraintSet", map[string]any{
+		"ChangeToken":         token,
+		"SizeConstraintSetId": id,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "WAFNonEmptyEntityException", errType(t, rec.Body.Bytes()))
+
+	// Remove the constraint, then delete succeeds.
+	token = wafGetToken(t, h)
+	rec = wafDo(t, h, "UpdateSizeConstraintSet", map[string]any{
+		"ChangeToken":         token,
+		"SizeConstraintSetId": id,
+		"Updates": []map[string]any{
+			{
+				"Action": "DELETE",
+				"SizeConstraint": map[string]any{
+					"FieldToMatch":       map[string]any{"Type": "BODY"},
+					"TextTransformation": "NONE",
+					"ComparisonOperator": "GT",
+					"Size":               8192,
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	token = wafGetToken(t, h)
 	rec = wafDo(t, h, "DeleteSizeConstraintSet", map[string]any{
 		"ChangeToken":         token,

@@ -83,7 +83,9 @@ func (b *InMemoryBackend) UpdateIPSet(id, changeToken string, updates []IPSetUpd
 	return nil
 }
 
-// DeleteIPSet deletes an IPSet.
+// DeleteIPSet deletes an IPSet. Real AWS rejects deletion while the IPSet is
+// still used by a Rule/RateBasedRule predicate (WAFReferencedItemException)
+// or still contains any IPSetDescriptors (WAFNonEmptyEntityException).
 func (b *InMemoryBackend) DeleteIPSet(id, changeToken string) error {
 	b.mu.Lock("DeleteIPSet")
 	defer b.mu.Unlock()
@@ -92,12 +94,17 @@ func (b *InMemoryBackend) DeleteIPSet(id, changeToken string) error {
 		return err
 	}
 
-	if !b.ipSets.Has(id) {
+	ipSet, ok := b.ipSets.Get(id)
+	if !ok {
 		return ErrNotFound
 	}
 
 	if b.matchSetReferenced(id) {
 		return ErrReferencedItem
+	}
+
+	if len(ipSet.IPSetDescriptors) > 0 {
+		return ErrNonEmptyEntity
 	}
 
 	b.ipSets.Delete(id)
