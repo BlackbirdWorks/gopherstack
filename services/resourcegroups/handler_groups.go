@@ -10,9 +10,12 @@ import (
 type handleCreateGroupInput struct {
 	Name          string                   `json:"Name"`
 	Description   string                   `json:"Description"`
+	Owner         string                   `json:"Owner"`
+	DisplayName   string                   `json:"DisplayName"`
 	Tags          *tags.Tags               `json:"Tags"`
 	ResourceQuery *ResourceQuery           `json:"ResourceQuery"`
 	Configuration []GroupConfigurationItem `json:"Configuration"`
+	Criticality   int                      `json:"Criticality"`
 }
 
 type groupConfigurationBody struct {
@@ -30,7 +33,10 @@ type createGroupOutput struct {
 }
 
 func (h *Handler) handleCreateGroup(ctx context.Context, in *handleCreateGroupInput) (*createGroupOutput, error) {
-	g, err := h.Backend.CreateGroup(ctx, in.Name, in.Description, in.ResourceQuery, in.Tags, in.Configuration)
+	g, err := h.Backend.CreateGroup(
+		ctx, in.Name, in.Description, in.ResourceQuery, in.Tags, in.Configuration,
+		WithOwner(in.Owner), WithDisplayName(in.DisplayName), WithCriticality(in.Criticality),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +231,7 @@ type updateGroupInput struct {
 	GroupName   string `json:"GroupName"`
 	Description string `json:"Description"`
 	DisplayName string `json:"DisplayName"`
+	Owner       string `json:"Owner"`
 	Criticality int    `json:"Criticality"`
 }
 
@@ -246,7 +253,7 @@ func (h *Handler) handleUpdateGroup(ctx context.Context, in *updateGroupInput) (
 		return nil, fmt.Errorf("%w: Group or GroupName is required", ErrValidation)
 	}
 
-	g, err := h.Backend.UpdateGroup(ctx, name, in.Description, in.DisplayName, in.Criticality)
+	g, err := h.Backend.UpdateGroup(ctx, name, in.Description, in.DisplayName, in.Owner, in.Criticality)
 	if err != nil {
 		return nil, err
 	}

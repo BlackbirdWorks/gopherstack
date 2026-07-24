@@ -2,23 +2,23 @@
 service: resourcegroups
 sdk_module: aws-sdk-go-v2/service/resourcegroups@v1.33.22
 last_audit_commit: 343e1204   # HEAD when this audit started (parity-4 sweep)
-last_audit_date: 2026-07-13
+last_audit_date: 2026-07-24
 overall: A            # genuine wire-shape and behavior fixes found and fixed
 ops:
-  CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Tags/ResourceQuery no longer nested inside Group; Owner tag renamed"}
+  CreateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Tags/ResourceQuery no longer nested inside Group; Owner tag renamed; now accepts Owner/DisplayName/Criticality at creation time via CreateGroupOption; Criticality range corrected to 1-10"}
   GetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Owner wire tag"}
-  UpdateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Owner wire tag, now includes ApplicationTag"}
+  UpdateGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Owner wire tag, now includes ApplicationTag; now accepts Owner input field; Criticality range corrected to 1-10 (was 1-5)"}
   DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now echoes deleted Group (was empty envelope)"}
-  ListGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: GroupIdentifiers now include DisplayName/Criticality/Owner"}
+  ListGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: GroupIdentifiers now include DisplayName/Criticality/Owner; Filters now support the real owner/display-name/criticality GroupFilterName values; invented name-prefix filter removed"}
   GetGroupQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateGroupQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   GetGroupConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: removed fabricated GroupName field, added required Status field"}
   PutGroupConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GroupResources: {wire: ok, errors: ok, state: ok, persist: ok}
   UngroupResources: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListGroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "deprecated ResourceIdentifiers/QueryErrors fields not populated -- see gaps"}
+  ListGroupResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: deprecated ResourceIdentifiers field now populated identically to Resources; QueryErrors field now present on the wire (always empty -- see gaps, CFN-stack queries not modeled)"}
   ListGroupingStatuses: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: UpdatedAt now epoch-seconds, was RFC3339 string"}
-  SearchResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "QueryErrors field never populated -- see gaps"}
+  SearchResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: QueryErrors field now present on the wire (always empty -- see gaps, CFN-stack queries not modeled)"}
   GetTags: {wire: ok, errors: ok, state: ok, persist: ok}
   Tag: {wire: ok, errors: ok, state: ok, persist: ok}
   Untag: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -31,10 +31,8 @@ ops:
 families:
   route_matcher: {status: ok, note: "verified every REST path/method (POST for all ops except GET/PUT/PATCH /resources/{Arn}/tags) against serializers.go opPath/request.Method -- exact match, no gaps"}
 gaps:
-  - "ListGroups Filters only supports 'resource-type', 'configuration-type', 'name-prefix'; real AWS GroupFilterName enum is resource-type|configuration-type|owner|display-name|criticality (no name-prefix). Filtering by owner/display-name/criticality silently matches everything instead of filtering; name-prefix is a gopherstack-only extension. (bd: gopherstack-rg-filters)"
-  - "CreateGroup/UpdateGroup do not accept an Owner input field (real API supports it on both); Owner is therefore always empty in this emulator. CreateGroup also does not accept DisplayName/Criticality at creation time (only settable via a follow-up UpdateGroup). (bd: gopherstack-rg-owner-input)"
-  - "SearchResources/ListGroupResources never populate QueryErrors (CLOUDFORMATION_STACK_* failure reporting) since CloudFormation-stack-based queries are not modeled. ListGroupResourcesOutput also omits the deprecated ResourceIdentifiers field (Resources is populated; most SDKs read Resources)."
-  - "ListGroupResourcesItem/GroupConfigurationItem 'Status' (AWS::EC2::HostManagement pending-membership state) is never populated; only host-management-specific clients would notice."
+  - "SearchResources/ListGroupResources' QueryErrors field is present on the wire but always empty: its documented ErrorCode values (CLOUDFORMATION_STACK_INACTIVE, CLOUDFORMATION_STACK_NOT_EXISTING, CLOUDFORMATION_STACK_UNASSUMABLE_ROLE, RESOURCE_TYPE_NOT_SUPPORTED) only ever arise for CLOUDFORMATION_STACK_1_0-based groups, which this emulator does not model (no CloudFormation backend integration). Genuinely cannot be finished without modeling CloudFormation stacks. (bd: gopherstack-rg-cfn-queryerrors)"
+  - "ListGroupResourcesItem.Status (AWS::EC2::HostManagement pending-membership state, real types.ResourceStatus) is never populated; this emulator does not model AWS::EC2::HostManagement async grouping, so the field is legitimately always absent (matches real AWS behavior for any group NOT of that configuration type, but would be wrong for one that is). Genuinely cannot be finished without modeling async host-management grouping. (bd: gopherstack-rg-hostmgmt-status)"
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors; CancelTagSyncTask fix removes the only TTL-dependent eviction path's live producer (tagSyncTaskTTL eviction in ListTagSyncTasks is now effectively dead code since nothing sets a non-ACTIVE status, but is left as harmless defensive generic logic for a future ERROR-status producer)"}
 ---
@@ -108,6 +106,59 @@ aws-sdk-go-v2/service/resourcegroups@v1.33.22 and matches gopherstack's
    Real `types.GroupIdentifier` carries all of `GroupName`, `GroupArn`, `Description`,
    `DisplayName`, `Criticality`, `Owner`. Only `GroupName`/`GroupArn`/`Description` were
    populated. Fixed (Owner remains unset per gap #2 above, same as everywhere else).
+
+### Real bugs fixed this sweep (parity-3, 2026-07-24)
+
+8. **`ListGroups` `Filters` supported an invented `"name-prefix"` filter name and was
+   missing three real ones.** The real `types.GroupFilterName` enum (confirmed via
+   `types/enums.go`'s `GroupFilterName.Values()`) is exactly
+   `resource-type|configuration-type|owner|display-name|criticality` -- there is no
+   `name-prefix` value. gopherstack had fabricated `name-prefix` and silently ignored
+   `owner`/`display-name`/`criticality` filters (matching everything instead of
+   filtering, since the `switch` had no `case` for them). Fixed: `name-prefix` and its
+   handler/tests were deleted; `owner`/`display-name` (exact string match) and
+   `criticality` (exact match against `strconv.Itoa(g.Criticality)`) are now
+   implemented in `groupMatchesFilters`.
+
+9. **`CreateGroup` had no input path for `Owner`/`DisplayName`/`Criticality`.** The real
+   `CreateGroupInput` accepts all three directly (confirmed via `api_op_CreateGroup.go`);
+   gopherstack only allowed setting them via a follow-up `UpdateGroup` call, so a
+   real-SDK caller's `CreateGroupInput.Owner`/`DisplayName`/`Criticality` were silently
+   dropped on create. Fixed: `InMemoryBackend.CreateGroup` gained a
+   `...CreateGroupOption` variadic parameter (`WithOwner`/`WithDisplayName`/
+   `WithCriticality`) -- chosen over widening the positional parameter list to avoid
+   breaking the ~65 existing call sites that already pass exactly six positional
+   arguments -- and the `CreateGroup` handler now threads `Owner`/`DisplayName`/
+   `Criticality` from `CreateGroupInput` through to it.
+
+10. **`UpdateGroup` had no input path for `Owner`.** The real `UpdateGroupInput` accepts
+    `Owner` alongside `Description`/`DisplayName`/`Criticality` (confirmed via
+    `api_op_UpdateGroup.go`); gopherstack's `UpdateGroup` never accepted or updated it.
+    Fixed: `InMemoryBackend.UpdateGroup` gained an `owner string` parameter (leaves
+    `Owner` unchanged when empty, matching the existing `displayName`/`criticality`
+    convention), and the handler now reads `Owner` from `UpdateGroupInput`.
+
+11. **`Criticality` validation used the wrong range (1-5 instead of 1-10).** Both
+    `api_op_CreateGroup.go` and `api_op_UpdateGroup.go` document Criticality as "a scale
+    of 1 to 10, with a rank of 1 being the most critical, and a rank of 10 being least
+    critical" -- gopherstack's `UpdateGroup` rejected valid values 6-10 with a
+    `BadRequestException`. Fixed via a shared `validateCriticality` helper (now also
+    used by the new `CreateGroup` Criticality input) enforcing the correct 1-10 range.
+
+12. **`ListGroupResourcesOutput` omitted the deprecated `ResourceIdentifiers` field.**
+    The real API keeps `ResourceIdentifiers` populated alongside `Resources` for
+    backward-compatible clients that still read the deprecated field (confirmed via
+    `api_op_ListGroupResources.go`); gopherstack only populated `Resources`. Fixed:
+    `ResourceIdentifiers` is now populated identically to `Resources`.
+
+13. **`SearchResourcesOutput`/`ListGroupResourcesOutput` were missing the `QueryErrors`
+    field entirely.** Both real output shapes carry a `QueryErrors []types.QueryError`
+    member (confirmed via `api_op_SearchResources.go`/`api_op_ListGroupResources.go`);
+    it was absent from gopherstack's wire structs. Added a `queryErrorWire` DTO and the
+    field to both outputs (`omitempty`, so it serializes identically to real AWS for the
+    common case of no errors). It remains always-empty here since
+    `CLOUDFORMATION_STACK_1_0`-based groups (the only source of `QueryError`s) are not
+    modeled -- see gaps.
 
 ### Wire-shape traps confirmed correct (do not re-flag)
 

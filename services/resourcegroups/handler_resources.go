@@ -84,7 +84,13 @@ type listGroupResourcesItem struct {
 
 type listGroupResourcesOutput struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	Resources []listGroupResourcesItem `json:"Resources"`
-	NextToken string                   `json:"NextToken,omitempty"`
+	// ResourceIdentifiers is the deprecated predecessor of Resources ("don't
+	// use this parameter, use the Resources response field instead" per the
+	// real API docs). Kept populated identically to Resources for
+	// backward-compatible SDK/CLI clients that still read it.
+	ResourceIdentifiers []ResourceIdentifier `json:"ResourceIdentifiers"`
+	QueryErrors         []queryErrorWire     `json:"QueryErrors,omitempty"`
+	NextToken           string               `json:"NextToken,omitempty"`
 }
 
 func (h *Handler) handleListGroupResources(
@@ -104,7 +110,11 @@ func (h *Handler) handleListGroupResources(
 		items = append(items, listGroupResourcesItem{Identifier: id})
 	}
 
-	return &listGroupResourcesOutput{Resources: items, NextToken: nextToken}, nil
+	return &listGroupResourcesOutput{
+		Resources:           items,
+		ResourceIdentifiers: identifiers,
+		NextToken:           nextToken,
+	}, nil
 }
 
 // handleListGroupingStatuses lists the grouping/ungrouping statuses for a group.
