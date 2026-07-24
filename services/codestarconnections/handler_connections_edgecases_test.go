@@ -44,14 +44,18 @@ func TestConnectionName_Validation(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "name with invalid chars (space)",
+			// Real ConnectionName shape (botocore codestar-connections/
+			// 2019-12-01/service-2.json) has pattern "[\s\S]*" -- i.e. any
+			// character is valid, not just [a-zA-Z0-9_.-]. A space is
+			// accepted.
+			name:       "name with space is valid",
 			connName:   "my conn",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "name with invalid chars (slash)",
+			name:       "name with slash is valid",
 			connName:   "my/conn",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "empty name from body missing ConnectionName",
@@ -178,12 +182,15 @@ func TestConnection_HostArnIncludedWhenSet(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	const fakeHostArn = "arn:aws:codestar-connections:us-east-1:000000000000:host/myhost/abc12345"
+	// CreateConnection now validates HostArn against a real, previously-created
+	// host (ResourceNotFoundException for an unknown one), so the host must
+	// exist first -- see TestCreateConnection_HostArnNotFound.
+	realHostArn := createCSCHost(t, h, "myhost", "GitHubEnterpriseServer", "https://ghe.example.com")
 
 	rec := doRequest(t, h, "CreateConnection", map[string]any{
 		"ConnectionName": "has-host-conn",
 		"ProviderType":   "GitHubEnterpriseServer",
-		"HostArn":        fakeHostArn,
+		"HostArn":        realHostArn,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	resp := parseResp(t, rec)
@@ -194,7 +201,7 @@ func TestConnection_HostArnIncludedWhenSet(t *testing.T) {
 
 	getResp := parseResp(t, getRec)
 	conn := getResp["Connection"].(map[string]any)
-	assert.Equal(t, fakeHostArn, conn["HostArn"])
+	assert.Equal(t, realHostArn, conn["HostArn"])
 }
 
 func TestListConnections_EmptyIsArray(t *testing.T) {
@@ -281,20 +288,21 @@ func TestCreateConnection_WithHostArn(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body    map[string]any
-		name    string
-		wantArn bool
-		wantOK  bool
+		body     map[string]any
+		name     string
+		wantArn  bool
+		wantOK   bool
+		withReal bool
 	}{
 		{
 			name: "with_host_arn",
 			body: map[string]any{
 				"ConnectionName": "ghe-conn",
 				"ProviderType":   "GitHubEnterpriseServer",
-				"HostArn":        "arn:aws:codestar-connections:us-east-1:123:host/ghe",
 			},
-			wantArn: true,
-			wantOK:  true,
+			withReal: true,
+			wantArn:  true,
+			wantOK:   true,
 		},
 		{
 			name: "without_host_arn",
@@ -312,6 +320,16 @@ func TestCreateConnection_WithHostArn(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+
+			if tt.withReal {
+				// CreateConnection now validates HostArn against a real,
+				// previously-created host (ResourceNotFoundException for an
+				// unknown one), so the host must exist first.
+				tt.body["HostArn"] = createCSCHost(
+					t, h, "ghe-conn-host", "GitHubEnterpriseServer", "https://ghe.example.com",
+				)
+			}
+
 			rec := doRequest(t, h, "CreateConnection", tt.body)
 
 			if tt.wantOK {
@@ -324,6 +342,28 @@ func TestCreateConnection_WithHostArn(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCreateConnection_HostArnNotFound verifies that CreateConnection rejects
+// a HostArn that does not reference an existing host. Real CreateConnection's
+// error list is [LimitExceededException, ResourceNotFoundException,
+// ResourceUnavailableException] (botocore codestar-connections/2019-12-01/
+// service-2.json) -- a bad HostArn maps to ResourceNotFoundException, the
+// same real type GetHost/DeleteHost use for a missing host.
+func TestCreateConnection_HostArnNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateConnection", map[string]any{
+		"ConnectionName": "bad-host-conn",
+		"ProviderType":   "GitHubEnterpriseServer",
+		"HostArn":        "arn:aws:codestar-connections:us-east-1:000000000000:host/nonexistent/abc",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	resp := parseResp(t, rec)
+	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
 // TestGetConnection_Fields verifies all expected fields are returned.
@@ -414,8 +454,6 @@ func TestListConnections_Sorted(t *testing.T) {
 func TestListConnections_HostArnFilter(t *testing.T) {
 	t.Parallel()
 
-	const hostArn = "arn:aws:codestar-connections:us-east-1:123:host/myghe"
-
 	tests := []struct {
 		name        string
 		applyFilter bool
@@ -432,7 +470,16 @@ func TestListConnections_HostArnFilter(t *testing.T) {
 			b := codestarconnections.NewInMemoryBackend("000000000000", "us-east-1")
 			h := codestarconnections.NewHandler(b)
 
-			_, err := b.CreateConnection(context.Background(), "ghe-conn", "GitHubEnterpriseServer", hostArn, nil)
+			// CreateConnection now validates HostArn against a real,
+			// previously-created host, so the host must exist first.
+			host, err := b.CreateHost(
+				context.Background(), "myghe", "GitHubEnterpriseServer", "https://ghe.example.com", nil, nil,
+			)
+			require.NoError(t, err)
+
+			hostArn := host.HostArn
+
+			_, err = b.CreateConnection(context.Background(), "ghe-conn", "GitHubEnterpriseServer", hostArn, nil)
 			require.NoError(t, err)
 
 			_, err = b.CreateConnection(context.Background(), "gh-conn", "GitHub", "", nil)

@@ -486,7 +486,7 @@ func TestInMemoryBackend_ExportCountHelpers(t *testing.T) {
 	_, err := b.CreateConnection(context.Background(), "c1", "GitHub", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateRepositoryLink(context.Background(), "conn-arn", "owner", "repo", "")
+	_, err = b.CreateRepositoryLink(context.Background(), "conn-arn", "owner", "repo", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateSyncConfiguration(
@@ -505,7 +505,11 @@ func TestInMemoryBackend_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 1, b.SyncConfigurationCount())
 }
 
-// TestErrValidationMapping verifies ErrValidation errors map to 400 in the handler.
+// TestErrValidationMapping verifies ErrValidation errors map to 400 in the
+// handler with the real InvalidInputException type (the real
+// aws-sdk-go-v2/service/codestarconnections error catalog has no
+// ValidationException type at all -- see errors.go's ErrValidation doc
+// comment).
 func TestErrValidationMapping(t *testing.T) {
 	t.Parallel()
 
@@ -524,7 +528,7 @@ func TestErrValidationMapping(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "ValidationException", resp["__type"])
+	assert.Equal(t, "InvalidInputException", resp["__type"])
 }
 
 // TestErrAlreadyExistsMapping verifies ErrAlreadyExists maps to 400.
@@ -567,10 +571,10 @@ func TestErrorTypes(t *testing.T) {
 			wantErrType: "InvalidInputException",
 		},
 		{
-			name:        "validation error returns ValidationException",
+			name:        "validation error returns InvalidInputException",
 			action:      "CreateConnection",
 			body:        map[string]any{"ConnectionName": "valid-err-conn", "ProviderType": "INVALID"},
-			wantErrType: "ValidationException",
+			wantErrType: "InvalidInputException",
 		},
 	}
 

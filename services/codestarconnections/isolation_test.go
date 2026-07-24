@@ -157,10 +157,10 @@ func TestCSCRepositoryLinkRegionIsolation(t *testing.T) {
 	ctxWest := cscCtxRegion("us-west-2")
 
 	// Create repository links in both regions.
-	eastLink, err := backend.CreateRepositoryLink(ctxEast, "conn-arn", "east-owner", "east-repo", "")
+	eastLink, err := backend.CreateRepositoryLink(ctxEast, "conn-arn", "east-owner", "east-repo", "", nil)
 	require.NoError(t, err)
 
-	westLink, err := backend.CreateRepositoryLink(ctxWest, "conn-arn", "west-owner", "west-repo", "")
+	westLink, err := backend.CreateRepositoryLink(ctxWest, "conn-arn", "west-owner", "west-repo", "", nil)
 	require.NoError(t, err)
 
 	assert.NotEqual(t, eastLink.RepositoryLinkID, westLink.RepositoryLinkID)

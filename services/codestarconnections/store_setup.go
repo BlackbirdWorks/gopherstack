@@ -79,6 +79,15 @@ func repositoryLinkKeyFn(v *RepositoryLink) string { return regionKey(v.region, 
 
 func repositoryLinkRegionIndexKeyFn(v *RepositoryLink) string { return v.region }
 
+// repositoryLinkArnIndexKeyFn keys the byArn secondary index by
+// RepositoryLinkArn (which, like ConnectionArn/HostArn, already embeds its
+// own region -- see regionFromARN). This lets tags.go look up a repository
+// link by its ResourceArn (the TagResource/UntagResource/ListTagsForResource
+// identifier) without needing the caller's context region, exactly as
+// connectionsByName/hostsByName let CreateConnection/CreateHost check
+// duplicates without a region parameter beyond regionKey.
+func repositoryLinkArnIndexKeyFn(v *RepositoryLink) string { return v.RepositoryLinkArn }
+
 func syncConfigurationKeyFn(v *SyncConfiguration) string {
 	return regionKey(v.region, syncConfigKey(v.ResourceName, v.SyncType))
 }
@@ -118,6 +127,7 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.repositoryLinks = store.New(repositoryLinkKeyFn)
 	b.repositoryLinksByRegion = b.repositoryLinks.AddIndex("byRegion", repositoryLinkRegionIndexKeyFn)
+	b.repositoryLinksByArn = b.repositoryLinks.AddIndex("byArn", repositoryLinkArnIndexKeyFn)
 
 	b.syncConfigurations = store.New(syncConfigurationKeyFn)
 	b.syncConfigurationsByRegion = b.syncConfigurations.AddIndex("byRegion", syncConfigurationRegionIndexKeyFn)

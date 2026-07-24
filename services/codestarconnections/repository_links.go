@@ -3,6 +3,7 @@ package codestarconnections
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -26,7 +27,12 @@ func (b *InMemoryBackend) syncConfigHasReferenceToLinkLocked(region, repositoryL
 func (b *InMemoryBackend) CreateRepositoryLink(
 	ctx context.Context,
 	connectionArn, ownerID, repoName, encryptionKeyArn string,
+	tags map[string]string,
 ) (*RepositoryLink, error) {
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("CreateRepositoryLink")
@@ -53,6 +59,9 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 	id := uuid.NewString()
 	linkArn := arn.Build("codestar-connections", region, b.accountID, "repository-link/"+id)
 
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
 	link := &RepositoryLink{
 		ConnectionArn:     connectionArn,
 		OwnerID:           ownerID,
@@ -62,12 +71,15 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 		ProviderType:      providerType,
 		EncryptionKeyArn:  encryptionKeyArn,
 		CreatedAt:         time.Now().UTC(),
+		Tags:              tagsCopy,
 		region:            region,
 	}
 
 	b.repositoryLinks.Put(link)
 
 	cp := *link
+	cp.Tags = make(map[string]string, len(link.Tags))
+	maps.Copy(cp.Tags, link.Tags)
 
 	return &cp, nil
 }
@@ -85,6 +97,8 @@ func (b *InMemoryBackend) GetRepositoryLink(ctx context.Context, repositoryLinkI
 	}
 
 	cp := *link
+	cp.Tags = make(map[string]string, len(link.Tags))
+	maps.Copy(cp.Tags, link.Tags)
 
 	return &cp, nil
 }
@@ -123,6 +137,8 @@ func (b *InMemoryBackend) ListRepositoryLinks(ctx context.Context) []*Repository
 
 	for _, link := range links {
 		cp := *link
+		cp.Tags = make(map[string]string, len(link.Tags))
+		maps.Copy(cp.Tags, link.Tags)
 		result = append(result, &cp)
 	}
 
@@ -160,6 +176,8 @@ func (b *InMemoryBackend) UpdateRepositoryLink(
 	}
 
 	cp := *link
+	cp.Tags = make(map[string]string, len(link.Tags))
+	maps.Copy(cp.Tags, link.Tags)
 
 	return &cp, nil
 }

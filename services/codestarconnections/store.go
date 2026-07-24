@@ -63,6 +63,7 @@ type InMemoryBackend struct {
 
 	repositoryLinks         *store.Table[RepositoryLink]
 	repositoryLinksByRegion *store.Index[RepositoryLink]
+	repositoryLinksByArn    *store.Index[RepositoryLink]
 
 	syncConfigurations         *store.Table[SyncConfiguration]
 	syncConfigurationsByRegion *store.Index[SyncConfiguration]

@@ -15,8 +15,10 @@ func sortedTagKeys(tags map[string]string) []string {
 	return keys
 }
 
-// findResourceTagsLocked returns the tag map for a resource ARN.
-// Must be called with at least an RLock held.
+// findResourceTagsLocked returns the tag map for a resource ARN. Connections,
+// hosts, and repository links are all real taggable resources (see
+// RepositoryLink.Tags doc comment in models.go for why repository links are
+// included here). Must be called with at least an RLock held.
 func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) (map[string]string, bool) {
 	if conn, ok := b.connections.Get(resourceArn); ok {
 		return conn.Tags, true
@@ -24,6 +26,10 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceArn string) (map[string
 
 	if host, ok := b.hosts.Get(resourceArn); ok {
 		return host.Tags, true
+	}
+
+	if links := b.repositoryLinksByArn.Get(resourceArn); len(links) > 0 {
+		return links[0].Tags, true
 	}
 
 	return nil, false
@@ -46,6 +52,15 @@ func (b *InMemoryBackend) ensureTagsLocked(resourceArn string) (map[string]strin
 		}
 
 		return host.Tags, true
+	}
+
+	if links := b.repositoryLinksByArn.Get(resourceArn); len(links) > 0 {
+		link := links[0]
+		if link.Tags == nil {
+			link.Tags = make(map[string]string)
+		}
+
+		return link.Tags, true
 	}
 
 	return nil, false
@@ -87,7 +102,7 @@ func (b *InMemoryBackend) TagResource(_ context.Context, resourceArn string, tag
 	maps.Copy(merged, tags)
 
 	if len(merged) > maxTagsPerResource {
-		return fmt.Errorf("%w: cannot have more than %d tags on a resource", ErrValidation, maxTagsPerResource)
+		return fmt.Errorf("%w: cannot have more than %d tags on a resource", ErrTagLimitExceeded, maxTagsPerResource)
 	}
 
 	maps.Copy(existing, tags)

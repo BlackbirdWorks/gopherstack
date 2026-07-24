@@ -53,14 +53,22 @@ type getHostInput struct {
 	HostArn string `json:"HostArn"`
 }
 
-// getHostView is the GetHost response shape — HostArn is NOT included (caller already knows it).
+// getHostView is the GetHost response shape. Per aws-sdk-go-v2's
+// GetHostOutput struct and its deserializer
+// (awsAwsjson10_deserializeOpDocumentGetHostOutput), the real GetHost
+// response has exactly Name/ProviderEndpoint/ProviderType/Status/
+// VpcConfiguration -- HostArn is NOT included (caller already knows it) and,
+// notably, neither is StatusMessage, even though the sibling Host type
+// (used by ListHosts, see listHostView below) DOES have a StatusMessage
+// field. This is a genuine asymmetry in the real API, not a gopherstack
+// omission: a previous implementation incorrectly added StatusMessage to
+// this shape by generalizing from the Host type.
 type getHostView struct {
+	VpcConfiguration *vpcConfigurationView `json:"VpcConfiguration,omitempty"`
 	Name             string                `json:"Name"`
 	ProviderType     string                `json:"ProviderType"`
 	ProviderEndpoint string                `json:"ProviderEndpoint"`
 	Status           string                `json:"Status"`
-	VpcConfiguration *vpcConfigurationView `json:"VpcConfiguration,omitempty"`
-	StatusMessage    string                `json:"StatusMessage,omitempty"`
 }
 
 // listHostView is the ListHosts per-item shape — includes HostArn.
@@ -110,7 +118,6 @@ func hostToGetView(h *Host) getHostView {
 		ProviderType:     h.ProviderType,
 		ProviderEndpoint: h.ProviderEndpoint,
 		Status:           h.Status,
-		StatusMessage:    h.StatusMessage,
 		VpcConfiguration: vpcConfigToView(h.VpcConfiguration),
 	}
 }

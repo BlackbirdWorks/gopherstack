@@ -8,10 +8,11 @@ import (
 )
 
 type createRepositoryLinkInput struct {
-	ConnectionArn    string `json:"ConnectionArn"`
-	OwnerID          string `json:"OwnerId"`
-	RepositoryName   string `json:"RepositoryName"`
-	EncryptionKeyArn string `json:"EncryptionKeyArn"`
+	ConnectionArn    string     `json:"ConnectionArn"`
+	OwnerID          string     `json:"OwnerId"`
+	RepositoryName   string     `json:"RepositoryName"`
+	EncryptionKeyArn string     `json:"EncryptionKeyArn"`
+	Tags             []tagEntry `json:"Tags"`
 }
 
 type repositoryLinkItem struct {
@@ -45,7 +46,7 @@ func (h *Handler) handleCreateRepositoryLink(
 	}
 
 	link, err := h.Backend.CreateRepositoryLink(
-		ctx, in.ConnectionArn, in.OwnerID, in.RepositoryName, in.EncryptionKeyArn,
+		ctx, in.ConnectionArn, in.OwnerID, in.RepositoryName, in.EncryptionKeyArn, tagsFromArray(in.Tags),
 	)
 	if err != nil {
 		return nil, err
