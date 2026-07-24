@@ -399,6 +399,74 @@ func TestAlias_RevisionID_Changes(t *testing.T) {
 	assert.NotEqual(t, a1.RevisionID, a2.RevisionID)
 }
 
+// TestAlias_RevisionID_Precondition locks in UpdateAlias's RevisionId
+// optimistic-concurrency check: a stale RevisionId is rejected with
+// PreconditionFailedException (412) and leaves the alias unmodified; the
+// current RevisionId succeeds.
+func TestAlias_RevisionID_Precondition(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	createFunctionForTest(t, h, "alias-precond-fn")
+	callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-precond-fn/versions", `{}`)
+	callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-precond-fn/versions", `{}`)
+
+	createRec := callInMemoryHandler(t, h, http.MethodPost,
+		"/2015-03-31/functions/alias-precond-fn/aliases",
+		`{"Name":"pc","FunctionVersion":"1"}`)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	var a1 lambda.FunctionAlias
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&a1))
+
+	staleRec := callInMemoryHandler(t, h, http.MethodPut,
+		"/2015-03-31/functions/alias-precond-fn/aliases/pc",
+		`{"FunctionVersion":"2","RevisionId":"not-the-real-revision"}`)
+	assert.Equal(t, http.StatusPreconditionFailed, staleRec.Code)
+
+	getRec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2015-03-31/functions/alias-precond-fn/aliases/pc", "")
+	var got lambda.FunctionAlias
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&got))
+	assert.Equal(t, "1", got.FunctionVersion, "rejected update must not change the alias")
+
+	okRec := callInMemoryHandler(t, h, http.MethodPut,
+		"/2015-03-31/functions/alias-precond-fn/aliases/pc",
+		fmt.Sprintf(`{"FunctionVersion":"2","RevisionId":%q}`, a1.RevisionID))
+	assert.Equal(t, http.StatusOK, okRec.Code)
+}
+
+// TestPublishVersion_RevisionID_Precondition locks in PublishVersion's
+// RevisionId optimistic-concurrency check: a stale RevisionId against the
+// live $LATEST config is rejected with PreconditionFailedException (412)
+// without publishing a new version.
+func TestPublishVersion_RevisionID_Precondition(t *testing.T) {
+	t.Parallel()
+
+	h, bk := newInMemoryHandler(t)
+	createFunctionForTest(t, h, "publish-precond-fn")
+
+	fn, err := bk.GetFunction("publish-precond-fn")
+	require.NoError(t, err)
+	currentRevision := fn.RevisionID
+
+	staleRec := callInMemoryHandler(t, h, http.MethodPost,
+		"/2015-03-31/functions/publish-precond-fn/versions",
+		`{"RevisionId":"not-the-real-revision"}`)
+	assert.Equal(t, http.StatusPreconditionFailed, staleRec.Code)
+
+	listRec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2015-03-31/functions/publish-precond-fn/versions", "")
+	var list lambda.ListVersionsByFunctionOutput
+	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&list))
+	assert.Len(t, list.Versions, 1, "rejected publish must not create a numbered version ($LATEST only)")
+
+	okRec := callInMemoryHandler(t, h, http.MethodPost,
+		"/2015-03-31/functions/publish-precond-fn/versions",
+		fmt.Sprintf(`{"RevisionId":%q}`, currentRevision))
+	assert.Equal(t, http.StatusCreated, okRec.Code)
+}
+
 // TestVersion_AlwaysLatestInCreateFunction verifies that CreateFunction always
 // returns "Version": "$LATEST" in the response, matching AWS Lambda behaviour.
 // Previously Version was absent when Publish was not set.

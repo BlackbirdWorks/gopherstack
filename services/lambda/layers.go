@@ -1,6 +1,8 @@
 package lambda
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -262,11 +264,15 @@ func (b *InMemoryBackend) GetLayerVersionPolicy(
 
 	return &LayerVersionPolicy{
 		Policy:     policy,
-		RevisionID: "1",
+		RevisionID: layerPolicyRevisionID(stmts),
 	}, nil
 }
 
 // AddLayerVersionPermission adds a permission statement to a layer version's resource policy.
+// A duplicate StatementId is rejected with ErrFunctionAlreadyExists
+// (ResourceConflictException), matching AddPermission's function-policy behavior.
+// When input.RevisionID is non-empty it must match the policy's current
+// revision or the call is rejected with ErrPreconditionFailed.
 func (b *InMemoryBackend) AddLayerVersionPermission(
 	layerName string, version int64, input *AddLayerVersionPermissionInput,
 ) (*AddLayerVersionPermissionOutput, error) {
@@ -300,13 +306,23 @@ func (b *InMemoryBackend) AddLayerVersionPermission(
 		b.layerPolicies[layerName][version] = make(map[string]*LayerVersionStatement)
 	}
 
+	stmts := b.layerPolicies[layerName][version]
+
+	if _, exists := stmts[input.StatementID]; exists {
+		return nil, ErrFunctionAlreadyExists
+	}
+
+	if input.RevisionID != "" && input.RevisionID != layerPolicyRevisionID(stmts) {
+		return nil, ErrPreconditionFailed
+	}
+
 	stmt := &LayerVersionStatement{
 		StatementID: input.StatementID,
 		Action:      input.Action,
 		Principal:   input.Principal,
 	}
 
-	b.layerPolicies[layerName][version][input.StatementID] = stmt
+	stmts[input.StatementID] = stmt
 
 	stmtJSON, marshalErr := json.Marshal(stmt)
 	if marshalErr != nil {
@@ -315,15 +331,18 @@ func (b *InMemoryBackend) AddLayerVersionPermission(
 
 	return &AddLayerVersionPermissionOutput{
 		Statement:  string(stmtJSON),
-		RevisionID: "1",
+		RevisionID: layerPolicyRevisionID(stmts),
 	}, nil
 }
 
 // RemoveLayerVersionPermission removes a permission statement from a layer version's resource policy.
+// When revisionID is non-empty it must match the policy's current revision or
+// the call is rejected with ErrPreconditionFailed without mutating the policy.
 func (b *InMemoryBackend) RemoveLayerVersionPermission(
 	layerName string,
 	version int64,
 	statementID string,
+	revisionID string,
 ) error {
 	b.mu.Lock("RemoveLayerVersionPermission")
 	defer b.mu.Unlock()
@@ -351,9 +370,32 @@ func (b *InMemoryBackend) RemoveLayerVersionPermission(
 		return nil
 	}
 
+	if revisionID != "" && revisionID != layerPolicyRevisionID(b.layerPolicies[layerName][version]) {
+		return ErrPreconditionFailed
+	}
+
 	delete(b.layerPolicies[layerName][version], statementID)
 
 	return nil
+}
+
+// layerPolicyRevisionID derives a stable opaque revision identifier for a
+// layer version's resource policy from its current set of statement IDs, the
+// same content-hash approach policyRevisionID (permissions.go) uses for
+// function policies: statement content is immutable once added (no
+// UpdateLayerVersionPermission op exists — a StatementId can only be added
+// once and then removed), so hashing the sorted StatementId set detects every
+// real mutation without needing separate persisted revision state.
+func layerPolicyRevisionID(stmts map[string]*LayerVersionStatement) string {
+	if len(stmts) == 0 {
+		return ""
+	}
+
+	ids := collections.SortedKeys(stmts)
+
+	h := sha256.Sum256([]byte(strings.Join(ids, "\x00")))
+
+	return hex.EncodeToString(h[:])
 }
 
 // buildLayerPolicy serialises a map of statements to a JSON IAM policy document string.

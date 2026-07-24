@@ -59,3 +59,7 @@ var ErrNoPolicyFound = errors.New("ResourceNotFoundException")
 // ErrFunctionURLForbidden is returned when an AWS_IAM function URL request is
 // missing or has an invalid SigV4 signature.
 var ErrFunctionURLForbidden = errors.New("Forbidden")
+
+// ErrPreconditionFailed is returned when a caller-supplied RevisionId does not
+// match a resource's current revision (optimistic-concurrency check).
+var ErrPreconditionFailed = errors.New("PreconditionFailedException")

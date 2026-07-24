@@ -279,3 +279,41 @@ func TestCapacityProvider_UpdateNotFound(t *testing.T) {
 		"/2025-11-30/capacity-providers/nonexistent", `{}`)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+// TestCapacityProvider_TelemetryConfig locks in the PARITY.md deferred item:
+// the SDK v1.94.1->v1.97.0 bump added TelemetryConfig to CapacityProvider.
+// CreateCapacityProvider and UpdateCapacityProvider must accept-and-echo it
+// verbatim (this emulator does not send real system logs to CloudWatch for
+// capacity-provider-managed instances, so it is round-tripped only).
+func TestCapacityProvider_TelemetryConfig(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	createBody := `{
+		"Name":"telemetry-provider",
+		"TelemetryConfig":{"LoggingConfig":{
+			"LogGroup":"/aws/lambda/capacity-provider/telemetry-provider",
+			"SystemLogLevel":"WARN"
+		}}
+	}`
+	createRec := callInMemoryHandler(t, h, http.MethodPost, "/2025-11-30/capacity-providers", createBody)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	var createOut lambda.CreateCapacityProviderOutput
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NotNil(t, createOut.CapacityProvider.TelemetryConfig)
+	require.NotNil(t, createOut.CapacityProvider.TelemetryConfig.LoggingConfig)
+	assert.Equal(t, "WARN", createOut.CapacityProvider.TelemetryConfig.LoggingConfig.SystemLogLevel)
+
+	updateBody := `{"TelemetryConfig":{"LoggingConfig":{"SystemLogLevel":"DEBUG"}}}`
+	updateRec := callInMemoryHandler(t, h, http.MethodPut,
+		"/2025-11-30/capacity-providers/telemetry-provider", updateBody)
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updateOut lambda.UpdateCapacityProviderOutput
+	require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&updateOut))
+	require.NotNil(t, updateOut.CapacityProvider.TelemetryConfig)
+	require.NotNil(t, updateOut.CapacityProvider.TelemetryConfig.LoggingConfig)
+	assert.Equal(t, "DEBUG", updateOut.CapacityProvider.TelemetryConfig.LoggingConfig.SystemLogLevel)
+}

@@ -91,7 +91,7 @@ func TestInMemoryBackend_LayerVersionPolicy(t *testing.T) {
 			assert.Contains(t, policy.Policy, tt.statementID)
 
 			// RemoveLayerVersionPermission should succeed.
-			removeErr := bk.RemoveLayerVersionPermission(tt.layerName, tt.version, tt.statementID)
+			removeErr := bk.RemoveLayerVersionPermission(tt.layerName, tt.version, tt.statementID, "")
 			require.NoError(t, removeErr)
 
 			// Policy should no longer contain the statement.
@@ -176,6 +176,80 @@ func TestLayer_Policy_AddAndGet(t *testing.T) {
 	var pol lambda.LayerVersionPolicy
 	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&pol))
 	assert.NotEmpty(t, pol.Policy)
+}
+
+// TestLayerVersionPermission_Duplicate locks in that AddLayerVersionPermission
+// rejects a StatementId that already exists with ResourceConflictException
+// (409), matching AddPermission's function-policy behavior, instead of
+// silently overwriting the existing statement.
+func TestLayerVersionPermission_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	callInMemoryHandler(t, h, http.MethodPost, "/2018-10-31/layers/dup-layer/versions",
+		`{"Content":{"ZipFile":"UEsDBAA="}}`)
+
+	body := `{"StatementId":"s1","Action":"lambda:GetLayerVersion","Principal":"*"}`
+	path := "/2018-10-31/layers/dup-layer/versions/1/policy"
+
+	rec1 := callInMemoryHandler(t, h, http.MethodPost, path, body)
+	require.Equal(t, http.StatusCreated, rec1.Code)
+
+	rec2 := callInMemoryHandler(t, h, http.MethodPost, path, body)
+	assert.Equal(t, http.StatusConflict, rec2.Code)
+}
+
+// TestLayerVersionPermission_RevisionId locks in the RevisionId
+// optimistic-concurrency check on AddLayerVersionPermission /
+// RemoveLayerVersionPermission (query-bound "RevisionId" param, per the AWS
+// smithy model — verified against serializers.go): a stale RevisionId is
+// rejected with PreconditionFailedException (412) and the policy is left
+// unmodified; a fresh one succeeds.
+func TestLayerVersionPermission_RevisionId(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	callInMemoryHandler(t, h, http.MethodPost, "/2018-10-31/layers/rev-layer/versions",
+		`{"Content":{"ZipFile":"UEsDBAA="}}`)
+
+	policyPath := "/2018-10-31/layers/rev-layer/versions/1/policy"
+
+	addRec := callInMemoryHandler(t, h, http.MethodPost, policyPath,
+		`{"StatementId":"s1","Action":"lambda:GetLayerVersion","Principal":"*"}`)
+	require.Equal(t, http.StatusCreated, addRec.Code)
+
+	var addOut lambda.AddLayerVersionPermissionOutput
+	require.NoError(t, json.NewDecoder(addRec.Body).Decode(&addOut))
+	rev1 := addOut.RevisionID
+	require.NotEmpty(t, rev1)
+
+	// Stale RevisionId on a second Add is rejected.
+	staleAddRec := callInMemoryHandler(t, h, http.MethodPost,
+		policyPath+"?RevisionId=not-the-real-revision",
+		`{"StatementId":"s2","Action":"lambda:GetLayerVersion","Principal":"*"}`)
+	assert.Equal(t, http.StatusPreconditionFailed, staleAddRec.Code)
+
+	getRec := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
+	var pol lambda.LayerVersionPolicy
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&pol))
+	assert.NotContains(t, pol.Policy, "s2")
+
+	// Stale RevisionId on Remove is rejected and leaves the statement in place.
+	staleDelRec := callInMemoryHandler(t, h, http.MethodDelete,
+		policyPath+"/s1?RevisionId=not-the-real-revision", "")
+	assert.Equal(t, http.StatusPreconditionFailed, staleDelRec.Code)
+
+	getRec2 := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
+	var pol2 lambda.LayerVersionPolicy
+	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&pol2))
+	assert.Contains(t, pol2.Policy, "s1")
+
+	// The correct RevisionId succeeds.
+	okDelRec := callInMemoryHandler(t, h, http.MethodDelete,
+		policyPath+"/s1?RevisionId="+rev1, "")
+	assert.Equal(t, http.StatusNoContent, okDelRec.Code)
 }
 
 func TestLayer_Policy_Remove(t *testing.T) {

@@ -308,6 +308,141 @@ func TestDeadLetterConfig_Update(t *testing.T) {
 	assert.Equal(t, "arn:aws:sns:us-east-1:123:my-topic", fn.DeadLetterConfig.TargetArn)
 }
 
+// ============================================================
+// DurableConfig — accept-and-echo (PARITY.md deferred item: the SDK
+// v1.94.1->v1.97.0 bump added a customer-managed-KMS-key field to the
+// durable-execution config; this locks in that CreateFunction,
+// UpdateFunctionConfiguration, and PublishVersion all round-trip the whole
+// DurableConfig shape (ExecutionTimeout, KMSKeyArn, RetentionPeriodInDays).
+// ============================================================
+
+func TestDurableConfig_CreateAndGet(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	body := `{
+		"FunctionName":"durable-fn",
+		"PackageType":"Image",
+		"Code":{"ImageUri":"ecr/x:latest"},
+		"Role":"arn:aws:iam:::role/r",
+		"DurableConfig":{"ExecutionTimeout":3600,"KMSKeyArn":"arn:aws:kms:us-east-1:123:key/abc","RetentionPeriodInDays":30}
+	}`
+	rec := auditCreateFunction(t, h, body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	var fn lambda.FunctionConfiguration
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NotNil(t, fn.DurableConfig)
+	require.NotNil(t, fn.DurableConfig.ExecutionTimeout)
+	assert.Equal(t, int32(3600), *fn.DurableConfig.ExecutionTimeout)
+	assert.Equal(t, "arn:aws:kms:us-east-1:123:key/abc", fn.DurableConfig.KMSKeyArn)
+	require.NotNil(t, fn.DurableConfig.RetentionPeriodInDays)
+	assert.Equal(t, int32(30), *fn.DurableConfig.RetentionPeriodInDays)
+}
+
+func TestDurableConfig_Update(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	rec := auditCreateFunction(t, h, baseImageFn("durable-update-fn"))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	body := `{"DurableConfig":{"ExecutionTimeout":7200,"RetentionPeriodInDays":90}}`
+	rec2 := auditUpdateConfig(t, h, "durable-update-fn", body)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var fn lambda.FunctionConfiguration
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+	require.NotNil(t, fn.DurableConfig)
+	require.NotNil(t, fn.DurableConfig.ExecutionTimeout)
+	assert.Equal(t, int32(7200), *fn.DurableConfig.ExecutionTimeout)
+}
+
+func TestDurableConfig_PublishedVersionCarriesConfig(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	body := `{
+		"FunctionName":"durable-pub-fn",
+		"PackageType":"Image",
+		"Code":{"ImageUri":"ecr/x:latest"},
+		"Role":"arn:aws:iam:::role/r",
+		"DurableConfig":{"ExecutionTimeout":1800}
+	}`
+	rec := auditCreateFunction(t, h, body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	pubRec := callInMemoryHandler(t, h, http.MethodPost,
+		"/2015-03-31/functions/durable-pub-fn/versions", "{}")
+	require.Equal(t, http.StatusCreated, pubRec.Code)
+
+	var ver lambda.FunctionVersion
+	require.NoError(t, json.NewDecoder(pubRec.Body).Decode(&ver))
+	require.NotNil(t, ver.DurableConfig)
+	require.NotNil(t, ver.DurableConfig.ExecutionTimeout)
+	assert.Equal(t, int32(1800), *ver.DurableConfig.ExecutionTimeout)
+}
+
+// ============================================================
+// RevisionId optimistic concurrency on UpdateFunctionConfiguration /
+// UpdateFunctionCode (PARITY.md deferred item, extended from AddPermission's
+// RevisionId to the function-config update path): a stale RevisionId is
+// rejected with PreconditionFailedException (412) without applying the
+// update; the current RevisionId succeeds.
+// ============================================================
+
+func TestUpdateFunctionConfiguration_RevisionID_Precondition(t *testing.T) {
+	t.Parallel()
+
+	h, bk := newInMemoryHandler(t)
+	rec := auditCreateFunction(t, h, baseImageFn("cfg-precond-fn"))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	fn, err := bk.GetFunction("cfg-precond-fn")
+	require.NoError(t, err)
+	currentRevision := fn.RevisionID
+
+	staleRec := auditUpdateConfig(t, h, "cfg-precond-fn",
+		`{"Description":"nope","RevisionId":"not-the-real-revision"}`)
+	assert.Equal(t, http.StatusPreconditionFailed, staleRec.Code)
+
+	fnAfter, err := bk.GetFunction("cfg-precond-fn")
+	require.NoError(t, err)
+	assert.Empty(t, fnAfter.Description, "rejected update must not change the function")
+
+	okRec := auditUpdateConfig(t, h, "cfg-precond-fn",
+		fmt.Sprintf(`{"Description":"yep","RevisionId":%q}`, currentRevision))
+	assert.Equal(t, http.StatusOK, okRec.Code)
+}
+
+func TestUpdateFunctionCode_RevisionID_Precondition(t *testing.T) {
+	t.Parallel()
+
+	h, bk := newInMemoryHandler(t)
+	rec := auditCreateFunction(t, h, baseImageFn("code-precond-fn"))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	fn, err := bk.GetFunction("code-precond-fn")
+	require.NoError(t, err)
+	currentRevision := fn.RevisionID
+
+	staleRec := callInMemoryHandler(t, h, http.MethodPut,
+		"/2015-03-31/functions/code-precond-fn/code",
+		`{"ImageUri":"ecr/new:latest","RevisionId":"not-the-real-revision"}`)
+	assert.Equal(t, http.StatusPreconditionFailed, staleRec.Code)
+
+	fnAfter, err := bk.GetFunction("code-precond-fn")
+	require.NoError(t, err)
+	assert.Equal(t, "ecr/x:latest", fnAfter.ImageURI, "rejected update must not change the function's code")
+
+	okRec := callInMemoryHandler(t, h, http.MethodPut,
+		"/2015-03-31/functions/code-precond-fn/code",
+		fmt.Sprintf(`{"ImageUri":"ecr/new:latest","RevisionId":%q}`, currentRevision))
+	assert.Equal(t, http.StatusOK, okRec.Code)
+}
+
 // ---- Gap 5: EphemeralStorage validation ----
 
 func TestEphemeralStorage_DefaultOn_Create(t *testing.T) {

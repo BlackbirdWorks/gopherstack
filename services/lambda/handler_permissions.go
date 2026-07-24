@@ -58,6 +58,12 @@ func (h *Handler) handleAddPermission(c *echo.Context, name string) error {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", addErr.Error())
 		}
 
+		if errors.Is(addErr, ErrPreconditionFailed) {
+			return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailedException",
+				"The RevisionId provided does not match the latest RevisionId. Fetch the latest version "+
+					"and try again.")
+		}
+
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", addErr.Error())
 	}
 
@@ -112,11 +118,18 @@ func (h *Handler) handleRemovePermission(c *echo.Context, name, statementID stri
 	}
 
 	qualifier := c.Request().URL.Query().Get("Qualifier")
+	revisionID := c.Request().URL.Query().Get("RevisionId")
 
-	if err := lambdaBk.RemovePermission(name, qualifier, statementID); err != nil {
+	if err := lambdaBk.RemovePermission(name, qualifier, statementID, revisionID); err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Function not found: "+name)
+		}
+
+		if errors.Is(err, ErrPreconditionFailed) {
+			return h.writeError(c, http.StatusPreconditionFailed, "PreconditionFailedException",
+				"The RevisionId provided does not match the latest RevisionId. Fetch the latest version "+
+					"and try again.")
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
