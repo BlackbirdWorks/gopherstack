@@ -44,11 +44,14 @@ func TestInMemoryBackend_MemberLifecycle(t *testing.T) {
 				"",
 				nil,
 				nil,
+				"",
+				"admin",
+				"",
 			)
 			require.NoError(t, err)
 
 			// CreateMember
-			member, err := b.CreateMember(testRegion, testAccountID, network.ID, tt.memberName, "", nil)
+			member, err := b.CreateMember(testRegion, testAccountID, network.ID, tt.memberName, "", "admin", "", nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, member.ID)
 			assert.Equal(t, tt.memberName, member.Name)
@@ -91,7 +94,7 @@ func TestInMemoryBackend_CreateMember_NetworkNotFound(t *testing.T) {
 
 			b := newBackend()
 
-			_, err := b.CreateMember(testRegion, testAccountID, "nonexistent-id", "m1", "", nil)
+			_, err := b.CreateMember(testRegion, testAccountID, "nonexistent-id", "m1", "", "admin", "", nil)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, awserr.ErrNotFound)
 		})
@@ -115,7 +118,7 @@ func TestHandler_MemberLifecycle(t *testing.T) {
 
 			// Create network
 			rec := doRequest(t, h, http.MethodPost, "/networks",
-				map[string]any{"Name": "net1", "MemberConfiguration": map[string]any{"Name": "initial"}})
+				map[string]any{"Name": "net1", "MemberConfiguration": testMemberConfiguration("initial")})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createNetResp map[string]any
@@ -124,7 +127,7 @@ func TestHandler_MemberLifecycle(t *testing.T) {
 
 			// Create member
 			rec = doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members",
-				map[string]any{"MemberConfiguration": map[string]any{"Name": "new-member"}})
+				map[string]any{"MemberConfiguration": testMemberConfiguration("new-member")})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createMemResp map[string]any
@@ -201,7 +204,7 @@ func TestHandler_MemberErrors(t *testing.T) {
 					map[string]any{"MemberConfiguration": map[string]any{}})
 			case "create_bad_network":
 				rec = doRequest(t, h, http.MethodPost, "/networks/nonexistent/members",
-					map[string]any{"MemberConfiguration": map[string]any{"Name": "m1"}})
+					map[string]any{"MemberConfiguration": testMemberConfiguration("m1")})
 			case "list_bad_network":
 				rec = doRequest(t, h, http.MethodGet, "/networks/nonexistent/members", nil)
 			case "delete_bad_network":
@@ -533,7 +536,7 @@ func TestHandler_CreateMemberWithTags(t *testing.T) {
 	h.DefaultRegion = testRegion
 
 	rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members", map[string]any{
-		"MemberConfiguration": map[string]any{"Name": "tagged-member"},
+		"MemberConfiguration": testMemberConfiguration("tagged-member"),
 		"Tags":                map[string]string{"role": "validator"},
 	})
 

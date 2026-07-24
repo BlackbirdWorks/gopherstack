@@ -46,6 +46,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 					"founder", "founder member",
 					map[string]string{"env": "test"},
 					nil,
+					"", "admin", "",
 				)
 				require.NoError(t, err)
 			},
@@ -80,6 +81,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				n, _, err := b.CreateNetwork(
 					region, accountID,
 					"tag-network", "", "", "", "m1", "", nil, nil,
+					"", "admin", "",
 				)
 				require.NoError(t, err)
 
@@ -105,10 +107,11 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				n, _, err := b.CreateNetwork(
 					region, accountID,
 					"multi-member", "", "", "", "member1", "", nil, nil,
+					"", "admin", "",
 				)
 				require.NoError(t, err)
 
-				_, err = b.CreateMember(region, accountID, n.ID, "member2", "second member", nil)
+				_, err = b.CreateMember(region, accountID, n.ID, "member2", "second member", "admin", "", nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
@@ -146,7 +149,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				n, m, err := b.CreateNetwork(region, accountID,
-					"prop-net", "", "", "", "founder", "", nil, nil)
+					"prop-net", "", "", "", "founder", "", nil, nil, "", "admin", "")
 				require.NoError(t, err)
 
 				_, err = b.CreateProposal(region, accountID, n.ID, m.ID, "test proposal", nil, nil)
@@ -187,10 +190,10 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				n, m, err := b.CreateNetwork(region, accountID,
-					"node-net", "", "", "", "founder", "", nil, nil)
+					"node-net", "", "", "", "founder", "", nil, nil, "", "admin", "")
 				require.NoError(t, err)
 
-				node, err := b.CreateNode(region, accountID, n.ID, m.ID, "bc.t3.small", "us-east-1a", nil)
+				node, err := b.CreateNode(region, accountID, n.ID, m.ID, "bc.t3.small", "us-east-1a", "", nil)
 				require.NoError(t, err)
 
 				require.NoError(t, b.TagResource(node.Arn, map[string]string{"env": "prod"}))
@@ -228,10 +231,10 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				n, m1, err := b.CreateNetwork(region, accountID,
-					"vote-net", "", "", "", "founder", "", nil, nil)
+					"vote-net", "", "", "", "founder", "", nil, nil, "", "admin", "")
 				require.NoError(t, err)
 
-				m2, err := b.CreateMember(region, accountID, n.ID, "second", "", nil)
+				m2, err := b.CreateMember(region, accountID, n.ID, "second", "", "admin", "", nil)
 				require.NoError(t, err)
 
 				proposal, err := b.CreateProposal(region, accountID, n.ID, m1.ID, "test proposal", nil, nil)
@@ -354,6 +357,7 @@ func TestManagedBlockchain_PersistenceVersionMismatch(t *testing.T) {
 				region, accountID,
 				"mismatch-net", "", "", "", "founder", "",
 				nil, nil,
+				"", "admin", "",
 			)
 			require.NoError(t, err)
 

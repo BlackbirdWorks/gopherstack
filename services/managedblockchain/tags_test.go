@@ -29,7 +29,9 @@ func TestInMemoryBackend_TagOperations(t *testing.T) {
 
 			b := newBackend()
 
-			network, _, err := b.CreateNetwork(testRegion, testAccountID, "tagged-net", "", "", "", "m1", "", nil, nil)
+			network, _, err := b.CreateNetwork(
+				testRegion, testAccountID, "tagged-net", "", "", "", "m1", "", nil, nil, "", "admin", "",
+			)
 			require.NoError(t, err)
 
 			// TagResource on network
@@ -80,6 +82,9 @@ func TestInMemoryBackend_TagOperationsOnMember(t *testing.T) {
 				"",
 				nil,
 				nil,
+				"",
+				"admin",
+				"",
 			)
 			require.NoError(t, err)
 
@@ -127,7 +132,7 @@ func TestHandler_TagOperations(t *testing.T) {
 
 			// Create network
 			rec := doRequest(t, h, http.MethodPost, "/networks",
-				map[string]any{"Name": "tagged-net", "MemberConfiguration": map[string]any{"Name": "m1"}})
+				map[string]any{"Name": "tagged-net", "MemberConfiguration": testMemberConfiguration("m1")})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any

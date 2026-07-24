@@ -244,7 +244,7 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 
 			netBody := map[string]any{
 				"Name":                "vote-net",
-				"MemberConfiguration": map[string]any{"Name": "m0"},
+				"MemberConfiguration": testMemberConfiguration("m0"),
 			}
 
 			if votingPolicy != nil {
@@ -265,7 +265,7 @@ func TestHandler_ProposalStatusTransitions(t *testing.T) {
 
 			for i := 1; i < tt.totalMembers; i++ {
 				memRec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members", map[string]any{
-					"MemberConfiguration": map[string]any{"Name": fmt.Sprintf("m%d", i)},
+					"MemberConfiguration": testMemberConfiguration(fmt.Sprintf("m%d", i)),
 				})
 				require.Equal(t, http.StatusOK, memRec.Code)
 
@@ -334,7 +334,7 @@ func TestHandler_VoteOnProposalAlreadyCompleted(t *testing.T) {
 			// Create network with 100% threshold so one vote approves
 			rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 				"Name":                "approve-net",
-				"MemberConfiguration": map[string]any{"Name": "m1"},
+				"MemberConfiguration": testMemberConfiguration("m1"),
 				"VotingPolicy": map[string]any{
 					"ApprovalThresholdPolicy": map[string]any{
 						"ThresholdComparator":     "GREATER_THAN_OR_EQUAL_TO",
@@ -394,7 +394,7 @@ func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 	// 3 members, GREATER_THAN 33%: 1/3 YES = 33.33% > 33 with float (but 33 > 33 = false with integer).
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "float-precision-net",
-		"MemberConfiguration": map[string]any{"Name": "owner"},
+		"MemberConfiguration": testMemberConfiguration("owner"),
 		"VotingPolicy": map[string]any{
 			"ApprovalThresholdPolicy": map[string]any{
 				"ThresholdComparator":     "GREATER_THAN",
@@ -413,7 +413,7 @@ func TestHandler_VoteThresholdFloatPrecision(t *testing.T) {
 
 	addMem := func(name string) {
 		rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/members",
-			map[string]any{"MemberConfiguration": map[string]any{"Name": name}})
+			map[string]any{"MemberConfiguration": testMemberConfiguration(name)})
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
@@ -461,7 +461,7 @@ func TestHandler_ApprovedProposalExecutesInvitationActions(t *testing.T) {
 	// Create a network (1 member = only 1 vote needed for unanimous approval).
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "actions-net",
-		"MemberConfiguration": map[string]any{"Name": "owner"},
+		"MemberConfiguration": testMemberConfiguration("owner"),
 		"VotingPolicy": map[string]any{
 			"ApprovalThresholdPolicy": map[string]any{
 				"ThresholdComparator":     "GREATER_THAN_OR_EQUAL_TO",
@@ -535,7 +535,7 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 
 	netRec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "reject-net",
-		"MemberConfiguration": map[string]any{"Name": "m0"},
+		"MemberConfiguration": testMemberConfiguration("m0"),
 		"VotingPolicy": map[string]any{
 			"ApprovalThresholdPolicy": map[string]any{
 				"ThresholdComparator":     "GREATER_THAN",
@@ -554,7 +554,7 @@ func TestHandler_RejectionThresholdImpossibleApproval(t *testing.T) {
 
 	addMem := func(name string) string {
 		rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/members",
-			map[string]any{"MemberConfiguration": map[string]any{"Name": name}})
+			map[string]any{"MemberConfiguration": testMemberConfiguration(name)})
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var r map[string]any

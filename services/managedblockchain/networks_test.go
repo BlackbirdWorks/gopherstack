@@ -60,6 +60,9 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 					"",
 					nil,
 					nil,
+					"",
+					"admin",
+					"",
 				)
 				require.NoError(t, err)
 			}
@@ -75,6 +78,9 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 				"",
 				nil,
 				nil,
+				"",
+				"admin",
+				"",
 			)
 
 			if tt.wantErr {
@@ -133,6 +139,9 @@ func TestInMemoryBackend_GetNetwork(t *testing.T) {
 				"",
 				nil,
 				nil,
+				"",
+				"admin",
+				"",
 			)
 			require.NoError(t, err)
 
@@ -185,7 +194,21 @@ func TestInMemoryBackend_ListNetworks(t *testing.T) {
 			b := newBackend()
 
 			for _, name := range tt.networkNames {
-				_, _, err := b.CreateNetwork(testRegion, testAccountID, name, "", "", "", "m1", "", nil, nil)
+				_, _, err := b.CreateNetwork(
+					testRegion,
+					testAccountID,
+					name,
+					"",
+					"",
+					"",
+					"m1",
+					"",
+					nil,
+					nil,
+					"",
+					"admin",
+					"",
+				)
 				require.NoError(t, err)
 			}
 
@@ -211,13 +234,13 @@ func TestHandler_CreateNetwork(t *testing.T) {
 	}{
 		{
 			name:       "creates network",
-			body:       map[string]any{"Name": "my-net", "MemberConfiguration": map[string]any{"Name": "m1"}},
+			body:       map[string]any{"Name": "my-net", "MemberConfiguration": testMemberConfiguration("m1")},
 			wantStatus: http.StatusOK,
 			wantKey:    "NetworkId",
 		},
 		{
 			name:       "missing network name",
-			body:       map[string]any{"MemberConfiguration": map[string]any{"Name": "m1"}},
+			body:       map[string]any{"MemberConfiguration": testMemberConfiguration("m1")},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -227,7 +250,7 @@ func TestHandler_CreateNetwork(t *testing.T) {
 		},
 		{
 			name:       "duplicate network returns conflict",
-			body:       map[string]any{"Name": "dup-net", "MemberConfiguration": map[string]any{"Name": "m1"}},
+			body:       map[string]any{"Name": "dup-net", "MemberConfiguration": testMemberConfiguration("m1")},
 			wantStatus: http.StatusConflict,
 		},
 	}
@@ -282,7 +305,7 @@ func TestHandler_GetNetwork(t *testing.T) {
 			h := newTestHandler(t)
 
 			rec := doRequest(t, h, http.MethodPost, "/networks",
-				map[string]any{"Name": "net1", "MemberConfiguration": map[string]any{"Name": "m1"}})
+				map[string]any{"Name": "net1", "MemberConfiguration": testMemberConfiguration("m1")})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
@@ -336,7 +359,7 @@ func TestHandler_ListNetworks(t *testing.T) {
 				rec := doRequest(t, h, http.MethodPost, "/networks",
 					map[string]any{
 						"Name":                fmt.Sprintf("net-%d", i),
-						"MemberConfiguration": map[string]any{"Name": "m1"},
+						"MemberConfiguration": testMemberConfiguration("m1"),
 					})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -423,7 +446,7 @@ func TestHandler_VotingPolicyStoredAndReturned(t *testing.T) {
 
 			body := map[string]any{
 				"Name":                "vp-net",
-				"MemberConfiguration": map[string]any{"Name": "m1"},
+				"MemberConfiguration": testMemberConfiguration("m1"),
 			}
 
 			if tt.votingPolicy != nil {
@@ -609,6 +632,7 @@ func TestInMemoryBackend_CloneVotingPolicyDoesNotMutate(t *testing.T) {
 		testRegion, testAccountID,
 		"vp-net", "", "", "", "m1", "",
 		nil, vp,
+		"", "admin", "",
 	)
 	require.NoError(t, err)
 
@@ -634,7 +658,7 @@ func TestHandler_CreateNetworkWithTags(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
 		"Name":                "tagged-net",
-		"MemberConfiguration": map[string]any{"Name": "m1"},
+		"MemberConfiguration": testMemberConfiguration("m1"),
 		"Tags":                map[string]string{"env": "prod", "team": "infra"},
 	})
 

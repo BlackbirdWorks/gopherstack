@@ -41,6 +41,37 @@ var (
 	// field, GetNode/ListNodes/DeleteNode/UpdateNode's "memberId" query parameter); gopherstack
 	// only emulates Hyperledger Fabric networks, so it is always required here.
 	ErrMissingNodeMemberID = errors.New("MemberId is required for Hyperledger Fabric node operations")
+	// ErrMissingMemberFrameworkConfig is returned when MemberConfiguration.FrameworkConfiguration
+	// is missing. The real aws-sdk-go-v2 client-side validator (validateMemberConfiguration)
+	// requires this field on both CreateNetwork's and CreateMember's MemberConfiguration.
+	ErrMissingMemberFrameworkConfig = errors.New("FrameworkConfiguration is required for member configuration")
+	// ErrMissingMemberFabricConfig is returned when MemberConfiguration.FrameworkConfiguration.Fabric
+	// is missing. gopherstack only emulates Hyperledger Fabric networks (see ErrMissingNodeMemberID),
+	// so unlike the real API (which permits an empty FrameworkConfiguration for future frameworks),
+	// Fabric is always required here.
+	ErrMissingMemberFabricConfig = errors.New(
+		"FrameworkConfiguration.Fabric is required for Hyperledger Fabric member configuration",
+	)
+	// ErrMissingMemberAdminUsername is returned when Fabric.AdminUsername is missing. Real AWS's
+	// client-side validator (validateMemberFabricConfiguration) requires this field.
+	ErrMissingMemberAdminUsername = errors.New("AdminUsername is required for member's Fabric configuration")
+	// ErrMissingMemberAdminPassword is returned when Fabric.AdminPassword is missing. Real AWS's
+	// client-side validator (validateMemberFabricConfiguration) requires this field.
+	ErrMissingMemberAdminPassword = errors.New("AdminPassword is required for member's Fabric configuration")
+	// ErrInvalidMemberAdminPassword is returned when Fabric.AdminPassword does not meet the real
+	// API's documented length constraint (8-32 characters).
+	ErrInvalidMemberAdminPassword = errors.New("AdminPassword must be between 8 and 32 characters")
+	// ErrMissingNetworkFabricEdition is returned when FrameworkConfiguration.Fabric is present but
+	// Edition is missing. Real AWS's client-side validator (validateNetworkFabricConfiguration)
+	// requires this field whenever a Fabric configuration object is supplied.
+	ErrMissingNetworkFabricEdition = errors.New(
+		"FrameworkConfiguration.Fabric.Edition is required when Fabric is specified",
+	)
+	// ErrUnsupportedNetworkFramework is returned when Framework is set to a value other than
+	// HYPERLEDGER_FABRIC. Real AWS's CreateNetwork documents itself as "Applies only to
+	// Hyperledger Fabric" -- new networks (including ETHEREUM, still a valid Framework enum
+	// member used elsewhere, e.g. accessors) can no longer be created through this operation.
+	ErrUnsupportedNetworkFramework = errors.New("CreateNetworkInput.Framework must be HYPERLEDGER_FABRIC")
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("InvalidRequestException: validation error", awserr.ErrInvalidParameter)
 )

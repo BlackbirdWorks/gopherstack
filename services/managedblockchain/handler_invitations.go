@@ -12,13 +12,15 @@ func (h *Handler) handleListInvitations(c *echo.Context) error {
 		return h.writeBackendError(c, err)
 	}
 
-	objs := make([]invitationObject, 0, len(invitations))
+	pageItems, nextToken := paginate(invitations, c.Request().URL.Query())
 
-	for _, inv := range invitations {
+	objs := make([]invitationObject, 0, len(pageItems))
+
+	for _, inv := range pageItems {
 		objs = append(objs, toInvitationObject(inv))
 	}
 
-	return c.JSON(http.StatusOK, listInvitationsResponse{Invitations: objs})
+	return c.JSON(http.StatusOK, listInvitationsResponse{Invitations: objs, NextToken: nextToken})
 }
 
 func (h *Handler) handleRejectInvitation(c *echo.Context, invitationID string) error {
