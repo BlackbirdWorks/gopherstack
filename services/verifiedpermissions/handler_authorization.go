@@ -309,8 +309,11 @@ func parseJWTClaims(token string) (map[string]any, error) {
 	return claims, nil
 }
 
-// principalFromToken resolves PrincipalEntityType and PrincipalEntityID from a JWT
-// token using the first matching identity source in the policy store.
+// principalFromToken resolves PrincipalEntityType and PrincipalEntityID from
+// a JWT token, using the identity source in the policy store whose issuer
+// matches the token's "iss" claim (falling back to the first identity source
+// when no "iss" claim is present or none match, since a policy store
+// typically has exactly one identity source anyway).
 func (h *Handler) principalFromToken(policyStoreID, token string) (string, string) {
 	sources, _, err := h.Backend.ListIdentitySources(policyStoreID, "", 0, nil)
 	if err != nil || len(sources) == 0 {
@@ -322,7 +325,8 @@ func (h *Handler) principalFromToken(policyStoreID, token string) (string, strin
 		return "", ""
 	}
 
-	is := sources[0]
+	iss, _ := claims["iss"].(string)
+	is := matchIdentitySourceByIssuer(sources, iss)
 	claimName := "sub"
 
 	if is.OIDCTokenSelection != nil && is.OIDCTokenSelection.PrincipalIDClaim != "" {
@@ -332,6 +336,29 @@ func (h *Handler) principalFromToken(policyStoreID, token string) (string, strin
 	claimVal, _ := claims[claimName].(string)
 
 	return is.PrincipalEntityType, claimVal
+}
+
+// matchIdentitySourceByIssuer returns the identity source in sources whose
+// OIDC issuer (its own OpenIDIssuer, or the issuer AWS derives from a
+// Cognito user pool's ARN) matches issuer. Falls back to the first identity
+// source when issuer is empty or no source matches -- this remains a
+// documented simplification of AWS's real identity-source-selection
+// algorithm, which also matches the token's "aud"/"client_id" claim against
+// the source's configured client IDs/audiences; gopherstack matches on
+// issuer only.
+func matchIdentitySourceByIssuer(sources []IdentitySource, issuer string) IdentitySource {
+	if issuer != "" {
+		for _, is := range sources {
+			switch {
+			case is.UserPoolArn != "" && cognitoIssuerFromUserPoolArn(is.UserPoolArn) == issuer:
+				return is
+			case is.OpenIDIssuer != "" && is.OpenIDIssuer == issuer:
+				return is
+			}
+		}
+	}
+
+	return sources[0]
 }
 
 type isAuthorizedWithTokenInput struct {

@@ -22,7 +22,7 @@ func TestBackend_Policy(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				p, err := b.CreatePolicy(
@@ -85,7 +85,7 @@ func TestBackend_ListPolicies(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) string {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID
@@ -147,7 +147,7 @@ func TestBackend_UpdatePolicy(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				p, err := b.CreatePolicy(
@@ -207,7 +207,7 @@ func TestBackend_DeletePolicy(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				p, err := b.CreatePolicy(
@@ -228,7 +228,7 @@ func TestBackend_DeletePolicy(t *testing.T) {
 			setup: func(t *testing.T, b *verifiedpermissions.InMemoryBackend) (string, string) {
 				t.Helper()
 
-				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+				ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 				require.NoError(t, err)
 
 				return ps.PolicyStoreID, "nonexistent-policy"
@@ -276,7 +276,7 @@ func TestBackend_GetPolicy_NonExistentPolicyInExistingStore(t *testing.T) {
 
 	b := newTestBackend()
 
-	ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+	ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 	require.NoError(t, err)
 
 	_, err = b.GetPolicy(ps.PolicyStoreID, "nonexistent-policy")
@@ -298,7 +298,7 @@ func TestBackend_UpdatePolicy_NonExistentPolicy(t *testing.T) {
 
 	b := newTestBackend()
 
-	ps, err := b.CreatePolicyStore("desc", nil, "OFF", "")
+	ps, err := b.CreatePolicyStore("desc", nil, "OFF", "", "")
 	require.NoError(t, err)
 
 	_, err = b.UpdatePolicy(

@@ -72,16 +72,32 @@ func identitySourceKey(policyStoreID, identitySourceID string) string {
 	return policyStoreID + "/" + identitySourceID
 }
 
-// CreateIdentitySource creates a new identity source in the given policy store.
+// CreateIdentitySource creates a new identity source in the given policy
+// store. A non-empty clientToken makes the call idempotent for eight hours,
+// same semantics as CreatePolicyStore's ClientToken.
 func (b *InMemoryBackend) CreateIdentitySource(
 	policyStoreID, principalEntityType string,
 	cfg IdentitySourceConfig,
+	clientToken string,
 ) (*IdentitySource, error) {
 	b.mu.Lock("CreateIdentitySource")
 	defer b.mu.Unlock()
 
 	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	fingerprint := identitySourceFingerprint(policyStoreID, principalEntityType, cfg)
+
+	existingID, err := b.checkClientToken("CreateIdentitySource", clientToken, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+
+	if existingID != "" {
+		if existing, ok := b.identitySources.Get(identitySourceKey(policyStoreID, existingID)); ok {
+			return cloneIdentitySource(existing), nil
+		}
 	}
 
 	id := uuid.NewString()
@@ -99,8 +115,19 @@ func (b *InMemoryBackend) CreateIdentitySource(
 
 	b.identitySources.Put(is)
 	b.arnIndex[identitySourceARN(b.accountID, policyStoreID, id)] = arnKindIdentitySource + ":" + policyStoreID + ":" + id
+	b.recordClientToken("CreateIdentitySource", clientToken, fingerprint, id)
 
 	return cloneIdentitySource(is), nil
+}
+
+// identitySourceFingerprint deterministically encodes a CreateIdentitySource
+// call's parameters for ClientToken idempotency.
+func identitySourceFingerprint(policyStoreID, principalEntityType string, cfg IdentitySourceConfig) string {
+	return strings.Join([]string{
+		policyStoreID, principalEntityType, cfg.UserPoolArn, strings.Join(cfg.ClientIDs, ","),
+		cfg.CognitoGroupEntityType, cfg.Issuer, cfg.EntityIDPrefix, cfg.OIDCGroupClaim,
+		cfg.OIDCGroupEntityType, cfg.TokenType, cfg.PrincipalIDClaim, strings.Join(cfg.Audiences, ","),
+	}, "\x00")
 }
 
 // GetIdentitySource returns the identity source with the given ID.
@@ -133,7 +160,9 @@ func (b *InMemoryBackend) DeleteIdentitySource(policyStoreID, identitySourceID s
 		return fmt.Errorf("%w: identity source %s not found", ErrIdentitySourceNotFound, identitySourceID)
 	}
 
-	delete(b.arnIndex, identitySourceARN(b.accountID, policyStoreID, identitySourceID))
+	resourceARN := identitySourceARN(b.accountID, policyStoreID, identitySourceID)
+	delete(b.arnIndex, resourceARN)
+	delete(b.resourceTags, resourceARN)
 	b.identitySources.Delete(identitySourceKey(policyStoreID, identitySourceID))
 
 	return nil

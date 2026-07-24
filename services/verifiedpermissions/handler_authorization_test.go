@@ -577,3 +577,74 @@ func TestVPHandler_IsAuthorizedWithToken_RequestValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestVPHandler_IsAuthorizedWithToken_MultipleIdentitySources_MatchByIssuer
+// locks in a principalFromToken improvement: with more than one identity
+// source configured on a policy store, the principal's entity type must be
+// resolved from whichever identity source's issuer matches the token's
+// "iss" claim -- not always the first identity source created, which was
+// gopherstack's previous (documented-simplification) behavior.
+func TestVPHandler_IsAuthorizedWithToken_MultipleIdentitySources_MatchByIssuer(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	// First identity source created: issuer A -> principal type "Employee".
+	rec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "Employee",
+		"configuration": map[string]any{
+			"openIdConnectConfiguration": map[string]any{
+				"issuer": "https://issuer-a.example.com",
+				"tokenSelection": map[string]any{
+					"accessTokenOnly": map[string]any{"principalIdClaim": "sub"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	// Second identity source created: issuer B -> principal type "Customer".
+	rec = doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "Customer",
+		"configuration": map[string]any{
+			"openIdConnectConfiguration": map[string]any{
+				"issuer": "https://issuer-b.example.com",
+				"tokenSelection": map[string]any{
+					"accessTokenOnly": map[string]any{"principalIdClaim": "sub"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	// A permissive policy so the decision reflects which principal type was resolved.
+	rec = doVPRequest(t, h, "CreatePolicy", map[string]any{
+		"policyStoreId": storeID,
+		"definition": map[string]any{
+			"static": map[string]any{
+				"statement": `permit(principal is Customer, action, resource);`,
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	// A token from issuer B (the SECOND identity source created) must still
+	// resolve to "Customer", not "Employee" (the first-created source).
+	token := makeTestJWT(map[string]any{"sub": "cust-1", "iss": "https://issuer-b.example.com"})
+
+	rec = doVPRequest(t, h, "IsAuthorizedWithToken", map[string]any{
+		"policyStoreId": storeID,
+		"accessToken":   token,
+		"action":        map[string]any{"actionType": "Action", "actionId": "view"},
+		"resource":      map[string]any{"entityType": "Resource", "entityId": "res1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ALLOW", resp["decision"],
+		"token from issuer B must resolve to the Customer identity source, not the first-created Employee one")
+}

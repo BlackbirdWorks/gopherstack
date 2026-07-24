@@ -147,6 +147,7 @@ type CreatePolicyParams struct {
 	PrincipalEntityID   string // TEMPLATE_LINKED only
 	ResourceEntityType  string // TEMPLATE_LINKED only
 	ResourceEntityID    string // TEMPLATE_LINKED only
+	ClientToken         string // idempotency token, see InMemoryBackend.checkClientToken
 }
 
 // UpdatePolicyParams holds parameters for updating a policy.

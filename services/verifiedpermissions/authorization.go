@@ -25,11 +25,12 @@ func (b *InMemoryBackend) buildCedarPolicySet(policyStoreID string) *cedar.Polic
 
 	policies := b.policiesByStore.Get(policyStoreID)
 	for _, p := range policies {
-		if p.PolicyType != policyTypeStatic || p.Statement == "" {
+		statement := b.resolveStatementLocked(p)
+		if statement == "" {
 			continue
 		}
 
-		list, err := cedar.NewPolicyListFromBytes("policy.cedar", []byte(p.Statement))
+		list, err := cedar.NewPolicyListFromBytes("policy.cedar", []byte(statement))
 		if err != nil {
 			continue
 		}

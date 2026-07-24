@@ -2,6 +2,7 @@ package verifiedpermissions
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,13 +28,30 @@ func policyTemplateKey(policyStoreID, policyTemplateID string) string {
 	return policyStoreID + "/" + policyTemplateID
 }
 
-// CreatePolicyTemplate creates a new policy template in the given policy store.
-func (b *InMemoryBackend) CreatePolicyTemplate(policyStoreID, description, statement string) (*PolicyTemplate, error) {
+// CreatePolicyTemplate creates a new policy template in the given policy
+// store. A non-empty clientToken makes the call idempotent for eight hours,
+// same semantics as CreatePolicyStore's ClientToken.
+func (b *InMemoryBackend) CreatePolicyTemplate(
+	policyStoreID, description, statement, clientToken string,
+) (*PolicyTemplate, error) {
 	b.mu.Lock("CreatePolicyTemplate")
 	defer b.mu.Unlock()
 
 	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
+	}
+
+	fingerprint := policyStoreID + "\x00" + description + "\x00" + statement
+
+	existingID, err := b.checkClientToken("CreatePolicyTemplate", clientToken, fingerprint)
+	if err != nil {
+		return nil, err
+	}
+
+	if existingID != "" {
+		if existing, ok := b.policyTemplates.Get(policyTemplateKey(policyStoreID, existingID)); ok {
+			return clonePolicyTemplate(existing), nil
+		}
 	}
 
 	id := uuid.NewString()
@@ -48,6 +66,7 @@ func (b *InMemoryBackend) CreatePolicyTemplate(policyStoreID, description, state
 	}
 	b.policyTemplates.Put(pt)
 	b.arnIndex[policyTemplateARN(b.accountID, policyStoreID, id)] = arnKindPolicyTemplate + ":" + policyStoreID + ":" + id
+	b.recordClientToken("CreatePolicyTemplate", clientToken, fingerprint, id)
 
 	return clonePolicyTemplate(pt), nil
 }
@@ -120,7 +139,15 @@ func (b *InMemoryBackend) UpdatePolicyTemplate(
 	return clonePolicyTemplate(pt), nil
 }
 
-// DeletePolicyTemplate removes a policy template from the given policy store.
+// DeletePolicyTemplate removes a policy template from the given policy
+// store. Per the real SDK's documented behavior ("This operation also
+// deletes any policies that were created from the specified policy
+// template"), it also cascade-deletes every TEMPLATE_LINKED policy that
+// references this template -- otherwise those policies would be left
+// pointing at a nonexistent template (a dangling reference visible to
+// GetPolicy/ListPolicies/BatchGetPolicy, and silently dropped from Cedar
+// evaluation, since resolveStatementLocked treats a missing template as an
+// empty statement).
 func (b *InMemoryBackend) DeletePolicyTemplate(policyStoreID, policyTemplateID string) error {
 	b.mu.Lock("DeletePolicyTemplate")
 	defer b.mu.Unlock()
@@ -133,8 +160,24 @@ func (b *InMemoryBackend) DeletePolicyTemplate(policyStoreID, policyTemplateID s
 		return fmt.Errorf("%w: policy template %s not found", ErrPolicyTemplateNotFound, policyTemplateID)
 	}
 
-	delete(b.arnIndex, policyTemplateARN(b.accountID, policyStoreID, policyTemplateID))
+	// Index result slices mutate under Delete, so clone before the delete loop
+	// (same pattern as DeletePolicyStore's cascade).
+	for _, p := range slices.Clone(b.policiesByStore.Get(policyStoreID)) {
+		if p.PolicyType != policyTypeTemplateLinked || p.PolicyTemplateID != policyTemplateID {
+			continue
+		}
+
+		resourceARN := policyARN(b.accountID, policyStoreID, p.PolicyID)
+		delete(b.arnIndex, resourceARN)
+		delete(b.resourceTags, resourceARN)
+		b.policies.Delete(policyKey(policyStoreID, p.PolicyID))
+	}
+
+	resourceARN := policyTemplateARN(b.accountID, policyStoreID, policyTemplateID)
+	delete(b.arnIndex, resourceARN)
+	delete(b.resourceTags, resourceARN)
 	b.policyTemplates.Delete(policyTemplateKey(policyStoreID, policyTemplateID))
+	b.invalidatePolicySetCache(policyStoreID)
 
 	return nil
 }
