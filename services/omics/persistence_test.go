@@ -34,10 +34,10 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	err = b.Restore(t.Context(), []byte(`{"version":999,"tables":{}}`))
 	require.NoError(t, err)
 
-	_, _, err = b.ListRunGroups(10, "")
+	_, _, err = b.ListRunGroups(nil, 10, "")
 	require.NoError(t, err)
 
-	groups, _, err := b.ListRunGroups(10, "")
+	groups, _, err := b.ListRunGroups(nil, 10, "")
 	require.NoError(t, err)
 	assert.Empty(t, groups)
 }
@@ -59,7 +59,7 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	err = b.Restore(t.Context(), []byte(`{"us-east-1":{}}`))
 	require.NoError(t, err)
 
-	groups, _, err := b.ListRunGroups(10, "")
+	groups, _, err := b.ListRunGroups(nil, 10, "")
 	require.NoError(t, err)
 	assert.Empty(t, groups)
 }
@@ -80,7 +80,7 @@ func TestInMemoryBackend_SnapshotRestore_EmptyState(t *testing.T) {
 	assert.Equal(t, "000000000000", fresh.AccountID())
 	assert.Equal(t, "us-east-1", fresh.Region())
 
-	groups, _, err := fresh.ListRunGroups(10, "")
+	groups, _, err := fresh.ListRunGroups(nil, 10, "")
 	require.NoError(t, err)
 	assert.Empty(t, groups)
 }
@@ -107,7 +107,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	h2 := omics.NewHandler(omics.NewInMemoryBackend("111111111111", "us-west-2"))
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
-	groups, _, err := h2.Backend.ListRunGroups(10, "")
+	groups, _, err := h2.Backend.ListRunGroups(nil, 10, "")
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "delegate-group", groups[0].Name)
@@ -176,14 +176,18 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// multipartUploads + uploadParts(raw) + uploadPartData(raw): left
 	// in-progress (not completed) so the table/raw-map entries survive into
 	// the snapshot rather than being converted into a readSet.
-	upload, err := original.CreateMultipartReadSetUpload(seqStore.ID, "upload-1", "FASTQ", nil)
+	upload, err := original.CreateMultipartReadSetUpload(
+		seqStore.ID, "upload-1", "FASTQ", "sample-1", "subject-1", "", "", "", nil,
+	)
 	require.NoError(t, err)
 
 	_, err = original.UploadReadSetPart(seqStore.ID, upload.UploadID, 1, "SOURCE1", []byte("part-data"))
 	require.NoError(t, err)
 
 	// A second, completed upload exercises readSetBytes(raw).
-	upload2, err := original.CreateMultipartReadSetUpload(seqStore.ID, "upload-2", "FASTQ", nil)
+	upload2, err := original.CreateMultipartReadSetUpload(
+		seqStore.ID, "upload-2", "FASTQ", "sample-2", "subject-2", "", "", "", nil,
+	)
 	require.NoError(t, err)
 
 	_, err = original.UploadReadSetPart(seqStore.ID, upload2.UploadID, 1, "SOURCE1", []byte("completed-part"))
@@ -208,10 +212,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// Run + runTasks (StartRun auto-creates one task).
-	run, err := original.StartRun(workflow.ID, "role-arn", "run-1", "", nil, map[string]string{"env": "test"})
+	run, err := original.StartRun(
+		workflow.ID, "role-arn", "run-1", "", "", "", "", nil, map[string]string{"env": "test"},
+	)
 	require.NoError(t, err)
 
-	tasks, _, err := original.ListRunTasks(run.ID, 10, "")
+	tasks, _, err := original.ListRunTasks(run.ID, nil, 10, "")
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 	taskID := tasks[0].TaskID

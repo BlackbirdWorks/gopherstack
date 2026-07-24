@@ -7,44 +7,50 @@
 service: omics
 sdk_module: aws-sdk-go-v2/service/omics@v1.45.0
 last_audit_commit: 42cff5ce
-last_audit_date: 2026-07-12
-overall: A            # genuine fixes found: waiter-hang state bugs, service-wide pagination
-                       # wire-shape bug, a route-matcher reachability bug, and a swapped
-                       # operation-semantics bug in the RunBatch family
+last_audit_date: 2026-07-23
+overall: A            # this pass: closed all 3 tracked gaps (jxc5/x7qq/fedo), killed all 6 banned
+                       # nolints via a table-based route/dispatch refactor, and field-diffing the
+                       # request/response shapes turned up and fixed 4 more real wire bugs: a wrong
+                       # JSON key on Run's batch association (runBatchId -> batchId), an invented
+                       # field name on ReadSetMetadata/MultipartReadSetUpload (sequenceType, which
+                       # appears nowhere in the real API -> fileType/sourceFileType), an invented
+                       # "status" field on MultipartReadSetUpload (no such field in the real API,
+                       # removed) with two real required fields (sampleId/subjectId) that were
+                       # missing entirely, and a wrong JSON key on S3AccessPolicy's policy document
+                       # (policy -> s3AccessPolicy, the key real SDK clients actually read).
 families:
   ReferenceStore: {status: ok, note: "CRUD + List; pagination now reads maxResults/nextToken from the query string (was body)"}
   Reference: {status: ok, note: "Get/List/Delete + GetReferenceBytes/GetReferenceMetadata; pagination fixed same as ReferenceStore"}
-  ReferenceImportJob: {status: ok, note: "completes synchronously (Status=COMPLETED at creation) -- no waiter-hang risk since Get never needs to transition; pagination fixed"}
+  ReferenceImportJob: {status: ok, note: "completes synchronously (Status=COMPLETED at creation) -- no waiter-hang risk since Get never needs to transition; pagination fixed; ListReferenceImportJobs now applies its status body filter (was gap jxc5)"}
   SequenceStore: {status: ok, note: "CRUD + List; created ACTIVE immediately (no CREATING phase in the real API for this resource); pagination fixed"}
-  ReadSet: {status: ok, note: "Get/List/BatchDelete/GetReadSetBytes; pagination fixed"}
+  ReadSet: {status: ok, note: "Get/List/BatchDelete/GetReadSetBytes; pagination fixed; ListReadSets already filtered by name/status. FIXED wire bug: ReadSetMetadata's file-type field was serialized as the invented key \"sequenceType\" (appears nowhere in GetReadSetMetadataOutput/ReadSetListItem) -- renamed to \"fileType\", the real key confirmed against the SDK deserializer. Files/CreationJobId/CreationType/Etag/SequenceInformation sub-objects remain unpopulated (deferred, optional/pointer-safe)"}
   ReadSetActivationJob: {status: ok, note: "completes synchronously; pagination fixed"}
   ReadSetExportJob: {status: ok, note: "completes synchronously; pagination fixed"}
   ReadSetImportJob: {status: ok, note: "completes synchronously; pagination fixed"}
-  MultipartReadSetUpload: {status: ok, note: "Create/Abort/Complete/List/ListParts/UploadPart; SHA256 checksum on UploadReadSetPart matches real behavior; pagination fixed"}
-  RunGroup: {status: ok, note: "CRUD + List; already used correct maxResults+startingToken query params"}
-  Run: {status: ok, note: "FIXED: GetRun now advances PENDING->RUNNING->COMPLETED across polls (real RunRunningWaiter/RunCompletedWaiter poll GetRun expecting exactly this transition; previously runs stayed PENDING forever and any waiter-based client would time out)"}
-  RunTask: {status: ok, note: "FIXED: GetRunTask advances PENDING->RUNNING->COMPLETED across polls, same waiter-hang fix as Run"}
-  Workflow: {status: ok, note: "FIXED: GetWorkflow advances CREATING->ACTIVE on first poll (real WorkflowActiveWaiter previously hung forever); CreateWorkflow still correctly returns CREATING + partial {arn,id,status,tags} envelope"}
-  WorkflowVersion: {status: ok, note: "FIXED: GetWorkflowVersion advances CREATING->ACTIVE on first poll (real WorkflowVersionActiveWaiter previously hung forever); pagination for ListWorkflowVersions already correct (query maxResults+startingToken)"}
-  AnnotationStore: {status: ok, note: "FIXED: GetAnnotationStore advances CREATING->ACTIVE on first poll (real AnnotationStoreCreatedWaiter previously hung forever); pagination fixed to query maxResults+nextToken"}
-  AnnotationStoreVersion: {status: ok, note: "created ACTIVE immediately (no waiter-hang risk); pagination fixed"}
-  AnnotationImportJob: {status: ok, note: "completes synchronously; pagination fixed"}
-  VariantStore: {status: ok, note: "FIXED: GetVariantStore advances CREATING->ACTIVE on first poll (real VariantStoreCreatedWaiter previously hung forever); pagination fixed"}
-  VariantImportJob: {status: ok, note: "completes synchronously; pagination fixed"}
-  Share: {status: ok, note: "Create/Accept/Delete/Get/List; ACCEPTING/DELETED transient statuses returned synchronously, unchanged this pass; pagination fixed"}
+  MultipartReadSetUpload: {status: ok, note: "FIXED (field-diffed against CreateMultipartReadSetUploadInput/Output and MultipartReadSetUploadListItem): the file-type field was serialized as the invented key \"sequenceType\" -- renamed to the real key \"sourceFileType\"; SampleID/SubjectID are real required fields that were missing entirely -- added and threaded through CreateMultipartReadSetUpload's signature; there is no real \"status\" field on this resource at all -- the invented one was deleted. GeneratedFrom/ReferenceARN/Description (real optional fields) also added"}
+  RunGroup: {status: ok, note: "CRUD + List; already used correct maxResults+startingToken query params; ListRunGroups now applies its name query filter (bonus find alongside gap jxc5, real AWS ListRunGroupsInput has a \"name\" query param the backend previously ignored)"}
+  Run: {status: ok, note: "FIXED: GetRun advances PENDING->RUNNING->COMPLETED across polls (waiter-hang fix, prior pass). This pass: (1) ListRuns now applies its name/runGroupId/batchId/status query filters (gap jxc5); (2) the run's batch association was serialized under the invented JSON key \"runBatchId\" -- real GetRunOutput/RunListItem use \"batchId\" (confirmed against the SDK deserializer) -- renamed; (3) added the real (previously entirely absent) RunGroupID field, threaded through StartRun so ListRuns' runGroupId filter has something real to match against; (4) StartRun/GetRun responses now include the optional uuid/networkingMode/runOutputUri/configuration fields real StartRunOutput/GetRunOutput have (gap fedo) -- networkingMode/outputUri are accepted from the request body (real StartRunInput field names, note outputUri on input vs runOutputUri on output)"}
+  RunTask: {status: ok, note: "FIXED: GetRunTask advances PENDING->RUNNING->COMPLETED across polls, same waiter-hang fix as Run. This pass: ListRunTasks now applies its status query filter (gap jxc5)"}
+  Workflow: {status: ok, note: "FIXED: GetWorkflow advances CREATING->ACTIVE on first poll (waiter-hang fix, prior pass). This pass: (1) ListWorkflows now applies its name/type query filters (gap jxc5); (2) CreateWorkflow's response now includes the optional uuid field real CreateWorkflowOutput has (gap fedo)"}
+  WorkflowVersion: {status: ok, note: "FIXED: GetWorkflowVersion advances CREATING->ACTIVE on first poll (waiter-hang fix, prior pass); pagination already correct. This pass: ListWorkflowVersions now applies its type query filter (gap jxc5)"}
+  AnnotationStore: {status: ok, note: "FIXED: GetAnnotationStore advances CREATING->ACTIVE on first poll (real AnnotationStoreCreatedWaiter previously hung forever); pagination fixed to query maxResults+nextToken. ListAnnotationStores' own status/ids filter still not applied (see deferred)"}
+  AnnotationStoreVersion: {status: ok, note: "created ACTIVE immediately (no waiter-hang risk); pagination fixed. ListAnnotationStoreVersions' own status filter still not applied (see deferred)"}
+  AnnotationImportJob: {status: ok, note: "completes synchronously; pagination fixed. This pass: ListAnnotationImportJobs now applies its status/storeName body filter and explicit ids list (gap jxc5)"}
+  VariantStore: {status: ok, note: "FIXED: GetVariantStore advances CREATING->ACTIVE on first poll (real VariantStoreCreatedWaiter previously hung forever); pagination fixed. ListVariantStores' own status/ids filter still not applied (see deferred)"}
+  VariantImportJob: {status: ok, note: "completes synchronously; pagination fixed. This pass: ListVariantImportJobs now applies its status/storeName body filter and explicit ids list (gap jxc5)"}
+  Share: {status: ok, note: "Create/Accept/Delete/Get/List; ACCEPTING/DELETED transient statuses returned synchronously, unchanged this pass; pagination fixed. ListShares' own resourceArns/status/resourceTypes filter still not applied (see deferred)"}
   RunCache: {status: ok, note: "CRUD + List; already used correct query params"}
-  RunBatch: {status: ok, note: "FIXED (3 bugs): (1) ListRunsInBatch was routed as POST, real AWS sends GET /runBatch/{batchId}/run -- completely unreachable by a real SDK client; (2) DeleteBatch (DELETE /runBatch/{batchId}, deletes the batch resource) and DeleteRunBatch (POST /runBatch/delete, body {batchId}, deletes the runs in a batch) had their wire-path<->semantics swapped -- DELETE /runBatch/{id} ran DeleteRunBatch's old body-array bulk-delete logic and POST /runBatch/delete expected a nonexistent {batchIds:[...]} array; (3) ListBatch/ListRunsInBatch pagination used query key maxResults, real AWS uses maxItems"}
+  RunBatch: {status: ok-partial, note: "Envelope/routing field-diffed correct for the fields this backend models (prior pass fixed 3 route/wire bugs; this pass fixed the invented COMPLETED status -> real PROCESSED, added the DeleteBatch terminal-state precondition (gap x7qq: PROCESSED/FAILED/CANCELLED/RUNS_DELETED required before delete), and DeleteRunBatch now transitions the batch to RUNS_DELETED; ListBatch/ListRunsInBatch now apply their name/status and runId query filters respectively (gap jxc5, runGroupId/runSettingId/submissionStatus accepted but not applied -- see gaps)). NOT fixed this pass, now recorded as a genuine open gap rather than silently kept ok: real StartRunBatchInput takes BatchRunSettings (a union of per-run inline/S3 settings) + DefaultRunSetting and real GetBatchOutput carries RunSummary/SubmissionSummary/TotalRuns/Uuid/FailedTime/ProcessedTime/SubmittedTime -- none of which this backend's StartRunBatch/RunBatch model at all (StartRunBatch still just records {id,name,workflowId,roleArn,status}, and never actually creates the batch's constituent runs). This is a materially incomplete body-shape parity gap, not just a fidelity nit -- see items_still_open in the calling agent's receipt"}
   Configuration: {status: ok, note: "CRUD + List; query params already correct"}
-  S3AccessPolicy: {status: ok, note: "Put/Get/Delete by ARN; body shape not diffed field-by-field against SDK (deferred)"}
+  S3AccessPolicy: {status: ok, note: "FIXED (field-diffed against PutS3AccessPolicyInput/Output and GetS3AccessPolicyOutput, closing the prior deferred item): the policy document was serialized under the invented key \"policy\" -- real GetS3AccessPolicyOutput uses \"s3AccessPolicy\" (confirmed against the SDK deserializer) -- renamed; PutS3AccessPolicy's response now echoes s3AccessPointArn (was an empty {}); added StoreID/StoreType/UpdateTime fields to the model (StoreID/StoreType left empty -- this backend has no S3-access-point-to-store association to derive them from, but they're optional/pointer-safe on the wire)"}
   Tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource; RouteMatcher correctly scopes /tags/{arn} to arn containing \":omics:\" so FIS's /tags/{arn} isn't stolen"}
 gaps:
-  - "List* ops (ListRuns, ListWorkflows, ListRunTasks, ListWorkflowVersions, ListBatch, ListRunsInBatch, *ImportJobs) accept optional filter/name/status/type/ids query or body params on real AWS; InMemoryBackend signatures don't take them so filtering silently no-ops (bd: gopherstack-jxc5)"
-  - "DeleteBatch has no terminal-state precondition (real AWS requires PROCESSED/FAILED/CANCELLED/RUNS_DELETED before allowing the batch resource to be deleted) (bd: gopherstack-x7qq)"
-  - "CreateWorkflow/StartRun response envelopes omit optional uuid/configuration/networkingMode/runOutputUri fields (wire-safe since they're pointer-optional on the SDK side, just lower fidelity) (bd: gopherstack-fedo)"
+  - "RunBatch's real body shape (BatchRunSettings/DefaultRunSetting on create, RunSummary/SubmissionSummary/TotalRuns/Uuid/FailedTime/ProcessedTime/SubmittedTime on get) is not modeled at all -- StartRunBatch never creates the batch's constituent runs. This is a full re-architecture of the RunBatch family, out of scope for this pass; see the RunBatch family note. Needs a new bd issue."
+  - "ListAnnotationStores/ListVariantStores (status + ids), ListAnnotationStoreVersions (status), and ListShares (resourceArns/status/resourceTypes) still don't apply their own real AWS filter/ids body fields -- same silent-no-op gap class as jxc5 but these 4 ops weren't in that ticket's named list, so they were left for a follow-up pass. Needs a new bd issue."
+  - "RunBatchFilter.RunGroupID (ListBatch) and RunsInBatchFilter.RunSettingID/SubmissionStatus (ListRunsInBatch) are accepted from the query string for wire compatibility but not applied -- this backend has no run-group-of-a-batch's-runs association or per-run submission-status/run-setting-ID concept, both downstream of the RunBatch body-shape gap above."
 deferred:
-  - "Field-by-field diff of S3AccessPolicy body shape against the SDK model"
-  - "Field-by-field diff of ReferenceMetadata/ReadSetMetadata optional fields (Md5, file-type sub-objects) against the SDK model"
-leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutines, tickers, or janitors; nothing to leak"}
+  - "Field-by-field diff of ReferenceMetadata/ReadSetMetadata optional sub-object fields (Files/ReferenceFiles, CreationJobId, CreationType, Etag, SequenceInformation) against the SDK model -- MD5/fileType (top-level scalars) are now confirmed correct; the sub-objects remain unpopulated but are optional/pointer-safe on the wire"
+leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutines, tickers, or janitors; nothing to leak (reconfirmed this pass)"}
 ---
 
 ## Notes

@@ -220,3 +220,45 @@ func TestDeleteReferenceStoreReturnsID(t *testing.T) {
 	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp))
 	assert.Equal(t, storeID, delResp["id"])
 }
+
+// TestListReferenceImportJobs_FiltersByStatus verifies ListReferenceImportJobs
+// applies its status body filter (real AWS ListReferenceImportJobsInput
+// body "filter"). This backend completes reference import jobs synchronously
+// to COMPLETED, so filtering by a different status must exclude them.
+func TestListReferenceImportJobs_FiltersByStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	storeRec := doRequest(t, h, http.MethodPost, "/referencestore", map[string]any{"name": "store-1"})
+	require.Equal(t, http.StatusCreated, storeRec.Code)
+
+	var store map[string]any
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	storeID := store["id"].(string)
+
+	jobRec := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/importjob", map[string]any{
+		"roleArn": "arn:aws:iam::000000000000:role/role",
+		"sources": []map[string]any{{"sourceFile": "s3://bucket/ref.fa", "name": "ref-1"}},
+	})
+	require.Equal(t, http.StatusCreated, jobRec.Code)
+
+	rec := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/importjobs",
+		map[string]any{"filter": map[string]any{"status": "FAILED"}})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	jobs, ok := resp["importJobs"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, jobs, "no import job has failed")
+
+	rec2 := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/importjobs",
+		map[string]any{"filter": map[string]any{"status": "COMPLETED"}})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	jobs2, ok := resp2["importJobs"].([]any)
+	require.True(t, ok)
+	assert.Len(t, jobs2, 1)
+}

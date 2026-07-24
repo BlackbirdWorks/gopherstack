@@ -92,9 +92,11 @@ func (b *InMemoryBackend) PutS3AccessPolicy(s3AccessPointARN, policy string) err
 	b.mu.Lock("PutS3AccessPolicy")
 	defer b.mu.Unlock()
 
+	now := time.Now().UTC()
 	b.s3AccessPolicies.Put(&S3AccessPolicy{
 		S3AccessPointARN: s3AccessPointARN,
 		Policy:           policy,
+		UpdateTime:       &now,
 	})
 
 	return nil

@@ -179,3 +179,87 @@ func TestCreateWorkflowAcceptsDefinitionUri(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusCreated, rec.Code)
 }
+
+// TestCreateWorkflow_ResponseIncludesUUID verifies that CreateWorkflow's
+// response includes the optional uuid field real CreateWorkflowOutput has
+// (gopherstack-fedo), not just {arn, id, status, tags}.
+func TestCreateWorkflow_ResponseIncludesUUID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, http.MethodPost, "/workflow", map[string]any{"name": "wf1", "engine": "WDL"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp["uuid"], "CreateWorkflowOutput.uuid must be populated")
+}
+
+// TestListWorkflows_FiltersByNameAndType verifies ListWorkflows applies its
+// name/type query filters (real AWS ListWorkflowsInput query parameters).
+func TestListWorkflows_FiltersByNameAndType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, http.MethodPost, "/workflow", map[string]any{"name": "wf-a", "engine": "WDL"})
+	doRequest(t, h, http.MethodPost, "/workflow", map[string]any{"name": "wf-b", "engine": "WDL"})
+
+	rec := doRequest(t, h, http.MethodGet, "/workflow?name=wf-a", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	workflows, ok := resp["workflows"].([]any)
+	require.True(t, ok)
+	require.Len(t, workflows, 1)
+	assert.Equal(t, "wf-a", workflows[0].(map[string]any)["name"])
+
+	// Every workflow created here is type PRIVATE; filtering by READY2RUN
+	// must exclude both.
+	rec2 := doRequest(t, h, http.MethodGet, "/workflow?type=READY2RUN", nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	workflows2, ok := resp2["workflows"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, workflows2)
+}
+
+// TestListWorkflowVersions_FiltersByType verifies ListWorkflowVersions
+// applies its type query filter (real AWS ListWorkflowVersionsInput "type"
+// query parameter).
+func TestListWorkflowVersions_FiltersByType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	wfRec := doRequest(t, h, http.MethodPost, "/workflow", map[string]any{"name": "wf1", "engine": "WDL"})
+	require.Equal(t, http.StatusCreated, wfRec.Code)
+
+	var wf map[string]any
+	require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf))
+	wfID := wf["id"].(string)
+
+	verRec := doRequest(t, h, http.MethodPost, "/workflow/"+wfID+"/version", map[string]any{"versionName": "v1"})
+	require.Equal(t, http.StatusCreated, verRec.Code)
+
+	// The version inherits the workflow's PRIVATE type; filtering by
+	// READY2RUN must exclude it.
+	rec := doRequest(t, h, http.MethodGet, "/workflow/"+wfID+"/version?type=READY2RUN", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	versions, ok := resp["workflowVersions"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, versions)
+
+	rec2 := doRequest(t, h, http.MethodGet, "/workflow/"+wfID+"/version?type=PRIVATE", nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	versions2, ok := resp2["workflowVersions"].([]any)
+	require.True(t, ok)
+	assert.Len(t, versions2, 1)
+}

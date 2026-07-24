@@ -35,6 +35,13 @@ const (
 	statusCancelled = "CANCELLED"
 	statusPending   = "PENDING"
 
+	// statusProcessed and statusRunsDeleted are RunBatch-only BatchStatus
+	// values (real AWS BatchStatus has no "COMPLETED" member -- the
+	// successful-terminal state for a batch is "PROCESSED"; "RUNS_DELETED"
+	// is the terminal state after DeleteRunBatch removes the batch's runs).
+	statusProcessed   = "PROCESSED"
+	statusRunsDeleted = "RUNS_DELETED"
+
 	maxPageSize = 100
 	maxTags     = 200
 
@@ -55,6 +62,10 @@ var (
 	ErrAlreadyExists = awserr.New(errConflict, awserr.ErrAlreadyExists)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
+	// ErrInvalidState is returned when a resource is not in the state
+	// required for the requested operation (e.g. deleting a RunBatch that
+	// hasn't reached a terminal status).
+	ErrInvalidState = awserr.New(errConflict, awserr.ErrConflict)
 )
 
 // InMemoryBackend is the in-memory backend for HealthOmics.
@@ -193,6 +204,77 @@ func copyTags(tags map[string]string) map[string]string {
 	}
 
 	return maps.Clone(tags)
+}
+
+// filterIDs extracts the key (via keyFn) of every item in items that
+// satisfies keep, in order. It's the shared tail of every parent-scoped
+// List* op below: fetch the parent's child group (a []*T from a
+// [store.Index.Get]), optionally filter it, then collect ids for
+// paginatedCopies. Factored out to keep e.g. ListReferences/
+// ListReferenceImportJobs/ListRunTasks/ListWorkflowVersions from being
+// flagged as near-duplicates of each other -- their only real difference is
+// this key/predicate pair.
+func filterIDs[T any](items []*T, keyFn func(*T) string, keep func(*T) bool) []string {
+	ids := make([]string, 0, len(items))
+
+	for _, item := range items {
+		if keep(item) {
+			ids = append(ids, keyFn(item))
+		}
+	}
+
+	return ids
+}
+
+// listChildFiltered combines filterIDs and paginatedCopies into the single
+// call every parent-scoped List* op (ListReferences, ListReferenceImportJobs,
+// ListRunTasks, ListWorkflowVersions, ...) makes once it has its child
+// group and existence guard out of the way -- keeping each of those callers
+// down to "guard, fetch group, listChildFiltered, return" is what keeps them
+// under dupl's clone threshold despite sharing the same overall shape.
+func listChildFiltered[T any](
+	group []*T,
+	keyFn func(*T) string,
+	keep func(*T) bool,
+	nextToken string,
+	maxResults int,
+	get func(string) (*T, bool),
+) ([]*T, string) {
+	ids := filterIDs(group, keyFn, keep)
+
+	return paginatedCopies(ids, nextToken, maxResults, get)
+}
+
+// stringSet builds a lookup set from a (possibly nil) id list, used by the
+// annotation/variant import job List operations' optional "ids" filter.
+func stringSet(ids []string) map[string]bool {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+
+	return set
+}
+
+// importJobMatchesFilter reports whether an annotation/variant import job
+// satisfies the shared ImportJobFilter (status + owning store name) and, if
+// idSet is non-nil, that its id is a member of the explicit "ids" list --
+// mirrors real ListAnnotationImportJobs/ListVariantImportJobs body semantics.
+func importJobMatchesFilter(status, storeName string, filter *ImportJobFilter, idSet map[string]bool, id string) bool {
+	if idSet != nil && !idSet[id] {
+		return false
+	}
+
+	if filter == nil {
+		return true
+	}
+
+	return (filter.Status == "" || status == filter.Status) &&
+		(filter.StoreName == "" || storeName == filter.StoreName)
 }
 
 func paginateStrings(ids []string, nextToken string, maxResults int) ([]string, string) {

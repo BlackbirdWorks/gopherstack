@@ -140,9 +140,17 @@ func (h *Handler) handleGetReferenceImportJob(c *echo.Context, storeID, jobID st
 }
 
 func (h *Handler) handleListReferenceImportJobs(c *echo.Context, storeID string) error {
+	var req struct {
+		Filter *ReferenceImportJobFilter `json:"filter"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
-	jobs, next, err := h.Backend.ListReferenceImportJobs(storeID, maxResults, nextToken)
+	jobs, next, err := h.Backend.ListReferenceImportJobs(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}

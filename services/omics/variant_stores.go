@@ -177,18 +177,27 @@ func (b *InMemoryBackend) GetVariantImportJob(jobID string) (*VariantImportJob, 
 	return &result, nil
 }
 
-// ListVariantImportJobs lists variant import jobs.
+// ListVariantImportJobs lists variant import jobs, optionally filtered by
+// status/storeName and/or a specific set of job ids (real AWS
+// ListVariantImportJobsInput body "filter"/"ids").
 func (b *InMemoryBackend) ListVariantImportJobs(
+	filter *ImportJobFilter,
+	ids0 []string,
 	maxResults int,
 	nextToken string,
 ) ([]*VariantImportJob, string, error) {
 	b.mu.RLock("ListVariantImportJobs")
 	defer b.mu.RUnlock()
 
+	idSet := stringSet(ids0)
 	all := b.variantImportJobs.All()
 	ids := make([]string, 0, len(all))
 
 	for _, j := range all {
+		if !importJobMatchesFilter(j.Status, j.DestinationName, filter, idSet, j.ID) {
+			continue
+		}
+
 		ids = append(ids, j.ID)
 	}
 

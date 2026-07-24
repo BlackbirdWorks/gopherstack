@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -152,6 +154,21 @@ const (
 	pathWorkflow      = "/workflow"
 	pathConfiguration = "/configuration"
 
+	pathReferenceStore    = "/referencestore"
+	pathReferenceStores   = "/referencestores"
+	pathSequenceStore     = "/sequencestore"
+	pathSequenceStores    = "/sequencestores"
+	pathAnnotationStore   = "/annotationStore"
+	pathAnnotationStores  = "/annotationStores"
+	pathVariantStore      = "/variantStore"
+	pathVariantStores     = "/variantStores"
+	pathShare             = "/share"
+	pathShares            = "/shares"
+	pathImportAnnotation  = "/import/annotation"
+	pathImportAnnotations = "/import/annotations"
+	pathImportVariant     = "/import/variant"
+	pathImportVariants    = "/import/variants"
+
 	// response key constants.
 	keyNextToken  = "nextToken"
 	keyImportJobs = "importJobs"
@@ -175,117 +192,20 @@ func (h *Handler) Name() string { return "Omics" }
 // Reset resets the backend.
 func (h *Handler) Reset() { h.Backend.Reset() }
 
-// GetSupportedOperations returns all supported operation names.
-func (h *Handler) GetSupportedOperations() []string { //nolint:funlen // long but complete list
-	return []string{
-		opCreateReferenceStore,
-		opDeleteReferenceStore,
-		opGetReferenceStore,
-		opListReferenceStores,
-		opDeleteReference,
-		opGetReference,
-		opGetReferenceMetadata,
-		opListReferences,
-		opStartReferenceImportJob,
-		opGetReferenceImportJob,
-		opListReferenceImportJobs,
-		opCreateSequenceStore,
-		opDeleteSequenceStore,
-		opGetSequenceStore,
-		opListSequenceStores,
-		opUpdateSequenceStore,
-		opBatchDeleteReadSet,
-		opGetReadSet,
-		opGetReadSetMetadata,
-		opListReadSets,
-		opStartReadSetActivationJob,
-		opGetReadSetActivationJob,
-		opListReadSetActivationJobs,
-		opStartReadSetExportJob,
-		opGetReadSetExportJob,
-		opListReadSetExportJobs,
-		opStartReadSetImportJob,
-		opGetReadSetImportJob,
-		opListReadSetImportJobs,
-		opCreateMultipartReadSetUpload,
-		opAbortMultipartReadSetUpload,
-		opCompleteMultipartReadSetUpload,
-		opListMultipartReadSetUploads,
-		opListReadSetUploadParts,
-		opUploadReadSetPart,
-		opCreateRunGroup,
-		opDeleteRunGroup,
-		opGetRunGroup,
-		opListRunGroups,
-		opUpdateRunGroup,
-		opStartRun,
-		opCancelRun,
-		opDeleteRun,
-		opGetRun,
-		opListRuns,
-		opGetRunTask,
-		opListRunTasks,
-		opCreateWorkflow,
-		opDeleteWorkflow,
-		opGetWorkflow,
-		opListWorkflows,
-		opUpdateWorkflow,
-		opCreateWorkflowVersion,
-		opDeleteWorkflowVersion,
-		opGetWorkflowVersion,
-		opListWorkflowVersions,
-		opUpdateWorkflowVersion,
-		opCreateAnnotationStore,
-		opDeleteAnnotationStore,
-		opGetAnnotationStore,
-		opListAnnotationStores,
-		opUpdateAnnotationStore,
-		opStartAnnotationImportJob,
-		opGetAnnotationImportJob,
-		opListAnnotationImportJobs,
-		opCancelAnnotationImportJob,
-		opCreateAnnotationStoreVersion,
-		opDeleteAnnotationStoreVersions,
-		opGetAnnotationStoreVersion,
-		opListAnnotationStoreVersions,
-		opUpdateAnnotationStoreVersion,
-		opCreateVariantStore,
-		opDeleteVariantStore,
-		opGetVariantStore,
-		opListVariantStores,
-		opUpdateVariantStore,
-		opStartVariantImportJob,
-		opGetVariantImportJob,
-		opListVariantImportJobs,
-		opCancelVariantImportJob,
-		opCreateShare,
-		opAcceptShare,
-		opDeleteShare,
-		opGetShare,
-		opListShares,
-		opCreateRunCache,
-		opDeleteRunCache,
-		opGetRunCache,
-		opListRunCaches,
-		opUpdateRunCache,
-		opStartRunBatch,
-		opCancelRunBatch,
-		opDeleteRunBatch,
-		opGetRunBatch,
-		opListRunBatches,
-		opDeleteBatch,
-		opListRunsInBatch,
-		opCreateConfiguration,
-		opDeleteConfiguration,
-		opGetConfiguration,
-		opListConfigurations,
-		opPutS3AccessPolicy,
-		opGetS3AccessPolicy,
-		opDeleteS3AccessPolicy,
-		opTagResource,
-		opUntagResource,
-		opListTagsForResource,
+// GetSupportedOperations returns all supported operation names, derived from
+// the same opDispatch table handleREST dispatches through -- the two can
+// never drift out of sync.
+func (h *Handler) GetSupportedOperations() []string {
+	table := opDispatch()
+	ops := make([]string, 0, len(table))
+
+	for op := range table {
+		ops = append(ops, op)
 	}
+
+	sort.Strings(ops)
+
+	return ops
 }
 
 // RouteMatcher returns a matcher for HealthOmics REST paths.
@@ -319,25 +239,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func isOmicsPath(path string) bool {
 	prefixes := []string{
-		"/referencestore",
-		"/referencestores",
-		"/sequencestore",
-		"/sequencestores",
+		pathReferenceStore,
+		pathReferenceStores,
+		pathSequenceStore,
+		pathSequenceStores,
 		pathRunGroup,
 		pathRun,
 		pathRunCache,
 		pathRunBatch,
 		pathWorkflow,
-		"/annotationStore",
-		"/annotationStores",
-		"/variantStore",
-		"/variantStores",
-		"/share",
-		"/shares",
-		"/import/annotation",
-		"/import/annotations",
-		"/import/variant",
-		"/import/variants",
+		pathAnnotationStore,
+		pathAnnotationStores,
+		pathVariantStore,
+		pathVariantStores,
+		pathShare,
+		pathShares,
+		pathImportAnnotation,
+		pathImportAnnotations,
+		pathImportVariant,
+		pathImportVariants,
 		pathConfiguration,
 		"/s3accesspolicy/",
 	}
@@ -357,315 +277,435 @@ func isOmicsPath(path string) bool {
 	return false
 }
 
-// handleREST is the top-level dispatch switch: it maps the classified
-// operation name to its handler_<family>.go implementation. This mirrors the
-// restjson1 path routing in routes.go (classifyPath/classifyPOST/classifyGET/
-// classifyDELETE) op-for-op, so its size and cyclomatic complexity are
-// mechanical (one case per HealthOmics operation), not incidental -- kept
-// with the funlen/gocyclo/cyclop exemption per the parity-principles nolint
-// policy rather than split further, since any split would just relocate the
-// same flat mapping into another equally-long function.
+// opHandlerFunc is one opDispatch table entry: given the request and the raw
+// URL path (from which it extracts whatever resource IDs its operation
+// needs), it invokes the matching handler_<family>.go implementation.
+type opHandlerFunc func(h *Handler, c *echo.Context, path string) error
+
+// opDispatch lazily builds the operation-name -> handler lookup table exactly
+// once. It mirrors the restjson1 path routing in routes.go
+// (classifyPath/classifyPOST/classifyGET/classifyDELETE) op-for-op: every
+// value here extracts the same IDs from path that classifyPath's callers
+// used to extract inline in the old switch-based handleREST. Using a map
+// instead of a switch keeps this a flat, mechanically-checkable table (one
+// entry per HealthOmics operation) with O(1) dispatch and no cyclomatic
+// complexity of its own -- see GetSupportedOperations, which derives its
+// list directly from this table's keys so the two can never drift apart.
 //
-//nolint:cyclop,funlen,gocyclo // large dispatch table
-func (h *Handler) handleREST(
-	c *echo.Context,
-) error {
+//nolint:gochecknoglobals // read-only package-level lookup table (apigatewayv2 pattern)
+var opDispatch = sync.OnceValue(func() map[string]opHandlerFunc {
+	return map[string]opHandlerFunc{
+		// ReferenceStore
+		opCreateReferenceStore: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCreateReferenceStore(c)
+		},
+		opDeleteReferenceStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteReferenceStore(c, extractID(path, "/referencestore/"))
+		},
+		opGetReferenceStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetReferenceStore(c, extractID(path, "/referencestore/"))
+		},
+		opListReferenceStores: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListReferenceStores(c)
+		},
+
+		// Reference
+		opDeleteReference: func(h *Handler, c *echo.Context, path string) error {
+			storeID, refID := extractTwoIDs(path, "/referencestore/", "/reference/")
+
+			return h.handleDeleteReference(c, storeID, refID)
+		},
+		opGetReference: func(h *Handler, c *echo.Context, path string) error {
+			storeID, refID := extractTwoIDs(path, "/referencestore/", "/reference/")
+
+			return h.handleGetReference(c, storeID, refID)
+		},
+		opGetReferenceMetadata: func(h *Handler, c *echo.Context, path string) error {
+			storeID, refID := extractRefMetadataIDs(path)
+
+			return h.handleGetReferenceMetadata(c, storeID, refID)
+		},
+		opListReferences: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListReferences(c, extractID(path, "/referencestore/"))
+		},
+		opStartReferenceImportJob: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleStartReferenceImportJob(c, extractID(path, "/referencestore/"))
+		},
+		opGetReferenceImportJob: func(h *Handler, c *echo.Context, path string) error {
+			storeID, jobID := extractTwoIDs(path, "/referencestore/", "/importjob/")
+
+			return h.handleGetReferenceImportJob(c, storeID, jobID)
+		},
+		opListReferenceImportJobs: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListReferenceImportJobs(c, extractID(path, "/referencestore/"))
+		},
+
+		// SequenceStore
+		opCreateSequenceStore: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCreateSequenceStore(c)
+		},
+		opDeleteSequenceStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteSequenceStore(c, extractID(path, "/sequencestore/"))
+		},
+		opGetSequenceStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetSequenceStore(c, extractID(path, "/sequencestore/"))
+		},
+		opListSequenceStores: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListSequenceStores(c)
+		},
+		opUpdateSequenceStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleUpdateSequenceStore(c, extractID(path, "/sequencestore/"))
+		},
+
+		// ReadSet
+		opBatchDeleteReadSet: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleBatchDeleteReadSet(c, extractID(path, "/sequencestore/"))
+		},
+		opGetReadSet: func(h *Handler, c *echo.Context, path string) error {
+			storeID, rsID := extractTwoIDs(path, "/sequencestore/", "/readset/")
+
+			return h.handleGetReadSet(c, storeID, rsID)
+		},
+		opGetReadSetMetadata: func(h *Handler, c *echo.Context, path string) error {
+			storeID, rsID := extractReadSetMetadataIDs(path)
+
+			return h.handleGetReadSetMetadata(c, storeID, rsID)
+		},
+		opListReadSets: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListReadSets(c, extractID(path, "/sequencestore/"))
+		},
+		opStartReadSetActivationJob: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleStartReadSetActivationJob(c, extractID(path, "/sequencestore/"))
+		},
+		opGetReadSetActivationJob: func(h *Handler, c *echo.Context, path string) error {
+			storeID, jobID := extractTwoIDs(path, "/sequencestore/", "/activationjob/")
+
+			return h.handleGetReadSetActivationJob(c, storeID, jobID)
+		},
+		opListReadSetActivationJobs: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListReadSetActivationJobs(c, extractID(path, "/sequencestore/"))
+		},
+		opStartReadSetExportJob: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleStartReadSetExportJob(c, extractID(path, "/sequencestore/"))
+		},
+		opGetReadSetExportJob: func(h *Handler, c *echo.Context, path string) error {
+			storeID, jobID := extractTwoIDs(path, "/sequencestore/", "/exportjob/")
+
+			return h.handleGetReadSetExportJob(c, storeID, jobID)
+		},
+		opListReadSetExportJobs: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListReadSetExportJobs(c, extractID(path, "/sequencestore/"))
+		},
+		opStartReadSetImportJob: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleStartReadSetImportJob(c, extractID(path, "/sequencestore/"))
+		},
+		opGetReadSetImportJob: func(h *Handler, c *echo.Context, path string) error {
+			storeID, jobID := extractTwoIDs(path, "/sequencestore/", "/importjob/")
+
+			return h.handleGetReadSetImportJob(c, storeID, jobID)
+		},
+		opListReadSetImportJobs: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListReadSetImportJobs(c, extractID(path, "/sequencestore/"))
+		},
+
+		// Multipart Upload
+		opCreateMultipartReadSetUpload: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleCreateMultipartReadSetUpload(c, extractID(path, "/sequencestore/"))
+		},
+		opAbortMultipartReadSetUpload: func(h *Handler, c *echo.Context, path string) error {
+			storeID, uploadID := extractUploadIDs(path)
+
+			return h.handleAbortMultipartReadSetUpload(c, storeID, uploadID)
+		},
+		opCompleteMultipartReadSetUpload: func(h *Handler, c *echo.Context, path string) error {
+			storeID, uploadID := extractUploadIDs(path)
+
+			return h.handleCompleteMultipartReadSetUpload(c, storeID, uploadID)
+		},
+		opListMultipartReadSetUploads: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListMultipartReadSetUploads(c, extractID(path, "/sequencestore/"))
+		},
+		opListReadSetUploadParts: func(h *Handler, c *echo.Context, path string) error {
+			storeID, uploadID := extractUploadIDs(path)
+
+			return h.handleListReadSetUploadParts(c, storeID, uploadID)
+		},
+		opUploadReadSetPart: func(h *Handler, c *echo.Context, path string) error {
+			storeID, uploadID := extractUploadIDs(path)
+
+			return h.handleUploadReadSetPart(c, storeID, uploadID)
+		},
+
+		// RunGroup
+		opCreateRunGroup: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCreateRunGroup(c)
+		},
+		opDeleteRunGroup: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteRunGroup(c, extractID(path, "/runGroup/"))
+		},
+		opGetRunGroup: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetRunGroup(c, extractID(path, "/runGroup/"))
+		},
+		opListRunGroups: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListRunGroups(c)
+		},
+		opUpdateRunGroup: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleUpdateRunGroup(c, extractID(path, "/runGroup/"))
+		},
+
+		// Run
+		opStartRun: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleStartRun(c)
+		},
+		opCancelRun: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleCancelRun(c, extractID(path, "/run/"))
+		},
+		opDeleteRun: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteRun(c, extractID(path, "/run/"))
+		},
+		opGetRun: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetRun(c, extractID(path, "/run/"))
+		},
+		opListRuns: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListRuns(c)
+		},
+		opGetRunTask: func(h *Handler, c *echo.Context, path string) error {
+			runID, taskID := extractTwoIDs(path, "/run/", "/task/")
+
+			return h.handleGetRunTask(c, runID, taskID)
+		},
+		opListRunTasks: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListRunTasks(c, extractID(path, "/run/"))
+		},
+
+		// Workflow
+		opCreateWorkflow: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCreateWorkflow(c)
+		},
+		opDeleteWorkflow: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteWorkflow(c, extractID(path, "/workflow/"))
+		},
+		opGetWorkflow: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetWorkflow(c, extractID(path, "/workflow/"))
+		},
+		opListWorkflows: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListWorkflows(c)
+		},
+		opUpdateWorkflow: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleUpdateWorkflow(c, extractID(path, "/workflow/"))
+		},
+
+		// WorkflowVersion
+		opCreateWorkflowVersion: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleCreateWorkflowVersion(c, extractID(path, "/workflow/"))
+		},
+		opDeleteWorkflowVersion: func(h *Handler, c *echo.Context, path string) error {
+			wfID, verName := extractTwoIDs(path, "/workflow/", "/version/")
+
+			return h.handleDeleteWorkflowVersion(c, wfID, verName)
+		},
+		opGetWorkflowVersion: func(h *Handler, c *echo.Context, path string) error {
+			wfID, verName := extractTwoIDs(path, "/workflow/", "/version/")
+
+			return h.handleGetWorkflowVersion(c, wfID, verName)
+		},
+		opListWorkflowVersions: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListWorkflowVersions(c, extractID(path, "/workflow/"))
+		},
+		opUpdateWorkflowVersion: func(h *Handler, c *echo.Context, path string) error {
+			wfID, verName := extractTwoIDs(path, "/workflow/", "/version/")
+
+			return h.handleUpdateWorkflowVersion(c, wfID, verName)
+		},
+
+		// AnnotationStore
+		opCreateAnnotationStore: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCreateAnnotationStore(c)
+		},
+		opDeleteAnnotationStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteAnnotationStore(c, extractID(path, "/annotationStore/"))
+		},
+		opGetAnnotationStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetAnnotationStore(c, extractID(path, "/annotationStore/"))
+		},
+		opListAnnotationStores: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListAnnotationStores(c)
+		},
+		opUpdateAnnotationStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleUpdateAnnotationStore(c, extractID(path, "/annotationStore/"))
+		},
+		opStartAnnotationImportJob: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleStartAnnotationImportJob(c)
+		},
+		opGetAnnotationImportJob: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetAnnotationImportJob(c, extractID(path, "/import/annotation/"))
+		},
+		opListAnnotationImportJobs: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListAnnotationImportJobs(c)
+		},
+		opCancelAnnotationImportJob: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleCancelAnnotationImportJob(c, extractID(path, "/import/annotation/"))
+		},
+		opCreateAnnotationStoreVersion: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleCreateAnnotationStoreVersion(c, extractID(path, "/annotationStore/"))
+		},
+		opDeleteAnnotationStoreVersions: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteAnnotationStoreVersions(c, extractID(path, "/annotationStore/"))
+		},
+		opGetAnnotationStoreVersion: func(h *Handler, c *echo.Context, path string) error {
+			name, verName := extractTwoIDs(path, "/annotationStore/", "/version/")
+
+			return h.handleGetAnnotationStoreVersion(c, name, verName)
+		},
+		opListAnnotationStoreVersions: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListAnnotationStoreVersions(c, extractID(path, "/annotationStore/"))
+		},
+		opUpdateAnnotationStoreVersion: func(h *Handler, c *echo.Context, path string) error {
+			name, verName := extractTwoIDs(path, "/annotationStore/", "/version/")
+
+			return h.handleUpdateAnnotationStoreVersion(c, name, verName)
+		},
+
+		// VariantStore
+		opCreateVariantStore: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCreateVariantStore(c)
+		},
+		opDeleteVariantStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteVariantStore(c, extractID(path, "/variantStore/"))
+		},
+		opGetVariantStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetVariantStore(c, extractID(path, "/variantStore/"))
+		},
+		opListVariantStores: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListVariantStores(c)
+		},
+		opUpdateVariantStore: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleUpdateVariantStore(c, extractID(path, "/variantStore/"))
+		},
+		opStartVariantImportJob: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleStartVariantImportJob(c)
+		},
+		opGetVariantImportJob: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetVariantImportJob(c, extractID(path, "/import/variant/"))
+		},
+		opListVariantImportJobs: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListVariantImportJobs(c)
+		},
+		opCancelVariantImportJob: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleCancelVariantImportJob(c, extractID(path, "/import/variant/"))
+		},
+
+		// Share
+		opCreateShare: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCreateShare(c)
+		},
+		opAcceptShare: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleAcceptShare(c, extractID(path, "/share/"))
+		},
+		opDeleteShare: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteShare(c, extractID(path, "/share/"))
+		},
+		opGetShare: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetShare(c, extractID(path, "/share/"))
+		},
+		opListShares: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListShares(c)
+		},
+
+		// RunCache
+		opCreateRunCache: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCreateRunCache(c)
+		},
+		opDeleteRunCache: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteRunCache(c, extractID(path, "/runCache/"))
+		},
+		opGetRunCache: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetRunCache(c, extractID(path, "/runCache/"))
+		},
+		opListRunCaches: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListRunCaches(c)
+		},
+		opUpdateRunCache: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleUpdateRunCache(c, extractID(path, "/runCache/"))
+		},
+
+		// RunBatch
+		opStartRunBatch: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleStartRunBatch(c)
+		},
+		opCancelRunBatch: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCancelRunBatch(c)
+		},
+		opDeleteBatch: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteBatch(c, extractID(path, "/runBatch/"))
+		},
+		opGetRunBatch: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetRunBatch(c, extractID(path, "/runBatch/"))
+		},
+		opListRunBatches: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListRunBatches(c)
+		},
+		opDeleteRunBatch: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleDeleteRunBatch(c)
+		},
+		opListRunsInBatch: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListRunsInBatch(c, extractID(path, "/runBatch/"))
+		},
+
+		// Configuration
+		opCreateConfiguration: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleCreateConfiguration(c)
+		},
+		opDeleteConfiguration: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteConfiguration(c, extractID(path, "/configuration/"))
+		},
+		opGetConfiguration: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetConfiguration(c, extractID(path, "/configuration/"))
+		},
+		opListConfigurations: func(h *Handler, c *echo.Context, _ string) error {
+			return h.handleListConfigurations(c)
+		},
+
+		// S3 Access Policy
+		opPutS3AccessPolicy: func(h *Handler, c *echo.Context, path string) error {
+			return h.handlePutS3AccessPolicy(c, strings.TrimPrefix(path, "/s3accesspolicy/"))
+		},
+		opGetS3AccessPolicy: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleGetS3AccessPolicy(c, strings.TrimPrefix(path, "/s3accesspolicy/"))
+		},
+		opDeleteS3AccessPolicy: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleDeleteS3AccessPolicy(c, strings.TrimPrefix(path, "/s3accesspolicy/"))
+		},
+
+		// Tags
+		opTagResource: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleTagResource(c, strings.TrimPrefix(path, "/tags/"))
+		},
+		opUntagResource: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleUntagResource(c, strings.TrimPrefix(path, "/tags/"))
+		},
+		opListTagsForResource: func(h *Handler, c *echo.Context, path string) error {
+			return h.handleListTagsForResource(c, strings.TrimPrefix(path, "/tags/"))
+		},
+	}
+})
+
+// handleREST is the top-level dispatch entry point: it classifies the
+// request into an operation name (routes.go) and looks up its handler in
+// opDispatch. This replaces what used to be a single large switch statement
+// with a flat, O(1) table lookup.
+func (h *Handler) handleREST(c *echo.Context) error {
 	method := c.Request().Method
 	path := c.Request().URL.Path
 
-	switch classifyPath(method, path) {
-	// ReferenceStore
-	case opCreateReferenceStore:
-		return h.handleCreateReferenceStore(c)
-	case opDeleteReferenceStore:
-		return h.handleDeleteReferenceStore(c, extractID(path, "/referencestore/"))
-	case opGetReferenceStore:
-		return h.handleGetReferenceStore(c, extractID(path, "/referencestore/"))
-	case opListReferenceStores:
-		return h.handleListReferenceStores(c)
-
-	// Reference
-	case opDeleteReference:
-		storeID, refID := extractTwoIDs(path, "/referencestore/", "/reference/")
-
-		return h.handleDeleteReference(c, storeID, refID)
-	case opGetReference:
-		storeID, refID := extractTwoIDs(path, "/referencestore/", "/reference/")
-
-		return h.handleGetReference(c, storeID, refID)
-	case opGetReferenceMetadata:
-		storeID, refID := extractRefMetadataIDs(path)
-
-		return h.handleGetReferenceMetadata(c, storeID, refID)
-	case opListReferences:
-		return h.handleListReferences(c, extractID(path, "/referencestore/"))
-	case opStartReferenceImportJob:
-		return h.handleStartReferenceImportJob(c, extractID(path, "/referencestore/"))
-	case opGetReferenceImportJob:
-		storeID, jobID := extractTwoIDs(path, "/referencestore/", "/importjob/")
-
-		return h.handleGetReferenceImportJob(c, storeID, jobID)
-	case opListReferenceImportJobs:
-		return h.handleListReferenceImportJobs(c, extractID(path, "/referencestore/"))
-
-	// SequenceStore
-	case opCreateSequenceStore:
-		return h.handleCreateSequenceStore(c)
-	case opDeleteSequenceStore:
-		return h.handleDeleteSequenceStore(c, extractID(path, "/sequencestore/"))
-	case opGetSequenceStore:
-		return h.handleGetSequenceStore(c, extractID(path, "/sequencestore/"))
-	case opListSequenceStores:
-		return h.handleListSequenceStores(c)
-	case opUpdateSequenceStore:
-		return h.handleUpdateSequenceStore(c, extractID(path, "/sequencestore/"))
-
-	// ReadSet
-	case opBatchDeleteReadSet:
-		return h.handleBatchDeleteReadSet(c, extractID(path, "/sequencestore/"))
-	case opGetReadSet:
-		storeID, rsID := extractTwoIDs(path, "/sequencestore/", "/readset/")
-
-		return h.handleGetReadSet(c, storeID, rsID)
-	case opGetReadSetMetadata:
-		storeID, rsID := extractReadSetMetadataIDs(path)
-
-		return h.handleGetReadSetMetadata(c, storeID, rsID)
-	case opListReadSets:
-		return h.handleListReadSets(c, extractID(path, "/sequencestore/"))
-	case opStartReadSetActivationJob:
-		return h.handleStartReadSetActivationJob(c, extractID(path, "/sequencestore/"))
-	case opGetReadSetActivationJob:
-		storeID, jobID := extractTwoIDs(path, "/sequencestore/", "/activationjob/")
-
-		return h.handleGetReadSetActivationJob(c, storeID, jobID)
-	case opListReadSetActivationJobs:
-		return h.handleListReadSetActivationJobs(c, extractID(path, "/sequencestore/"))
-	case opStartReadSetExportJob:
-		return h.handleStartReadSetExportJob(c, extractID(path, "/sequencestore/"))
-	case opGetReadSetExportJob:
-		storeID, jobID := extractTwoIDs(path, "/sequencestore/", "/exportjob/")
-
-		return h.handleGetReadSetExportJob(c, storeID, jobID)
-	case opListReadSetExportJobs:
-		return h.handleListReadSetExportJobs(c, extractID(path, "/sequencestore/"))
-	case opStartReadSetImportJob:
-		return h.handleStartReadSetImportJob(c, extractID(path, "/sequencestore/"))
-	case opGetReadSetImportJob:
-		storeID, jobID := extractTwoIDs(path, "/sequencestore/", "/importjob/")
-
-		return h.handleGetReadSetImportJob(c, storeID, jobID)
-	case opListReadSetImportJobs:
-		return h.handleListReadSetImportJobs(c, extractID(path, "/sequencestore/"))
-
-	// Multipart Upload
-	case opCreateMultipartReadSetUpload:
-		return h.handleCreateMultipartReadSetUpload(c, extractID(path, "/sequencestore/"))
-	case opAbortMultipartReadSetUpload:
-		storeID, uploadID := extractUploadIDs(path)
-
-		return h.handleAbortMultipartReadSetUpload(c, storeID, uploadID)
-	case opCompleteMultipartReadSetUpload:
-		storeID, uploadID := extractUploadIDs(path)
-
-		return h.handleCompleteMultipartReadSetUpload(c, storeID, uploadID)
-	case opListMultipartReadSetUploads:
-		return h.handleListMultipartReadSetUploads(c, extractID(path, "/sequencestore/"))
-	case opListReadSetUploadParts:
-		storeID, uploadID := extractUploadIDs(path)
-
-		return h.handleListReadSetUploadParts(c, storeID, uploadID)
-	case opUploadReadSetPart:
-		storeID, uploadID := extractUploadIDs(path)
-
-		return h.handleUploadReadSetPart(c, storeID, uploadID)
-
-	// RunGroup
-	case opCreateRunGroup:
-		return h.handleCreateRunGroup(c)
-	case opDeleteRunGroup:
-		return h.handleDeleteRunGroup(c, extractID(path, "/runGroup/"))
-	case opGetRunGroup:
-		return h.handleGetRunGroup(c, extractID(path, "/runGroup/"))
-	case opListRunGroups:
-		return h.handleListRunGroups(c)
-	case opUpdateRunGroup:
-		return h.handleUpdateRunGroup(c, extractID(path, "/runGroup/"))
-
-	// Run
-	case opStartRun:
-		return h.handleStartRun(c)
-	case opCancelRun:
-		return h.handleCancelRun(c, extractID(path, "/run/"))
-	case opDeleteRun:
-		return h.handleDeleteRun(c, extractID(path, "/run/"))
-	case opGetRun:
-		return h.handleGetRun(c, extractID(path, "/run/"))
-	case opListRuns:
-		return h.handleListRuns(c)
-	case opGetRunTask:
-		runID, taskID := extractTwoIDs(path, "/run/", "/task/")
-
-		return h.handleGetRunTask(c, runID, taskID)
-	case opListRunTasks:
-		return h.handleListRunTasks(c, extractID(path, "/run/"))
-
-	// Workflow
-	case opCreateWorkflow:
-		return h.handleCreateWorkflow(c)
-	case opDeleteWorkflow:
-		return h.handleDeleteWorkflow(c, extractID(path, "/workflow/"))
-	case opGetWorkflow:
-		return h.handleGetWorkflow(c, extractID(path, "/workflow/"))
-	case opListWorkflows:
-		return h.handleListWorkflows(c)
-	case opUpdateWorkflow:
-		return h.handleUpdateWorkflow(c, extractID(path, "/workflow/"))
-
-	// WorkflowVersion
-	case opCreateWorkflowVersion:
-		return h.handleCreateWorkflowVersion(c, extractID(path, "/workflow/"))
-	case opDeleteWorkflowVersion:
-		wfID, verName := extractTwoIDs(path, "/workflow/", "/version/")
-
-		return h.handleDeleteWorkflowVersion(c, wfID, verName)
-	case opGetWorkflowVersion:
-		wfID, verName := extractTwoIDs(path, "/workflow/", "/version/")
-
-		return h.handleGetWorkflowVersion(c, wfID, verName)
-	case opListWorkflowVersions:
-		return h.handleListWorkflowVersions(c, extractID(path, "/workflow/"))
-	case opUpdateWorkflowVersion:
-		wfID, verName := extractTwoIDs(path, "/workflow/", "/version/")
-
-		return h.handleUpdateWorkflowVersion(c, wfID, verName)
-
-	// AnnotationStore
-	case opCreateAnnotationStore:
-		return h.handleCreateAnnotationStore(c)
-	case opDeleteAnnotationStore:
-		return h.handleDeleteAnnotationStore(c, extractID(path, "/annotationStore/"))
-	case opGetAnnotationStore:
-		return h.handleGetAnnotationStore(c, extractID(path, "/annotationStore/"))
-	case opListAnnotationStores:
-		return h.handleListAnnotationStores(c)
-	case opUpdateAnnotationStore:
-		return h.handleUpdateAnnotationStore(c, extractID(path, "/annotationStore/"))
-	case opStartAnnotationImportJob:
-		return h.handleStartAnnotationImportJob(c)
-	case opGetAnnotationImportJob:
-		return h.handleGetAnnotationImportJob(c, extractID(path, "/import/annotation/"))
-	case opListAnnotationImportJobs:
-		return h.handleListAnnotationImportJobs(c)
-	case opCancelAnnotationImportJob:
-		return h.handleCancelAnnotationImportJob(c, extractID(path, "/import/annotation/"))
-	case opCreateAnnotationStoreVersion:
-		return h.handleCreateAnnotationStoreVersion(c, extractID(path, "/annotationStore/"))
-	case opDeleteAnnotationStoreVersions:
-		return h.handleDeleteAnnotationStoreVersions(c, extractID(path, "/annotationStore/"))
-	case opGetAnnotationStoreVersion:
-		name, verName := extractTwoIDs(path, "/annotationStore/", "/version/")
-
-		return h.handleGetAnnotationStoreVersion(c, name, verName)
-	case opListAnnotationStoreVersions:
-		return h.handleListAnnotationStoreVersions(c, extractID(path, "/annotationStore/"))
-	case opUpdateAnnotationStoreVersion:
-		name, verName := extractTwoIDs(path, "/annotationStore/", "/version/")
-
-		return h.handleUpdateAnnotationStoreVersion(c, name, verName)
-
-	// VariantStore
-	case opCreateVariantStore:
-		return h.handleCreateVariantStore(c)
-	case opDeleteVariantStore:
-		return h.handleDeleteVariantStore(c, extractID(path, "/variantStore/"))
-	case opGetVariantStore:
-		return h.handleGetVariantStore(c, extractID(path, "/variantStore/"))
-	case opListVariantStores:
-		return h.handleListVariantStores(c)
-	case opUpdateVariantStore:
-		return h.handleUpdateVariantStore(c, extractID(path, "/variantStore/"))
-	case opStartVariantImportJob:
-		return h.handleStartVariantImportJob(c)
-	case opGetVariantImportJob:
-		return h.handleGetVariantImportJob(c, extractID(path, "/import/variant/"))
-	case opListVariantImportJobs:
-		return h.handleListVariantImportJobs(c)
-	case opCancelVariantImportJob:
-		return h.handleCancelVariantImportJob(c, extractID(path, "/import/variant/"))
-
-	// Share
-	case opCreateShare:
-		return h.handleCreateShare(c)
-	case opAcceptShare:
-		return h.handleAcceptShare(c, extractID(path, "/share/"))
-	case opDeleteShare:
-		return h.handleDeleteShare(c, extractID(path, "/share/"))
-	case opGetShare:
-		return h.handleGetShare(c, extractID(path, "/share/"))
-	case opListShares:
-		return h.handleListShares(c)
-
-	// RunCache
-	case opCreateRunCache:
-		return h.handleCreateRunCache(c)
-	case opDeleteRunCache:
-		return h.handleDeleteRunCache(c, extractID(path, "/runCache/"))
-	case opGetRunCache:
-		return h.handleGetRunCache(c, extractID(path, "/runCache/"))
-	case opListRunCaches:
-		return h.handleListRunCaches(c)
-	case opUpdateRunCache:
-		return h.handleUpdateRunCache(c, extractID(path, "/runCache/"))
-
-	// RunBatch
-	case opStartRunBatch:
-		return h.handleStartRunBatch(c)
-	case opCancelRunBatch:
-		return h.handleCancelRunBatch(c)
-	case opDeleteBatch:
-		return h.handleDeleteBatch(c, extractID(path, "/runBatch/"))
-	case opGetRunBatch:
-		return h.handleGetRunBatch(c, extractID(path, "/runBatch/"))
-	case opListRunBatches:
-		return h.handleListRunBatches(c)
-	case opDeleteRunBatch:
-		return h.handleDeleteRunBatch(c)
-	case opListRunsInBatch:
-		return h.handleListRunsInBatch(c, extractID(path, "/runBatch/"))
-
-	// Configuration
-	case opCreateConfiguration:
-		return h.handleCreateConfiguration(c)
-	case opDeleteConfiguration:
-		return h.handleDeleteConfiguration(c, extractID(path, "/configuration/"))
-	case opGetConfiguration:
-		return h.handleGetConfiguration(c, extractID(path, "/configuration/"))
-	case opListConfigurations:
-		return h.handleListConfigurations(c)
-
-	// S3 Access Policy
-	case opPutS3AccessPolicy:
-		return h.handlePutS3AccessPolicy(c, strings.TrimPrefix(path, "/s3accesspolicy/"))
-	case opGetS3AccessPolicy:
-		return h.handleGetS3AccessPolicy(c, strings.TrimPrefix(path, "/s3accesspolicy/"))
-	case opDeleteS3AccessPolicy:
-		return h.handleDeleteS3AccessPolicy(c, strings.TrimPrefix(path, "/s3accesspolicy/"))
-
-	// Tags
-	case opTagResource:
-		return h.handleTagResource(c, strings.TrimPrefix(path, "/tags/"))
-	case opUntagResource:
-		return h.handleUntagResource(c, strings.TrimPrefix(path, "/tags/"))
-	case opListTagsForResource:
-		return h.handleListTagsForResource(c, strings.TrimPrefix(path, "/tags/"))
-
-	default:
-		return c.JSON(
-			http.StatusNotImplemented,
-			errResp("NotImplementedException", "operation not implemented"),
-		)
+	if fn, ok := opDispatch()[classifyPath(method, path)]; ok {
+		return fn(h, c, path)
 	}
+
+	return c.JSON(
+		http.StatusNotImplemented,
+		errResp("NotImplementedException", "operation not implemented"),
+	)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -678,7 +718,7 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusNotFound, errResp(errResourceNotFound, err.Error()))
-	case errors.Is(err, awserr.ErrAlreadyExists):
+	case errors.Is(err, awserr.ErrAlreadyExists), errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusConflict, errResp(errConflict, err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, errResp(errValidation, err.Error()))

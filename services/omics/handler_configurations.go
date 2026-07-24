@@ -65,7 +65,7 @@ func (h *Handler) handlePutS3AccessPolicy(c *echo.Context, arn string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{})
+	return c.JSON(http.StatusOK, map[string]any{"s3AccessPointArn": arn})
 }
 
 func (h *Handler) handleGetS3AccessPolicy(c *echo.Context, arn string) error {
