@@ -441,6 +441,43 @@ func TestAssumeRootApprovedPolicyArns(t *testing.T) {
 	})
 }
 
+// TestAssumeRoot_SourceIdentityPersistsFromCallerSession verifies that
+// AssumeRoot's SourceIdentity — which has no corresponding request parameter —
+// is inherited from the caller's own STS session, per AWS's documented
+// "persists across chained role sessions" behavior for source identity.
+func TestAssumeRoot_SourceIdentityPersistsFromCallerSession(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no_caller_session_empty_source_identity", func(t *testing.T) {
+		t.Parallel()
+
+		b := sts.NewInMemoryBackend()
+		resp, err := b.AssumeRoot(&sts.AssumeRootInput{
+			TargetPrincipal: "123456789012",
+			TaskPolicyArn:   "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
+		})
+		require.NoError(t, err)
+		assert.Empty(t, resp.AssumeRootResult.SourceIdentity)
+	})
+
+	t.Run("caller_session_source_identity_inherited", func(t *testing.T) {
+		t.Parallel()
+
+		b := sts.NewInMemoryBackend()
+		resp, err := b.AssumeRoot(&sts.AssumeRootInput{
+			TargetPrincipal: "123456789012",
+			TaskPolicyArn:   "arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
+			CallerSession:   &sts.SessionInfo{SourceIdentity: "alice"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "alice", resp.AssumeRootResult.SourceIdentity)
+
+		rootSession := b.LookupSession(resp.AssumeRootResult.Credentials.AccessKeyID, "")
+		require.NotNil(t, rootSession)
+		assert.Equal(t, "alice", rootSession.SourceIdentity)
+	})
+}
+
 // TestAssumeRootResultBeforeMetadata verifies the XML result element precedes ResponseMetadata.
 func TestAssumeRootResultBeforeMetadata(t *testing.T) {
 	t.Parallel()

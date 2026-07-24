@@ -103,6 +103,13 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	assumedRoleArn := arn.Build("sts", "", account, "assumed-root")
 
+	// SourceIdentity is not a request parameter for AssumeRoot; it persists
+	// from the caller's own session, per AWS's documented behavior.
+	var sourceIdentity string
+	if input.CallerSession != nil {
+		sourceIdentity = input.CallerSession.SourceIdentity
+	}
+
 	session := &SessionInfo{
 		Expiration:      expiration,
 		AssumedRoleArn:  assumedRoleArn,
@@ -112,6 +119,7 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 		SecretAccessKey: creds.SecretAccessKey,
 		SessionToken:    creds.SessionToken,
 		AssumedRoleID:   account + ":" + rootSessionName,
+		SourceIdentity:  sourceIdentity,
 	}
 
 	b.storeSession(session)
@@ -125,6 +133,7 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 				SessionToken:    creds.SessionToken,
 				Expiration:      expiration.Format(time.RFC3339),
 			},
+			SourceIdentity: sourceIdentity,
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil

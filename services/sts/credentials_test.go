@@ -142,10 +142,11 @@ func TestAssumedRoleArnPathStrippedWebIdentityAndSAML(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		resp, err := b.AssumeRoleWithSAML(&sts.AssumeRoleWithSAMLInput{
-			RoleArn:         roleArn,
-			RoleSessionName: "sess",
-			PrincipalArn:    "arn:aws:iam::" + acct + ":saml-provider/Example",
-			SAMLAssertion:   "PHNhbWxwOkFzc2VydGlvbj4=",
+			RoleArn:      roleArn,
+			PrincipalArn: "arn:aws:iam::" + acct + ":saml-provider/Example",
+			SAMLAssertion: buildSAMLAssertionWithAttributes(t, map[string]string{
+				samlAttrRoleSessionNameTest: "sess",
+			}),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, wantArn, resp.AssumeRoleWithSAMLResult.AssumedRoleUser.Arn)

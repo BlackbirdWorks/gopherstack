@@ -266,6 +266,8 @@ func mapErrorToCode(reqErr error) (string, int) {
 		return "ExpiredTokenException", http.StatusBadRequest
 	case errors.Is(reqErr, ErrExpiredTradeInToken):
 		return "ExpiredTradeInTokenException", http.StatusBadRequest
+	case errors.Is(reqErr, ErrSessionDurationEscalation):
+		return "SessionDurationEscalationException", http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidIdentityToken), errors.Is(reqErr, ErrInvalidSAMLAssertion):
 		return "InvalidIdentityToken", http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidAuthorizationMessage):

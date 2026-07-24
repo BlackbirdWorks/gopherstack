@@ -17,6 +17,16 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
+// webIdentityClaimTags/webIdentityClaimSourceIdentity mirror the unexported
+// jwtClaimTags/jwtClaimSourceIdentity constants in token_validation.go: AWS
+// derives AssumeRoleWithWebIdentity's session tags and SourceIdentity from
+// these custom claims in the WebIdentityToken rather than accepting them as
+// separate top-level request parameters (see AssumeRoleWithWebIdentityInput).
+const (
+	webIdentityClaimTags           = "https://aws.amazon.com/tags"
+	webIdentityClaimSourceIdentity = "https://aws.amazon.com/source_identity"
+)
+
 // makeJWT constructs a minimal unsigned JWT with the given JSON payload (no signature validation needed in mock).
 func makeJWT(payload string) string {
 	// header: {"alg":"none","typ":"JWT"}
@@ -279,16 +289,21 @@ func TestHandler_AssumeRoleWithWebIdentity(t *testing.T) {
 	}
 }
 
-// TestAssumeRoleWithWebIdentityTagsStored verifies Tags are stored in session.
+// TestAssumeRoleWithWebIdentityTagsStored verifies session tags carried in the
+// WebIdentityToken's custom claim (there is no top-level Tags request
+// parameter for this operation) are stored in the session.
 func TestAssumeRoleWithWebIdentityTagsStored(t *testing.T) {
 	t.Parallel()
 
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-		RoleArn:          "arn:aws:iam::000000000000:role/test-role",
-		RoleSessionName:  "test-session",
-		WebIdentityToken: "eyJhbGciOiJtb2NrIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ0ZXN0LXN1YmplY3QiLCJhdWQiOiJ0ZXN0LWF1ZCJ9.mock",
-		Tags:             []sts.Tag{{Key: "Env", Value: "test"}},
+		RoleArn:         "arn:aws:iam::000000000000:role/test-role",
+		RoleSessionName: "test-session",
+		WebIdentityToken: buildJWT(t, map[string]any{
+			"sub":                "test-subject",
+			"aud":                "test-aud",
+			webIdentityClaimTags: map[string]string{"Env": "test"},
+		}),
 	})
 	require.NoError(t, err)
 
@@ -305,16 +320,20 @@ func TestAssumeRoleWithWebIdentityTagsStored(t *testing.T) {
 	assert.NotEmpty(t, ci.GetCallerIdentityResult.Arn)
 }
 
-// TestAssumeRoleWithWebIdentitySourceIdentity verifies SourceIdentity flows through OIDC.
+// TestAssumeRoleWithWebIdentitySourceIdentity verifies SourceIdentity is
+// derived from the WebIdentityToken's custom claim (there is no top-level
+// SourceIdentity request parameter for this operation).
 func TestAssumeRoleWithWebIdentitySourceIdentity(t *testing.T) {
 	t.Parallel()
 
 	b := sts.NewInMemoryBackend()
 	resp, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-		RoleArn:          "arn:aws:iam::000000000000:role/test-role",
-		RoleSessionName:  "test-session",
-		WebIdentityToken: "eyJhbGciOiJtb2NrIn0.eyJzdWIiOiJzdWIxIn0.sig",
-		SourceIdentity:   "my-oidc-identity",
+		RoleArn:         "arn:aws:iam::000000000000:role/test-role",
+		RoleSessionName: "test-session",
+		WebIdentityToken: buildJWT(t, map[string]any{
+			"sub":                          "sub1",
+			webIdentityClaimSourceIdentity: "my-oidc-identity",
+		}),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "my-oidc-identity", resp.AssumeRoleWithWebIdentityResult.SourceIdentity)
@@ -344,7 +363,8 @@ func TestAssumeRoleWithWebIdentityWithPolicyArns(t *testing.T) {
 }
 
 // TestAssumeRoleWithWebIdentity_TagValidation verifies session-tag validation
-// is enforced for AssumeRoleWithWebIdentity.
+// is enforced for AssumeRoleWithWebIdentity against tags carried in the
+// WebIdentityToken's custom claim.
 func TestAssumeRoleWithWebIdentity_TagValidation(t *testing.T) {
 	t.Parallel()
 
@@ -353,10 +373,12 @@ func TestAssumeRoleWithWebIdentity_TagValidation(t *testing.T) {
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-			RoleArn:          "arn:aws:iam::123456789012:role/R",
-			RoleSessionName:  "session",
-			WebIdentityToken: "header.eyJzdWIiOiJ0ZXN0In0.sig",
-			Tags:             []sts.Tag{{Key: "aws:bad", Value: "v"}},
+			RoleArn:         "arn:aws:iam::123456789012:role/R",
+			RoleSessionName: "session",
+			WebIdentityToken: buildJWT(t, map[string]any{
+				"sub":                "test",
+				webIdentityClaimTags: map[string]string{"aws:bad": "v"},
+			}),
 		})
 		require.ErrorIs(t, err, sts.ErrInvalidTagKey)
 	})
@@ -364,21 +386,19 @@ func TestAssumeRoleWithWebIdentity_TagValidation(t *testing.T) {
 	t.Run("too_many_tags_rejected", func(t *testing.T) {
 		t.Parallel()
 
-		tags := make([]sts.Tag, 51)
-		for i := range tags {
-			tags[i] = sts.Tag{Key: "key" + strings.Repeat("x", i%5), Value: "val"}
-		}
-		// deduplicate keys for count test
-		for i := range tags {
-			tags[i] = sts.Tag{Key: "k" + string(rune('a'+i%26)) + string(rune('0'+i/26)), Value: "v"}
+		tags := make(map[string]string, 51)
+		for i := range 51 {
+			tags["k"+string(rune('a'+i%26))+string(rune('0'+i/26))] = "v"
 		}
 
 		b := sts.NewInMemoryBackend()
 		_, err := b.AssumeRoleWithWebIdentity(&sts.AssumeRoleWithWebIdentityInput{
-			RoleArn:          "arn:aws:iam::123456789012:role/R",
-			RoleSessionName:  "session",
-			WebIdentityToken: "header.eyJzdWIiOiJ0ZXN0In0.sig",
-			Tags:             tags,
+			RoleArn:         "arn:aws:iam::123456789012:role/R",
+			RoleSessionName: "session",
+			WebIdentityToken: buildJWT(t, map[string]any{
+				"sub":                "test",
+				webIdentityClaimTags: tags,
+			}),
 		})
 		require.ErrorIs(t, err, sts.ErrTooManyTags)
 	})
@@ -1030,4 +1050,103 @@ func TestGetWebIdentityTokenResultBeforeMetadata(t *testing.T) {
 	require.Len(t, order, 2)
 	assert.Equal(t, "GetWebIdentityTokenResult", order[0])
 	assert.Equal(t, "ResponseMetadata", order[1])
+}
+
+// TestGetWebIdentityToken_SessionDurationEscalation verifies that a caller using
+// temporary STS credentials cannot request a JWT (via DurationSeconds) whose
+// expiration exceeds the caller's own session expiration, per AWS
+// SessionDurationEscalationException — the emulator resolves the caller's
+// session directly from the backend (CallerSession) here to isolate the
+// escalation check from the SigV4/auth-header wiring, which is covered
+// separately by TestHandler_GetWebIdentityToken_SessionDurationEscalation.
+func TestGetWebIdentityToken_SessionDurationEscalation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		callerSession *sts.SessionInfo
+		name          string
+		duration      int32
+		wantErr       bool
+	}{
+		{
+			name:          "no caller session — unrestricted",
+			callerSession: nil,
+			duration:      sts.MaxWebIdentityTokenDurationSeconds,
+			wantErr:       false,
+		},
+		{
+			name: "caller session outlives requested duration — accepted",
+			callerSession: &sts.SessionInfo{
+				Expiration: time.Now().Add(1 * time.Hour),
+			},
+			duration: 300,
+			wantErr:  false,
+		},
+		{
+			name: "requested duration exceeds caller session expiration — rejected",
+			callerSession: &sts.SessionInfo{
+				Expiration: time.Now().Add(30 * time.Second),
+			},
+			duration: 3600,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sts.NewInMemoryBackend()
+			_, err := b.GetWebIdentityToken(&sts.GetWebIdentityTokenInput{
+				Audience:         []string{"my-app"},
+				SigningAlgorithm: "RS256",
+				DurationSeconds:  tt.duration,
+				CallerSession:    tt.callerSession,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, sts.ErrSessionDurationEscalation)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestHandler_GetWebIdentityToken_SessionDurationEscalation verifies the HTTP
+// handler resolves the caller's session from the SigV4 Authorization header +
+// X-Amz-Security-Token and rejects escalating DurationSeconds requests with a
+// 400 SessionDurationEscalationException.
+func TestHandler_GetWebIdentityToken_SessionDurationEscalation(t *testing.T) {
+	t.Parallel()
+
+	backend := sts.NewInMemoryBackend()
+	h := sts.NewHandler(backend)
+	srv := newEchoServer(h)
+	defer srv.Close()
+
+	callerKey := "ASIATESTCALLER000001"
+	secToken := "caller-session-token"
+	backend.AddSessionInternal(&sts.SessionInfo{
+		AccessKeyID:    callerKey,
+		SessionToken:   secToken,
+		AssumedRoleArn: "arn:aws:sts::123456789012:assumed-role/Caller/s",
+		AccountID:      "123456789012",
+		SessionName:    "s",
+		AssumedRoleID:  "AROATESTCALLER:s",
+		Expiration:     time.Now().Add(30 * time.Second),
+	})
+
+	resp := postSTS(t, srv.URL, map[string]string{
+		"Action":            "GetWebIdentityToken",
+		"Version":           "2011-06-15",
+		"Audience.member.1": "my-app",
+		"SigningAlgorithm":  "RS256",
+		"DurationSeconds":   "3600",
+	}, sigV4Auth(callerKey), secToken)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }

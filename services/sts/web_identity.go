@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,18 +52,6 @@ func validateWebIdentityInput(input *AssumeRoleWithWebIdentityInput) error {
 		return ErrMissingWebIdentityToken
 	}
 
-	if err := validateSourceIdentity(input.SourceIdentity); err != nil {
-		return err
-	}
-
-	if len(input.Tags) > MaxTagCount {
-		return fmt.Errorf("%w: got %d", ErrTooManyTags, len(input.Tags))
-	}
-
-	if err := validateTagConstraints(input.Tags); err != nil {
-		return err
-	}
-
 	if err := validatePolicyArns(input.PolicyArns); err != nil {
 		return err
 	}
@@ -78,12 +67,37 @@ func validateWebIdentityInput(input *AssumeRoleWithWebIdentityInput) error {
 	return validateWebIdentityToken(input.WebIdentityToken)
 }
 
+// validateWebIdentityTokenClaims checks the constraints on identity attributes
+// extracted from the WebIdentityToken's custom claims (SourceIdentity, session
+// tags) — mirroring the constraints AWS applies to the equivalent AssumeRole
+// request parameters, since AssumeRoleWithWebIdentity sources these values
+// from the token instead of accepting them directly (see jwtClaimTags /
+// jwtClaimSourceIdentity in token_validation.go).
+func validateWebIdentityTokenClaims(sourceIdentity string, tags []Tag) error {
+	if err := validateSourceIdentity(sourceIdentity); err != nil {
+		return err
+	}
+
+	if len(tags) > MaxTagCount {
+		return fmt.Errorf("%w: got %d", ErrTooManyTags, len(tags))
+	}
+
+	return validateTagConstraints(tags)
+}
+
 func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 	input *AssumeRoleWithWebIdentityInput,
 ) (*AssumeRoleWithWebIdentityResponse, error) {
 	b.cntAssumeRoleWithWebIdentity.Add(1)
 
 	if err := validateWebIdentityInput(input); err != nil {
+		return nil, err
+	}
+
+	sourceIdentity := extractWebIdentitySourceIdentity(input.WebIdentityToken)
+	tags := extractWebIdentityTags(input.WebIdentityToken)
+
+	if err := validateWebIdentityTokenClaims(sourceIdentity, tags); err != nil {
 		return nil, err
 	}
 
@@ -116,7 +130,7 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 		return nil, err
 	}
 
-	return b.buildWebIdentityResponse(input, creds, duration), nil
+	return b.buildWebIdentityResponse(input, sourceIdentity, tags, creds, duration), nil
 }
 
 // validateOIDCProvider checks that the issuer from the token (or providerID override)
@@ -190,9 +204,15 @@ func (b *InMemoryBackend) checkWebIdentityTrust(input *AssumeRoleWithWebIdentity
 	})
 }
 
-// buildWebIdentityResponse constructs the AssumeRoleWithWebIdentity response and persists the session.
+// buildWebIdentityResponse constructs the AssumeRoleWithWebIdentity response
+// and persists the session. sourceIdentity and tags are the values already
+// extracted from and validated against the WebIdentityToken's custom claims
+// (see validateWebIdentityTokenClaims) — there is no separate SourceIdentity
+// or Tags request parameter for this operation.
 func (b *InMemoryBackend) buildWebIdentityResponse(
 	input *AssumeRoleWithWebIdentityInput,
+	sourceIdentity string,
+	tags []Tag,
 	creds credentialSet,
 	duration int32,
 ) *AssumeRoleWithWebIdentityResponse {
@@ -220,8 +240,8 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 		SecretAccessKey: creds.SecretAccessKey,
 		SessionToken:    creds.SessionToken,
 		AssumedRoleID:   assumedRoleID,
-		Tags:            input.Tags,
-		SourceIdentity:  input.SourceIdentity,
+		Tags:            tags,
+		SourceIdentity:  sourceIdentity,
 	}
 
 	b.storeSession(session)
@@ -242,7 +262,7 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 			SubjectFromWebIdentityToken: subject,
 			Audience:                    audience,
 			Provider:                    provider,
-			SourceIdentity:              input.SourceIdentity,
+			SourceIdentity:              sourceIdentity,
 			PackedPolicySize: calculatePackedPolicySizeWithArns(
 				input.Policy,
 				input.PolicyArns,
@@ -302,8 +322,15 @@ func (b *InMemoryBackend) GetWebIdentityToken(
 		)
 	}
 
-	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
 	now := time.Now().UTC()
+	expiration := now.Add(time.Duration(duration) * time.Second)
+
+	// A caller using temporary STS credentials cannot request a JWT that
+	// outlives their own session (AWS SessionDurationEscalationException).
+	if input.CallerSession != nil && expiration.After(input.CallerSession.Expiration) {
+		return nil, ErrSessionDurationEscalation
+	}
+
 	issuer := "https://sts.mock.aws.com/" + b.accountID
 
 	// Build a minimal mock JWT payload (unsigned, for testing purposes only).
@@ -326,7 +353,7 @@ func (b *InMemoryBackend) GetWebIdentityToken(
 			tagMap[t.Key] = t.Value
 		}
 
-		claims["https://aws.amazon.com/tags"] = tagMap
+		claims[jwtClaimTags] = tagMap
 	}
 
 	payload, err := json.Marshal(claims)
@@ -397,6 +424,60 @@ func extractWebIdentityAudience(token string) string {
 	}
 
 	return ""
+}
+
+// extractWebIdentitySourceIdentity attempts to extract the jwtClaimSourceIdentity
+// custom claim from a JWT token's payload without validating the signature.
+// Returns an empty string if extraction fails or the claim is absent — AWS
+// derives AssumeRoleWithWebIdentity's SourceIdentity from a claim added to the
+// token by the identity provider (see jwtClaimSourceIdentity for the exact
+// convention this emulator uses).
+func extractWebIdentitySourceIdentity(token string) string {
+	claims := parseJWTPayloadClaims(token)
+	if claims == nil {
+		return ""
+	}
+
+	if v, ok := claims[jwtClaimSourceIdentity].(string); ok {
+		return v
+	}
+
+	return ""
+}
+
+// extractWebIdentityTags attempts to extract the jwtClaimTags custom claim
+// (a JSON object of tag key -> value strings) from a JWT token's payload
+// without validating the signature. Returns nil if extraction fails or the
+// claim is absent. AWS derives AssumeRoleWithWebIdentity's session tags from a
+// claim in the token rather than a separate request parameter (see
+// jwtClaimTags).
+func extractWebIdentityTags(token string) []Tag {
+	claims := parseJWTPayloadClaims(token)
+	if claims == nil {
+		return nil
+	}
+
+	rawTags, ok := claims[jwtClaimTags].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	keys := make([]string, 0, len(rawTags))
+	for k := range rawTags {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	tags := make([]Tag, 0, len(rawTags))
+
+	for _, k := range keys {
+		if v, isStr := rawTags[k].(string); isStr {
+			tags = append(tags, Tag{Key: k, Value: v})
+		}
+	}
+
+	return tags
 }
 
 // resolveWebIdentityProvider resolves the OIDC provider and audience from the token and input.

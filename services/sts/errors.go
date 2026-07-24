@@ -149,4 +149,13 @@ var (
 
 	// ErrNilAppContext is returned when Init is called with a nil AppContext.
 	ErrNilAppContext = errors.New("sts: nil app context")
+
+	// ErrSessionDurationEscalation is returned when GetWebIdentityToken's
+	// DurationSeconds would extend the issued token's expiration beyond the
+	// caller's own STS session expiration (AWS SessionDurationEscalationException:
+	// "You cannot use this operation to extend the lifetime of a session beyond
+	// what was granted when the session was originally created.").
+	ErrSessionDurationEscalation = errors.New(
+		"requested token duration would extend the session beyond its original expiration time",
+	)
 )

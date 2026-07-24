@@ -1,7 +1,6 @@
 package sts
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,17 +30,10 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 		return nil, err
 	}
 
-	duration := input.DurationSeconds
-	if duration == 0 {
-		duration = DefaultDurationSeconds
-	}
-
-	if duration < MinDurationSeconds || duration > MaxDurationSeconds {
-		return nil, fmt.Errorf(
-			"%w: DurationSeconds must be between %d and %d for GetDelegatedAccessToken",
-			ErrInvalidDuration, MinDurationSeconds, MaxDurationSeconds,
-		)
-	}
+	// GetDelegatedAccessTokenInput has no DurationSeconds member in the real AWS
+	// API (unlike AssumeRole/GetSessionToken/etc.) — the caller cannot influence
+	// the credential lifetime, so a fixed default duration is used.
+	duration := DefaultDurationSeconds
 
 	creds, err := generateCredentialSet()
 	if err != nil {

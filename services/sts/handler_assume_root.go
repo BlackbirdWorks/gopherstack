@@ -28,5 +28,14 @@ func (h *Handler) dispatchAssumeRoot(r *http.Request) (*AssumeRootResponse, erro
 		input.DurationSeconds = int32(d)
 	}
 
+	// Resolve the caller's own STS session (if any) so the backend can
+	// propagate its SourceIdentity, per AWS's documented "persists across
+	// chained role sessions" behavior (there is no separate SourceIdentity
+	// request parameter for AssumeRoot).
+	if callerKey := extractAccessKeyFromAuth(r); callerKey != "" {
+		secToken := r.Header.Get("X-Amz-Security-Token")
+		input.CallerSession = h.Backend.LookupSession(callerKey, secToken)
+	}
+
 	return h.Backend.AssumeRoot(input)
 }
