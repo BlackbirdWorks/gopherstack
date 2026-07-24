@@ -62,7 +62,13 @@ func (b *InMemoryBackend) RequestCertificate(
 		renewalEligibility = renewalEligibilityIneligible
 	}
 
-	status, dvoList, err := buildInitialDVOList(domainName, sans, validationMethod)
+	// DomainValidationOptions overrides (custom EMAIL ValidationDomain per
+	// domain) are validated and applied by the caller via
+	// ApplyDomainValidationOverrides after creation -- see jsonRequestCertificate
+	// -- since they arrive as part of the same RequestCertificate wire
+	// request but this positional signature is depended on by a large
+	// number of existing call sites.
+	status, dvoList, err := buildInitialDVOList(domainName, sans, validationMethod, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +119,79 @@ func (b *InMemoryBackend) RequestCertificate(
 	cp := copyCert(cert)
 
 	return &cp, nil
+}
+
+// ApplyDomainValidationOverrides applies a RequestCertificate
+// DomainValidationOptions input (already validated by
+// validateDomainValidationOptions) to a just-created certificate, overriding
+// the ValidationDomain -- and, for EMAIL validation, the well-known
+// validation email addresses derived from it -- for each named domain. It is
+// a no-op when overrides is empty.
+func (b *InMemoryBackend) ApplyDomainValidationOverrides(
+	ctx context.Context, certARN string, overrides map[string]string,
+) error {
+	if len(overrides) == 0 {
+		return nil
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("ApplyDomainValidationOverrides")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs.Get(regionKey(region, certARN))
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	for i, dvo := range cert.DomainValidationOptions {
+		vd, found := overrides[dvo.DomainName]
+		if !found {
+			continue
+		}
+
+		cert.DomainValidationOptions[i].ValidationDomain = vd
+
+		if dvo.ValidationMethod != validationMethodEMAIL {
+			continue
+		}
+
+		rootDomain := strings.TrimPrefix(vd, "*.")
+		cert.DomainValidationOptions[i].ValidationEmails = []string{
+			"admin@" + rootDomain,
+			"administrator@" + rootDomain,
+			"hostmaster@" + rootDomain,
+			"postmaster@" + rootDomain,
+			"webmaster@" + rootDomain,
+		}
+	}
+
+	return nil
+}
+
+// SetExportPreference records a just-created certificate's RequestCertificate
+// Options.Export choice (ENABLED/DISABLED). Real AWS treats Export as
+// immutable once the certificate exists, so this is only ever called once,
+// immediately after RequestCertificate, from jsonRequestCertificate. A blank
+// pref is a no-op (the Certificate's zero value already reads as DISABLED).
+func (b *InMemoryBackend) SetExportPreference(ctx context.Context, certARN, exportPref string) error {
+	if exportPref == "" {
+		return nil
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("SetExportPreference")
+	defer b.mu.Unlock()
+
+	cert, ok := b.certs.Get(regionKey(region, certARN))
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	cert.ExportPref = exportPref
+
+	return nil
 }
 
 // recordNewCert records the idempotency-token mapping for a newly created certificate and
@@ -170,11 +249,14 @@ func validateRequestCertInput(domainName string, sans []string) error {
 		return fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
+	// AWS's default account quota for domain names per certificate (1
+	// primary + 9 SANs); exceeding it is a quota violation
+	// (LimitExceededException), not a shape/value validation failure.
 	const maxDomainsPerCertificate = 10
 	if len(sans)+1 > maxDomainsPerCertificate {
 		return fmt.Errorf(
 			"%w: maximum of 10 domain names (1 primary + 9 SANs) allowed per certificate",
-			ErrInvalidParameter,
+			ErrLimitExceeded,
 		)
 	}
 
@@ -192,11 +274,14 @@ func validateRequestCertInput(domainName string, sans []string) error {
 }
 
 // buildInitialDVOList constructs the initial DomainValidationOptions list and determines
-// the certificate's initial status based on the validation method.
+// the certificate's initial status based on the validation method. overrides
+// (DomainName -> caller-supplied ValidationDomain, from RequestCertificate's
+// DomainValidationOptions input) may be nil.
 func buildInitialDVOList(
 	domainName string,
 	sans []string,
 	validationMethod string,
+	overrides map[string]string,
 ) (string, []DomainValidationOption, error) {
 	allDomains := append([]string{domainName}, sans...)
 	status := statusIssued
@@ -209,9 +294,9 @@ func buildInitialDVOList(
 	switch validationMethod {
 	case validationMethodDNS, validationMethodEMAIL:
 		status = statusPendingValidation
-		dvoList, err = buildDomainValidationOptions(allDomains, validationMethod)
+		dvoList, err = buildDomainValidationOptions(allDomains, validationMethod, overrides)
 	default:
-		dvoList, err = buildDomainValidationOptions(allDomains, validationMethodDNS)
+		dvoList, err = buildDomainValidationOptions(allDomains, validationMethodDNS, overrides)
 	}
 
 	if err != nil {
@@ -347,7 +432,7 @@ func (b *InMemoryBackend) RenewCertificate(ctx context.Context, certARN string) 
 		return fmt.Errorf("failed to generate self-signed certificate: %w", err)
 	}
 
-	status, dvoList, err := buildInitialDVOList(domainName, sans, validationMethod)
+	status, dvoList, err := buildInitialDVOList(domainName, sans, validationMethod, nil)
 	if err != nil {
 		return fmt.Errorf("failed to build domain validation options: %w", err)
 	}
@@ -364,6 +449,7 @@ func (b *InMemoryBackend) RenewCertificate(ctx context.Context, certARN string) 
 	// Mark the certificate as eligible for renewal and set the renewal summary.
 	c.RenewalEligibility = renewalEligibilityEligible
 	c.RenewalSummary = &RenewalSummary{
+		UpdatedAt:               time.Now().UTC(),
 		RenewalStatus:           status,
 		DomainValidationOptions: dvoList,
 	}
@@ -416,17 +502,19 @@ func (b *InMemoryBackend) ExportCertificate(
 ) (*Certificate, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("ExportCertificate")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ExportCertificate")
+	defer b.mu.Unlock()
 
 	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
 
-	if cert.Type != certTypeImported && cert.Type != "PRIVATE" {
+	if cert.Type != certTypeImported && cert.Type != certTypePrivate {
 		return nil, fmt.Errorf("%w: only IMPORTED or PRIVATE certificates can be exported", ErrNotEligible)
 	}
+
+	cert.Exported = true
 
 	cp := copyCert(cert)
 

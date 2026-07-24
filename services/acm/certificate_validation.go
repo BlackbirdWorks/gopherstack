@@ -4,8 +4,91 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+// certArnPattern matches the ACM certificate ARN shape:
+// arn:<partition>:acm:<region>:<account>:certificate/<id>
+// This mirrors the pattern the real SDK validates client-side
+// (arn:[\w+=/,.@-]+:acm:[\w+=/,.@-]*:[0-9]+:[\w+=,.@-]+(/[\w+=,.@-]+)*) but is
+// narrowed to the "certificate/" resource type, since that is the only
+// resource shape a CertificateArn field ever carries.
+var certArnPattern = regexp.MustCompile(`^arn:[\w+=/,.@-]+:acm:[\w+=/,.@-]*:[0-9]+:certificate/[\w+=,.@-]+$`)
+
+// validateCertArn checks that a non-empty CertificateArn matches the expected
+// ACM ARN shape, returning ErrInvalidArn (InvalidArnException) if it does
+// not. An empty ARN is intentionally not flagged here -- callers that
+// require a non-empty CertificateArn already surface their own
+// ValidationException with a clearer "CertificateArn is required" message,
+// and read paths correctly fall through to ErrCertNotFound for "".
+func validateCertArn(certARN string) error {
+	if certARN == "" {
+		return nil
+	}
+
+	if !certArnPattern.MatchString(certARN) {
+		return fmt.Errorf("%w: %q is not a valid ACM certificate ARN", ErrInvalidArn, certARN)
+	}
+
+	return nil
+}
+
+// isSameOrSuperdomain reports whether validationDomain is the same as, or a
+// superdomain of, domain -- the constraint AWS enforces on
+// DomainValidationOption.ValidationDomain (RequestCertificate input). A
+// leading "*." wildcard on domain is stripped before comparison, matching
+// AWS's own handling of wildcard certificate requests.
+func isSameOrSuperdomain(domain, validationDomain string) bool {
+	d := strings.TrimPrefix(domain, "*.")
+	if validationDomain == d {
+		return true
+	}
+
+	return strings.HasSuffix(d, "."+validationDomain)
+}
+
+// validateDomainValidationOptions checks a RequestCertificate
+// DomainValidationOptions input against the domains actually being
+// requested (domainName + sans). Each entry's DomainName must reference one
+// of those domains, and its ValidationDomain must be the same as or a
+// superdomain of that DomainName -- violations return
+// ErrInvalidDomainValidationOptions (InvalidDomainValidationOptionsException),
+// matching real AWS.
+func validateDomainValidationOptions(
+	allDomains []string, opts []domainValidationOptionOverride,
+) (map[string]string, error) {
+	if len(opts) == 0 {
+		return nil, nil //nolint:nilnil // absent overrides map is a meaningful "use defaults" signal
+	}
+
+	domainSet := make(map[string]struct{}, len(allDomains))
+	for _, d := range allDomains {
+		domainSet[d] = struct{}{}
+	}
+
+	overrides := make(map[string]string, len(opts))
+
+	for _, o := range opts {
+		if _, ok := domainSet[o.DomainName]; !ok {
+			return nil, fmt.Errorf(
+				"%w: DomainName %q is not part of this certificate request",
+				ErrInvalidDomainValidationOptions, o.DomainName,
+			)
+		}
+
+		if o.ValidationDomain == "" || !isSameOrSuperdomain(o.DomainName, o.ValidationDomain) {
+			return nil, fmt.Errorf(
+				"%w: ValidationDomain %q for %q must be the domain itself or a superdomain",
+				ErrInvalidDomainValidationOptions, o.ValidationDomain, o.DomainName,
+			)
+		}
+
+		overrides[o.DomainName] = o.ValidationDomain
+	}
+
+	return overrides, nil
+}
 
 // validateDomainName checks that the given domain name satisfies AWS ACM constraints.
 // AWS rejects domain names longer than 253 characters, empty labels, labels exceeding 63
@@ -32,9 +115,24 @@ func validateDomainName(name string) error {
 	return nil
 }
 
+// domainValidationOptionOverride is the parsed form of one RequestCertificate
+// DomainValidationOptions input entry (see requestCertificateInput in
+// handler_certificates.go), naming the ValidationDomain AWS should use for a
+// given DomainName's EMAIL validation.
+type domainValidationOptionOverride struct {
+	DomainName       string
+	ValidationDomain string
+}
+
 // buildDomainValidationOptions creates DomainValidationOption entries with
-// synthetic CNAME records for DNS validation, or synthetic email addresses for EMAIL validation.
-func buildDomainValidationOptions(domains []string, validationMethod string) ([]DomainValidationOption, error) {
+// synthetic CNAME records for DNS validation, or synthetic email addresses
+// for EMAIL validation. overrides maps DomainName -> caller-supplied
+// ValidationDomain (from RequestCertificate's DomainValidationOptions input,
+// already validated by validateDomainValidationOptions); a domain absent
+// from overrides defaults to using itself as its own ValidationDomain.
+func buildDomainValidationOptions(
+	domains []string, validationMethod string, overrides map[string]string,
+) ([]DomainValidationOption, error) {
 	opts := make([]DomainValidationOption, 0, len(domains))
 	seen := make(map[string]bool, len(domains))
 
@@ -49,9 +147,14 @@ func buildDomainValidationOptions(domains []string, validationMethod string) ([]
 			status = statusPendingValidation
 		}
 
+		validationDomain := d
+		if vd, ok := overrides[d]; ok {
+			validationDomain = vd
+		}
+
 		opt := DomainValidationOption{
 			DomainName:       d,
-			ValidationDomain: d,
+			ValidationDomain: validationDomain,
 			ValidationStatus: status,
 			ValidationMethod: validationMethod,
 		}
@@ -75,11 +178,10 @@ func buildDomainValidationOptions(domains []string, validationMethod string) ([]
 			}
 
 		case validationMethodEMAIL:
-			// AWS sends validation emails to well-known addresses at the domain root.
-			rootDomain := d
-			if strings.HasPrefix(d, "*.") {
-				rootDomain = d[2:]
-			}
+			// AWS sends validation emails to well-known addresses at the
+			// validation domain root (the DomainName's superdomain when a
+			// ValidationDomain override was supplied, otherwise itself).
+			rootDomain := strings.TrimPrefix(validationDomain, "*.")
 
 			opt.ValidationEmails = []string{
 				"admin@" + rootDomain,

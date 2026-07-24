@@ -248,6 +248,16 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "InvalidStateException"
 	case errors.Is(opErr, ErrConflict):
 		code = "ConflictException"
+	case errors.Is(opErr, ErrInvalidArn):
+		code = "InvalidArnException"
+	case errors.Is(opErr, ErrLimitExceeded):
+		code = "LimitExceededException"
+	case errors.Is(opErr, ErrTooManyTags):
+		code = "TooManyTagsException"
+	case errors.Is(opErr, ErrInvalidTag):
+		code = "InvalidTagException"
+	case errors.Is(opErr, ErrInvalidDomainValidationOptions):
+		code = "InvalidDomainValidationOptionsException"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
