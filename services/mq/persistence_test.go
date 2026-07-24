@@ -114,16 +114,27 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "broker-1", restoredBroker.BrokerName)
 	assert.Equal(t, map[string]string{"env": "test"}, restoredBroker.Tags)
-	// Broker.Users carries json:"-" and was never part of the persisted
-	// shape (a pre-existing behavior predating this refactor, preserved
-	// as-is by the mechanical map->store.Table swap): it does not
-	// round-trip through Snapshot/Restore.
-	assert.Empty(t, restoredBroker.Users)
+	// Broker.Users now carries a real json tag (see store_setup.go /
+	// models.go) and round-trips through Snapshot/Restore: both users must
+	// still be present, with their structural attributes intact. Password
+	// deliberately keeps json:"-" (matching the LdapServerMetadata.
+	// ServiceAccountPassword precedent of keeping secrets out of the
+	// persisted blob), so a restored user's password is always blank.
+	require.Len(t, restoredBroker.Users, 2)
+	require.Contains(t, restoredBroker.Users, "admin")
+	assert.True(t, restoredBroker.Users["admin"].Console)
+	assert.Empty(t, restoredBroker.Users["admin"].Password)
+	require.Contains(t, restoredBroker.Users, "second")
 
 	restoredCfg, err := restored.DescribeConfiguration(cfg.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "config-1", restoredCfg.Name)
 	assert.Equal(t, map[string]string{"team": "infra"}, restoredCfg.Tags)
+	// Configuration.Data/Revisions now carry real json tags too: the second
+	// revision's content and both revisions' metadata must survive restore.
+	require.Len(t, restoredCfg.Revisions, 2)
+	assert.Equal(t, int32(2), restoredCfg.LatestRevision.Revision)
+	assert.Equal(t, "ZGF0YQ==", restoredCfg.Data[2])
 
 	// Shared-pointer invariant: b.tags[arn] and resource.Tags must reflect
 	// the same content after restore, exactly as CreateTags/DeleteTags rely

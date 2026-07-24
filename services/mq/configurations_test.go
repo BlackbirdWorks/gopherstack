@@ -167,6 +167,42 @@ func TestCreateConfiguration_InvalidEngineType_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestCreateConfiguration_NameValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		configName string
+		wantErr    bool
+	}{
+		{name: "empty rejected", configName: "", wantErr: true},
+		{name: "single char accepted", configName: "a", wantErr: false},
+		{name: "exactly 150 chars accepted", configName: strings.Repeat("a", 150), wantErr: false},
+		{name: "151 chars rejected", configName: strings.Repeat("a", 151), wantErr: true},
+		{name: "hyphen allowed", configName: "my-config", wantErr: false},
+		{name: "period allowed", configName: "my.config", wantErr: false},
+		{name: "underscore allowed", configName: "my_config", wantErr: false},
+		{name: "tilde allowed", configName: "my~config", wantErr: false},
+		{name: "space rejected", configName: "my config", wantErr: true},
+		{name: "at-sign rejected", configName: "my@config", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			_, err := b.CreateConfiguration(tt.configName, "", mq.EngineTypeActiveMQ, "", nil)
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, mq.ErrValidation)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestCreateConfiguration_ValidEngineTypes(t *testing.T) {
 	t.Parallel()
 

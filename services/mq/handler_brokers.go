@@ -12,25 +12,27 @@ import (
 )
 
 type createBrokerInput struct {
-	Tags                       map[string]string   `json:"tags"`
-	Logs                       *Logs               `json:"logs,omitempty"`
-	LdapServerMetadata         *LdapServerMetadata `json:"ldapServerMetadata,omitempty"`
-	MaintenanceWindowStartTime *WeeklyStartTime    `json:"maintenanceWindowStartTime,omitempty"`
-	EncryptionOptions          *EncryptionOptions  `json:"encryptionOptions,omitempty"`
-	Configuration              *ConfigurationID    `json:"configuration,omitempty"`
-	HostInstanceType           string              `json:"hostInstanceType"`
-	CreatorRequestID           string              `json:"creatorRequestId"`
-	AuthenticationStrategy     string              `json:"authenticationStrategy"`
-	StorageType                string              `json:"storageType"`
-	BrokerName                 string              `json:"brokerName"`
-	EngineVersion              string              `json:"engineVersion"`
-	EngineType                 string              `json:"engineType"`
-	DeploymentMode             string              `json:"deploymentMode"`
-	SecurityGroups             []string            `json:"securityGroups"`
-	SubnetIDs                  []string            `json:"subnetIds"`
-	Users                      []createUserBody    `json:"users"`
-	PubliclyAccessible         bool                `json:"publiclyAccessible"`
-	AutoMinorVersionUpgrade    bool                `json:"autoMinorVersionUpgrade"`
+	Tags                            map[string]string   `json:"tags"`
+	Logs                            *Logs               `json:"logs,omitempty"`
+	LdapServerMetadata              *LdapServerMetadata `json:"ldapServerMetadata,omitempty"`
+	MaintenanceWindowStartTime      *WeeklyStartTime    `json:"maintenanceWindowStartTime,omitempty"`
+	EncryptionOptions               *EncryptionOptions  `json:"encryptionOptions,omitempty"`
+	Configuration                   *ConfigurationID    `json:"configuration,omitempty"`
+	HostInstanceType                string              `json:"hostInstanceType"`
+	CreatorRequestID                string              `json:"creatorRequestId"`
+	AuthenticationStrategy          string              `json:"authenticationStrategy"`
+	StorageType                     string              `json:"storageType"`
+	BrokerName                      string              `json:"brokerName"`
+	EngineVersion                   string              `json:"engineVersion"`
+	EngineType                      string              `json:"engineType"`
+	DeploymentMode                  string              `json:"deploymentMode"`
+	DataReplicationMode             string              `json:"dataReplicationMode"`
+	DataReplicationPrimaryBrokerArn string              `json:"dataReplicationPrimaryBrokerArn"`
+	SecurityGroups                  []string            `json:"securityGroups"`
+	SubnetIDs                       []string            `json:"subnetIds"`
+	Users                           []createUserBody    `json:"users"`
+	PubliclyAccessible              bool                `json:"publiclyAccessible"`
+	AutoMinorVersionUpgrade         bool                `json:"autoMinorVersionUpgrade"`
 }
 
 func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
@@ -70,14 +72,16 @@ func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 		users,
 		in.Tags,
 		&CreateBrokerOptions{
-			StorageType:                in.StorageType,
-			AuthenticationStrategy:     in.AuthenticationStrategy,
-			CreatorRequestID:           in.CreatorRequestID,
-			Configuration:              in.Configuration,
-			EncryptionOptions:          in.EncryptionOptions,
-			MaintenanceWindowStartTime: in.MaintenanceWindowStartTime,
-			LdapServerMetadata:         in.LdapServerMetadata,
-			Logs:                       in.Logs,
+			StorageType:                     in.StorageType,
+			AuthenticationStrategy:          in.AuthenticationStrategy,
+			CreatorRequestID:                in.CreatorRequestID,
+			Configuration:                   in.Configuration,
+			EncryptionOptions:               in.EncryptionOptions,
+			MaintenanceWindowStartTime:      in.MaintenanceWindowStartTime,
+			LdapServerMetadata:              in.LdapServerMetadata,
+			Logs:                            in.Logs,
+			DataReplicationMode:             in.DataReplicationMode,
+			DataReplicationPrimaryBrokerArn: in.DataReplicationPrimaryBrokerArn,
 		},
 	)
 	if err != nil {
@@ -174,9 +178,20 @@ type updateBrokerInput struct {
 // SDK's deserializer) but dataReplicationMode/dataReplicationMetadata and
 // their pending counterparts ARE real UpdateBrokerOutput members and must
 // be populated.
+//
+// Field semantics (verified against aws-sdk-go-v2/service/mq's
+// UpdateBrokerOutput doc comments): EngineVersion/HostInstanceType/
+// SecurityGroups/AuthenticationStrategy/LdapServerMetadata/Logs/
+// Configuration all describe "...to upgrade to"/"...the updated
+// configuration" -- i.e. the TARGET value now in effect or staged for the
+// next reboot -- because UpdateBrokerOutput carries no separate Pending*
+// field for any of them. DataReplicationMode is the one field with a real,
+// separate PendingDataReplicationMode counterpart in UpdateBrokerOutput
+// (mirroring DescribeBrokerOutput), so it alone echoes the CURRENT
+// (pre-reboot) value.
 type updateBrokerResponse struct {
 	LdapServerMetadata         *LdapServerMetadata      `json:"ldapServerMetadata,omitempty"`
-	Logs                       *LogsSummary             `json:"logs,omitempty"`
+	Logs                       *Logs                    `json:"logs,omitempty"`
 	MaintenanceWindowStartTime *WeeklyStartTime         `json:"maintenanceWindowStartTime,omitempty"`
 	PendingLdapServerMetadata  *LdapServerMetadata      `json:"pendingLdapServerMetadata,omitempty"`
 	Configuration              *ConfigurationID         `json:"configuration,omitempty"`
@@ -221,34 +236,91 @@ func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []by
 		return h.writeError(c, err)
 	}
 
-	var cfgID *ConfigurationID
-	if br.Configurations != nil && br.Configurations.Current != nil {
-		cfgID = br.Configurations.Current
+	return c.JSON(http.StatusOK, toUpdateBrokerResponse(br))
+}
+
+// toUpdateBrokerResponse builds an UpdateBroker response from the
+// post-staging broker state. See updateBrokerResponse's doc for why most
+// fields echo the target (pending-if-staged, else current) value.
+func toUpdateBrokerResponse(br *Broker) updateBrokerResponse {
+	var cfgCurrent, cfgPending *ConfigurationID
+	if br.Configurations != nil {
+		cfgCurrent = br.Configurations.Current
+		cfgPending = br.Configurations.Pending
 	}
 
-	resp := updateBrokerResponse{
+	return updateBrokerResponse{
 		BrokerID:                   br.BrokerID,
-		EngineVersion:              br.EngineVersion,
-		HostInstanceType:           br.HostInstanceType,
+		EngineVersion:              pendingOrCurrentStr(br.PendingEngineVersion, br.EngineVersion),
+		HostInstanceType:           pendingOrCurrentStr(br.PendingHostInstanceType, br.HostInstanceType),
 		AutoMinorVersionUpgrade:    br.AutoMinorVersionUpgrade,
-		SecurityGroups:             br.SecurityGroups,
+		SecurityGroups:             pendingOrCurrentStrs(br.PendingSecurityGroups, br.SecurityGroups),
 		PendingSecurityGroups:      br.PendingSecurityGroups,
 		PendingEngineVersion:       br.PendingEngineVersion,
 		PendingHostInstanceType:    br.PendingHostInstanceType,
-		AuthenticationStrategy:     br.AuthenticationStrategy,
+		AuthenticationStrategy:     pendingOrCurrentStr(br.PendingAuthStrategy, br.AuthenticationStrategy),
 		PendingAuthStrategy:        br.PendingAuthStrategy,
-		Logs:                       br.LogsSummary,
-		LdapServerMetadata:         br.LdapServerMetadata,
+		Logs:                       effectiveLogs(br.LogsSummary),
+		LdapServerMetadata:         pendingOrCurrentLDAP(br.PendingLdapServerMetadata, br.LdapServerMetadata),
 		MaintenanceWindowStartTime: br.MaintenanceWindowStartTime,
 		PendingLdapServerMetadata:  br.PendingLdapServerMetadata,
-		Configuration:              cfgID,
+		Configuration:              pendingOrCurrentConfigID(cfgPending, cfgCurrent),
 		DataReplicationMode:        br.DataReplicationMode,
 		DataReplicationMetadata:    br.DataReplicationMetadata,
 		PendingDataReplicationMode: br.PendingDataReplicationMode,
 		PendingDataReplicationMeta: br.PendingDataReplicationMeta,
 	}
+}
 
-	return c.JSON(http.StatusOK, resp)
+// pendingOrCurrentStr returns pending if set, else current.
+func pendingOrCurrentStr(pending, current string) string {
+	if pending != "" {
+		return pending
+	}
+
+	return current
+}
+
+// pendingOrCurrentStrs returns pending if non-nil, else current.
+func pendingOrCurrentStrs(pending, current []string) []string {
+	if pending != nil {
+		return pending
+	}
+
+	return current
+}
+
+// pendingOrCurrentLDAP returns pending if non-nil, else current.
+func pendingOrCurrentLDAP(pending, current *LdapServerMetadata) *LdapServerMetadata {
+	if pending != nil {
+		return pending
+	}
+
+	return current
+}
+
+// pendingOrCurrentConfigID returns pending if non-nil, else current.
+func pendingOrCurrentConfigID(pending, current *ConfigurationID) *ConfigurationID {
+	if pending != nil {
+		return pending
+	}
+
+	return current
+}
+
+// effectiveLogs converts a broker's LogsSummary into the plain Logs shape
+// UpdateBrokerOutput.Logs uses (see updateBrokerResponse's doc), preferring
+// a staged pending change over the currently-active values.
+func effectiveLogs(ls *LogsSummary) *Logs {
+	if ls == nil {
+		return nil
+	}
+
+	if ls.Pending != nil {
+		return ls.Pending
+	}
+
+	return &Logs{General: ls.General, Audit: ls.Audit}
 }
 
 func (h *Handler) handleDeleteBroker(c *echo.Context, brokerID string) error {

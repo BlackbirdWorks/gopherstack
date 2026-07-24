@@ -111,7 +111,12 @@ func validateActiveMQUserConstraints(currentUsers, groupCount int, password stri
 	return nil
 }
 
-// CreateUser creates a user on a broker.
+// CreateUser creates a user on a broker. Real Amazon MQ only activates a new
+// ActiveMQ broker user on the next reboot (see
+// aws-sdk-go-v2/service/mq/types.UserPendingChanges); the user is inserted
+// immediately with the requested attributes but marked Pending.PendingChange
+// = CREATE, exactly as DescribeUser/ListUsers would show it, until
+// promoteBrokerReboot clears the marker.
 func (b *InMemoryBackend) CreateUser(brokerID, username, password string, groups []string, console bool) error {
 	if err := validateUsername(username); err != nil {
 		return err
@@ -140,6 +145,7 @@ func (b *InMemoryBackend) CreateUser(brokerID, username, password string, groups
 		Password: password,
 		Groups:   groups,
 		Console:  console,
+		Pending:  &UserPendingChanges{PendingChange: ChangeTypeCreate},
 	}
 
 	return nil
@@ -165,7 +171,15 @@ func (b *InMemoryBackend) DescribeUser(brokerID, username string) (*User, error)
 	return &cp, nil
 }
 
-// UpdateUser updates a broker user.
+// UpdateUser updates a broker user. Console/Groups changes are staged into
+// the user's Pending block (see CreateUser) since real Amazon MQ only
+// applies them on the next reboot -- DescribeUser's top-level
+// consoleAccess/groups keep showing the pre-update values until then. The
+// password is applied immediately: it is never echoed back on any wire
+// response (DescribeUser/ListUsers never include it), so there is no
+// observable "staged vs. live" distinction to model, and
+// aws-sdk-go-v2/service/mq/types.UserPendingChanges has no password field to
+// stage it into.
 func (b *InMemoryBackend) UpdateUser(brokerID, username, password string, groups []string, console *bool) error {
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
@@ -190,25 +204,46 @@ func (b *InMemoryBackend) UpdateUser(brokerID, username, password string, groups
 		u.Password = password
 	}
 
-	if groups != nil {
-		if br.EngineType == EngineTypeActiveMQ && len(groups) > maxUserGroups {
-			return fmt.Errorf(
-				"%w: user groups must not exceed %d (got %d)",
-				ErrValidation, maxUserGroups, len(groups),
-			)
-		}
-
-		u.Groups = groups
+	if groups != nil && br.EngineType == EngineTypeActiveMQ && len(groups) > maxUserGroups {
+		return fmt.Errorf(
+			"%w: user groups must not exceed %d (got %d)",
+			ErrValidation, maxUserGroups, len(groups),
+		)
 	}
 
-	if console != nil {
-		u.Console = *console
-	}
+	stageUserPendingChange(u, groups, console)
 
 	return nil
 }
 
-// DeleteUser removes a user from a broker.
+// stageUserPendingChange records a not-yet-applied Console/Groups change on
+// u.Pending. A user with an already-pending CREATE keeps that PendingChange
+// (its Console/Groups are updated in place, since the user has never gone
+// live yet); otherwise the change is marked UPDATE. Caller must hold a write
+// lock.
+func stageUserPendingChange(u *User, groups []string, console *bool) {
+	if groups == nil && console == nil {
+		return
+	}
+
+	if u.Pending == nil {
+		u.Pending = &UserPendingChanges{PendingChange: ChangeTypeUpdate}
+	}
+
+	if groups != nil {
+		u.Pending.Groups = groups
+	}
+
+	if console != nil {
+		u.Pending.Console = console
+	}
+}
+
+// DeleteUser stages a broker user for removal. Real Amazon MQ only removes
+// an ActiveMQ broker user on the next reboot: the user stays visible via
+// DescribeUser/ListUsers with pendingChange=DELETE until then (see
+// promoteBrokerReboot), matching how the create/update paths stage into
+// User.Pending.
 func (b *InMemoryBackend) DeleteUser(brokerID, username string) error {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
@@ -218,11 +253,12 @@ func (b *InMemoryBackend) DeleteUser(brokerID, username string) error {
 		return fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
 
-	if _, ok := br.Users[username]; !ok {
+	u, ok := br.Users[username]
+	if !ok {
 		return fmt.Errorf("%w: user %s not found on broker %s", ErrNotFound, username, brokerID)
 	}
 
-	delete(br.Users, username)
+	u.Pending = &UserPendingChanges{PendingChange: ChangeTypeDelete}
 
 	return nil
 }
@@ -239,10 +275,41 @@ func (b *InMemoryBackend) ListUsers(brokerID string) ([]UserSummary, error) {
 
 	list := make([]UserSummary, 0, len(br.Users))
 	for _, u := range br.Users {
-		list = append(list, UserSummary{Username: u.Username, Console: u.Console})
+		summary := UserSummary{Username: u.Username, Console: u.Console}
+		if u.Pending != nil {
+			summary.PendingChange = u.Pending.PendingChange
+		}
+
+		list = append(list, summary)
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].Username < list[j].Username })
 
 	return list, nil
+}
+
+// promoteBrokerUsers applies every broker user's staged Pending change
+// (CREATE/UPDATE/DELETE) atomically, as part of promoteBrokerReboot. Caller
+// must hold a write lock.
+func promoteBrokerUsers(br *Broker) {
+	for username, u := range br.Users {
+		if u.Pending == nil {
+			continue
+		}
+
+		switch u.Pending.PendingChange {
+		case ChangeTypeDelete:
+			delete(br.Users, username)
+		default: // ChangeTypeCreate, ChangeTypeUpdate
+			if u.Pending.Console != nil {
+				u.Console = *u.Pending.Console
+			}
+
+			if u.Pending.Groups != nil {
+				u.Groups = u.Pending.Groups
+			}
+
+			u.Pending = nil
+		}
+	}
 }
