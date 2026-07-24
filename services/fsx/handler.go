@@ -312,8 +312,13 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusBadRequest, errorResponse("ServiceLimitExceeded", err.Error()))
 	case errors.Is(err, ErrTagInvalid):
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequest", err.Error()))
+	case errors.Is(err, ErrMissingFileSystemConfiguration):
+		return c.JSON(http.StatusBadRequest, errorResponse("MissingFileSystemConfiguration", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", err.Error()))
+		// BadRequest is real FSx's generic client-error code (see
+		// types/errors.go in the SDK); there is no "ValidationError"
+		// exception type in FSx.
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequest", err.Error()))
 	case errors.Is(err, errUnknownOperation):
 		return c.JSON(http.StatusBadRequest, errorResponse("UnsupportedOperation", err.Error()))
 	default:

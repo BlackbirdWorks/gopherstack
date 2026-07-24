@@ -5,7 +5,11 @@ import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
 const (
 	errFileSystemNotFound = "FileSystemNotFound"
 	errBackupNotFound     = "BackupNotFound"
-	errValidation         = "ValidationError"
+	// errValidation is BadRequest, not "ValidationError": real FSx has no
+	// ValidationError exception type (see types/errors.go in the SDK). Its
+	// generic client-error shape is BadRequest; CreateFileSystem-specific
+	// gaps use the more specific MissingFileSystemConfiguration below.
+	errValidation = "BadRequest"
 )
 
 var (
@@ -13,8 +17,13 @@ var (
 	ErrFileSystemNotFound = awserr.New(errFileSystemNotFound, awserr.ErrNotFound)
 	// ErrBackupNotFound is returned when a backup does not exist.
 	ErrBackupNotFound = awserr.New(errBackupNotFound, awserr.ErrConflict)
-	// ErrValidation is returned on invalid input.
+	// ErrValidation is returned on invalid input (wire code: BadRequest).
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
+	// ErrMissingFileSystemConfiguration is returned when CreateFileSystem is
+	// called for WINDOWS/ONTAP/OPENZFS without the required per-type
+	// configuration block (WindowsConfiguration/OntapConfiguration/
+	// OpenZFSConfiguration).
+	ErrMissingFileSystemConfiguration = awserr.New("MissingFileSystemConfiguration", awserr.ErrInvalidParameter)
 	// ErrTagInvalid is returned when a tag key or value fails validation.
 	ErrTagInvalid = awserr.New("BadRequest", awserr.ErrInvalidParameter)
 	// ErrTagLimitExceeded is returned when the 50-tag-per-resource limit is exceeded.

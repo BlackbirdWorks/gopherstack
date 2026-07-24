@@ -108,20 +108,86 @@ type StorageBackend interface {
 // FileSystem represents an Amazon FSx file system.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
 type FileSystem struct {
-	CreationTime        epochTime            `json:"CreationTime"`
-	LustreConfiguration *LustreConfiguration `json:"LustreConfiguration,omitempty"`
-	FileSystemID        string               `json:"FileSystemId"`
-	FileSystemType      string               `json:"FileSystemType"`
-	Lifecycle           string               `json:"Lifecycle"`
-	ResourceARN         string               `json:"ResourceARN"`
-	DNSName             string               `json:"DNSName,omitempty"`
-	StorageType         string               `json:"StorageType,omitempty"`
-	VpcID               string               `json:"VpcId,omitempty"`
-	OwnersID            string               `json:"OwnerId,omitempty"`
-	SubnetIDs           []string             `json:"SubnetIds,omitempty"`
-	NetworkInterfaceIDs []string             `json:"NetworkInterfaceIds,omitempty"`
-	Tags                []Tag                `json:"Tags,omitempty"`
-	StorageCapacityGiB  int32                `json:"StorageCapacity,omitempty"`
+	CreationTime         epochTime             `json:"CreationTime"`
+	LustreConfiguration  *LustreConfiguration  `json:"LustreConfiguration,omitempty"`
+	WindowsConfiguration *WindowsConfiguration `json:"WindowsConfiguration,omitempty"`
+	OntapConfiguration   *OntapConfiguration   `json:"OntapConfiguration,omitempty"`
+	OpenZFSConfiguration *OpenZFSConfiguration `json:"OpenZFSConfiguration,omitempty"`
+	FileSystemID         string                `json:"FileSystemId"`
+	FileSystemType       string                `json:"FileSystemType"`
+	Lifecycle            string                `json:"Lifecycle"`
+	ResourceARN          string                `json:"ResourceARN"`
+	DNSName              string                `json:"DNSName,omitempty"`
+	StorageType          string                `json:"StorageType,omitempty"`
+	VpcID                string                `json:"VpcId,omitempty"`
+	OwnersID             string                `json:"OwnerId,omitempty"`
+	SubnetIDs            []string              `json:"SubnetIds,omitempty"`
+	NetworkInterfaceIDs  []string              `json:"NetworkInterfaceIds,omitempty"`
+	Tags                 []Tag                 `json:"Tags,omitempty"`
+	StorageCapacityGiB   int32                 `json:"StorageCapacity,omitempty"`
+}
+
+// WindowsConfiguration describes the Windows-specific configuration of an
+// FSx file system. Real AWS always returns this block for WINDOWS file
+// systems, with at least ThroughputCapacity and DeploymentType populated.
+// Aliases is not populated here: the source of truth for associated DNS
+// aliases is DescribeFileSystemAliases (see AssociateFileSystemAliases /
+// DisassociateFileSystemAliases in file_systems.go), which every client
+// this emulator targets already calls directly rather than reading this
+// convenience mirror.
+type WindowsConfiguration struct {
+	ActiveDirectoryID             string            `json:"ActiveDirectoryId,omitempty"`
+	DailyAutomaticBackupStartTime string            `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DeploymentType                string            `json:"DeploymentType,omitempty"`
+	PreferredSubnetID             string            `json:"PreferredSubnetId,omitempty"`
+	RemoteAdministrationEndpoint  string            `json:"RemoteAdministrationEndpoint,omitempty"`
+	WeeklyMaintenanceStartTime    string            `json:"WeeklyMaintenanceStartTime,omitempty"`
+	Aliases                       []FileSystemAlias `json:"Aliases,omitempty"`
+	AutomaticBackupRetentionDays  int32             `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32             `json:"ThroughputCapacity,omitempty"`
+	CopyTagsToBackups             bool              `json:"CopyTagsToBackups,omitempty"`
+}
+
+// OntapConfiguration describes the FSx for NetApp ONTAP-specific
+// configuration of an FSx file system. Real AWS always returns this block
+// for ONTAP file systems, with at least DeploymentType populated.
+type OntapConfiguration struct {
+	Endpoints                     *FileSystemEndpoints `json:"Endpoints,omitempty"`
+	DailyAutomaticBackupStartTime string               `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DeploymentType                string               `json:"DeploymentType,omitempty"`
+	EndpointIPAddressRange        string               `json:"EndpointIpAddressRange,omitempty"`
+	PreferredSubnetID             string               `json:"PreferredSubnetId,omitempty"`
+	AutomaticBackupRetentionDays  int32                `json:"AutomaticBackupRetentionDays,omitempty"`
+	HAPairs                       int32                `json:"HAPairs,omitempty"`
+	ThroughputCapacity            int32                `json:"ThroughputCapacity,omitempty"`
+	ThroughputCapacityPerHAPair   int32                `json:"ThroughputCapacityPerHAPair,omitempty"`
+}
+
+// OpenZFSConfiguration describes the FSx for OpenZFS-specific configuration
+// of an FSx file system. Real AWS always returns this block for OPENZFS
+// file systems, with at least DeploymentType and RootVolumeId populated.
+type OpenZFSConfiguration struct {
+	DailyAutomaticBackupStartTime string `json:"DailyAutomaticBackupStartTime,omitempty"`
+	DeploymentType                string `json:"DeploymentType,omitempty"`
+	PreferredSubnetID             string `json:"PreferredSubnetId,omitempty"`
+	RootVolumeID                  string `json:"RootVolumeId,omitempty"`
+	WeeklyMaintenanceStartTime    string `json:"WeeklyMaintenanceStartTime,omitempty"`
+	AutomaticBackupRetentionDays  int32  `json:"AutomaticBackupRetentionDays,omitempty"`
+	ThroughputCapacity            int32  `json:"ThroughputCapacity,omitempty"`
+	CopyTagsToBackups             bool   `json:"CopyTagsToBackups,omitempty"`
+	CopyTagsToVolumes             bool   `json:"CopyTagsToVolumes,omitempty"`
+}
+
+// FileSystemEndpoints holds the ONTAP management/intercluster endpoints
+// used to access data or manage the file system.
+type FileSystemEndpoints struct {
+	Intercluster *FileSystemEndpoint `json:"Intercluster,omitempty"`
+	Management   *FileSystemEndpoint `json:"Management,omitempty"`
+}
+
+// FileSystemEndpoint is a single DNS endpoint on an ONTAP file system.
+type FileSystemEndpoint struct {
+	DNSName string `json:"DNSName,omitempty"`
 }
 
 // LustreConfiguration describes the Lustre-specific configuration of an FSx

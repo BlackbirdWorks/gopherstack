@@ -20,7 +20,18 @@ const (
 	fileSystemTypeOpenZFS           = "OPENZFS"
 	dataRepositoryLifecycleDisabled = "DISABLED"
 	lustreDeploymentTypeScratch1    = "SCRATCH_1"
+	windowsDeploymentTypeSingleAZ1  = "SINGLE_AZ_1"
 	lustreMountNameLen              = 8
+
+	// defaultAutomaticBackupRetentionDays is the real-AWS default backup
+	// retention for Windows/ONTAP/OpenZFS file systems when the create
+	// request doesn't set AutomaticBackupRetentionDays.
+	defaultAutomaticBackupRetentionDays = 30
+	// defaultHAPairs is the real-AWS default HAPairs for ONTAP file systems.
+	defaultHAPairs = 1
+	// openZFSRootVolumeName is the fixed name AWS assigns to the
+	// auto-created root volume of every FSx for OpenZFS file system.
+	openZFSRootVolumeName = "fsx"
 
 	// Minimum StorageCapacity (GiB) enforced by real AWS FSx per file system type.
 	minStorageCapacityLustre  = 1200

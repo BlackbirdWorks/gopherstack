@@ -50,9 +50,30 @@ func doFSxRequest(t *testing.T, h *fsx.Handler, op string, body any) *httptest.R
 	return rec
 }
 
+// fileSystemCreateBody returns a CreateFileSystem request body for fsType.
+// Real AWS FSx requires a type-specific configuration block (with its own
+// required members, e.g. ThroughputCapacity) for WINDOWS/ONTAP/OPENZFS; this
+// mirrors the minimal valid request a real client would send so createFS
+// stays usable as a shared fixture across every _test.go file in this
+// package.
+func fileSystemCreateBody(fsType string) map[string]any {
+	body := map[string]any{"FileSystemType": fsType}
+
+	switch fsType {
+	case "WINDOWS":
+		body["WindowsConfiguration"] = map[string]any{"ThroughputCapacity": 8}
+	case "ONTAP":
+		body["OntapConfiguration"] = map[string]any{"DeploymentType": "SINGLE_AZ_1", "ThroughputCapacity": 128}
+	case "OPENZFS":
+		body["OpenZFSConfiguration"] = map[string]any{"DeploymentType": "SINGLE_AZ_1", "ThroughputCapacity": 64}
+	}
+
+	return body
+}
+
 func createFS(t *testing.T, h *fsx.Handler, fsType string) string {
 	t.Helper()
-	rec := doFSxRequest(t, h, "CreateFileSystem", map[string]any{"FileSystemType": fsType})
+	rec := doFSxRequest(t, h, "CreateFileSystem", fileSystemCreateBody(fsType))
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
