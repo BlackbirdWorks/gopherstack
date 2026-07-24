@@ -139,7 +139,19 @@ func TestBackend_UpdateLifecyclePolicy_PartialUpdate(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			err = b.UpdateLifecyclePolicy(p.PolicyID, tc.updateDesc, tc.updateRole, tc.updateState, nil)
+			// An empty test-table string means "field omitted from the
+			// request" (nil pointer), matching how handler.go decodes a
+			// missing JSON key -- not "explicitly cleared".
+			var updateDesc, updateRole *string
+			if tc.updateDesc != "" {
+				updateDesc = new(tc.updateDesc)
+			}
+
+			if tc.updateRole != "" {
+				updateRole = new(tc.updateRole)
+			}
+
+			err = b.UpdateLifecyclePolicy(p.PolicyID, updateDesc, updateRole, tc.updateState, nil)
 			require.NoError(t, err)
 
 			got, err := b.GetLifecyclePolicy(p.PolicyID)
@@ -147,6 +159,43 @@ func TestBackend_UpdateLifecyclePolicy_PartialUpdate(t *testing.T) {
 			assert.Equal(t, tc.wantDesc, got.Description)
 			assert.Equal(t, tc.wantRole, got.ExecutionRoleARN)
 			assert.Equal(t, tc.wantState, got.State)
+		})
+	}
+}
+
+// TestBackend_UpdateLifecyclePolicy_ExplicitEmptyClearsField verifies the
+// *string presence semantics on description/executionRoleARN: the real
+// UpdateLifecyclePolicyInput carries both as *string, and its serializer
+// only omits the wire JSON key when the pointer itself is nil (see
+// awsRestjson1_serializeOpDocumentUpdateLifecyclePolicyInput in the vendored
+// SDK) -- an explicit empty string is a real, distinct wire value, not a
+// synonym for "omitted".
+func TestBackend_UpdateLifecyclePolicy_ExplicitEmptyClearsField(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		description *string
+		name        string
+		wantDesc    string
+	}{
+		{name: "nil (omitted) leaves description unchanged", description: nil, wantDesc: "original"},
+		{name: "pointer to empty string clears description", description: new(""), wantDesc: ""},
+		{name: "pointer to new value sets description", description: new("new"), wantDesc: "new"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := dlm.NewInMemoryBackend("000000000000", "us-east-1")
+			p, err := b.CreateLifecyclePolicy("original", "arn:aws:iam::000000000000:role/r", "ENABLED", nil, nil)
+			require.NoError(t, err)
+
+			require.NoError(t, b.UpdateLifecyclePolicy(p.PolicyID, tc.description, nil, "", nil))
+
+			got, err := b.GetLifecyclePolicy(p.PolicyID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantDesc, got.Description)
 		})
 	}
 }
@@ -173,7 +222,7 @@ func TestBackend_UpdateLifecyclePolicy_NilDetailsPreserved(t *testing.T) {
 			require.NoError(t, err)
 
 			// Update with nil PolicyDetails — must not clear existing details.
-			require.NoError(t, b.UpdateLifecyclePolicy(p.PolicyID, "new desc", "", "", nil))
+			require.NoError(t, b.UpdateLifecyclePolicy(p.PolicyID, new("new desc"), nil, "", nil))
 
 			got, err := b.GetLifecyclePolicy(p.PolicyID)
 			require.NoError(t, err)

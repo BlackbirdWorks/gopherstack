@@ -380,7 +380,28 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			path: "/tags/arn:aws:dlm:us-east-1:000000000000:policy/policy-1",
 			want: true,
 		},
+		{
+			// pkgs/arn.Build derives the ARN partition from the backend's
+			// region (see arn.PartitionForRegion), so a GovCloud/China/ISO
+			// region backend generates PolicyArn values with a non-"aws"
+			// partition segment. The matcher must accept those too, or
+			// TagResource/UntagResource/ListTagsForResource would 404
+			// against ARNs this very backend created.
+			name: "matches /tags/ with GovCloud-partition dlm ARN",
+			path: "/tags/arn:aws-us-gov:dlm:us-gov-west-1:000000000000:policy/policy-1",
+			want: true,
+		},
+		{
+			name: "matches /tags/ with China-partition dlm ARN",
+			path: "/tags/arn:aws-cn:dlm:cn-north-1:000000000000:policy/policy-1",
+			want: true,
+		},
 		{name: "does not match /tags/ non-dlm ARN", path: "/tags/arn:aws:s3:::bucket", want: false},
+		{
+			name: "does not match /tags/ non-dlm ARN in a non-standard partition",
+			path: "/tags/arn:aws-us-gov:s3:::bucket",
+			want: false,
+		},
 		{name: "does not match unrelated path", path: "/ec2/instances", want: false},
 		{name: "does not match empty path", path: "/", want: false},
 	}

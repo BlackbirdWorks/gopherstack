@@ -68,12 +68,35 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		if strings.HasPrefix(path, pathTagsBase) {
-			return strings.HasPrefix(path[len(pathTagsBase):], "arn:aws:dlm:")
+			return isDLMResourceARN(path[len(pathTagsBase):])
 		}
 
 		return path == pathPoliciesBase ||
 			strings.HasPrefix(path, pathPoliciesSlash)
 	}
+}
+
+// isDLMResourceARN reports whether s looks like a DLM resource ARN, i.e.
+// "arn:<partition>:dlm:...". The partition segment must not be
+// hardcoded to "aws": pkgs/arn.Build derives it from the backend's region
+// (aws-us-gov, aws-cn, aws-iso, aws-iso-b), so a hardcoded "arn:aws:dlm:"
+// prefix check would silently reject every TagResource/UntagResource/
+// ListTagsForResource request against a policy created in a non-standard
+// partition -- the ARN this very backend generated in CreateLifecyclePolicy
+// would then fail to route back into its own handler.
+func isDLMResourceARN(s string) bool {
+	// arn : partition : service : region : account : resource -- splitting
+	// on the first arnSplitLimit-1 colons isolates the "service" segment
+	// (index arnServiceSegment) without needing to parse the remainder
+	// (region/account/resource, which may itself contain colons).
+	const (
+		arnServiceSegment = 2
+		arnSplitLimit     = arnServiceSegment + 2
+	)
+
+	parts := strings.SplitN(s, ":", arnSplitLimit)
+
+	return len(parts) > arnServiceSegment && parts[0] == "arn" && parts[arnServiceSegment] == "dlm"
 }
 
 // MatchPriority returns the routing priority.
@@ -148,7 +171,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	case opUntagResource:
 		resourceARN, _ := strings.CutPrefix(path, pathTagsBase)
 
-		return h.handleUntagResource(c, resourceARN, c.Request().URL.RawQuery)
+		return h.handleUntagResource(c, resourceARN, c.Request().URL.Query()["tagKeys"])
 
 	case opListTagsForResource:
 		resourceARN, _ := strings.CutPrefix(path, pathTagsBase)
@@ -298,10 +321,15 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, policyID string) err
 
 func (h *Handler) handleUpdateLifecyclePolicy(c *echo.Context, policyID string, body []byte) error {
 	var req struct {
-		PolicyDetails    map[string]any `json:"PolicyDetails"`
-		Description      string         `json:"Description"`
-		ExecutionRoleArn string         `json:"ExecutionRoleArn"`
-		State            string         `json:"State"`
+		PolicyDetails map[string]any `json:"PolicyDetails"`
+		// Description/ExecutionRoleArn are *string, not string: the real
+		// UpdateLifecyclePolicyInput carries them as pointers on the wire,
+		// so an explicit "" (clear the field) must be distinguishable from
+		// an omitted key (leave unchanged) -- see StorageBackend's doc
+		// comment on UpdateLifecyclePolicy.
+		Description      *string `json:"Description"`
+		ExecutionRoleArn *string `json:"ExecutionRoleArn"`
+		State            string  `json:"State"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -333,15 +361,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleUntagResource(c *echo.Context, resourceARN, rawQuery string) error {
-	var tagKeys []string
-
-	for part := range strings.SplitSeq(rawQuery, "&") {
-		if v, ok := strings.CutPrefix(part, "tagKeys="); ok {
-			tagKeys = append(tagKeys, v)
-		}
-	}
-
+func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, tagKeys []string) error {
 	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
 		return h.mapError(c, err)
 	}

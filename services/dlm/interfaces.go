@@ -13,7 +13,18 @@ type StorageBackend interface {
 	DeleteLifecyclePolicy(policyID string) error
 	GetLifecyclePolicies(filter PolicyFilter) ([]*PolicySummary, error)
 	GetLifecyclePolicy(policyID string) (*Policy, error)
-	UpdateLifecyclePolicy(policyID, description, executionRoleARN, state string, policyDetails map[string]any) error
+	// description and executionRoleARN are *string, not string, because the
+	// real UpdateLifecyclePolicyInput carries them as pointers: a nil pointer
+	// means the field was omitted from the request body (no change), while a
+	// non-nil pointer to "" means the caller explicitly sent an empty string
+	// (clear the field). A plain string parameter cannot distinguish those
+	// two wire states. State stays a plain string because
+	// SettablePolicyStateValues is a non-pointer value type on the wire (the
+	// real SDK's serializer only ever emits it `if len(State) > 0`, so an
+	// explicit empty State is not constructible even by the real SDK).
+	UpdateLifecyclePolicy(
+		policyID string, description, executionRoleARN *string, state string, policyDetails map[string]any,
+	) error
 
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
