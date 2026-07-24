@@ -10,8 +10,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// PutTableReplication marks a table as having replication enabled (legacy boolean form).
-func (b *InMemoryBackend) PutTableReplication(tableArn string) error {
+// PutTableReplication sets the replication configuration for a table. When
+// expectedVersionToken is non-empty it must match the table's currently
+// stored VersionToken (optimistic concurrency, mirroring
+// PutTableReplicationInput's optional versionToken query parameter); a
+// mismatch, or a token supplied when no configuration yet exists, returns
+// ErrTableVersionConflict. Returns the stored config (with a freshly minted
+// VersionToken) so the caller can build the {status, versionToken} response
+// PutTableReplicationOutput requires.
+func (b *InMemoryBackend) PutTableReplication(
+	tableArn, role string,
+	rules []ReplicationRule,
+	expectedVersionToken string,
+) (*TableReplicationConfig, error) {
 	b.muTables.RLock("PutTableReplication")
 	defer b.muTables.RUnlock()
 
@@ -19,16 +30,34 @@ func (b *InMemoryBackend) PutTableReplication(tableArn string) error {
 	defer b.muState.Unlock()
 
 	if !b.tables.Has(tableArn) {
-		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
+		return nil, fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
-	b.tableReplication[tableArn] = true
+	existing, hasExisting := b.tableReplication.Get(tableArn)
+	if expectedVersionToken != "" && (!hasExisting || existing.VersionToken != expectedVersionToken) {
+		return nil, fmt.Errorf(
+			"%w: stale version token for table replication %q",
+			ErrTableVersionConflict,
+			tableArn,
+		)
+	}
 
-	return nil
+	cfg := &TableReplicationConfig{
+		TableARN:     tableArn,
+		Role:         role,
+		Rules:        rules,
+		VersionToken: uuid.NewString(),
+	}
+	b.tableReplication.Put(cfg)
+
+	return cfg, nil
 }
 
-// DeleteTableReplication removes replication for a table.
-func (b *InMemoryBackend) DeleteTableReplication(tableArn string) error {
+// DeleteTableReplication removes the replication configuration for a table.
+// versionToken must match the stored VersionToken (mirroring
+// DeleteTableReplicationInput, where versionToken is a required field); a
+// mismatch returns ErrTableVersionConflict.
+func (b *InMemoryBackend) DeleteTableReplication(tableArn, versionToken string) error {
 	b.muTables.RLock("DeleteTableReplication")
 	defer b.muTables.RUnlock()
 
@@ -39,8 +68,24 @@ func (b *InMemoryBackend) DeleteTableReplication(tableArn string) error {
 		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
-	delete(b.tableReplication, tableArn)
-	delete(b.tableReplicationConfigs, tableArn)
+	existing, hasExisting := b.tableReplication.Get(tableArn)
+	if !hasExisting {
+		return fmt.Errorf(
+			"%w: no replication configuration for table %q",
+			ErrTableNotFound,
+			tableArn,
+		)
+	}
+
+	if existing.VersionToken != versionToken {
+		return fmt.Errorf(
+			"%w: stale version token for table replication %q",
+			ErrTableVersionConflict,
+			tableArn,
+		)
+	}
+
+	b.tableReplication.Delete(tableArn)
 
 	return nil
 }
@@ -66,7 +111,9 @@ func (b *InMemoryBackend) PutTableRecordExpirationConfiguration(
 	return nil
 }
 
-// GetTableRecordExpirationConfiguration returns record expiry config for a table, defaulting to DISABLED.
+// GetTableRecordExpirationConfiguration returns record expiry config for a
+// table, defaulting to the "disabled" TableRecordExpirationStatus wire value
+// when no configuration has been set.
 func (b *InMemoryBackend) GetTableRecordExpirationConfiguration(
 	tableArn string,
 ) (*TableRecordExpiryConfig, error) {
@@ -82,7 +129,7 @@ func (b *InMemoryBackend) GetTableRecordExpirationConfiguration(
 
 	cfg, ok := b.tableRecordExpiry.Get(tableArn)
 	if !ok {
-		return &TableRecordExpiryConfig{Status: "DISABLED"}, nil
+		return &TableRecordExpiryConfig{Status: recordExpirationStatusDisabled}, nil
 	}
 
 	return cfg, nil
@@ -117,26 +164,8 @@ func (b *InMemoryBackend) GetTableStorageClass(
 	return sc, nil
 }
 
-// SetTableReplicationConfig sets the replication config (map form) for a table.
-func (b *InMemoryBackend) SetTableReplicationConfig(tableArn string, config map[string]any) error {
-	b.muTables.RLock("SetTableReplicationConfig")
-	defer b.muTables.RUnlock()
-
-	b.muState.Lock("SetTableReplicationConfig")
-	defer b.muState.Unlock()
-
-	if !b.tables.Has(tableArn) {
-		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
-	}
-
-	b.tableReplication[tableArn] = true
-	b.tableReplicationConfigs[tableArn] = cloneAnyMap(config)
-
-	return nil
-}
-
 // GetTableReplicationConfig returns the replication config for a table.
-func (b *InMemoryBackend) GetTableReplicationConfig(tableArn string) (map[string]any, error) {
+func (b *InMemoryBackend) GetTableReplicationConfig(tableArn string) (*TableReplicationConfig, error) {
 	b.muTables.RLock("GetTableReplicationConfig")
 	defer b.muTables.RUnlock()
 
@@ -147,7 +176,7 @@ func (b *InMemoryBackend) GetTableReplicationConfig(tableArn string) (map[string
 		return nil, fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
-	cfg, ok := b.tableReplicationConfigs[tableArn]
+	cfg, ok := b.tableReplication.Get(tableArn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: no replication configuration for table %q",
@@ -156,7 +185,7 @@ func (b *InMemoryBackend) GetTableReplicationConfig(tableArn string) (map[string
 		)
 	}
 
-	return cloneAnyMap(cfg), nil
+	return cfg, nil
 }
 
 // ValidateTableExists checks that a table ARN exists in the backend.

@@ -10,12 +10,17 @@ import (
 )
 
 func (h *Handler) handleDeleteTableReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
-	tableArn := r.URL.Query().Get("tableArn")
+	tableArn := r.URL.Query().Get(keyTableArnLower)
 	if tableArn == "" {
 		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteTableReplication(tableArn); err != nil {
+	versionToken := r.URL.Query().Get(keyVersionToken)
+	if versionToken == "" {
+		return nil, fmt.Errorf("%w: versionToken is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteTableReplication(tableArn, versionToken); err != nil {
 		return nil, err
 	}
 
@@ -30,7 +35,7 @@ func (h *Handler) handleGetTableRecordExpirationConfiguration(
 	r *http.Request,
 	_ []byte,
 ) ([]byte, error) {
-	tableArn := r.URL.Query().Get("tableArn")
+	tableArn := r.URL.Query().Get(keyTableArnLower)
 	if tableArn == "" {
 		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
 	}
@@ -43,14 +48,23 @@ func (h *Handler) handleGetTableRecordExpirationConfiguration(
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table record expiration configuration", "tableArn", tableArn)
 
+	// GetTableRecordExpirationConfigurationOutput has a single required
+	// "configuration" member ({status, settings: {days}}) -- there is no
+	// top-level tableARN or status field on the real output (confirmed via
+	// deserializeOpDocumentGetTableRecordExpirationConfigurationOutput in
+	// aws-sdk-go-v2/service/s3tables's deserializers.go).
+	configuration := map[string]any{keyStatusField: cfg.Status}
+	if cfg.Days > 0 {
+		configuration[keySettings] = map[string]any{"days": cfg.Days}
+	}
+
 	return json.Marshal(map[string]any{
-		keyTableARN:    tableArn,
-		keyStatusField: cfg.Status,
+		keyConfiguration: configuration,
 	})
 }
 
 func (h *Handler) handleGetTableReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
-	tableArn := r.URL.Query().Get("tableArn")
+	tableArn := r.URL.Query().Get(keyTableArnLower)
 	if tableArn == "" {
 		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
 	}
@@ -64,8 +78,11 @@ func (h *Handler) handleGetTableReplication(ctx context.Context, r *http.Request
 	log.InfoContext(ctx, "s3tables: got table replication", "tableArn", tableArn)
 
 	return json.Marshal(map[string]any{
-		keyConfiguration: cfg,
-		keyVersionToken:  "",
+		keyConfiguration: map[string]any{
+			"role":  cfg.Role,
+			"rules": cfg.Rules,
+		},
+		keyVersionToken: cfg.VersionToken,
 	})
 }
 
@@ -75,28 +92,36 @@ type putTableReplicationRequest struct {
 }
 
 func (h *Handler) handlePutTableReplication(ctx context.Context, r *http.Request, body []byte) ([]byte, error) {
-	tableArn := r.URL.Query().Get("tableArn")
+	tableArn := r.URL.Query().Get(keyTableArnLower)
 	if tableArn == "" {
 		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
 	}
+
+	versionToken := r.URL.Query().Get(keyVersionToken)
 
 	var req putTableReplicationRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.SetTableReplicationConfig(tableArn, req.Configuration); err != nil {
+	role, rules := parseReplicationConfiguration(req.Configuration)
+
+	cfg, err := h.Backend.PutTableReplication(tableArn, role, rules, versionToken)
+	if err != nil {
 		return nil, err
 	}
 
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: put table replication", "tableArn", tableArn)
 
-	return nil, nil
+	return json.Marshal(map[string]any{
+		keyStatusField:  replicationStatusCompleted,
+		keyVersionToken: cfg.VersionToken,
+	})
 }
 
 func (h *Handler) handleGetTableReplicationStatus(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
-	tableArn := r.URL.Query().Get("tableArn")
+	tableArn := r.URL.Query().Get(keyTableArnLower)
 	if tableArn == "" {
 		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
 	}
@@ -108,9 +133,22 @@ func (h *Handler) handleGetTableReplicationStatus(ctx context.Context, r *http.R
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table replication status", "tableArn", tableArn)
 
+	destinations := []map[string]any{}
+
+	if cfg, err := h.Backend.GetTableReplicationConfig(tableArn); err == nil {
+		for _, rule := range cfg.Rules {
+			for _, dest := range rule.Destinations {
+				destinations = append(destinations, map[string]any{
+					"destinationTableBucketArn": dest.DestinationTableBucketARN,
+					"replicationStatus":         replicationStatusCompletedLower,
+				})
+			}
+		}
+	}
+
 	return json.Marshal(map[string]any{
 		"sourceTableArn": tableArn,
-		"destinations":   []any{},
+		"destinations":   destinations,
 	})
 }
 
@@ -124,7 +162,7 @@ func (h *Handler) handlePutTableRecordExpirationConfiguration(
 	r *http.Request,
 	body []byte,
 ) ([]byte, error) {
-	tableArn := r.URL.Query().Get("tableArn")
+	tableArn := r.URL.Query().Get(keyTableArnLower)
 	if tableArn == "" {
 		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
 	}
@@ -134,9 +172,15 @@ func (h *Handler) handlePutTableRecordExpirationConfiguration(
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	cfg := &TableRecordExpiryConfig{Status: "DISABLED"}
+	cfg := &TableRecordExpiryConfig{Status: recordExpirationStatusDisabled}
 	if st, ok := req.Value[keyStatusField].(string); ok {
 		cfg.Status = st
+	}
+
+	if settings, ok := req.Value[keySettings].(map[string]any); ok {
+		if days, isNum := settings["days"].(float64); isNum {
+			cfg.Days = int(days)
+		}
 	}
 
 	if err := h.Backend.PutTableRecordExpirationConfiguration(tableArn, cfg); err != nil {
@@ -154,7 +198,7 @@ func (h *Handler) handleGetTableRecordExpirationJobStatus(
 	r *http.Request,
 	_ []byte,
 ) ([]byte, error) {
-	tableArn := r.URL.Query().Get("tableArn")
+	tableArn := r.URL.Query().Get(keyTableArnLower)
 	if tableArn == "" {
 		return nil, fmt.Errorf("%w: tableArn is required", errInvalidRequest)
 	}
@@ -166,7 +210,20 @@ func (h *Handler) handleGetTableRecordExpirationJobStatus(
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table record expiration job status", "tableArn", tableArn)
 
+	// GetTableRecordExpirationJobStatusOutput.Status is the
+	// types.TableRecordExpirationJobStatus enum ("NotYetRun"/"Successful"/
+	// "Failed"/"Disabled" -- confirmed via enums.go), NOT the fabricated
+	// "SUCCEEDED" this previously returned (which matches no enum value at
+	// all). This in-memory backend runs no background expiration jobs, so a
+	// table with expiration enabled reports "NotYetRun"; one with no
+	// configuration (or explicitly disabled) reports "Disabled".
+	status := recordExpirationJobStatusDisabled
+	if cfg, err := h.Backend.GetTableRecordExpirationConfiguration(tableArn); err == nil &&
+		cfg.Status == statusEnabled {
+		status = recordExpirationJobStatusNotYetRun
+	}
+
 	return json.Marshal(map[string]any{
-		keyStatusField: "SUCCEEDED",
+		keyStatusField: status,
 	})
 }

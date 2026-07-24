@@ -40,7 +40,7 @@ func TableReplicationCount(b *InMemoryBackend) int {
 	b.muState.RLock("TableReplicationCount")
 	defer b.muState.RUnlock()
 
-	return len(b.tableReplication)
+	return b.tableReplication.Len()
 }
 
 // TableRecordExpiryCount returns the number of table record expiry configs in the backend.
