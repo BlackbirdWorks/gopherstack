@@ -26,7 +26,7 @@ func (h *Handler) handleStartADAssessment(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	assessmentID, startErr := h.Backend.StartADAssessment(h.contextWithRegion(c), req.DirectoryID)
@@ -62,7 +62,10 @@ func (h *Handler) handleDescribeADAssessment(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" || req.AssessmentID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and AssessmentId are required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "DirectoryId and AssessmentId are required"),
+		)
 	}
 
 	a, descErr := h.Backend.DescribeADAssessment(h.contextWithRegion(c), req.DirectoryID, req.AssessmentID)

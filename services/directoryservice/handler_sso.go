@@ -24,7 +24,7 @@ func (h *Handler) handleEnableSso(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if ssoErr := h.Backend.EnableSso(h.contextWithRegion(c), req.DirectoryID); ssoErr != nil {
@@ -49,7 +49,7 @@ func (h *Handler) handleDisableSso(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if ssoErr := h.Backend.DisableSso(h.contextWithRegion(c), req.DirectoryID); ssoErr != nil {

@@ -28,6 +28,10 @@ func TestRegions(t *testing.T) {
 			rec1 := doRequest(t, h, "AddRegion", map[string]any{
 				"DirectoryId": dirID,
 				"RegionName":  "us-west-2",
+				"VPCSettings": map[string]any{
+					"VpcId":     "vpc-123",
+					"SubnetIds": []string{"subnet-1", "subnet-2"},
+				},
 			})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 
@@ -37,7 +41,13 @@ func TestRegions(t *testing.T) {
 			var r2 map[string]any
 			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
 			regions, _ := r2["RegionsDescription"].([]any)
-			assert.Len(t, regions, 1)
+			require.Len(t, regions, 1)
+			region := regions[0].(map[string]any)
+			assert.NotEmpty(t, region["StatusLastUpdatedDateTime"])
+			assert.EqualValues(t, 2, region["DesiredNumberOfDomainControllers"])
+			vpc, ok := region["VpcSettings"].(map[string]any)
+			require.True(t, ok, "VpcSettings must be present on the wire")
+			assert.Equal(t, "vpc-123", vpc["VpcId"])
 
 			// Remove
 			rec3 := doRequest(t, h, "RemoveRegion", map[string]any{"DirectoryId": dirID})
@@ -54,4 +64,20 @@ func TestRegions(t *testing.T) {
 			_ = tc
 		})
 	}
+}
+
+func TestAddRegion_Validation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+
+	rec := doRequest(t, h, "AddRegion", map[string]any{
+		"DirectoryId": dirID,
+		"RegionName":  "us-west-2",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "InvalidParameterException", body["__type"])
 }

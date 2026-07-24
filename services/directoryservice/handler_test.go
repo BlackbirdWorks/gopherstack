@@ -18,6 +18,32 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
+// testCertPEM is a self-signed RSA-2048 certificate (CN=test) used by every
+// certificate parity test in this package, since RegisterCertificate parses
+// CertificateData as real PEM/X.509 and derives CommonName/ExpiryDateTime
+// from it (matching AWS's own contract for the field).
+// Generated with: openssl req -x509 -newkey rsa:2048 -keyout /dev/null -out - -days 3650 -nodes -subj "/CN=test".
+const testCertPEM = `-----BEGIN CERTIFICATE-----
+MIIC/zCCAeegAwIBAgIURQA1ea7ssWq2hJxY5habS2n67x8wDQYJKoZIhvcNAQEL
+BQAwDzENMAsGA1UEAwwEdGVzdDAeFw0yNjA2MjYxNTU3MzFaFw0zNjA2MjMxNTU3
+MzFaMA8xDTALBgNVBAMMBHRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK
+AoIBAQCTZgjXmrJtpbR3QMaMPF/TAp5dTr0T92wCw0sU0TUrYEEOy+sNpSrHHL2G
+bA3LCrces9M6SsKK9jlBUpd9THLccwDDZu9qadUgTYvufaMXrJRlaBVuDf7ek1Um
+SogeUz+J8mhdQvW2lHblDf14H6IF4ZZhWEWcBDGHNPvjrUgyArjEVgrBAnnmBRUJ
+j4Sd+ZU/56Xj9kMjXLcz/X+Xxx4enhQZaJ5RamyY2N05yMB5V9AdZhQNstttLHLa
+hcnWnQN6hGY592k/QESSd3iF7SKSYi9ibJHYdmL8ER8sDCfrMGA6p5kcfBlNs03d
+ZyloCovDxS8Ut67QPNRzoHVVlFuzAgMBAAGjUzBRMB0GA1UdDgQWBBRsmCv3SxDr
+aYhA7NougOn/HZtnGDAfBgNVHSMEGDAWgBRsmCv3SxDraYhA7NougOn/HZtnGDAP
+BgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQBun1ThOPLQ5uokRaNg
+L0lr39TK3vMZPD4FwUPbtLJ7DIiOhs2bs0VUIsawfeBW3Hy1BMuYPcNiVIn8YM9o
+F+KosTDHt9mUN56dNQdqHWoXYXGyu47m0642K0hs7AZaqbHmlHdqdfnd3Ej7Dd18
+5eWN4A/OsiWPZxCXN/UNOPQYY+iGo7Zzw5qhg4tmhzUJiA06IR1aXx6VvQpLy3Us
+sc+cWqCMXDtucv4DJ4+cvp8dnMo78XSEpCV6qyJcWjUjkLmqYKpxiwDtslVz5ktd
+CSPNOxS7HMW5q6nQ5NaTo2FivH0VfliOA3BspWypU02jPWghQkJTjRlzOeCK3PAu
+t/Kr
+-----END CERTIFICATE-----
+`
+
 // newTestHandler constructs a Handler backed by a fresh in-memory backend,
 // shared by every test file in this package.
 func newTestHandler(t *testing.T) *directoryservice.Handler {
@@ -434,7 +460,10 @@ func TestTimestamps_AreEpochSeconds(t *testing.T) {
 			name: "DescribeRegions LaunchTime",
 			setup: func(t *testing.T, h *directoryservice.Handler, dirID string) {
 				t.Helper()
-				rec := doRequest(t, h, "AddRegion", map[string]any{"DirectoryId": dirID, "RegionName": "us-west-2"})
+				rec := doRequest(t, h, "AddRegion", map[string]any{
+					"DirectoryId": dirID, "RegionName": "us-west-2",
+					"VPCSettings": map[string]any{"VpcId": "vpc-123", "SubnetIds": []string{"subnet-1", "subnet-2"}},
+				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
 			call: func(t *testing.T, h *directoryservice.Handler, dirID string) map[string]any {
@@ -480,6 +509,7 @@ func TestTimestamps_AreEpochSeconds(t *testing.T) {
 				t.Helper()
 				rec := doRequest(t, h, "CreateTrust", map[string]any{
 					"DirectoryId": dirID, "RemoteDomainName": "trusted.example.com",
+					"TrustPassword": "TrustPw1!", "TrustDirection": "Two-Way",
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},
@@ -527,7 +557,7 @@ func TestTimestamps_AreEpochSeconds(t *testing.T) {
 			setup: func(t *testing.T, h *directoryservice.Handler, dirID string) {
 				t.Helper()
 				rec := doRequest(t, h, "RegisterCertificate", map[string]any{
-					"DirectoryId": dirID, "CertificateData": "cert-data",
+					"DirectoryId": dirID, "CertificateData": testCertPEM,
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			},

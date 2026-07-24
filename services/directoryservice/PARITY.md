@@ -6,16 +6,16 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: directoryservice
 sdk_module: aws-sdk-go-v2/service/directoryservice@v1.38.20   # version audited against
-last_audit_commit: 1c6af314f4ed210dbc03be80042c6af2aa07448f   # HEAD when this manifest was written
-last_audit_date: 2026-07-12
-overall: A            # ~1k genuine fixes found (persistence registration + systemic epoch-timestamp wire bug)
+last_audit_commit: 1c6af314f4ed210dbc03be80042c6af2aa07448f   # stale -- git usage disallowed this pass; see last_audit_date
+last_audit_date: 2026-07-23
+overall: A            # error-code taxonomy fix (ClientException->InvalidParameterException, ~90 sites) + all 3 deferred enum-validation items closed + real X.509 cert parsing + 3 new wire-shape gaps found and fixed (Trust/Region/Directory)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   CreateDirectory: {wire: ok, errors: ok, state: ok, persist: ok, note: "Requested->Creating->Active lifecycle goroutine"}
   CreateMicrosoftAD: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDirectory: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades all dependent resources"}
-  DescribeDirectories: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeDirectories: {wire: FIXED, errors: ok, state: FIXED, persist: ok, note: "DirectoryDescription was missing StageLastUpdatedDateTime (explicitly flagged bug class) and DnsIpAddrs entirely; added both -- StageLastUpdatedDateTime now stamped by a shared setStage() helper on every Stage transition (create lifecycle + restore lifecycle), DnsIpAddrs synthesized deterministically from the directory ID. ConnectSettings/DesiredNumberOfDomainControllers/DnsIpv6Addrs/HybridSettings/NetworkType/OsVersion/OwnerDirectoryDescription/RadiusStatus/RegionsInfo/ShareMethod/ShareNotes/ShareStatus/StageReason remain unmirrored onto the top-level DirectoryDescription summary -- see gaps."}
   CreateAlias: {wire: ok, errors: ok, state: ok, persist: ok}
   EnableSso: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableSso: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -31,9 +31,9 @@ ops:
   AddIpRoutes: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "AddedDateTime was ISO8601 string, now awstime.Epoch"}
   RemoveIpRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
   ListIpRoutes: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "AddedDateTime epoch fix"}
-  AddRegion: {wire: ok, errors: ok, state: ok, persist: ok}
+  AddRegion: {wire: FIXED, errors: FIXED, state: FIXED, persist: ok, note: "VPCSettings is a required AddRegionInput member (DirectoryVpcSettings{VpcId,SubnetIds}) that was silently dropped -- handler used the generic 2-field helper and never parsed it. Now required+parsed+stored+echoed. RegionType=Additional/Status=Active confirmed valid against types.RegionType/DirectoryStage enums (closes the deferred RegionType/RegionStatus item)."}
   RemoveRegion: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeRegions: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "LaunchTime epoch fix"}
+  DescribeRegions: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "LaunchTime epoch fix (prior pass); this pass added the RegionDescription fields that were completely absent: VpcSettings, DesiredNumberOfDomainControllers (defaulted to 2, AddRegion has no request field for it), StatusLastUpdatedDateTime"}
   StartSchemaExtension: {wire: ok, errors: ok, state: ok, persist: ok}
   CancelSchemaExtension: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSchemaExtensions: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartDateTime/EndDateTime epoch fix"}
@@ -49,25 +49,25 @@ ops:
   DescribeEventTopics: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "CreatedDateTime epoch fix"}
   DescribeDomainControllers: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "LaunchTime epoch fix"}
   UpdateNumberOfDomainControllers: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateTrust: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateTrust: {wire: FIXED, errors: FIXED, state: FIXED, persist: ok, note: "TrustDirection (required per SDK) and TrustPassword had zero presence validation; TrustDirection/TrustType/SelectiveAuth accepted any free-form string (closes the deferred TrustDirection/TrustType item) -- now validated against types.TrustDirection/TrustType/SelectiveAuth enums with InvalidParameterException on mismatch. SelectiveAuth was silently ignored and hardcoded to Disabled on every create despite being a real optional CreateTrustInput member -- now wired through."}
   DeleteTrust: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeTrusts: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "CreatedDateTime/LastUpdatedDateTime epoch fix"}
-  UpdateTrust: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeTrusts: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "CreatedDateTime/LastUpdatedDateTime epoch fix (prior pass); this pass found StateLastUpdatedDateTime and TrustStateReason were tracked in TrustInfo/storedTrust but never serialized into the response map at all -- both real Trust struct members, now included (TrustStateReason omitted when empty, matching AWS's null-omission)."}
+  UpdateTrust: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "SelectiveAuth free-form (closes deferred item, now enum-validated); RequestId was fabricated by reusing TrustId instead of being a real per-request identifier (UpdateTrustOutput.RequestId is documented as the AWS request ID, not derived from TrustId) -- now uuid.NewString(), matching the CreateHybridAD/UpdateHybridAD RequestId pattern already used elsewhere in this service."}
   VerifyTrust: {wire: ok, errors: ok, state: ok, persist: ok}
   ShareDirectory: {wire: FIXED, errors: ok, state: FIXED, persist: ok, note: "HANDSHAKE now starts PendingAcceptance (was Shared, skipping the handshake); ORGANIZATIONS starts Shared"}
   UnshareDirectory: {wire: ok, errors: ok, state: ok, persist: ok}
   AcceptSharedDirectory: {wire: ok, errors: ok, state: ok, persist: ok}
   RejectSharedDirectory: {wire: ok, errors: ok, state: FIXED, persist: ok, note: "was setting ShareStatus=RejectFailed (the AWS enum value for a FAILED reject) on every SUCCESSFUL reject; now Rejected"}
   DescribeSharedDirectories: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "CreatedDateTime/LastUpdatedDateTime epoch fix"}
-  RegisterCertificate: {wire: ok, errors: ok, state: ok, persist: ok, note: "CommonName hardcoded to example.com -- no cert parsing; acceptable emulation shortcut, no wire/error impact"}
+  RegisterCertificate: {wire: FIXED, errors: FIXED, state: FIXED, persist: ok, note: "CLOSED the CommonName=example.com gap: CertificateData is documented as a real PEM string, so it is now decoded (encoding/pem) and parsed (crypto/x509); CommonName comes from cert.Subject.CommonName and ExpiryDateTime from cert.NotAfter (both previously fabricated/hardcoded). Unparseable CertificateData now returns the real InvalidCertificateException (was silently accepted). Type is now validated against CertificateType (ClientLDAPS/ClientCertAuth)."}
   DeregisterCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCertificates: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "ExpiryDateTime epoch fix"}
   DescribeCertificate: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "RegisteredDateTime/ExpiryDateTime epoch fix"}
-  EnableLDAPS: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisableLDAPS: {wire: ok, errors: ok, state: ok, persist: ok}
+  EnableLDAPS: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "Type accepted any free-form string; now validated against the LDAPSType enum (only Client is a valid value) -- closes deferred item"}
+  DisableLDAPS: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "same LDAPSType validation as EnableLDAPS"}
   DescribeLDAPSSettings: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "LastUpdatedDateTime/CertificateExpiryDateTime epoch fix"}
-  EnableClientAuthentication: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisableClientAuthentication: {wire: ok, errors: ok, state: ok, persist: ok}
+  EnableClientAuthentication: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "Type is a required AWS input member but had no presence or enum check at all; now required + validated against ClientAuthenticationType (SmartCard/SmartCardOrPassword) -- closes deferred item"}
+  DisableClientAuthentication: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "same Type validation as EnableClientAuthentication"}
   DescribeClientAuthenticationSettings: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "LastUpdatedDateTime epoch fix"}
   EnableRadius: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableRadius: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -88,7 +88,7 @@ ops:
   CreateComputer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "AWS has no Describe/List for computer accounts either; not persisting matches the real API's surface"}
   UpdateSettings: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeSettings: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "LastUpdatedDateTime epoch fix"}
-  UpdateDirectorySetup: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateDirectorySetup: {wire: FIXED, errors: FIXED, state: ok, persist: ok, note: "UpdateType is a required AWS input member but had no presence or enum check; now required + validated against UpdateType (OS/NETWORK/SIZE) -- closes deferred item"}
   DescribeUpdateDirectory: {wire: FIXED, errors: ok, state: ok, persist: ok, note: "StartTime/LastUpdatedDateTime epoch fix"}
   ResetUserPassword: {wire: ok, errors: ok, state: ok, persist: n/a}
   ConnectDirectory: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -97,14 +97,14 @@ families:
   persistence-registration: {status: FIXED, note: "Handler lacked Snapshot(ctx)/Restore(ctx,[]byte) delegation methods, so cli.go's setupPersistence type-assertion against the local `persistable` interface silently failed and directoryservice was NEVER registered with the persistence manager -- a fully-correct BackendSnapshot/Restore on InMemoryBackend was completely unreachable. Fixed by adding delegation methods to Handler (handler.go)."}
   timestamps: {status: FIXED, note: "22 call sites across handler_appendixa.go formatted timestamps as ISO8601 strings (time.Format(\"2006-01-02T15:04:05.000Z\")); confirmed against aws-sdk-go-v2 directoryservice deserializers.go that every timestamp field uses smithytime.ParseEpochSeconds (JSON number), so real SDK clients would fail to deserialize every affected List/Describe response. All converted to awstime.Epoch."}
   sdk_completeness: {status: ok, note: "sdk_completeness_test.go verifies every dssdk.Client op is in GetSupportedOperations(); notImplemented is empty -- full op coverage."}
+  error-taxonomy: {status: FIXED, note: "Systemic error-code bug across ~90 validation call sites in ~20 handler_*.go files: every request-validation failure (missing required field, invalid enum value) returned __type=\"ClientException\" instead of AWS's real InvalidParameterException (confirmed as a distinct documented exception in types/errors.go, present in nearly every op's real Errors list). Also fixed the dead-but-wrong mapError case for the backend awserr.ErrInvalidParameter sentinel (was also \"ClientException\"). Left \"invalid body\"/\"invalid JSON\" transport-parse failures and the backend awserr.ErrConflict case as ClientException (defensible: not a documented-parameter-value problem). Every corresponding test assertion updated; see handler_directories_test.go/handler_directories_extra_test.go/handler_test.go for the renamed expectations."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - RegisterCertificate hardcodes CommonName="example.com" instead of parsing CertificateData's X.509 subject; low-impact emulation shortcut, no wire/error divergence (no bd issue filed -- flag if a client asserts on CommonName)
+  - DirectoryDescription (DescribeDirectories/CreateDirectory/CreateMicrosoftAD/ConnectDirectory responses) does not mirror ConnectSettings, DesiredNumberOfDomainControllers, DnsIpv6Addrs, HybridSettings, NetworkType, OsVersion, OwnerDirectoryDescription, RadiusStatus, RegionsInfo, ShareMethod, ShareNotes, ShareStatus, StageReason onto the top-level summary, even though most of that data is independently trackable/retrievable via the dedicated Describe* ops for those sub-resources (DescribeRegions, radius.go, shared_directories.go, hybrid_ad.go). StageLastUpdatedDateTime and DnsIpAddrs were the two highest-value gaps in this set and were fixed this pass (see DescribeDirectories note above); the rest are lower-value summary duplication, not fixed (no bd issue filed).
+  - DomainController (DescribeDomainControllers response) is missing DnsIpAddr, DnsIpv6Addr, StatusLastUpdatedDateTime, StatusReason, SubnetId, VpcId -- confirmed against types.DomainController; storedDomainController only tracks ControllerID/DirectoryID/Status/AvailabilityZone/LaunchTime. Not fixed this pass (no bd issue filed); flag if a client asserts on domain-controller IP/subnet/VPC identity.
   - StartADAssessment/CreateTrust/ShareDirectory etc. complete synchronously instead of AWS's async in-progress states (e.g. no "Creating"/"Sharing"/"Verifying" transient states observable by a fast poller); acceptable for emulation, but a client that asserts on an intermediate state would diverge (no bd issue filed)
 deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - RegionType/RegionStatus enum value fidelity for AddRegion/DescribeRegions (values used: "Additional"/"Active" -- not cross-checked against the full RegionType/DirectoryStage enum in aws-sdk-go-v2/service/directoryservice/types/enums.go)
-  - TrustState/TrustDirection/TrustType free-form validation (CreateTrust accepts any string for TrustDirection/TrustType rather than validating against the SDK's TrustDirection/TrustType enums)
-  - LDAPSType/AuthType/UpdateType free-form validation (same free-string-accepted pattern across LDAPS, ClientAuthentication and UpdateDirectorySetup)
-leaks: {status: clean, note: "transitionDirectoryToActive and RestoreFromSnapshot's goroutine both self-terminate after two bounded time.Sleep stages (50ms/100ms); no unbounded loops, no leaked tickers/timers; isolation_test.go and the -race gate confirm no cross-region/cross-goroutine data races."}
+  - Full field-diff of every remaining "ok"-marked op family (conditional forwarders, log subscriptions, event topics, schema extensions, radius, shared directories, hybrid AD, AD assessments, settings) against their SDK response types was NOT repeated this pass beyond the epoch-timestamp sweep already recorded above; this pass's field-diffs concentrated on trusts/regions/certificates/directories because that's where the (now-closed) enum-validation deferred items and the explicitly-flagged StageLastUpdatedDateTime bug class pointed. Given the real gaps found in 3-for-3 families actually field-diffed this pass (Trust, Region, Directory all had missing/wrong wire fields despite being marked "ok"), the remaining "ok" families should NOT be trusted without an independent field-diff next pass.
+leaks: {status: clean, note: "transitionDirectoryToActive and RestoreFromSnapshot's goroutine both self-terminate after two bounded time.Sleep stages (50ms/100ms); no unbounded loops, no leaked tickers/timers; isolation_test.go and the -race gate confirm no cross-region/cross-goroutine data races. This pass added no new goroutines/tickers/locks -- setStage() is a plain synchronous helper called under the existing b.mu lock, verified by -race."}
 ---
 
 ## Notes
@@ -159,3 +159,30 @@ objects, not DS-managed resources), so there's nothing a client could read back 
 looked like a disguised no-op at first glance (RLock used for a "create" op, nothing
 stored) but is correct emulation of an op whose only observable effect in real AWS is the
 synchronous response itself.
+
+`InvalidParameterException` vs `ClientException` (2026-07-23 pass): both are real,
+distinct AWS Directory Service exception types (types/errors.go). Prior code used
+`ClientException` uniformly for every request-validation failure. AWS's own per-op Errors
+lists document `InvalidParameterException` as the code for "one or more parameters are not
+valid" (missing required members, invalid enum values) — that is what this service's
+handler-level and backend-level validation checks actually detect, so they now return
+`InvalidParameterException`. `ClientException` is now reserved for cases that are not a
+specific documented parameter problem: malformed/unparseable request bodies ("invalid
+body"/"invalid JSON") and the generic backend `awserr.ErrConflict` sentinel. Any new
+validation check added to this service should return `InvalidParameterException`, not
+`ClientException`, unless it's genuinely one of those two exempted cases.
+
+`setStage(d *storedDirectory, stage DirectoryStage)` (directories.go) is the single place
+that mutates `storedDirectory.Stage`; it also stamps `StageLastUpdatedDateTime = now()`.
+Both the create lifecycle (`transitionDirectoryToActive`) and the restore lifecycle
+(`RestoreFromSnapshot`'s goroutine) now go through it. Any future code that flips
+`Directory.Stage` directly instead of calling `setStage` will silently reintroduce the
+StageLastUpdatedDateTime bug class named in this campaign's brief.
+
+`synthesizeDNSIPAddrs(directoryID string) []string` (directories.go) derives two
+deterministic `10.0.x.y`-shaped addresses from a SHA-256 of the directory ID for the
+`DnsIpAddrs` field. This is a synthesized-but-consistent value (same directory ID always
+yields the same IPs, matching real AWS's stable-per-directory DNS IPs), not a random
+placeholder — documented here so a future auditor doesn't mistake it for a fabricated/stub
+value the "no stub" rule would forbid; the alternative (omitting the field, as before) was
+the actual parity bug.

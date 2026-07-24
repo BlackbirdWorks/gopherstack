@@ -10,7 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
-func (h *Handler) handleEnableClientAuthentication(c *echo.Context) error {
+func (h *Handler) handleEnableClientAuthentication(c *echo.Context) error { //nolint:dupl // enable/disable pair.
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
@@ -25,8 +25,12 @@ func (h *Handler) handleEnableClientAuthentication(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+	if req.DirectoryID == "" || req.Type == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId and Type are required"))
+	}
+	if !validEnum(req.Type,
+		string(ClientAuthenticationTypeSmartCard), string(ClientAuthenticationTypeSmartCardOrPassword)) {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid Type"))
 	}
 
 	enableErr := h.Backend.EnableClientAuthentication(h.contextWithRegion(c), req.DirectoryID, req.Type)
@@ -37,7 +41,7 @@ func (h *Handler) handleEnableClientAuthentication(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleDisableClientAuthentication(c *echo.Context) error {
+func (h *Handler) handleDisableClientAuthentication(c *echo.Context) error { //nolint:dupl // enable/disable pair.
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid body"))
@@ -52,8 +56,12 @@ func (h *Handler) handleDisableClientAuthentication(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+	if req.DirectoryID == "" || req.Type == "" {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId and Type are required"))
+	}
+	if !validEnum(req.Type,
+		string(ClientAuthenticationTypeSmartCard), string(ClientAuthenticationTypeSmartCardOrPassword)) {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid Type"))
 	}
 
 	disableErr := h.Backend.DisableClientAuthentication(h.contextWithRegion(c), req.DirectoryID, req.Type)
@@ -84,7 +92,7 @@ func (h *Handler) handleDescribeClientAuthenticationSettings(c *echo.Context) er
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	settings, nextToken, descErr := h.Backend.DescribeClientAuthenticationSettings(

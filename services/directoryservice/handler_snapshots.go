@@ -25,7 +25,7 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	snap, snapErr := h.Backend.CreateSnapshot(h.contextWithRegion(c), req.DirectoryID, req.Name)
@@ -53,7 +53,7 @@ func (h *Handler) handleDeleteSnapshot(c *echo.Context) error {
 	}
 
 	if req.SnapshotID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SnapshotId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "SnapshotId is required"))
 	}
 
 	if delErr := h.Backend.DeleteSnapshot(h.contextWithRegion(c), req.SnapshotID); delErr != nil {
@@ -125,7 +125,7 @@ func (h *Handler) handleGetSnapshotLimits(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	limits, limErr := h.Backend.GetSnapshotLimits(h.contextWithRegion(c), req.DirectoryID)
@@ -157,7 +157,7 @@ func (h *Handler) handleRestoreFromSnapshot(c *echo.Context) error {
 	}
 
 	if req.SnapshotID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SnapshotId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "SnapshotId is required"))
 	}
 
 	if restoreErr := h.Backend.RestoreFromSnapshot(h.contextWithRegion(c), req.SnapshotID); restoreErr != nil {

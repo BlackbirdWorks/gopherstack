@@ -14,6 +14,32 @@ func ctxRegion(region string) context.Context {
 	return context.WithValue(context.Background(), regionContextKey{}, region)
 }
 
+// isolationTestCertPEM is a self-signed RSA-2048 certificate (CN=test) used by
+// this file's certificate isolation test, since RegisterCertificate parses
+// CertificateData as real PEM/X.509. Identical fixture to handler_test.go's
+// testCertPEM, duplicated here because this file lives in the internal
+// (white-box) package rather than directoryservice_test.
+const isolationTestCertPEM = `-----BEGIN CERTIFICATE-----
+MIIC/zCCAeegAwIBAgIURQA1ea7ssWq2hJxY5habS2n67x8wDQYJKoZIhvcNAQEL
+BQAwDzENMAsGA1UEAwwEdGVzdDAeFw0yNjA2MjYxNTU3MzFaFw0zNjA2MjMxNTU3
+MzFaMA8xDTALBgNVBAMMBHRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK
+AoIBAQCTZgjXmrJtpbR3QMaMPF/TAp5dTr0T92wCw0sU0TUrYEEOy+sNpSrHHL2G
+bA3LCrces9M6SsKK9jlBUpd9THLccwDDZu9qadUgTYvufaMXrJRlaBVuDf7ek1Um
+SogeUz+J8mhdQvW2lHblDf14H6IF4ZZhWEWcBDGHNPvjrUgyArjEVgrBAnnmBRUJ
+j4Sd+ZU/56Xj9kMjXLcz/X+Xxx4enhQZaJ5RamyY2N05yMB5V9AdZhQNstttLHLa
+hcnWnQN6hGY592k/QESSd3iF7SKSYi9ibJHYdmL8ER8sDCfrMGA6p5kcfBlNs03d
+ZyloCovDxS8Ut67QPNRzoHVVlFuzAgMBAAGjUzBRMB0GA1UdDgQWBBRsmCv3SxDr
+aYhA7NougOn/HZtnGDAfBgNVHSMEGDAWgBRsmCv3SxDraYhA7NougOn/HZtnGDAP
+BgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQBun1ThOPLQ5uokRaNg
+L0lr39TK3vMZPD4FwUPbtLJ7DIiOhs2bs0VUIsawfeBW3Hy1BMuYPcNiVIn8YM9o
+F+KosTDHt9mUN56dNQdqHWoXYXGyu47m0642K0hs7AZaqbHmlHdqdfnd3Ej7Dd18
+5eWN4A/OsiWPZxCXN/UNOPQYY+iGo7Zzw5qhg4tmhzUJiA06IR1aXx6VvQpLy3Us
+sc+cWqCMXDtucv4DJ4+cvp8dnMo78XSEpCV6qyJcWjUjkLmqYKpxiwDtslVz5ktd
+CSPNOxS7HMW5q6nQ5NaTo2FivH0VfliOA3BspWypU02jPWghQkJTjRlzOeCK3PAu
+t/Kr
+-----END CERTIFICATE-----
+`
+
 // TestDirectoryRegionIsolation proves that directories created in two regions are
 // fully isolated: each region sees only its own directories, deleting in one region
 // leaves the other intact, and an ID created in one region is invisible from the other.
@@ -160,6 +186,7 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 		"pw",
 		"Two-Way",
 		"Forest",
+		"",
 	)
 	require.NoError(t, err)
 
@@ -178,7 +205,7 @@ func TestDependentResourceRegionIsolation(t *testing.T) {
 	eastCert, err := backend.RegisterCertificate(
 		ctxEast,
 		eastDir.DirectoryID,
-		"cert-data",
+		isolationTestCertPEM,
 		"ClientLDAPS",
 	)
 	require.NoError(t, err)

@@ -53,7 +53,7 @@ type StorageBackend interface {
 	RemoveIpRoutes(ctx context.Context, directoryID string, cidrIPs []string) error
 	ListIpRoutes(ctx context.Context, directoryID string, limit int32, nextToken string) ([]IpRoute, string, error)
 
-	AddRegion(ctx context.Context, directoryID, regionName string) error
+	AddRegion(ctx context.Context, directoryID, regionName string, vpcSettings *DirectoryVpcSettings) error
 	RemoveRegion(ctx context.Context, directoryID string) error
 	DescribeRegions(ctx context.Context, directoryID, regionName, nextToken string) ([]RegionDescription, string, error)
 
@@ -99,7 +99,7 @@ type StorageBackend interface {
 
 	CreateTrust(
 		ctx context.Context,
-		directoryID, remoteDomainName, trustPassword, trustDirection, trustType string,
+		directoryID, remoteDomainName, trustPassword, trustDirection, trustType, selectiveAuth string,
 	) (string, error)
 	DeleteTrust(ctx context.Context, trustID string) (string, error)
 	DescribeTrusts(
@@ -254,6 +254,55 @@ const (
 	SnapshotTypeManual SnapshotType = "Manual"
 )
 
+// TrustDirection matches the AWS TrustDirection enum.
+type TrustDirection string
+
+const (
+	TrustDirectionOneWayOutgoing TrustDirection = "One-Way: Outgoing"
+	TrustDirectionOneWayIncoming TrustDirection = "One-Way: Incoming"
+	TrustDirectionTwoWay         TrustDirection = "Two-Way"
+)
+
+// TrustType matches the AWS TrustType enum.
+type TrustType string
+
+const (
+	TrustTypeForest   TrustType = "Forest"
+	TrustTypeExternal TrustType = "External"
+)
+
+// SelectiveAuth matches the AWS SelectiveAuth enum.
+type SelectiveAuth string
+
+const (
+	SelectiveAuthEnabled  SelectiveAuth = "Enabled"
+	SelectiveAuthDisabled SelectiveAuth = "Disabled"
+)
+
+// LDAPSType matches the AWS LDAPSType enum.
+type LDAPSType string
+
+const (
+	LDAPSTypeClient LDAPSType = "Client"
+)
+
+// ClientAuthenticationType matches the AWS ClientAuthenticationType enum.
+type ClientAuthenticationType string
+
+const (
+	ClientAuthenticationTypeSmartCard           ClientAuthenticationType = "SmartCard"
+	ClientAuthenticationTypeSmartCardOrPassword ClientAuthenticationType = "SmartCardOrPassword"
+)
+
+// UpdateType matches the AWS UpdateType enum.
+type UpdateType string
+
+const (
+	UpdateTypeOS      UpdateType = "OS"
+	UpdateTypeNetwork UpdateType = "NETWORK"
+	UpdateTypeSize    UpdateType = "SIZE"
+)
+
 // DirectoryVpcSettings holds VPC networking settings for a directory.
 type DirectoryVpcSettings struct {
 	VpcID             string
@@ -265,19 +314,21 @@ type DirectoryVpcSettings struct {
 // Directory represents an AWS Directory Service directory.
 // LaunchTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type Directory struct {
-	LaunchTime  time.Time
-	VpcSettings *DirectoryVpcSettings
-	DirectoryID string
-	Name        string
-	ShortName   string
-	Description string
-	Alias       string
-	AccessURL   string
-	Type        DirectoryType
-	Stage       DirectoryStage
-	Size        DirectorySize
-	Edition     DirectoryEdition
-	SsoEnabled  bool
+	LaunchTime               time.Time
+	StageLastUpdatedDateTime time.Time
+	VpcSettings              *DirectoryVpcSettings
+	DirectoryID              string
+	Name                     string
+	ShortName                string
+	Description              string
+	Alias                    string
+	AccessURL                string
+	Type                     DirectoryType
+	Stage                    DirectoryStage
+	Size                     DirectorySize
+	Edition                  DirectoryEdition
+	DNSIPAddrs               []string
+	SsoEnabled               bool
 }
 
 // Snapshot represents an AWS Directory Service snapshot.

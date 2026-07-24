@@ -35,7 +35,7 @@ func (h *Handler) handleDeleteLogSubscription(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if delErr := h.Backend.DeleteLogSubscription(h.contextWithRegion(c), req.DirectoryID); delErr != nil {

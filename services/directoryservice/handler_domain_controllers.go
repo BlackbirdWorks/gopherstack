@@ -30,7 +30,7 @@ func (h *Handler) handleDescribeDomainControllers(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	dcs, nextToken, descErr := h.Backend.DescribeDomainControllers(
@@ -76,7 +76,7 @@ func (h *Handler) handleUpdateNumberOfDomainControllers(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	updateErr := h.Backend.UpdateNumberOfDomainControllers(h.contextWithRegion(c), req.DirectoryID, req.DesiredNumber)

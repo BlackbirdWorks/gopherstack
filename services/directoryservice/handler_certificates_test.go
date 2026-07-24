@@ -2,7 +2,6 @@ package directoryservice_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"testing"
 
@@ -18,10 +17,10 @@ func TestListCertificates_Pagination(t *testing.T) {
 		h := newTestHandler(t)
 		dirID := mustCreateMicrosoftAD(t, h, "corp.example.com")
 
-		for i := range 4 {
+		for range 4 {
 			doRequest(t, h, "RegisterCertificate", map[string]any{
 				"DirectoryId":     dirID,
-				"CertificateData": fmt.Sprintf("cert-data-%d", i),
+				"CertificateData": testCertPEM,
 				"Type":            "ClientLDAPS",
 			})
 		}
@@ -69,7 +68,7 @@ func TestCertificates(t *testing.T) {
 			// Register
 			rec1 := doRequest(t, h, "RegisterCertificate", map[string]any{
 				"DirectoryId":     dirID,
-				"CertificateData": "-----BEGIN CERTIFICATE-----\nMIIA...",
+				"CertificateData": testCertPEM,
 				"Type":            "ClientLDAPS",
 			})
 			assert.Equal(t, http.StatusOK, rec1.Code)
@@ -96,6 +95,7 @@ func TestCertificates(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3))
 			cert, _ := r3["Certificate"].(map[string]any)
 			assert.Equal(t, certID, cert["CertificateId"])
+			assert.Equal(t, "test", cert["CommonName"], "CommonName must be parsed from the X.509 subject")
 
 			// Deregister
 			rec4 := doRequest(t, h, "DeregisterCertificate", map[string]any{
@@ -157,6 +157,38 @@ func TestCAEnrollmentPolicy(t *testing.T) {
 			assert.Equal(t, "Disabled", policy2["EnrollmentStatus"])
 
 			_ = tc
+		})
+	}
+}
+
+func TestRegisterCertificate_InvalidPEM(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "not PEM at all", data: "not-a-certificate"},
+		{
+			name: "PEM wrapper with garbage body",
+			data: "-----BEGIN CERTIFICATE-----\nMIIA...\n-----END CERTIFICATE-----",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			dirID := mustCreateSimpleAD(t, h, "corp.example.com")
+
+			rec := doRequest(t, h, "RegisterCertificate", map[string]any{
+				"DirectoryId":     dirID,
+				"CertificateData": tt.data,
+				"Type":            "ClientLDAPS",
+			})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			body := respBody(t, rec)
+			assert.Equal(t, "InvalidCertificateException", body["__type"])
 		})
 	}
 }

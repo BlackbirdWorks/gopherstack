@@ -48,7 +48,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	}))
 
 	// dsRegions
-	require.NoError(t, original.AddRegion(ctx, dirID, "us-west-2"))
+	require.NoError(t, original.AddRegion(ctx, dirID, "us-west-2", &directoryservice.DirectoryVpcSettings{
+		VpcID:     "vpc-123",
+		SubnetIDs: []string{"subnet-1", "subnet-2"},
+	}))
 
 	// schemaExtensions
 	_, err = original.StartSchemaExtension(ctx, dirID, "add attr", "dn: cn=schema")
@@ -67,7 +70,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.UpdateNumberOfDomainControllers(ctx, dirID, 2))
 
 	// trusts
-	trustID, err := original.CreateTrust(ctx, dirID, "trusted.example.com", "TrustPW1!", "Two-Way", "Forest")
+	trustID, err := original.CreateTrust(ctx, dirID, "trusted.example.com", "TrustPW1!", "Two-Way", "Forest", "")
 	require.NoError(t, err)
 
 	// sharedDirectories
@@ -75,7 +78,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// certificates
-	certID, err := original.RegisterCertificate(ctx, dirID, "cert-data", "ClientCertAuth")
+	certID, err := original.RegisterCertificate(ctx, dirID, testCertPEM, "ClientCertAuth")
 	require.NoError(t, err)
 
 	// ldapsSettings
@@ -225,7 +228,8 @@ func assertTrustStateRestored(t *testing.T, b *directoryservice.InMemoryBackend,
 
 	cert, err := b.DescribeCertificate(ctx, dirID, certID)
 	require.NoError(t, err)
-	assert.Equal(t, "cert-data", cert.CertData)
+	assert.Equal(t, testCertPEM, cert.CertData)
+	assert.Equal(t, "test", cert.CommonName)
 
 	ldaps, _, err := b.DescribeLDAPSSettings(ctx, dirID, "", 0, "")
 	require.NoError(t, err)

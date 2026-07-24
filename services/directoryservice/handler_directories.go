@@ -36,13 +36,13 @@ func (h *Handler) handleCreateDirectory(c *echo.Context) error {
 	}
 
 	if req.Name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Name is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Name is required"))
 	}
 	if req.Password == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Password is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Password is required"))
 	}
 	if req.Size != string(DirectorySizeSmall) && req.Size != string(DirectorySizeLarge) {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Size must be Small or Large"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Size must be Small or Large"))
 	}
 
 	tags := reqTagsToTags(req.Tags)
@@ -101,10 +101,10 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 	}
 
 	if req.Name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Name is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Name is required"))
 	}
 	if req.Password == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Password is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Password is required"))
 	}
 
 	edition := DirectoryEdition(req.Edition)
@@ -112,7 +112,10 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 		edition = DirectoryEditionEnterprise
 	}
 	if edition != DirectoryEditionEnterprise && edition != DirectoryEditionStandard {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Edition must be Enterprise or Standard"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "Edition must be Enterprise or Standard"),
+		)
 	}
 
 	tags := reqTagsToTags(req.Tags)
@@ -159,7 +162,7 @@ func (h *Handler) handleDeleteDirectory(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if delErr := h.Backend.DeleteDirectory(h.contextWithRegion(c), req.DirectoryID); delErr != nil {
@@ -230,7 +233,7 @@ func (h *Handler) handleCreateAlias(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" || req.Alias == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and Alias are required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId and Alias are required"))
 	}
 
 	if aliasErr := h.Backend.CreateAlias(h.contextWithRegion(c), req.DirectoryID, req.Alias); aliasErr != nil {
@@ -278,7 +281,10 @@ func (h *Handler) handleCreateComputer(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" || req.ComputerName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and ComputerName are required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "DirectoryId and ComputerName are required"),
+		)
 	}
 
 	computer, createErr := h.Backend.CreateComputer(
@@ -316,7 +322,10 @@ func (h *Handler) handleResetUserPassword(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" || req.UserName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId and UserName are required"))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "DirectoryId and UserName are required"),
+		)
 	}
 
 	resetErr := h.Backend.ResetUserPassword(h.contextWithRegion(c), req.DirectoryID, req.UserName, req.NewPassword)
@@ -350,13 +359,13 @@ func (h *Handler) handleConnectDirectory(c *echo.Context) error {
 	}
 
 	if req.Name == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Name is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Name is required"))
 	}
 	if req.Password == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Password is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Password is required"))
 	}
 	if req.Size != string(DirectorySizeSmall) && req.Size != string(DirectorySizeLarge) {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "Size must be Small or Large"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "Size must be Small or Large"))
 	}
 
 	tags := reqTagsToTags(req.Tags)

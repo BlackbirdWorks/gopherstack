@@ -31,7 +31,7 @@ func (h *Handler) handleShareDirectory(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	shareMethod := req.ShareMethod
@@ -72,7 +72,7 @@ func (h *Handler) handleUnshareDirectory(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	sharedDirID, unshareErr := h.Backend.UnshareDirectory(h.contextWithRegion(c), req.DirectoryID, req.UnshareTarget.ID)
@@ -98,7 +98,7 @@ func (h *Handler) handleAcceptSharedDirectory(c *echo.Context) error {
 	}
 
 	if req.SharedDirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SharedDirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "SharedDirectoryId is required"))
 	}
 
 	id, acceptErr := h.Backend.AcceptSharedDirectory(h.contextWithRegion(c), req.SharedDirectoryID)
@@ -126,7 +126,7 @@ func (h *Handler) handleRejectSharedDirectory(c *echo.Context) error {
 	}
 
 	if req.SharedDirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "SharedDirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "SharedDirectoryId is required"))
 	}
 
 	id, rejectErr := h.Backend.RejectSharedDirectory(h.contextWithRegion(c), req.SharedDirectoryID)
@@ -157,7 +157,7 @@ func (h *Handler) handleDescribeSharedDirectories(c *echo.Context) error {
 	}
 
 	if req.OwnerDirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "OwnerDirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "OwnerDirectoryId is required"))
 	}
 
 	dirs, nextToken, descErr := h.Backend.DescribeSharedDirectories(

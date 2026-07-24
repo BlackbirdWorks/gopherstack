@@ -27,7 +27,7 @@ func (h *Handler) handleEnableDirectoryDataAccess(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if enableErr := h.Backend.EnableDirectoryDataAccess(h.contextWithRegion(c), req.DirectoryID); enableErr != nil {
@@ -52,7 +52,7 @@ func (h *Handler) handleDisableDirectoryDataAccess(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	if disableErr := h.Backend.DisableDirectoryDataAccess(h.contextWithRegion(c), req.DirectoryID); disableErr != nil {
@@ -77,7 +77,7 @@ func (h *Handler) handleDescribeDirectoryDataAccess(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	status, descErr := h.Backend.DescribeDirectoryDataAccess(h.contextWithRegion(c), req.DirectoryID)
@@ -116,7 +116,7 @@ func (h *Handler) handleUpdateSettings(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	settings := make([]DirectorySetting, 0, len(req.Settings))
@@ -151,7 +151,7 @@ func (h *Handler) handleDescribeSettings(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	settings, nextToken, descErr := h.Backend.DescribeSettings(
@@ -203,8 +203,14 @@ func (h *Handler) handleUpdateDirectorySetup(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
-	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+	if req.DirectoryID == "" || req.UpdateType == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterException", "DirectoryId and UpdateType are required"),
+		)
+	}
+	if !validEnum(req.UpdateType, string(UpdateTypeOS), string(UpdateTypeNetwork), string(UpdateTypeSize)) {
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid UpdateType"))
 	}
 
 	if updateErr := h.Backend.UpdateDirectorySetup(
@@ -236,7 +242,7 @@ func (h *Handler) handleDescribeUpdateDirectory(c *echo.Context) error {
 	}
 
 	if req.DirectoryID == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ClientException", "DirectoryId is required"))
+		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "DirectoryId is required"))
 	}
 
 	entries, nextToken, descErr := h.Backend.DescribeUpdateDirectory(
