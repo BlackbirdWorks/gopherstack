@@ -13,10 +13,9 @@ const (
 
 	harvestJobStatusSucceeded = "SUCCEEDED"
 
-	resourceTypeChannel                = "channels"
-	resourceTypeOriginEndpoint         = "origin_endpoints"
-	resourceTypeHarvestJob             = "harvest_jobs"
-	resourceTypePackagingConfiguration = "packaging_configurations"
+	resourceTypeChannel        = "channels"
+	resourceTypeOriginEndpoint = "origin_endpoints"
+	resourceTypeHarvestJob     = "harvest_jobs"
 )
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
@@ -27,7 +26,6 @@ type InMemoryBackend struct {
 	originEndpoints          *store.Table[storedOriginEndpoint]
 	originEndpointsByChannel *store.Index[storedOriginEndpoint]
 	harvestJobs              *store.Table[storedHarvestJob]
-	packagingConfigurations  *store.Table[storedPackagingConfiguration]
 	tags                     map[string]map[string]string
 	accountID                string
 	region                   string
@@ -73,8 +71,4 @@ func (b *InMemoryBackend) buildOriginEndpointARN(id string) string {
 
 func (b *InMemoryBackend) buildHarvestJobARN(id string) string {
 	return arn.Build("mediapackage", b.region, b.accountID, resourceTypeHarvestJob+"/"+id)
-}
-
-func (b *InMemoryBackend) buildPackagingConfigARN(id string) string {
-	return arn.Build("mediapackage", b.region, b.accountID, resourceTypePackagingConfiguration+"/"+id)
 }

@@ -210,33 +210,3 @@ func (b *InMemoryBackend) RotateIngestEndpointCredentials(channelID, ingestEndpo
 
 	return ch.toChannel(), nil
 }
-
-// PutChannelLifecyclePolicy stores a lifecycle policy on a channel.
-func (b *InMemoryBackend) PutChannelLifecyclePolicy(channelID, policy string) error {
-	b.mu.Lock("PutChannelLifecyclePolicy")
-	defer b.mu.Unlock()
-
-	ch, ok := b.channels.Get(channelID)
-	if !ok {
-		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
-	}
-	ch.LifecyclePolicy = &policy
-
-	return nil
-}
-
-// GetChannelLifecyclePolicy retrieves the lifecycle policy for a channel.
-func (b *InMemoryBackend) GetChannelLifecyclePolicy(channelID string) (string, error) {
-	b.mu.RLock("GetChannelLifecyclePolicy")
-	defer b.mu.RUnlock()
-
-	ch, ok := b.channels.Get(channelID)
-	if !ok {
-		return "", fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
-	}
-	if ch.LifecyclePolicy == nil {
-		return "", fmt.Errorf("%w: no lifecycle policy for channel %s", ErrNotFound, channelID)
-	}
-
-	return *ch.LifecyclePolicy, nil
-}

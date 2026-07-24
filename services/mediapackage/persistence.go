@@ -24,8 +24,8 @@ const mediapackageSnapshotVersion = 1
 // backend.
 //
 // Tables holds one JSON-encoded array per registered table name, produced by
-// b.registry.SnapshotAll() (channels, originEndpoints, harvestJobs,
-// packagingConfigurations -- see store_setup.go). Tags is left as a plain
+// b.registry.SnapshotAll() (channels, originEndpoints, harvestJobs -- see
+// store_setup.go). Tags is left as a plain
 // field: it is a non-*T value map (map[string]map[string]string, keyed by
 // ARN), which does not fit store.Table's keyed shape. Version guards against
 // decoding a snapshot from an incompatible (older or newer) build of this

@@ -17,13 +17,10 @@ import (
 const (
 	matchPriority = service.PriorityPathVersioned
 
-	pathChannels                = "/channels"
-	pathOriginEndpoints         = "/origin_endpoints"
-	pathHarvestJobs             = "/harvest_jobs"
-	pathPackagingConfigurations = "/packaging_configurations"
-	pathTags                    = "/tags/"
-
-	subLifecyclePolicy = "lifecycle_policy"
+	pathChannels        = "/channels"
+	pathOriginEndpoints = "/origin_endpoints"
+	pathHarvestJobs     = "/harvest_jobs"
+	pathTags            = "/tags/"
 
 	// sigV4Service is the SigV4 signing name MediaPackage SDK clients use. The
 	// "/channels" REST path is shared with IoT Analytics and MediaTailor, so we
@@ -55,14 +52,6 @@ const (
 	opTagResource         = "TagResource"
 	opUntagResource       = "UntagResource"
 	opListTagsForResource = "ListTagsForResource"
-
-	opCreatePackagingConfiguration   = "CreatePackagingConfiguration"
-	opDescribePackagingConfiguration = "DescribePackagingConfiguration"
-	opDeletePackagingConfiguration   = "DeletePackagingConfiguration"
-	opListPackagingConfigurations    = "ListPackagingConfigurations"
-
-	opPutChannelLifecyclePolicy = "PutChannelLifecyclePolicy"
-	opGetChannelLifecyclePolicy = "GetChannelLifecyclePolicy"
 
 	opUnknown = "Unknown"
 )
@@ -105,12 +94,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		opTagResource,
 		opUntagResource,
 		opListTagsForResource,
-		opCreatePackagingConfiguration,
-		opDescribePackagingConfiguration,
-		opDeletePackagingConfiguration,
-		opListPackagingConfigurations,
-		opPutChannelLifecyclePolicy,
-		opGetChannelLifecyclePolicy,
 	}
 }
 
@@ -133,8 +116,6 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, pathOriginEndpoints+"/") ||
 			path == pathHarvestJobs ||
 			strings.HasPrefix(path, pathHarvestJobs+"/") ||
-			path == pathPackagingConfigurations ||
-			strings.HasPrefix(path, pathPackagingConfigurations+"/") ||
 			isMediaPackageTagPath(path)
 
 		return pathMatch
@@ -199,23 +180,17 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		opRotateIngestEndpointCred: func() error {
 			return h.handleRotateIngestEndpointCredentials(c, c.Request().URL.Path)
 		},
-		opCreateOriginEndpoint:           func() error { return h.handleCreateOriginEndpoint(c, body) },
-		opDescribeOriginEndpoint:         func() error { return h.handleDescribeOriginEndpoint(c, resource) },
-		opUpdateOriginEndpoint:           func() error { return h.handleUpdateOriginEndpoint(c, resource, body) },
-		opDeleteOriginEndpoint:           func() error { return h.handleDeleteOriginEndpoint(c, resource) },
-		opListOriginEndpoints:            func() error { return h.handleListOriginEndpoints(c) },
-		opCreateHarvestJob:               func() error { return h.handleCreateHarvestJob(c, body) },
-		opDescribeHarvestJob:             func() error { return h.handleDescribeHarvestJob(c, resource) },
-		opListHarvestJobs:                func() error { return h.handleListHarvestJobs(c) },
-		opTagResource:                    func() error { return h.handleTagResource(c, resource, body) },
-		opUntagResource:                  func() error { return h.handleUntagResource(c, resource) },
-		opListTagsForResource:            func() error { return h.handleListTagsForResource(c, resource) },
-		opCreatePackagingConfiguration:   func() error { return h.handleCreatePackagingConfiguration(c, body) },
-		opDescribePackagingConfiguration: func() error { return h.handleDescribePackagingConfiguration(c, resource) },
-		opDeletePackagingConfiguration:   func() error { return h.handleDeletePackagingConfiguration(c, resource) },
-		opListPackagingConfigurations:    func() error { return h.handleListPackagingConfigurations(c) },
-		opPutChannelLifecyclePolicy:      func() error { return h.handlePutChannelLifecyclePolicy(c, resource, body) },
-		opGetChannelLifecyclePolicy:      func() error { return h.handleGetChannelLifecyclePolicy(c, resource) },
+		opCreateOriginEndpoint:   func() error { return h.handleCreateOriginEndpoint(c, body) },
+		opDescribeOriginEndpoint: func() error { return h.handleDescribeOriginEndpoint(c, resource) },
+		opUpdateOriginEndpoint:   func() error { return h.handleUpdateOriginEndpoint(c, resource, body) },
+		opDeleteOriginEndpoint:   func() error { return h.handleDeleteOriginEndpoint(c, resource) },
+		opListOriginEndpoints:    func() error { return h.handleListOriginEndpoints(c) },
+		opCreateHarvestJob:       func() error { return h.handleCreateHarvestJob(c, body) },
+		opDescribeHarvestJob:     func() error { return h.handleDescribeHarvestJob(c, resource) },
+		opListHarvestJobs:        func() error { return h.handleListHarvestJobs(c) },
+		opTagResource:            func() error { return h.handleTagResource(c, resource, body) },
+		opUntagResource:          func() error { return h.handleUntagResource(c, resource) },
+		opListTagsForResource:    func() error { return h.handleListTagsForResource(c, resource) },
 	}
 
 	if fn, ok := handlers[op]; ok {
@@ -235,10 +210,6 @@ func classifyPath(method, path string) (string, string) {
 	}
 
 	if op, res, ok := classifyHarvestJobPath(method, path); ok {
-		return op, res
-	}
-
-	if op, res, ok := classifyPackagingConfigPath(method, path); ok {
 		return op, res
 	}
 
@@ -296,10 +267,6 @@ func classifyChannelSubOp(method, sub string) string {
 		return opRotateChannelCred
 	case sub == "configure_logs" && method == http.MethodPut:
 		return opConfigureLogs
-	case sub == subLifecyclePolicy && method == http.MethodPut:
-		return opPutChannelLifecyclePolicy
-	case sub == subLifecyclePolicy && method == http.MethodGet:
-		return opGetChannelLifecyclePolicy
 	}
 
 	// PUT /channels/{id}/ingest_endpoints/{ingestEndpointId}/credentials
@@ -359,35 +326,6 @@ func classifyHarvestJobPath(method, path string) (string, string, bool) {
 
 	if method == http.MethodGet {
 		return opDescribeHarvestJob, id, true
-	}
-
-	return opUnknown, id, true
-}
-
-func classifyPackagingConfigPath(method, path string) (string, string, bool) {
-	const prefix = pathPackagingConfigurations + "/"
-
-	switch {
-	case path == pathPackagingConfigurations && method == http.MethodGet:
-		return opListPackagingConfigurations, "", true
-	case path == pathPackagingConfigurations && method == http.MethodPost:
-		return opCreatePackagingConfiguration, "", true
-	}
-
-	if !strings.HasPrefix(path, prefix) {
-		return "", "", false
-	}
-
-	id := strings.TrimPrefix(path, prefix)
-	if strings.Contains(id, "/") {
-		return opUnknown, "", false
-	}
-
-	switch method {
-	case http.MethodGet:
-		return opDescribePackagingConfiguration, id, true
-	case http.MethodDelete:
-		return opDeletePackagingConfiguration, id, true
 	}
 
 	return opUnknown, id, true

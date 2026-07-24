@@ -199,11 +199,6 @@ func TestNotFound_ErrorType(t *testing.T) {
 		{name: "describe missing channel includes __type", method: http.MethodGet, path: "/channels/no-such"},
 		{name: "describe missing endpoint includes __type", method: http.MethodGet, path: "/origin_endpoints/no-such"},
 		{name: "describe missing harvest job includes __type", method: http.MethodGet, path: "/harvest_jobs/no-such"},
-		{
-			name:   "describe missing packaging config includes __type",
-			method: http.MethodGet,
-			path:   "/packaging_configurations/no-such",
-		},
 	}
 
 	for _, tc := range tests {

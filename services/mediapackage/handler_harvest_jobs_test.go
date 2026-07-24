@@ -404,6 +404,69 @@ func TestHarvestJob_RequiredFields(t *testing.T) {
 			},
 			wantCode: http.StatusUnprocessableEntity,
 		},
+		{
+			name: "missing startTime returns 422",
+			body: map[string]any{
+				"id":               "job2",
+				"originEndpointId": "ep",
+				"endTime":          "2024-01-02T00:00:00Z",
+				"s3Destination":    map[string]any{"bucketName": "b", "manifestKey": "m", "roleArn": "r"},
+			},
+			wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "missing endTime returns 422",
+			body: map[string]any{
+				"id":               "job3",
+				"originEndpointId": "ep",
+				"startTime":        "2024-01-01T00:00:00Z",
+				"s3Destination":    map[string]any{"bucketName": "b", "manifestKey": "m", "roleArn": "r"},
+			},
+			wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "missing s3Destination returns 422",
+			body: map[string]any{
+				"id":               "job4",
+				"originEndpointId": "ep",
+				"startTime":        "2024-01-01T00:00:00Z",
+				"endTime":          "2024-01-02T00:00:00Z",
+			},
+			wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "s3Destination missing bucketName returns 422",
+			body: map[string]any{
+				"id":               "job5",
+				"originEndpointId": "ep",
+				"startTime":        "2024-01-01T00:00:00Z",
+				"endTime":          "2024-01-02T00:00:00Z",
+				"s3Destination":    map[string]any{"manifestKey": "m", "roleArn": "r"},
+			},
+			wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "s3Destination missing manifestKey returns 422",
+			body: map[string]any{
+				"id":               "job6",
+				"originEndpointId": "ep",
+				"startTime":        "2024-01-01T00:00:00Z",
+				"endTime":          "2024-01-02T00:00:00Z",
+				"s3Destination":    map[string]any{"bucketName": "b", "roleArn": "r"},
+			},
+			wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "s3Destination missing roleArn returns 422",
+			body: map[string]any{
+				"id":               "job7",
+				"originEndpointId": "ep",
+				"startTime":        "2024-01-01T00:00:00Z",
+				"endTime":          "2024-01-02T00:00:00Z",
+				"s3Destination":    map[string]any{"bucketName": "b", "manifestKey": "m"},
+			},
+			wantCode: http.StatusUnprocessableEntity,
+		},
 	}
 
 	for _, tc := range tests {

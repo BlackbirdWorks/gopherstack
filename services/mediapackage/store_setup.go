@@ -6,14 +6,14 @@ package mediapackage
 // services/dax (data-driven, direct registration -- see pkgs/store's package
 // doc for the underlying primitive).
 //
-// channels, originEndpoints, harvestJobs, and packagingConfigurations each
-// key off a real, non-json:"-" identity field the value type already
-// carries (storedChannel.ID, storedOriginEndpoint.ID, storedHarvestJob.ID,
-// storedPackagingConfiguration.ID), and every one of those IDs is globally
-// unique (MediaPackage v1 origin endpoint and harvest job IDs are top-level
-// resource identifiers, not scoped to their parent channel -- ChannelID is
-// just a foreign-key field). So all four register directly on b.registry, no
-// DTO indirection needed.
+// channels, originEndpoints, and harvestJobs each key off a real,
+// non-json:"-" identity field the value type already carries
+// (storedChannel.ID, storedOriginEndpoint.ID, storedHarvestJob.ID), and
+// every one of those IDs is globally unique (MediaPackage v1 origin
+// endpoint and harvest job IDs are top-level resource identifiers, not
+// scoped to their parent channel -- ChannelID is just a foreign-key
+// field). So all three register directly on b.registry, no DTO indirection
+// needed.
 //
 // originEndpoints additionally gets a secondary store.Index grouping by
 // ChannelID, replacing the linear scans DeleteChannel and
@@ -32,8 +32,6 @@ func storedOriginEndpointKeyFn(v *storedOriginEndpoint) string { return v.ID }
 
 func storedHarvestJobKeyFn(v *storedHarvestJob) string { return v.ID }
 
-func storedPackagingConfigurationKeyFn(v *storedPackagingConfiguration) string { return v.ID }
-
 // registerAllTables constructs and registers every store.Table-backed
 // resource field exactly once, at construction time. It must be called
 // during construction only, never on every Reset(): store.Register panics on
@@ -49,7 +47,4 @@ func registerAllTables(b *InMemoryBackend) {
 	)
 
 	b.harvestJobs = store.Register(b.registry, "harvestJobs", store.New(storedHarvestJobKeyFn))
-	b.packagingConfigurations = store.Register(
-		b.registry, "packagingConfigurations", store.New(storedPackagingConfigurationKeyFn),
-	)
 }
