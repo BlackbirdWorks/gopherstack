@@ -72,6 +72,7 @@ type putConformancePackInput struct {
 	ConformancePackName string `json:"ConformancePackName"`
 	DeliveryS3Bucket    string `json:"DeliveryS3Bucket,omitempty"`
 	DeliveryS3KeyPrefix string `json:"DeliveryS3KeyPrefix,omitempty"`
+	TemplateBody        string `json:"TemplateBody,omitempty"`
 }
 
 func (h *Handler) handlePutConformancePack(
@@ -81,6 +82,7 @@ func (h *Handler) handlePutConformancePack(
 		in.ConformancePackName,
 		in.DeliveryS3Bucket,
 		in.DeliveryS3KeyPrefix,
+		in.TemplateBody,
 	)
 }
 
@@ -101,8 +103,13 @@ func (h *Handler) handleDescribeConformancePackStatus(
 }
 
 // DescribeConformancePackCompliance request/response types and handler.
+type describeConformancePackComplianceFiltersBody struct {
+	ComplianceType  string   `json:"ComplianceType,omitempty"`
+	ConfigRuleNames []string `json:"ConfigRuleNames,omitempty"`
+}
 type describeConformancePackComplianceInput struct {
-	ConformancePackName string `json:"ConformancePackName"`
+	Filters             *describeConformancePackComplianceFiltersBody `json:"Filters,omitempty"`
+	ConformancePackName string                                        `json:"ConformancePackName"`
 }
 type describeConformancePackComplianceOutput struct {
 	ConformancePackRuleComplianceList []ConformancePackComplianceItem `json:"ConformancePackRuleComplianceList"`
@@ -111,74 +118,159 @@ type describeConformancePackComplianceOutput struct {
 func (h *Handler) handleDescribeConformancePackCompliance(
 	_ context.Context, in *describeConformancePackComplianceInput,
 ) (*describeConformancePackComplianceOutput, error) {
-	return &describeConformancePackComplianceOutput{
-		ConformancePackRuleComplianceList: h.Backend.DescribeConformancePackCompliance(in.ConformancePackName),
-	}, nil
+	var ruleNames []string
+	var complianceType string
+
+	if in.Filters != nil {
+		ruleNames = in.Filters.ConfigRuleNames
+		complianceType = in.Filters.ComplianceType
+	}
+
+	items, err := h.Backend.DescribeConformancePackCompliance(in.ConformancePackName, ruleNames, complianceType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeConformancePackComplianceOutput{ConformancePackRuleComplianceList: items}, nil
 }
 
 // GetConformancePackComplianceDetails request/response types and handler.
+type getConformancePackComplianceDetailsFiltersBody struct {
+	ComplianceType  string   `json:"ComplianceType,omitempty"`
+	ResourceType    string   `json:"ResourceType,omitempty"`
+	ConfigRuleNames []string `json:"ConfigRuleNames,omitempty"`
+	ResourceIDs     []string `json:"ResourceIds,omitempty"`
+}
+type getConformancePackComplianceDetailsInput struct {
+	Filters             *getConformancePackComplianceDetailsFiltersBody `json:"Filters,omitempty"`
+	ConformancePackName string                                          `json:"ConformancePackName"`
+}
 type getConformancePackComplianceDetailsOutput struct {
-	ConformancePackRuleEvaluationResults []any `json:"ConformancePackRuleEvaluationResults"`
+	ConformancePackName                  string                     `json:"ConformancePackName"`
+	ConformancePackRuleEvaluationResults []DetailedEvaluationResult `json:"ConformancePackRuleEvaluationResults"`
 }
 
 func (h *Handler) handleGetConformancePackComplianceDetails(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getConformancePackComplianceDetailsInput,
 ) (*getConformancePackComplianceDetailsOutput, error) {
+	var ruleNames, resourceIDs []string
+	var complianceType, resourceType string
+
+	if in.Filters != nil {
+		ruleNames = in.Filters.ConfigRuleNames
+		complianceType = in.Filters.ComplianceType
+		resourceType = in.Filters.ResourceType
+		resourceIDs = in.Filters.ResourceIDs
+	}
+
+	results, err := h.Backend.GetConformancePackComplianceDetails(
+		in.ConformancePackName, ruleNames, resourceType, resourceIDs, complianceType,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &getConformancePackComplianceDetailsOutput{
-		ConformancePackRuleEvaluationResults: h.Backend.GetConformancePackComplianceDetails(),
+		ConformancePackName:                  in.ConformancePackName,
+		ConformancePackRuleEvaluationResults: results,
 	}, nil
 }
 
 // GetConformancePackComplianceSummary request/response types and handler.
+type getConformancePackComplianceSummaryInput struct {
+	ConformancePackNames []string `json:"ConformancePackNames"`
+}
 type getConformancePackComplianceSummaryOutput struct {
-	ConformancePackComplianceSummaryList []any `json:"ConformancePackComplianceSummaryList"`
+	Summaries []ConformancePackComplianceSummaryEntry `json:"ConformancePackComplianceSummaryList"`
 }
 
 func (h *Handler) handleGetConformancePackComplianceSummary(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getConformancePackComplianceSummaryInput,
 ) (*getConformancePackComplianceSummaryOutput, error) {
-	return &getConformancePackComplianceSummaryOutput{
-		ConformancePackComplianceSummaryList: h.Backend.GetConformancePackComplianceSummary(),
-	}, nil
+	summaries, err := h.Backend.GetConformancePackComplianceSummary(in.ConformancePackNames)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getConformancePackComplianceSummaryOutput{Summaries: summaries}, nil
 }
 
 // GetAggregateConformancePackComplianceSummary request/response types and handler.
+type getAggregateConformancePackComplianceSummaryInput struct {
+	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+	GroupByKey                  string `json:"GroupByKey,omitempty"`
+}
 type getAggregateConformancePackComplianceSummaryOutput struct {
-	AggregateConformancePackComplianceSummaries []any `json:"AggregateConformancePackComplianceSummaries"`
+	Summaries []AggregateConformancePackComplianceSummary `json:"AggregateConformancePackComplianceSummaries"`
 }
 
 func (h *Handler) handleGetAggregateConformancePackComplianceSummary(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getAggregateConformancePackComplianceSummaryInput,
 ) (*getAggregateConformancePackComplianceSummaryOutput, error) {
-	return &getAggregateConformancePackComplianceSummaryOutput{
-		AggregateConformancePackComplianceSummaries: h.Backend.GetAggregateConformancePackComplianceSummary(),
-	}, nil
+	summaries, err := h.Backend.GetAggregateConformancePackComplianceSummary(
+		in.ConfigurationAggregatorName, in.GroupByKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getAggregateConformancePackComplianceSummaryOutput{Summaries: summaries}, nil
 }
 
 // ListConformancePackComplianceScores request/response types and handler.
+type listConformancePackComplianceScoresFiltersBody struct {
+	ConformancePackNames []string `json:"ConformancePackNames"`
+}
+type listConformancePackComplianceScoresInput struct {
+	Filters *listConformancePackComplianceScoresFiltersBody `json:"Filters,omitempty"`
+}
 type listConformancePackComplianceScoresOutput struct {
-	ConformancePackComplianceScores []any `json:"ConformancePackComplianceScores"`
+	ConformancePackComplianceScores []ConformancePackComplianceScoreEntry `json:"ConformancePackComplianceScores"`
 }
 
 func (h *Handler) handleListConformancePackComplianceScores(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *listConformancePackComplianceScoresInput,
 ) (*listConformancePackComplianceScoresOutput, error) {
+	var names []string
+	if in.Filters != nil {
+		names = in.Filters.ConformancePackNames
+	}
+
 	return &listConformancePackComplianceScoresOutput{
-		ConformancePackComplianceScores: h.Backend.ListConformancePackComplianceScores(),
+		ConformancePackComplianceScores: h.Backend.ListConformancePackComplianceScores(names),
 	}, nil
 }
 
 // DescribeAggregateComplianceByConformancePacks request/response types and handler.
+type aggComplianceByConformancePacksFilters struct {
+	AccountID string `json:"AccountId,omitempty"`
+	AwsRegion string `json:"AwsRegion,omitempty"`
+}
+type describeAggregateComplianceByConformancePacksInput struct {
+	Filters                     *aggComplianceByConformancePacksFilters `json:"Filters,omitempty"`
+	ConfigurationAggregatorName string                                  `json:"ConfigurationAggregatorName"`
+}
 type describeAggregateComplianceByConformancePacksOutput struct {
-	AggregateComplianceByConformancePacks []any `json:"AggregateComplianceByConformancePacks"`
+	Results []AggregateComplianceByConformancePack `json:"AggregateComplianceByConformancePacks"`
 }
 
 func (h *Handler) handleDescribeAggregateComplianceByConformancePacks(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeAggregateComplianceByConformancePacksInput,
 ) (*describeAggregateComplianceByConformancePacksOutput, error) {
-	return &describeAggregateComplianceByConformancePacksOutput{
-		AggregateComplianceByConformancePacks: h.Backend.DescribeAggregateComplianceByConformancePacks(),
-	}, nil
+	var accountID, awsRegion string
+	if in.Filters != nil {
+		accountID = in.Filters.AccountID
+		awsRegion = in.Filters.AwsRegion
+	}
+
+	results, err := h.Backend.DescribeAggregateComplianceByConformancePacks(
+		in.ConfigurationAggregatorName, accountID, awsRegion,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeAggregateComplianceByConformancePacksOutput{Results: results}, nil
 }
 
 // buildConformancePackDispatch returns dispatch entries for conformance pack ops.

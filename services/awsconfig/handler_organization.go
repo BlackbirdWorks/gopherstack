@@ -161,29 +161,61 @@ func (h *Handler) handleDescribeOrganizationConformancePackStatuses(
 }
 
 // GetOrganizationConfigRuleDetailedStatus request/response types and handler.
+type getOrganizationConfigRuleDetailedStatusFiltersBody struct {
+	AccountID string `json:"AccountId,omitempty"`
+}
+type getOrganizationConfigRuleDetailedStatusInput struct {
+	Filters                    *getOrganizationConfigRuleDetailedStatusFiltersBody `json:"Filters,omitempty"`
+	OrganizationConfigRuleName string                                              `json:"OrganizationConfigRuleName"`
+}
 type getOrganizationConfigRuleDetailedStatusOutput struct {
-	OrganizationConfigRuleDetailedStatus []any `json:"OrganizationConfigRuleDetailedStatus"`
+	OrganizationConfigRuleDetailedStatus []MemberAccountStatus `json:"OrganizationConfigRuleDetailedStatus"`
 }
 
 func (h *Handler) handleGetOrganizationConfigRuleDetailedStatus(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getOrganizationConfigRuleDetailedStatusInput,
 ) (*getOrganizationConfigRuleDetailedStatusOutput, error) {
-	return &getOrganizationConfigRuleDetailedStatusOutput{
-		OrganizationConfigRuleDetailedStatus: h.Backend.GetOrganizationConfigRuleDetailedStatus(),
-	}, nil
+	var accountID string
+	if in.Filters != nil {
+		accountID = in.Filters.AccountID
+	}
+
+	statuses, err := h.Backend.GetOrganizationConfigRuleDetailedStatus(in.OrganizationConfigRuleName, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getOrganizationConfigRuleDetailedStatusOutput{OrganizationConfigRuleDetailedStatus: statuses}, nil
 }
 
 // GetOrganizationConformancePackDetailedStatus request/response types and handler.
+type orgConformancePackDetailedStatusFilters struct {
+	AccountID string `json:"AccountId,omitempty"`
+}
+type getOrganizationConformancePackDetailedStatusInput struct {
+	Filters                         *orgConformancePackDetailedStatusFilters `json:"Filters,omitempty"`
+	OrganizationConformancePackName string                                   `json:"OrganizationConformancePackName"`
+}
 type getOrganizationConformancePackDetailedStatusOutput struct {
-	OrganizationConformancePackDetailedStatuses []any `json:"OrganizationConformancePackDetailedStatuses"`
+	Statuses []OrganizationConformancePackDetailedStatus `json:"OrganizationConformancePackDetailedStatuses"`
 }
 
 func (h *Handler) handleGetOrganizationConformancePackDetailedStatus(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getOrganizationConformancePackDetailedStatusInput,
 ) (*getOrganizationConformancePackDetailedStatusOutput, error) {
-	return &getOrganizationConformancePackDetailedStatusOutput{
-		OrganizationConformancePackDetailedStatuses: h.Backend.GetOrganizationConformancePackDetailedStatus(),
-	}, nil
+	var accountID string
+	if in.Filters != nil {
+		accountID = in.Filters.AccountID
+	}
+
+	statuses, err := h.Backend.GetOrganizationConformancePackDetailedStatus(
+		in.OrganizationConformancePackName, accountID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getOrganizationConformancePackDetailedStatusOutput{Statuses: statuses}, nil
 }
 
 // GetOrganizationCustomRulePolicy request/response types and handler.

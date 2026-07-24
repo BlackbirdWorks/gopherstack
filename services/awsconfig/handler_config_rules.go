@@ -75,7 +75,11 @@ func (h *Handler) handleDescribeConfigRules(
 		return nil, fmt.Errorf("%w: invalid NextToken", ErrValidation)
 	}
 
-	all := h.Backend.DescribeConfigRules(in.ConfigRuleNames)
+	all, err := h.Backend.DescribeConfigRules(in.ConfigRuleNames)
+	if err != nil {
+		return nil, err
+	}
+
 	p := page.New(all, in.NextToken, describeConfigRulesPageSize, describeConfigRulesPageSize)
 
 	return &describeConfigRulesOutput{ConfigRules: p.Data, NextToken: p.Next}, nil
@@ -98,7 +102,10 @@ func (h *Handler) handleGetComplianceDetailsByConfigRule(
 	_ context.Context,
 	in *getComplianceDetailsByConfigRuleInput,
 ) (*getComplianceDetailsByConfigRuleOutput, error) {
-	results := h.Backend.GetComplianceDetailsByConfigRule(in.ConfigRuleName, in.ComplianceTypes)
+	results, err := h.Backend.GetComplianceDetailsByConfigRule(in.ConfigRuleName, in.ComplianceTypes)
+	if err != nil {
+		return nil, err
+	}
 
 	return &getComplianceDetailsByConfigRuleOutput{EvaluationResults: results}, nil
 }
@@ -227,16 +234,24 @@ func (h *Handler) handleDescribeComplianceByConfigRule(
 }
 
 // DescribeComplianceByResource request/response types and handler.
+type describeComplianceByResourceInput struct {
+	ResourceType    string   `json:"ResourceType,omitempty"`
+	ResourceID      string   `json:"ResourceId,omitempty"`
+	NextToken       string   `json:"NextToken,omitempty"`
+	ComplianceTypes []string `json:"ComplianceTypes,omitempty"`
+}
+
 type describeComplianceByResourceOutput struct {
-	ComplianceByResources []any `json:"ComplianceByResources"`
+	NextToken             string                 `json:"NextToken,omitempty"`
+	ComplianceByResources []ComplianceByResource `json:"ComplianceByResources"`
 }
 
 func (h *Handler) handleDescribeComplianceByResource(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeComplianceByResourceInput,
 ) (*describeComplianceByResourceOutput, error) {
-	return &describeComplianceByResourceOutput{
-		ComplianceByResources: h.Backend.DescribeComplianceByResource(),
-	}, nil
+	byResource := h.Backend.DescribeComplianceByResource(in.ResourceType, in.ResourceID, in.ComplianceTypes)
+
+	return &describeComplianceByResourceOutput{ComplianceByResources: byResource}, nil
 }
 
 // GetComplianceDetailsByResource request/response types and handler.
@@ -290,29 +305,56 @@ func (h *Handler) handleGetComplianceSummaryByResourceType(
 }
 
 // GetAggregateComplianceDetailsByConfigRule request/response types and handler.
+type getAggregateComplianceDetailsByConfigRuleInput struct {
+	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+	ConfigRuleName              string `json:"ConfigRuleName"`
+	AccountID                   string `json:"AccountId"`
+	AwsRegion                   string `json:"AwsRegion"`
+	NextToken                   string `json:"NextToken,omitempty"`
+	ComplianceType              string `json:"ComplianceType,omitempty"`
+	Limit                       int    `json:"Limit,omitempty"`
+}
+
 type getAggregateComplianceDetailsByConfigRuleOutput struct {
-	AggregateEvaluationResults []any `json:"AggregateEvaluationResults"`
+	AggregateEvaluationResults []AggregateEvaluationResult `json:"AggregateEvaluationResults"`
 }
 
 func (h *Handler) handleGetAggregateComplianceDetailsByConfigRule(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getAggregateComplianceDetailsByConfigRuleInput,
 ) (*getAggregateComplianceDetailsByConfigRuleOutput, error) {
-	return &getAggregateComplianceDetailsByConfigRuleOutput{
-		AggregateEvaluationResults: h.Backend.GetAggregateComplianceDetailsByConfigRule(),
-	}, nil
+	var complianceTypes []string
+	if in.ComplianceType != "" {
+		complianceTypes = []string{in.ComplianceType}
+	}
+
+	results, err := h.Backend.GetAggregateComplianceDetailsByConfigRule(
+		in.ConfigurationAggregatorName, in.ConfigRuleName, in.AccountID, in.AwsRegion, complianceTypes,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getAggregateComplianceDetailsByConfigRuleOutput{AggregateEvaluationResults: results}, nil
 }
 
 // GetAggregateConfigRuleComplianceSummary request/response types and handler.
+type getAggregateConfigRuleComplianceSummaryInput struct {
+	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
+	GroupByKey                  string `json:"GroupByKey,omitempty"`
+}
 type getAggregateConfigRuleComplianceSummaryOutput struct {
-	AggregateComplianceCounts []any `json:"AggregateComplianceCounts"`
+	AggregateComplianceCounts []AggregateComplianceCount `json:"AggregateComplianceCounts"`
 }
 
 func (h *Handler) handleGetAggregateConfigRuleComplianceSummary(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *getAggregateConfigRuleComplianceSummaryInput,
 ) (*getAggregateConfigRuleComplianceSummaryOutput, error) {
-	return &getAggregateConfigRuleComplianceSummaryOutput{
-		AggregateComplianceCounts: h.Backend.GetAggregateConfigRuleComplianceSummary(),
-	}, nil
+	counts, err := h.Backend.GetAggregateConfigRuleComplianceSummary(in.ConfigurationAggregatorName, in.GroupByKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getAggregateConfigRuleComplianceSummaryOutput{AggregateComplianceCounts: counts}, nil
 }
 
 // DescribeAggregateComplianceByConfigRules request/response types and handler.

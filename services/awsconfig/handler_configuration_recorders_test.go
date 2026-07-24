@@ -451,6 +451,7 @@ func TestAWSConfigHandler_PutConfigurationRecorder_Validation(t *testing.T) {
 	tests := []struct {
 		body     any
 		name     string
+		wantWire string
 		wantCode int
 	}{
 		{
@@ -459,6 +460,7 @@ func TestAWSConfigHandler_PutConfigurationRecorder_Validation(t *testing.T) {
 				"ConfigurationRecorder": map[string]any{"name": "", "roleARN": "arn:aws:iam::000:role/r"},
 			},
 			wantCode: http.StatusBadRequest,
+			wantWire: "InvalidConfigurationRecorderNameException",
 		},
 		{
 			name: "empty_role_arn_returns_400",
@@ -466,6 +468,7 @@ func TestAWSConfigHandler_PutConfigurationRecorder_Validation(t *testing.T) {
 				"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": ""},
 			},
 			wantCode: http.StatusBadRequest,
+			wantWire: "InvalidRoleException",
 		},
 	}
 
@@ -476,6 +479,7 @@ func TestAWSConfigHandler_PutConfigurationRecorder_Validation(t *testing.T) {
 			h := newTestAWSConfigHandler(t)
 			rec := doAWSConfigRequest(t, h, "PutConfigurationRecorder", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantWire)
 		})
 	}
 }
@@ -540,4 +544,41 @@ func TestAWSConfigHandler_AssociateResourceTypes_EmptyARN(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ValidationException")
+}
+
+func TestAWSConfigHandler_ServiceLinkedConfigurationRecorder(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+
+	putRec := doAWSConfigRequest(t, h, "PutServiceLinkedConfigurationRecorder", map[string]any{
+		"ServicePrincipal": "guardduty.amazonaws.com",
+	})
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	var putOut struct {
+		Arn  string `json:"Arn"`
+		Name string `json:"Name"`
+	}
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	assert.Equal(t, "AWSConfigurationRecorderForGuardduty", putOut.Name)
+	assert.NotEmpty(t, putOut.Arn)
+
+	delRec := doAWSConfigRequest(t, h, "DeleteServiceLinkedConfigurationRecorder", map[string]any{
+		"ServicePrincipal": "guardduty.amazonaws.com",
+	})
+	require.Equal(t, http.StatusOK, delRec.Code)
+
+	var delOut struct {
+		Arn  string `json:"Arn"`
+		Name string `json:"Name"`
+	}
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delOut))
+	assert.Equal(t, putOut.Name, delOut.Name)
+
+	// A second delete now 404s (NoSuchConfigurationRecorderException).
+	delAgain := doAWSConfigRequest(t, h, "DeleteServiceLinkedConfigurationRecorder", map[string]any{
+		"ServicePrincipal": "guardduty.amazonaws.com",
+	})
+	assert.Equal(t, http.StatusNotFound, delAgain.Code)
 }

@@ -127,10 +127,19 @@ type deliverConfigSnapshotInput struct {
 	DeliveryChannelName string `json:"deliveryChannelName"`
 }
 
+type deliverConfigSnapshotOutput struct {
+	ConfigSnapshotID string `json:"configSnapshotId"`
+}
+
 func (h *Handler) handleDeliverConfigSnapshot(
 	_ context.Context, in *deliverConfigSnapshotInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.DeliverConfigSnapshot(in.DeliveryChannelName)
+) (*deliverConfigSnapshotOutput, error) {
+	id, err := h.Backend.DeliverConfigSnapshot(in.DeliveryChannelName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deliverConfigSnapshotOutput{ConfigSnapshotID: id}, nil
 }
 
 // DescribeDeliveryChannelStatus request/response types and handler.

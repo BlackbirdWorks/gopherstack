@@ -21,7 +21,7 @@ func TestAWSConfigBackend_DeleteConformancePack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConformancePack("my-pack", "", ""))
+				require.NoError(t, b.PutConformancePack("my-pack", "", "", ""))
 			},
 			delName: "my-pack",
 		},
@@ -56,7 +56,7 @@ func TestDescribeConformancePackStatus(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutConformancePack("pack1", "", "")
+	_ = b.PutConformancePack("pack1", "", "", "")
 
 	statuses := b.DescribeConformancePackStatus(nil)
 	if len(statuses) != 1 || statuses[0].ConformancePackName != "pack1" {
@@ -72,8 +72,21 @@ func TestDescribeConformancePackCompliance(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	out := b.DescribeConformancePackCompliance("pack1")
+	require.NoError(t, b.PutConformancePack("pack1", "", "", ""))
+
+	out, err := b.DescribeConformancePackCompliance("pack1", nil, "")
+	require.NoError(t, err)
+
 	if len(out) != 0 {
-		t.Fatalf("expected empty, got %v", out)
+		t.Fatalf("expected empty (pack1 deploys no rules), got %v", out)
 	}
+}
+
+func TestDescribeConformancePackCompliance_UnknownPackErrors(t *testing.T) {
+	t.Parallel()
+
+	b := awsconfig.NewInMemoryBackend()
+
+	_, err := b.DescribeConformancePackCompliance("does-not-exist", nil, "")
+	require.ErrorIs(t, err, awsconfig.ErrNoSuchConformancePack)
 }

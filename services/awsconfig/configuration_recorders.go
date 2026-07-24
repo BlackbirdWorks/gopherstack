@@ -8,14 +8,18 @@ import (
 
 // PutConfigurationRecorder creates or updates a configuration recorder.
 // When updating an existing recorder, the Status is preserved; RoleARN and RecordingGroup are updated.
-// A new recorder starts in PENDING state.
+// A new recorder starts in PENDING state. An empty/blank name errors
+// InvalidConfigurationRecorderNameException and an empty roleARN errors
+// InvalidRoleException, matching real AWS Config's declared error model
+// (verified against aws-sdk-go-v2/service/configservice's
+// PutConfigurationRecorder deserializer).
 func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string, recordingGroup *RecordingGroup) error {
-	if name == "" {
-		return fmt.Errorf("%w: ConfigurationRecorder name is required", ErrValidation)
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: ConfigurationRecorder name is required", ErrInvalidConfigurationRecorderName)
 	}
 
 	if roleARN == "" {
-		return fmt.Errorf("%w: ConfigurationRecorder roleARN is required", ErrValidation)
+		return fmt.Errorf("%w: ConfigurationRecorder roleARN is required", ErrInvalidRole)
 	}
 
 	b.mu.Lock("PutConfigurationRecorder")
@@ -140,8 +144,24 @@ func (b *InMemoryBackend) DeleteConfigurationRecorder(name string) error {
 	}
 
 	b.recorders.Delete(name)
+	b.deleteServiceLinkedLinkForRecorderLocked(name)
 
 	return nil
+}
+
+// deleteServiceLinkedLinkForRecorderLocked removes the ServiceLinkedRecorderLink
+// (if any) pointing at recorderName, so a service-linked recorder deleted
+// through the generic DeleteConfigurationRecorder path (rather than
+// DeleteServiceLinkedConfigurationRecorder) doesn't leave a ghost link row.
+// Caller must already hold the write lock.
+func (b *InMemoryBackend) deleteServiceLinkedLinkForRecorderLocked(recorderName string) {
+	for _, link := range b.serviceLinkedRecorders.All() {
+		if link.RecorderName == recorderName {
+			b.serviceLinkedRecorders.Delete(link.ServicePrincipal)
+
+			return
+		}
+	}
 }
 
 // recorderStatus builds a ConfigurationRecorderStatus from a recorder.
@@ -319,11 +339,103 @@ func (b *InMemoryBackend) DisassociateResourceTypes(recorderARN string, resource
 	return nil
 }
 
-// DeleteServiceLinkedConfigurationRecorder is a no-op stub.
-func (b *InMemoryBackend) DeleteServiceLinkedConfigurationRecorder(_ string) error { return nil }
+// serviceLinkedRecorderPrefix is the fixed name prefix real AWS Config assigns
+// to every service-linked configuration recorder (verified against
+// aws-sdk-go-v2/service/configservice's ConfigurationRecorder.Name doc comment).
+const serviceLinkedRecorderPrefix = "AWSConfigurationRecorderFor"
 
-// PutServiceLinkedConfigurationRecorder is a no-op stub.
-func (b *InMemoryBackend) PutServiceLinkedConfigurationRecorder() error { return nil }
+// serviceLinkedRecorderName deterministically derives a service-linked
+// recorder's name from its owning service principal (e.g.
+// "guardduty.amazonaws.com" -> "AWSConfigurationRecorderForGuardduty"),
+// matching the real "AWSConfigurationRecorderFor<Service>" naming convention.
+// The exact per-service capitalization AWS uses is not publicly enumerable, so
+// this is a best-effort, deterministic title-case of the principal's leading
+// label rather than a hardcoded lookup table.
+func serviceLinkedRecorderName(servicePrincipal string) string {
+	label := servicePrincipal
+	if idx := strings.Index(label, "."); idx >= 0 {
+		label = label[:idx]
+	}
+
+	return serviceLinkedRecorderPrefix + titleCaseWords(label, "-")
+}
+
+// titleCaseWords splits s on sep and upper-cases the first rune of each
+// non-empty segment, joining the segments back together with no separator
+// (e.g. "cost-optimization" -> "CostOptimization"). Used instead of the
+// deprecated strings.Title for deterministic service-name casing.
+func titleCaseWords(s, sep string) string {
+	var b strings.Builder
+
+	for word := range strings.SplitSeq(s, sep) {
+		if word == "" {
+			continue
+		}
+
+		b.WriteString(strings.ToUpper(word[:1]))
+		b.WriteString(word[1:])
+	}
+
+	return b.String()
+}
+
+// PutServiceLinkedConfigurationRecorder creates (or idempotently returns) the
+// service-linked configuration recorder for servicePrincipal. Service-linked
+// recorders are AWS-managed: they need no caller-supplied IAM role and start
+// ACTIVE immediately (matching real AWS Config, which auto-starts them),
+// unlike customer-managed recorders created via PutConfigurationRecorder. The
+// servicePrincipal -> recorder-name link is tracked separately (see
+// ServiceLinkedRecorderLink's doc comment) so it survives persistence without
+// leaking onto ConfigurationRecorder's wire-verbatim shape.
+func (b *InMemoryBackend) PutServiceLinkedConfigurationRecorder(servicePrincipal string) (string, string, error) {
+	if servicePrincipal == "" {
+		return "", "", fmt.Errorf("%w: ServicePrincipal is required", ErrValidation)
+	}
+
+	b.mu.Lock("PutServiceLinkedConfigurationRecorder")
+	defer b.mu.Unlock()
+
+	if link, ok := b.serviceLinkedRecorders.Get(servicePrincipal); ok {
+		return link.RecorderName, b.recorderArn(link.RecorderName), nil
+	}
+
+	recName := serviceLinkedRecorderName(servicePrincipal)
+	b.recorders.Put(&ConfigurationRecorder{Name: recName, Status: recorderStatusActive})
+	b.serviceLinkedRecorders.Put(&ServiceLinkedRecorderLink{
+		ServicePrincipal: servicePrincipal,
+		RecorderName:     recName,
+	})
+
+	return recName, b.recorderArn(recName), nil
+}
+
+// DeleteServiceLinkedConfigurationRecorder deletes the service-linked
+// configuration recorder owned by servicePrincipal. Errors with ErrNotFound
+// (wire type NoSuchConfigurationRecorderException) when no matching
+// service-linked recorder exists, matching the real API's declared error
+// model (verified against aws-sdk-go-v2/service/configservice's
+// DeleteServiceLinkedConfigurationRecorder deserializer).
+func (b *InMemoryBackend) DeleteServiceLinkedConfigurationRecorder(
+	servicePrincipal string,
+) (string, string, error) {
+	if servicePrincipal == "" {
+		return "", "", fmt.Errorf("%w: ServicePrincipal is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteServiceLinkedConfigurationRecorder")
+	defer b.mu.Unlock()
+
+	link, ok := b.serviceLinkedRecorders.Get(servicePrincipal)
+	if !ok {
+		return "", "", fmt.Errorf("%w: no service-linked recorder for %s", ErrNotFound, servicePrincipal)
+	}
+
+	recName := link.RecorderName
+	b.recorders.Delete(recName)
+	b.serviceLinkedRecorders.Delete(servicePrincipal)
+
+	return recName, b.recorderArn(recName), nil
+}
 
 // ListConfigurationRecorders returns summaries of all configuration recorders.
 func (b *InMemoryBackend) ListConfigurationRecorders() []ConfigurationRecorderSummary {

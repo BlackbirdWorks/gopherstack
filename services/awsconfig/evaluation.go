@@ -26,6 +26,11 @@ const (
 // resourceTypeS3Bucket is the AWS Config resource type for S3 buckets.
 const resourceTypeS3Bucket = "AWS::S3::Bucket"
 
+// statusSucceeded is the shared "SUCCEEDED" status string used across
+// resource evaluations, aggregator source sync status, and remediation
+// executions.
+const statusSucceeded = "SUCCEEDED"
+
 // StoredEvaluation is a single per-(rule, resource) evaluation outcome. It is
 // purely internal bookkeeping -- never serialized directly to an AWS API
 // response (DetailedEvaluationResult is the wire type built from it) -- so
@@ -588,15 +593,22 @@ func buildDetailedResults(
 }
 
 // GetComplianceDetailsByConfigRule returns per-resource evaluation results for a
-// config rule, optionally filtered to the given compliance types.
+// config rule, optionally filtered to the given compliance types. An unknown rule
+// name errors NoSuchConfigRuleException, matching real AWS Config (verified
+// against aws-sdk-go-v2/service/configservice's GetComplianceDetailsByConfigRule
+// deserializer, which declares NoSuchConfigRuleException).
 func (b *InMemoryBackend) GetComplianceDetailsByConfigRule(
 	ruleName string,
 	complianceTypes []string,
-) []DetailedEvaluationResult {
+) ([]DetailedEvaluationResult, error) {
 	b.mu.RLock("GetComplianceDetailsByConfigRule")
 	defer b.mu.RUnlock()
 
-	return buildDetailedResults(ruleName, b.ruleResourceEvalsByRule.Get(ruleName), complianceTypes)
+	if !b.configRules.Has(ruleName) {
+		return nil, fmt.Errorf("%w: %s", ErrNoSuchConfigRule, ruleName)
+	}
+
+	return buildDetailedResults(ruleName, b.ruleResourceEvalsByRule.Get(ruleName), complianceTypes), nil
 }
 
 // GetComplianceDetailsByResource returns per-rule evaluation results recorded for
@@ -671,7 +683,7 @@ func (b *InMemoryBackend) StartResourceEvaluation(
 		ResourceType:         resourceType,
 		ResourceID:           resourceID,
 		EvaluationMode:       evaluationMode,
-		Status:               "SUCCEEDED",
+		Status:               statusSucceeded,
 		Compliance:           compliance,
 		Configuration:        configuration,
 		StartTime:            float64(time.Now().Unix()),

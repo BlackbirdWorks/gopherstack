@@ -16,6 +16,21 @@ type ConfigurationRecorder struct {
 	Status         string          `json:"status,omitempty"` // PENDING or ACTIVE
 }
 
+// ServiceLinkedRecorderLink tracks which AWS service principal owns a
+// service-linked configuration recorder, so
+// PutServiceLinkedConfigurationRecorder/DeleteServiceLinkedConfigurationRecorder
+// can look the recorder back up by principal. Kept as its own store.Table
+// (instead of a field on ConfigurationRecorder) because ConfigurationRecorder
+// is serialized verbatim as the real AWS wire response -- a bookkeeping field
+// there would need a json:"-" tag to stay off the wire, which would also make
+// it invisible to store.Table's persistence (Snapshot/Restore marshal the
+// same struct with the same tags), silently losing the service-linked
+// recorder's identity across a snapshot/restore round trip.
+type ServiceLinkedRecorderLink struct {
+	ServicePrincipal string `json:"ServicePrincipal"`
+	RecorderName     string `json:"RecorderName"`
+}
+
 // DeliverySnapshotProperties holds snapshot delivery configuration for a channel.
 type DeliverySnapshotProperties struct {
 	DeliveryFrequency string `json:"deliveryFrequency,omitempty"`
@@ -184,6 +199,30 @@ type RemediationException struct {
 	ResourceID     string `json:"ResourceId"`
 }
 
+// RemediationExecutionStepStatus holds the status of a single step of a
+// remediation execution.
+type RemediationExecutionStepStatus struct {
+	Name         string  `json:"Name,omitempty"`
+	State        string  `json:"State,omitempty"`
+	ErrorMessage string  `json:"ErrorMessage,omitempty"`
+	StartTime    float64 `json:"StartTime,omitempty"`
+	StopTime     float64 `json:"StopTime,omitempty"`
+}
+
+// RemediationExecutionStatusEntry holds the status of a remediation execution
+// for a single resource. RuleName is internal bookkeeping used to key/index
+// executions per config rule -- it is never itself present on the wire (real
+// AWS Config scopes DescribeRemediationExecutionStatus results by the
+// ConfigRuleName request parameter instead of echoing it per-entry).
+type RemediationExecutionStatusEntry struct {
+	RuleName        string                           `json:"-"`
+	State           string                           `json:"State,omitempty"`
+	ResourceKey     ResourceKey                      `json:"ResourceKey"`
+	StepDetails     []RemediationExecutionStepStatus `json:"StepDetails,omitempty"`
+	InvocationTime  float64                          `json:"InvocationTime,omitempty"`
+	LastUpdatedTime float64                          `json:"LastUpdatedTime,omitempty"`
+}
+
 // ConfigRuleEvaluationStatus holds the evaluation status for a config rule.
 type ConfigRuleEvaluationStatus struct {
 	ConfigRuleName               string `json:"ConfigRuleName"`
@@ -193,15 +232,26 @@ type ConfigRuleEvaluationStatus struct {
 	LastFailedEvaluationTime     string `json:"LastFailedEvaluationTime,omitempty"`
 }
 
-// ComplianceResult holds a compliance type value.
+// ComplianceResult holds a compliance type value, optionally with the count of
+// resources/rules responsible for that result (real AWS Config's shared
+// "Compliance" shape, used by both ComplianceByConfigRule and ComplianceByResource).
 type ComplianceResult struct {
-	ComplianceType string `json:"ComplianceType"`
+	ComplianceContributorCount *ResourceCount `json:"ComplianceContributorCount,omitempty"`
+	ComplianceType             string         `json:"ComplianceType"`
 }
 
 // ComplianceByConfigRule holds compliance information for a config rule.
 type ComplianceByConfigRule struct {
 	ConfigRuleName string           `json:"ConfigRuleName"`
 	Compliance     ComplianceResult `json:"Compliance"`
+}
+
+// ComplianceByResource holds compliance information for a single AWS resource,
+// as evaluated across every config rule that scoped it.
+type ComplianceByResource struct {
+	Compliance   ComplianceResult `json:"Compliance"`
+	ResourceType string           `json:"ResourceType,omitempty"`
+	ResourceID   string           `json:"ResourceId,omitempty"`
 }
 
 // ResourceCount holds a capped resource count returned by compliance summary APIs.
@@ -282,8 +332,36 @@ type ConformancePackStatus struct {
 
 // ConformancePackComplianceItem holds compliance info for a conformance pack rule.
 type ConformancePackComplianceItem struct {
-	ConfigRuleName string `json:"ConfigRuleName"`
-	ComplianceType string `json:"ComplianceType"`
+	ConfigRuleName string   `json:"ConfigRuleName"`
+	ComplianceType string   `json:"ComplianceType"`
+	Controls       []string `json:"Controls,omitempty"`
+}
+
+// ConformancePackRuleLink tracks a single config rule deployed by a conformance
+// pack (parsed from PutConformancePack's TemplateBody), so the compliance
+// family (DescribeConformancePackCompliance/GetConformancePackComplianceDetails/
+// GetConformancePackComplianceSummary/ListConformancePackComplianceScores) can
+// roll up real per-rule evaluation state instead of returning an empty stub,
+// and DeleteConformancePack can cascade-delete the rules it deployed. Purely
+// internal bookkeeping -- never itself serialized to an AWS API response.
+type ConformancePackRuleLink struct {
+	ConformancePackName string `json:"ConformancePackName"`
+	ConfigRuleName      string `json:"ConfigRuleName"`
+}
+
+// ConformancePackComplianceSummaryEntry holds the overall compliance status of
+// a conformance pack (its deployed rules rolled up into a single status).
+type ConformancePackComplianceSummaryEntry struct {
+	ConformancePackComplianceStatus string `json:"ConformancePackComplianceStatus"`
+	ConformancePackName             string `json:"ConformancePackName"`
+}
+
+// ConformancePackComplianceScoreEntry holds a conformance pack's compliance
+// score (the percentage of compliant rule-resource combinations).
+type ConformancePackComplianceScoreEntry struct {
+	ConformancePackName string  `json:"ConformancePackName,omitempty"`
+	Score               string  `json:"Score,omitempty"`
+	LastUpdatedTime     float64 `json:"LastUpdatedTime,omitempty"`
 }
 
 // OrganizationConfigRuleStatus holds the status of an organization config rule.
@@ -298,10 +376,95 @@ type OrganizationConformancePackStatus struct {
 	Status                          string `json:"Status"`
 }
 
+// MemberAccountStatus holds a single member account's deployment status for an
+// organization config rule.
+type MemberAccountStatus struct {
+	AccountID               string `json:"AccountId"`
+	ConfigRuleName          string `json:"ConfigRuleName"`
+	MemberAccountRuleStatus string `json:"MemberAccountRuleStatus"`
+}
+
+// OrganizationConformancePackDetailedStatus holds a single member account's
+// deployment status for an organization conformance pack.
+type OrganizationConformancePackDetailedStatus struct {
+	AccountID           string `json:"AccountId"`
+	ConformancePackName string `json:"ConformancePackName"`
+	Status              string `json:"Status"`
+}
+
 // ResourceConfigItem holds configuration info for a discovered resource.
 type ResourceConfigItem struct {
 	ResourceType                 string  `json:"ResourceType"`
 	ResourceID                   string  `json:"ResourceId"`
 	Configuration                string  `json:"Configuration"`
 	ConfigurationItemCaptureTime float64 `json:"ConfigurationItemCaptureTime"`
+}
+
+// AggregatedSourceStatus holds the sync status of one configuration
+// aggregator source (an account/region pair, or an organization).
+type AggregatedSourceStatus struct {
+	SourceID         string  `json:"SourceId,omitempty"`
+	SourceType       string  `json:"SourceType,omitempty"`
+	AwsRegion        string  `json:"AwsRegion,omitempty"`
+	LastUpdateStatus string  `json:"LastUpdateStatus,omitempty"`
+	LastUpdateTime   float64 `json:"LastUpdateTime,omitempty"`
+}
+
+// AggregateEvaluationResult holds a single aggregate config-rule evaluation
+// result for an account/region in an aggregator.
+type AggregateEvaluationResult struct {
+	ComplianceType             string                     `json:"ComplianceType"`
+	AccountID                  string                     `json:"AccountId,omitempty"`
+	AwsRegion                  string                     `json:"AwsRegion,omitempty"`
+	Annotation                 string                     `json:"Annotation,omitempty"`
+	EvaluationResultIdentifier EvaluationResultIdentifier `json:"EvaluationResultIdentifier"`
+	ResultRecordedTime         float64                    `json:"ResultRecordedTime"`
+	ConfigRuleInvokedTime      float64                    `json:"ConfigRuleInvokedTime"`
+}
+
+// AggregateComplianceCount holds the compliant/noncompliant rule counts for a
+// single account/region group in an aggregator.
+type AggregateComplianceCount struct {
+	GroupName         string            `json:"GroupName,omitempty"`
+	ComplianceSummary ComplianceSummary `json:"ComplianceSummary"`
+}
+
+// AggregateConformancePackCompliance holds one conformance pack's rule counts
+// as seen through an aggregator.
+type AggregateConformancePackCompliance struct {
+	ComplianceType        string `json:"ComplianceType,omitempty"`
+	CompliantRuleCount    int32  `json:"CompliantRuleCount"`
+	NonCompliantRuleCount int32  `json:"NonCompliantRuleCount"`
+	TotalRuleCount        int32  `json:"TotalRuleCount"`
+}
+
+// AggregateComplianceByConformancePack holds one conformance pack's compliance
+// as seen through an aggregator for a single account/region source.
+type AggregateComplianceByConformancePack struct {
+	Compliance          *AggregateConformancePackCompliance `json:"Compliance,omitempty"`
+	AccountID           string                              `json:"AccountId,omitempty"`
+	AwsRegion           string                              `json:"AwsRegion,omitempty"`
+	ConformancePackName string                              `json:"ConformancePackName,omitempty"`
+}
+
+// AggregateConformancePackComplianceCount holds compliant/noncompliant
+// conformance pack counts for a single account/region group in an aggregator.
+type AggregateConformancePackComplianceCount struct {
+	CompliantConformancePackCount    int32 `json:"CompliantConformancePackCount"`
+	NonCompliantConformancePackCount int32 `json:"NonCompliantConformancePackCount"`
+}
+
+// AggregateConformancePackComplianceSummary holds a conformance-pack
+// compliance summary for one account/region group in an aggregator.
+type AggregateConformancePackComplianceSummary struct {
+	GroupName         string                                  `json:"GroupName,omitempty"`
+	ComplianceSummary AggregateConformancePackComplianceCount `json:"ComplianceSummary"`
+}
+
+// PendingAggregationRequest identifies an account/region that requested
+// aggregation permission but whose data no configuration aggregator has yet
+// incorporated.
+type PendingAggregationRequest struct {
+	RequesterAccountID string `json:"RequesterAccountId,omitempty"`
+	RequesterAwsRegion string `json:"RequesterAwsRegion,omitempty"`
 }

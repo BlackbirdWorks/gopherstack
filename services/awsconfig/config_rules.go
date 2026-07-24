@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -16,6 +17,18 @@ func (b *InMemoryBackend) PutConfigRule(input *ConfigRule) error {
 	b.mu.Lock("PutConfigRule")
 	defer b.mu.Unlock()
 
+	b.putConfigRuleLocked(input)
+
+	return nil
+}
+
+// putConfigRuleLocked creates or updates a config rule with full metadata.
+// Callers must already hold the write lock -- factored out of PutConfigRule so
+// PutConformancePack can register the config rules a conformance pack template
+// deploys within its own single lock acquisition, matching real AWS Config
+// where a conformance pack literally creates managed config rules on the
+// account.
+func (b *InMemoryBackend) putConfigRuleLocked(input *ConfigRule) {
 	existing, ok := b.configRules.Get(input.ConfigRuleName)
 	if ok {
 		// Preserve ARN and ID on update.
@@ -42,12 +55,13 @@ func (b *InMemoryBackend) PutConfigRule(input *ConfigRule) error {
 	}
 
 	b.configRules.Put(&cp)
-
-	return nil
 }
 
-// DescribeConfigRules returns config rules optionally filtered by name list, sorted by name.
-func (b *InMemoryBackend) DescribeConfigRules(names []string) []ConfigRule {
+// DescribeConfigRules returns config rules optionally filtered by name list, sorted
+// by name. An unknown name in a non-empty filter list errors NoSuchConfigRuleException,
+// matching real AWS Config (verified against aws-sdk-go-v2/service/configservice's
+// DescribeConfigRules deserializer, which declares NoSuchConfigRuleException).
+func (b *InMemoryBackend) DescribeConfigRules(names []string) ([]ConfigRule, error) {
 	b.mu.RLock("DescribeConfigRules")
 	defer b.mu.RUnlock()
 
@@ -59,9 +73,12 @@ func (b *InMemoryBackend) DescribeConfigRules(names []string) []ConfigRule {
 		}
 	} else {
 		for _, n := range names {
-			if r, ok := b.configRules.Get(n); ok {
-				out = append(out, *r)
+			r, ok := b.configRules.Get(n)
+			if !ok {
+				return nil, fmt.Errorf("%w: %s", ErrNoSuchConfigRule, n)
 			}
+
+			out = append(out, *r)
 		}
 	}
 
@@ -77,7 +94,7 @@ func (b *InMemoryBackend) DescribeConfigRules(names []string) []ConfigRule {
 		return 0
 	})
 
-	return out
+	return out, nil
 }
 
 // DeleteConfigRule deletes a config rule by name.
@@ -285,11 +302,94 @@ func (b *InMemoryBackend) GetCustomRulePolicy(ruleName string) string {
 	return b.customRulePolicies[ruleName]
 }
 
-// GetAggregateComplianceDetailsByConfigRule returns an empty list (intentionally minimal stub).
-func (b *InMemoryBackend) GetAggregateComplianceDetailsByConfigRule() []any { return []any{} }
+// GetAggregateComplianceDetailsByConfigRule returns per-resource evaluation
+// results for ruleName as seen through aggregatorName, echoing the requested
+// accountID/awsRegion into each result. This emulator has no real
+// multi-account data source, so (mirroring DescribeAggregateComplianceByConfigRules,
+// already-established for this same reason) it reuses the local account's own
+// per-rule evaluation state rather than returning an empty stub; only the
+// aggregator's existence is genuinely validated (NoSuchConfigurationAggregatorException).
+func (b *InMemoryBackend) GetAggregateComplianceDetailsByConfigRule(
+	aggregatorName, ruleName, accountID, awsRegion string,
+	complianceTypes []string,
+) ([]AggregateEvaluationResult, error) {
+	b.mu.RLock("GetAggregateComplianceDetailsByConfigRule")
+	defer b.mu.RUnlock()
 
-// GetAggregateConfigRuleComplianceSummary returns an empty summary (intentionally minimal stub).
-func (b *InMemoryBackend) GetAggregateConfigRuleComplianceSummary() []any { return []any{} }
+	if err := b.requireAggregatorLocked(aggregatorName); err != nil {
+		return nil, err
+	}
+
+	details := buildDetailedResults(ruleName, b.ruleResourceEvalsByRule.Get(ruleName), complianceTypes)
+	out := make([]AggregateEvaluationResult, 0, len(details))
+
+	for _, d := range details {
+		out = append(out, AggregateEvaluationResult{
+			EvaluationResultIdentifier: d.EvaluationResultIdentifier,
+			ComplianceType:             d.ComplianceType,
+			AccountID:                  accountID,
+			AwsRegion:                  awsRegion,
+			Annotation:                 d.Annotation,
+			ResultRecordedTime:         d.ResultRecordedTime,
+			ConfigRuleInvokedTime:      d.ConfigRuleInvokedTime,
+		})
+	}
+
+	return out, nil
+}
+
+// GetAggregateConfigRuleComplianceSummary returns compliant/non-compliant rule
+// counts grouped by account ID or AWS region (groupByKey; ACCOUNT_ID when
+// empty). Since this emulator only ever has one local account/region as its
+// aggregated source, the result is a single group -- mirroring
+// GetComplianceSummaryByConfigRule's rollup logic -- once the aggregator's
+// existence is validated (NoSuchConfigurationAggregatorException).
+func (b *InMemoryBackend) GetAggregateConfigRuleComplianceSummary(
+	aggregatorName, groupByKey string,
+) ([]AggregateComplianceCount, error) {
+	b.mu.RLock("GetAggregateConfigRuleComplianceSummary")
+	defer b.mu.RUnlock()
+
+	if err := b.requireAggregatorLocked(aggregatorName); err != nil {
+		return nil, err
+	}
+
+	if len(b.ruleEvaluations) == 0 {
+		return []AggregateComplianceCount{}, nil
+	}
+
+	groupName := b.accountID
+	if groupByKey == "AWS_REGION" {
+		groupName = b.region
+	}
+
+	var compliant, nonCompliant int32
+
+	for _, ct := range b.ruleEvaluations {
+		switch ct {
+		case complianceCompliant:
+			compliant++
+		case complianceNonCompliant:
+			nonCompliant++
+		}
+	}
+
+	complianceType := complianceCompliant
+	if nonCompliant > 0 {
+		complianceType = complianceNonCompliant
+	}
+
+	return []AggregateComplianceCount{{
+		GroupName: groupName,
+		ComplianceSummary: ComplianceSummary{
+			ComplianceType: complianceType,
+			ComplianceSummary: ComplianceSummaryDetail{
+				CompliantResourceCount:    ResourceCount{CappedCount: compliant},
+				NonCompliantResourceCount: ResourceCount{CappedCount: nonCompliant},
+			},
+		},
+	}}, nil
+}
 
 // DescribeAggregateComplianceByConfigRules returns compliance by rule using ruleEvaluations.
 func (b *InMemoryBackend) DescribeAggregateComplianceByConfigRules() []any {
@@ -396,5 +496,96 @@ func summarizeResourceType(resourceType string, resources map[string]bool) Compl
 	}
 }
 
-// DescribeComplianceByResource returns an empty list (intentionally minimal stub).
-func (b *InMemoryBackend) DescribeComplianceByResource() []any { return []any{} }
+// DescribeComplianceByResource returns compliance rollups for discovered
+// resources, derived from the same per-(rule, resource) evaluation state
+// (b.ruleResourceEvals) that DescribeComplianceByConfigRule/
+// GetComplianceSummaryByResourceType roll up from -- mirroring their approach
+// instead of the previous intentional empty-list stub. A resource is
+// NON_COMPLIANT if any rule evaluated it as such, COMPLIANT if every rule that
+// evaluated it found it compliant, else INSUFFICIENT_DATA. resourceType/
+// resourceID (both optional; resourceID is only meaningful alongside a
+// resourceType) and complianceTypes narrow the result set, matching real AWS
+// Config's DescribeComplianceByResource filters (verified against
+// aws-sdk-go-v2/service/configservice's DescribeComplianceByResourceInput).
+func (b *InMemoryBackend) DescribeComplianceByResource(
+	resourceType, resourceID string,
+	complianceTypes []string,
+) []ComplianceByResource {
+	b.mu.RLock("DescribeComplianceByResource")
+	defer b.mu.RUnlock()
+
+	return rollupComplianceByResource(b.ruleResourceEvals.All(), resourceType, resourceID, complianceTypes)
+}
+
+// rollupComplianceByResource groups per-(rule, resource) evaluations by
+// resource, rolls each group up to a single compliance result, and applies the
+// optional resourceType/resourceID/complianceTypes filters.
+func rollupComplianceByResource(
+	evals []*StoredEvaluation,
+	resourceType, resourceID string,
+	complianceTypes []string,
+) []ComplianceByResource {
+	type resourceKey struct{ resourceType, resourceID string }
+
+	grouped := make(map[resourceKey][]*StoredEvaluation)
+
+	for _, e := range evals {
+		if resourceType != "" && e.ResourceType != resourceType {
+			continue
+		}
+
+		if resourceID != "" && e.ResourceID != resourceID {
+			continue
+		}
+
+		key := resourceKey{e.ResourceType, e.ResourceID}
+		grouped[key] = append(grouped[key], e)
+	}
+
+	out := make([]ComplianceByResource, 0, len(grouped))
+
+	for key, group := range grouped {
+		item := complianceByResourceItem(key.resourceType, key.resourceID, group)
+		if len(complianceTypes) > 0 && !slices.Contains(complianceTypes, item.Compliance.ComplianceType) {
+			continue
+		}
+
+		out = append(out, item)
+	}
+
+	slices.SortFunc(out, func(a, c ComplianceByResource) int {
+		if a.ResourceType != c.ResourceType {
+			return strings.Compare(a.ResourceType, c.ResourceType)
+		}
+
+		return strings.Compare(a.ResourceID, c.ResourceID)
+	})
+
+	return out
+}
+
+// complianceByResourceItem rolls a single resource's per-rule evaluations up
+// into one ComplianceByResource entry. ComplianceContributorCount reflects the
+// number of evaluations that drove the rollup outcome: NON_COMPLIANT
+// evaluations when the resource is NON_COMPLIANT, COMPLIANT evaluations when it
+// is COMPLIANT, zero otherwise.
+func complianceByResourceItem(resourceType, resourceID string, group []*StoredEvaluation) ComplianceByResource {
+	rollup := rollupCompliance(group)
+
+	var contributing int32
+
+	for _, e := range group {
+		if e.ComplianceType == rollup {
+			contributing++
+		}
+	}
+
+	return ComplianceByResource{
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Compliance: ComplianceResult{
+			ComplianceType:             rollup,
+			ComplianceContributorCount: &ResourceCount{CappedCount: contributing},
+		},
+	}
+}

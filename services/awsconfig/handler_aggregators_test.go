@@ -132,3 +132,48 @@ func TestAWSConfigHandler_DeleteConfigurationAggregator(t *testing.T) {
 		})
 	}
 }
+
+// TestAWSConfigHandler_DescribeConfigurationAggregatorSourcesStatus verifies
+// real per-source status is returned instead of an empty stub.
+func TestAWSConfigHandler_DescribeConfigurationAggregatorSourcesStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	require.NoError(t, h.Backend.PutConfigurationAggregator("agg1", []awsconfig.AccountAggregationSource{
+		{AccountIDs: []string{"111111111111"}, AwsRegions: []string{"us-east-1"}},
+	}, nil))
+
+	rec := doAWSConfigRequest(t, h, "DescribeConfigurationAggregatorSourcesStatus", map[string]any{
+		"ConfigurationAggregatorName": "agg1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "SUCCEEDED")
+
+	notFound := doAWSConfigRequest(t, h, "DescribeConfigurationAggregatorSourcesStatus", map[string]any{
+		"ConfigurationAggregatorName": "does-not-exist",
+	})
+	assert.Equal(t, http.StatusNotFound, notFound.Code)
+}
+
+// TestAWSConfigHandler_PendingAggregationRequests round-trips
+// Describe/DeletePendingAggregationRequest through the wire.
+func TestAWSConfigHandler_PendingAggregationRequests(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	require.NoError(t, h.Backend.PutAggregationAuthorization("111111111111", "us-east-1"))
+
+	describeRec := doAWSConfigRequest(t, h, "DescribePendingAggregationRequests", map[string]any{})
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	assert.Contains(t, describeRec.Body.String(), "111111111111")
+
+	deleteRec := doAWSConfigRequest(t, h, "DeletePendingAggregationRequest", map[string]any{
+		"RequesterAccountId": "111111111111",
+		"RequesterAwsRegion": "us-east-1",
+	})
+	require.Equal(t, http.StatusOK, deleteRec.Code)
+
+	afterRec := doAWSConfigRequest(t, h, "DescribePendingAggregationRequests", map[string]any{})
+	require.Equal(t, http.StatusOK, afterRec.Code)
+	assert.NotContains(t, afterRec.Body.String(), "111111111111")
+}

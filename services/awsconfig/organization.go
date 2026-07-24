@@ -98,14 +98,63 @@ func (b *InMemoryBackend) DescribeOrganizationConformancePacks() []OrganizationC
 	return out
 }
 
-// GetOrganizationConfigRuleDetailedStatus returns an empty list.
-func (b *InMemoryBackend) GetOrganizationConfigRuleDetailedStatus() []any {
-	return []any{}
+// GetOrganizationConfigRuleDetailedStatus returns one MemberAccountStatus per
+// member account in the organization for ruleName. This emulator models only
+// the local account as the organization's single member (it has no real
+// multi-account membership to enumerate), so the result is a single
+// CREATE_SUCCESSFUL entry for the local account unless accountIDFilter
+// excludes it. Errors with ErrNoSuchOrganizationConfigRule when ruleName is
+// unknown, matching real AWS Config's declared error model (verified against
+// aws-sdk-go-v2/service/configservice's GetOrganizationConfigRuleDetailedStatus
+// deserializer).
+func (b *InMemoryBackend) GetOrganizationConfigRuleDetailedStatus(
+	ruleName, accountIDFilter string,
+) ([]MemberAccountStatus, error) {
+	b.mu.RLock("GetOrganizationConfigRuleDetailedStatus")
+	defer b.mu.RUnlock()
+
+	if !b.orgConfigRules.Has(ruleName) {
+		return nil, fmt.Errorf("%w: %s", ErrNoSuchOrganizationConfigRule, ruleName)
+	}
+
+	if accountIDFilter != "" && accountIDFilter != b.accountID {
+		return []MemberAccountStatus{}, nil
+	}
+
+	return []MemberAccountStatus{{
+		AccountID:               b.accountID,
+		ConfigRuleName:          ruleName,
+		MemberAccountRuleStatus: orgRuleStatusCreateSuccessful,
+	}}, nil
 }
 
-// GetOrganizationConformancePackDetailedStatus returns an empty list.
-func (b *InMemoryBackend) GetOrganizationConformancePackDetailedStatus() []any {
-	return []any{}
+// GetOrganizationConformancePackDetailedStatus returns one
+// OrganizationConformancePackDetailedStatus per member account in the
+// organization for packName, mirroring
+// GetOrganizationConfigRuleDetailedStatus's single-local-account model.
+// Errors with ErrNoSuchOrganizationConformancePack when packName is unknown,
+// matching real AWS Config's declared error model (verified against
+// aws-sdk-go-v2/service/configservice's
+// GetOrganizationConformancePackDetailedStatus deserializer).
+func (b *InMemoryBackend) GetOrganizationConformancePackDetailedStatus(
+	packName, accountIDFilter string,
+) ([]OrganizationConformancePackDetailedStatus, error) {
+	b.mu.RLock("GetOrganizationConformancePackDetailedStatus")
+	defer b.mu.RUnlock()
+
+	if !b.orgConformancePacks.Has(packName) {
+		return nil, fmt.Errorf("%w: %s", ErrNoSuchOrganizationConformancePack, packName)
+	}
+
+	if accountIDFilter != "" && accountIDFilter != b.accountID {
+		return []OrganizationConformancePackDetailedStatus{}, nil
+	}
+
+	return []OrganizationConformancePackDetailedStatus{{
+		AccountID:           b.accountID,
+		ConformancePackName: packName,
+		Status:              orgRuleStatusCreateSuccessful,
+	}}, nil
 }
 
 // DescribeOrganizationConfigRuleStatuses returns statuses for organization config rules.

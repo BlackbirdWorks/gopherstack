@@ -212,3 +212,43 @@ func TestGetAggregateResourceConfig(t *testing.T) {
 		t.Fatalf("expected AWS::S3::Bucket, got %q", item.ResourceType)
 	}
 }
+
+func TestAWSConfigBackend_ListAggregateDiscoveredResources(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown_aggregator_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.ListAggregateDiscoveredResources("does-not-exist", "AWS::S3::Bucket", "", "", "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoSuchAggregator)
+	})
+
+	t.Run("returns_local_discovered_resources_tagged_with_local_source", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutResourceConfig("AWS::S3::Bucket", "bucket1", "{}"))
+
+		out, err := b.ListAggregateDiscoveredResources("agg1", "AWS::S3::Bucket", "", "", "")
+		require.NoError(t, err)
+		require.Len(t, out, 1)
+		assert.Equal(t, "bucket1", out[0].ResourceID)
+		assert.Equal(t, "123456789012", out[0].SourceAccountID)
+		assert.Equal(t, "us-east-1", out[0].SourceRegion)
+	})
+
+	t.Run("account_filter_excludes_non_matching_account", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutResourceConfig("AWS::S3::Bucket", "bucket1", "{}"))
+
+		out, err := b.ListAggregateDiscoveredResources("agg1", "AWS::S3::Bucket", "999999999999", "", "")
+		require.NoError(t, err)
+		assert.Empty(t, out)
+	})
+}

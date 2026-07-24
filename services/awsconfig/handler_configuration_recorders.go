@@ -220,17 +220,41 @@ type deleteServiceLinkedConfigurationRecorderInput struct {
 	ServicePrincipal string `json:"ServicePrincipal"`
 }
 
+type deleteServiceLinkedConfigurationRecorderOutput struct {
+	Arn  string `json:"Arn"`
+	Name string `json:"Name"`
+}
+
 func (h *Handler) handleDeleteServiceLinkedConfigurationRecorder(
 	_ context.Context, in *deleteServiceLinkedConfigurationRecorderInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.DeleteServiceLinkedConfigurationRecorder(in.ServicePrincipal)
+) (*deleteServiceLinkedConfigurationRecorderOutput, error) {
+	name, arn, err := h.Backend.DeleteServiceLinkedConfigurationRecorder(in.ServicePrincipal)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteServiceLinkedConfigurationRecorderOutput{Arn: arn, Name: name}, nil
 }
 
 // PutServiceLinkedConfigurationRecorder request/response types and handler.
+type putServiceLinkedConfigurationRecorderInput struct {
+	ServicePrincipal string `json:"ServicePrincipal"`
+}
+
+type putServiceLinkedConfigurationRecorderOutput struct {
+	Arn  string `json:"Arn"`
+	Name string `json:"Name"`
+}
+
 func (h *Handler) handlePutServiceLinkedConfigurationRecorder(
-	_ context.Context, _ *emptyInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutServiceLinkedConfigurationRecorder()
+	_ context.Context, in *putServiceLinkedConfigurationRecorderInput,
+) (*putServiceLinkedConfigurationRecorderOutput, error) {
+	name, arn, err := h.Backend.PutServiceLinkedConfigurationRecorder(in.ServicePrincipal)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putServiceLinkedConfigurationRecorderOutput{Arn: arn, Name: name}, nil
 }
 
 // ListConfigurationRecorders request/response types and handler.

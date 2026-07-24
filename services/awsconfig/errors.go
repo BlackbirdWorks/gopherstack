@@ -30,4 +30,48 @@ var (
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 	// ErrResourceNotFound is returned when a referenced resource evaluation does not exist.
 	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrNoSuchConfigRuleInConformancePack is returned when a conformance pack
+	// filter/lookup references a config rule name that the pack did not deploy
+	// (verified against aws-sdk-go-v2/service/configservice's
+	// DescribeConformancePackCompliance/GetConformancePackComplianceDetails
+	// deserializers).
+	ErrNoSuchConfigRuleInConformancePack = awserr.New(
+		"NoSuchConfigRuleInConformancePackException",
+		awserr.ErrNotFound,
+	)
+	// ErrNoSuchRemediationConfiguration is returned when a remediation-execution op
+	// targets a config rule with no remediation configuration (verified against
+	// aws-sdk-go-v2/service/configservice's StartRemediationExecution/
+	// DescribeRemediationExecutionStatus deserializers).
+	ErrNoSuchRemediationConfiguration = awserr.New("NoSuchRemediationConfigurationException", awserr.ErrNotFound)
+	// ErrNoAvailableConfigurationRecorder is returned when an op that needs a
+	// configuration recorder (e.g. DeliverConfigSnapshot) finds none configured.
+	ErrNoAvailableConfigurationRecorder = awserr.New(
+		"NoAvailableConfigurationRecorderException",
+		awserr.ErrInvalidParameter,
+	)
+	// ErrNoRunningConfigurationRecorder is returned when an op that needs an active
+	// configuration recorder (e.g. DeliverConfigSnapshot) finds recorders configured
+	// but none running.
+	ErrNoRunningConfigurationRecorder = awserr.New(
+		"NoRunningConfigurationRecorderException",
+		awserr.ErrInvalidParameter,
+	)
+	// ErrInvalidConfigurationRecorderName is returned when a configuration recorder
+	// name fails validation (verified against aws-sdk-go-v2/service/configservice's
+	// PutConfigurationRecorder deserializer, which declares
+	// InvalidConfigurationRecorderNameException).
+	ErrInvalidConfigurationRecorderName = awserr.New(
+		"InvalidConfigurationRecorderNameException",
+		awserr.ErrInvalidParameter,
+	)
+	// ErrInvalidRole is returned when a configuration recorder's IAM role ARN fails
+	// validation (verified against aws-sdk-go-v2/service/configservice's
+	// PutConfigurationRecorder deserializer, which declares InvalidRoleException).
+	ErrInvalidRole = awserr.New("InvalidRoleException", awserr.ErrInvalidParameter)
+	// ErrInvalidDeliveryChannelName is returned when a delivery channel name fails
+	// validation (verified against aws-sdk-go-v2/service/configservice's
+	// PutDeliveryChannel deserializer, which declares
+	// InvalidDeliveryChannelNameException).
+	ErrInvalidDeliveryChannelName = awserr.New("InvalidDeliveryChannelNameException", awserr.ErrInvalidParameter)
 )
