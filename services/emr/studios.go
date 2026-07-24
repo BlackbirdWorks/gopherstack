@@ -24,6 +24,25 @@ func (b *InMemoryBackend) studiosInRegion(region string) []*Studio {
 	return b.studiosByRegion.Get(region)
 }
 
+// findStudioByIDOrARN looks up a studio by either its ID or ARN within the
+// given region. Caller must hold at least a read lock. There is no ARN
+// index for studios (unlike clusters' arnIndex), so an ARN lookup falls back
+// to a linear scan -- acceptable given the small number of studios per
+// region in practice.
+func (b *InMemoryBackend) findStudioByIDOrARN(region, idOrARN string) *Studio {
+	if s, ok := b.studioGet(region, idOrARN); ok {
+		return s
+	}
+
+	for _, s := range b.studiosInRegion(region) {
+		if s.StudioArn == idOrARN {
+			return s
+		}
+	}
+
+	return nil
+}
+
 func (b *InMemoryBackend) studioSessionMappingGet(region, key string) (*StudioSessionMapping, bool) {
 	return b.studioSessionMappings.Get(regionKey(region, key))
 }

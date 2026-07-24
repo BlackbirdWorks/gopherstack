@@ -395,10 +395,30 @@ type EC2InstanceAttributes struct {
 	RequestedEc2SubnetIDs          []string `json:"RequestedEc2SubnetIds,omitempty"`
 }
 
+// KerberosAttributes holds Kerberos configuration for a cluster, set via
+// RunJobFlow and echoed back on Cluster when Kerberos authentication is
+// enabled using a security configuration.
+type KerberosAttributes struct {
+	Realm                            string `json:"Realm"`
+	KdcAdminPassword                 string `json:"KdcAdminPassword"`
+	ADDomainJoinUser                 string `json:"ADDomainJoinUser,omitempty"`
+	ADDomainJoinPassword             string `json:"ADDomainJoinPassword,omitempty"`
+	CrossRealmTrustPrincipalPassword string `json:"CrossRealmTrustPrincipalPassword,omitempty"`
+}
+
+// PlacementGroupConfig is the placement group configuration for a single
+// instance role, part of RunJobFlow's Instances.Placement and echoed back on
+// Cluster.PlacementGroups.
+type PlacementGroupConfig struct {
+	InstanceRole      string `json:"InstanceRole"`
+	PlacementStrategy string `json:"PlacementStrategy,omitempty"`
+}
+
 // Cluster represents an EMR cluster.
 type Cluster struct {
 	TerminatedAt          time.Time              `json:"TerminatedAt,omitzero"`
 	Ec2InstanceAttributes *EC2InstanceAttributes `json:"Ec2InstanceAttributes"`
+	KerberosAttributes    *KerberosAttributes    `json:"KerberosAttributes,omitempty"`
 	autoTerminationPolicy *AutoTerminationPolicy
 	managedScalingPolicy  *ManagedScalingPolicy
 	// region is the store.Table composite-key qualifier (see regionKey in
@@ -418,11 +438,13 @@ type Cluster struct {
 	Name                        string        `json:"Name"`
 	SecurityConfiguration       string        `json:"SecurityConfiguration,omitempty"`
 	CustomAmiID                 string        `json:"CustomAmiId,omitempty"`
+	InstanceCollectionType      string        `json:"InstanceCollectionType,omitempty"`
 	instanceGroups              []InstanceGroup
 	bootstrapActions            []BootstrapActionConfig
-	Tags                        []Tag           `json:"Tags"`
-	Applications                []Application   `json:"Applications,omitempty"`
-	Configurations              []Configuration `json:"Configurations,omitempty"`
+	Tags                        []Tag                  `json:"Tags"`
+	Applications                []Application          `json:"Applications,omitempty"`
+	Configurations              []Configuration        `json:"Configurations,omitempty"`
+	PlacementGroups             []PlacementGroupConfig `json:"PlacementGroups,omitempty"`
 	steps                       []Step
 	instanceFleets              []InstanceFleet
 	StepConcurrencyLevel        int  `json:"StepConcurrencyLevel,omitempty"`
@@ -433,6 +455,9 @@ type Cluster struct {
 	KeepJobFlowAliveWhenNoSteps bool `json:"KeepJobFlowAliveWhenNoSteps"`
 	TerminationProtected        bool `json:"TerminationProtected"`
 	VisibleToAllUsers           bool `json:"VisibleToAllUsers"`
+	// AutoTerminate is the real API's inverse of KeepJobFlowAliveWhenNoSteps:
+	// true means the cluster terminates after completing all steps.
+	AutoTerminate bool `json:"AutoTerminate"`
 }
 
 // ClusterStatus holds the status fields for a Cluster.
@@ -551,14 +576,21 @@ type PersistentAppUI struct {
 }
 
 // RunJobFlowInstances holds the Instances block from a RunJobFlow call.
+//
+// NOTE: real EMR's JobFlowInstancesConfig has no IamInstanceProfile member --
+// that attribute is set via the top-level RunJobFlowInput.JobFlowRole field
+// instead (see RunJobFlowParams.JobFlowRole) and echoed back on
+// Cluster.Ec2InstanceAttributes.IamInstanceProfile. An IamInstanceProfile
+// field used to live here, but no real client ever populates it at this
+// nesting level, so it was deleted.
 type RunJobFlowInstances struct {
 	Ec2KeyName                     string              `json:"Ec2KeyName,omitempty"`
 	Ec2SubnetID                    string              `json:"Ec2SubnetId,omitempty"`
 	EmrManagedMasterSecurityGroup  string              `json:"EmrManagedMasterSecurityGroup,omitempty"`
 	EmrManagedSlaveSecurityGroup   string              `json:"EmrManagedSlaveSecurityGroup,omitempty"`
 	ServiceAccessSecurityGroup     string              `json:"ServiceAccessSecurityGroup,omitempty"`
-	IamInstanceProfile             string              `json:"IamInstanceProfile,omitempty"`
 	InstanceGroups                 []InstanceGroupSpec `json:"InstanceGroups,omitempty"`
+	InstanceFleets                 []InstanceFleetSpec `json:"InstanceFleets,omitempty"`
 	Ec2SubnetIDs                   []string            `json:"Ec2SubnetIds,omitempty"`
 	AdditionalMasterSecurityGroups []string            `json:"AdditionalMasterSecurityGroups,omitempty"`
 	AdditionalSlaveSecurityGroups  []string            `json:"AdditionalSlaveSecurityGroups,omitempty"`
@@ -568,11 +600,14 @@ type RunJobFlowInstances struct {
 
 // RunJobFlowParams is the full input for creating a new cluster.
 type RunJobFlowParams struct {
-	SecurityConfiguration   string                  `json:"SecurityConfiguration,omitempty"`
-	ReleaseLabel            string                  `json:"ReleaseLabel"`
-	OSReleaseLabel          string                  `json:"OSReleaseLabel,omitempty"`
-	LogURI                  string                  `json:"LogUri,omitempty"`
-	ServiceRole             string                  `json:"ServiceRole,omitempty"`
+	SecurityConfiguration string `json:"SecurityConfiguration,omitempty"`
+	ReleaseLabel          string `json:"ReleaseLabel"`
+	OSReleaseLabel        string `json:"OSReleaseLabel,omitempty"`
+	LogURI                string `json:"LogUri,omitempty"`
+	ServiceRole           string `json:"ServiceRole,omitempty"`
+	// JobFlowRole is the real RunJobFlowInput field (also called the EC2
+	// instance profile); it becomes Cluster.Ec2InstanceAttributes.IamInstanceProfile.
+	JobFlowRole             string                  `json:"JobFlowRole,omitempty"`
 	AutoScalingRole         string                  `json:"AutoScalingRole,omitempty"`
 	Name                    string                  `json:"Name"`
 	ScaleDownBehavior       string                  `json:"ScaleDownBehavior,omitempty"`
@@ -582,6 +617,10 @@ type RunJobFlowParams struct {
 	Configurations          []Configuration         `json:"Configurations,omitempty"`
 	Steps                   []StepSpec              `json:"Steps,omitempty"`
 	BootstrapActions        []BootstrapActionConfig `json:"BootstrapActions,omitempty"`
+	KerberosAttributes      *KerberosAttributes     `json:"KerberosAttributes,omitempty"`
+	PlacementGroupConfigs   []PlacementGroupConfig  `json:"PlacementGroupConfigs,omitempty"`
+	ManagedScalingPolicy    *ManagedScalingPolicy   `json:"ManagedScalingPolicy,omitempty"`
+	AutoTerminationPolicy   *AutoTerminationPolicy  `json:"AutoTerminationPolicy,omitempty"`
 	Instances               RunJobFlowInstances     `json:"Instances"`
 	StepConcurrencyLevel    int                     `json:"StepConcurrencyLevel,omitempty"`
 	EbsRootVolumeSize       int                     `json:"EbsRootVolumeSize,omitempty"`
