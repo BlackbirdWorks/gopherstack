@@ -30,7 +30,14 @@ func (h *Handler) handleRegisterResource(_ context.Context, c *echo.Context, bod
 			"lakeformation.amazonaws.com/AWSServiceRoleForLakeFormationDataAccess"
 	}
 
-	if err := h.Backend.RegisterResource(in.ResourceArn, roleArn); err != nil {
+	opts := RegisterResourceOptions{
+		ExpectedResourceOwnerAccount: in.ExpectedResourceOwnerAccount,
+		WithFederation:               in.WithFederation,
+		WithPrivilegedAccess:         in.WithPrivilegedAccess,
+		HybridAccessEnabled:          in.HybridAccessEnabled,
+	}
+
+	if err := h.Backend.RegisterResource(in.ResourceArn, roleArn, opts); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -86,7 +93,13 @@ func (h *Handler) handleUpdateResource(_ context.Context, c *echo.Context, body 
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
-	if err := h.Backend.UpdateResource(in.ResourceArn, in.RoleArn); err != nil {
+	opts := RegisterResourceOptions{
+		ExpectedResourceOwnerAccount: in.ExpectedResourceOwnerAccount,
+		WithFederation:               in.WithFederation,
+		HybridAccessEnabled:          in.HybridAccessEnabled,
+	}
+
+	if err := h.Backend.UpdateResource(in.ResourceArn, in.RoleArn, opts); err != nil {
 		return h.handleError(c, err)
 	}
 

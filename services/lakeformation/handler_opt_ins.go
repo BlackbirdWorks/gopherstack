@@ -22,7 +22,7 @@ func (h *Handler) handleCreateLakeFormationOptIn(_ context.Context, c *echo.Cont
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
 	}
 
-	if err := h.Backend.CreateLakeFormationOptIn(in.Principal, in.Resource); err != nil {
+	if err := h.Backend.CreateLakeFormationOptIn(in.Principal, in.Resource, in.Condition); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -43,7 +43,7 @@ func (h *Handler) handleDeleteLakeFormationOptIn(_ context.Context, c *echo.Cont
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
 	}
 
-	if err := h.Backend.DeleteLakeFormationOptIn(in.Principal, in.Resource); err != nil {
+	if err := h.Backend.DeleteLakeFormationOptIn(in.Principal, in.Resource, in.Condition); err != nil {
 		return h.handleError(c, err)
 	}
 

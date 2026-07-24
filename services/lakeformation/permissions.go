@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 // AddPermissionInternal seeds a permission entry directly for testing.
@@ -32,6 +33,9 @@ func (b *InMemoryBackend) grantPermissionsLocked(entry *PermissionEntry) error {
 	if err := validatePermissions(entry.Permissions); err != nil {
 		return err
 	}
+	if err := validateGrantOptionSubset(entry.Permissions, entry.PermissionsWithGrantOption); err != nil {
+		return err
+	}
 	if entry.Resource.TableWithColumns != nil && entry.Resource.Table == nil {
 		twc := entry.Resource.TableWithColumns
 		entry.Resource.Table = &TableResource{
@@ -40,10 +44,19 @@ func (b *InMemoryBackend) grantPermissionsLocked(entry *PermissionEntry) error {
 			CatalogID:    twc.CatalogID,
 		}
 	}
+
+	now := time.Now()
+	entry.LastUpdated = &now
+
 	key := permissionKey(entry)
 	if existing, ok := b.permissionsMap.Get(key); ok {
 		mergeStringSlice(&existing.Permissions, entry.Permissions)
 		mergeStringSlice(&existing.PermissionsWithGrantOption, entry.PermissionsWithGrantOption)
+		existing.LastUpdated = &now
+
+		if entry.Condition != nil {
+			existing.Condition = entry.Condition
+		}
 
 		return nil
 	}
@@ -96,6 +109,8 @@ func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry) error 
 	}
 	if len(remaining) > 0 {
 		p.Permissions = remaining
+		now := time.Now()
+		p.LastUpdated = &now
 
 		return nil
 	}
@@ -111,10 +126,11 @@ func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry) error 
 	return nil
 }
 
-// ListPermissions returns a paginated list of permission entries filtered by resource ARN,
-// principal, and/or resource type.
+// ListPermissions returns a paginated list of permission entries filtered by resource,
+// principal, and/or resource type. resource mirrors the real ListPermissionsInput.Resource
+// shape (a nested Resource union), not a flat ARN -- see permissionMatchesResource.
 func (b *InMemoryBackend) ListPermissions(
-	resourceArn string,
+	resource *Resource,
 	maxResults int,
 	nextToken string,
 	principal *DataLakePrincipal,
@@ -126,7 +142,7 @@ func (b *InMemoryBackend) ListPermissions(
 	filtered := make([]*PermissionEntry, 0, len(b.permissionsList))
 
 	for _, p := range b.permissionsList {
-		if resourceArn != "" && !permissionMatchesARN(p, resourceArn) {
+		if !permissionMatchesResource(p, resource) {
 			continue
 		}
 
@@ -146,15 +162,32 @@ func (b *InMemoryBackend) ListPermissions(
 	return paginate(filtered, maxResults, nextToken, defaultMaxResults)
 }
 
+// toPermissionEntry converts a batch request entry to the internal PermissionEntry
+// shape used for grant/revoke. The caller-supplied Id is not part of PermissionEntry
+// (it exists only to correlate BatchFailureEntry.RequestEntry back to the request).
+func toPermissionEntry(e *BatchPermissionsRequestEntry) *PermissionEntry {
+	if e == nil {
+		return nil
+	}
+
+	return &PermissionEntry{
+		Principal:                  e.Principal,
+		Resource:                   e.Resource,
+		Permissions:                e.Permissions,
+		PermissionsWithGrantOption: e.PermissionsWithGrantOption,
+		Condition:                  e.Condition,
+	}
+}
+
 // BatchGrantPermissions grants permissions for multiple entries.
-func (b *InMemoryBackend) BatchGrantPermissions(entries []*PermissionEntry) []*BatchFailureEntry {
+func (b *InMemoryBackend) BatchGrantPermissions(entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry {
 	var failures []*BatchFailureEntry
 
 	b.mu.Lock("BatchGrantPermissions")
 	defer b.mu.Unlock()
 
 	for _, e := range entries {
-		if err := b.grantPermissionsLocked(e); err != nil {
+		if err := b.grantPermissionsLocked(toPermissionEntry(e)); err != nil {
 			errCode := "InternalServiceException"
 			if errors.Is(err, ErrValidation) {
 				errCode = errCodeInvalidInput
@@ -174,14 +207,14 @@ func (b *InMemoryBackend) BatchGrantPermissions(entries []*PermissionEntry) []*B
 }
 
 // BatchRevokePermissions revokes permissions for multiple entries.
-func (b *InMemoryBackend) BatchRevokePermissions(entries []*PermissionEntry) []*BatchFailureEntry {
+func (b *InMemoryBackend) BatchRevokePermissions(entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry {
 	var failures []*BatchFailureEntry
 
 	b.mu.Lock("BatchRevokePermissions")
 	defer b.mu.Unlock()
 
 	for _, e := range entries {
-		if err := b.revokePermissionsLocked(e); err != nil {
+		if err := b.revokePermissionsLocked(toPermissionEntry(e)); err != nil {
 			errCode := "InternalServiceException"
 			if errors.Is(err, ErrValidation) {
 				errCode = errCodeInvalidInput
@@ -217,24 +250,19 @@ func principalEqual(a, b *DataLakePrincipal) bool {
 	return a.DataLakePrincipalIdentifier == b.DataLakePrincipalIdentifier
 }
 
+// resourceEqual reports whether a and b identify the same resource, comparing
+// by the same per-kind key resourceToKey uses for indexing/sorting.
 func resourceEqual(a, b *Resource) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
 
-	if a.DataLocation != nil && b.DataLocation != nil {
-		return a.DataLocation.ResourceArn == b.DataLocation.ResourceArn
+	ka, kb := resourceToKey(a), resourceToKey(b)
+	if ka == "" || kb == "" {
+		return false
 	}
 
-	if a.Database != nil && b.Database != nil {
-		return a.Database.Name == b.Database.Name
-	}
-
-	if a.Table != nil && b.Table != nil {
-		return a.Table.DatabaseName == b.Table.DatabaseName && a.Table.Name == b.Table.Name
-	}
-
-	return false
+	return ka == kb
 }
 
 // permissionMatchesARN returns true if the permission entry's resource matches the given ARN.
@@ -262,17 +290,137 @@ func permissionMatchesARN(p *PermissionEntry, arn string) bool {
 	return false
 }
 
-// isValidPermission returns true if the given permission string is a known Lake Formation permission.
+// permissionMatchesResource reports whether a permission entry's resource
+// matches the given ListPermissions filter Resource. A nil filter (no
+// Resource specified in the request) matches everything. TableWithColumns in
+// the filter is treated as its containing Table, matching AWS's documented
+// behavior that ListPermissions "does not support getting privileges on a
+// table with columns" as a filter -- callers pass the table instead.
+func permissionMatchesResource(p *PermissionEntry, filter *Resource) bool {
+	if filter == nil {
+		return true
+	}
+
+	if p.Resource == nil {
+		return false
+	}
+
+	switch {
+	case filter.Catalog != nil:
+		return p.Resource.Catalog != nil
+	case filter.Database != nil:
+		return resourceMatchesDatabase(p.Resource, filter.Database)
+	case filter.Table != nil:
+		return resourceMatchesTable(p.Resource, filter.Table.DatabaseName, filter.Table.Name)
+	case filter.TableWithColumns != nil:
+		return resourceMatchesTable(p.Resource, filter.TableWithColumns.DatabaseName, filter.TableWithColumns.Name)
+	case filter.DataLocation != nil:
+		return resourceMatchesDataLocation(p.Resource, filter.DataLocation)
+	case filter.DataCellsFilter != nil:
+		return resourceMatchesDataCellsFilter(p.Resource, filter.DataCellsFilter)
+	case filter.LFTag != nil:
+		return resourceMatchesLFTag(p.Resource, filter.LFTag)
+	case filter.LFTagExpression != nil:
+		return resourceMatchesLFTagExpression(p.Resource, filter.LFTagExpression)
+	case filter.LFTagPolicy != nil:
+		return resourceMatchesLFTagPolicy(p.Resource, filter.LFTagPolicy)
+	default:
+		return true
+	}
+}
+
+func resourceMatchesDatabase(r *Resource, want *DatabaseResource) bool {
+	return r.Database != nil && r.Database.Name == want.Name
+}
+
+// resourceMatchesTable matches r's Table against a (databaseName, name) pair.
+// A ListPermissions filter's TableWithColumns is treated as its containing
+// Table (AWS documents that ListPermissions "does not support getting
+// privileges on a table with columns" as a filter -- callers pass the table).
+func resourceMatchesTable(r *Resource, databaseName, name string) bool {
+	return r.Table != nil && r.Table.DatabaseName == databaseName && r.Table.Name == name
+}
+
+func resourceMatchesDataLocation(r *Resource, want *DataLocationResource) bool {
+	return r.DataLocation != nil && r.DataLocation.ResourceArn == want.ResourceArn
+}
+
+func resourceMatchesDataCellsFilter(r *Resource, want *DataCellsFilterResource) bool {
+	return r.DataCellsFilter != nil && *r.DataCellsFilter == *want
+}
+
+func resourceMatchesLFTag(r *Resource, want *LFTagKeyResource) bool {
+	return r.LFTag != nil && r.LFTag.CatalogID == want.CatalogID && r.LFTag.TagKey == want.TagKey
+}
+
+func resourceMatchesLFTagExpression(r *Resource, want *LFTagExpressionResource) bool {
+	return r.LFTagExpression != nil &&
+		r.LFTagExpression.CatalogID == want.CatalogID &&
+		r.LFTagExpression.Name == want.Name
+}
+
+func resourceMatchesLFTagPolicy(r *Resource, want *LFTagPolicyResource) bool {
+	return r.LFTagPolicy != nil &&
+		r.LFTagPolicy.CatalogID == want.CatalogID &&
+		r.LFTagPolicy.ResourceType == want.ResourceType
+}
+
+// validateBatchPermissionsEntries checks that every entry carries the
+// caller-supplied Id the real API requires (types.BatchPermissionsRequestEntry.Id
+// is a required member) so BatchFailureEntry.RequestEntry can be correlated
+// back to the request that produced it.
+func validateBatchPermissionsEntries(entries []*BatchPermissionsRequestEntry) error {
+	for i, e := range entries {
+		if e == nil || strings.TrimSpace(e.ID) == "" {
+			return fmt.Errorf("Entries[%d].Id is required: %w", i, ErrValidation)
+		}
+	}
+
+	return nil
+}
+
+// isValidPermission returns true if the given permission string is a known
+// Lake Formation permission. This must match types.Permission's Values()
+// exactly (aws-sdk-go-v2/service/lakeformation/types/enums.go) -- gopherstack
+// previously accepted three permission strings that do not exist in the real
+// enum at all ("CREATE_TAG", "CREATE_LAKE_FORMATION_OPT_IN", and "SUPER",
+// the last a typo'd stand-in for the real "SUPER_USER") and was missing the
+// real "CREATE_LF_TAG_EXPRESSION" value.
 func isValidPermission(perm string) bool {
 	switch perm {
 	case "ALL", "SELECT", "ALTER", "DROP", "DELETE", "INSERT", "DESCRIBE",
 		"CREATE_DATABASE", "CREATE_TABLE", "DATA_LOCATION_ACCESS",
-		"CREATE_TAG", "ASSOCIATE", "CREATE_LAKE_FORMATION_OPT_IN",
-		"GRANT_WITH_LF_TAG_EXPRESSION", "CREATE_LF_TAG", "CREATE_CATALOG", "SUPER":
+		"CREATE_LF_TAG", "ASSOCIATE", "GRANT_WITH_LF_TAG_EXPRESSION",
+		"CREATE_LF_TAG_EXPRESSION", "CREATE_CATALOG", "SUPER_USER":
 		return true
 	default:
 		return false
 	}
+}
+
+// validateGrantOptionSubset checks that every permission in
+// permissionsWithGrantOption also appears in permissions. This is enforced
+// here (not only in handleGrantPermissions) so BatchGrantPermissions gets the
+// same validation per-entry, surfaced as a Failures[] InvalidInputException
+// rather than skipped entirely -- the real API validates
+// BatchPermissionsRequestEntry the same way it validates GrantPermissionsInput.
+func validateGrantOptionSubset(permissions, permissionsWithGrantOption []string) error {
+	if len(permissionsWithGrantOption) == 0 {
+		return nil
+	}
+
+	permSet := make(map[string]bool, len(permissions))
+	for _, p := range permissions {
+		permSet[p] = true
+	}
+
+	for _, g := range permissionsWithGrantOption {
+		if !permSet[g] {
+			return fmt.Errorf("PermissionsWithGrantOption must be a subset of Permissions: %w", ErrValidation)
+		}
+	}
+
+	return nil
 }
 
 // validatePermissions checks that all permission strings are valid.
@@ -302,6 +450,16 @@ func permissionMatchesResourceType(p *PermissionEntry, resourceType string) bool
 		return p.Resource.DataLocation != nil
 	case "CATALOG":
 		return p.Resource.Catalog != nil
+	case "LF_TAG":
+		return p.Resource.LFTag != nil
+	case "LF_TAG_POLICY":
+		return p.Resource.LFTagPolicy != nil
+	case "LF_TAG_POLICY_DATABASE":
+		return p.Resource.LFTagPolicy != nil && p.Resource.LFTagPolicy.ResourceType == "DATABASE"
+	case "LF_TAG_POLICY_TABLE":
+		return p.Resource.LFTagPolicy != nil && p.Resource.LFTagPolicy.ResourceType == "TABLE"
+	case "LF_NAMED_TAG_EXPRESSION":
+		return p.Resource.LFTagExpression != nil
 	default:
 		return false
 	}
@@ -343,12 +501,40 @@ func deepCopyPermissionEntry(e *PermissionEntry) *PermissionEntry {
 		copy(cp.PermissionsWithGrantOption, e.PermissionsWithGrantOption)
 	}
 
+	if e.Condition != nil {
+		cond := *e.Condition
+		cp.Condition = &cond
+	}
+
+	if e.LastUpdated != nil {
+		t := *e.LastUpdated
+		cp.LastUpdated = &t
+	}
+
+	cp.LastUpdatedBy = e.LastUpdatedBy
+
 	return cp
 }
 
-// GetEffectivePermissionsForPath returns effective permissions for a resource path.
+// GetEffectivePermissionsForPath returns effective permissions for a resource
+// path. Unlike ListPermissions, the real GetEffectivePermissionsForPathInput
+// filters by a flat ResourceArn string, so this uses permissionMatchesARN
+// directly rather than ListPermissions' Resource-shaped filter.
 func (b *InMemoryBackend) GetEffectivePermissionsForPath(
 	resourceArn string, maxResults int, nextToken string,
 ) ([]*PermissionEntry, string) {
-	return b.ListPermissions(resourceArn, maxResults, nextToken, nil, "")
+	b.mu.RLock("GetEffectivePermissionsForPath")
+	defer b.mu.RUnlock()
+
+	filtered := make([]*PermissionEntry, 0, len(b.permissionsList))
+
+	for _, p := range b.permissionsList {
+		if resourceArn != "" && !permissionMatchesARN(p, resourceArn) {
+			continue
+		}
+
+		filtered = append(filtered, deepCopyPermissionEntry(p))
+	}
+
+	return paginate(filtered, maxResults, nextToken, defaultMaxResults)
 }

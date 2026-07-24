@@ -14,6 +14,7 @@ type DataLakeSettings struct {
 	CreateTableDefaultPermissions    []PrincipalPermissions `json:"CreateTableDefaultPermissions,omitempty"`
 	TrustedResourceOwners            []string               `json:"TrustedResourceOwners,omitempty"`
 	Parameters                       map[string]string      `json:"Parameters,omitempty"`
+	ExternalDataFilteringAllowList   []DataLakePrincipal    `json:"ExternalDataFilteringAllowList,omitempty"`
 	AllowExternalDataFiltering       *bool                  `json:"AllowExternalDataFiltering,omitempty"`
 	AllowFullTableExternalDataAccess *bool                  `json:"AllowFullTableExternalDataAccess,omitempty"`
 	AuthorizedSessionTagValueList    []string               `json:"AuthorizedSessionTagValueList,omitempty"`
@@ -36,9 +37,14 @@ type PrincipalPermissions struct {
 // toResourceInfoWire, which re-encodes LastModified as epoch seconds to
 // match the real wire format (see resourceInfoWire).
 type ResourceInfo struct {
-	LastModified *time.Time `json:"LastModified,omitempty"`
-	ResourceArn  string     `json:"ResourceArn"`
-	RoleArn      string     `json:"RoleArn"`
+	LastModified                 *time.Time `json:"LastModified,omitempty"`
+	ResourceArn                  string     `json:"ResourceArn"`
+	RoleArn                      string     `json:"RoleArn"`
+	ExpectedResourceOwnerAccount string     `json:"ExpectedResourceOwnerAccount,omitempty"`
+	VerificationStatus           string     `json:"VerificationStatus,omitempty"`
+	HybridAccessEnabled          bool       `json:"HybridAccessEnabled,omitempty"`
+	WithFederation               bool       `json:"WithFederation,omitempty"`
+	WithPrivilegedAccess         bool       `json:"WithPrivilegedAccess,omitempty"`
 }
 
 // resourceInfoWire is the wire representation of ResourceInfo returned by
@@ -47,9 +53,14 @@ type ResourceInfo struct {
 // types.ResourceInfo.LastModified wire format -- the aws-sdk-go-v2
 // deserializer rejects Go's default RFC3339-string time.Time encoding here.
 type resourceInfoWire struct {
-	LastModified *float64 `json:"LastModified,omitempty"`
-	ResourceArn  string   `json:"ResourceArn"`
-	RoleArn      string   `json:"RoleArn"`
+	LastModified                 *float64 `json:"LastModified,omitempty"`
+	ResourceArn                  string   `json:"ResourceArn"`
+	RoleArn                      string   `json:"RoleArn"`
+	ExpectedResourceOwnerAccount string   `json:"ExpectedResourceOwnerAccount,omitempty"`
+	VerificationStatus           string   `json:"VerificationStatus,omitempty"`
+	HybridAccessEnabled          bool     `json:"HybridAccessEnabled,omitempty"`
+	WithFederation               bool     `json:"WithFederation,omitempty"`
+	WithPrivilegedAccess         bool     `json:"WithPrivilegedAccess,omitempty"`
 }
 
 // toResourceInfoWire converts a ResourceInfo to its wire representation.
@@ -58,7 +69,15 @@ func toResourceInfoWire(ri *ResourceInfo) *resourceInfoWire {
 		return nil
 	}
 
-	w := &resourceInfoWire{ResourceArn: ri.ResourceArn, RoleArn: ri.RoleArn}
+	w := &resourceInfoWire{
+		ResourceArn:                  ri.ResourceArn,
+		RoleArn:                      ri.RoleArn,
+		ExpectedResourceOwnerAccount: ri.ExpectedResourceOwnerAccount,
+		VerificationStatus:           ri.VerificationStatus,
+		HybridAccessEnabled:          ri.HybridAccessEnabled,
+		WithFederation:               ri.WithFederation,
+		WithPrivilegedAccess:         ri.WithPrivilegedAccess,
+	}
 
 	if ri.LastModified != nil {
 		e := awstime.Epoch(*ri.LastModified)
@@ -114,48 +133,169 @@ type Resource struct {
 	Table            *TableResource            `json:"Table,omitempty"`
 	TableWithColumns *TableWithColumnsResource `json:"TableWithColumns,omitempty"`
 	DataLocation     *DataLocationResource     `json:"DataLocation,omitempty"`
+	DataCellsFilter  *DataCellsFilterResource  `json:"DataCellsFilter,omitempty"`
+	LFTag            *LFTagKeyResource         `json:"LFTag,omitempty"`
+	LFTagExpression  *LFTagExpressionResource  `json:"LFTagExpression,omitempty"`
+	LFTagPolicy      *LFTagPolicyResource      `json:"LFTagPolicy,omitempty"`
 }
 
 // TableWithColumnsResource represents a table resource with column-level access.
 type TableWithColumnsResource struct {
-	CatalogID    string   `json:"CatalogId,omitempty"`
-	DatabaseName string   `json:"DatabaseName"`
-	Name         string   `json:"Name"`
-	ColumnNames  []string `json:"ColumnNames,omitempty"`
+	ColumnWildcard *ColumnWildcard `json:"ColumnWildcard,omitempty"`
+	CatalogID      string          `json:"CatalogId,omitempty"`
+	DatabaseName   string          `json:"DatabaseName"`
+	Name           string          `json:"Name"`
+	ColumnNames    []string        `json:"ColumnNames,omitempty"`
 }
 
 // CatalogResource represents the data catalog resource.
-type CatalogResource struct{}
+type CatalogResource struct {
+	ID string `json:"Id,omitempty"`
+}
 
 // DatabaseResource represents a database resource.
 type DatabaseResource struct {
-	Name string `json:"Name"`
+	Name      string `json:"Name"`
+	CatalogID string `json:"CatalogId,omitempty"`
 }
 
 // TableResource represents a table resource.
 type TableResource struct {
-	CatalogID    string `json:"CatalogId,omitempty"`
-	DatabaseName string `json:"DatabaseName"`
-	Name         string `json:"Name"`
+	TableWildcard *TableWildcard `json:"TableWildcard,omitempty"`
+	CatalogID     string         `json:"CatalogId,omitempty"`
+	DatabaseName  string         `json:"DatabaseName"`
+	Name          string         `json:"Name,omitempty"`
+}
+
+// TableWildcard is a structure that indicates all tables in a database.
+type TableWildcard struct{}
+
+// ColumnWildcard is a wildcard object, consisting of an optional list of
+// excluded column names.
+type ColumnWildcard struct {
+	ExcludedColumnNames []string `json:"ExcludedColumnNames,omitempty"`
+}
+
+// Condition is a Lake Formation condition (Cedar expression) which applies to
+// permissions and opt-ins.
+type Condition struct {
+	Expression string `json:"Expression,omitempty"`
+}
+
+// DataCellsFilterResource identifies a data cells filter as a permission resource.
+type DataCellsFilterResource struct {
+	TableCatalogID string `json:"TableCatalogId,omitempty"`
+	DatabaseName   string `json:"DatabaseName,omitempty"`
+	TableName      string `json:"TableName,omitempty"`
+	Name           string `json:"Name,omitempty"`
+}
+
+// LFTagKeyResource identifies an LF-tag key/values pair as a permission resource.
+type LFTagKeyResource struct {
+	CatalogID string   `json:"CatalogId,omitempty"`
+	TagKey    string   `json:"TagKey"`
+	TagValues []string `json:"TagValues"`
+}
+
+// LFTagExpressionResource identifies a saved LF-tag expression as a permission resource.
+type LFTagExpressionResource struct {
+	Name      string `json:"Name"`
+	CatalogID string `json:"CatalogId,omitempty"`
+}
+
+// LFTagPolicyResource identifies an LF-tag policy (a set of LF-tag conditions,
+// or a reference to a saved expression) applying to DATABASE or TABLE resources.
+type LFTagPolicyResource struct {
+	CatalogID      string  `json:"CatalogId,omitempty"`
+	ResourceType   string  `json:"ResourceType"`
+	ExpressionName string  `json:"ExpressionName,omitempty"`
+	Expression     []LFTag `json:"Expression,omitempty"`
 }
 
 // DataLocationResource represents an Amazon S3 data location resource.
 type DataLocationResource struct {
 	ResourceArn string `json:"ResourceArn"`
+	CatalogID   string `json:"CatalogId,omitempty"`
 }
 
 // PermissionEntry associates a principal and resource with a set of permissions.
 type PermissionEntry struct {
 	Principal                  *DataLakePrincipal `json:"Principal,omitempty"`
 	Resource                   *Resource          `json:"Resource,omitempty"`
+	Condition                  *Condition         `json:"Condition,omitempty"`
+	LastUpdated                *time.Time         `json:"LastUpdated,omitempty"`
+	LastUpdatedBy              string             `json:"LastUpdatedBy,omitempty"`
+	Permissions                []string           `json:"Permissions,omitempty"`
+	PermissionsWithGrantOption []string           `json:"PermissionsWithGrantOption,omitempty"`
+}
+
+// BatchPermissionsRequestEntry is a single entry of a BatchGrantPermissions or
+// BatchRevokePermissions request. Unlike PermissionEntry (used directly by
+// GrantPermissions/RevokePermissions), the real AWS API requires a caller-supplied
+// Id per entry so BatchGrantPermissionsOutput/BatchRevokePermissionsOutput's
+// Failures can be correlated back to the request that produced them.
+type BatchPermissionsRequestEntry struct {
+	Principal                  *DataLakePrincipal `json:"Principal,omitempty"`
+	Resource                   *Resource          `json:"Resource,omitempty"`
+	Condition                  *Condition         `json:"Condition,omitempty"`
+	ID                         string             `json:"Id"`
 	Permissions                []string           `json:"Permissions,omitempty"`
 	PermissionsWithGrantOption []string           `json:"PermissionsWithGrantOption,omitempty"`
 }
 
 // BatchFailureEntry reports a failure for a single entry in a batch operation.
 type BatchFailureEntry struct {
-	RequestEntry *PermissionEntry `json:"RequestEntry,omitempty"`
-	Error        *errorDetail     `json:"Error,omitempty"`
+	RequestEntry *BatchPermissionsRequestEntry `json:"RequestEntry,omitempty"`
+	Error        *errorDetail                  `json:"Error,omitempty"`
+}
+
+// permissionEntryWire is the wire representation of PermissionEntry returned
+// by ListPermissions/GetEffectivePermissionsForPath. LastUpdated is emitted
+// as epoch seconds (a JSON number) via awstime.Epoch, matching the real
+// types.PrincipalResourcePermissions.LastUpdated wire format -- the
+// aws-sdk-go-v2 deserializer rejects Go's default RFC3339-string time.Time
+// encoding here.
+type permissionEntryWire struct {
+	Principal                  *DataLakePrincipal `json:"Principal,omitempty"`
+	Resource                   *Resource          `json:"Resource,omitempty"`
+	Condition                  *Condition         `json:"Condition,omitempty"`
+	LastUpdated                *float64           `json:"LastUpdated,omitempty"`
+	LastUpdatedBy              string             `json:"LastUpdatedBy,omitempty"`
+	Permissions                []string           `json:"Permissions,omitempty"`
+	PermissionsWithGrantOption []string           `json:"PermissionsWithGrantOption,omitempty"`
+}
+
+// toPermissionEntryWire converts a PermissionEntry to its wire representation.
+func toPermissionEntryWire(p *PermissionEntry) *permissionEntryWire {
+	if p == nil {
+		return nil
+	}
+
+	w := &permissionEntryWire{
+		Principal:                  p.Principal,
+		Resource:                   p.Resource,
+		Permissions:                p.Permissions,
+		PermissionsWithGrantOption: p.PermissionsWithGrantOption,
+		Condition:                  p.Condition,
+		LastUpdatedBy:              p.LastUpdatedBy,
+	}
+
+	if p.LastUpdated != nil {
+		e := awstime.Epoch(*p.LastUpdated)
+		w.LastUpdated = &e
+	}
+
+	return w
+}
+
+// toPermissionEntryWireList converts a slice of PermissionEntry to their wire representation.
+func toPermissionEntryWireList(list []*PermissionEntry) []*permissionEntryWire {
+	out := make([]*permissionEntryWire, len(list))
+	for i, p := range list {
+		out[i] = toPermissionEntryWire(p)
+	}
+
+	return out
 }
 
 // errorDetail is the nested error object in a BatchFailureEntry.
@@ -184,11 +324,13 @@ type putDataLakeSettingsInput struct {
 
 // registerResourceInput is the request body for RegisterResource.
 type registerResourceInput struct {
-	ResourceArn          string `json:"ResourceArn"`
-	RoleArn              string `json:"RoleArn"`
-	UseServiceLinkedRole bool   `json:"UseServiceLinkedRole,omitempty"`
-	WithFederation       bool   `json:"WithFederation,omitempty"`
-	HybridAccessEnabled  bool   `json:"HybridAccessEnabled,omitempty"`
+	ResourceArn                  string `json:"ResourceArn"`
+	RoleArn                      string `json:"RoleArn"`
+	ExpectedResourceOwnerAccount string `json:"ExpectedResourceOwnerAccount,omitempty"`
+	UseServiceLinkedRole         bool   `json:"UseServiceLinkedRole,omitempty"`
+	WithFederation               bool   `json:"WithFederation,omitempty"`
+	WithPrivilegedAccess         bool   `json:"WithPrivilegedAccess,omitempty"`
+	HybridAccessEnabled          bool   `json:"HybridAccessEnabled,omitempty"`
 }
 
 // registerResourceOutput is the response body for RegisterResource (empty).
@@ -229,6 +371,7 @@ type grantPermissionsInput struct {
 	CatalogID                  string             `json:"CatalogId,omitempty"`
 	Principal                  *DataLakePrincipal `json:"Principal"`
 	Resource                   *Resource          `json:"Resource"`
+	Condition                  *Condition         `json:"Condition,omitempty"`
 	Permissions                []string           `json:"Permissions"`
 	PermissionsWithGrantOption []string           `json:"PermissionsWithGrantOption,omitempty"`
 }
@@ -241,6 +384,7 @@ type revokePermissionsInput struct {
 	CatalogID                  string             `json:"CatalogId,omitempty"`
 	Principal                  *DataLakePrincipal `json:"Principal"`
 	Resource                   *Resource          `json:"Resource"`
+	Condition                  *Condition         `json:"Condition,omitempty"`
 	Permissions                []string           `json:"Permissions"`
 	PermissionsWithGrantOption []string           `json:"PermissionsWithGrantOption,omitempty"`
 }
@@ -248,19 +392,23 @@ type revokePermissionsInput struct {
 // revokePermissionsOutput is the response body for RevokePermissions (empty).
 type revokePermissionsOutput struct{}
 
-// listPermissionsInput is the request body for ListPermissions.
+// listPermissionsInput is the request body for ListPermissions. Note: the
+// real API filters by a nested Resource object (matching Grant/RevokePermissions'
+// shape), NOT a flat ResourceArn string -- GetEffectivePermissionsForPath is the
+// only Lake Formation op that takes a flat ResourceArn.
 type listPermissionsInput struct {
-	Principal    *DataLakePrincipal `json:"Principal,omitempty"`
-	ResourceArn  string             `json:"ResourceArn,omitempty"`
-	NextToken    string             `json:"NextToken,omitempty"`
-	ResourceType string             `json:"ResourceType,omitempty"`
-	MaxResults   int                `json:"MaxResults,omitempty"`
+	Principal      *DataLakePrincipal `json:"Principal,omitempty"`
+	Resource       *Resource          `json:"Resource,omitempty"`
+	NextToken      string             `json:"NextToken,omitempty"`
+	ResourceType   string             `json:"ResourceType,omitempty"`
+	IncludeRelated string             `json:"IncludeRelated,omitempty"`
+	MaxResults     int                `json:"MaxResults,omitempty"`
 }
 
 // listPermissionsOutput is the response body for ListPermissions.
 type listPermissionsOutput struct {
-	NextToken                    string             `json:"NextToken,omitempty"`
-	PrincipalResourcePermissions []*PermissionEntry `json:"PrincipalResourcePermissions"`
+	NextToken                    string                 `json:"NextToken,omitempty"`
+	PrincipalResourcePermissions []*permissionEntryWire `json:"PrincipalResourcePermissions"`
 }
 
 // createLFTagInput is the request body for CreateLFTag.
@@ -321,8 +469,8 @@ type listLFTagsOutput struct {
 
 // batchGrantPermissionsInput is the request body for BatchGrantPermissions.
 type batchGrantPermissionsInput struct {
-	CatalogID string             `json:"CatalogId,omitempty"`
-	Entries   []*PermissionEntry `json:"Entries"`
+	CatalogID string                          `json:"CatalogId,omitempty"`
+	Entries   []*BatchPermissionsRequestEntry `json:"Entries"`
 }
 
 // batchGrantPermissionsOutput is the response body for BatchGrantPermissions.
@@ -332,8 +480,8 @@ type batchGrantPermissionsOutput struct {
 
 // batchRevokePermissionsInput is the request body for BatchRevokePermissions.
 type batchRevokePermissionsInput struct {
-	CatalogID string             `json:"CatalogId,omitempty"`
-	Entries   []*PermissionEntry `json:"Entries"`
+	CatalogID string                          `json:"CatalogId,omitempty"`
+	Entries   []*BatchPermissionsRequestEntry `json:"Entries"`
 }
 
 // batchRevokePermissionsOutput is the response body for BatchRevokePermissions.
@@ -362,17 +510,23 @@ type LFTagError struct {
 
 // RowFilter holds a filter expression for a data cells filter.
 type RowFilter struct {
-	FilterExpression string `json:"FilterExpression,omitempty"`
+	AllRowsWildcard  *AllRowsWildcard `json:"AllRowsWildcard,omitempty"`
+	FilterExpression string           `json:"FilterExpression,omitempty"`
 }
+
+// AllRowsWildcard indicates that all rows in a data cells filter are included.
+type AllRowsWildcard struct{}
 
 // DataCellsFilter holds the definition of a cell-level access filter.
 type DataCellsFilter struct {
-	TableCatalogID string     `json:"TableCatalogId"`
-	DatabaseName   string     `json:"DatabaseName"`
-	TableName      string     `json:"TableName"`
-	Name           string     `json:"Name"`
-	RowFilter      *RowFilter `json:"RowFilter,omitempty"`
-	ColumnNames    []string   `json:"ColumnNames,omitempty"`
+	RowFilter      *RowFilter      `json:"RowFilter,omitempty"`
+	ColumnWildcard *ColumnWildcard `json:"ColumnWildcard,omitempty"`
+	TableCatalogID string          `json:"TableCatalogId"`
+	DatabaseName   string          `json:"DatabaseName"`
+	TableName      string          `json:"TableName"`
+	Name           string          `json:"Name"`
+	VersionID      string          `json:"VersionId,omitempty"`
+	ColumnNames    []string        `json:"ColumnNames,omitempty"`
 }
 
 // LFTagExpression holds a saved, named LF-tag expression.
@@ -448,6 +602,7 @@ type IdentityCenterConfiguration struct {
 type LFOptIn struct {
 	Principal     *DataLakePrincipal `json:"Principal,omitempty"`
 	Resource      *Resource          `json:"Resource,omitempty"`
+	Condition     *Condition         `json:"Condition,omitempty"`
 	LastModified  string             `json:"LastModified,omitempty"`
 	LastUpdatedBy string             `json:"LastUpdatedBy,omitempty"`
 }
@@ -459,6 +614,7 @@ type LFOptIn struct {
 type lfOptInWire struct {
 	Principal     *DataLakePrincipal `json:"Principal,omitempty"`
 	Resource      *Resource          `json:"Resource,omitempty"`
+	Condition     *Condition         `json:"Condition,omitempty"`
 	LastModified  *float64           `json:"LastModified,omitempty"`
 	LastUpdatedBy string             `json:"LastUpdatedBy,omitempty"`
 }
@@ -472,6 +628,7 @@ func toLFOptInWire(o *LFOptIn) *lfOptInWire {
 	return &lfOptInWire{
 		Principal:     o.Principal,
 		Resource:      o.Resource,
+		Condition:     o.Condition,
 		LastModified:  rfc3339ToEpoch(o.LastModified),
 		LastUpdatedBy: o.LastUpdatedBy,
 	}
@@ -576,6 +733,7 @@ type createLakeFormationIdentityCenterConfigurationOutput struct {
 type createLakeFormationOptInInput struct {
 	Principal *DataLakePrincipal `json:"Principal"`
 	Resource  *Resource          `json:"Resource"`
+	Condition *Condition         `json:"Condition,omitempty"`
 }
 
 // createLakeFormationOptInOutput is the response body for CreateLakeFormationOptIn (empty).
@@ -605,8 +763,11 @@ type deleteLFTagExpressionOutput struct{}
 
 // updateResourceInput is the request body for UpdateResource.
 type updateResourceInput struct {
-	ResourceArn string `json:"ResourceArn"`
-	RoleArn     string `json:"RoleArn"`
+	ResourceArn                  string `json:"ResourceArn"`
+	RoleArn                      string `json:"RoleArn"`
+	ExpectedResourceOwnerAccount string `json:"ExpectedResourceOwnerAccount,omitempty"`
+	WithFederation               bool   `json:"WithFederation,omitempty"`
+	HybridAccessEnabled          bool   `json:"HybridAccessEnabled,omitempty"`
 }
 
 // updateResourceOutput is the response body for UpdateResource (empty).
@@ -701,6 +862,7 @@ type listLFTagExpressionsOutput struct {
 type deleteLakeFormationOptInInput struct {
 	Principal *DataLakePrincipal `json:"Principal"`
 	Resource  *Resource          `json:"Resource"`
+	Condition *Condition         `json:"Condition,omitempty"`
 }
 
 // deleteLakeFormationOptInOutput is the response body for DeleteLakeFormationOptIn (empty).
@@ -885,8 +1047,8 @@ type getEffectivePermissionsForPathInput struct {
 	MaxResults  int    `json:"MaxResults,omitempty"`
 }
 type getEffectivePermissionsForPathOutput struct {
-	NextToken                    string             `json:"NextToken,omitempty"`
-	PrincipalResourcePermissions []*PermissionEntry `json:"PrincipalResourcePermissions"`
+	NextToken                    string                 `json:"NextToken,omitempty"`
+	PrincipalResourcePermissions []*permissionEntryWire `json:"PrincipalResourcePermissions"`
 }
 
 type getLFTagExpressionInput struct {
