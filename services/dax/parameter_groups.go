@@ -188,10 +188,13 @@ func paginateParameters(all []*Parameter, maxResults int, nextToken string) ([]*
 }
 
 // DescribeParameters returns the parameters for a specific parameter group with pagination.
+// sourceFilter, when non-empty, narrows the result to parameters whose Source
+// ("user" or "system") matches -- mirrors the real DAX API's Source request field.
 func (b *InMemoryBackend) DescribeParameters(
 	paramGroupName string,
 	maxResults int,
 	nextToken string,
+	sourceFilter string,
 ) ([]*Parameter, string, error) {
 	if paramGroupName == "" {
 		return nil, "", fmt.Errorf("%w: ParameterGroupName is required", ErrParameterGroupNotFound)
@@ -215,6 +218,10 @@ func (b *InMemoryBackend) DescribeParameters(
 		source := "user"
 		if def, isDefault := defaultParameterValues[name]; isDefault && value == def {
 			source = "system"
+		}
+
+		if sourceFilter != "" && sourceFilter != source {
+			continue
 		}
 
 		params = append(params, buildParameter(name, value, source))

@@ -174,6 +174,19 @@ func validateCreateCluster(input *CreateClusterInput) error {
 		)
 	}
 
+	if input.NetworkType != "" &&
+		input.NetworkType != NetworkTypeIPv4 &&
+		input.NetworkType != NetworkTypeIPv6 &&
+		input.NetworkType != NetworkTypeDualStack {
+		return fmt.Errorf(
+			"%w: NetworkType must be %q, %q, or %q",
+			ErrInvalidParameterValue,
+			NetworkTypeIPv4,
+			NetworkTypeIPv6,
+			NetworkTypeDualStack,
+		)
+	}
+
 	return nil
 }
 
@@ -189,6 +202,14 @@ func applyCreateClusterDefaults(input *CreateClusterInput) {
 
 	if input.ClusterEndpointEncryptionType == "" {
 		input.ClusterEndpointEncryptionType = EncryptionTypeNone
+	}
+
+	// If no explicit NetworkType is provided, the real API derives it from the
+	// subnet group's configuration; gopherstack subnet groups are always
+	// IPv4-only (see SubnetGroup.SupportedNetworkTypes), so the derived default
+	// is always "ipv4".
+	if input.NetworkType == "" {
+		input.NetworkType = NetworkTypeIPv4
 	}
 }
 
@@ -331,6 +352,7 @@ func (b *InMemoryBackend) initCluster(
 		SecurityGroupIDs:              input.SecurityGroupIDs,
 		PreferredMaintenanceWindow:    maintenanceWindow,
 		ClusterEndpointEncryptionType: input.ClusterEndpointEncryptionType,
+		NetworkType:                   input.NetworkType,
 		CreateTime:                    now,
 		TotalNodes:                    input.ReplicationFactor,
 		ActiveNodes:                   input.ReplicationFactor,
@@ -680,6 +702,8 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 		)
 	}
 
+	var removedIDs []string
+
 	if len(input.NodeIDsToRemove) > 0 {
 		kept, err := removeSpecificNodes(
 			cluster.Nodes, input.NodeIDsToRemove, input.ClusterName, input.NewReplicationFactor,
@@ -688,14 +712,23 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 			return nil, err
 		}
 
+		removedIDs = input.NodeIDsToRemove
 		cluster.Nodes = kept
 	} else {
+		for _, n := range cluster.Nodes[input.NewReplicationFactor:] {
+			removedIDs = append(removedIDs, n.NodeID)
+		}
+
 		cluster.Nodes = cluster.Nodes[:input.NewReplicationFactor]
 	}
 
 	cluster.TotalNodes = input.NewReplicationFactor
 	cluster.ActiveNodes = input.NewReplicationFactor
 	cluster.Status = StatusModifying
+	// NodeIDsToRemove (types.Cluster.NodeIdsToRemove) surfaces on the wire only
+	// while the decrease is in flight; cleared once the async transition below
+	// brings the cluster back to "available".
+	cluster.NodeIDsToRemove = removedIDs
 
 	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Replication factor decreased to %d.", input.NewReplicationFactor))
@@ -706,6 +739,7 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 		defer b.mu.Unlock()
 		if c, exists := b.clusters.Get(cName); exists && c.Status == StatusModifying {
 			c.Status = StatusAvailable
+			c.NodeIDsToRemove = nil
 		}
 	}(input.ClusterName)
 
@@ -786,6 +820,7 @@ func (b *InMemoryBackend) clusterCopy(c *Cluster) *Cluster {
 	maps.Copy(cp.Tags, c.Tags)
 
 	cp.SecurityGroupIDs = append([]string(nil), c.SecurityGroupIDs...)
+	cp.NodeIDsToRemove = append([]string(nil), c.NodeIDsToRemove...)
 
 	cp.Nodes = make([]Node, len(c.Nodes))
 	for i, n := range c.Nodes {

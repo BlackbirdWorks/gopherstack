@@ -77,7 +77,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, paramGroups, 1)
 
-	params, _, err := fresh.DescribeParameters("full-params", 0, "")
+	params, _, err := fresh.DescribeParameters("full-params", 0, "", "")
 	require.NoError(t, err)
 
 	var found bool

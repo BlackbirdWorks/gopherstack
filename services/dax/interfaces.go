@@ -34,7 +34,12 @@ type StorageBackend interface {
 	) ([]*ParameterGroup, string, error)
 	UpdateParameterGroup(input UpdateParameterGroupInput) (*ParameterGroup, error)
 	DeleteParameterGroup(name string) error
-	DescribeParameters(paramGroupName string, maxResults int, nextToken string) ([]*Parameter, string, error)
+	DescribeParameters(
+		paramGroupName string,
+		maxResults int,
+		nextToken string,
+		source string,
+	) ([]*Parameter, string, error)
 	DescribeDefaultParameters(maxResults int, nextToken string) ([]*Parameter, string, error)
 	ResetParameterGroup(name string, parameterNames []string) (*ParameterGroup, error)
 

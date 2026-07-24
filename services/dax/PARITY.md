@@ -6,9 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dax
 sdk_module: aws-sdk-go-v2/service/dax@v1.29.18   # awsjson1.1 protocol, target prefix AmazonDAXV3.
-last_audit_commit: 61ba31abe8d8
-last_audit_date: 2026-07-12
-overall: A            # fresh audit, first PARITY.md for this service; several genuine wire bugs found and fixed
+last_audit_commit: 61ba31abe8d8   # unchanged: this pass's changes are not yet committed by this agent
+last_audit_date: 2026-07-24
+overall: A            # follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -26,7 +26,7 @@ ops:
   DescribeParameterGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeParameters: {wire: ok, errors: ok, state: partial, persist: ok, note: Source filter param (user/system/engine-default) accepted on the wire but not applied -- see gaps}
+  DescribeParameters: {wire: ok, errors: ok, state: ok, persist: ok, note: Source filter (user/system) now applied -- fixed 2026-07-24, see Notes}
   DescribeDefaultParameters: {wire: ok, errors: ok, state: ok, persist: n/a}
   ResetParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -37,18 +37,17 @@ ops:
 # Families audited as a group (when per-op is impractical):
 families:
   cluster-lifecycle: {status: ok, note: "CreateCluster/DescribeClusters/UpdateCluster/DeleteCluster/IncreaseReplicationFactor/DecreaseReplicationFactor/RebootNode all mutate the real store.Table[Cluster], persist via backendSnapshot, and now emit the correct wire shape (Status key, epoch timestamps) -- see gaps for the 5 bugs found and fixed this pass."
-  tags: {status: ok, note: "TagResource/UntagResource/ListTags mutate the ARN-keyed tags map and propagate cluster ARNs to Cluster.Tags; quota (50) and key/value length enforcement match AWS constraints."}
-  parameter-groups: {status: ok, note: "CreateParameterGroup/DescribeParameterGroups/UpdateParameterGroup/DeleteParameterGroup/DescribeParameters/DescribeDefaultParameters/ResetParameterGroup all real; UpdateParameterGroup correctly cascades pending-reboot + NodeIdsToReboot to dependent clusters (now actually surfaced on the wire, see gaps)."
-  subnet-groups: {status: ok, note: "CreateSubnetGroup/DescribeSubnetGroups/UpdateSubnetGroup/DeleteSubnetGroup real; in-use protection (blocks delete while referenced by a cluster) verified."}
+  tags: {status: ok, note: "TagResource/UntagResource/ListTags mutate the ARN-keyed tags map and propagate cluster ARNs to Cluster.Tags; quota (50) and key/value length enforcement match AWS constraints. arnExists now recognizes cluster ARNs only (fixed 2026-07-24, see Notes) -- real DAX has no Arn field on ParameterGroup/SubnetGroup, so those were never taggable."}
+  parameter-groups: {status: ok, note: "CreateParameterGroup/DescribeParameterGroups/UpdateParameterGroup/DeleteParameterGroup/DescribeParameters/DescribeDefaultParameters/ResetParameterGroup all real; UpdateParameterGroup correctly cascades pending-reboot + NodeIdsToReboot to dependent clusters; DescribeParameters now honors the request's Source filter (fixed 2026-07-24)."
+  subnet-groups: {status: ok, note: "CreateSubnetGroup/DescribeSubnetGroups/UpdateSubnetGroup/DeleteSubnetGroup real; in-use protection (blocks delete while referenced by a cluster) verified. SupportedNetworkTypes now modeled (always [\"ipv4\"], fixed 2026-07-24, see Notes)."}
   events: {status: ok, note: "DescribeEvents ring buffer (1000 cap) is real; StartTime/EndTime/SourceName/SourceType filtering verified after fixing the epoch-seconds request-parsing bug."}
-  dataplane: {status: deferred, note: "Binary DAX client protocol (services/dax/dataplane/) is a separate, extensively self-tested subsystem (936-line dataplane_integration_test.go + dataplane/*_test.go) not covered by this control-plane wire-shape sweep. Not audited this pass."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "DescribeParameters ignores the request's Source filter (user/system/engine-default); AWS lets callers narrow the parameter list by source, gopherstack always returns all parameters in the group regardless of the filter value. Low traffic (DAX only ships 2 parameters total), not fixed this pass -- file a bd issue if prioritized."
-  - "Cluster response omits the newer NetworkType/NodeIdsToRemove top-level fields and SubnetGroup/Subnet SupportedNetworkTypes (dual-stack IPv4/IPv6 networking, added to the DAX API after the original model was written). Not modeled; would require new Cluster/SubnetGroup fields plus backend support for ipv4/ipv6/dual_stack, out of scope for a wire-shape-focused sweep."
-  - "TagResource/UntagResource/ListTags accept ARNs for parameter groups and subnet groups (via arnExists), not just clusters. Not verified against real AWS DAX docs whether non-cluster resources are taggable; left as-is (permissive) rather than guessing and narrowing behavior incorrectly."
+  dataplane: {status: deferred, note: "Binary DAX client protocol (services/dax/dataplane/) is a separate, extensively self-tested subsystem (936-line dataplane_integration_test.go + dataplane/*_test.go) not covered by this control-plane wire-shape sweep. Not audited this pass -- different reference material (aws-dax-go's binary encoding, not aws-sdk-go-v2/service/dax) would be needed."}
+gaps: []                  # known divergences NOT fixed — link bd issue ids; all 3 prior gaps closed this pass
+items_still_open:
+  - "InsufficientClusterCapacityFault / ServiceLinkedRoleNotFoundFault (types.InsufficientClusterCapacityFault, types.ServiceLinkedRoleNotFoundFault) are real CreateCluster error types not modeled. Reason: both are account/infrastructure-state faults (missing DAX service-linked role; opportunistic hardware capacity shortage) with no deterministic, request-shape-driven trigger condition -- gopherstack tracks neither IAM service-linked-role state nor a hardware capacity pool. Inventing an arbitrary trigger (e.g. erroring above some ReplicationFactor) would itself be exactly the kind of fabricated, non-AWS-accurate behavior this audit exists to prevent. Left unmodeled; would need a deliberate design decision (e.g. a backend flag simulating SLR presence) before implementing."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - dataplane/ (binary DAX client protocol server, separate from the HTTP control-plane API audited here)
-leaks: {status: clean, note: "CreateCluster/DeleteCluster/IncreaseReplicationFactor/DecreaseReplicationFactor/RebootNode each spawn a one-shot 1s-delay goroutine to simulate AWS's async state transition; every goroutine re-acquires b.mu, checks the resource still exists/is in the expected transient state, and exits -- no retry loop, no leaked goroutine. CreateCluster/DeleteCluster short-circuit synchronously under DAX_TEST_SYNC=1 for deterministic tests; Increase/Decrease/RebootNode intentionally do NOT (see Notes) and existing tests (TestRebootNodeRecovery) depend on the async path even under DAX_TEST_SYNC=1."}
+leaks: {status: clean, note: "CreateCluster/DeleteCluster/IncreaseReplicationFactor/DecreaseReplicationFactor/RebootNode each spawn a one-shot 1s-delay goroutine to simulate AWS's async state transition; every goroutine re-acquires b.mu, checks the resource still exists/is in the expected transient state, and exits -- no retry loop, no leaked goroutine. CreateCluster/DeleteCluster short-circuit synchronously under DAX_TEST_SYNC=1 for deterministic tests; Increase/Decrease/RebootNode intentionally do NOT (see Notes) and existing tests (TestRebootNodeRecovery) depend on the async path even under DAX_TEST_SYNC=1. DecreaseReplicationFactor's async goroutine now also clears the transient Cluster.NodeIDsToRemove list it sets (2026-07-24) -- verified no residual state after recovery via TestDecreaseReplicationFactorNodeIDsToRemoveClearsOnRecovery."}
 ---
 
 ## Notes
@@ -132,3 +131,57 @@ SDK's `awsAwsjson11_*` (de)serializer function names in
   after the call and recovers asynchronously. Reverted -- the async-only behavior is *more*
   AWS-accurate (a real `RebootNode` response shows the node still transitioning), and the
   `TestMain` comment is simply imprecise about which ops it covers. Left as-is.
+
+## 2026-07-24 follow-up pass
+
+Closed all 3 gaps left open by the 2026-07-12 audit, and removed both banned `cyclop` nolints
+by decomposing to data-driven tables (field-diffed against
+`aws-sdk-go-v2/service/dax@v1.29.18`, module downloaded read-only to the local mod cache for
+diffing; `go.mod`/`go.sum` left untouched):
+
+1. **`DescribeParameters` now honors the request's `Source` filter.** Confirmed against
+   `types.DescribeParametersInput.Source` (`*string`, free text, doc example: `"system denotes
+   a system-defined parameter"`) -- the real field has no enum; gopherstack's backend only ever
+   produces `"user"`/`"system"` (never `"engine-default"`), so filtering on those two values is
+   the correct, non-invented behavior. Wired through `InMemoryBackend.DescribeParameters`'s new
+   `sourceFilter` parameter and the handler's `Source` request field.
+
+2. **`Cluster.NetworkType`, `Cluster.NodeIdsToRemove`, and `SubnetGroup.SupportedNetworkTypes`
+   are now modeled**, field-diffed against `types.Cluster`/`types.SubnetGroup`/
+   `types.CreateClusterInput` and their wire keys confirmed in `serializers.go`/`deserializers.go`
+   (`"NetworkType"`, `"NodeIdsToRemove"`, `"SupportedNetworkTypes"` all match exactly).
+   - `NetworkType`: `CreateClusterInput` accepts `ipv4`/`ipv6`/`dual_stack`
+     (`ErrInvalidParameterValue` on anything else), defaulting to `ipv4` when omitted --
+     gopherstack subnet groups are always IPv4-only (no per-subnet CIDR/IP-family modeling), so
+     `ipv4` is the only *correct* derived default; `UpdateClusterInput` does **not** have a
+     `NetworkType` field in the real SDK, so it is create-only, matching AWS.
+   - `NodeIdsToRemove`: transient, mirroring `NodeIdsToReboot`'s existing pattern -- populated on
+     `Cluster` by `DecreaseReplicationFactor` with the node IDs that operation is removing (either
+     the caller's explicit `NodeIDsToRemove` or the trailing nodes when unspecified), and cleared
+     by the same 1s-delay async goroutine that already exists to flip `Status` back to
+     `"available"`. No new goroutine, no new leak surface.
+   - `SupportedNetworkTypes`: `SubnetGroup` always reports `["ipv4"]` (`NetworkTypeIPv4`) -- honest
+     given gopherstack subnets have no real IP-family data to derive from; not fabricated as a
+     configurable input since `CreateSubnetGroupInput`/`UpdateSubnetGroupInput` have no matching
+     field in the real SDK either.
+
+3. **Deleted the gopherstack-invented "parameter groups and subnet groups are taggable" behavior.**
+   Confirmed by field-diffing `types.ParameterGroup`/`types.SubnetGroup` against `types.Cluster`:
+   only `Cluster` has an `Arn`/`ClusterArn` field in the real SDK. `TagResource`/`UntagResource`/
+   `ListTags` are documented as cluster-only operations for exactly this reason -- there is no ARN
+   to tag on the other two resource types. `arnExists` (`tags.go`) no longer recognizes
+   `parametergroup/`/`subnetgroup/` ARN prefixes; `TestTagResource`'s two corresponding subtests
+   were converted from "tag succeeds" to "rejected as not found" (they were asserting invented
+   behavior, not real AWS behavior).
+
+4. **Both banned `//nolint:cyclop` uses in `handler.go` removed by decomposition, not suppression:**
+   - `dispatch`'s 22-case operation switch became a `map[string]daxOpHandler` lookup
+     (`daxOperations`) built from method expressions (`(*Handler).handleCreateCluster`, ...);
+     `dispatch` itself is now a two-line map lookup.
+   - `mapError`'s 20-case error-mapping switch became an ordered `[]errCodeMapping` table
+     (`daxErrCodeMappings`) iterated with a single `errors.Is` loop. Ordering (specific sentinels
+     before their generic `awserr.ErrNotFound`/`ErrConflict`/`ErrInvalidParameter` parents) is
+     preserved exactly, since `errors.Is` still short-circuits on the first match and specific
+     entries are listed first.
+   - Both new tables are `gochecknoglobals`-exempted the same way `models.go`'s existing lookup
+     tables are (package-level lookup table, immutable after init).

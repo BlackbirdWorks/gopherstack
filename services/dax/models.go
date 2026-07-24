@@ -21,6 +21,15 @@ const (
 	EncryptionTypeTLS  = "TLS"
 )
 
+// NetworkType values -- the IP protocol family a cluster/subnet group uses for
+// network communications (types.NetworkType in the real SDK: "ipv4" | "ipv6" |
+// "dual_stack").
+const (
+	NetworkTypeIPv4      = "ipv4"
+	NetworkTypeIPv6      = "ipv6"
+	NetworkTypeDualStack = "dual_stack"
+)
+
 // EventSourceType values.
 const (
 	EventSourceTypeCluster        = "CLUSTER"
@@ -129,6 +138,11 @@ type SubnetGroup struct {
 	Description     string        `json:"description"`
 	VpcID           string        `json:"vpcId"`
 	Subnets         []SubnetEntry `json:"subnets"`
+	// SupportedNetworkTypes mirrors types.SubnetGroup.SupportedNetworkTypes.
+	// gopherstack does not model per-subnet IPv4/IPv6 CIDR allocation, so every
+	// subnet group is reported as IPv4-only, matching the common case where
+	// subnets have not been configured for dual-stack/IPv6-only addressing.
+	SupportedNetworkTypes []string `json:"supportedNetworkTypes"`
 }
 
 // ParameterType values distinguish individual versus per-node-type parameters.
@@ -193,11 +207,16 @@ type Cluster struct {
 	NodeType                      string                     `json:"nodeType"`
 	ClusterEndpointEncryptionType string                     `json:"clusterEndpointEncryptionType"`
 	ParameterGroup                ParameterGroupStatus       `json:"parameterGroup"`
+	NetworkType                   string                     `json:"networkType"`
 	Nodes                         []Node                     `json:"nodes"`
 	SecurityGroupIDs              []string                   `json:"securityGroupIds"`
-	ActiveNodes                   int                        `json:"activeNodes"`
-	TotalNodes                    int                        `json:"totalNodes"`
-	NextNodeIndex                 int                        `json:"nextNodeIndex"`
+	// NodeIDsToRemove is transient: it is only non-empty while the cluster is
+	// StatusModifying as a result of DecreaseReplicationFactor, listing the
+	// nodes that operation removed. Mirrors types.Cluster.NodeIdsToRemove.
+	NodeIDsToRemove []string `json:"nodeIdsToRemove,omitempty"`
+	ActiveNodes     int      `json:"activeNodes"`
+	TotalNodes      int      `json:"totalNodes"`
+	NextNodeIndex   int      `json:"nextNodeIndex"`
 }
 
 // ParameterGroup represents a DAX parameter group.
@@ -219,6 +238,7 @@ type CreateClusterInput struct {
 	ParameterGroupName            string
 	NotificationTopicArn          string
 	ClusterEndpointEncryptionType string
+	NetworkType                   string
 	AvailabilityZones             []string
 	SecurityGroupIDs              []string
 	ReplicationFactor             int
