@@ -43,12 +43,16 @@ func (b *InMemoryBackend) UpdateResolverDnssecConfig(
 
 	region := getRegion(ctx, b.region)
 
-	if validation != dnssecValidationEnable && validation != dnssecValidationDisable {
+	switch validation {
+	case dnssecValidationEnable, dnssecValidationDisable, dnssecValidationUseLocal:
+		// valid
+	default:
 		return nil, fmt.Errorf(
-			"%w: Validation must be %s or %s",
+			"%w: Validation must be %s, %s, or %s",
 			ErrValidation,
 			dnssecValidationEnable,
 			dnssecValidationDisable,
+			dnssecValidationUseLocal,
 		)
 	}
 
@@ -63,9 +67,12 @@ func (b *InMemoryBackend) UpdateResolverDnssecConfig(
 		}
 		b.resolverDnssecConfigs.Put(cfg)
 	}
-	if validation == dnssecValidationEnable {
+	switch validation {
+	case dnssecValidationEnable:
 		cfg.ValidationStatus = validationStatusEnabling
-	} else {
+	case dnssecValidationUseLocal:
+		cfg.ValidationStatus = validationStatusUpdatingToUseLocal
+	default:
 		cfg.ValidationStatus = validationStatusDisabling
 	}
 	cp := *cfg

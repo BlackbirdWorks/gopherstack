@@ -43,12 +43,16 @@ func (b *InMemoryBackend) UpdateFirewallConfig(
 
 	region := getRegion(ctx, b.region)
 
-	if firewallFailOpen != firewallFailOpenEnabled && firewallFailOpen != firewallFailOpenDisabled {
+	switch firewallFailOpen {
+	case firewallFailOpenEnabled, firewallFailOpenDisabled, firewallFailOpenUseLocal:
+		// valid
+	default:
 		return nil, fmt.Errorf(
-			"%w: FirewallFailOpen must be %s or %s",
+			"%w: FirewallFailOpen must be %s, %s, or %s",
 			ErrValidation,
 			firewallFailOpenEnabled,
 			firewallFailOpenDisabled,
+			firewallFailOpenUseLocal,
 		)
 	}
 

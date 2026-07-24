@@ -324,6 +324,18 @@ func TestResourceCreator_SupplementalTypes_RealBackends(t *testing.T) {
 			backends := newExtraServiceBackends(t)
 			rc := cloudformation.NewResourceCreator(backends)
 
+			// A ScalingPolicy requires its ScalableTarget to be registered first
+			// (real CloudFormation models the target as a separate resource).
+			if tt.resourceType == "AWS::ApplicationAutoScaling::ScalingPolicy" {
+				_, regErr := backends.AppAutoScaling.Backend.RegisterScalableTarget(
+					tt.props["ServiceNamespace"].(string),
+					tt.props["ResourceId"].(string),
+					tt.props["ScalableDimension"].(string),
+					1, 10, nil, "", nil,
+				)
+				require.NoError(t, regErr)
+			}
+
 			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, physID)

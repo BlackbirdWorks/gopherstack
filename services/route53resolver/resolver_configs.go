@@ -47,13 +47,16 @@ func (b *InMemoryBackend) UpdateResolverConfig(
 
 	region := getRegion(ctx, b.region)
 
-	if autodefinedReverse != autodefinedReverseEnabled &&
-		autodefinedReverse != autodefinedReverseDisabled {
+	switch autodefinedReverse {
+	case autodefinedReverseEnabled, autodefinedReverseDisabled, autodefinedReverseUseLocal:
+		// valid
+	default:
 		return nil, fmt.Errorf(
-			"%w: AutodefinedReverse must be %s or %s",
+			"%w: AutodefinedReverse must be %s, %s, or %s",
 			ErrValidation,
 			autodefinedReverseEnabled,
 			autodefinedReverseDisabled,
+			autodefinedReverseUseLocal,
 		)
 	}
 
@@ -70,9 +73,12 @@ func (b *InMemoryBackend) UpdateResolverConfig(
 		}
 		b.resolverConfigs.Put(cfg)
 	}
-	if autodefinedReverse == autodefinedReverseEnabled {
+	switch autodefinedReverse {
+	case autodefinedReverseEnabled:
 		cfg.AutodefinedReverse = "ENABLED"
-	} else {
+	case autodefinedReverseUseLocal:
+		cfg.AutodefinedReverse = autodefinedReverseUseLocal
+	default:
 		cfg.AutodefinedReverse = "DISABLED"
 	}
 	cp := *cfg

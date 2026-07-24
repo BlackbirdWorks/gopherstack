@@ -40,44 +40,46 @@ type listResolverEndpointIPAddressesOutput struct {
 }
 
 type handleCreateResolverEndpointInput struct {
-	Name                  string                      `json:"Name"`
-	Direction             string                      `json:"Direction"`
-	VpcID                 string                      `json:"VpcId"`
-	SecurityGroupIDs      []string                    `json:"SecurityGroupIds"`
-	ResolverEndpointType  string                      `json:"ResolverEndpointType"`
-	Protocols             []string                    `json:"Protocols"`
-	OutpostArn            string                      `json:"OutpostArn"`
-	PreferredInstanceType string                      `json:"PreferredInstanceType"`
-	CreatorRequestID      string                      `json:"CreatorRequestId"`
-	Tags                  []svcTags.KV                `json:"Tags"`
-	IPAddresses           []resolverEndpointIPAddress `json:"IpAddresses"`
+	RniEnhancedMetricsEnabled      *bool                       `json:"RniEnhancedMetricsEnabled,omitempty"`
+	TargetNameServerMetricsEnabled *bool                       `json:"TargetNameServerMetricsEnabled,omitempty"`
+	Direction                      string                      `json:"Direction"`
+	VpcID                          string                      `json:"VpcId"`
+	Name                           string                      `json:"Name"`
+	ResolverEndpointType           string                      `json:"ResolverEndpointType"`
+	OutpostArn                     string                      `json:"OutpostArn"`
+	PreferredInstanceType          string                      `json:"PreferredInstanceType"`
+	CreatorRequestID               string                      `json:"CreatorRequestId"`
+	SecurityGroupIDs               []string                    `json:"SecurityGroupIds"`
+	IPAddresses                    []resolverEndpointIPAddress `json:"IpAddresses"`
+	Tags                           []svcTags.KV                `json:"Tags"`
+	Protocols                      []string                    `json:"Protocols"`
 }
 
-type resolverEndpointIPOutput struct {
-	SubnetID string `json:"SubnetId"`
-	IP       string `json:"Ip"`
-	Ipv6     string `json:"Ipv6,omitempty"`
-}
-
+// resolverEndpointOutput is the wire shape of types.ResolverEndpoint. Note: the
+// real SDK type does NOT carry an IpAddresses list -- IPs are only obtainable
+// via the separate ListResolverEndpointIpAddresses call. An earlier revision of
+// this handler invented an IpAddresses field on this struct; it has been
+// removed (see resolver_endpoints_test.go and PARITY.md for the fix note).
 type resolverEndpointOutput struct {
-	ID                    string                     `json:"Id"`
-	Arn                   string                     `json:"Arn"`
-	Name                  string                     `json:"Name"`
-	Direction             string                     `json:"Direction"`
-	Status                string                     `json:"Status"`
-	StatusMessage         string                     `json:"StatusMessage,omitempty"`
-	VpcID                 string                     `json:"VpcId"`
-	HostVPCId             string                     `json:"HostVPCId"`
-	ResolverEndpointType  string                     `json:"ResolverEndpointType"`
-	OutpostArn            string                     `json:"OutpostArn,omitempty"`
-	PreferredInstanceType string                     `json:"PreferredInstanceType,omitempty"`
-	CreatorRequestID      string                     `json:"CreatorRequestId,omitempty"`
-	CreationTime          string                     `json:"CreationTime,omitempty"`
-	ModificationTime      string                     `json:"ModificationTime,omitempty"`
-	SecurityGroupIDs      []string                   `json:"SecurityGroupIds"`
-	IPAddresses           []resolverEndpointIPOutput `json:"IpAddresses"`
-	Protocols             []string                   `json:"Protocols,omitempty"`
-	IPAddressCount        int32                      `json:"IpAddressCount"`
+	ID                             string   `json:"Id"`
+	Arn                            string   `json:"Arn"`
+	Name                           string   `json:"Name"`
+	Direction                      string   `json:"Direction"`
+	Status                         string   `json:"Status"`
+	StatusMessage                  string   `json:"StatusMessage,omitempty"`
+	VpcID                          string   `json:"VpcId"`
+	HostVPCId                      string   `json:"HostVPCId"`
+	ResolverEndpointType           string   `json:"ResolverEndpointType"`
+	OutpostArn                     string   `json:"OutpostArn,omitempty"`
+	PreferredInstanceType          string   `json:"PreferredInstanceType,omitempty"`
+	CreatorRequestID               string   `json:"CreatorRequestId,omitempty"`
+	CreationTime                   string   `json:"CreationTime,omitempty"`
+	ModificationTime               string   `json:"ModificationTime,omitempty"`
+	SecurityGroupIDs               []string `json:"SecurityGroupIds"`
+	Protocols                      []string `json:"Protocols,omitempty"`
+	IPAddressCount                 int32    `json:"IpAddressCount"`
+	RniEnhancedMetricsEnabled      bool     `json:"RniEnhancedMetricsEnabled"`
+	TargetNameServerMetricsEnabled bool     `json:"TargetNameServerMetricsEnabled"`
 }
 
 type createResolverEndpointOutput struct {
@@ -101,11 +103,6 @@ type getResolverEndpointOutput struct {
 }
 
 func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
-	ips := make([]resolverEndpointIPOutput, 0, len(ep.IPAddresses))
-	for _, ip := range ep.IPAddresses {
-		ips = append(ips, resolverEndpointIPOutput{SubnetID: ip.SubnetID, IP: ip.IP, Ipv6: ip.Ipv6})
-	}
-
 	sgIDs := ep.SecurityGroupIDs
 	if sgIDs == nil {
 		sgIDs = []string{}
@@ -120,24 +117,25 @@ func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 	ipCount := int32(len(ep.IPAddresses))
 
 	return resolverEndpointOutput{
-		ID:                    ep.ID,
-		Arn:                   ep.ARN,
-		Name:                  ep.Name,
-		Direction:             ep.Direction,
-		Status:                ep.Status,
-		StatusMessage:         ep.StatusMessage,
-		VpcID:                 ep.VpcID,
-		HostVPCId:             ep.HostVPCID,
-		ResolverEndpointType:  epType,
-		IPAddressCount:        ipCount,
-		SecurityGroupIDs:      sgIDs,
-		IPAddresses:           ips,
-		Protocols:             ep.Protocols,
-		OutpostArn:            ep.OutpostArn,
-		PreferredInstanceType: ep.PreferredInstanceType,
-		CreatorRequestID:      ep.CreatorRequestID,
-		CreationTime:          ep.CreationTime,
-		ModificationTime:      ep.ModificationTime,
+		ID:                             ep.ID,
+		Arn:                            ep.ARN,
+		Name:                           ep.Name,
+		Direction:                      ep.Direction,
+		Status:                         ep.Status,
+		StatusMessage:                  ep.StatusMessage,
+		VpcID:                          ep.VpcID,
+		HostVPCId:                      ep.HostVPCID,
+		ResolverEndpointType:           epType,
+		IPAddressCount:                 ipCount,
+		SecurityGroupIDs:               sgIDs,
+		Protocols:                      ep.Protocols,
+		OutpostArn:                     ep.OutpostArn,
+		PreferredInstanceType:          ep.PreferredInstanceType,
+		CreatorRequestID:               ep.CreatorRequestID,
+		CreationTime:                   ep.CreationTime,
+		ModificationTime:               ep.ModificationTime,
+		RniEnhancedMetricsEnabled:      ep.RniEnhancedMetricsEnabled,
+		TargetNameServerMetricsEnabled: ep.TargetNameServerMetricsEnabled,
 	}
 }
 
@@ -154,6 +152,7 @@ func (h *Handler) handleCreateResolverEndpoint(
 		ctx,
 		in.Name, in.Direction, in.VpcID, ips, in.SecurityGroupIDs, in.ResolverEndpointType,
 		in.Protocols, in.OutpostArn, in.PreferredInstanceType, in.CreatorRequestID,
+		boolValue(in.RniEnhancedMetricsEnabled), boolValue(in.TargetNameServerMetricsEnabled),
 	)
 	if err != nil {
 		return nil, err
@@ -268,10 +267,12 @@ func (h *Handler) handleAssociateResolverEndpointIPAddress(
 // --- CreateResolverQueryLogConfig ---
 
 type updateResolverEndpointInput struct {
-	ResolverEndpointID   string   `json:"ResolverEndpointId"`
-	Name                 string   `json:"Name"`
-	ResolverEndpointType string   `json:"ResolverEndpointType"`
-	Protocols            []string `json:"Protocols"`
+	RniEnhancedMetricsEnabled      *bool    `json:"RniEnhancedMetricsEnabled,omitempty"`
+	TargetNameServerMetricsEnabled *bool    `json:"TargetNameServerMetricsEnabled,omitempty"`
+	ResolverEndpointID             string   `json:"ResolverEndpointId"`
+	Name                           string   `json:"Name"`
+	ResolverEndpointType           string   `json:"ResolverEndpointType"`
+	Protocols                      []string `json:"Protocols"`
 }
 
 type updateResolverEndpointOutput struct {
@@ -291,6 +292,8 @@ func (h *Handler) handleUpdateResolverEndpoint(
 		in.Name,
 		in.ResolverEndpointType,
 		in.Protocols,
+		in.RniEnhancedMetricsEnabled,
+		in.TargetNameServerMetricsEnabled,
 	)
 	if err != nil {
 		return nil, err

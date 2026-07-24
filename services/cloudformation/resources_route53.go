@@ -113,6 +113,8 @@ func (rc *ResourceCreator) createRoute53ResolverEndpoint(
 		"",
 		"",
 		"",
+		false,
+		false,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create Route53Resolver endpoint %s: %w", name, err)

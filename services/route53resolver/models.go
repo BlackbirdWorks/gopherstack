@@ -39,17 +39,22 @@ const (
 
 	firewallFailOpenEnabled  = "ENABLED"
 	firewallFailOpenDisabled = "DISABLED"
+	firewallFailOpenUseLocal = "USE_LOCAL_RESOURCE_SETTING"
 
 	autodefinedReverseEnabled  = "ENABLE"
 	autodefinedReverseDisabled = "DISABLE"
+	autodefinedReverseUseLocal = "USE_LOCAL_RESOURCE_SETTING"
 
-	dnssecValidationEnable  = "ENABLE"
-	dnssecValidationDisable = "DISABLE"
+	dnssecValidationEnable   = "ENABLE"
+	dnssecValidationDisable  = "DISABLE"
+	dnssecValidationUseLocal = "USE_LOCAL_RESOURCE_SETTING"
 
-	validationStatusEnabled   = "ENABLED"
-	validationStatusEnabling  = "ENABLING"
-	validationStatusDisabled  = "DISABLED"
-	validationStatusDisabling = "DISABLING"
+	validationStatusEnabled            = "ENABLED"
+	validationStatusEnabling           = "ENABLING"
+	validationStatusDisabled           = "DISABLED"
+	validationStatusDisabling          = "DISABLING"
+	validationStatusUseLocal           = "USE_LOCAL_RESOURCE_SETTING"
+	validationStatusUpdatingToUseLocal = "UPDATING_TO_USE_LOCAL_RESOURCE_SETTING"
 
 	mutationProtectionEnabled  = "ENABLED"
 	mutationProtectionDisabled = "DISABLED"
@@ -79,26 +84,28 @@ type IPAddress struct {
 }
 
 type ResolverEndpoint struct {
-	ID                    string       `json:"id"`
-	ARN                   string       `json:"arn"`
-	Direction             string       `json:"direction"`
-	Name                  string       `json:"name"`
-	Status                string       `json:"status"`
-	StatusMessage         string       `json:"statusMessage,omitempty"`
-	VpcID                 string       `json:"vpcID"`
-	HostVPCID             string       `json:"hostVpcId"`
-	AccountID             string       `json:"accountID"`
-	Region                string       `json:"region"`
-	ResolverEndpointType  string       `json:"resolverEndpointType"`
-	OutpostArn            string       `json:"outpostArn,omitempty"`
-	PreferredInstanceType string       `json:"preferredInstanceType,omitempty"`
-	CreatorRequestID      string       `json:"creatorRequestId,omitempty"`
-	CreationTime          string       `json:"creationTime,omitempty"`
-	ModificationTime      string       `json:"modificationTime,omitempty"`
-	SecurityGroupIDs      []string     `json:"securityGroupIds"`
-	IPAddresses           []IPAddress  `json:"ipAddresses"`
-	Tags                  []svcTags.KV `json:"tags,omitempty"`
-	Protocols             []string     `json:"protocols,omitempty"`
+	ID                             string       `json:"id"`
+	ARN                            string       `json:"arn"`
+	Direction                      string       `json:"direction"`
+	Name                           string       `json:"name"`
+	Status                         string       `json:"status"`
+	StatusMessage                  string       `json:"statusMessage,omitempty"`
+	VpcID                          string       `json:"vpcID"`
+	HostVPCID                      string       `json:"hostVpcId"`
+	AccountID                      string       `json:"accountID"`
+	Region                         string       `json:"region"`
+	ResolverEndpointType           string       `json:"resolverEndpointType"`
+	OutpostArn                     string       `json:"outpostArn,omitempty"`
+	PreferredInstanceType          string       `json:"preferredInstanceType,omitempty"`
+	CreatorRequestID               string       `json:"creatorRequestId,omitempty"`
+	CreationTime                   string       `json:"creationTime,omitempty"`
+	ModificationTime               string       `json:"modificationTime,omitempty"`
+	SecurityGroupIDs               []string     `json:"securityGroupIds"`
+	IPAddresses                    []IPAddress  `json:"ipAddresses"`
+	Tags                           []svcTags.KV `json:"tags,omitempty"`
+	Protocols                      []string     `json:"protocols,omitempty"`
+	RniEnhancedMetricsEnabled      bool         `json:"rniEnhancedMetricsEnabled"`
+	TargetNameServerMetricsEnabled bool         `json:"targetNameServerMetricsEnabled"`
 }
 
 type ResolverRule struct {
