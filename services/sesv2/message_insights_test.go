@@ -2,6 +2,7 @@ package sesv2_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -93,13 +94,59 @@ func TestBatchGetMetricDataHTTPBadJSON(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestGetMessageInsights tests the GetMessageInsights operation.
+// TestGetMessageInsights tests the GetMessageInsights operation, served as
+// GET /v2/email/insights/{MessageId}. gopherstack's message history isn't a
+// real delivery pipeline, so unlike other reachable-but-synthetic
+// deliverability ops, GetMessageInsights genuinely round-trips against a
+// message that was actually sent through this backend.
 func TestGetMessageInsights(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodGet, "/v2/email/messages/msg-123", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	doRequest(t, h, http.MethodPost, "/v2/email/identities",
+		map[string]any{"EmailIdentity": "sender@example.com"})
+
+	sendRec := doRequest(t, h, http.MethodPost, "/v2/email/outbound-emails", map[string]any{
+		"FromEmailAddress": "sender@example.com",
+		"Destination":      map[string]any{"ToAddresses": []string{"rcpt@example.com"}},
+		"Content": map[string]any{
+			"Simple": map[string]any{
+				"Subject": map[string]any{"Data": "Hello"},
+				"Body":    map[string]any{"Text": map[string]any{"Data": "body"}},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, sendRec.Code)
+
+	var sendResp map[string]any
+	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp))
+	messageID, _ := sendResp["MessageId"].(string)
+	require.NotEmpty(t, messageID)
+
+	rec := doRequest(t, h, http.MethodGet, "/v2/email/insights/"+messageID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, messageID, out["MessageId"])
+	assert.Equal(t, "sender@example.com", out["FromEmailAddress"])
+
+	insights, ok := out["Insights"].([]any)
+	require.True(t, ok)
+	require.Len(t, insights, 1)
+
+	entry, ok := insights[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "rcpt@example.com", entry["Destination"])
+}
+
+// TestGetMessageInsights_NotFound verifies NotFoundException for an unknown MessageId.
+func TestGetMessageInsights_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := doRequest(t, h, http.MethodGet, "/v2/email/insights/does-not-exist", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // TestBatchGetMetricDataSynthetic verifies BatchGetMetricData returns synthetic data

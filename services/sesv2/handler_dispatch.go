@@ -194,19 +194,19 @@ func (h *Handler) dispatchDeliverabilityOps(c *echo.Context, op, resource string
 	case opGetDeliverabilityDashboardOptions:
 		return h.handleGetDeliverabilityDashboardOptions()
 	case opPutDeliverabilityDashboardOption:
-		return h.handlePutDeliverabilityDashboardOption()
+		return h.handlePutDeliverabilityDashboardOption(c)
 	case opGetDeliverabilityTestReport:
 		return h.handleGetDeliverabilityTestReport(resource)
 	case opListDeliverabilityTestReports:
 		return h.handleListDeliverabilityTestReports(c)
 	case opGetDomainDeliverabilityCampaign:
-		return h.handleGetDomainDeliverabilityCampaign(c, resource)
+		return h.handleGetDomainDeliverabilityCampaign(resource)
 	case opGetDomainStatisticsReport:
 		return h.handleGetDomainStatisticsReport(c, resource)
 	case opListDomainDeliverabilityCampaigns:
 		return h.handleListDomainDeliverabilityCampaigns(c, resource)
 	case opGetEmailAddressInsights:
-		return h.handleGetEmailAddressInsights(resource)
+		return h.handleGetEmailAddressInsights(c)
 	case opGetMessageInsights:
 		return h.handleGetMessageInsights(resource)
 	case opListRecommendations:
@@ -332,19 +332,19 @@ func (h *Handler) dispatchEndpointTenantCRUDOps(c *echo.Context, op, resource st
 	case opCreateTenant:
 		return h.handleCreateTenant(c)
 	case opGetTenant:
-		return h.handleGetTenant(resource)
+		return h.handleGetTenant(c)
 	case opDeleteTenant:
-		return h.handleDeleteTenant(resource)
+		return h.handleDeleteTenant(c)
 	case opListTenants:
 		return h.handleListTenants(c)
 	case opCreateTenantResourceAssociation:
-		return h.handleCreateTenantResourceAssociation(c, resource)
+		return h.handleCreateTenantResourceAssociation(c)
 	case opDeleteTenantResourceAssociation:
-		return h.handleDeleteTenantResourceAssociation(c, resource)
+		return h.handleDeleteTenantResourceAssociation(c)
 	case opListResourceTenants:
 		return h.handleListResourceTenants(c)
 	case opListTenantResources:
-		return h.handleListTenantResources(c, resource)
+		return h.handleListTenantResources(c)
 	}
 
 	return nil, errOpNotHandled

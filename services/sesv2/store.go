@@ -13,6 +13,8 @@ import (
 const (
 	keyStatus        = "Status"
 	keyStatusSuccess = "SUCCESS"
+	keyMessageID     = "MessageId"
+	keyEndpointID    = "EndpointId"
 )
 
 const sesv2DefaultMaxItems = 100
@@ -37,27 +39,29 @@ type InMemoryBackend struct {
 	// contactsByList is a secondary index over contacts grouping by
 	// ContactListName, answering the "all contacts of list X" lookups the
 	// previous nested map[string]map[string]*Contact answered directly.
-	contactsByList              *store.Index[Contact]
-	customVerificationTemplates *store.Table[CustomVerificationEmailTemplate]
-	dedicatedIPPools            *store.Table[DedicatedIPPool]
-	dedicatedIPs                *store.Table[DedicatedIP]
-	reputationEntities          *store.Table[ReputationEntity]
-	deliverabilityTestReports   *store.Table[DeliverabilityTestReport]
-	emailTemplates              *store.Table[EmailTemplate]
-	exportJobs                  *store.Table[ExportJob]
-	importJobs                  *store.Table[ImportJob]
-	suppressedDestinations      *store.Table[SuppressedDestination]
-	emailIdentityPolicies       map[string]map[string]string
-	resourceTags                map[string]map[string]string
-	multiRegionEndpoints        map[string]map[string]any
-	tenants                     map[string]map[string]any
-	tenantResources             map[string][]string
-	resourceTenants             map[string][]string
-	accountDetails              *AccountDetails
-	mu                          *lockmetrics.RWMutex
-	region                      string
-	accountID                   string
-	emails                      []Email
+	contactsByList                 *store.Index[Contact]
+	customVerificationTemplates    *store.Table[CustomVerificationEmailTemplate]
+	dedicatedIPPools               *store.Table[DedicatedIPPool]
+	dedicatedIPs                   *store.Table[DedicatedIP]
+	reputationEntities             *store.Table[ReputationEntity]
+	deliverabilityTestReports      *store.Table[DeliverabilityTestReport]
+	emailTemplates                 *store.Table[EmailTemplate]
+	exportJobs                     *store.Table[ExportJob]
+	importJobs                     *store.Table[ImportJob]
+	suppressedDestinations         *store.Table[SuppressedDestination]
+	emailIdentityPolicies          map[string]map[string]string
+	resourceTags                   map[string]map[string]string
+	multiRegionEndpoints           map[string]map[string]any
+	tenants                        map[string]map[string]any
+	tenantResources                map[string][]string
+	resourceTenants                map[string][]string
+	deliverabilityDashboardDomains []map[string]any
+	accountDetails                 *AccountDetails
+	mu                             *lockmetrics.RWMutex
+	region                         string
+	accountID                      string
+	emails                         []Email
+	deliverabilityDashboardEnabled bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -110,6 +114,8 @@ func (b *InMemoryBackend) Reset() {
 	b.tenants = make(map[string]map[string]any)
 	b.tenantResources = make(map[string][]string)
 	b.resourceTenants = make(map[string][]string)
+	b.deliverabilityDashboardEnabled = false
+	b.deliverabilityDashboardDomains = nil
 	b.accountDetails = nil
 	b.emails = nil
 }

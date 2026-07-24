@@ -16,11 +16,11 @@ import (
 // function directly would miss -- the exact bug class that made whole
 // operation families unroutable in services/backup.
 //
-// A handful of real routes are intentionally omitted -- see
-// services/sesv2/PARITY.md's Gaps section for the full list (RPC-style
-// tenant/resource-tenant paths, deliverability-dashboard sub-resources,
-// insights, recommendations, reputation-entity listing, and the POST-based
-// list-export-jobs/import-jobs/list variants).
+// Every real SDK route is now covered (the RPC-style tenant/resource-tenant
+// paths, deliverability-dashboard sub-resources, insights, recommendations,
+// reputation-entity listing, and the POST-based list-export-jobs/
+// import-jobs/list variants were fixed in a later pass than the original
+// route-matcher rewrite -- see services/sesv2/PARITY.md).
 func Test_RouteMatrix_AgainstRealSDK(t *testing.T) {
 	t.Parallel()
 
@@ -108,6 +108,96 @@ func Test_RouteMatrix_AgainstRealSDK(t *testing.T) {
 			method: "POST",
 			path:   "/v2/email/tenants",
 			wantOp: "CreateTenant",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/tenants/resources",
+			wantOp: "CreateTenantResourceAssociation",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/tenants/delete",
+			wantOp: "DeleteTenant",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/tenants/resources/delete",
+			wantOp: "DeleteTenantResourceAssociation",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/tenants/get",
+			wantOp: "GetTenant",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/resources/tenants/list",
+			wantOp: "ListResourceTenants",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/tenants/resources/list",
+			wantOp: "ListTenantResources",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/tenants/list",
+			wantOp: "ListTenants",
+		},
+		{
+			method: "GET",
+			path:   "/v2/email/deliverability-dashboard/test-reports/report1",
+			wantOp: "GetDeliverabilityTestReport",
+		},
+		{
+			method: "GET",
+			path:   "/v2/email/deliverability-dashboard/test-reports",
+			wantOp: "ListDeliverabilityTestReports",
+		},
+		{
+			method: "GET",
+			path:   "/v2/email/deliverability-dashboard/statistics-report/example.com",
+			wantOp: "GetDomainStatisticsReport",
+		},
+		{
+			method: "GET",
+			path:   "/v2/email/deliverability-dashboard/campaigns/campaign1",
+			wantOp: "GetDomainDeliverabilityCampaign",
+		},
+		{
+			method: "GET",
+			path:   "/v2/email/deliverability-dashboard/domains/example.com/campaigns",
+			wantOp: "ListDomainDeliverabilityCampaigns",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/email-address-insights",
+			wantOp: "GetEmailAddressInsights",
+		},
+		{
+			method: "GET",
+			path:   "/v2/email/insights/message1",
+			wantOp: "GetMessageInsights",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/vdm/recommendations",
+			wantOp: "ListRecommendations",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/reputation/entities",
+			wantOp: "ListReputationEntities",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/list-export-jobs",
+			wantOp: "ListExportJobs",
+		},
+		{
+			method: "POST",
+			path:   "/v2/email/import-jobs/list",
+			wantOp: "ListImportJobs",
 		},
 		{
 			method: "DELETE",

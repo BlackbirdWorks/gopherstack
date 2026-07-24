@@ -125,5 +125,5 @@ func (h *Handler) handleSendCustomVerificationEmail(c *echo.Context) (any, error
 		return nil, err
 	}
 
-	return map[string]any{"MessageId": msgID}, nil
+	return map[string]any{keyMessageID: msgID}, nil
 }

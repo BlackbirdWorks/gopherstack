@@ -35,9 +35,22 @@ func (h *Handler) handleGetImportJob(jobID string) (any, error) {
 	return toImportJobOutput(job), nil
 }
 
+// listImportJobsInput mirrors ListImportJobsInput -- real SES v2 serves
+// ListImportJobs as POST /v2/email/import-jobs/list with filter/pagination
+// in the JSON body, not query params (ImportDestinationType filter isn't
+// modelled by the backend yet, so only pagination is honored).
+type listImportJobsInput struct {
+	NextToken string `json:"NextToken"`
+	PageSize  int32  `json:"PageSize"`
+}
+
 func (h *Handler) handleListImportJobs(c *echo.Context) (any, error) {
-	nextToken := c.QueryParam("NextToken")
-	pg := h.Backend.ListImportJobs(nextToken, 0)
+	var in listImportJobsInput
+	if err := decodeSESv2Body(c, &in); err != nil {
+		return nil, err
+	}
+
+	pg := h.Backend.ListImportJobs(in.NextToken, int(in.PageSize))
 
 	items := make([]*importJobOutput, 0, len(pg.Data))
 	for _, j := range pg.Data {

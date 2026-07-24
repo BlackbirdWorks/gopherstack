@@ -29,18 +29,20 @@ const sesv2SnapshotVersion = 1
 // decoding a snapshot from an incompatible (older or newer) build of this
 // backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables                map[string]json.RawMessage   `json:"tables"`
-	EmailIdentityPolicies map[string]map[string]string `json:"emailIdentityPolicies"`
-	ResourceTags          map[string]map[string]string `json:"resourceTags"`
-	MultiRegionEndpoints  map[string]map[string]any    `json:"multiRegionEndpoints"`
-	Tenants               map[string]map[string]any    `json:"tenants"`
-	TenantResources       map[string][]string          `json:"tenantResources"`
-	ResourceTenants       map[string][]string          `json:"resourceTenants"`
-	AccountDetails        *AccountDetails              `json:"accountDetails,omitempty"`
-	AccountID             string                       `json:"accountID"`
-	Region                string                       `json:"region"`
-	Emails                []Email                      `json:"emails"`
-	Version               int                          `json:"version"`
+	Tables                         map[string]json.RawMessage   `json:"tables"`
+	EmailIdentityPolicies          map[string]map[string]string `json:"emailIdentityPolicies"`
+	ResourceTags                   map[string]map[string]string `json:"resourceTags"`
+	MultiRegionEndpoints           map[string]map[string]any    `json:"multiRegionEndpoints"`
+	Tenants                        map[string]map[string]any    `json:"tenants"`
+	TenantResources                map[string][]string          `json:"tenantResources"`
+	ResourceTenants                map[string][]string          `json:"resourceTenants"`
+	DeliverabilityDashboardDomains []map[string]any             `json:"deliverabilityDashboardDomains,omitempty"`
+	AccountDetails                 *AccountDetails              `json:"accountDetails,omitempty"`
+	AccountID                      string                       `json:"accountID"`
+	Region                         string                       `json:"region"`
+	Emails                         []Email                      `json:"emails"`
+	Version                        int                          `json:"version"`
+	DeliverabilityDashboardEnabled bool                         `json:"deliverabilityDashboardEnabled"`
 }
 
 func ensureNonNilMaps(s *backendSnapshot) {
@@ -83,18 +85,20 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:               sesv2SnapshotVersion,
-		Tables:                tables,
-		AccountDetails:        b.accountDetails,
-		EmailIdentityPolicies: b.emailIdentityPolicies,
-		Emails:                b.emails,
-		AccountID:             b.accountID,
-		Region:                b.region,
-		ResourceTags:          b.resourceTags,
-		MultiRegionEndpoints:  b.multiRegionEndpoints,
-		Tenants:               b.tenants,
-		TenantResources:       b.tenantResources,
-		ResourceTenants:       b.resourceTenants,
+		Version:                        sesv2SnapshotVersion,
+		Tables:                         tables,
+		AccountDetails:                 b.accountDetails,
+		EmailIdentityPolicies:          b.emailIdentityPolicies,
+		Emails:                         b.emails,
+		AccountID:                      b.accountID,
+		Region:                         b.region,
+		ResourceTags:                   b.resourceTags,
+		MultiRegionEndpoints:           b.multiRegionEndpoints,
+		Tenants:                        b.tenants,
+		TenantResources:                b.tenantResources,
+		ResourceTenants:                b.resourceTenants,
+		DeliverabilityDashboardEnabled: b.deliverabilityDashboardEnabled,
+		DeliverabilityDashboardDomains: b.deliverabilityDashboardDomains,
 	}
 
 	data, err := json.Marshal(snap)
@@ -137,6 +141,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.tenants = make(map[string]map[string]any)
 		b.tenantResources = make(map[string][]string)
 		b.resourceTenants = make(map[string][]string)
+		b.deliverabilityDashboardEnabled = false
+		b.deliverabilityDashboardDomains = nil
 		b.accountDetails = nil
 		b.emails = nil
 
@@ -159,6 +165,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.tenants = snap.Tenants
 	b.tenantResources = snap.TenantResources
 	b.resourceTenants = snap.ResourceTenants
+	b.deliverabilityDashboardEnabled = snap.DeliverabilityDashboardEnabled
+	b.deliverabilityDashboardDomains = snap.DeliverabilityDashboardDomains
 
 	return nil
 }
