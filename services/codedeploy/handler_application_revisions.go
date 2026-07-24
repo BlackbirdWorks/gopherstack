@@ -3,10 +3,46 @@ package codedeploy
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
+// genericRevisionInfoOutput is the wire format for GenericRevisionInfo.
+type genericRevisionInfoOutput struct {
+	Description      string   `json:"description,omitempty"`
+	DeploymentGroups []string `json:"deploymentGroups,omitempty"`
+	RegisterTime     float64  `json:"registerTime,omitempty"`
+	FirstUsedTime    float64  `json:"firstUsedTime,omitempty"`
+	LastUsedTime     float64  `json:"lastUsedTime,omitempty"`
+}
+
+// genericRevisionInfoToWire converts a backend ApplicationRevision to its
+// wire GenericRevisionInfo representation.
+func genericRevisionInfoToWire(rev *ApplicationRevision) *genericRevisionInfoOutput {
+	if rev == nil {
+		return nil
+	}
+
+	out := &genericRevisionInfoOutput{
+		Description:      rev.Description,
+		RegisterTime:     awstime.Epoch(rev.RegisterTime),
+		DeploymentGroups: rev.DeploymentGroups,
+	}
+
+	if rev.FirstUsedTime != nil {
+		out.FirstUsedTime = awstime.Epoch(*rev.FirstUsedTime)
+	}
+
+	if rev.LastUsedTime != nil {
+		out.LastUsedTime = awstime.Epoch(*rev.LastUsedTime)
+	}
+
+	return out
+}
+
 type revisionInfoOutput struct {
-	RevisionLocation revisionLocationInput `json:"revisionLocation"`
+	GenericRevisionInfo *genericRevisionInfoOutput `json:"genericRevisionInfo,omitempty"`
+	RevisionLocation    revisionLocationInput      `json:"revisionLocation"`
 }
 
 type batchGetApplicationRevisionsInput struct {
@@ -28,18 +64,28 @@ func (h *Handler) handleBatchGetApplicationRevisions(
 		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
 	}
 
-	appName, err := h.Backend.BatchGetApplicationRevisions(in.ApplicationName, len(in.Revisions))
+	backendRevisions := make([]RevisionLocation, 0, len(in.Revisions))
+	for _, r := range in.Revisions {
+		backendRevisions = append(backendRevisions, *revisionFromWire(&r))
+	}
+
+	found, err := h.Backend.BatchGetApplicationRevisions(in.ApplicationName, backendRevisions)
 	if err != nil {
 		return nil, err
 	}
 
 	revisions := make([]revisionInfoOutput, 0, len(in.Revisions))
-	for _, r := range in.Revisions {
-		revisions = append(revisions, revisionInfoOutput{RevisionLocation: r})
+	for i, r := range in.Revisions {
+		entry := revisionInfoOutput{RevisionLocation: r}
+		if rev, ok := found[applicationRevisionKey(in.ApplicationName, backendRevisions[i])]; ok {
+			entry.GenericRevisionInfo = genericRevisionInfoToWire(rev)
+		}
+
+		revisions = append(revisions, entry)
 	}
 
 	return &batchGetApplicationRevisionsOutput{
-		ApplicationName: appName,
+		ApplicationName: in.ApplicationName,
 		Revisions:       revisions,
 	}, nil
 }
@@ -60,7 +106,9 @@ func (h *Handler) handleRegisterApplicationRevision(
 		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.GetApplication(in.ApplicationName); err != nil {
+	if err := h.Backend.RegisterApplicationRevision(
+		in.ApplicationName, *revisionFromWire(&in.Revision), in.Description,
+	); err != nil {
 		return nil, err
 	}
 
@@ -73,8 +121,9 @@ type getApplicationRevisionInput struct {
 }
 
 type getApplicationRevisionOutput struct {
-	ApplicationName string                `json:"applicationName"`
-	Revision        revisionLocationInput `json:"revision"`
+	RevisionInfo    *genericRevisionInfoOutput `json:"revisionInfo,omitempty"`
+	ApplicationName string                     `json:"applicationName"`
+	Revision        revisionLocationInput      `json:"revision"`
 }
 
 func (h *Handler) handleGetApplicationRevision(
@@ -85,18 +134,25 @@ func (h *Handler) handleGetApplicationRevision(
 		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.GetApplication(in.ApplicationName); err != nil {
+	rev, err := h.Backend.GetApplicationRevision(in.ApplicationName, *revisionFromWire(&in.Revision))
+	if err != nil {
 		return nil, err
 	}
 
 	return &getApplicationRevisionOutput{
 		ApplicationName: in.ApplicationName,
 		Revision:        in.Revision,
+		RevisionInfo:    genericRevisionInfoToWire(rev),
 	}, nil
 }
 
 type listApplicationRevisionsInput struct {
 	ApplicationName string `json:"applicationName"`
+	Deployed        string `json:"deployed"`
+	S3Bucket        string `json:"s3Bucket"`
+	S3KeyPrefix     string `json:"s3KeyPrefix"`
+	SortBy          string `json:"sortBy"`
+	SortOrder       string `json:"sortOrder"`
 }
 
 type listApplicationRevisionsOutput struct {
@@ -111,9 +167,21 @@ func (h *Handler) handleListApplicationRevisions(
 		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
 	}
 
-	if _, err := h.Backend.GetApplication(in.ApplicationName); err != nil {
+	revs, err := h.Backend.ListApplicationRevisions(in.ApplicationName, RevisionListFilter{
+		Deployed:    in.Deployed,
+		S3Bucket:    in.S3Bucket,
+		S3KeyPrefix: in.S3KeyPrefix,
+		SortBy:      in.SortBy,
+		SortOrder:   in.SortOrder,
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	return &listApplicationRevisionsOutput{Revisions: []revisionLocationInput{}}, nil
+	out := make([]revisionLocationInput, 0, len(revs))
+	for _, rev := range revs {
+		out = append(out, *revisionToWire(&rev.Revision))
+	}
+
+	return &listApplicationRevisionsOutput{Revisions: out}, nil
 }

@@ -186,6 +186,49 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestInMemoryBackend_Persistence_ApplicationRevisionsRoundTrip verifies that
+// the applicationRevisions table (a "clean" table registered directly on
+// b.registry -- see store_setup.go) survives a Snapshot/Restore round trip,
+// including its RegisterTime/FirstUsedTime/LastUsedTime/DeploymentGroups
+// fields set by CreateDeployment's touchApplicationRevisionForDeployment.
+func TestInMemoryBackend_Persistence_ApplicationRevisionsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := codedeploy.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+
+	_, err := b.CreateApplication("app-1", "Server", nil)
+	require.NoError(t, err)
+	_, err = b.CreateDeploymentGroup("app-1", "dg-1", codedeploy.DeploymentGroupInput{
+		ServiceRoleArn: "arn:role",
+	}, nil)
+	require.NoError(t, err)
+
+	revision := codedeploy.RevisionLocation{
+		RevisionType: "S3",
+		S3Location:   &codedeploy.RevisionS3Location{Bucket: "b", Key: "k"},
+	}
+	_, err = b.CreateDeployment("app-1", "dg-1", codedeploy.DeploymentOptions{
+		Creator:  "user",
+		Revision: &revision,
+	})
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := codedeploy.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	require.Equal(t, 1, fresh.ApplicationRevisionCount())
+
+	rev, err := fresh.GetApplicationRevision("app-1", revision)
+	require.NoError(t, err)
+	assert.NotZero(t, rev.RegisterTime)
+	require.NotNil(t, rev.FirstUsedTime)
+	require.NotNil(t, rev.LastUsedTime)
+	assert.Contains(t, rev.DeploymentGroups, "dg-1")
+}
+
 // TestInMemoryBackend_PersistenceRoundTrip_ViaHandler exercises the handler-level
 // Snapshot/Restore delegation (as opposed to calling the backend directly, like
 // TestInMemoryBackend_SnapshotRestore_FullState above).

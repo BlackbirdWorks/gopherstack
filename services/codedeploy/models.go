@@ -301,17 +301,44 @@ type DeploymentFilter struct {
 	Statuses            []string
 }
 
-// InstanceSummaryItem is a simplified deployment instance summary used by BatchGetDeploymentInstances.
-type InstanceSummaryItem struct {
-	DeploymentID string `json:"deploymentId"`
-	InstanceID   string `json:"instanceId"`
-	Status       string `json:"status"`
+// ApplicationRevision represents a registered CodeDeploy application revision,
+// keyed by (ApplicationName, Revision) identity. FirstUsedTime/LastUsedTime are
+// nil until the revision is actually referenced by a CreateDeployment call;
+// DeploymentGroups lists the deployment groups this revision is the current
+// target revision for.
+type ApplicationRevision struct {
+	RegisterTime     time.Time
+	FirstUsedTime    *time.Time
+	LastUsedTime     *time.Time
+	ApplicationName  string
+	Description      string
+	Revision         RevisionLocation
+	DeploymentGroups []string
 }
 
-// DeploymentTargetItem is a simplified deployment target used by BatchGetDeploymentTargets.
-type DeploymentTargetItem struct {
-	DeploymentID string `json:"deploymentId"`
-	TargetID     string `json:"targetId"`
-	Status       string `json:"status"`
-	TargetType   string `json:"targetType"`
+// RevisionListFilter holds the optional filter/sort fields for ListApplicationRevisions.
+type RevisionListFilter struct {
+	Deployed    string // include | exclude | ignore
+	S3Bucket    string
+	S3KeyPrefix string
+	SortBy      string // registerTime | firstUsedTime | lastUsedTime
+	SortOrder   string // ascending | descending
+}
+
+// DeploymentTargetRecord describes one participant (instance/ECS service/Lambda
+// function) in a deployment. It is derived on read from the deployment's real
+// backend state (the owning deployment group's compute platform, on-premises
+// instance tag matching, or configured ECS services) rather than fabricated
+// per-request, and its Status is always mapped from the deployment's own
+// current Status (see targetStatusForDeployment) instead of being hardcoded.
+type DeploymentTargetRecord struct {
+	LastUpdatedAt time.Time
+	DeploymentID  string
+	TargetID      string
+	TargetType    string // instanceTarget | lambdaTarget | ecsTarget
+	Status        string // TargetStatus enum value
+	TargetArn     string
+	InstanceLabel string // BLUE | GREEN (instanceTarget only)
+	ClusterName   string // ecsTarget only
+	ServiceName   string // ecsTarget only
 }
