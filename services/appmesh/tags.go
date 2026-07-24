@@ -1,10 +1,16 @@
 package appmesh
 
 import (
+	"fmt"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
+
+// maxTagsPerResource is the real App Mesh API's per-resource tag limit (see
+// the botocore service-2.json TagList shape: {"max": 50}). TagResource
+// returns TooManyTagsException rather than silently applying tags beyond it.
+const maxTagsPerResource = 50
 
 func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
@@ -12,12 +18,26 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 	if !b.arnExists(arn) {
 		return ErrResourceNotFound
 	}
+	merged := len(mergedTagCount(b.tags[arn], tags))
+	if merged > maxTagsPerResource {
+		return fmt.Errorf("%w: resource would have %d tags (max %d)", ErrTooManyTags, merged, maxTagsPerResource)
+	}
 	if b.tags[arn] == nil {
 		b.tags[arn] = make(map[string]string)
 	}
 	maps.Copy(b.tags[arn], tags)
 
 	return nil
+}
+
+// mergedTagCount returns the tag set existing would have after merging in
+// incoming, without mutating either map.
+func mergedTagCount(existing, incoming map[string]string) map[string]string {
+	merged := make(map[string]string, len(existing)+len(incoming))
+	maps.Copy(merged, existing)
+	maps.Copy(merged, incoming)
+
+	return merged
 }
 
 func (b *InMemoryBackend) UntagResource(arn string, keys []string) error {

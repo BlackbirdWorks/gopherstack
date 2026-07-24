@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -111,6 +112,25 @@ func TestAppMesh_ListLimitQueryParam(t *testing.T) {
 	body = getBody(t, rec)
 	assert.Len(t, body["meshes"].([]any), 1)
 	assert.Empty(t, body["nextToken"])
+}
+
+// TestAppMesh_MeshNameTooLong verifies meshName is rejected with
+// BadRequestException once it exceeds the real ResourceName shape's 255-char
+// max (botocore service-2.json: {"type": "string", "max": 255, "min": 1}).
+func TestAppMesh_MeshNameTooLong(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	longName := strings.Repeat("a", 256)
+	rec := doRequest(t, h, http.MethodPut, "/meshes", map[string]any{"meshName": longName})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	body := getBody(t, rec)
+	assert.Equal(t, "BadRequestException", body["code"])
+
+	// The boundary (255 chars) must still be accepted.
+	okName := strings.Repeat("b", 255)
+	rec = doRequest(t, h, http.MethodPut, "/meshes", map[string]any{"meshName": okName})
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // ─── Mesh backend tests ───

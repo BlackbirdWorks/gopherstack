@@ -7,7 +7,7 @@
 service: appmesh
 sdk_module: aws-sdk-go-v2/service/appmesh@v1.36.2
 last_audit_commit: 40f05928
-last_audit_date: 2026-07-13
+last_audit_date: 2026-07-23
 overall: A            # genuine fixes found: the primary response-wrapping bug affected every
                        # Create/Describe/Update/Delete op in the service (28 handler call sites).
 ops:
@@ -57,12 +57,10 @@ families:
   virtualgateway_and_gatewayroute_crud: {status: ok, note: "gateway route paths correctly use singular /virtualGateway/{name}/gatewayRoutes"}
   tags: {status: ok}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "meshOwner query param (cross-account shared mesh access) is accepted on Describe/Delete/Create/List paths by real AWS but never read by gopherstack's handlers; this backend has no cross-account model at all. Low priority: shared meshes are an advanced, rarely-emulated feature."
-  - "No server-side name validation (AWS enforces a resourceName regex/length constraint on meshName/virtualNodeName/etc.); invalid names are accepted rather than rejected with BadRequestException. Spec bodies are also passed through as opaque JSON with no schema validation against the real MeshSpec/VirtualNodeSpec/etc. shapes."
-  - "TooManyTagsException (50-tag-per-resource limit) is not enforced by TagResource."
+  - "meshOwner query param (cross-account shared mesh access) is accepted on Describe/Delete/Create/List paths by real AWS but never read by gopherstack's handlers; this backend has no cross-account model at all. Low priority: shared meshes are an advanced, rarely-emulated feature. Confirmed on this pass: botocore's service-2.json models meshOwner as a plain querystring AccountId param on every sub-resource op (Create/Describe/Update/Delete/List for VirtualNode/VirtualRouter/Route/VirtualService/VirtualGateway/GatewayRoute) with no special validation beyond the 12-digit AccountId shape — implementing it for real would require a second-account resource-visibility model this backend doesn't have anywhere, not a small fix."
+  - "Spec bodies (MeshSpec/VirtualNodeSpec/VirtualRouterSpec/RouteSpec/VirtualServiceSpec/VirtualGatewaySpec/GatewayRouteSpec) are stored and echoed back as opaque json.RawMessage with no schema validation against the real shapes (listeners/serviceDiscovery/backends/tls/healthChecks/connectionPools/outlierDetection/httpRoute-http2Route-grpcRoute-tcpRoute match+action+retry+timeout/etc.). This is wire-compatible by construction (whatever the client sends round-trips unchanged, matching the real shape's field names since gopherstack never re-encodes it), but a client sending a structurally invalid spec (wrong type for a field, unknown nested shape) is accepted rather than rejected with BadRequestException. Full structural validation of ~7 deeply-nested spec shapes was judged out of scope for this pass given the passthrough already satisfies wire-shape correctness for well-formed requests."
   - "DeleteMesh/DeleteVirtualNode/etc. return the resource with its status left at ACTIVE; real AWS App Mesh's terminal status semantics on delete (whether the returned object flips to a DELETED/INACTIVE MeshStatusCode) were not confirmed against a live account and were left unchanged rather than guessed."
-deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - "CloudTrail-capture / observability integration (pkgs/service middleware chokepoint) was not specifically audited"
+deferred: []              # nothing consciously left un-audited this pass (see Notes: CloudTrail capture confirmed generic/complete)
 leaks: {status: clean, note: "single coarse lockmetrics.RWMutex per backend (matches pkgs-catalog.md convention); no goroutines, timers, or janitors in this service"}
 ---
 
@@ -146,3 +144,61 @@ from a large value type to an 8-byte pointer).
   while `TagResource`/`UntagResource` take `resourceArn` in the JSON body despite also
   being simple verb-path operations — this is per-operation httpBinding vs. httpPayload,
   not a stylistic inconsistency to "fix".
+
+## 2026-07-23 sweep
+
+This pass independently re-field-diffed every op/error/wire-shape claim in the prior
+audit (rather than trusting the "ok" statuses at face value) against
+`aws-sdk-go-v2/service/appmesh@v1.36.2`'s `deserializers.go`/`types/types.go`/`types/errors.go`
+and the botocore `appmesh/2019-01-25/service-2.json` model directly (per-operation error
+lists, `ResourceName`/`TagKey`/`TagValue`/`TagList` shape constraints). All prior "ok"
+claims held up (wrapper keys, `metadata`/`status` nesting, ARN path quirks, error
+code/HTTP-status mapping, PUT-not-POST tag verbs, cascade-delete checks on
+mesh/virtualRouter/virtualGateway all confirmed correct by direct code read, not
+re-guessed). Two real gaps were found and fixed this pass:
+
+1. **`TooManyTagsException` (fixed).** The botocore model's `TagList` shape declares
+   `{"max": 50}` and `TagResource`'s per-operation error list includes
+   `TooManyTagsException` (distinct from the generic `BadRequestException` — real SDK
+   clients `errors.As` against the typed exception, so misreporting the wire `code` as
+   `"BadRequestException"` would break that check). `InMemoryBackend.TagResource`
+   (`tags.go`) now computes the post-merge tag count before committing and returns
+   `ErrTooManyTags` (new sentinel, deliberately NOT wrapping `awserr.ErrInvalidParameter`
+   so `Handler.mapErr` can select the `TooManyTagsException` wire code independently of
+   the generic 400 path) once the merged set would exceed 50 — matching the established
+   pattern already used by `acmpca`/`fis`/`kinesisanalytics`/`rolesanywhere` in this
+   codebase for the same real AWS per-resource tag cap. Rejection is all-or-nothing (no
+   partial tag application), matching the real API's documented behavior ("None of the
+   tags in this request were applied"). Covered by
+   `TestAppMesh_TagResourceTooManyTags` in `tags_test.go`.
+2. **Missing resource-name length validation (fixed).** The botocore model's
+   `ResourceName` shape (used by `meshName`/`virtualNodeName`/`virtualRouterName`/
+   `routeName`/`virtualServiceName`/`virtualGatewayName`/`gatewayRouteName`) declares
+   `{"max": 255, "min": 1}` — the model has no regex pattern beyond length, so this is
+   the full validation surface, not a partial fix. The min-1 (non-empty) side was already
+   enforced per-Create-handler; only the 255-char max was missing. Added
+   `isValidResourceName` (`handler.go`) and wired it into all seven Create handlers'
+   existing required-field checks, replacing the old bare `== ""` comparisons.  Covered
+   by `TestAppMesh_MeshNameTooLong` in `meshes_test.go` (boundary-tested at exactly 255,
+   which must still succeed, and 256, which must reject).
+
+**CloudTrail-capture item (previously "deferred", now resolved as not-a-gap):** read
+`pkgs/service/cloudtrail_capture.go`'s `wrapCloudTrailCapture` — it is applied generically
+by the central `Registry` around every registered service's handler chain using only the
+`Registerable`/`ResourceObserver` contract (`svc.ExtractOperation(c)` /
+`svc.ExtractResource(c)`) that `appmesh.Handler` already implements correctly (verified
+`parseOperation` covers every op name including the nested Route/GatewayRoute families;
+`ExtractResource` returns the mesh name). Read-only ops (`Describe*`/`List*`) are
+correctly excluded from capture by the registry's generic `Get/List/Describe/...` prefix
+filter — App Mesh's operation names already follow that convention, no service-specific
+carve-out needed. No appmesh-specific code was required or missing here; this needed no
+fix, just confirmation, so it moved out of `deferred` rather than staying open.
+
+**Not changed (reconfirmed as correctly out of scope):** `ForbiddenException` (IAM
+policy denial) and `LimitExceededException`/`TooManyRequestsException`
+(account-resource-count / throttling limits) appear in the real per-operation error
+lists for every Create op, but this backend — like the rest of gopherstack — has no IAM
+enforcement layer or account-quota model to source them from; fabricating arbitrary
+quota numbers would be inventing behavior, not fixing a diffed gap. `TooManyTagsException`
+above is different: it has one universally-documented, unambiguous limit (50) actually
+enforced by real AWS, matching the existing codebase-wide precedent.

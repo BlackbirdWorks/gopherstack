@@ -67,6 +67,45 @@ func TestAppMesh_ListTagsMissingArn(t *testing.T) {
 	assert.Equal(t, "BadRequestException", body["code"])
 }
 
+// TestAppMesh_TagResourceTooManyTags verifies TagResource enforces the real
+// API's 50-tag-per-resource limit (botocore TagList shape: {"max": 50}) with
+// TooManyTagsException/400, and that no partial write happens on rejection.
+func TestAppMesh_TagResourceTooManyTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	doRequest(t, h, http.MethodPut, "/meshes", map[string]any{"meshName": "m1"})
+	rec := doRequest(t, h, http.MethodGet, "/meshes/m1", nil)
+	arn := getBody(t, rec)["metadata"].(map[string]any)["arn"].(string)
+
+	tags := make(map[string]string, 50)
+	for i := range 50 {
+		tags[fmt.Sprintf("k%d", i)] = "v"
+	}
+	rec = doRequest(t, h, http.MethodPut, "/tag", map[string]any{"resourceArn": arn, "tags": toTagList(tags)})
+	assert.Equal(t, http.StatusOK, rec.Code, "50 tags is exactly at the limit and must succeed")
+
+	rec = doRequest(t, h, http.MethodPut, "/tag",
+		map[string]any{"resourceArn": arn, "tags": []map[string]string{{"key": "overflow", "value": "v"}}})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	body := getBody(t, rec)
+	assert.Equal(t, "TooManyTagsException", body["code"])
+
+	// The rejected call must not have partially applied.
+	rec = doRequest(t, h, http.MethodGet, fmt.Sprintf("/tags?resourceArn=%s", arn), nil)
+	body = getBody(t, rec)
+	assert.Len(t, body["tags"].([]any), 50)
+}
+
+func toTagList(tags map[string]string) []map[string]string {
+	out := make([]map[string]string, 0, len(tags))
+	for k, v := range tags {
+		out = append(out, map[string]string{"key": k, "value": v})
+	}
+
+	return out
+}
+
 // ─── Tags backend tests ───
 
 // TestBackend_ArnLookupAllResourceTypes exercises arnInVirtualNodes /

@@ -76,7 +76,7 @@ func (h *Handler) handleCreateMesh(c *echo.Context) error {
 		Spec        json.RawMessage `json:"spec"`
 		Tags        []tagInput      `json:"tags"`
 	}
-	if err := c.Bind(&body); err != nil || body.MeshName == "" {
+	if err := c.Bind(&body); err != nil || !isValidResourceName(body.MeshName) {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "meshName is required"))
 	}
 	m, err := h.Backend.CreateMesh(body.MeshName, body.Spec, tagsToMap(body.Tags))

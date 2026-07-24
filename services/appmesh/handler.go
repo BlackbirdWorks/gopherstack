@@ -227,6 +227,19 @@ func tagsToMap(tags []tagInput) map[string]string {
 	return m
 }
 
+// maxResourceNameLen is the real App Mesh API's ResourceName shape max length
+// (botocore service-2.json: {"type": "string", "max": 255, "min": 1}), shared
+// by meshName/virtualNodeName/virtualRouterName/routeName/virtualServiceName/
+// virtualGatewayName/gatewayRouteName.
+const maxResourceNameLen = 255
+
+// isValidResourceName reports whether name satisfies the real API's
+// ResourceName length constraints (1-255 chars). Names outside this range are
+// rejected with BadRequestException rather than silently accepted.
+func isValidResourceName(name string) bool {
+	return len(name) >= 1 && len(name) <= maxResourceNameLen
+}
+
 func listParams(c *echo.Context) (int32, string) {
 	nextToken := c.QueryParam("nextToken")
 	maxResults := int32(defaultMaxResults)
@@ -270,6 +283,9 @@ func (h *Handler) mapErr(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrConflict):
 
 		return c.JSON(http.StatusConflict, errResp("ResourceInUseException", err.Error()))
+	case errors.Is(err, ErrTooManyTags):
+
+		return c.JSON(http.StatusBadRequest, errResp("TooManyTagsException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
 
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", err.Error()))

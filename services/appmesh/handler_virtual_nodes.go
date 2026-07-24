@@ -49,7 +49,7 @@ func (h *Handler) handleCreateVirtualNode(c *echo.Context, meshName string) erro
 		Spec            json.RawMessage `json:"spec"`
 		Tags            []tagInput      `json:"tags"`
 	}
-	if err := c.Bind(&body); err != nil || body.VirtualNodeName == "" {
+	if err := c.Bind(&body); err != nil || !isValidResourceName(body.VirtualNodeName) {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "virtualNodeName is required"))
 	}
 	vn, err := h.Backend.CreateVirtualNode(meshName, body.VirtualNodeName, body.Spec, tagsToMap(body.Tags))
