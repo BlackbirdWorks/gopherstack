@@ -60,7 +60,7 @@ func newPersistenceTestBackend(t *testing.T) (*bedrockagent.InMemoryBackend, per
 	av, err := b.CreateAgentVersion(ctx, agent.AgentID, "v1 snapshot")
 	require.NoError(t, err)
 
-	ag, err := b.CreateAgentActionGroup(ctx, agent.AgentID, bedrockagent.ActionGroupConfig{
+	ag, err := b.CreateAgentActionGroup(ctx, agent.AgentID, "DRAFT", bedrockagent.ActionGroupConfig{
 		ActionGroupName: "test-action-group",
 	})
 	require.NoError(t, err)

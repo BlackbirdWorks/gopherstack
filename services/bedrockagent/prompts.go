@@ -38,7 +38,6 @@ func (b *InMemoryBackend) CreatePrompt(ctx context.Context, cfg PromptConfig) (*
 		Description:    cfg.Description,
 		DefaultVariant: cfg.DefaultVariant,
 		Variants:       cfg.Variants,
-		Tags:           maps.Clone(cfg.Tags),
 		Version:        "DRAFT",
 		CreatedAt:      now,
 		UpdatedAt:      now,
@@ -92,10 +91,6 @@ func (b *InMemoryBackend) UpdatePrompt(
 		p.Variants = cfg.Variants
 	}
 
-	if cfg.Tags != nil {
-		p.Tags = maps.Clone(cfg.Tags)
-	}
-
 	p.UpdatedAt = time.Now().UTC()
 
 	return promptCopy(p), nil
@@ -113,6 +108,7 @@ func (b *InMemoryBackend) DeletePrompt(_ context.Context, promptID string) error
 
 	delete(b.promptsByName, p.Name)
 	b.prompts.Delete(promptID)
+	delete(b.tags, p.PromptARN)
 
 	for _, pv := range slices.Clone(b.promptVersionsByPrompt.Get(promptID)) {
 		b.promptVersions.Delete(promptVersionKey(pv.PromptID, pv.Version))
@@ -231,7 +227,6 @@ func (b *InMemoryBackend) DeletePromptVersion(
 
 func promptCopy(p *Prompt) *Prompt {
 	cp := *p
-	cp.Tags = maps.Clone(p.Tags)
 
 	return &cp
 }
