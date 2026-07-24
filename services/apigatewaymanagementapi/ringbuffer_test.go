@@ -61,6 +61,75 @@ func TestBackend_BroadcastDelivers(t *testing.T) {
 	assert.Equal(t, int64(3), stats.TotalMessages)
 }
 
+func TestBackend_BroadcastDeliversToRealDownstream(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewaymanagementapi.NewInMemoryBackend()
+
+	downstream := make(chan []byte, 1)
+	_, err := b.CreateConnection("wired", "1.1.1.1", "ua", downstream)
+	require.NoError(t, err)
+
+	delivered, err := b.Broadcast([]byte("hello"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, delivered)
+
+	select {
+	case frame := <-downstream:
+		assert.Equal(t, []byte("hello"), frame)
+	default:
+		t.Fatal("expected broadcast frame to be delivered to the real downstream channel")
+	}
+
+	msgs := b.GetMessages("wired")
+	require.Len(t, msgs, 1)
+	assert.Equal(t, []byte("hello"), msgs[0].Data)
+}
+
+func TestBackend_BroadcastSkipsConnectionWithFullDownstreamBuffer(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewaymanagementapi.NewInMemoryBackend()
+
+	// Unbuffered downstream with nothing reading from it: the very first send
+	// already has no room, simulating a full WebSocket client-side buffer.
+	fullDownstream := make(chan []byte)
+	_, err := b.CreateConnection("full", "1.1.1.1", "ua", fullDownstream)
+	require.NoError(t, err)
+
+	openDownstream := make(chan []byte, 1)
+	_, err = b.CreateConnection("open", "1.1.1.1", "ua", openDownstream)
+	require.NoError(t, err)
+
+	delivered, err := b.Broadcast([]byte("hi"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, delivered, "only the connection with room in its buffer should count as delivered")
+
+	// The full connection must not be reported as having received the
+	// message: no stored message, no LastActiveAt/PostedMessages bump, no
+	// timeline entry -- it was genuinely never delivered.
+	assert.Empty(t, b.GetMessages("full"))
+
+	tl := b.GetTimeline("full")
+	require.Len(t, tl, 1)
+	assert.Equal(t, apigatewaymanagementapi.EventConnected, tl[0].Type)
+
+	// The open connection did receive it, both on the wire and in bookkeeping.
+	msgs := b.GetMessages("open")
+	require.Len(t, msgs, 1)
+	assert.Equal(t, []byte("hi"), msgs[0].Data)
+
+	select {
+	case frame := <-openDownstream:
+		assert.Equal(t, []byte("hi"), frame)
+	default:
+		t.Fatal("expected frame on the open connection's downstream channel")
+	}
+
+	stats := b.Stats()
+	assert.Equal(t, int64(1), stats.TotalMessages)
+}
+
 func TestBackend_PingUpdatesActivity(t *testing.T) {
 	t.Parallel()
 
