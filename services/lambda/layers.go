@@ -393,9 +393,8 @@ func layerPolicyRevisionID(stmts map[string]*LayerVersionStatement) string {
 
 	ids := collections.SortedKeys(stmts)
 
-	// codeql[go/insecure-password-hashing] False positive: content digest over
-	// statement IDs to derive a revision ID, not password hashing.
-	h := sha256.Sum256([]byte(strings.Join(ids, "\x00")))
+	// Content digest over statement IDs to derive a revision ID, not a credential.
+	h := sha256.Sum256([]byte(strings.Join(ids, "\x00"))) // codeql[go/insecure-password-hashing]
 
 	return hex.EncodeToString(h[:])
 }
