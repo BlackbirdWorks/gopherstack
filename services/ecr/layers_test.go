@@ -86,18 +86,27 @@ func TestLayerUploadFlow(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		data    []byte
-		wantErr bool
+		name     string
+		wantType error
+		data     []byte
+		wantErr  bool
 	}{
 		{
 			name: "valid_layer_completes",
 			data: []byte("fake-layer-data"),
 		},
 		{
-			name:    "empty_upload_no_error",
-			data:    []byte{},
-			wantErr: false,
+			// AWS rejects CompleteLayerUpload against a live session that
+			// never received any UploadLayerPart data with
+			// EmptyUploadException ("The specified layer upload does not
+			// contain any layer parts."). Older revisions of this test
+			// asserted the opposite (a long-standing test-seeding
+			// convenience); that shortcut has been removed -- see
+			// EmptyUploadException enforcement in resolveCompletedLayerLocked.
+			name:     "empty_upload_rejected",
+			data:     []byte{},
+			wantErr:  true,
+			wantType: ecr.ErrEmptyUpload,
 		},
 	}
 
@@ -120,13 +129,11 @@ func TestLayerUploadFlow(t *testing.T) {
 
 			result, err := b.CompleteLayerUpload(context.Background(), "layer-repo", init.UploadID, nil)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantType)
 			} else {
 				require.NoError(t, err)
-				// Only non-empty uploads produce a digest.
-				if len(tt.data) > 0 {
-					assert.NotEmpty(t, result.LayerDigest)
-				}
+				assert.NotEmpty(t, result.LayerDigest)
 			}
 		})
 	}
@@ -162,39 +169,40 @@ func Test_CompleteLayerUpload_Validation(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		setup      func(t *testing.T) (h *ecr.Handler, repoName string)
+		setup      func(t *testing.T) (h *ecr.Handler, repoName, uploadID string)
 		name       string
 		wantType   string
 		wantStatus int
 	}{
 		{
 			name: "repository not found",
-			setup: func(t *testing.T) (*ecr.Handler, string) {
+			setup: func(t *testing.T) (*ecr.Handler, string, string) {
 				t.Helper()
 
-				return newAccuracyHandler(), "does-not-exist"
+				return newAccuracyHandler(), "does-not-exist", "upload-1"
 			},
 			wantStatus: http.StatusNotFound,
 			wantType:   "RepositoryNotFoundException",
 		},
 		{
 			name: "duplicate layer digest rejected",
-			setup: func(t *testing.T) (*ecr.Handler, string) {
+			setup: func(t *testing.T) (*ecr.Handler, string, string) {
 				t.Helper()
 
 				h := newAccuracyHandler()
 				mustCreateRepo(t, h, "dup-layer-repo")
 
-				rec := doAccuracy(t, h, "CompleteLayerUpload", map[string]any{
-					"repositoryName": "dup-layer-repo",
-					"uploadId":       "upload-1",
-					"layerDigests":   []string{"sha256:aaaa"},
-				})
-				require.Equal(
-					t, http.StatusOK, rec.Code, "seed CompleteLayerUpload failed: %s", rec.Body.String(),
-				)
+				// Seed the digest as an already-registered layer via a real
+				// Initiate -> UploadPart -> Complete flow (the old "direct
+				// digest" shortcut no longer works: CompleteLayerUpload now
+				// requires a live upload session, see UploadNotFoundException).
+				mustUploadLayerHTTP(t, h, "dup-layer-repo", []byte("seed"), "sha256:aaaa")
 
-				return h, "dup-layer-repo"
+				// A second live session, so the assertion call below hits
+				// LayerAlreadyExistsException rather than UploadNotFoundException.
+				secondUploadID := mustUploadLayerPartHTTP(t, h, "dup-layer-repo", []byte("seed2"))
+
+				return h, "dup-layer-repo", secondUploadID
 			},
 			wantStatus: http.StatusBadRequest,
 			wantType:   "LayerAlreadyExistsException",
@@ -205,11 +213,11 @@ func Test_CompleteLayerUpload_Validation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, repoName := tc.setup(t)
+			h, repoName, uploadID := tc.setup(t)
 
 			rec := doAccuracy(t, h, "CompleteLayerUpload", map[string]any{
 				"repositoryName": repoName,
-				"uploadId":       "upload-1",
+				"uploadId":       uploadID,
 				"layerDigests":   []string{"sha256:aaaa"},
 			})
 
@@ -220,7 +228,11 @@ func Test_CompleteLayerUpload_Validation(t *testing.T) {
 	}
 }
 
-func Test_CompleteLayerUpload_FreshDigestSucceeds(t *testing.T) {
+// Test_CompleteLayerUpload_UnknownUploadID_ReturnsUploadNotFoundException
+// locks the removal of the old "direct digest" shortcut: completing an
+// uploadId with no live InitiateLayerUpload session must now fail with
+// UploadNotFoundException rather than silently succeeding.
+func Test_CompleteLayerUpload_UnknownUploadID_ReturnsUploadNotFoundException(t *testing.T) {
 	t.Parallel()
 
 	h := newAccuracyHandler()
@@ -228,10 +240,13 @@ func Test_CompleteLayerUpload_FreshDigestSucceeds(t *testing.T) {
 
 	rec := doAccuracy(t, h, "CompleteLayerUpload", map[string]any{
 		"repositoryName": "fresh-layer-repo",
-		"uploadId":       "upload-fresh",
+		"uploadId":       "upload-never-initiated",
 		"layerDigests":   []string{"sha256:bbbb"},
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	assert.Equal(t, "UploadNotFoundException", out["__type"])
 }
 
 func Test_UploadLayerPart_PartSequencing(t *testing.T) {
@@ -355,12 +370,7 @@ func TestECR_BatchCheckLayerAvailability(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec0.Code)
 
 			if tt.preUpload {
-				rec := doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
-					"repositoryName": tt.repositoryName,
-					"uploadId":       "upload-1",
-					"layerDigests":   []string{"sha256:abc123"},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
+				mustUploadLayerHTTP(t, h, tt.repositoryName, []byte("seed"), "sha256:abc123")
 			}
 
 			rec := doECRRequest(t, h, "BatchCheckLayerAvailability", map[string]any{
@@ -382,7 +392,6 @@ func TestECR_CompleteLayerUpload(t *testing.T) {
 	tests := []struct {
 		name           string
 		repositoryName string
-		uploadID       string
 		wantDigest     string
 		layerDigests   []string
 		wantStatus     int
@@ -390,18 +399,15 @@ func TestECR_CompleteLayerUpload(t *testing.T) {
 		{
 			name:           "completes upload and returns digest",
 			repositoryName: "my-repo",
-			uploadID:       "upload-123",
 			layerDigests:   []string{"sha256:abc123"},
 			wantStatus:     http.StatusOK,
 			wantDigest:     "sha256:abc123",
 		},
 		{
-			name:           "empty digests still completes",
+			name:           "empty digests still completes using the computed digest",
 			repositoryName: "my-repo",
-			uploadID:       "upload-456",
 			layerDigests:   []string{},
 			wantStatus:     http.StatusOK,
-			wantDigest:     "",
 		},
 	}
 
@@ -418,17 +424,28 @@ func TestECR_CompleteLayerUpload(t *testing.T) {
 			)
 			require.Equal(t, http.StatusOK, createRec.Code)
 
+			// A real Initiate -> UploadPart session is required: CompleteLayerUpload
+			// now returns UploadNotFoundException for any uploadId that was never
+			// Initiated (the old "direct digest" shortcut has been removed) and
+			// EmptyUploadException for a session with no uploaded parts.
+			uploadID := mustUploadLayerPartHTTP(t, h, tt.repositoryName, []byte("layer-bytes"))
+
 			rec := doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
 				"repositoryName": tt.repositoryName,
-				"uploadId":       tt.uploadID,
+				"uploadId":       uploadID,
 				"layerDigests":   tt.layerDigests,
 			})
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			out := parseAccuracy(t, rec)
-			assert.Equal(t, tt.wantDigest, out["layerDigest"])
+			if tt.wantDigest != "" {
+				assert.Equal(t, tt.wantDigest, out["layerDigest"])
+			} else {
+				assert.NotEmpty(t, out["layerDigest"],
+					"empty layerDigests must fall back to the computed digest")
+			}
 			assert.Equal(t, tt.repositoryName, out["repositoryName"])
-			assert.Equal(t, tt.uploadID, out["uploadId"])
+			assert.Equal(t, uploadID, out["uploadId"])
 		})
 	}
 }
@@ -461,7 +478,16 @@ func TestECR_RestoreClearsInFlightLayerUploads(t *testing.T) {
 		"partLastByte":   0,
 		"layerPartBlob":  "AQ==",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	// In-flight layer uploads are intentionally NOT persisted across
+	// Snapshot/Restore, so the uploadId from before the restore is now
+	// unknown. Real AWS returns UploadNotFoundException (400) for an unknown
+	// uploadId, not RepositoryNotFoundException (404) -- see the round 3
+	// wire-shape fix in UploadLayerPart (layers.go): this test previously
+	// asserted 404, which was itself a bug this fix corrected.
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	assert.Equal(t, "UploadNotFoundException", out["__type"])
 }
 
 func TestBatchCheckLayerAvailability_NonExistentRepo_Returns404(t *testing.T) {
@@ -483,11 +509,7 @@ func TestBatchCheckLayerAvailability_ExistingRepo_AvailableLayer(t *testing.T) {
 	mustCreateRepo(t, h, "layer-repo-accuracy")
 
 	// Upload a layer then check its availability.
-	doAccuracy(t, h, "CompleteLayerUpload", map[string]any{
-		"repositoryName": "layer-repo-accuracy",
-		"uploadId":       "upload-abc",
-		"layerDigests":   []string{"sha256:deadbeef"},
-	})
+	mustUploadLayerHTTP(t, h, "layer-repo-accuracy", []byte("seed"), "sha256:deadbeef")
 
 	rec := doAccuracy(t, h, "BatchCheckLayerAvailability", map[string]any{
 		"repositoryName": "layer-repo-accuracy",
@@ -586,19 +608,9 @@ func TestCompleteLayerUpload_Makes_Layer_Available(t *testing.T) {
 	h := newAccuracyHandler()
 	mustCreateRepo(t, h, "complete-upload")
 
-	initRec := doAccuracy(t, h, "InitiateLayerUpload", map[string]any{
-		"repositoryName": "complete-upload",
-	})
-	require.Equal(t, http.StatusOK, initRec.Code)
-	uploadID, _ := parseAccuracy(t, initRec)["uploadId"].(string)
-
-	digest := "sha256:cafebabe"
-	completeRec := doAccuracy(t, h, "CompleteLayerUpload", map[string]any{
-		"repositoryName": "complete-upload",
-		"uploadId":       uploadID,
-		"layerDigests":   []string{digest},
-	})
-	require.Equal(t, http.StatusOK, completeRec.Code)
+	// A live upload session must actually receive part data before it can be
+	// completed (EmptyUploadException otherwise).
+	digest := mustUploadLayerHTTP(t, h, "complete-upload", []byte("layer-bytes"), "sha256:cafebabe")
 
 	checkRec := doAccuracy(t, h, "BatchCheckLayerAvailability", map[string]any{
 		"repositoryName": "complete-upload",
@@ -618,9 +630,12 @@ func TestBatchCheckLayerAvailability_AllAvailable(t *testing.T) {
 	_, err := b.CreateRepository(context.Background(), "layer-repo-2", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	digest := "sha256:aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
-	_, err = b.CompleteLayerUpload(context.Background(), "layer-repo-2", "upload-1", []string{digest})
-	require.NoError(t, err)
+	// A full-length sha256-looking digest is now digest-verified against the
+	// real uploaded bytes (see verifiedUploadDigestLocked), so this must use
+	// the digest ECR actually computes rather than an arbitrary fixed
+	// literal -- the old "direct digest" shortcut that accepted any literal
+	// unconditionally no longer exists.
+	digest := mustUploadLayer(t, b, "layer-repo-2", []byte("layer-repo-2-bytes"))
 
 	h := ecr.NewHandler(b, nil)
 	rec := doAccuracy(t, h, "BatchCheckLayerAvailability", map[string]any{
@@ -647,10 +662,11 @@ func TestBatchCheckLayerAvailability_Mixed(t *testing.T) {
 	_, err := b.CreateRepository(context.Background(), "mixed-layer-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	presentDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	// presentDigest must be the digest ECR actually computes for the
+	// uploaded bytes (full-length sha256-looking digests are now verified);
+	// missingDigest is never uploaded, so it stays an arbitrary literal.
+	presentDigest := mustUploadLayer(t, b, "mixed-layer-repo", []byte("mixed-layer-repo-bytes"))
 	missingDigest := "sha256:9999999999999999999999999999999999999999999999999999999999999999"
-	_, err = b.CompleteLayerUpload(context.Background(), "mixed-layer-repo", "upload-x", []string{presentDigest})
-	require.NoError(t, err)
 
 	h := ecr.NewHandler(b, nil)
 	rec := doAccuracy(t, h, "BatchCheckLayerAvailability", map[string]any{
@@ -689,9 +705,7 @@ func TestGetDownloadUrlForLayer_URLFormat(t *testing.T) {
 	_, err := b.CreateRepository(context.Background(), "download-repo", "MUTABLE", false, "", "")
 	require.NoError(t, err)
 
-	digest := "sha256:deadbeef00000000000000000000000000000000000000000000000000000000"
-	_, err = b.CompleteLayerUpload(context.Background(), "download-repo", "upload-dl", []string{digest})
-	require.NoError(t, err)
+	digest := mustUploadLayer(t, b, "download-repo", []byte("download-repo-bytes"))
 
 	h := ecr.NewHandler(b, nil)
 	rec := doAccuracy(t, h, "GetDownloadUrlForLayer", map[string]any{
@@ -768,6 +782,112 @@ func TestGetDownloadURLForLayer_LayerErrors(t *testing.T) {
 
 			out := parseAccuracy(t, rec)
 			assert.Equal(t, tt.wantType, out["__type"])
+		})
+	}
+}
+
+// TestCompleteLayerUpload_UnknownUploadID_DifferentRepo_ReturnsUploadNotFoundException
+// locks that an uploadId belonging to a live session in a DIFFERENT
+// repository is treated the same as an unknown uploadId: AWS scopes upload
+// sessions to the repository they were Initiated against.
+func TestCompleteLayerUpload_UnknownUploadID_DifferentRepo_ReturnsUploadNotFoundException(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "repo-a")
+	mustCreateRepo(t, h, "repo-b")
+
+	uploadID := mustUploadLayerPartHTTP(t, h, "repo-a", []byte("data"))
+
+	rec := doAccuracy(t, h, "CompleteLayerUpload", map[string]any{
+		"repositoryName": "repo-b",
+		"uploadId":       uploadID,
+		"layerDigests":   []string{"sha256:xyz"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	assert.Equal(t, "UploadNotFoundException", out["__type"])
+}
+
+// TestCompleteLayerUpload_LayerPartTooSmall locks the 5MiB minimum
+// non-last-part-size rule (LayerPartTooSmallException): AWS requires every
+// UploadLayerPart except the last in a session to be at least 5MiB. A
+// single-part upload is never rejected (its one part is always "last"),
+// which is why every other test in this package that uploads a tiny single
+// part continues to work unchanged.
+func TestCompleteLayerUpload_LayerPartTooSmall(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors the unexported minLayerPartSize constant in models.go (5MiB);
+	// duplicated here rather than exported via export_test.go.
+	const minLayerPartSizeForTest = 5 * 1024 * 1024
+
+	small := make([]byte, 10)
+	big := make([]byte, minLayerPartSizeForTest)
+
+	tests := []struct {
+		name       string
+		wantType   string
+		parts      [][]byte
+		wantStatus int
+	}{
+		{
+			name:       "single_tiny_part_is_always_last_and_succeeds",
+			parts:      [][]byte{small},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "two_parts_first_too_small_rejected",
+			parts:      [][]byte{small, small},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "LayerPartTooSmallException",
+		},
+		{
+			name:       "two_parts_first_full_size_last_tiny_succeeds",
+			parts:      [][]byte{big, small},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAccuracyHandler()
+			mustCreateRepo(t, h, "part-size-repo")
+
+			initRec := doAccuracy(t, h, "InitiateLayerUpload", map[string]any{
+				"repositoryName": "part-size-repo",
+			})
+			require.Equal(t, http.StatusOK, initRec.Code)
+			uploadID, _ := parseAccuracy(t, initRec)["uploadId"].(string)
+			require.NotEmpty(t, uploadID)
+
+			var firstByte int64
+			for _, part := range tt.parts {
+				rec := doAccuracy(t, h, "UploadLayerPart", map[string]any{
+					"repositoryName": "part-size-repo",
+					"uploadId":       uploadID,
+					"partFirstByte":  firstByte,
+					"partLastByte":   firstByte + int64(len(part)) - 1,
+					"layerPartBlob":  part,
+				})
+				require.Equal(t, http.StatusOK, rec.Code, "UploadLayerPart failed: %s", rec.Body.String())
+				firstByte += int64(len(part))
+			}
+
+			rec := doAccuracy(t, h, "CompleteLayerUpload", map[string]any{
+				"repositoryName": "part-size-repo",
+				"uploadId":       uploadID,
+				"layerDigests":   []string{},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code, "CompleteLayerUpload body: %s", rec.Body.String())
+
+			if tt.wantType != "" {
+				out := parseAccuracy(t, rec)
+				assert.Equal(t, tt.wantType, out["__type"])
+			}
 		})
 	}
 }

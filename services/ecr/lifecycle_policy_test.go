@@ -433,11 +433,50 @@ func TestLifecyclePolicyResult_LastEvaluatedAt_IsEpochNumber(t *testing.T) {
 		"DeleteLifecyclePolicy lastEvaluatedAt must be a JSON number, got %T", deleteOut["lastEvaluatedAt"])
 }
 
+// TestStartLifecyclePolicyPreview_ResponseShape locks that
+// StartLifecyclePolicyPreview's response contains ONLY
+// lifecyclePolicyText/repositoryName/registryId/status. Confirmed by direct
+// diff of StartLifecyclePolicyPreviewOutput /
+// awsAwsjson11_deserializeOpDocumentStartLifecyclePolicyPreviewOutput in
+// aws-sdk-go-v2/service/ecr@v1.59.0: unlike GetLifecyclePolicyPreview, Start
+// does NOT return previewResults or summary -- those must be retrieved
+// separately via GetLifecyclePolicyPreview (see
+// TestLifecyclePolicyPreview_EntryShape below). The previous implementation
+// leaked previewResults/summary into Start's response via a shared view
+// type; this test previously asserted that invented shape.
+func TestStartLifecyclePolicyPreview_ResponseShape(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "start-shape-repo")
+	mustPutImage(t, h, "start-shape-repo", "v1", `{"schemaVersion":2,"v":1}`)
+
+	policy := `{"rules":[{"rulePriority":7,"description":"expire all",` +
+		`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":0},` +
+		`"action":{"type":"expire"}}]}`
+
+	rec := doAccuracy(t, h, "StartLifecyclePolicyPreview", map[string]any{
+		"repositoryName":      "start-shape-repo",
+		"lifecyclePolicyText": policy,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	assert.Equal(t, "start-shape-repo", out["repositoryName"])
+	assert.Equal(t, policy, out["lifecyclePolicyText"])
+	assert.Equal(t, "COMPLETE", out["status"])
+	assert.NotContains(t, out, "previewResults",
+		"StartLifecyclePolicyPreview must not return previewResults; see GetLifecyclePolicyPreview")
+	assert.NotContains(t, out, "summary",
+		"StartLifecyclePolicyPreview must not return summary; see GetLifecyclePolicyPreview")
+}
+
 // TestLifecyclePolicyPreview_EntryShape locks the full per-image preview wire
-// shape: real AWS's GetLifecyclePolicyPreviewOutput.previewResults is a list of
-// {action, appliedRulePriority, imageDigest, imagePushedAt, imageTags,
-// storageClass} objects (types.LifecyclePolicyPreviewResult), not the bare
-// {imageDigest, imageTag} ImageIdentifier shape. It also locks the top-level
+// shape returned by GetLifecyclePolicyPreview: real AWS's
+// GetLifecyclePolicyPreviewOutput.previewResults is a list of {action,
+// appliedRulePriority, imageDigest, imagePushedAt, imageTags, storageClass}
+// objects (types.LifecyclePolicyPreviewResult), not the bare {imageDigest,
+// imageTag} ImageIdentifier shape. It also locks the top-level
 // "summary.expiringImageTotalCount" field (types.LifecyclePolicyPreviewSummary).
 func TestLifecyclePolicyPreview_EntryShape(t *testing.T) {
 	t.Parallel()
@@ -450,9 +489,14 @@ func TestLifecyclePolicyPreview_EntryShape(t *testing.T) {
 		`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":0},` +
 		`"action":{"type":"expire"}}]}`
 
-	rec := doAccuracy(t, h, "StartLifecyclePolicyPreview", map[string]any{
+	startRec := doAccuracy(t, h, "StartLifecyclePolicyPreview", map[string]any{
 		"repositoryName":      "entry-shape-repo",
 		"lifecyclePolicyText": policy,
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	rec := doAccuracy(t, h, "GetLifecyclePolicyPreview", map[string]any{
+		"repositoryName": "entry-shape-repo",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -483,4 +527,126 @@ func TestLifecyclePolicyPreview_EntryShape(t *testing.T) {
 	pushedAt, ok := entry["imagePushedAt"].(float64)
 	require.True(t, ok, "imagePushedAt must be a JSON number, got %T", entry["imagePushedAt"])
 	assert.Positive(t, pushedAt)
+}
+
+// expireAllPolicy is a lifecycle policy that matches every image regardless
+// of tag status, used by the GetLifecyclePolicyPreview request-param tests
+// below so every pushed image appears in the preview.
+const expireAllPolicy = `{"rules":[{"rulePriority":1,"description":"expire all",` +
+	`"selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":0},` +
+	`"action":{"type":"expire"}}]}`
+
+// TestGetLifecyclePolicyPreview_FilterTagStatus locks the real API's
+// filter.tagStatus request parameter, previously ignored entirely (gopherstack
+// always returned the full unfiltered preview result set).
+func TestGetLifecyclePolicyPreview_FilterTagStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "preview-filter-repo")
+	mustPutImage(t, h, "preview-filter-repo", "v1", `{"schemaVersion":2,"v":1}`)
+	mustPutImage(t, h, "preview-filter-repo", "v2", `{"schemaVersion":2,"v":2}`)
+	mustPutImage(t, h, "preview-filter-repo", "", `{"schemaVersion":2,"v":3}`)
+
+	startRec := doAccuracy(t, h, "StartLifecyclePolicyPreview", map[string]any{
+		"repositoryName":      "preview-filter-repo",
+		"lifecyclePolicyText": expireAllPolicy,
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	taggedRec := doAccuracy(t, h, "GetLifecyclePolicyPreview", map[string]any{
+		"repositoryName": "preview-filter-repo",
+		"filter":         map[string]any{"tagStatus": "TAGGED"},
+	})
+	require.Equal(t, http.StatusOK, taggedRec.Code)
+	taggedResults := parseAccuracy(t, taggedRec)["previewResults"].([]any)
+	assert.Len(t, taggedResults, 2, "TAGGED filter must return only the two tagged images")
+
+	untaggedRec := doAccuracy(t, h, "GetLifecyclePolicyPreview", map[string]any{
+		"repositoryName": "preview-filter-repo",
+		"filter":         map[string]any{"tagStatus": "UNTAGGED"},
+	})
+	require.Equal(t, http.StatusOK, untaggedRec.Code)
+	untaggedResults := parseAccuracy(t, untaggedRec)["previewResults"].([]any)
+	assert.Len(t, untaggedResults, 1, "UNTAGGED filter must return only the one untagged image")
+}
+
+// TestGetLifecyclePolicyPreview_ImageIds locks the real API's imageIds
+// request parameter: when supplied, the preview is restricted to exactly
+// those images (and MaxResults/NextToken are ignored, per the real API doc).
+func TestGetLifecyclePolicyPreview_ImageIds(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "preview-imageids-repo")
+	digest1 := mustPutImage(t, h, "preview-imageids-repo", "v1", `{"schemaVersion":2,"v":1}`)
+	mustPutImage(t, h, "preview-imageids-repo", "v2", `{"schemaVersion":2,"v":2}`)
+
+	startRec := doAccuracy(t, h, "StartLifecyclePolicyPreview", map[string]any{
+		"repositoryName":      "preview-imageids-repo",
+		"lifecyclePolicyText": expireAllPolicy,
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	rec := doAccuracy(t, h, "GetLifecyclePolicyPreview", map[string]any{
+		"repositoryName": "preview-imageids-repo",
+		"imageIds":       []map[string]any{{"imageDigest": digest1}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	out := parseAccuracy(t, rec)
+	results := out["previewResults"].([]any)
+	require.Len(t, results, 1)
+	assert.Equal(t, digest1, results[0].(map[string]any)["imageDigest"])
+}
+
+// TestGetLifecyclePolicyPreview_Pagination locks the real API's
+// maxResults/nextToken request parameters, previously ignored (gopherstack
+// always returned the full unpaginated preview result set).
+func TestGetLifecyclePolicyPreview_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+	mustCreateRepo(t, h, "preview-page-repo")
+	for i := range 3 {
+		mustPutImage(t, h, "preview-page-repo", "",
+			`{"schemaVersion":2,"idx":`+string(rune('0'+i))+`}`)
+	}
+
+	startRec := doAccuracy(t, h, "StartLifecyclePolicyPreview", map[string]any{
+		"repositoryName":      "preview-page-repo",
+		"lifecyclePolicyText": expireAllPolicy,
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	firstRec := doAccuracy(t, h, "GetLifecyclePolicyPreview", map[string]any{
+		"repositoryName": "preview-page-repo",
+		"maxResults":     1,
+	})
+	require.Equal(t, http.StatusOK, firstRec.Code)
+	firstOut := parseAccuracy(t, firstRec)
+	firstResults := firstOut["previewResults"].([]any)
+	require.Len(t, firstResults, 1, "maxResults=1 must return exactly one entry")
+	nextToken, ok := firstOut["nextToken"].(string)
+	require.True(t, ok, "nextToken must be present when more results remain")
+	require.NotEmpty(t, nextToken)
+
+	seen := map[string]bool{firstResults[0].(map[string]any)["imageDigest"].(string): true}
+
+	for range 2 {
+		rec := doAccuracy(t, h, "GetLifecyclePolicyPreview", map[string]any{
+			"repositoryName": "preview-page-repo",
+			"maxResults":     1,
+			"nextToken":      nextToken,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		out := parseAccuracy(t, rec)
+		results := out["previewResults"].([]any)
+		require.Len(t, results, 1)
+		seen[results[0].(map[string]any)["imageDigest"].(string)] = true
+		nextToken, _ = out["nextToken"].(string)
+	}
+
+	assert.Len(t, seen, 3, "paginating through maxResults=1 pages must cover all 3 images exactly once")
+	assert.Empty(t, nextToken, "nextToken must be empty once the last page has been returned")
 }

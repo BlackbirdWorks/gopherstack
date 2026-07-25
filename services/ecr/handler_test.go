@@ -153,6 +153,61 @@ func mustCreateRepo(t *testing.T, h *ecr.Handler, name string) {
 	require.Equal(t, http.StatusOK, rec.Code, "CreateRepository %s failed: %s", name, rec.Body.String())
 }
 
+// mustUploadLayerPartHTTP performs InitiateLayerUpload + a single
+// UploadLayerPart against h via HTTP and returns the live uploadId, without
+// completing it. Used to seed a real, non-empty upload session for tests
+// that need to exercise CompleteLayerUpload's LayerAlreadyExistsException or
+// digest-verification paths -- CompleteLayerUpload now requires a live
+// session (UploadNotFoundException otherwise) that has received at least one
+// part (EmptyUploadException otherwise); the old "direct digest" shortcut
+// (completing an uploadId that was never Initiated) no longer works.
+func mustUploadLayerPartHTTP(t *testing.T, h *ecr.Handler, repoName string, data []byte) string {
+	t.Helper()
+
+	initRec := doAccuracy(t, h, "InitiateLayerUpload", map[string]any{"repositoryName": repoName})
+	require.Equal(t, http.StatusOK, initRec.Code, "InitiateLayerUpload failed: %s", initRec.Body.String())
+	uploadID, _ := parseAccuracy(t, initRec)["uploadId"].(string)
+	require.NotEmpty(t, uploadID)
+
+	uploadRec := doAccuracy(t, h, "UploadLayerPart", map[string]any{
+		"repositoryName": repoName,
+		"uploadId":       uploadID,
+		"partFirstByte":  0,
+		"partLastByte":   len(data) - 1,
+		"layerPartBlob":  data,
+	})
+	require.Equal(t, http.StatusOK, uploadRec.Code, "UploadLayerPart failed: %s", uploadRec.Body.String())
+
+	return uploadID
+}
+
+// mustUploadLayerHTTP performs a full Initiate -> UploadPart -> Complete flow
+// against h via HTTP and returns the digest ECR computed (or, when
+// layerDigests supplies an explicit non-full-length digest, the value ECR
+// accepted verbatim -- see isFullSHA256Digest / verifiedUploadDigestLocked).
+func mustUploadLayerHTTP(
+	t *testing.T, h *ecr.Handler, repoName string, data []byte, layerDigests ...string,
+) string {
+	t.Helper()
+
+	uploadID := mustUploadLayerPartHTTP(t, h, repoName, data)
+
+	completeRec := doAccuracy(t, h, "CompleteLayerUpload", map[string]any{
+		"repositoryName": repoName,
+		"uploadId":       uploadID,
+		"layerDigests":   layerDigests,
+	})
+	require.Equal(
+		t, http.StatusOK, completeRec.Code, "CompleteLayerUpload failed: %s", completeRec.Body.String(),
+	)
+
+	out := parseAccuracy(t, completeRec)
+	digest, _ := out["layerDigest"].(string)
+	require.NotEmpty(t, digest)
+
+	return digest
+}
+
 // mustPutImage pushes an image to repoName:tag with manifest, returning its digest.
 func mustPutImage(t *testing.T, h *ecr.Handler, repoName, tag, manifest string) string {
 	t.Helper()
@@ -922,18 +977,18 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "persist-repo"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Complete a layer upload
-	rec = doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
-		"repositoryName": "persist-repo",
-		"uploadId":       "upload-xyz",
-		"layerDigests": []string{
-			"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	// Complete a real layer upload: the uploaded bytes are literally "{}" so
+	// the digest ECR computes equals sha256("{}"), which is also reused below
+	// as the imageDigest for PutImage's imageManifest (also "{}") -- keeping a
+	// single consistent digest threaded through the rest of this test, same
+	// as before this rewrite. (CompleteLayerUpload no longer accepts the old
+	// "direct digest" shortcut of completing an uploadId that was never
+	// Initiated -- see UploadNotFoundException.)
+	imgDigest := mustUploadLayerHTTP(t, h, "persist-repo", []byte("{}"))
+
 	rec = doECRRequest(t, h, "PutImage", map[string]any{
 		"repositoryName": "persist-repo",
-		"imageDigest":    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+		"imageDigest":    imgDigest,
 		"imageManifest":  "{}",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -963,7 +1018,7 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 	rec = doECRRequest(t, h, "StartImageScan", map[string]any{
 		"repositoryName": "persist-repo",
 		"imageId": map[string]any{
-			"imageDigest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+			"imageDigest": imgDigest,
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1013,9 +1068,7 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 	// Verify layer availability is restored
 	rec = doECRRequest(t, h2, "BatchCheckLayerAvailability", map[string]any{
 		"repositoryName": "persist-repo",
-		"layerDigests": []string{
-			"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-		},
+		"layerDigests":   []string{imgDigest},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1049,7 +1102,7 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) {
 	rec = doECRRequest(t, h2, "DescribeImageScanFindings", map[string]any{
 		"repositoryName": "persist-repo",
 		"imageId": map[string]any{
-			"imageDigest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+			"imageDigest": imgDigest,
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

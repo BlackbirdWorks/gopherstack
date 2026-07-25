@@ -33,6 +33,29 @@ func makeRepo(t *testing.T, b *ecr.InMemoryBackend, name string) *ecr.Repository
 	return repo
 }
 
+// mustUploadLayer performs a real InitiateLayerUpload -> UploadLayerPart ->
+// CompleteLayerUpload flow directly against b and returns the digest ECR
+// computed from data. This is the canonical way to seed an "available" layer
+// in backend-level tests: CompleteLayerUpload no longer accepts a "direct
+// digest" shortcut (an uploadId with no live InitiateLayerUpload session) --
+// it now returns UploadNotFoundException for one, and EmptyUploadException
+// for a live session that received no UploadLayerPart calls.
+func mustUploadLayer(t *testing.T, b *ecr.InMemoryBackend, repoName string, data []byte) string {
+	t.Helper()
+
+	init, err := b.InitiateLayerUpload(context.Background(), repoName)
+	require.NoError(t, err)
+
+	_, err = b.UploadLayerPart(context.Background(), repoName, init.UploadID, 0, int64(len(data))-1, data)
+	require.NoError(t, err)
+
+	result, err := b.CompleteLayerUpload(context.Background(), repoName, init.UploadID, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, result.LayerDigest)
+
+	return result.LayerDigest
+}
+
 // makeImage builds an Image fixture with the given digest and tag.
 func makeImage(digest, tag string) ecr.Image {
 	return ecr.Image{

@@ -147,3 +147,49 @@ func TestPullTimeUpdateExclusion_Deregister_Gone(t *testing.T) {
 	exclusions, _ := out["pullTimeUpdateExclusions"].([]any)
 	assert.Empty(t, exclusions)
 }
+
+// TestPullTimeUpdateExclusion_Pagination locks the real API's
+// maxResults/nextToken request parameters, previously ignored (gopherstack
+// always returned the full unpaginated exclusion list).
+func TestPullTimeUpdateExclusion_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyHandler()
+
+	arns := []string{
+		"arn:aws:iam::123456789012:role/RoleA",
+		"arn:aws:iam::123456789012:role/RoleB",
+		"arn:aws:iam::123456789012:role/RoleC",
+	}
+	for _, arn := range arns {
+		rec := doAccuracy(t, h, "RegisterPullTimeUpdateExclusion", map[string]any{"principalArn": arn})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	firstRec := doAccuracy(t, h, "ListPullTimeUpdateExclusions", map[string]any{"maxResults": 1})
+	require.Equal(t, http.StatusOK, firstRec.Code)
+	firstOut := parseAccuracy(t, firstRec)
+	firstPage, _ := firstOut["pullTimeUpdateExclusions"].([]any)
+	require.Len(t, firstPage, 1, "maxResults=1 must return exactly one entry")
+	nextToken, ok := firstOut["nextToken"].(string)
+	require.True(t, ok, "nextToken must be present when more results remain")
+	require.NotEmpty(t, nextToken)
+
+	seen := map[string]bool{firstPage[0].(string): true}
+
+	for range 2 {
+		rec := doAccuracy(t, h, "ListPullTimeUpdateExclusions", map[string]any{
+			"maxResults": 1,
+			"nextToken":  nextToken,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+		out := parseAccuracy(t, rec)
+		page, _ := out["pullTimeUpdateExclusions"].([]any)
+		require.Len(t, page, 1)
+		seen[page[0].(string)] = true
+		nextToken, _ = out["nextToken"].(string)
+	}
+
+	assert.Len(t, seen, 3, "paginating through maxResults=1 pages must cover all 3 exclusions exactly once")
+	assert.Empty(t, nextToken, "nextToken must be empty once the last page has been returned")
+}

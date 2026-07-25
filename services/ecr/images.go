@@ -107,13 +107,15 @@ func (b *InMemoryBackend) BatchDeleteImage(ctx context.Context, //nolint:revive 
 	return deleted, failures, nil
 }
 
-// BatchGetImage retrieves details for the specified images.
+// BatchGetImage retrieves details for the specified images. Fetching an
+// image's manifest this way is how a client pulls it, so this also stamps
+// lastRecordedPullTime (surfaced via DescribeImages) on every found image.
 func (b *InMemoryBackend) BatchGetImage(ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	imageIDs []ImageIdentifier,
 ) ([]Image, []ImageFailure, error) {
-	b.mu.RLock("BatchGetImage")
-	defer b.mu.RUnlock()
+	b.mu.Lock("BatchGetImage")
+	defer b.mu.Unlock()
 
 	if !b.repos.Has(repositoryName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
@@ -127,6 +129,8 @@ func (b *InMemoryBackend) BatchGetImage(ctx context.Context, //nolint:revive // 
 	for _, id := range imageIDs {
 		img, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, repoTagIdx, id)
 		if ok {
+			img.LastRecordedPullTime = time.Now()
+
 			cp := *img
 			// Preserve requested tag in imageId for the response.
 			if id.ImageTag != "" {
@@ -234,6 +238,22 @@ func (b *InMemoryBackend) DescribeImages(
 		// Sort for stable output.
 		sort.Strings(tags)
 		img.Tags = tags
+
+		// imageScanFindingsSummary/imageScanStatus are derived fresh from the
+		// scan store on every DescribeImages call (transient annotation, not
+		// persisted on Image); an image that was never scanned simply has
+		// neither field set, matching AWS (both are optional).
+		if findings, ok := b.imageScanFindings.Get(findingsTableKey(repositoryName, img.ImageDigest)); ok {
+			img.ScanFindingsSummary = &ImageScanFindingsSummaryInfo{
+				FindingSeverityCounts:        findings.FindingSeverityCounts,
+				ImageScanCompletedAt:         findings.ImageScanCompletedAt,
+				VulnerabilitySourceUpdatedAt: findings.VulnerabilitySourceUpdatedAt,
+			}
+			img.ScanStatus = &ImageScanStatusInfo{
+				Status:      findings.Status,
+				Description: findings.Description,
+			}
+		}
 
 		return img
 	}
@@ -431,10 +451,24 @@ func (b *InMemoryBackend) PutImage(
 	}
 	repoTags := b.tagIndex[repositoryName]
 
-	// IMMUTABLE enforcement: reject retagging to a different digest unless the tag
-	// matches an exclusion filter (which exempts specific tag patterns from immutability).
-	if repo.ImageTagMutability == mutabilityImmutable && tag != "" {
-		if existingDigest, has := repoTags[tag]; has && existingDigest != image.ImageDigest {
+	if existingDigest, has := repoTags[tag]; tag != "" && has {
+		switch {
+		case existingDigest == image.ImageDigest:
+			// ImageAlreadyExistsException: re-pushing a manifest that is
+			// already registered under this exact tag is a complete no-op
+			// push ("no changes to the manifest or image tag after the last
+			// push", per the real API doc) and is rejected -- independent of
+			// repository tag mutability, which instead governs the
+			// different-digest retag case below. Confirmed against the moto
+			// ECR emulator's put_image logic (existing_images_with_matching_manifest
+			// + tag already in image.image_tags raises this same exception).
+			return nil, fmt.Errorf("%w: image already exists with tag %s in repository %s",
+				ErrImageAlreadyExists, tag, repositoryName)
+
+		case repo.ImageTagMutability == mutabilityImmutable:
+			// IMMUTABLE enforcement: reject retagging to a different digest
+			// unless the tag matches an exclusion filter (which exempts
+			// specific tag patterns from immutability).
 			if !tagMatchesAnyExclusionFilter(tag, repo.ImageTagMutabilityExclusionFilters) {
 				return nil, fmt.Errorf("%w: tag %s already exists in immutable repository %s",
 					ErrImageTagAlreadyExists, tag, repositoryName)
@@ -518,9 +552,11 @@ func (b *InMemoryBackend) UpdateImageStorageClass(
 	if target == "ARCHIVE" {
 		img.StorageClass = target
 		img.ImageStatus = "ARCHIVED"
+		img.LastArchivedAt = time.Now()
 	} else {
 		img.StorageClass = "STANDARD"
 		img.ImageStatus = "ACTIVE"
+		img.LastActivatedAt = time.Now()
 	}
 
 	return &ImageStorageClassResult{

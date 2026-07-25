@@ -8,7 +8,11 @@ const (
 	// before it is treated as abandoned and pruned. AWS expires unfinished
 	// uploads after a period of inactivity; this prevents the layerUploads map
 	// from leaking entries for uploads that are initiated but never completed.
-	layerUploadTTL      = 24 * time.Hour
+	layerUploadTTL = 24 * time.Hour
+	// minLayerPartSize is the minimum size (in bytes) AWS requires for every
+	// UploadLayerPart call except the last one in a session
+	// (LayerPartTooSmallException otherwise); see validatePartSizesLocked.
+	minLayerPartSize    = 5 * 1024 * 1024
 	scanTypeBasic       = "BASIC"
 	mutabilityMutable   = "MUTABLE"
 	mutabilityImmutable = "IMMUTABLE"
@@ -42,18 +46,56 @@ type ImageIdentifier struct {
 }
 
 // Image represents a Docker image in ECR.
+//
+// LastActivatedAt, LastArchivedAt, and LastRecordedPullTime back
+// DescribeImages' ImageDetail.lastActivatedAt/lastArchivedAt/
+// lastRecordedPullTime fields (see toImageDetailView): they are set by
+// UpdateImageStorageClass (activate/archive transitions) and by
+// BatchGetImage/GetDownloadUrlForLayer (pull recording) respectively. Being
+// plain fields on Image, they are automatically cascade-deleted with the
+// image and automatically included in Snapshot/Restore -- no separate map to
+// manage.
+//
+// ScanFindingsSummary and ScanStatus are transient, request-scoped
+// annotations (never persisted, mirroring the Tags field below): DescribeImages
+// populates them fresh from the imageScanFindings store on each call so
+// toImageDetailView can surface imageScanFindingsSummary/imageScanStatus.
 type Image struct {
-	ImagePushedAt          time.Time       `json:"imagePushedAt"`
-	ImageID                ImageIdentifier `json:"imageId"`
-	ImageDigest            string          `json:"imageDigest"`
-	ImageManifest          string          `json:"imageManifest,omitempty"`
-	ImageManifestMediaType string          `json:"imageManifestMediaType,omitempty"`
-	ImageStatus            string          `json:"imageStatus,omitempty"`
-	RepositoryName         string          `json:"repositoryName"`
-	RegistryID             string          `json:"registryId"`
-	StorageClass           string          `json:"storageClass,omitempty"`
-	Tags                   []string        `json:"-"`
-	ImageSizeInBytes       int64           `json:"imageSizeInBytes,omitempty"`
+	ImagePushedAt          time.Time                     `json:"imagePushedAt"`
+	LastActivatedAt        time.Time                     `json:"lastActivatedAt"`
+	LastArchivedAt         time.Time                     `json:"lastArchivedAt"`
+	LastRecordedPullTime   time.Time                     `json:"lastRecordedPullTime"`
+	ScanFindingsSummary    *ImageScanFindingsSummaryInfo `json:"-"`
+	ScanStatus             *ImageScanStatusInfo          `json:"-"`
+	ImageID                ImageIdentifier               `json:"imageId"`
+	ImageDigest            string                        `json:"imageDigest"`
+	ImageManifest          string                        `json:"imageManifest,omitempty"`
+	ImageManifestMediaType string                        `json:"imageManifestMediaType,omitempty"`
+	ImageStatus            string                        `json:"imageStatus,omitempty"`
+	RepositoryName         string                        `json:"repositoryName"`
+	RegistryID             string                        `json:"registryId"`
+	StorageClass           string                        `json:"storageClass,omitempty"`
+	Tags                   []string                      `json:"-"`
+	ImageSizeInBytes       int64                         `json:"imageSizeInBytes,omitempty"`
+}
+
+// ImageScanFindingsSummaryInfo carries the per-image scan findings summary
+// used to populate DescribeImages' imageScanFindingsSummary field. It is
+// annotated onto Image transiently (see Image.ScanFindingsSummary) and
+// mirrors the subset of ImageScanFindingsResult that the real
+// ImageScanFindingsSummary wire shape exposes.
+type ImageScanFindingsSummaryInfo struct {
+	FindingSeverityCounts        map[string]int32
+	ImageScanCompletedAt         float64
+	VulnerabilitySourceUpdatedAt float64
+}
+
+// ImageScanStatusInfo carries the per-image scan status used to populate
+// DescribeImages' imageScanStatus field. It is annotated onto Image
+// transiently (see Image.ScanStatus).
+type ImageScanStatusInfo struct {
+	Status      string
+	Description string
 }
 
 // LayerAvailability represents the availability of an image layer.
@@ -464,7 +506,11 @@ type layerUploadQueueEntry struct {
 }
 
 type layerUploadState struct {
-	CreatedAt      time.Time
+	CreatedAt time.Time
+	// PartSizes records each UploadLayerPart call's blob length, in arrival
+	// order, so CompleteLayerUpload can enforce the 5MiB minimum-part-size
+	// rule against every part but the last (see validatePartSizesLocked).
+	PartSizes      []int64
 	RepositoryName string
 	Data           []byte
 	Size           int64

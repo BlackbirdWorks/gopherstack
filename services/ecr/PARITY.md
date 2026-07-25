@@ -2,23 +2,23 @@
 service: ecr
 sdk_module: aws-sdk-go-v2/service/ecr@v1.59.0
 last_audit_commit: fba3c784+uncommitted  # this pass's changes are uncommitted working-tree edits; see Notes
-last_audit_date: 2026-07-23
-overall: B+  # independently re-field-diffed every op against the real SDK deserializers this pass; found and fixed 4 genuine wire-shape bugs the prior "ok" audit missed (see "Genuine fixes made this pass, round 2" below)
+last_audit_date: 2026-07-24
+overall: A  # round 3 closed every remaining gaps: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeRepositories: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRepository: {wire: ok, errors: ok, state: ok, persist: ok, note: "force-with-images enforced in handler via DescribeImages pre-check"}
-  PutImage: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — the 'image' response object was the raw internal Image domain struct, leaking 5 gopherstack-only fields (imageDigest, imagePushedAt, imageStatus, storageClass, imageSizeInBytes) not present on the real ecr.types.Image shape (imageId/imageManifest/imageManifestMediaType/registryId/repositoryName only, per awsAwsjson11_deserializeDocumentImage); imagePushedAt was also a bare time.Time (RFC3339 string) though moot since the field itself was invented. Fixed via a new imageView wire type; the digest remains available via the correct nested imageId.imageDigest. Also carries the round-1 ImageDigestDoesNotMatchException fix."}
-  BatchGetImage: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — same invented-field leak as PutImage (Images []Image → []imageView); see PutImage note"}
+  PutImage: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — the 'image' response object was the raw internal Image domain struct, leaking 5 gopherstack-only fields (imageDigest, imagePushedAt, imageStatus, storageClass, imageSizeInBytes) not present on the real ecr.types.Image shape (imageId/imageManifest/imageManifestMediaType/registryId/repositoryName only, per awsAwsjson11_deserializeDocumentImage); imagePushedAt was also a bare time.Time (RFC3339 string) though moot since the field itself was invented. Fixed via a new imageView wire type; the digest remains available via the correct nested imageId.imageDigest. Also carries the round-1 ImageDigestDoesNotMatchException fix. FIXED (round 3) — ImageAlreadyExistsException now enforced: re-pushing an unchanged manifest+tag pair is rejected regardless of repository tag mutability (see round 3 notes)."}
+  BatchGetImage: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — same invented-field leak as PutImage (Images []Image → []imageView); see PutImage note. FIXED (round 3) — now stamps lastRecordedPullTime on every returned image (see DescribeImages note); takes the write lock accordingly."}
   BatchDeleteImage: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeImages: {wire: partial, errors: ok, state: ok, persist: ok, note: "core fields (imageDigest, imageTags, imagePushedAt as epoch, imageSizeInBytes, imageManifestMediaType, imageStatus, registryId, repositoryName) verified correct via imageDetailView. GAP (not fixed this pass, see gaps below): real ImageDetail additionally has artifactMediaType, imageScanFindingsSummary, imageScanStatus, lastActivatedAt, lastArchivedAt, lastRecordedPullTime, subjectManifestDigest — none implemented."}
+  DescribeImages: {wire: ok, errors: ok, state: ok, persist: ok, note: "core fields (imageDigest, imageTags, imagePushedAt as epoch, imageSizeInBytes, imageManifestMediaType, imageStatus, registryId, repositoryName) verified correct via imageDetailView. FIXED (round 3) — the 7 previously-missing ImageDetail fields are now implemented: artifactMediaType/subjectManifestDigest are parsed from the pushed manifest's OCI 1.1 artifactType/subject.digest fields; imageScanFindingsSummary/imageScanStatus are annotated from the imageScanFindings store (present only for images that have actually been scanned); lastActivatedAt/lastArchivedAt are stamped by UpdateImageStorageClass; lastRecordedPullTime is stamped by BatchGetImage and GetDownloadUrlForLayer (the latter via a manifest-text substring match against the requested layer digest, since the backend does not otherwise model a per-image layer list)."}
   ListImages: {wire: ok, errors: ok, state: ok, persist: ok}
   ListImageReferrers: {wire: ok, errors: ok, state: ok, persist: ok}
   BatchCheckLayerAvailability: {wire: ok, errors: ok, state: ok, persist: ok}
   InitiateLayerUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIFO TTL pruning bounds layerUploads/layerUploadQueue"}
-  UploadLayerPart: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — added part-sequencing validation (InvalidLayerPartException) for non-consecutive partFirstByte"}
-  CompleteLayerUpload: {wire: ok, errors: partial, state: ok, persist: ok, note: "FIXED — was missing RepositoryNotFoundException FK check (unlike every other op) and never rejected re-completing an already-registered layer digest (LayerAlreadyExistsException). RE-VERIFIED round 2, still gap (see gaps below): UploadNotFoundException (real error, confirmed present in types/errors.go) is never returned — a Complete call whose uploadId matches no live session (or an empty/zero-byte session) is silently accepted via a 'direct digest' fallback path. This is a deliberate, long-standing test-seeding convenience used by ~9 distinct call sites across the suite (incl. a test literally named 'empty_upload_no_error' asserting the current behavior), so flipping it was judged out of scope for this pass — same test-suite-wide-blast-radius reasoning as the EmptyUploadException gap below, which is the same code path."}
-  GetDownloadUrlForLayer: {wire: ok, errors: ok, state: ok, persist: ok}
+  UploadLayerPart: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — added part-sequencing validation (InvalidLayerPartException) for non-consecutive partFirstByte. FIXED (round 3) — now records each part's size on the upload session so CompleteLayerUpload can enforce the 5MiB minimum-part-size rule (LayerPartTooSmallException) against every part but the last. FIXED (round 3, genuinely new finding) — an unknown/wrong-repository uploadId incorrectly returned RepositoryNotFoundException (404); real AWS returns UploadNotFoundException (400) per UploadLayerPart's documented Errors list. Found while re-verifying this exact code path for the CompleteLayerUpload UploadNotFoundException gap; TestECR_RestoreClearsInFlightLayerUploads previously asserted the wrong (404) status and was corrected."}
+  CompleteLayerUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — was missing RepositoryNotFoundException FK check (unlike every other op) and never rejected re-completing an already-registered layer digest (LayerAlreadyExistsException). FIXED (round 3) — the 'direct digest' fallback path (accepting any uploadId+digest with no live session) is removed: CompleteLayerUpload now requires a live InitiateLayerUpload session scoped to the given repository (UploadNotFoundException otherwise), that session to have received at least one UploadLayerPart call (EmptyUploadException otherwise), and every part but the last to be at least 5MiB (LayerPartTooSmallException otherwise, enforced via new per-part-size bookkeeping on the upload session). The ~9 test call sites that relied on the old direct-digest shortcut as a seeding convenience were rewritten to perform a real Initiate→UploadPart→Complete flow via new mustUploadLayer/mustUploadLayerHTTP helpers."}
+  GetDownloadUrlForLayer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 3) — now stamps lastRecordedPullTime (see DescribeImages note) on every image in the repository whose manifest references the requested layer digest; takes the write lock accordingly."}
   GetAuthorizationToken: {wire: ok, errors: ok, state: ok, persist: n/a, note: "base64(AWS:dummy-password), 12h TTL, proxyEndpoint derived from first request Host"}
   CreatePullThroughCacheRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribePullThroughCacheRules: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -32,8 +32,8 @@ ops:
   PutLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "applied immediately on Put, matching AWS's immediate evaluation. FIXED (round 2) — lastEvaluatedAt was a bare time.Time returned directly on the domain struct (RFC3339 string on the wire); real GetLifecyclePolicyOutput.lastEvaluatedAt deserializes via smithytime.ParseEpochSeconds(json.Number). Fixed via lifecyclePolicyResultView (epoch float64), same convention as repositoryView.createdAt."}
   GetLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — see PutLifecyclePolicy note"}
   DeleteLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — see PutLifecyclePolicy note"}
-  StartLifecyclePolicyPreview: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — previewResults was []ImageIdentifier (imageDigest/imageTag only); real GetLifecyclePolicyPreviewOutput.previewResults is []types.LifecyclePolicyPreviewResult carrying action{type}, appliedRulePriority, imageDigest, imagePushedAt (epoch), imageTags, storageClass — entirely missing action/priority/pushedAt/storageClass, and the top-level summary.expiringImageTotalCount field was absent too. Fixed: evaluateLifecyclePolicy now returns []LifecyclePolicyPreviewEntry carrying the full AWS-shaped detail, surfaced via lifecyclePolicyPreviewView. GAP still open: real GetLifecyclePolicyPreviewInput also accepts Filter/ImageIds/MaxResults/NextToken (result filtering + pagination); gopherstack always returns the full unfiltered, unpaginated result set — not implemented this pass (see gaps below)."}
-  GetLifecyclePolicyPreview: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — see StartLifecyclePolicyPreview note; same Filter/ImageIds/MaxResults/NextToken gap"}
+  StartLifecyclePolicyPreview: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — previewResults was []ImageIdentifier (imageDigest/imageTag only); real GetLifecyclePolicyPreviewOutput.previewResults is []types.LifecyclePolicyPreviewResult carrying action{type}, appliedRulePriority, imageDigest, imagePushedAt (epoch), imageTags, storageClass — entirely missing action/priority/pushedAt/storageClass, and the top-level summary.expiringImageTotalCount field was absent too. Fixed: evaluateLifecyclePolicy now returns []LifecyclePolicyPreviewEntry carrying the full AWS-shaped detail. FIXED (round 3, genuinely new finding) — Start's own response was ALSO wrong: it reused the same lifecyclePolicyPreviewView as Get and therefore leaked previewResults/summary into Start's response, but direct diff of StartLifecyclePolicyPreviewOutput's real deserializer shows Start returns ONLY lifecyclePolicyText/registryId/repositoryName/status -- no previewResults/summary/nextToken at all (those belong to Get only). Fixed via a new, narrower lifecyclePolicyPreviewStartView. Start genuinely never had a Filter/ImageIds/MaxResults/NextToken gap in the first place (StartLifecyclePolicyPreviewInput has no such fields in the real SDK) -- the prior audit's gap note conflated Start and Get."}
+  GetLifecyclePolicyPreview: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 2) — see StartLifecyclePolicyPreview note. FIXED (round 3) — Filter (tagStatus)/ImageIds/MaxResults/NextToken are now implemented at the handler layer (post-fetch filtering/pagination over the backend's full preview result, mirroring the DescribeImages/ListImages pattern): ImageIds restricts to exactly those images and (per the real API doc) is mutually exclusive with Filter/MaxResults/NextToken; otherwise Filter.tagStatus (TAGGED/UNTAGGED/ANY) filters and MaxResults/NextToken (default 100) paginate via the same base64(imageDigest)-cursor convention used elsewhere in this package."}
   GetRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   SetRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRepositoryPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -54,12 +54,12 @@ ops:
   PutSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteSigningConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeImageSigningStatus: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateImageStorageClass: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateImageStorageClass: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 3) — now stamps lastArchivedAt/lastActivatedAt (see DescribeImages note) on ARCHIVE/re-activate transitions respectively."}
   GetAccountSetting: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAccountSetting: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterPullTimeUpdateExclusion: {wire: ok, errors: ok, state: ok, persist: ok}
   DeregisterPullTimeUpdateExclusion: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListPullTimeUpdateExclusions: {wire: partial, errors: ok, state: ok, persist: ok, note: "RE-VERIFIED round 2: pullTimeUpdateExclusions: []string wire shape itself is correct (confirmed against real ListPullTimeUpdateExclusionsOutput — no per-item createdAt on this op, only a flat ARN list). GAP (not fixed): real input also accepts MaxResults/NextToken; gopherstack always returns the full unpaginated list — low risk given the realistic exclusion-list size, but not implemented (see gaps below)."}
+  ListPullTimeUpdateExclusions: {wire: ok, errors: ok, state: ok, persist: ok, note: "RE-VERIFIED round 2: pullTimeUpdateExclusions: []string wire shape itself is correct (confirmed against real ListPullTimeUpdateExclusionsOutput — no per-item createdAt on this op, only a flat ARN list). FIXED (round 3) — MaxResults/NextToken now implemented at the handler layer (base64(principalArn)-cursor pagination over the sorted exclusion list, default maxResults 100, matching the real API doc)."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -67,18 +67,20 @@ families:
   registry-v2-proxy: {status: ok, note: "docker distribution/v3 in-memory storage driver embedded for /v2/ blob+manifest paths; ExtractResource avoids buffering upload bodies"}
   lifecycle-evaluation: {status: ok, note: "priority-ordered rules, imageCountMoreThan + sinceImagePushed count types, tagStatus any/tagged/untagged with prefix+wildcard pattern matching, janitor sweeps on a timer independent of API calls"}
   mock-scanning: {status: ok, note: "deterministic per-digest CVE selection (sha256-seeded bitmask) so repeated scans of the same image are stable; BASIC and ENHANCED shapes are genuinely different data, not the same list reshaped"}
-gaps:
-  - "EmptyUploadException (CompleteLayerUpload with no UploadLayerPart calls) intentionally NOT enforced. RE-VERIFIED round 2 against the real SDK: types.EmptyUploadException genuinely exists (types/errors.go:40, 'The specified layer upload does not contain any layer parts.'). Independently re-confirmed the blocking test is TestLayerUploadFlow/empty_upload_no_error (layers_test.go) — its own subtest name states the asserted behavior is deliberate, not accidental (the PARITY.md test name cited in the prior audit, TestBatch1_CompleteLayerUpload_Makes_Layer_Available, was stale/renamed since; corrected here). This is the same code path as the newly-documented CompleteLayerUpload 'direct digest'/UploadNotFoundException gap above — ~9 call sites across the suite deliberately Complete an upload with zero or no UploadLayerPart calls as a seeding shortcut. Confirmed still out of scope: fixing requires flipping that shared path, which is a test-suite-wide-blast-radius change. (bd: gopherstack-x6i)"
-  - "ImageAlreadyExistsException (PutImage with an unchanged manifest+tag) intentionally NOT enforced. RE-VERIFIED round 2: types.ImageAlreadyExistsException genuinely exists (types/errors.go:119). Independently re-confirmed the blocking test is TestImmutableRepo_SameManifestSameTag_Idempotent (handler_images_test.go; PARITY.md's prior name TestBatch2_ImmutableRepo_SameManifestSameTag_Idempotent was stale, corrected here). Real AWS's exact trigger condition (is it enforced on every repo, or only IMMUTABLE ones?) could not be confirmed without a live-AWS test and the task's explicit required-error-code list does not include it; still deferred to avoid a moderate-confidence behavior flip with test-suite-wide blast radius. (bd: gopherstack-x6i)"
-  - "UploadLayerPart minimum-part-size (LayerPartTooSmallException, 'parts must be at least 5MiB except the last') not enforced: the backend cannot know which part is 'last' until CompleteLayerUpload, and all current tests upload tiny (<10 byte) parts, so implementing this needs a size-deferred-validation design (validate at Complete time against accumulated part boundaries) that is out of scope for this pass. RE-VERIFIED round 2: types.LayerPartTooSmallException genuinely exists (types/errors.go:474). (bd: gopherstack-x6i)"
-  - "NEW round 2: CompleteLayerUpload never returns UploadNotFoundException (types/errors.go:1244, genuinely exists) for an uploadId that matches no live InitiateLayerUpload session — the 'direct digest' fallback path (layers.go resolveCompletedLayerLocked, third case) accepts any uploadId+digest pair unconditionally. This was not previously documented as a gap (the prior audit's CompleteLayerUpload note only covered the two fixes it made). Deliberately used as a layer-seeding shortcut by ~9 distinct test call sites (layers_test.go, handler_test.go, interfaces_test.go's persistence round-trip test all Complete against uploadIds that were never Initiated), including a test case named 'empty digests still completes' that explicitly asserts success. Same test-suite-wide-blast-radius reasoning as the EmptyUploadException gap above (same code path) — deferred, not fixed."
-  - "NEW round 2: GetLifecyclePolicyPreview/StartLifecyclePolicyPreview ignore the real API's Filter, ImageIds, MaxResults, and NextToken request parameters — gopherstack always evaluates and returns the full, unfiltered, unpaginated preview result set for the repository. The per-image response shape itself was fixed this pass (see StartLifecyclePolicyPreview above); request-side filtering/pagination was not, and is a moderate scope addition (new filter-matching + cursor logic) deferred for a future pass."
-  - "NEW round 2: DescribeImages's ImageDetail wire shape is missing artifactMediaType, imageScanFindingsSummary, imageScanStatus, lastActivatedAt, lastArchivedAt, lastRecordedPullTime, and subjectManifestDigest — all present on the real types.ImageDetail. imageScanFindingsSummary/imageScanStatus are feasible (the imageScanFindings store already holds the data; would need a per-image lookup inside DescribeImages, handled carefully so an image with no scan yet doesn't error) but were judged a real feature addition beyond this pass's wire-shape-correctness focus, not attempted to avoid a rushed/undertested implementation. lastActivatedAt/lastArchivedAt/lastRecordedPullTime need genuinely new backend state (archive-event and pull-time tracking) that doesn't exist at all today."
-  - "NEW round 2: ListPullTimeUpdateExclusions ignores MaxResults/NextToken (always returns the full list, no pagination) — real API supports both. Low risk (this is a niche newer API; realistic exclusion lists are small) but not implemented."
+gaps: []
+  # All gaps documented through round 2 were closed for real in round 3
+  # (2026-07-24), including the ImageAlreadyExistsException trigger condition
+  # (previously deferred as unconfirmable without a live AWS account -- see
+  # "Genuine fixes made this pass, round 3" below for how it was independently
+  # confirmed from the real API doc text plus the moto ECR emulator's
+  # reference implementation, converging on the same trigger condition). No
+  # item was closed by weakening or deleting its blocking test; every
+  # previously-"intentional shortcut" test was rewritten to exercise the real
+  # AWS behavior instead. (bd: gopherstack-x6i closed)
 deferred:
   - "docker registry v2 proxy internals (pkgs distribution/v3 wiring) — treated as a vendored subsystem, not re-audited this pass"
   - "chaos/fault-injection interaction with ECR ops — not exercised this pass"
-leaks: {status: clean, note: "RE-VERIFIED round 2: layerUploads bounded by FIFO TTL queue pruned on InitiateLayerUpload; janitor (janitor.go) uses pkgs/worker.Group with ctx.Done() shutdown + g.Stop() drain; no unbounded maps found; no new goroutines/locks introduced by this pass's changes (lifecycle.go/lifecycle_policy.go/scan.go/handler_images.go edits were pure data-shape fixes, no new lock paths)"}
+leaks: {status: clean, note: "RE-VERIFIED round 3: layerUploads bounded by FIFO TTL queue pruned on InitiateLayerUpload; janitor (janitor.go) uses pkgs/worker.Group with ctx.Done() shutdown + g.Stop() drain; no unbounded maps found. This pass's new state (Image.LastActivatedAt/LastArchivedAt/LastRecordedPullTime) is plain fields on the existing Image struct, not a new map -- it is automatically cascade-deleted with the image and automatically included in Snapshot/Restore, no new lifecycle wiring needed. Image.ScanFindingsSummary/ScanStatus are transient, request-scoped annotations (json:\"-\", mirroring the pre-existing Tags field) recomputed fresh on every DescribeImages call, never persisted, never leaked. layerUploadState gained a PartSizes []int64 field (bounded by the same per-session lifecycle as the rest of the upload state it lives on, so it is retired/pruned identically). No new goroutines or lock paths: BatchGetImage and GetDownloadUrlForLayer now take the write lock (Lock) instead of RLock since they mutate LastRecordedPullTime, but neither introduces a new lock -- both already used the single coarse b.mu."}
 ---
 
 ## Notes
@@ -277,3 +279,179 @@ New tests locking every fix above: `TestLifecyclePolicyResult_LastEvaluatedAt_Is
 (image_scanning_test.go); `TestPutImage_ImageView_OmitsInventedFields`,
 `TestBatchGetImage_ImageView_OmitsInventedFields` (handler_images_test.go);
 `TestRegistryPolicy_OmitsInventedStatusField` (registry_policy_test.go).
+
+### Genuine fixes made this pass, round 3 (2026-07-24)
+
+The task for this round was explicit: close every remaining `gaps:` item for
+real, including the invasive test-rewriting work rounds 1-2 had deferred
+citing "test-suite-wide blast radius". All six previously-documented gaps are
+closed, plus a seventh (`ListPullTimeUpdateExclusions` pagination) that was
+in scope for the same reason (an open, non-impossible gap blocks an honest
+`overall: A`).
+
+1. **`EmptyUploadException` + `UploadNotFoundException` (same code path,
+   fixed together).** `layers.go`'s `resolveCompletedLayerLocked` had three
+   cases: a live session with data (real path), a live session with *no*
+   data (silently accepted -- the `EmptyUploadException` gap), and a "direct
+   digest" fallback that accepted *any* uploadId+digest pair with no live
+   session at all (the `UploadNotFoundException` gap). Both silent-accept
+   branches are now real AWS errors: an uploadId with no live session
+   scoped to the given repository returns `UploadNotFoundException`; a live
+   session with zero `UploadLayerPart` calls returns `EmptyUploadException`.
+   This required rewriting the ~9 test call sites that used the old
+   direct-digest shortcut as a seeding convenience (incl. the test literally
+   named `empty_upload_no_error`, renamed `empty_upload_rejected` and
+   flipped to assert the real behavior) to perform a genuine
+   Initiate→UploadPart→Complete flow. Two new helpers do this consistently:
+   `mustUploadLayer` (backend-level, store_test.go) and
+   `mustUploadLayerPartHTTP`/`mustUploadLayerHTTP` (HTTP-level,
+   handler_test.go). A subtlety this surfaced: several tests asserted a
+   *specific* full-length (64 hex char) sha256-looking digest literal
+   (e.g. `TestBatchCheckLayerAvailability_AllAvailable`) that had never
+   actually hashed to real uploaded bytes -- only possible under the old
+   unconditionally-accepting direct-digest path. Now that
+   `verifiedUploadDigestLocked` genuinely verifies full-length digests
+   against uploaded byte content, those tests use the digest the backend
+   actually computes rather than a fixed literal (the test intent --
+   layer-availability/download-URL logic -- is unaffected; only the specific
+   digest *value* asserted on changed from a magic constant to a computed
+   one).
+
+2. **`LayerPartTooSmallException`.** Solved the "can't know which part is
+   last until Complete" problem the prior rounds' notes correctly
+   identified, via deferred validation: `layerUploadState` gained a
+   `PartSizes []int64` field, appended to on every `UploadLayerPart` call;
+   `CompleteLayerUpload` (via new `validatePartSizesLocked`) checks every
+   part but the last against the real 5MiB minimum. A single-part upload is
+   therefore never rejected (its one part is always "last"), which is why
+   every pre-existing test that uploads a single tiny part continues to pass
+   unchanged -- this is purely additive for the multi-part case, which no
+   prior test exercised.
+
+3. **`ImageAlreadyExistsException`.** The real trigger condition was
+   determined by triangulating two independent sources: (a) the official AWS
+   API doc text for `PutImage`'s `ImageAlreadyExistsException` ("The
+   specified image has already been pushed, and there were no changes to the
+   manifest or image tag after the last push") and separately
+   `ImageTagAlreadyExistsException` ("The specified image is tagged with a
+   tag that already exists. The repository is configured for tag
+   immutability.") -- two *distinct* documented errors, the second
+   explicitly scoped to immutable repos, the first not scoped to mutability
+   at all; and (b) the moto ECR emulator's `put_image` reference
+   implementation (github.com/getmoto/moto), whose logic independently
+   confirms: a manifest that already exists in the repo, re-pushed under a
+   tag it's already tagged with, raises this exception regardless of the
+   repo's tag-mutability setting (moto's `_resolve_image_tag_mutability` is
+   the separate, mutability-gated check, matching
+   `ImageTagAlreadyExistsException`'s scope). Both sources converge on the
+   same condition, so it was implemented with that convergent confidence
+   rather than left deferred: `PutImage` now rejects a push whose tag
+   already points at the exact digest being pushed, independent of
+   `imageTagMutability`. This directly contradicted three existing tests
+   that asserted the opposite as "idempotent" success --
+   `TestImmutableRepo_SameManifestSameTag_Idempotent` (renamed
+   `..._ImageAlreadyExists`), `TestPutImage_IMMUTABLE_SameTagSameDigest_Idempotent`
+   (replaced with a MUTABLE-repo variant,
+   `TestPutImage_MUTABLE_SameTagSameDigest_ImageAlreadyExists`, to
+   additionally lock that the check is mutability-independent), and
+   `TestTagMutability_Enforcement`'s `immutable_allows_same_digest` case
+   (renamed `immutable_same_digest_rejected_as_no_op_push`) -- all three
+   rewritten to assert the real behavior.
+
+4. **`DescribeImages`'s 7 missing `ImageDetail` fields.**
+   `artifactMediaType`/`subjectManifestDigest` are parsed straight from the
+   pushed manifest's OCI 1.1 `artifactType`/`subject.digest` fields (a
+   manifest that uses neither, e.g. a plain Docker v2 manifest, simply omits
+   both -- no new state needed). `imageScanFindingsSummary`/`imageScanStatus`
+   are annotated onto `Image` transiently (two new small info structs,
+   `ImageScanFindingsSummaryInfo`/`ImageScanStatusInfo`, `json:"-"`, mirroring
+   the pre-existing `Tags` annotation pattern) from a fresh
+   `imageScanFindings` store lookup inside `DescribeImages`'s existing
+   per-image `annotate` closure; an image with no scan yet simply has neither
+   field set (omitted on the wire), never a zero-valued object.
+   `lastActivatedAt`/`lastArchivedAt`/`lastRecordedPullTime` needed genuinely
+   new backend state, added as three new plain `time.Time` fields directly on
+   `Image` (not a separate map -- see `leaks` above for why that keeps
+   cascade-cleanup and Snapshot/Restore free): `UpdateImageStorageClass`
+   stamps `LastArchivedAt`/`LastActivatedAt` on ARCHIVE/re-activate
+   transitions; `BatchGetImage` and `GetDownloadUrlForLayer` stamp
+   `LastRecordedPullTime` (both now take the write lock instead of a read
+   lock accordingly). `GetDownloadUrlForLayer` only receives a layer digest,
+   not an image identifier, and the backend does not otherwise model a
+   per-image layer list, so it stamps every image in the repository whose
+   raw manifest text contains the requested layer digest as a substring
+   (layer digests appear literally in a manifest's `layers[].digest`/
+   `config.digest` fields) -- a pragmatic, real-behavior-approximating choice
+   documented at the call site rather than a guess left unstated.
+
+5. **`GetLifecyclePolicyPreview`'s `Filter`/`ImageIds`/`MaxResults`/`NextToken`.**
+   Implemented at the handler layer (post-fetch filtering/pagination over the
+   backend's already-computed full preview result), mirroring the existing
+   `DescribeImages`/`ListImages` filter+pagination pattern rather than
+   inventing a new one: `ImageIds` (when present) restricts to exactly those
+   images and -- per the real API doc, "This option cannot be used when you
+   specify images with imageIds" -- takes precedence over `Filter`/
+   `MaxResults`/`NextToken`; otherwise `Filter.tagStatus`
+   (TAGGED/UNTAGGED/ANY) filters and `MaxResults`/`NextToken` (default 100,
+   matching the real API doc) paginate via the same
+   `base64(imageDigest)`-cursor convention used elsewhere in this package.
+   The backend's `GetLifecyclePolicyPreview(ctx, repositoryName)` signature
+   is unchanged (no `Backend` interface change, no cross-repo caller impact).
+
+6. **Genuinely new finding: `StartLifecyclePolicyPreview`'s response shape
+   was also wrong**, independent of (but adjacent to) gap 5 above. Direct
+   diff of `StartLifecyclePolicyPreviewOutput` /
+   `awsAwsjson11_deserializeOpDocumentStartLifecyclePolicyPreviewOutput` in
+   `aws-sdk-go-v2/service/ecr@v1.59.0` shows Start's real response contains
+   *only* `lifecyclePolicyText`/`registryId`/`repositoryName`/`status` -- no
+   `previewResults`, no `summary`, no `nextToken` at all (`StartLifecyclePolicyPreviewInput`
+   correspondingly has no `Filter`/`ImageIds`/`MaxResults`/`NextToken`
+   fields in the real SDK either, so the round-2 gap note describing a
+   shared Start+Get gap was itself slightly wrong -- Start never had this
+   gap; Get did). The prior implementation shared one view type between
+   Start and Get, so Start leaked `previewResults`/`summary` into its
+   response -- a real invented-field bug this round fixed via a new,
+   narrower `lifecyclePolicyPreviewStartView`. `TestLifecyclePolicyPreview_EntryShape`
+   (which asserted on Start's now-removed fields) was split into
+   `TestStartLifecyclePolicyPreview_ResponseShape` (locks Start's narrow
+   shape) and a rewritten `TestLifecyclePolicyPreview_EntryShape` (locks the
+   full per-image shape via `GetLifecyclePolicyPreview`, as real clients must
+   call it).
+
+7. **`ListPullTimeUpdateExclusions`'s `MaxResults`/`NextToken`** (not one of
+   the six gaps assigned this round, but left it open would have blocked an
+   honest `overall: A` since it is not a proven impossibility). Implemented
+   at the handler layer with the same `base64(principalArn)`-cursor
+   pagination convention as everywhere else in this package, default
+   `maxResults` 100 per the real API doc.
+
+8. **Genuinely new finding: `UploadLayerPart`'s "unknown uploadId" error was
+   the wrong exception/status entirely** -- `RepositoryNotFoundException`
+   (404) instead of the real `UploadNotFoundException` (400) documented on
+   `UploadLayerPart`'s own Errors list. Not part of the six assigned gaps
+   (this bug wasn't previously documented at all); found while re-verifying
+   the sibling `CompleteLayerUpload` code path for its own
+   `UploadNotFoundException` gap (gap 1 above) and fixed for the same reason
+   gap 7 was: an honest `overall: A` requires it. `TestECR_RestoreClearsInFlightLayerUploads`
+   previously asserted the wrong 404 status (a **pre-existing test bug**,
+   like several others this multi-round audit has uncovered) and was
+   corrected to assert 400 `UploadNotFoundException`.
+
+New tests locking every fix above: `TestLayerUploadFlow/empty_upload_rejected`,
+`Test_CompleteLayerUpload_UnknownUploadID_ReturnsUploadNotFoundException`,
+`TestCompleteLayerUpload_UnknownUploadID_DifferentRepo_ReturnsUploadNotFoundException`,
+`TestCompleteLayerUpload_LayerPartTooSmall` (layers_test.go);
+`TestImmutableRepo_SameManifestSameTag_ImageAlreadyExists`,
+`TestPutImage_MUTABLE_SameTagSameDigest_ImageAlreadyExists`,
+`TestDescribeImages_ArtifactMediaType_FromManifest`,
+`TestDescribeImages_SubjectManifestDigest_FromManifest`,
+`TestDescribeImages_ScanFields_PopulatedAfterScan`,
+`TestDescribeImages_LastRecordedPullTime_ViaBatchGetImage`,
+`TestDescribeImages_LastRecordedPullTime_ViaGetDownloadUrlForLayer`,
+`TestDescribeImages_LastArchivedAt_LastActivatedAt_ViaUpdateImageStorageClass`
+(handler_images_test.go); `TestTagMutability_Enforcement/immutable_same_digest_rejected_as_no_op_push`
+(images_test.go); `TestStartLifecyclePolicyPreview_ResponseShape`,
+`TestGetLifecyclePolicyPreview_FilterTagStatus`,
+`TestGetLifecyclePolicyPreview_ImageIds`,
+`TestGetLifecyclePolicyPreview_Pagination` (lifecycle_policy_test.go);
+`TestPullTimeUpdateExclusion_Pagination` (account_settings_test.go).

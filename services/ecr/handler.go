@@ -479,6 +479,10 @@ func (h *Handler) classifyError(err error) (int, string) {
 		{ErrImageDigestDoesNotMatch, "ImageDigestDoesNotMatchException", http.StatusBadRequest},
 		{ErrPullThroughCacheRuleAlreadyExists, "PullThroughCacheRuleAlreadyExistsException", http.StatusBadRequest},
 		{ErrRepositoryCreationTemplateAlreadyExists, "TemplateAlreadyExistsException", http.StatusBadRequest},
+		{ErrUploadNotFound, "UploadNotFoundException", http.StatusBadRequest},
+		{ErrEmptyUpload, "EmptyUploadException", http.StatusBadRequest},
+		{ErrLayerPartTooSmall, "LayerPartTooSmallException", http.StatusBadRequest},
+		{ErrImageAlreadyExists, "ImageAlreadyExistsException", http.StatusBadRequest},
 	}
 
 	for _, e := range singleErrStatus {
