@@ -102,7 +102,7 @@ func (b *InMemoryBackend) ListModelInvocationJobs(
 		jobs = append(jobs, &cp)
 	}
 
-	descending := in != nil && in.SortOrder == "Descending"
+	descending := in != nil && in.SortOrder == sortOrderDescending
 	sort.Slice(jobs, func(i, k int) bool {
 		if descending {
 			return jobs[i].CreationTime.After(jobs[k].CreationTime)

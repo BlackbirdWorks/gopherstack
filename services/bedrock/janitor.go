@@ -44,5 +44,10 @@ func (b *InMemoryBackend) runJanitorTick(ctx context.Context) {
 		log.DebugContext(ctx, "bedrock janitor: advanced copy/import job statuses", "count", n)
 	}
 
+	if n := b.AdvanceAdvancedPromptOptimizationJobStatuses(defaultJobCompletionDelay); n > 0 {
+		telemetry.RecordWorkerItems("bedrock", "AdvancedPromptOptimizationJobAdvancer", n)
+		log.DebugContext(ctx, "bedrock janitor: advanced advanced-prompt-optimization job statuses", "count", n)
+	}
+
 	telemetry.RecordWorkerTask("bedrock", "Janitor", "success")
 }

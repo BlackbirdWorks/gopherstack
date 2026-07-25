@@ -685,3 +685,122 @@ type KnowledgeBaseDocument struct {
 	DocumentID      string `json:"documentId"`
 	Status          string `json:"status"`
 }
+
+// AdvancedPromptOptimizationInputConfig specifies the S3 location of the
+// JSONL input file (prompt templates + evaluation samples) for an advanced
+// prompt optimization job. Matches
+// types.AdvancedPromptOptimizationInputConfig.
+type AdvancedPromptOptimizationInputConfig struct {
+	S3URI string `json:"s3Uri"`
+}
+
+// AdvancedPromptOptimizationOutputConfig specifies the S3 location prefix
+// where an advanced prompt optimization job writes its results. Matches
+// types.AdvancedPromptOptimizationOutputConfig.
+type AdvancedPromptOptimizationOutputConfig struct {
+	S3URI string `json:"s3Uri"`
+}
+
+// InferenceConfiguration holds inference parameters (maxTokens, temperature,
+// topP, stopSequences) for a model used in an advanced prompt optimization
+// job. Matches types.InferenceConfiguration.
+type InferenceConfiguration struct {
+	MaxTokens     *int32   `json:"maxTokens,omitempty"`
+	Temperature   *float32 `json:"temperature,omitempty"`
+	TopP          *float32 `json:"topP,omitempty"`
+	StopSequences []string `json:"stopSequences,omitempty"`
+}
+
+// ModelConfiguration specifies a target model and its inference parameters
+// for an advanced prompt optimization job. Matches types.ModelConfiguration.
+type ModelConfiguration struct {
+	InferenceConfig              *InferenceConfiguration `json:"inferenceConfig,omitempty"`
+	AdditionalModelRequestFields map[string]any          `json:"additionalModelRequestFields,omitempty"`
+	ModelID                      string                  `json:"modelId"`
+}
+
+// AdvancedPromptOptimizationJob represents a Bedrock advanced prompt
+// optimization job.
+//
+// Real AWS's GetAdvancedPromptOptimizationJobOutput does NOT return the
+// optimized prompt text anywhere in its wire shape -- optimization results
+// are written by the real service to the caller-supplied
+// OutputConfig.S3Uri location, entirely outside the API response. This
+// backend therefore never fabricates an "optimized prompt" result (doing so
+// would require actual model inference this backend does not perform); it
+// models only the job's real lifecycle/status fields, which is everything
+// the real wire shape actually carries. See handler_advanced_prompt_optimization_jobs.go.
+type AdvancedPromptOptimizationJob struct {
+	CreationTime        time.Time
+	LastModifiedTime    time.Time
+	JobArn              string
+	JobName             string
+	JobDescription      string
+	JobStatus           string
+	EncryptionKeyArn    string
+	FailureMessage      string
+	InputConfig         AdvancedPromptOptimizationInputConfig
+	OutputConfig        AdvancedPromptOptimizationOutputConfig
+	ModelConfigurations []ModelConfiguration
+	Tags                []Tag
+}
+
+// CreateAdvancedPromptOptimizationJobInput holds the full set of fields for
+// CreateAdvancedPromptOptimizationJob.
+type CreateAdvancedPromptOptimizationJobInput struct {
+	JobName             string
+	JobDescription      string
+	EncryptionKeyArn    string
+	InputConfig         AdvancedPromptOptimizationInputConfig
+	OutputConfig        AdvancedPromptOptimizationOutputConfig
+	ModelConfigurations []ModelConfiguration
+	Tags                []Tag
+}
+
+// ListAdvancedPromptOptimizationJobsInput holds filter/sort/pagination params
+// for ListAdvancedPromptOptimizationJobs. Real AWS has no name/status filter
+// for this op (unlike ListEvaluationJobs/ListModelInvocationJobs) -- only
+// sortBy/sortOrder/maxResults/nextToken.
+type ListAdvancedPromptOptimizationJobsInput struct {
+	SortBy     string // CreationTime (only supported value)
+	SortOrder  string // Ascending (default) | Descending
+	NextToken  string
+	MaxResults int32
+}
+
+// BatchDeleteAdvancedPromptOptimizationJobError describes a single job
+// deletion failure. Matches types.BatchDeleteAdvancedPromptOptimizationJobError.
+type BatchDeleteAdvancedPromptOptimizationJobError struct {
+	JobIdentifier string `json:"jobIdentifier"`
+	Code          string `json:"code"`
+	Message       string `json:"message,omitempty"`
+}
+
+// BatchDeleteAdvancedPromptOptimizationJobItem describes a successfully
+// deleted job. Matches types.BatchDeleteAdvancedPromptOptimizationJobItem.
+type BatchDeleteAdvancedPromptOptimizationJobItem struct {
+	JobIdentifier string `json:"jobIdentifier"`
+	JobStatus     string `json:"jobStatus"`
+}
+
+// AccountDataRetention represents the account-wide Bedrock data retention
+// setting (GetAccountDataRetention / PutAccountDataRetention).
+type AccountDataRetention struct {
+	UpdatedAt time.Time
+	Mode      string
+}
+
+// ResourcePolicy represents a resource-based policy attached to a Bedrock
+// resource (core bedrock's PutResourcePolicy/GetResourcePolicy/
+// DeleteResourcePolicy) or, in the bedrock-agent domain, to a knowledge base
+// (bedrock-agent's PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy).
+// RevisionID is only meaningful for the bedrock-agent flavor, which supports
+// optimistic-concurrency updates via expectedRevisionId; core bedrock's
+// ResourcePolicy shape has no revision concept and simply ignores this field.
+type ResourcePolicy struct {
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	ResourceArn    string
+	PolicyDocument string
+	RevisionID     string
+}

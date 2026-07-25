@@ -106,6 +106,12 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 		return nil
 	}
 
+	if job, ok := b.advancedPromptOptimizationJobs.Get(resourceARN); ok {
+		job.Tags = mergeTags(job.Tags, tags)
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
@@ -156,6 +162,12 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return nil
 	}
 
+	if job, ok := b.advancedPromptOptimizationJobs.Get(resourceARN); ok {
+		job.Tags = filterTags(job.Tags, removeSet)
+
+		return nil
+	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
@@ -186,6 +198,10 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) ([]Tag, bool) {
 
 	if deployment, ok := b.customModelDeployments.Get(resourceARN); ok {
 		return deployment.Tags, true
+	}
+
+	if job, ok := b.advancedPromptOptimizationJobs.Get(resourceARN); ok {
+		return job.Tags, true
 	}
 
 	return nil, false

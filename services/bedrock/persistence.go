@@ -111,6 +111,7 @@ type backendSnapshot struct {
 	GuardrailVersionCounters       map[string]int                       `json:"guardrailVersionCounters"`
 	AgentPreparationDueAt          map[string]time.Time                 `json:"agentPreparationDueAt"`
 	IngestionJobCompletionDueAt    map[string]time.Time                 `json:"ingestionJobCompletionDueAt"`
+	AccountDataRetention           *AccountDataRetention                `json:"accountDataRetention,omitempty"`
 	AccountID                      string                               `json:"accountID"`
 	Region                         string                               `json:"region"`
 	UseCaseFormData                []byte                               `json:"useCaseFormData,omitempty"`
@@ -141,6 +142,8 @@ type backendSnapshot struct {
 	FlowAliasCounter               int                                  `json:"flowAliasCounter"`
 	PromptCounter                  int                                  `json:"promptCounter"`
 	AgentCollabCounter             int                                  `json:"agentCollabCounter"`
+	AdvancedPromptOptJobCounter    int                                  `json:"advancedPromptOptJobCounter"`
+	ResourcePolicyRevisionCounter  int                                  `json:"resourcePolicyRevisionCounter"`
 	Version                        int                                  `json:"version"`
 }
 
@@ -237,6 +240,7 @@ func snapshotRawState(b *InMemoryBackend) backendSnapshot {
 		GuardrailVersionCounters:       guardrailVersionCounters,
 		AgentPreparationDueAt:          agentPreparationDueAt,
 		IngestionJobCompletionDueAt:    ingestionJobCompletionDueAt,
+		AccountDataRetention:           b.accountDataRetention,
 		AccountID:                      b.accountID,
 		Region:                         b.region,
 		UseCaseFormData:                b.useCaseFormData,
@@ -267,6 +271,8 @@ func snapshotRawState(b *InMemoryBackend) backendSnapshot {
 		FlowAliasCounter:               b.flowAliasCounter,
 		PromptCounter:                  b.promptCounter,
 		AgentCollabCounter:             b.agentCollabCounter,
+		AdvancedPromptOptJobCounter:    b.advancedPromptOptJobCounter,
+		ResourcePolicyRevisionCounter:  b.resourcePolicyRevisionCounter,
 	}
 }
 
@@ -340,6 +346,7 @@ func resetRawState(b *InMemoryBackend) {
 	b.arpAnnotations = make(map[string][]any)
 	b.promptRoutersByName = make(map[string]string)
 	b.useCaseFormData = nil
+	b.accountDataRetention = nil
 
 	resetRawCounters(b)
 }
@@ -374,6 +381,8 @@ func resetRawCounters(b *InMemoryBackend) {
 	b.flowAliasCounter = 0
 	b.promptCounter = 0
 	b.agentCollabCounter = 0
+	b.advancedPromptOptJobCounter = 0
+	b.resourcePolicyRevisionCounter = 0
 }
 
 // restoreRawMaps restores every raw (non-store.Table) map from snap,
@@ -415,6 +424,8 @@ func restoreRawMaps(b *InMemoryBackend, snap *backendSnapshot) {
 	if b.arpAnnotations == nil {
 		b.arpAnnotations = make(map[string][]any)
 	}
+
+	b.accountDataRetention = snap.AccountDataRetention
 }
 
 // restoreRawCounterMaps restores the per-parent map[string]int version
@@ -475,6 +486,8 @@ func restoreRawCounters(b *InMemoryBackend, snap *backendSnapshot) {
 	b.flowAliasCounter = snap.FlowAliasCounter
 	b.promptCounter = snap.PromptCounter
 	b.agentCollabCounter = snap.AgentCollabCounter
+	b.advancedPromptOptJobCounter = snap.AdvancedPromptOptJobCounter
+	b.resourcePolicyRevisionCounter = snap.ResourcePolicyRevisionCounter
 }
 
 // restoreRawState restores every raw (non-store.Table) map, counter, and

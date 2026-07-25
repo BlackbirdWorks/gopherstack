@@ -116,6 +116,14 @@ func (h *AgentsHandler) GetSupportedOperations() []string {
 		// Agent memory
 		"GetAgentMemory",
 		"DeleteAgentMemory",
+		// parity-4: knowledge-base resource policies, added by the
+		// aws-sdk-go-v2/service/bedrockagent bump (see PARITY.md). A
+		// distinct operation family from core bedrock's own
+		// PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy -- see
+		// resource_policy.go's package doc comment.
+		opPutResourcePolicy,
+		opGetResourcePolicy,
+		opDeleteResourcePolicy,
 	}
 }
 
@@ -161,6 +169,11 @@ func (h *AgentsHandler) Reset() {
 	h.Backend.flowAliasCounter = 0
 	h.Backend.promptCounter = 0
 	h.Backend.agentCollabCounter = 0
+	// resourcePolicies (knowledge-base flavor, parity-4) is registered on
+	// b.registry so registry.ResetAll above already clears its entries; only
+	// its revision counter needs a manual reset here, matching every other
+	// counter in this method.
+	h.Backend.resourcePolicyRevisionCounter = 0
 }
 
 // Route path constants.
@@ -191,6 +204,12 @@ const (
 	opTagResource         = "TagResource"
 	opUntagResource       = "UntagResource"
 	opListTagsForResource = "ListTagsForResource"
+	// ResourcePolicy op names: shared between the core bedrock and
+	// bedrock-agent flavors (see resource_policy.go's package doc comment)
+	// purely so the op-name string literal isn't duplicated 4x across files.
+	opPutResourcePolicy    = "PutResourcePolicy"
+	opGetResourcePolicy    = "GetResourcePolicy"
+	opDeleteResourcePolicy = "DeleteResourcePolicy"
 
 	// Agent sub-path suffixes.
 	suffixAgentAliases = "/aliases"
@@ -206,6 +225,7 @@ func (h *AgentsHandler) RouteMatcher() service.Matcher {
 			path == agentsPath ||
 			strings.HasPrefix(path, "/knowledgebases/") ||
 			path == knowledgeBasePath ||
+			strings.HasPrefix(path, agentResourcePolicyPathPrefix) ||
 			routeMatcherBatch3(path)
 	}
 }
@@ -231,6 +251,10 @@ func (h *AgentsHandler) ExtractOperation(c *echo.Context) string {
 	}
 
 	if op := extractKBResourceOperation(path, method); op != "" {
+		return op
+	}
+
+	if op := extractAgentResourcePolicyOperation(path, method); op != "" {
 		return op
 	}
 
@@ -345,6 +369,10 @@ func (h *AgentsHandler) dispatch(c *echo.Context, path, method string, body []by
 	}
 
 	if handled, err := h.dispatchKBRoutes(c, path, method, body); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchResourcePolicyRoutes(c, path, method, body); handled {
 		return err
 	}
 

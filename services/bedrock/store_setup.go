@@ -106,6 +106,10 @@ func kbDocumentsKeyFn(v *KnowledgeBaseDocument) string {
 	return kbDocKey(v.KnowledgeBaseID, v.DataSourceID, v.DocumentID)
 }
 
+// parity-4 key functions.
+func advancedPromptOptimizationJobsKeyFn(v *AdvancedPromptOptimizationJob) string { return v.JobArn }
+func resourcePoliciesKeyFn(v *ResourcePolicy) string                              { return v.ResourceArn }
+
 // ---------------------------------------------------------------------------
 // Key functions for the per-parent lazily-registered tables.
 // ---------------------------------------------------------------------------
@@ -190,6 +194,8 @@ func (b *InMemoryBackend) agentCollaboratorsStore(agentID string) *store.Table[A
 //     slice with no identity field of its own to derive a store.Table key
 //     function from.
 //   - loggingConfig: a single *ModelInvocationLoggingConfiguration, not a map.
+//   - accountDataRetention (parity-4): a single *AccountDataRetention, not a
+//     map -- same shape as loggingConfig.
 //   - foundationModels: a []*FoundationModelSummary slice (seeded once, not
 //     keyed), not a map.
 func registerAllTables(b *InMemoryBackend) {
@@ -347,5 +353,16 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.kbDocuments = store.Register(b.registry, "kbDocuments", store.New(kbDocumentsKeyFn))
+	},
+	// parity-4 tables.
+	func(b *InMemoryBackend) {
+		b.advancedPromptOptimizationJobs = store.Register(
+			b.registry,
+			"advancedPromptOptimizationJobs",
+			store.New(advancedPromptOptimizationJobsKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.resourcePolicies = store.Register(b.registry, "resourcePolicies", store.New(resourcePoliciesKeyFn))
 	},
 }

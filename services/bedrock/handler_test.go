@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -427,6 +428,17 @@ func TestHandler_GetSupportedOperationsIncludes(t *testing.T) { //nolint:paralle
 		"CreateEvaluationJob",
 		"CreateFoundationModelAgreement",
 		"CreateGuardrailVersion",
+		// parity-4 additions.
+		"CreateAdvancedPromptOptimizationJob",
+		"GetAdvancedPromptOptimizationJob",
+		"ListAdvancedPromptOptimizationJobs",
+		"StopAdvancedPromptOptimizationJob",
+		"BatchDeleteAdvancedPromptOptimizationJob",
+		"GetAccountDataRetention",
+		"PutAccountDataRetention",
+		"GetResourcePolicy",
+		"PutResourcePolicy",
+		"DeleteResourcePolicy",
 	} {
 		assert.Contains(t, ops, op)
 	}
@@ -524,6 +536,14 @@ func TestHandler_RealSDKWireShapeRouteMatcher(t *testing.T) { //nolint:parallelt
 		{
 			"DeleteCustomModelDeployment", http.MethodDelete,
 			"/model-customization/custom-model-deployments/dep-1",
+		},
+		// BatchDeleteAdvancedPromptOptimizationJob: singular
+		// "advanced-prompt-optimization-job", not the plural
+		// "advanced-prompt-optimization-jobs" every other op in this family uses
+		// (verified against aws-sdk-go-v2/service/bedrock@v1.66.0's serializers.go).
+		{
+			"BatchDeleteAdvancedPromptOptimizationJob", http.MethodPost,
+			"/advanced-prompt-optimization-job/batch-delete",
 		},
 	}
 
@@ -758,6 +778,402 @@ func TestParity_ValidationException_ErrorShape(t *testing.T) {
 
 			_, hasMsg := resp["message"]
 			assert.True(t, hasMsg, "error response must have 'message' field")
+		})
+	}
+}
+
+// advancedPromptOptimizationJobCreateBody builds a valid
+// CreateAdvancedPromptOptimizationJob request body.
+func advancedPromptOptimizationJobCreateBody(jobName string, modelConfigs ...map[string]any) map[string]any {
+	if len(modelConfigs) == 0 {
+		modelConfigs = []map[string]any{{"modelId": "amazon.titan-text-express-v1"}}
+	}
+
+	return map[string]any{
+		"jobName":             jobName,
+		"inputConfig":         map[string]any{"s3Uri": "s3://bucket/in"},
+		"outputConfig":        map[string]any{"s3Uri": "s3://bucket/out"},
+		"modelConfigurations": modelConfigs,
+	}
+}
+
+// TestHandler_AdvancedPromptOptimizationJobLifecycle covers
+// CreateAdvancedPromptOptimizationJob, GetAdvancedPromptOptimizationJob,
+// ListAdvancedPromptOptimizationJobs, StopAdvancedPromptOptimizationJob, and
+// BatchDeleteAdvancedPromptOptimizationJob. Each case builds its own isolated
+// handler so subtests share no state and can run fully in parallel.
+func TestHandler_AdvancedPromptOptimizationJobLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "create returns a job arn",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				rec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-jobs",
+					advancedPromptOptimizationJobCreateBody("job-a"))
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.NotEmpty(t, out["jobArn"])
+			},
+		},
+		{
+			name: "create missing jobName is a validation error",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				body := advancedPromptOptimizationJobCreateBody("")
+				delete(body, "jobName")
+				rec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-jobs", body)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create rejects more than 5 model configurations",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				configs := make([]map[string]any, 6)
+				for i := range configs {
+					configs[i] = map[string]any{"modelId": "amazon.titan-text-express-v1"}
+				}
+				rec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-jobs",
+					advancedPromptOptimizationJobCreateBody("too-many-models", configs...))
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "get after create returns InProgress and never fabricates a result",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				createRec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-jobs",
+					advancedPromptOptimizationJobCreateBody("job-get"))
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var createOut map[string]any
+				mustUnmarshal(t, createRec, &createOut)
+				jobARN, ok := createOut["jobArn"].(string)
+				require.True(t, ok)
+
+				getRec := doRequest(t, h, http.MethodGet,
+					"/advanced-prompt-optimization-jobs/"+url.PathEscape(jobARN), nil)
+				require.Equal(t, http.StatusOK, getRec.Code)
+
+				var getOut map[string]any
+				mustUnmarshal(t, getRec, &getOut)
+				assert.Equal(t, "InProgress", getOut["jobStatus"])
+				// Real AWS's GetAdvancedPromptOptimizationJobOutput has no field for the
+				// optimized prompt text at all -- results are written to the caller's S3
+				// OutputConfig location, outside the API response. This backend must not
+				// fabricate one.
+				assert.NotContains(t, getOut, "optimizedPrompt")
+				assert.NotContains(t, getOut, "result")
+			},
+		},
+		{
+			name: "get nonexistent job is not found",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				rec := doRequest(t, h, http.MethodGet, "/advanced-prompt-optimization-jobs/does-not-exist", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "list returns created jobs",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				for _, name := range []string{"list-a", "list-b"} {
+					rec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-jobs",
+						advancedPromptOptimizationJobCreateBody(name))
+					require.Equal(t, http.StatusOK, rec.Code)
+				}
+
+				listRec := doRequest(t, h, http.MethodGet, "/advanced-prompt-optimization-jobs", nil)
+				require.Equal(t, http.StatusOK, listRec.Code)
+
+				var listOut map[string]any
+				mustUnmarshal(t, listRec, &listOut)
+				assert.Len(t, listOut["jobSummaries"], 2)
+			},
+		},
+		{
+			name: "stop transitions status to Stopped",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				createRec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-jobs",
+					advancedPromptOptimizationJobCreateBody("job-stop"))
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var createOut map[string]any
+				mustUnmarshal(t, createRec, &createOut)
+				jobARN, ok := createOut["jobArn"].(string)
+				require.True(t, ok)
+
+				stopRec := doRequest(t, h, http.MethodPost,
+					"/advanced-prompt-optimization-jobs/"+url.PathEscape(jobARN)+"/stop", nil)
+				assert.Equal(t, http.StatusOK, stopRec.Code)
+
+				getRec := doRequest(t, h, http.MethodGet,
+					"/advanced-prompt-optimization-jobs/"+url.PathEscape(jobARN), nil)
+				var getOut map[string]any
+				mustUnmarshal(t, getRec, &getOut)
+				assert.Equal(t, "Stopped", getOut["jobStatus"])
+			},
+		},
+		{
+			name: "stopping an already-stopped job is a validation error",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				createRec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-jobs",
+					advancedPromptOptimizationJobCreateBody("job-double-stop"))
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var createOut map[string]any
+				mustUnmarshal(t, createRec, &createOut)
+				jobARN, ok := createOut["jobArn"].(string)
+				require.True(t, ok)
+
+				stopPath := "/advanced-prompt-optimization-jobs/" + url.PathEscape(jobARN) + "/stop"
+				firstStop := doRequest(t, h, http.MethodPost, stopPath, nil)
+				require.Equal(t, http.StatusOK, firstStop.Code)
+
+				secondStop := doRequest(t, h, http.MethodPost, stopPath, nil)
+				assert.Equal(t, http.StatusBadRequest, secondStop.Code)
+			},
+		},
+		{
+			name: "batch delete returns per-item success and error results",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				createRec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-jobs",
+					advancedPromptOptimizationJobCreateBody("job-batch-delete"))
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var createOut map[string]any
+				mustUnmarshal(t, createRec, &createOut)
+				jobARN, ok := createOut["jobArn"].(string)
+				require.True(t, ok)
+
+				rec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-job/batch-delete",
+					map[string]any{"jobIdentifiers": []string{jobARN, "missing-job"}})
+				require.Equal(t, http.StatusAccepted, rec.Code)
+
+				var out map[string]any
+				mustUnmarshal(t, rec, &out)
+				assert.Len(t, out["advancedPromptOptimizationJobs"], 1)
+				assert.Len(t, out["errors"], 1)
+
+				getAfterDelete := doRequest(t, h, http.MethodGet,
+					"/advanced-prompt-optimization-jobs/"+url.PathEscape(jobARN), nil)
+				assert.Equal(t, http.StatusNotFound, getAfterDelete.Code)
+			},
+		},
+		{
+			name: "batch delete with no identifiers is a validation error",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				rec := doRequest(t, h, http.MethodPost, "/advanced-prompt-optimization-job/batch-delete",
+					map[string]any{"jobIdentifiers": []string{}})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
+}
+
+// TestHandler_AccountDataRetention covers GetAccountDataRetention and
+// PutAccountDataRetention. Each case builds its own isolated handler.
+func TestHandler_AccountDataRetention(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		mode       string
+		wantStatus int
+	}{
+		{name: "default mode", mode: "default", wantStatus: http.StatusOK},
+		{name: "none mode", mode: "none", wantStatus: http.StatusOK},
+		{name: "provider_data_share mode", mode: "provider_data_share", wantStatus: http.StatusOK},
+		{name: "inherit mode", mode: "inherit", wantStatus: http.StatusOK},
+		{name: "invalid mode is a validation error", mode: "bogus", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// An account that has never called Put still gets a value back,
+			// defaulting to "default" -- GetAccountDataRetentionOutput.Mode is a
+			// required field on the real wire shape.
+			getBefore := doRequest(t, h, http.MethodGet, "/data-retention", nil)
+			require.Equal(t, http.StatusOK, getBefore.Code)
+
+			var beforeOut map[string]any
+			mustUnmarshal(t, getBefore, &beforeOut)
+			assert.Equal(t, "default", beforeOut["mode"])
+
+			putRec := doRequest(t, h, http.MethodPut, "/data-retention", map[string]any{"mode": tt.mode})
+			require.Equal(t, tt.wantStatus, putRec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var putOut map[string]any
+			mustUnmarshal(t, putRec, &putOut)
+			assert.Equal(t, tt.mode, putOut["mode"])
+			assert.NotEmpty(t, putOut["updatedAt"])
+
+			getAfter := doRequest(t, h, http.MethodGet, "/data-retention", nil)
+			require.Equal(t, http.StatusOK, getAfter.Code)
+
+			var afterOut map[string]any
+			mustUnmarshal(t, getAfter, &afterOut)
+			assert.Equal(t, tt.mode, afterOut["mode"])
+		})
+	}
+}
+
+// TestHandler_ResourcePolicy covers core bedrock's PutResourcePolicy,
+// GetResourcePolicy, and DeleteResourcePolicy. Each case builds its own
+// isolated handler so subtests share no state and can run fully in parallel.
+func TestHandler_ResourcePolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "put get delete lifecycle on a real guardrail resource",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				g, err := h.Backend.CreateGuardrail("policy-guardrail", "", "", "", nil)
+				require.NoError(t, err)
+
+				putRec := doRequest(t, h, http.MethodPost, "/resource-policy", map[string]any{
+					"resourceArn":    g.GuardrailArn,
+					"resourcePolicy": `{"Version":"2012-10-17","Statement":[]}`,
+				})
+				require.Equal(t, http.StatusCreated, putRec.Code)
+
+				var putOut map[string]any
+				mustUnmarshal(t, putRec, &putOut)
+				assert.Equal(t, g.GuardrailArn, putOut["resourceArn"])
+
+				getRec := doRequest(t, h, http.MethodGet,
+					"/resource-policy/"+url.PathEscape(g.GuardrailArn), nil)
+				require.Equal(t, http.StatusOK, getRec.Code)
+
+				var getOut map[string]any
+				mustUnmarshal(t, getRec, &getOut)
+				policy, ok := getOut["resourcePolicy"].(string)
+				require.True(t, ok)
+				assert.Contains(t, policy, "Statement")
+
+				delRec := doRequest(t, h, http.MethodDelete,
+					"/resource-policy/"+url.PathEscape(g.GuardrailArn), nil)
+				assert.Equal(t, http.StatusOK, delRec.Code)
+
+				getAfterDelete := doRequest(t, h, http.MethodGet,
+					"/resource-policy/"+url.PathEscape(g.GuardrailArn), nil)
+				assert.Equal(t, http.StatusNotFound, getAfterDelete.Code)
+			},
+		},
+		{
+			name: "put on a nonexistent resource is not found",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				rec := doRequest(t, h, http.MethodPost, "/resource-policy", map[string]any{
+					"resourceArn":    "arn:aws:bedrock:us-east-1:000000000000:guardrail/does-not-exist",
+					"resourcePolicy": `{}`,
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "put with a non-bedrock ARN is a validation error",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				rec := doRequest(t, h, http.MethodPost, "/resource-policy", map[string]any{
+					"resourceArn":    "not-an-arn",
+					"resourcePolicy": `{}`,
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "put with empty policy document is a validation error",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				g, err := h.Backend.CreateGuardrail("policy-guardrail-2", "", "", "", nil)
+				require.NoError(t, err)
+
+				rec := doRequest(t, h, http.MethodPost, "/resource-policy", map[string]any{
+					"resourceArn": g.GuardrailArn,
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "get on a resource with no policy attached is not found",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				h := newTestHandler(t)
+				g, err := h.Backend.CreateGuardrail("policy-guardrail-3", "", "", "", nil)
+				require.NoError(t, err)
+
+				rec := doRequest(t, h, http.MethodGet,
+					"/resource-policy/"+url.PathEscape(g.GuardrailArn), nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
 		})
 	}
 }
