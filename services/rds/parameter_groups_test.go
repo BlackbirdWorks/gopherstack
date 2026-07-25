@@ -160,16 +160,103 @@ func TestDBParameterGroup_NotFoundErrors(t *testing.T) {
 	assert.ErrorIs(t, err, rds.ErrParameterGroupNotFound)
 }
 
+// TestDBParameterGroup_Duplicate covers the exact-duplicate-identifier case,
+// plus (DBParameterGroupName is a case-insensitive AWS identifier, matching
+// real AWS, which lower-cases identifiers internally) the case-varying
+// duplicate collisions and the corresponding case-insensitive
+// Describe/Delete lookups.
 func TestDBParameterGroup_Duplicate(t *testing.T) {
 	t.Parallel()
 
-	b := newBatch2Backend()
-	_, err := b.CreateDBParameterGroup("dup-pg", "mysql8.0", "first")
-	require.NoError(t, err)
+	tests := []struct {
+		wantErrIs error
+		name      string
+		setupID   string
+		actionID  string
+		action    string
+		wantErr   bool
+	}{
+		{
+			name:      "exact_duplicate_collides",
+			setupID:   "dup-pg",
+			actionID:  "dup-pg",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrParameterGroupAlreadyExists,
+		},
+		{
+			name:      "lowercased_duplicate_collides",
+			setupID:   "MyParamGroup",
+			actionID:  "myparamgroup",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrParameterGroupAlreadyExists,
+		},
+		{
+			name:      "uppercased_duplicate_collides",
+			setupID:   "lower-pg",
+			actionID:  "LOWER-PG",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrParameterGroupAlreadyExists,
+		},
+		{
+			name:     "distinct_id_does_not_collide",
+			setupID:  "some-pg",
+			actionID: "some-other-pg",
+			action:   "create",
+		},
+		{
+			name:     "describe_finds_resource_under_different_case",
+			setupID:  "FindMe-PG",
+			actionID: "findme-pg",
+			action:   "describe",
+		},
+		{
+			name:     "delete_removes_resource_under_different_case",
+			setupID:  "DeleteMe-PG",
+			actionID: "deleteme-pg",
+			action:   "delete",
+		},
+	}
 
-	_, err = b.CreateDBParameterGroup("dup-pg", "mysql8.0", "second")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, rds.ErrParameterGroupAlreadyExists)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBatch2Backend()
+			_, err := b.CreateDBParameterGroup(tt.setupID, "mysql8.0", "first")
+			require.NoError(t, err)
+
+			switch tt.action {
+			case "create":
+				_, err = b.CreateDBParameterGroup(tt.actionID, "mysql8.0", "second")
+			case "describe":
+				var pgs []rds.DBParameterGroup
+				pgs, err = b.DescribeDBParameterGroups(tt.actionID)
+				if err == nil {
+					require.Len(t, pgs, 1)
+					// The wire response must keep echoing the ORIGINAL
+					// caller-supplied casing from creation time.
+					assert.Equal(t, tt.setupID, pgs[0].DBParameterGroupName)
+				}
+			case "delete":
+				err = b.DeleteDBParameterGroup(tt.actionID)
+				if err == nil {
+					_, describeErr := b.DescribeDBParameterGroups(tt.setupID)
+					require.ErrorIs(t, describeErr, rds.ErrParameterGroupNotFound)
+				}
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErrIs)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestDBParameterGroup_CopyPreservesParams(t *testing.T) {

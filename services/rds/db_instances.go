@@ -51,7 +51,7 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 
 	b.reconcileInstancesLocked()
 
-	if _, exists := b.instances.Get(id); exists {
+	if _, exists := b.instances.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 	}
 
@@ -116,7 +116,7 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 
 	// If joining a cluster, add this instance to the cluster's member list.
 	if opts.DBClusterIdentifier != "" {
-		if cluster, exists := b.clusters.Get(opts.DBClusterIdentifier); exists {
+		if cluster, exists := b.clusters.Get(normalizeID(opts.DBClusterIdentifier)); exists {
 			cluster.DBClusterMembers = append(cluster.DBClusterMembers, DBClusterMember{
 				DBInstanceIdentifier: id,
 				IsClusterWriter:      len(cluster.DBClusterMembers) == 0,
@@ -144,6 +144,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 			"%w: DBInstanceIdentifier %q is invalid (must start with a letter, 1–63 alphanumeric/hyphen chars)",
 			ErrInvalidParameter, id,
 		)
+	}
+	if err := validateDBInstanceEngine(engine); err != nil {
+		return nil, err
 	}
 
 	result, err := b.createDBInstanceLocked(
@@ -229,7 +232,7 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 	// SkipFinalSnapshot/FinalDBSnapshotIdentifier combination: deleting a
 	// nonexistent instance returns DBInstanceNotFoundFault even when the
 	// snapshot parameters are also missing/invalid.
-	inst, exists := b.instances.Get(id)
+	inst, exists := b.instances.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
@@ -239,32 +242,42 @@ func (b *InMemoryBackend) deleteDBInstanceLocked(
 	}
 
 	if !skipFinalSnapshot {
-		if _, snapExists := b.snapshots.Get(finalSnapshotID); snapExists {
+		if _, snapExists := b.snapshots.Get(normalizeID(finalSnapshotID)); snapExists {
 			return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, finalSnapshotID)
 		}
 		b.snapshots.Put(b.newManualSnapshotLocked(finalSnapshotID, inst))
 	}
 
+	// canonicalID is the identifier as originally stored (preserving its
+	// creation-time casing), which may differ from the caller-supplied id
+	// here only in case since normalizeID folds both to the same table row.
+	// Every auxiliary map below (tags, roles, reconciler scheduling,
+	// automated backups) must be keyed/matched off the SAME casing that was
+	// used when the instance was created and those maps were populated, or a
+	// delete issued under different casing than create would silently leave
+	// ghost entries behind in maps that -- unlike b.instances -- are not
+	// normalized (see normalizeID's doc comment on scope).
+	canonicalID := inst.DBInstanceIdentifier
 	inst.DBInstanceStatus = instanceStatusDeleting
-	b.publishInstanceEventLocked(id, "DB instance deletion started")
+	b.publishInstanceEventLocked(canonicalID, "DB instance deletion started")
 	cp := *inst
-	b.publishInstanceEventLocked(id, "DB instance deleted")
+	b.publishInstanceEventLocked(canonicalID, "DB instance deleted")
 
 	// Remove this instance from its source's ReadReplicaIdentifiers.
 	if inst.ReplicaSourceDBInstanceIdentifier != "" {
-		if src, srcExists := b.instances.Get(inst.ReplicaSourceDBInstanceIdentifier); srcExists {
+		if src, srcExists := b.instances.Get(normalizeID(inst.ReplicaSourceDBInstanceIdentifier)); srcExists {
 			src.ReadReplicaIdentifiers = slices.DeleteFunc(src.ReadReplicaIdentifiers, func(s string) bool {
-				return s == id
+				return idEqual(s, canonicalID)
 			})
 		}
 	}
 
-	b.instances.Delete(id)
-	delete(b.tags, b.rdsARN("db", id))
-	delete(b.instanceRoles, id)
-	delete(b.instanceReadyAt, id)
+	b.instances.Delete(normalizeID(id))
+	delete(b.tags, b.rdsARN("db", canonicalID))
+	delete(b.instanceRoles, canonicalID)
+	delete(b.instanceReadyAt, canonicalID)
 	if deleteAutomatedBackups {
-		delete(b.automatedBackups, id)
+		delete(b.automatedBackups, canonicalID)
 	}
 
 	return &cp, nil
@@ -309,7 +322,7 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 		defer b.mu.RUnlock()
 
 		if id != "" {
-			inst, exists := b.instances.Get(id)
+			inst, exists := b.instances.Get(normalizeID(id))
 			if !exists {
 				err = fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 
@@ -353,7 +366,7 @@ func (b *InMemoryBackend) applyParamGroupUpdate(inst *DBInstance, paramGroupName
 		return nil
 	}
 
-	if _, pgExists := b.parameterGroups.Get(paramGroupName); !pgExists {
+	if _, pgExists := b.parameterGroups.Get(normalizeID(paramGroupName)); !pgExists {
 		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, paramGroupName)
 	}
 
@@ -575,7 +588,7 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 
-	inst, exists := b.instances.Get(id)
+	inst, exists := b.instances.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
@@ -586,9 +599,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 		return nil, err
 	}
 	inst.DBInstanceStatus = instanceStatusModifying
-	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.instanceReadyAt[inst.DBInstanceIdentifier] = time.Now().Add(instanceTransitionDelay)
 	b.scheduleReconcilerLocked()
-	b.publishInstanceEventLocked(id, "DB instance modification started")
+	b.publishInstanceEventLocked(inst.DBInstanceIdentifier, "DB instance modification started")
 	cp := *inst
 
 	return &cp, nil
@@ -618,13 +631,13 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 
 		b.reconcileInstancesLocked()
 
-		if _, exists := b.instances.Get(id); exists {
+		if _, exists := b.instances.Get(normalizeID(id)); exists {
 			err = fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 
 			return
 		}
 
-		source, exists := b.instances.Get(sourceID)
+		source, exists := b.instances.Get(normalizeID(sourceID))
 		if !exists {
 			err = fmt.Errorf("%w: source instance %s not found", ErrInstanceNotFound, sourceID)
 
@@ -685,7 +698,7 @@ func (b *InMemoryBackend) StartDBInstance(id string) (*DBInstance, error) {
 	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 
-	inst, exists := b.instances.Get(id)
+	inst, exists := b.instances.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
@@ -709,7 +722,7 @@ func (b *InMemoryBackend) StopDBInstance(id string) (*DBInstance, error) {
 	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
 
-	inst, exists := b.instances.Get(id)
+	inst, exists := b.instances.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
@@ -732,7 +745,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion
 	b.mu.Lock("CreateDBInstanceReadReplica")
 	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
-	if _, exists := b.instances.Get(id); exists {
+	if _, exists := b.instances.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 	}
 
@@ -745,7 +758,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID, sourceRegion
 		allocatedStorage int
 	)
 
-	source, sourceExists := b.instances.Get(sourceID)
+	source, sourceExists := b.instances.Get(normalizeID(sourceID))
 	switch {
 	case sourceExists:
 		instanceClass = source.DBInstanceClass
@@ -800,16 +813,19 @@ func (b *InMemoryBackend) PromoteReadReplica(id string) (*DBInstance, error) {
 	b.mu.Lock("PromoteReadReplica")
 	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
-	inst, exists := b.instances.Get(id)
+	inst, exists := b.instances.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 
-	// Remove promoted instance from source's ReadReplicaIdentifiers.
+	// Remove promoted instance from source's ReadReplicaIdentifiers. Compare
+	// case-insensitively: the list may hold the identifier under whatever
+	// casing was live when the replica was created, which can differ purely
+	// in case from the id this call was invoked with (see normalizeID).
 	if inst.ReplicaSourceDBInstanceIdentifier != "" {
-		if src, srcExists := b.instances.Get(inst.ReplicaSourceDBInstanceIdentifier); srcExists {
+		if src, srcExists := b.instances.Get(normalizeID(inst.ReplicaSourceDBInstanceIdentifier)); srcExists {
 			src.ReadReplicaIdentifiers = slices.DeleteFunc(src.ReadReplicaIdentifiers, func(s string) bool {
-				return s == id
+				return idEqual(s, inst.DBInstanceIdentifier)
 			})
 		}
 	}
@@ -826,14 +842,14 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	b.mu.Lock("RebootDBInstance")
 	b.reconcileInstancesLocked()
 	defer b.mu.Unlock()
-	inst, exists := b.instances.Get(id)
+	inst, exists := b.instances.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 	inst.DBInstanceStatus = instanceStatusRebooting
-	b.instanceReadyAt[id] = time.Now().Add(instanceTransitionDelay)
+	b.instanceReadyAt[inst.DBInstanceIdentifier] = time.Now().Add(instanceTransitionDelay)
 	b.scheduleReconcilerLocked()
-	b.publishInstanceEventLocked(id, "DB instance reboot initiated")
+	b.publishInstanceEventLocked(inst.DBInstanceIdentifier, "DB instance reboot initiated")
 	cp := *inst
 
 	return &cp, nil
@@ -844,7 +860,7 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 func (b *InMemoryBackend) DescribeValidDBInstanceModifications(id string) (*DBInstance, error) {
 	b.mu.RLock("DescribeValidDBInstanceModifications")
 	defer b.mu.RUnlock()
-	inst, exists := b.instances.Get(id)
+	inst, exists := b.instances.Get(normalizeID(id))
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
@@ -897,11 +913,11 @@ func matchesAllDBInstanceFilters(inst DBInstance, filters map[string][]string) b
 	for name, values := range filters {
 		switch name {
 		case filterNameDBClusterID:
-			if !slices.Contains(values, inst.DBClusterIdentifier) {
+			if !containsFold(values, inst.DBClusterIdentifier) {
 				return false
 			}
 		case filterNameDBInstanceID:
-			if !slices.Contains(values, inst.DBInstanceIdentifier) {
+			if !containsFold(values, inst.DBInstanceIdentifier) {
 				return false
 			}
 		case filterNameDbiResourceID:
@@ -943,7 +959,7 @@ func validMonitoringInterval(v int) bool {
 func (b *InMemoryBackend) SwitchoverReadReplica(instanceID string) (*DBInstance, error) {
 	b.mu.Lock("SwitchoverReadReplica")
 	defer b.mu.Unlock()
-	inst, ok := b.instances.Get(instanceID)
+	inst, ok := b.instances.Get(normalizeID(instanceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -963,7 +979,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s
 	}
 	b.mu.Lock("RestoreDBInstanceFromS3")
 	defer b.mu.Unlock()
-	if _, exists := b.instances.Get(id); exists {
+	if _, exists := b.instances.Get(normalizeID(id)); exists {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceAlreadyExists, id)
 	}
 	inst := &DBInstance{

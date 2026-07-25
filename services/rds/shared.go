@@ -3,6 +3,8 @@ package rds
 import (
 	"maps"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -42,6 +44,48 @@ const (
 	// current state.
 	errCodeInvalidDBClusterStateFault = "InvalidDBClusterStateFault"
 )
+
+// normalizeID folds an AWS resource identifier to its canonical store-lookup
+// key, via the shared github.com/blackbirdworks/gopherstack/pkgs/strs
+// helper (kept as a local wrapper so every one of this file's many call
+// sites doesn't need an strs-qualified name). Real RDS treats
+// DBInstanceIdentifier, DBClusterIdentifier, DBSnapshotIdentifier,
+// DBClusterSnapshotIdentifier, DBParameterGroupName, and
+// DBClusterParameterGroupName as case-INsensitive persistent handles —
+// creating "MyDB" then "mydb" collides with DBInstanceAlreadyExistsFault on
+// real AWS. gopherstack's store.Table[V] keys are plain Go map keys (case
+// sensitive) and store.Table performs no normalization of its own (by
+// design — see pkgs/store's package doc), so every store boundary for these
+// six identifier families normalizes through this helper: each table's keyFn
+// (used by Put/Restore) and every raw string passed to Get/Has/Delete (which,
+// unlike Put, do NOT invoke keyFn — they index the map directly). The
+// ORIGINAL caller-supplied casing is preserved in the stored struct's
+// identifier field (and in the transient instanceReadyAt/clusterReadyAt
+// scheduling maps' values are unaffected either way), so wire responses
+// continue to echo back exactly what the caller sent — only the lookup key
+// folds case, never the data.
+func normalizeID(id string) string {
+	return strs.Fold(id)
+}
+
+// containsFold reports whether values contains target under a
+// case-insensitive comparison (via pkgs/strs). Used for Describe* Filters
+// matching on the case-insensitive identifier families (db-instance-id,
+// db-cluster-id, db-snapshot-id, db-cluster-snapshot-id, ...) so that a
+// Filters value with different casing than the stored identifier still
+// matches, consistent with normalizeID's store-lookup behavior.
+func containsFold(values []string, target string) bool {
+	return strs.ContainsFold(values, target)
+}
+
+// idEqual reports whether a and b are the same case-insensitive AWS
+// identifier (via pkgs/strs). Used wherever a plain map (rather than a
+// store.Table[V] with a normalizeID-folded keyFn) holds identifier-shaped
+// data and needs an equality check instead of a map lookup — e.g. scanning
+// b.clusterEndpoints for the endpoints belonging to a given DBClusterIdentifier.
+func idEqual(a, b string) bool {
+	return strs.Equal(a, b)
+}
 
 // copyParameterGroupTo returns a new DBParameterGroup that is a copy of src with the given
 // target name and description. The caller is responsible for storing it in the appropriate map.

@@ -20,11 +20,11 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 	b.mu.Lock("CreateDBSnapshot")
 	defer b.mu.Unlock()
 
-	if _, exists := b.snapshots.Get(snapshotID); exists {
+	if _, exists := b.snapshots.Get(normalizeID(snapshotID)); exists {
 		return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, snapshotID)
 	}
 
-	inst, exists := b.instances.Get(instanceID)
+	inst, exists := b.instances.Get(normalizeID(instanceID))
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
 	}
@@ -71,7 +71,7 @@ func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID, instanceID string) ([]
 	defer b.mu.RUnlock()
 
 	if snapshotID != "" {
-		snap, exists := b.snapshots.Get(snapshotID)
+		snap, exists := b.snapshots.Get(normalizeID(snapshotID))
 		if !exists {
 			return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 		}
@@ -81,7 +81,7 @@ func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID, instanceID string) ([]
 
 	snaps := make([]DBSnapshot, 0, b.snapshots.Len())
 	for _, snap := range b.snapshots.All() {
-		if instanceID != "" && snap.DBInstanceIdentifier != instanceID {
+		if instanceID != "" && !idEqual(snap.DBInstanceIdentifier, instanceID) {
 			continue
 		}
 		snaps = append(snaps, *snap)
@@ -144,11 +144,11 @@ func matchesAllDBSnapshotFilters(s DBSnapshot, filters map[string][]string) bool
 	for name, values := range filters {
 		switch name {
 		case filterNameDBInstanceID:
-			if !slices.Contains(values, s.DBInstanceIdentifier) {
+			if !containsFold(values, s.DBInstanceIdentifier) {
 				return false
 			}
 		case "db-snapshot-id":
-			if !slices.Contains(values, s.DBSnapshotIdentifier) {
+			if !containsFold(values, s.DBSnapshotIdentifier) {
 				return false
 			}
 		case filterNameDbiResourceID:
@@ -174,14 +174,18 @@ func (b *InMemoryBackend) DeleteDBSnapshot(snapshotID string) (*DBSnapshot, erro
 	b.mu.Lock("DeleteDBSnapshot")
 	defer b.mu.Unlock()
 
-	snap, exists := b.snapshots.Get(snapshotID)
+	snap, exists := b.snapshots.Get(normalizeID(snapshotID))
 	if !exists {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
 
 	cp := *snap
-	b.snapshots.Delete(snapshotID)
-	delete(b.tags, b.rdsARN("snapshot", snapshotID))
+	b.snapshots.Delete(normalizeID(snapshotID))
+	// Use snap.DBSnapshotIdentifier (the stored, creation-time casing) rather
+	// than the raw snapshotID argument: they can differ purely in case (see
+	// normalizeID), and the tags map is keyed by ARN built from whichever
+	// casing was live when tags were added.
+	delete(b.tags, b.rdsARN("snapshot", snap.DBSnapshotIdentifier))
 
 	return &cp, nil
 }
@@ -201,11 +205,11 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 	b.mu.Lock("CopyDBSnapshot")
 	defer b.mu.Unlock()
 
-	src, exists := b.snapshots.Get(sourceSnapshotID)
+	src, exists := b.snapshots.Get(normalizeID(sourceSnapshotID))
 	if !exists {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, sourceSnapshotID)
 	}
-	if _, alreadyExists := b.snapshots.Get(targetSnapshotID); alreadyExists {
+	if _, alreadyExists := b.snapshots.Get(normalizeID(targetSnapshotID)); alreadyExists {
 		return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, targetSnapshotID)
 	}
 
@@ -262,13 +266,13 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 
 		b.reconcileInstancesLocked()
 
-		if _, exists := b.instances.Get(id); exists {
+		if _, exists := b.instances.Get(normalizeID(id)); exists {
 			err = fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 
 			return
 		}
 
-		snap, exists := b.snapshots.Get(snapshotID)
+		snap, exists := b.snapshots.Get(normalizeID(snapshotID))
 		if !exists {
 			err = fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 
@@ -324,10 +328,10 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 func (b *InMemoryBackend) DescribeDBSnapshotAttributes(snapshotID string) (*DBSnapshotAttributesResult, error) {
 	b.mu.RLock("DescribeDBSnapshotAttributes")
 	defer b.mu.RUnlock()
-	if _, ok := b.snapshots.Get(snapshotID); !ok {
+	if _, ok := b.snapshots.Get(normalizeID(snapshotID)); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	if attrs, ok := b.snapshotAttributes.Get(snapshotID); ok {
+	if attrs, ok := b.snapshotAttributes.Get(normalizeID(snapshotID)); ok {
 		cp := *attrs
 
 		return &cp, nil
@@ -345,7 +349,7 @@ func (b *InMemoryBackend) DescribeDBSnapshotAttributes(snapshotID string) (*DBSn
 func (b *InMemoryBackend) ModifyDBSnapshot(snapshotID, optionGroupName, engineVersion string) (*DBSnapshot, error) {
 	b.mu.Lock("ModifyDBSnapshot")
 	defer b.mu.Unlock()
-	snap, ok := b.snapshots.Get(snapshotID)
+	snap, ok := b.snapshots.Get(normalizeID(snapshotID))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
@@ -367,10 +371,10 @@ func (b *InMemoryBackend) ModifyDBSnapshotAttribute(
 ) (*DBSnapshotAttributesResult, error) {
 	b.mu.Lock("ModifyDBSnapshotAttribute")
 	defer b.mu.Unlock()
-	if _, ok := b.snapshots.Get(snapshotID); !ok {
+	if _, ok := b.snapshots.Get(normalizeID(snapshotID)); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	result, ok := b.snapshotAttributes.Get(snapshotID)
+	result, ok := b.snapshotAttributes.Get(normalizeID(snapshotID))
 	if !ok {
 		result = &DBSnapshotAttributesResult{
 			DBSnapshotIdentifier: snapshotID,

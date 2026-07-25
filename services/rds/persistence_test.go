@@ -137,7 +137,7 @@ func TestRDSBackend_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add cluster endpoint.
-	_, err = b1.CreateDBCluster("cluster1", "aurora", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
+	_, err = b1.CreateDBCluster("cluster1", "aurora-mysql", "admin", "mydb", "", 0, nil, rds.DBClusterOptions{})
 	require.NoError(t, err)
 	_, err = b1.CreateDBClusterEndpoint("ep1", "cluster1", "READER")
 	require.NoError(t, err)

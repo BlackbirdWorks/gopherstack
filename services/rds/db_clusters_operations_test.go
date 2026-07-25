@@ -54,6 +54,98 @@ func TestRebootDBCluster(t *testing.T) {
 	}
 }
 
+// TestCreateDBCluster_CaseInsensitiveIdentifier asserts that
+// DBClusterIdentifier is treated as a case-insensitive persistent handle,
+// matching real AWS: creating "MyCluster" then "mycluster" must collide with
+// DBClusterAlreadyExistsFault, and every subsequent lookup (Describe, Delete)
+// must find the cluster regardless of casing, while the wire response keeps
+// echoing the identifier's original, as-created casing.
+func TestCreateDBCluster_CaseInsensitiveIdentifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		name      string
+		setupID   string
+		actionID  string
+		action    string
+		wantErr   bool
+	}{
+		{
+			name:      "create_collides_on_lowercased_duplicate",
+			setupID:   "MyCluster",
+			actionID:  "mycluster",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrClusterAlreadyExists,
+		},
+		{
+			name:      "create_collides_on_uppercased_duplicate",
+			setupID:   "lower-cluster",
+			actionID:  "LOWER-CLUSTER",
+			action:    "create",
+			wantErr:   true,
+			wantErrIs: rds.ErrClusterAlreadyExists,
+		},
+		{
+			name:     "create_distinct_id_does_not_collide",
+			setupID:  "some-cluster",
+			actionID: "some-other-cluster",
+			action:   "create",
+		},
+		{
+			name:     "describe_finds_resource_under_different_case",
+			setupID:  "FindMe-Cluster",
+			actionID: "findme-cluster",
+			action:   "describe",
+		},
+		{
+			name:     "delete_removes_resource_under_different_case",
+			setupID:  "DeleteMe-Cluster",
+			actionID: "deleteme-cluster",
+			action:   "delete",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+			_, err := b.CreateDBCluster(tt.setupID, "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
+			require.NoError(t, err)
+
+			switch tt.action {
+			case "create":
+				_, err = b.CreateDBCluster(tt.actionID, "aurora-mysql", "admin", "", "", 0, nil, rds.DBClusterOptions{})
+			case "describe":
+				var clusters []rds.DBCluster
+				clusters, err = b.DescribeDBClusters(tt.actionID)
+				if err == nil {
+					require.Len(t, clusters, 1)
+					// The wire response must keep echoing the ORIGINAL
+					// caller-supplied casing from creation time.
+					assert.Equal(t, tt.setupID, clusters[0].DBClusterIdentifier)
+				}
+			case "delete":
+				_, err = b.DeleteDBCluster(tt.actionID)
+				if err == nil {
+					_, describeErr := b.DescribeDBClusters(tt.setupID)
+					require.ErrorIs(t, describeErr, rds.ErrClusterNotFound)
+				}
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, tt.wantErrIs)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestPromoteReadReplicaDBCluster(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -542,6 +634,54 @@ func TestCreateDBClusterViaHandler(t *testing.T) {
 	assert.True(t, c.MultiAZ)
 	assert.True(t, c.StorageEncrypted)
 	assert.True(t, c.CopyTagsToSnapshot)
+}
+
+// TestCreateDBCluster_EngineValidation verifies that CreateDBCluster rejects
+// an Engine value that isn't one of the values aws-sdk-go-v2's
+// CreateDBClusterInput documents as valid (real AWS returns
+// InvalidParameterValue for an unsupported engine). CreateDBCluster's valid
+// list is narrower than CreateDBInstance's -- clusters are only Aurora/
+// Multi-AZ DB clusters/Neptune, so a single-instance-only engine like Oracle
+// or SQL Server (valid for CreateDBInstance) must still be rejected here.
+func TestCreateDBCluster_EngineValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		engine     string
+		wantStatus int
+	}{
+		{name: "valid_aurora_mysql", engine: "aurora-mysql", wantStatus: http.StatusOK},
+		{name: "valid_aurora_postgresql", engine: "aurora-postgresql", wantStatus: http.StatusOK},
+		{name: "valid_mysql", engine: "mysql", wantStatus: http.StatusOK},
+		{name: "valid_postgres", engine: "postgres", wantStatus: http.StatusOK},
+		{name: "valid_neptune", engine: "neptune", wantStatus: http.StatusOK},
+		{name: "invalid_made_up_engine", engine: "not-a-real-engine", wantStatus: http.StatusBadRequest},
+		{
+			name:       "invalid_instance_only_engine_oracle",
+			engine:     "oracle-ee",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAccuracyRDSHandler()
+			rec := doAccuracyRDS(t, h, url.Values{
+				"Action":              {"CreateDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"engine-validation-cluster"},
+				"Engine":              {tt.engine},
+				"MasterUsername":      {"admin"},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code, "engine=%q body=%s", tt.engine, rec.Body.String())
+			if tt.wantStatus == http.StatusBadRequest {
+				assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+			}
+		})
+	}
 }
 
 // TestModifyDBClusterViaHandler verifies ModifyDBCluster handler passes new fields.

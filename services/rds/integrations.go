@@ -52,6 +52,13 @@ func (b *InMemoryBackend) DeleteIntegration(identifier string) (*Integration, er
 			cp := *intg
 			cp.Status = integrationStatusDeleting
 			b.integrations.Delete(intg.IntegrationName)
+			// Cascade-clean tags now that Integration surfaces Tags on the
+			// wire (see handler_integrations.go's toXMLIntegration): without
+			// this, b.tags[intg.IntegrationArn] would be an unreachable
+			// ghost entry that grows unboundedly across create/delete
+			// cycles, exactly the leak class this emulator's other
+			// resources' delete paths already guard against.
+			delete(b.tags, intg.IntegrationArn)
 
 			return &cp, nil
 		}

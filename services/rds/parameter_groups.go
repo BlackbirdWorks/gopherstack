@@ -13,7 +13,7 @@ func (b *InMemoryBackend) CreateDBParameterGroup(name, family, description strin
 	}
 	b.mu.Lock("CreateDBParameterGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.parameterGroups.Get(name); exists {
+	if _, exists := b.parameterGroups.Get(normalizeID(name)); exists {
 		return nil, fmt.Errorf("%w: parameter group %s already exists", ErrParameterGroupAlreadyExists, name)
 	}
 	pg := &DBParameterGroup{
@@ -43,7 +43,7 @@ func (b *InMemoryBackend) DescribeDBParameterGroups(name string) ([]DBParameterG
 	b.mu.RLock("DescribeDBParameterGroups")
 	defer b.mu.RUnlock()
 	if name != "" {
-		pg, exists := b.parameterGroups.Get(name)
+		pg, exists := b.parameterGroups.Get(normalizeID(name))
 		if !exists {
 			return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 		}
@@ -72,11 +72,14 @@ func (b *InMemoryBackend) DescribeDBParameterGroups(name string) ([]DBParameterG
 func (b *InMemoryBackend) DeleteDBParameterGroup(name string) error {
 	b.mu.Lock("DeleteDBParameterGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.parameterGroups.Get(name); !exists {
+	pg, exists := b.parameterGroups.Get(normalizeID(name))
+	if !exists {
 		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
-	b.parameterGroups.Delete(name)
-	delete(b.tags, b.rdsARN("pg", name))
+	b.parameterGroups.Delete(normalizeID(name))
+	// Use pg.DBParameterGroupName (the stored, creation-time casing) rather
+	// than the raw name argument -- see normalizeID.
+	delete(b.tags, b.rdsARN("pg", pg.DBParameterGroupName))
 
 	return nil
 }
@@ -85,7 +88,7 @@ func (b *InMemoryBackend) DeleteDBParameterGroup(name string) error {
 func (b *InMemoryBackend) ModifyDBParameterGroup(name string, params []DBParameter) (*DBParameterGroup, error) {
 	b.mu.Lock("ModifyDBParameterGroup")
 	defer b.mu.Unlock()
-	pg, exists := b.parameterGroups.Get(name)
+	pg, exists := b.parameterGroups.Get(normalizeID(name))
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
@@ -107,7 +110,7 @@ func (b *InMemoryBackend) ModifyDBParameterGroup(name string, params []DBParamet
 func (b *InMemoryBackend) DescribeDBParameters(groupName string) ([]DBParameter, error) {
 	b.mu.RLock("DescribeDBParameters")
 	defer b.mu.RUnlock()
-	pg, exists := b.parameterGroups.Get(groupName)
+	pg, exists := b.parameterGroups.Get(normalizeID(groupName))
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, groupName)
 	}
@@ -137,7 +140,7 @@ func (b *InMemoryBackend) ResetDBParameterGroup(
 ) (*DBParameterGroup, error) {
 	b.mu.Lock("ResetDBParameterGroup")
 	defer b.mu.Unlock()
-	pg, exists := b.parameterGroups.Get(name)
+	pg, exists := b.parameterGroups.Get(normalizeID(name))
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
@@ -179,7 +182,7 @@ func (b *InMemoryBackend) CopyDBParameterGroup(
 	b.mu.Lock("CopyDBParameterGroup")
 	defer b.mu.Unlock()
 
-	src, exists := b.parameterGroups.Get(sourceGroupName)
+	src, exists := b.parameterGroups.Get(normalizeID(sourceGroupName))
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: parameter group %s not found",
@@ -188,7 +191,7 @@ func (b *InMemoryBackend) CopyDBParameterGroup(
 		)
 	}
 
-	if _, alreadyExists := b.parameterGroups.Get(targetGroupName); alreadyExists {
+	if _, alreadyExists := b.parameterGroups.Get(normalizeID(targetGroupName)); alreadyExists {
 		return nil, fmt.Errorf(
 			"%w: parameter group %s already exists",
 			ErrParameterGroupAlreadyExists,

@@ -53,11 +53,11 @@ func TestPerformanceInsights_ReturnsDataPoints(t *testing.T) {
 	)
 	b.CreateDBInstance(
 		"db-instance-1",
-		"db.t3.micro",
 		"mysql",
+		"db.t3.micro",
+		"",
 		"admin",
-		"password",
-		"subnet-1",
+		"",
 		20,
 		rds.DBInstanceOptions{PerformanceInsightsEnabled: true},
 	)
@@ -79,11 +79,11 @@ func TestPerformanceInsights_ViaHandler(t *testing.T) {
 	)
 	h.Backend.CreateDBInstance(
 		"my-db-instance",
-		"db.t3.micro",
 		"mysql",
+		"db.t3.micro",
+		"",
 		"admin",
-		"password",
-		"subnet-1",
+		"",
 		20,
 		rds.DBInstanceOptions{PerformanceInsightsEnabled: true},
 	)

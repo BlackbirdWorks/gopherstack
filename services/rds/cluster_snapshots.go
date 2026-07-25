@@ -17,10 +17,10 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 	}
 	b.mu.Lock("CreateDBClusterSnapshot")
 	defer b.mu.Unlock()
-	if _, exists := b.clusterSnapshots.Get(snapshotID); exists {
+	if _, exists := b.clusterSnapshots.Get(normalizeID(snapshotID)); exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s already exists", ErrClusterSnapshotAlreadyExists, snapshotID)
 	}
-	cluster, exists := b.clusters.Get(clusterID)
+	cluster, exists := b.clusters.Get(normalizeID(clusterID))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -55,7 +55,7 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID strin
 	b.mu.RLock("DescribeDBClusterSnapshots")
 	defer b.mu.RUnlock()
 	if snapshotID != "" {
-		snap, exists := b.clusterSnapshots.Get(snapshotID)
+		snap, exists := b.clusterSnapshots.Get(normalizeID(snapshotID))
 		if !exists {
 			return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 		}
@@ -65,7 +65,7 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID, clusterID strin
 	}
 	result := make([]DBClusterSnapshot, 0, b.clusterSnapshots.Len())
 	for _, snap := range b.clusterSnapshots.All() {
-		if clusterID != "" && snap.DBClusterIdentifier != clusterID {
+		if clusterID != "" && !idEqual(snap.DBClusterIdentifier, clusterID) {
 			continue
 		}
 		result = append(result, *snap)
@@ -126,11 +126,11 @@ func matchesAllDBClusterSnapshotFilters(s DBClusterSnapshot, filters map[string]
 	for name, values := range filters {
 		switch name {
 		case filterNameDBClusterID:
-			if !slices.Contains(values, s.DBClusterIdentifier) {
+			if !containsFold(values, s.DBClusterIdentifier) {
 				return false
 			}
 		case "db-cluster-snapshot-id":
-			if !slices.Contains(values, s.DBClusterSnapshotIdentifier) {
+			if !containsFold(values, s.DBClusterSnapshotIdentifier) {
 				return false
 			}
 		case filterNameSnapshotType:
@@ -154,13 +154,15 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 	}
 	b.mu.Lock("DeleteDBClusterSnapshot")
 	defer b.mu.Unlock()
-	snap, exists := b.clusterSnapshots.Get(snapshotID)
+	snap, exists := b.clusterSnapshots.Get(normalizeID(snapshotID))
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 	}
 	cp := *snap
-	b.clusterSnapshots.Delete(snapshotID)
-	delete(b.tags, b.rdsARN("cluster-snapshot", snapshotID))
+	b.clusterSnapshots.Delete(normalizeID(snapshotID))
+	// Use snap.DBClusterSnapshotIdentifier (the stored, creation-time casing)
+	// rather than the raw snapshotID argument -- see normalizeID.
+	delete(b.tags, b.rdsARN("cluster-snapshot", snap.DBClusterSnapshotIdentifier))
 
 	return &cp, nil
 }
@@ -175,11 +177,11 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 	}
 	b.mu.Lock("CopyDBClusterSnapshot")
 	defer b.mu.Unlock()
-	source, srcExists := b.clusterSnapshots.Get(sourceSnapshotID)
+	source, srcExists := b.clusterSnapshots.Get(normalizeID(sourceSnapshotID))
 	if !srcExists {
 		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, sourceSnapshotID)
 	}
-	if _, dstExists := b.clusterSnapshots.Get(targetSnapshotID); dstExists {
+	if _, dstExists := b.clusterSnapshots.Get(normalizeID(targetSnapshotID)); dstExists {
 		return nil, fmt.Errorf(
 			"%w: cluster snapshot %s already exists",
 			ErrClusterSnapshotAlreadyExists,
@@ -210,10 +212,10 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshotAttributes(
 ) (*DBClusterSnapshotAttributesResult, error) {
 	b.mu.RLock("DescribeDBClusterSnapshotAttributes")
 	defer b.mu.RUnlock()
-	if _, ok := b.clusterSnapshots.Get(snapshotID); !ok {
+	if _, ok := b.clusterSnapshots.Get(normalizeID(snapshotID)); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	if attrs, ok := b.clusterSnapshotAttributes.Get(snapshotID); ok {
+	if attrs, ok := b.clusterSnapshotAttributes.Get(normalizeID(snapshotID)); ok {
 		cp := *attrs
 
 		return &cp, nil
@@ -234,10 +236,10 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 ) (*DBClusterSnapshotAttributesResult, error) {
 	b.mu.Lock("ModifyDBClusterSnapshotAttribute")
 	defer b.mu.Unlock()
-	if _, ok := b.clusterSnapshots.Get(snapshotID); !ok {
+	if _, ok := b.clusterSnapshots.Get(normalizeID(snapshotID)); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	result, ok := b.clusterSnapshotAttributes.Get(snapshotID)
+	result, ok := b.clusterSnapshotAttributes.Get(normalizeID(snapshotID))
 	if !ok {
 		result = &DBClusterSnapshotAttributesResult{
 			DBClusterSnapshotIdentifier: snapshotID,

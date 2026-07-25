@@ -31,7 +31,7 @@ type LogFilePortion struct {
 func (b *InMemoryBackend) DescribeDBLogFiles(instanceID string, filter LogFileFilter) ([]DBLogFile, error) {
 	b.mu.Lock("DescribeDBLogFiles")
 	defer b.mu.Unlock()
-	inst, exists := b.instances.Get(instanceID)
+	inst, exists := b.instances.Get(normalizeID(instanceID))
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
 	}
@@ -63,7 +63,7 @@ func (b *InMemoryBackend) DownloadDBLogFilePortion(
 ) (LogFilePortion, error) {
 	b.mu.Lock("DownloadDBLogFilePortion")
 	defer b.mu.Unlock()
-	inst, exists := b.instances.Get(instanceID)
+	inst, exists := b.instances.Get(normalizeID(instanceID))
 	if !exists {
 		return LogFilePortion{}, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, instanceID)
 	}

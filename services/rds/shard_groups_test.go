@@ -379,6 +379,9 @@ func TestCreateDBShardGroup_Fields(t *testing.T) {
 	assert.InEpsilon(t, 16.0, sg.MinACU, 0.001)
 	assert.Equal(t, 2, sg.ComputeRedundancy)
 	assert.True(t, sg.PubliclyAccessible)
+	assert.NotEmpty(t, sg.DBShardGroupArn, "DBShardGroupArn should be populated")
+	assert.Contains(t, sg.DBShardGroupArn, "sg-fields")
+	assert.NotEmpty(t, sg.DBShardGroupResourceID, "DBShardGroupResourceID should be populated")
 }
 
 func TestPersistence_ShardGroupsAndIntegrations(t *testing.T) {
@@ -464,6 +467,76 @@ func TestDBShardGroup_DescribeIncludesAllFields(t *testing.T) {
 	assert.Equal(t, 2, sg.ComputeRedundancy)
 	assert.True(t, sg.PubliclyAccessible)
 	assert.NotEmpty(t, sg.Endpoint)
+	assert.NotEmpty(t, sg.DBShardGroupArn)
+	assert.NotEmpty(t, sg.DBShardGroupResourceID)
+}
+
+// TestDBShardGroup_WireFieldsPresentOnAllOps asserts that
+// DBShardGroupArn/DBShardGroupResourceId/PubliclyAccessible -- fields
+// present on types.DBShardGroup and on every one of
+// Create/Delete/Modify/RebootDBShardGroupOutput in the real SDK, but
+// previously modeled only in this emulator's internal DBShardGroup struct
+// and never serialized onto ANY of these four operations' XML responses --
+// actually appear in the raw wire body, not just the backend struct. This is
+// the "disguised stub" bug class from .claude/memories/parity-principles.md:
+// a real-looking, correctly-populated Go value that a real SDK client would
+// never see because the XML struct never carried it.
+func TestDBShardGroup_WireFieldsPresentOnAllOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+		body   string
+	}{
+		{
+			// The resource is seeded (as part of test setup, below) with
+			// the same CreateDBShardGroup request this case re-asserts on,
+			// so Create's own wire fields are checked via seedRec rather
+			// than a second (would-be AlreadyExistsFault) call here.
+			name:   "modify",
+			action: "ModifyDBShardGroup",
+			body:   "Action=ModifyDBShardGroup&Version=2014-10-31&DBShardGroupIdentifier=wire-sg&MaxACU=128",
+		},
+		{
+			name:   "reboot",
+			action: "RebootDBShardGroup",
+			body:   "Action=RebootDBShardGroup&Version=2014-10-31&DBShardGroupIdentifier=wire-sg",
+		},
+		{
+			name:   "delete",
+			action: "DeleteDBShardGroup",
+			body:   "Action=DeleteDBShardGroup&Version=2014-10-31&DBShardGroupIdentifier=wire-sg",
+		},
+	}
+
+	h := newRDSHandler()
+	// Seed the shard group once, outside the table loop, then exercise every
+	// remaining op against the SAME resource in sequence -- Modify/Reboot/
+	// Delete all need it to already exist, so this family can't run each
+	// case against an independent fresh backend the way the rest of this
+	// file's table tests do.
+	seedRec := postRDSForm(t, h,
+		"Action=CreateDBShardGroup&Version=2014-10-31"+
+			"&DBShardGroupIdentifier=wire-sg&DBClusterIdentifier=wire-cluster"+
+			"&MaxACU=64&PubliclyAccessible=true")
+	require.Equal(t, http.StatusOK, seedRec.Code)
+	assertShardGroupWireFieldsPresent(t, "CreateDBShardGroup", seedRec.Body.String())
+
+	for _, tt := range tests {
+		rec := postRDSForm(t, h, tt.body)
+		require.Equal(t, http.StatusOK, rec.Code, "action=%s body=%s", tt.action, rec.Body.String())
+		assertShardGroupWireFieldsPresent(t, tt.action, rec.Body.String())
+	}
+}
+
+func assertShardGroupWireFieldsPresent(t *testing.T, action, respBody string) {
+	t.Helper()
+
+	assert.Contains(t, respBody, "<DBShardGroupArn>", "action=%s missing DBShardGroupArn", action)
+	assert.Contains(t, respBody, "<DBShardGroupResourceId>", "action=%s missing DBShardGroupResourceId", action)
+	assert.Contains(t, respBody, "<PubliclyAccessible>true</PubliclyAccessible>",
+		"action=%s missing PubliclyAccessible", action)
 }
 
 func TestPersistence_ShardGroupEndpoint(t *testing.T) {
