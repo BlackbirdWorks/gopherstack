@@ -29,7 +29,9 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := medialive.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateChannel("seed-channel", "", "", medialive.ChannelAnywhereSettings{}, nil)
+	_, err := b.CreateChannel(
+		"seed-channel", "", "", medialive.ChannelAnywhereSettings{}, medialive.ChannelCreateExtras{}, nil,
+	)
 	require.NoError(t, err)
 
 	// A syntactically valid but version-less/mismatched snapshot.
@@ -48,7 +50,9 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	t.Parallel()
 
 	b := medialive.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateChannel("seed-channel", "", "", medialive.ChannelAnywhereSettings{}, nil)
+	_, err := b.CreateChannel(
+		"seed-channel", "", "", medialive.ChannelAnywhereSettings{}, medialive.ChannelCreateExtras{}, nil,
+	)
 	require.NoError(t, err)
 
 	// Pre-Phase-3.3 shape: plain resource maps, no "version" or "tables" key.
@@ -70,7 +74,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	original := medialive.NewInMemoryBackend("111122223333", "us-west-2")
 
 	channel, err := original.CreateChannel(
-		"chan-1", "STANDARD", "role-arn", medialive.ChannelAnywhereSettings{}, map[string]string{"env": "test"},
+		"chan-1", "STANDARD", "role-arn", medialive.ChannelAnywhereSettings{},
+		medialive.ChannelCreateExtras{
+			LogLevel:              "INFO",
+			CdiInputSpecification: medialive.CdiInputSpecification{Resolution: "HD"},
+			ChannelSecurityGroups: []string{"sg-1"},
+		},
+		map[string]string{"env": "test"},
 	)
 	require.NoError(t, err)
 
@@ -107,7 +117,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// here (after the cluster exists) rather than at CreateChannel above.
 	channel, err = original.UpdateChannel(
 		channel.ID, "", "",
-		medialive.ChannelAnywhereSettings{ClusterID: cluster.ID}, true,
+		medialive.ChannelAnywhereSettings{ClusterID: cluster.ID}, true, medialive.ChannelUpdateExtras{},
 	)
 	require.NoError(t, err)
 
@@ -183,6 +193,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "chan-1", gotChannel.Name)
 	assert.Equal(t, cluster.ID, gotChannel.AnywhereSettings.ClusterID,
 		"AnywhereSettings must survive Snapshot/Restore, not just Create")
+	assert.Equal(t, "INFO", gotChannel.LogLevel,
+		"LogLevel (gopherstack-jb9i) must survive Snapshot/Restore, not just Create")
+	assert.Equal(t, "HD", gotChannel.CdiInputSpecification.Resolution,
+		"CdiInputSpecification (gopherstack-jb9i) must survive Snapshot/Restore, not just Create")
+	assert.Equal(t, []string{"sg-1"}, gotChannel.ChannelSecurityGroups,
+		"ChannelSecurityGroups (gopherstack-jb9i) must survive Snapshot/Restore, not just Create")
 
 	gotInput, err := fresh.DescribeInput(input.ID)
 	require.NoError(t, err)
@@ -276,7 +292,9 @@ func Test_Handler_SnapshotRestore(t *testing.T) {
 	// Compile-time proof Handler satisfies the persistence layer's contract.
 	var _ persistence.Persistable = h
 
-	_, err := h.Backend.CreateChannel("delegate-channel", "", "", medialive.ChannelAnywhereSettings{}, nil)
+	_, err := h.Backend.CreateChannel(
+		"delegate-channel", "", "", medialive.ChannelAnywhereSettings{}, medialive.ChannelCreateExtras{}, nil,
+	)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(ctx)

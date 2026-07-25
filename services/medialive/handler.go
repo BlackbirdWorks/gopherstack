@@ -652,6 +652,19 @@ func intFromAny(v any) int {
 	return 0
 }
 
+// int32FromAny reads a JSON-decoded numeric value and truncates it to
+// int32. Every gopherstack-jb9i EncoderSettings/InputAttachment field this
+// feeds (SyncThreshold, BlackFrameMsec, ErrorClearTimeMsec,
+// AudioSilenceThresholdMsec, ...) is documented by the real SDK as a small
+// bounded millisecond/frame count, so a wider-than-int32 input is malformed
+// input, not a security-relevant overflow (same rationale as
+// services/mediatailor's int32Field).
+//
+//nolint:gosec // G115: bounded millisecond/frame-count fields, see comment above
+func int32FromAny(v any) int32 {
+	return int32(intFromAny(v))
+}
+
 func extractTags(body map[string]any) map[string]string {
 	raw, hasTags := body["tags"].(map[string]any)
 	if !hasTags {

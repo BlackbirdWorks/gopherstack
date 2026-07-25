@@ -1,8 +1,23 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.97.2   # version audited against
 last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119
-last_audit_date: 2026-07-23
-overall: A            # Parity sweep 5: closed every concrete gap sweep 4 left open (InputDevice
+last_audit_date: 2026-07-25
+overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
+                       # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
+                       # CdiInputSpecification/ChannelEngineVersion/ChannelSecurityGroups/
+                       # Destinations/EncoderSettings/InferenceSettings/InputAttachments/
+                       # InputSpecification/LinkedChannelSettings/LogLevel/Maintenance/Vpc added,
+                       # each field-diffed against the SDK's serializers.go/deserializers.go/
+                       # types.go and round-tripped through a real aws-sdk-go-v2 client (see
+                       # Channel's note below and handler_channels_test.go's
+                       # TestChannel_ExtendedFieldsSDKRoundTrip). Also added the
+                       # anywhereSettings.channelPlacementGroupId existence validation sweep 5
+                       # flagged as a residual gap (400 BadRequestException on an unknown group,
+                       # matching the existing clusterId validation). EncoderSettings itself is
+                       # modeled to a deliberately bounded depth -- see Channel's note and the
+                       # "gaps" list below for exactly what is and is not modeled, and why.
+                       # Previous sweep 5 summary follows, unchanged:
+                       # Parity sweep 5: closed every concrete gap sweep 4 left open (InputDevice
                        # request-body casing, Cluster.ChannelIds/Node.ChannelPlacementGroups/
                        # ChannelPlacementGroup.Channels derivation, CW/EB TemplateGroup
                        # templateCount, EventBridgeRuleTemplate eventTargetCount, Reservation
@@ -85,13 +100,79 @@ families:
       request parsing (with ClusterID existence validation -> 400 on an
       unknown cluster, matching AWS's reference-validation behavior) and
       Describe/Create/Update/List output ("anywhereSettings" omitted
-      entirely when unset, matching a non-Anywhere Channel). The full
-      EncoderSettings/Destinations/InputAttachments/InputSpecification/Vpc/
-      Maintenance/ChannelEngineVersion/LogLevel/CdiInputSpecification/
-      InferenceSettings/LinkedChannelSettings/ChannelSecurityGroups surface
-      (dozens of real CreateChannelInput/UpdateChannelInput fields, several
-      of them deeply nested codec-settings unions) remains OUT OF SCOPE --
-      see "gaps" below.
+      entirely when unset, matching a non-Anywhere Channel).
+      SWEEP 6 (gopherstack-jb9i): closed the remaining 12-of-17
+      CreateChannelInput/UpdateChannelInput member gap sweep 5 left OUT OF
+      SCOPE. Every member below was field-diffed against
+      aws-sdk-go-v2/service/medialive@v1.97.2's serializers.go/
+      deserializers.go/types.go and is now wired into Create/UpdateChannel
+      request parsing and Describe/Create/Update/Delete/Start/Stop/List
+      output (each nested object omitted entirely when unset, same
+      "has-the-key-at-all" convention as anywhereSettings above; each Update
+      field paired with its own HasX flag so an omitted key preserves the
+      existing value -- see ChannelUpdateExtras in interfaces.go):
+        - CdiInputSpecification, ChannelEngineVersion, ChannelSecurityGroups,
+          InputSpecification, LogLevel, Maintenance: flat/near-flat shapes,
+          modeled in full. Vpc: request fields (subnetIds/
+          publicAddressAllocationIds/securityGroupIds) modeled; the response
+          shape's availabilityZones/networkInterfaceIds (computed by a real
+          VPC/ENI integration gopherstack doesn't have) are always omitted,
+          never fabricated -- same convention as ChannelEngineVersion's
+          expirationDate.
+        - InferenceSettings, LinkedChannelSettings: modeled in full,
+          including LinkedChannelSettings.PrimaryChannelSettings.
+          followingChannelArns, which -- like Cluster.ChannelIds/
+          ChannelPlacementGroup.Channels -- is derived live at read time
+          (channels.go's followingChannelArns, scanning every other
+          channel's Follower.PrimaryChannelArn) rather than stored, since
+          that's how the real API computes it too.
+        - Destinations (types.OutputDestination): modeled in full, including
+          every one of its 5 per-technology settings variants (standard/
+          MediaPackage/Multiplex/MediaConnectRouter/SRT) -- none of them are
+          deep unions themselves, so there was no "genuinely impractical"
+          carve-out needed here.
+        - InputAttachments (types.InputAttachment): InputAttachmentName/
+          InputId/LogicalInterfaceNames and the full
+          AutomaticInputFailoverSettings tree (including all 3 named
+          failover-condition variants: AudioSilenceSettings/
+          InputLossSettings/VideoBlackSettings) are modeled. InputSettings
+          (per-attachment audio/caption/video selector configuration) is
+          NOT modeled -- see "gaps" below.
+        - EncoderSettings: modeled to a deliberately bounded depth. Fully
+          modeled: TimecodeConfig, AvailBlanking, BlackoutSlate,
+          FeatureActivations, GlobalConfiguration (incl. InputLossBehavior
+          and the 3-variant OutputLockingSettings union), ThumbnailConfiguration,
+          and the flat/enum fields of AudioDescriptions/VideoDescriptions/
+          CaptionDescriptions/OutputGroups (OutputGroup.Name + each
+          Output's OutputName/VideoDescriptionName/AudioDescriptionNames/
+          CaptionDescriptionNames -- purely referential fields, not settings
+          blobs). NOT modeled, and never accepted as an opaque passthrough
+          blob (a shape a client cannot read back through the real SDK is
+          the bug class this fix exists to close, so these are cleanly
+          absent rather than faked): AudioDescription.CodecSettings/
+          AudioNormalizationSettings/AudioWatermarkingSettings/
+          RemixSettings; VideoDescription.CodecSettings; CaptionDescription.
+          DestinationSettings; OutputGroup.OutputGroupSettings; Output.
+          OutputSettings; EncoderSettings.AvailConfiguration/
+          ColorCorrectionSettings/MotionGraphicsConfiguration/
+          NielsenConfiguration. Each is a per-technology/per-codec union
+          with roughly a dozen-plus variants, several of them themselves
+          hundreds of lines in the SDK's own type definitions -- genuinely
+          impractical to hand-model in a single pass; see "gaps" below for
+          the precise field list.
+      Also closed the "anywhereSettings.channelPlacementGroupId is accepted
+      without existence validation" gap sweep 5 flagged: Create/UpdateChannel
+      now validate it against real ChannelPlacementGroup state the same way
+      clusterId was already validated (400 BadRequestException on an unknown
+      group, via the new validateAnywhereSettings helper in channels.go).
+      Proof: handler_channels_test.go's TestChannel_ExtendedFieldsSDKRoundTrip
+      drives a real aws-sdk-go-v2 client through the actual router path for
+      every family above (flat fields, inferenceSettings, destinations,
+      inputAttachments incl. all 3 failover variants, encoderSettings'
+      modeled subset, linkedChannelSettings' derived followingChannelArns,
+      and Update's has-flag preservation semantics) --
+      TestAnywhereSettings_ChannelPlacementGroupValidation covers the new
+      validation.
   Input:
     status: ok
     note: >
@@ -481,35 +562,46 @@ families:
 # residual, sub-family gaps, listed below.
 deferred: []
 
-# All 5 concrete gaps sweep 4 left open are now CLOSED (see the per-family
-# SWEEP 5 notes above for exactly what changed and how each was verified
-# against the SDK). What's left below is either newly-discovered-and-closed
-# (kept here only as a paper trail) or genuinely out of scope for this pass.
+# The 2 concrete gaps sweep 5 left open (Channel's 12-of-17-member gap and
+# the channelPlacementGroupId validation gap) are now CLOSED by sweep 6
+# (gopherstack-jb9i) -- see Channel's SWEEP 6 note above for exactly what
+# changed and how each was verified against the SDK. What's left below is
+# either newly-discovered-and-closed (kept here only as a paper trail) or
+# genuinely out of scope for this pass.
 gaps:
-  - Channel does not model EncoderSettings/Destinations/InputAttachments/InputSpecification/
-    Vpc/Maintenance/ChannelEngineVersion/LogLevel/CdiInputSpecification/InferenceSettings/
-    LinkedChannelSettings/ChannelSecurityGroups -- real CreateChannelInput/UpdateChannelInput
-    fields (verified against the SDK: CreateChannelInput has 17 top-level members, gopherstack
-    only handles name/channelClass/roleArn/tags/anywhereSettings -- 5 of them). EncoderSettings
-    alone fans out into dozens of codec-specific nested union types (H264Settings/H265Settings/
-    Av1Settings/AacSettings/output-group variants/etc totaling thousands of lines in the SDK's
-    own type definitions) that would need hand-modeling to represent faithfully; a caller
-    setting any of these fields today gets a 201/200 response but the value is silently
-    dropped, never echoed back by Describe/List. This is a genuine, large gap for "true AWS
-    parity" on Channel specifically -- NOT closed this pass; flagging explicitly rather than
-    claiming Channel is fully field-diffed. (bd: needs filing -- likely its own multi-session
-    effort, not a single-pass fix)
+  - Channel's EncoderSettings is modeled to a deliberately bounded depth (sweep 6,
+    gopherstack-jb9i) -- see Channel's note above for the full list of what IS modeled. NOT
+    modeled, and confirmed genuinely impractical to hand-model in a single pass (each is a
+    per-technology/per-codec tagged union with a dozen-plus variants, several individually
+    hundreds of lines in the SDK's own type definitions): AudioDescription.CodecSettings/
+    AudioNormalizationSettings/AudioWatermarkingSettings/RemixSettings (the ~20-variant
+    AudioCodecSettings union and friends); VideoDescription.CodecSettings (the H264/H265/
+    AV1/MPEG2/FrameCapture VideoCodecSettings union); CaptionDescription.DestinationSettings
+    (the ~15-variant CaptionDestinationSettings union); OutputGroup.OutputGroupSettings and
+    Output.OutputSettings (the ~13-variant OutputGroupSettings/OutputSettings unions -- Archive/
+    CmafIngest/FrameCapture/Hls/MediaConnectRouter/MediaPackage/MsSmooth/Multiplex/Rtmp/Srt/Udp,
+    each itself dozens of fields); EncoderSettings.AvailConfiguration/ColorCorrectionSettings/
+    MotionGraphicsConfiguration/NielsenConfiguration. None of these are accepted as an opaque
+    passthrough blob -- a caller setting any of them today gets a 201/200 response but the
+    value is cleanly absent (never echoed back by Describe/List), not silently corrupted or
+    faked. (bd: gopherstack-jb9i closed the 12-of-17-member gap; this residual sub-field depth
+    would need its own follow-up issue if "true AWS parity" on the codec/output-technology
+    unions specifically is ever prioritized.)
+  - InputAttachment.InputSettings (per-attachment audio/caption/video selector configuration --
+    AudioSelectors' per-codec AudioSelectorSettings union, CaptionSelectors' per-format
+    CaptionSelectorSettings union, VideoSelector's color-space union, NetworkInputSettings) is
+    NOT modeled -- comparable in size/depth to EncoderSettings' own codec-settings gap above.
+    InputAttachmentName/InputId/LogicalInterfaceNames/AutomaticInputFailoverSettings (including
+    all 3 failover-condition variants) ARE modeled in full (sweep 6).
+  - Channel.Vpc's response-side availabilityZones/networkInterfaceIds (types.
+    VpcOutputSettingsDescription) are always omitted -- MediaLive computes them from a real
+    VPC/ENI integration gopherstack does not have. The request-side subnetIds/
+    publicAddressAllocationIds/securityGroupIds ARE modeled and echoed back (sweep 6).
   - Deep state/error-code audit of Cluster, Node, SignalMap, Reservation/Offering purchase
     flow, Batch semantics beyond the wire-casing scope of sweep 4 and the association/
     leak/new-field fixes sweep 5 made was not re-performed (route matching for all of them was
     verified correct in sweep 4; op-by-op state-machine correctness beyond what these two
     passes touched was not re-verified).
-  - ChannelPlacementGroup's own AnywhereSettings-derived "channels" association is now
-    correctly wired (sweep 5), but gopherstack does not validate that a Channel's
-    anywhereSettings.channelPlacementGroupId actually exists (only clusterId is checked,
-    returning 400 for an unknown cluster) -- an unknown channelPlacementGroupId is silently
-    accepted and stored, just never appears in any group's "channels" list. Minor
-    correctness gap, not a casing gap. (bd: needs filing)
 
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 

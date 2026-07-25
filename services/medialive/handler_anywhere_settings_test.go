@@ -119,6 +119,107 @@ func TestAnywhereSettings_UnknownClusterRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestAnywhereSettings_ChannelPlacementGroupValidation verifies
+// gopherstack-jb9i's fix: CreateChannel/UpdateChannel now validate
+// anywhereSettings.channelPlacementGroupId against real
+// ChannelPlacementGroup state (400 BadRequestException on an unknown
+// group), the same way anywhereSettings.clusterId was already validated --
+// before this fix, an unknown channelPlacementGroupId was silently accepted
+// and stored, just never appeared in any group's derived "channels" list.
+func TestAnywhereSettings_ChannelPlacementGroupValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       func(clusterID, groupID string) map[string]any
+		name       string
+		wantStatus int
+		update     bool
+	}{
+		{
+			name: "create with unknown channelPlacementGroupId rejected",
+			body: func(clusterID, _ string) map[string]any {
+				return map[string]any{
+					"name":         "bad-cpg-channel",
+					"channelClass": "STANDARD",
+					"anywhereSettings": map[string]any{
+						"clusterId": clusterID, "channelPlacementGroupId": "does-not-exist",
+					},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "create with a real channelPlacementGroupId accepted",
+			body: func(clusterID, groupID string) map[string]any {
+				return map[string]any{
+					"name":         "good-cpg-channel",
+					"channelClass": "STANDARD",
+					"anywhereSettings": map[string]any{
+						"clusterId": clusterID, "channelPlacementGroupId": groupID,
+					},
+				}
+			},
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name: "update with unknown channelPlacementGroupId rejected",
+			body: func(clusterID, _ string) map[string]any {
+				return map[string]any{
+					"anywhereSettings": map[string]any{
+						"clusterId": clusterID, "channelPlacementGroupId": "still-missing",
+					},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+			update:     true,
+		},
+		{
+			name: "update with a real channelPlacementGroupId accepted",
+			body: func(clusterID, groupID string) map[string]any {
+				return map[string]any{
+					"anywhereSettings": map[string]any{
+						"clusterId": clusterID, "channelPlacementGroupId": groupID,
+					},
+				}
+			},
+			wantStatus: http.StatusOK,
+			update:     true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, http.MethodPost, "/prod/clusters", map[string]any{
+				"name": "cpg-validation-cluster", "clusterType": "ON_PREMISES",
+			})
+			require.Equal(t, http.StatusCreated, rec.Code)
+			clusterID := decodeBody(t, rec.Body.Bytes())["id"].(string)
+
+			rec = doRequest(
+				t, h, http.MethodPost, "/prod/clusters/"+clusterID+"/channelplacementgroups",
+				map[string]any{"name": "cpg-1"},
+			)
+			require.Equal(t, http.StatusCreated, rec.Code)
+			groupID := decodeBody(t, rec.Body.Bytes())["id"].(string)
+
+			body := tc.body(clusterID, groupID)
+
+			if tc.update {
+				channelID := createTestChannel(t, h)
+				rec = doRequest(t, h, http.MethodPut, "/prod/channels/"+channelID, body)
+			} else {
+				rec = doRequest(t, h, http.MethodPost, "/prod/channels", body)
+			}
+
+			assert.Equal(t, tc.wantStatus, rec.Code)
+		})
+	}
+}
+
 // TestCluster_UpdateNetworkSettingsPreservedWhenOmitted verifies
 // UpdateCluster only overwrites networkSettings when the caller includes
 // the key -- mirroring UpdateClusterInput's "include this parameter only if
