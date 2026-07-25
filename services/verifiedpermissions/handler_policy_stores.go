@@ -103,7 +103,12 @@ func (h *Handler) handleGetPolicyStore(_ context.Context, in *policyStoreIDInput
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
-	ps, err := h.Backend.GetPolicyStore(in.PolicyStoreID)
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	ps, err := h.Backend.GetPolicyStore(resolvedID)
 	if err != nil {
 		return nil, err
 	}
@@ -177,13 +182,18 @@ func (h *Handler) handleUpdatePolicyStore(
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	var validationMode string
 
 	if in.ValidationSettings != nil {
 		validationMode = in.ValidationSettings.Mode
 	}
 
-	ps, err := h.Backend.UpdatePolicyStore(in.PolicyStoreID, in.Description, validationMode, in.DeletionProtection)
+	ps, err := h.Backend.UpdatePolicyStore(resolvedID, in.Description, validationMode, in.DeletionProtection)
 	if err != nil {
 		return nil, err
 	}

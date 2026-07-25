@@ -98,6 +98,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"MyNamespace"}, namespaces)
 
+	alias, err := original.CreatePolicyStoreAlias("policy-store-alias/full-state", ps.PolicyStoreID)
+	require.NoError(t, err)
+
 	snap := original.Snapshot(ctx)
 	require.NotNil(t, snap)
 
@@ -141,9 +144,17 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.JSONEq(t, `{"MyNamespace":{}}`, gotSchema.Schema)
 	assert.Equal(t, []string{"MyNamespace"}, gotSchema.Namespaces)
 
+	// policyStoreAliases table ("clean", keyed by its own AliasName field).
+	gotAlias, err := fresh.GetPolicyStoreAlias(alias.AliasName)
+	require.NoError(t, err)
+	assert.Equal(t, ps.PolicyStoreID, gotAlias.PolicyStoreID)
+	assert.Equal(t, verifiedpermissions.AliasStateActive, gotAlias.State)
+	assert.Equal(t, alias.Arn, gotAlias.Arn)
+
 	// DeletePolicyStore cascade still works post-restore -- proves the
 	// byPolicyStore indexes and the ARN index rebuilt from the restored
-	// values (not just the primary lookups).
+	// values (not just the primary lookups). This also covers the alias
+	// cascade: no dangling alias row should survive here either.
 	require.NoError(t, fresh.DeletePolicyStore(ps.PolicyStoreID))
 	_, err = fresh.GetPolicy(ps.PolicyStoreID, pol.PolicyID)
 	require.Error(t, err)
@@ -153,6 +164,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Error(t, err)
 	_, err = fresh.GetPolicyStore(ps.PolicyStoreID)
 	require.Error(t, err)
+	_, err = fresh.GetPolicyStoreAlias(alias.AliasName)
+	require.Error(t, err, "alias must not survive its policy store's deletion post-restore")
 }
 
 // TestInMemoryBackend_SnapshotRestore_ResourceTags verifies that the plain

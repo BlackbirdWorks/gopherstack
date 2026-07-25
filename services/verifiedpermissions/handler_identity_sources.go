@@ -226,9 +226,14 @@ func (h *Handler) handleCreateIdentitySource(
 		return nil, fmt.Errorf("%w: openIdConnectConfiguration.issuer is required", errInvalidRequest)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := configJSONToBackend(in.Configuration)
 
-	is, err := h.Backend.CreateIdentitySource(in.PolicyStoreID, in.PrincipalEntityType, cfg, in.ClientToken)
+	is, err := h.Backend.CreateIdentitySource(resolvedID, in.PrincipalEntityType, cfg, in.ClientToken)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +258,12 @@ func (h *Handler) handleGetIdentitySource(
 		return nil, fmt.Errorf("%w: identitySourceId is required", errInvalidRequest)
 	}
 
-	is, err := h.Backend.GetIdentitySource(in.PolicyStoreID, in.IdentitySourceID)
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	is, err := h.Backend.GetIdentitySource(resolvedID, in.IdentitySourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +280,12 @@ func (h *Handler) handleDeleteIdentitySource(_ context.Context, in *identitySour
 		return nil, fmt.Errorf("%w: identitySourceId is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteIdentitySource(in.PolicyStoreID, in.IdentitySourceID); err != nil {
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.Backend.DeleteIdentitySource(resolvedID, in.IdentitySourceID); err != nil {
 		return nil, err
 	}
 
@@ -301,6 +316,11 @@ func (h *Handler) handleListIdentitySources(
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	principalEntityTypes := make([]string, 0, len(in.Filters))
 
 	for _, f := range in.Filters {
@@ -310,7 +330,7 @@ func (h *Handler) handleListIdentitySources(
 	}
 
 	sources, nextToken, err := h.Backend.ListIdentitySources(
-		in.PolicyStoreID, in.NextToken, in.MaxResults, principalEntityTypes,
+		resolvedID, in.NextToken, in.MaxResults, principalEntityTypes,
 	)
 	if err != nil {
 		return nil, err
@@ -365,10 +385,15 @@ func (h *Handler) handleUpdateIdentitySource(
 		)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := configJSONToBackend(in.UpdateConfiguration)
 
 	is, err := h.Backend.UpdateIdentitySource(
-		in.PolicyStoreID, in.IdentitySourceID, in.PrincipalEntityType, cfg,
+		resolvedID, in.IdentitySourceID, in.PrincipalEntityType, cfg,
 	)
 	if err != nil {
 		return nil, err

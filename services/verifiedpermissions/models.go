@@ -14,6 +14,42 @@ const (
 	DeletionProtectionDisabled = "DISABLED"
 )
 
+// AliasState constants for policy store alias state (real SDK:
+// types.AliasState).
+const (
+	AliasStateActive          = "Active"
+	AliasStatePendingDeletion = "PendingDeletion"
+)
+
+// DeletionMode constants for DeletePolicyStoreAlias (real SDK:
+// types.DeletionMode).
+const (
+	DeletionModeSoftDelete = "SoftDelete"
+	DeletionModeHardDelete = "HardDelete"
+)
+
+// policyStoreAliasPrefix is the mandatory prefix for every policy store
+// alias name (real SDK doc, repeated on every alias-name field: "The alias
+// name must always be prefixed with policy-store-alias/").
+const policyStoreAliasPrefix = "policy-store-alias/"
+
+// PolicyStoreAlias represents a Verified Permissions policy store alias -- a
+// human-readable, account/region-unique name that (once Active) resolves to
+// a policy store ID and can be used in place of that ID in the policyStoreId
+// field of nearly every other operation (see Handler.resolvePolicyStoreID).
+// Not itself taggable: the real SDK's TagResource doc says "In Verified
+// Permissions, policy stores can be tagged" and there is no alias
+// ResourceType, so -- unlike PolicyStore/Policy/PolicyTemplate/
+// IdentitySource -- aliases are never registered in InMemoryBackend's
+// arnIndex/resourceTags.
+type PolicyStoreAlias struct {
+	CreatedAt     time.Time `json:"createdAt"`
+	AliasName     string    `json:"aliasName"`
+	Arn           string    `json:"arn"`
+	PolicyStoreID string    `json:"policyStoreID"`
+	State         string    `json:"state"`
+}
+
 // PolicyStore represents an Amazon Verified Permissions policy store.
 type PolicyStore struct {
 	CreatedDate        time.Time         `json:"createdDate"`

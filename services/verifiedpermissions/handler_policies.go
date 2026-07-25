@@ -187,6 +187,11 @@ func (h *Handler) handleCreatePolicy(_ context.Context, in *createPolicyInput) (
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	if (in.Definition.Static == nil) == (in.Definition.TemplateLinked == nil) {
 		return nil, fmt.Errorf("%w: definition must contain exactly one of static or templateLinked", errInvalidRequest)
 	}
@@ -221,7 +226,7 @@ func (h *Handler) handleCreatePolicy(_ context.Context, in *createPolicyInput) (
 		}
 	}
 
-	p, err := h.Backend.CreatePolicy(in.PolicyStoreID, params)
+	p, err := h.Backend.CreatePolicy(resolvedID, params)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +324,12 @@ func (h *Handler) handleGetPolicy(_ context.Context, in *policyInput) (*policyVi
 		return nil, fmt.Errorf("%w: policyId is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.GetPolicy(in.PolicyStoreID, in.PolicyID)
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := h.Backend.GetPolicy(resolvedID, in.PolicyID)
 	if err != nil {
 		return nil, err
 	}
@@ -410,9 +420,14 @@ func (h *Handler) handleListPolicies(_ context.Context, in *listPoliciesInput) (
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	filter := buildListPoliciesFilter(in.Filter)
 
-	policies, nextToken, err := h.Backend.ListPolicies(in.PolicyStoreID, filter, in.NextToken, in.MaxResults)
+	policies, nextToken, err := h.Backend.ListPolicies(resolvedID, filter, in.NextToken, in.MaxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -441,6 +456,11 @@ func (h *Handler) handleUpdatePolicy(_ context.Context, in *updatePolicyInput) (
 		return nil, fmt.Errorf("%w: policyId is required", errInvalidRequest)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	if (in.Definition.Static == nil) == (in.Definition.TemplateLinked == nil) {
 		return nil, fmt.Errorf("%w: definition must contain exactly one of static or templateLinked", errInvalidRequest)
 	}
@@ -467,7 +487,7 @@ func (h *Handler) handleUpdatePolicy(_ context.Context, in *updatePolicyInput) (
 		}
 	}
 
-	p, err := h.Backend.UpdatePolicy(in.PolicyStoreID, in.PolicyID, params)
+	p, err := h.Backend.UpdatePolicy(resolvedID, in.PolicyID, params)
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +516,12 @@ func (h *Handler) handleDeletePolicy(_ context.Context, in *policyInput) (*struc
 		return nil, fmt.Errorf("%w: policyId is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeletePolicy(in.PolicyStoreID, in.PolicyID); err != nil {
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.Backend.DeletePolicy(resolvedID, in.PolicyID); err != nil {
 		return nil, err
 	}
 
@@ -532,19 +557,38 @@ func (h *Handler) handleBatchGetPolicy(
 	in *batchGetPolicyRequest,
 ) (*batchGetPolicyHandlerOutput, error) {
 	items := make([]BatchGetPolicyItem, 0, len(in.Requests))
+	unresolved := make([]batchGetPolicyErrorItem, 0)
 
 	for _, r := range in.Requests {
 		if r.PolicyStoreID == "" || r.PolicyID == "" {
 			return nil, fmt.Errorf("%w: each request requires policyStoreId and policyId", errInvalidRequest)
 		}
 
+		// Each batch item's policyStoreId may itself be an alias (same
+		// resolution rule as every other policyStoreId field -- see
+		// resolvePolicyStoreID). An unresolvable alias fails just that one
+		// item, not the whole batch, mirroring how the backend already
+		// reports a not-found policy store as a per-item error.
+		resolvedID, err := h.resolvePolicyStoreID(r.PolicyStoreID)
+		if err != nil {
+			unresolved = append(unresolved, batchGetPolicyErrorItem{
+				PolicyStoreID: r.PolicyStoreID,
+				PolicyID:      r.PolicyID,
+				Code:          "POLICY_STORE_NOT_FOUND",
+				Message:       err.Error(),
+			})
+
+			continue
+		}
+
 		items = append(items, BatchGetPolicyItem{
-			PolicyStoreID: r.PolicyStoreID,
+			PolicyStoreID: resolvedID,
 			PolicyID:      r.PolicyID,
 		})
 	}
 
 	result := h.Backend.BatchGetPolicy(items)
+	result.Errors = append(unresolved, result.Errors...)
 
 	out := make([]batchGetPolicyItemOut, 0, len(result.Results))
 

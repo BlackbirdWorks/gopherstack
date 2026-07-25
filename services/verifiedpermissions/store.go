@@ -41,21 +41,29 @@ func arnNoRegion(accountID, resourceType, resourceID string) string {
 // only, deliberately NOT store.Register-ed onto b.registry) round-tripped
 // through a DTO wrapper in persistence.go.
 //
+// policyStoreAliases registers directly on b.registry too, keyed by its own
+// (wire-visible, account/region-unique) AliasName field -- a "clean" table
+// like policyStores, needing no DTO wrapper. policyStoreAliasesByStore groups
+// aliases by the policy store they point at, for ListPolicyStoreAliases'
+// filter and for DeletePolicyStore's cascade (see DeletePolicyStore).
+//
 // arnIndex is a derived cache rebuilt from the tables above on Restore, so it
 // is never itself persisted. resourceTags, policySetCache, and policySetDirty
 // remain plain maps: resourceTags is a non-*T value map (map[string]string)
 // still persisted directly; policySetCache/policySetDirty are ephemeral
 // caches that are never persisted.
 type InMemoryBackend struct {
-	registry               *store.Registry
-	policyStores           *store.Table[PolicyStore]
-	policies               *store.Table[Policy]
-	policiesByStore        *store.Index[Policy]
-	policyTemplates        *store.Table[PolicyTemplate]
-	policyTemplatesByStore *store.Index[PolicyTemplate]
-	identitySources        *store.Table[IdentitySource]
-	identitySourcesByStore *store.Index[IdentitySource]
-	schemas                *store.Table[PolicyStoreSchema]
+	registry                  *store.Registry
+	policyStores              *store.Table[PolicyStore]
+	policies                  *store.Table[Policy]
+	policiesByStore           *store.Index[Policy]
+	policyTemplates           *store.Table[PolicyTemplate]
+	policyTemplatesByStore    *store.Index[PolicyTemplate]
+	identitySources           *store.Table[IdentitySource]
+	identitySourcesByStore    *store.Index[IdentitySource]
+	policyStoreAliases        *store.Table[PolicyStoreAlias]
+	policyStoreAliasesByStore *store.Index[PolicyStoreAlias]
+	schemas                   *store.Table[PolicyStoreSchema]
 	// arnIndex maps ARN -> (resourceType, policyStoreID, resourceID) for O(1) tag ops
 	// values are encoded as "policyStore:<id>", "policy:<storeID>:<policyID>", etc.
 	arnIndex     map[string]string

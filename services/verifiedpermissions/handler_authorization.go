@@ -139,6 +139,11 @@ func (h *Handler) handleBatchIsAuthorized(
 		)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	requests := make([]AuthorizationRequest, 0, len(in.Requests))
 
 	for _, r := range in.Requests {
@@ -162,7 +167,7 @@ func (h *Handler) handleBatchIsAuthorized(
 		requests = append(requests, req)
 	}
 
-	decisions, err := h.Backend.BatchIsAuthorized(in.PolicyStoreID, requests)
+	decisions, err := h.Backend.BatchIsAuthorized(resolvedID, requests)
 	if err != nil {
 		return nil, err
 	}
@@ -202,12 +207,17 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 		)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	token := in.AccessToken
 	if token == "" {
 		token = in.IdentityToken
 	}
 
-	principalType, principalID := h.principalFromToken(in.PolicyStoreID, token)
+	principalType, principalID := h.principalFromToken(resolvedID, token)
 
 	requests := make([]AuthorizationRequest, 0, len(in.Requests))
 
@@ -230,7 +240,7 @@ func (h *Handler) handleBatchIsAuthorizedWithToken(
 		requests = append(requests, req)
 	}
 
-	decisions, err := h.Backend.BatchIsAuthorizedWithToken(in.PolicyStoreID, requests)
+	decisions, err := h.Backend.BatchIsAuthorizedWithToken(resolvedID, requests)
 	if err != nil {
 		return nil, err
 	}
@@ -256,6 +266,11 @@ func (h *Handler) handleIsAuthorized(_ context.Context, in *isAuthorizedInput) (
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	req := AuthorizationRequest{}
 
 	if in.Principal != nil {
@@ -273,7 +288,7 @@ func (h *Handler) handleIsAuthorized(_ context.Context, in *isAuthorizedInput) (
 		req.ResourceEntityID = in.Resource.EntityID
 	}
 
-	decision, err := h.Backend.IsAuthorized(in.PolicyStoreID, req)
+	decision, err := h.Backend.IsAuthorized(resolvedID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -381,6 +396,11 @@ func (h *Handler) handleIsAuthorizedWithToken(
 		return nil, fmt.Errorf("%w: accessToken or identityToken is required", errInvalidRequest)
 	}
 
+	resolvedID, err := h.resolvePolicyStoreID(in.PolicyStoreID)
+	if err != nil {
+		return nil, err
+	}
+
 	token := in.AccessToken
 	if token == "" {
 		token = in.IdentityToken
@@ -398,9 +418,9 @@ func (h *Handler) handleIsAuthorizedWithToken(
 		req.ResourceEntityID = in.Resource.EntityID
 	}
 
-	req.PrincipalEntityType, req.PrincipalEntityID = h.principalFromToken(in.PolicyStoreID, token)
+	req.PrincipalEntityType, req.PrincipalEntityID = h.principalFromToken(resolvedID, token)
 
-	decision, err := h.Backend.IsAuthorizedWithToken(in.PolicyStoreID, req)
+	decision, err := h.Backend.IsAuthorizedWithToken(resolvedID, req)
 	if err != nil {
 		return nil, err
 	}
